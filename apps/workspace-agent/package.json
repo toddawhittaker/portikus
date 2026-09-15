@@ -1,0 +1,16 @@
+{
+	"name": "@portikus/workspace-agent",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./dist/index.js",
+	"scripts": {
+		"dev": "tsx watch src/index.ts",
+		"start": "node dist/index.js",
+		"typecheck": "tsc -b"
+	},
+	"devDependencies": {
+		"@types/node": "24.9.2",
+		"tsx": "4.23.13"
+	}
+}

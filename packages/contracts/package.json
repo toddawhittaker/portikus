@@ -1,0 +1,21 @@
+{
+	"name": "@portikus/contracts",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"scripts": {
+		"typecheck": "tsc -b"
+	},
+	"dependencies": {
+		"zod": "4.6.5"
+	},
+	"devDependencies": {
+		"@types/node": "24.9.2"
+	}
+}
