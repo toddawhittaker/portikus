@@ -7,10 +7,14 @@ summarizes them so a reader knows where to look.
 
 ## Current state
 
-The repository is at the design stage: no code, no build system, and no
-commits yet. Epic 0 in SPEC.md section 29 (repository setup and conventions)
-is the first implementation work. Gate A in SPEC.md section 30 (architecture
-proof) must pass before substantial UI polish.
+Epic 0 in SPEC.md section 29 (repository setup and conventions) is in
+progress. The pnpm workspace monorepo is scaffolded: every app and package
+listed below exists as a real TypeScript project with a test, and lint,
+typecheck, test, build, and browser end-to-end tests all run from the
+commands in CLAUDE.md. No subsystem behaviour is implemented yet, and
+`infra/` does not exist; Epic 1 (reproducible pilot infrastructure) is next.
+Gate A in SPEC.md section 30 (architecture proof) must pass before
+substantial UI polish.
 
 ## Planned architecture
 
@@ -36,7 +40,9 @@ Components, each a separate trust zone (SPEC.md section 24.1):
   discovery. It is not a coding agent. SPEC.md section 2.6, STACK.md
   section 10.
 - **Preview gateway**: Caddy plus per-request authorization, on a separate
-  browser origin. SPEC.md section 14, STACK.md section 12.
+  browser origin. It is configuration rather than a TypeScript app, so it
+  lives under `infra/caddy/` and arrives with Epic 1. SPEC.md section 14,
+  STACK.md section 12.
 - **Browser UI** (`apps/web`): three panes. Project list, tabbed work
   surfaces (xterm.js terminals, Monaco, Markdown, preview), live file tree
   with Git decorations. SPEC.md section 8.

@@ -1,5 +1,35 @@
 # Branching, review, and CI
 
+## Local development
+
+Prerequisites:
+
+- Node.js at the major version in `.nvmrc`. With nvm: `nvm install && nvm use`.
+- pnpm, enabled through Node's corepack: `corepack enable`. The exact pnpm
+  version comes from the `packageManager` field in `package.json`.
+- Playwright's browser, once per clone:
+  `pnpm exec playwright install --with-deps chromium`.
+- gitleaks, for the pre-commit hook (see "Secret scanning" below).
+
+Then:
+
+```sh
+git config core.hooksPath .githooks   # once per clone
+pnpm install --frozen-lockfile
+cp .env.example .env                  # .env is git-ignored; never commit it
+make check                            # typecheck, lint, test, build
+pnpm test:e2e                         # Playwright browser tests
+pnpm dev                              # every app in watch mode
+```
+
+`pnpm dev` builds the shared packages first, then runs each app under
+`apps/` in watch mode: the API on port 3000 and the web app on port 5173,
+which proxies `/health` to the API. `make help` lists every Make target.
+
+Environment variables are validated by `loadConfig` in `packages/config`. A
+missing or invalid variable fails at startup with a message naming it, so
+add new variables to that schema and to `.env.example` together.
+
 ## Branches
 
 - `main` is always releasable. It changes only through a pull request.

@@ -24,15 +24,47 @@ that cover it. Cite sections by number in prompts and reports.
 
 ## Current state
 
-Design stage. No code, no commits, no build system yet. Epic 0 (SPEC.md
-section 29) comes first. When the first tooling lands, record the commands
-here under "Commands".
+Epic 0 (SPEC.md section 29) has landed the scaffolding: a pnpm workspace
+monorepo with the apps and packages from STACK.md section 2, Biome, Vitest,
+Playwright, a Makefile, and the architecture decision records in
+`docs/adr/`. Every package is a real but near-empty TypeScript package with
+one test. No subsystem behaviour is implemented yet; Epic 1 is next.
 
 ## Commands
 
-None yet. Once they exist, humans and agents use the Make targets in
-STACK.md section 31 and the pnpm scripts in section 30. Do not invent a
-deployment command when a Make target exists.
+Prerequisites: the Node version in `.nvmrc`, and pnpm via
+`corepack enable`. See docs/WORKFLOW.md, "Local development".
+
+| Command | What it does |
+|---|---|
+| `pnpm install --frozen-lockfile` | Install from the committed lockfile |
+| `pnpm typecheck` | `tsc -b` over every project |
+| `pnpm lint` / `pnpm lint:fix` | Biome check, and check with fixes applied |
+| `pnpm format` | Rewrite files to the Biome format |
+| `pnpm test` | Vitest, all projects |
+| `pnpm build` | `tsc -b` plus the Vite build for `apps/web` |
+| `pnpm test:e2e` | Playwright browser tests in `e2e/` |
+| `pnpm dev` | Build, then run every app in watch mode |
+| `make check` | typecheck, lint, test, build |
+
+`make help` lists the targets. Prefer the Make targets (STACK.md section
+31); do not invent a deployment command when a Make target exists.
+
+Layout: `apps/` holds the five processes, `e2e/` the Playwright tests, and
+`docs/adr/` the decision records. The shared libraries under `packages/`:
+
+| Package | Holds |
+|---|---|
+| `contracts` | Zod schemas for every HTTP and event payload |
+| `config` | `loadConfig`, which validates the environment at startup |
+| `events` | Schemas for the WebSocket and cross-process event streams |
+| `db` | PostgreSQL access: Kysely, connections, migrations |
+| `auth` | OIDC login, sessions, and authorization helpers |
+| `observability` | OpenTelemetry setup and the structured JSON logger |
+| `ui` | Shared React components used by `apps/web` |
+
+Only `contracts` and `config` have real content today; the rest are
+placeholders waiting on their epic.
 
 ## How work gets done here
 
