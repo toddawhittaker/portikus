@@ -1,0 +1,30 @@
+#cloud-config
+# Minimal first-boot bootstrap (STACK.md section 21).
+# Sets up just enough for Ansible to take over: a deployment user,
+# SSH key, Python, and a hostname. Full configuration is in Ansible.
+
+hostname: portikus
+
+# The deploy user Ansible connects as.  The SSH public key below is a
+# placeholder; replace it with your real key before first boot.
+users:
+  - name: deploy
+    groups: sudo
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - "REPLACE_ME_WITH_YOUR_SSH_PUBLIC_KEY"
+
+# Ensure Python is available for Ansible.
+packages:
+  - python3
+  - python3-apt
+
+package_update: true
+package_upgrade: true
+
+# Disable root SSH login.
+ssh_pwauth: false
+
+# Signal completion so the operator can tell when cloud-init is done.
+final_message: "cloud-init finished at $TIMESTAMP — ready for Ansible"
