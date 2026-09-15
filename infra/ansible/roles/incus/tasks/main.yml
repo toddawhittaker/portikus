@@ -1,0 +1,41 @@
+---
+# Install and initialise Incus (STACK.md section 24, SPEC.md section 24.4).
+
+- name: Add Incus stable repository key
+  ansible.builtin.apt_key:
+    url: https://pkgs.zabbly.com/key.asc
+    state: present
+
+- name: Add Incus stable repository
+  ansible.builtin.apt_repository:
+    repo: "deb https://pkgs.zabbly.com/incus/stable {{ ansible_distribution_release }} main"
+    state: present
+    filename: incus-stable
+
+- name: Install Incus
+  ansible.builtin.apt:
+    name: incus
+    state: present
+    update_cache: true
+
+- name: Enable and start Incus
+  ansible.builtin.systemd:
+    name: incus
+    enabled: true
+    state: started
+
+- name: Check if Incus storage pool exists
+  ansible.builtin.command:
+    cmd: incus storage show {{ incus_storage_pool_name }}
+  register: incus_pool_check
+  changed_when: false
+  failed_when: false
+
+- name: Create Incus LVM thin storage pool on data disk
+  ansible.builtin.command:
+    cmd: >-
+      incus storage create {{ incus_storage_pool_name }} lvm
+      source={{ lvm_vg_name }}
+      lvm.thinpool_name={{ lvm_thinpool_name }}
+      lvm.use_thinpool=true
+  when: incus_pool_check.rc != 0

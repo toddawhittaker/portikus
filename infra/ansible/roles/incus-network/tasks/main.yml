@@ -1,0 +1,27 @@
+---
+# Incus managed network for student workspaces (STACK.md sections 24, 29).
+# This network is separate from the management network; the firewall
+# role blocks workspace traffic from reaching management addresses.
+
+- name: Check if Incus network exists
+  ansible.builtin.command:
+    cmd: incus network show {{ incus_network_name }}
+  register: incus_net_check
+  changed_when: false
+  failed_when: false
+
+- name: Create Incus managed network
+  ansible.builtin.command:
+    cmd: >-
+      incus network create {{ incus_network_name }}
+      ipv4.address={{ incus_network_cidr }}
+      ipv4.nat=true
+      ipv6.address=none
+  when: incus_net_check.rc != 0
+
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_set: true
+    reload: true

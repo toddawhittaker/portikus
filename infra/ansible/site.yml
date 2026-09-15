@@ -1,0 +1,25 @@
+---
+# Portikus platform-VM configuration (STACK.md section 22).
+# Roles are applied in dependency order.  This playbook is idempotent
+# and safe to run repeatedly.
+- name: Configure Portikus platform VM
+  hosts: platform
+  become: true
+
+  vars:
+    data_disk_device: /dev/vdb
+    lvm_vg_name: portikus-data
+    lvm_thinpool_name: thinpool
+    lvm_thinpool_size: "90%FREE"
+    incus_storage_pool_name: workspace-data
+    incus_network_name: portikus-ws
+    incus_network_cidr: "10.200.0.1/24"
+    incus_project_name: portikus
+
+  roles:
+    - base
+    - firewall
+    - lvm
+    - incus
+    - incus-network
+    - portikus-workspace-profile

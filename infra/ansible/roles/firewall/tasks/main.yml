@@ -1,0 +1,26 @@
+---
+# Firewall policy (STACK.md section 29, SPEC.md section 24.1).
+#
+# Uses nftables, the default on Debian 12.  The ruleset is templated
+# so that all rules are source-controlled and no manual iptables
+# invocations are required.
+
+- name: Install nftables
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+
+- name: Deploy nftables ruleset
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nftables
+
+- name: Enable and start nftables
+  ansible.builtin.systemd:
+    name: nftables
+    enabled: true
+    state: started
