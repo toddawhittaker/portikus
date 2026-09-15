@@ -14,7 +14,7 @@ pass=0
 fail=0
 
 ssh_cmd() {
-  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "deploy@${VM}" "$@"
+  ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "deploy@${VM}" "$@"
 }
 
 check() {
