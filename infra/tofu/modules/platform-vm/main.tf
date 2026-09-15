@@ -101,8 +101,10 @@ resource "libvirt_domain" "vm" {
     target_port = "0"
   }
 
+  # No VNC listener — use `virsh console portikus` for serial access.
+  # Leaving a VNC socket open without authentication is a security risk.
   graphics {
     type        = "vnc"
-    listen_type = "address"
+    listen_type = "none"
   }
 }

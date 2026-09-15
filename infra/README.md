@@ -40,7 +40,14 @@ a libvirt NAT network, and a cloud-init ISO for first boot.
 ## 4. Wait for cloud-init
 
 The VM boots and runs cloud-init, which installs Python and creates the
-`deploy` user. Watch the console or wait for the SSH port to open.
+`deploy` user. VNC is disabled for security; use the serial console to
+watch boot progress if needed:
+
+```
+virsh console portikus
+```
+
+Alternatively, wait for the SSH port to open.
 
 ## 5. Configure the VM with Ansible
 
