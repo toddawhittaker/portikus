@@ -29,14 +29,22 @@ table inet filter {
   chain forward {
     type filter hook forward priority 0; policy drop;
 
-    # Allow workspace egress to the Internet
-    iifname "{{ incus_network_name | default('portikus-ws') }}" accept
+    # Established / related return traffic
     ct state established,related accept
 
-    # Block workspace traffic to management networks.
-    # The management network is the libvirt NAT network that the VM
-    # itself sits on; workspace containers must not reach it.
+    # --- Deny rules first (order matters) ---
+
+    # Block workspace traffic to the libvirt management network
     iifname "{{ incus_network_name | default('portikus-ws') }}" ip daddr 10.100.0.0/24 drop
+
+    # Block workspace traffic to the VM's own management address
+    iifname "{{ incus_network_name | default('portikus-ws') }}" ip daddr {{ incus_network_cidr | default('10.200.0.1/24') | ansible.utils.ipaddr('address') }} drop
+
+    # Block cloud metadata endpoint and all link-local (section 28)
+    iifname "{{ incus_network_name | default('portikus-ws') }}" ip daddr 169.254.0.0/16 drop
+
+    # --- General egress (after all denies) ---
+    iifname "{{ incus_network_name | default('portikus-ws') }}" accept
   }
 
   chain output {
