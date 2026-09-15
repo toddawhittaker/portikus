@@ -1,0 +1,31 @@
+{
+	"name": "portikus",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@12.4.2",
+	"engines": {
+		"node": ">=24"
+	},
+	"scripts": {
+		"typecheck": "tsc -b",
+		"lint": "biome check --error-on-warnings .",
+		"lint:fix": "biome check --write .",
+		"format": "biome format --write .",
+		"test": "vitest run",
+		"build": "tsc -b && pnpm --filter @portikus/web build",
+		"test:e2e": "playwright test",
+		"dev": "tsc -b && pnpm --parallel --filter \"./apps/*\" dev"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.13",
+		"@playwright/test": "1.63.0",
+		"@types/node": "24.9.2",
+		"@vitejs/plugin-react": "6.1.1",
+		"jsdom": "30.0.1",
+		"tsx": "4.23.13",
+		"typescript": "7.0.2",
+		"vite": "8.3.0",
+		"vitest": "5.0.1"
+	}
+}

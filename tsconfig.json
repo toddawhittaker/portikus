@@ -1,0 +1,17 @@
+{
+	"files": [],
+	"references": [
+		{ "path": "packages/auth" },
+		{ "path": "packages/config" },
+		{ "path": "packages/contracts" },
+		{ "path": "packages/db" },
+		{ "path": "packages/events" },
+		{ "path": "packages/observability" },
+		{ "path": "packages/ui" },
+		{ "path": "apps/api" },
+		{ "path": "apps/web" },
+		{ "path": "apps/worker" },
+		{ "path": "apps/workspace-agent" },
+		{ "path": "apps/workspace-controller" }
+	]
+}

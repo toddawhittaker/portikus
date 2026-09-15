@@ -7,6 +7,8 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+.tsbuild/
+.vite/
 
 # Environment and secrets
 .env
@@ -18,3 +20,9 @@ build/
 .idea/
 *.swp
 .DS_Store
+
+# Test and build output
+coverage/
+playwright-report/
+test-results/
+.playwright/
