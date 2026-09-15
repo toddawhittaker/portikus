@@ -80,7 +80,7 @@ fi
 TOFU_VERSION="1.9.0"
 # SHA-256 of tofu_1.9.0_amd64.deb from the GitHub release page.
 # Update this hash when bumping TOFU_VERSION.
-TOFU_SHA256="cb7dfe8e1e3b7ef339ae51fcb69d7a8e6a234c1fe3e87e5e969a6dc040205e90"
+TOFU_SHA256="255c634cb93358597df6f4a0ed415d16587d6aab30a6acd6139d8b642e2a9680"
 
 if need_cmd tofu; then
   info "Installing OpenTofu ${TOFU_VERSION}"
@@ -116,9 +116,10 @@ fi
 # ---------- SOPS ----------
 
 SOPS_VERSION="3.9.4"
-# SHA-256 of sops_3.9.4_amd64.deb from the GitHub release page.
+# SHA-256 of sops_3.9.4_amd64.deb. The SOPS release publishes no checksum
+# for the .deb, so this was computed from the downloaded release asset.
 # Update this hash when bumping SOPS_VERSION.
-SOPS_SHA256="4740a5ed5e645459b9b0d5e1be2e93057b38cfdec42623b5b8685bc4bfef4685"
+SOPS_SHA256="e18a091c45888f82e1a7fd14561ebb913872441f92c8162d39bb63eb9308dd16"
 
 if need_cmd sops; then
   info "Installing SOPS ${SOPS_VERSION}"
