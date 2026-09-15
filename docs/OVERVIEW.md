@@ -1,0 +1,78 @@
+# Portikus Overview
+
+A one-page orientation for humans and agents. The authoritative sources are
+`docs/VISION.md` (product intent), `docs/SPEC.md` (implementation
+requirements), and `docs/STACK.md` (technology choices). This page
+summarizes them so a reader knows where to look.
+
+## Current state
+
+The repository is at the design stage: no code, no build system, and no
+commits yet. Epic 0 in SPEC.md section 29 (repository setup and conventions)
+is the first implementation work. Gate A in SPEC.md section 30 (architecture
+proof) must pass before substantial UI polish.
+
+## Planned architecture
+
+```
+Pop!_OS host  ->  KVM/libvirt  ->  Debian platform VM  ->  Incus
+   VM runs: control plane, PostgreSQL, Caddy reverse proxy / preview gateway
+   Incus runs one unprivileged LXC system container per user, with Docker nested inside
+```
+
+Components, each a separate trust zone (SPEC.md section 24.1):
+
+- **Control plane** (`apps/api`): Fastify. OIDC auth, authorization,
+  project metadata, UI layout state, audit, recovery metadata. SPEC.md
+  section 2.8, STACK.md section 4.
+- **Worker** (`apps/worker`): a PostgreSQL-backed job queue (pg-boss) that
+  owns delayed shutdown, provisioning, rebuilds, and recovery-point
+  creation. Lifecycle timers must survive a control-plane restart, so they
+  live here, never in memory. STACK.md section 7.
+- **Workspace controller** (`apps/workspace-controller`): the only process
+  that talks to Incus. STACK.md section 9.
+- **Workspace agent** (`apps/workspace-agent`): runs inside each user
+  container. PTYs, filesystem watching, file operations, Git status, port
+  discovery. It is not a coding agent. SPEC.md section 2.6, STACK.md
+  section 10.
+- **Preview gateway**: Caddy plus per-request authorization, on a separate
+  browser origin. SPEC.md section 14, STACK.md section 12.
+- **Browser UI** (`apps/web`): three panes. Project list, tabbed work
+  surfaces (xterm.js terminals, Monaco, Markdown, preview), live file tree
+  with Git decorations. SPEC.md section 8.
+
+Coding agents (Claude Code, Codex) run as ordinary processes in user-visible
+terminals inside the workspace, on the same files the UI shows.
+
+## Rules that shape every design decision
+
+- **Real tools, not simulations.** Real Git, Docker, shells, and agent CLIs.
+  A project is a directory under `~/projects/<slug>`; a preview is a running
+  TCP service. VISION.md, "Design principles".
+- **Student code is untrusted**, including agent-generated code. Previews
+  never share the control plane's origin or cookies. No unauthenticated
+  public preview mode. SPEC.md sections 24.2, 24.3, 14.3.
+- **Never touch Git automatically.** Recovery points are compressed
+  archives (`tar.zst` initially, SPEC.md section 15.3) stored outside the
+  working tree. No hidden commits, branches, tags, or stashes. Displayed
+  Git status is real Git status. SPEC.md sections 12.2, 12.5, 15.
+- **Persistent data, ephemeral processes.** Files, Git, dotfiles, Docker
+  state, and UI layout survive a stop. Processes do not. A workspace stops
+  10 minutes after the last browser disconnects. Terminal processes outlive
+  the WebSocket during that grace period (tmux). No CRIU, no hibernation.
+  SPEC.md section 6.
+- **Infrastructure is cattle.** VM, Incus config, images, and services are
+  rebuildable from automation under `infra/`. User data is not cattle and
+  lives on separate volumes. SPEC.md section 21, STACK.md Part II.
+- **Isolate provider-specific code.** Incus, LVM thin storage, the OIDC
+  provider, preview routing, recovery storage, and agent launch definitions
+  each sit behind an interface. P0 implements only an Incus provider.
+  SPEC.md section 25.7, STACK.md section 32.
+- **Server-side authorization only**, denied by default. HTTP APIs carry an
+  OpenAPI schema generated from Zod. Live events go over WebSocket.
+  SPEC.md sections 5.2, 27; STACK.md section 5.
+- **Errors in user terms first**, technical detail kept for admins.
+  SPEC.md section 28.
+- **Priorities:** unlabeled spec requirements are P0 (pilot). P1 is
+  post-pilot, P2 is future. The student experience is a profile over a
+  shared core, not a separate product. SPEC.md section 3.
