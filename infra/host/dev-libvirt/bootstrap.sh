@@ -78,14 +78,19 @@ fi
 # ---------- OpenTofu ----------
 
 TOFU_VERSION="1.9.0"
+# SHA-256 of tofu_1.9.0_amd64.deb from the GitHub release page.
+# Update this hash when bumping TOFU_VERSION.
+TOFU_SHA256="cb7dfe8e1e3b7ef339ae51fcb69d7a8e6a234c1fe3e87e5e969a6dc040205e90"
 
 if need_cmd tofu; then
   info "Installing OpenTofu ${TOFU_VERSION}"
-  # Use the official install script (https://opentofu.org/docs/intro/install/)
-  curl -fsSL https://get.opentofu.org/install-opentofu.sh -o /tmp/install-opentofu.sh
-  chmod +x /tmp/install-opentofu.sh
-  /tmp/install-opentofu.sh --install-method deb --opentofu-version "${TOFU_VERSION}"
-  rm -f /tmp/install-opentofu.sh
+  TOFU_DEB="tofu_${TOFU_VERSION}_amd64.deb"
+  curl -fsSL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/${TOFU_DEB}" \
+    -o "/tmp/${TOFU_DEB}"
+  echo "${TOFU_SHA256}  /tmp/${TOFU_DEB}" | sha256sum --check --strict \
+    || fail "OpenTofu checksum mismatch — do not install"
+  sudo dpkg -i "/tmp/${TOFU_DEB}"
+  rm -f "/tmp/${TOFU_DEB}"
   ok "OpenTofu installed"
 fi
 
@@ -111,12 +116,17 @@ fi
 # ---------- SOPS ----------
 
 SOPS_VERSION="3.9.4"
+# SHA-256 of sops_3.9.4_amd64.deb from the GitHub release page.
+# Update this hash when bumping SOPS_VERSION.
+SOPS_SHA256="4740a5ed5e645459b9b0d5e1be2e93057b38cfdec42623b5b8685bc4bfef4685"
 
 if need_cmd sops; then
   info "Installing SOPS ${SOPS_VERSION}"
   SOPS_DEB="sops_${SOPS_VERSION}_amd64.deb"
   curl -fsSL "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/${SOPS_DEB}" \
     -o "/tmp/${SOPS_DEB}"
+  echo "${SOPS_SHA256}  /tmp/${SOPS_DEB}" | sha256sum --check --strict \
+    || fail "SOPS checksum mismatch — do not install"
   sudo dpkg -i "/tmp/${SOPS_DEB}"
   rm -f "/tmp/${SOPS_DEB}"
   ok "SOPS installed"
