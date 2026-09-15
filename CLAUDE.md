@@ -14,6 +14,8 @@ and section.
 - `docs/SPEC.md`: requirements. Wins on implementation detail. Section 29
   lists epics in order; section 30 lists milestone gates; section 24 is
   security.
+- `docs/WORKFLOW.md`: branching (main and epic branches change only by
+  pull request), CI, secret scanning, and the local pre-commit hook.
 - `docs/STACK.md`: technology choices and why. Section 2 is the repo
   layout, section 34 the stack summary, section 35 what was rejected.
 
