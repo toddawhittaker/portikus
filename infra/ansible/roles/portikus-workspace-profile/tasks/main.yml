@@ -45,6 +45,8 @@
     - { key: "security.unprivileged", value: "true" }
     - { key: "security.nesting", value: "true" }
     - { key: "security.privileged", value: "false" }
+    # Isolated UID/GID mapping per container (section 24)
+    - { key: "security.idmap.isolated", value: "true" }
     # Resource limits (adjustable per deployment)
     - { key: "limits.cpu", value: "2" }
     - { key: "limits.memory", value: "4GB" }
@@ -67,6 +69,7 @@
       incus profile device add workspace root disk
       pool={{ incus_storage_pool_name }}
       path=/
+      size={{ workspace_root_disk_quota }}
       --project {{ incus_project_name }}
   register: disk_add
   changed_when: disk_add.rc == 0
