@@ -1,0 +1,46 @@
+---
+# LVM thin provisioning on the dedicated data disk (STACK.md section 23).
+# The data disk is the second virtual disk attached by OpenTofu.
+
+- name: Install LVM packages
+  ansible.builtin.apt:
+    name:
+      - lvm2
+      - thin-provisioning-tools
+    state: present
+
+- name: Check if volume group already exists
+  ansible.builtin.command:
+    cmd: "vgs {{ lvm_vg_name }}"
+  register: lvm_vg_check
+  changed_when: false
+  failed_when: false
+
+- name: Create physical volume on data disk
+  ansible.builtin.command:
+    cmd: "pvcreate {{ data_disk_device }}"
+  when: lvm_vg_check.rc != 0
+  changed_when: true
+
+- name: Create volume group
+  ansible.builtin.command:
+    cmd: "vgcreate {{ lvm_vg_name }} {{ data_disk_device }}"
+  when: lvm_vg_check.rc != 0
+  changed_when: true
+
+- name: Check if thin pool already exists
+  ansible.builtin.command:
+    cmd: "lvs {{ lvm_vg_name }}/{{ lvm_thinpool_name }}"
+  register: lvm_tp_check
+  changed_when: false
+  failed_when: false
+
+- name: Create thin pool
+  ansible.builtin.command:
+    cmd: >-
+      lvcreate --type thin-pool
+      --name {{ lvm_thinpool_name }}
+      --extents {{ lvm_thinpool_size }}
+      {{ lvm_vg_name }}
+  when: lvm_tp_check.rc != 0
+  changed_when: true

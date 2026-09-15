@@ -980,8 +980,8 @@ infra/ansible/
 │   ├── firewall/
 │   ├── lvm/
 │   ├── incus/
-│   ├── incus-network/
-│   ├── portikus-workspace-profile/
+│   ├── incus_network/
+│   ├── portikus_workspace_profile/
 │   ├── caddy/
 │   ├── postgresql/
 │   ├── node/
