@@ -1,0 +1,11 @@
+---
+# Ansible Galaxy collections required by Portikus playbooks.
+# Install before running ansible-lint or ansible-playbook:
+#   ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: community.general
+    version: "10.1.0"
+  - name: ansible.posix
+    version: "2.0.0"
+  - name: ansible.utils
+    version: "5.1.2"

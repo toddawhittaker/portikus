@@ -8,7 +8,7 @@
 - name: Check if Incus network exists
   ansible.builtin.command:
     cmd: incus network show {{ incus_network_name }}
-  register: incus_net_check
+  register: incus_network_net_check
   changed_when: false
   failed_when: false
 
@@ -19,7 +19,8 @@
       ipv4.address={{ incus_network_cidr }}
       ipv4.nat=true
       ipv6.address=none
-  when: incus_net_check.rc != 0
+  when: incus_network_net_check.rc != 0
+  changed_when: true
 
 # --- Peer-workspace isolation via Incus network ACL (section 29) ---
 # Containers share one bridge, so we use an ACL to deny traffic between
@@ -31,14 +32,15 @@
 - name: Check if workspace network ACL exists
   ansible.builtin.command:
     cmd: incus network acl show {{ incus_network_name }}-acl
-  register: acl_check
+  register: incus_network_acl_check
   changed_when: false
   failed_when: false
 
 - name: Create workspace network ACL
   ansible.builtin.command:
     cmd: incus network acl create {{ incus_network_name }}-acl
-  when: acl_check.rc != 0
+  when: incus_network_acl_check.rc != 0
+  changed_when: true
 
 - name: Set ACL default actions (deny ingress, allow egress)
   ansible.builtin.command:

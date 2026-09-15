@@ -39,3 +39,4 @@
       lvm.thinpool_name={{ lvm_thinpool_name }}
       lvm.use_thinpool=true
   when: incus_pool_check.rc != 0
+  changed_when: true

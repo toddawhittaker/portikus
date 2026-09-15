@@ -89,7 +89,7 @@ jobs:
       - if: steps.detect.outputs.tofu == 'true'
         run: tofu fmt -check -recursive infra/tofu && cd infra/tofu && tofu init -backend=false && tofu validate
       - if: steps.detect.outputs.ansible == 'true'
-        run: pipx install ansible-lint && ansible-lint infra/ansible
+        run: pipx install --include-deps ansible-lint && ansible-galaxy collection install -r infra/ansible/requirements.yml && ansible-lint infra/ansible
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true'
         run: sudo apt-get install -y shellcheck && find . -name '*.sh' -not -path './node_modules/*' -print0 | xargs -0 shellcheck

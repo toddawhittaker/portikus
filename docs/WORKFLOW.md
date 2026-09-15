@@ -10,6 +10,10 @@ Prerequisites:
 - Playwright's browser, once per clone:
   `pnpm exec playwright install --with-deps chromium`.
 - gitleaks, for the pre-commit hook (see "Secret scanning" below).
+- For `make infra-check`, the same tools CI uses on `infra/`: OpenTofu
+  (`make bootstrap-host` installs it), ansible-lint and Ansible
+  (`pipx install --include-deps ansible-lint`), and shellcheck from your
+  package manager.
 
 Then:
 
@@ -17,7 +21,7 @@ Then:
 git config core.hooksPath .githooks   # once per clone
 pnpm install --frozen-lockfile
 cp .env.example .env                  # .env is git-ignored; never commit it
-make check                            # typecheck, lint, test, build
+make check                            # typecheck, lint, test, build, infra-check
 pnpm test:e2e                         # Playwright browser tests
 pnpm dev                              # every app in watch mode
 ```

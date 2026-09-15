@@ -32,3 +32,6 @@ test-results/
 *.tfstate.backup
 .terraform/
 infra/secrets/age-key.txt
+
+# ansible-lint / ansible-galaxy cache
+.ansible/

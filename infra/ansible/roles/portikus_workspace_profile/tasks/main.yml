@@ -9,7 +9,7 @@
 - name: Check if Incus project exists
   ansible.builtin.command:
     cmd: incus project show {{ incus_project_name }}
-  register: incus_proj_check
+  register: portikus_workspace_profile_proj_check
   changed_when: false
   failed_when: false
 
@@ -21,19 +21,21 @@
       -c features.profiles=true
       -c features.networks=true
       -c features.storage.volumes=true
-  when: incus_proj_check.rc != 0
+  when: portikus_workspace_profile_proj_check.rc != 0
+  changed_when: true
 
 - name: Check if workspace profile exists
   ansible.builtin.command:
     cmd: incus profile show workspace --project {{ incus_project_name }}
-  register: incus_profile_check
+  register: portikus_workspace_profile_check
   changed_when: false
   failed_when: false
 
 - name: Create workspace profile
   ansible.builtin.command:
     cmd: incus profile create workspace --project {{ incus_project_name }}
-  when: incus_profile_check.rc != 0
+  when: portikus_workspace_profile_check.rc != 0
+  changed_when: true
 
 - name: Configure workspace profile
   ansible.builtin.command:
@@ -59,8 +61,8 @@
       nictype=bridged
       parent={{ incus_network_name }}
       --project {{ incus_project_name }}
-  register: nic_add
-  changed_when: nic_add.rc == 0
+  register: portikus_workspace_profile_nic_add
+  changed_when: portikus_workspace_profile_nic_add.rc == 0
   failed_when: false
 
 - name: Attach workspace storage to profile
@@ -71,6 +73,6 @@
       path=/
       size={{ workspace_root_disk_quota }}
       --project {{ incus_project_name }}
-  register: disk_add
-  changed_when: disk_add.rc == 0
+  register: portikus_workspace_profile_disk_add
+  changed_when: portikus_workspace_profile_disk_add.rc == 0
   failed_when: false
