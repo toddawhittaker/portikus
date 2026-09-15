@@ -1,7 +1,9 @@
 ---
 # Incus managed network for student workspaces (STACK.md sections 24, 29).
-# This network is separate from the management network; the firewall
-# role blocks workspace traffic from reaching management addresses.
+# This network is separate from the management network.  An Incus network
+# ACL enforces peer-workspace isolation at layer 2, which the host forward
+# chain cannot do because bridged traffic between containers on the same
+# bridge never leaves the bridge.
 
 - name: Check if Incus network exists
   ansible.builtin.command:
@@ -18,6 +20,98 @@
       ipv4.nat=true
       ipv6.address=none
   when: incus_net_check.rc != 0
+
+# --- Peer-workspace isolation via Incus network ACL (section 29) ---
+# Containers share one bridge, so we use an ACL to deny traffic between
+# workspaces.  The ACL allows egress to the internet and the bridge
+# gateway (for DNS/DHCP), but denies the bridge subnet and management
+# CIDRs.  Default ingress is set to deny so containers cannot receive
+# unsolicited traffic from peers.
+
+- name: Check if workspace network ACL exists
+  ansible.builtin.command:
+    cmd: incus network acl show {{ incus_network_name }}-acl
+  register: acl_check
+  changed_when: false
+  failed_when: false
+
+- name: Create workspace network ACL
+  ansible.builtin.command:
+    cmd: incus network acl create {{ incus_network_name }}-acl
+  when: acl_check.rc != 0
+
+- name: Set ACL default actions (deny ingress, allow egress)
+  ansible.builtin.command:
+    cmd: >-
+      incus network acl set {{ incus_network_name }}-acl
+      default.action=drop
+      default.logged=false
+  changed_when: true
+
+# Deny egress to the workspace bridge subnet (peer isolation)
+- name: Add ACL rule denying egress to workspace subnet
+  ansible.builtin.command:
+    cmd: >-
+      incus network acl rule add {{ incus_network_name }}-acl egress
+      action=drop
+      destination={{ incus_network_cidr | ansible.utils.ipsubnet }}
+      protocol=icmp
+      description="Deny peer-workspace traffic"
+  changed_when: true
+  failed_when: false
+
+- name: Add ACL rule denying egress TCP/UDP to workspace subnet
+  ansible.builtin.command:
+    cmd: >-
+      incus network acl rule add {{ incus_network_name }}-acl egress
+      action=drop
+      destination={{ incus_network_cidr | ansible.utils.ipsubnet }}
+      description="Deny peer-workspace traffic (all protocols)"
+  changed_when: true
+  failed_when: false
+
+# Deny egress to management network
+- name: Add ACL rule denying egress to management network
+  ansible.builtin.command:
+    cmd: >-
+      incus network acl rule add {{ incus_network_name }}-acl egress
+      action=drop
+      destination=10.100.0.0/24
+      description="Deny management network access"
+  changed_when: true
+  failed_when: false
+
+# Deny egress to link-local / cloud metadata
+- name: Add ACL rule denying egress to link-local
+  ansible.builtin.command:
+    cmd: >-
+      incus network acl rule add {{ incus_network_name }}-acl egress
+      action=drop
+      destination=169.254.0.0/16
+      description="Deny link-local and cloud metadata"
+  changed_when: true
+  failed_when: false
+
+# Allow egress to the Internet (catch-all after denies)
+- name: Add ACL rule allowing general egress
+  ansible.builtin.command:
+    cmd: >-
+      incus network acl rule add {{ incus_network_name }}-acl egress
+      action=allow
+      destination=0.0.0.0/0
+      description="Allow internet egress"
+  changed_when: true
+  failed_when: false
+
+# Attach ACL to the workspace network
+- name: Attach ACL to workspace network
+  ansible.builtin.command:
+    cmd: >-
+      incus network set {{ incus_network_name }}
+      security.acls={{ incus_network_name }}-acl
+      security.acls.default.ingress.action=drop
+      security.acls.default.egress.action=drop
+  changed_when: true
 
 - name: Enable IPv4 forwarding
   ansible.posix.sysctl:
