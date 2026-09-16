@@ -30,6 +30,14 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		}
 	});
 
+	// The sign-out button is a plain HTML form, which browsers post as
+	// urlencoded; no route reads its fields, so accept and discard the body.
+	app.addContentTypeParser(
+		"application/x-www-form-urlencoded",
+		{ parseAs: "string" },
+		(_request, _body, done) => done(null, {}),
+	);
+
 	app.register(authPlugin, { db: deps.db, auth: toAuthOptions(deps.config) });
 
 	// Registered before @fastify/websocket so it runs before that plugin's own

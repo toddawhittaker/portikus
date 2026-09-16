@@ -207,3 +207,23 @@ test.skipIf(skip)("an unsafe request from another origin is refused", async () =
 	});
 	expect(res.statusCode).toBe(403);
 });
+
+test.skipIf(skip)("logout accepts the browser's urlencoded form post", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	const out = await app.inject({
+		method: "POST",
+		url: "/auth/logout",
+		headers: {
+			...csrfHeaders(jar, PUBLIC_URL),
+			"content-type": "application/x-www-form-urlencoded",
+		},
+		payload: "",
+	});
+	expect(out.statusCode).toBe(303);
+	expect(String(out.headers["set-cookie"])).toMatch(/portikus_session=;/);
+
+	const sessions = await testDb.db.selectFrom("sessions").selectAll().execute();
+	expect(sessions).toHaveLength(0);
+});
