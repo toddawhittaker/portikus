@@ -36,7 +36,7 @@ dev: ## Run every app in watch mode
 	pnpm dev
 
 clean: ## Remove build output
-	rm -rf dist */*/dist */*/.tsbuild coverage playwright-report test-results
+	rm -rf dist apps/*/dist packages/*/dist apps/*/.tsbuild packages/*/.tsbuild coverage playwright-report test-results
 	find . -name '*.tsbuildinfo' -not -path './node_modules/*' -delete
 
 # ── Infrastructure targets (STACK.md section 31) ─────────────────
@@ -96,12 +96,14 @@ deploy-app: ## Rsync the app to the VM, install, build, migrate, and restart ser
 	@test -n "$(VM_IP)" || { echo "deploy-app: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	rsync -az --delete \
 		--exclude=.git --exclude=node_modules --exclude=dist --exclude=.tsbuild \
+		--exclude='*.tsbuildinfo' \
 		--exclude='infra/tofu/environments/*/terraform.tfstate*' \
 		--exclude='infra/tofu/environments/*/.terraform*' \
 		--exclude='.env*' --exclude='infra/secrets' --exclude='*.tfvars' \
 		--exclude='*.tfstate*' --exclude='.claude' \
 		./ deploy@$(VM_IP):/var/lib/portikus/app/
-	ssh deploy@$(VM_IP) 'cd /var/lib/portikus/app && pnpm install --frozen-lockfile && pnpm build'
+# Stale TypeScript build caches make tsc skip the emit, so dist never appears.
+	ssh deploy@$(VM_IP) 'cd /var/lib/portikus/app && find . -name "*.tsbuildinfo" -not -path "./node_modules/*" -delete && pnpm install --frozen-lockfile && pnpm build'
 	$(MAKE) db-migrate VM_IP=$(VM_IP)
 	ssh deploy@$(VM_IP) 'sudo systemctl restart portikus-controller portikus-worker portikus-api'
 
