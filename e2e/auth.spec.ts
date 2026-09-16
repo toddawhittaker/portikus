@@ -10,7 +10,7 @@ test("a student can log in through the mock identity provider", async ({ page })
 
 	const me = await page.request.get("/auth/me");
 	expect(me.status()).toBe(200);
-	expect((await me.json()).displayName).toBe("Alice");
+	expect((await me.json()).displayName).toBe("Alice Student");
 });
 
 test("signing out ends the session", async ({ page }) => {
