@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# Interim workspace provisioning script (Epic 2).
+# Runs on the platform VM as the deploy user (member of incus-admin).
+# Replaced by the workspace controller in Epic 3.
+#
+# Usage:
+#   workspace.sh create <name>
+#   workspace.sh destroy <name>
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+POOL="workspace-data"
+PROJECT="portikus"
+PROFILE="workspace"
+IMAGE="portikus"
+HOME_SIZE="25GB"
+DOCKER_SIZE="20GB"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+die() { echo "error: $*" >&2; exit 1; }
+
+validate_name() {
+    local name="$1"
+    if [[ ! "$name" =~ ^[a-z][a-z0-9-]{0,30}$ ]]; then
+        die "name must match ^[a-z][a-z0-9-]{0,30}\$ (got: ${name})"
+    fi
+}
+
+container_exists() {
+    incus info "$1" --project "$PROJECT" >/dev/null 2>&1
+}
+
+volume_exists() {
+    incus storage volume show "$POOL" "custom/$1" --project "$PROJECT" >/dev/null 2>&1
+}
+
+# Ensure a custom storage volume exists with the given size.
+# If it already exists (e.g. data from a previous container), skip creation
+# so a re-create reuses existing data (SPEC 4.4).
+ensure_volume() {
+    local vol_name="$1" size="$2"
+    if volume_exists "$vol_name"; then
+        echo "volume ${vol_name} already exists, reusing"
+    else
+        # security.shifted is NOT set.  The Incus docs describe it as
+        # "Enable ID shifting overlay (allows attach by multiple isolated
+        # instances)."  Each workspace volume is attached to exactly one
+        # container, so the default UID/GID write-on-first-attach that
+        # Incus performs with security.idmap.isolated=true is sufficient.
+        # Shifted would add an unnecessary shiftfs/idmapped-mount overlay.
+        incus storage volume create "$POOL" "$vol_name" \
+            --project "$PROJECT" \
+            size="$size"
+        echo "created volume ${vol_name} (${size})"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+cmd_create() {
+    local name="$1"
+    validate_name "$name"
+
+    if container_exists "$name"; then
+        die "container ${name} already exists in project ${PROJECT}"
+    fi
+
+    # Persistent volumes (SPEC 4.4, 16.2, 19.1).
+    ensure_volume "${name}-home" "$HOME_SIZE"
+    ensure_volume "${name}-docker" "$DOCKER_SIZE"
+
+    # Create the container from the workspace image and profile.
+    incus init "$IMAGE" "$name" \
+        --project "$PROJECT" \
+        --profile "$PROFILE"
+
+    # Attach persistent volumes as disk devices.
+    incus config device add "$name" home disk \
+        pool="$POOL" \
+        source="${name}-home" \
+        path="/home/student" \
+        --project "$PROJECT"
+
+    incus config device add "$name" docker disk \
+        pool="$POOL" \
+        source="${name}-docker" \
+        path="/var/lib/docker" \
+        --project "$PROJECT"
+
+    incus start "$name" --project "$PROJECT"
+
+    # Wait for an IPv4 address (up to 60 seconds).
+    local waited=0 ip=""
+    while [[ $waited -lt 60 ]]; do
+        ip=$(incus list "$name" --project "$PROJECT" \
+            --format csv --columns 4 2>/dev/null \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
+        if [[ -n "$ip" ]]; then
+            break
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    if [[ -z "$ip" ]]; then
+        echo "workspace ${name} started but no IPv4 address after 60 s"
+    else
+        echo "workspace ${name} ready at ${ip}"
+    fi
+}
+
+cmd_destroy() {
+    local name="$1"
+    validate_name "$name"
+
+    if container_exists "$name"; then
+        incus delete --force "$name" --project "$PROJECT"
+        echo "deleted container ${name}"
+    else
+        echo "container ${name} does not exist, skipping"
+    fi
+
+    for suffix in home docker; do
+        local vol="${name}-${suffix}"
+        if volume_exists "$vol"; then
+            incus storage volume delete "$POOL" "$vol" --project "$PROJECT"
+            echo "deleted volume ${vol}"
+        else
+            echo "volume ${vol} does not exist, skipping"
+        fi
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+if [[ $# -lt 2 ]]; then
+    die "usage: workspace.sh {create|destroy} <name>"
+fi
+
+command="$1"
+name="$2"
+
+case "$command" in
+    create)  cmd_create "$name" ;;
+    destroy) cmd_destroy "$name" ;;
+    *)       die "unknown command: ${command} (use create or destroy)" ;;
+esac
