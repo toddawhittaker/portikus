@@ -15,6 +15,13 @@ Installs KVM, libvirt, OpenTofu, Ansible, age, SOPS, and supporting packages.
 make bootstrap-host
 ```
 
+If `make` itself is missing, run the script directly; it installs make
+along with everything else:
+
+```
+bash infra/host/dev-libvirt/bootstrap.sh
+```
+
 ## 2. Prepare secrets
 
 Generate an age key pair and update `infra/secrets/.sops.yaml` with the

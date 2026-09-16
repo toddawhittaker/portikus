@@ -10,6 +10,10 @@ fail()  { printf '\033[1;31m[fail]\033[0m  %s\n' "$1"; exit 1; }
 
 # ---------- helpers ----------
 
+# pipx installs to ~/.local/bin, which may not be on PATH in non-interactive
+# shells or fresh sessions. Ensure we can find tools installed there.
+export PATH="$HOME/.local/bin:$PATH"
+
 need_cmd() {
   if command -v "$1" >/dev/null 2>&1; then
     ok "$1 is already installed"
@@ -29,7 +33,7 @@ ok "KVM is available"
 # ---------- apt packages ----------
 
 PACKAGES=(
-  qemu-kvm
+  qemu-system-x86
   libvirt-daemon-system
   libvirt-clients
   virtinst
