@@ -2,6 +2,7 @@ import {
 	type ControllerErrorCode,
 	CreateInstanceRequest,
 	InstanceName,
+	StartInstanceRequest,
 	StopInstanceRequest,
 } from "@portikus/contracts";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -39,9 +40,19 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		if (existing) {
 			return existing as Promise<T>;
 		}
-		const promise = fn().finally(() => {
-			inflight.delete(key);
-		});
+		// Drop the entry as the promise settles, so a request arriving in
+		// the settlement window performs the operation instead of joining
+		// an already-finished one.
+		const promise = fn().then(
+			(value) => {
+				inflight.delete(key);
+				return value;
+			},
+			(err) => {
+				inflight.delete(key);
+				throw err;
+			},
+		);
 		inflight.set(key, promise);
 		return promise;
 	}
@@ -85,17 +96,17 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 				message: "invalid instance name",
 			});
 		}
-		const body = (request.body ?? {}) as Record<string, unknown>;
-		const timeout =
-			typeof body.timeoutSeconds === "number" &&
-			Number.isInteger(body.timeoutSeconds) &&
-			body.timeoutSeconds > 0
-				? body.timeoutSeconds
-				: 60;
+		const bodyResult = StartInstanceRequest.safeParse(request.body ?? {});
+		if (!bodyResult.success) {
+			return reply.code(400).send({
+				code: "INVALID_NAME",
+				message: bodyResult.error.issues.map((i) => i.message).join("; "),
+			});
+		}
 		try {
 			const result = await singleFlight(`start:${params.name}`, () =>
 				provider.start(params.name, {
-					timeoutSeconds: timeout,
+					timeoutSeconds: bodyResult.data.timeoutSeconds,
 				}),
 			);
 			return reply.code(200).send(result);

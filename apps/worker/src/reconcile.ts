@@ -1,6 +1,6 @@
 import type { ControllerErrorCode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
 
@@ -18,7 +18,24 @@ export interface ReconcileConfig {
 export interface SweepResult {
 	transitions: number;
 	lastRefreshAt: Date | null;
+	/** True when the last status refresh could not reach the controller. */
+	controllerUnreachable: boolean;
+	/** Details of that failure, for the caller to log. */
+	refreshError: { code: string; message: string } | null;
 }
+
+/** How long an errored workspace rests before the sweep retries a start. */
+const ERROR_RETRY_SECONDS = 10;
+
+const INSTANCE_MISSING_MESSAGE =
+	"Your workspace instance no longer exists. Please contact your administrator.";
+
+/**
+ * Leaves desired_state alone unless it is still 'restarting', so a
+ * connect that arrives while a slow stop is in flight is not overwritten
+ * by a value read before the stop began (SPEC.md §6.3).
+ */
+const settleRestarting = sql`case when desired_state = 'restarting' then 'running' else desired_state end`;
 
 /** Maps controller error codes to user-friendly messages (SPEC section 28). */
 function userMessage(code: ControllerErrorCode): string {
@@ -34,6 +51,13 @@ function userMessage(code: ControllerErrorCode): string {
 		default:
 			return "An unexpected error occurred. Please try again or contact your administrator.";
 	}
+}
+
+/** Normalise anything thrown by the controller client. */
+function toControllerError(e: unknown): ControllerClientError {
+	return e instanceof ControllerClientError
+		? e
+		: new ControllerClientError("OPERATION_FAILED", String(e));
 }
 
 /** Write an audit_events row. */
@@ -66,12 +90,13 @@ async function casUpdate(
 	id: string,
 	fromState: string,
 	updates: Record<string, unknown>,
+	now: Date,
 ): Promise<{ id: string } | null> {
 	const rows = await db
 		.updateTable("workspaces")
 		.set({
 			...updates,
-			updated_at: new Date().toISOString(),
+			updated_at: now.toISOString(),
 		})
 		.where("id", "=", id)
 		.where("state", "=", fromState)
@@ -86,6 +111,9 @@ async function casUpdate(
  * Steps: (1) expire stale connections, (2) manage deadlines,
  * (3) drive state transitions, (4) periodic drift reconciliation,
  * (5) resolve timed-out starting/stopping rows.
+ *
+ * `controllerUnreachable` is the same field from the previous sweep, so
+ * a controller outage is recorded once per failure streak (SPEC §25.4).
  */
 export async function reconcile(
 	db: Kysely<Database>,
@@ -93,9 +121,12 @@ export async function reconcile(
 	config: ReconcileConfig,
 	now: Date,
 	lastRefreshAt: Date | null = null,
+	controllerUnreachable = false,
 ): Promise<SweepResult> {
 	let transitions = 0;
 	let refreshAt = lastRefreshAt;
+	let unreachable = controllerUnreachable;
+	let refreshError: { code: string; message: string } | null = null;
 
 	// (1) Delete stale workspace_connections rows.
 	const ttlCutoff = new Date(now.getTime() - config.PRESENCE_TTL_SECONDS * 1000);
@@ -162,13 +193,19 @@ export async function reconcile(
 				homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
 				dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
 			});
-			const updated = await casUpdate(db, ws.id, "provisioning", {
-				state: "stopped",
-				image_version: result.imageFingerprint,
-				quota_config: JSON.stringify(result.quota),
-				error_code: null,
-				error_message: null,
-			});
+			const updated = await casUpdate(
+				db,
+				ws.id,
+				"provisioning",
+				{
+					state: "stopped",
+					image_version: result.imageFingerprint,
+					quota_config: JSON.stringify(result.quota),
+					error_code: null,
+					error_message: null,
+				},
+				now,
+			);
 			if (updated) {
 				transitions++;
 				await audit(db, ws.id, "workspace.provisioned", "ok", {
@@ -176,100 +213,65 @@ export async function reconcile(
 				});
 			}
 		} catch (e) {
-			const err =
-				e instanceof ControllerClientError
-					? e
-					: new ControllerClientError("OPERATION_FAILED", String(e));
-			const updated = await casUpdate(db, ws.id, "provisioning", {
-				state: "error",
-				error_code: err.code,
-				error_message: userMessage(err.code),
-			});
+			const err = toControllerError(e);
+			const updated = await casUpdate(
+				db,
+				ws.id,
+				"provisioning",
+				{
+					state: "error",
+					error_code: err.code,
+					error_message: userMessage(err.code),
+				},
+				now,
+			);
 			if (updated) {
 				transitions++;
 				await audit(db, ws.id, "workspace.provision_failed", "failed", {
 					errorCode: err.code,
+					message: err.message,
 				});
 			}
 		}
 	}
 
-	// 3b: stopped with desired running -> starting -> start -> running/error
+	// 3b: stopped with desired running (or restarting) -> start.
 	const toStart = await db
 		.selectFrom("workspaces")
 		.select(["id", "incus_instance_name"])
 		.where("state", "=", "stopped")
-		.where("desired_state", "=", "running")
+		.where("desired_state", "in", ["running", "restarting"])
 		.execute();
 
 	for (const ws of toStart) {
-		if (!ws.incus_instance_name) continue;
-		const moved = await casUpdate(db, ws.id, "stopped", {
-			state: "starting",
-			error_code: null,
-			error_message: null,
-		});
-		if (!moved) continue;
-		transitions++;
-
-		try {
-			const result = await controller.start(
-				ws.incus_instance_name,
-				config.START_TIMEOUT_SECONDS,
-			);
-			const updated = await casUpdate(db, ws.id, "starting", {
-				state: "running",
-			});
-			if (updated) {
-				transitions++;
-				await audit(db, ws.id, "workspace.start", "ok", {
-					ipv4: result.ipv4,
-				});
-			}
-		} catch (e) {
-			const err =
-				e instanceof ControllerClientError
-					? e
-					: new ControllerClientError("OPERATION_FAILED", String(e));
-			const updated = await casUpdate(db, ws.id, "starting", {
-				state: "error",
-				error_code: err.code,
-				error_message: userMessage(err.code),
-			});
-			if (updated) {
-				transitions++;
-				await audit(db, ws.id, "workspace.start_failed", "failed", {
-					errorCode: err.code,
-				});
-			}
-		}
+		transitions += await startWorkspace(db, controller, config, ws, "stopped", now);
 	}
 
 	// 3c: running -> stopping (desired stopped/restarting, or deadline passed)
 	// First: explicit desired stopped or restarting.
 	const toStopExplicit = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name", "desired_state"])
+		.select(["id", "incus_instance_name"])
 		.where("state", "=", "running")
 		.where("desired_state", "in", ["stopped", "restarting"])
 		.execute();
 
 	for (const ws of toStopExplicit) {
 		if (!ws.incus_instance_name) continue;
-		const moved = await casUpdate(db, ws.id, "running", {
-			state: "stopping",
-		});
+		const moved = await casUpdate(db, ws.id, "running", { state: "stopping" }, now);
 		if (!moved) continue;
 		transitions++;
-		await doStop(db, controller, config, ws);
+		await doStop(db, controller, config, ws, now);
 	}
 
 	// Deadline passed with zero connections: single UPDATE with count subquery.
+	// Setting desired_state here is safe because the same statement asserts
+	// there are no connections; a connect that lands later wins on its own.
 	const deadlinePassed = await db
 		.updateTable("workspaces")
 		.set({
 			state: "stopping",
-			desired_state: "stopped",
+			desired_state: sql`case when desired_state = 'restarting' then 'running' else 'stopped' end`,
 			updated_at: now.toISOString(),
 		})
 		.where("state", "=", "running")
@@ -283,63 +285,31 @@ export async function reconcile(
 				"0",
 			),
 		)
-		.returning(["id", "incus_instance_name", "desired_state"])
+		.returning(["id", "incus_instance_name"])
 		.execute();
 
 	for (const ws of deadlinePassed) {
 		transitions++;
 		if (!ws.incus_instance_name) continue;
-		await doStop(db, controller, config, ws);
+		await doStop(db, controller, config, ws, now);
 	}
 
-	// 3d: error with changed desired_state -> retry
+	// 3d: error with desired running (or restarting) -> retry a start, but
+	// only after a short rest so a broken controller is not hammered.
+	const retryCutoff = new Date(now.getTime() - ERROR_RETRY_SECONDS * 1000);
 	const errorRetryStart = await db
 		.selectFrom("workspaces")
 		.select(["id", "incus_instance_name"])
 		.where("state", "=", "error")
-		.where("desired_state", "=", "running")
+		.where("desired_state", "in", ["running", "restarting"])
+		.where("updated_at", "<", retryCutoff)
 		.execute();
 
 	for (const ws of errorRetryStart) {
-		if (!ws.incus_instance_name) continue;
-		const moved = await casUpdate(db, ws.id, "error", {
-			state: "starting",
-			error_code: null,
-			error_message: null,
-		});
-		if (!moved) continue;
-		transitions++;
-
-		try {
-			const result = await controller.start(
-				ws.incus_instance_name,
-				config.START_TIMEOUT_SECONDS,
-			);
-			const updated = await casUpdate(db, ws.id, "starting", {
-				state: "running",
-			});
-			if (updated) {
-				transitions++;
-				await audit(db, ws.id, "workspace.start", "ok", {
-					ipv4: result.ipv4,
-				});
-			}
-		} catch (e) {
-			const err =
-				e instanceof ControllerClientError
-					? e
-					: new ControllerClientError("OPERATION_FAILED", String(e));
-			await casUpdate(db, ws.id, "starting", {
-				state: "error",
-				error_code: err.code,
-				error_message: userMessage(err.code),
-			});
-		}
+		transitions += await startWorkspace(db, controller, config, ws, "error", now);
 	}
 
 	// Note: error with desired=stopped is at rest (nothing to retry).
-	// The retry path only fires for desired=running, which indicates
-	// the user has actively requested a new start attempt.
 
 	// (4) Periodic drift reconciliation from list().
 	const shouldRefresh =
@@ -347,9 +317,31 @@ export async function reconcile(
 		now.getTime() - refreshAt.getTime() >= config.STATUS_REFRESH_SECONDS * 1000;
 
 	if (shouldRefresh) {
-		refreshAt = now;
+		let instances: Awaited<ReturnType<ControllerClient["list"]>> | null = null;
 		try {
-			const instances = await controller.list();
+			instances = await controller.list();
+			// Only count a refresh that actually happened.
+			refreshAt = now;
+			unreachable = false;
+		} catch (e) {
+			const err = toControllerError(e);
+			refreshError = { code: err.code, message: err.message };
+			if (!unreachable) {
+				// Record the start of a failure streak once (SPEC §25.4).
+				console.error(
+					JSON.stringify({
+						msg: "controller unreachable",
+						errorCode: err.code,
+					}),
+				);
+				await audit(db, "controller", "controller.unreachable", "failed", {
+					errorCode: err.code,
+				});
+			}
+			unreachable = true;
+		}
+
+		if (instances !== null) {
 			const instanceMap = new Map(instances.map((i) => [i.name, i]));
 
 			// Find rows that might be drifted.
@@ -363,14 +355,40 @@ export async function reconcile(
 			for (const ws of tracked) {
 				if (!ws.incus_instance_name) continue;
 				const inst = instanceMap.get(ws.incus_instance_name);
-				if (!inst) continue;
+
+				// The instance the row tracks is gone: say so instead of
+				// reporting a state that cannot be true (SPEC §25.4).
+				if (!inst) {
+					const updated = await casUpdate(
+						db,
+						ws.id,
+						ws.state,
+						{
+							state: "error",
+							error_code: "INSTANCE_MISSING",
+							error_message: INSTANCE_MISSING_MESSAGE,
+							shutdown_deadline: null,
+						},
+						now,
+					);
+					if (updated) {
+						transitions++;
+						await audit(db, ws.id, "workspace.instance_missing", "failed", {
+							instanceName: ws.incus_instance_name,
+						});
+					}
+					continue;
+				}
 
 				// Drift: row says running but instance is Stopped.
 				if (ws.state === "running" && inst.status === "Stopped") {
-					const updated = await casUpdate(db, ws.id, "running", {
-						state: "stopped",
-						shutdown_deadline: null,
-					});
+					const updated = await casUpdate(
+						db,
+						ws.id,
+						"running",
+						{ state: "stopped", shutdown_deadline: null },
+						now,
+					);
 					if (updated) {
 						transitions++;
 						await audit(db, ws.id, "workspace.observed_stopped", "ok");
@@ -379,7 +397,13 @@ export async function reconcile(
 
 				// Drift: row says stopped but instance is Running.
 				if (ws.state === "stopped" && inst.status === "Running") {
-					const updated = await casUpdate(db, ws.id, "stopped", { state: "running" });
+					const updated = await casUpdate(
+						db,
+						ws.id,
+						"stopped",
+						{ state: "running" },
+						now,
+					);
 					if (updated) {
 						transitions++;
 						await audit(db, ws.id, "workspace.observed_running", "ok");
@@ -389,9 +413,13 @@ export async function reconcile(
 				// (5) Resolve stale starting/stopping rows.
 				if (ws.state === "starting") {
 					if (inst.status === "Running") {
-						const updated = await casUpdate(db, ws.id, "starting", {
-							state: "running",
-						});
+						const updated = await casUpdate(
+							db,
+							ws.id,
+							"starting",
+							{ state: "running" },
+							now,
+						);
 						if (updated) {
 							transitions++;
 							await audit(db, ws.id, "workspace.start", "ok", {
@@ -399,11 +427,17 @@ export async function reconcile(
 							});
 						}
 					} else if (inst.status === "Stopped") {
-						const updated = await casUpdate(db, ws.id, "starting", {
-							state: "error",
-							error_code: "OPERATION_FAILED",
-							error_message: userMessage("OPERATION_FAILED"),
-						});
+						const updated = await casUpdate(
+							db,
+							ws.id,
+							"starting",
+							{
+								state: "error",
+								error_code: "OPERATION_FAILED",
+								error_message: userMessage("OPERATION_FAILED"),
+							},
+							now,
+						);
 						if (updated) {
 							transitions++;
 							await audit(db, ws.id, "workspace.start_failed", "failed", {
@@ -415,10 +449,13 @@ export async function reconcile(
 
 				if (ws.state === "stopping") {
 					if (inst.status === "Stopped") {
-						const updated = await casUpdate(db, ws.id, "stopping", {
-							state: "stopped",
-							shutdown_deadline: null,
-						});
+						const updated = await casUpdate(
+							db,
+							ws.id,
+							"stopping",
+							{ state: "stopped", shutdown_deadline: null },
+							now,
+						);
 						if (updated) {
 							transitions++;
 							await audit(db, ws.id, "workspace.stop", "ok", {
@@ -426,9 +463,13 @@ export async function reconcile(
 							});
 						}
 					} else if (inst.status === "Running") {
-						const updated = await casUpdate(db, ws.id, "stopping", {
-							state: "running",
-						});
+						const updated = await casUpdate(
+							db,
+							ws.id,
+							"stopping",
+							{ state: "running" },
+							now,
+						);
 						if (updated) {
 							transitions++;
 							await audit(db, ws.id, "workspace.observed_running", "ok", {
@@ -438,20 +479,90 @@ export async function reconcile(
 					}
 				}
 			}
-		} catch {
-			// Controller unavailable during refresh; skip and retry next cycle.
 		}
 	}
 
-	return { transitions, lastRefreshAt: refreshAt };
+	return {
+		transitions,
+		lastRefreshAt: refreshAt,
+		controllerUnreachable: unreachable,
+		refreshError,
+	};
 }
 
-/** Execute a stop on a workspace that is already in 'stopping' state. */
-async function doStop(
+/**
+ * Move a workspace from `fromState` into starting and start it. Returns
+ * the number of state transitions made. Shared by the stopped->running
+ * path and the retry-after-error path (SPEC.md §6.3).
+ */
+async function startWorkspace(
 	db: Kysely<Database>,
 	controller: ControllerClient,
 	config: ReconcileConfig,
-	ws: { id: string; incus_instance_name: string | null; desired_state: string },
+	ws: { id: string; incus_instance_name: string | null },
+	fromState: string,
+	now: Date,
+): Promise<number> {
+	if (!ws.incus_instance_name) return 0;
+
+	const moved = await casUpdate(
+		db,
+		ws.id,
+		fromState,
+		{
+			state: "starting",
+			error_code: null,
+			error_message: null,
+			desired_state: settleRestarting,
+		},
+		now,
+	);
+	if (!moved) return 0;
+	let transitions = 1;
+
+	try {
+		const result = await controller.start(
+			ws.incus_instance_name,
+			config.START_TIMEOUT_SECONDS,
+		);
+		const updated = await casUpdate(db, ws.id, "starting", { state: "running" }, now);
+		if (updated) {
+			transitions++;
+			await audit(db, ws.id, "workspace.start", "ok", { ipv4: result.ipv4 });
+		}
+	} catch (e) {
+		const err = toControllerError(e);
+		const updated = await casUpdate(
+			db,
+			ws.id,
+			"starting",
+			{
+				state: "error",
+				error_code: err.code,
+				error_message: userMessage(err.code),
+			},
+			now,
+		);
+		if (updated) transitions++;
+		await audit(db, ws.id, "workspace.start_failed", "failed", {
+			errorCode: err.code,
+			message: err.message,
+		});
+	}
+
+	return transitions;
+}
+
+/**
+ * Execute a stop on a workspace that is already in 'stopping' state.
+ * Exported for tests that need to drive it directly.
+ */
+export async function doStop(
+	db: Kysely<Database>,
+	controller: ControllerClient,
+	config: ReconcileConfig,
+	ws: { id: string; incus_instance_name: string | null },
+	now: Date,
 ): Promise<void> {
 	if (!ws.incus_instance_name) return;
 	try {
@@ -459,32 +570,39 @@ async function doStop(
 			ws.incus_instance_name,
 			config.STOP_TIMEOUT_SECONDS,
 		);
-		const wasRestarting = ws.desired_state === "restarting";
-		const updated = await casUpdate(db, ws.id, "stopping", {
-			state: "stopped",
-			shutdown_deadline: null,
-			desired_state: wasRestarting ? "running" : "stopped",
-		});
-		if (updated) {
-			await audit(db, ws.id, "workspace.stop", "ok", {
-				forced: result.forced,
-			});
-			if (result.forced) {
-				await audit(db, ws.id, "workspace.force_stop", "ok");
-			}
+		await casUpdate(
+			db,
+			ws.id,
+			"stopping",
+			{
+				state: "stopped",
+				shutdown_deadline: null,
+				desired_state: settleRestarting,
+			},
+			now,
+		);
+		// The stop happened, so record it even if another pass already
+		// moved the row out of 'stopping' (SPEC.md §6.5).
+		await audit(db, ws.id, "workspace.stop", "ok", { forced: result.forced });
+		if (result.forced) {
+			await audit(db, ws.id, "workspace.force_stop", "ok");
 		}
 	} catch (e) {
-		const err =
-			e instanceof ControllerClientError
-				? e
-				: new ControllerClientError("OPERATION_FAILED", String(e));
-		await casUpdate(db, ws.id, "stopping", {
-			state: "error",
-			error_code: err.code,
-			error_message: userMessage(err.code),
-		});
+		const err = toControllerError(e);
+		await casUpdate(
+			db,
+			ws.id,
+			"stopping",
+			{
+				state: "error",
+				error_code: err.code,
+				error_message: userMessage(err.code),
+			},
+			now,
+		);
 		await audit(db, ws.id, "workspace.stop_failed", "failed", {
 			errorCode: err.code,
+			message: err.message,
 		});
 	}
 }

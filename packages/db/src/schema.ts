@@ -24,8 +24,8 @@ export interface WorkspacesTable {
 	>;
 	error_code: string | null;
 	error_message: string | null;
-	last_active_connection_at: ColumnType<Date, string | null, string | null>;
-	shutdown_deadline: ColumnType<Date, string | null, string | null>;
+	last_active_connection_at: ColumnType<Date | null, string | null, string | null>;
+	shutdown_deadline: ColumnType<Date | null, string | null, string | null>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 }

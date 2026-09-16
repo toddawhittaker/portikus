@@ -56,10 +56,21 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		await this.ensureVolume(`${name}-home`, sizes.homeGiB);
 		await this.ensureVolume(`${name}-docker`, sizes.dockerGiB);
 
-		const aliasData = (await this.client.request(
-			"GET",
-			`/1.0/images/aliases/${enc(this.imageAlias)}`,
-		)) as { target: string };
+		let aliasData: { target: string };
+		try {
+			aliasData = (await this.client.request(
+				"GET",
+				`/1.0/images/aliases/${enc(this.imageAlias)}`,
+			)) as { target: string };
+		} catch (err) {
+			if (err instanceof IncusError && err.code === "NOT_FOUND") {
+				throw new IncusError(
+					"IMAGE_NOT_FOUND",
+					`image alias ${this.imageAlias} not found`,
+				);
+			}
+			throw err;
+		}
 		const imageFingerprint = aliasData.target;
 
 		try {
@@ -156,6 +167,15 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		opts: { timeoutSeconds: number },
 	): Promise<StopInstanceResponse> {
 		validateName(name);
+
+		// Stopping an already-stopped instance is a no-op, not a failure.
+		const current = (await this.client.request(
+			"GET",
+			`/1.0/instances/${enc(name)}/state`,
+		)) as { status: string };
+		if (current.status === "Stopped") {
+			return { forced: false };
+		}
 
 		try {
 			await this.client.request(

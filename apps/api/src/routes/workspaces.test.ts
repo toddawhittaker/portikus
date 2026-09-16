@@ -10,8 +10,6 @@ const testConfig: ApiConfig = {
 	NODE_ENV: "test",
 	PORT: 3000,
 	DATABASE_URL: process.env.TEST_DATABASE_URL ?? "",
-	CONTROLLER_URL: "http://127.0.0.1:3001",
-	CONTROLLER_TOKEN: "test-token-for-integration-tests",
 	PRESENCE_TTL_SECONDS: 60,
 	WORKSPACE_HOME_SIZE_GIB: 25,
 	WORKSPACE_DOCKER_SIZE_GIB: 20,

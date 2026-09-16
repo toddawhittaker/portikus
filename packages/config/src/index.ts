@@ -13,30 +13,31 @@ const BaseConfig = z.object({
 	PORT: positiveInt.default(3000),
 });
 
-/** Rejects a short CONTROLLER_TOKEN in production. */
+/**
+ * In production CONTROLLER_TOKEN must be set explicitly, be at least 32
+ * characters, and never be the published development token (SPEC.md §24).
+ */
 function requireProductionToken<
 	T extends { NODE_ENV: string; CONTROLLER_TOKEN: string },
 >(data: T): boolean {
-	if (data.NODE_ENV === "production" && data.CONTROLLER_TOKEN.length < 32) {
-		return false;
-	}
-	return true;
+	if (data.NODE_ENV !== "production") return true;
+	if (data.CONTROLLER_TOKEN === DEV_TOKEN) return false;
+	return data.CONTROLLER_TOKEN.length >= 32;
 }
 
 const productionTokenMessage =
-	"CONTROLLER_TOKEN must be at least 32 characters in production";
+	"CONTROLLER_TOKEN must be set in production, be at least 32 characters, " +
+	"and must not be the development default";
 
 /**
  * Environment contract for the API process (STACK.md §5, §9).
  */
 export const ApiConfigSchema = BaseConfig.extend({
 	DATABASE_URL: z.string().min(1),
-	CONTROLLER_URL: z.string().url().default("http://127.0.0.1:3001"),
-	CONTROLLER_TOKEN: z.string().default(DEV_TOKEN),
 	PRESENCE_TTL_SECONDS: positiveInt.default(60),
 	WORKSPACE_HOME_SIZE_GIB: positiveInt.default(25),
 	WORKSPACE_DOCKER_SIZE_GIB: positiveInt.default(20),
-}).refine(requireProductionToken, productionTokenMessage);
+});
 export type ApiConfig = z.infer<typeof ApiConfigSchema>;
 
 /**
@@ -64,7 +65,7 @@ export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
 export const ControllerConfigSchema = BaseConfig.extend({
 	PORT: positiveInt.default(3001),
 	CONTROLLER_TOKEN: z.string().default(DEV_TOKEN),
-	INCUS_SOCKET: z.string().min(1).default("/var/run/incus/unix.socket"),
+	INCUS_SOCKET: z.string().min(1).default("/var/lib/incus/unix.socket"),
 	INCUS_PROJECT: z.string().min(1).default("portikus"),
 	INCUS_POOL: z.string().min(1).default("workspace-data"),
 	INCUS_PROFILE: z.string().min(1).default("workspace"),
@@ -86,37 +87,13 @@ export class ConfigError extends Error {
 }
 
 /**
- * Parse `env` (by default `process.env`) into a validated config object.
- * Throws a {@link ConfigError} naming every variable that is missing or
- * wrong.
- *
- * When called with no schema argument, defaults to {@link ApiConfigSchema}
- * for backward compatibility with existing callers.
+ * Parse `env` (by default `process.env`) against `schema`. Throws a
+ * {@link ConfigError} naming every variable that is missing or wrong.
  */
-export function loadConfig(env?: NodeJS.ProcessEnv): ApiConfig;
 export function loadConfig<T extends z.ZodType>(
 	schema: T,
-	env?: NodeJS.ProcessEnv,
-): z.infer<T>;
-export function loadConfig(
-	schemaOrEnv?: z.ZodType | NodeJS.ProcessEnv,
-	maybeEnv?: NodeJS.ProcessEnv,
-): unknown {
-	let schema: z.ZodType;
-	let env: NodeJS.ProcessEnv;
-
-	if (
-		schemaOrEnv === undefined ||
-		(typeof schemaOrEnv === "object" && !("parse" in schemaOrEnv))
-	) {
-		// Called as loadConfig() or loadConfig(env) -- backward-compatible
-		schema = ApiConfigSchema;
-		env = (schemaOrEnv as NodeJS.ProcessEnv | undefined) ?? process.env;
-	} else {
-		schema = schemaOrEnv as z.ZodType;
-		env = maybeEnv ?? process.env;
-	}
-
+	env: NodeJS.ProcessEnv = process.env,
+): z.infer<T> {
 	const result = schema.safeParse(env);
 	if (result.success) {
 		return result.data;
@@ -134,7 +111,3 @@ export function loadConfig(
 
 	throw new ConfigError(issues);
 }
-
-// Legacy aliases for backward compatibility
-export const ConfigSchema = ApiConfigSchema;
-export type Config = ApiConfig;

@@ -14,8 +14,9 @@ export function tokenAuth(token: string) {
 		request: FastifyRequest,
 		reply: FastifyReply,
 	): Promise<void> {
-		// GET /health is public.
-		if (request.method === "GET" && request.url.startsWith("/health")) {
+		// GET /health is public. Match the routed URL, not the raw one,
+		// so query strings or path tricks cannot widen the exemption.
+		if (request.method === "GET" && request.routeOptions.url === "/health") {
 			return;
 		}
 

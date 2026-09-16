@@ -7,10 +7,10 @@ import {
 	WorkerConfigSchema,
 } from "./index.js";
 
-// --- backward-compatible loadConfig (defaults to ApiConfigSchema) ---
+// --- loadConfig error reporting (using the API schema) ---
 
 test("applies defaults and coerces PORT", () => {
-	const config = loadConfig({
+	const config = loadConfig(ApiConfigSchema, {
 		DATABASE_URL: "postgres://localhost/portikus",
 		PORT: "8080",
 	});
@@ -21,7 +21,7 @@ test("applies defaults and coerces PORT", () => {
 
 test("lists every missing variable in the error message", () => {
 	try {
-		loadConfig({});
+		loadConfig(ApiConfigSchema, {});
 		expect.unreachable("loadConfig should have thrown");
 	} catch (error) {
 		expect(error).toBeInstanceOf(ConfigError);
@@ -32,7 +32,10 @@ test("lists every missing variable in the error message", () => {
 
 test("reports a value that is present but invalid", () => {
 	try {
-		loadConfig({ DATABASE_URL: "postgres://localhost/portikus", PORT: "-1" });
+		loadConfig(ApiConfigSchema, {
+			DATABASE_URL: "postgres://localhost/portikus",
+			PORT: "-1",
+		});
 		expect.unreachable("loadConfig should have thrown");
 	} catch (error) {
 		expect((error as ConfigError).issues[0]).toContain("PORT");
@@ -41,7 +44,7 @@ test("reports a value that is present but invalid", () => {
 
 test("names every failing variable when more than one is wrong", () => {
 	try {
-		loadConfig({ PORT: "not-a-number" });
+		loadConfig(ApiConfigSchema, { PORT: "not-a-number" });
 		expect.unreachable("loadConfig should have thrown");
 	} catch (error) {
 		const message = (error as ConfigError).message;
@@ -53,7 +56,10 @@ test("names every failing variable when more than one is wrong", () => {
 
 test("reports an invalid value by name rather than by position", () => {
 	try {
-		loadConfig({ DATABASE_URL: "postgres://localhost/portikus", PORT: "abc" });
+		loadConfig(ApiConfigSchema, {
+			DATABASE_URL: "postgres://localhost/portikus",
+			PORT: "abc",
+		});
 		expect.unreachable("loadConfig should have thrown");
 	} catch (error) {
 		const issues = (error as ConfigError).issues;
@@ -64,7 +70,7 @@ test("reports an invalid value by name rather than by position", () => {
 });
 
 test("reads only the variables in the schema", () => {
-	const config = loadConfig({
+	const config = loadConfig(ApiConfigSchema, {
 		DATABASE_URL: "postgres://localhost/portikus",
 		SECRET_TOKEN: "do-not-leak",
 		HOME: "/home/someone",
@@ -78,7 +84,9 @@ test("ignores process.env when an explicit environment is passed", () => {
 	const previous = process.env.DATABASE_URL;
 	process.env.DATABASE_URL = "postgres://localhost/from-process-env";
 	try {
-		const config = loadConfig({ DATABASE_URL: "postgres://localhost/explicit" });
+		const config = loadConfig(ApiConfigSchema, {
+			DATABASE_URL: "postgres://localhost/explicit",
+		});
 		expect(config.DATABASE_URL).toBe("postgres://localhost/explicit");
 	} finally {
 		if (previous === undefined) {
@@ -91,21 +99,13 @@ test("ignores process.env when an explicit environment is passed", () => {
 
 // --- per-service config schemas ---
 
-test("ApiConfig lists missing DATABASE_URL", () => {
-	try {
-		loadConfig(ApiConfigSchema, {});
-		expect.unreachable("should have thrown");
-	} catch (error) {
-		expect(error).toBeInstanceOf(ConfigError);
-		expect((error as ConfigError).message).toContain("DATABASE_URL is missing");
-	}
-});
-
-test("ApiConfig applies CONTROLLER_URL default", () => {
+test("ApiConfig applies presence and quota defaults", () => {
 	const config = loadConfig(ApiConfigSchema, {
 		DATABASE_URL: "postgres://localhost/portikus",
 	});
-	expect(config.CONTROLLER_URL).toBe("http://127.0.0.1:3001");
+	expect(config.PRESENCE_TTL_SECONDS).toBe(60);
+	expect(config.WORKSPACE_HOME_SIZE_GIB).toBe(25);
+	expect(config.WORKSPACE_DOCKER_SIZE_GIB).toBe(20);
 });
 
 test("WorkerConfig lists missing DATABASE_URL", () => {
@@ -133,7 +133,7 @@ test("WorkerConfig applies all timer defaults", () => {
 test("ControllerConfig applies Incus defaults", () => {
 	const config = loadConfig(ControllerConfigSchema, {});
 	expect(config.PORT).toBe(3001);
-	expect(config.INCUS_SOCKET).toBe("/var/run/incus/unix.socket");
+	expect(config.INCUS_SOCKET).toBe("/var/lib/incus/unix.socket");
 	expect(config.INCUS_PROJECT).toBe("portikus");
 	expect(config.INCUS_POOL).toBe("workspace-data");
 	expect(config.INCUS_PROFILE).toBe("workspace");
@@ -159,6 +159,51 @@ test("ControllerConfig accepts a long token in production", () => {
 		CONTROLLER_TOKEN: "a".repeat(64),
 	});
 	expect(config.CONTROLLER_TOKEN).toBe("a".repeat(64));
+});
+
+test("ControllerConfig rejects the dev default token in production", () => {
+	try {
+		loadConfig(ControllerConfigSchema, { NODE_ENV: "production" });
+		expect.unreachable("should have thrown");
+	} catch (error) {
+		expect(error).toBeInstanceOf(ConfigError);
+		expect((error as ConfigError).message).toContain("CONTROLLER_TOKEN");
+	}
+});
+
+test("ControllerConfig rejects the dev token given explicitly in production", () => {
+	try {
+		loadConfig(ControllerConfigSchema, {
+			NODE_ENV: "production",
+			CONTROLLER_TOKEN: "dev-controller-token-not-for-production",
+		});
+		expect.unreachable("should have thrown");
+	} catch (error) {
+		expect(error).toBeInstanceOf(ConfigError);
+		expect((error as ConfigError).message).toContain("CONTROLLER_TOKEN");
+	}
+});
+
+test("WorkerConfig rejects the dev default token in production", () => {
+	try {
+		loadConfig(WorkerConfigSchema, {
+			NODE_ENV: "production",
+			DATABASE_URL: "postgres://localhost/portikus",
+		});
+		expect.unreachable("should have thrown");
+	} catch (error) {
+		expect(error).toBeInstanceOf(ConfigError);
+		expect((error as ConfigError).message).toContain("CONTROLLER_TOKEN");
+	}
+});
+
+test("WorkerConfig accepts a long non-default token in production", () => {
+	const config = loadConfig(WorkerConfigSchema, {
+		NODE_ENV: "production",
+		DATABASE_URL: "postgres://localhost/portikus",
+		CONTROLLER_TOKEN: "b".repeat(48),
+	});
+	expect(config.CONTROLLER_TOKEN).toBe("b".repeat(48));
 });
 
 test("ControllerConfig accepts the dev default token outside production", () => {

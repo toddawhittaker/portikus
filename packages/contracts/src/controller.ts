@@ -39,6 +39,14 @@ export const CreateInstanceResponse = z.object({
 export type CreateInstanceResponse = z.infer<typeof CreateInstanceResponse>;
 
 /**
+ * Request body for `POST /instances/:name/start` (SPEC.md §26, §27).
+ */
+export const StartInstanceRequest = z.object({
+	timeoutSeconds: z.number().int().positive().default(60),
+});
+export type StartInstanceRequest = z.infer<typeof StartInstanceRequest>;
+
+/**
  * Response body for `POST /instances/:name/start` (SPEC.md §26, §27).
  */
 export const StartInstanceResponse = z.object({

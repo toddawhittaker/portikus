@@ -26,6 +26,7 @@ async function main(): Promise<void> {
 	);
 
 	let lastRefreshAt: Date | null = null;
+	let controllerUnreachable = false;
 
 	const loop = async (): Promise<void> => {
 		try {
@@ -36,8 +37,18 @@ async function main(): Promise<void> {
 				config,
 				now,
 				lastRefreshAt,
+				controllerUnreachable,
 			);
 			lastRefreshAt = result.lastRefreshAt;
+			controllerUnreachable = result.controllerUnreachable;
+			if (result.refreshError) {
+				console.error(
+					JSON.stringify({
+						msg: "controller status refresh failed",
+						errorCode: result.refreshError.code,
+					}),
+				);
+			}
 			if (result.transitions > 0) {
 				console.log(
 					JSON.stringify({

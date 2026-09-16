@@ -2,9 +2,10 @@ import {
 	type ApiError,
 	type ConnectionCreated,
 	CreateWorkspaceRequest,
+	type DesiredState,
 	type Workspace,
 } from "@portikus/contracts";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { sql } from "kysely";
 import { z } from "zod";
 import type { ServerDeps } from "../server.js";
@@ -16,7 +17,7 @@ const ConnectionParams = z.object({
 });
 
 function sendError(
-	reply: { status: (code: number) => { send: (body: ApiError) => void } },
+	reply: FastifyReply,
 	statusCode: number,
 	code: ApiError["code"],
 	message: string,
@@ -28,6 +29,7 @@ function sendError(
 function toWorkspace(
 	row: Record<string, unknown>,
 	activeConnections: number,
+	config: ServerDeps["config"],
 ): Workspace {
 	const quota =
 		typeof row.quota_config === "string"
@@ -40,7 +42,10 @@ function toWorkspace(
 		desiredState: row.desired_state as Workspace["desiredState"],
 		incusInstanceName: (row.incus_instance_name as string) ?? null,
 		imageVersion: (row.image_version as string) ?? null,
-		quotaConfig: quota ?? { homeGiB: 25, dockerGiB: 20 },
+		quotaConfig: quota ?? {
+			homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
+			dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+		},
 		errorCode: (row.error_code as string) ?? null,
 		errorMessage: (row.error_message as string) ?? null,
 		activeConnections,
@@ -79,7 +84,7 @@ export function registerWorkspaceRoutes(
 			const active = await countActive(db, existing.id as string, config);
 			return reply
 				.status(200)
-				.send(toWorkspace(existing as Record<string, unknown>, active));
+				.send(toWorkspace(existing as Record<string, unknown>, active, config));
 		}
 
 		// Generate id and instance name.
@@ -113,7 +118,7 @@ export function registerWorkspaceRoutes(
 				const active = await countActive(db, row.id as string, config);
 				return reply
 					.status(200)
-					.send(toWorkspace(row as Record<string, unknown>, active));
+					.send(toWorkspace(row as Record<string, unknown>, active, config));
 			}
 			throw err;
 		}
@@ -134,7 +139,9 @@ export function registerWorkspaceRoutes(
 			.selectAll()
 			.where("id", "=", id)
 			.executeTakeFirstOrThrow();
-		return reply.status(201).send(toWorkspace(created as Record<string, unknown>, 0));
+		return reply
+			.status(201)
+			.send(toWorkspace(created as Record<string, unknown>, 0, config));
 	});
 
 	// GET /workspaces/:id
@@ -155,7 +162,7 @@ export function registerWorkspaceRoutes(
 		}
 
 		const active = await countActive(db, params.data.id, config);
-		return toWorkspace(row as Record<string, unknown>, active);
+		return toWorkspace(row as Record<string, unknown>, active, config);
 	});
 
 	// POST /workspaces/:id/start
@@ -257,21 +264,14 @@ export function registerWorkspaceRoutes(
 	// Helper: set desired_state and write audit
 	async function setDesired(
 		db: ServerDeps["db"],
-		request: { params: unknown },
-		reply: {
-			status: (code: number) => { send: (body: unknown) => void };
-		},
-		desired: string,
+		request: FastifyRequest,
+		reply: FastifyReply,
+		desired: DesiredState,
 		action: string,
 	): Promise<void> {
 		const params = UuidParam.safeParse(request.params);
 		if (!params.success) {
-			return sendError(
-				reply as Parameters<typeof sendError>[0],
-				400,
-				"VALIDATION_FAILED",
-				params.error.message,
-			);
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
 		}
 
 		const result = await db
@@ -284,12 +284,7 @@ export function registerWorkspaceRoutes(
 			.executeTakeFirst();
 
 		if (result.numUpdatedRows === 0n) {
-			return sendError(
-				reply as Parameters<typeof sendError>[0],
-				404,
-				"WORKSPACE_NOT_FOUND",
-				"Workspace not found",
-			);
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 
 		await db
