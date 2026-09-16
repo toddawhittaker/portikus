@@ -33,7 +33,7 @@
     # ── Portikus control-plane services ───────────────────────────
     # Pinned to a published release; the orchestrator updates it when a new
     # release is cut.  See "Release and rollback" in infra/README.md.
-    portikus_version: "0.1.0+g0000000"
+    portikus_version: "0.1.40+gea7a567"
     portikus_node_env: production
     portikus_api_port: 3000
     portikus_controller_port: 3001
