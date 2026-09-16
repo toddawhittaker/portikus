@@ -266,6 +266,16 @@ importers:
         version: 4.23.13
 
   apps/workspace-controller:
+    dependencies:
+      '@portikus/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@portikus/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      fastify:
+        specifier: 5.12.4
+        version: 5.12.4
     devDependencies:
       '@types/node':
         specifier: 24.9.2
