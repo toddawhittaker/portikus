@@ -1574,24 +1574,53 @@ actions:
 
     mkdir -p /etc/apt/keyrings
 
+    # verify_key URL EXPECTED_FINGERPRINT OUTPUT_FILE [dearmor]
+    # Downloads a GPG key, checks its primary-key fingerprint, and writes
+    # the result (dearmored if the fourth arg is "dearmor"). Exits 1 on
+    # mismatch so the image build fails immediately.
+    verify_key() {
+      _url="$1"; _expected="$2"; _out="$3"; _dearmor="${4:-}"
+      _tmp="$(mktemp)"
+      curl -fsSL "$_url" -o "$_tmp"
+      _actual="$(gpg --import-options show-only --import --with-colons "$_tmp" 2>/dev/null \
+        | awk -F: '/^fpr:/{print $10; exit}')"
+      if [ "$_actual" != "$_expected" ]; then
+        echo "FATAL: key fingerprint mismatch for $_url"
+        echo "  expected: $_expected"
+        echo "  got:      $_actual"
+        rm -f "$_tmp"
+        exit 1
+      fi
+      if [ "$_dearmor" = "dearmor" ]; then
+        gpg --dearmor < "$_tmp" > "$_out"
+      else
+        cp "$_tmp" "$_out"
+      fi
+      chmod 644 "$_out"
+      rm -f "$_tmp"
+    }
+
     # Docker Engine - key from https://download.docker.com/linux/debian/gpg
     # Expected fingerprint: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
-    curl -fsSL https://download.docker.com/linux/debian/gpg \
-      | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    verify_key https://download.docker.com/linux/debian/gpg \
+      9DC858229FC7DD38854AE2D88D81803C0EBFCD88 \
+      /etc/apt/keyrings/docker.gpg dearmor
     echo "deb [signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian trixie stable" \
       > /etc/apt/sources.list.d/docker.list
 
     # GitHub CLI - key from https://cli.github.com/packages/githubcli-archive-keyring.gpg
     # Expected fingerprint: 2C6106201985B60E6C7AC87323F3D4EA75716059
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-      -o /etc/apt/keyrings/githubcli.gpg
+    verify_key https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      2C6106201985B60E6C7AC87323F3D4EA75716059 \
+      /etc/apt/keyrings/githubcli.gpg
     echo "deb [signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
       > /etc/apt/sources.list.d/github-cli.list
 
     # NodeSource Node.js 24 - key from https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
     # Expected fingerprint: 6F71F525282841EEDAF851B42F59B5F99B1BE0B4
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-      | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+    verify_key https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+      6F71F525282841EEDAF851B42F59B5F99B1BE0B4 \
+      /etc/apt/keyrings/nodesource.gpg dearmor
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" \
       > /etc/apt/sources.list.d/nodesource.list
 
