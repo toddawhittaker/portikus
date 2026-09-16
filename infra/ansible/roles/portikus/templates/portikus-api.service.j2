@@ -3,6 +3,7 @@
 Description=Portikus API
 After=network.target postgresql.service
 Requires=postgresql.service
+ConditionPathExists=/var/lib/portikus/app/apps/api/dist/index.js
 
 [Service]
 Type=simple
@@ -11,7 +12,6 @@ Group=portikus
 EnvironmentFile=/etc/portikus/api.env
 EnvironmentFile=-/etc/portikus/api.override.env
 ExecStart=/usr/bin/node /var/lib/portikus/app/apps/api/dist/index.js
-ConditionPathExists=/var/lib/portikus/app/apps/api/dist/index.js
 Restart=on-failure
 RestartSec=5
 

@@ -3,6 +3,7 @@
 Description=Portikus Worker
 After=network.target postgresql.service portikus-controller.service
 Requires=postgresql.service
+ConditionPathExists=/var/lib/portikus/app/apps/worker/dist/index.js
 
 [Service]
 Type=simple
@@ -11,7 +12,6 @@ Group=portikus
 EnvironmentFile=/etc/portikus/worker.env
 EnvironmentFile=-/etc/portikus/worker.override.env
 ExecStart=/usr/bin/node /var/lib/portikus/app/apps/worker/dist/index.js
-ConditionPathExists=/var/lib/portikus/app/apps/worker/dist/index.js
 Restart=on-failure
 RestartSec=5
 

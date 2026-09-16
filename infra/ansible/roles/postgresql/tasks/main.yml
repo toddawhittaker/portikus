@@ -8,6 +8,8 @@
     name:
       - postgresql
       - postgresql-client
+      - python3-psycopg2
+      - acl
     state: present
 
 - name: Enable and start PostgreSQL
