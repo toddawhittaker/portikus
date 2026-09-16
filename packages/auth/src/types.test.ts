@@ -45,6 +45,33 @@ describe("mapRole", () => {
 		expect(mapRole({ groups: null }, opts)).toBeNull();
 	});
 
+	test("a comma-separated string claim is not split, so it grants nothing", () => {
+		// Deliberate: only an exact group name or a JSON array counts. A
+		// provider that packs groups into one string must be configured,
+		// not guessed at.
+		expect(
+			mapRole({ groups: "portikus-students,portikus-administrators" }, opts),
+		).toBeNull();
+		expect(mapRole({ groups: "portikus-students other" }, opts)).toBeNull();
+	});
+
+	test("a near-miss group name grants nothing", () => {
+		expect(mapRole({ groups: ["portikus-students-x"] }, opts)).toBeNull();
+		expect(mapRole({ groups: ["PORTIKUS-STUDENTS"] }, opts)).toBeNull();
+		expect(mapRole({ groups: [" portikus-students"] }, opts)).toBeNull();
+	});
+
+	test("administrator wins whatever order the groups arrive in", () => {
+		expect(
+			mapRole({ groups: ["portikus-administrators", "portikus-students"] }, opts),
+		).toBe("administrator");
+	});
+
+	test("a nested or object-shaped claim grants nothing", () => {
+		expect(mapRole({ groups: { name: "portikus-administrators" } }, opts)).toBeNull();
+		expect(mapRole({ groups: [["portikus-administrators"]] }, opts)).toBeNull();
+	});
+
 	test("reads the configured claim name", () => {
 		const custom = { ...opts, groupsClaim: "roles" };
 		expect(
