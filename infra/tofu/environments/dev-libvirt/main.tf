@@ -5,6 +5,13 @@
 terraform {
   required_version = ">= 1.9.0"
 
+  required_providers {
+    libvirt = {
+      source  = "dmacvicar/libvirt"
+      version = "~> 0.8.0"
+    }
+  }
+
   # Pilot: encrypted local state (STACK.md section 20).
   # Move to a remote backend when the deployment grows beyond one admin.
   backend "local" {
@@ -25,9 +32,13 @@ module "platform_vm" {
   os_disk_size_bytes   = var.os_disk_size_bytes
   data_disk_size_bytes = var.data_disk_size_bytes
   base_image_url       = var.base_image_url
-  cloud_init_user_data = file("${path.module}/../../cloud-init/user-data.yml")
-  network_name         = var.network_name
-  network_cidr         = var.network_cidr
-  pool_name            = var.pool_name
-  pool_path            = var.pool_path
+  base_image_sha512    = var.base_image_sha512
+  cloud_init_user_data = templatefile("${path.module}/../../../cloud-init/user-data.yml", {
+    hostname       = var.vm_name
+    ssh_public_key = var.ssh_public_key
+  })
+  network_name = var.network_name
+  network_cidr = var.network_cidr
+  pool_name    = var.pool_name
+  pool_path    = var.pool_path
 }

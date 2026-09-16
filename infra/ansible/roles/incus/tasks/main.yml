@@ -24,6 +24,13 @@
     enabled: true
     state: started
 
+# The operator account runs incus without sudo (smoke test, day-to-day admin).
+- name: Add the deploy user to the incus-admin group
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: incus-admin
+    append: true
+
 - name: Check if Incus storage pool exists
   ansible.builtin.command:
     cmd: incus storage show {{ incus_storage_pool_name }}
@@ -38,5 +45,10 @@
       source={{ lvm_vg_name }}
       lvm.thinpool_name={{ lvm_thinpool_name }}
       lvm.use_thinpool=true
+      lvm.vg.force_reuse=true
+  # force_reuse: after a platform-VM rebuild the data disk keeps the volume
+  # group, which the previous Incus tagged as its own. Without this the
+  # fresh Incus refuses it ("already used by Incus") and workspace data
+  # would be unreachable. Harmless on a first install.
   when: incus_pool_check.rc != 0
   changed_when: true

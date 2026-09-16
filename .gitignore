@@ -35,3 +35,10 @@ infra/secrets/age-key.txt
 
 # ansible-lint / ansible-galaxy cache
 .ansible/
+
+# Local screenshots, never committed
+screenshots/
+
+# OpenTofu variable values hold per-operator secrets
+terraform.tfvars
+*.auto.tfvars

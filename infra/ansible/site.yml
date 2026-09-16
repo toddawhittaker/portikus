@@ -16,6 +16,7 @@
     incus_network_cidr: "10.200.0.1/24"
     incus_project_name: portikus
     workspace_root_disk_quota: 10GB
+    management_cidr: "{{ lookup('env', 'PORTIKUS_MANAGEMENT_CIDR') | default('10.100.0.0/24', true) }}"
 
   roles:
     - base

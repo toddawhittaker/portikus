@@ -35,6 +35,7 @@ PACKAGES=(
   virtinst
   bridge-utils
   genisoimage          # cloud-init NoCloud ISO
+  xsltproc             # libvirt provider applies the disk-as-file XSLT with it
   python3
   python3-pip
   python3-venv
@@ -102,6 +103,8 @@ if need_cmd ansible-playbook; then
     sudo apt-get install -y -qq pipx
   fi
   pipx install --include-deps ansible
+  # netaddr backs the ansible.utils.ipaddr filter used by the firewall role.
+  pipx inject ansible netaddr
   ok "Ansible installed"
 fi
 

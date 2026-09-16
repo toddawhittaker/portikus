@@ -18,11 +18,15 @@ make bootstrap-host
 ## 2. Prepare secrets
 
 Generate an age key pair and update `infra/secrets/.sops.yaml` with the
-public key. Put your SSH public key into `infra/cloud-init/user-data.yml`
-where the placeholder says `REPLACE_ME_WITH_YOUR_SSH_PUBLIC_KEY`.
+public key. Then copy the OpenTofu variables example and put your SSH
+public key in it. The copy is git-ignored, so the key never sits in a
+tracked file.
 
 ```
 age-keygen -o infra/secrets/age-key.txt
+cp infra/tofu/environments/dev-libvirt/terraform.tfvars.example \
+   infra/tofu/environments/dev-libvirt/terraform.tfvars
+$EDITOR infra/tofu/environments/dev-libvirt/terraform.tfvars
 ```
 
 ## 3. Create the platform VM
@@ -51,8 +55,8 @@ Alternatively, wait for the SSH port to open.
 
 ## 5. Configure the VM with Ansible
 
-Update `infra/ansible/inventory.ini` with the VM IP address shown by
-`tofu output`, then run the playbook.
+The VM address is read from the OpenTofu output automatically; pass
+`VM_IP=<ip>` only to override it.
 
 ```
 make configure-vm
@@ -64,7 +68,7 @@ up the workspace network, profile, and project, and applies the firewall.
 ## 6. Verify
 
 ```
-make smoke-test VM_IP=<ip>
+make smoke-test
 ```
 
 ## Destroy and recreate

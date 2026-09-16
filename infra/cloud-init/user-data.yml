@@ -3,17 +3,18 @@
 # Sets up just enough for Ansible to take over: a deployment user,
 # SSH key, Python, and a hostname. Full configuration is in Ansible.
 
-hostname: portikus
+# Rendered by OpenTofu with templatefile(); the $${name} values come from
+# infra/tofu/environments/dev-libvirt/terraform.tfvars (git-ignored).
+hostname: ${hostname}
 
-# The deploy user Ansible connects as.  The SSH public key below is a
-# placeholder; replace it with your real key before first boot.
+# The deploy user Ansible connects as.
 users:
   - name: deploy
     groups: sudo
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
     ssh_authorized_keys:
-      - "REPLACE_ME_WITH_YOUR_SSH_PUBLIC_KEY"
+      - "${ssh_public_key}"
 
 # Ensure Python is available for Ansible.
 packages:

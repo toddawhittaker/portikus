@@ -1,3 +1,13 @@
+variable "ssh_public_key" {
+  description = "SSH public key for the deploy user. Set it in terraform.tfvars (git-ignored); see terraform.tfvars.example."
+  type        = string
+
+  validation {
+    condition     = can(regex("^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256) ", var.ssh_public_key))
+    error_message = "ssh_public_key must be an OpenSSH public key line, e.g. the contents of ~/.ssh/id_ed25519.pub."
+  }
+}
+
 variable "libvirt_uri" {
   description = "Libvirt connection URI"
   type        = string
@@ -40,6 +50,12 @@ variable "base_image_url" {
   default     = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
 }
 
+variable "base_image_sha512" {
+  description = "SHA-512 checksum of the Debian cloud image"
+  type        = string
+  default     = "84946d6e2f55b1e8dcc114efc059f13882bd2ccdf36852126a13a0aa4a4ce0efee945406b78280e5942096639edc2a3ced20b70c12d9c7c7366ce364ba47a0ff"
+}
+
 variable "network_name" {
   description = "Libvirt network name"
   type        = string
@@ -61,5 +77,5 @@ variable "pool_name" {
 variable "pool_path" {
   description = "Path on the host for the libvirt storage pool"
   type        = string
-  default     = "/var/lib/libvirt/portikus"
+  default     = "/var/lib/libvirt/images/portikus"
 }
