@@ -1,16 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-// Sub-path aliases must come before their parent package alias so Vite
-// matches the more specific path first.
-const workspaceAliases: { find: string; replacement: string }[] = [
-	{
-		find: "@portikus/db/testing",
-		replacement: new URL("./packages/db/src/testing.ts", import.meta.url).pathname,
-	},
-];
-
-for (const name of [
+const workspaceAliases = [
 	"auth",
 	"config",
 	"contracts",
@@ -18,12 +9,17 @@ for (const name of [
 	"events",
 	"observability",
 	"ui",
-]) {
-	workspaceAliases.push({
-		find: `@portikus/${name}`,
-		replacement: new URL(`./packages/${name}/src/index.ts`, import.meta.url).pathname,
-	});
-}
+].map((name) => ({
+	find: `@portikus/${name}`,
+	replacement: new URL(`./packages/${name}/src/index.ts`, import.meta.url).pathname,
+}));
+
+// Sub-path aliases must come before their parent package alias so that
+// Vite's prefix-based matching resolves them first.
+workspaceAliases.unshift({
+	find: "@portikus/db/testing",
+	replacement: new URL("./packages/db/src/testing.ts", import.meta.url).pathname,
+});
 
 export default defineConfig({
 	// Tests import workspace packages from source so `pnpm test` works on a
