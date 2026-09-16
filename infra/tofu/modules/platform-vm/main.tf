@@ -116,6 +116,13 @@ resource "libvirt_domain" "vm" {
 
   cloudinit = libvirt_cloudinit_disk.init.id
 
+  # A replaced OS disk keeps the same path, so nothing in the domain's own
+  # arguments changes and the running VM would silently keep using the
+  # deleted old file. Rebuild the VM whenever the OS disk is replaced.
+  lifecycle {
+    replace_triggered_by = [libvirt_volume.os_disk]
+  }
+
   # See disk-as-file.xslt for why the generated XML is rewritten.
   xml {
     xslt = templatefile("${path.module}/disk-as-file.xslt", { pool_path = var.pool_path })
