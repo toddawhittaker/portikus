@@ -1,0 +1,14 @@
+#!/bin/sh
+# portikus postrm: forget the units, and on purge drop the data we own.
+# The service users are never deleted: other files may still be owned by them.
+set -e
+
+if [ -d /run/systemd/system ]; then
+	systemctl daemon-reload || true
+fi
+
+if [ "$1" = "purge" ]; then
+	rm -rf /var/lib/portikus /etc/portikus
+fi
+
+exit 0

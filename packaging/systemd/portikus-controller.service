@@ -1,0 +1,28 @@
+# Portikus workspace controller — shipped by the portikus Debian package.
+[Unit]
+Description=Portikus Workspace Controller
+After=network.target incus.service
+Requires=incus.service
+ConditionPathExists=/etc/portikus/controller.env
+
+[Service]
+Type=simple
+User=portikus-controller
+Group=portikus-controller
+SupplementaryGroups=incus-admin
+EnvironmentFile=/etc/portikus/controller.env
+EnvironmentFile=-/etc/portikus/controller.override.env
+ExecStart=/usr/bin/node /usr/lib/portikus/controller/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+# Hardening (SPEC section 24)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+IPAddressAllow=127.0.0.0/8
+IPAddressDeny=any
+
+[Install]
+WantedBy=multi-user.target

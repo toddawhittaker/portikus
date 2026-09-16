@@ -1,0 +1,53 @@
+# nfpm configuration for the portikus control plane (ADR 0007, SPEC.md Epic 3.5).
+# Built by scripts/build-deb.sh, which sets PORTIKUS_VERSION.
+name: portikus
+arch: amd64
+platform: linux
+version: ${PORTIKUS_VERSION}
+section: net
+priority: optional
+maintainer: Portikus <portikus@example.invalid>
+description: |
+  Portikus control plane: the API, the worker, and the workspace controller.
+vendor: Portikus
+homepage: https://github.com/toddawhittaker/portikus
+license: MIT
+
+depends:
+  - nodejs (>= 24)
+
+contents:
+  - src: ./dist/deploy/api
+    dst: /usr/lib/portikus/api
+    type: tree
+  - src: ./dist/deploy/worker
+    dst: /usr/lib/portikus/worker
+    type: tree
+  - src: ./dist/deploy/controller
+    dst: /usr/lib/portikus/controller
+    type: tree
+
+  - src: ./packaging/systemd/portikus-api.service
+    dst: /usr/lib/systemd/system/portikus-api.service
+  - src: ./packaging/systemd/portikus-worker.service
+    dst: /usr/lib/systemd/system/portikus-worker.service
+  - src: ./packaging/systemd/portikus-controller.service
+    dst: /usr/lib/systemd/system/portikus-controller.service
+
+  - dst: /etc/portikus
+    type: dir
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+  - dst: /var/lib/portikus
+    type: dir
+    file_info:
+      mode: 0755
+      owner: portikus
+      group: portikus
+
+scripts:
+  postinstall: ./packaging/scripts/postinst
+  preremove: ./packaging/scripts/prerm
+  postremove: ./packaging/scripts/postrm
