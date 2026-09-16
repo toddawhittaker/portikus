@@ -122,27 +122,35 @@ asset. The version is derived from the repository and looks like
 `0.1.123+gabc1234`: the release number, the commit count, and the short
 commit hash. The asset is named `portikus_<version>_amd64.deb`.
 
-**How a version is deployed.** Set `portikus_version` in
-`infra/ansible/site.yml` to the version you want, commit it, and run:
+**How a version is deployed.** Set `portikus_version` and
+`portikus_deb_sha256` in `infra/ansible/site.yml` to the version you want
+and the SHA-256 checksum of its `.deb` asset, commit them, and run:
 
 ```
 make configure-vm
 ```
 
-Ansible downloads that exact asset to `/var/cache/portikus` and installs
-it. Because the version is pinned in source control, the VM is
-reproducible: the same commit always installs the same package.
+Ansible downloads that exact asset to `/var/cache/portikus`, checks it
+against the pinned checksum, and installs it. Both values come from the
+same release and are always updated together. The checksum is what makes
+the VM reproducible: a version string only names an asset, while the
+checksum guarantees the bytes that get installed.
 
-**How to roll back.** Install the previous version. Download its asset on
-the VM and install it, allowing the downgrade:
+**How to roll back.** Set `portikus_version` and `portikus_deb_sha256`
+back to the previous release and run `make configure-vm`. The install task
+allows downgrades, so this replaces the running version with the older
+one, and source control keeps saying what is deployed.
+
+If the control plane is broken badly enough that you cannot wait for a
+commit, install the older package on the VM by hand:
 
 ```
 gh release download v<previous-version> -p '*.deb'
 sudo apt-get install -y --allow-downgrades ./portikus_<previous-version>_amd64.deb
 ```
 
-Then set `portikus_version` in `site.yml` back to that version so the next
-`make configure-vm` does not roll forward again.
+Afterwards put the same version and checksum into `site.yml`, or the next
+`make configure-vm` rolls forward again.
 
 **Development path.** `make deploy-app` builds the package on your
 workstation and installs it on the VM directly. It does not pin anything
@@ -156,6 +164,18 @@ renders those files and starts the units, after which they start on boot.
 There is no `make db-migrate`. Database migrations run from the
 `portikus-api` unit's `ExecStartPre`, so they are applied when the service
 starts.
+
+The units run with `ProtectSystem=strict`, so the filesystem is read-only
+apart from the paths they are explicitly given. A future service that has
+to write under `/var/lib/portikus` should be granted a `ReadWritePaths`
+entry for the directory it needs, not a weaker `ProtectSystem`.
+
+`/var/lib/portikus` is a shared parent directory. The package creates it,
+but the image builder (`image-build`, `images`) and the workspace script
+(`incus`) keep their own state under it, and normal package upgrades and
+removals leave it alone. Only `apt-get purge portikus` deletes it, and
+that deletes the other users' state with it, so rebuild the workspace
+image after a purge.
 
 Service configuration lives in `/etc/portikus/*.env`. To override a
 variable for testing without changing the Ansible-managed file, create
