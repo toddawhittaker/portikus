@@ -7,16 +7,13 @@
   ansible.builtin.systemd:
     name: portikus-api
     state: restarted
-  failed_when: false
 
 - name: Restart portikus-worker
   ansible.builtin.systemd:
     name: portikus-worker
     state: restarted
-  failed_when: false
 
 - name: Restart portikus-controller
   ansible.builtin.systemd:
     name: portikus-controller
     state: restarted
-  failed_when: false
