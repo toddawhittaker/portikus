@@ -5,8 +5,11 @@
 # the acceptance criteria for Epic 1.  It connects to the platform VM
 # over SSH and checks each subsystem.
 #
+# Every probe runs through the `check` helper so that a single failure
+# is recorded as FAIL and the script continues to the end.
+#
 # Usage: ./infra/tests/smoke-test.sh <vm-ip>
-set -euo pipefail
+set -uo pipefail
 
 VM="${1:?Usage: smoke-test.sh <vm-ip>}"
 
@@ -24,6 +27,52 @@ check() {
     pass=$((pass + 1))
   else
     printf '\033[1;31mFAIL\033[0m  %s\n' "$label"
+    fail=$((fail + 1))
+  fi
+}
+
+# check_output LABEL EXPECTED CMD [ARGS...]
+# Captures stdout from CMD, compares it to EXPECTED.
+check_output() {
+  local label="$1" expected="$2"; shift 2
+  local actual
+  actual=$("$@" 2>/dev/null) || true
+  if [ "$actual" = "$expected" ]; then
+    printf '\033[1;32mPASS\033[0m  %s\n' "$label"
+    pass=$((pass + 1))
+  else
+    printf '\033[1;31mFAIL\033[0m  %s (got: %s)\n' "$label" "$actual"
+    fail=$((fail + 1))
+  fi
+}
+
+# check_gt LABEL THRESHOLD CMD [ARGS...]
+# Captures a numeric value from CMD and checks that it is greater than THRESHOLD.
+check_gt() {
+  local label="$1" threshold="$2"; shift 2
+  local actual
+  actual=$("$@" 2>/dev/null) || true
+  actual="${actual:-0}"
+  if [ "$actual" -gt "$threshold" ] 2>/dev/null; then
+    printf '\033[1;32mPASS\033[0m  %s\n' "$label"
+    pass=$((pass + 1))
+  else
+    printf '\033[1;31mFAIL\033[0m  %s (got: %s)\n' "$label" "$actual"
+    fail=$((fail + 1))
+  fi
+}
+
+# check_zero_lines LABEL CMD [ARGS...]
+# Passes when CMD produces zero lines of output.
+check_zero_lines() {
+  local label="$1"; shift
+  local count
+  count=$("$@" 2>/dev/null | wc -l) || true
+  if [ "${count:-1}" -eq 0 ] 2>/dev/null; then
+    printf '\033[1;32mPASS\033[0m  %s\n' "$label"
+    pass=$((pass + 1))
+  else
+    printf '\033[1;31mFAIL\033[0m  %s (%s lines)\n' "$label" "$count"
     fail=$((fail + 1))
   fi
 }
@@ -60,7 +109,8 @@ check "Incus workspace profile"               ssh_cmd incus profile show workspa
 check "nftables is active"                    ssh_cmd systemctl is-active nftables
 
 # 10. IP forwarding is enabled
-check "IPv4 forwarding"                       ssh_cmd test "$(sysctl -n net.ipv4.ip_forward)" = 1
+# shellcheck disable=SC2016  # expansion is intentionally remote-side
+check "IPv4 forwarding"                       ssh_cmd 'test "$(/usr/sbin/sysctl -n net.ipv4.ip_forward)" = 1'
 
 # 11. Data disk is a PV
 check "Data disk is an LVM PV"               ssh_cmd sudo pvs /dev/vdb
@@ -89,7 +139,13 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
 
   # Provision a workspace.
   echo "Creating workspace ${WS_NAME}..."
-  ssh_cmd bash "${WORKSPACE_SCRIPT}" create "${WS_NAME}" >/dev/null 2>&1
+  if ! ssh_cmd bash "${WORKSPACE_SCRIPT}" create "${WS_NAME}" >/dev/null 2>&1; then
+    printf '\033[1;31mFAIL\033[0m  workspace creation\n'
+    fail=$((fail + 1))
+    echo ""
+    echo "--- Results: ${pass} passed, ${fail} failed ---"
+    exit 1
+  fi
 
   # Helper: run a command inside the workspace.
   ws_exec() {
@@ -110,10 +166,10 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
 
   # 12. systemd is running with no failed units
   check "systemd is-system-running"             ws_exec systemctl is-system-running
-  check "no failed systemd units"               test "$(ws_exec systemctl --failed --no-legend --no-pager 2>/dev/null | wc -l)" -eq 0
+  check_zero_lines "no failed systemd units"    ws_exec systemctl --failed --no-legend --no-pager
 
   # 13. /home/student is owned by student and contains projects/
-  check "/home/student owned by student"        test "$(ws_exec stat -c '%U' /home/student 2>/dev/null)" = "student"
+  check_output "/home/student owned by student" "student" ws_exec stat -c '%U' /home/student
   check "/home/student/projects exists"         ws_exec test -d /home/student/projects
 
   # 14. Passwordless sudo
@@ -123,8 +179,10 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "docker hello-world"                    ws_student "docker run --rm hello-world"
 
   # 16. Docker runs with remapped UIDs (not root-mapped)
-  uid_base=$(ws_student "docker run --rm alpine cat /proc/self/uid_map" 2>/dev/null | awk '{print $2}')
-  check "Docker UID base is not 0"             test "${uid_base:-0}" -gt 0
+  uid_map_second_field() {
+    ws_student "docker run --rm alpine cat /proc/self/uid_map" 2>/dev/null | awk '{print $2}'
+  }
+  check_gt "Docker UID base is not 0" 0        uid_map_second_field
 
   # 17. CLI tools are installed
   check "codex --version"                       ws_student "codex --version"
@@ -146,9 +204,12 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   # 21. Persistence across stop/start
   echo ""
   echo "Testing stop/start persistence..."
-  ws_student "echo smoke-persistence-marker > ~/projects/.smoke-marker"
-  ssh_cmd "incus stop ${WS_NAME} --project ${PROJECT}"
-  ssh_cmd "incus start ${WS_NAME} --project ${PROJECT}"
+  if ! ws_student "echo smoke-persistence-marker > ~/projects/.smoke-marker" >/dev/null 2>&1; then
+    printf '\033[1;31mFAIL\033[0m  write persistence marker\n'
+    fail=$((fail + 1))
+  fi
+  ssh_cmd "incus stop ${WS_NAME} --project ${PROJECT}" >/dev/null 2>&1 || true
+  ssh_cmd "incus start ${WS_NAME} --project ${PROJECT}" >/dev/null 2>&1 || true
   sleep 5
 
   check "projects marker survives restart"      ws_student "cat ~/projects/.smoke-marker"

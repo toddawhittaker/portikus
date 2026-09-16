@@ -68,8 +68,10 @@ table inet filter {
 table inet nat {
   chain postrouting {
     type nat hook postrouting priority 100; policy accept;
-    # Masquerade workspace traffic heading to the Internet
-    oifname "enp*" masquerade
-    oifname "eth*" masquerade
+    # Masquerade workspace traffic leaving via the VM's default uplink.
+    # Incus also adds its own masquerade in the "inet incus" table when
+    # ipv4.nat is true, but we keep ours so NAT works even if that table
+    # is absent (e.g. before the first container starts).
+    oifname "{{ ansible_default_ipv4.interface }}" masquerade
   }
 }
