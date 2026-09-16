@@ -12,7 +12,10 @@
 	"dependencies": {
 		"@portikus/config": "workspace:*",
 		"@portikus/contracts": "workspace:*",
-		"fastify": "5.12.4"
+		"@portikus/db": "workspace:*",
+		"fastify": "5.12.4",
+		"kysely": "0.29.5",
+		"zod": "4.6.5"
 	},
 	"devDependencies": {
 		"@types/node": "24.9.2",
