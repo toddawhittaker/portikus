@@ -15,7 +15,8 @@
 		"test": "vitest run",
 		"build": "tsc -b && pnpm --filter @portikus/web build",
 		"test:e2e": "playwright test",
-		"dev": "tsc -b && pnpm --parallel --filter \"./apps/*\" dev"
+		"dev": "tsc -b && pnpm --parallel --filter \"./apps/*\" dev",
+		"build:deb": "bash scripts/build-deb.sh"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.13",
