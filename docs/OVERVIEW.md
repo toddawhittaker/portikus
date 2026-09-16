@@ -18,8 +18,9 @@ authentication, WebSockets, the workspace agent, and the preview gateway are
 still unbuilt. Epic 3.5 has also landed: the control plane ships as one
 versioned `portikus` Debian package (ADR 0007) that owns the service users,
 `/etc/portikus`, `/var/lib/portikus`, and the three systemd units, and
-Ansible installs the published release asset at a pinned version and renders
-only the environment files and the controller token. Epic 4 (authentication
+Ansible installs the newest published release, or the release named by
+`PORTIKUS_VERSION` when rolling back, and renders only the environment files
+and the controller token. Epic 4 (authentication
 and authorization) is next. Gate A in
 SPEC.md section 30 (architecture proof) must pass before substantial UI
 polish.
