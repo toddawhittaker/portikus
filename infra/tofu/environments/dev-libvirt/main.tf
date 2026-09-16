@@ -32,9 +32,12 @@ module "platform_vm" {
   os_disk_size_bytes   = var.os_disk_size_bytes
   data_disk_size_bytes = var.data_disk_size_bytes
   base_image_url       = var.base_image_url
-  cloud_init_user_data = file("${path.module}/../../../cloud-init/user-data.yml")
-  network_name         = var.network_name
-  network_cidr         = var.network_cidr
-  pool_name            = var.pool_name
-  pool_path            = var.pool_path
+  cloud_init_user_data = templatefile("${path.module}/../../../cloud-init/user-data.yml", {
+    hostname       = var.vm_name
+    ssh_public_key = var.ssh_public_key
+  })
+  network_name = var.network_name
+  network_cidr = var.network_cidr
+  pool_name    = var.pool_name
+  pool_path    = var.pool_path
 }

@@ -1,3 +1,13 @@
+variable "ssh_public_key" {
+  description = "SSH public key for the deploy user. Set it in terraform.tfvars (git-ignored); see terraform.tfvars.example."
+  type        = string
+
+  validation {
+    condition     = can(regex("^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256) ", var.ssh_public_key))
+    error_message = "ssh_public_key must be an OpenSSH public key line, e.g. the contents of ~/.ssh/id_ed25519.pub."
+  }
+}
+
 variable "libvirt_uri" {
   description = "Libvirt connection URI"
   type        = string
