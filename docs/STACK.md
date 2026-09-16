@@ -984,7 +984,7 @@ infra/ansible/
 │   ├── portikus_workspace_profile/
 │   ├── caddy/
 │   ├── postgresql/
-│   ├── node/            # Node runtime only; pnpm until Epic 3.5
+│   ├── node/            # Node runtime only, no pnpm
 │   ├── portikus-api/
 │   ├── portikus-worker/
 │   ├── portikus-controller/
@@ -1009,8 +1009,8 @@ Ansible configures:
 - firewall policy;
 - Caddy;
 - PostgreSQL;
-- Node, the runtime only. pnpm is installed alongside it today because the
-  VM still builds the source tree, and goes away with Epic 3.5;
+- Node, the runtime only. There is no pnpm and no build toolchain on the
+  VM;
 - Portikus services, installed from the versioned `.deb` described in
   ADR 0007 (the package owns the service users, `/etc/portikus`,
   `/var/lib/portikus`, and the systemd units; Ansible renders the
@@ -1020,10 +1020,13 @@ Ansible configures:
 - logging/monitoring;
 - security hardening.
 
-Until the Debian package lands, `make deploy-app` copies the source tree to
-the VM and builds it there. That is the interim path only. SPEC.md §29,
-"Epic 3.5 — Control-plane packaging as a Debian package", replaces it with
-the package from ADR 0007.
+The `portikus` role downloads the release asset for the version in
+`portikus_version`, installs it with apt, and renders only the controller
+token and the three environment files. Rolling back is installing the
+previous `.deb` with `--allow-downgrades`. For local development,
+`make deploy-app` builds the package on the developer's machine, copies it
+to the VM, and installs it the same way; `make build-deb` builds it without
+deploying.
 
 Playbooks should be idempotent.
 
@@ -1288,8 +1291,11 @@ pnpm build
 pnpm test:e2e
 ```
 
-Epic 3.5 adds a job that builds the versioned control-plane `.deb` with
-`nfpm` (ADR 0007) on pushes to `main` and publishes it as a release asset.
+`ci.yml` also builds the versioned control-plane `.deb` with `nfpm`
+(ADR 0007) on every pull request and keeps it as a build artifact for seven
+days. A separate `release.yml` builds the same package on every push to
+`main` and publishes it as a GitHub release asset. It can also be run by
+hand, which produces a prerelease when run from a branch other than `main`.
 
 Infrastructure checks:
 
@@ -1343,6 +1349,7 @@ make configure-vm
 
 make build-workspace-image
 
+make build-deb
 make deploy-app
 
 make smoke-test

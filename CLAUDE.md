@@ -24,7 +24,7 @@ that cover it. Cite sections by number in prompts and reports.
 
 ## Current state
 
-Epics 0 through 3 (SPEC.md section 29) have landed. Epic 0 is the pnpm
+Epics 0 through 3.5 (SPEC.md section 29) have landed. Epic 0 is the pnpm
 workspace monorepo with the apps and packages from STACK.md section 2,
 Biome, Vitest, Playwright, a Makefile, and the decision records in
 `docs/adr/`. Epic 1 is the reproducible platform VM under `infra/`:
@@ -42,11 +42,14 @@ state, and keeps the disconnect grace timer in a durable
 `shutdown_deadline` column. The `contracts`, `config`, and `db` packages
 now have real content, including Kysely and the database migrations.
 Ansible gained `postgresql`, `node`, and `portikus` roles with three
-systemd units, the Makefile gained `make deploy-app`, and the smoke test
-covers all four Epic 3 acceptance criteria. That Ansible-plus-`deploy-app`
-arrangement is interim: Epic 3.5 (packaging the control plane as a Debian
-package, ADR 0007) replaces it and is next, then Epic 4 (authentication
-and authorization).
+systemd units, and the smoke test covers all four Epic 3 acceptance
+criteria. Epic 3.5 packages the control plane as one versioned `portikus`
+Debian package built by `nfpm` in CI (ADR 0007), which owns the service
+users, `/etc/portikus`, `/var/lib/portikus`, and the three systemd units.
+Ansible installs the published release asset at a pinned version and renders
+only the environment files and the controller token, so the VM has no build
+toolchain and rolling back means installing the previous package. Epic 4
+(authentication and authorization) is next.
 
 ## Commands
 
@@ -64,6 +67,9 @@ Prerequisites: the Node version in `.nvmrc`, and pnpm via
 | `pnpm test:e2e` | Playwright browser tests in `e2e/` |
 | `pnpm dev` | Build, then run every app in watch mode |
 | `make check` | typecheck, lint, test, build |
+
+Deployment goes through Make: `make build-deb` builds the control-plane
+Debian package and `make deploy-app` installs it on the VM.
 
 `make help` lists the targets. Prefer the Make targets (STACK.md section
 31); do not invent a deployment command when a Make target exists.
