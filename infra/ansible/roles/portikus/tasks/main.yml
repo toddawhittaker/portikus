@@ -1,44 +1,30 @@
 ---
-# Set up system users, directories, secrets, env files, and systemd units
-# for the three Portikus control-plane services (STACK.md section 22).
+# Install the Portikus control-plane Debian package at a pinned version and
+# render the deployment-specific secrets and environment files (ADR 0007).
+# The package owns the service users, /etc/portikus, /var/lib/portikus, and
+# the three systemd units, so nothing here creates them.
 
-# ── System users ──────────────────────────────────────────────────
+# ── Debian package ────────────────────────────────────────────────
 
-- name: Create portikus system user (api and worker)
-  ansible.builtin.user:
-    name: portikus
-    system: true
-    shell: /usr/sbin/nologin
-    create_home: false
-
-- name: Create portikus-controller system user
-  ansible.builtin.user:
-    name: portikus-controller
-    system: true
-    shell: /usr/sbin/nologin
-    create_home: false
-    groups: incus-admin
-    append: true
-
-# ── Application directory ────────────────────────────────────────
-
-- name: Create application directory
+- name: Create package cache directory
   ansible.builtin.file:
-    path: /var/lib/portikus/app
-    state: directory
-    owner: deploy
-    group: deploy
-    mode: "0755"
-
-# ── Configuration directory ───────────────────────────────────────
-
-- name: Create configuration directory
-  ansible.builtin.file:
-    path: /etc/portikus
+    path: /var/cache/portikus
     state: directory
     owner: root
     group: root
     mode: "0755"
+
+- name: Download the portikus package
+  ansible.builtin.get_url:
+    url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_version }}/portikus_{{ portikus_version }}_amd64.deb"
+    dest: "/var/cache/portikus/portikus_{{ portikus_version }}_amd64.deb"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install the portikus package
+  ansible.builtin.apt:
+    deb: "/var/cache/portikus/portikus_{{ portikus_version }}_amd64.deb"
 
 # ── Controller token (generated once) ────────────────────────────
 
@@ -95,46 +81,14 @@
     mode: "0640"
   notify: Restart portikus-controller
 
-# ── Systemd units ─────────────────────────────────────────────────
+# ── Start the services ───────────────────────────────────────────
+# The package enables the units, but ConditionPathExists keeps them from
+# starting until the environment files above exist.
 
-- name: Deploy portikus-api systemd unit
-  ansible.builtin.template:
-    src: portikus-api.service.j2
-    dest: /etc/systemd/system/portikus-api.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart portikus-api
-
-- name: Deploy portikus-worker systemd unit
-  ansible.builtin.template:
-    src: portikus-worker.service.j2
-    dest: /etc/systemd/system/portikus-worker.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart portikus-worker
-
-- name: Deploy portikus-controller systemd unit
-  ansible.builtin.template:
-    src: portikus-controller.service.j2
-    dest: /etc/systemd/system/portikus-controller.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart portikus-controller
-
-- name: Enable portikus services
+- name: Start portikus services
   ansible.builtin.systemd:
     name: "{{ item }}"
-    enabled: true
-    daemon_reload: true
+    state: started
   loop:
     - portikus-api
     - portikus-worker
