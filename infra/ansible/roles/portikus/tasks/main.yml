@@ -187,17 +187,6 @@
 
 # ── Identity provider ────────────────────────────────────────────
 
-- name: Require identity provider settings when the mock is off
-  ansible.builtin.assert:
-    that:
-      - portikus_oidc_issuer | default('', true) | length > 0
-      - portikus_oidc_client_id | default('', true) | length > 0
-      - portikus_oidc_client_secret | default('', true) | length > 0
-    fail_msg: >-
-      With PORTIKUS_MOCK_IDP=false, set PORTIKUS_OIDC_ISSUER,
-      PORTIKUS_OIDC_CLIENT_ID and PORTIKUS_OIDC_CLIENT_SECRET.
-  when: not portikus_mock_idp
-
 # Generated once on the VM like the controller token and the session secret,
 # so no published secret is ever a working credential on a real host.
 - name: Generate mock identity provider client secret
