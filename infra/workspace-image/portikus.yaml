@@ -1,4 +1,4 @@
-# Portikus workspace image definition for distrobuilder v3.3.1
+# Portikus workspace image definition for distrobuilder (pinned main commit, see docs/adr/0004)
 # Target: build-incus (container only)
 # Base: Debian trixie amd64
 #
