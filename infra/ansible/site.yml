@@ -58,10 +58,12 @@
     portikus_workspace_docker_size_gib: 20
 
     # ── Authentication (SPEC 5.3, ADR 0008) ───────────────────────
-    # The in-repo mock identity provider is on by default so a fresh VM is
-    # usable without an external IdP.  Set PORTIKUS_MOCK_IDP=false and the
-    # PORTIKUS_OIDC_* variables below to point at a real one.
-    portikus_mock_idp: "{{ lookup('env', 'PORTIKUS_MOCK_IDP') | default('true', true) | bool }}"
+    # The in-repo mock identity provider is off unless it is asked for:
+    # while it is on, anyone who can reach the site can sign in as any mock
+    # account, including the administrator.  A pilot VM passes
+    # PORTIKUS_MOCK_IDP=true; otherwise set the PORTIKUS_OIDC_* variables
+    # below to point at a real identity provider.
+    portikus_mock_idp: "{{ lookup('env', 'PORTIKUS_MOCK_IDP') | default('false', true) | bool }}"
     portikus_mock_idp_port: 3002
     portikus_oidc_issuer: "{{ lookup('env', 'PORTIKUS_OIDC_ISSUER') }}"
     portikus_oidc_client_id: "{{ lookup('env', 'PORTIKUS_OIDC_CLIENT_ID') }}"

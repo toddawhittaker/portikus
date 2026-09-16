@@ -232,38 +232,72 @@ echo ""
 # host name, with a session cookie obtained from the mock identity
 # provider, so the block also covers Epic 4: login, roles, ownership,
 # CSRF, and the authenticated presence WebSocket.
-if ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
+#
+# The mock provider is off unless the VM was configured with
+# PORTIKUS_MOCK_IDP=true, and without it there is no way to sign in, so
+# the same variable selects which of the two blocks below runs.
+MOCK_IDP="${PORTIKUS_MOCK_IDP:-false}"
+PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${VM}.nip.io}"
+API="https://${PUBLIC_HOST}"
+# Caddy signs with its own internal authority, so every request has to
+# trust the root certificate the Ansible caddy role copied here.
+CURL="curl -s --cacert /etc/portikus/caddy-root.crt"
+# The session cookie is named for the __Host- prefix, which browsers only
+# accept on a secure, host-scoped, path-/ cookie.
+SESSION_COOKIE_NAME="__Host-portikus_session"
+
+# http_status USER URL [EXTRA_CURL_ARGS]
+# USER is a mock user whose cookie jar is sent, or "-" for anonymous.
+# EXTRA_CURL_ARGS is one string, quoted for the remote shell.
+http_status() {
+  local user="$1" url="$2" extra="${3:-}" jar=""
+  [ "$user" = "-" ] || jar="-b /tmp/portikus-smoke-${user}.jar"
+  ssh_cmd "${CURL} ${jar} ${extra} -o /dev/null -w '%{http_code}' '${url}'"
+}
+
+# vm_get USER URL [EXTRA_CURL_ARGS] — prints the response body.
+vm_get() {
+  local user="$1" url="$2" extra="${3:-}" jar=""
+  [ "$user" = "-" ] || jar="-b /tmp/portikus-smoke-${user}.jar"
+  ssh_cmd "${CURL} ${jar} ${extra} '${url}'"
+}
+
+# A response header of the site root matches the given grep pattern.
+site_header_matches() {
+  ssh_cmd "${CURL} -I '${API}/'" | grep -qi -- "$1"
+}
+
+if ! ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
+  echo "portikus-api not active; skipping Epic 3 and 4 checks."
+elif [ "$MOCK_IDP" != "true" ]; then
+  # Flag-off run: the only assertions possible are that the mock provider
+  # really is absent.  Signing in needs a real identity provider.
+  echo "--- Epic 4: mock identity provider is off ---"
+  echo ""
+
+  check "mock identity provider unit is inactive" \
+    ssh_cmd '! systemctl is-active portikus-mock-idp'
+  check_output "/mock-idp is 404 through Caddy" "404" \
+    http_status - "${API}/mock-idp/.well-known/openid-configuration"
+  check "HSTS header on /" \
+    site_header_matches 'strict-transport-security: max-age=31536000'
+  check "frame-ancestors header on /" \
+    site_header_matches "content-security-policy: frame-ancestors 'none'"
+
+  echo ""
+  echo "Authenticated lifecycle checks need the mock provider."
+  echo "Configure the VM with PORTIKUS_MOCK_IDP=true and re-run with the same variable."
+else
   echo "--- Epic 3 and 4: authenticated lifecycle checks ---"
   echo ""
 
   epic3_pass_start=$pass
   epic3_fail_start=$fail
 
-  PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${VM}.nip.io}"
-  API="https://${PUBLIC_HOST}"
-  # Caddy signs with its own internal authority, so every request has to
-  # trust the root certificate the Ansible caddy role copied here.
-  CURL="curl -s --cacert /etc/portikus/caddy-root.crt"
   PROJECT="portikus"
   WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
   WS_PROBE="/tmp/portikus-ws-probe.mjs"
   WS_STOP="/tmp/portikus-ws-stop"
-
-  # http_status USER URL [EXTRA_CURL_ARGS]
-  # USER is a mock user whose cookie jar is sent, or "-" for anonymous.
-  # EXTRA_CURL_ARGS is one string, quoted for the remote shell.
-  http_status() {
-    local user="$1" url="$2" extra="${3:-}" jar=""
-    [ "$user" = "-" ] || jar="-b /tmp/portikus-smoke-${user}.jar"
-    ssh_cmd "${CURL} ${jar} ${extra} -o /dev/null -w '%{http_code}' '${url}'"
-  }
-
-  # vm_get USER URL [EXTRA_CURL_ARGS] — prints the response body.
-  vm_get() {
-    local user="$1" url="$2" extra="${3:-}" jar=""
-    [ "$user" = "-" ] || jar="-b /tmp/portikus-smoke-${user}.jar"
-    ssh_cmd "${CURL} ${jar} ${extra} '${url}'"
-  }
 
   # Log a mock user in: follow /auth/login to the provider's account list,
   # then request the same page with the chosen account, which redirects
@@ -276,9 +310,11 @@ if ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
     ssh_cmd "${CURL} -c ${jar} -b ${jar} -L -o /dev/null -w '%{http_code}' '${page}&user=${user}'"
   }
 
-  # The session cookie value, read from the Netscape jar curl wrote.
+  # The session cookie value, read from the Netscape jar curl wrote.  The
+  # cookie is HttpOnly, so curl prefixes the domain field with "#HttpOnly_";
+  # that leaves the name in field 6 and the value in field 7 as usual.
   session_cookie() {
-    ssh_cmd "awk '\$6 == \"portikus_session\" {print \$7}' /tmp/portikus-smoke-$1.jar"
+    ssh_cmd "awk '\$6 == \"${SESSION_COOKIE_NAME}\" {print \$7}' /tmp/portikus-smoke-$1.jar"
   }
 
   # A field of a workspace JSON document, or "" when it is missing.
@@ -371,6 +407,10 @@ if ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
     case "$status" in 30*) return 0 ;; *) return 1 ;; esac
   }
   check "http redirects to https"               redirects_to_https
+  check "HSTS header on /" \
+    site_header_matches 'strict-transport-security: max-age=31536000'
+  check "frame-ancestors header on /" \
+    site_header_matches "content-security-policy: frame-ancestors 'none'"
 
   # 3. The mock identity provider answers through Caddy with the right issuer.
   check "portikus-mock-idp is active"           ssh_cmd systemctl is-active portikus-mock-idp
@@ -378,6 +418,11 @@ if ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
     vm_get - "${API}/mock-idp/.well-known/openid-configuration" | json_field issuer
   }
   check_output "mock discovery reports the public issuer" "${API}/mock-idp" mock_issuer
+
+  # A foreign redirect_uri must not be honoured, or an attacker could have
+  # the authorization code delivered to a site they control.
+  check_output "mock /authorize refuses a foreign redirect_uri" "400" \
+    http_status - "${API}/mock-idp/authorize?client_id=portikus-dev&response_type=code&scope=openid&state=smoke&redirect_uri=https%3A%2F%2Fattacker.example%2Fcallback"
 
   # 4. Nothing works without a session.
   check_output "/auth/me is 401 anonymously"    "401" http_status - "${API}/auth/me"
@@ -391,8 +436,10 @@ if ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
     login_as "$mock_user" >/dev/null 2>&1 || true
   done
   alice_me=$(vm_get alice "${API}/auth/me")
-  check_output "alice is signed in" "Alice" echo "$(echo "$alice_me" | json_field displayName)"
-  check "/auth/me carries alice's user id"      test -n "$(echo "$alice_me" | json_field id)"
+  alice_name=$(echo "$alice_me" | json_field displayName)
+  alice_id=$(echo "$alice_me" | json_field id)
+  check_output "alice is signed in" "Alice Student" echo "$alice_name"
+  check "/auth/me carries alice's user id"      test -n "$alice_id"
 
   # 6. Provision alice's workspace.  The request carries no body: the owner
   #    comes from the session, and the Origin header satisfies the CSRF check.
@@ -429,7 +476,10 @@ if ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
     #    the stop file appears, which is how the test controls the session.
     ssh_cmd "cat > ${WS_PROBE}" <<'PROBE'
 import fs from "node:fs";
-const [url, origin, cookie, stopFile] = process.argv.slice(2);
+const [url, origin, stopFile] = process.argv.slice(2);
+// The session cookie arrives on standard input so that it never appears
+// in a command line or a process list.
+const cookie = fs.readFileSync(0, "utf8").trim();
 const ws = new WebSocket(url, { headers: { origin, cookie } });
 let sawMessage = false;
 ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "heartbeat" })));
@@ -459,9 +509,9 @@ PROBE
 
     open_socket() {
       ssh_cmd "rm -f ${WS_STOP}"
-      ssh_cmd "NODE_EXTRA_CA_CERTS=/etc/portikus/caddy-root.crt node ${WS_PROBE} \
-        'wss://${PUBLIC_HOST}/workspaces/${ws_id}/ws' '${API}' \
-        'portikus_session=${alice_cookie}' '${WS_STOP}'" >"$probe_log" 2>&1 &
+      printf '%s=%s' "${SESSION_COOKIE_NAME}" "${alice_cookie}" \
+        | ssh_cmd "NODE_EXTRA_CA_CERTS=/etc/portikus/caddy-root.crt node ${WS_PROBE} \
+        'wss://${PUBLIC_HOST}/workspaces/${ws_id}/ws' '${API}' '${WS_STOP}'" >"$probe_log" 2>&1 &
       probe_pid=$!
       sleep 3
     }
@@ -582,7 +632,9 @@ PROBE
       ws_state=$(wait_for_state running 60)
       sleep 3
 
-      for port in 3000 3001 3002; do
+      # 80 and 443 are the Caddy edge: a workspace must not be able to
+      # reach the sign-in page from inside the bridge.
+      for port in 80 443 3000 3001 3002; do
         check "port ${port} unreachable from workspace" \
           ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- bash -c '! timeout 3 bash -c \"echo >/dev/tcp/10.200.0.1/${port}\" 2>/dev/null'"
       done
@@ -601,8 +653,6 @@ PROBE
 
   echo ""
   echo "--- Epic 3 and 4 results: $((pass - epic3_pass_start)) passed, $((fail - epic3_fail_start)) failed ---"
-else
-  echo "portikus-api not active; skipping Epic 3 and 4 checks."
 fi
 
 echo ""

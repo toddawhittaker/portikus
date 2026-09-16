@@ -198,6 +198,36 @@
       PORTIKUS_OIDC_CLIENT_ID and PORTIKUS_OIDC_CLIENT_SECRET.
   when: not portikus_mock_idp
 
+# Generated once on the VM like the controller token and the session secret,
+# so no published secret is ever a working credential on a real host.
+- name: Generate mock identity provider client secret
+  ansible.builtin.shell:
+    cmd: umask 077 && openssl rand -hex 32 > /etc/portikus/mock-client.secret
+    creates: /etc/portikus/mock-client.secret
+  when: portikus_mock_idp
+  no_log: true
+
+- name: Set mock client secret file permissions
+  ansible.builtin.file:
+    path: /etc/portikus/mock-client.secret
+    owner: root
+    group: root
+    mode: "0600"
+  when: portikus_mock_idp
+
+- name: Read mock identity provider client secret
+  ansible.builtin.slurp:
+    src: /etc/portikus/mock-client.secret
+  register: portikus_mock_client_secret_file
+  when: portikus_mock_idp
+  no_log: true
+
+- name: Set mock identity provider client secret fact
+  ansible.builtin.set_fact:
+    portikus_mock_client_secret: "{{ portikus_mock_client_secret_file.content | b64decode | trim }}"
+  when: portikus_mock_idp
+  no_log: true
+
 # The mock provider is served by Caddy under /mock-idp on the public host,
 # so the API reaches it over loopback with a certificate it trusts.
 - name: Set the effective identity provider settings
@@ -207,7 +237,7 @@
     portikus_effective_oidc_client_id: >-
       {{ 'portikus-dev' if portikus_mock_idp else portikus_oidc_client_id }}
     portikus_effective_oidc_client_secret: >-
-      {{ 'portikus-dev-secret' if portikus_mock_idp else portikus_oidc_client_secret }}
+      {{ portikus_mock_client_secret if portikus_mock_idp else portikus_oidc_client_secret }}
   no_log: true
 
 - name: Deploy mock identity provider environment file
@@ -239,6 +269,12 @@
 - name: Remove the mock identity provider environment file
   ansible.builtin.file:
     path: /etc/portikus/mock-idp.env
+    state: absent
+  when: not portikus_mock_idp
+
+- name: Remove the mock identity provider client secret
+  ansible.builtin.file:
+    path: /etc/portikus/mock-client.secret
     state: absent
   when: not portikus_mock_idp
 

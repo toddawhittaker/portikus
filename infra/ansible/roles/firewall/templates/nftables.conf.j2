@@ -25,7 +25,9 @@ table inet filter {
     # SSH (management) — reject from workspace bridge (defense in depth if ACL absent)
     iifname != "{{ incus_network_name }}" tcp dport 22 accept
 
-    # HTTP/HTTPS — Caddy will listen here once deployed (Epic 3+)
+    # HTTP/HTTPS — Caddy listens here.  Workspaces must not reach the
+    # control-plane site from inside the bridge, so drop those first.
+    iifname "{{ incus_network_name }}" tcp dport { 80, 443 } drop
     tcp dport { 80, 443 } accept
 
     # ICMP / ICMPv6 for diagnostics

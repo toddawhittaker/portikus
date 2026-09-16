@@ -6,6 +6,16 @@
 	tls internal
 	encode gzip
 
+	# Browser-side hardening (SPEC 24.3 and 24.10). frame-ancestors 'none'
+	# keeps the control plane out of any iframe, including a preview.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Content-Security-Policy "frame-ancestors 'none'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		-Server
+	}
+
 	# The control-plane API. The workspace WebSocket lives at
 	# /workspaces/<id>/ws, so the /workspaces* block carries it too.
 	handle /auth/* {
@@ -26,6 +36,13 @@
 	# prefix, so the prefix is passed through unchanged.
 	handle /mock-idp/* {
 		reverse_proxy 127.0.0.1:{{ portikus_mock_idp_port }}
+	}
+{% else %}
+
+	# The mock provider is off, so nothing under its prefix may fall
+	# through to the single-page application and answer 200.
+	handle /mock-idp* {
+		respond 404
 	}
 {% endif %}
 
