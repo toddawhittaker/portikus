@@ -2,7 +2,6 @@ import {
 	CookieJar,
 	csrfHeaders,
 	loginAs,
-	MOCK_GROUPS,
 	MOCK_USERS,
 	type MockOidcProvider,
 	startMockOidcProvider,
@@ -303,7 +302,7 @@ test.skipIf(skip)("re-login after a group change downgrades the role", async () 
 			sub: "erin",
 			email: "erin@example.edu",
 			name: "Erin Mover",
-			groups: [MOCK_GROUPS.admin] as string[],
+			groups: ["portikus-administrators"],
 		},
 	};
 	const provider = await startMockOidcProvider({ users: movable });
@@ -319,7 +318,7 @@ test.skipIf(skip)("re-login after a group change downgrades the role", async () 
 		});
 		expect(first.json().role).toBe("administrator");
 
-		movable.erin.groups = [MOCK_GROUPS.student];
+		movable.erin.groups = ["portikus-students"];
 
 		const again = new CookieJar();
 		await loginAs(scoped, "erin", again);
