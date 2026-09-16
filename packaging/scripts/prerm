@@ -4,7 +4,7 @@ set -e
 
 if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
 	systemctl stop portikus-api.service portikus-worker.service \
-		portikus-controller.service || true
+		portikus-controller.service portikus-mock-idp.service || true
 fi
 
 exit 0

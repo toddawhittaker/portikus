@@ -157,6 +157,91 @@
     portikus_controller_token: "{{ portikus_token_file.content | b64decode | trim }}"
   no_log: true
 
+# ── Session cookie secret (generated once) ───────────────────────
+# Generated on the VM rather than checked in, and never regenerated, so
+# existing sessions survive a re-run of this playbook.
+
+- name: Generate session cookie secret
+  ansible.builtin.shell:
+    cmd: umask 077 && openssl rand -hex 32 > /etc/portikus/session.secret
+    creates: /etc/portikus/session.secret
+  no_log: true
+
+- name: Set session secret file permissions
+  ansible.builtin.file:
+    path: /etc/portikus/session.secret
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Read session cookie secret
+  ansible.builtin.slurp:
+    src: /etc/portikus/session.secret
+  register: portikus_session_secret_file
+  no_log: true
+
+- name: Set session cookie secret fact
+  ansible.builtin.set_fact:
+    portikus_session_cookie_secret: "{{ portikus_session_secret_file.content | b64decode | trim }}"
+  no_log: true
+
+# ── Identity provider ────────────────────────────────────────────
+
+- name: Require identity provider settings when the mock is off
+  ansible.builtin.assert:
+    that:
+      - portikus_oidc_issuer | default('', true) | length > 0
+      - portikus_oidc_client_id | default('', true) | length > 0
+      - portikus_oidc_client_secret | default('', true) | length > 0
+    fail_msg: >-
+      With PORTIKUS_MOCK_IDP=false, set PORTIKUS_OIDC_ISSUER,
+      PORTIKUS_OIDC_CLIENT_ID and PORTIKUS_OIDC_CLIENT_SECRET.
+  when: not portikus_mock_idp
+
+# The mock provider is served by Caddy under /mock-idp on the public host,
+# so the API reaches it over loopback with a certificate it trusts.
+- name: Set the effective identity provider settings
+  ansible.builtin.set_fact:
+    portikus_effective_oidc_issuer: >-
+      {{ (portikus_public_url ~ '/mock-idp') if portikus_mock_idp else portikus_oidc_issuer }}
+    portikus_effective_oidc_client_id: >-
+      {{ 'portikus-dev' if portikus_mock_idp else portikus_oidc_client_id }}
+    portikus_effective_oidc_client_secret: >-
+      {{ 'portikus-dev-secret' if portikus_mock_idp else portikus_oidc_client_secret }}
+  no_log: true
+
+- name: Deploy mock identity provider environment file
+  ansible.builtin.template:
+    src: mock-idp.env.j2
+    dest: /etc/portikus/mock-idp.env
+    owner: root
+    group: portikus
+    mode: "0640"
+  when: portikus_mock_idp
+  notify: Restart portikus-mock-idp
+
+- name: Enable and start the mock identity provider
+  ansible.builtin.systemd:
+    name: portikus-mock-idp
+    enabled: true
+    state: started
+  when: portikus_mock_idp
+
+- name: Disable and stop the mock identity provider
+  ansible.builtin.systemd:
+    name: portikus-mock-idp
+    enabled: false
+    state: stopped
+  when: not portikus_mock_idp
+
+# Without the environment file the unit cannot start even if something
+# enables it by hand (ConditionPathExists).
+- name: Remove the mock identity provider environment file
+  ansible.builtin.file:
+    path: /etc/portikus/mock-idp.env
+    state: absent
+  when: not portikus_mock_idp
+
 # ── Environment files ────────────────────────────────────────────
 
 - name: Deploy api environment file

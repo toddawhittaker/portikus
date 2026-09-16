@@ -81,13 +81,23 @@ wait-vm: ## Wait for the platform VM to finish first boot
 # Ansible runs from infra/ansible, so a local package path has to be absolute.
 PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
 
-configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build)
+configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_MOCK_IDP=false plus PORTIKUS_OIDC_* uses a real identity provider)
 	cd infra/ansible && PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) \
-		PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) ansible-playbook site.yml
+		PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) \
+		PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
+		PORTIKUS_OIDC_ISSUER=$(PORTIKUS_OIDC_ISSUER) PORTIKUS_OIDC_CLIENT_ID=$(PORTIKUS_OIDC_CLIENT_ID) \
+		PORTIKUS_OIDC_CLIENT_SECRET=$(PORTIKUS_OIDC_CLIENT_SECRET) \
+		PORTIKUS_OIDC_STUDENT_GROUP=$(PORTIKUS_OIDC_STUDENT_GROUP) \
+		PORTIKUS_OIDC_ADMIN_GROUP=$(PORTIKUS_OIDC_ADMIN_GROUP) ansible-playbook site.yml
 
-smoke-test: ## Run infrastructure smoke tests against the VM
+smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> if the site was configured with one)
 	@test -n "$(VM_IP)" || { echo "smoke-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	bash infra/tests/smoke-test.sh $(VM_IP)
+	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
+		PORTIKUS_OIDC_ISSUER=$(PORTIKUS_OIDC_ISSUER) PORTIKUS_OIDC_CLIENT_ID=$(PORTIKUS_OIDC_CLIENT_ID) \
+		PORTIKUS_OIDC_CLIENT_SECRET=$(PORTIKUS_OIDC_CLIENT_SECRET) \
+		PORTIKUS_OIDC_STUDENT_GROUP=$(PORTIKUS_OIDC_STUDENT_GROUP) \
+		PORTIKUS_OIDC_ADMIN_GROUP=$(PORTIKUS_OIDC_ADMIN_GROUP) \
+		bash infra/tests/smoke-test.sh $(VM_IP)
 
 destroy-pilot: ## Destroy the platform VM (irreversible)
 	cd $(TOFU_DIR) && tofu destroy

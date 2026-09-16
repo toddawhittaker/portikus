@@ -2,7 +2,11 @@
 # portikus postinst: own the service users and the units.
 set -e
 
+# Units the package owns. The mock identity provider is included in the
+# was-running snapshot so an upgrade restarts it, but never enabled here:
+# only Ansible turns it on (ADR 0008).
 UNITS="portikus-controller.service portikus-worker.service portikus-api.service"
+ALL_UNITS="$UNITS portikus-mock-idp.service"
 
 case "$1" in
 	configure)
@@ -28,7 +32,7 @@ fi
 if [ -d /run/systemd/system ]; then
 	# Note which units were running before the reload, so an upgrade restarts them.
 	running=""
-	for unit in $UNITS; do
+	for unit in $ALL_UNITS; do
 		if systemctl is-active --quiet "$unit"; then
 			running="$running $unit"
 		fi
@@ -43,8 +47,9 @@ if [ -d /run/systemd/system ]; then
 		done
 	fi
 
-	# The api runs the database migrations in ExecStartPre, so it goes first.
-	for unit in portikus-api.service portikus-controller.service portikus-worker.service; do
+	# The mock provider first so the API can reach its issuer, then the api,
+	# which runs the database migrations in ExecStartPre.
+	for unit in portikus-mock-idp.service portikus-api.service portikus-controller.service portikus-worker.service; do
 		case " $running " in
 			*" $unit "*) systemctl restart "$unit" || true ;;
 		esac
