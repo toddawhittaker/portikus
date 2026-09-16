@@ -39,6 +39,9 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The package version counts commits, so the full history is needed.
+          fetch-depth: 0
       - name: Detect application code
         id: detect
         run: |
@@ -62,6 +65,22 @@ jobs:
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
       - if: steps.detect.outputs.present == 'true'
         run: pnpm build
+      - name: Cache nfpm
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/portikus/nfpm
+          key: nfpm-${{ runner.os }}-${{ hashFiles('scripts/build-deb.sh') }}
+      - name: Build Debian package
+        if: steps.detect.outputs.present == 'true'
+        run: pnpm build:deb
+      - name: Upload Debian package
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: portikus-deb
+          path: dist/deb/*.deb
+          retention-days: 7
 
   e2e:
     name: Browser end-to-end tests
@@ -117,4 +136,4 @@ jobs:
         run: pipx install ansible-lint && ansible-lint infra/ansible
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true'
-        run: sudo apt-get install -y shellcheck && find . -name '*.sh' -not -path './node_modules/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck
+        run: sudo apt-get install -y shellcheck && find . -name '*.sh' -not -path './node_modules/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && { [ ! -d packaging/scripts ] || shellcheck packaging/scripts/*; }

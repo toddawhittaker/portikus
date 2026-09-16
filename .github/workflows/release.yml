@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Build and publish the Debian package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Cache nfpm
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/portikus/nfpm
+          key: nfpm-${{ runner.os }}-${{ hashFiles('scripts/build-deb.sh') }}
+      - name: Build Debian package
+        id: package
+        run: |
+          VERSION=$(pnpm --silent build:deb | tail -n1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.package.outputs.version }}
+          PRERELEASE: ${{ github.ref != 'refs/heads/main' && '--prerelease' || '' }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists; nothing to publish."
+            exit 0
+          fi
+          # Word splitting of PRERELEASE is intended: it is either empty or one flag.
+          # shellcheck disable=SC2086
+          gh release create "v$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "portikus $VERSION" \
+            --notes "Control-plane package built from $GITHUB_SHA" \
+            $PRERELEASE \
+            dist/deb/portikus_*.deb
