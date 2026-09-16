@@ -7,21 +7,39 @@ summarizes them so a reader knows where to look.
 
 ## Current state
 
-Epics 0 through 3.5 in SPEC.md section 29 have landed: the pnpm workspace
+Epics 0 through 4 in SPEC.md section 29 have landed: the pnpm workspace
 monorepo, the reproducible platform VM under `infra/`, the Debian 13
 workspace image, and the control-plane workspace lifecycle. Workspaces are
 now created, started, and stopped by the control plane rather than by hand:
 the workspace controller talks to Incus over the REST API on its unix
 socket, the API records intent and browser presence, and the worker
-reconciles every second and owns the 10-minute disconnect timer. The web UI,
-authentication, WebSockets, the workspace agent, and the preview gateway are
-still unbuilt. Epic 3.5 has also landed: the control plane ships as one
+reconciles every second and owns the 10-minute disconnect timer. The
+workspace agent, the terminals, and the preview gateway are still unbuilt,
+and the web UI is a single page rather than the three-pane workspace.
+Epic 3.5 packaged the control plane as one
 versioned `portikus` Debian package (ADR 0007) that owns the service users,
 `/etc/portikus`, `/var/lib/portikus`, and the three systemd units, and
 Ansible installs the newest published release, or the release named by
 `PORTIKUS_VERSION` when rolling back, and renders only the environment files
-and the controller token. Epic 4 (authentication
-and authorization) is next. Gate A in
+and the controller token. Epic 4 has landed too: students and
+administrators log in through OpenID Connect with the Authorization Code
+flow and PKCE (proof key for code exchange), a session is a revocable row
+in PostgreSQL behind an opaque HttpOnly cookie, roles come from group
+claims and are denied by default, and every API route and the WebSocket
+upgrade require a session with the workspace owner taken from it. The
+WebSocket at `/workspaces/:id/ws` replaced the old HTTP presence routes. A
+Caddy Ansible role now fronts the VM with an internally issued certificate
+and serves the web bundle, and an in-repo mock identity provider in
+`packages/auth` ships as a systemd unit that is disabled unless Ansible is
+told otherwise (ADR 0008).
+
+Known gaps after Epic 4: a real identity provider is not reachable from the
+API yet, because the units allow loopback traffic only; the real client
+secret travels through the environment until SOPS is wired up; there is no
+admin UI beyond one listing route; nothing rate-limits login; and disabling
+a user means setting `users.disabled_at` by hand in SQL.
+
+Epic 5 (workspace agent and terminal transport) is next. Gate A in
 SPEC.md section 30 (architecture proof) must pass before substantial UI
 polish.
 
@@ -35,7 +53,8 @@ Pop!_OS host  ->  KVM/libvirt  ->  Debian platform VM  ->  Incus
 
 Components, each a separate trust zone (SPEC.md section 24.1):
 
-- **Control plane** (`apps/api`): Fastify. OIDC auth, authorization,
+- **Control plane** (`apps/api`): Fastify, reached through Caddy rather
+  than directly; it listens on loopback only. OIDC auth, authorization,
   project metadata, UI layout state, audit, recovery metadata. SPEC.md
   section 2.8, STACK.md section 4.
 - **Worker** (`apps/worker`): owns delayed shutdown, provisioning,
@@ -52,8 +71,10 @@ Components, each a separate trust zone (SPEC.md section 24.1):
   section 10.
 - **Preview gateway**: Caddy plus per-request authorization, on a separate
   browser origin. It is configuration rather than a TypeScript app, so it
-  lives under `infra/caddy/` and arrives with Epic 1. SPEC.md section 14,
-  STACK.md section 12.
+  lives in the `caddy` Ansible role under `infra/`. Epic 4 added that role
+  to put the control plane behind HTTPS; the per-request authorization for
+  previews arrives with the preview epic. SPEC.md section 14, STACK.md
+  section 12.
 - **Browser UI** (`apps/web`): three panes. Project list, tabbed work
   surfaces (xterm.js terminals, Monaco, Markdown, preview), live file tree
   with Git decorations. SPEC.md section 8.
