@@ -7,12 +7,28 @@
 		".": {
 			"types": "./dist/index.d.ts",
 			"default": "./dist/index.js"
+		},
+		"./testing": {
+			"types": "./dist/testing/index.d.ts",
+			"default": "./dist/testing/index.js"
 		}
 	},
 	"scripts": {
-		"typecheck": "tsc -b"
+		"typecheck": "tsc -b",
+		"mock-oidc": "tsx src/testing/mock-oidc-main.ts"
+	},
+	"dependencies": {
+		"@fastify/cookie": "11.1.2",
+		"@portikus/db": "workspace:*",
+		"@portikus/events": "workspace:*",
+		"fastify": "5.12.4",
+		"fastify-plugin": "6.0.0",
+		"jose": "6.2.12",
+		"kysely": "0.29.5",
+		"openid-client": "6.8.8"
 	},
 	"devDependencies": {
-		"@types/node": "24.9.2"
+		"@types/node": "24.9.2",
+		"tsx": "4.23.13"
 	}
 }

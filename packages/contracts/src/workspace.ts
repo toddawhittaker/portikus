@@ -28,7 +28,7 @@ export type DesiredState = z.infer<typeof DesiredState>;
  */
 export const Workspace = z.object({
 	id: z.string().uuid(),
-	ownerUserId: z.string().min(1),
+	ownerUserId: z.string().uuid(),
 	state: WorkspaceState,
 	desiredState: DesiredState,
 	incusInstanceName: z.string().nullable(),
@@ -48,29 +48,27 @@ export const Workspace = z.object({
 export type Workspace = z.infer<typeof Workspace>;
 
 /**
- * Request body for `POST /workspaces` (SPEC.md §6.2).
+ * Request body for `POST /workspaces` (SPEC.md §6.2). The owner comes from
+ * the session, so the body carries nothing and must stay empty.
  */
-export const CreateWorkspaceRequest = z.object({
-	ownerUserId: z.string().min(1),
-});
+export const CreateWorkspaceRequest = z.object({}).strict();
 export type CreateWorkspaceRequest = z.infer<typeof CreateWorkspaceRequest>;
 
 /**
- * Response body when a connection is created
- * (`POST /workspaces/:id/connections`, SPEC.md §6.4).
+ * Response body for `GET /admin/workspaces` (SPEC.md §5.2, §26).
  */
-export const ConnectionCreated = z.object({
-	connectionId: z.string().uuid(),
-	workspaceId: z.string().uuid(),
+export const AdminWorkspaceList = z.object({
+	workspaces: z.array(Workspace),
 });
-export type ConnectionCreated = z.infer<typeof ConnectionCreated>;
+export type AdminWorkspaceList = z.infer<typeof AdminWorkspaceList>;
 
 /**
  * Error codes returned by the API (SPEC.md §27).
  */
 export const ApiErrorCode = z.enum([
 	"WORKSPACE_NOT_FOUND",
-	"CONNECTION_NOT_FOUND",
+	"UNAUTHORIZED",
+	"FORBIDDEN",
 	"VALIDATION_FAILED",
 	"CONTROLLER_UNAVAILABLE",
 	"INTERNAL",

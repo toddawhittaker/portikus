@@ -16,10 +16,17 @@ const workspaceAliases = [
 
 // Sub-path aliases must come before their parent package alias so that
 // Vite's prefix-based matching resolves them first.
-workspaceAliases.unshift({
-	find: "@portikus/db/testing",
-	replacement: new URL("./packages/db/src/testing.ts", import.meta.url).pathname,
-});
+workspaceAliases.unshift(
+	{
+		find: "@portikus/auth/testing",
+		replacement: new URL("./packages/auth/src/testing/index.ts", import.meta.url)
+			.pathname,
+	},
+	{
+		find: "@portikus/db/testing",
+		replacement: new URL("./packages/db/src/testing.ts", import.meta.url).pathname,
+	},
+);
 
 export default defineConfig({
 	// Tests import workspace packages from source so `pnpm test` works on a
