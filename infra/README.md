@@ -78,6 +78,31 @@ up the workspace network, profile, and project, and applies the firewall.
 make smoke-test
 ```
 
+## 7. Build the workspace image
+
+Build the distrobuilder-based workspace image on the VM and import it into
+Incus. The recipe lives in `infra/workspace-image/`.
+
+```
+make build-workspace-image
+```
+
+This rsyncs the image definition to the VM, runs distrobuilder, and imports
+the result into the `portikus` Incus project. Re-runs replace the previous
+image.
+
+## 8. Create a test workspace
+
+```
+make workspace-create NAME=alice
+```
+
+Destroy it when done:
+
+```
+make workspace-destroy NAME=alice
+```
+
 ## Destroy and recreate
 
 ```

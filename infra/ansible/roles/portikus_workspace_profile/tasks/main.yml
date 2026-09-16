@@ -39,6 +39,9 @@
   changed_when: true
 
 # Check each profile key and only set it when the value differs.
+# Resource limits reference vars from site.yml so they stay in one place.
+# SPEC 19.1 suggests 4 vCPU / 6 GiB for a real pilot; the current defaults
+# are lower because the pilot VM has only 8 GB total.
 - name: Get current workspace profile config
   ansible.builtin.command:
     cmd: incus profile get workspace --project {{ incus_project_name }} {{ item.key }}
@@ -46,8 +49,12 @@
     - { key: "security.nesting", value: "true" }
     - { key: "security.privileged", value: "false" }
     - { key: "security.idmap.isolated", value: "true" }
-    - { key: "limits.cpu", value: "2" }
-    - { key: "limits.memory", value: "4GB" }
+    - { key: "security.syscalls.intercept.mknod", value: "true" }
+    - { key: "security.syscalls.intercept.setxattr", value: "true" }
+    - { key: "security.guestapi", value: "false" }
+    - { key: "limits.cpu", value: "{{ workspace_cpu_limit }}" }
+    - { key: "limits.memory", value: "{{ workspace_memory_limit }}" }
+    - { key: "limits.processes", value: "{{ workspace_process_limit }}" }
   register: portikus_workspace_profile_current
   changed_when: false
   # The key may not be set yet if the profile was just created.

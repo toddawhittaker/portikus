@@ -24,11 +24,18 @@ that cover it. Cite sections by number in prompts and reports.
 
 ## Current state
 
-Epic 0 (SPEC.md section 29) has landed the scaffolding: a pnpm workspace
-monorepo with the apps and packages from STACK.md section 2, Biome, Vitest,
-Playwright, a Makefile, and the architecture decision records in
-`docs/adr/`. Every package is a real but near-empty TypeScript package with
-one test. No subsystem behaviour is implemented yet; Epic 1 is next.
+Epics 0, 1, and 2 (SPEC.md section 29) have landed. Epic 0 is the pnpm
+workspace monorepo with the apps and packages from STACK.md section 2,
+Biome, Vitest, Playwright, a Makefile, and the decision records in
+`docs/adr/`. Epic 1 is the reproducible platform VM under `infra/`:
+host bootstrap, OpenTofu on libvirt, cloud-init, Ansible roles for the
+firewall, LVM thin storage, Incus, and the workspace network, plus the
+smoke test. Epic 2 is the Debian 13 workspace image built with
+distrobuilder, the hardened workspace profile with nested Docker and
+isolated ID mapping, persistent home and Docker volumes, and the interim
+`workspace.sh` provisioning script. Application packages are still
+near-empty scaffolding; Epic 3 (control-plane workspace lifecycle) is
+next.
 
 ## Commands
 
@@ -80,6 +87,7 @@ Agents live in `.claude/agents/`:
 | builder | Implementing a scoped change against a named SPEC.md section. |
 | tester | Designing tests that pin SPEC.md invariants, then running them. |
 | security-reviewer | Read-only review against SPEC.md section 24 trust boundaries. |
+| code-reviewer | Read-only review for correctness, then YAGNI/KISS/DRY/SOLID quality, on app and infra code. |
 | infra | Anything under `infra/`: OpenTofu, Ansible, cloud-init, Incus, images. |
 
 Orchestration rules:
@@ -93,6 +101,8 @@ Orchestration rules:
 - Send anything touching auth, the preview gateway, the workspace agent,
   file APIs, Incus, or nested Docker through security-reviewer before it
   is called done.
+- Run code-reviewer over the epic branch before the PR that merges an
+  epic into main, and fix or explicitly defer every finding it requires.
 - When agents disagree, the orchestrator arbitrates. Read the spec section
   in dispute and decide; do not bounce the conflict back and forth between
   agents. If the spec does not settle it, bring the two positions and a
