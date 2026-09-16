@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { describeService } from "./index.js";
 
-test("describes itself", () => {
-	expect(describeService()).toBe("portikus workspace-controller");
+test("index module exports buildServer", async () => {
+	const mod = await import("./server.js");
+	expect(typeof mod.buildServer).toBe("function");
 });

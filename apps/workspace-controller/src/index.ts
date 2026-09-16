@@ -1,10 +1,29 @@
-/** The only process that talks to Incus (STACK.md section 9). Placeholder entrypoint; real behaviour arrives in a later epic. */
-export const serviceName = "workspace-controller";
+import { ControllerConfigSchema, loadConfig } from "@portikus/config";
+import { IncusClient } from "./incus.js";
+import { IncusWorkspaceProvider } from "./provider.js";
+import { buildServer } from "./server.js";
 
-export function describeService(): string {
-	return `portikus ${serviceName}`;
-}
+const config = loadConfig(ControllerConfigSchema);
+const client = new IncusClient({
+	socketPath: config.INCUS_SOCKET,
+	project: config.INCUS_PROJECT,
+});
+const provider = new IncusWorkspaceProvider({
+	client,
+	pool: config.INCUS_POOL,
+	profile: config.INCUS_PROFILE,
+	imageAlias: config.INCUS_IMAGE_ALIAS,
+});
 
-if (process.argv[1]?.endsWith("index.ts") || process.argv[1]?.endsWith("index.js")) {
-	console.log(describeService());
-}
+const app = buildServer({
+	provider,
+	token: config.CONTROLLER_TOKEN,
+});
+
+app.listen({ host: "127.0.0.1", port: config.PORT }, (err, address) => {
+	if (err) {
+		app.log.error(err);
+		process.exit(1);
+	}
+	console.log(`workspace-controller listening on ${address}`);
+});
