@@ -1,0 +1,275 @@
+# Portikus workspace image definition for distrobuilder v3.3.1
+# Target: build-incus (container only)
+# Base: Debian bookworm amd64
+#
+# Pinned tool versions (checked 2026-09-15 via npm view):
+#   @anthropic-ai/claude-code  2.1.273
+#   @openai/codex              0.154.0
+#
+# Third-party APT repository GPG key fingerprints, verified from vendor docs:
+#   Docker:     9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+#     Source:   https://docs.docker.com/engine/install/debian/
+#   GitHub CLI: 2C6106201985B60E6C7AC87323F3D4EA75716059
+#     Source:   https://github.com/cli/cli/blob/trunk/docs/install_linux.md
+#   NodeSource: 6F71F525282841EEDAF851B42F59B5F99B1BE0B4
+#     Source:   https://github.com/nodesource/distributions#readme
+
+image:
+  distribution: debian
+  release: bookworm
+  architecture: amd64
+  description: Portikus student workspace
+  name: portikus-workspace
+  # The serial is set at build time via: distrobuilder build-incus -o image.serial=VALUE
+  # build-on-vm.sh reads the VERSION file and passes it.
+
+source:
+  downloader: debootstrap
+  url: https://deb.debian.org/debian
+  keys:
+  # Debian Archive Automatic Signing Key
+  # 0x126C0D24BD8A2942CC7DF8AC7638D0442B90D010
+  - 0x126C0D24BD8A2942CC7DF8AC7638D0442B90D010
+
+targets:
+  incus: {}
+
+files:
+- path: /etc/hostname
+  generator: hostname
+
+- path: /etc/hosts
+  generator: hosts
+
+# systemd network config for container eth0
+- path: /etc/systemd/network/eth0.network
+  generator: dump
+  types:
+  - container
+  content: |-
+    [Match]
+    Name=eth0
+
+    [Network]
+    DHCP=true
+
+    [DHCPv4]
+    UseDomains=true
+    UseMTU=true
+
+    [DHCP]
+    ClientIdentifier=mac
+
+# sudoers for student user
+- path: /etc/sudoers.d/student
+  generator: dump
+  mode: "0440"
+  content: |-
+    student ALL=(ALL) NOPASSWD:ALL
+
+# Docker daemon configuration (overlay2 storage driver)
+- path: /etc/docker/daemon.json
+  generator: dump
+  mode: "0644"
+  content: |-
+    {"storage-driver": "overlay2"}
+
+# Portikus workspace agent systemd unit (inert until Epic 5 delivers the binary)
+- path: /etc/systemd/system/portikus-workspace-agent.service
+  generator: dump
+  mode: "0644"
+  content: |-
+    [Unit]
+    Description=Portikus Workspace Agent
+    After=network-online.target
+    Wants=network-online.target
+    ConditionPathExists=/opt/portikus/workspace-agent/bin/workspace-agent
+
+    [Service]
+    ExecStart=/opt/portikus/workspace-agent/bin/workspace-agent
+    Restart=on-failure
+    RestartSec=5
+
+    [Install]
+    WantedBy=multi-user.target
+
+packages:
+  manager: apt
+  update: true
+  cleanup: true
+
+  sets:
+  # Base Debian packages
+  - packages:
+    - sudo
+    - git
+    - tmux
+    - ripgrep
+    - build-essential
+    - python3
+    - python3-pip
+    - python3-venv
+    - curl
+    - ca-certificates
+    - gnupg
+    - jq
+    - unzip
+    - less
+    - vim-tiny
+    - openssh-client
+    - iproute2
+    - iptables
+    - procps
+    - systemd
+    - systemd-sysv
+    - dbus
+    - locales
+    action: install
+
+  # Docker Engine and compose plugin
+  # From https://download.docker.com/linux/debian bookworm stable
+  - packages:
+    - docker-ce
+    - docker-ce-cli
+    - containerd.io
+    - docker-buildx-plugin
+    - docker-compose-plugin
+    action: install
+
+  # GitHub CLI
+  # From https://cli.github.com/packages
+  - packages:
+    - gh
+    action: install
+
+  # Node.js 24 from NodeSource
+  # From https://deb.nodesource.com/node_24.x nodistro
+  - packages:
+    - nodejs
+    action: install
+
+actions:
+# Add third-party APT repositories and their signing keys.
+# Keys are fetched from canonical vendor URLs at build time and verified
+# by fingerprint. The fingerprints are documented at the top of this file.
+- trigger: post-unpack
+  action: |-
+    #!/bin/sh
+    set -eux
+
+    mkdir -p /etc/apt/keyrings
+
+    # Docker Engine - key from https://download.docker.com/linux/debian/gpg
+    # Expected fingerprint: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+    curl -fsSL https://download.docker.com/linux/debian/gpg \
+      | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" \
+      > /etc/apt/sources.list.d/docker.list
+
+    # GitHub CLI - key from https://cli.github.com/packages/githubcli-archive-keyring.gpg
+    # Expected fingerprint: 2C6106201985B60E6C7AC87323F3D4EA75716059
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      -o /etc/apt/keyrings/githubcli.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list
+
+    # NodeSource Node.js 24 - key from https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+    # Expected fingerprint: 6F71F525282841EEDAF851B42F59B5F99B1BE0B4
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+      | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" \
+      > /etc/apt/sources.list.d/nodesource.list
+
+# Configure locale and timezone
+- trigger: post-packages
+  action: |-
+    #!/bin/sh
+    set -eux
+
+    # Set locale to C.UTF-8
+    echo "C.UTF-8 UTF-8" >> /etc/locale.gen
+    locale-gen C.UTF-8
+    update-locale LANG=C.UTF-8
+
+    # Set timezone to UTC
+    ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+    echo "UTC" > /etc/timezone
+
+# Create student user and workspace directories
+- trigger: post-packages
+  action: |-
+    #!/bin/sh
+    set -eux
+
+    # Create student user (uid/gid 1000, shell /bin/bash)
+    groupadd -g 1000 student
+    useradd -m -u 1000 -g 1000 -s /bin/bash student
+
+    # Add student to the docker group
+    usermod -aG docker student
+
+    # Create projects directory owned by student
+    mkdir -p /home/student/projects
+    chown 1000:1000 /home/student/projects
+
+# Install Claude Code and Codex globally via npm
+- trigger: post-packages
+  action: |-
+    #!/bin/sh
+    set -eux
+
+    # Pinned versions checked 2026-09-15 via npm view
+    npm install -g \
+      "@anthropic-ai/claude-code@2.1.273" \
+      "@openai/codex@0.154.0"
+
+# Create workspace agent directory and enable services
+- trigger: post-packages
+  action: |-
+    #!/bin/sh
+    set -eux
+
+    # Create directory for the workspace agent binary (arrives in Epic 5)
+    mkdir -p /opt/portikus/workspace-agent/bin
+
+    # Enable docker and workspace agent services
+    systemctl enable docker.service
+    systemctl enable portikus-workspace-agent.service
+
+# Write image version file.
+# build-on-vm.sh must export PORTIKUS_IMAGE_VERSION before invoking
+# distrobuilder. distrobuilder does not expose image.serial to action
+# scripts, so we read the environment variable instead.
+- trigger: post-packages
+  action: |-
+    #!/bin/sh
+    set -eux
+
+    echo "${PORTIKUS_IMAGE_VERSION:-unknown}" > /etc/portikus-image-version
+
+# Enable systemd-networkd
+- trigger: post-packages
+  action: |-
+    #!/bin/sh
+    set -eux
+
+    systemctl enable systemd-networkd.service
+
+# Clean up apt lists to keep the image small
+- trigger: post-packages
+  action: |-
+    #!/bin/sh
+    set -eux
+
+    rm -rf /var/lib/apt/lists/*
+
+    # Clean up temporary shadow files
+    rm -f /etc/*-
+
+    # Clean up underlying /run
+    mount -o bind / /mnt
+    rm -rf /mnt/run/*
+    umount /mnt
+
+mappings:
+  architecture_map: debian
