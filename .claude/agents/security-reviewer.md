@@ -6,7 +6,7 @@ description: |
   scenario for each. Use before merging anything that touches auth, the
   preview gateway, the workspace agent, file APIs, Incus, or nested Docker.
   Read-only: it does not fix what it finds.
-model: claude-opus-4-6[1M]
+model: claude-opus-5
 effort: medium
 tools: Bash, Read, Grep, Glob
 ---
@@ -46,3 +46,10 @@ For every finding give: file and line, one-sentence defect, and a concrete
 scenario (input or state, then what goes wrong). Rank most severe first.
 Say plainly when you found nothing in a category rather than padding.
 Do not report style or generic hardening advice with no scenario.
+
+## Writing style
+
+Keep code comments brief: one line saying why, only where the code cannot
+say it itself. Write reports, commit messages, and PR descriptions in plain,
+understandable English: short sentences, no jargon without a one-time
+explanation, no arrow chains or slash-packed lists.

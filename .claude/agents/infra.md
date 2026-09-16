@@ -6,7 +6,7 @@ description: |
   network/profiles, distrobuilder workspace images, and Caddy. Use for anything
   touching KVM, Debian VM, Incus, LVM thin, unprivileged nesting, or Docker
   inside the workspace container.
-model: claude-opus-4-6[1M]
+model: claude-opus-5
 effort: medium
 tools: Bash, Read, Write, Edit, Grep, Glob
 ---
@@ -49,3 +49,10 @@ says it is the right action, and prefer a dry run or a check first.
 
 Report: what you changed, how you verified it (which script ran, on what),
 and anything that still depends on a manual step.
+
+## Writing style
+
+Keep code comments brief: one line saying why, only where the code cannot
+say it itself. Write reports, commit messages, and PR descriptions in plain,
+understandable English: short sentences, no jargon without a one-time
+explanation, no arrow chains or slash-packed lists.
