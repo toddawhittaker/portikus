@@ -66,6 +66,96 @@ check "IPv4 forwarding"                       ssh_cmd test "$(sysctl -n net.ipv4
 check "Data disk is an LVM PV"               ssh_cmd sudo pvs /dev/vdb
 
 echo ""
+echo "--- Epic 1 results: ${pass} passed, ${fail} failed ---"
+echo ""
+
+# ── Epic 2: Workspace image and nested Docker ────────────────────
+# These checks run only when the portikus workspace image is imported.
+if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
+  echo "--- Epic 2: workspace image checks ---"
+  echo ""
+
+  WS_NAME="smoke-ws"
+  PROJECT="portikus"
+  WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
+
+  # Clean up on exit regardless of success or failure.
+  cleanup_workspace() {
+    echo ""
+    echo "Destroying ${WS_NAME}..."
+    ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null 2>&1 || true
+  }
+  trap cleanup_workspace EXIT
+
+  # Provision a workspace.
+  echo "Creating workspace ${WS_NAME}..."
+  ssh_cmd bash "${WORKSPACE_SCRIPT}" create "${WS_NAME}" >/dev/null 2>&1
+
+  # Helper: run a command inside the workspace.
+  ws_exec() {
+    ssh_cmd "incus exec ${WS_NAME} --project ${PROJECT} -- $*"
+  }
+
+  # Helper: run a command as the student user inside the workspace.
+  # The command string is single-quoted for the remote shell so that
+  # multi-word commands (e.g. "sudo -n true") are passed as one argument
+  # to su -c.
+  ws_student() {
+    local escaped="${*//\'/\'\\\'\'}"
+    ssh_cmd "incus exec ${WS_NAME} --project ${PROJECT} -- su -l student -c '${escaped}'"
+  }
+
+  # Give the container a moment to finish booting.
+  sleep 5
+
+  # 12. systemd is running with no failed units
+  check "systemd is-system-running"             ws_exec systemctl is-system-running
+  check "no failed systemd units"               test "$(ws_exec systemctl --failed --no-legend --no-pager 2>/dev/null | wc -l)" -eq 0
+
+  # 13. /home/student is owned by student and contains projects/
+  check "/home/student owned by student"        test "$(ws_exec stat -c '%U' /home/student 2>/dev/null)" = "student"
+  check "/home/student/projects exists"         ws_exec test -d /home/student/projects
+
+  # 14. Passwordless sudo
+  check "student passwordless sudo"             ws_student "sudo -n true"
+
+  # 15. Nested Docker works
+  check "docker hello-world"                    ws_student "docker run --rm hello-world"
+
+  # 16. Docker runs with remapped UIDs (not root-mapped)
+  uid_base=$(ws_student "docker run --rm alpine cat /proc/self/uid_map" 2>/dev/null | awk '{print $2}')
+  check "Docker UID base is not 0"             test "${uid_base:-0}" -gt 0
+
+  # 17. CLI tools are installed
+  check "codex --version"                       ws_student "codex --version"
+  check "claude --version"                      ws_student "claude --version"
+  check "gh --version"                          ws_student "gh --version"
+  check "node --version"                        ws_student "node --version"
+  check "python3 --version"                     ws_student "python3 --version"
+
+  # 18. Security: no Incus API socket, no host data disk
+  check "/dev/incus absent"                     ws_exec test ! -e /dev/incus
+  check "/dev/vdb absent"                       ws_exec test ! -e /dev/vdb
+
+  # 19. Management network is unreachable from workspace
+  check "management network blocked"            ws_exec "bash -c '! ping -c1 -W2 10.100.0.1'"
+
+  # 20. Persistence across stop/start
+  echo ""
+  echo "Testing stop/start persistence..."
+  ws_student "echo smoke-persistence-marker > ~/projects/.smoke-marker"
+  ssh_cmd "incus stop ${WS_NAME} --project ${PROJECT}"
+  ssh_cmd "incus start ${WS_NAME} --project ${PROJECT}"
+  sleep 5
+
+  check "projects marker survives restart"      ws_student "cat ~/projects/.smoke-marker"
+  check "Docker images survive restart"         ws_student "docker images -q"
+
+else
+  echo "Workspace image not imported; skipping Epic 2 checks."
+fi
+
+echo ""
 echo "--- Results: ${pass} passed, ${fail} failed ---"
 
 if [ "$fail" -gt 0 ]; then

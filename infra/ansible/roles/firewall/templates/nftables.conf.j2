@@ -2,7 +2,14 @@
 # Portikus platform VM firewall (STACK.md section 29).
 # Managed by Ansible — do not edit manually.
 
-flush ruleset
+# Flush only the tables this file owns.  A global "flush ruleset" would
+# also remove the "inet incus" table that Incus creates for bridge NAT and
+# network ACLs, leaving workspaces without DHCP, DNS, or ACL enforcement
+# until the daemon restarts.
+table inet filter
+flush table inet filter
+table inet nat
+flush table inet nat
 
 table inet filter {
 
@@ -24,6 +31,12 @@ table inet filter {
     # ICMP / ICMPv6 for diagnostics
     ip protocol icmp accept
     ip6 nexthdr ipv6-icmp accept
+
+    # DHCP and DNS from workspaces to the dnsmasq Incus runs on the bridge
+    # gateway.  Every base chain on the input hook must accept a packet,
+    # so the allow Incus adds in its own table is not enough on its own.
+    iifname "{{ incus_network_name }}" udp dport { 67, 53 } accept
+    iifname "{{ incus_network_name }}" tcp dport 53 accept
   }
 
   chain forward {
