@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Interim workspace provisioning script (Epic 2).
+# Workspace helper for image builds, the smoke test, and operator cleanup.
 # Runs on the platform VM as the deploy user (member of incus-admin).
-# Replaced by the workspace controller in Epic 3.
+# In normal operation the control plane (Epic 3) creates, starts, and stops
+# workspaces; the controller has no destroy call, so `destroy` here is the
+# operator path for removing an instance and its volumes.
 #
 # Usage:
 #   workspace.sh create <name>

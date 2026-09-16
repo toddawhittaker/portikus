@@ -2066,6 +2066,21 @@ Acceptance:
 - stops after grace period;
 - reconnect cancels shutdown.
 
+Known gaps after Epic 3, to be closed later:
+
+- The `/workspaces` routes are not yet authorized. Epic 4 must require a
+  session on every route, check that the caller owns the workspace, take
+  `ownerUserId` from the session instead of the request body, cap the number
+  of workspaces one user can create, and bound the length of `ownerUserId`.
+- The worker sweep is serial, so one slow start delays the timers of other
+  workspaces. Revisit before the 25-concurrent-workspace target in §25.2.
+- There is no re-provision path after a failed create; the row stays in
+  `error` and an operator has to clear it.
+- OpenAPI generation from the Zod contracts (ADR 0003) is not wired up yet.
+- When the controller is unreachable the worker records an audit event, but
+  the API still reports the last known state instead of marking it
+  unverified.
+
 ### Epic 4 — Authentication and authorization
 **Estimate:** 2–3 engineer-days
 
