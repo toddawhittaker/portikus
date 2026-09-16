@@ -1,7 +1,20 @@
 #!/bin/sh
-# Blocks a commit that stages a secret. Enable with: git config core.hooksPath .githooks
+# Blocks a commit that stages a secret or a Biome lint failure.
+# Enable with: git config core.hooksPath .githooks
 if ! command -v gitleaks >/dev/null 2>&1; then
   echo "pre-commit: gitleaks is not installed; see docs/WORKFLOW.md" >&2
   exit 1
 fi
-exec gitleaks git --staged --no-banner --redact
+gitleaks git --staged --no-banner --redact || exit 1
+
+# Same Biome check as CI, limited to the staged files Biome knows how to read.
+staged=$(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' '*.tsx' '*.js' '*.mjs' '*.cjs' '*.json' '*.jsonc' '*.css')
+[ -z "$staged" ] && exit 0
+if [ -x node_modules/.bin/biome ]; then
+  biome=node_modules/.bin/biome
+else
+  echo "pre-commit: Biome is not installed; run pnpm install" >&2
+  exit 1
+fi
+# shellcheck disable=SC2086
+exec "$biome" check --error-on-warnings $staged
