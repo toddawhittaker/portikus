@@ -2,7 +2,8 @@
 # Every target is a thin wrapper over a tool that stays usable on its own.
 
 .PHONY: help install check typecheck lint format test build test-e2e dev clean \
-       infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test destroy-pilot rebuild-pilot
+       infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test destroy-pilot rebuild-pilot \
+       build-workspace-image workspace-create workspace-destroy
 
 help: ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -88,3 +89,21 @@ destroy-pilot: ## Destroy the platform VM (irreversible)
 	cd $(TOFU_DIR) && tofu destroy
 
 rebuild-pilot: destroy-pilot infra-apply configure-vm ## Destroy and recreate the platform VM
+
+# ── Workspace image and lifecycle targets ─────────────────────────
+
+build-workspace-image: ## Build the workspace image on the VM with distrobuilder
+	@test -n "$(VM_IP)" || { echo "build-workspace-image: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	rsync -av --delete infra/workspace-image/ deploy@$(VM_IP):/var/lib/portikus/image-build/
+	rsync -av --delete infra/incus/ deploy@$(VM_IP):/var/lib/portikus/incus/
+	ssh deploy@$(VM_IP) bash /var/lib/portikus/image-build/build-on-vm.sh
+
+workspace-create: ## Create a test workspace (NAME=<name>)
+	@test -n "$(NAME)" || { echo "workspace-create: NAME is required, e.g. make workspace-create NAME=alice"; exit 1; }
+	@test -n "$(VM_IP)" || { echo "workspace-create: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	ssh deploy@$(VM_IP) bash /var/lib/portikus/incus/workspace.sh create $(NAME)
+
+workspace-destroy: ## Destroy a test workspace (NAME=<name>)
+	@test -n "$(NAME)" || { echo "workspace-destroy: NAME is required, e.g. make workspace-destroy NAME=alice"; exit 1; }
+	@test -n "$(VM_IP)" || { echo "workspace-destroy: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	ssh deploy@$(VM_IP) bash /var/lib/portikus/incus/workspace.sh destroy $(NAME)
