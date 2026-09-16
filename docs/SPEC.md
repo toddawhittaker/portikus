@@ -2082,14 +2082,15 @@ Known gaps after Epic 3, to be closed later:
 - When the controller is unreachable the worker records an audit event, but
   the API still reports the last known state instead of marking it
   unverified.
-- Deployment copies the source tree to the VM and builds it there, with no
+- Deployment copied the source tree to the VM and built it there, with no
   way to roll back. Closed by Epic 3.5.
 
 ### Epic 3.5 — Control-plane packaging as a Debian package
 **Estimate:** 1–2 engineer-days
+**Status:** landed.
 
-Replaces the interim rsync-and-build deployment with the versioned `.deb`
-decided in ADR 0007 (see STACK.md §22 and §30).
+Replaced the earlier copy-the-source-and-build deployment with the versioned
+`.deb` decided in ADR 0007 (see STACK.md §22 and §30).
 
 Includes:
 
@@ -2119,6 +2120,13 @@ Acceptance:
 - installing the previous version rolls the control plane back;
 - the Epic 3 smoke-test block passes against the packaged install;
 - `.rpm` is out of scope until a non-Debian host is supported.
+
+Deferred:
+
+- an `.rpm` build, until a non-Debian host is supported. `nfpm` can emit one
+  from the same configuration;
+- an apt repository. Ansible downloads the release asset for the pinned
+  version instead, which is enough for one platform VM.
 
 ### Epic 4 — Authentication and authorization
 **Estimate:** 2–3 engineer-days

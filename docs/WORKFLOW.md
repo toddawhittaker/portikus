@@ -91,14 +91,20 @@ merge.
   until the script exists.
 - **Infrastructure checks**: `tofu fmt` and `tofu validate`, ansible-lint,
   shellcheck. Each skipped until the matching directory or files exist.
+- **Package build**: builds the control-plane Debian package with `nfpm`
+  (ADR 0007) and uploads it as a build artifact kept for seven days.
 
 Each job detects whether its inputs exist and skips cleanly otherwise, so
 the pipeline is green on a repo with no code and starts enforcing as code
 lands. Do not remove the detection steps; remove the skip once a check is
 expected to always run.
 
-Epic 3.5 adds a job that builds the control-plane Debian package with `nfpm`
-on pushes to `main` and publishes it as a release asset (ADR 0007).
+`.github/workflows/release.yml` runs on every push to `main`. It builds the
+same package and publishes a GitHub release whose only asset is the `.deb`.
+The version is `0.1.<commit count>+g<short sha>` and the tag is
+`v<version>`. The workflow can also be started by hand; started from a ref
+other than `main`, it publishes a prerelease. Ansible installs the asset for
+the version pinned in `portikus_version`.
 
 ## Secret scanning
 

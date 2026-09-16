@@ -7,7 +7,7 @@ summarizes them so a reader knows where to look.
 
 ## Current state
 
-Epics 0 through 3 in SPEC.md section 29 have landed: the pnpm workspace
+Epics 0 through 3.5 in SPEC.md section 29 have landed: the pnpm workspace
 monorepo, the reproducible platform VM under `infra/`, the Debian 13
 workspace image, and the control-plane workspace lifecycle. Workspaces are
 now created, started, and stopped by the control plane rather than by hand:
@@ -15,11 +15,12 @@ the workspace controller talks to Incus over the REST API on its unix
 socket, the API records intent and browser presence, and the worker
 reconciles every second and owns the 10-minute disconnect timer. The web UI,
 authentication, WebSockets, the workspace agent, and the preview gateway are
-still unbuilt. Epic 3.5 (packaging the control plane as a Debian package,
-ADR 0007) is next, then Epic 4 (authentication and authorization). Today's
-arrangement, where Ansible creates the service users, directories, and
-units and `make deploy-app` copies the source tree to the VM and builds it
-there, is interim and is replaced by Epic 3.5. Gate A in
+still unbuilt. Epic 3.5 has also landed: the control plane ships as one
+versioned `portikus` Debian package (ADR 0007) that owns the service users,
+`/etc/portikus`, `/var/lib/portikus`, and the three systemd units, and
+Ansible installs the published release asset at a pinned version and renders
+only the environment files and the controller token. Epic 4 (authentication
+and authorization) is next. Gate A in
 SPEC.md section 30 (architecture proof) must pass before substantial UI
 polish.
 
