@@ -36,9 +36,12 @@ find_nfpm() {
 
 nfpm_bin="$(find_nfpm)"
 
-# Only the server code is packaged; the web bundle is not shipped in this deb.
 pnpm install --frozen-lockfile
 pnpm exec tsc -b
+
+# Caddy serves this bundle from /usr/lib/portikus/web.
+pnpm --filter @portikus/web build
+chmod -R u=rwX,go=rX apps/web/dist
 
 rm -rf dist/deploy dist/deb
 pnpm --filter @portikus/api deploy --prod --legacy dist/deploy/api

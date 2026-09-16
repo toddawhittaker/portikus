@@ -203,6 +203,85 @@ variable for testing without changing the Ansible-managed file, create
 the corresponding `.override.env` file (for example,
 `/etc/portikus/worker.override.env` with `SHUTDOWN_GRACE_SECONDS=20`).
 
+### Browser access
+
+Ansible installs Caddy, which is the only service listening on the VM's
+public address. It terminates TLS with its own internal certificate
+authority and forwards to the API and the browser bundle, both of which
+stay on loopback.
+
+The site name defaults to `portikus.<vm-ip>.nip.io`. nip.io is a public
+DNS service that resolves any name of that shape back to the address in
+it, so a fresh VM has a working host name without anyone editing DNS.
+Open `https://portikus.<vm-ip>.nip.io` in a browser.
+
+To use a name of your own instead, pass it through:
+
+```
+make configure-vm PORTIKUS_PUBLIC_HOST=portikus.example.test
+make smoke-test PORTIKUS_PUBLIC_HOST=portikus.example.test
+```
+
+and add a matching line to your workstation's `/etc/hosts`:
+
+```
+<vm-ip> portikus.example.test
+```
+
+The browser will not trust Caddy's certificate until you import the
+authority that signed it. Copy it from the VM and add it to your browser
+or system trust store:
+
+```
+scp deploy@<vm-ip>:/etc/portikus/caddy-root.crt /tmp/portikus-caddy-root.crt
+```
+
+In Firefox: Settings, Privacy & Security, View Certificates, Authorities,
+Import, and tick "Trust this CA to identify websites". Chrome uses the
+system store, so `sudo cp` it into `/usr/local/share/ca-certificates/` with
+a `.crt` name and run `sudo update-ca-certificates`.
+
+The certificate is generated on the VM, so destroying and recreating the
+VM produces a new one. Import the new copy after a rebuild and remove the
+old one.
+
+### Identity provider
+
+The VM runs the in-repo mock identity provider by default (ADR 0008), so a
+fresh VM is usable without an external one. It ships in the Debian package
+but the package never enables it; Ansible does, and only when
+`portikus_mock_idp` is true. It listens on loopback and is reachable only
+through Caddy at `/mock-idp`. Its accounts are `alice` and `bob`
+(students), `carol` (administrator), and `dave` (no groups, so login is
+refused). Signing in shows a page listing them; pick one.
+
+To point the VM at a real identity provider instead:
+
+```
+make configure-vm PORTIKUS_MOCK_IDP=false \
+  PORTIKUS_OIDC_ISSUER=https://idp.example.edu \
+  PORTIKUS_OIDC_CLIENT_ID=portikus \
+  PORTIKUS_OIDC_CLIENT_SECRET=<secret> \
+  PORTIKUS_OIDC_STUDENT_GROUP=portikus-students \
+  PORTIKUS_OIDC_ADMIN_GROUP=portikus-administrators
+```
+
+Ansible stops and disables the mock unit and removes its environment file
+when the flag is false, and refuses to run if the issuer, client id, or
+client secret is missing. Register `https://<public-host>/auth/callback`
+as the client's redirect URI at the provider, and make sure the provider
+puts group names in a `groups` claim.
+
+Passing the client secret through the environment is a known gap: it
+belongs in the SOPS-encrypted secrets under `infra/secrets`, which is not
+wired up yet (STACK.md section 27). Until then the secret is visible to
+anything that can read your shell history or the Ansible process.
+
+The session cookie secret is different: Ansible generates it on the VM
+once into `/etc/portikus/session.secret` and never regenerates it, the
+same way it handles the controller token, so re-running the playbook does
+not sign everyone out.
+
 ## Destroy and recreate
 
 ```
