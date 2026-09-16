@@ -45,15 +45,17 @@ variable "data_disk_size_bytes" {
 }
 
 variable "base_image_url" {
-  description = "URL or local path of the Debian 12 cloud image (qcow2)"
+  description = "URL or local path of the Debian 13 cloud image (qcow2)"
   type        = string
-  default     = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
+  default     = "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2"
 }
 
 variable "base_image_sha512" {
   description = "SHA-512 checksum of the Debian cloud image"
   type        = string
-  default     = "84946d6e2f55b1e8dcc114efc059f13882bd2ccdf36852126a13a0aa4a4ce0efee945406b78280e5942096639edc2a3ced20b70c12d9c7c7366ce364ba47a0ff"
+  # Fetched from https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS
+  # on 2026-09-16.
+  default = "a733e7d49442a03e70d03e4eb5aaf3967f3efc69ef70952f9bb10fc1ee2c4876eb95956b5ad2d31350e5fada768feb651352535fb8cd1233f61998a5a7d2e93c"
 }
 
 variable "network_name" {
