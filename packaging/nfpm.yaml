@@ -37,6 +37,13 @@ contents:
     file_info:
       owner: root
       group: root
+  # The browser bundle Caddy serves.
+  - src: ./apps/web/dist
+    dst: /usr/lib/portikus/web
+    type: tree
+    file_info:
+      owner: root
+      group: root
 
   - src: ./packaging/systemd/portikus-api.service
     dst: /usr/lib/systemd/system/portikus-api.service
@@ -49,6 +56,10 @@ contents:
     file_info: *unit_info
   - src: ./packaging/systemd/portikus-controller.service
     dst: /usr/lib/systemd/system/portikus-controller.service
+    file_info: *unit_info
+  # Shipped but never enabled by the package; Ansible enables it (ADR 0008).
+  - src: ./packaging/systemd/portikus-mock-idp.service
+    dst: /usr/lib/systemd/system/portikus-mock-idp.service
     file_info: *unit_info
 
   - dst: /etc/portikus

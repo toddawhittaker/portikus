@@ -4,6 +4,8 @@ import { z } from "zod";
 const positiveInt = z.coerce.number().int().positive();
 
 const DEV_TOKEN = "dev-controller-token-not-for-production";
+const DEV_SESSION_SECRET = "dev-session-secret-not-for-production";
+const DEV_CLIENT_SECRET = "portikus-dev-secret";
 
 /**
  * Fields shared by all service configurations (STACK.md §5, §9).
@@ -14,20 +16,40 @@ const BaseConfig = z.object({
 });
 
 /**
- * In production CONTROLLER_TOKEN must be set explicitly, be at least 32
- * characters, and never be the published development token (SPEC.md §24).
+ * In production a secret must be set explicitly, be at least 32 characters,
+ * and never be a published development default (SPEC.md §24).
  */
-function requireProductionToken<
-	T extends { NODE_ENV: string; CONTROLLER_TOKEN: string },
->(data: T): boolean {
-	if (data.NODE_ENV !== "production") return true;
-	if (data.CONTROLLER_TOKEN === DEV_TOKEN) return false;
-	return data.CONTROLLER_TOKEN.length >= 32;
+function requireProductionSecret<F extends string>(
+	field: F,
+	devDefault: string,
+): (data: { NODE_ENV: string } & Record<F, string>) => boolean {
+	return (data) => {
+		if (data.NODE_ENV !== "production") return true;
+		const value = data[field];
+		if (value === devDefault) return false;
+		return value.length >= 32;
+	};
 }
 
-const productionTokenMessage =
-	"CONTROLLER_TOKEN must be set in production, be at least 32 characters, " +
-	"and must not be the development default";
+function productionSecretMessage(field: string): string {
+	return (
+		`${field} must be set in production, be at least 32 characters, ` +
+		"and must not be the development default"
+	);
+}
+
+/**
+ * In production browser-facing and issuer URLs must use TLS (SPEC.md §5.3).
+ */
+function requireProductionHttps<F extends string>(
+	field: F,
+): (data: { NODE_ENV: string } & Record<F, string>) => boolean {
+	return (data) => data.NODE_ENV !== "production" || data[field].startsWith("https://");
+}
+
+function productionHttpsMessage(field: string): string {
+	return `${field} must use https in production`;
+}
 
 /**
  * Environment contract for the API process (STACK.md §5, §9).
@@ -37,7 +59,33 @@ export const ApiConfigSchema = BaseConfig.extend({
 	PRESENCE_TTL_SECONDS: positiveInt.default(60),
 	WORKSPACE_HOME_SIZE_GIB: positiveInt.default(25),
 	WORKSPACE_DOCKER_SIZE_GIB: positiveInt.default(20),
-});
+	PUBLIC_URL: z.string().url().default("http://127.0.0.1:5173"),
+	OIDC_ISSUER_URL: z.string().url().default("http://127.0.0.1:3002"),
+	OIDC_CLIENT_ID: z.string().min(1).default("portikus-dev"),
+	OIDC_CLIENT_SECRET: z.string().min(1).default(DEV_CLIENT_SECRET),
+	OIDC_SCOPES: z.string().min(1).default("openid profile email"),
+	OIDC_GROUPS_CLAIM: z.string().min(1).default("groups"),
+	OIDC_STUDENT_GROUP: z.string().min(1).default("portikus-students"),
+	OIDC_ADMIN_GROUP: z.string().min(1).default("portikus-administrators"),
+	SESSION_COOKIE_SECRET: z.string().min(1).default(DEV_SESSION_SECRET),
+	SESSION_TTL_SECONDS: positiveInt.default(43200),
+})
+	.refine(requireProductionHttps("PUBLIC_URL"), {
+		message: productionHttpsMessage("PUBLIC_URL"),
+		path: ["PUBLIC_URL"],
+	})
+	.refine(requireProductionHttps("OIDC_ISSUER_URL"), {
+		message: productionHttpsMessage("OIDC_ISSUER_URL"),
+		path: ["OIDC_ISSUER_URL"],
+	})
+	.refine(requireProductionSecret("OIDC_CLIENT_SECRET", DEV_CLIENT_SECRET), {
+		message: productionSecretMessage("OIDC_CLIENT_SECRET"),
+		path: ["OIDC_CLIENT_SECRET"],
+	})
+	.refine(requireProductionSecret("SESSION_COOKIE_SECRET", DEV_SESSION_SECRET), {
+		message: productionSecretMessage("SESSION_COOKIE_SECRET"),
+		path: ["SESSION_COOKIE_SECRET"],
+	});
 export type ApiConfig = z.infer<typeof ApiConfigSchema>;
 
 /**
@@ -55,7 +103,10 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	STATUS_REFRESH_SECONDS: positiveInt.default(15),
 	WORKSPACE_HOME_SIZE_GIB: positiveInt.default(25),
 	WORKSPACE_DOCKER_SIZE_GIB: positiveInt.default(20),
-}).refine(requireProductionToken, productionTokenMessage);
+}).refine(
+	requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),
+	productionSecretMessage("CONTROLLER_TOKEN"),
+);
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
 
 /**
@@ -70,7 +121,10 @@ export const ControllerConfigSchema = BaseConfig.extend({
 	INCUS_POOL: z.string().min(1).default("workspace-data"),
 	INCUS_PROFILE: z.string().min(1).default("workspace"),
 	INCUS_IMAGE_ALIAS: z.string().min(1).default("portikus"),
-}).refine(requireProductionToken, productionTokenMessage);
+}).refine(
+	requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),
+	productionSecretMessage("CONTROLLER_TOKEN"),
+);
 export type ControllerConfig = z.infer<typeof ControllerConfigSchema>;
 
 /** Thrown when the environment does not satisfy the config schema. */

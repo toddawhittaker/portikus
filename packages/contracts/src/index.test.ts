@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
 import {
+	AdminWorkspaceList,
 	ApiError,
-	ConnectionCreated,
+	AuthUser,
 	ControllerError,
 	CreateInstanceRequest,
 	CreateInstanceResponse,
@@ -15,6 +16,23 @@ import {
 	StopInstanceResponse,
 	Workspace,
 } from "./index.js";
+
+const sampleWorkspace = {
+	id: "550e8400-e29b-41d4-a716-446655440000",
+	ownerUserId: "550e8400-e29b-41d4-a716-446655440111",
+	state: "running" as const,
+	desiredState: "running" as const,
+	incusInstanceName: "ws-abc123",
+	imageVersion: "1.0.0",
+	quotaConfig: { homeGiB: 25, dockerGiB: 20 },
+	errorCode: null,
+	errorMessage: null,
+	activeConnections: 2,
+	lastActiveConnectionAt: null,
+	shutdownDeadline: null,
+	createdAt: "2026-01-01T00:00:00.000Z",
+	updatedAt: "2026-01-01T00:00:00.000Z",
+};
 
 test("accepts a well-formed health response", () => {
 	const parsed = HealthResponse.parse({
@@ -38,7 +56,7 @@ test("Workspace round-trips a complete response", () => {
 	const now = new Date().toISOString();
 	const input = {
 		id: "550e8400-e29b-41d4-a716-446655440000",
-		ownerUserId: "user-1",
+		ownerUserId: "550e8400-e29b-41d4-a716-446655440111",
 		state: "running" as const,
 		desiredState: "running" as const,
 		incusInstanceName: "ws-abc123",
@@ -55,17 +73,51 @@ test("Workspace round-trips a complete response", () => {
 	expect(Workspace.parse(input)).toEqual(input);
 });
 
-test("CreateWorkspaceRequest round-trips", () => {
-	const input = { ownerUserId: "user-1" };
-	expect(CreateWorkspaceRequest.parse(input)).toEqual(input);
+test("Workspace rejects a non-uuid owner", () => {
+	expect(
+		Workspace.safeParse({ ...sampleWorkspace, ownerUserId: "user-1" }).success,
+	).toBe(false);
 });
 
-test("ConnectionCreated round-trips", () => {
+test("CreateWorkspaceRequest accepts an empty body", () => {
+	expect(CreateWorkspaceRequest.parse({})).toEqual({});
+});
+
+test("CreateWorkspaceRequest rejects any property", () => {
+	expect(CreateWorkspaceRequest.safeParse({ ownerUserId: "x" }).success).toBe(false);
+});
+
+test("AuthUser round-trips and allows a null email", () => {
 	const input = {
-		connectionId: "550e8400-e29b-41d4-a716-446655440000",
-		workspaceId: "550e8400-e29b-41d4-a716-446655440001",
+		id: "550e8400-e29b-41d4-a716-446655440111",
+		email: null,
+		displayName: "Alice",
+		role: "student" as const,
 	};
-	expect(ConnectionCreated.parse(input)).toEqual(input);
+	expect(AuthUser.parse(input)).toEqual(input);
+});
+
+test("AuthUser rejects an unknown role", () => {
+	const result = AuthUser.safeParse({
+		id: "550e8400-e29b-41d4-a716-446655440111",
+		email: "a@example.com",
+		displayName: "Alice",
+		role: "instructor",
+	});
+	expect(result.success).toBe(false);
+});
+
+test("AdminWorkspaceList round-trips", () => {
+	const input = { workspaces: [sampleWorkspace] };
+	expect(AdminWorkspaceList.parse(input)).toEqual(input);
+});
+
+test("ApiErrorCode covers the authorization codes", () => {
+	expect(ApiError.safeParse({ code: "UNAUTHORIZED", message: "" }).success).toBe(true);
+	expect(ApiError.safeParse({ code: "FORBIDDEN", message: "" }).success).toBe(true);
+	expect(
+		ApiError.safeParse({ code: "CONNECTION_NOT_FOUND", message: "" }).success,
+	).toBe(false);
 });
 
 test("ApiError round-trips", () => {

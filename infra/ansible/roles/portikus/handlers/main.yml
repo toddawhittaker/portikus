@@ -13,3 +13,8 @@
   ansible.builtin.systemd:
     name: portikus-controller
     state: restarted
+
+- name: Restart portikus-mock-idp
+  ansible.builtin.systemd:
+    name: portikus-mock-idp
+    state: restarted
