@@ -10,15 +10,17 @@ export {
 	authPlugin,
 	checkCsrf,
 	checkWsOrigin,
+	loginCookieName,
 	loginCookieOptions,
 	requireRole,
+	requireUser,
+	sessionCookieName,
 	sessionCookieOptions,
 } from "./plugin.js";
 export {
 	createSession,
 	deleteSession,
 	loadSession,
-	loadSessionFromCookieHeader,
 	type OidcIdentity,
 	upsertUser,
 } from "./sessions.js";

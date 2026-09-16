@@ -27,6 +27,9 @@ export default defineConfig({
 			env: {
 				MOCK_OIDC_PORT: "3002",
 				MOCK_OIDC_ISSUER,
+				MOCK_OIDC_CLIENT_ID: "portikus-dev",
+				MOCK_OIDC_CLIENT_SECRET: "portikus-dev-secret",
+				MOCK_OIDC_REDIRECT_URI: `${WEB_URL}/auth/callback`,
 			},
 			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,

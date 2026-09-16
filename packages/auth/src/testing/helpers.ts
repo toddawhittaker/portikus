@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 import type { AddressInfo } from "node:net";
+import type { ServerMessage } from "@portikus/events";
 import type { FastifyInstance } from "fastify";
 
 /** Test-side glue: a cookie jar, a login driver, and a WebSocket opener. */
@@ -38,10 +39,6 @@ export class CookieJar {
 
 	cookieHeader(): string {
 		return [...this.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
-	}
-
-	clear(): void {
-		this.cookies.clear();
 	}
 }
 
@@ -123,9 +120,8 @@ export function csrfHeaders(jar: CookieJar, publicUrl: string): Record<string, s
 export interface OpenSocket {
 	ws: WebSocket;
 	/** Every message received so far, JSON-parsed. */
-	// TODO(events): type as ServerMessage once @portikus/events ships its schemas.
-	messages: unknown[];
-	next: () => Promise<unknown>;
+	messages: ServerMessage[];
+	next: () => Promise<ServerMessage>;
 	close: () => Promise<void>;
 }
 
@@ -158,17 +154,12 @@ export async function openWorkspaceSocket(
 		headers,
 	} as unknown as string[]);
 
-	const messages: unknown[] = [];
-	const waiting: Array<(message: unknown) => void> = [];
+	const messages: ServerMessage[] = [];
+	const waiting: Array<(message: ServerMessage) => void> = [];
 	let cursor = 0;
 
 	ws.addEventListener("message", (event) => {
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(String(event.data));
-		} catch {
-			parsed = event.data;
-		}
+		const parsed = JSON.parse(String(event.data)) as ServerMessage;
 		messages.push(parsed);
 		waiting.shift()?.(parsed);
 	});
@@ -203,9 +194,10 @@ export async function openWorkspaceSocket(
 		ws,
 		messages,
 		next: () =>
-			new Promise<unknown>((resolve) => {
-				if (cursor < messages.length) {
-					resolve(messages[cursor]);
+			new Promise<ServerMessage>((resolve) => {
+				const pending = messages[cursor];
+				if (pending !== undefined) {
+					resolve(pending);
 					cursor += 1;
 					return;
 				}
