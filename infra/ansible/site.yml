@@ -16,6 +16,12 @@
     incus_network_cidr: "10.200.0.1/24"
     incus_project_name: portikus
     workspace_root_disk_quota: 10GB
+    # SPEC 19.1 suggests 4 vCPU and 6 GiB for a real pilot.  The pilot VM
+    # has 8 GB total, so these defaults are deliberately lower.  Adjust
+    # once pilot telemetry shows real usage.
+    workspace_cpu_limit: "2"
+    workspace_memory_limit: "4GB"
+    workspace_process_limit: "2000"
     management_cidr: "{{ lookup('env', 'PORTIKUS_MANAGEMENT_CIDR') | default('10.100.0.0/24', true) }}"
 
   roles:
