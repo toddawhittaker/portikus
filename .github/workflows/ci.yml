@@ -112,7 +112,7 @@ jobs:
           key: ansible-collections-${{ hashFiles('infra/ansible/requirements.yml') }}
       - name: Install Ansible collections
         if: steps.detect.outputs.ansible == 'true' && steps.collections.outputs.cache-hit != 'true'
-        run: ansible-galaxy collection install --force -r infra/ansible/requirements.yml
+        run: ansible-galaxy collection install --no-cache -r infra/ansible/requirements.yml
       - if: steps.detect.outputs.ansible == 'true'
         run: pipx install ansible-lint && ansible-lint infra/ansible
       - name: shellcheck
