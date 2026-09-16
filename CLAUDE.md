@@ -24,11 +24,18 @@ that cover it. Cite sections by number in prompts and reports.
 
 ## Current state
 
-Epic 0 (SPEC.md section 29) has landed the scaffolding: a pnpm workspace
-monorepo with the apps and packages from STACK.md section 2, Biome, Vitest,
-Playwright, a Makefile, and the architecture decision records in
-`docs/adr/`. Every package is a real but near-empty TypeScript package with
-one test. No subsystem behaviour is implemented yet; Epic 1 is next.
+Epics 0, 1, and 2 (SPEC.md section 29) have landed. Epic 0 is the pnpm
+workspace monorepo with the apps and packages from STACK.md section 2,
+Biome, Vitest, Playwright, a Makefile, and the decision records in
+`docs/adr/`. Epic 1 is the reproducible platform VM under `infra/`:
+host bootstrap, OpenTofu on libvirt, cloud-init, Ansible roles for the
+firewall, LVM thin storage, Incus, and the workspace network, plus the
+smoke test. Epic 2 is the Debian 13 workspace image built with
+distrobuilder, the hardened workspace profile with nested Docker and
+isolated ID mapping, persistent home and Docker volumes, and the interim
+`workspace.sh` provisioning script. Application packages are still
+near-empty scaffolding; Epic 3 (control-plane workspace lifecycle) is
+next.
 
 ## Commands
 
