@@ -50,6 +50,12 @@ variable "base_image_url" {
   default     = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
 }
 
+variable "base_image_sha512" {
+  description = "SHA-512 checksum of the Debian cloud image"
+  type        = string
+  default     = "84946d6e2f55b1e8dcc114efc059f13882bd2ccdf36852126a13a0aa4a4ce0efee945406b78280e5942096639edc2a3ced20b70c12d9c7c7366ce364ba47a0ff"
+}
+
 variable "network_name" {
   description = "Libvirt network name"
   type        = string

@@ -32,13 +32,48 @@ resource "libvirt_network" "portikus" {
   addresses = var.network_cidr
 }
 
-# ── Base image ──────────────────────────────────────────────────
+# ── Base image (download + SHA-512 verification) ───────────────
+
+resource "terraform_data" "base_image_verified" {
+  input = {
+    url    = var.base_image_url
+    sha512 = var.base_image_sha512
+    path   = var.base_image_cache_path
+  }
+
+  provisioner "local-exec" {
+    command = <<-SCRIPT
+      set -euo pipefail
+      dest="${self.input.path}"
+      expected="${self.input.sha512}"
+
+      if [ -f "$dest" ]; then
+        actual=$(sha512sum "$dest" | awk '{print $1}')
+        if [ "$actual" = "$expected" ]; then
+          echo "Base image already cached and verified."
+          exit 0
+        fi
+        echo "Cached image checksum mismatch; re-downloading."
+        rm -f "$dest"
+      fi
+
+      echo "Downloading base image..."
+      curl -fSL -o "$dest.tmp" "${self.input.url}"
+
+      echo "$expected  $dest.tmp" | sha512sum --check --strict
+      mv "$dest.tmp" "$dest"
+      echo "Base image downloaded and verified."
+    SCRIPT
+  }
+}
 
 resource "libvirt_volume" "base_image" {
   name   = "${var.vm_name}-base.qcow2"
   pool   = libvirt_pool.portikus.name
-  source = var.base_image_url
+  source = var.base_image_cache_path
   format = "qcow2"
+
+  depends_on = [terraform_data.base_image_verified]
 }
 
 # ── OS disk (backed by the base image) ──────────────────────────

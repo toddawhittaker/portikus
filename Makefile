@@ -64,10 +64,11 @@ infra-apply: ## Create or update the platform VM and disks
 
 # The VM address comes from OpenTofu state; override with VM_IP=<ip>.
 VM_IP ?= $(shell cd $(TOFU_DIR) 2>/dev/null && tofu output -json vm_ip 2>/dev/null | python3 -c 'import json,sys; print((json.load(sys.stdin) or [""])[0])')
+MANAGEMENT_CIDR ?= $(shell cd $(TOFU_DIR) 2>/dev/null && tofu output -raw management_cidr 2>/dev/null)
 
 configure-vm: ## Run Ansible to converge the platform VM
 	@test -n "$(VM_IP)" || { echo "configure-vm: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	cd infra/ansible && PORTIKUS_VM_IP=$(VM_IP) ansible-playbook site.yml
+	cd infra/ansible && PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) ansible-playbook site.yml
 
 smoke-test: ## Run infrastructure smoke tests against the VM
 	@test -n "$(VM_IP)" || { echo "smoke-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }

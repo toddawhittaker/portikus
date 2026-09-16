@@ -37,6 +37,17 @@ variable "base_image_url" {
   type        = string
 }
 
+variable "base_image_sha512" {
+  description = "SHA-512 checksum of the base image file"
+  type        = string
+}
+
+variable "base_image_cache_path" {
+  description = "Local path to cache the verified base image"
+  type        = string
+  default     = "/var/lib/libvirt/images/portikus-base-cache.qcow2"
+}
+
 variable "cloud_init_user_data" {
   description = "cloud-init user-data as a string"
   type        = string

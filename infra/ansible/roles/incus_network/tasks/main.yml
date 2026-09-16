@@ -42,31 +42,41 @@
   when: incus_network_acl_check.rc != 0
   changed_when: true
 
+# Parse the current ACL rules so we can skip adds that already exist.
+- name: Parse current ACL rules
+  ansible.builtin.set_fact:
+    incus_network_acl_yaml: >-
+      {{ (incus_network_acl_check.stdout | default('') | from_yaml) | default({}, true) }}
+  when: incus_network_acl_check.rc == 0
+
+- name: Set empty ACL when newly created
+  ansible.builtin.set_fact:
+    incus_network_acl_yaml: {}
+  when: incus_network_acl_check.rc != 0
+
+- name: Collect existing egress rule descriptions
+  ansible.builtin.set_fact:
+    incus_network_existing_egress_descriptions: >-
+      {{ (incus_network_acl_yaml.egress | default([])) | map(attribute='description') | list }}
+
 # Default actions are not ACL config keys in Incus. They are set on the
 # network below, in "Attach ACL to workspace network", as
 # security.acls.default.{ingress,egress}.action=drop.
 
-# Deny egress to the workspace bridge subnet (peer isolation)
+# Deny egress to the workspace bridge subnet (peer isolation).
+# A single rule with no protocol filter covers all IP protocols
+# including ICMP.  (The original ICMP-specific rule used the invalid
+# "icmp" protocol value and was silently rejected by Incus; "all
+# protocols" already covers it.)
 - name: Add ACL rule denying egress to workspace subnet
   ansible.builtin.command:
     cmd: >-
       incus network acl rule add {{ incus_network_name }}-acl egress
       action=drop
       destination={{ incus_network_cidr | ansible.utils.ipsubnet }}
-      protocol=icmp
-      description="Deny peer-workspace traffic"
-  changed_when: true
-  failed_when: false
-
-- name: Add ACL rule denying egress TCP/UDP to workspace subnet
-  ansible.builtin.command:
-    cmd: >-
-      incus network acl rule add {{ incus_network_name }}-acl egress
-      action=drop
-      destination={{ incus_network_cidr | ansible.utils.ipsubnet }}
       description="Deny peer-workspace traffic (all protocols)"
+  when: "'Deny peer-workspace traffic (all protocols)' not in incus_network_existing_egress_descriptions"
   changed_when: true
-  failed_when: false
 
 # Deny egress to management network
 - name: Add ACL rule denying egress to management network
@@ -74,10 +84,10 @@
     cmd: >-
       incus network acl rule add {{ incus_network_name }}-acl egress
       action=drop
-      destination=10.100.0.0/24
+      destination={{ management_cidr }}
       description="Deny management network access"
+  when: "'Deny management network access' not in incus_network_existing_egress_descriptions"
   changed_when: true
-  failed_when: false
 
 # Deny egress to link-local / cloud metadata
 - name: Add ACL rule denying egress to link-local
@@ -87,8 +97,8 @@
       action=drop
       destination=169.254.0.0/16
       description="Deny link-local and cloud metadata"
+  when: "'Deny link-local and cloud metadata' not in incus_network_existing_egress_descriptions"
   changed_when: true
-  failed_when: false
 
 # Allow egress to the Internet (catch-all after denies)
 - name: Add ACL rule allowing general egress
@@ -98,10 +108,31 @@
       action=allow
       destination=0.0.0.0/0
       description="Allow internet egress"
+  when: "'Allow internet egress' not in incus_network_existing_egress_descriptions"
   changed_when: true
+
+# Attach ACL to the workspace network (only when config differs)
+- name: Get current network ACL setting
+  ansible.builtin.command:
+    cmd: incus network get {{ incus_network_name }} security.acls
+  register: incus_network_current_acl
+  changed_when: false
   failed_when: false
 
-# Attach ACL to the workspace network
+- name: Get current default ingress action
+  ansible.builtin.command:
+    cmd: incus network get {{ incus_network_name }} security.acls.default.ingress.action
+  register: incus_network_current_ingress
+  changed_when: false
+  failed_when: false
+
+- name: Get current default egress action
+  ansible.builtin.command:
+    cmd: incus network get {{ incus_network_name }} security.acls.default.egress.action
+  register: incus_network_current_egress
+  changed_when: false
+  failed_when: false
+
 - name: Attach ACL to workspace network
   ansible.builtin.command:
     cmd: >-
@@ -109,6 +140,10 @@
       security.acls={{ incus_network_name }}-acl
       security.acls.default.ingress.action=drop
       security.acls.default.egress.action=drop
+  when: >-
+    incus_network_current_acl.stdout | trim != incus_network_name ~ '-acl'
+    or incus_network_current_ingress.stdout | trim != 'drop'
+    or incus_network_current_egress.stdout | trim != 'drop'
   changed_when: true
 
 - name: Enable IPv4 forwarding

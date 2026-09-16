@@ -35,16 +35,16 @@ table inet filter {
     # --- Deny rules first (order matters) ---
 
     # Block workspace traffic to the libvirt management network
-    iifname "{{ incus_network_name | default('portikus-ws') }}" ip daddr 10.100.0.0/24 drop
+    iifname "{{ incus_network_name }}" ip daddr {{ management_cidr }} drop
 
     # Block workspace traffic to the VM's own management address
-    iifname "{{ incus_network_name | default('portikus-ws') }}" ip daddr {{ incus_network_cidr | default('10.200.0.1/24') | ansible.utils.ipaddr('address') }} drop
+    iifname "{{ incus_network_name }}" ip daddr {{ incus_network_cidr | ansible.utils.ipaddr('address') }} drop
 
     # Block cloud metadata endpoint and all link-local (section 28)
-    iifname "{{ incus_network_name | default('portikus-ws') }}" ip daddr 169.254.0.0/16 drop
+    iifname "{{ incus_network_name }}" ip daddr 169.254.0.0/16 drop
 
     # --- General egress (after all denies) ---
-    iifname "{{ incus_network_name | default('portikus-ws') }}" accept
+    iifname "{{ incus_network_name }}" accept
   }
 
   chain output {

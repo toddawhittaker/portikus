@@ -38,21 +38,40 @@
   when: portikus_workspace_profile_check.rc != 0
   changed_when: true
 
+# Check each profile key and only set it when the value differs.
+- name: Get current workspace profile config
+  ansible.builtin.command:
+    cmd: incus profile get workspace --project {{ incus_project_name }} {{ item.key }}
+  loop:
+    - { key: "security.nesting", value: "true" }
+    - { key: "security.privileged", value: "false" }
+    - { key: "security.idmap.isolated", value: "true" }
+    - { key: "limits.cpu", value: "2" }
+    - { key: "limits.memory", value: "4GB" }
+  register: portikus_workspace_profile_current
+  changed_when: false
+  # The key may not be set yet if the profile was just created.
+  failed_when: false
+
 - name: Configure workspace profile
   ansible.builtin.command:
     cmd: >-
       incus profile set workspace --project {{ incus_project_name }}
-      {{ item.key }}={{ item.value }}
-  loop:
-    # Security: unprivileged (security.privileged=false), nesting for Docker only
-    - { key: "security.nesting", value: "true" }
-    - { key: "security.privileged", value: "false" }
-    # Isolated UID/GID mapping per container (section 24)
-    - { key: "security.idmap.isolated", value: "true" }
-    # Resource limits (adjustable per deployment)
-    - { key: "limits.cpu", value: "2" }
-    - { key: "limits.memory", value: "4GB" }
+      {{ item.item.key }}={{ item.item.value }}
+  loop: "{{ portikus_workspace_profile_current.results }}"
+  when: item.stdout | default('') | trim != item.item.value
   changed_when: true
+
+# Parse current profile to check devices.
+- name: Get current workspace profile YAML
+  ansible.builtin.command:
+    cmd: incus profile show workspace --project {{ incus_project_name }}
+  register: portikus_workspace_profile_yaml_raw
+  changed_when: false
+
+- name: Parse workspace profile
+  ansible.builtin.set_fact:
+    portikus_workspace_profile_yaml: "{{ portikus_workspace_profile_yaml_raw.stdout | from_yaml }}"
 
 - name: Attach workspace network to profile
   ansible.builtin.command:
@@ -61,9 +80,8 @@
       nictype=bridged
       parent={{ incus_network_name }}
       --project {{ incus_project_name }}
-  register: portikus_workspace_profile_nic_add
-  changed_when: portikus_workspace_profile_nic_add.rc == 0
-  failed_when: false
+  when: "'eth0' not in (portikus_workspace_profile_yaml.devices | default({}))"
+  changed_when: true
 
 - name: Attach workspace storage to profile
   ansible.builtin.command:
@@ -73,6 +91,5 @@
       path=/
       size={{ workspace_root_disk_quota }}
       --project {{ incus_project_name }}
-  register: portikus_workspace_profile_disk_add
-  changed_when: portikus_workspace_profile_disk_add.rc == 0
-  failed_when: false
+  when: "'root' not in (portikus_workspace_profile_yaml.devices | default({}))"
+  changed_when: true

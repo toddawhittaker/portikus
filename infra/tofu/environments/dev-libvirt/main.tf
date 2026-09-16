@@ -32,6 +32,7 @@ module "platform_vm" {
   os_disk_size_bytes   = var.os_disk_size_bytes
   data_disk_size_bytes = var.data_disk_size_bytes
   base_image_url       = var.base_image_url
+  base_image_sha512    = var.base_image_sha512
   cloud_init_user_data = templatefile("${path.module}/../../../cloud-init/user-data.yml", {
     hostname       = var.vm_name
     ssh_public_key = var.ssh_public_key
