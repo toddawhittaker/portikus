@@ -95,8 +95,10 @@ test("create sends both disk devices in one POST and returns created", async () 
 			r.url?.includes("/1.0/instances") &&
 			!r.url?.includes("/volumes"),
 	);
-	expect(instancePost).toBeDefined();
-	const parsed = JSON.parse(instancePost!.body);
+	if (!instancePost) {
+		throw new Error("expected a POST /instances request");
+	}
+	const parsed = JSON.parse(instancePost.body);
 	expect(parsed.devices.home.path).toBe("/home/student");
 	expect(parsed.devices.docker.path).toBe("/var/lib/docker");
 });
