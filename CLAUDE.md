@@ -43,8 +43,10 @@ state, and keeps the disconnect grace timer in a durable
 now have real content, including Kysely and the database migrations.
 Ansible gained `postgresql`, `node`, and `portikus` roles with three
 systemd units, the Makefile gained `make deploy-app`, and the smoke test
-covers all four Epic 3 acceptance criteria. Epic 4 (authentication and
-authorization) is next.
+covers all four Epic 3 acceptance criteria. That Ansible-plus-`deploy-app`
+arrangement is interim: Epic 3.5 (packaging the control plane as a Debian
+package, ADR 0007) replaces it and is next, then Epic 4 (authentication
+and authorization).
 
 ## Commands
 

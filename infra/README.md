@@ -110,6 +110,11 @@ application code. This installs dependencies, builds the TypeScript
 projects, runs database migrations, and restarts the three services
 (API, worker, workspace controller).
 
+This is the interim path. ADR 0007 replaces it with a versioned Debian
+package built in CI and installed by Ansible at a pinned version, in
+Epic 3.5 (SPEC.md §29). The release and rollback procedures arrive with
+that package; today there is no way to roll a deploy back.
+
 ```
 make deploy-app
 ```
