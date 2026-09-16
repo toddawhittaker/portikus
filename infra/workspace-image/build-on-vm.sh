@@ -38,7 +38,7 @@ mkdir -p "${OUTPUT_DIR}"
 sudo PORTIKUS_IMAGE_VERSION="${VERSION}" distrobuilder build-incus \
   "${YAML_FILE}" "${OUTPUT_DIR}" \
   -o image.serial="${VERSION}" \
-  -o image.release=bookworm
+  -o image.release=trixie
 
 # Remove any existing image with the versioned alias so re-runs replace it.
 if incus image info "${ALIAS_VERSIONED}" --project portikus >/dev/null 2>&1; then
