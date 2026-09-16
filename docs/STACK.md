@@ -984,7 +984,7 @@ infra/ansible/
 │   ├── portikus_workspace_profile/
 │   ├── caddy/
 │   ├── postgresql/
-│   ├── node/
+│   ├── node/            # Node runtime only; pnpm until Epic 3.5
 │   ├── portikus-api/
 │   ├── portikus-worker/
 │   ├── portikus-controller/
@@ -1009,12 +1009,21 @@ Ansible configures:
 - firewall policy;
 - Caddy;
 - PostgreSQL;
-- Node;
-- Portikus services;
+- Node, the runtime only. pnpm is installed alongside it today because the
+  VM still builds the source tree, and goes away with Epic 3.5;
+- Portikus services, installed from the versioned `.deb` described in
+  ADR 0007 (the package owns the service users, `/etc/portikus`,
+  `/var/lib/portikus`, and the systemd units; Ansible renders the
+  environment files and secrets);
 - systemd units;
 - backup jobs;
 - logging/monitoring;
 - security hardening.
+
+Until the Debian package lands, `make deploy-app` copies the source tree to
+the VM and builds it there. That is the interim path only. SPEC.md §29,
+"Epic 3.5 — Control-plane packaging as a Debian package", replaces it with
+the package from ADR 0007.
 
 Playbooks should be idempotent.
 
@@ -1279,6 +1288,9 @@ pnpm build
 pnpm test:e2e
 ```
 
+Epic 3.5 adds a job that builds the versioned control-plane `.deb` with
+`nfpm` (ADR 0007) on pushes to `main` and publishes it as a release asset.
+
 Infrastructure checks:
 
 ```text
@@ -1306,7 +1318,7 @@ Preferred pilot deployment:
 ```text
 administrator
     ↓
-make deploy
+make deploy-app
 ```
 
 A later institutional deployment may move to controlled automated deployment if appropriate.
@@ -1358,7 +1370,8 @@ Each layer owns a specific category of state.
 | Debian desired state | Ansible |
 | Incus host configuration | Ansible |
 | Workspace image | distrobuilder |
-| Application code/build | pnpm/TypeScript |
+| Application build | pnpm/TypeScript, in CI |
+| Installed control plane (binaries, users, directories, units) | Debian package built in CI, installed by Ansible at a pinned version |
 | Application DB migrations | application deployment |
 | Secrets | SOPS + age |
 | Runtime student LXCs | Portikus control plane → workspace controller → Incus |
@@ -1408,7 +1421,7 @@ Required procedure:
 3. allow cloud-init to bootstrap it;
 4. converge it with Ansible;
 5. rebuild/import the current workspace image;
-6. deploy Portikus;
+6. install the control-plane package at the pinned version;
 7. restore/reconnect persistent data as designed;
 8. provision a test student workspace;
 9. verify sudo;
@@ -1417,7 +1430,9 @@ Required procedure:
 12. verify terminal;
 13. verify Claude/Codex availability;
 14. run a test web application;
-15. verify authenticated preview access.
+15. verify authenticated preview access;
+16. reinstall the previous package version and confirm the control plane
+    still works, proving rollback.
 ```
 
 If any step requires undocumented manual intervention, the infrastructure automation is incomplete.
@@ -1489,6 +1504,7 @@ SOPS + age
 
 GitHub Actions
 Make
+nfpm-built Debian package for the control plane
 ```
 
 ## 35. Technologies intentionally not selected for P0
@@ -1540,6 +1556,17 @@ Not selected because student process state does not need to survive the 10-minut
 ### Packer
 
 Deferred because cloud-init + Ansible already provide sufficient reproducibility for the Debian platform VM.
+
+### Docker or other containers for the control plane on the platform VM
+
+Not selected because Docker rewrites the host packet filter, blurs the Incus
+socket boundary, and is awkward for the preview gateway. The control plane
+ships as a Debian package instead (ADR 0007).
+
+### `.rpm` packaging
+
+Deferred until a non-Debian host is supported. `nfpm` can emit one from the
+same configuration when that day comes.
 
 ### Terraform-managed student containers
 

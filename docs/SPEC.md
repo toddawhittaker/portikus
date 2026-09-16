@@ -1418,7 +1418,8 @@ Configuration automation must install and configure:
 - Incus networking;
 - required kernel modules/settings;
 - base packages;
-- control-plane dependencies;
+- control-plane dependencies, and the control plane itself, installed from
+  the versioned package at a pinned version rather than built on the VM;
 - database;
 - reverse proxy;
 - metrics/logging components;
@@ -1480,7 +1481,7 @@ make bootstrap-host
 make build-vm
 make configure-vm
 make build-workspace-image
-make deploy
+make deploy-app
 make smoke-test
 ```
 
@@ -1492,11 +1493,12 @@ Before pilot launch, the team must prove that it can:
 
 1. destroy a non-production platform VM;
 2. recreate it from automation;
-3. restore required application metadata and persistent data;
-4. start a test workspace;
-5. run Docker inside it;
-6. launch a coding agent;
-7. open a proxied application preview.
+3. install the control-plane package at the pinned version;
+4. restore required application metadata and persistent data;
+5. start a test workspace;
+6. run Docker inside it;
+7. launch a coding agent;
+8. open a proxied application preview.
 
 This is an acceptance criterion, not merely documentation.
 
@@ -2066,6 +2068,58 @@ Acceptance:
 - stops after grace period;
 - reconnect cancels shutdown.
 
+Known gaps after Epic 3, to be closed later:
+
+- The `/workspaces` routes are not yet authorized. Epic 4 must require a
+  session on every route, check that the caller owns the workspace, take
+  `ownerUserId` from the session instead of the request body, cap the number
+  of workspaces one user can create, and bound the length of `ownerUserId`.
+- The worker sweep is serial, so one slow start delays the timers of other
+  workspaces. Revisit before the 25-concurrent-workspace target in §25.2.
+- There is no re-provision path after a failed create; the row stays in
+  `error` and an operator has to clear it.
+- OpenAPI generation from the Zod contracts (ADR 0003) is not wired up yet.
+- When the controller is unreachable the worker records an audit event, but
+  the API still reports the last known state instead of marking it
+  unverified.
+- Deployment copies the source tree to the VM and builds it there, with no
+  way to roll back. Closed by Epic 3.5.
+
+### Epic 3.5 — Control-plane packaging as a Debian package
+**Estimate:** 1–2 engineer-days
+
+Replaces the interim rsync-and-build deployment with the versioned `.deb`
+decided in ADR 0007 (see STACK.md §22 and §30).
+
+Includes:
+
+- an `nfpm` configuration that packs the pnpm production build of the API,
+  worker, and workspace controller into one `portikus` package;
+- the package owns the service users, `/etc/portikus`,
+  `/var/lib/portikus`, and the three systemd units;
+- a CI job that builds the package on every push to `main` and publishes it
+  as a GitHub release asset with a version derived from the repository;
+- the `portikus` Ansible role installs the package at a pinned version and
+  renders only environment files and secrets;
+- the `node` role installs the runtime only, no pnpm or build toolchain;
+- `make deploy-app` builds the package locally and installs it on the VM;
+- the `portikus-api` unit runs the database migrations from its
+  `ExecStartPre`, replacing `make db-migrate`. The unit rather than the
+  package's `postinst`, so migrations run when the service starts and not
+  when a file is unpacked;
+- the `portikus` Ansible role stops creating the service users,
+  `/etc/portikus`, `/var/lib/portikus`, and the systemd units, because the
+  package owns them and no resource should have two owners (STACK.md §32);
+- documentation of the release and rollback procedure in `infra/README.md`.
+
+Acceptance:
+
+- `make configure-vm` on a fresh VM installs the package and leaves the
+  three units enabled, with no Node build step on the VM;
+- installing the previous version rolls the control plane back;
+- the Epic 3 smoke-test block passes against the packaged install;
+- `.rpm` is out of scope until a non-Debian host is supported.
+
 ### Epic 4 — Authentication and authorization
 **Estimate:** 2–3 engineer-days
 
@@ -2289,7 +2343,9 @@ Prove:
 - workspace agent;
 - browser terminal;
 - start/stop lifecycle;
-- one authenticated preview.
+- one authenticated preview;
+- control plane installed from the versioned package, rollback by
+  reinstalling the previous version.
 
 Do not build substantial UI polish until this passes.
 
