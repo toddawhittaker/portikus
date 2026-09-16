@@ -1,345 +1,210 @@
-import type { ApiConfig } from "@portikus/config";
+import {
+	CookieJar,
+	csrfHeaders,
+	loginAs,
+	type MockOidcProvider,
+	startMockOidcProvider,
+} from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { buildServer } from "../server.js";
+import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
 const skip = !hasTestDb();
 let testDb: TestDb;
-
-const testConfig: ApiConfig = {
-	NODE_ENV: "test",
-	PORT: 3000,
-	DATABASE_URL: process.env.TEST_DATABASE_URL ?? "",
-	PRESENCE_TTL_SECONDS: 60,
-	WORKSPACE_HOME_SIZE_GIB: 25,
-	WORKSPACE_DOCKER_SIZE_GIB: 20,
-};
-
-function makeApp() {
-	return buildServer({ db: testDb.db, config: testConfig });
-}
+let mock: MockOidcProvider;
+let app: FastifyInstance;
+let alice: CookieJar;
 
 beforeAll(async () => {
 	if (skip) return;
 	testDb = await createTestDb();
+	mock = await startMockOidcProvider({});
 });
 
 afterAll(async () => {
 	if (skip) return;
 	await testDb.close();
+	await mock.close();
 });
 
 beforeEach(async () => {
 	if (skip) return;
 	await testDb.truncate();
+	app = buildTestServer(testDb.db, mock.issuer);
+	await app.ready();
+	alice = new CookieJar();
+	await loginAs(app, "alice", alice);
+	return async () => {
+		await app.close();
+	};
 });
 
-test.skipIf(skip)("POST /workspaces creates a workspace and returns 201", async () => {
-	const app = makeApp();
+function post(
+	url: string,
+	jar: CookieJar,
+	payload?: Record<string, unknown>,
+): Promise<LightMyRequestResponse> {
+	return app.inject({
+		method: "POST",
+		url,
+		headers: csrfHeaders(jar, PUBLIC_URL),
+		payload,
+	});
+}
+
+function get(url: string, jar: CookieJar): Promise<LightMyRequestResponse> {
+	return app.inject({ method: "GET", url, headers: { cookie: jar.cookieHeader() } });
+}
+
+test.skipIf(skip)("POST /workspaces without a session is 401", async () => {
 	const res = await app.inject({
 		method: "POST",
 		url: "/workspaces",
-		payload: { ownerUserId: "user-1" },
+		headers: { "sec-fetch-site": "same-origin" },
 	});
-
-	expect(res.statusCode).toBe(201);
-	const body = res.json();
-	expect(body.ownerUserId).toBe("user-1");
-	expect(body.state).toBe("provisioning");
-	expect(body.desiredState).toBe("stopped");
-	expect(body.incusInstanceName).toMatch(/^ws-[a-f0-9]{24}$/);
-	expect(body.quotaConfig).toEqual({ homeGiB: 25, dockerGiB: 20 });
-
-	await app.close();
+	expect(res.statusCode).toBe(401);
+	expect(res.json().code).toBe("UNAUTHORIZED");
 });
 
-test.skipIf(skip)("POST /workspaces is idempotent by owner", async () => {
-	const app = makeApp();
+test.skipIf(skip)(
+	"POST /workspaces creates a workspace owned by the session user",
+	async () => {
+		const me = (await get("/auth/me", alice)).json();
+		const res = await post("/workspaces", alice);
 
-	const first = await app.inject({
-		method: "POST",
-		url: "/workspaces",
-		payload: { ownerUserId: "user-1" },
-	});
+		expect(res.statusCode).toBe(201);
+		const body = res.json();
+		expect(body.ownerUserId).toBe(me.id);
+		expect(body.state).toBe("provisioning");
+		expect(body.desiredState).toBe("stopped");
+		expect(body.incusInstanceName).toMatch(/^ws-[a-f0-9]{24}$/);
+		expect(body.quotaConfig).toEqual({ homeGiB: 25, dockerGiB: 20 });
+	},
+);
+
+test.skipIf(skip)("POST /workspaces rejects a body with any property", async () => {
+	const res = await post("/workspaces", alice, { ownerUserId: "someone-else" });
+	expect(res.statusCode).toBe(400);
+	expect(res.json().code).toBe("VALIDATION_FAILED");
+});
+
+test.skipIf(skip)("POST /workspaces is idempotent for one user", async () => {
+	const first = await post("/workspaces", alice);
 	expect(first.statusCode).toBe(201);
 
-	const second = await app.inject({
-		method: "POST",
-		url: "/workspaces",
-		payload: { ownerUserId: "user-1" },
-	});
+	const second = await post("/workspaces", alice);
 	expect(second.statusCode).toBe(200);
 	expect(second.json().id).toBe(first.json().id);
-
-	await app.close();
 });
 
-test.skipIf(skip)("GET /workspaces/:id returns the workspace", async () => {
-	const app = makeApp();
-
-	const create = await app.inject({
-		method: "POST",
-		url: "/workspaces",
-		payload: { ownerUserId: "user-get" },
-	});
-	const id = create.json().id;
-
-	const res = await app.inject({
-		method: "GET",
-		url: `/workspaces/${id}`,
-	});
+test.skipIf(skip)("GET /workspaces/:id returns the owner's workspace", async () => {
+	const id = (await post("/workspaces", alice)).json().id;
+	const res = await get(`/workspaces/${id}`, alice);
 	expect(res.statusCode).toBe(200);
 	expect(res.json().id).toBe(id);
-
-	await app.close();
 });
 
-test.skipIf(skip)("GET /workspaces/:id returns 404 for nonexistent", async () => {
-	const app = makeApp();
-	const res = await app.inject({
-		method: "GET",
-		url: "/workspaces/00000000-0000-0000-0000-000000000000",
-	});
+test.skipIf(skip)("another student gets 404 for someone else's workspace", async () => {
+	const id = (await post("/workspaces", alice)).json().id;
+
+	const bob = new CookieJar();
+	await loginAs(app, "bob", bob);
+
+	const res = await get(`/workspaces/${id}`, bob);
 	expect(res.statusCode).toBe(404);
 	expect(res.json().code).toBe("WORKSPACE_NOT_FOUND");
 
-	await app.close();
+	const start = await post(`/workspaces/${id}/start`, bob);
+	expect(start.statusCode).toBe(404);
 });
 
-test.skipIf(skip)("GET /workspaces/:id returns 400 for invalid uuid", async () => {
-	const app = makeApp();
-	const res = await app.inject({
-		method: "GET",
-		url: "/workspaces/not-a-uuid",
-	});
+test.skipIf(skip)("an administrator may read another user's workspace", async () => {
+	const id = (await post("/workspaces", alice)).json().id;
+
+	const carol = new CookieJar();
+	await loginAs(app, "carol", carol);
+
+	const res = await get(`/workspaces/${id}`, carol);
+	expect(res.statusCode).toBe(200);
+});
+
+test.skipIf(skip)("GET /workspaces/:id is 404 for an unknown id", async () => {
+	const res = await get("/workspaces/00000000-0000-0000-0000-000000000000", alice);
+	expect(res.statusCode).toBe(404);
+	expect(res.json().code).toBe("WORKSPACE_NOT_FOUND");
+});
+
+test.skipIf(skip)("GET /workspaces/:id is 400 for an invalid uuid", async () => {
+	const res = await get("/workspaces/not-a-uuid", alice);
 	expect(res.statusCode).toBe(400);
 	expect(res.json().code).toBe("VALIDATION_FAILED");
-
-	await app.close();
 });
 
-test.skipIf(skip)("POST /workspaces/:id/connections sets desired running", async () => {
-	const app = makeApp();
+test.skipIf(skip)(
+	"start, stop, and restart set desired_state and write audit",
+	async () => {
+		const me = (await get("/auth/me", alice)).json();
+		const id = (await post("/workspaces", alice)).json().id;
 
-	const ws = (
-		await app.inject({
-			method: "POST",
-			url: "/workspaces",
-			payload: { ownerUserId: "user-conn" },
-		})
-	).json();
+		expect((await post(`/workspaces/${id}/start`, alice)).statusCode).toBe(202);
+		expect((await get(`/workspaces/${id}`, alice)).json().desiredState).toBe("running");
 
-	const connRes = await app.inject({
-		method: "POST",
-		url: `/workspaces/${ws.id}/connections`,
-	});
-	expect(connRes.statusCode).toBe(201);
-	const conn = connRes.json();
-	expect(conn.connectionId).toBeTruthy();
-	expect(conn.workspaceId).toBe(ws.id);
+		expect((await post(`/workspaces/${id}/stop`, alice)).statusCode).toBe(202);
+		expect((await get(`/workspaces/${id}`, alice)).json().desiredState).toBe("stopped");
 
-	// Workspace should now have desired_state running.
-	const get = (
-		await app.inject({
-			method: "GET",
-			url: `/workspaces/${ws.id}`,
-		})
-	).json();
-	expect(get.desiredState).toBe("running");
+		expect((await post(`/workspaces/${id}/restart`, alice)).statusCode).toBe(202);
+		expect((await get(`/workspaces/${id}`, alice)).json().desiredState).toBe(
+			"restarting",
+		);
 
-	await app.close();
-});
+		const audits = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("target", "=", id)
+			.execute();
+		const actions = audits.map((row) => row.action);
+		expect(actions).toContain("workspace.provision_requested");
+		expect(actions).toContain("workspace.start_requested");
+		expect(actions).toContain("workspace.stop_requested");
+		expect(actions).toContain("workspace.restart_requested");
+		for (const row of audits) {
+			expect(row.actor).toBe(`user:${me.id}`);
+		}
+	},
+);
 
-test.skipIf(skip)("heartbeat refreshes last_seen_at", async () => {
-	const app = makeApp();
-
-	const ws = (
-		await app.inject({
-			method: "POST",
-			url: "/workspaces",
-			payload: { ownerUserId: "user-hb" },
-		})
-	).json();
-
-	const conn = (
-		await app.inject({
-			method: "POST",
-			url: `/workspaces/${ws.id}/connections`,
-		})
-	).json();
-
-	const hb = await app.inject({
-		method: "POST",
-		url: `/workspaces/${ws.id}/connections/${conn.connectionId}/heartbeat`,
-	});
-	expect(hb.statusCode).toBe(204);
-
-	await app.close();
-});
-
-test.skipIf(skip)("heartbeat returns 404 for unknown connection", async () => {
-	const app = makeApp();
-
-	const ws = (
-		await app.inject({
-			method: "POST",
-			url: "/workspaces",
-			payload: { ownerUserId: "user-hb404" },
-		})
-	).json();
-
-	const hb = await app.inject({
-		method: "POST",
-		url: `/workspaces/${ws.id}/connections/00000000-0000-0000-0000-000000000000/heartbeat`,
-	});
-	expect(hb.statusCode).toBe(404);
-	expect(hb.json().code).toBe("CONNECTION_NOT_FOUND");
-
-	await app.close();
-});
-
-test.skipIf(skip)("disconnect leaves state untouched", async () => {
-	const app = makeApp();
-
-	const ws = (
-		await app.inject({
-			method: "POST",
-			url: "/workspaces",
-			payload: { ownerUserId: "user-dc" },
-		})
-	).json();
-
-	const conn = (
-		await app.inject({
-			method: "POST",
-			url: `/workspaces/${ws.id}/connections`,
-		})
-	).json();
-
-	const del = await app.inject({
-		method: "DELETE",
-		url: `/workspaces/${ws.id}/connections/${conn.connectionId}`,
-	});
-	expect(del.statusCode).toBe(204);
-
-	// State stays provisioning; desired stays running (set by connect).
-	const get = (
-		await app.inject({
-			method: "GET",
-			url: `/workspaces/${ws.id}`,
-		})
-	).json();
-	expect(get.state).toBe("provisioning");
-
-	await app.close();
+test.skipIf(skip)("start is 404 for an unknown workspace", async () => {
+	const res = await post(
+		"/workspaces/00000000-0000-0000-0000-000000000000/start",
+		alice,
+	);
+	expect(res.statusCode).toBe(404);
+	expect(res.json().code).toBe("WORKSPACE_NOT_FOUND");
 });
 
 test.skipIf(skip)("activeConnections excludes stale rows", async () => {
-	const app = makeApp();
+	const id = (await post("/workspaces", alice)).json().id;
 
-	const ws = (
-		await app.inject({
-			method: "POST",
-			url: "/workspaces",
-			payload: { ownerUserId: "user-stale" },
-		})
-	).json();
-
-	// Insert a stale connection directly.
-	const staleTime = new Date(
-		Date.now() - (testConfig.PRESENCE_TTL_SECONDS + 10) * 1000,
-	).toISOString();
-
+	const staleTime = new Date(Date.now() - 70 * 1000).toISOString();
 	await testDb.db
 		.insertInto("workspace_connections")
 		.values({
 			id: crypto.randomUUID(),
-			workspace_id: ws.id,
+			workspace_id: id,
 			last_seen_at: staleTime,
 		})
 		.execute();
-
-	// Insert a fresh connection via API.
-	await app.inject({
-		method: "POST",
-		url: `/workspaces/${ws.id}/connections`,
-	});
-
-	const get = (
-		await app.inject({
-			method: "GET",
-			url: `/workspaces/${ws.id}`,
-		})
-	).json();
-
-	// Only the fresh connection counts.
-	expect(get.activeConnections).toBe(1);
-
-	await app.close();
-});
-
-test.skipIf(skip)("start/stop/restart set desired_state and write audit", async () => {
-	const app = makeApp();
-
-	const ws = (
-		await app.inject({
-			method: "POST",
-			url: "/workspaces",
-			payload: { ownerUserId: "user-actions" },
-		})
-	).json();
-
-	const start = await app.inject({
-		method: "POST",
-		url: `/workspaces/${ws.id}/start`,
-	});
-	expect(start.statusCode).toBe(202);
-
-	let get = (await app.inject({ method: "GET", url: `/workspaces/${ws.id}` })).json();
-	expect(get.desiredState).toBe("running");
-
-	const stop = await app.inject({
-		method: "POST",
-		url: `/workspaces/${ws.id}/stop`,
-	});
-	expect(stop.statusCode).toBe(202);
-
-	get = (await app.inject({ method: "GET", url: `/workspaces/${ws.id}` })).json();
-	expect(get.desiredState).toBe("stopped");
-
-	const restart = await app.inject({
-		method: "POST",
-		url: `/workspaces/${ws.id}/restart`,
-	});
-	expect(restart.statusCode).toBe(202);
-
-	get = (await app.inject({ method: "GET", url: `/workspaces/${ws.id}` })).json();
-	expect(get.desiredState).toBe("restarting");
-
-	// Check audit rows exist.
-	const audits = await testDb.db
-		.selectFrom("audit_events")
-		.selectAll()
-		.where("target", "=", ws.id)
+	await testDb.db
+		.insertInto("workspace_connections")
+		.values({ id: crypto.randomUUID(), workspace_id: id })
 		.execute();
 
-	const actions = audits.map((a) => a.action);
-	expect(actions).toContain("workspace.provision_requested");
-	expect(actions).toContain("workspace.start_requested");
-	expect(actions).toContain("workspace.stop_requested");
-	expect(actions).toContain("workspace.restart_requested");
-
-	await app.close();
+	expect((await get(`/workspaces/${id}`, alice)).json().activeConnections).toBe(1);
 });
 
-test.skipIf(skip)("start returns 404 for nonexistent workspace", async () => {
-	const app = makeApp();
-	const res = await app.inject({
-		method: "POST",
-		url: "/workspaces/00000000-0000-0000-0000-000000000000/start",
-	});
+test.skipIf(skip)("the removed connection routes are gone", async () => {
+	const id = (await post("/workspaces", alice)).json().id;
+	const res = await post(`/workspaces/${id}/connections`, alice);
 	expect(res.statusCode).toBe(404);
-	expect(res.json().code).toBe("WORKSPACE_NOT_FOUND");
-
-	await app.close();
 });

@@ -1,7 +1,7 @@
 # Portikus API — shipped by the portikus Debian package.
 [Unit]
 Description=Portikus API
-After=network.target postgresql.service
+After=network.target postgresql.service portikus-mock-idp.service
 Requires=postgresql.service
 ConditionPathExists=/etc/portikus/api.env
 

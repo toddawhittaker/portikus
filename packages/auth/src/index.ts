@@ -1,2 +1,32 @@
-/** OIDC login, session handling, and authorization helpers shared by the services (STACK.md section 8, SPEC.md section 24). Placeholder; arrives in a later epic. */
-export const packageName = "@portikus/auth";
+/** OIDC login, server-side sessions, and authorization helpers (SPEC.md sections 5 and 24, STACK.md section 8). */
+export {
+	createOidcClient,
+	type LoginState,
+	type OidcClient,
+	OidcError,
+} from "./oidc.js";
+export {
+	type AuthPluginOptions,
+	authPlugin,
+	checkCsrf,
+	checkWsOrigin,
+	loginCookieOptions,
+	requireRole,
+	sessionCookieOptions,
+} from "./plugin.js";
+export {
+	createSession,
+	deleteSession,
+	loadSession,
+	loadSessionFromCookieHeader,
+	type OidcIdentity,
+	upsertUser,
+} from "./sessions.js";
+export {
+	type AuthOptions,
+	type AuthUser,
+	LOGIN_COOKIE,
+	mapRole,
+	type Role,
+	SESSION_COOKIE,
+} from "./types.js";

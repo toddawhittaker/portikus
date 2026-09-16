@@ -36,6 +36,8 @@ export async function createTestDb(): Promise<TestDb> {
 		await db.deleteFrom("workspace_connections").execute();
 		await db.deleteFrom("audit_events").execute();
 		await db.deleteFrom("workspaces").execute();
+		await db.deleteFrom("sessions").execute();
+		await db.deleteFrom("users").execute();
 	};
 
 	const close = async () => {
@@ -43,4 +45,32 @@ export async function createTestDb(): Promise<TestDb> {
 	};
 
 	return { db, truncate, close };
+}
+
+export interface TestUserOverrides {
+	oidc_issuer?: string;
+	oidc_subject?: string;
+	email?: string | null;
+	display_name?: string;
+	role?: string;
+	disabled_at?: string | null;
+}
+
+/** Insert a user row and return its id. */
+export async function insertTestUser(
+	db: Kysely<Database>,
+	overrides: TestUserOverrides = {},
+): Promise<string> {
+	const row = await db
+		.insertInto("users")
+		.values({
+			oidc_issuer: "https://test.invalid",
+			oidc_subject: `subject-${Math.random().toString(36).slice(2, 12)}`,
+			display_name: "Test User",
+			role: "student",
+			...overrides,
+		})
+		.returning("id")
+		.executeTakeFirstOrThrow();
+	return row.id;
 }

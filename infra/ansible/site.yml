@@ -57,6 +57,36 @@
     portikus_workspace_home_size_gib: 25
     portikus_workspace_docker_size_gib: 20
 
+    # ── Authentication (SPEC 5.3, ADR 0008) ───────────────────────
+    # The in-repo mock identity provider is on by default so a fresh VM is
+    # usable without an external IdP.  Set PORTIKUS_MOCK_IDP=false and the
+    # PORTIKUS_OIDC_* variables below to point at a real one.
+    portikus_mock_idp: "{{ lookup('env', 'PORTIKUS_MOCK_IDP') | default('true', true) | bool }}"
+    portikus_mock_idp_port: 3002
+    portikus_oidc_issuer: "{{ lookup('env', 'PORTIKUS_OIDC_ISSUER') }}"
+    portikus_oidc_client_id: "{{ lookup('env', 'PORTIKUS_OIDC_CLIENT_ID') }}"
+    portikus_oidc_client_secret: "{{ lookup('env', 'PORTIKUS_OIDC_CLIENT_SECRET') }}"
+    portikus_oidc_groups_claim: groups
+    portikus_oidc_student_group: >-
+      {{ lookup('env', 'PORTIKUS_OIDC_STUDENT_GROUP') | default('portikus-students', true) }}
+    portikus_oidc_admin_group: >-
+      {{ lookup('env', 'PORTIKUS_OIDC_ADMIN_GROUP') | default('portikus-administrators', true) }}
+    portikus_session_ttl_seconds: 43200
+
+    # ── Browser access (Caddy) ────────────────────────────────────
+    # nip.io resolves portikus.<ip>.nip.io to <ip>, so a fresh VM has a
+    # hostname for TLS without anyone editing DNS.  PORTIKUS_PUBLIC_HOST
+    # overrides it.
+    portikus_public_host: >-
+      {{ lookup('env', 'PORTIKUS_PUBLIC_HOST')
+         | default('portikus.' ~ ansible_host ~ '.nip.io', true) }}
+    portikus_public_url: "https://{{ portikus_public_host }}"
+    # Caddy signing key from Cloudsmith, verified 2026-09-16.
+    caddy_gpg_checksum: "783dfee04b19e851a928cd87b34710213ebbe7628f98d9f34595ab83be578c00"
+    # Caddy's internal certificate authority root, written on first start.
+    caddy_root_cert: /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+    portikus_caddy_root_cert: /etc/portikus/caddy-root.crt
+
   roles:
     - base
     - firewall
@@ -67,4 +97,5 @@
     - image_builder
     - postgresql
     - node
+    - caddy
     - portikus

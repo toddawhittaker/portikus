@@ -1,0 +1,93 @@
+---
+# Caddy is the only thing listening on the VM's public interface: it
+# terminates TLS with its own internal certificate authority and proxies to
+# the control-plane services, which stay bound to loopback (SPEC 24.3).
+# Follows the same apt-repo-with-checksum pattern as the incus and node roles.
+
+- name: Create apt keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download the Caddy signing key
+  ansible.builtin.get_url:
+    url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+    dest: /etc/apt/keyrings/caddy-stable.asc
+    checksum: "sha256:{{ caddy_gpg_checksum }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add the Caddy stable repository
+  ansible.builtin.deb822_repository:
+    name: caddy-stable
+    types: deb
+    uris: https://dl.cloudsmith.io/public/caddy/stable/deb/debian
+    suites: any-version
+    components: main
+    signed_by: /etc/apt/keyrings/caddy-stable.asc
+    state: present
+
+- name: Install Caddy
+  ansible.builtin.apt:
+    name: caddy
+    state: present
+    update_cache: true
+
+# The API fetches the identity provider's discovery document over the public
+# host name.  This entry keeps that fetch on loopback, where the units'
+# IPAddressAllow permits it.
+- name: Resolve the public host name to loopback on the VM
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.0\.1\s+{{ portikus_public_host | regex_escape }}$'
+    line: "127.0.0.1 {{ portikus_public_host }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Deploy the Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload caddy
+
+- name: Enable and start Caddy
+  ansible.builtin.systemd:
+    name: caddy
+    enabled: true
+    state: started
+
+# The certificate tasks below need the running configuration, so the reload
+# cannot wait until the end of the play.
+- name: Apply the Caddy configuration now
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for Caddy to write its internal root certificate
+  ansible.builtin.wait_for:
+    path: "{{ caddy_root_cert }}"
+    timeout: 60
+
+- name: Create the portikus configuration directory
+  ansible.builtin.file:
+    path: /etc/portikus
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# The API trusts this root so it can reach the identity provider through Caddy.
+- name: Copy the Caddy root certificate where the services can read it
+  ansible.builtin.copy:
+    src: "{{ caddy_root_cert }}"
+    dest: "{{ portikus_caddy_root_cert }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"

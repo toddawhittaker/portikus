@@ -1,4 +1,9 @@
-import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import {
+	createTestDb,
+	hasTestDb,
+	insertTestUser,
+	type TestDb,
+} from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
@@ -48,7 +53,7 @@ async function insertWorkspace(
 	overrides: Record<string, unknown> = {},
 ): Promise<string> {
 	const defaults = {
-		owner_user_id: `user-${Math.random().toString(36).slice(2, 8)}`,
+		owner_user_id: await insertTestUser(tdb.db),
 		incus_instance_name: `ws-${Math.random().toString(36).slice(2, 14)}`,
 		state: "stopped",
 		desired_state: "stopped",
