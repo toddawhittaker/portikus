@@ -1,9 +1,5 @@
 import type { ApiConfig } from "@portikus/config";
-import {
-	createTestDb,
-	hasTestDb,
-	type TestDb,
-} from "../../../../packages/db/src/testing.js";
+import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { buildServer } from "../server.js";
 
