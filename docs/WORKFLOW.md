@@ -26,6 +26,24 @@ pnpm test:e2e                         # Playwright browser tests
 pnpm dev                              # every app in watch mode
 ```
 
+### Local PostgreSQL for database tests
+
+The `packages/db` tests run against a real PostgreSQL instance. If
+`TEST_DATABASE_URL` is not set the tests skip with a log message. To run
+them locally, start a throwaway container and export the URL:
+
+```sh
+docker run --rm -d --name portikus-test-pg \
+  -e POSTGRES_PASSWORD=portikus -e POSTGRES_DB=portikus_test \
+  -p 55432:5432 postgres:17
+export TEST_DATABASE_URL=postgres://postgres:portikus@127.0.0.1:55432/portikus_test
+pnpm test
+docker rm -f portikus-test-pg
+```
+
+CI sets `TEST_DATABASE_URL` automatically via a `postgres:17` service
+container, so database tests always run there.
+
 `pnpm dev` builds the shared packages first, then runs each app under
 `apps/` in watch mode: the API on port 3000 and the web app on port 5173,
 which proxies `/health` to the API. `make help` lists every Make target.

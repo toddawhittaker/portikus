@@ -14,6 +14,12 @@ const workspaceAliases = [
 	replacement: new URL(`./packages/${name}/src/index.ts`, import.meta.url).pathname,
 }));
 
+// Additional sub-path aliases for packages that export more than ".".
+workspaceAliases.push({
+	find: "@portikus/db/testing",
+	replacement: new URL("./packages/db/src/testing.ts", import.meta.url).pathname,
+});
+
 export default defineConfig({
 	// Tests import workspace packages from source so `pnpm test` works on a
 	// clean checkout, before anything has been built.
