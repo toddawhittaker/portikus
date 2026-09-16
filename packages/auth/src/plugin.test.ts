@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 import {
 	checkCsrf,
 	checkWsOrigin,
+	loginCookieName,
 	loginCookieOptions,
+	sessionCookieName,
 	sessionCookieOptions,
 } from "./plugin.js";
 import type { AuthOptions } from "./types.js";
@@ -29,9 +31,9 @@ describe("checkCsrf", () => {
 		["same-site but cross-origin", { "sec-fetch-site": "same-site" }, false],
 		["cross-site with no origin", { "sec-fetch-site": "cross-site" }, false],
 		[
-			"cross-site with our origin",
+			"cross-site claiming our origin",
 			{ "sec-fetch-site": "cross-site", origin: ORIGIN },
-			true,
+			false,
 		],
 		["a matching origin alone", { origin: ORIGIN }, true],
 		["another site's origin", { origin: "https://evil.example.com" }, false],
@@ -67,6 +69,21 @@ describe("cookie options", () => {
 		expect(
 			sessionCookieOptions({ ...opts, publicUrl: "http://127.0.0.1:5173" }).secure,
 		).toBe(false);
+	});
+
+	test("https gets the __Host- prefix and http does not", () => {
+		expect(sessionCookieName(opts)).toBe("__Host-portikus_session");
+		expect(loginCookieName(opts)).toBe("__Host-portikus_login");
+		const plain = { ...opts, publicUrl: "http://127.0.0.1:5173" };
+		expect(sessionCookieName(plain)).toBe("portikus_session");
+		expect(loginCookieName(plain)).toBe("portikus_login");
+	});
+
+	test("the prefixed cookie is Secure, Path=/ and has no Domain", () => {
+		const options = sessionCookieOptions(opts);
+		expect(options.secure).toBe(true);
+		expect(options.path).toBe("/");
+		expect(options.domain).toBeUndefined();
 	});
 
 	test("the login cookie is signed and short lived", () => {

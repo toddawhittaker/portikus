@@ -70,6 +70,12 @@ class FakeWebSocket {
 	close() {
 		this.readyState = 3;
 	}
+
+	/** Simulate the server refusing or dropping the connection. */
+	fail(code = 1006) {
+		this.readyState = 3;
+		this.onclose?.({ code });
+	}
 }
 
 afterEach(() => {
@@ -89,7 +95,7 @@ test("renders the product name and a sign-in link when nobody is signed in", asy
 });
 
 test("shows the signed-in user and a logout form", async () => {
-	stubFetch(json(200, { user }));
+	stubFetch(json(200, user));
 	vi.stubGlobal("WebSocket", FakeWebSocket);
 	render(<Home />);
 
@@ -103,7 +109,7 @@ test("shows the signed-in user and a logout form", async () => {
 test("shows the workspace state from the socket and sends a heartbeat", async () => {
 	// shouldAdvanceTime keeps waitFor working while the heartbeat timer is fake.
 	vi.useFakeTimers({ shouldAdvanceTime: true });
-	stubFetch(json(200, { user }));
+	stubFetch(json(200, user));
 	vi.stubGlobal("WebSocket", FakeWebSocket);
 	render(<Home />);
 
@@ -126,4 +132,65 @@ test("shows the workspace state from the socket and sends a heartbeat", async ()
 		vi.advanceTimersByTime(15_000);
 	});
 	expect(socket.sent).toEqual([JSON.stringify({ type: "heartbeat" })]);
+});
+
+test("a refused upgrade backs off instead of reconnecting in a loop", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	stubFetch(json(200, user));
+	vi.stubGlobal("WebSocket", FakeWebSocket);
+	render(<Home />);
+
+	await waitFor(() => expect(sockets).toHaveLength(1));
+
+	// The upgrade is refused before the socket ever opens.
+	act(() => {
+		(sockets[0] as FakeWebSocket).fail();
+	});
+	// Let the /auth/me re-check settle so the retry timer is scheduled.
+	await act(async () => {});
+
+	await act(async () => {
+		vi.advanceTimersByTime(2_000);
+	});
+	expect(sockets).toHaveLength(1);
+
+	await act(async () => {
+		vi.advanceTimersByTime(1_500);
+	});
+	await waitFor(() => expect(sockets).toHaveLength(2));
+
+	// The second failure waits twice as long.
+	act(() => {
+		(sockets[1] as FakeWebSocket).fail();
+	});
+	await act(async () => {});
+	await act(async () => {
+		vi.advanceTimersByTime(4_000);
+	});
+	expect(sockets).toHaveLength(2);
+	await act(async () => {
+		vi.advanceTimersByTime(3_000);
+	});
+	await waitFor(() => expect(sockets).toHaveLength(3));
+});
+
+test("a refused upgrade with no session signs the user out", async () => {
+	const responses = [json(200, user), json(401, {})];
+	const fetchMock = vi.fn(async (input: string) => {
+		const url = String(input);
+		if (url === "/auth/me") return responses.shift() ?? json(401, {});
+		if (url === "/workspaces") return json(201, workspace);
+		throw new Error(`unexpected request: ${url}`);
+	});
+	vi.stubGlobal("fetch", fetchMock);
+	vi.stubGlobal("WebSocket", FakeWebSocket);
+	render(<Home />);
+
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	act(() => {
+		(sockets[0] as FakeWebSocket).fail();
+	});
+
+	expect(await screen.findByTestId("signin")).toBeDefined();
+	expect(sockets).toHaveLength(1);
 });

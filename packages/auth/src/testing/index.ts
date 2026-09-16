@@ -9,7 +9,6 @@ export {
 export {
 	MOCK_CLIENT_ID,
 	MOCK_CLIENT_SECRET,
-	MOCK_GROUPS,
 	MOCK_USERS,
 	type MockOidcOptions,
 	type MockOidcProvider,

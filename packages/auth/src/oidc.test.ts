@@ -39,7 +39,9 @@ describe("createOidcClient against the mock provider", () => {
 	let mock: MockOidcProvider;
 
 	beforeAll(async () => {
-		mock = await startMockOidcProvider();
+		mock = await startMockOidcProvider({
+			redirectUris: [`${PUBLIC_URL}/auth/callback`],
+		});
 	});
 
 	afterAll(async () => {
@@ -152,6 +154,7 @@ describe("an issuer with a path prefix", () => {
 		mock = await startMockOidcProvider({
 			port: probe.port,
 			issuer: `http://127.0.0.1:${probe.port}/mock-idp`,
+			redirectUris: [`${PUBLIC_URL}/auth/callback`],
 		});
 	});
 
@@ -170,5 +173,50 @@ describe("an issuer with a path prefix", () => {
 		expect(identity.subject).toBe("carol");
 		expect(identity.issuer).toBe(mock.issuer);
 		expect(claims.groups).toEqual(["portikus-administrators"]);
+	});
+});
+
+describe("the mock provider's redirect_uri allow list", () => {
+	let mock: MockOidcProvider;
+
+	beforeAll(async () => {
+		mock = await startMockOidcProvider({
+			redirectUris: [`${PUBLIC_URL}/auth/callback`],
+		});
+	});
+
+	afterAll(async () => {
+		await mock.close();
+	});
+
+	test("an unlisted redirect_uri is refused", async () => {
+		const url = new URL(`${mock.issuer}/authorize`);
+		url.searchParams.set("client_id", MOCK_CLIENT_ID);
+		url.searchParams.set("redirect_uri", "https://evil.example.com/steal");
+		url.searchParams.set("code_challenge", "x".repeat(43));
+		url.searchParams.set("code_challenge_method", "S256");
+		url.searchParams.set("user", "alice");
+
+		const response = await fetch(url, { redirect: "manual" });
+		expect(response.status).toBe(400);
+	});
+
+	test("credentials come from the options", async () => {
+		const custom = await startMockOidcProvider({
+			clientId: "other-client",
+			clientSecret: "other-secret",
+			redirectUris: [`${PUBLIC_URL}/auth/callback`],
+		});
+		try {
+			const url = new URL(`${custom.issuer}/authorize`);
+			url.searchParams.set("client_id", MOCK_CLIENT_ID);
+			url.searchParams.set("redirect_uri", `${PUBLIC_URL}/auth/callback`);
+			url.searchParams.set("code_challenge", "x".repeat(43));
+			url.searchParams.set("code_challenge_method", "S256");
+			const response = await fetch(url, { redirect: "manual" });
+			expect(response.status).toBe(400);
+		} finally {
+			await custom.close();
+		}
 	});
 });

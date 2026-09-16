@@ -71,6 +71,7 @@ export const ApiErrorCode = z.enum([
 	"FORBIDDEN",
 	"VALIDATION_FAILED",
 	"CONTROLLER_UNAVAILABLE",
+	"TOO_MANY_CONNECTIONS",
 	"INTERNAL",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;

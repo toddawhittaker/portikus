@@ -1,10 +1,12 @@
+import * as http from "node:http";
+import type { AddressInfo } from "node:net";
 import type { OidcClient } from "@portikus/auth";
 import { HealthResponse } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Kysely } from "kysely";
 import { expect, test, vi } from "vitest";
 import { buildServer } from "./server.js";
-import { testConfig } from "./test-support.js";
+import { PUBLIC_URL, testConfig } from "./test-support.js";
 
 /** Minimal stub: the health route does not touch the database. */
 function makeApp(oidc?: OidcClient) {
@@ -87,4 +89,66 @@ test("an unexpected error returns a generic INTERNAL body", async () => {
 
 	logged.mockRestore();
 	await app.close();
+});
+
+/** One keep-alive request, resolving with the status and the local port used. */
+function request(
+	port: number,
+	agent: http.Agent,
+	headers: Record<string, string>,
+): Promise<{ status: number; localPort: number | undefined }> {
+	return new Promise((resolve, reject) => {
+		const req = http.request(
+			{ host: "127.0.0.1", port, path: "/health", agent, headers },
+			(res) => {
+				const localPort = res.socket.localPort;
+				res.resume();
+				res.on("end", () => resolve({ status: res.statusCode ?? 0, localPort }));
+			},
+		);
+		req.on("error", reject);
+		req.end();
+	});
+}
+
+test("an ordinary request with an Upgrade header keeps its connection", async () => {
+	const app = makeApp();
+	await app.listen({ port: 0, host: "127.0.0.1" });
+	const port = (app.server.address() as AddressInfo).port;
+	const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+
+	try {
+		const first = await request(port, agent, {
+			upgrade: "websocket",
+			origin: new URL(PUBLIC_URL).origin,
+			connection: "keep-alive",
+		});
+		expect(first.status).toBe(200);
+
+		const second = await request(port, agent, { connection: "keep-alive" });
+		expect(second.status).toBe(200);
+		expect(second.localPort).toBe(first.localPort);
+	} finally {
+		agent.destroy();
+		await app.close();
+	}
+});
+
+test("a refused upgrade does not hold shutdown open", async () => {
+	const app = makeApp();
+	await app.listen({ port: 0, host: "127.0.0.1" });
+	const port = (app.server.address() as AddressInfo).port;
+	const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+
+	const refused = await request(port, agent, {
+		upgrade: "websocket",
+		origin: "https://evil.example.com",
+		connection: "keep-alive",
+	});
+	expect(refused.status).toBe(403);
+
+	const started = Date.now();
+	await app.close();
+	agent.destroy();
+	expect(Date.now() - started).toBeLessThan(2_000);
 });
