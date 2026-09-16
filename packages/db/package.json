@@ -7,12 +7,22 @@
 		".": {
 			"types": "./dist/index.d.ts",
 			"default": "./dist/index.js"
+		},
+		"./testing": {
+			"types": "./dist/testing.d.ts",
+			"default": "./dist/testing.js"
 		}
 	},
 	"scripts": {
-		"typecheck": "tsc -b"
+		"typecheck": "tsc -b",
+		"migrate": "node dist/migrate.js"
+	},
+	"dependencies": {
+		"kysely": "0.29.5",
+		"pg": "8.23.0"
 	},
 	"devDependencies": {
-		"@types/node": "24.9.2"
+		"@types/node": "24.9.2",
+		"@types/pg": "8.23.1"
 	}
 }

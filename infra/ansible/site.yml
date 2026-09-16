@@ -26,6 +26,31 @@
     image_builder_distrobuilder_commit: "86713967673400934b605a0a24f45ceb5c371082"
     management_cidr: "{{ lookup('env', 'PORTIKUS_MANAGEMENT_CIDR') | default('10.100.0.0/24', true) }}"
 
+    # ── Node.js and pnpm ─────────────────────────────────────────
+    # NodeSource GPG signing checksum, verified 2026-09-16.
+    nodesource_gpg_checksum: "b42e0321dabdc24e892115da705cf061167eac12a317f23d329862d0aa0a271d"
+    pnpm_version: "12.4.2"
+
+    # ── Portikus control-plane services ───────────────────────────
+    portikus_node_env: production
+    portikus_api_port: 3000
+    portikus_controller_port: 3001
+    portikus_database_url: "postgresql://portikus@/portikus?host=/var/run/postgresql"
+    portikus_controller_url: "http://127.0.0.1:3001"
+    portikus_shutdown_grace_seconds: 600
+    portikus_presence_ttl_seconds: 60
+    portikus_sweep_interval_seconds: 1
+    portikus_start_timeout_seconds: 60
+    portikus_stop_timeout_seconds: 30
+    portikus_status_refresh_seconds: 15
+    portikus_incus_socket: "/var/lib/incus/unix.socket"
+    portikus_incus_project: "{{ incus_project_name }}"
+    portikus_incus_pool: "{{ incus_storage_pool_name }}"
+    portikus_incus_profile: workspace
+    portikus_incus_image_alias: portikus
+    portikus_workspace_home_size_gib: 25
+    portikus_workspace_docker_size_gib: 20
+
   roles:
     - base
     - firewall
@@ -34,3 +59,6 @@
     - incus_network
     - portikus_workspace_profile
     - image_builder
+    - postgresql
+    - node
+    - portikus

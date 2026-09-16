@@ -26,6 +26,24 @@ pnpm test:e2e                         # Playwright browser tests
 pnpm dev                              # every app in watch mode
 ```
 
+### Local PostgreSQL for database tests
+
+The `packages/db` tests run against a real PostgreSQL instance. If
+`TEST_DATABASE_URL` is not set the tests skip with a log message. To run
+them locally, start a throwaway container and export the URL:
+
+```sh
+docker run --rm -d --name portikus-test-pg \
+  -e POSTGRES_PASSWORD=portikus -e POSTGRES_DB=portikus_test \
+  -p 55432:5432 postgres:17
+export TEST_DATABASE_URL=postgres://postgres:portikus@127.0.0.1:55432/portikus_test
+pnpm test
+docker rm -f portikus-test-pg
+```
+
+CI sets `TEST_DATABASE_URL` automatically via a `postgres:17` service
+container, so database tests always run there.
+
 `pnpm dev` builds the shared packages first, then runs each app under
 `apps/` in watch mode: the API on port 3000 and the web app on port 5173,
 which proxies `/health` to the API. `make help` lists every Make target.
@@ -38,7 +56,8 @@ add new variables to that schema and to `.env.example` together.
 
 - `main` is always releasable. It changes only through a pull request.
 - Each epic in SPEC.md section 29 gets a long-lived branch named
-  `epic/<n>-<slug>`, for example `epic/0-repo-conventions`. It also changes
+  `epic/<n>-<slug>`, for example `epic/0-repo-conventions`. A fractional
+  epic uses a dash for the point, as in `epic/3-5-<slug>`. It also changes
   only through a pull request.
 - Work happens on short-lived task branches cut from the epic branch, named
   `<epic-slug>/<task>`. A task branch is merged into its epic by pull
@@ -55,6 +74,8 @@ add new variables to that schema and to `.env.example` together.
 
 Every pull request cites the SPEC.md and STACK.md sections it serves and
 says how it was verified. The template asks for both. CI must be green.
+A pull request branch must be up to date with its base before it is merged;
+`gh pr update-branch <number>` does that.
 Anything touching auth, the preview gateway, the workspace agent, file APIs,
 Incus, or nested Docker is reviewed by the security-reviewer agent before
 merge.
@@ -76,13 +97,18 @@ the pipeline is green on a repo with no code and starts enforcing as code
 lands. Do not remove the detection steps; remove the skip once a check is
 expected to always run.
 
+Epic 3.5 adds a job that builds the control-plane Debian package with `nfpm`
+on pushes to `main` and publishes it as a release asset (ADR 0007).
+
 ## Secret scanning
 
 Remote: the CI secret-scan job, plus GitHub secret scanning and push
 protection on the repository.
 
-Local: a pre-commit hook runs gitleaks on staged changes. Enable it once per
-clone:
+Local: a pre-commit hook runs gitleaks on staged changes, then the same
+Biome check CI runs (`biome check --error-on-warnings`) on the staged
+TypeScript, JavaScript, JSON, and CSS files. A commit that would fail CI
+lint is refused before it is made. Enable the hook once per clone:
 
 ```sh
 git config core.hooksPath .githooks

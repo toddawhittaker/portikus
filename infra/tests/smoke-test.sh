@@ -129,13 +129,15 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   PROJECT="portikus"
   WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
 
-  # Clean up on exit regardless of success or failure.
-  cleanup_workspace() {
+  # Clean up on exit regardless of success or failure.  The cleanup
+  # function is extended by the Epic 3 block if it runs, so that a
+  # single trap covers both.
+  cleanup_all() {
     echo ""
     echo "Destroying ${WS_NAME}..."
     ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null 2>&1 || true
   }
-  trap cleanup_workspace EXIT
+  trap cleanup_all EXIT
 
   # Provision a workspace.
   echo "Creating workspace ${WS_NAME}..."
@@ -220,6 +222,285 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
 
 else
   echo "Workspace image not imported; skipping Epic 2 checks."
+fi
+
+echo ""
+
+# ── Epic 3: Control-plane lifecycle ──────────────────────────────
+# These checks run only when the portikus-api service is active (i.e.
+# code has been deployed).  The block exercises the full workspace
+# lifecycle through the REST API: provision, connect, grace period,
+# reconnect-cancels-stop, disconnect-stops, explicit start/stop,
+# persistence, and security boundaries.
+if ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
+  echo "--- Epic 3: control-plane lifecycle checks ---"
+  echo ""
+
+  epic3_pass_start=$pass
+  epic3_fail_start=$fail
+
+  API="http://127.0.0.1:3000"
+  PROJECT="portikus"
+  WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
+
+  # Shorten the grace period for testing.
+  ssh_cmd 'echo "SHUTDOWN_GRACE_SECONDS=20" | sudo tee /etc/portikus/worker.override.env >/dev/null'
+  ssh_cmd sudo systemctl restart portikus-worker
+
+  # Extend the shared cleanup function to also clean Epic 3 resources.
+  # Reading the instance name before deleting the DB row ensures the
+  # targeted destroy works.  No wildcard sweep: only the smoke-user
+  # instance is touched.
+  cleanup_epic3() {
+    echo ""
+    echo "Cleaning up Epic 3 smoke resources..."
+    ssh_cmd sudo rm -f /etc/portikus/worker.override.env
+    ssh_cmd sudo systemctl restart portikus-worker 2>/dev/null || true
+    # Read the instance name before deleting the row.
+    local smoke_instance
+    smoke_instance=$(ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT incus_instance_name FROM workspaces WHERE owner_user_id = 'smoke-user'\"" 2>/dev/null || true)
+    # Delete the smoke workspace DB rows.
+    ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM workspace_connections WHERE workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = 'smoke-user')\"" 2>/dev/null || true
+    ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM audit_events WHERE target IN (SELECT id::text FROM workspaces WHERE owner_user_id = 'smoke-user')\"" 2>/dev/null || true
+    ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM workspaces WHERE owner_user_id = 'smoke-user'\"" 2>/dev/null || true
+    # Destroy the Incus instance if it was found.
+    if [ -n "$smoke_instance" ]; then
+      ssh_cmd "bash ${WORKSPACE_SCRIPT} destroy ${smoke_instance}" 2>/dev/null || true
+    fi
+  }
+  # Wrap both cleanups so a single trap covers Epic 2 and Epic 3.
+  cleanup_all() {
+    cleanup_epic3
+    echo ""
+    echo "Destroying ${WS_NAME}..."
+    ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null 2>&1 || true
+  }
+
+  # Give the worker a moment to start with the short grace period.
+  sleep 3
+
+  # 1. Three units active; controller health is public; protected routes reject unauthenticated.
+  check "portikus-api is active"        ssh_cmd systemctl is-active portikus-api
+  check "portikus-worker is active"     ssh_cmd systemctl is-active portikus-worker
+  check "portikus-controller is active" ssh_cmd systemctl is-active portikus-controller
+  check "controller /health returns 200" \
+    ssh_cmd "test \$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/health) = 200"
+  check "controller rejects unauthenticated requests" \
+    ssh_cmd "test \$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/instances) = 401"
+
+  # 2. POST /workspaces to provision a workspace.
+  echo ""
+  echo "Provisioning workspace for smoke-user..."
+  ws_response=$(ssh_cmd "curl -s -X POST ${API}/workspaces -H 'Content-Type: application/json' -d '{\"ownerUserId\":\"smoke-user\"}'")
+  ws_id=$(echo "$ws_response" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null || true)
+
+  if [ -z "$ws_id" ]; then
+    printf '\033[1;31mFAIL\033[0m  POST /workspaces returned no id: %s\n' "$ws_response"
+    fail=$((fail + 1))
+  else
+    printf '\033[1;32mPASS\033[0m  POST /workspaces returned id=%s\n' "$ws_id"
+    pass=$((pass + 1))
+
+    # Poll until the workspace reaches "stopped" (provisioned).
+    echo "Waiting for workspace to reach stopped state..."
+    ws_state=""
+    for i in $(seq 1 60); do
+      ws_state=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+      if [ "$ws_state" = "stopped" ]; then
+        break
+      fi
+      sleep 2
+    done
+    check_output "workspace reaches stopped after provision" "stopped" echo "$ws_state"
+
+    # Verify Incus shows the instance as Stopped.
+    ws_instance=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('incusInstanceName',''))" 2>/dev/null || true)
+    if [ -n "$ws_instance" ]; then
+      check "Incus instance exists and is Stopped" \
+        ssh_cmd "incus info ${ws_instance} --project ${PROJECT} 2>/dev/null | grep -q 'Status: STOPPED'"
+    fi
+
+    # 3. Starts on login: POST .../connections triggers start.
+    echo ""
+    echo "Connecting to start the workspace..."
+    conn_response=$(ssh_cmd "curl -s -X POST ${API}/workspaces/${ws_id}/connections")
+    conn_id=$(echo "$conn_response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('connectionId',''))" 2>/dev/null || true)
+    check "POST /connections returns connectionId" test -n "$conn_id"
+
+    # Poll until running (up to 60 s).
+    echo "Waiting for workspace to reach running state..."
+    ws_state=""
+    for i in $(seq 1 60); do
+      ws_state=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+      if [ "$ws_state" = "running" ]; then
+        break
+      fi
+      sleep 1
+    done
+    check_output "workspace reaches running after connect" "running" echo "$ws_state"
+
+    # Verify Incus shows Running with an IPv4 address.
+    if [ -n "$ws_instance" ]; then
+      check "Incus instance is Running" \
+        ssh_cmd "incus info ${ws_instance} --project ${PROJECT} 2>/dev/null | grep -q 'Status: RUNNING'"
+    fi
+
+    # 4. Stays up during grace: disconnect, wait 10 s, still running with deadline.
+    echo ""
+    echo "Disconnecting to test grace period..."
+    ssh_cmd "curl -s -X DELETE ${API}/workspaces/${ws_id}/connections/${conn_id}" >/dev/null 2>&1
+    sleep 10
+    ws_json=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}")
+    ws_state=$(echo "$ws_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+    ws_deadline=$(echo "$ws_json" | python3 -c "import sys,json; d=json.load(sys.stdin).get('shutdownDeadline'); print('set' if d else 'null')" 2>/dev/null || true)
+    check_output "still running 10s after disconnect" "running" echo "$ws_state"
+    check_output "shutdown deadline is set" "set" echo "$ws_deadline"
+
+    # 5. Reconnect cancels the deadline.
+    echo ""
+    echo "Reconnecting to cancel shutdown deadline..."
+    conn_response=$(ssh_cmd "curl -s -X POST ${API}/workspaces/${ws_id}/connections")
+    conn_id2=$(echo "$conn_response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('connectionId',''))" 2>/dev/null || true)
+
+    # Wait up to 3 s for the deadline to clear.
+    ws_deadline=""
+    for i in $(seq 1 6); do
+      ws_deadline=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; d=json.load(sys.stdin).get('shutdownDeadline'); print('set' if d else 'null')" 2>/dev/null || true)
+      if [ "$ws_deadline" = "null" ]; then
+        break
+      fi
+      sleep 0.5
+    done
+    check_output "reconnect clears deadline" "null" echo "$ws_deadline"
+
+    # Still running after 25 s (grace was 20 s — would have stopped without reconnect).
+    sleep 25
+    ws_state=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+    check_output "still running 25s after reconnect" "running" echo "$ws_state"
+
+    # 6. Stops after grace: disconnect, wait for stopped.
+    echo ""
+    echo "Disconnecting to let grace period expire..."
+    ssh_cmd "curl -s -X DELETE ${API}/workspaces/${ws_id}/connections/${conn_id2}" >/dev/null 2>&1
+
+    ws_state=""
+    for i in $(seq 1 60); do
+      ws_state=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+      if [ "$ws_state" = "stopped" ]; then
+        break
+      fi
+      sleep 1
+    done
+    check_output "workspace stops after grace expires" "stopped" echo "$ws_state"
+
+    # Verify Incus is Stopped.
+    if [ -n "$ws_instance" ]; then
+      check "Incus instance is Stopped after grace" \
+        ssh_cmd "incus info ${ws_instance} --project ${PROJECT} 2>/dev/null | grep -q 'Status: STOPPED'"
+    fi
+
+    # Check audit_events for workspace.stop.
+    check "audit_events has workspace.stop" \
+      ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT count(*) FROM audit_events WHERE action = 'workspace.stop'\" | grep -qv '^0$'"
+
+    # 7. Explicit start then stop via REST.
+    echo ""
+    echo "Testing explicit start/stop..."
+    ssh_cmd "curl -s -X POST ${API}/workspaces/${ws_id}/start" >/dev/null 2>&1
+    for i in $(seq 1 60); do
+      ws_state=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+      if [ "$ws_state" = "running" ]; then
+        break
+      fi
+      sleep 1
+    done
+    check_output "explicit start reaches running" "running" echo "$ws_state"
+
+    ssh_cmd "curl -s -X POST ${API}/workspaces/${ws_id}/stop" >/dev/null 2>&1
+    for i in $(seq 1 60); do
+      ws_state=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+      if [ "$ws_state" = "stopped" ]; then
+        break
+      fi
+      sleep 1
+    done
+    check_output "explicit stop reaches stopped" "stopped" echo "$ws_state"
+
+    # 8. Re-run the Epic 2 persistence check against this instance.
+    if [ -n "$ws_instance" ]; then
+      echo ""
+      echo "Re-running persistence check on ${ws_instance}..."
+      # Start the instance for persistence checks.
+      ssh_cmd "curl -s -X POST ${API}/workspaces/${ws_id}/start" >/dev/null 2>&1
+      for i in $(seq 1 60); do
+        ws_state=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+        if [ "$ws_state" = "running" ]; then
+          break
+        fi
+        sleep 1
+      done
+
+      if [ "$ws_state" = "running" ]; then
+        sleep 5
+        # Write a marker, stop, start, check it survives.
+        ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- su -l student -c 'echo epic3-persist > ~/projects/.epic3-marker'" 2>/dev/null || true
+        ssh_cmd "curl -s -X POST ${API}/workspaces/${ws_id}/stop" >/dev/null 2>&1
+        for i in $(seq 1 60); do
+          ws_state=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+          if [ "$ws_state" = "stopped" ]; then break; fi
+          sleep 1
+        done
+        ssh_cmd "curl -s -X POST ${API}/workspaces/${ws_id}/start" >/dev/null 2>&1
+        for i in $(seq 1 60); do
+          ws_state=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+          if [ "$ws_state" = "running" ]; then break; fi
+          sleep 1
+        done
+        sleep 5
+        check "persistence marker survives restart (Epic 2 re-check)" \
+          ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- su -l student -c 'cat ~/projects/.epic3-marker'" 2>/dev/null
+      fi
+
+      # Stop the instance for the final checks.
+      ssh_cmd "curl -s -X POST ${API}/workspaces/${ws_id}/stop" >/dev/null 2>&1
+      for i in $(seq 1 30); do
+        ws_state=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+        if [ "$ws_state" = "stopped" ]; then break; fi
+        sleep 1
+      done
+    fi
+
+    # 9. Security: portikus user is not in incus-admin; ports 3000/3001 unreachable from workspace.
+    echo ""
+    echo "Checking security boundaries..."
+    check "portikus user not in incus-admin" \
+      ssh_cmd '! id portikus 2>/dev/null | grep -q incus-admin'
+
+    # Start a workspace to test port reachability from inside.
+    if [ -n "$ws_instance" ]; then
+      ssh_cmd "curl -s -X POST ${API}/workspaces/${ws_id}/start" >/dev/null 2>&1
+      # shellcheck disable=SC2034  # i is a loop counter only
+      for i in $(seq 1 60); do
+        ws_state=$(ssh_cmd "curl -s ${API}/workspaces/${ws_id}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || true)
+        if [ "$ws_state" = "running" ]; then break; fi
+        sleep 1
+      done
+      sleep 3
+
+      check "port 3000 unreachable from workspace" \
+        ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- bash -c '! timeout 3 bash -c \"echo >/dev/tcp/10.200.0.1/3000\" 2>/dev/null'"
+      check "port 3001 unreachable from workspace" \
+        ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- bash -c '! timeout 3 bash -c \"echo >/dev/tcp/10.200.0.1/3001\" 2>/dev/null'"
+
+      # Stop the workspace.
+      ssh_cmd "curl -s -X POST ${API}/workspaces/${ws_id}/stop" >/dev/null 2>&1
+    fi
+  fi
+
+  echo ""
+  echo "--- Epic 3 results: $((pass - epic3_pass_start)) passed, $((fail - epic3_fail_start)) failed ---"
+else
+  echo "portikus-api not active; skipping Epic 3 checks."
 fi
 
 echo ""

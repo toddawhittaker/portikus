@@ -14,6 +14,13 @@ const workspaceAliases = [
 	replacement: new URL(`./packages/${name}/src/index.ts`, import.meta.url).pathname,
 }));
 
+// Sub-path aliases must come before their parent package alias so that
+// Vite's prefix-based matching resolves them first.
+workspaceAliases.unshift({
+	find: "@portikus/db/testing",
+	replacement: new URL("./packages/db/src/testing.ts", import.meta.url).pathname,
+});
+
 export default defineConfig({
 	// Tests import workspace packages from source so `pnpm test` works on a
 	// clean checkout, before anything has been built.
@@ -25,6 +32,9 @@ export default defineConfig({
 				test: {
 					name: "node",
 					environment: "node",
+					// DB test files share one database and truncate between
+					// tests, so they must not run in parallel.
+					fileParallelism: false,
 					include: [
 						"packages/*/src/**/*.test.ts",
 						"apps/api/src/**/*.test.ts",

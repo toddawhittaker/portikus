@@ -1,0 +1,19 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart portikus-api
+  ansible.builtin.systemd:
+    name: portikus-api
+    state: restarted
+
+- name: Restart portikus-worker
+  ansible.builtin.systemd:
+    name: portikus-worker
+    state: restarted
+
+- name: Restart portikus-controller
+  ansible.builtin.systemd:
+    name: portikus-controller
+    state: restarted

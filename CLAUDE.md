@@ -24,7 +24,7 @@ that cover it. Cite sections by number in prompts and reports.
 
 ## Current state
 
-Epics 0, 1, and 2 (SPEC.md section 29) have landed. Epic 0 is the pnpm
+Epics 0 through 3 (SPEC.md section 29) have landed. Epic 0 is the pnpm
 workspace monorepo with the apps and packages from STACK.md section 2,
 Biome, Vitest, Playwright, a Makefile, and the decision records in
 `docs/adr/`. Epic 1 is the reproducible platform VM under `infra/`:
@@ -33,9 +33,20 @@ firewall, LVM thin storage, Incus, and the workspace network, plus the
 smoke test. Epic 2 is the Debian 13 workspace image built with
 distrobuilder, the hardened workspace profile with nested Docker and
 isolated ID mapping, persistent home and Docker volumes, and the interim
-`workspace.sh` provisioning script. Application packages are still
-near-empty scaffolding; Epic 3 (control-plane workspace lifecycle) is
-next.
+`workspace.sh` provisioning script. Epic 3 is the control-plane
+workspace lifecycle: a workspace controller that talks to Incus over the
+REST API on its unix socket and serves loopback HTTP behind a bearer
+token, an API with workspace and presence routes (also loopback only), and
+a worker that reconciles every second, is the only writer of workspace
+state, and keeps the disconnect grace timer in a durable
+`shutdown_deadline` column. The `contracts`, `config`, and `db` packages
+now have real content, including Kysely and the database migrations.
+Ansible gained `postgresql`, `node`, and `portikus` roles with three
+systemd units, the Makefile gained `make deploy-app`, and the smoke test
+covers all four Epic 3 acceptance criteria. That Ansible-plus-`deploy-app`
+arrangement is interim: Epic 3.5 (packaging the control plane as a Debian
+package, ADR 0007) replaces it and is next, then Epic 4 (authentication
+and authorization).
 
 ## Commands
 
@@ -62,15 +73,15 @@ Layout: `apps/` holds the five processes, `e2e/` the Playwright tests, and
 
 | Package | Holds |
 |---|---|
-| `contracts` | Zod schemas for every HTTP and event payload |
-| `config` | `loadConfig`, which validates the environment at startup |
+| `contracts` | Zod schemas for the workspace API and the controller API |
+| `config` | Per-service `loadConfig`, which validates the environment at startup |
 | `events` | Schemas for the WebSocket and cross-process event streams |
-| `db` | PostgreSQL access: Kysely, connections, migrations |
+| `db` | PostgreSQL access: Kysely types, connections, migrations, test helpers |
 | `auth` | OIDC login, sessions, and authorization helpers |
 | `observability` | OpenTelemetry setup and the structured JSON logger |
 | `ui` | Shared React components used by `apps/web` |
 
-Only `contracts` and `config` have real content today; the rest are
+`contracts`, `config`, and `db` have real content today; the rest are
 placeholders waiting on their epic.
 
 ## How work gets done here
