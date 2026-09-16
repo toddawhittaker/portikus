@@ -1,0 +1,44 @@
+# Dev-libvirt environment — Pop!_OS + KVM/libvirt reference deployment.
+# Wires provider-specific values into the platform-vm module.
+# See STACK.md sections 17, 19, 20.
+
+terraform {
+  required_version = ">= 1.9.0"
+
+  required_providers {
+    libvirt = {
+      source  = "dmacvicar/libvirt"
+      version = "~> 0.8.0"
+    }
+  }
+
+  # Pilot: encrypted local state (STACK.md section 20).
+  # Move to a remote backend when the deployment grows beyond one admin.
+  backend "local" {
+    path = "terraform.tfstate"
+  }
+}
+
+provider "libvirt" {
+  uri = var.libvirt_uri
+}
+
+module "platform_vm" {
+  source = "../../modules/platform-vm"
+
+  vm_name              = var.vm_name
+  vcpus                = var.vcpus
+  memory_mb            = var.memory_mb
+  os_disk_size_bytes   = var.os_disk_size_bytes
+  data_disk_size_bytes = var.data_disk_size_bytes
+  base_image_url       = var.base_image_url
+  base_image_sha512    = var.base_image_sha512
+  cloud_init_user_data = templatefile("${path.module}/../../../cloud-init/user-data.yml", {
+    hostname       = var.vm_name
+    ssh_public_key = var.ssh_public_key
+  })
+  network_name = var.network_name
+  network_cidr = var.network_cidr
+  pool_name    = var.pool_name
+  pool_path    = var.pool_path
+}

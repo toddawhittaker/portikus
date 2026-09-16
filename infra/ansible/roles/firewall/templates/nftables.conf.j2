@@ -1,0 +1,62 @@
+#!/usr/sbin/nft -f
+# Portikus platform VM firewall (STACK.md section 29).
+# Managed by Ansible — do not edit manually.
+
+flush ruleset
+
+table inet filter {
+
+  chain input {
+    type filter hook input priority 0; policy drop;
+
+    # Loopback
+    iif lo accept
+
+    # Established / related
+    ct state established,related accept
+
+    # SSH (management)
+    tcp dport 22 accept
+
+    # HTTP/HTTPS — Caddy will listen here once deployed (Epic 3+)
+    tcp dport { 80, 443 } accept
+
+    # ICMP / ICMPv6 for diagnostics
+    ip protocol icmp accept
+    ip6 nexthdr ipv6-icmp accept
+  }
+
+  chain forward {
+    type filter hook forward priority 0; policy drop;
+
+    # Established / related return traffic
+    ct state established,related accept
+
+    # --- Deny rules first (order matters) ---
+
+    # Block workspace traffic to the libvirt management network
+    iifname "{{ incus_network_name }}" ip daddr {{ management_cidr }} drop
+
+    # Block workspace traffic to the VM's own management address
+    iifname "{{ incus_network_name }}" ip daddr {{ incus_network_cidr | ansible.utils.ipaddr('address') }} drop
+
+    # Block cloud metadata endpoint and all link-local (section 28)
+    iifname "{{ incus_network_name }}" ip daddr 169.254.0.0/16 drop
+
+    # --- General egress (after all denies) ---
+    iifname "{{ incus_network_name }}" accept
+  }
+
+  chain output {
+    type filter hook output priority 0; policy accept;
+  }
+}
+
+table inet nat {
+  chain postrouting {
+    type nat hook postrouting priority 100; policy accept;
+    # Masquerade workspace traffic heading to the Internet
+    oifname "enp*" masquerade
+    oifname "eth*" masquerade
+  }
+}

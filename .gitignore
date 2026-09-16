@@ -26,3 +26,19 @@ coverage/
 playwright-report/
 test-results/
 .playwright/
+
+# Infrastructure — OpenTofu state and secrets (STACK.md sections 20, 27)
+*.tfstate
+*.tfstate.*
+.terraform/
+infra/secrets/age-key.txt
+
+# ansible-lint / ansible-galaxy cache
+.ansible/
+
+# Local screenshots, never committed
+screenshots/
+
+# OpenTofu variable values hold per-operator secrets
+terraform.tfvars
+*.auto.tfvars

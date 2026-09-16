@@ -1,0 +1,4 @@
+# OpenTofu state — never commit plaintext (STACK.md section 20).
+*.tfstate
+*.tfstate.backup
+.terraform/

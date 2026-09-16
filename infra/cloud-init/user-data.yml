@@ -1,0 +1,31 @@
+#cloud-config
+# Minimal first-boot bootstrap (STACK.md section 21).
+# Sets up just enough for Ansible to take over: a deployment user,
+# SSH key, Python, and a hostname. Full configuration is in Ansible.
+
+# Rendered by OpenTofu with templatefile(); the $${name} values come from
+# infra/tofu/environments/dev-libvirt/terraform.tfvars (git-ignored).
+hostname: ${hostname}
+
+# The deploy user Ansible connects as.
+users:
+  - name: deploy
+    groups: sudo
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - "${ssh_public_key}"
+
+# Ensure Python is available for Ansible.
+packages:
+  - python3
+  - python3-apt
+
+package_update: true
+package_upgrade: true
+
+# Disable root SSH login.
+ssh_pwauth: false
+
+# Signal completion so the operator can tell when cloud-init is done.
+final_message: "cloud-init finished at $TIMESTAMP — ready for Ansible"

@@ -1,0 +1,33 @@
+---
+# Base OS configuration for the Debian platform VM.
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - sudo
+      - openssh-server
+      - python3
+      - python3-apt
+      - thin-provisioning-tools
+      - lvm2
+      - jq
+    state: present
+
+- name: Set timezone to UTC
+  community.general.timezone:
+    name: UTC
+
+- name: Enable and start sshd
+  ansible.builtin.systemd:
+    name: ssh
+    enabled: true
+    state: started
