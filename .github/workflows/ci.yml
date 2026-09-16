@@ -83,7 +83,7 @@ jobs:
       - if: steps.detect.outputs.present == 'true'
         run: pnpm install --frozen-lockfile
       - if: steps.detect.outputs.present == 'true'
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps --only-shell chromium
       - if: steps.detect.outputs.present == 'true'
         run: pnpm test:e2e
 
