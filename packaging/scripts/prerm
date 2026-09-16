@@ -1,0 +1,10 @@
+#!/bin/sh
+# portikus prerm: stop the services before the files go away.
+set -e
+
+if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
+	systemctl stop portikus-api.service portikus-worker.service \
+		portikus-controller.service || true
+fi
+
+exit 0
