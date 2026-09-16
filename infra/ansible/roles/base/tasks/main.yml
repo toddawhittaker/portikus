@@ -39,3 +39,31 @@
     name: ssh
     enabled: true
     state: started
+
+# ── Unattended security upgrades ─────────────────────────────────
+- name: Install unattended-upgrades
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+
+- name: Configure unattended-upgrades (security only, no auto-reboot)
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    content: |
+      Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename},label=Debian-Security";
+      };
+      Unattended-Upgrade::Automatic-Reboot "false";
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable periodic unattended-upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    owner: root
+    group: root
+    mode: "0644"
