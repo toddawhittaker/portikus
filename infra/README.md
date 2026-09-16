@@ -103,6 +103,33 @@ Destroy it when done:
 make workspace-destroy NAME=alice
 ```
 
+## 9. Deploying the control plane
+
+After the VM is configured and the workspace image is built, deploy the
+application code. This installs dependencies, builds the TypeScript
+projects, runs database migrations, and restarts the three services
+(API, worker, workspace controller).
+
+```
+make deploy-app
+```
+
+To run only the database migration without a full deploy:
+
+```
+make db-migrate
+```
+
+The three systemd services (`portikus-api`, `portikus-worker`,
+`portikus-controller`) are enabled but will not start until their
+`ExecStart` binary exists (guarded by `ConditionPathExists`). After the
+first `make deploy-app`, they start automatically on boot.
+
+Service configuration lives in `/etc/portikus/*.env`. To override a
+variable for testing without changing the Ansible-managed file, create
+the corresponding `.override.env` file (for example,
+`/etc/portikus/worker.override.env` with `SHUTDOWN_GRACE_SECONDS=20`).
+
 ## Destroy and recreate
 
 ```

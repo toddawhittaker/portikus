@@ -1,0 +1,44 @@
+---
+# Install Node.js 24 from the NodeSource deb822 apt repository and pnpm.
+# Follows the same apt-repo-with-checksum pattern as the incus role.
+
+- name: Create apt keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download NodeSource signing key
+  # NodeSource GPG key, verified 2026-09-16
+  ansible.builtin.get_url:
+    url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+    dest: /etc/apt/keyrings/nodesource.asc
+    checksum: "sha256:{{ nodesource_gpg_checksum }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add NodeSource repository
+  ansible.builtin.deb822_repository:
+    name: nodesource
+    types: deb
+    uris: https://deb.nodesource.com/node_24.x
+    suites: nodistro
+    components: main
+    signed_by: /etc/apt/keyrings/nodesource.asc
+    state: present
+
+- name: Install Node.js
+  ansible.builtin.apt:
+    name: "nodejs"
+    state: present
+    update_cache: true
+
+- name: Install pnpm globally
+  community.general.npm:
+    name: pnpm
+    version: "{{ pnpm_version }}"
+    global: true
+    state: present
