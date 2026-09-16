@@ -1,0 +1,27 @@
+# Portikus worker — shipped by the portikus Debian package.
+[Unit]
+Description=Portikus Worker
+After=network.target postgresql.service portikus-controller.service
+Requires=postgresql.service
+ConditionPathExists=/etc/portikus/worker.env
+
+[Service]
+Type=simple
+User=portikus
+Group=portikus
+EnvironmentFile=/etc/portikus/worker.env
+EnvironmentFile=-/etc/portikus/worker.override.env
+ExecStart=/usr/bin/node /usr/lib/portikus/worker/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+# Hardening (SPEC section 24)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+IPAddressAllow=127.0.0.0/8
+IPAddressDeny=any
+
+[Install]
+WantedBy=multi-user.target
