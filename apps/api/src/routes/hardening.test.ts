@@ -168,11 +168,10 @@ for (const url of unsafeRoutes) {
 	);
 
 	test.skipIf(skip)(
-		`POST ${url} accepts a matching Origin even when Sec-Fetch-Site says cross-site`,
+		`POST ${url} with a matching Origin but Sec-Fetch-Site: cross-site is 403`,
 		async () => {
-			// Documented, not a hole: a browser sets Origin itself, so a real
-			// cross-site request can never carry our own origin. The Origin
-			// match is the fallback for clients that send no fetch metadata.
+			// Explicit cross-site fetch metadata always loses: the Origin
+			// match is only a fallback for clients that send no metadata.
 			const jar = new CookieJar();
 			await loginAs(app, "alice", jar);
 			const res = await app.inject({
@@ -184,7 +183,7 @@ for (const url of unsafeRoutes) {
 					"sec-fetch-site": "cross-site",
 				},
 			});
-			expect(res.statusCode).not.toBe(403);
+			expect(res.statusCode).toBe(403);
 		},
 	);
 
