@@ -72,13 +72,7 @@ make configure-vm
 This installs Incus, creates the LVM thin pool on the data disk, sets
 up the workspace network, profile, and project, and applies the firewall.
 
-## 6. Verify
-
-```
-make smoke-test
-```
-
-## 7. Build the workspace image
+## 6. Build the workspace image
 
 Build the distrobuilder-based workspace image on the VM and import it into
 Incus. The recipe lives in `infra/workspace-image/`.
@@ -90,6 +84,15 @@ make build-workspace-image
 This rsyncs the image definition to the VM, runs distrobuilder, and imports
 the result into the `portikus` Incus project. Re-runs replace the previous
 image.
+
+## 7. Verify
+
+```
+make smoke-test
+```
+
+The Epic 2 and Epic 3 blocks of the smoke test need the workspace image,
+so build it first; without it those blocks are skipped, not failed.
 
 ## 8. Create a test workspace
 
