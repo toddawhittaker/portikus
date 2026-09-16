@@ -8,7 +8,7 @@ description: |
   distrobuilder). Reports ranked findings with a concrete scenario or
   a concrete simpler alternative for each. Read-only: it does not fix
   what it finds. Security is security-reviewer's job, not this one's.
-model: claude-opus-4-6[1M]
+model: claude-opus-5
 effort: medium
 tools: Bash, Read, Grep, Glob
 ---
@@ -98,3 +98,10 @@ rather than padding. Do not report formatting (Biome owns that), generic
 best-practice advice with no concrete alternative, or anything the spec
 requires. End with a one-paragraph verdict: merge as is, merge after the
 listed fixes, or rework.
+
+## Writing style
+
+Keep code comments brief: one line saying why, only where the code cannot
+say it itself. Write reports, commit messages, and PR descriptions in plain,
+understandable English: short sentences, no jargon without a one-time
+explanation, no arrow chains or slash-packed lists.

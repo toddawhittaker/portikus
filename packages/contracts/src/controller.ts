@@ -1,0 +1,109 @@
+import { z } from "zod";
+
+/**
+ * Validated Incus instance name (SPEC.md §6, §18.3; STACK.md §5, §9).
+ *
+ * Must start with a lowercase letter, followed by up to 30 lowercase
+ * alphanumeric characters or hyphens. This is validated at the contract
+ * boundary and again inside the provider for defence in depth.
+ */
+export const InstanceName = z
+	.string()
+	.regex(
+		/^[a-z][a-z0-9-]{0,30}$/,
+		"Must start with a lowercase letter and contain only lowercase letters, digits, or hyphens (max 31 chars)",
+	);
+export type InstanceName = z.infer<typeof InstanceName>;
+
+/**
+ * Request body for `POST /instances` on the controller (SPEC.md §26, §27).
+ */
+export const CreateInstanceRequest = z.object({
+	name: InstanceName,
+	homeGiB: z.number().int().positive(),
+	dockerGiB: z.number().int().positive(),
+});
+export type CreateInstanceRequest = z.infer<typeof CreateInstanceRequest>;
+
+/**
+ * Response body for `POST /instances` (SPEC.md §26, §27).
+ */
+export const CreateInstanceResponse = z.object({
+	created: z.boolean(),
+	imageFingerprint: z.string().min(1),
+	quota: z.object({
+		homeGiB: z.number().int().positive(),
+		dockerGiB: z.number().int().positive(),
+	}),
+});
+export type CreateInstanceResponse = z.infer<typeof CreateInstanceResponse>;
+
+/**
+ * Response body for `POST /instances/:name/start` (SPEC.md §26, §27).
+ */
+export const StartInstanceResponse = z.object({
+	ipv4: z.string().min(1),
+});
+export type StartInstanceResponse = z.infer<typeof StartInstanceResponse>;
+
+/**
+ * Request body for `POST /instances/:name/stop` (SPEC.md §26, §27).
+ */
+export const StopInstanceRequest = z.object({
+	timeoutSeconds: z.number().int().positive(),
+});
+export type StopInstanceRequest = z.infer<typeof StopInstanceRequest>;
+
+/**
+ * Response body for `POST /instances/:name/stop` (SPEC.md §26, §27).
+ */
+export const StopInstanceResponse = z.object({
+	forced: z.boolean(),
+});
+export type StopInstanceResponse = z.infer<typeof StopInstanceResponse>;
+
+/**
+ * Status of a single Incus instance as returned by the controller
+ * (SPEC.md §18.3, §26).
+ */
+export const InstanceStatusEnum = z.enum(["Running", "Stopped", "Other"]);
+export type InstanceStatusEnum = z.infer<typeof InstanceStatusEnum>;
+
+export const InstanceStatus = z.object({
+	name: z.string().min(1),
+	status: InstanceStatusEnum,
+	ipv4: z.string().nullable(),
+});
+export type InstanceStatus = z.infer<typeof InstanceStatus>;
+
+/**
+ * Response body for `GET /instances` (SPEC.md §26).
+ */
+export const ListInstancesResponse = z.array(InstanceStatus);
+export type ListInstancesResponse = z.infer<typeof ListInstancesResponse>;
+
+/**
+ * Error codes returned by the workspace controller (SPEC.md §27;
+ * STACK.md §9).
+ */
+export const ControllerErrorCode = z.enum([
+	"INVALID_NAME",
+	"NOT_FOUND",
+	"ALREADY_EXISTS",
+	"IMAGE_NOT_FOUND",
+	"STORAGE_FULL",
+	"OPERATION_FAILED",
+	"TIMEOUT",
+	"INCUS_UNAVAILABLE",
+	"UNAUTHORIZED",
+]);
+export type ControllerErrorCode = z.infer<typeof ControllerErrorCode>;
+
+/**
+ * Standard error response from the workspace controller (SPEC.md §27).
+ */
+export const ControllerError = z.object({
+	code: ControllerErrorCode,
+	message: z.string(),
+});
+export type ControllerError = z.infer<typeof ControllerError>;

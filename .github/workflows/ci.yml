@@ -24,6 +24,19 @@ jobs:
   app:
     name: Application checks
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: portikus
+          POSTGRES_DB: portikus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v7
       - name: Detect application code
@@ -45,6 +58,8 @@ jobs:
         run: pnpm lint
       - if: steps.detect.outputs.present == 'true'
         run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
       - if: steps.detect.outputs.present == 'true'
         run: pnpm build
 
@@ -88,8 +103,18 @@ jobs:
         if: steps.detect.outputs.tofu == 'true'
       - if: steps.detect.outputs.tofu == 'true'
         run: tofu fmt -check -recursive infra/tofu && cd infra/tofu/environments/dev-libvirt && tofu init -backend=false && tofu validate
+      - name: Cache Ansible collections
+        id: collections
+        if: steps.detect.outputs.ansible == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.ansible/collections
+          key: ansible-collections-${{ hashFiles('infra/ansible/requirements.yml') }}
+      - name: Install Ansible collections
+        if: steps.detect.outputs.ansible == 'true' && steps.collections.outputs.cache-hit != 'true'
+        run: ansible-galaxy collection install --force -r infra/ansible/requirements.yml
       - if: steps.detect.outputs.ansible == 'true'
-        run: pipx install ansible-lint && ansible-galaxy collection install --force -r infra/ansible/requirements.yml && ansible-lint infra/ansible
+        run: pipx install ansible-lint && ansible-lint infra/ansible
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true'
         run: sudo apt-get install -y shellcheck && find . -name '*.sh' -not -path './node_modules/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck

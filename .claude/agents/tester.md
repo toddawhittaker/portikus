@@ -5,7 +5,7 @@ description: |
   the code happens to do. Runs them and reports failures with output. Use
   after a builder change or when a spec section needs coverage. For pure
   "run the suite and summarize" with no test design, a cheaper agent will do.
-model: claude-opus-4-6[1M]
+model: claude-opus-5
 effort: low
 tools: Bash, Read, Write, Edit, Grep, Glob
 ---
@@ -45,3 +45,10 @@ enforces. Do not weaken a test to make it pass. The orchestrator decides.
 
 Report: invariants you covered, invariants you could not cover and why,
 test files added or changed, and the exact run output. Plain English.
+
+## Writing style
+
+Keep code comments brief: one line saying why, only where the code cannot
+say it itself. Write reports, commit messages, and PR descriptions in plain,
+understandable English: short sentences, no jargon without a one-time
+explanation, no arrow chains or slash-packed lists.
