@@ -1,2 +1,17 @@
-/** PostgreSQL access: the Kysely query builder, connection handling, and migrations (STACK.md sections 6 and 34). Placeholder; arrives in a later epic. */
-export const packageName = "@portikus/db";
+import { Kysely, PostgresDialect } from "kysely";
+import pg from "pg";
+import type { Database } from "./schema.js";
+
+export { migrateToLatest } from "./migrate.js";
+export type { Database } from "./schema.js";
+
+/**
+ * Create a Kysely instance connected to PostgreSQL at the given URL.
+ */
+export function createDb(url: string): Kysely<Database> {
+	return new Kysely<Database>({
+		dialect: new PostgresDialect({
+			pool: new pg.Pool({ connectionString: url }),
+		}),
+	});
+}
