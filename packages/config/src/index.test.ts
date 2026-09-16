@@ -1,16 +1,22 @@
 import { expect, test } from "vitest";
-import { ConfigError, loadConfig } from "./index.js";
+import {
+	ApiConfigSchema,
+	ConfigError,
+	ControllerConfigSchema,
+	loadConfig,
+	WorkerConfigSchema,
+} from "./index.js";
+
+// --- backward-compatible loadConfig (defaults to ApiConfigSchema) ---
 
 test("applies defaults and coerces PORT", () => {
 	const config = loadConfig({
 		DATABASE_URL: "postgres://localhost/portikus",
 		PORT: "8080",
 	});
-	expect(config).toEqual({
-		NODE_ENV: "development",
-		PORT: 8080,
-		DATABASE_URL: "postgres://localhost/portikus",
-	});
+	expect(config.NODE_ENV).toBe("development");
+	expect(config.PORT).toBe(8080);
+	expect(config.DATABASE_URL).toBe("postgres://localhost/portikus");
 });
 
 test("lists every missing variable in the error message", () => {
@@ -63,7 +69,9 @@ test("reads only the variables in the schema", () => {
 		SECRET_TOKEN: "do-not-leak",
 		HOME: "/home/someone",
 	});
-	expect(Object.keys(config).sort()).toEqual(["DATABASE_URL", "NODE_ENV", "PORT"]);
+	expect(config.DATABASE_URL).toBe("postgres://localhost/portikus");
+	expect(config.NODE_ENV).toBe("development");
+	expect("SECRET_TOKEN" in config).toBe(false);
 });
 
 test("ignores process.env when an explicit environment is passed", () => {
@@ -79,4 +87,91 @@ test("ignores process.env when an explicit environment is passed", () => {
 			process.env.DATABASE_URL = previous;
 		}
 	}
+});
+
+// --- per-service config schemas ---
+
+test("ApiConfig lists missing DATABASE_URL", () => {
+	try {
+		loadConfig(ApiConfigSchema, {});
+		expect.unreachable("should have thrown");
+	} catch (error) {
+		expect(error).toBeInstanceOf(ConfigError);
+		expect((error as ConfigError).message).toContain("DATABASE_URL is missing");
+	}
+});
+
+test("ApiConfig applies CONTROLLER_URL default", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+	});
+	expect(config.CONTROLLER_URL).toBe("http://127.0.0.1:3001");
+});
+
+test("WorkerConfig lists missing DATABASE_URL", () => {
+	try {
+		loadConfig(WorkerConfigSchema, {});
+		expect.unreachable("should have thrown");
+	} catch (error) {
+		expect(error).toBeInstanceOf(ConfigError);
+		expect((error as ConfigError).message).toContain("DATABASE_URL is missing");
+	}
+});
+
+test("WorkerConfig applies all timer defaults", () => {
+	const config = loadConfig(WorkerConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+	});
+	expect(config.SHUTDOWN_GRACE_SECONDS).toBe(600);
+	expect(config.SWEEP_INTERVAL_SECONDS).toBe(1);
+	expect(config.START_TIMEOUT_SECONDS).toBe(60);
+	expect(config.STOP_TIMEOUT_SECONDS).toBe(30);
+	expect(config.STATUS_REFRESH_SECONDS).toBe(15);
+	expect(config.PRESENCE_TTL_SECONDS).toBe(60);
+});
+
+test("ControllerConfig applies Incus defaults", () => {
+	const config = loadConfig(ControllerConfigSchema, {});
+	expect(config.PORT).toBe(3001);
+	expect(config.INCUS_SOCKET).toBe("/var/run/incus/unix.socket");
+	expect(config.INCUS_PROJECT).toBe("portikus");
+	expect(config.INCUS_POOL).toBe("workspace-data");
+	expect(config.INCUS_PROFILE).toBe("workspace");
+	expect(config.INCUS_IMAGE_ALIAS).toBe("portikus");
+});
+
+test("ControllerConfig rejects a short token in production", () => {
+	try {
+		loadConfig(ControllerConfigSchema, {
+			NODE_ENV: "production",
+			CONTROLLER_TOKEN: "short",
+		});
+		expect.unreachable("should have thrown");
+	} catch (error) {
+		expect(error).toBeInstanceOf(ConfigError);
+		expect((error as ConfigError).message).toContain("CONTROLLER_TOKEN");
+	}
+});
+
+test("ControllerConfig accepts a long token in production", () => {
+	const config = loadConfig(ControllerConfigSchema, {
+		NODE_ENV: "production",
+		CONTROLLER_TOKEN: "a".repeat(64),
+	});
+	expect(config.CONTROLLER_TOKEN).toBe("a".repeat(64));
+});
+
+test("ControllerConfig accepts the dev default token outside production", () => {
+	const config = loadConfig(ControllerConfigSchema, {});
+	expect(config.CONTROLLER_TOKEN).toBe("dev-controller-token-not-for-production");
+});
+
+test("timer seconds are coerced from strings", () => {
+	const config = loadConfig(WorkerConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+		SHUTDOWN_GRACE_SECONDS: "120",
+		SWEEP_INTERVAL_SECONDS: "2",
+	});
+	expect(config.SHUTDOWN_GRACE_SECONDS).toBe(120);
+	expect(config.SWEEP_INTERVAL_SECONDS).toBe(2);
 });

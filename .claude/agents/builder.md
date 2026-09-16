@@ -5,7 +5,7 @@ description: |
   runs the relevant tests and lint, and reports what it built and what it
   left out. Use for ordinary feature and refactor work with a clear target.
   Hand infrastructure work (Incus, LVM, libvirt, cloud-init) to infra instead.
-model: claude-opus-4-6[1M]
+model: claude-opus-5
 effort: low
 tools: Bash, Read, Write, Edit, Grep, Glob
 ---
@@ -42,3 +42,10 @@ your reading and why. The orchestrator decides.
 
 Report: what you changed (file paths), what you verified and how, and
 anything you left out and why. Plain English, no preamble.
+
+## Writing style
+
+Keep code comments brief: one line saying why, only where the code cannot
+say it itself. Write reports, commit messages, and PR descriptions in plain,
+understandable English: short sentences, no jargon without a one-time
+explanation, no arrow chains or slash-packed lists.
