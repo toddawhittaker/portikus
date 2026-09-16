@@ -2,12 +2,35 @@ import type { ColumnType, Generated } from "kysely";
 
 /**
  * Kysely Database interface for the Portikus control plane.
- * Tables match migration 0001_workspaces (SPEC section 26, STACK section 6).
+ * Tables match migrations 0001_workspaces and 0002_users_sessions
+ * (SPEC section 26, STACK section 6).
  */
 export interface Database {
+	users: UsersTable;
+	sessions: SessionsTable;
 	workspaces: WorkspacesTable;
 	workspace_connections: WorkspaceConnectionsTable;
 	audit_events: AuditEventsTable;
+}
+
+export interface UsersTable {
+	id: Generated<string>;
+	oidc_issuer: string;
+	oidc_subject: string;
+	email: string | null;
+	display_name: string;
+	role: string;
+	disabled_at: ColumnType<Date | null, string | null, string | null>;
+	last_login_at: ColumnType<Date | null, string | null, string | null>;
+	created_at: ColumnType<Date, string | undefined, never>;
+	updated_at: ColumnType<Date, string | undefined, string>;
+}
+
+export interface SessionsTable {
+	id: string;
+	user_id: string;
+	created_at: ColumnType<Date, string | undefined, never>;
+	expires_at: ColumnType<Date, string, string>;
 }
 
 export interface WorkspacesTable {

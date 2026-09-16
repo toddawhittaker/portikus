@@ -1,5 +1,10 @@
 import type { ApiConfig } from "@portikus/config";
-import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import {
+	createTestDb,
+	hasTestDb,
+	insertTestUser,
+	type TestDb,
+} from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { buildServer } from "../server.js";
 
@@ -29,9 +34,13 @@ afterAll(async () => {
 	await testDb.close();
 });
 
+/** A fresh user row per test; workspaces.owner_user_id references it. */
+let ownerId: string;
+
 beforeEach(async () => {
 	if (skip) return;
 	await testDb.truncate();
+	ownerId = await insertTestUser(testDb.db);
 });
 
 test.skipIf(skip)("POST /workspaces creates a workspace and returns 201", async () => {
@@ -39,12 +48,12 @@ test.skipIf(skip)("POST /workspaces creates a workspace and returns 201", async 
 	const res = await app.inject({
 		method: "POST",
 		url: "/workspaces",
-		payload: { ownerUserId: "user-1" },
+		payload: { ownerUserId: ownerId },
 	});
 
 	expect(res.statusCode).toBe(201);
 	const body = res.json();
-	expect(body.ownerUserId).toBe("user-1");
+	expect(body.ownerUserId).toBe(ownerId);
 	expect(body.state).toBe("provisioning");
 	expect(body.desiredState).toBe("stopped");
 	expect(body.incusInstanceName).toMatch(/^ws-[a-f0-9]{24}$/);
@@ -59,14 +68,14 @@ test.skipIf(skip)("POST /workspaces is idempotent by owner", async () => {
 	const first = await app.inject({
 		method: "POST",
 		url: "/workspaces",
-		payload: { ownerUserId: "user-1" },
+		payload: { ownerUserId: ownerId },
 	});
 	expect(first.statusCode).toBe(201);
 
 	const second = await app.inject({
 		method: "POST",
 		url: "/workspaces",
-		payload: { ownerUserId: "user-1" },
+		payload: { ownerUserId: ownerId },
 	});
 	expect(second.statusCode).toBe(200);
 	expect(second.json().id).toBe(first.json().id);
@@ -80,7 +89,7 @@ test.skipIf(skip)("GET /workspaces/:id returns the workspace", async () => {
 	const create = await app.inject({
 		method: "POST",
 		url: "/workspaces",
-		payload: { ownerUserId: "user-get" },
+		payload: { ownerUserId: ownerId },
 	});
 	const id = create.json().id;
 
@@ -125,7 +134,7 @@ test.skipIf(skip)("POST /workspaces/:id/connections sets desired running", async
 		await app.inject({
 			method: "POST",
 			url: "/workspaces",
-			payload: { ownerUserId: "user-conn" },
+			payload: { ownerUserId: ownerId },
 		})
 	).json();
 
@@ -157,7 +166,7 @@ test.skipIf(skip)("heartbeat refreshes last_seen_at", async () => {
 		await app.inject({
 			method: "POST",
 			url: "/workspaces",
-			payload: { ownerUserId: "user-hb" },
+			payload: { ownerUserId: ownerId },
 		})
 	).json();
 
@@ -184,7 +193,7 @@ test.skipIf(skip)("heartbeat returns 404 for unknown connection", async () => {
 		await app.inject({
 			method: "POST",
 			url: "/workspaces",
-			payload: { ownerUserId: "user-hb404" },
+			payload: { ownerUserId: ownerId },
 		})
 	).json();
 
@@ -205,7 +214,7 @@ test.skipIf(skip)("disconnect leaves state untouched", async () => {
 		await app.inject({
 			method: "POST",
 			url: "/workspaces",
-			payload: { ownerUserId: "user-dc" },
+			payload: { ownerUserId: ownerId },
 		})
 	).json();
 
@@ -241,7 +250,7 @@ test.skipIf(skip)("activeConnections excludes stale rows", async () => {
 		await app.inject({
 			method: "POST",
 			url: "/workspaces",
-			payload: { ownerUserId: "user-stale" },
+			payload: { ownerUserId: ownerId },
 		})
 	).json();
 
@@ -285,7 +294,7 @@ test.skipIf(skip)("start/stop/restart set desired_state and write audit", async 
 		await app.inject({
 			method: "POST",
 			url: "/workspaces",
-			payload: { ownerUserId: "user-actions" },
+			payload: { ownerUserId: ownerId },
 		})
 	).json();
 
