@@ -42,13 +42,9 @@
   when: incus_network_acl_check.rc != 0
   changed_when: true
 
-- name: Set ACL default actions (deny ingress, allow egress)
-  ansible.builtin.command:
-    cmd: >-
-      incus network acl set {{ incus_network_name }}-acl
-      default.action=drop
-      default.logged=false
-  changed_when: true
+# Default actions are not ACL config keys in Incus. They are set on the
+# network below, in "Attach ACL to workspace network", as
+# security.acls.default.{ingress,egress}.action=drop.
 
 # Deny egress to the workspace bridge subnet (peer isolation)
 - name: Add ACL rule denying egress to workspace subnet

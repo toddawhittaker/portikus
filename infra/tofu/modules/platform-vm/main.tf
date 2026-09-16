@@ -7,7 +7,7 @@ terraform {
   required_providers {
     libvirt = {
       source  = "dmacvicar/libvirt"
-      version = "~> 0.8"
+      version = "~> 0.8.0"
     }
   }
 }
@@ -77,6 +77,11 @@ resource "libvirt_domain" "vm" {
   memory = var.memory_mb
 
   cloudinit = libvirt_cloudinit_disk.init.id
+
+  # See disk-as-file.xslt for why the generated XML is rewritten.
+  xml {
+    xslt = templatefile("${path.module}/disk-as-file.xslt", { pool_path = var.pool_path })
+  }
 
   cpu {
     mode = "host-passthrough"

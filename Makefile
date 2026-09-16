@@ -48,7 +48,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 		command -v $$t >/dev/null || { echo "infra-check: $$t is not installed (see docs/WORKFLOW.md, Local development)"; exit 1; }; \
 	done
 	tofu fmt -check -recursive infra/tofu
-	cd infra/tofu && tofu init -backend=false -input=false >/dev/null && tofu validate
+	cd $(TOFU_DIR) && tofu init -backend=false -input=false >/dev/null && tofu validate
 	ansible-galaxy collection install --force -r infra/ansible/requirements.yml
 	ansible-lint infra/ansible
 	find . -name '*.sh' -not -path './node_modules/*' -print0 | xargs -0 shellcheck

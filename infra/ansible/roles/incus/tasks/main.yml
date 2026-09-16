@@ -24,6 +24,13 @@
     enabled: true
     state: started
 
+# The operator account runs incus without sudo (smoke test, day-to-day admin).
+- name: Add the deploy user to the incus-admin group
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: incus-admin
+    append: true
+
 - name: Check if Incus storage pool exists
   ansible.builtin.command:
     cmd: incus storage show {{ incus_storage_pool_name }}

@@ -21,10 +21,10 @@ check() {
   local label="$1"; shift
   if "$@" >/dev/null 2>&1; then
     printf '\033[1;32mPASS\033[0m  %s\n' "$label"
-    ((pass++))
+    pass=$((pass + 1))
   else
     printf '\033[1;31mFAIL\033[0m  %s\n' "$label"
-    ((fail++))
+    fail=$((fail + 1))
   fi
 }
 

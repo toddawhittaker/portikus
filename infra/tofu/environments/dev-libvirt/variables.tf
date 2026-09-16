@@ -61,5 +61,5 @@ variable "pool_name" {
 variable "pool_path" {
   description = "Path on the host for the libvirt storage pool"
   type        = string
-  default     = "/var/lib/libvirt/portikus"
+  default     = "/var/lib/libvirt/images/portikus"
 }

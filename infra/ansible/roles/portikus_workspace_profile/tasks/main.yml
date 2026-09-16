@@ -19,8 +19,9 @@
       incus project create {{ incus_project_name }}
       -c features.images=true
       -c features.profiles=true
-      -c features.networks=true
       -c features.storage.volumes=true
+  # features.networks stays false: enabling it requires OVN, and workspaces
+  # attach to the bridge network owned by the default project.
   when: portikus_workspace_profile_proj_check.rc != 0
   changed_when: true
 
@@ -43,8 +44,7 @@
       incus profile set workspace --project {{ incus_project_name }}
       {{ item.key }}={{ item.value }}
   loop:
-    # Security: unprivileged, nesting for Docker only
-    - { key: "security.unprivileged", value: "true" }
+    # Security: unprivileged (security.privileged=false), nesting for Docker only
     - { key: "security.nesting", value: "true" }
     - { key: "security.privileged", value: "false" }
     # Isolated UID/GID mapping per container (section 24)
