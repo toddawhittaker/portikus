@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main, "epic/**"]
   push:
-    branches: [main]
+    branches: [main, "epic/**"]
 
 permissions:
   contents: read
@@ -103,8 +103,18 @@ jobs:
         if: steps.detect.outputs.tofu == 'true'
       - if: steps.detect.outputs.tofu == 'true'
         run: tofu fmt -check -recursive infra/tofu && cd infra/tofu/environments/dev-libvirt && tofu init -backend=false && tofu validate
+      - name: Cache Ansible collections
+        id: collections
+        if: steps.detect.outputs.ansible == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.ansible/collections
+          key: ansible-collections-${{ hashFiles('infra/ansible/requirements.yml') }}
+      - name: Install Ansible collections
+        if: steps.detect.outputs.ansible == 'true' && steps.collections.outputs.cache-hit != 'true'
+        run: ansible-galaxy collection install --force -r infra/ansible/requirements.yml
       - if: steps.detect.outputs.ansible == 'true'
-        run: pipx install ansible-lint && ansible-galaxy collection install --force -r infra/ansible/requirements.yml && ansible-lint infra/ansible
+        run: pipx install ansible-lint && ansible-lint infra/ansible
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true'
         run: sudo apt-get install -y shellcheck && find . -name '*.sh' -not -path './node_modules/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck

@@ -1,0 +1,41 @@
+---
+# Install and configure PostgreSQL for the Portikus control plane.
+# Debian 13 (trixie) ships PostgreSQL 17 in main.
+# Peer auth over the unix socket — no password in DATABASE_URL.
+
+- name: Install PostgreSQL
+  ansible.builtin.apt:
+    name:
+      - postgresql
+      - postgresql-client
+      - python3-psycopg2
+      - acl
+    state: present
+
+- name: Enable and start PostgreSQL
+  ansible.builtin.systemd:
+    name: postgresql
+    enabled: true
+    state: started
+
+- name: Ensure PostgreSQL listens on localhost only
+  community.postgresql.postgresql_set:
+    name: listen_addresses
+    value: localhost
+  become: true
+  become_user: postgres
+  notify: Restart PostgreSQL
+
+- name: Create the portikus database role
+  community.postgresql.postgresql_user:
+    name: portikus
+    role_attr_flags: NOSUPERUSER,NOCREATEROLE,NOCREATEDB
+  become: true
+  become_user: postgres
+
+- name: Create the portikus database
+  community.postgresql.postgresql_db:
+    name: portikus
+    owner: portikus
+  become: true
+  become_user: postgres
