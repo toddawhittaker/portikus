@@ -1,0 +1,13 @@
+[Unit]
+Description=Portikus Workspace Agent
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/portikus/workspace-agent/bin/workspace-agent
+
+[Service]
+ExecStart=/opt/portikus/workspace-agent/bin/workspace-agent
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
