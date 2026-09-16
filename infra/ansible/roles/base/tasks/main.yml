@@ -20,7 +20,15 @@
       - thin-provisioning-tools
       - lvm2
       - jq
+      - apparmor
+      - apparmor-utils
     state: present
+
+- name: Enable and start AppArmor
+  ansible.builtin.systemd:
+    name: apparmor
+    enabled: true
+    state: started
 
 - name: Set timezone to UTC
   community.general.timezone:
