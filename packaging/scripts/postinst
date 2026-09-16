@@ -1,5 +1,5 @@
 #!/bin/sh
-# portikus postinst: own the service users, the state directory, and the units.
+# portikus postinst: own the service users and the units.
 set -e
 
 UNITS="portikus-controller.service portikus-worker.service portikus-api.service"
@@ -24,9 +24,6 @@ if getent group incus-admin >/dev/null; then
 	adduser portikus-controller incus-admin
 fi
 
-chown portikus:portikus /var/lib/portikus
-chmod 0755 /var/lib/portikus
-
 # Nothing to drive when systemd is not running, as in a container or chroot.
 if [ -d /run/systemd/system ]; then
 	# Note which units were running before the reload, so an upgrade restarts them.
@@ -38,12 +35,19 @@ if [ -d /run/systemd/system ]; then
 	done
 
 	systemctl daemon-reload
-	for unit in $UNITS; do
-		systemctl enable "$unit" >/dev/null
-	done
 
-	for unit in $running; do
-		systemctl restart "$unit" || true
+	# $2 holds the previously configured version, so it is empty on first install.
+	if [ -z "$2" ]; then
+		for unit in $UNITS; do
+			systemctl enable "$unit" >/dev/null
+		done
+	fi
+
+	# The api runs the database migrations in ExecStartPre, so it goes first.
+	for unit in portikus-api.service portikus-controller.service portikus-worker.service; do
+		case " $running " in
+			*" $unit "*) systemctl restart "$unit" || true ;;
+		esac
 	done
 fi
 
