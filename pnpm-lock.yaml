@@ -202,9 +202,18 @@ importers:
       '@portikus/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@portikus/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       fastify:
         specifier: 5.12.4
         version: 5.12.4
+      kysely:
+        specifier: 0.29.5
+        version: 0.29.5
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: 24.9.2

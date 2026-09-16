@@ -1,9 +1,28 @@
 import { HealthResponse } from "@portikus/contracts";
+import type { Database } from "@portikus/db";
+import type { Kysely } from "kysely";
 import { expect, test } from "vitest";
 import { buildServer } from "./server.js";
 
+/** Minimal stub: health route does not touch the database. */
+function makeApp() {
+	return buildServer({
+		db: {} as unknown as Kysely<Database>,
+		config: {
+			NODE_ENV: "test",
+			PORT: 3000,
+			DATABASE_URL: "postgres://unused",
+			CONTROLLER_URL: "http://127.0.0.1:3001",
+			CONTROLLER_TOKEN: "test-token",
+			PRESENCE_TTL_SECONDS: 60,
+			WORKSPACE_HOME_SIZE_GIB: 25,
+			WORKSPACE_DOCKER_SIZE_GIB: 20,
+		},
+	});
+}
+
 test("GET /health returns a valid HealthResponse", async () => {
-	const app = buildServer();
+	const app = makeApp();
 	const response = await app.inject({ method: "GET", url: "/health" });
 
 	expect(response.statusCode).toBe(200);
@@ -14,7 +33,7 @@ test("GET /health returns a valid HealthResponse", async () => {
 });
 
 test("GET /health is served as JSON", async () => {
-	const app = buildServer();
+	const app = makeApp();
 	const response = await app.inject({ method: "GET", url: "/health" });
 
 	expect(response.headers["content-type"]).toMatch(/^application\/json/);
@@ -24,7 +43,7 @@ test("GET /health is served as JSON", async () => {
 });
 
 test("GET /health reports a non-negative uptime and the ok status", async () => {
-	const app = buildServer();
+	const app = makeApp();
 	const body = HealthResponse.parse(
 		(await app.inject({ method: "GET", url: "/health" })).json(),
 	);
@@ -36,7 +55,7 @@ test("GET /health reports a non-negative uptime and the ok status", async () => 
 });
 
 test("an unknown route returns 404", async () => {
-	const app = buildServer();
+	const app = makeApp();
 	const response = await app.inject({ method: "GET", url: "/not-a-route" });
 
 	expect(response.statusCode).toBe(404);
@@ -45,7 +64,7 @@ test("an unknown route returns 404", async () => {
 });
 
 test("POST /health is not allowed", async () => {
-	const app = buildServer();
+	const app = makeApp();
 	const response = await app.inject({ method: "POST", url: "/health" });
 
 	expect(response.statusCode).not.toBe(200);

@@ -3,7 +3,7 @@
 
 .PHONY: help install check typecheck lint format test build test-e2e dev clean \
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test destroy-pilot rebuild-pilot \
-       build-workspace-image workspace-create workspace-destroy
+       deploy-app db-migrate build-workspace-image workspace-create workspace-destroy
 
 help: ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -89,6 +89,23 @@ destroy-pilot: ## Destroy the platform VM (irreversible)
 	cd $(TOFU_DIR) && tofu destroy
 
 rebuild-pilot: destroy-pilot infra-apply configure-vm ## Destroy and recreate the platform VM
+
+# ── Application deployment targets ────────────────────────────────
+
+deploy-app: ## Rsync the app to the VM, install, build, migrate, and restart services
+	@test -n "$(VM_IP)" || { echo "deploy-app: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	rsync -az --delete \
+		--exclude=.git --exclude=node_modules --exclude=dist --exclude=.tsbuild \
+		--exclude='infra/tofu/environments/*/terraform.tfstate*' \
+		--exclude='infra/tofu/environments/*/.terraform*' \
+		./ deploy@$(VM_IP):/var/lib/portikus/app/
+	ssh deploy@$(VM_IP) 'cd /var/lib/portikus/app && pnpm install --frozen-lockfile && pnpm build'
+	ssh deploy@$(VM_IP) 'sudo -u portikus env $$(cat /etc/portikus/api.env | xargs) node /var/lib/portikus/app/packages/db/dist/migrate.js'
+	ssh deploy@$(VM_IP) 'sudo systemctl restart portikus-controller portikus-worker portikus-api'
+
+db-migrate: ## Run database migrations on the VM
+	@test -n "$(VM_IP)" || { echo "db-migrate: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	ssh deploy@$(VM_IP) 'sudo -u portikus env $$(cat /etc/portikus/api.env | xargs) node /var/lib/portikus/app/packages/db/dist/migrate.js'
 
 # ── Workspace image and lifecycle targets ─────────────────────────
 

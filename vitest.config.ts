@@ -14,8 +14,9 @@ const workspaceAliases = [
 	replacement: new URL(`./packages/${name}/src/index.ts`, import.meta.url).pathname,
 }));
 
-// Additional sub-path aliases for packages that export more than ".".
-workspaceAliases.push({
+// Sub-path aliases must come before their parent package alias so that
+// Vite's prefix-based matching resolves them first.
+workspaceAliases.unshift({
 	find: "@portikus/db/testing",
 	replacement: new URL("./packages/db/src/testing.ts", import.meta.url).pathname,
 });
