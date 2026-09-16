@@ -7,11 +7,10 @@
 ## Context
 
 The platform VM is cattle (SPEC §21): rebuildable from source control plus
-restored data. cloud-init hands it to Ansible (STACK §21), Ansible converges
-it (STACK §22), and Make is the operator entry point (STACK §31). Epic 3 ships
-the first real services, and `make deploy-app` copies the source tree to the VM
-and builds it there: a toolchain on the VM, a non-reproducible deploy, and no
-way back to a known build.
+restored data, with Ansible as the convergence layer (STACK §22) behind the
+Make targets in STACK §31. Epic 3 ships the first real services, and
+`make deploy-app` copies the source tree to the VM and builds it there: a
+toolchain on the VM, a non-reproducible deploy, and no way back.
 
 ## Decision
 
@@ -20,14 +19,13 @@ pnpm production build and packs it with `nfpm` into a `.deb`. The `portikus`
 Ansible role installs that package at a pinned version.
 
 The package owns the service users, `/etc/portikus`, `/var/lib/portikus`, and
-the three systemd units. Ansible owns only what is deployment-specific: the
-environment files and secrets it renders into `/etc/portikus`.
+the three systemd units. Ansible owns only the deployment-specific part: the
+environment files and secrets it renders.
 
 **Rejected alternatives:**
 
 - Docker on the platform VM: it rewrites the host packet filter, blurs the
-  privilege boundary around the Incus socket, and is awkward for the preview
-  gateway.
+  Incus socket boundary, and is awkward for the preview gateway.
 - Rsync the source and build on the VM (today's interim path): needs a build
   toolchain on the VM and offers no rollback.
 
