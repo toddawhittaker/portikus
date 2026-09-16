@@ -220,3 +220,128 @@ test("timer seconds are coerced from strings", () => {
 	expect(config.SHUTDOWN_GRACE_SECONDS).toBe(120);
 	expect(config.SWEEP_INTERVAL_SECONDS).toBe(2);
 });
+
+// --- API auth and session configuration (SPEC.md §5.1, §5.3, §24) ---
+
+const apiProdBase = {
+	NODE_ENV: "production",
+	DATABASE_URL: "postgres://localhost/portikus",
+	PUBLIC_URL: "https://portikus.example.edu",
+	OIDC_ISSUER_URL: "https://idp.example.edu",
+	OIDC_CLIENT_SECRET: "c".repeat(48),
+	SESSION_COOKIE_SECRET: "d".repeat(48),
+};
+
+function expectConfigError(env: Record<string, string>, field: string): void {
+	try {
+		loadConfig(ApiConfigSchema, env);
+		expect.unreachable("should have thrown");
+	} catch (error) {
+		expect(error).toBeInstanceOf(ConfigError);
+		expect((error as ConfigError).message).toContain(field);
+	}
+}
+
+test("ApiConfig applies the auth and session defaults", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+	});
+	expect(config.PUBLIC_URL).toBe("http://127.0.0.1:5173");
+	expect(config.OIDC_ISSUER_URL).toBe("http://127.0.0.1:3002");
+	expect(config.OIDC_CLIENT_ID).toBe("portikus-dev");
+	expect(config.OIDC_CLIENT_SECRET).toBe("portikus-dev-secret");
+	expect(config.OIDC_SCOPES).toBe("openid profile email");
+	expect(config.OIDC_GROUPS_CLAIM).toBe("groups");
+	expect(config.OIDC_STUDENT_GROUP).toBe("portikus-students");
+	expect(config.OIDC_ADMIN_GROUP).toBe("portikus-administrators");
+	expect(config.SESSION_COOKIE_SECRET).toBe("dev-session-secret-not-for-production");
+	expect(config.SESSION_TTL_SECONDS).toBe(43200);
+});
+
+test("ApiConfig rejects a PUBLIC_URL that is not a URL", () => {
+	expectConfigError(
+		{ DATABASE_URL: "postgres://localhost/portikus", PUBLIC_URL: "not-a-url" },
+		"PUBLIC_URL",
+	);
+});
+
+test("ApiConfig rejects an OIDC_ISSUER_URL that is not a URL", () => {
+	expectConfigError(
+		{
+			DATABASE_URL: "postgres://localhost/portikus",
+			OIDC_ISSUER_URL: "not-a-url",
+		},
+		"OIDC_ISSUER_URL",
+	);
+});
+
+test("ApiConfig accepts a complete production environment", () => {
+	const config = loadConfig(ApiConfigSchema, apiProdBase);
+	expect(config.PUBLIC_URL).toBe("https://portikus.example.edu");
+	expect(config.SESSION_TTL_SECONDS).toBe(43200);
+});
+
+test("ApiConfig requires https for PUBLIC_URL in production", () => {
+	expectConfigError(
+		{ ...apiProdBase, PUBLIC_URL: "http://portikus.example.edu" },
+		"PUBLIC_URL",
+	);
+});
+
+test("ApiConfig requires https for OIDC_ISSUER_URL in production", () => {
+	expectConfigError(
+		{ ...apiProdBase, OIDC_ISSUER_URL: "http://idp.example.edu" },
+		"OIDC_ISSUER_URL",
+	);
+});
+
+test("ApiConfig rejects the dev client secret in production", () => {
+	expectConfigError(
+		{ ...apiProdBase, OIDC_CLIENT_SECRET: "portikus-dev-secret" },
+		"OIDC_CLIENT_SECRET",
+	);
+});
+
+test("ApiConfig rejects a short client secret in production", () => {
+	expectConfigError(
+		{ ...apiProdBase, OIDC_CLIENT_SECRET: "short" },
+		"OIDC_CLIENT_SECRET",
+	);
+});
+
+test("ApiConfig rejects the dev session secret in production", () => {
+	expectConfigError(
+		{
+			...apiProdBase,
+			SESSION_COOKIE_SECRET: "dev-session-secret-not-for-production",
+		},
+		"SESSION_COOKIE_SECRET",
+	);
+});
+
+test("ApiConfig rejects a short session secret in production", () => {
+	expectConfigError(
+		{ ...apiProdBase, SESSION_COOKIE_SECRET: "short" },
+		"SESSION_COOKIE_SECRET",
+	);
+});
+
+test("ApiConfig allows the dev secrets outside production", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+		NODE_ENV: "development",
+	});
+	expect(config.OIDC_CLIENT_SECRET).toBe("portikus-dev-secret");
+});
+
+test("ApiConfig coerces SESSION_TTL_SECONDS and rejects zero", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+		SESSION_TTL_SECONDS: "900",
+	});
+	expect(config.SESSION_TTL_SECONDS).toBe(900);
+	expectConfigError(
+		{ DATABASE_URL: "postgres://localhost/portikus", SESSION_TTL_SECONDS: "0" },
+		"SESSION_TTL_SECONDS",
+	);
+});
