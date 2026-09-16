@@ -119,45 +119,65 @@ separate build step on the VM, and the VM has no build toolchain.
 
 ### Release and rollback
 
-**How a release is produced.** Every push to `main` runs the Release
-workflow, which builds the package and publishes it as a GitHub release
-asset. The version is derived from the repository and looks like
-`0.1.123+gabc1234`: the release number, the commit count, and the short
-commit hash. The asset is named `portikus_<version>_amd64.deb`.
+**How a release is produced.** A release is published when an epic branch
+merges into `main`, or by running the Release workflow by hand from `main`.
+It builds the package and publishes it as a GitHub release with two
+assets: the package and a `SHA256SUMS` file holding its checksum.
+The version is derived from the repository and looks like `0.1.123+gabc1234`:
+the release number, the commit count, and the short commit hash. The package
+asset is named `portikus_<version>_amd64.deb`.
 
-**How a version is deployed.** Set `portikus_version` and
-`portikus_deb_sha256` in `infra/ansible/site.yml` to the version you want
-and the SHA-256 checksum of its `.deb` asset, commit them, and run:
+**How a version is deployed.** Run:
 
 ```
 make configure-vm
 ```
 
-Ansible downloads that exact asset to `/var/cache/portikus`, checks it
-against the pinned checksum, and installs it. Both values come from the
-same release and are always updated together. The checksum is what makes
-the VM reproducible: a version string only names an asset, while the
-checksum guarantees the bytes that get installed.
+Ansible asks GitHub for the newest release, downloads that release's
+`SHA256SUMS` file and its `.deb` asset to `/var/cache/portikus`, checks the
+package against the checksum from `SHA256SUMS`, and installs it. Nothing in
+the repository has to be edited to deploy a new release. The checksum is
+what makes the install reproducible: a version string only names an asset,
+while the checksum guarantees the bytes that get installed.
 
-**How to roll back.** Set `portikus_version` and `portikus_deb_sha256`
-back to the previous release and run `make configure-vm`. The install task
-allows downgrades, so this replaces the running version with the older
-one, and source control keeps saying what is deployed.
+**How to roll back.** Run:
 
-If the control plane is broken badly enough that you cannot wait for a
-commit, install the older package on the VM by hand:
+```
+make configure-vm PORTIKUS_VERSION=<previous-version>
+```
+
+That installs exactly that release instead of the newest one, with its own
+checksum from the same release. The install task allows downgrades, so this
+replaces the running version with the older one. The override is not
+recorded anywhere, so the next plain `make configure-vm` rolls forward
+again; revert or fix the bad commit rather than leaving a host pinned by
+hand.
+
+If the control plane is broken badly enough that you cannot run Ansible,
+install the older package on the VM by hand:
 
 ```
 gh release download v<previous-version> -p '*.deb'
 sudo apt-get install -y --allow-downgrades ./portikus_<previous-version>_amd64.deb
 ```
 
-Afterwards put the same version and checksum into `site.yml`, or the next
-`make configure-vm` rolls forward again.
+**Testing a branch on a fresh VM.** A branch has no published release, so
+build the package and hand Ansible the file:
+
+```
+make build-deb
+make rebuild-pilot PORTIKUS_DEB=dist/deb/portikus_<version>_amd64.deb
+make smoke-test
+```
+
+`PORTIKUS_DEB` works on `make configure-vm` too, and `make rebuild-pilot`
+passes it through because it calls `configure-vm`. On a VM that already
+exists, `make deploy-app` is the quicker path.
 
 **Development path.** `make deploy-app` builds the package on your
-workstation and installs it on the VM directly. It does not pin anything
-and does not go through a release, so use it only while developing.
+workstation and installs it on the VM directly. It does not go through a
+release, so use it only while developing. The next `make configure-vm` puts
+the newest release back.
 
 The three systemd units (`portikus-api`, `portikus-worker`,
 `portikus-controller`) are enabled by the package but will not start until

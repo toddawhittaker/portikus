@@ -1020,10 +1020,12 @@ Ansible configures:
 - logging/monitoring;
 - security hardening.
 
-The `portikus` role downloads the release asset for the version in
-`portikus_version`, installs it with apt, and renders only the controller
-token and the three environment files. Rolling back is installing the
-previous `.deb` with `--allow-downgrades`. For local development,
+The `portikus` role installs the newest release by default: it asks the
+GitHub API for the latest release, verifies the `.deb` against the checksum
+in that release's `SHA256SUMS` asset, installs it with apt, and renders only
+the controller token and the three environment files. Rolling back is
+`make configure-vm PORTIKUS_VERSION=<previous>`, which installs that release
+with `--allow-downgrades`. For local development,
 `make deploy-app` builds the package on the developer's machine, copies it
 to the VM, and installs it the same way; `make build-deb` builds it without
 deploying.
@@ -1293,9 +1295,11 @@ pnpm test:e2e
 
 `ci.yml` also builds the versioned control-plane `.deb` with `nfpm`
 (ADR 0007) on every pull request and keeps it as a build artifact for seven
-days. A separate `release.yml` builds the same package on every push to
-`main` and publishes it as a GitHub release asset. It can also be run by
-hand, which produces a prerelease when run from a branch other than `main`.
+days. A separate `release.yml` publishes a release when an epic branch merges
+into `main`, or when the workflow is run by hand from `main` for a hotfix.
+It builds the same package from the merge commit on `main` and publishes it
+as a GitHub release with two assets: the `.deb` and a `SHA256SUMS` file
+Ansible reads the checksum from.
 
 Infrastructure checks:
 
@@ -1378,7 +1382,7 @@ Each layer owns a specific category of state.
 | Incus host configuration | Ansible |
 | Workspace image | distrobuilder |
 | Application build | pnpm/TypeScript, in CI |
-| Installed control plane (binaries, users, directories, units) | Debian package built in CI, installed by Ansible at a pinned version |
+| Installed control plane (binaries, users, directories, units) | Debian package built in CI, installed by Ansible from the newest release |
 | Application DB migrations | application deployment |
 | Secrets | SOPS + age |
 | Runtime student LXCs | Portikus control plane → workspace controller → Incus |
@@ -1428,7 +1432,7 @@ Required procedure:
 3. allow cloud-init to bootstrap it;
 4. converge it with Ansible;
 5. rebuild/import the current workspace image;
-6. install the control-plane package at the pinned version;
+6. install the control-plane package from the newest release;
 7. restore/reconnect persistent data as designed;
 8. provision a test student workspace;
 9. verify sudo;

@@ -16,7 +16,7 @@ there: a toolchain on the VM, a non-reproducible deploy, and no way back.
 
 The control plane is distributed as a versioned Debian package. CI runs the
 pnpm production build and packs it with `nfpm` into a `.deb`. The `portikus`
-Ansible role installs that package at a pinned version.
+Ansible role installs that package.
 
 The package owns the service users, `/etc/portikus`, `/var/lib/portikus`, and
 the three systemd units. Ansible owns only the deployment-specific part: the

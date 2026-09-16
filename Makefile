@@ -78,8 +78,12 @@ wait-vm: ## Wait for the platform VM to finish first boot
 		sleep 5; \
 	done; echo "wait-vm: $(VM_IP) did not become ready"; exit 1
 
-configure-vm: wait-vm ## Run Ansible to converge the platform VM
-	cd infra/ansible && PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) ansible-playbook site.yml
+# Ansible runs from infra/ansible, so a local package path has to be absolute.
+PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
+
+configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build)
+	cd infra/ansible && PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) \
+		PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) ansible-playbook site.yml
 
 smoke-test: ## Run infrastructure smoke tests against the VM
 	@test -n "$(VM_IP)" || { echo "smoke-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }

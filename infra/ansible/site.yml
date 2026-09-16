@@ -31,11 +31,13 @@
     nodesource_gpg_checksum: "b42e0321dabdc24e892115da705cf061167eac12a317f23d329862d0aa0a271d"
 
     # ── Portikus control-plane services ───────────────────────────
-    # Pinned to a published release; the orchestrator updates it when a new
-    # release is cut.  See "Release and rollback" in infra/README.md.
-    portikus_version: "0.1.47+g8f3fd9b"
-    # Checksum of that release's .deb asset; update both together.
-    portikus_deb_sha256: "55dfd00b08bb76a548f42cd7a37aa343b7dc87693e2b87fce77ee463ba7ba97d"
+    # Empty means install the newest GitHub release.  Set
+    # PORTIKUS_VERSION=<ver> to roll back to an older release.
+    # See "Release and rollback" in infra/README.md.
+    portikus_version: "{{ lookup('env', 'PORTIKUS_VERSION') }}"
+    # A path on the Ansible host to a locally built .deb, for testing a
+    # branch on a fresh VM without publishing a release.  Empty means none.
+    portikus_deb: "{{ lookup('env', 'PORTIKUS_DEB') }}"
     portikus_node_env: production
     portikus_api_port: 3000
     portikus_controller_port: 3001

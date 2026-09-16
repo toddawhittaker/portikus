@@ -1,7 +1,10 @@
 name: Release
 
+# A release is published when an epic branch merges into main, or by running
+# this workflow by hand from main for a hotfix.
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches: [main]
   workflow_dispatch:
 
@@ -12,9 +15,13 @@ jobs:
   build:
     name: Build the Debian package
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'epic/'))
     steps:
       - uses: actions/checkout@v7
         with:
+          # Build the merge commit on main, not the PR head, so the version
+          # counts main's commits and the tag points at main.
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           # The package version counts commits, so the full history is needed.
           fetch-depth: 0
           persist-credentials: false
@@ -43,6 +50,7 @@ jobs:
     name: Publish the GitHub release
     runs-on: ubuntu-latest
     needs: build
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'epic/'))
     permissions:
       contents: write
     steps:
@@ -55,18 +63,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          PRERELEASE: ${{ github.ref != 'refs/heads/main' && '--prerelease' || '' }}
+          TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
         run: |
           VERSION="$(cat dist/deb/VERSION)"
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             echo "Release v$VERSION already exists; nothing to publish."
             exit 0
           fi
-          # Word splitting of PRERELEASE is intended: it is either empty or one flag.
-          # shellcheck disable=SC2086
+          # Ansible reads the checksum from this file instead of a pin in the repo.
+          (cd dist/deb && sha256sum portikus_*.deb > SHA256SUMS)
           gh release create "v$VERSION" \
-            --target "$GITHUB_SHA" \
+            --target "$TARGET_SHA" \
             --title "portikus $VERSION" \
-            --notes "Control-plane package built from $GITHUB_SHA" \
-            $PRERELEASE \
-            dist/deb/portikus_*.deb
+            --notes "Control-plane package built from $TARGET_SHA" \
+            dist/deb/portikus_*.deb \
+            dist/deb/SHA256SUMS

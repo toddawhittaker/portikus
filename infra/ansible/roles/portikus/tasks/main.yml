@@ -1,6 +1,6 @@
 ---
-# Install the Portikus control-plane Debian package at a pinned version and
-# render the deployment-specific secrets and environment files (ADR 0007).
+# Install the Portikus control-plane Debian package (newest release by default)
+# and render the deployment-specific secrets and environment files (ADR 0007).
 # The package owns the service users, /etc/portikus, /var/lib/portikus, and
 # the three systemd units, so nothing here creates them.
 
@@ -46,19 +46,78 @@
     group: root
     mode: "0755"
 
-- name: Download the portikus package
-  ansible.builtin.get_url:
-    url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_version }}/portikus_{{ portikus_version }}_amd64.deb"
-    dest: "/var/cache/portikus/portikus_{{ portikus_version }}_amd64.deb"
-    checksum: "sha256:{{ portikus_deb_sha256 }}"
+# Three ways to choose the package, in order: a locally built .deb named by
+# PORTIKUS_DEB (for testing a branch), the release named by PORTIKUS_VERSION
+# (for a rollback), or the newest GitHub release.
+- name: Use a locally built package
+  ansible.builtin.copy:
+    src: "{{ portikus_deb }}"
+    dest: "/var/cache/portikus/{{ portikus_deb | basename }}"
     owner: root
     group: root
     mode: "0644"
+  when: portikus_deb | default('', true) | length > 0
+
+- name: Set the local package file name
+  ansible.builtin.set_fact:
+    portikus_deb_filename: "{{ portikus_deb | basename }}"
+  when: portikus_deb | default('', true) | length > 0
+
+- name: Look up the newest release
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/toddawhittaker/portikus/releases/latest
+    return_content: true
+  register: portikus_latest_release
+  when:
+    - portikus_deb | default('', true) | length == 0
+    - portikus_version | default('', true) | length == 0
+
+- name: Resolve the release package
+  when: portikus_deb | default('', true) | length == 0
+  block:
+    - name: Resolve the package version
+      ansible.builtin.set_fact:
+        portikus_resolved_version: >-
+          {{ portikus_version if (portikus_version | default('', true) | length > 0)
+             else (portikus_latest_release.json.tag_name | regex_replace('^v', '')) }}
+
+    - name: Set the release package file name
+      ansible.builtin.set_fact:
+        portikus_deb_filename: "portikus_{{ portikus_resolved_version }}_amd64.deb"
+
+    - name: Download the release checksums
+      ansible.builtin.get_url:
+        url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_resolved_version }}/SHA256SUMS"
+        dest: "/var/cache/portikus/{{ portikus_deb_filename }}.SHA256SUMS"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Read the release checksums
+      ansible.builtin.slurp:
+        src: "/var/cache/portikus/{{ portikus_deb_filename }}.SHA256SUMS"
+      register: portikus_release_checksums
+
+    - name: Take this package's checksum from the release checksums
+      ansible.builtin.set_fact:
+        portikus_deb_checksum: >-
+          {{ (portikus_release_checksums.content | b64decode)
+             | regex_search('([0-9a-f]{64})\s+\*?' ~ (portikus_deb_filename | regex_escape) ~ '\s*$',
+                            '\1', multiline=True) | first }}
+
+    - name: Download the portikus package
+      ansible.builtin.get_url:
+        url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_resolved_version }}/{{ portikus_deb_filename }}"
+        dest: "/var/cache/portikus/{{ portikus_deb_filename }}"
+        checksum: "sha256:{{ portikus_deb_checksum }}"
+        owner: root
+        group: root
+        mode: "0644"
 
 - name: Install the portikus package
   ansible.builtin.apt:
-    deb: "/var/cache/portikus/portikus_{{ portikus_version }}_amd64.deb"
-    # So that pinning an older portikus_version actually rolls back.
+    deb: "/var/cache/portikus/{{ portikus_deb_filename }}"
+    # So that setting PORTIKUS_VERSION or PORTIKUS_DEB to an older build rolls back.
     allow_downgrade: true
 
 # Release 0.1.40 shipped this directory owned by the portikus service user and

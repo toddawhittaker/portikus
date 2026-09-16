@@ -1419,7 +1419,7 @@ Configuration automation must install and configure:
 - required kernel modules/settings;
 - base packages;
 - control-plane dependencies, and the control plane itself, installed from
-  the versioned package at a pinned version rather than built on the VM;
+  the versioned package rather than built on the VM;
 - database;
 - reverse proxy;
 - metrics/logging components;
@@ -1493,7 +1493,7 @@ Before pilot launch, the team must prove that it can:
 
 1. destroy a non-production platform VM;
 2. recreate it from automation;
-3. install the control-plane package at the pinned version;
+3. install the control-plane package from the newest release;
 4. restore required application metadata and persistent data;
 5. start a test workspace;
 6. run Docker inside it;
@@ -2098,10 +2098,12 @@ Includes:
   worker, and workspace controller into one `portikus` package;
 - the package owns the service users, `/etc/portikus`,
   `/var/lib/portikus`, and the three systemd units;
-- a CI job that builds the package on every push to `main` and publishes it
-  as a GitHub release asset with a version derived from the repository;
-- the `portikus` Ansible role installs the package at a pinned version and
-  renders only environment files and secrets;
+- a CI job that builds the package and publishes it as a GitHub release
+  when an epic branch merges into `main`, or when run by hand from `main`,
+  with a version derived from the repository;
+- the `portikus` Ansible role installs the newest release by default, with
+  `PORTIKUS_VERSION` as the rollback override, and renders only environment
+  files and secrets;
 - the `node` role installs the runtime only, no pnpm or build toolchain;
 - `make deploy-app` builds the package locally and installs it on the VM;
 - the `portikus-api` unit runs the database migrations from its
@@ -2125,8 +2127,8 @@ Deferred:
 
 - an `.rpm` build, until a non-Debian host is supported. `nfpm` can emit one
   from the same configuration;
-- an apt repository. Ansible downloads the release asset for the pinned
-  version instead, which is enough for one platform VM.
+- an apt repository. Ansible downloads the release asset from GitHub
+  instead, which is enough for one platform VM.
 
 ### Epic 4 — Authentication and authorization
 **Estimate:** 2–3 engineer-days
