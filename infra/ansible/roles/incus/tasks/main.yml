@@ -1,16 +1,31 @@
 ---
 # Install and initialise Incus (STACK.md section 24, SPEC.md section 24.4).
 
-- name: Add Incus stable repository key
-  ansible.builtin.apt_key:
+- name: Create apt keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Incus stable repository key
+  ansible.builtin.get_url:
     url: https://pkgs.zabbly.com/key.asc
-    state: present
+    dest: /etc/apt/keyrings/zabbly-incus.asc
+    owner: root
+    group: root
+    mode: "0644"
 
 - name: Add Incus stable repository
-  ansible.builtin.apt_repository:
-    repo: "deb https://pkgs.zabbly.com/incus/stable {{ ansible_distribution_release }} main"
+  ansible.builtin.deb822_repository:
+    name: incus-stable
+    types: deb
+    uris: https://pkgs.zabbly.com/incus/stable
+    suites: "{{ ansible_distribution_release }}"
+    components: main
+    signed_by: /etc/apt/keyrings/zabbly-incus.asc
     state: present
-    filename: incus-stable
 
 - name: Install Incus
   ansible.builtin.apt:
