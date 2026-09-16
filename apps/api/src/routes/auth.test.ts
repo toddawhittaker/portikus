@@ -1,3 +1,4 @@
+import { createOidcClient } from "@portikus/auth";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -8,7 +9,9 @@ import {
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { toAuthOptions } from "../auth-options.js";
+import { buildServer } from "../server.js";
+import { buildTestServer, PUBLIC_URL, testConfig } from "../test-support.js";
 
 const skip = !hasTestDb();
 let testDb: TestDb;
@@ -18,7 +21,9 @@ let app: FastifyInstance;
 beforeAll(async () => {
 	if (skip) return;
 	testDb = await createTestDb();
-	mock = await startMockOidcProvider({});
+	mock = await startMockOidcProvider({
+		redirectUris: [`${PUBLIC_URL}/auth/callback`],
+	});
 });
 
 afterAll(async () => {
@@ -226,4 +231,61 @@ test.skipIf(skip)("logout accepts the browser's urlencoded form post", async () 
 
 	const sessions = await testDb.db.selectFrom("sessions").selectAll().execute();
 	expect(sessions).toHaveLength(0);
+});
+
+test.skipIf(skip)("an https public URL uses the __Host- cookie prefix", async () => {
+	const config = {
+		...testConfig(mock.issuer),
+		PUBLIC_URL: "https://portikus.example.edu",
+	};
+	const secure = buildServer({
+		db: testDb.db,
+		config,
+		oidc: createOidcClient(toAuthOptions(config)),
+	});
+	try {
+		const res = await secure.inject({ method: "GET", url: "/auth/login" });
+		const raw = String(res.headers["set-cookie"]);
+		expect(raw).toMatch(/^__Host-portikus_login=/);
+		expect(raw).toMatch(/Secure/i);
+		expect(raw).toMatch(/Path=\//);
+		expect(raw).not.toMatch(/Domain=/i);
+	} finally {
+		await secure.close();
+	}
+});
+
+test.skipIf(skip)(
+	"a denied login records a prefixed actor and the client details",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "dave", jar);
+
+		const row = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "auth.login")
+			.where("result", "=", "denied")
+			.executeTakeFirstOrThrow();
+		expect(row.actor).toBe("subject:dave");
+		expect((row.metadata as Record<string, unknown>).ip).toBeTruthy();
+	},
+);
+
+test.skipIf(skip)("logout writes an auth.logout audit row", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+	await app.inject({
+		method: "POST",
+		url: "/auth/logout",
+		headers: csrfHeaders(jar, PUBLIC_URL),
+	});
+
+	const row = await testDb.db
+		.selectFrom("audit_events")
+		.selectAll()
+		.where("action", "=", "auth.logout")
+		.executeTakeFirstOrThrow();
+	expect(row.actor).toMatch(/^user:[0-9a-f-]{36}$/);
+	expect(row.result).toBe("ok");
 });

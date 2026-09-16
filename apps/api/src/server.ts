@@ -6,6 +6,7 @@ import type { Database } from "@portikus/db";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
+import { log } from "./log.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
@@ -20,12 +21,21 @@ export interface ServerDeps {
 
 /** Build the control-plane HTTP server (SPEC.md §2.8, STACK.md §4). */
 export function buildServer(deps: ServerDeps): FastifyInstance {
-	const app = Fastify({ logger: false });
+	// Caddy on loopback is the only proxy, so trust its X-Forwarded-For and
+	// nothing else; request.ip is then the real client (SPEC.md §24.11).
+	const app = Fastify({ logger: false, trustProxy: "127.0.0.1" });
 
 	// A refused upgrade is answered with plain HTTP over a socket Fastify does
-	// not track, so close it here or shutdown waits for it forever.
-	app.addHook("onResponse", async (request) => {
-		if (request.headers.upgrade) {
+	// not track, so close it here or shutdown waits for it forever. Only that
+	// case: a normal request may keep its connection alive.
+	// A hijacked reply (an accepted upgrade) never reaches this hook.
+	app.addHook("onResponse", async (request, reply) => {
+		const upgrade = request.headers.upgrade;
+		if (
+			typeof upgrade === "string" &&
+			upgrade.toLowerCase() === "websocket" &&
+			reply.statusCode >= 400
+		) {
 			request.raw.socket.destroy();
 		}
 	});
@@ -48,7 +58,15 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 			[...clients].map(
 				(client) =>
 					new Promise<void>((resolve) => {
-						client.once("close", () => resolve());
+						// Do not wait forever for a client that never answers.
+						const timer = setTimeout(() => {
+							client.terminate();
+							resolve();
+						}, 2000);
+						client.once("close", () => {
+							clearTimeout(timer);
+							resolve();
+						});
 						client.close(1001, "server shutting down");
 					}),
 			),
@@ -68,14 +86,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// Never let a driver or runtime message reach the client (SPEC.md §24, §27).
 	app.setErrorHandler((error, request, reply) => {
-		console.error(
-			JSON.stringify({
-				msg: "unhandled request error",
-				method: request.method,
-				url: request.routeOptions.url ?? request.url,
-				error: error instanceof Error ? error.message : String(error),
-			}),
-		);
+		log("error", {
+			msg: "unhandled request error",
+			method: request.method,
+			url: request.routeOptions.url ?? request.url,
+			error: error instanceof Error ? error.message : String(error),
+		});
 		const body: ApiError = {
 			code: "INTERNAL",
 			message: "An unexpected error occurred. Please try again.",

@@ -59,8 +59,14 @@ repository (`packages/auth`). It has four fixed accounts:
 Start it in a second terminal and leave it running:
 
 ```sh
-pnpm --filter @portikus/auth mock-oidc   # listens on http://127.0.0.1:3002
+MOCK_OIDC_REDIRECT_URI=http://127.0.0.1:5173/auth/callback \
+  pnpm --filter @portikus/auth mock-oidc   # listens on http://127.0.0.1:3002
 ```
+
+`MOCK_OIDC_REDIRECT_URI` is required: the mock only sends an authorization
+code to that exact address, so a crafted link cannot bounce a code to
+another site. `MOCK_OIDC_CLIENT_ID` and `MOCK_OIDC_CLIENT_SECRET` default to
+`portikus-dev` and `portikus-dev-secret`, matching `.env.example`.
 
 The API's development defaults already point at that address, so `pnpm dev`
 plus the mock is all you need. Clicking "Sign in" sends you to the mock's

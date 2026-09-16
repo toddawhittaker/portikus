@@ -1,3 +1,4 @@
+import { requireUser } from "@portikus/auth";
 import {
 	type ApiError,
 	CreateWorkspaceRequest,
@@ -25,10 +26,7 @@ export function registerWorkspaceRoutes(
 ): void {
 	// POST /workspaces -- idempotent create for the signed-in user
 	app.post("/workspaces", async (request, reply) => {
-		const user = request.user;
-		if (!user) {
-			return sendError(reply, 401, "UNAUTHORIZED", "Sign in to continue");
-		}
+		const user = requireUser(request);
 
 		const body = CreateWorkspaceRequest.safeParse(request.body ?? {});
 		if (!body.success) {
@@ -109,10 +107,7 @@ export function registerWorkspaceRoutes(
 
 	// GET /workspaces/:id
 	app.get("/workspaces/:id", async (request, reply) => {
-		const user = request.user;
-		if (!user) {
-			return sendError(reply, 401, "UNAUTHORIZED", "Sign in to continue");
-		}
+		const user = requireUser(request);
 
 		const params = UuidParam.safeParse(request.params);
 		if (!params.success) {
@@ -150,10 +145,7 @@ export function registerWorkspaceRoutes(
 		desired: DesiredState,
 		action: string,
 	): Promise<void> {
-		const user = request.user;
-		if (!user) {
-			return sendError(reply, 401, "UNAUTHORIZED", "Sign in to continue");
-		}
+		const user = requireUser(request);
 
 		const params = UuidParam.safeParse(request.params);
 		if (!params.success) {

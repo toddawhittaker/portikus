@@ -29,9 +29,7 @@ export function useMe(): { me: MeState; signedOut: () => void } {
 					if (!cancelled) setMe({ status: "anonymous" });
 					return;
 				}
-				const body = (await response.json()) as MeUser | { user: MeUser };
-				// The API may return the user directly or wrapped in `user`.
-				const user = "user" in body ? body.user : body;
+				const user = (await response.json()) as MeUser;
 				if (!cancelled) setMe({ status: "authenticated", user });
 			})
 			.catch(() => {

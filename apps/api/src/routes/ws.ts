@@ -1,9 +1,10 @@
 import type { WebSocket } from "@fastify/websocket";
-import { loadSession } from "@portikus/auth";
+import { loadSession, requireUser } from "@portikus/auth";
 import type { Workspace } from "@portikus/contracts";
 import { ClientMessage, type ServerMessage } from "@portikus/events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { log } from "../log.js";
 import type { ServerDeps } from "../server.js";
 import { countActive, findOwnedWorkspace, toWorkspace } from "./workspace-view.js";
 
@@ -12,8 +13,17 @@ const UuidParam = z.object({ id: z.string().uuid() });
 /** How often the watcher polls for workspace changes. */
 const POLL_INTERVAL_MS = 1000;
 
+/** Concurrent sockets allowed per workspace (SPEC.md §24.2). */
+const MAX_CONNECTIONS_PER_WORKSPACE = 16;
+
+interface Subscriber {
+	socket: WebSocket;
+	connectionId: string;
+	sessionToken: string | null;
+}
+
 interface Watcher {
-	sockets: Set<WebSocket>;
+	sockets: Set<Subscriber>;
 	interval: NodeJS.Timeout;
 	signature: string;
 }
@@ -54,21 +64,54 @@ export function registerWorkspaceSocket(
 		socket.send(JSON.stringify(message));
 	}
 
+	async function dropConnection(connectionId: string): Promise<void> {
+		await db
+			.deleteFrom("workspace_connections")
+			.where("id", "=", connectionId)
+			.execute();
+	}
+
+	/**
+	 * Revocation must take effect at once, so every tick re-checks the session
+	 * behind each open socket (SPEC.md §5.3).
+	 */
+	async function dropRevoked(watcher: Watcher): Promise<void> {
+		for (const subscriber of [...watcher.sockets]) {
+			const user = subscriber.sessionToken
+				? await loadSession(db, subscriber.sessionToken)
+				: null;
+			if (user) continue;
+			watcher.sockets.delete(subscriber);
+			subscriber.socket.close(4401, "session revoked");
+			await dropConnection(subscriber.connectionId);
+		}
+	}
+
 	function startWatcher(workspaceId: string, signature: string): Watcher {
 		const interval = setInterval(async () => {
 			const watcher = watchers.get(workspaceId);
 			if (!watcher) return;
 			try {
+				await dropRevoked(watcher);
 				const workspace = await readWorkspace(workspaceId);
-				if (!workspace) return;
+				if (!workspace) {
+					for (const subscriber of watcher.sockets) {
+						subscriber.socket.close(1001, "workspace is gone");
+					}
+					return;
+				}
 				const next = signatureOf(workspace);
 				if (next === watcher.signature) return;
 				watcher.signature = next;
-				for (const socket of watcher.sockets) {
-					send(socket, workspace);
+				for (const subscriber of watcher.sockets) {
+					send(subscriber.socket, workspace);
 				}
 			} catch (error) {
-				app.log.error({ err: error }, "workspace watcher poll failed");
+				log("error", {
+					msg: "workspace watcher poll failed",
+					workspaceId,
+					error: error instanceof Error ? error.message : String(error),
+				});
 			}
 		}, POLL_INTERVAL_MS);
 		const watcher: Watcher = { sockets: new Set(), interval, signature };
@@ -76,10 +119,10 @@ export function registerWorkspaceSocket(
 		return watcher;
 	}
 
-	function leave(workspaceId: string, socket: WebSocket): void {
+	function leave(workspaceId: string, subscriber: Subscriber): void {
 		const watcher = watchers.get(workspaceId);
 		if (!watcher) return;
-		watcher.sockets.delete(socket);
+		watcher.sockets.delete(subscriber);
 		if (watcher.sockets.size === 0) {
 			clearInterval(watcher.interval);
 			watchers.delete(workspaceId);
@@ -91,12 +134,7 @@ export function registerWorkspaceSocket(
 		{
 			websocket: true,
 			preHandler: async (request, reply) => {
-				const user = request.user;
-				if (!user) {
-					return reply
-						.status(401)
-						.send({ code: "UNAUTHORIZED", message: "Sign in to continue" });
-				}
+				const user = requireUser(request);
 				const params = UuidParam.safeParse(request.params);
 				if (!params.success) {
 					return reply
@@ -108,6 +146,13 @@ export function registerWorkspaceSocket(
 					return reply
 						.status(404)
 						.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+				}
+				const active = await countActive(db, params.data.id, config);
+				if (active >= MAX_CONNECTIONS_PER_WORKSPACE) {
+					return reply.status(429).send({
+						code: "TOO_MANY_CONNECTIONS",
+						message: "This workspace already has too many open connections",
+					});
 				}
 			},
 		},
@@ -134,46 +179,62 @@ export function registerWorkspaceSocket(
 			const workspace = await readWorkspace(workspaceId);
 			if (workspace) send(socket, workspace);
 
+			const subscriber: Subscriber = {
+				socket,
+				connectionId,
+				sessionToken: request.sessionToken,
+			};
 			const watcher =
 				watchers.get(workspaceId) ??
 				startWatcher(workspaceId, workspace ? signatureOf(workspace) : "");
-			watcher.sockets.add(socket);
+			watcher.sockets.add(subscriber);
 
 			socket.on("message", async (raw: Buffer | string) => {
-				let parsed: unknown;
+				// An unhandled rejection in this listener would end the process.
 				try {
-					parsed = JSON.parse(raw.toString());
-				} catch {
-					return; // Malformed frames are ignored.
-				}
-				if (!ClientMessage.safeParse(parsed).success) return;
+					let parsed: unknown;
+					try {
+						parsed = JSON.parse(raw.toString());
+					} catch {
+						return; // Malformed frames are ignored.
+					}
+					if (!ClientMessage.safeParse(parsed).success) return;
 
-				// Revocation must take effect at once, so re-check the session
-				// on every heartbeat (SPEC.md §5.3).
-				const user = request.sessionToken
-					? await loadSession(db, request.sessionToken)
-					: null;
-				if (!user) {
-					socket.close(4401, "session expired");
-					return;
-				}
+					// Revocation must take effect at once, so re-check the session
+					// on every heartbeat (SPEC.md §5.3).
+					const user = request.sessionToken
+						? await loadSession(db, request.sessionToken)
+						: null;
+					if (!user) {
+						socket.close(4401, "session expired");
+						return;
+					}
 
-				await db
-					.updateTable("workspace_connections")
-					.set({ last_seen_at: new Date().toISOString() })
-					.where("id", "=", connectionId)
-					.execute();
-			});
-
-			socket.on("close", async () => {
-				leave(workspaceId, socket);
-				try {
 					await db
-						.deleteFrom("workspace_connections")
+						.updateTable("workspace_connections")
+						.set({ last_seen_at: new Date().toISOString() })
 						.where("id", "=", connectionId)
 						.execute();
 				} catch (error) {
-					app.log.error({ err: error }, "failed to delete workspace connection");
+					log("error", {
+						msg: "workspace socket message failed",
+						workspaceId,
+						error: error instanceof Error ? error.message : String(error),
+					});
+					socket.close(1011, "internal error");
+				}
+			});
+
+			socket.on("close", async () => {
+				leave(workspaceId, subscriber);
+				try {
+					await dropConnection(connectionId);
+				} catch (error) {
+					log("error", {
+						msg: "failed to delete workspace connection",
+						connectionId,
+						error: error instanceof Error ? error.message : String(error),
+					});
 				}
 			});
 		},

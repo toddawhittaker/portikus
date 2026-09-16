@@ -45,7 +45,9 @@ async function countConnections(): Promise<number> {
 beforeAll(async () => {
 	if (skip) return;
 	testDb = await createTestDb();
-	mock = await startMockOidcProvider({});
+	mock = await startMockOidcProvider({
+		redirectUris: [`${PUBLIC_URL}/auth/callback`],
+	});
 });
 
 afterAll(async () => {
@@ -201,4 +203,40 @@ test.skipIf(skip)("shutting the server down closes sockets with 1001", async () 
 	const closed = nextClose(socket);
 	await app.close();
 	expect(await closed).toBe(1001);
+});
+
+test.skipIf(skip)(
+	"deleting the session closes an idle socket with 4401 within a second",
+	async () => {
+		const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+		await socket.next();
+
+		const closed = nextClose(socket);
+		await testDb.db.deleteFrom("sessions").execute();
+
+		// No heartbeat is sent; the watcher tick has to notice on its own.
+		expect(await closed).toBe(4401);
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(await countConnections()).toBe(0);
+	},
+);
+
+test.skipIf(skip)("a workspace refuses more than sixteen connections", async () => {
+	const open: Array<Awaited<ReturnType<typeof openWorkspaceSocket>>> = [];
+	try {
+		for (let i = 0; i < 16; i += 1) {
+			const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+			await socket.next();
+			open.push(socket);
+		}
+		expect(await countConnections()).toBe(16);
+
+		await expect(
+			openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL),
+		).rejects.toMatchObject({ status: 429 });
+	} finally {
+		for (const socket of open) {
+			await socket.close();
+		}
+	}
 });
