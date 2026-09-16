@@ -1,7 +1,7 @@
 # Portikus worker — shipped by the portikus Debian package.
 [Unit]
 Description=Portikus Worker
-After=network.target postgresql.service portikus-controller.service
+After=network.target postgresql.service portikus-controller.service portikus-api.service
 Requires=postgresql.service
 ConditionPathExists=/etc/portikus/worker.env
 

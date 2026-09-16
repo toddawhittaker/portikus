@@ -100,11 +100,12 @@ build-deb: ## Build the control-plane Debian package into dist/deb
 deploy-app: ## Build the Debian package and install it on the VM
 	@test -n "$(VM_IP)" || { echo "deploy-app: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	@set -e; \
-	version="$$(pnpm build:deb | grep -v '^$$' | tail -1)"; \
+	pnpm build:deb; \
+	version="$$(cat dist/deb/VERSION)"; \
 	deb="portikus_$${version}_amd64.deb"; \
 	echo "Installing $$deb on $(VM_IP)"; \
-	scp "dist/deb/$$deb" deploy@$(VM_IP):/tmp/; \
-	ssh deploy@$(VM_IP) "sudo apt-get install -y --allow-downgrades '/tmp/$$deb'; rm -f '/tmp/$$deb'"
+	scp "dist/deb/$$deb" deploy@$(VM_IP):"~/"; \
+	ssh deploy@$(VM_IP) "sudo apt-get install -y --reinstall --allow-downgrades ./$$deb; rm -f ./$$deb"
 
 # ── Workspace image and lifecycle targets ─────────────────────────
 
