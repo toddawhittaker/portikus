@@ -170,12 +170,10 @@ apart from the paths they are explicitly given. A future service that has
 to write under `/var/lib/portikus` should be granted a `ReadWritePaths`
 entry for the directory it needs, not a weaker `ProtectSystem`.
 
-`/var/lib/portikus` is a shared parent directory. The package creates it,
-but the image builder (`image-build`, `images`) and the workspace script
-(`incus`) keep their own state under it, and normal package upgrades and
-removals leave it alone. Only `apt-get purge portikus` deletes it, and
-that deletes the other users' state with it, so rebuild the workspace
-image after a purge.
+`/var/lib/portikus` is a shared parent directory. The package creates it
+but never removes it, even on purge, because the image builder
+(`image-build`, `images`) and the workspace script (`incus`) keep their
+own state under it. Purging the package removes `/etc/portikus` only.
 
 Service configuration lives in `/etc/portikus/*.env`. To override a
 variable for testing without changing the Ansible-managed file, create
