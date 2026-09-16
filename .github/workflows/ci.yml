@@ -136,4 +136,4 @@ jobs:
         run: pipx install ansible-lint && ansible-lint infra/ansible
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true'
-        run: sudo apt-get install -y shellcheck && find . -name '*.sh' -not -path './node_modules/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck
+        run: sudo apt-get install -y shellcheck && find . -name '*.sh' -not -path './node_modules/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && { [ ! -d packaging/scripts ] || shellcheck packaging/scripts/*; }
