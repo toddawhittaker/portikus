@@ -47,7 +47,7 @@ variable "base_image_cache_path" {
   type        = string
   # Must be writable by the operator running tofu (the download runs as
   # them); libvirt reads it as root when importing the volume.
-  default = "~/.cache/portikus/debian-12-generic-amd64.qcow2"
+  default = "~/.cache/portikus/debian-13-generic-amd64.qcow2"
 }
 
 variable "cloud_init_user_data" {

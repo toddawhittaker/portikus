@@ -1,6 +1,6 @@
 # Workspace Image
 
-Distrobuilder definition for the Portikus student workspace (Debian bookworm, container only).
+Distrobuilder definition for the Portikus student workspace (Debian trixie, container only).
 
 Built with `distrobuilder build-incus portikus.yaml` on the platform VM.
 The `VERSION` file holds the current image serial (e.g. `2026.09`).

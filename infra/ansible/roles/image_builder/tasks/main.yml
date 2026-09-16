@@ -2,29 +2,6 @@
 # Install distrobuilder and its dependencies so the platform VM can build
 # workspace images (STACK.md section 25, SPEC.md section 21.8).
 
-# ── Go toolchain from bookworm-backports ──────────────────────────
-
-- name: Add bookworm-backports apt source
-  ansible.builtin.apt_repository:
-    repo: "deb http://deb.debian.org/debian bookworm-backports main"
-    state: present
-    filename: backports
-
-- name: Pin backports to low priority by default
-  ansible.builtin.copy:
-    dest: /etc/apt/preferences.d/backports.pref
-    content: |
-      Package: *
-      Pin: release a=bookworm-backports
-      Pin-Priority: 100
-
-      Package: golang*
-      Pin: release a=bookworm-backports
-      Pin-Priority: 500
-    owner: root
-    group: root
-    mode: "0644"
-
 # ── Build dependencies ────────────────────────────────────────────
 
 - name: Install image-builder prerequisites
@@ -41,20 +18,22 @@
       - libbtrfs-dev
     state: present
 
-- name: Install Go from backports
+# Trixie ships Go 1.24 in main, which is enough to bootstrap.
+# distrobuilder's go.mod wants Go 1.25; GOTOOLCHAIN=auto lets
+# Go 1.24 download the exact version automatically (docs/adr/0004).
+- name: Install Go
   ansible.builtin.apt:
     name: golang-go
     state: present
-    default_release: bookworm-backports
 
 # ── distrobuilder from source ────────────────────────────────────
 # The v3.3.1 tag does not compile: its go.mod pins filepath-securejoin
 # 0.6, which moved two functions that the pinned podman storage library
 # still expects.  Upstream main fixed the pair, so we build a pinned main
-# commit.  Its go.mod wants Go 1.25, newer than backports; the backports
-# Go is only the bootstrap, and GOTOOLCHAIN=auto lets it fetch the exact
-# toolchain go.mod names, verified against Go's checksum database
-# (docs/adr/0004).
+# commit.  Its go.mod wants Go 1.25, newer than trixie's Go 1.24; the
+# trixie Go is only the bootstrap, and GOTOOLCHAIN=auto lets it fetch
+# the exact toolchain go.mod names, verified against Go's checksum
+# database (docs/adr/0004).
 
 - name: Read the installed distrobuilder commit marker
   ansible.builtin.slurp:

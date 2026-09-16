@@ -148,8 +148,11 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   fi
 
   # Helper: run a command inside the workspace.
+  # The command string is single-quoted for the remote shell so that
+  # multi-word commands are passed correctly through ssh.
   ws_exec() {
-    ssh_cmd "incus exec ${WS_NAME} --project ${PROJECT} -- $*"
+    local escaped="${*//\'/\'\\\'\'}"
+    ssh_cmd "incus exec ${WS_NAME} --project ${PROJECT} -- bash -c '${escaped}'"
   }
 
   # Helper: run a command as the student user inside the workspace.
@@ -196,10 +199,10 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "/dev/vdb absent"                       ws_exec test ! -e /dev/vdb
 
   # 19. Management network is unreachable from workspace
-  check "management network blocked"            ws_exec "bash -c '! ping -c1 -W2 10.100.0.1'"
+  check "management network blocked"            ws_exec '! ping -c1 -W2 10.100.0.1'
 
   # 20. SSH to VM bridge address blocked from workspace
-  check "SSH to VM bridge blocked"              ws_exec "bash -c '! timeout 3 bash -c \"echo >/dev/tcp/10.200.0.1/22\" 2>/dev/null'"
+  check "SSH to VM bridge blocked"              ws_exec '! timeout 3 bash -c "echo >/dev/tcp/10.200.0.1/22" 2>/dev/null'
 
   # 21. Persistence across stop/start
   echo ""

@@ -1,7 +1,7 @@
 ---
 # Firewall policy (STACK.md section 29, SPEC.md section 24.1).
 #
-# Uses nftables, the default on Debian 12.  The ruleset is templated
+# Uses nftables, the default on Debian 13.  The ruleset is templated
 # so that all rules are source-controlled and no manual iptables
 # invocations are required.
 

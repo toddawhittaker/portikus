@@ -80,6 +80,7 @@ Agents live in `.claude/agents/`:
 | builder | Implementing a scoped change against a named SPEC.md section. |
 | tester | Designing tests that pin SPEC.md invariants, then running them. |
 | security-reviewer | Read-only review against SPEC.md section 24 trust boundaries. |
+| code-reviewer | Read-only review for correctness, then YAGNI/KISS/DRY/SOLID quality, on app and infra code. |
 | infra | Anything under `infra/`: OpenTofu, Ansible, cloud-init, Incus, images. |
 
 Orchestration rules:
@@ -93,6 +94,8 @@ Orchestration rules:
 - Send anything touching auth, the preview gateway, the workspace agent,
   file APIs, Incus, or nested Docker through security-reviewer before it
   is called done.
+- Run code-reviewer over the epic branch before the PR that merges an
+  epic into main, and fix or explicitly defer every finding it requires.
 - When agents disagree, the orchestrator arbitrates. Read the spec section
   in dispute and decide; do not bounce the conflict back and forth between
   agents. If the spec does not settle it, bring the two positions and a
