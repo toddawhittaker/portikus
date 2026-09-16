@@ -46,9 +46,10 @@ systemd units, and the smoke test covers all four Epic 3 acceptance
 criteria. Epic 3.5 packages the control plane as one versioned `portikus`
 Debian package built by `nfpm` in CI (ADR 0007), which owns the service
 users, `/etc/portikus`, `/var/lib/portikus`, and the three systemd units.
-Ansible installs the published release asset at a pinned version and renders
-only the environment files and the controller token, so the VM has no build
-toolchain and rolling back means installing the previous package. Epic 4
+Ansible installs the newest published release, or the version or local
+package named on the command line, and renders only the environment files
+and the controller token, so the VM has no build toolchain and rolling back
+means installing the previous package. Epic 4
 (authentication and authorization) is next.
 
 ## Commands
