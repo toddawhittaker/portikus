@@ -1,44 +1,65 @@
 ---
-# Set up system users, directories, secrets, env files, and systemd units
-# for the three Portikus control-plane services (STACK.md section 22).
+# Install the Portikus control-plane Debian package at a pinned version and
+# render the deployment-specific secrets and environment files (ADR 0007).
+# The package owns the service users, /etc/portikus, /var/lib/portikus, and
+# the three systemd units, so nothing here creates them.
 
-# ── System users ──────────────────────────────────────────────────
+# ── Remove the Epic 3 interim deployment ──────────────────────────
+# A VM configured before ADR 0007 has hand-written units, an rsynced app
+# directory, and a global pnpm.  The package owns those names now, so an
+# existing VM has to be cleaned before the package is installed.
 
-- name: Create portikus system user (api and worker)
-  ansible.builtin.user:
-    name: portikus
-    system: true
-    shell: /usr/sbin/nologin
-    create_home: false
+- name: Remove Epic 3 systemd units
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}"
+    state: absent
+  loop:
+    - portikus-api.service
+    - portikus-worker.service
+    - portikus-controller.service
+  register: portikus_legacy_units
 
-- name: Create portikus-controller system user
-  ansible.builtin.user:
-    name: portikus-controller
-    system: true
-    shell: /usr/sbin/nologin
-    create_home: false
-    groups: incus-admin
-    append: true
+# Not a handler: this has to run before the package install, not at the end of the play.
+- name: Reload systemd after removing the Epic 3 units  # noqa: no-handler
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: portikus_legacy_units is changed
 
-# ── Application directory ────────────────────────────────────────
-
-- name: Create application directory
+- name: Remove the Epic 3 application directory
   ansible.builtin.file:
     path: /var/lib/portikus/app
-    state: directory
-    owner: deploy
-    group: deploy
-    mode: "0755"
+    state: absent
 
-# ── Configuration directory ───────────────────────────────────────
+- name: Remove the globally installed pnpm
+  community.general.npm:
+    name: pnpm
+    global: true
+    state: absent
 
-- name: Create configuration directory
+# ── Debian package ────────────────────────────────────────────────
+
+- name: Create package cache directory
   ansible.builtin.file:
-    path: /etc/portikus
+    path: /var/cache/portikus
     state: directory
     owner: root
     group: root
     mode: "0755"
+
+- name: Download the portikus package
+  ansible.builtin.get_url:
+    url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_version }}/portikus_{{ portikus_version }}_amd64.deb"
+    dest: "/var/cache/portikus/portikus_{{ portikus_version }}_amd64.deb"
+    checksum: "sha256:{{ portikus_deb_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install the portikus package
+  ansible.builtin.apt:
+    deb: "/var/cache/portikus/portikus_{{ portikus_version }}_amd64.deb"
+    # So that pinning an older portikus_version actually rolls back.
+    allow_downgrade: true
 
 # ── Controller token (generated once) ────────────────────────────
 
@@ -95,46 +116,14 @@
     mode: "0640"
   notify: Restart portikus-controller
 
-# ── Systemd units ─────────────────────────────────────────────────
+# ── Start the services ───────────────────────────────────────────
+# The package enables the units, but ConditionPathExists keeps them from
+# starting until the environment files above exist.
 
-- name: Deploy portikus-api systemd unit
-  ansible.builtin.template:
-    src: portikus-api.service.j2
-    dest: /etc/systemd/system/portikus-api.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart portikus-api
-
-- name: Deploy portikus-worker systemd unit
-  ansible.builtin.template:
-    src: portikus-worker.service.j2
-    dest: /etc/systemd/system/portikus-worker.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart portikus-worker
-
-- name: Deploy portikus-controller systemd unit
-  ansible.builtin.template:
-    src: portikus-controller.service.j2
-    dest: /etc/systemd/system/portikus-controller.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart portikus-controller
-
-- name: Enable portikus services
+- name: Start portikus services
   ansible.builtin.systemd:
     name: "{{ item }}"
-    enabled: true
-    daemon_reload: true
+    state: started
   loop:
     - portikus-api
     - portikus-worker

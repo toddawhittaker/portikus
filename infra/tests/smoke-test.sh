@@ -279,6 +279,11 @@ if ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
   # Give the worker a moment to start with the short grace period.
   sleep 3
 
+  # 0. The control plane came from the Debian package, not a build on the VM.
+  check "portikus package is installed"  ssh_cmd dpkg -s portikus
+  check "no pnpm on the VM"              ssh_cmd "! command -v pnpm"
+  check "no built app tree on the VM"    ssh_cmd test ! -e /var/lib/portikus/app
+
   # 1. Three units active; controller health is public; protected routes reject unauthenticated.
   check "portikus-api is active"        ssh_cmd systemctl is-active portikus-api
   check "portikus-worker is active"     ssh_cmd systemctl is-active portikus-worker
