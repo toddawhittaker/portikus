@@ -52,7 +52,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	cd $(TOFU_DIR) && tofu init -backend=false -input=false >/dev/null && tofu validate
 	ansible-galaxy collection install --force -r infra/ansible/requirements.yml
 	ansible-lint infra/ansible
-	find . -name '*.sh' -not -path './node_modules/*' -print0 | xargs -0 shellcheck
+	find . -name '*.sh' -not -path './node_modules/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
 	bash infra/host/dev-libvirt/bootstrap.sh

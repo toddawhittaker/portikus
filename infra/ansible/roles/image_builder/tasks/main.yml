@@ -31,9 +31,14 @@
   ansible.builtin.apt:
     name:
       - debootstrap
+      - git
       - gnupg
       - rsync
       - squashfs-tools
+      - build-essential
+      - pkg-config
+      - libgpgme-dev
+      - libbtrfs-dev
     state: present
 
 - name: Install Go from backports
@@ -43,24 +48,63 @@
     default_release: bookworm-backports
 
 # ── distrobuilder from source ────────────────────────────────────
+# The v3.3.1 tag does not compile: its go.mod pins filepath-securejoin
+# 0.6, which moved two functions that the pinned podman storage library
+# still expects.  Upstream main fixed the pair, so we build a pinned main
+# commit.  Its go.mod wants Go 1.25, newer than backports; the backports
+# Go is only the bootstrap, and GOTOOLCHAIN=auto lets it fetch the exact
+# toolchain go.mod names, verified against Go's checksum database
+# (docs/adr/0004).
 
-- name: Check installed distrobuilder version
-  ansible.builtin.command:
-    cmd: /usr/local/bin/distrobuilder --version
-  register: image_builder_distrobuilder_version
-  changed_when: false
+- name: Read the installed distrobuilder commit marker
+  ansible.builtin.slurp:
+    src: /usr/local/share/portikus/distrobuilder-commit
+  register: image_builder_marker
   failed_when: false
 
-- name: Build and install distrobuilder v3.3.1
+- name: Set the installed distrobuilder commit fact
+  ansible.builtin.set_fact:
+    image_builder_installed_commit: >-
+      {{ (image_builder_marker.content | default('') | b64decode | trim)
+         if image_builder_marker.content is defined else '' }}
+
+- name: Clone distrobuilder at the pinned commit
+  ansible.builtin.git:
+    repo: https://github.com/lxc/distrobuilder.git
+    dest: /root/go/src/distrobuilder
+    version: "{{ image_builder_distrobuilder_commit }}"
+    depth: 1
+  when: image_builder_installed_commit != image_builder_distrobuilder_commit
+
+- name: Build and install distrobuilder
   ansible.builtin.command:
-    cmd: go install github.com/lxc/distrobuilder/distrobuilder@v3.3.1
+    cmd: go install ./distrobuilder
+    chdir: /root/go/src/distrobuilder
   environment:
     GOBIN: /usr/local/bin
     GOPATH: /root/go
     GOCACHE: /root/go/cache
+    GOMODCACHE: /root/go/pkg/mod
     GOFLAGS: -buildvcs=false
-  when: image_builder_distrobuilder_version.rc != 0 or '3.3.1' not in image_builder_distrobuilder_version.stdout
+    GOTOOLCHAIN: auto
+  when: image_builder_installed_commit != image_builder_distrobuilder_commit
   changed_when: true
+
+- name: Create the marker directory
+  ansible.builtin.file:
+    path: /usr/local/share/portikus
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Record the installed distrobuilder commit
+  ansible.builtin.copy:
+    dest: /usr/local/share/portikus/distrobuilder-commit
+    content: "{{ image_builder_distrobuilder_commit }}\n"
+    owner: root
+    group: root
+    mode: "0644"
 
 # ── Working directories ──────────────────────────────────────────
 

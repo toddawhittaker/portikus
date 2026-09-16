@@ -2,7 +2,14 @@
 # Portikus platform VM firewall (STACK.md section 29).
 # Managed by Ansible — do not edit manually.
 
-flush ruleset
+# Flush only the tables this file owns.  A global "flush ruleset" would
+# also remove the "inet incus" table that Incus creates for bridge NAT and
+# network ACLs, leaving workspaces without DHCP, DNS, or ACL enforcement
+# until the daemon restarts.
+table inet filter
+flush table inet filter
+table inet nat
+flush table inet nat
 
 table inet filter {
 
@@ -15,8 +22,8 @@ table inet filter {
     # Established / related
     ct state established,related accept
 
-    # SSH (management)
-    tcp dport 22 accept
+    # SSH (management) — reject from workspace bridge (defense in depth if ACL absent)
+    iifname != "{{ incus_network_name }}" tcp dport 22 accept
 
     # HTTP/HTTPS — Caddy will listen here once deployed (Epic 3+)
     tcp dport { 80, 443 } accept
@@ -24,6 +31,12 @@ table inet filter {
     # ICMP / ICMPv6 for diagnostics
     ip protocol icmp accept
     ip6 nexthdr ipv6-icmp accept
+
+    # DHCP and DNS from workspaces to the dnsmasq Incus runs on the bridge
+    # gateway.  Every base chain on the input hook must accept a packet,
+    # so the allow Incus adds in its own table is not enough on its own.
+    iifname "{{ incus_network_name }}" udp dport { 67, 53 } accept
+    iifname "{{ incus_network_name }}" tcp dport 53 accept
   }
 
   chain forward {
@@ -55,8 +68,10 @@ table inet filter {
 table inet nat {
   chain postrouting {
     type nat hook postrouting priority 100; policy accept;
-    # Masquerade workspace traffic heading to the Internet
-    oifname "enp*" masquerade
-    oifname "eth*" masquerade
+    # Masquerade workspace traffic leaving via the VM's default uplink.
+    # Incus also adds its own masquerade in the "inet incus" table when
+    # ipv4.nat is true, but we keep ours so NAT works even if that table
+    # is absent (e.g. before the first container starts).
+    oifname "{{ ansible_default_ipv4.interface }}" masquerade
   }
 }

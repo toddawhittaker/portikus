@@ -1,5 +1,9 @@
 ---
+# Use "reloaded" (ExecReload), not "restarted".  A restart runs ExecStop
+# first, which does "nft flush ruleset" and wipes the "inet incus" table
+# that Incus creates for bridge NAT and ACLs.  A reload re-applies our
+# config file, which only flushes the tables it owns.
 - name: Reload nftables
   ansible.builtin.systemd:
     name: nftables
-    state: restarted
+    state: reloaded
