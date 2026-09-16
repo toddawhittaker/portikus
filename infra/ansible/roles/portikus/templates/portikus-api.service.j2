@@ -1,0 +1,28 @@
+# Portikus API — managed by Ansible.
+[Unit]
+Description=Portikus API
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=portikus
+Group=portikus
+EnvironmentFile=/etc/portikus/api.env
+EnvironmentFile=-/etc/portikus/api.override.env
+ExecStart=/usr/bin/node /var/lib/portikus/app/apps/api/dist/index.js
+ConditionPathExists=/var/lib/portikus/app/apps/api/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+# Hardening (SPEC section 24)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/portikus/app
+IPAddressAllow=127.0.0.0/8
+IPAddressDeny=any
+
+[Install]
+WantedBy=multi-user.target
