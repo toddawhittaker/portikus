@@ -56,7 +56,8 @@ add new variables to that schema and to `.env.example` together.
 
 - `main` is always releasable. It changes only through a pull request.
 - Each epic in SPEC.md section 29 gets a long-lived branch named
-  `epic/<n>-<slug>`, for example `epic/0-repo-conventions`. It also changes
+  `epic/<n>-<slug>`, for example `epic/0-repo-conventions`. A fractional
+  epic uses a dash for the point, as in `epic/3-5-<slug>`. It also changes
   only through a pull request.
 - Work happens on short-lived task branches cut from the epic branch, named
   `<epic-slug>/<task>`. A task branch is merged into its epic by pull
@@ -95,6 +96,9 @@ Each job detects whether its inputs exist and skips cleanly otherwise, so
 the pipeline is green on a repo with no code and starts enforcing as code
 lands. Do not remove the detection steps; remove the skip once a check is
 expected to always run.
+
+Epic 3.5 adds a job that builds the control-plane Debian package with `nfpm`
+on pushes to `main` and publishes it as a release asset (ADR 0007).
 
 ## Secret scanning
 

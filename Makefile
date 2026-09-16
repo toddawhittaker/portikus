@@ -92,7 +92,7 @@ rebuild-pilot: destroy-pilot infra-apply configure-vm ## Destroy and recreate th
 
 # ── Application deployment targets ────────────────────────────────
 
-deploy-app: ## Rsync the app to the VM, install, build, migrate, and restart services
+deploy-app: ## Rsync the app to the VM, install, build, migrate, and restart services (interim; Epic 3.5 replaces with the .deb)
 	@test -n "$(VM_IP)" || { echo "deploy-app: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	rsync -az --delete \
 		--exclude=.git --exclude=node_modules --exclude=dist --exclude=.tsbuild \
