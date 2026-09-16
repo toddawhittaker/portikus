@@ -99,8 +99,10 @@ expected to always run.
 Remote: the CI secret-scan job, plus GitHub secret scanning and push
 protection on the repository.
 
-Local: a pre-commit hook runs gitleaks on staged changes. Enable it once per
-clone:
+Local: a pre-commit hook runs gitleaks on staged changes, then the same
+Biome check CI runs (`biome check --error-on-warnings`) on the staged
+TypeScript, JavaScript, JSON, and CSS files. A commit that would fail CI
+lint is refused before it is made. Enable the hook once per clone:
 
 ```sh
 git config core.hooksPath .githooks
