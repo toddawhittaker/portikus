@@ -73,6 +73,8 @@ add new variables to that schema and to `.env.example` together.
 
 Every pull request cites the SPEC.md and STACK.md sections it serves and
 says how it was verified. The template asks for both. CI must be green.
+A pull request branch must be up to date with its base before it is merged;
+`gh pr update-branch <number>` does that.
 Anything touching auth, the preview gateway, the workspace agent, file APIs,
 Incus, or nested Docker is reviewed by the security-reviewer agent before
 merge.

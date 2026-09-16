@@ -1010,11 +1010,18 @@ Ansible configures:
 - Caddy;
 - PostgreSQL;
 - Node;
-- Portikus services;
+- Portikus services, installed from the versioned `.deb` described in
+  ADR 0007 (the package owns the service users, `/etc/portikus`,
+  `/var/lib/portikus`, and the systemd units; Ansible renders the
+  environment files and secrets);
 - systemd units;
 - backup jobs;
 - logging/monitoring;
 - security hardening.
+
+Until the Debian package lands, `make deploy-app` copies the source tree to
+the VM and builds it there. That is the interim path only, and replacing it
+with the package (ADR 0007) is the first task after Epic 3 merges.
 
 Playbooks should be idempotent.
 
@@ -1278,6 +1285,9 @@ pnpm test
 pnpm build
 pnpm test:e2e
 ```
+
+Application checks also build the versioned control-plane `.deb` with `nfpm`
+(ADR 0007).
 
 Infrastructure checks:
 

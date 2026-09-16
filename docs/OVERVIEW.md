@@ -7,14 +7,17 @@ summarizes them so a reader knows where to look.
 
 ## Current state
 
-Epic 0 in SPEC.md section 29 (repository setup and conventions) is in
-progress. The pnpm workspace monorepo is scaffolded: every app and package
-listed below exists as a real TypeScript project with a test, and lint,
-typecheck, test, build, and browser end-to-end tests all run from the
-commands in CLAUDE.md. No subsystem behaviour is implemented yet, and
-`infra/` does not exist; Epic 1 (reproducible pilot infrastructure) is next.
-Gate A in SPEC.md section 30 (architecture proof) must pass before
-substantial UI polish.
+Epics 0 through 3 in SPEC.md section 29 have landed: the pnpm workspace
+monorepo, the reproducible platform VM under `infra/`, the Debian 13
+workspace image, and the control-plane workspace lifecycle. Workspaces are
+now created, started, and stopped by the control plane rather than by hand:
+the workspace controller talks to Incus over the REST API on its unix
+socket, the API records intent and browser presence, and the worker
+reconciles every second and owns the 10-minute disconnect timer. The web UI,
+authentication, WebSockets, the workspace agent, and the preview gateway are
+still unbuilt; Epic 4 (authentication and authorization) is next. Gate A in
+SPEC.md section 30 (architecture proof) must pass before substantial UI
+polish.
 
 ## Planned architecture
 
@@ -29,10 +32,12 @@ Components, each a separate trust zone (SPEC.md section 24.1):
 - **Control plane** (`apps/api`): Fastify. OIDC auth, authorization,
   project metadata, UI layout state, audit, recovery metadata. SPEC.md
   section 2.8, STACK.md section 4.
-- **Worker** (`apps/worker`): a PostgreSQL-backed job queue (pg-boss) that
-  owns delayed shutdown, provisioning, rebuilds, and recovery-point
-  creation. Lifecycle timers must survive a control-plane restart, so they
-  live here, never in memory. STACK.md section 7.
+- **Worker** (`apps/worker`): owns delayed shutdown, provisioning,
+  rebuilds, and recovery-point creation. Lifecycle timers must survive a
+  control-plane restart, so they live in the database, never in memory.
+  Today it is a one-second reconcile loop over PostgreSQL (ADR 0006); a job
+  queue arrives when rebuild and recovery work needs retries. STACK.md
+  section 7.
 - **Workspace controller** (`apps/workspace-controller`): the only process
   that talks to Incus. STACK.md section 9.
 - **Workspace agent** (`apps/workspace-agent`): runs inside each user
