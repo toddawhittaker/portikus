@@ -294,8 +294,8 @@ importers:
   packages/db:
     dependencies:
       kysely:
-        specifier: 0.29.6
-        version: 0.29.6
+        specifier: 0.29.5
+        version: 0.29.5
       pg:
         specifier: 8.23.0
         version: 8.23.0
@@ -1135,8 +1135,8 @@ packages:
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
 
-  kysely@0.29.6:
-    resolution: {integrity: sha512-hHaB8C/rfzDDtr/t8YZwxAuPJTT0zHyaPoVzcXwDYhYNAgH/4sIfVhi/XLLIY+bL/FqaIJnjATDbi8ObSELmxg==}
+  kysely@0.29.5:
+    resolution: {integrity: sha512-ooa+eSbBNPTo3MycPEuW5jdrxQdQwdtB3LC3h43FiXQbIry5tR0C5lDG7eealK0E4D7XjrnOP5DIUg/LyjRMYQ==}
     engines: {node: '>=22.0.0'}
 
   light-my-request@6.6.0:
@@ -2235,7 +2235,7 @@ snapshots:
 
   json-schema-traverse@1.0.0: {}
 
-  kysely@0.29.6: {}
+  kysely@0.29.5: {}
 
   light-my-request@6.6.0:
     dependencies:

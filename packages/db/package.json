@@ -18,7 +18,7 @@
 		"migrate": "node dist/migrate.js"
 	},
 	"dependencies": {
-		"kysely": "0.29.6",
+		"kysely": "0.29.5",
 		"pg": "8.23.0"
 	},
 	"devDependencies": {
