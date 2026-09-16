@@ -2081,6 +2081,34 @@ Known gaps after Epic 3, to be closed later:
   the API still reports the last known state instead of marking it
   unverified.
 
+### Epic 3.5 — Control-plane packaging as a Debian package
+**Estimate:** 1–2 engineer-days
+
+Replaces the interim rsync-and-build deployment with the versioned `.deb`
+decided in ADR 0007 (see STACK.md §22 and §30).
+
+Includes:
+
+- an `nfpm` configuration that packs the pnpm production build of the API,
+  worker, and workspace controller into one `portikus` package;
+- the package owns the service users, `/etc/portikus`,
+  `/var/lib/portikus`, and the three systemd units;
+- a CI job that builds the package on every push to `main` and publishes it
+  as a GitHub release asset with a version derived from the repository;
+- the `portikus` Ansible role installs the package at a pinned version and
+  renders only environment files and secrets;
+- the `node` role installs the runtime only, no pnpm or build toolchain;
+- `make deploy-app` builds the package locally and installs it on the VM;
+- documentation of the release and rollback procedure in `infra/README.md`.
+
+Acceptance:
+
+- `make configure-vm` on a fresh VM installs the package and leaves the
+  three units enabled, with no Node build step on the VM;
+- installing the previous version rolls the control plane back;
+- the Epic 3 smoke-test block passes against the packaged install;
+- `.rpm` is out of scope until a non-Debian host is supported.
+
 ### Epic 4 — Authentication and authorization
 **Estimate:** 2–3 engineer-days
 
