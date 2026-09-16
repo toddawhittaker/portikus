@@ -29,7 +29,7 @@ test-results/
 
 # Infrastructure — OpenTofu state and secrets (STACK.md sections 20, 27)
 *.tfstate
-*.tfstate.backup
+*.tfstate.*
 .terraform/
 infra/secrets/age-key.txt
 
