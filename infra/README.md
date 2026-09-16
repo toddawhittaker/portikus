@@ -105,30 +105,57 @@ make workspace-destroy NAME=alice
 
 ## 9. Deploying the control plane
 
-After the VM is configured and the workspace image is built, deploy the
-application code. This installs dependencies, builds the TypeScript
-projects, runs database migrations, and restarts the three services
-(API, worker, workspace controller).
+The control plane ships as a versioned Debian package named `portikus`
+(ADR 0007). The package contains the prebuilt API, worker, and workspace
+controller, and it owns the two service users, `/etc/portikus`,
+`/var/lib/portikus`, and the three systemd units. Ansible installs the
+package and renders only the environment files and the controller token.
 
-This is the interim path. ADR 0007 replaces it with a versioned Debian
-package built in CI and installed by Ansible at a pinned version, in
-Epic 3.5 (SPEC.md §29). The release and rollback procedures arrive with
-that package; today there is no way to roll a deploy back.
+`make configure-vm` therefore deploys the control plane; there is no
+separate build step on the VM, and the VM has no build toolchain.
+
+### Release and rollback
+
+**How a release is produced.** Every push to `main` runs the Release
+workflow, which builds the package and publishes it as a GitHub release
+asset. The version is derived from the repository and looks like
+`0.1.123+gabc1234`: the release number, the commit count, and the short
+commit hash. The asset is named `portikus_<version>_amd64.deb`.
+
+**How a version is deployed.** Set `portikus_version` in
+`infra/ansible/site.yml` to the version you want, commit it, and run:
 
 ```
-make deploy-app
+make configure-vm
 ```
 
-To run only the database migration without a full deploy:
+Ansible downloads that exact asset to `/var/cache/portikus` and installs
+it. Because the version is pinned in source control, the VM is
+reproducible: the same commit always installs the same package.
+
+**How to roll back.** Install the previous version. Download its asset on
+the VM and install it, allowing the downgrade:
 
 ```
-make db-migrate
+gh release download v<previous-version> -p '*.deb'
+sudo apt-get install -y --allow-downgrades ./portikus_<previous-version>_amd64.deb
 ```
 
-The three systemd services (`portikus-api`, `portikus-worker`,
-`portikus-controller`) are enabled but will not start until their
-`ExecStart` binary exists (guarded by `ConditionPathExists`). After the
-first `make deploy-app`, they start automatically on boot.
+Then set `portikus_version` in `site.yml` back to that version so the next
+`make configure-vm` does not roll forward again.
+
+**Development path.** `make deploy-app` builds the package on your
+workstation and installs it on the VM directly. It does not pin anything
+and does not go through a release, so use it only while developing.
+
+The three systemd units (`portikus-api`, `portikus-worker`,
+`portikus-controller`) are enabled by the package but will not start until
+their environment file exists (guarded by `ConditionPathExists`). Ansible
+renders those files and starts the units, after which they start on boot.
+
+There is no `make db-migrate`. Database migrations run from the
+`portikus-api` unit's `ExecStartPre`, so they are applied when the service
+starts.
 
 Service configuration lives in `/etc/portikus/*.env`. To override a
 variable for testing without changing the Ansible-managed file, create

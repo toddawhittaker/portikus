@@ -26,12 +26,14 @@
     image_builder_distrobuilder_commit: "86713967673400934b605a0a24f45ceb5c371082"
     management_cidr: "{{ lookup('env', 'PORTIKUS_MANAGEMENT_CIDR') | default('10.100.0.0/24', true) }}"
 
-    # ── Node.js and pnpm ─────────────────────────────────────────
+    # ── Node.js runtime ──────────────────────────────────────────
     # NodeSource GPG signing checksum, verified 2026-09-16.
     nodesource_gpg_checksum: "b42e0321dabdc24e892115da705cf061167eac12a317f23d329862d0aa0a271d"
-    pnpm_version: "12.4.2"
 
     # ── Portikus control-plane services ───────────────────────────
+    # Pinned to a published release; the orchestrator updates it when a new
+    # release is cut.  See "Release and rollback" in infra/README.md.
+    portikus_version: "0.1.0+g0000000"
     portikus_node_env: production
     portikus_api_port: 3000
     portikus_controller_port: 3001

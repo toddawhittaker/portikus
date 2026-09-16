@@ -1,5 +1,7 @@
 ---
-# Install Node.js 24 from the NodeSource deb822 apt repository and pnpm.
+# Install the Node.js 24 runtime from the NodeSource deb822 apt repository.
+# Runtime only: the control plane ships prebuilt in a Debian package, so the
+# VM needs no build toolchain (ADR 0007).
 # Follows the same apt-repo-with-checksum pattern as the incus role.
 
 - name: Create apt keyrings directory
@@ -35,10 +37,3 @@
     name: "nodejs"
     state: present
     update_cache: true
-
-- name: Install pnpm globally
-  community.general.npm:
-    name: pnpm
-    version: "{{ pnpm_version }}"
-    global: true
-    state: present
