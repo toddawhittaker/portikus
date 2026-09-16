@@ -89,6 +89,24 @@
     caddy_root_cert: /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
     portikus_caddy_root_cert: /etc/portikus/caddy-root.crt
 
+  # Checked before any role runs, so bad identity-provider settings change
+  # nothing on the VM.  The secret rules match packages/config: portikus-api
+  # refuses to start in production on a short or default secret.
+  pre_tasks:
+    - name: Require identity provider settings when the mock is off
+      ansible.builtin.assert:
+        that:
+          - portikus_oidc_issuer | default('', true) | length > 0
+          - portikus_oidc_client_id | default('', true) | length > 0
+          - portikus_oidc_client_secret | default('', true) | length >= 32
+          - portikus_oidc_client_secret | default('', true) != 'portikus-dev-secret'
+        fail_msg: >-
+          With PORTIKUS_MOCK_IDP=false, set PORTIKUS_OIDC_ISSUER,
+          PORTIKUS_OIDC_CLIENT_ID and PORTIKUS_OIDC_CLIENT_SECRET.
+          The client secret must be at least 32 characters and must not be
+          the development default, or portikus-api will refuse to start.
+      when: not portikus_mock_idp
+
   roles:
     - base
     - firewall
