@@ -45,6 +45,10 @@ add new variables to that schema and to `.env.example` together.
   request, squash merge.
 - When an epic's acceptance criteria are met, the epic branch is merged into
   `main` by pull request, merge commit, so the epic's history is kept.
+- To sync changes from `main` into an epic branch, create a short-lived
+  branch from the epic, merge `main` into it, and open a pull request back
+  into the epic branch. The branch ruleset requires a PR for every push to
+  `epic/**`, so a direct merge is not allowed.
 - Branches are deleted on merge.
 
 ## Pull requests

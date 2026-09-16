@@ -1,0 +1,81 @@
+---
+# Install distrobuilder and its dependencies so the platform VM can build
+# workspace images (STACK.md section 25, SPEC.md section 21.8).
+
+# ── Go toolchain from bookworm-backports ──────────────────────────
+
+- name: Add bookworm-backports apt source
+  ansible.builtin.apt_repository:
+    repo: "deb http://deb.debian.org/debian bookworm-backports main"
+    state: present
+    filename: backports
+
+- name: Pin backports to low priority by default
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/backports.pref
+    content: |
+      Package: *
+      Pin: release a=bookworm-backports
+      Pin-Priority: 100
+
+      Package: golang*
+      Pin: release a=bookworm-backports
+      Pin-Priority: 500
+    owner: root
+    group: root
+    mode: "0644"
+
+# ── Build dependencies ────────────────────────────────────────────
+
+- name: Install image-builder prerequisites
+  ansible.builtin.apt:
+    name:
+      - debootstrap
+      - gnupg
+      - rsync
+      - squashfs-tools
+    state: present
+
+- name: Install Go from backports
+  ansible.builtin.apt:
+    name: golang-go
+    state: present
+    default_release: bookworm-backports
+
+# ── distrobuilder from source ────────────────────────────────────
+
+- name: Check installed distrobuilder version
+  ansible.builtin.command:
+    cmd: /usr/local/bin/distrobuilder --version
+  register: image_builder_distrobuilder_version
+  changed_when: false
+  failed_when: false
+
+- name: Build and install distrobuilder v3.3.1
+  ansible.builtin.command:
+    cmd: go install github.com/lxc/distrobuilder/distrobuilder@v3.3.1
+  environment:
+    GOBIN: /usr/local/bin
+    GOPATH: /root/go
+    GOCACHE: /root/go/cache
+    GOFLAGS: -buildvcs=false
+  when: image_builder_distrobuilder_version.rc != 0 or '3.3.1' not in image_builder_distrobuilder_version.stdout
+  changed_when: true
+
+# ── Working directories ──────────────────────────────────────────
+
+- name: Create image-build staging directory
+  ansible.builtin.file:
+    path: /var/lib/portikus/image-build
+    state: directory
+    owner: deploy
+    group: deploy
+    mode: "0755"
+
+- name: Create images output directory
+  ansible.builtin.file:
+    path: /var/lib/portikus/images
+    state: directory
+    owner: deploy
+    group: deploy
+    mode: "0755"
