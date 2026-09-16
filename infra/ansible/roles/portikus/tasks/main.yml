@@ -44,7 +44,7 @@
 
 - name: Generate controller token
   ansible.builtin.shell:
-    cmd: openssl rand -hex 32 > /etc/portikus/controller.token
+    cmd: umask 077 && openssl rand -hex 32 > /etc/portikus/controller.token
     creates: /etc/portikus/controller.token
   no_log: true
 
