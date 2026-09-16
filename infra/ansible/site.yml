@@ -25,3 +25,4 @@
     - incus
     - incus_network
     - portikus_workspace_profile
+    - image_builder
