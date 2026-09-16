@@ -49,8 +49,31 @@ users, `/etc/portikus`, `/var/lib/portikus`, and the three systemd units.
 Ansible installs the newest published release, or the version or local
 package named on the command line, and renders only the environment files
 and the controller token, so the VM has no build toolchain and rolling back
-means installing the previous package. Epic 4
-(authentication and authorization) is next.
+means installing the previous package. Epic 4 is authentication and
+authorization: login is the OIDC Authorization Code flow with PKCE (proof
+key for code exchange) through `openid-client`, and a session is a row in
+PostgreSQL behind an opaque HttpOnly cookie, named with the `__Host-`
+prefix when the public URL is https. Roles are `student` and
+`administrator`, mapped from the identity provider's group claims and
+denied by default. Every API route and the WebSocket upgrade need a
+session, the workspace owner comes from that session rather than the
+request body, and one student asking for another student's workspace gets
+a 404. The WebSocket at `/workspaces/:id/ws` is now the presence
+mechanism, so the old HTTP connection and heartbeat routes are gone, and
+administrators get one listing route. `packages/auth` also holds an
+in-repo mock identity provider, shipped as a fourth systemd unit that stays
+disabled unless Ansible's `portikus_mock_idp` is true (ADR 0008). A new
+`caddy` Ansible role fronts the VM with an internally issued certificate at
+`portikus.<vm-ip>.nip.io` and serves the web bundle, which the Debian
+package now ships, and the smoke test logs in through the real redirect
+flow.
+
+Epic 4 known gaps: a real identity provider is not reachable from the API
+yet, because the units allow loopback traffic only; the real client secret
+travels through the environment until SOPS is wired up; there is no admin
+UI beyond the one listing route; nothing rate-limits login; and disabling a
+user means setting `users.disabled_at` by hand in SQL. Epic 5 (workspace
+agent and terminal transport) is next.
 
 ## Commands
 
@@ -84,12 +107,12 @@ Layout: `apps/` holds the five processes, `e2e/` the Playwright tests, and
 | `config` | Per-service `loadConfig`, which validates the environment at startup |
 | `events` | Schemas for the WebSocket and cross-process event streams |
 | `db` | PostgreSQL access: Kysely types, connections, migrations, test helpers |
-| `auth` | OIDC login, sessions, and authorization helpers |
+| `auth` | OIDC login, sessions, authorization helpers, mock identity provider |
 | `observability` | OpenTelemetry setup and the structured JSON logger |
 | `ui` | Shared React components used by `apps/web` |
 
-`contracts`, `config`, and `db` have real content today; the rest are
-placeholders waiting on their epic.
+`contracts`, `config`, `db`, `auth`, and `events` have real content today;
+`observability` and `ui` are placeholders waiting on their epic.
 
 ## How work gets done here
 
