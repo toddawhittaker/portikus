@@ -61,6 +61,17 @@
     # So that pinning an older portikus_version actually rolls back.
     allow_downgrade: true
 
+# Release 0.1.40 shipped this directory owned by the portikus service user and
+# dpkg keeps the ownership of a directory that already exists, so hosts that
+# installed that release need it corrected here.
+- name: Correct the state directory ownership
+  ansible.builtin.file:
+    path: /var/lib/portikus
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 # ── Controller token (generated once) ────────────────────────────
 
 - name: Generate controller token
