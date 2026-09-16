@@ -129,13 +129,15 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   PROJECT="portikus"
   WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
 
-  # Clean up on exit regardless of success or failure.
-  cleanup_workspace() {
+  # Clean up on exit regardless of success or failure.  The cleanup
+  # function is extended by the Epic 3 block if it runs, so that a
+  # single trap covers both.
+  cleanup_all() {
     echo ""
     echo "Destroying ${WS_NAME}..."
     ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null 2>&1 || true
   }
-  trap cleanup_workspace EXIT
+  trap cleanup_all EXIT
 
   # Provision a workspace.
   echo "Creating workspace ${WS_NAME}..."
@@ -234,6 +236,9 @@ if ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
   echo "--- Epic 3: control-plane lifecycle checks ---"
   echo ""
 
+  epic3_pass_start=$pass
+  epic3_fail_start=$fail
+
   API="http://127.0.0.1:3000"
   PROJECT="portikus"
   WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
@@ -242,35 +247,46 @@ if ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
   ssh_cmd 'echo "SHUTDOWN_GRACE_SECONDS=20" | sudo tee /etc/portikus/worker.override.env >/dev/null'
   ssh_cmd sudo systemctl restart portikus-worker
 
-  # Clean up on exit: remove override, restart worker, delete DB row, destroy instance.
+  # Extend the shared cleanup function to also clean Epic 3 resources.
+  # Reading the instance name before deleting the DB row ensures the
+  # targeted destroy works.  No wildcard sweep: only the smoke-user
+  # instance is touched.
   cleanup_epic3() {
     echo ""
     echo "Cleaning up Epic 3 smoke resources..."
     ssh_cmd sudo rm -f /etc/portikus/worker.override.env
     ssh_cmd sudo systemctl restart portikus-worker 2>/dev/null || true
-    # Delete the smoke workspace DB row.
+    # Read the instance name before deleting the row.
+    local smoke_instance
+    smoke_instance=$(ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT incus_instance_name FROM workspaces WHERE owner_user_id = 'smoke-user'\"" 2>/dev/null || true)
+    # Delete the smoke workspace DB rows.
     ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM workspace_connections WHERE workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = 'smoke-user')\"" 2>/dev/null || true
+    ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM audit_events WHERE target IN (SELECT id::text FROM workspaces WHERE owner_user_id = 'smoke-user')\"" 2>/dev/null || true
     ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM workspaces WHERE owner_user_id = 'smoke-user'\"" 2>/dev/null || true
-    # Destroy the Incus instance if it exists.
-    local ws_instance
-    ws_instance=$(ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT incus_instance_name FROM workspaces WHERE owner_user_id = 'smoke-user'\"" 2>/dev/null || true)
-    if [ -n "$ws_instance" ]; then
-      ssh_cmd "bash ${WORKSPACE_SCRIPT} destroy ${ws_instance}" 2>/dev/null || true
+    # Destroy the Incus instance if it was found.
+    if [ -n "$smoke_instance" ]; then
+      ssh_cmd "bash ${WORKSPACE_SCRIPT} destroy ${smoke_instance}" 2>/dev/null || true
     fi
-    # Find any remaining smoke instance by listing.
-    ssh_cmd "incus list --project ${PROJECT} -f csv -c n 2>/dev/null | grep '^ws-' | while read -r n; do bash ${WORKSPACE_SCRIPT} destroy \"\$n\" 2>/dev/null || true; done" 2>/dev/null || true
   }
-  trap cleanup_epic3 EXIT
+  # Wrap both cleanups so a single trap covers Epic 2 and Epic 3.
+  cleanup_all() {
+    cleanup_epic3
+    echo ""
+    echo "Destroying ${WS_NAME}..."
+    ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null 2>&1 || true
+  }
 
   # Give the worker a moment to start with the short grace period.
   sleep 3
 
-  # 1. Three units active; controller /health returns 401 without the token.
+  # 1. Three units active; controller health is public; protected routes reject unauthenticated.
   check "portikus-api is active"        ssh_cmd systemctl is-active portikus-api
   check "portikus-worker is active"     ssh_cmd systemctl is-active portikus-worker
   check "portikus-controller is active" ssh_cmd systemctl is-active portikus-controller
-  check "controller /health rejects unauthenticated" \
-    ssh_cmd "test \$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/health) = 401"
+  check "controller /health returns 200" \
+    ssh_cmd "test \$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/health) = 200"
+  check "controller rejects unauthenticated requests" \
+    ssh_cmd "test \$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/instances) = 401"
 
   # 2. POST /workspaces to provision a workspace.
   echo ""
@@ -482,7 +498,7 @@ if ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
   fi
 
   echo ""
-  echo "--- Epic 3 results: ${pass} passed, ${fail} failed ---"
+  echo "--- Epic 3 results: $((pass - epic3_pass_start)) passed, $((fail - epic3_fail_start)) failed ---"
 else
   echo "portikus-api not active; skipping Epic 3 checks."
 fi

@@ -98,14 +98,16 @@ deploy-app: ## Rsync the app to the VM, install, build, migrate, and restart ser
 		--exclude=.git --exclude=node_modules --exclude=dist --exclude=.tsbuild \
 		--exclude='infra/tofu/environments/*/terraform.tfstate*' \
 		--exclude='infra/tofu/environments/*/.terraform*' \
+		--exclude='.env*' --exclude='infra/secrets' --exclude='*.tfvars' \
+		--exclude='*.tfstate*' --exclude='.claude' \
 		./ deploy@$(VM_IP):/var/lib/portikus/app/
 	ssh deploy@$(VM_IP) 'cd /var/lib/portikus/app && pnpm install --frozen-lockfile && pnpm build'
-	ssh deploy@$(VM_IP) 'sudo -u portikus env $$(cat /etc/portikus/api.env | xargs) node /var/lib/portikus/app/packages/db/dist/migrate.js'
+	$(MAKE) db-migrate VM_IP=$(VM_IP)
 	ssh deploy@$(VM_IP) 'sudo systemctl restart portikus-controller portikus-worker portikus-api'
 
 db-migrate: ## Run database migrations on the VM
 	@test -n "$(VM_IP)" || { echo "db-migrate: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	ssh deploy@$(VM_IP) 'sudo -u portikus env $$(cat /etc/portikus/api.env | xargs) node /var/lib/portikus/app/packages/db/dist/migrate.js'
+	ssh deploy@$(VM_IP) "sudo -u portikus DATABASE_URL='postgresql://portikus@/portikus?host=/var/run/postgresql' node /var/lib/portikus/app/packages/db/dist/migrate.js"
 
 # ── Workspace image and lifecycle targets ─────────────────────────
 
