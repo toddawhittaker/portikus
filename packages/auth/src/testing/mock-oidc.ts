@@ -57,6 +57,10 @@ export interface MockOidcOptions {
 	/** Public issuer URL. Its path becomes the route prefix, so it works behind a proxy at /mock-idp. */
 	issuer?: string;
 	users?: Record<string, MockUser>;
+	clientId?: string;
+	clientSecret?: string;
+	/** When set, /authorize only redirects to one of these exact URIs. */
+	redirectUris?: string[];
 }
 
 export interface MockOidcProvider {
@@ -95,6 +99,9 @@ export async function startMockOidcProvider(
 	options: MockOidcOptions = {},
 ): Promise<MockOidcProvider> {
 	const users = options.users ?? MOCK_USERS;
+	const clientId = options.clientId ?? MOCK_CLIENT_ID;
+	const clientSecret = options.clientSecret ?? MOCK_CLIENT_SECRET;
+	const redirectUris = options.redirectUris ?? null;
 	const app = Fastify({ logger: false });
 
 	// The token endpoint is form-encoded; parse it without another dependency.
@@ -149,17 +156,21 @@ export async function startMockOidcProvider(
 
 	app.get(`${prefix}/authorize`, async (request, reply) => {
 		const q = request.query;
-		const clientId = stringParam(q, "client_id");
+		const requestClientId = stringParam(q, "client_id");
 		const redirectUri = stringParam(q, "redirect_uri");
 		const challenge = stringParam(q, "code_challenge");
 		const method = stringParam(q, "code_challenge_method");
 		const state = stringParam(q, "state");
 		const nonce = stringParam(q, "nonce");
 
-		if (clientId !== MOCK_CLIENT_ID) {
+		if (requestClientId !== clientId) {
 			return reply.code(400).send({ error: "invalid_client" });
 		}
-		if (!redirectUri || !URL.canParse(redirectUri)) {
+		if (
+			!redirectUri ||
+			!URL.canParse(redirectUri) ||
+			(redirectUris !== null && !redirectUris.includes(redirectUri))
+		) {
 			return reply
 				.code(400)
 				.send({ error: "invalid_request", error_description: "redirect_uri" });
@@ -219,16 +230,22 @@ export async function startMockOidcProvider(
 	app.post(`${prefix}/token`, async (request, reply) => {
 		const body = (request.body ?? {}) as Record<string, string>;
 
-		let clientId = body.client_id;
-		let clientSecret = body.client_secret;
+		// Drop codes nobody redeemed so the map cannot grow without bound.
+		const sweepAt = Date.now();
+		for (const [key, value] of codes) {
+			if (value.expiresAt < sweepAt) codes.delete(key);
+		}
+
+		let requestClientId = body.client_id;
+		let requestClientSecret = body.client_secret;
 		const authHeader = request.headers.authorization;
 		if (authHeader?.startsWith("Basic ")) {
 			const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf8");
 			const separator = decoded.indexOf(":");
-			clientId = decodeURIComponent(decoded.slice(0, separator));
-			clientSecret = decodeURIComponent(decoded.slice(separator + 1));
+			requestClientId = decodeURIComponent(decoded.slice(0, separator));
+			requestClientSecret = decodeURIComponent(decoded.slice(separator + 1));
 		}
-		if (clientId !== MOCK_CLIENT_ID || clientSecret !== MOCK_CLIENT_SECRET) {
+		if (requestClientId !== clientId || requestClientSecret !== clientSecret) {
 			return reply.code(401).send({ error: "invalid_client" });
 		}
 		if (body.grant_type !== "authorization_code") {
@@ -269,7 +286,7 @@ export async function startMockOidcProvider(
 			.setProtectedHeader({ alg: "RS256", kid })
 			.setIssuer(issuer)
 			.setSubject(pending.user.sub)
-			.setAudience(MOCK_CLIENT_ID)
+			.setAudience(clientId)
 			.setIssuedAt(now)
 			.setExpirationTime(now + 3600)
 			.sign(privateKey);
@@ -293,6 +310,8 @@ export async function startMockOidcProvider(
 		if (!user) {
 			return reply.code(401).send({ error: "invalid_token" });
 		}
+		// Single use: the login flow calls /userinfo exactly once.
+		accessTokens.delete((header as string).slice(7));
 		return reply.send({
 			sub: user.sub,
 			email: user.email,

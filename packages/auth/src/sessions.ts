@@ -2,7 +2,6 @@ import * as crypto from "node:crypto";
 import type { Database } from "@portikus/db";
 import type { Kysely } from "kysely";
 import type { AuthUser, Role } from "./types.js";
-import { SESSION_COOKIE } from "./types.js";
 
 export interface OidcIdentity {
 	issuer: string;
@@ -24,7 +23,7 @@ export async function upsertUser(
 	db: Kysely<Database>,
 	identity: OidcIdentity,
 	role: Role,
-): Promise<AuthUser> {
+): Promise<AuthUser & { disabledAt: string | null }> {
 	const now = new Date().toISOString();
 	const row = await db
 		.insertInto("users")
@@ -46,7 +45,7 @@ export async function upsertUser(
 				updated_at: now,
 			}),
 		)
-		.returning(["id", "email", "display_name", "role"])
+		.returning(["id", "email", "display_name", "role", "disabled_at"])
 		.executeTakeFirstOrThrow();
 
 	return {
@@ -54,6 +53,8 @@ export async function upsertUser(
 		email: row.email,
 		displayName: row.display_name,
 		role: row.role as Role,
+		disabledAt:
+			row.disabled_at === null ? null : new Date(row.disabled_at).toISOString(),
 	};
 }
 
@@ -62,6 +63,9 @@ export async function createSession(
 	userId: string,
 	ttlSeconds: number,
 ): Promise<{ token: string; expiresAt: Date }> {
+	// No sweeper process: every new session clears the expired rows.
+	await db.deleteFrom("sessions").where("expires_at", "<", new Date()).execute();
+
 	const token = crypto.randomBytes(32).toString("base64url");
 	const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
@@ -127,30 +131,4 @@ export async function deleteSession(
 	token: string,
 ): Promise<void> {
 	await db.deleteFrom("sessions").where("id", "=", hashToken(token)).execute();
-}
-
-/** One cookie out of a raw Cookie header, without the Fastify request context. */
-function readCookie(header: string, name: string): string | null {
-	for (const part of header.split(";")) {
-		const separator = part.indexOf("=");
-		if (separator > 0 && part.slice(0, separator).trim() === name) {
-			return decodeURIComponent(part.slice(separator + 1).trim());
-		}
-	}
-	return null;
-}
-
-/** Convenience for contexts that have a raw Cookie header, such as a WebSocket upgrade. */
-export async function loadSessionFromCookieHeader(
-	db: Kysely<Database>,
-	cookieHeader: string | undefined,
-): Promise<AuthUser | null> {
-	if (!cookieHeader) {
-		return null;
-	}
-	const token = readCookie(cookieHeader, SESSION_COOKIE);
-	if (!token) {
-		return null;
-	}
-	return loadSession(db, token);
 }

@@ -4,11 +4,9 @@ import {
 	createSession,
 	deleteSession,
 	loadSession,
-	loadSessionFromCookieHeader,
 	type OidcIdentity,
 	upsertUser,
 } from "./sessions.js";
-import { SESSION_COOKIE } from "./types.js";
 
 if (!hasTestDb()) {
 	console.log(
@@ -96,8 +94,9 @@ describe("users and sessions", () => {
 			expect(stored.id).not.toBe(token);
 			expect(stored.id).toMatch(/^[0-9a-f]{64}$/);
 
+			const { disabledAt: _disabledAt, ...expected } = user;
 			const loaded = await loadSession(t.db, token);
-			expect(loaded).toEqual(user);
+			expect(loaded).toEqual(expected);
 		},
 	);
 
@@ -138,14 +137,12 @@ describe("users and sessions", () => {
 		expect(await t.db.selectFrom("sessions").select("id").execute()).toHaveLength(0);
 	});
 
-	test.skipIf(!hasTestDb())("a session loads from a cookie header", async () => {
+	test.skipIf(!hasTestDb())("creating a session sweeps expired rows", async () => {
 		const user = await upsertUser(t.db, identity, "student");
-		const { token } = await createSession(t.db, user.id, 3600);
+		const { token: stale } = await createSession(t.db, user.id, -1);
+		await createSession(t.db, user.id, 3600);
 
-		expect(
-			await loadSessionFromCookieHeader(t.db, `${SESSION_COOKIE}=${token}`),
-		).toEqual(user);
-		expect(await loadSessionFromCookieHeader(t.db, "other=1")).toBeNull();
-		expect(await loadSessionFromCookieHeader(t.db, undefined)).toBeNull();
+		expect(await loadSession(t.db, stale)).toBeNull();
+		expect(await t.db.selectFrom("sessions").select("id").execute()).toHaveLength(1);
 	});
 });

@@ -44,6 +44,49 @@ docker rm -f portikus-test-pg
 CI sets `TEST_DATABASE_URL` automatically via a `postgres:17` service
 container, so database tests always run there.
 
+### Logging in locally
+
+Logging in uses a mock OpenID Connect identity provider that lives in this
+repository (`packages/auth`). It has four fixed accounts:
+
+| User | Role |
+|---|---|
+| `alice` | student |
+| `bob` | student |
+| `carol` | administrator |
+| `dave` | no access; the API refuses the login with 403 |
+
+Start it in a second terminal and leave it running:
+
+```sh
+MOCK_OIDC_REDIRECT_URI=http://127.0.0.1:5173/auth/callback \
+  pnpm --filter @portikus/auth mock-oidc   # listens on http://127.0.0.1:3002
+```
+
+`MOCK_OIDC_REDIRECT_URI` is required: the mock only sends an authorization
+code to that exact address, so a crafted link cannot bounce a code to
+another site. `MOCK_OIDC_CLIENT_ID` and `MOCK_OIDC_CLIENT_SECRET` default to
+`portikus-dev` and `portikus-dev-secret`, matching `.env.example`.
+
+The API's development defaults already point at that address, so `pnpm dev`
+plus the mock is all you need. Clicking "Sign in" sends you to the mock's
+account list; pick a user and you land back on the web app signed in.
+
+### Browser end-to-end tests
+
+`pnpm test:e2e` now starts the mock provider and the API as well as the web
+dev server, so it needs a database and compiled output:
+
+```sh
+# start the throwaway PostgreSQL from the section above, then:
+export TEST_DATABASE_URL=postgres://postgres:portikus@127.0.0.1:55432/portikus_test
+pnpm typecheck        # the started servers run dist/, so build it first
+pnpm test:e2e
+```
+
+Without `TEST_DATABASE_URL` the tests fall back to that same throwaway URL.
+CI sets it to its own PostgreSQL service container.
+
 `pnpm dev` builds the shared packages first, then runs each app under
 `apps/` in watch mode: the API on port 3000 and the web app on port 5173,
 which proxies `/health` to the API. `make help` lists every Make target.

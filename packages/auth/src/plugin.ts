@@ -6,7 +6,7 @@ import fp from "fastify-plugin";
 import type { Kysely } from "kysely";
 import { loadSession } from "./sessions.js";
 import type { AuthOptions, AuthUser, Role } from "./types.js";
-import { SESSION_COOKIE } from "./types.js";
+import { LOGIN_COOKIE, SESSION_COOKIE } from "./types.js";
 
 declare module "fastify" {
 	interface FastifyRequest {
@@ -32,8 +32,9 @@ function headerValue(headers: IncomingHttpHeaders, name: string): string | null 
  */
 export function checkCsrf(headers: IncomingHttpHeaders, publicOrigin: string): boolean {
 	const site = headerValue(headers, "sec-fetch-site");
-	if (site === "same-origin" || site === "none") {
-		return true;
+	if (site !== null) {
+		// Explicit cross-site metadata always loses; Origin is only a fallback.
+		return site === "same-origin" || site === "none";
 	}
 	return headerValue(headers, "origin") === publicOrigin;
 }
@@ -46,12 +47,29 @@ export function checkWsOrigin(
 	return headerValue(headers, "origin") === publicOrigin;
 }
 
+function isSecure(auth: AuthOptions): boolean {
+	return auth.publicUrl.startsWith("https:");
+}
+
+/**
+ * Over https the cookies carry the `__Host-` prefix, which browsers only
+ * accept when the cookie is Secure, Path=/ and has no Domain, so no other
+ * host on the site can overwrite them (SPEC.md section 5.3).
+ */
+export function sessionCookieName(auth: AuthOptions): string {
+	return isSecure(auth) ? `__Host-${SESSION_COOKIE}` : SESSION_COOKIE;
+}
+
+export function loginCookieName(auth: AuthOptions): string {
+	return isSecure(auth) ? `__Host-${LOGIN_COOKIE}` : LOGIN_COOKIE;
+}
+
 export function sessionCookieOptions(auth: AuthOptions): CookieSerializeOptions {
 	return {
 		httpOnly: true,
 		sameSite: "lax",
 		path: "/",
-		secure: auth.publicUrl.startsWith("https:"),
+		secure: isSecure(auth),
 		maxAge: auth.sessionTtlSeconds,
 	};
 }
@@ -62,7 +80,7 @@ export function loginCookieOptions(auth: AuthOptions): CookieSerializeOptions {
 		httpOnly: true,
 		sameSite: "lax",
 		path: "/",
-		secure: auth.publicUrl.startsWith("https:"),
+		secure: isSecure(auth),
 		signed: true,
 		maxAge: 600,
 	};
@@ -91,6 +109,7 @@ export const authPlugin = fp<AuthPluginOptions>(
 	async (app, opts) => {
 		const { db, auth } = opts;
 		const publicOrigin = new URL(auth.publicUrl).origin;
+		const sessionCookie = sessionCookieName(auth);
 
 		await app.register(cookie, { secret: auth.cookieSecret });
 
@@ -117,14 +136,14 @@ export const authPlugin = fp<AuthPluginOptions>(
 				}
 			}
 
-			const token = request.cookies[SESSION_COOKIE];
+			const token = request.cookies[sessionCookie];
 			if (token) {
 				const user = await loadSession(db, token);
 				if (user) {
 					request.user = user;
 					request.sessionToken = token;
 				} else {
-					reply.clearCookie(SESSION_COOKIE, { path: "/" });
+					reply.clearCookie(sessionCookie, { path: "/" });
 				}
 			}
 
@@ -137,6 +156,17 @@ export const authPlugin = fp<AuthPluginOptions>(
 	},
 	{ name: "portikus-auth", fastify: "5.x" },
 );
+
+/**
+ * The user the auth plugin already resolved. The plugin answers 401 before
+ * a protected handler runs, so the null branch should be unreachable.
+ */
+export function requireUser(request: FastifyRequest): AuthUser {
+	if (!request.user) {
+		throw new Error("route reached without an authenticated user");
+	}
+	return request.user;
+}
 
 export function requireRole(role: Role): preHandlerAsyncHookHandler {
 	return async function checkRole(request, reply) {

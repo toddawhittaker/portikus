@@ -18,7 +18,9 @@ let app: FastifyInstance;
 beforeAll(async () => {
 	if (skip) return;
 	testDb = await createTestDb();
-	mock = await startMockOidcProvider({});
+	mock = await startMockOidcProvider({
+		redirectUris: [`${PUBLIC_URL}/auth/callback`],
+	});
 });
 
 afterAll(async () => {

@@ -247,18 +247,39 @@ old one.
 
 ### Identity provider
 
-The VM runs the in-repo mock identity provider by default (ADR 0008), so a
-fresh VM is usable without an external one. It ships in the Debian package
-but the package never enables it; Ansible does, and only when
-`portikus_mock_idp` is true. It listens on loopback and is reachable only
-through Caddy at `/mock-idp`. Its accounts are `alice` and `bob`
-(students), `carol` (administrator), and `dave` (no groups, so login is
-refused). Signing in shows a page listing them; pick one.
+The in-repo mock identity provider (ADR 0008) is off unless you turn it
+on. It is a pilot convenience, not a login system: while it is on, anyone
+who can reach port 443 on the VM can sign in as any mock account,
+including the administrator. Turn it on only on a pilot VM you control,
+and only on a network you trust.
+
+```
+make configure-vm PORTIKUS_MOCK_IDP=true
+make smoke-test PORTIKUS_MOCK_IDP=true
+```
+
+The smoke test needs the same variable, because the sign-in checks have no
+way to sign in without the mock provider.
+
+The provider ships in the Debian package but the package never enables it;
+Ansible does, and only when `portikus_mock_idp` is true. It listens on
+loopback and is reachable only through Caddy at `/mock-idp`. Its accounts
+are `alice` and `bob` (students), `carol` (administrator), and `dave` (no
+groups, so login is refused). Signing in shows a page listing them; pick
+one.
+
+Its client secret is generated on the VM into
+`/etc/portikus/mock-client.secret` the first time the playbook runs with
+the mock on, the same way the controller token and the session secret are,
+and written into both the API and the mock provider environment files. No
+secret published in this repository is ever a working credential on a
+host. Turning the mock off removes that file along with the environment
+file.
 
 To point the VM at a real identity provider instead:
 
 ```
-make configure-vm PORTIKUS_MOCK_IDP=false \
+make configure-vm \
   PORTIKUS_OIDC_ISSUER=https://idp.example.edu \
   PORTIKUS_OIDC_CLIENT_ID=portikus \
   PORTIKUS_OIDC_CLIENT_SECRET=<secret> \
@@ -271,6 +292,14 @@ when the flag is false, and refuses to run if the issuer, client id, or
 client secret is missing. Register `https://<public-host>/auth/callback`
 as the client's redirect URI at the provider, and make sure the provider
 puts group names in a `groups` claim.
+
+A real identity provider will not work end to end yet. The systemd units
+are hardened to allow loopback network traffic only
+(`IPAddressAllow=127.0.0.0/8`), so the API cannot call out to an issuer on
+the internet. The settings above exist so the switch is ready and the
+configuration is tested; widening the API unit's allow-list for a named
+issuer address is a follow-up, and the hardening stays as it is until
+then.
 
 Passing the client secret through the environment is a known gap: it
 belongs in the SOPS-encrypted secrets under `infra/secrets`, which is not

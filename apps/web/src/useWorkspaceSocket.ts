@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 const HEARTBEAT_MS = 15_000;
 const RECONNECT_MS = 3_000;
+const MAX_RECONNECT_MS = 60_000;
 /** The API closes with this code when the session is gone (plan, package C). */
 const SESSION_ENDED_CODE = 4401;
 
@@ -33,13 +34,17 @@ export function useWorkspaceSocket(
 		let socket: WebSocket | null = null;
 		let heartbeat: ReturnType<typeof setInterval> | undefined;
 		let retry: ReturnType<typeof setTimeout> | undefined;
+		let backoffMs = RECONNECT_MS;
 
 		function connect(workspaceId: string) {
 			if (stopped) return;
 			const next = new WebSocket(socketUrl(workspaceId));
 			socket = next;
+			let opened = false;
 
 			next.onopen = () => {
+				opened = true;
+				backoffMs = RECONNECT_MS;
 				heartbeat = setInterval(() => {
 					if (next.readyState === WebSocket.OPEN) {
 						next.send(JSON.stringify({ type: "heartbeat" }));
@@ -66,6 +71,25 @@ export function useWorkspaceSocket(
 				if (stopped) return;
 				if (event.code === SESSION_ENDED_CODE) {
 					sessionEnded.current();
+					return;
+				}
+				if (!opened) {
+					// The upgrade was refused. Ask once whether we are still signed
+					// in, then back off rather than hammering the server.
+					const wait = backoffMs;
+					backoffMs = Math.min(backoffMs * 2, MAX_RECONNECT_MS);
+					void fetch("/auth/me", { credentials: "same-origin" })
+						.then((response) => {
+							if (stopped) return;
+							if (response.status === 401) {
+								sessionEnded.current();
+								return;
+							}
+							retry = setTimeout(() => connect(workspaceId), wait);
+						})
+						.catch(() => {
+							if (!stopped) retry = setTimeout(() => connect(workspaceId), wait);
+						});
 					return;
 				}
 				retry = setTimeout(() => connect(workspaceId), RECONNECT_MS);

@@ -1,17 +1,17 @@
 import {
 	createSession,
 	deleteSession,
-	LOGIN_COOKIE,
 	type LoginState,
+	loginCookieName,
 	loginCookieOptions,
 	mapRole,
 	OidcError,
-	SESSION_COOKIE,
+	sessionCookieName,
 	sessionCookieOptions,
 	upsertUser,
 } from "@portikus/auth";
 import type { ApiError, MeResponse } from "@portikus/contracts";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../server.js";
 
@@ -23,11 +23,28 @@ export function registerAuthRoutes(
 	{ db, config, oidc }: ServerDeps,
 ): void {
 	const auth = toAuthOptions(config);
+	const sessionCookie = sessionCookieName(auth);
+	const loginCookie = loginCookieName(auth);
 
-	async function audit(actor: string, target: string, result: string): Promise<void> {
+	async function audit(
+		request: FastifyRequest,
+		action: string,
+		actor: string,
+		target: string,
+		result: string,
+	): Promise<void> {
 		await db
 			.insertInto("audit_events")
-			.values({ actor, target, action: "auth.login", result })
+			.values({
+				actor,
+				target,
+				action,
+				result,
+				metadata: JSON.stringify({
+					ip: request.ip,
+					userAgent: request.headers["user-agent"] ?? null,
+				}),
+			})
 			.execute();
 	}
 
@@ -45,7 +62,7 @@ export function registerAuthRoutes(
 			return fail(reply, 500, "INTERNAL", "Login is not configured");
 		}
 		const { url, state } = await oidc.buildLoginRedirect();
-		reply.setCookie(LOGIN_COOKIE, JSON.stringify(state), {
+		reply.setCookie(loginCookie, JSON.stringify(state), {
 			...loginCookieOptions(auth),
 			signed: true,
 		});
@@ -57,7 +74,7 @@ export function registerAuthRoutes(
 			return fail(reply, 500, "INTERNAL", "Login is not configured");
 		}
 
-		const raw = request.cookies[LOGIN_COOKIE];
+		const raw = request.cookies[loginCookie];
 		const unsigned = raw ? request.unsignCookie(raw) : null;
 		if (!unsigned?.valid || !unsigned.value) {
 			return fail(
@@ -80,7 +97,7 @@ export function registerAuthRoutes(
 			);
 		}
 
-		reply.clearCookie(LOGIN_COOKIE, loginCookieOptions(auth));
+		reply.clearCookie(loginCookie, loginCookieOptions(auth));
 
 		const callbackUrl = new URL(request.url, auth.publicUrl);
 
@@ -92,7 +109,7 @@ export function registerAuthRoutes(
 			claims = completed.claims as Record<string, unknown>;
 		} catch (error) {
 			if (error instanceof OidcError) {
-				await audit("unknown", "unknown", "failed");
+				await audit(request, "auth.login", "unknown", "unknown", "failed");
 				return fail(reply, 401, "UNAUTHORIZED", "Sign-in failed. Please try again.");
 			}
 			throw error;
@@ -100,37 +117,43 @@ export function registerAuthRoutes(
 
 		const role = mapRole(claims, auth);
 		if (!role) {
-			await audit(identity.subject, identity.subject, "denied");
+			// Prefix the subject so a crafted one cannot look like `user:<uuid>`.
+			await audit(
+				request,
+				"auth.login",
+				`subject:${identity.subject}`,
+				identity.subject,
+				"denied",
+			);
 			return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		}
 
 		const user = await upsertUser(db, identity, role);
 
-		const row = await db
-			.selectFrom("users")
-			.select("disabled_at")
-			.where("id", "=", user.id)
-			.executeTakeFirst();
-		if (row?.disabled_at) {
-			await audit(`user:${user.id}`, user.id, "denied");
+		if (user.disabledAt) {
+			await audit(request, "auth.login", `user:${user.id}`, user.id, "denied");
 			return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		}
 
 		const session = await createSession(db, user.id, auth.sessionTtlSeconds);
-		reply.setCookie(SESSION_COOKIE, session.token, {
+		reply.setCookie(sessionCookie, session.token, {
 			...sessionCookieOptions(auth),
 			expires: session.expiresAt,
 		});
 
-		await audit(`user:${user.id}`, user.id, "ok");
+		await audit(request, "auth.login", `user:${user.id}`, user.id, "ok");
 		return reply.redirect("/", 302);
 	});
 
 	app.post("/auth/logout", async (request, reply) => {
+		const user = request.user;
 		if (request.sessionToken) {
 			await deleteSession(db, request.sessionToken);
 		}
-		reply.clearCookie(SESSION_COOKIE, sessionCookieOptions(auth));
+		if (user) {
+			await audit(request, "auth.logout", `user:${user.id}`, user.id, "ok");
+		}
+		reply.clearCookie(sessionCookie, sessionCookieOptions(auth));
 		return reply.redirect("/", 303);
 	});
 
