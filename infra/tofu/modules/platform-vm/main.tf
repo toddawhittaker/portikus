@@ -38,13 +38,16 @@ resource "terraform_data" "base_image_verified" {
   input = {
     url    = var.base_image_url
     sha512 = var.base_image_sha512
-    path   = var.base_image_cache_path
+    path   = pathexpand(var.base_image_cache_path)
   }
 
   provisioner "local-exec" {
-    command = <<-SCRIPT
+    # bash, not /bin/sh: dash has no pipefail.
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-SCRIPT
       set -euo pipefail
       dest="${self.input.path}"
+      mkdir -p "$(dirname "$dest")"
       expected="${self.input.sha512}"
 
       if [ -f "$dest" ]; then
@@ -70,7 +73,7 @@ resource "terraform_data" "base_image_verified" {
 resource "libvirt_volume" "base_image" {
   name   = "${var.vm_name}-base.qcow2"
   pool   = libvirt_pool.portikus.name
-  source = var.base_image_cache_path
+  source = pathexpand(var.base_image_cache_path)
   format = "qcow2"
 
   depends_on = [terraform_data.base_image_verified]

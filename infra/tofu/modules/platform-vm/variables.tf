@@ -45,7 +45,9 @@ variable "base_image_sha512" {
 variable "base_image_cache_path" {
   description = "Local path to cache the verified base image"
   type        = string
-  default     = "/var/lib/libvirt/images/portikus-base-cache.qcow2"
+  # Must be writable by the operator running tofu (the download runs as
+  # them); libvirt reads it as root when importing the volume.
+  default = "~/.cache/portikus/debian-12-generic-amd64.qcow2"
 }
 
 variable "cloud_init_user_data" {
