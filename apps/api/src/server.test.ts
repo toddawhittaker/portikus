@@ -1,21 +1,17 @@
+import type { OidcClient } from "@portikus/auth";
 import { HealthResponse } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Kysely } from "kysely";
 import { expect, test, vi } from "vitest";
 import { buildServer } from "./server.js";
+import { testConfig } from "./test-support.js";
 
-/** Minimal stub: health route does not touch the database. */
-function makeApp() {
+/** Minimal stub: the health route does not touch the database. */
+function makeApp(oidc?: OidcClient) {
 	return buildServer({
 		db: {} as unknown as Kysely<Database>,
-		config: {
-			NODE_ENV: "test",
-			PORT: 3000,
-			DATABASE_URL: "postgres://unused",
-			PRESENCE_TTL_SECONDS: 60,
-			WORKSPACE_HOME_SIZE_GIB: 25,
-			WORKSPACE_DOCKER_SIZE_GIB: 20,
-		},
+		config: testConfig("http://127.0.0.1:3002"),
+		oidc,
 	});
 }
 
@@ -52,11 +48,12 @@ test("GET /health reports a non-negative uptime and the ok status", async () => 
 	await app.close();
 });
 
-test("an unknown route returns 404", async () => {
+test("an unknown route needs a session before it is even 404", async () => {
 	const app = makeApp();
 	const response = await app.inject({ method: "GET", url: "/not-a-route" });
 
-	expect(response.statusCode).toBe(404);
+	// Access is denied by default, so an anonymous request is 401 (SPEC.md §5.2).
+	expect(response.statusCode).toBe(401);
 
 	await app.close();
 });
@@ -71,17 +68,21 @@ test("POST /health is not allowed", async () => {
 });
 
 test("an unexpected error returns a generic INTERNAL body", async () => {
-	// The stub db has no query builder, so the route throws.
-	const app = makeApp();
+	const failing: OidcClient = {
+		buildLoginRedirect: async () => {
+			throw new Error("discovery exploded at postgres://secret@host/db");
+		},
+		completeLogin: async () => {
+			throw new Error("unused");
+		},
+	};
+	const app = makeApp(failing);
 	const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-	const response = await app.inject({
-		method: "GET",
-		url: "/workspaces/8f7c2d1e-4b3a-4c5d-9e2f-1a2b3c4d5e6f",
-	});
+	const response = await app.inject({ method: "GET", url: "/auth/login" });
 
 	expect(response.statusCode).toBe(500);
 	expect(response.json().code).toBe("INTERNAL");
-	expect(response.body).not.toContain("selectFrom");
+	expect(response.body).not.toContain("postgres://");
 	expect(logged).toHaveBeenCalled();
 
 	logged.mockRestore();
