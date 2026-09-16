@@ -48,6 +48,16 @@ export function registerWorkspaceSocket(
 ): void {
 	const watchers = new Map<string, Watcher>();
 
+	// Database work started by a socket event or a watcher tick finishes after
+	// the request that caused it. Shutdown has to wait for it: a query that
+	// outlives the pool leaves its connection checked out, and closing the pool
+	// then waits for that connection forever.
+	const pending = new Set<Promise<unknown>>();
+	function track(work: Promise<unknown>): void {
+		pending.add(work);
+		void work.finally(() => pending.delete(work));
+	}
+
 	async function readWorkspace(id: string): Promise<Workspace | null> {
 		const row = await db
 			.selectFrom("workspaces")
@@ -88,7 +98,7 @@ export function registerWorkspaceSocket(
 	}
 
 	function startWatcher(workspaceId: string, signature: string): Watcher {
-		const interval = setInterval(async () => {
+		async function poll(): Promise<void> {
 			const watcher = watchers.get(workspaceId);
 			if (!watcher) return;
 			try {
@@ -113,7 +123,9 @@ export function registerWorkspaceSocket(
 					error: error instanceof Error ? error.message : String(error),
 				});
 			}
-		}, POLL_INTERVAL_MS);
+		}
+
+		const interval = setInterval(() => track(poll()), POLL_INTERVAL_MS);
 		const watcher: Watcher = { sockets: new Set(), interval, signature };
 		watchers.set(workspaceId, watcher);
 		return watcher;
@@ -189,7 +201,7 @@ export function registerWorkspaceSocket(
 				startWatcher(workspaceId, workspace ? signatureOf(workspace) : "");
 			watcher.sockets.add(subscriber);
 
-			socket.on("message", async (raw: Buffer | string) => {
+			async function onMessage(raw: Buffer | string): Promise<void> {
 				// An unhandled rejection in this listener would end the process.
 				try {
 					let parsed: unknown;
@@ -223,9 +235,9 @@ export function registerWorkspaceSocket(
 					});
 					socket.close(1011, "internal error");
 				}
-			});
+			}
 
-			socket.on("close", async () => {
+			async function onSocketClose(): Promise<void> {
 				leave(workspaceId, subscriber);
 				try {
 					await dropConnection(connectionId);
@@ -236,7 +248,10 @@ export function registerWorkspaceSocket(
 						error: error instanceof Error ? error.message : String(error),
 					});
 				}
-			});
+			}
+
+			socket.on("message", (raw: Buffer | string) => track(onMessage(raw)));
+			socket.on("close", () => track(onSocketClose()));
 		},
 	);
 
@@ -246,6 +261,11 @@ export function registerWorkspaceSocket(
 		for (const [workspaceId, watcher] of watchers) {
 			clearInterval(watcher.interval);
 			watchers.delete(workspaceId);
+		}
+		// A tick or a close handler already running can start more work, so
+		// keep draining until nothing is left.
+		while (pending.size > 0) {
+			await Promise.allSettled([...pending]);
 		}
 	});
 }
