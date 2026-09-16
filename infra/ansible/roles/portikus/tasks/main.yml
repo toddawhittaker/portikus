@@ -4,6 +4,38 @@
 # The package owns the service users, /etc/portikus, /var/lib/portikus, and
 # the three systemd units, so nothing here creates them.
 
+# ── Remove the Epic 3 interim deployment ──────────────────────────
+# A VM configured before ADR 0007 has hand-written units, an rsynced app
+# directory, and a global pnpm.  The package owns those names now, so an
+# existing VM has to be cleaned before the package is installed.
+
+- name: Remove Epic 3 systemd units
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}"
+    state: absent
+  loop:
+    - portikus-api.service
+    - portikus-worker.service
+    - portikus-controller.service
+  register: portikus_legacy_units
+
+# Not a handler: this has to run before the package install, not at the end of the play.
+- name: Reload systemd after removing the Epic 3 units  # noqa: no-handler
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: portikus_legacy_units is changed
+
+- name: Remove the Epic 3 application directory
+  ansible.builtin.file:
+    path: /var/lib/portikus/app
+    state: absent
+
+- name: Remove the globally installed pnpm
+  community.general.npm:
+    name: pnpm
+    global: true
+    state: absent
+
 # ── Debian package ────────────────────────────────────────────────
 
 - name: Create package cache directory
@@ -18,6 +50,7 @@
   ansible.builtin.get_url:
     url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_version }}/portikus_{{ portikus_version }}_amd64.deb"
     dest: "/var/cache/portikus/portikus_{{ portikus_version }}_amd64.deb"
+    checksum: "sha256:{{ portikus_deb_sha256 }}"
     owner: root
     group: root
     mode: "0644"
@@ -25,6 +58,8 @@
 - name: Install the portikus package
   ansible.builtin.apt:
     deb: "/var/cache/portikus/portikus_{{ portikus_version }}_amd64.deb"
+    # So that pinning an older portikus_version actually rolls back.
+    allow_downgrade: true
 
 # ── Controller token (generated once) ────────────────────────────
 
