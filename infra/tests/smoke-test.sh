@@ -633,10 +633,13 @@ PROBE
       sleep 3
 
       # 80 and 443 are the Caddy edge: a workspace must not be able to
-      # reach the sign-in page from inside the bridge.
+      # reach the sign-in page from inside the bridge.  One exec covers
+      # every port, because the shortened grace period would stop the
+      # workspace part-way through five separate probes.
+      port_probe=$(ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- bash -c 'for p in 80 443 3000 3001 3002; do if timeout 1 bash -c \"echo >/dev/tcp/10.200.0.1/\$p\" 2>/dev/null; then echo \"\$p open\"; else echo \"\$p blocked\"; fi; done'" 2>/dev/null)
+      port_result() { echo "$port_probe" | awk -v p="$1" '$1 == p { print $2 }'; }
       for port in 80 443 3000 3001 3002; do
-        check "port ${port} unreachable from workspace" \
-          ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- bash -c '! timeout 3 bash -c \"echo >/dev/tcp/10.200.0.1/${port}\" 2>/dev/null'"
+        check_output "port ${port} unreachable from workspace" "blocked" port_result "${port}"
       done
 
       http_status alice "${API}/workspaces/${ws_id}/stop" "-X POST -H 'Origin: ${API}'" >/dev/null
