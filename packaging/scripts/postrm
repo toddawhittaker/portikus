@@ -1,0 +1,20 @@
+#!/bin/sh
+# portikus postrm: forget the units, and on purge drop the config we own.
+# The service users are never deleted: other files may still be owned by them.
+# /var/lib/portikus is never removed: the image builder and the workspace
+# script keep their own subdirectories there.
+set -e
+
+if [ "$1" = "remove" ]; then
+	rm -f /etc/systemd/system/multi-user.target.wants/portikus-*.service
+fi
+
+if [ -d /run/systemd/system ]; then
+	systemctl daemon-reload || true
+fi
+
+if [ "$1" = "purge" ]; then
+	rm -rf /etc/portikus
+fi
+
+exit 0

@@ -72,13 +72,7 @@ make configure-vm
 This installs Incus, creates the LVM thin pool on the data disk, sets
 up the workspace network, profile, and project, and applies the firewall.
 
-## 6. Verify
-
-```
-make smoke-test
-```
-
-## 7. Build the workspace image
+## 6. Build the workspace image
 
 Build the distrobuilder-based workspace image on the VM and import it into
 Incus. The recipe lives in `infra/workspace-image/`.
@@ -90,6 +84,15 @@ make build-workspace-image
 This rsyncs the image definition to the VM, runs distrobuilder, and imports
 the result into the `portikus` Incus project. Re-runs replace the previous
 image.
+
+## 7. Verify
+
+```
+make smoke-test
+```
+
+The Epic 2 and Epic 3 blocks of the smoke test need the workspace image,
+so build it first; without it those blocks are skipped, not failed.
 
 ## 8. Create a test workspace
 
@@ -105,30 +108,75 @@ make workspace-destroy NAME=alice
 
 ## 9. Deploying the control plane
 
-After the VM is configured and the workspace image is built, deploy the
-application code. This installs dependencies, builds the TypeScript
-projects, runs database migrations, and restarts the three services
-(API, worker, workspace controller).
+The control plane ships as a versioned Debian package named `portikus`
+(ADR 0007). The package contains the prebuilt API, worker, and workspace
+controller, and it owns the two service users, `/etc/portikus`,
+`/var/lib/portikus`, and the three systemd units. Ansible installs the
+package and renders only the environment files and the controller token.
 
-This is the interim path. ADR 0007 replaces it with a versioned Debian
-package built in CI and installed by Ansible at a pinned version, in
-Epic 3.5 (SPEC.md §29). The release and rollback procedures arrive with
-that package; today there is no way to roll a deploy back.
+`make configure-vm` therefore deploys the control plane; there is no
+separate build step on the VM, and the VM has no build toolchain.
+
+### Release and rollback
+
+**How a release is produced.** Every push to `main` runs the Release
+workflow, which builds the package and publishes it as a GitHub release
+asset. The version is derived from the repository and looks like
+`0.1.123+gabc1234`: the release number, the commit count, and the short
+commit hash. The asset is named `portikus_<version>_amd64.deb`.
+
+**How a version is deployed.** Set `portikus_version` and
+`portikus_deb_sha256` in `infra/ansible/site.yml` to the version you want
+and the SHA-256 checksum of its `.deb` asset, commit them, and run:
 
 ```
-make deploy-app
+make configure-vm
 ```
 
-To run only the database migration without a full deploy:
+Ansible downloads that exact asset to `/var/cache/portikus`, checks it
+against the pinned checksum, and installs it. Both values come from the
+same release and are always updated together. The checksum is what makes
+the VM reproducible: a version string only names an asset, while the
+checksum guarantees the bytes that get installed.
+
+**How to roll back.** Set `portikus_version` and `portikus_deb_sha256`
+back to the previous release and run `make configure-vm`. The install task
+allows downgrades, so this replaces the running version with the older
+one, and source control keeps saying what is deployed.
+
+If the control plane is broken badly enough that you cannot wait for a
+commit, install the older package on the VM by hand:
 
 ```
-make db-migrate
+gh release download v<previous-version> -p '*.deb'
+sudo apt-get install -y --allow-downgrades ./portikus_<previous-version>_amd64.deb
 ```
 
-The three systemd services (`portikus-api`, `portikus-worker`,
-`portikus-controller`) are enabled but will not start until their
-`ExecStart` binary exists (guarded by `ConditionPathExists`). After the
-first `make deploy-app`, they start automatically on boot.
+Afterwards put the same version and checksum into `site.yml`, or the next
+`make configure-vm` rolls forward again.
+
+**Development path.** `make deploy-app` builds the package on your
+workstation and installs it on the VM directly. It does not pin anything
+and does not go through a release, so use it only while developing.
+
+The three systemd units (`portikus-api`, `portikus-worker`,
+`portikus-controller`) are enabled by the package but will not start until
+their environment file exists (guarded by `ConditionPathExists`). Ansible
+renders those files and starts the units, after which they start on boot.
+
+There is no `make db-migrate`. Database migrations run from the
+`portikus-api` unit's `ExecStartPre`, so they are applied when the service
+starts.
+
+The units run with `ProtectSystem=strict`, so the filesystem is read-only
+apart from the paths they are explicitly given. A future service that has
+to write under `/var/lib/portikus` should be granted a `ReadWritePaths`
+entry for the directory it needs, not a weaker `ProtectSystem`.
+
+`/var/lib/portikus` is a shared parent directory. The package creates it
+but never removes it, even on purge, because the image builder
+(`image-build`, `images`) and the workspace script (`incus`) keep their
+own state under it. Purging the package removes `/etc/portikus` only.
 
 Service configuration lives in `/etc/portikus/*.env`. To override a
 variable for testing without changing the Ansible-managed file, create

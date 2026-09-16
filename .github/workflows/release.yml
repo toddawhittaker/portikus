@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the Debian package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The package version counts commits, so the full history is needed.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Cache nfpm
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/portikus/nfpm
+          key: nfpm-${{ runner.os }}-${{ hashFiles('scripts/build-deb.sh') }}
+      - name: Build Debian package
+        run: pnpm build:deb
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: portikus-deb
+          path: |
+            dist/deb/*.deb
+            dist/deb/VERSION
+          retention-days: 7
+
+  publish:
+    name: Publish the GitHub release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - name: Download the package
+        uses: actions/download-artifact@v4
+        with:
+          name: portikus-deb
+          path: dist/deb
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PRERELEASE: ${{ github.ref != 'refs/heads/main' && '--prerelease' || '' }}
+        run: |
+          VERSION="$(cat dist/deb/VERSION)"
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists; nothing to publish."
+            exit 0
+          fi
+          # Word splitting of PRERELEASE is intended: it is either empty or one flag.
+          # shellcheck disable=SC2086
+          gh release create "v$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "portikus $VERSION" \
+            --notes "Control-plane package built from $GITHUB_SHA" \
+            $PRERELEASE \
+            dist/deb/portikus_*.deb

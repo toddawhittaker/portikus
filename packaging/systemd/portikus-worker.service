@@ -1,9 +1,9 @@
-# Portikus worker — managed by Ansible.
+# Portikus worker — shipped by the portikus Debian package.
 [Unit]
 Description=Portikus Worker
-After=network.target postgresql.service portikus-controller.service
+After=network.target postgresql.service portikus-controller.service portikus-api.service
 Requires=postgresql.service
-ConditionPathExists=/var/lib/portikus/app/apps/worker/dist/index.js
+ConditionPathExists=/etc/portikus/worker.env
 
 [Service]
 Type=simple
@@ -11,7 +11,7 @@ User=portikus
 Group=portikus
 EnvironmentFile=/etc/portikus/worker.env
 EnvironmentFile=-/etc/portikus/worker.override.env
-ExecStart=/usr/bin/node /var/lib/portikus/app/apps/worker/dist/index.js
+ExecStart=/usr/bin/node /usr/lib/portikus/worker/dist/index.js
 Restart=on-failure
 RestartSec=5
 
