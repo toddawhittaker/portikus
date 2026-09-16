@@ -58,6 +58,17 @@ test("GET /health does not require auth", async () => {
 	expect(res.json().service).toBe("workspace-controller");
 });
 
+test("a path that merely starts with /health still requires auth", async () => {
+	const res = await app.inject({ method: "GET", url: "/healthz" });
+	// No such route, so it is a 404 rather than a pass through the exemption.
+	expect(res.statusCode).not.toBe(200);
+});
+
+test("GET /instances still requires auth", async () => {
+	const res = await app.inject({ method: "GET", url: "/instances" });
+	expect(res.statusCode).toBe(401);
+});
+
 // POST /instances
 
 test("create instance happy path", async () => {

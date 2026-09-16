@@ -228,6 +228,43 @@ test("stop graceful failure retries with force true", async () => {
 	expect(callCount).toBe(2);
 });
 
+test("stop on an already-stopped instance is a no-op", async () => {
+	let puts = 0;
+	handler = async (req, res) => {
+		await readBody(req);
+		if (req.method === "PUT") {
+			puts++;
+			respond(res, 200, sync({}));
+			return;
+		}
+		respond(res, 200, sync({ status: "Stopped" }));
+	};
+
+	const result = await provider.stop("ws-test", { timeoutSeconds: 5 });
+	expect(result.forced).toBe(false);
+	expect(puts).toBe(0);
+});
+
+test("a missing image alias reports IMAGE_NOT_FOUND", async () => {
+	handler = async (req, res) => {
+		await readBody(req);
+		if (req.url?.includes("/images/aliases/")) {
+			respond(res, 404, {
+				type: "error",
+				status: "Failure",
+				status_code: 404,
+				error: "not found",
+			});
+			return;
+		}
+		respond(res, 200, sync({}));
+	};
+
+	await expect(
+		provider.create("ws-test", { homeGiB: 25, dockerGiB: 20 }),
+	).rejects.toMatchObject({ code: "IMAGE_NOT_FOUND" });
+});
+
 test("list maps statuses correctly", async () => {
 	handler = async (_req, res) => {
 		respond(

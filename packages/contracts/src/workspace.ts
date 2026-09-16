@@ -73,6 +73,7 @@ export const ApiErrorCode = z.enum([
 	"CONNECTION_NOT_FOUND",
 	"VALIDATION_FAILED",
 	"CONTROLLER_UNAVAILABLE",
+	"INTERNAL",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;
 
