@@ -140,7 +140,10 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   # 19. Management network is unreachable from workspace
   check "management network blocked"            ws_exec "bash -c '! ping -c1 -W2 10.100.0.1'"
 
-  # 20. Persistence across stop/start
+  # 20. SSH to VM bridge address blocked from workspace
+  check "SSH to VM bridge blocked"              ws_exec "bash -c '! timeout 3 bash -c \"echo >/dev/tcp/10.200.0.1/22\" 2>/dev/null'"
+
+  # 21. Persistence across stop/start
   echo ""
   echo "Testing stop/start persistence..."
   ws_student "echo smoke-persistence-marker > ~/projects/.smoke-marker"

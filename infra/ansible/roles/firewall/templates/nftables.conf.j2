@@ -22,8 +22,8 @@ table inet filter {
     # Established / related
     ct state established,related accept
 
-    # SSH (management)
-    tcp dport 22 accept
+    # SSH (management) — reject from workspace bridge (defense in depth if ACL absent)
+    iifname != "{{ incus_network_name }}" tcp dport 22 accept
 
     # HTTP/HTTPS — Caddy will listen here once deployed (Epic 3+)
     tcp dport { 80, 443 } accept
