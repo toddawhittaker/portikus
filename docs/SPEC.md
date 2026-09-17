@@ -588,9 +588,11 @@ tmux sessions with it.
 Terminal metadata (§9.6, §26) is a durable control-plane row holding at
 least the terminal ID, its workspace, display name, working directory,
 layout position, creation time, and the time it ended. The control plane
-marks a terminal ended when its workspace begins stopping. An ended
-terminal is shown as ended with an action to create a new one. No output is
-replayed on reconnect.
+marks a terminal ended when its workspace begins stopping; closing a
+terminal deliberately deletes its row instead. An ended terminal is shown
+as ended with an action to create a new one, and a listing returns every
+open terminal plus the 20 most recently ended ones. No output is replayed
+on reconnect.
 
 The browser connects to the control plane at
 `/workspaces/:id/terminals/:terminalId/ws`, and the control plane connects
@@ -608,7 +610,8 @@ Limits, enforced by the server:
 
 - at most 8 terminals per workspace;
 - at most 4 simultaneous attachments per terminal;
-- at most 64 KiB of data in one input frame;
+- at most 64 KiB of data in one input frame, and at most 1 MiB in any
+  frame the browser sends;
 - the workspace agent pauses reading the PTY when a socket's buffered
   output passes 1 MiB and resumes when it falls below 256 KiB, so that a
   runaway process cannot exhaust memory.
@@ -618,7 +621,9 @@ The workspace agent additionally exposes `GET /health`, `GET /terminals`,
 including the WebSocket upgrade, requires the per-workspace bearer token of
 §23.5. The control plane exposes `GET` and `POST /workspaces/:id/terminals`
 and `PATCH` and `DELETE /workspaces/:id/terminals/:terminalId` under the
-authorization rules of §5.2.
+authorization rules of §5.2. The control plane re-checks the session on an
+open terminal WebSocket at most once a second and closes the socket when
+the session is gone.
 
 ## 10. Coding-agent integration
 
