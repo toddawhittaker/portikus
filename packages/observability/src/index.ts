@@ -1,2 +1,4 @@
-/** OpenTelemetry tracing and metrics setup plus the structured JSON logger (STACK.md section 15). Placeholder; arrives in a later epic. */
-export const packageName = "@portikus/observability";
+/** The shared structured logger and Fastify request logging (STACK.md §15). */
+export * from "./fastify.js";
+export * from "./level-sync.js";
+export * from "./logger.js";
