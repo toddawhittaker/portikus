@@ -6,8 +6,18 @@ import { shortenPath, TerminalLeaf } from "./TerminalLeaf";
 // The pane itself is covered by TerminalPane.test.tsx; here it would only drag
 // xterm.js and a WebSocket into the test.
 vi.mock("../TerminalPane", () => ({
-	TerminalPane: ({ terminal }: { terminal: Terminal }) => (
-		<div data-testid={`terminal-pane-${terminal.id}`} />
+	TerminalPane: ({
+		terminal,
+		onCwd,
+	}: {
+		terminal: Terminal;
+		onCwd: (path: string) => void;
+	}) => (
+		<button
+			type="button"
+			data-testid={`terminal-pane-${terminal.id}`}
+			onClick={() => onCwd("/home/student/projects/todo-api/src")}
+		/>
 	),
 }));
 
@@ -114,4 +124,11 @@ test("an ended terminal keeps its pane and offers a new one", () => {
 	expect(screen.queryByTestId(`terminal-pane-${terminal.id}`)).toBeNull();
 	fireEvent.click(screen.getByTestId("new-terminal-here"));
 	expect(props.onReplace).toHaveBeenCalledWith(terminal.id);
+});
+
+test("the bar follows the directory the agent reports", () => {
+	renderLeaf();
+	expect(screen.getByText("zsh · ~/projects/todo-api")).toBeTruthy();
+	fireEvent.click(screen.getByTestId(`terminal-pane-${terminal.id}`));
+	expect(screen.getByText("zsh · ~/projects/todo-api/src")).toBeTruthy();
 });
