@@ -71,7 +71,7 @@ function ProjectScreen() {
 
 const filesRoute = createRoute({
 	getParentRoute: () => rootRoute,
-	path: "/workspaces/$id/files",
+	path: "/workspaces/$id/projects/$projectId/files",
 	validateSearch: (search: Record<string, unknown>) => ({
 		path: typeof search.path === "string" ? search.path : "",
 		line: Number(search.line) > 0 ? Number(search.line) : 1,
@@ -93,7 +93,7 @@ function FilesPlaceholder() {
 
 const previewRoute = createRoute({
 	getParentRoute: () => rootRoute,
-	path: "/workspaces/$id/preview/$port",
+	path: "/workspaces/$id/projects/$projectId/preview/$port",
 	component: PreviewPlaceholder,
 });
 

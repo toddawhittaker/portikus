@@ -1,0 +1,164 @@
+/* The work area and its terminal panes, following design/mockups/Shell.dc.html. */
+
+.pk-work-area {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	background: var(--surface);
+}
+
+.pk-work-tabs {
+	flex: none;
+}
+
+.pk-work-error {
+	flex: none;
+	margin: 0;
+	padding: var(--space-2) var(--space-3);
+	color: var(--status-error);
+	font-size: 13px;
+}
+
+.pk-termgroup {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	background: var(--terminal-bg);
+}
+
+.pk-termgroup[hidden] {
+	display: none;
+}
+
+/* react-resizable-panels groups fill the tab body. */
+.pk-split {
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+}
+
+.pk-split-panel {
+	display: flex;
+	min-height: 0;
+	min-width: 0;
+}
+
+.pk-term {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	background: var(--terminal-bg);
+	color: var(--terminal-fg);
+}
+
+.pk-term.is-focused {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
+.pk-term-bar {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	height: 28px;
+	padding: 0 var(--space-1) 0 var(--space-3);
+	border-bottom: 1px solid var(--terminal-line);
+	color: var(--terminal-muted);
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.pk-term-bar .pk-iconbtn {
+	color: var(--terminal-muted);
+}
+
+.pk-term-bar .pk-iconbtn:hover {
+	background: var(--terminal-selection);
+	color: var(--terminal-fg);
+}
+
+.pk-term-bar-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+}
+
+.pk-term-bar-input {
+	flex: 1;
+	min-width: 0;
+	height: 20px;
+	padding: 0 var(--space-1);
+	border: 1px solid var(--terminal-line);
+	border-radius: var(--radius-sm);
+	background: var(--terminal-bg);
+	color: var(--terminal-fg);
+	font-family: var(--font-mono);
+	font-size: 12px;
+}
+
+.pk-term-screen {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	padding: var(--space-2) var(--space-3);
+}
+
+/* xterm.js sizes itself to this box. */
+.pk-terminal-surface {
+	height: 100%;
+	width: 100%;
+}
+
+.pk-term-flag {
+	position: absolute;
+	top: var(--space-2);
+	right: var(--space-3);
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	padding: var(--space-1) var(--space-2);
+	border-radius: var(--radius-sm);
+	background: var(--terminal-selection);
+	color: var(--terminal-fg);
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.pk-term-ended {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	align-content: center;
+	justify-items: center;
+	gap: var(--space-3);
+	padding: var(--space-6);
+	text-align: center;
+}
+
+.pk-term-ended-text {
+	margin: 0;
+	color: var(--terminal-muted);
+	font-size: 13px;
+}
+
+/* The handle's default line is a light-theme colour; on terminal ground it
+   needs the terminal hairline to be visible at all. */
+.pk-termgroup .pk-handle::before {
+	background: var(--terminal-line);
+}
+
+.pk-termgroup .pk-handle:hover::before {
+	background: var(--terminal-muted);
+}
