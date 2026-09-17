@@ -744,10 +744,19 @@ const ws = new WebSocket(url, { headers: { origin, cookie } });
 ws.binaryType = "arraybuffer";
 let screen = "";
 let found = marker === "-";
-ws.addEventListener("open", () => {
-	if (input !== "-") ws.send(JSON.stringify({ type: "input", data: `${input}\r` }));
-});
+// A freshly attached tmux client discards anything typed before it is
+// ready, so wait for its first frame of output before sending input.
+let sent = input === "-";
+function sendInput() {
+	if (sent) return;
+	sent = true;
+	ws.send(JSON.stringify({ type: "input", data: `${input}\r` }));
+}
+// Fall back after a bounded wait in case the terminal prints nothing.
+const sendTimer = setTimeout(sendInput, 5000);
 ws.addEventListener("message", (event) => {
+	clearTimeout(sendTimer);
+	sendInput();
 	screen +=
 		typeof event.data === "string"
 			? event.data
@@ -770,6 +779,7 @@ const poll =
 			}, 500);
 setTimeout(() => {
 	if (poll) clearInterval(poll);
+	clearTimeout(sendTimer);
 	ws.close();
 }, Number(timeoutMs));
 TERMPROBE
@@ -817,9 +827,13 @@ TERMPROBE
       check "tmux session pk-<id> runs in the workspace" tmux_has_session "$term_id"
 
       # A terminal carries what the shell prints back over the socket.
-      mark="MARK-${RANDOM}${RANDOM}"
+      # The marker is typed in two quoted halves, so it only appears whole
+      # in the command's output and never in the echo of the typing.
+      mark_a="MARK-${RANDOM}"
+      mark_b="${RANDOM}"
+      mark="${mark_a}${mark_b}"
       check "terminal socket carries input and output" \
-        term_probe "$term_id" "echo ${mark}" "$mark" - 30000
+        term_probe "$term_id" "echo ${mark_a}\"${mark_b}\"" "$mark" - 30000
 
       # Reattaching inside the grace period redraws the same tmux screen,
       # so the marker written a moment ago is still on it (SPEC.md 9.2).
@@ -828,11 +842,13 @@ TERMPROBE
 
       # Two sockets share one tmux session, so output caused by one
       # reaches the other (SPEC.md 9.5).
-      mark2="MARK-${RANDOM}${RANDOM}"
+      mark2_a="MARK-${RANDOM}"
+      mark2_b="${RANDOM}"
+      mark2="${mark2_a}${mark2_b}"
       term_probe "$term_id" - "$mark2" - 30000 >/dev/null 2>&1 &
       watcher_pid=$!
       sleep 3
-      term_probe "$term_id" "echo ${mark2}" "$mark2" - 30000 >/dev/null 2>&1
+      term_probe "$term_id" "echo ${mark2_a}\"${mark2_b}\"" "$mark2" - 30000 >/dev/null 2>&1
       check "second socket on the same terminal sees new output" wait "$watcher_pid"
 
       # A terminal socket counts as presence on its own (SPEC.md 6.4):

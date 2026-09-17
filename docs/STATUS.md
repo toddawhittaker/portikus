@@ -146,7 +146,10 @@ them leaves the old row missing and the new directory discovered as a
 separate project (tracked in `docs/BACKLOG.md`). Terminal names count per workspace rather than per
 project, so a second project's first terminal may be "Terminal 3", and a
 workspace created on an older image lacks zip until it is recreated, which
-the agent reports as a download failure. From the grace period task, the
+the agent reports as a download failure. The projects pane now refetches every
+ten seconds while the tab is visible and again when it regains focus, so a
+repository made in a terminal turns up without any UI action, and every row that
+is not missing shows its folder name next to the project name. From the grace period task, the
 administration page is a settings form, not the Epic 11 mockup, and the
 infrastructure smoke test now signs in as the mock identity provider's
 administrator to shorten the grace period. From structured logging, an agent

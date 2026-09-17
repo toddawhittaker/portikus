@@ -323,6 +323,25 @@ test.describe("projects", () => {
 		expect(rows).toEqual([{ slug, source: "discovered" }]);
 	});
 
+	test("a repository created from the shell shows up without any UI action", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await page.goto(workspacePath(student.workspaceId));
+		// The pane is open and empty; an empty list has no height, so wait on the button.
+		await expect(page.getByTestId("new-project")).toBeVisible();
+
+		// The student makes the repository in a terminal, with the pane already open.
+		const slug = `shell-${Date.now()}`;
+		await seedProjectDir(student.workspaceId, slug, true);
+
+		// The pane polls, so the row turns up on its own (SPEC.md §7.6).
+		await expect(page.getByTestId("project-list")).toContainText(slug, {
+			timeout: 15_000,
+		});
+	});
+
 	test("a project whose directory is gone is shown as missing", async ({
 		page,
 		context,
