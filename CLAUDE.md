@@ -1,219 +1,62 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-Portikus is a browser-based agentic development workspace for students.
-Keep this file short. Detail lives under `docs/` and is referenced by file
-and section.
+Guidance for Claude Code in this repository. Portikus is a browser-based
+agentic development workspace for students. Keep this file under 150
+lines: it holds pointers and process rules, not detail. Detail lives under
+`docs/` and is cited by file and section.
 
 ## Where things are documented
 
-- `docs/OVERVIEW.md`: one-page orientation, architecture summary, and the
-  design rules every change must respect. Read this first.
+- `docs/OVERVIEW.md`: one-page orientation and the design rules every
+  change must respect. Read this first.
+- `docs/STATUS.md`: what each epic and task has delivered and the gaps it
+  left. Update it in the same pull request that lands the work.
 - `docs/VISION.md`: product intent. Wins on questions of intent.
 - `docs/SPEC.md`: requirements. Wins on implementation detail. Section 29
-  lists epics in order; section 30 lists milestone gates; section 24 is
-  security.
-- `docs/WORKFLOW.md`: branching (main and epic branches change only by
-  pull request), CI, secret scanning, and the local pre-commit hook.
-- `docs/DESIGN.md`: the visual design, with the design system and screen
-  mockups mirrored under `design/`.
+  lists epics in order, section 30 milestone gates, section 24 security.
 - `docs/STACK.md`: technology choices and why. Section 2 is the repo
-  layout, section 34 the stack summary, section 35 what was rejected.
+  layout, section 13 testing, section 15 observability, section 31 the
+  Make targets, section 34 the stack summary, section 35 what was rejected.
+- `docs/WORKFLOW.md`: local development, branching, pull requests, CI,
+  secret scanning, and the pre-commit hook.
+- `docs/DESIGN.md`: the visual design, mirrored under `design/`.
+- `docs/adr/`: decision records. Add one for any choice a later reader
+  would ask "why" about.
 
 Before implementing any subsystem, read the SPEC.md and STACK.md sections
-that cover it. Cite sections by number in prompts and reports.
+that cover it. Cite sections by number in prompts, commits, and reports.
 
-## Current state
+## Layout and commands
 
-Epics 0 through 3.5 (SPEC.md section 29) have landed. Epic 0 is the pnpm
-workspace monorepo with the apps and packages from STACK.md section 2,
-Biome, Vitest, Playwright, a Makefile, and the decision records in
-`docs/adr/`. Epic 1 is the reproducible platform VM under `infra/`:
-host bootstrap, OpenTofu on libvirt, cloud-init, Ansible roles for the
-firewall, LVM thin storage, Incus, and the workspace network, plus the
-smoke test. Epic 2 is the Debian 13 workspace image built with
-distrobuilder, the hardened workspace profile with nested Docker and
-isolated ID mapping, persistent home and Docker volumes, and the interim
-`workspace.sh` provisioning script. Epic 3 is the control-plane
-workspace lifecycle: a workspace controller that talks to Incus over the
-REST API on its unix socket and serves loopback HTTP behind a bearer
-token, an API with workspace and presence routes (also loopback only), and
-a worker that reconciles every second, is the only writer of workspace
-state, and keeps the disconnect grace timer in a durable
-`shutdown_deadline` column. The `contracts`, `config`, and `db` packages
-now have real content, including Kysely and the database migrations.
-Ansible gained `postgresql`, `node`, and `portikus` roles with three
-systemd units, and the smoke test covers all four Epic 3 acceptance
-criteria. Epic 3.5 packages the control plane as one versioned `portikus`
-Debian package built by `nfpm` in CI (ADR 0007), which owns the service
-users, `/etc/portikus`, `/var/lib/portikus`, and the three systemd units.
-Ansible installs the newest published release, or the version or local
-package named on the command line, and renders only the environment files
-and the controller token, so the VM has no build toolchain and rolling back
-means installing the previous package. Epic 4 is authentication and
-authorization: login is the OIDC Authorization Code flow with PKCE (proof
-key for code exchange) through `openid-client`, and a session is a row in
-PostgreSQL behind an opaque HttpOnly cookie, named with the `__Host-`
-prefix when the public URL is https. Roles are `student` and
-`administrator`, mapped from the identity provider's group claims and
-denied by default. Every API route and the WebSocket upgrade need a
-session, the workspace owner comes from that session rather than the
-request body, and one student asking for another student's workspace gets
-a 404. The WebSocket at `/workspaces/:id/ws` is now the presence
-mechanism, so the old HTTP connection and heartbeat routes are gone, and
-administrators get one listing route. `packages/auth` also holds an
-in-repo mock identity provider, shipped as a fourth systemd unit that stays
-disabled unless Ansible's `portikus_mock_idp` is true (ADR 0008). A new
-`caddy` Ansible role fronts the VM with an internally issued certificate at
-`portikus.<vm-ip>.nip.io` and serves the web bundle, which the Debian
-package now ships, and the smoke test logs in through the real redirect
-flow.
+`apps/` holds the five processes (api, worker, workspace-controller,
+workspace-agent, web), `packages/` the shared libraries (contracts,
+config, events, db, auth, observability, ui), `e2e/` the Playwright tests,
+`infra/` the VM, image, and Ansible, `packaging/` the Debian package.
+STACK.md section 2 describes each.
 
-Epic 5 is the workspace agent and terminal transport (ADR 0009).
-`apps/workspace-agent` is a Fastify service using `node-pty` and tmux that
-runs as the unprivileged `student` user inside each container and listens
-on TCP 7400 on the workspace bridge. Each terminal is one tmux session,
-`pk-<terminalId>`, and every attachment is its own PTY running `tmux
-attach-session`, so tmux and not the browser socket owns the shell. The
-agent authenticates a per-workspace bearer token that the worker mints on
-every start and the controller pushes to `/etc/portikus/agent.token`
-through the Incus files API; `start` then polls the agent's `/health` and
-fails if it is not up within 15 seconds. The Debian package ships the agent
-at `/usr/lib/portikus/workspace-agent`, the workspace profile bind-mounts
-it read-only at `/opt/portikus/workspace-agent`, and the workspace image
-runs its unit as `student`. The API adds terminal routes and a
-byte-pipe WebSocket at `/workspaces/:id/terminals/:tid/ws` that forwards
-frames without parsing them, applies backpressure in both directions,
-serves the workspace owner only (an administrator gets a 404), and
-re-checks the session about once a second. Terminal metadata lives in a
-`terminals` table, and the worker sets `ended_at` when a workspace stops.
-The web app gains a terminal page built on xterm.js with tabs, reconnect,
-and link routing to the placeholder files and preview routes, which answer
-501 until Epics 7 and 8; Caddy now sends browser document requests under
-`/workspaces` to the single-page app while JSON and WebSocket routes still
-go to the API. On the infrastructure side the `incus_network` role loads
-`br_netfilter`, which is what makes the peer-isolation ACL rule take
-effect, and the workspace nic filters IP and MAC addresses while the ACL
-allows tcp/7400 from the gateway only. Tests are 17 Playwright cases
-against a fake agent, a vitest file against the real agent (it needs tmux,
-now installed in CI), and an Epic 5 block in the smoke test.
-
-Epic 6 is the three-pane shell and project management (ADR 0010). The
-design system is now built: `packages/ui` holds the tokens as a Tailwind
-theme plus the primitives and overlays, and `apps/web` is the real shell,
-with a project pane on the left, a tabbed work area in the middle, a
-placeholder file pane on the right, and a status bar. Projects are
-database rows mirroring `~/projects/<slug>`; all filesystem and Git work
-runs in the workspace agent behind the existing token, and a listing
-discovers repositories already on disk and flags a row whose directory is
-gone. Create, clone, template, Initialize Git, rename (which moves the
-directory and rewrites terminal working directories), duplicate, zip
-download, and archive (a flag, the directory stays) are all there.
-Terminals gained splits, tab reordering, a per-project saved layout in one
-JSON column, closing the pane when the shell exits, and full clipboard
-handling in the terminal. Templates are configuration
-(`PROJECT_TEMPLATES`), and the platform still never makes a commit.
-Workspace image `2026.09.3` adds `zip` for downloads.
-
-After Epic 6 came the live disconnect grace period (ADR 0011). The grace
-period of SPEC.md section 6.4 is now a row in a `settings` table rather
-than a startup constant: `SHUTDOWN_GRACE_SECONDS` seeds it on the worker's
-first start and nothing else ever writes it from the environment.
-Administrators change the platform value through `PUT /admin/settings` and
-one student's override through `PUT /admin/users/<id>/settings`, both from
-a new administration page at `/admin`. Zero means the workspace is never
-stopped for being disconnected. The worker keeps a `disconnected_at`
-timestamp and recomputes each running workspace's `shutdown_deadline` every
-second, so a change applies at once, including to a workspace already
-counting down.
-
-Structured logging came next (ADR 0012). One shared pino logger in
-`packages/observability` serves the API, worker, controller, workspace agent,
-and the mock identity provider. Every request produces one JSON line, and
-every 4xx or 5xx response is logged with its code and message, so a failed
-request is visible without reproducing it. `LOG_LEVEL` sets each service's
-default, and a `settings.log_level` row set from `/admin` overrides it at
-runtime: the API relays the level to each running workspace's agent and the
-worker relays it to the controller. CI now runs the tests with coverage and
-fails below the floors in docs/WORKFLOW.md.
-
-Known gaps: from Epic 4, a real identity provider is not reachable from the
-API yet, the real client secret travels through the environment until SOPS
-is wired up, the only admin UI is the grace period page, nothing
-rate-limits login, and disabling a user means setting `users.disabled_at`
-by hand in SQL. From Epic 5, the file and preview link targets are
-placeholders until Epics 7 and 8; traffic between the API and the agent is
-plaintext on the workspace bridge until Epic 12; the token file sits in a
-directory the student owns, so containment relies on the Incus files API
-resolving paths inside the instance; the eight-terminal cap has a benign
-check-then-act race; and terminal rows (open plus the 20 most recent ended
-per listing) are never pruned. From Epic 6, the 1024-wide rail collapse is
-deferred, a clone shows no progress while it runs, a download has no size
-cap, discovery ignores directories that are not repositories, unarchiving
-is only reachable through the API, right-click paste in Firefox depends on
-the browser's own paste prompt, a failed archive stream can reach the browser
-as a truncated zip, a failed download shows the API's JSON error page, and
-rename is not atomic across the agent and the database, so a crash between
-them leaves the old row missing and the new directory discovered as a
-separate project. Terminal names count per workspace rather than per
-project, so a second project's first terminal may be "Terminal 3", and a
-workspace created on an older image lacks zip until it is recreated, which
-the agent reports as a download failure. From the grace period task, the
-administration page is a settings form, not the Epic 11 mockup, and the
-infrastructure smoke test now signs in as the mock identity provider's
-administrator to shorten the grace period. From structured logging, an agent
-that restarts inside a still-running workspace loses the log level override
-until an administrator changes it again. Epic 7 (files, Monaco, search,
-and change review) is next.
-
-## Commands
-
-Prerequisites: the Node version in `.nvmrc`, and pnpm via
-`corepack enable`. See docs/WORKFLOW.md, "Local development".
+Prerequisites: the Node version in `.nvmrc` (run `nvm use` first; the
+machine default is newer) and pnpm through `corepack enable`.
 
 | Command | What it does |
 |---|---|
 | `pnpm install --frozen-lockfile` | Install from the committed lockfile |
-| `pnpm typecheck` | `tsc -b` over every project |
-| `pnpm lint` / `pnpm lint:fix` | Biome check, and check with fixes applied |
-| `pnpm format` | Rewrite files to the Biome format |
-| `pnpm test` | Vitest, all projects |
-| `pnpm test:coverage` | Vitest with coverage, and the coverage floors CI enforces |
-| `pnpm build` | `tsc -b` plus the Vite build for `apps/web` |
-| `pnpm test:e2e` | Playwright browser tests in `e2e/` |
-| `pnpm dev` | Build, then run every app in watch mode |
-| `make check` | typecheck, lint, test with coverage, build |
+| `pnpm typecheck` / `pnpm lint` / `pnpm test` | The three fast checks |
+| `pnpm test:coverage` | Tests with the coverage floors CI enforces |
+| `pnpm test:e2e` | Playwright browser tests |
+| `pnpm build` / `pnpm dev` | Build everything, or run every app in watch mode |
+| `make check` | typecheck, lint, test with coverage, build, infra checks |
+| `make build-deb` / `make deploy-app` | Build the Debian package, install it on the VM |
 
-Deployment goes through Make: `make build-deb` builds the control-plane
-Debian package and `make deploy-app` installs it on the VM.
-
-`make help` lists the targets. Prefer the Make targets (STACK.md section
-31); do not invent a deployment command when a Make target exists.
-
-Layout: `apps/` holds the five processes, `e2e/` the Playwright tests, and
-`docs/adr/` the decision records. The shared libraries under `packages/`:
-
-| Package | Holds |
-|---|---|
-| `contracts` | Zod schemas for the workspace, terminal, controller, and agent APIs |
-| `config` | Per-service `loadConfig`, which validates the environment at startup |
-| `events` | Schemas for the WebSocket frames, including terminal input and output |
-| `db` | PostgreSQL access: Kysely types, connections, migrations, test helpers |
-| `auth` | OIDC login, sessions, authorization helpers, mock identity provider |
-| `observability` | pino logger factory, the per-request and error log hook for Fastify, runtime log level |
-| `ui` | Shared React components used by `apps/web` |
-
-`ui` is the only package still waiting on its epic; the rest have real
-content today.
+`make help` lists every target. Prefer a Make target over an invented
+command. Database tests need `TEST_DATABASE_URL` (WORKFLOW.md, "Local
+PostgreSQL for database tests").
 
 ## How work gets done here
 
-The main session is an orchestrator. Its job is to understand the request,
-write good prompts, spawn subagents, and return to the user quickly. It
-does not do the work itself unless the task is a one-line lookup or edit.
-
-Agents live in `.claude/agents/`:
+The main session is an orchestrator: understand the request, write good
+prompts, spawn agents, verify their claims, and report in plain English.
+It does the work itself only for a one-line lookup or edit. Agents live in
+`.claude/agents/`:
 
 | Agent | Use for |
 |---|---|
@@ -221,30 +64,59 @@ Agents live in `.claude/agents/`:
 | builder | Implementing a scoped change against a named SPEC.md section. |
 | tester | Designing tests that pin SPEC.md invariants, then running them. |
 | security-reviewer | Read-only review against SPEC.md section 24 trust boundaries. |
-| code-reviewer | Read-only review for correctness, then YAGNI/KISS/DRY/SOLID quality, on app and infra code. |
+| code-reviewer | Read-only review for correctness, then YAGNI/KISS/DRY/SOLID quality. |
 | infra | Anything under `infra/`: OpenTofu, Ansible, cloud-init, Incus, images. |
 
 Orchestration rules:
 
+- Delegate to the cheapest agent that can do the job. Run explorer first
+  when a location is unknown and pass its paths on, rather than making a
+  stronger agent search.
 - Run independent agents in parallel. Never let two agents edit the same
   files; split by package or directory and merge in the main session.
-- A good prompt names the SPEC.md and STACK.md sections, the files or
-  package in scope, what done looks like, and what to leave alone.
-- Run explorer first when the location of something is unknown, then pass
-  its paths to the stronger agent instead of making that agent search.
+- A good prompt names the SPEC.md and STACK.md sections, the files in
+  scope, the base commit, what done looks like, and what to leave alone.
+- Agent worktrees start at `main`. Tell a worktree agent the exact commit
+  to reset to, and land its work with `git diff <base> <head> | git apply
+  --3way`, not a rebase.
+- Verify before relaying. Run `pnpm typecheck` and `pnpm lint` on an
+  agent's work before calling it done; a builder's "lint passes" has been
+  wrong before.
+- When agents disagree, read the spec section in dispute and rule. If the
+  spec does not settle it, bring both positions and a recommendation to
+  the user. Say what was ruled in the report.
+- Default effort is low. Raise it for one task when it needs sustained
+  reasoning, high for intensive debugging. Time-box debugging agents.
+- Never `git add -A`; stage paths explicitly, above all under `infra/`.
+- Delete local branches and agent worktrees after a merge.
+
+## Testing rules
+
+- Tests are part of done. A change ships with unit tests for its logic,
+  and any change a student or administrator can see ships with Playwright
+  tests too. Design tests from the SPEC.md invariant, not from what the
+  code happens to do.
+- Write the test first when the behavior is clear enough to state; at
+  minimum, a bug fix starts with a failing test that reproduces it.
+- Coverage must stay above the floors in `vitest.config.ts`. Do not lower
+  a floor to make a run pass; say so and let the user decide.
+- Before a pull request: `make check` and `pnpm test:e2e` green locally,
+  with a fresh test database, because a shared one hides gaps.
+- Infrastructure changes are verified on this host from bootstrap through
+  the smoke test before their pull request is opened.
+
+## Review and merge rules
+
 - Send anything touching auth, the preview gateway, the workspace agent,
   file APIs, Incus, or nested Docker through security-reviewer before it
   is called done.
-- Run code-reviewer over the epic branch before the PR that merges an
-  epic into main, and fix or explicitly defer every finding it requires.
-- When agents disagree, the orchestrator arbitrates. Read the spec section
-  in dispute and decide; do not bounce the conflict back and forth between
-  agents. If the spec does not settle it, bring the two positions and a
-  recommendation to the user. Whatever the ruling, say so in the report.
-- Relay agent reports to the user in plain English. The user does not see
-  agent output directly.
-- Default effort is low. Raise it for one task, not globally, when a task
-  needs sustained reasoning. Use high for intensive debugging.
+- Run code-reviewer over a task or epic branch before its pull request
+  and fix or explicitly defer every finding it requires.
+- `main` and epic branches change only by pull request, CI must be green,
+  and the pull request cites the SPEC.md and STACK.md sections it serves
+  and says how it was verified (WORKFLOW.md, "Pull requests").
+- Merging is the user's decision. Prepare the pull request, report, and
+  stop.
 
 ## Design defaults
 
@@ -256,3 +128,5 @@ Orchestration rules:
 - Pin exact dependency versions and commit the lockfile.
 - Never write code that commits, branches, tags, or stashes in a user's Git
   repository on the platform's behalf (SPEC.md section 12.5).
+- The platform never logs secrets, prompts, source code, or terminal bytes
+  (STACK.md section 15, ADR 0012).
