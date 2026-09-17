@@ -1,0 +1,29 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { Checkbox } from "./Checkbox.js";
+
+describe("Checkbox", () => {
+	it("renders with its label as the accessible name", () => {
+		render(<Checkbox label="Show hidden and generated files" />);
+		expect(
+			screen.getByRole("checkbox", { name: /Show hidden and generated files/ }),
+		).toBeDefined();
+	});
+
+	it("toggles from the keyboard", () => {
+		const onChange = vi.fn();
+		render(<Checkbox label="Open preview in a new tab" onChange={onChange} />);
+		const box = screen.getByRole("checkbox", {
+			name: /Open preview in a new tab/,
+		}) as HTMLInputElement;
+
+		// A native checkbox is in the tab order and Space activates it, which the
+		// browser delivers as a click. jsdom does not synthesise that, so fire it.
+		box.focus();
+		expect(document.activeElement).toBe(box);
+		fireEvent.click(box);
+
+		expect(onChange).toHaveBeenCalledTimes(1);
+		expect(box.checked).toBe(true);
+	});
+});

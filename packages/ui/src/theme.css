@@ -1,0 +1,376 @@
+/*
+ * Portikus design tokens (design/system/tokens.json) as CSS custom properties,
+ * plus the Tailwind v4 theme that exposes them as utilities.
+ * Import once, after `@import "tailwindcss"`.
+ */
+
+@import "./primitives/primitives.css";
+
+/* Tailwind must scan the built components for the utility classes they use. */
+@source "./primitives";
+
+@font-face {
+	font-family: "Public Sans";
+	src: url("./fonts/PublicSans-Variable.woff2") format("woff2");
+	font-weight: 100 900;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Public Sans";
+	src: url("./fonts/PublicSans-Variable-Italic.woff2") format("woff2");
+	font-weight: 100 900;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "JetBrains Mono";
+	src: url("./fonts/JetBrainsMono-Variable.woff2") format("woff2");
+	font-weight: 100 800;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "JetBrains Mono";
+	src: url("./fonts/JetBrainsMono-Variable-Italic.woff2") format("woff2");
+	font-weight: 100 800;
+	font-style: italic;
+	font-display: swap;
+}
+
+:root {
+	color-scheme: light;
+
+	/* Colour: light values. */
+	--surface: #f6f4ef;
+	--surface-raised: #fdfcfa;
+	--surface-sunken: #eeebe4;
+	--surface-hover: #e6e2d9;
+	--surface-selected: #d9e8e5;
+	--surface-inverse: #2a2723;
+	--surface-inverse-hover: #3d3933;
+	--line: #dcd7cc;
+	--line-strong: #8a8375;
+	--ink: #23211d;
+	--ink-muted: #5a554c;
+	--ink-faint: #6e685d;
+	--ink-inverse: #fdfcfa;
+	--accent: #2c6a66;
+	--accent-hover: #22524f;
+	--on-accent: #ffffff;
+	--accent-soft: #dcebe8;
+	--accent-text: #24605c;
+	--focus: #1b7a86;
+	--scrim: #1a18154d;
+	--status-provisioning: #3f5a8c;
+	--status-provisioning-soft: #e3e8f2;
+	--status-starting: #3f5a8c;
+	--status-starting-soft: #e3e8f2;
+	--status-running: #2e6e34;
+	--status-running-soft: #dfeedf;
+	--status-stopping: #3f5a8c;
+	--status-stopping-soft: #e3e8f2;
+	--status-stopped: #5a554c;
+	--status-stopped-soft: #e9e6df;
+	--status-error: #a4342a;
+	--status-error-soft: #f6e1dd;
+	--status-warning: #855b00;
+	--status-warning-soft: #f5ead0;
+	--status-danger: #a4342a;
+	--status-danger-soft: #f6e1dd;
+	--danger-hover: #86281f;
+	--on-danger: #ffffff;
+	--mark-code: #3a8a7e;
+
+	/* Terminal colours are the same in both themes: a terminal is always dark. */
+	--terminal-bg: #11100e;
+	--terminal-fg: #e4dfd4;
+	--terminal-muted: #9a9386;
+	--terminal-cursor: #e8c37a;
+	--terminal-selection: #3a4a48;
+	/* Hairline between terminal panes, on terminal-bg. Proposed in Epic 6. */
+	--terminal-line: #2a2824;
+	--ansi-black: #11100e;
+	--ansi-bright-black: #5f5a51;
+	--ansi-red: #e07a6e;
+	--ansi-bright-red: #f09a8f;
+	--ansi-green: #8fc28a;
+	--ansi-bright-green: #a9d6a4;
+	--ansi-yellow: #e0bb6c;
+	--ansi-bright-yellow: #ecd08e;
+	--ansi-blue: #86a7d9;
+	--ansi-bright-blue: #a6c0e6;
+	--ansi-magenta: #c49ad0;
+	--ansi-bright-magenta: #d6b5df;
+	--ansi-cyan: #79c1b8;
+	--ansi-bright-cyan: #9ad3cb;
+	--ansi-white: #cfc9bd;
+	--ansi-bright-white: #f2eee6;
+
+	/* Spacing: 4px scale, names match Tailwind's numeric steps. */
+	--space-0: 0px;
+	--space-0\.5: 2px;
+	--space-1: 4px;
+	--space-1\.5: 6px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 20px;
+	--space-6: 24px;
+	--space-8: 32px;
+	--space-10: 40px;
+	--space-12: 48px;
+	--space-16: 64px;
+
+	/* Fixed control and icon sizes. */
+	--size-control-sm: 28px;
+	--size-control-md: 36px;
+	--size-control-lg: 44px;
+	--size-icon-sm: 14px;
+	--size-icon-md: 16px;
+	--size-icon-lg: 20px;
+	--size-pane-handle: 8px;
+	--size-rail: 48px;
+
+	/* Density source values; --pk-* below picks one set. */
+	--density-comfortable-control: 36px;
+	--density-comfortable-row: 32px;
+	--density-comfortable-tab: 36px;
+	--density-comfortable-pad: 12px;
+	--density-comfortable-font: 14px;
+	--density-compact-control: 28px;
+	--density-compact-row: 28px;
+	--density-compact-tab: 30px;
+	--density-compact-pad: 8px;
+	--density-compact-font: 13px;
+
+	/* Focus ring. */
+	--ring-width: 2px;
+	--ring-offset: 2px;
+	--ring-offset-inset: -2px;
+
+	/* Motion. */
+	--duration-fast: 120ms;
+	--duration-base: 180ms;
+	--duration-spin: 1100ms;
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+	/* Stacking order. */
+	--z-pane-handle: 10;
+	--z-sticky: 20;
+	--z-menu: 50;
+	--z-dialog: 60;
+	--z-toast: 70;
+}
+
+/*
+ * Dark values. Listed twice on purpose: once for an explicit data-theme="dark",
+ * once for the operating system preference when no explicit theme is set.
+ */
+[data-theme="dark"] {
+	color-scheme: dark;
+	--surface: #171614;
+	--surface-raised: #211f1c;
+	--surface-sunken: #121110;
+	--surface-hover: #2b2925;
+	--surface-selected: #1c3533;
+	--surface-inverse: #ece8df;
+	--surface-inverse-hover: #d3cec3;
+	--line: #35322d;
+	--line-strong: #7f786c;
+	--ink: #ece8df;
+	--ink-muted: #aba498;
+	--ink-faint: #948d81;
+	--ink-inverse: #171614;
+	--accent: #7cc2b9;
+	--accent-hover: #9bd3cb;
+	--on-accent: #0f201e;
+	--accent-soft: #1b3230;
+	--accent-text: #8fcdc4;
+	--focus: #5fc3cf;
+	--scrim: #00000099;
+	--status-provisioning: #9fb4e0;
+	--status-provisioning-soft: #1f2636;
+	--status-starting: #9fb4e0;
+	--status-starting-soft: #1f2636;
+	--status-running: #86c98b;
+	--status-running-soft: #1a2e1c;
+	--status-stopping: #9fb4e0;
+	--status-stopping-soft: #1f2636;
+	--status-stopped: #aba498;
+	--status-stopped-soft: #26241f;
+	--status-error: #f0998f;
+	--status-error-soft: #3a1f1b;
+	--status-warning: #e3b85c;
+	--status-warning-soft: #33290f;
+	--status-danger: #f0998f;
+	--status-danger-soft: #3a1f1b;
+	--danger-hover: #f5b3ab;
+	--on-danger: #1f0d0b;
+	--terminal-bg: #0c0b0a;
+	--shadow-sm: 0 1px 2px #00000066;
+	--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #35322d;
+	--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #35322d;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		color-scheme: dark;
+		--surface: #171614;
+		--surface-raised: #211f1c;
+		--surface-sunken: #121110;
+		--surface-hover: #2b2925;
+		--surface-selected: #1c3533;
+		--surface-inverse: #ece8df;
+		--surface-inverse-hover: #d3cec3;
+		--line: #35322d;
+		--line-strong: #7f786c;
+		--ink: #ece8df;
+		--ink-muted: #aba498;
+		--ink-faint: #948d81;
+		--ink-inverse: #171614;
+		--accent: #7cc2b9;
+		--accent-hover: #9bd3cb;
+		--on-accent: #0f201e;
+		--accent-soft: #1b3230;
+		--accent-text: #8fcdc4;
+		--focus: #5fc3cf;
+		--scrim: #00000099;
+		--status-provisioning: #9fb4e0;
+		--status-provisioning-soft: #1f2636;
+		--status-starting: #9fb4e0;
+		--status-starting-soft: #1f2636;
+		--status-running: #86c98b;
+		--status-running-soft: #1a2e1c;
+		--status-stopping: #9fb4e0;
+		--status-stopping-soft: #1f2636;
+		--status-stopped: #aba498;
+		--status-stopped-soft: #26241f;
+		--status-error: #f0998f;
+		--status-error-soft: #3a1f1b;
+		--status-warning: #e3b85c;
+		--status-warning-soft: #33290f;
+		--status-danger: #f0998f;
+		--status-danger-soft: #3a1f1b;
+		--danger-hover: #f5b3ab;
+		--on-danger: #1f0d0b;
+		--terminal-bg: #0c0b0a;
+		--shadow-sm: 0 1px 2px #00000066;
+		--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #35322d;
+		--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #35322d;
+	}
+}
+
+/* Density: set data-density on any container. Comfortable is the default (students). */
+:root,
+[data-density="comfortable"] {
+	--pk-control: var(--density-comfortable-control);
+	--pk-row: var(--density-comfortable-row);
+	--pk-tab: var(--density-comfortable-tab);
+	--pk-pad: var(--density-comfortable-pad);
+	--pk-font: var(--density-comfortable-font);
+	--pk-leading: 20px;
+}
+
+[data-density="compact"] {
+	--pk-control: var(--density-compact-control);
+	--pk-row: var(--density-compact-row);
+	--pk-tab: var(--density-compact-tab);
+	--pk-pad: var(--density-compact-pad);
+	--pk-font: var(--density-compact-font);
+	--pk-leading: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--duration-fast: 0ms;
+		--duration-base: 0ms;
+	}
+}
+
+@theme {
+	/* Tailwind's numeric spacing steps equal the space-* tokens. */
+	--spacing: 4px;
+
+	--font-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+	--font-mono:
+		"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+	--radius-none: 0px;
+	--radius-xs: 2px;
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 8px;
+	--radius-full: 9999px;
+
+	/* Light shadows; [data-theme="dark"] above overrides them. */
+	--shadow-none: none;
+	--shadow-sm: 0 1px 2px #1a18151a;
+	--shadow-md: 0 4px 12px #1a18151f, 0 1px 2px #1a181514;
+	--shadow-lg: 0 16px 40px #1a181529, 0 2px 6px #1a18151a;
+
+	--color-surface: var(--surface);
+	--color-surface-raised: var(--surface-raised);
+	--color-surface-sunken: var(--surface-sunken);
+	--color-surface-hover: var(--surface-hover);
+	--color-surface-selected: var(--surface-selected);
+	--color-surface-inverse: var(--surface-inverse);
+	--color-surface-inverse-hover: var(--surface-inverse-hover);
+	--color-line: var(--line);
+	--color-line-strong: var(--line-strong);
+	--color-ink: var(--ink);
+	--color-ink-muted: var(--ink-muted);
+	--color-ink-faint: var(--ink-faint);
+	--color-ink-inverse: var(--ink-inverse);
+	--color-accent: var(--accent);
+	--color-accent-hover: var(--accent-hover);
+	--color-on-accent: var(--on-accent);
+	--color-accent-soft: var(--accent-soft);
+	--color-accent-text: var(--accent-text);
+	--color-focus: var(--focus);
+	--color-scrim: var(--scrim);
+	--color-status-provisioning: var(--status-provisioning);
+	--color-status-provisioning-soft: var(--status-provisioning-soft);
+	--color-status-starting: var(--status-starting);
+	--color-status-starting-soft: var(--status-starting-soft);
+	--color-status-running: var(--status-running);
+	--color-status-running-soft: var(--status-running-soft);
+	--color-status-stopping: var(--status-stopping);
+	--color-status-stopping-soft: var(--status-stopping-soft);
+	--color-status-stopped: var(--status-stopped);
+	--color-status-stopped-soft: var(--status-stopped-soft);
+	--color-status-error: var(--status-error);
+	--color-status-error-soft: var(--status-error-soft);
+	--color-status-warning: var(--status-warning);
+	--color-status-warning-soft: var(--status-warning-soft);
+	--color-status-danger: var(--status-danger);
+	--color-status-danger-soft: var(--status-danger-soft);
+	--color-danger-hover: var(--danger-hover);
+	--color-on-danger: var(--on-danger);
+	--color-mark-code: var(--mark-code);
+	--color-terminal-bg: var(--terminal-bg);
+	--color-terminal-fg: var(--terminal-fg);
+	--color-terminal-muted: var(--terminal-muted);
+	--color-terminal-cursor: var(--terminal-cursor);
+	--color-terminal-selection: var(--terminal-selection);
+	--color-terminal-line: var(--terminal-line);
+	--color-ansi-black: var(--ansi-black);
+	--color-ansi-bright-black: var(--ansi-bright-black);
+	--color-ansi-red: var(--ansi-red);
+	--color-ansi-bright-red: var(--ansi-bright-red);
+	--color-ansi-green: var(--ansi-green);
+	--color-ansi-bright-green: var(--ansi-bright-green);
+	--color-ansi-yellow: var(--ansi-yellow);
+	--color-ansi-bright-yellow: var(--ansi-bright-yellow);
+	--color-ansi-blue: var(--ansi-blue);
+	--color-ansi-bright-blue: var(--ansi-bright-blue);
+	--color-ansi-magenta: var(--ansi-magenta);
+	--color-ansi-bright-magenta: var(--ansi-bright-magenta);
+	--color-ansi-cyan: var(--ansi-cyan);
+	--color-ansi-bright-cyan: var(--ansi-bright-cyan);
+	--color-ansi-white: var(--ansi-white);
+	--color-ansi-bright-white: var(--ansi-bright-white);
+}
