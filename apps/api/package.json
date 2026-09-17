@@ -18,10 +18,12 @@
 		"@portikus/events": "workspace:*",
 		"fastify": "5.12.4",
 		"kysely": "0.29.5",
+		"ws": "8.21.3",
 		"zod": "4.6.5"
 	},
 	"devDependencies": {
 		"@types/node": "24.9.2",
+		"@types/ws": "8.18.1",
 		"tsx": "4.23.13"
 	}
 }

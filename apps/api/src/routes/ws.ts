@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { log } from "../log.js";
 import type { ServerDeps } from "../server.js";
+import { dropPresence, openPresence, touchPresence } from "./presence.js";
 import { countActive, findOwnedWorkspace, toWorkspace } from "./workspace-view.js";
 
 const UuidParam = z.object({ id: z.string().uuid() });
@@ -75,10 +76,7 @@ export function registerWorkspaceSocket(
 	}
 
 	async function dropConnection(connectionId: string): Promise<void> {
-		await db
-			.deleteFrom("workspace_connections")
-			.where("id", "=", connectionId)
-			.execute();
+		await dropPresence(db, connectionId);
 	}
 
 	/**
@@ -171,22 +169,8 @@ export function registerWorkspaceSocket(
 		async (socket: WebSocket, request: FastifyRequest) => {
 			const workspaceId = (request.params as { id: string }).id;
 			const connectionId = crypto.randomUUID();
-			const now = new Date().toISOString();
 
-			await db
-				.insertInto("workspace_connections")
-				.values({ id: connectionId, workspace_id: workspaceId })
-				.execute();
-
-			await db
-				.updateTable("workspaces")
-				.set({
-					desired_state: "running",
-					last_active_connection_at: now,
-					updated_at: now,
-				})
-				.where("id", "=", workspaceId)
-				.execute();
+			await openPresence(db, workspaceId, connectionId);
 
 			const workspace = await readWorkspace(workspaceId);
 			if (workspace) send(socket, workspace);
@@ -222,11 +206,7 @@ export function registerWorkspaceSocket(
 						return;
 					}
 
-					await db
-						.updateTable("workspace_connections")
-						.set({ last_seen_at: new Date().toISOString() })
-						.where("id", "=", connectionId)
-						.execute();
+					await touchPresence(db, connectionId);
 				} catch (error) {
 					log("error", {
 						msg: "workspace socket message failed",
