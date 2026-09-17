@@ -121,11 +121,10 @@ async function openSocket(id: string, token = TOKEN, query = ""): Promise<Sock> 
 
 beforeAll(async () => {
 	if (!haveTmux) return;
-	process.env.TMUX_SOCKET_NAME = SOCKET_NAME;
 	homeDir = await mkdtemp(join(tmpdir(), "portikus-agent-"));
 	const tokenPath = join(homeDir, "agent.token");
 	await writeFile(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
-	app = buildServer({ tokenPath, homeDir });
+	app = buildServer({ tokenPath, homeDir, tmuxSocketName: SOCKET_NAME });
 	await app.listen({ port: 0, host: "127.0.0.1" });
 	port = (app.server.address() as { port: number }).port;
 });
@@ -203,7 +202,7 @@ test.skipIf(!haveTmux)(
 
 		// Closing one attachment detaches it; the session and its shell live on.
 		await first.close();
-		expect(await hasSession(id)).toBe(true);
+		expect(await hasSession(id, SOCKET_NAME)).toBe(true);
 
 		const afterDetach = await app.inject({
 			method: "GET",
@@ -222,7 +221,7 @@ test.skipIf(!haveTmux)(
 			headers: auth(),
 		});
 		expect(deleted.statusCode).toBe(204);
-		expect(await hasSession(id)).toBe(false);
+		expect(await hasSession(id, SOCKET_NAME)).toBe(false);
 		await second.closed;
 
 		const missing = await app.inject({

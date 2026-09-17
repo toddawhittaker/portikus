@@ -35,10 +35,10 @@ vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 const run = promisify(execFile);
 
 const TOKEN = "b".repeat(64);
+// The agent is given this socket name, and the test runs its own tmux
+// commands against it, so both share one tmux server that is not the
+// developer's own.
 const SOCKET_NAME = `portikus-real-${process.pid}`;
-// tmux.ts reads this per call, so the agent and the test share one tmux server
-// that is not the developer's own.
-process.env.TMUX_SOCKET_NAME = SOCKET_NAME;
 
 async function tmuxAvailable(): Promise<boolean> {
 	try {
@@ -83,7 +83,11 @@ async function sessionExists(id: string): Promise<boolean> {
  * boundary is missing, and the API still reaches it over TCP.
  */
 async function startRealAgent(): Promise<void> {
-	agentApp = buildAgentServer({ tokenPath, homeDir }) as FastifyInstance;
+	agentApp = buildAgentServer({
+		tokenPath,
+		homeDir,
+		tmuxSocketName: SOCKET_NAME,
+	}) as FastifyInstance;
 	await agentApp.listen({ port: 0, host: "127.0.0.1" });
 	agentPort = (agentApp.server.address() as AddressInfo).port;
 }
@@ -348,12 +352,13 @@ test.skipIf(skip)("DELETE through the API kills the tmux session", async () => {
 	expect(response.statusCode).toBe(204);
 	expect(await sessionExists(id)).toBe(false);
 
+	// Closing is a user action, so the row goes with the session (SPEC.md 9.3).
 	const row = await testDb.db
 		.selectFrom("terminals")
 		.selectAll()
 		.where("id", "=", id)
-		.executeTakeFirstOrThrow();
-	expect(row.ended_at).not.toBeNull();
+		.executeTakeFirst();
+	expect(row).toBeUndefined();
 });
 
 test.skipIf(skip)(
@@ -500,25 +505,18 @@ test.skipIf(skip)("a tmux-hostile terminal id never reaches tmux", async () => {
 
 // --- error frames must match the published protocol (SPEC.md §9.7) ---
 
-test
-	.skipIf(skip)
-	.fails(
-		"DEFECT: the agent's malformed-frame error uses a code the contract does not allow",
-		async () => {
-			const id = (await createTerminal()).json().id;
-			const browser = await openBrowser(id);
+test.skipIf(skip)("a malformed frame gets an error the contract allows", async () => {
+	const id = (await createTerminal()).json().id;
+	const browser = await openBrowser(id);
 
-			browser.ws.send("not json at all");
-			await browser.closed;
+	browser.ws.send("not json at all");
+	await browser.closed;
 
-			// SPEC.md §9.7 says server-to-client text frames are {"type":"error",
-			// "code":"…"}, and TerminalServerMessage in packages/events is the
-			// contract for that code. The agent sends "BAD_FRAME", which is not in
-			// AgentErrorCode, so the browser cannot parse the frame it is handed.
-			// terminals.ts:197 in apps/workspace-agent.
-			expect(TerminalServerMessage.safeParse(browser.text[0]).success).toBe(true);
-		},
-	);
+	// SPEC.md §9.7 says server-to-client text frames are {"type":"error",
+	// "code":"…"}, and TerminalServerMessage in packages/events is the contract
+	// for that code. BAD_FRAME is now part of it.
+	expect(TerminalServerMessage.safeParse(browser.text[0]).success).toBe(true);
+});
 
 // --- backpressure (SPEC.md §9.7) ---
 

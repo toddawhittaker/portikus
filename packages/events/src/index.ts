@@ -29,10 +29,18 @@ export const TerminalClientMessage = z.discriminatedUnion("type", [
 export type TerminalClientMessage = z.infer<typeof TerminalClientMessage>;
 
 /**
+ * Error codes carried on the terminal WebSocket: every agent code (SPEC.md
+ * §27) plus `BAD_FRAME`, which describes the frame rather than the terminal
+ * and so has no HTTP equivalent.
+ */
+export const TerminalErrorCode = z.union([AgentErrorCode, z.literal("BAD_FRAME")]);
+export type TerminalErrorCode = z.infer<typeof TerminalErrorCode>;
+
+/**
  * Text messages the API sends on the terminal WebSocket (SPEC.md §9.2, §27).
  */
 export const TerminalServerMessage = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("exit") }),
-	z.object({ type: z.literal("error"), code: AgentErrorCode }),
+	z.object({ type: z.literal("error"), code: TerminalErrorCode }),
 ]);
 export type TerminalServerMessage = z.infer<typeof TerminalServerMessage>;

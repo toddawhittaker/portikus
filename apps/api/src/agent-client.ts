@@ -2,7 +2,6 @@ import {
 	AgentCreateTerminalRequest,
 	AgentError as AgentErrorBody,
 	type AgentErrorCode,
-	AgentTerminalList,
 } from "@portikus/contracts";
 
 /** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
@@ -46,11 +45,6 @@ export class AgentClient {
 	/** The Authorization header for the agent. Never log the result. */
 	authHeader(): string {
 		return `Bearer ${this.token}`;
-	}
-
-	async listTerminals(): Promise<AgentTerminalList> {
-		const body = await this.call("GET", "/terminals");
-		return AgentTerminalList.parse(body);
 	}
 
 	async createTerminal(input: { id: string; cwd: string }): Promise<void> {
