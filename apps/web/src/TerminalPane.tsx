@@ -42,6 +42,8 @@ export interface TerminalPaneProps {
 	/** The shell exited, or the socket will not come back (SPEC.md §9.7). */
 	onExited: (terminalId: string) => void;
 	onSessionEnded: () => void;
+	/** The agent reported the terminal's current directory (SPEC.md §9.3). */
+	onCwd: (path: string) => void;
 	/** The user clicked or typed in this pane. */
 	onFocus: (terminalId: string) => void;
 	/** Alt+Shift+Q: move focus out of the terminal to the tab strip. */
@@ -85,6 +87,7 @@ export function TerminalPane({
 	visible,
 	onExited,
 	onSessionEnded,
+	onCwd,
 	onFocus,
 	onLeave,
 }: TerminalPaneProps) {
@@ -99,8 +102,15 @@ export function TerminalPane({
 
 	// Callbacks the long-lived effect reads through a ref, so that a new
 	// render does not tear down the terminal and its socket.
-	const handlers = useRef({ onExited, onSessionEnded, onFocus, onLeave, navigate });
-	handlers.current = { onExited, onSessionEnded, onFocus, onLeave, navigate };
+	const handlers = useRef({
+		onExited,
+		onSessionEnded,
+		onCwd,
+		onFocus,
+		onLeave,
+		navigate,
+	});
+	handlers.current = { onExited, onSessionEnded, onCwd, onFocus, onLeave, navigate };
 
 	const terminalId = terminal.id;
 
@@ -303,6 +313,10 @@ export function TerminalPane({
 					setConnected(false);
 					handlers.current.onExited(terminalId);
 					next.close();
+					return;
+				}
+				if (frame.kind === "cwd") {
+					handlers.current.onCwd(frame.path);
 					return;
 				}
 				if (frame.kind === "error") {
