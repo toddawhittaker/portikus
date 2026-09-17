@@ -166,7 +166,8 @@ test("a reload keeps the terminal and can attach to it again", async ({
 	await expect(page.getByRole("tab", { name: "Terminal 1" })).toBeVisible({
 		timeout: 15_000,
 	});
-	// Scrollback is not replayed (SPEC.md §9.7); new input must still echo.
+	// The terminal comes back with its earlier output above it, and new input
+	// must still echo (SPEC.md §9.1, §9.7).
 	await expect(visiblePane(page).locator(".xterm-screen")).toBeVisible();
 	await typeAndExpectEcho(page, rowsOf(page, terminalId), "after-reload");
 });
@@ -352,4 +353,151 @@ test("the title bar follows cd", async ({ page, context }) => {
 	// after it polls tmux (SPEC.md §9.3).
 	await typeAndExpectEcho(page, rowsOf(page, terminalId), "cd /tmp");
 	await expect(title).toHaveText("Terminal 1 · /tmp");
+});
+
+/** The fake agent, which the end-to-end run puts on this port. */
+const FAKE_AGENT_URL = `http://127.0.0.1:${process.env.FAKE_AGENT_PORT ?? "7400"}`;
+
+/** Put lines on a terminal's screen without typing for them. */
+async function printLines(terminalId: string, lines: string[]): Promise<void> {
+	const response = await fetch(
+		`${FAKE_AGENT_URL}/__test/terminals/${terminalId}/output`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ lines }),
+		},
+	);
+	if (!response.ok) throw new Error(`could not print lines: ${response.status}`);
+}
+
+/** Numbered so that no line's text is contained in another line's. */
+function manyLines(count: number): string[] {
+	return Array.from(
+		{ length: count },
+		(_, i) => `SCROLL-${String(i + 1).padStart(4, "0")}`,
+	);
+}
+
+/**
+ * Print lines until they show up. The agent only sends output to the
+ * attachments it has, and the browser's attachment lands a moment after the
+ * page says it is connected, so the first print can fall in the gap.
+ */
+async function printUntilVisible(
+	page: Page,
+	terminalId: string,
+	lines: string[],
+): Promise<void> {
+	const rows = rowsOf(page, terminalId);
+	const last = lines[lines.length - 1] ?? "";
+	await expect
+		.poll(
+			async () => {
+				const seen = (await rows.textContent()) ?? "";
+				if (seen.includes(last)) return seen;
+				await printLines(terminalId, lines);
+				await page.waitForTimeout(300);
+				return (await rows.textContent()) ?? "";
+			},
+			{ timeout: 20_000 },
+		)
+		.toContain(last);
+}
+
+/**
+ * Turn the wheel over the terminal. One wheel event moves it a few lines
+ * however large the delta is, the way one notch of a real wheel does, so
+ * going a long way back takes many of them.
+ */
+async function wheelOverTerminal(page: Page, notches: number): Promise<void> {
+	await visiblePane(page).locator(".xterm-screen").hover();
+	const delta = notches < 0 ? -300 : 300;
+	for (let i = 0; i < Math.abs(notches); i += 1) {
+		await page.mouse.wheel(0, delta);
+	}
+}
+
+test("the wheel scrolls back through earlier output", async ({ page, context }) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+	const rows = rowsOf(page, terminalId);
+
+	await printUntilVisible(page, terminalId, manyLines(200));
+	// The screen is far shorter than 200 lines, so the first ones are above it.
+	await expect(rows).not.toContainText("SCROLL-0001");
+
+	// Wheel up, the conventional direction for older output.
+	await wheelOverTerminal(page, -80);
+	await expect(rows).toContainText("SCROLL-0001");
+	await expect(rows).not.toContainText("SCROLL-0200");
+
+	// And back down to where the prompt is.
+	await wheelOverTerminal(page, 80);
+	await expect(rows).toContainText("SCROLL-0200");
+	await expect(rows).not.toContainText("SCROLL-0001");
+});
+
+test("a reload shows earlier output above the prompt", async ({ page, context }) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	await printUntilVisible(page, terminalId, manyLines(60));
+
+	await page.reload();
+	await expect(page.getByRole("tab", { name: "Terminal 1" })).toBeVisible({
+		timeout: 15_000,
+	});
+	await expectConnected(page, terminalId);
+
+	// The agent sends what scrolled off before the shell's screen is drawn, so
+	// there is earlier output to scroll back to (SPEC.md §9.1).
+	await wheelOverTerminal(page, -40);
+	await expect(rowsOf(page, terminalId)).toContainText("SCROLL-0001");
+});
+
+/** Everything the fake agent has been sent on any attachment. */
+async function framesSentToAgent(): Promise<string[]> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/received`);
+	const body = (await response.json()) as { received: string[] };
+	return body.received;
+}
+
+/** The escape a terminal sends for the down and up arrow keys. */
+const ARROW_KEY = /\\u001b\[[AB]|\\u001bO[AB]/;
+
+/**
+ * A full-screen program such as nano or less asks for the alternate screen,
+ * where there is no scrollback to scroll. The terminal turns the wheel into
+ * arrow keys there instead, which is what moves nano a line at a time, and
+ * this must keep working (SPEC.md §9.1).
+ */
+test("the wheel moves a full-screen program a line at a time", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+	const rows = rowsOf(page, terminalId);
+
+	await printUntilVisible(page, terminalId, manyLines(200));
+
+	// Enter the alternate screen, the way nano does when it starts.
+	await printLines(terminalId, ["[?1049hEDITING"]);
+	await expect(rows).toContainText("EDITING");
+
+	const before = (await framesSentToAgent()).length;
+	await wheelOverTerminal(page, 1);
+	await expect
+		.poll(async () => (await framesSentToAgent()).slice(before).join(""))
+		.toMatch(ARROW_KEY);
+
+	// Leaving it puts the earlier output, and the wheel, back.
+	await printLines(terminalId, ["[?1049l"]);
+	const afterLeaving = (await framesSentToAgent()).length;
+	await wheelOverTerminal(page, -80);
+	await expect(rows).toContainText("SCROLL-0001");
+	expect((await framesSentToAgent()).slice(afterLeaving).join("")).not.toMatch(
+		ARROW_KEY,
+	);
 });

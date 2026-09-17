@@ -106,6 +106,9 @@ export async function startFakeAgent(
 	// Every attachment of one terminal, so echoed output reaches them all,
 	// the way a real shared tmux session would.
 	const attached = new Map<string, Set<WebSocket>>();
+	// Output this terminal has already produced. The real agent replays the
+	// same thing from tmux when a browser attaches (SPEC.md §9.1).
+	const history = new Map<string, string[]>();
 	const received: string[] = [];
 	const projects = new Map<string, { isGitRepo: boolean }>();
 	// One fake agent stands in for every workspace in an end-to-end run, so a
@@ -308,6 +311,30 @@ export async function startFakeAgent(
 		return reply.status(204).send();
 	});
 
+	/** Send one line of output to every attachment, and remember it. */
+	function emit(id: string, payload: string): void {
+		const lines = history.get(id) ?? [];
+		lines.push(payload);
+		history.set(id, lines);
+		for (const peer of attached.get(id) ?? []) {
+			if (peer.readyState === peer.OPEN) {
+				peer.send(Buffer.from(payload), { binary: true });
+			}
+		}
+	}
+
+	/** Every frame the fake has been sent, so a browser test can read it. */
+	app.get("/__test/received", async () => ({ received }));
+
+	// Output a test wants on screen without typing for it, so a browser test
+	// can fill the scrollback.
+	app.post("/__test/terminals/:id/output", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const body = request.body as { lines: string[] };
+		emit(id, `${body.lines.join("\r\n")}\r\n`);
+		return reply.status(204).send();
+	});
+
 	app.get(
 		"/terminals/:id/attach",
 		{ websocket: true },
@@ -326,6 +353,16 @@ export async function startFakeAgent(
 				peers.delete(socket);
 			});
 			const query = request.query as { cols?: string; rows?: string };
+			// Earlier output first, then blank lines to push it into the
+			// browser's scrollback, exactly as the real agent does.
+			const earlier = history.get(id) ?? [];
+			if (earlier.length > 0) {
+				const rows = Number(query.rows ?? "24");
+				const blank = "\r\n".repeat(Number.isFinite(rows) ? rows : 24);
+				socket.send(Buffer.from(`${earlier.join("\r\n")}\r\n${blank}`), {
+					binary: true,
+				});
+			}
 			socket.send(JSON.stringify({ type: "size", cols: query.cols, rows: query.rows }));
 			socket.on("message", (data: Buffer) => {
 				const text = data.toString();
@@ -335,13 +372,7 @@ export async function startFakeAgent(
 					socket.send(JSON.stringify({ type: "size", cols: parsed.cols }));
 					return;
 				}
-				function broadcast(payload: string) {
-					for (const peer of peers) {
-						if (peer.readyState === peer.OPEN) {
-							peer.send(Buffer.from(payload), { binary: true });
-						}
-					}
-				}
+				const broadcast = (payload: string) => emit(id, payload);
 				broadcast(`echo:${text}`);
 				// A shell prints ^C when the interrupt byte reaches it, and the
 				// clipboard tests need to see that Ctrl+C got through.
