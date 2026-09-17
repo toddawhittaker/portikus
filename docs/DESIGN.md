@@ -57,10 +57,12 @@ Built and working:
   (404, deliberately indistinguishable from "does not exist"), wrong role
   (403), account not in an allowed group (403 with a friendly message).
 
-The current web app is a placeholder: a heading, a sign-in link, a
-signed-in line, a sign-out button, and a one-line workspace panel. The visual
-design is now settled and lives in `design/system`; none of it has been
-built into the web app yet.
+Epic 6 has since built the design system into `packages/ui`: the tokens
+are the Tailwind theme and the CSS variables in `src/theme.css`, and the
+primitives and overlays are exports with the names the system uses. The
+three-pane shell exists in `apps/web`, with the project pane, the tabbed
+work area with split terminals, the status bar, and a placeholder right
+pane waiting for the file tree in Epic 7.
 
 Front-end stack the designs will be built with (STACK.md section 3):
 React 19, Vite, TanStack Router, TanStack Query for server state,
@@ -164,3 +166,54 @@ the system first and then use it.
 - Epic 6 does both of those before it builds any screen.
 - Use the design sync skill in the sessions that build Epics 6 to 11 so
   each screen is generated against these design files.
+
+## 9. Decisions taken while building Epic 6
+
+These settle questions the design files left open. They are recorded here so
+later epics do not reopen them.
+
+**Leaving the terminal is Alt+Shift+Q.** The design handoff proposed it and it
+survived checking: Chrome binds nothing to it, and in Firefox the only clash
+would be with an `accesskey` attribute, of which the app uses none. So no
+Portikus markup may add an `accesskey`; doing so would take the shortcut away
+from the terminal. Pressing it moves focus from the terminal to the tab strip.
+
+**Clipboard in the terminal.** xterm.js takes every key press, so the copy and
+paste rules are explicit:
+
+| Action | Result |
+|---|---|
+| Select text with the mouse | Copied at once, the UNIX convention |
+| Right-click with a selection | Copies it and clears the selection |
+| Right-click with nothing selected | Pastes |
+| Ctrl+Shift+C | Copies |
+| Ctrl+Shift+V | Pastes |
+| Ctrl+V | Pastes |
+| Ctrl+C with a selection | Copies |
+| Ctrl+C with nothing selected | Reaches the shell as the interrupt |
+
+The browser's own context menu is suppressed over the terminal screen, which
+is what makes right-click usable. On macOS the Command key does the same job
+as Control. Pasting depends on the browser being willing to read the
+clipboard: Firefox only allows it behind its own paste prompt and older
+versions refuse it altogether, so when clipboard reading is unavailable the
+pane falls back to the browser's native paste event. Ctrl+V therefore works
+everywhere; right-click paste in Firefox depends on the browser's prompt.
+
+**Splitter naming.** `design/system/README.md` says `PaneHandle` wraps "the
+resizable-panel library's handle". In react-resizable-panels 4 that component
+is `Separator`, inside a `Group` of `Panel`s, and the styling hook it sets is
+`data-separator` rather than the older `data-resize-handle-state`. The
+`PaneHandle` export keeps its design-system name; only what it wraps changed.
+
+**Checkbox is a native input.** The design system lists `Checkbox` among the
+components that wrap their Radix namesake, but a native `<input
+type="checkbox">` inside its label already gives the whole label as the hit
+target and the browser's own keyboard behaviour, with the visible box drawn as
+a sibling. That is fewer moving parts than the Radix primitive for no loss, so
+`Checkbox` is the one place where the Radix rule does not apply.
+
+**The 1024-wide rail collapse is deferred.** Desktop is the P0 target
+(SPEC 8.1), so the shell sets a minimum width and scrolls below it rather than
+collapsing. The `Shell1024` mockup stands as the design for whenever narrow
+displays are taken up.
