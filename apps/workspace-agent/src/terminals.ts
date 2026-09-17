@@ -7,7 +7,7 @@ import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/eve
 import type { FastifyBaseLogger } from "fastify";
 import { type IPty, spawn } from "node-pty";
 import { type CwdWatch, watchCwd } from "./cwd.js";
-import { AgentFailure, attachArgs, hasSession } from "./tmux.js";
+import { AgentFailure, attachArgs, captureHistory, hasSession } from "./tmux.js";
 
 /** Pause the PTY once this much output is waiting on the socket (SPEC.md §9.7). */
 const HIGH_WATER_BYTES = 1024 * 1024;
@@ -107,10 +107,13 @@ export class TerminalRegistry {
 			throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 		}
 
+		const rows = options.rows ?? DEFAULT_ROWS;
+		await this.sendHistory(id, socket, rows);
+
 		const pty = this.spawnPty("tmux", attachArgs(id, this.socketName), {
 			name: "xterm-256color",
 			cols: options.cols ?? DEFAULT_COLS,
-			rows: options.rows ?? DEFAULT_ROWS,
+			rows,
 			cwd: this.homeDir,
 			env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
 		});
@@ -168,6 +171,38 @@ export class TerminalRegistry {
 		for (const id of [...this.attachments.keys()]) {
 			this.closeAll(id, 1001, "agent shutting down");
 		}
+	}
+
+	/**
+	 * Give a new attachment the lines that scrolled off the terminal's screen
+	 * before it arrived, so a reload does not start with a bare prompt
+	 * (SPEC.md §9.1). This runs before the PTY exists, so nothing tmux draws
+	 * can land in the middle of it.
+	 *
+	 * The blank lines at the end push the history into the browser's
+	 * scrollback, out of the way of the screen tmux is about to repaint over
+	 * it; without them the repaint would erase the last screenful of history.
+	 */
+	private async sendHistory(
+		id: string,
+		socket: WebSocket,
+		rows: number,
+	): Promise<void> {
+		let history: string;
+		try {
+			history = await captureHistory(id, this.socketName);
+		} catch (error) {
+			// A terminal with no history to show is worth no more than a log line.
+			this.log.warn(
+				{ terminalId: id, error: error instanceof Error ? error.message : error },
+				"could not capture terminal history",
+			);
+			return;
+		}
+		if (history === "" || socket.readyState !== socket.OPEN) return;
+		socket.send(Buffer.from(history + "\r\n".repeat(rows), "utf8"), {
+			binary: true,
+		});
 	}
 
 	/** Write any input that arrived before tmux was ready, in order. */

@@ -606,6 +606,41 @@ test.skipIf(!haveTmux)(
 	},
 	30000,
 );
+test.skipIf(!haveTmux)(
+	"a second attachment is sent the lines above the visible screen",
+	async () => {
+		const id = makeId();
+		const created = await app.inject({
+			method: "POST",
+			url: "/terminals",
+			headers: auth(),
+			payload: { id, cwd: homeDir },
+		});
+		expect(created.statusCode).toBe(201);
+
+		const first = await openSocket(id, TOKEN, "?cols=80&rows=24");
+		await first.waitFor("$", 1);
+		first.ws.send(
+			JSON.stringify({
+				type: "input",
+				data: "for i in $(seq 1 60); do echo HIST-$i; done\r",
+			}),
+		);
+		await first.waitFor("HIST-60", 1);
+		await first.close();
+
+		// The screen is 24 rows, so everything up to about HIST-35 has scrolled
+		// off it and only the history capture can bring it back.
+		const second = await openSocket(id, TOKEN, "?cols=80&rows=24");
+		await second.waitFor("HIST-1\r\n", 1);
+		expect(second.output()).toContain("HIST-5");
+		await second.close();
+
+		await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
+	},
+	30000,
+);
+
 test.skipIf(!haveTmux)("input sent before the first output still runs", async () => {
 	const id = makeId();
 	const created = await app.inject({

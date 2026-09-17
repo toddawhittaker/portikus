@@ -38,9 +38,14 @@ export function attachArgs(id: string, socketName?: string): string[] {
 	return [...socketArgs(socketName), "attach-session", "-t", sessionName(id)];
 }
 
+/** How much output one tmux command may produce; a capture can be large. */
+const TMUX_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+
 async function tmux(args: string[], socketName?: string): Promise<string> {
 	try {
-		const { stdout } = await run("tmux", [...socketArgs(socketName), ...args]);
+		const { stdout } = await run("tmux", [...socketArgs(socketName), ...args], {
+			maxBuffer: TMUX_MAX_OUTPUT_BYTES,
+		});
 		return stdout;
 	} catch (error) {
 		const stderr =
@@ -75,6 +80,63 @@ async function resolveCwd(cwd: string, homeDir: string): Promise<string> {
 		throw new AgentFailure("INVALID_CWD", "cwd is not a directory");
 	}
 	return real;
+}
+
+/**
+ * Take three capabilities away from the terminal tmux thinks it is drawing on,
+ * so that the browser's own scrollback fills up (SPEC.md §9.1).
+ *
+ * `smcup`/`rmcup` switch to the alternate screen, which in xterm.js has no
+ * scrollback at all and turns the wheel into arrow keys. `indn`/`rin` scroll
+ * by N lines in place, which xterm.js does not save. Without them tmux uses
+ * plain line feeds at the bottom of the screen, and those do get saved.
+ *
+ * This is a tmux server option, so it covers every session on the server.
+ */
+export async function useBrowserScrollback(socketName?: string): Promise<void> {
+	await tmux(
+		["set-option", "-s", "terminal-overrides", "*:smcup@:rmcup@:indn@:rin@"],
+		socketName,
+	);
+}
+
+/** How many lines of a pane's history an attachment gets back. */
+const HISTORY_LINES = 2000;
+
+/**
+ * The lines that have scrolled off the top of a terminal's visible screen, as
+ * a terminal would print them: escape sequences kept, wrapped lines joined,
+ * and CRLF endings. Empty when the terminal has no history yet.
+ *
+ * A re-attaching tmux repaints only the visible screen, so without this a
+ * reload leaves the student with nothing above the prompt.
+ */
+export async function captureHistory(id: string, socketName?: string): Promise<string> {
+	const name = sessionName(id);
+	const size = Number.parseInt(
+		(
+			await tmux(["display-message", "-p", "-t", name, "#{history_size}"], socketName)
+		).trim(),
+		10,
+	);
+	if (!Number.isFinite(size) || size <= 0) return "";
+	const text = await tmux(
+		[
+			"capture-pane",
+			"-p",
+			"-e",
+			"-J",
+			"-S",
+			`-${Math.min(size, HISTORY_LINES)}`,
+			"-E",
+			"-1",
+			"-t",
+			name,
+		],
+		socketName,
+	);
+	if (text === "") return "";
+	return `${text.replace(/\n$/, "").replace(/\n/g, "\r\n")}\r\n`;
 }
 
 export interface TmuxSession {
@@ -122,6 +184,7 @@ export async function createSession(
 	const name = sessionName(id);
 	const real = await resolveCwd(cwd, homeDir);
 	await tmux(["new-session", "-d", "-s", name, "-c", real], socketName);
+	await useBrowserScrollback(socketName);
 	// `latest` sizes the session to the most recent client, so a second
 	// attachment does not shrink the terminal to the smallest window.
 	await tmux(["set-option", "-t", name, "window-size", "latest"], socketName);
