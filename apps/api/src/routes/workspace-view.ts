@@ -75,3 +75,23 @@ export async function findOwnedWorkspace(
 	const row = await query.executeTakeFirst();
 	return (row as Record<string, unknown> | undefined) ?? null;
 }
+
+/**
+ * Load a workspace only for its owner. Terminal routes use this instead of
+ * findOwnedWorkspace: an administrator may see that a workspace exists, but
+ * reading or typing into a student's terminal would be silent impersonation
+ * (SPEC.md §20.2, §24).
+ */
+export async function findWorkspaceOwnedBy(
+	db: Kysely<Database>,
+	id: string,
+	userId: string,
+): Promise<Record<string, unknown> | null> {
+	const row = await db
+		.selectFrom("workspaces")
+		.selectAll()
+		.where("id", "=", id)
+		.where("owner_user_id", "=", userId)
+		.executeTakeFirst();
+	return (row as Record<string, unknown> | undefined) ?? null;
+}

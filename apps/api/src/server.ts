@@ -74,7 +74,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		);
 	});
 
-	app.register(websocket);
+	// One megabyte is the largest frame a browser may send us (SPEC.md §9.7).
+	app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
 	app.get("/health", () => {
 		const body: HealthResponse = {

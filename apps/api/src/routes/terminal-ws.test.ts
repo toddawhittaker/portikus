@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import { createServer as createHttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
 	CookieJar,
@@ -10,6 +11,7 @@ import {
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
+import WebSocketClient from "ws";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
@@ -314,7 +316,8 @@ test.skipIf(skip)("a revoked session closes the attachment with 4401", async () 
 		await socket.next();
 
 		await testDb.db.deleteFrom("sessions").execute();
-		vi.advanceTimersByTime(31_000);
+		// Revocation takes effect within a second (SPEC.md section 5.3).
+		vi.advanceTimersByTime(1500);
 
 		expect(await socket.closed).toBe(4401);
 		await fresh.close();
@@ -323,3 +326,128 @@ test.skipIf(skip)("a revoked session closes the attachment with 4401", async () 
 		vi.useRealTimers();
 	}
 });
+
+test.skipIf(skip)("a revoked session is caught on the next input frame", async () => {
+	// The interval is faked and never advanced, so only the per-frame check
+	// can close this socket (SPEC.md section 5.3).
+	vi.useFakeTimers({ shouldAdvanceTime: false, toFake: ["setInterval"] });
+	try {
+		const fresh = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
+		await fresh.listen({ port: 0, host: "127.0.0.1" });
+		const previous = app;
+		app = fresh;
+
+		const socket = await openTerminal(workspaceId, terminalId, alice);
+		await socket.next();
+
+		await testDb.db.deleteFrom("sessions").execute();
+		// The check runs at most once a second, so let that second pass.
+		await new Promise((resolve) => setTimeout(resolve, 1100));
+		socket.ws.send(JSON.stringify({ type: "input", data: "x" }));
+
+		expect(await socket.closed).toBe(4401);
+		await fresh.close();
+		app = previous;
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test.skipIf(skip)(
+	"an administrator cannot attach to a student's terminal",
+	async () => {
+		const carol = new CookieJar();
+		await loginAs(app, "carol", carol);
+		await expect(openTerminal(workspaceId, terminalId, carol)).rejects.toMatchObject({
+			status: 404,
+		});
+		expect(await countConnections()).toBe(0);
+	},
+);
+
+test.skipIf(skip)(
+	"a browser that closes during the upgrade leaves nothing behind",
+	async () => {
+		const address = app.server.address() as AddressInfo;
+		const path = `/workspaces/${workspaceId}/terminals/${terminalId}/ws`;
+
+		// Close the moment the upgrade completes, which lands inside the
+		// handler's presence writes.
+		for (let i = 0; i < 5; i += 1) {
+			await new Promise<void>((resolve) => {
+				const ws = new WebSocket(`ws://127.0.0.1:${address.port}${path}`, {
+					headers: {
+						origin: new URL(PUBLIC_URL).origin,
+						cookie: alice.cookieHeader(),
+					},
+				} as unknown as string[]);
+				ws.addEventListener("open", () => ws.close(), { once: true });
+				ws.addEventListener("close", () => resolve(), { once: true });
+				ws.addEventListener("error", () => resolve(), { once: true });
+			});
+		}
+
+		await expect.poll(async () => await countConnections(), { timeout: 5000 }).toBe(0);
+		await expect.poll(() => agent.openAttachments, { timeout: 5000 }).toBe(0);
+
+		// Shutdown must not hang on work the dropped sockets left running.
+		await app.close();
+		app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
+		await app.listen({ port: 0, host: "127.0.0.1" });
+	},
+);
+
+test.skipIf(skip)(
+	"too much input before the agent answers is refused",
+	async () => {
+		// An agent that takes a moment to accept the upgrade, so the browser can
+		// type while the control plane is still dialling it.
+		const slow = createHttpServer();
+		const upgrades: Array<() => void> = [];
+		slow.on("upgrade", (_request, socket) => {
+			upgrades.push(() => socket.destroy());
+		});
+		await new Promise<void>((resolve) => slow.listen(0, "127.0.0.1", resolve));
+		const slowPort = (slow.address() as AddressInfo).port;
+
+		const fresh = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: slowPort });
+		await fresh.listen({ port: 0, host: "127.0.0.1" });
+		const port = (fresh.server.address() as AddressInfo).port;
+		// The ws client reports the close code even while it is writing.
+		const client = new WebSocketClient(
+			`ws://127.0.0.1:${port}/workspaces/${workspaceId}/terminals/${terminalId}/ws`,
+			{
+				headers: {
+					origin: new URL(PUBLIC_URL).origin,
+					cookie: alice.cookieHeader(),
+				},
+			},
+		);
+		try {
+			const closed = new Promise<number>((resolve) => {
+				client.on("close", (code: number) => resolve(code));
+			});
+			await new Promise<void>((resolve, reject) => {
+				client.on("open", () => resolve());
+				client.on("error", reject);
+			});
+
+			const chunk = JSON.stringify({ type: "input", data: "x".repeat(8 * 1024) });
+			for (let i = 0; i < 12 && client.readyState === WebSocketClient.OPEN; i += 1) {
+				client.send(chunk);
+				await new Promise((resolve) => setTimeout(resolve, 20));
+			}
+
+			expect(await closed).toBe(1009);
+			expect(await countConnections()).toBe(0);
+		} finally {
+			client.terminate();
+			for (const finish of upgrades) finish();
+			await fresh.close();
+			await new Promise<void>((resolve) => {
+				slow.close(() => resolve());
+			});
+		}
+	},
+	20_000,
+);

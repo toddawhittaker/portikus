@@ -16,26 +16,50 @@ import { z } from "zod";
 import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
 import { log } from "../log.js";
 import type { ServerDeps } from "../server.js";
-import { dropPresence, openPresence, touchPresence } from "./presence.js";
-import { countActive, findOwnedWorkspace } from "./workspace-view.js";
+import {
+	createPendingWork,
+	dropPresence,
+	openPresence,
+	touchPresence,
+	workspaceUpgradeGuard,
+} from "./presence.js";
+import { findWorkspaceOwnedBy } from "./workspace-view.js";
 
 const WorkspaceParam = z.object({ id: z.string().uuid() });
 const TerminalParam = z.object({ id: z.string().uuid(), tid: z.string().uuid() });
 
+/** Terminal size a browser may ask for on attach. */
+const TerminalSize = z.object({
+	cols: z.coerce.number().int().min(1).max(1000).catch(80),
+	rows: z.coerce.number().int().min(1).max(1000).catch(24),
+});
+
 /** Working directory a terminal gets when the caller does not choose one (SPEC.md §9.4). */
 const DEFAULT_CWD = "/home/student/projects";
 
-/** Concurrent sockets allowed per workspace, the same cap the presence socket uses. */
-const MAX_CONNECTIONS_PER_WORKSPACE = 16;
+/** How many ended terminals the listing keeps, newest first (SPEC.md §9.6). */
+const MAX_ENDED_LISTED = 20;
 
 /** How often an attached terminal refreshes its presence row (SPEC.md §6.4). */
 const PRESENCE_INTERVAL_MS = 15_000;
 
 /** How often an attached terminal re-checks that its session still exists (SPEC.md §5.3). */
-const SESSION_CHECK_INTERVAL_MS = 30_000;
+const SESSION_CHECK_INTERVAL_MS = 1000;
 
-const DEFAULT_COLS = 80;
-const DEFAULT_ROWS = 24;
+/** Pause the agent socket once this much output is waiting on the browser socket. */
+const HIGH_WATER_BYTES = 1024 * 1024;
+
+/** Resume once the browser socket has drained back below this. */
+const LOW_WATER_BYTES = 256 * 1024;
+
+/** How often a paused pipe checks whether the browser socket has drained. */
+const DRAIN_POLL_MS = 50;
+
+/** Input a browser may send before the agent socket is open. */
+const MAX_QUEUED_BYTES = 64 * 1024;
+
+/** How long the agent socket may take to answer the upgrade. */
+const AGENT_HANDSHAKE_TIMEOUT_MS = 5000;
 
 function sendError(
 	reply: FastifyReply,
@@ -84,13 +108,7 @@ export function registerTerminalRoutes(
 	app: FastifyInstance,
 	{ db, config }: ServerDeps,
 ): void {
-	// Work started by a socket outlives the request that caused it, so shutdown
-	// has to drain it before the database pool closes.
-	const pending = new Set<Promise<unknown>>();
-	function track(work: Promise<unknown>): void {
-		pending.add(work);
-		void work.finally(() => pending.delete(work));
-	}
+	const { track, drain } = createPendingWork();
 
 	// GET /workspaces/:id/terminals -- durable metadata only, never the agent.
 	app.get("/workspaces/:id/terminals", async (request, reply) => {
@@ -99,12 +117,28 @@ export function registerTerminalRoutes(
 		if (!params.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
 		}
-		const workspace = await findOwnedWorkspace(db, user, params.data.id);
+		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 
-		const rows = await listTerminalRows(db, params.data.id).execute();
+		const open = await listTerminalRows(db, params.data.id)
+			.where("ended_at", "is", null)
+			.execute();
+		// Old terminals are history, not a list that grows without bound.
+		const ended = await db
+			.selectFrom("terminals")
+			.selectAll()
+			.where("workspace_id", "=", params.data.id)
+			.where("ended_at", "is not", null)
+			.orderBy("ended_at", "desc")
+			.limit(MAX_ENDED_LISTED)
+			.execute();
+
+		const rows = [...open, ...ended].sort(
+			(a, b) =>
+				a.position - b.position || a.created_at.getTime() - b.created_at.getTime(),
+		);
 		const body: TerminalList = { terminals: rows.map(toTerminal) };
 		return body;
 	});
@@ -121,7 +155,7 @@ export function registerTerminalRoutes(
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
 
-		const workspace = await findOwnedWorkspace(db, user, params.data.id);
+		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
@@ -194,7 +228,7 @@ export function registerTerminalRoutes(
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
 
-		const workspace = await findOwnedWorkspace(db, user, params.data.id);
+		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
@@ -212,7 +246,9 @@ export function registerTerminalRoutes(
 		return toTerminal(updated);
 	});
 
-	// DELETE /workspaces/:id/terminals/:tid
+	// DELETE /workspaces/:id/terminals/:tid -- closing is a user action, so the
+	// terminal goes away entirely (SPEC.md §9.3). The "ended" state is for
+	// terminals the platform ended, which the worker marks (SPEC.md §9.7).
 	app.delete("/workspaces/:id/terminals/:tid", async (request, reply) => {
 		const user = requireUser(request);
 		const params = TerminalParam.safeParse(request.params);
@@ -220,7 +256,7 @@ export function registerTerminalRoutes(
 			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
 		}
 
-		const workspace = await findOwnedWorkspace(db, user, params.data.id);
+		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
@@ -248,12 +284,7 @@ export function registerTerminalRoutes(
 			}
 		}
 
-		await db
-			.updateTable("terminals")
-			.set({ ended_at: new Date().toISOString() })
-			.where("id", "=", row.id)
-			.where("ended_at", "is", null)
-			.execute();
+		await db.deleteFrom("terminals").where("id", "=", row.id).execute();
 
 		return reply.status(204).send();
 	});
@@ -263,62 +294,65 @@ export function registerTerminalRoutes(
 		"/workspaces/:id/terminals/:tid/ws",
 		{
 			websocket: true,
-			preHandler: async (request, reply) => {
-				const user = requireUser(request);
-				const params = TerminalParam.safeParse(request.params);
-				if (!params.success) {
-					return reply
-						.status(400)
-						.send({ code: "VALIDATION_FAILED", message: params.error.message });
-				}
-				const workspace = await findOwnedWorkspace(db, user, params.data.id);
-				if (!workspace) {
-					return reply
-						.status(404)
-						.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
-				}
-				const active = await countActive(db, params.data.id, config);
-				if (active >= MAX_CONNECTIONS_PER_WORKSPACE) {
-					return reply.status(429).send({
-						code: "TOO_MANY_CONNECTIONS",
-						message: "This workspace already has too many open connections",
-					});
-				}
-				const terminal = await db
-					.selectFrom("terminals")
-					.selectAll()
-					.where("id", "=", params.data.tid)
-					.where("workspace_id", "=", params.data.id)
-					.where("ended_at", "is", null)
-					.executeTakeFirst();
-				if (!terminal) {
-					return reply
-						.status(404)
-						.send({ code: "TERMINAL_NOT_FOUND", message: "Terminal not found" });
-				}
-			},
+			preHandler: [
+				workspaceUpgradeGuard(db, config, { ownerOnly: true }),
+				async (request, reply) => {
+					const params = TerminalParam.safeParse(request.params);
+					if (!params.success) {
+						return reply
+							.status(400)
+							.send({ code: "VALIDATION_FAILED", message: params.error.message });
+					}
+					const terminal = await db
+						.selectFrom("terminals")
+						.selectAll()
+						.where("id", "=", params.data.tid)
+						.where("workspace_id", "=", params.data.id)
+						.where("ended_at", "is", null)
+						.executeTakeFirst();
+					if (!terminal) {
+						return reply
+							.status(404)
+							.send({ code: "TERMINAL_NOT_FOUND", message: "Terminal not found" });
+					}
+				},
+			],
 		},
 		async (socket: WebSocket, request: FastifyRequest) => {
+			// Hold incoming frames until the pipe's listeners are attached, so a
+			// browser that closes during this setup cannot be missed.
+			socket.pause();
+
 			const { id: workspaceId, tid: terminalId } = request.params as {
 				id: string;
 				tid: string;
 			};
-			const workspace = await db
-				.selectFrom("workspaces")
-				.selectAll()
-				.where("id", "=", workspaceId)
-				.executeTakeFirst();
-			const agent = workspace
-				? agentClientFor(workspace as Record<string, unknown>, config.AGENT_PORT)
-				: null;
+			const workspace = request.workspaceRow ?? null;
+			const agent = workspace ? agentClientFor(workspace, config.AGENT_PORT) : null;
 			if (!agent) {
 				socket.close(1011, "agent unavailable");
+				socket.resume();
 				return;
 			}
 
-			const size = sizeFrom(request.query);
+			const size = TerminalSize.parse(request.query ?? {});
 			const connectionId = crypto.randomUUID();
 			await openPresence(db, workspaceId, connectionId);
+
+			if (socket.readyState !== socket.OPEN) {
+				// The browser gave up while we were writing presence.
+				track(
+					dropPresence(db, connectionId).catch((error) => {
+						log("error", {
+							msg: "failed to delete workspace connection",
+							connectionId,
+							error: error instanceof Error ? error.message : String(error),
+						});
+					}),
+				);
+				socket.resume();
+				return;
+			}
 
 			track(
 				pipeTerminal({
@@ -332,6 +366,7 @@ export function registerTerminalRoutes(
 					rows: size.rows,
 				}),
 			);
+			socket.resume();
 		},
 	);
 
@@ -355,21 +390,7 @@ export function registerTerminalRoutes(
 		);
 	});
 
-	app.addHook("onClose", async () => {
-		while (pending.size > 0) {
-			await Promise.allSettled([...pending]);
-		}
-	});
-}
-
-function sizeFrom(query: unknown): { cols: number; rows: number } {
-	const raw = (query ?? {}) as Record<string, unknown>;
-	const cols = Number(raw.cols);
-	const rows = Number(raw.rows);
-	return {
-		cols: Number.isInteger(cols) && cols > 0 && cols <= 1000 ? cols : DEFAULT_COLS,
-		rows: Number.isInteger(rows) && rows > 0 && rows <= 1000 ? rows : DEFAULT_ROWS,
-	};
+	app.addHook("onClose", drain);
 }
 
 /** Close codes a WebSocket peer is allowed to send on. */
@@ -392,6 +413,42 @@ interface PipeOptions {
 }
 
 /**
+ * Stop reading the agent socket while the browser socket is backed up, so a
+ * runaway process cannot fill the control plane's memory (SPEC.md §9.7).
+ * Returns a function that cancels any drain poll still running.
+ */
+export function pipeBackpressure(
+	socket: { bufferedAmount: number },
+	upstream: { pause: () => void; resume: () => void },
+	limits: { high: number; low: number; pollMs: number } = {
+		high: HIGH_WATER_BYTES,
+		low: LOW_WATER_BYTES,
+		pollMs: DRAIN_POLL_MS,
+	},
+): { apply: () => void; cancel: () => void } {
+	let drainTimer: NodeJS.Timeout | null = null;
+
+	function cancel(): void {
+		if (drainTimer) clearInterval(drainTimer);
+		drainTimer = null;
+	}
+
+	return {
+		apply() {
+			if (drainTimer) return;
+			if (socket.bufferedAmount <= limits.high) return;
+			upstream.pause();
+			drainTimer = setInterval(() => {
+				if (socket.bufferedAmount >= limits.low) return;
+				cancel();
+				upstream.resume();
+			}, limits.pollMs);
+		},
+		cancel,
+	};
+}
+
+/**
  * Forward frames between one browser socket and one agent attachment. Frames
  * are carried unchanged in both directions (SPEC.md §9.7).
  */
@@ -400,22 +457,34 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 
 	const upstream = new WebSocketClient(
 		agent.attachUrl(terminalId, options.cols, options.rows),
-		{ headers: { authorization: agent.authHeader() } },
+		{
+			headers: { authorization: agent.authHeader() },
+			handshakeTimeout: AGENT_HANDSHAKE_TIMEOUT_MS,
+		},
 	);
 
 	// Frames can arrive before the agent socket finishes connecting.
 	const queued: string[] = [];
+	let queuedBytes = 0;
 	let closed = false;
+	let lastSessionCheck = Date.now();
+
+	const backpressure = pipeBackpressure(socket, upstream);
 
 	const presenceTimer = setInterval(() => {
 		void touchPresence(db, connectionId).catch(() => {});
 	}, PRESENCE_INTERVAL_MS);
 
+	async function sessionStillValid(): Promise<boolean> {
+		lastSessionCheck = Date.now();
+		const user = sessionToken ? await loadSession(db, sessionToken) : null;
+		if (user) return true;
+		socket.close(4401, "session revoked");
+		return false;
+	}
+
 	const sessionTimer = setInterval(() => {
-		void (async () => {
-			const user = sessionToken ? await loadSession(db, sessionToken) : null;
-			if (!user) socket.close(4401, "session revoked");
-		})().catch(() => {});
+		void sessionStillValid().catch(() => {});
 	}, SESSION_CHECK_INTERVAL_MS);
 
 	const done = new Promise<void>((resolve) => {
@@ -424,14 +493,25 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 			closed = true;
 			clearInterval(presenceTimer);
 			clearInterval(sessionTimer);
+			backpressure.cancel();
 			resolve();
 		}
 
 		socket.on("message", (data: RawData) => {
 			const text = data.toString();
+			// Revocation must take effect at once, but one check a second is
+			// enough for a stream of keystrokes (SPEC.md §5.3).
+			if (Date.now() - lastSessionCheck >= SESSION_CHECK_INTERVAL_MS) {
+				void sessionStillValid().catch(() => {});
+			}
 			if (upstream.readyState === WebSocketClient.OPEN) {
 				upstream.send(text);
 			} else if (upstream.readyState === WebSocketClient.CONNECTING) {
+				queuedBytes += Buffer.byteLength(text);
+				if (queuedBytes > MAX_QUEUED_BYTES) {
+					socket.close(1009, "too much input before the terminal was ready");
+					return;
+				}
 				queued.push(text);
 			}
 		});
@@ -450,11 +530,13 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 
 		upstream.on("open", () => {
 			for (const frame of queued.splice(0)) upstream.send(frame);
+			queuedBytes = 0;
 		});
 
 		upstream.on("message", (data: RawData, isBinary: boolean) => {
 			if (socket.readyState !== socket.OPEN) return;
 			socket.send(isBinary ? toBuffer(data) : data.toString(), { binary: isBinary });
+			backpressure.apply();
 		});
 
 		upstream.on("close", (code: number, reason: Buffer) => {

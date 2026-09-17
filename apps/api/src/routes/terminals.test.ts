@@ -126,13 +126,92 @@ test.skipIf(skip)("create, list, rename, and delete a terminal", async () => {
 	expect(deleted.statusCode).toBe(204);
 	expect(agent.terminals.has(terminal.id)).toBe(false);
 
+	// Closing is a user action, so the terminal goes away (SPEC.md section 9.3).
 	const after = await app.inject({
 		method: "GET",
 		url: `/workspaces/${workspaceId}/terminals`,
 		headers: { cookie: alice.cookieHeader() },
 	});
-	expect(after.json().terminals[0].endedAt).not.toBeNull();
+	expect(after.json().terminals).toHaveLength(0);
+	const rows = await testDb.db.selectFrom("terminals").selectAll().execute();
+	expect(rows).toHaveLength(0);
 });
+
+test.skipIf(skip)("an administrator is refused on every terminal route", async () => {
+	const created = await create(alice, workspaceId);
+	const terminalId = created.json().id;
+
+	// Administrators may list workspaces but must not read or drive a
+	// student's terminal (SPEC.md section 20.2).
+	const carol = new CookieJar();
+	await loginAs(app, "carol", carol);
+
+	const listed = await app.inject({
+		method: "GET",
+		url: `/workspaces/${workspaceId}/terminals`,
+		headers: { cookie: carol.cookieHeader() },
+	});
+	expect(listed.statusCode).toBe(404);
+
+	expect((await create(carol, workspaceId)).statusCode).toBe(404);
+
+	const renamed = await app.inject({
+		method: "PATCH",
+		url: `/workspaces/${workspaceId}/terminals/${terminalId}`,
+		headers: csrfHeaders(carol, PUBLIC_URL),
+		payload: { name: "watched" },
+	});
+	expect(renamed.statusCode).toBe(404);
+
+	const deleted = await app.inject({
+		method: "DELETE",
+		url: `/workspaces/${workspaceId}/terminals/${terminalId}`,
+		headers: csrfHeaders(carol, PUBLIC_URL),
+	});
+	expect(deleted.statusCode).toBe(404);
+	expect(agent.terminals.has(terminalId)).toBe(true);
+});
+
+test.skipIf(skip)(
+	"the listing keeps every open terminal and 20 ended ones",
+	async () => {
+		const open = (await create(alice, workspaceId)).json().id;
+
+		// Terminals the platform ended, the way a workspace stop leaves them.
+		for (let i = 0; i < 25; i += 1) {
+			await testDb.db
+				.insertInto("terminals")
+				.values({
+					id: crypto.randomUUID(),
+					workspace_id: workspaceId,
+					name: `old ${i}`,
+					cwd: "/home/student/projects",
+					position: i + 1,
+					ended_at: new Date(Date.now() - (25 - i) * 60_000).toISOString(),
+				})
+				.execute();
+		}
+
+		const listed = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/terminals`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		const terminals = listed.json().terminals as Array<{
+			id: string;
+			name: string;
+			endedAt: string | null;
+		}>;
+		expect(terminals).toHaveLength(21);
+		expect(terminals.filter((t) => t.endedAt === null).map((t) => t.id)).toEqual([
+			open,
+		]);
+		// The five oldest ended terminals are dropped, the newest kept.
+		const names = terminals.map((t) => t.name);
+		expect(names).not.toContain("old 0");
+		expect(names).toContain("old 24");
+	},
+);
 
 test.skipIf(skip)("a chosen name and working directory are kept", async () => {
 	const created = await create(alice, workspaceId, {

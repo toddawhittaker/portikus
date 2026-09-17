@@ -117,13 +117,13 @@ test("terminals keep their own output, can be renamed and closed", async ({
 	await input.press("Enter");
 	await expect(page.getByRole("tab", { name: "Build" })).toBeVisible();
 
-	// Closing a terminal ends it. The tab stays, marked ended, so the user can
-	// start a new one in its place (SPEC.md §6.8, §9.7).
+	// Closing a terminal is a user action, so its tab goes away (SPEC.md §9.3).
 	await page.getByRole("button", { name: "Close Build" }).click();
-	await expect(page.getByRole("tab", { name: "Build (ended)" })).toBeVisible();
+	await expect(page.getByRole("tab", { name: "Build" })).toHaveCount(0);
+	await expect(tabs(page).getByRole("tab")).toHaveCount(2);
 	expect(
 		await query<{ count: string }>(
-			"select count(*)::text as count from terminals where workspace_id = $1 and ended_at is null",
+			"select count(*)::text as count from terminals where workspace_id = $1",
 			[student.workspaceId],
 		),
 	).toEqual([{ count: "2" }]);
