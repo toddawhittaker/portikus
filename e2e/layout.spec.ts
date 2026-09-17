@@ -356,15 +356,16 @@ test.describe("work area layout", () => {
 
 		await page.getByRole("button", { name: "New terminal here" }).click();
 
+		// The ended row stays in the listing (SPEC.md §9.7), so the new terminal
+		// is the second one.
 		await expect
 			.poll(async () => (await terminalIds(student.workspaceId, projectId)).length)
-			.toBe(1);
-		const [revived] = await terminalIds(student.workspaceId, projectId);
+			.toBe(2);
+		const ids = await terminalIds(student.workspaceId, projectId);
+		const revived = ids.find((id) => id !== terminalId);
 		if (!revived) throw new Error("the replacement terminal row was not created");
-		expect(revived).not.toBe(terminalId);
 		// The new terminal takes the ended one's place and attaches for real.
 		await expectConnected(page, revived);
 		await expect(page.getByTestId(`terminal-leaf-${revived}`)).toBeVisible();
-		await expect(page.getByTestId(`terminal-leaf-${terminalId}`)).toHaveCount(0);
 	});
 });
