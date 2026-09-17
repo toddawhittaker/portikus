@@ -1,6 +1,6 @@
 import * as RadixDialog from "@radix-ui/react-dialog";
 import type * as React from "react";
-import { Icon, IconButton, type IconName } from "../primitives/index.js";
+import { IconButton } from "../primitives/index.js";
 
 export const DialogRoot = RadixDialog.Root;
 export const DialogTrigger = RadixDialog.Trigger;
@@ -13,13 +13,9 @@ export interface DialogProps {
 	footer?: React.ReactNode;
 	size?: "md" | "lg";
 	onClose?: () => void;
-	hideClose?: boolean;
-	statusIcon?: IconName;
 	role?: "dialog" | "alertdialog";
 	/** Test hook: set as `data-testid` on the dialog surface. */
 	testId?: string;
-	/** Preview only: position inside the nearest positioned ancestor instead of the viewport. */
-	inline?: boolean;
 }
 
 /**
@@ -34,15 +30,12 @@ export function Dialog({
 	footer,
 	size,
 	onClose,
-	hideClose,
-	statusIcon,
 	role,
 	testId,
-	inline,
 }: DialogProps): React.ReactElement {
 	return (
 		<RadixDialog.Portal>
-			<RadixDialog.Overlay className={`pk-scrim ${inline ? "pk-scrim--inline" : ""}`} />
+			<RadixDialog.Overlay className="pk-scrim" />
 			<RadixDialog.Content
 				id={id}
 				data-testid={testId}
@@ -54,14 +47,9 @@ export function Dialog({
 					event.preventDefault();
 					(event.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
 				}}
-				className={`pk-dialog ${inline ? "pk-dialog--inline" : ""} ${size === "lg" ? "pk-dialog--lg" : ""}`}
+				className={`pk-dialog ${size === "lg" ? "pk-dialog--lg" : ""}`}
 			>
 				<div className="flex items-start gap-3 px-6 pt-6">
-					{statusIcon ? (
-						<div className="pk-dialog-status">
-							<Icon name={statusIcon} size="lg" />
-						</div>
-					) : null}
 					<div>
 						<RadixDialog.Title className="m-0 text-xl font-semibold text-ink">
 							{title}
@@ -75,17 +63,15 @@ export function Dialog({
 							<RadixDialog.Description className="hidden" />
 						)}
 					</div>
-					{hideClose ? null : (
-						<RadixDialog.Close asChild>
-							<IconButton
-								icon="x"
-								label="Close"
-								size="sm"
-								className="ml-auto"
-								onClick={onClose}
-							/>
-						</RadixDialog.Close>
-					)}
+					<RadixDialog.Close asChild>
+						<IconButton
+							icon="x"
+							label="Close"
+							size="sm"
+							className="ml-auto"
+							onClick={onClose}
+						/>
+					</RadixDialog.Close>
 				</div>
 				{children ? <div className="px-6 pt-4">{children}</div> : null}
 				{footer ? <div className="flex justify-end gap-2 p-6">{footer}</div> : null}

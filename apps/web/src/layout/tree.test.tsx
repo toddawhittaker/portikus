@@ -13,7 +13,6 @@ import {
 	replaceLeaf,
 	resize,
 	splitLeaf,
-	tabIdOf,
 } from "./tree";
 
 function leaf(id: string): SplitNode {
@@ -35,8 +34,6 @@ test("a new tab holds one terminal and goes last", () => {
 	const layout = addTab(addTab(emptyLayout(), "a", "t1"), "b", "t2");
 	expect(layout.tabs.map((tab) => tab.id)).toEqual(["t1", "t2"]);
 	expect(layoutTerminalIds(layout)).toEqual(["a", "b"]);
-	expect(tabIdOf(layout, "b")).toBe("t2");
-	expect(tabIdOf(layout, "zz")).toBeNull();
 });
 
 test("splitting a lone leaf right makes a row of two equal panes", () => {

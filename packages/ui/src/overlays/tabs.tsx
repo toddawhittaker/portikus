@@ -22,10 +22,9 @@ export interface TabItem {
 	id: string;
 	kind: "terminal" | "claude" | "codex" | "file" | "preview" | "panel";
 	label: string;
-	title?: string;
-	dirty?: boolean;
 	ended?: boolean;
-	closable?: boolean;
+	/** Test hook: set as `data-testid` on the trigger, plus `-close` on the close control. */
+	testId?: string;
 }
 
 export interface TabsProps {
@@ -37,11 +36,6 @@ export interface TabsProps {
 	onReorder?: (from: number, to: number) => void;
 	/** The launcher (IconButton + Menu). Defaults to a "New tab" IconButton. */
 	actions?: React.ReactNode;
-	launcherOpen?: boolean;
-	/** Preview only: render a tab as if it were being dragged. */
-	draggingId?: string;
-	/** Preview only: render the drop line before a tab. */
-	dropBeforeId?: string;
 	className?: string;
 }
 
@@ -56,32 +50,23 @@ const KIND_ICON: Record<TabItem["kind"], IconName> = {
 
 interface TabTriggerProps {
 	tab: TabItem;
-	dragging: boolean;
-	dropBefore: boolean;
 	onClose?: (id: string) => void;
 	onMove: (tab: TabItem, direction: -1 | 1) => void;
 }
 
-function TabTrigger({
-	tab,
-	dragging,
-	dropBefore,
-	onClose,
-	onMove,
-}: TabTriggerProps): React.ReactElement {
+function TabTrigger({ tab, onClose, onMove }: TabTriggerProps): React.ReactElement {
 	const sortable = useSortable({ id: tab.id });
-	const closable = tab.closable !== false;
 	return (
 		<RadixTabs.Trigger
 			ref={sortable.setNodeRef}
 			value={tab.id}
-			title={tab.title ?? tab.label}
+			title={tab.label}
+			data-testid={tab.testId}
 			className={[
 				"pk-tab",
 				tab.kind === "terminal" && !tab.ended ? "pk-tab--terminal" : "",
 				tab.ended ? "pk-tab--ended" : "",
-				dragging || sortable.isDragging ? "pk-tab--dragging" : "",
-				dropBefore ? "pk-tab--drop-before" : "",
+				sortable.isDragging ? "pk-tab--dragging" : "",
 			]
 				.filter(Boolean)
 				.join(" ")}
@@ -102,7 +87,7 @@ function TabTrigger({
 					onMove(tab, event.key === "ArrowLeft" ? -1 : 1);
 					return;
 				}
-				if (event.key === "Delete" && closable) {
+				if (event.key === "Delete") {
 					event.preventDefault();
 					onClose?.(tab.id);
 				}
@@ -113,35 +98,28 @@ function TabTrigger({
 				{tab.label}
 				{tab.ended ? <span className="pk-visually-hidden">(session ended)</span> : null}
 			</span>
-			{closable ? (
-				tab.dirty ? (
-					<span className="pk-tab-close" role="img" aria-label="Unsaved changes">
-						<span className="pk-tab-dirty" />
-					</span>
-				) : (
-					// The tab itself is a button, so this cannot be one: nested
-					// buttons are invalid HTML.
-					// biome-ignore lint/a11y/useSemanticElements: nested button
-					<span
-						className="pk-tab-close pk-tab-close--hover"
-						role="button"
-						tabIndex={-1}
-						aria-label={`Close ${tab.label}`}
-						onClick={(event) => {
-							event.stopPropagation();
-							onClose?.(tab.id);
-						}}
-						onKeyDown={(event) => {
-							if (event.key === "Enter" || event.key === " ") {
-								event.stopPropagation();
-								onClose?.(tab.id);
-							}
-						}}
-					>
-						<Icon name="x" size="sm" />
-					</span>
-				)
-			) : null}
+			{/* The tab itself is a button, so this cannot be one: nested
+			    buttons are invalid HTML. */}
+			{/* biome-ignore lint/a11y/useSemanticElements: nested button */}
+			<span
+				className="pk-tab-close pk-tab-close--hover"
+				role="button"
+				tabIndex={-1}
+				aria-label={`Close ${tab.label}`}
+				data-testid={tab.testId ? `${tab.testId}-close` : undefined}
+				onClick={(event) => {
+					event.stopPropagation();
+					onClose?.(tab.id);
+				}}
+				onKeyDown={(event) => {
+					if (event.key === "Enter" || event.key === " ") {
+						event.stopPropagation();
+						onClose?.(tab.id);
+					}
+				}}
+			>
+				<Icon name="x" size="sm" />
+			</span>
 		</RadixTabs.Trigger>
 	);
 }
@@ -155,9 +133,6 @@ export function Tabs({
 	onClose,
 	onReorder,
 	actions,
-	launcherOpen,
-	draggingId,
-	dropBeforeId,
 	className,
 }: TabsProps): React.ReactElement {
 	const [announcement, setAnnouncement] = React.useState("");
@@ -201,27 +176,14 @@ export function Tabs({
 				<SortableContext items={ids} strategy={horizontalListSortingStrategy}>
 					<RadixTabs.List aria-label={label ?? "Open tabs"} className="pk-tablist flex">
 						{tabs.map((tab) => (
-							<TabTrigger
-								key={tab.id}
-								tab={tab}
-								dragging={tab.id === draggingId}
-								dropBefore={tab.id === dropBeforeId}
-								onClose={onClose}
-								onMove={move}
-							/>
+							<TabTrigger key={tab.id} tab={tab} onClose={onClose} onMove={move} />
 						))}
 					</RadixTabs.List>
 				</SortableContext>
 			</DndContext>
 			<div className="pk-tabs-actions flex items-center gap-0.5 px-1">
 				{actions ?? (
-					<IconButton
-						icon="plus"
-						label="New tab"
-						size="sm"
-						aria-haspopup="menu"
-						aria-expanded={launcherOpen ?? false}
-					/>
+					<IconButton icon="plus" label="New tab" size="sm" aria-haspopup="menu" />
 				)}
 			</div>
 			<span className="pk-visually-hidden" aria-live="polite">

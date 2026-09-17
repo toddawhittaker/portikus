@@ -129,8 +129,12 @@ check-then-act race; and terminal rows (open plus the 20 most recent ended
 per listing) are never pruned. From Epic 6, the 1024-wide rail collapse is
 deferred, a clone shows no progress while it runs, a download has no size
 cap, discovery ignores directories that are not repositories, unarchiving
-is only reachable through the API, and right-click paste in Firefox depends
-on the browser's own paste prompt. Epic 7 (files, Monaco, search, and
+is only reachable through the API, right-click paste in Firefox depends on
+the browser's own paste prompt, a failed archive stream can reach the browser
+as a truncated zip, a failed download shows the API's JSON error page, and
+rename is not atomic across the agent and the database, so a crash between
+them leaves the old row missing and the new directory discovered as a
+separate project. Epic 7 (files, Monaco, search, and
 change review) is next.
 
 ## Commands

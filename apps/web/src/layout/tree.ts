@@ -23,14 +23,6 @@ export function layoutTerminalIds(layout: ProjectLayout): string[] {
 	return layout.tabs.flatMap((tab) => leafIds(tab.root));
 }
 
-/** The id of the tab holding this terminal, or null. */
-export function tabIdOf(layout: ProjectLayout, terminalId: string): string | null {
-	for (const tab of layout.tabs) {
-		if (leafIds(tab.root).includes(terminalId)) return tab.id;
-	}
-	return null;
-}
-
 function round2(value: number): number {
 	return Math.round(value * 100) / 100;
 }
