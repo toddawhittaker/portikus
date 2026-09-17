@@ -2371,6 +2371,36 @@ Acceptance:
 - switching projects restores project-specific UI state;
 - project filesystem paths conform to `~/projects/<slug>`.
 
+### Epic 6.1 — Pilot feedback on terminals and projects
+**Estimate:** 2–3 engineer-days
+
+Fixes and small features from the first hands-on use of the pilot after
+Epic 6, gathered on 2026-09-17. Each item lands as its own pull request into
+the epic branch.
+
+Includes:
+
+- terminal input sent in the first moments after attach is queued, not
+  dropped, and the smoke test's terminal checks no longer race the agent;
+- Ctrl+V and Ctrl+Shift+V paste once (the browser's own paste no longer
+  runs alongside the application's);
+- the project list refreshes on its own, so a repository created from the
+  shell appears without any UI action, and every project row shows its
+  folder;
+- the terminal title follows the shell's current directory;
+- a terminal pane can be dragged onto another pane's edge to reflow the
+  split, onto its centre to swap, or onto the tab bar to become its own
+  tab, with a drop zone drawn while dragging;
+- a terminal revived after a grace-period stop draws its prompt correctly.
+
+Acceptance:
+
+- each item above has a Playwright case, and the smoke test passes with no
+  failures on the pilot after the epic is deployed;
+- no terminal keystroke is lost between socket open and the first prompt;
+- a drag that would exceed the split depth limit leaves the layout as it
+  was.
+
 ### Epic 7 — Files, Monaco, search, Git status, and change review
 **Estimate:** 7–9 engineer-days
 
