@@ -1,7 +1,7 @@
 name: Release
 
-# A release is published when an epic branch merges into main, or by running
-# this workflow by hand from main for a hotfix.
+# A release is published when an epic or task branch merges into main, or by
+# running this workflow by hand from main for a hotfix.
 on:
   pull_request:
     types: [closed]
@@ -15,7 +15,7 @@ jobs:
   build:
     name: Build the Debian package
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'epic/'))
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && (startsWith(github.event.pull_request.head.ref, 'epic/') || startsWith(github.event.pull_request.head.ref, 'task/')))
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,7 +50,7 @@ jobs:
     name: Publish the GitHub release
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'epic/'))
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && (startsWith(github.event.pull_request.head.ref, 'epic/') || startsWith(github.event.pull_request.head.ref, 'task/')))
     permissions:
       contents: write
     steps:

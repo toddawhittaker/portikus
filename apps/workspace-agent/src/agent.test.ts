@@ -399,11 +399,18 @@ async function buildLoggingServer(level: LogLevel = "info") {
 		logger,
 	});
 	await server.ready();
-	return { server, lines, requests: () => lines.filter((l) => l.msg === "request") };
+	return {
+		server,
+		logger,
+		lines,
+		requests: () => lines.filter((l) => l.msg === "request"),
+	};
 }
 
 test("PUT /log-level changes the level the agent logs at", async () => {
-	const { server, lines } = await buildLoggingServer("info");
+	// The level has to land on the logger index.ts made, not on Fastify's child
+	// of it, or the agent's own debug lines outside a request stay silent.
+	const { server, logger, lines } = await buildLoggingServer("info");
 	try {
 		const res = await server.inject({
 			method: "PUT",
@@ -412,18 +419,33 @@ test("PUT /log-level changes the level the agent logs at", async () => {
 			payload: { level: "debug" },
 		});
 		expect(res.statusCode).toBe(204);
-		expect(server.log.level).toBe("debug");
+		expect(logger.level).toBe("debug");
+		expect(lines.some((l) => l.msg === "log level changed" && l.to === "debug")).toBe(
+			true,
+		);
 
 		lines.length = 0;
-		server.log.debug("now visible");
+		logger.debug({ where: "outside a request" }, "now visible");
 		expect(lines).toHaveLength(1);
+
+		const cleared = await server.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: null },
+		});
+		expect(cleared.statusCode).toBe(204);
+		expect(logger.level).toBe("info");
+		lines.length = 0;
+		logger.debug("silent again");
+		expect(lines).toHaveLength(0);
 	} finally {
 		await server.close();
 	}
 });
 
 test("PUT /log-level needs the token and a known level", async () => {
-	const { server } = await buildLoggingServer();
+	const { server, logger } = await buildLoggingServer();
 	try {
 		const noToken = await server.inject({
 			method: "PUT",
@@ -431,7 +453,7 @@ test("PUT /log-level needs the token and a known level", async () => {
 			payload: { level: "debug" },
 		});
 		expect(noToken.statusCode).toBe(401);
-		expect(server.log.level).toBe("info");
+		expect(logger.level).toBe("info");
 
 		const bad = await server.inject({
 			method: "PUT",
@@ -441,14 +463,14 @@ test("PUT /log-level needs the token and a known level", async () => {
 		});
 		expect(bad.statusCode).toBe(400);
 		expect(bad.json().error.code).toBe("BAD_REQUEST");
-		expect(server.log.level).toBe("info");
+		expect(logger.level).toBe("info");
 	} finally {
 		await server.close();
 	}
 });
 
 test("a null level returns the agent to the level it started with", async () => {
-	const { server } = await buildLoggingServer("warn");
+	const { server, logger } = await buildLoggingServer("warn");
 	try {
 		await server.inject({
 			method: "PUT",
@@ -456,7 +478,7 @@ test("a null level returns the agent to the level it started with", async () => 
 			headers: auth(),
 			payload: { level: "debug" },
 		});
-		expect(server.log.level).toBe("debug");
+		expect(logger.level).toBe("debug");
 
 		const cleared = await server.inject({
 			method: "PUT",
@@ -465,7 +487,7 @@ test("a null level returns the agent to the level it started with", async () => 
 			payload: { level: null },
 		});
 		expect(cleared.statusCode).toBe(204);
-		expect(server.log.level).toBe("warn");
+		expect(logger.level).toBe("warn");
 	} finally {
 		await server.close();
 	}

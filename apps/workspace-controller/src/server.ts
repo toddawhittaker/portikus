@@ -7,7 +7,9 @@ import {
 	StopInstanceRequest,
 } from "@portikus/contracts";
 import {
+	applyLevel,
 	type Logger,
+	type LogLevel,
 	quietLogController,
 	registerRequestLogging,
 	silentLogger,
@@ -39,16 +41,19 @@ interface ServerOptions {
 
 export function buildServer(opts: ServerOptions): FastifyInstance {
 	const { provider, token } = opts;
+	// Keep the root logger: Fastify wraps it in a child, so setting a level on
+	// the instance would leave this process's own debug lines silent (ADR 0012).
+	const rootLogger = opts.logger ?? silentLogger();
 	const app = Fastify({
 		// Cast so the instance keeps Fastify's default logger type and
 		// callers can still hold it as a plain FastifyInstance.
-		loggerInstance: (opts.logger ?? silentLogger()) as FastifyBaseLogger,
+		loggerInstance: rootLogger as FastifyBaseLogger,
 		logController: quietLogController(),
 	});
 	registerRequestLogging(app, { debugPaths: ["/health"] });
 
 	// The level to return to when the worker clears the override (ADR 0012).
-	const startLevel = app.log.level;
+	const startLevel = rootLogger.level as LogLevel;
 
 	app.addHook("preHandler", tokenAuth(token));
 
@@ -97,7 +102,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		}
 		// Null clears the override, so the controller goes back to the level it
 		// started with, from its own environment (ADR 0012).
-		app.log.level = parsed.data.level ?? startLevel;
+		applyLevel(rootLogger, startLevel, parsed.data.level);
 		return reply.code(204).send();
 	});
 

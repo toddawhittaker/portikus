@@ -1,5 +1,5 @@
 import type { LogLevel } from "@portikus/observability";
-import { collectingLogger } from "@portikus/observability/testing";
+import { collectingLogger, lineAt } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { FakeWorkspaceProvider } from "./fake-provider.js";
@@ -299,13 +299,16 @@ function buildLogging(level: LogLevel = "info") {
 	const logged = buildServer({ provider, token: TOKEN, logger });
 	return {
 		logged,
+		logger,
 		lines,
 		requests: () => lines.filter((l) => l.msg === "request"),
 	};
 }
 
 test("PUT /log-level changes the level the controller logs at", async () => {
-	const { logged, lines } = buildLogging("info");
+	// The level has to land on the logger index.ts made, not on Fastify's child
+	// of it, or the controller's and provider's own debug lines stay silent.
+	const { logged, logger, lines } = buildLogging("info");
 	try {
 		const res = await logged.inject({
 			method: "PUT",
@@ -314,18 +317,36 @@ test("PUT /log-level changes the level the controller logs at", async () => {
 			payload: { level: "debug" },
 		});
 		expect(res.statusCode).toBe(204);
-		expect(logged.log.level).toBe("debug");
+		expect(logger.level).toBe("debug");
+		expect(lines.some((l) => l.msg === "log level changed" && l.to === "debug")).toBe(
+			true,
+		);
 
+		// A line logged through the root logger, outside any request, as the
+		// provider's polling line is.
 		lines.length = 0;
-		logged.log.debug("now visible");
+		logger.debug({ attempt: 1 }, "polling the workspace agent");
 		expect(lines).toHaveLength(1);
+		expect(lineAt(lines, 0).msg).toBe("polling the workspace agent");
+
+		const cleared = await logged.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: null },
+		});
+		expect(cleared.statusCode).toBe(204);
+		expect(logger.level).toBe("info");
+		lines.length = 0;
+		logger.debug({ attempt: 2 }, "polling the workspace agent");
+		expect(lines).toHaveLength(0);
 	} finally {
 		await logged.close();
 	}
 });
 
 test("PUT /log-level needs the token and a known level", async () => {
-	const { logged } = buildLogging();
+	const { logged, logger } = buildLogging();
 	try {
 		const noToken = await logged.inject({
 			method: "PUT",
@@ -342,14 +363,14 @@ test("PUT /log-level needs the token and a known level", async () => {
 		});
 		expect(bad.statusCode).toBe(400);
 		expect(bad.json().code).toBe("BAD_REQUEST");
-		expect(logged.log.level).toBe("info");
+		expect(logger.level).toBe("info");
 	} finally {
 		await logged.close();
 	}
 });
 
 test("a null level returns the controller to the level it started with", async () => {
-	const { logged } = buildLogging("warn");
+	const { logged, logger } = buildLogging("warn");
 	try {
 		await logged.inject({
 			method: "PUT",
@@ -357,7 +378,7 @@ test("a null level returns the controller to the level it started with", async (
 			headers: auth(),
 			payload: { level: "debug" },
 		});
-		expect(logged.log.level).toBe("debug");
+		expect(logger.level).toBe("debug");
 
 		const cleared = await logged.inject({
 			method: "PUT",
@@ -366,7 +387,7 @@ test("a null level returns the controller to the level it started with", async (
 			payload: { level: null },
 		});
 		expect(cleared.statusCode).toBe(204);
-		expect(logged.log.level).toBe("warn");
+		expect(logger.level).toBe("warn");
 	} finally {
 		await logged.close();
 	}

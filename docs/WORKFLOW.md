@@ -146,14 +146,15 @@ the pipeline is green on a repo with no code and starts enforcing as code
 lands. Do not remove the detection steps; remove the skip once a check is
 expected to always run.
 
-`.github/workflows/release.yml` publishes a release when an epic branch
-merges into `main`, or when the workflow is run by hand from `main` for a
+`.github/workflows/release.yml` publishes a release when an `epic/` or
+`task/` branch merges into `main`, or when the workflow is run by hand from `main` for a
 hotfix. It builds the merge commit on `main` and builds the same package and publishes a GitHub release with two
 assets: the `.deb` and a `SHA256SUMS` file. The version is
 `0.1.<commit count>+g<short sha>` and the tag is `v<version>`. Ansible
 installs the newest release by default and verifies it against that
 release's `SHA256SUMS`; `make configure-vm PORTIKUS_VERSION=<ver>` installs
-an older one for a rollback.
+an older one for a rollback. Task branches publish too, so a change that
+lands outside an epic still gives the VM a release to install.
 
 ## Secret scanning
 
