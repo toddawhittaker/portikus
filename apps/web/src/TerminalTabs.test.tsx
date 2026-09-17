@@ -12,6 +12,7 @@ function terminal(overrides: Partial<Terminal> = {}): Terminal {
 		name: "zsh",
 		cwd: "/home/student/projects/todo-api",
 		position: 0,
+		projectId: null,
 		createdAt: "2026-01-01T00:00:00.000Z",
 		endedAt: null,
 		...overrides,

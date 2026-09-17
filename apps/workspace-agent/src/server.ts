@@ -26,6 +26,13 @@ const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	ATTACHMENT_LIMIT: 409,
 	INVALID_CWD: 400,
 	TMUX_FAILED: 500,
+	// Project routes arrive in Epic 6; the codes exist so the contract is
+	// complete for the API and the web app.
+	PROJECT_EXISTS: 409,
+	PROJECT_NOT_FOUND: 404,
+	INVALID_SLUG: 400,
+	INVALID_URL: 400,
+	GIT_FAILED: 500,
 };
 
 const IdParam = z.object({ terminalId: TerminalId });

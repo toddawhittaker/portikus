@@ -1,4 +1,24 @@
+import { parseProjectTemplates } from "@portikus/contracts";
 import { z } from "zod";
+
+/**
+ * `PROJECT_TEMPLATES` is `name=url,name=url` (SPEC.md §7.2). It is
+ * validated here so a typo stops the API at startup rather than at the
+ * moment a student opens the create dialog.
+ */
+const projectTemplates = z
+	.string()
+	.default("")
+	.superRefine((value, ctx) => {
+		try {
+			parseProjectTemplates(value);
+		} catch (error) {
+			ctx.addIssue({
+				code: "custom",
+				message: error instanceof Error ? error.message : String(error),
+			});
+		}
+	});
 
 /** Positive integer coerced from a string environment variable. */
 const positiveInt = z.coerce.number().int().positive();
@@ -70,6 +90,7 @@ export const ApiConfigSchema = BaseConfig.extend({
 	SESSION_COOKIE_SECRET: z.string().min(1).default(DEV_SESSION_SECRET),
 	SESSION_TTL_SECONDS: positiveInt.default(43200),
 	AGENT_PORT: positiveInt.default(7400),
+	PROJECT_TEMPLATES: projectTemplates,
 })
 	.refine(requireProductionHttps("PUBLIC_URL"), {
 		message: productionHttpsMessage("PUBLIC_URL"),
@@ -86,7 +107,11 @@ export const ApiConfigSchema = BaseConfig.extend({
 	.refine(requireProductionSecret("SESSION_COOKIE_SECRET", DEV_SESSION_SECRET), {
 		message: productionSecretMessage("SESSION_COOKIE_SECRET"),
 		path: ["SESSION_COOKIE_SECRET"],
-	});
+	})
+	.transform((config) => ({
+		...config,
+		projectTemplates: parseProjectTemplates(config.PROJECT_TEMPLATES),
+	}));
 export type ApiConfig = z.infer<typeof ApiConfigSchema>;
 
 /**
