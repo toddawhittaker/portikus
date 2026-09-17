@@ -166,6 +166,23 @@
     or incus_network_current_egress.stdout | trim != 'drop'
   changed_when: true
 
+# Incus writes its ACL rules into the host firewall, and the firewall only
+# sees traffic between two containers on the same bridge when br_netfilter
+# is loaded.  Without it the peer-isolation rule above never matches
+# (SPEC.md 23.3).
+- name: Load the bridge netfilter module
+  community.general.modprobe:
+    name: br_netfilter
+    state: present
+    persistent: present
+
+- name: Filter bridged traffic with the firewall
+  ansible.posix.sysctl:
+    name: net.bridge.bridge-nf-call-iptables
+    value: "1"
+    sysctl_set: true
+    reload: true
+
 - name: Enable IPv4 forwarding
   ansible.posix.sysctl:
     name: net.ipv4.ip_forward
