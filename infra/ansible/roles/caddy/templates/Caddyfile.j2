@@ -21,6 +21,15 @@
 	handle /auth/* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
+	# A browser navigating to a workspace page wants the single-page
+	# application, not the API's JSON.  Only document requests are sent to
+	# the bundle; fetch, XHR, and WebSocket traffic keeps going to the API.
+	@workspace_page expression `path('/workspaces/*') && (header({'Sec-Fetch-Dest': 'document'}) || header({'Accept': 'text/html*'}))`
+	handle @workspace_page {
+		root * /usr/lib/portikus/web
+		rewrite * /index.html
+		file_server
+	}
 	handle /workspaces* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
