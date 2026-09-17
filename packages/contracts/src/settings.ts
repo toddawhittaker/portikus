@@ -6,26 +6,44 @@ const MAX_GRACE_SECONDS = 2147483647;
 
 const graceSeconds = z.number().int().min(0).max(MAX_GRACE_SECONDS);
 
+/** How much a service logs (STACK.md §15). */
+export const LogLevel = z.enum(["error", "warn", "info", "debug"]);
+export type LogLevel = z.infer<typeof LogLevel>;
+
 /**
  * Platform-wide settings an administrator can change while the system runs
  * (SPEC.md §6.4). A grace period of 0 means a disconnected workspace keeps
- * running indefinitely.
+ * running indefinitely. A null log level means each service uses its own
+ * LOG_LEVEL from the environment.
  */
 export const PlatformSettings = z.object({
 	shutdownGraceSeconds: graceSeconds,
+	logLevel: LogLevel.nullable(),
 	updatedAt: z.string().datetime().nullable(),
 });
 export type PlatformSettings = z.infer<typeof PlatformSettings>;
 
-/** Request body for changing the platform-wide grace period. */
+/**
+ * Request body for changing the platform-wide settings. Every field is
+ * optional, but a request that changes nothing is rejected.
+ */
 export const UpdatePlatformSettingsRequest = z
 	.object({
-		shutdownGraceSeconds: graceSeconds,
+		shutdownGraceSeconds: graceSeconds.optional(),
+		logLevel: LogLevel.nullable().optional(),
 	})
-	.strict();
+	.strict()
+	.refine(
+		(body) => body.shutdownGraceSeconds !== undefined || body.logLevel !== undefined,
+		{ message: "At least one setting must be given" },
+	);
 export type UpdatePlatformSettingsRequest = z.infer<
 	typeof UpdatePlatformSettingsRequest
 >;
+
+/** Request body of `PUT /log-level` on the agent and the controller. */
+export const SetLogLevelRequest = z.object({ level: LogLevel }).strict();
+export type SetLogLevelRequest = z.infer<typeof SetLogLevelRequest>;
 
 /** A user as the administration pages list them (SPEC.md §5.2). */
 export const AdminUser = z.object({

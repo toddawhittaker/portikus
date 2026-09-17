@@ -41,11 +41,16 @@ function stubAdmin(
 			onWrite?.(url, JSON.parse(String(init.body)));
 			return json(200, {
 				shutdownGraceSeconds: JSON.parse(String(init.body)).shutdownGraceSeconds,
+				logLevel: null,
 				updatedAt: "2026-01-01T00:00:00.000Z",
 			});
 		}
 		if (url === "/admin/settings") {
-			return json(200, { shutdownGraceSeconds: graceSeconds, updatedAt: null });
+			return json(200, {
+				shutdownGraceSeconds: graceSeconds,
+				logLevel: null,
+				updatedAt: null,
+			});
 		}
 		if (url.startsWith("/admin/users/") && init?.method === "PUT") {
 			const body = JSON.parse(String(init.body));

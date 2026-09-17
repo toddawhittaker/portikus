@@ -1,4 +1,4 @@
-import { parseProjectTemplates } from "@portikus/contracts";
+import { LogLevel, parseProjectTemplates } from "@portikus/contracts";
 import { z } from "zod";
 
 /** Positive integer coerced from a string environment variable. */
@@ -17,6 +17,8 @@ const DEV_CLIENT_SECRET = "portikus-dev-secret";
 const BaseConfig = z.object({
 	NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 	PORT: positiveInt.default(3000),
+	/** How much this service logs; the admin setting can override it at runtime. */
+	LOG_LEVEL: LogLevel.default("info"),
 });
 
 /**

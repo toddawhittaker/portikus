@@ -84,6 +84,8 @@ export function registerAdminRoutes(
 		}
 		const body: PlatformSettings = {
 			shutdownGraceSeconds: row.shutdown_grace_seconds,
+			// The log level arrives with the rest of the logging work.
+			logLevel: null,
 			updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
 		};
 		return body;
@@ -112,7 +114,8 @@ export function registerAdminRoutes(
 			const row = await trx
 				.updateTable("settings")
 				.set({
-					shutdown_grace_seconds: body.data.shutdownGraceSeconds,
+					shutdown_grace_seconds:
+						body.data.shutdownGraceSeconds ?? before.shutdown_grace_seconds,
 					updated_at: new Date().toISOString(),
 					updated_by: user.id,
 				})
@@ -128,7 +131,7 @@ export function registerAdminRoutes(
 					result: "ok",
 					metadata: JSON.stringify({
 						from: before.shutdown_grace_seconds,
-						to: body.data.shutdownGraceSeconds,
+						to: body.data.shutdownGraceSeconds ?? before.shutdown_grace_seconds,
 						ip: request.ip,
 						userAgent: request.headers["user-agent"] ?? null,
 					}),
@@ -139,6 +142,7 @@ export function registerAdminRoutes(
 
 		const out: PlatformSettings = {
 			shutdownGraceSeconds: updated.shutdown_grace_seconds,
+			logLevel: null,
 			updatedAt: updated.updated_at ? new Date(updated.updated_at).toISOString() : null,
 		};
 		return out;

@@ -16,6 +16,7 @@ export function testConfig(
 	return {
 		NODE_ENV: "test",
 		PORT: 3000,
+		LOG_LEVEL: "info",
 		DATABASE_URL: process.env.TEST_DATABASE_URL ?? "",
 		PRESENCE_TTL_SECONDS: 60,
 		AGENT_PORT: 7400,

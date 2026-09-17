@@ -20,6 +20,27 @@ test("applies defaults and coerces PORT", () => {
 	expect(config.DATABASE_URL).toBe("postgres://localhost/portikus");
 });
 
+test("LOG_LEVEL defaults to info on every service", () => {
+	expect(
+		loadConfig(ApiConfigSchema, { DATABASE_URL: "postgres://localhost/portikus" })
+			.LOG_LEVEL,
+	).toBe("info");
+	expect(loadConfig(AgentConfigSchema, {}).LOG_LEVEL).toBe("info");
+});
+
+test("an unknown LOG_LEVEL is a config error naming the variable", () => {
+	try {
+		loadConfig(ApiConfigSchema, {
+			DATABASE_URL: "postgres://localhost/portikus",
+			LOG_LEVEL: "verbose",
+		});
+		expect.unreachable("loadConfig should have thrown");
+	} catch (error) {
+		expect(error).toBeInstanceOf(ConfigError);
+		expect((error as ConfigError).issues[0]).toContain("LOG_LEVEL");
+	}
+});
+
 test("PROJECT_TEMPLATES defaults to no templates", () => {
 	const config = loadConfig(ApiConfigSchema, {
 		DATABASE_URL: "postgres://localhost/portikus",
