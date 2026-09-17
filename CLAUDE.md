@@ -134,7 +134,10 @@ the browser's own paste prompt, a failed archive stream can reach the browser
 as a truncated zip, a failed download shows the API's JSON error page, and
 rename is not atomic across the agent and the database, so a crash between
 them leaves the old row missing and the new directory discovered as a
-separate project. Epic 7 (files, Monaco, search, and
+separate project. Terminal names count per workspace rather than per
+project, so a second project's first terminal may be "Terminal 3", and a
+workspace created on an older image lacks zip until it is recreated, which
+the agent reports as a download failure. Epic 7 (files, Monaco, search, and
 change review) is next.
 
 ## Commands
