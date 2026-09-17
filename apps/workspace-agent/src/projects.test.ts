@@ -4,6 +4,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readdir,
+	readFile,
 	readlink,
 	rm,
 	symlink,
@@ -117,6 +118,42 @@ test.skipIf(!haveGit)("a new project is created with and without git", async () 
 	const again = await create({ slug: "alpha", source: "new", gitInit: true });
 	expect(again.statusCode).toBe(409);
 	expect(again.json().error.code).toBe("PROJECT_EXISTS");
+});
+
+test.skipIf(!haveGit)("initializing Git writes a default .gitignore", async () => {
+	await create({ slug: "alpha", source: "new", gitInit: true });
+	const created = await readFile(join(projectsRoot, "alpha", ".gitignore"), "utf8");
+	for (const entry of [".env", "node_modules/", "__pycache__/", "*.sqlite"]) {
+		expect(created).toContain(entry);
+	}
+
+	// A project made without Git gets nothing written for it.
+	await create({ slug: "beta", source: "new", gitInit: false });
+	expect(await readdir(join(projectsRoot, "beta"))).toEqual([]);
+
+	// Initialize Git on that same project writes the file.
+	await app.inject({
+		method: "POST",
+		url: "/projects/beta/git-init",
+		headers: auth(),
+	});
+	expect(await readFile(join(projectsRoot, "beta", ".gitignore"), "utf8")).toContain(
+		".env",
+	);
+});
+
+test.skipIf(!haveGit)("an existing .gitignore is left alone", async () => {
+	await create({ slug: "alpha", source: "new", gitInit: false });
+	await writeFile(join(projectsRoot, "alpha", ".gitignore"), "mine\n");
+
+	await app.inject({
+		method: "POST",
+		url: "/projects/alpha/git-init",
+		headers: auth(),
+	});
+	expect(await readFile(join(projectsRoot, "alpha", ".gitignore"), "utf8")).toBe(
+		"mine\n",
+	);
 });
 
 test.skipIf(!haveGit)("git-init initializes once and then no-ops", async () => {

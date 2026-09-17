@@ -1,6 +1,7 @@
 import { type ChildProcessByStdio, execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
+	access,
 	lstat,
 	mkdir,
 	readdir,
@@ -9,6 +10,7 @@ import {
 	rm,
 	stat,
 	unlink,
+	writeFile,
 } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { Readable } from "node:stream";
@@ -151,6 +153,75 @@ async function git(args: string[], cwd: string, timeout?: number): Promise<void>
 	}
 }
 
+/**
+ * The .gitignore a project gets when Portikus initializes Git for it
+ * (SPEC.md 7.2). It is written untracked; the platform never commits
+ * (SPEC.md 12.5). Kept short and general so a student can edit it.
+ */
+const DEFAULT_GITIGNORE = `# Secrets and environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+.cache/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Databases and local data
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Coverage and test output
+coverage/
+.nyc_output/
+htmlcov/
+
+# Local Docker overrides
+docker-compose.override.yml
+`;
+
+/** Write the default .gitignore, unless the project already has one. */
+async function writeDefaultGitignore(path: string): Promise<void> {
+	const file = join(path, ".gitignore");
+	try {
+		await access(file);
+		return;
+	} catch {
+		// No .gitignore yet, so the default is welcome.
+	}
+	await writeFile(file, DEFAULT_GITIGNORE);
+}
+
 export interface CreateProjectInput {
 	slug: string;
 	source: "new" | "clone" | "template";
@@ -173,6 +244,7 @@ export async function createProject(
 		await mkdir(target.path);
 		if (input.gitInit) {
 			await git(["init"], target.path);
+			await writeDefaultGitignore(target.path);
 		}
 		return { slug: input.slug, isGitRepo: input.gitInit };
 	}
@@ -286,6 +358,7 @@ export async function gitInitProject(
 	}
 	if (!(await isGitRepo(target.path))) {
 		await git(["init"], target.path);
+		await writeDefaultGitignore(target.path);
 	}
 	return { slug, isGitRepo: true };
 }
