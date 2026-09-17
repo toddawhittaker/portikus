@@ -1099,18 +1099,46 @@ Instead, it must provide an authenticated browser URL mapped to the workspace po
 
 ### 14.3 Separate security origin
 
-The trusted workspace application and untrusted student previews must use different browser origins.
+The trusted workspace application and untrusted student previews must use
+different browser origins: a preview is always its own host, never a path
+under the workspace application.
 
-Example conceptual structure:
+Recommended: put previews under a different registrable domain from the
+workspace application, or under a name registered on the Public Suffix
+List, so that the browser treats each preview as a different site.
 
 ```text
-workspace.example.edu
-*.preview.example-dev.net
+portikus.example.edu
+*.portikus-preview.net
 ```
 
-The exact DNS names are deployment-specific.
+Many institutions cannot issue a second domain, so a deployment may put
+previews under the same registrable domain:
 
-A preview application must not inherit privileged workspace-application cookies.
+```text
+portikus.example.edu
+<workspace-label>.portikus.example.edu
+<workspace-label>-3000.portikus.example.edu
+```
+
+In that arrangement two hosts count as the same site, which weakens two
+browser protections: the SameSite cookie rule no longer stops a preview
+page from making requests to the workspace application, and any host under
+the domain can set a cookie with a `Domain` attribute that the browser then
+sends to the workspace application ("cookie tossing"). The platform must
+therefore not rely on SameSite or on origin separation alone:
+
+- the session cookie carries the `__Host-` prefix, which forbids a `Domain`
+  attribute, so it is sent only to the exact workspace-application host and
+  cannot be set or replaced from a preview host (section 24);
+- the API checks the `Origin` header on every state-changing request and on
+  the WebSocket upgrade, and refuses any origin other than the workspace
+  application's own;
+- the workspace application reads no cookie other than its own session
+  cookie.
+
+The exact DNS names are deployment-specific. A preview application must
+not inherit privileged workspace-application cookies in either arrangement.
 
 ### 14.4 Authenticated access
 
@@ -2394,7 +2422,14 @@ Includes:
 - compact Running surface;
 - process/container identity for relevant services where safely available;
 - per-workspace preview routing;
-- separate preview origin;
+- separate preview origin, with the same-domain protections of section
+  14.3 when a deployment has one domain;
+- a per-workspace host label derived once, at workspace creation, from the
+  identity provider's `preferred_username` (lowercased, reduced to a DNS
+  label, stored on the workspace row, with a fallback when the claim is
+  missing); the label names the preview hosts and is pushed into the
+  container as its hostname at every start, so the prompt reads
+  `student@<label>.<public host>`;
 - authorization;
 - WebSockets/HMR;
 - embedded Preview tab;
