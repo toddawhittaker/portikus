@@ -1,0 +1,81 @@
+/*
+ * The few primitive rules Tailwind utilities cannot express: the shared focus
+ * ring, two keyframe animations, and selectors that depend on a sibling or on a
+ * combination of attributes. Everything else is a utility class on the component.
+ */
+
+/* Focus: one rule for every platform-owned control (DESIGN.md section 7). */
+.pk-focus-ring:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+
+/* Rows, tabs and cells inside scrolling containers, so the ring is never clipped. */
+.pk-focus-inset:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
+/* A busy button keeps its colour; only a truly disabled one goes flat. */
+.pk-btn:disabled:not([aria-busy="true"]) {
+	cursor: not-allowed;
+	background: var(--surface-sunken);
+	color: var(--ink-faint);
+	border-color: var(--line);
+}
+
+.pk-btn[aria-busy="true"] {
+	cursor: progress;
+}
+
+/* The spinner is the only continuous motion in the system. */
+.pk-spin {
+	flex: none;
+	width: 12px;
+	height: 12px;
+	border-radius: var(--radius-full);
+	border: 2px solid currentColor;
+	border-right-color: transparent;
+	animation: pk-rotate var(--duration-spin) linear infinite;
+}
+
+@keyframes pk-rotate {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.pk-badge .pk-spin {
+	width: 10px;
+	height: 10px;
+	border-width: 1.5px;
+}
+
+.pk-skel {
+	animation: pk-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pk-pulse {
+	50% {
+		opacity: 0.55;
+	}
+}
+
+/* Keycaps inside a tooltip sit on the inverse surface. */
+.pk-tooltip .pk-kbd {
+	background: transparent;
+	color: var(--ink-inverse);
+	border-color: var(--ink-inverse);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.pk-spin {
+		animation: none;
+		border-right-color: currentColor;
+		border-bottom-color: transparent;
+	}
+
+	.pk-skel {
+		animation: none;
+	}
+}

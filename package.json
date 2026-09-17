@@ -13,9 +13,9 @@
 		"lint:fix": "biome check --write .",
 		"format": "biome format --write .",
 		"test": "vitest run",
-		"build": "tsc -b && pnpm --filter @portikus/web build",
+		"build": "tsc -b && pnpm --filter @portikus/ui build && pnpm --filter @portikus/web build",
 		"test:e2e": "playwright test",
-		"dev": "tsc -b && pnpm --parallel --filter \"./apps/*\" dev",
+		"dev": "tsc -b && pnpm --filter @portikus/ui build && pnpm --parallel --filter \"./apps/*\" dev",
 		"build:deb": "bash scripts/build-deb.sh"
 	},
 	"devDependencies": {
