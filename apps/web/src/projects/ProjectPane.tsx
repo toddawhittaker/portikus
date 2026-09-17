@@ -122,13 +122,15 @@ export function ProjectPane({
 								>
 									<Icon name={current ? "folder-open" : "folder"} size="md" />
 									<span className="pk-list-label">{project.name}</span>
-									{/* The folder name is only worth showing when it differs from the
-									    name and no badge is competing for the room. */}
-									{!project.missing &&
-									project.isGitRepo !== false &&
-									project.slug !== project.name ? (
-										<span className="pk-list-slug pk-mono-small">{project.slug}</span>
-									) : null}
+									{/* A project is a folder, so the folder name is always shown. */}
+									{project.missing ? null : (
+										<span
+											className="pk-list-slug pk-mono-small"
+											data-testid={`project-slug-${project.id}`}
+										>
+											{project.slug}
+										</span>
+									)}
 									{project.missing ? (
 										<span className="pk-tag pk-tag--warning">missing</span>
 									) : null}

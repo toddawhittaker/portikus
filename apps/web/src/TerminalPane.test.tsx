@@ -76,7 +76,7 @@ function stubBrowserApis() {
 	);
 }
 
-function renderPane(onExited = vi.fn()) {
+function renderPane(onExited = vi.fn(), onCwd = vi.fn()) {
 	stubBrowserApis();
 	vi.stubGlobal("WebSocket", FakeWebSocket);
 	const view = render(
@@ -87,11 +87,12 @@ function renderPane(onExited = vi.fn()) {
 			visible={true}
 			onExited={onExited}
 			onSessionEnded={vi.fn()}
+			onCwd={onCwd}
 			onFocus={vi.fn()}
 			onLeave={vi.fn()}
 		/>,
 	);
-	return { view, onExited };
+	return { view, onExited, onCwd };
 }
 
 test("the pane opens a socket for its terminal and reports it as connected", async () => {
@@ -119,6 +120,37 @@ test("an exit frame tells the work area the terminal is gone", async () => {
 	expect(onExited).toHaveBeenCalledWith(terminal.id);
 });
 
+test("the first output frame makes the pane say its size again", async () => {
+	renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const socket = sockets[0];
+	if (!socket) throw new Error("no socket");
+	const announced = new URL(socket.url, "http://localhost").searchParams;
+
+	// A resize sent between the connect and the first output can be lost: the
+	// socket may not be open yet, and the agent may not have started the PTY.
+	// Output means both are ready, so the size has to be said again, or tmux
+	// keeps drawing a screen taller than the pane and the shell prompt scrolls
+	// out of view (SPEC.md §9.7).
+	act(() => {
+		socket.onopen?.();
+		socket.onmessage?.({ data: new ArrayBuffer(5) });
+	});
+
+	const resizes = socket.sent
+		.map((raw) => JSON.parse(raw) as { type: string; cols: number; rows: number })
+		.filter((frame) => frame.type === "resize");
+	expect(resizes).toHaveLength(1);
+	expect(resizes[0]?.cols).toBe(Number(announced.get("cols")));
+	expect(resizes[0]?.rows).toBe(Number(announced.get("rows")));
+
+	// Only the first frame: every later byte must not cost a resize.
+	act(() => {
+		socket.onmessage?.({ data: new ArrayBuffer(4) });
+	});
+	expect(socket.sent.filter((raw) => raw.includes("resize"))).toHaveLength(1);
+});
+
 test("a close before any exit is retried, not reported as an exit", async () => {
 	const { onExited } = renderPane();
 	await waitFor(() => expect(sockets).toHaveLength(1));
@@ -127,4 +159,20 @@ test("a close before any exit is retried, not reported as an exit", async () => 
 		sockets[0]?.onclose?.({ code: 1006 });
 	});
 	expect(onExited).not.toHaveBeenCalled();
+});
+
+test("a cwd frame is reported to the owner of the pane", async () => {
+	const { onCwd } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+
+	act(() => {
+		sockets[0]?.onmessage?.({ data: JSON.stringify({ type: "cwd", path: "/tmp" }) });
+	});
+	expect(onCwd).toHaveBeenCalledWith("/tmp");
+
+	// A frame with no path is not a directory report and is ignored.
+	act(() => {
+		sockets[0]?.onmessage?.({ data: JSON.stringify({ type: "cwd" }) });
+	});
+	expect(onCwd).toHaveBeenCalledTimes(1);
 });

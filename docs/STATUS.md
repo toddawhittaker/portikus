@@ -125,6 +125,25 @@ the last size asked for during that window as the size of the new PTY, so a
 pane that corrects its size straight after opening is no longer left blank
 (SPEC.md 9.7). A socket that closes in that window aborts the attach without
 starting a shell.
+The terminal title bar now follows `cd` (SPEC.md section 9.3). Each
+attachment in the workspace agent polls tmux for its pane's current path
+every two seconds and sends a `cwd` frame on the terminal WebSocket when
+the path changes, which the web app uses to update the title. The path is
+not written to the database, so a new attachment learns it from its own
+first poll.
+
+Terminal panes can now be rearranged by dragging their title bars (SPEC.md
+sections 8.3 and 9.3). Dropping a pane on another pane's left, right, top,
+or bottom half makes it that pane's sibling in a row or column split, and
+dropping on the middle swaps the two, so a stacked pair becomes a
+side-by-side pair and back. While a drag is live the hovered pane shades
+the half it would take. Dropping on the tab strip pulls the pane out into a
+tab of its own at the marked position, and a tab left empty disappears.
+`moveLeaf` and `moveLeafToNewTab` in `apps/web/src/layout/tree.ts` do the
+work; both refuse a move that would break the split-depth or tab limits and
+leave the layout alone. The drag uses the dnd-kit already in the repo, with
+the same 4-pixel activation distance as tab reordering, so a click on a
+title bar still just focuses the pane.
 
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
@@ -147,7 +166,10 @@ them leaves the old row missing and the new directory discovered as a
 separate project (tracked in `docs/BACKLOG.md`). Terminal names count per workspace rather than per
 project, so a second project's first terminal may be "Terminal 3", and a
 workspace created on an older image lacks zip until it is recreated, which
-the agent reports as a download failure. From the grace period task, the
+the agent reports as a download failure. The projects pane now refetches every
+ten seconds while the tab is visible and again when it regains focus, so a
+repository made in a terminal turns up without any UI action, and every row that
+is not missing shows its folder name next to the project name. From the grace period task, the
 administration page is a settings form, not the Epic 11 mockup, and the
 infrastructure smoke test now signs in as the mock identity provider's
 administrator to shorten the grace period. From structured logging, an agent
@@ -160,5 +182,7 @@ the login rate-limit gap above: a Caddy rate limit plus a journald
 second, so debug is meant for short investigations rather than everyday
 running; and a workspace owner who holds the agent token can set their own
 agent's level, which stays until the setting next changes or the workspace
-restarts. Epic 7 (files, Monaco, search,
+restarts. From pane dragging, there is no keyboard equivalent: a pane is
+rearranged with a pointer only, and a drop is refused silently when it
+would pass the split-depth or tab limits. Epic 7 (files, Monaco, search,
 and change review) is next.

@@ -130,6 +130,19 @@ export async function createSession(
 	return { id, cwd: real };
 }
 
+/** The current directory of a terminal's tmux pane (SPEC.md §9.3). */
+export async function panePath(
+	id: string,
+	socketName?: string,
+): Promise<string | null> {
+	const stdout = await tmux(
+		["display-message", "-p", "-t", sessionName(id), "#{pane_current_path}"],
+		socketName,
+	);
+	const path = stdout.trim();
+	return path === "" ? null : path;
+}
+
 export async function killSession(id: string, socketName?: string): Promise<void> {
 	await tmux(["kill-session", "-t", sessionName(id)], socketName);
 }

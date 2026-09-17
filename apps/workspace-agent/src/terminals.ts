@@ -6,6 +6,7 @@ import {
 import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/events";
 import type { FastifyBaseLogger } from "fastify";
 import { type IPty, spawn } from "node-pty";
+import { type CwdWatch, watchCwd } from "./cwd.js";
 import { AgentFailure, attachArgs, hasSession } from "./tmux.js";
 
 /** Pause the PTY once this much output is waiting on the socket (SPEC.md §9.7). */
@@ -37,6 +38,8 @@ interface Attachment {
 	/** Null only while the slot is reserved and the PTY is starting. */
 	pty: IPty | null;
 	drainTimer: NodeJS.Timeout | null;
+	/** Polls tmux for this terminal's directory (SPEC.md §9.3). */
+	cwdWatch: CwdWatch | null;
 	/** Input held until tmux is ready; null once the queue has been flushed. */
 	pendingInput: string[] | null;
 	pendingBytes: number;
@@ -96,6 +99,7 @@ export class TerminalRegistry {
 			socket,
 			pty: null,
 			drainTimer: null,
+			cwdWatch: null,
 			pendingInput: [],
 			pendingBytes: 0,
 			pendingTimer: null,
@@ -104,6 +108,7 @@ export class TerminalRegistry {
 		};
 		existing.add(attachment);
 		this.attachments.set(id, existing);
+		attachment.cwdWatch = watchCwd(id, socket, this.socketName);
 
 		// Listen before the first await: the browser sends its size straight
 		// after the socket opens, and a frame dropped here leaves the PTY at
@@ -195,6 +200,8 @@ export class TerminalRegistry {
 	}
 
 	private forget(id: string, attachment: Attachment): void {
+		attachment.cwdWatch?.stop();
+		attachment.cwdWatch = null;
 		if (attachment.pendingTimer) {
 			clearTimeout(attachment.pendingTimer);
 			attachment.pendingTimer = null;

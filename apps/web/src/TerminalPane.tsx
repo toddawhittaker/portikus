@@ -42,6 +42,8 @@ export interface TerminalPaneProps {
 	/** The shell exited, or the socket will not come back (SPEC.md §9.7). */
 	onExited: (terminalId: string) => void;
 	onSessionEnded: () => void;
+	/** The agent reported the terminal's current directory (SPEC.md §9.3). */
+	onCwd: (path: string) => void;
 	/** The user clicked or typed in this pane. */
 	onFocus: (terminalId: string) => void;
 	/** Alt+Shift+Q: move focus out of the terminal to the tab strip. */
@@ -85,6 +87,7 @@ export function TerminalPane({
 	visible,
 	onExited,
 	onSessionEnded,
+	onCwd,
 	onFocus,
 	onLeave,
 }: TerminalPaneProps) {
@@ -99,8 +102,15 @@ export function TerminalPane({
 
 	// Callbacks the long-lived effect reads through a ref, so that a new
 	// render does not tear down the terminal and its socket.
-	const handlers = useRef({ onExited, onSessionEnded, onFocus, onLeave, navigate });
-	handlers.current = { onExited, onSessionEnded, onFocus, onLeave, navigate };
+	const handlers = useRef({
+		onExited,
+		onSessionEnded,
+		onCwd,
+		onFocus,
+		onLeave,
+		navigate,
+	});
+	handlers.current = { onExited, onSessionEnded, onCwd, onFocus, onLeave, navigate };
 
 	const terminalId = terminal.id;
 
@@ -276,8 +286,19 @@ export function TerminalPane({
 			setLost(true);
 		}
 
+		/** Measure the pane and tell the server the size xterm.js now has. */
+		const sendSize = () => {
+			// A pane with no box on screen cannot be measured; keep the last size.
+			if (container.clientWidth !== 0 && container.clientHeight !== 0) {
+				fitAddon.fit();
+			}
+			send({ type: "resize", cols: term.cols, rows: term.rows });
+		};
+
 		function connect() {
 			if (stopped) return;
+			// True once this socket has been told the size the pane really has.
+			let sizeConfirmed = false;
 			const next = new WebSocket(
 				socketUrl(workspaceId, terminalId, term.cols, term.rows),
 			);
@@ -295,6 +316,17 @@ export function TerminalPane({
 				const frame = decodeTerminalFrame(event.data);
 				if (frame.kind === "output") {
 					term.write(frame.bytes);
+					// The size in the connect URL is measured before the pane's box
+					// has settled, and a correction sent in the meantime is lost:
+					// this socket was not open yet, or the workspace agent had not
+					// yet started the PTY. Output means both are ready, so say the
+					// size again. Without this tmux keeps repainting a taller
+					// screen than xterm.js has, which scrolls the shell prompt out
+					// of view and leaves a blank pane (SPEC.md §9.7).
+					if (!sizeConfirmed) {
+						sizeConfirmed = true;
+						sendSize();
+					}
 					return;
 				}
 				if (frame.kind === "exit") {
@@ -303,6 +335,10 @@ export function TerminalPane({
 					setConnected(false);
 					handlers.current.onExited(terminalId);
 					next.close();
+					return;
+				}
+				if (frame.kind === "cwd") {
+					handlers.current.onCwd(frame.path);
 					return;
 				}
 				if (frame.kind === "error") {
@@ -338,8 +374,7 @@ export function TerminalPane({
 
 		const observer = new ResizeObserver(() => {
 			if (container.clientWidth === 0 || container.clientHeight === 0) return;
-			fitAddon.fit();
-			send({ type: "resize", cols: term.cols, rows: term.rows });
+			sendSize();
 		});
 		observer.observe(container);
 
