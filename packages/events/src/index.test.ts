@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { ClientMessage, ServerMessage } from "./index.js";
+import {
+	ClientMessage,
+	ServerMessage,
+	TerminalClientMessage,
+	TerminalServerMessage,
+} from "./index.js";
 
 const workspace = {
 	id: "550e8400-e29b-41d4-a716-446655440000",
@@ -35,4 +40,41 @@ test("ServerMessage round-trips a workspace message", () => {
 
 test("ServerMessage rejects a workspace message with no workspace", () => {
 	expect(ServerMessage.safeParse({ type: "workspace" }).success).toBe(false);
+});
+
+test("TerminalClientMessage accepts input and resize", () => {
+	expect(TerminalClientMessage.parse({ type: "input", data: "ls\n" })).toEqual({
+		type: "input",
+		data: "ls\n",
+	});
+	expect(TerminalClientMessage.parse({ type: "resize", cols: 80, rows: 24 })).toEqual({
+		type: "resize",
+		cols: 80,
+		rows: 24,
+	});
+});
+
+test("TerminalClientMessage rejects out-of-range and unknown frames", () => {
+	expect(
+		TerminalClientMessage.safeParse({ type: "resize", cols: 0, rows: 24 }).success,
+	).toBe(false);
+	expect(
+		TerminalClientMessage.safeParse({ type: "resize", cols: 80, rows: 1001 }).success,
+	).toBe(false);
+	expect(
+		TerminalClientMessage.safeParse({ type: "resize", cols: 80.5, rows: 24 }).success,
+	).toBe(false);
+	expect(TerminalClientMessage.safeParse({ type: "output", data: "x" }).success).toBe(
+		false,
+	);
+});
+
+test("TerminalServerMessage accepts exit and a known error code", () => {
+	expect(TerminalServerMessage.parse({ type: "exit" })).toEqual({ type: "exit" });
+	expect(
+		TerminalServerMessage.parse({ type: "error", code: "ATTACHMENT_LIMIT" }),
+	).toEqual({ type: "error", code: "ATTACHMENT_LIMIT" });
+	expect(TerminalServerMessage.safeParse({ type: "error", code: "NOPE" }).success).toBe(
+		false,
+	);
 });

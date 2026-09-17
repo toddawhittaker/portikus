@@ -196,6 +196,73 @@ describe("database migrations and schema", () => {
 		expect((err as { code?: string }).code).toBe("23503");
 	});
 
+	test.skipIf(!hasTestDb())("terminals table accepts a valid row", async () => {
+		const ws = await t.db
+			.insertInto("workspaces")
+			.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+			.returning("id")
+			.executeTakeFirstOrThrow();
+
+		const row = await t.db
+			.insertInto("terminals")
+			.values({
+				workspace_id: ws.id,
+				name: "shell",
+				cwd: "/home/student",
+			})
+			.returningAll()
+			.executeTakeFirstOrThrow();
+
+		expect(row.workspace_id).toBe(ws.id);
+		expect(row.position).toBe(0);
+		expect(row.ended_at).toBeNull();
+		expect(row.created_at).toBeInstanceOf(Date);
+	});
+
+	test.skipIf(!hasTestDb())(
+		"deleting a workspace cascades to its terminals",
+		async () => {
+			const ws = await t.db
+				.insertInto("workspaces")
+				.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+
+			await t.db
+				.insertInto("terminals")
+				.values({ workspace_id: ws.id, name: "shell", cwd: "/home/student" })
+				.execute();
+
+			await t.db.deleteFrom("workspaces").where("id", "=", ws.id).execute();
+
+			const remaining = await t.db
+				.selectFrom("terminals")
+				.where("workspace_id", "=", ws.id)
+				.selectAll()
+				.execute();
+			expect(remaining).toHaveLength(0);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"workspaces stores the agent token and address",
+		async () => {
+			const row = await t.db
+				.insertInto("workspaces")
+				.values({
+					owner_user_id: await insertTestUser(t.db),
+					state: "running",
+					agent_token: "a".repeat(64),
+					agent_address: "10.99.0.5",
+				})
+				.returningAll()
+				.executeTakeFirstOrThrow();
+
+			expect(row.agent_token).toBe("a".repeat(64));
+			expect(row.agent_address).toBe("10.99.0.5");
+		},
+	);
+
 	test.skipIf(!hasTestDb())("migrations roll back and reapply", async () => {
 		const { Migrator } = await import("kysely/migration");
 		const { migrations } = await import("./migrations/index.js");
@@ -213,11 +280,14 @@ describe("database migrations and schema", () => {
 				expect(down.error).toBeUndefined();
 				const down2 = await migrator.migrateDown();
 				expect(down2.error).toBeUndefined();
+				const down3 = await migrator.migrateDown();
+				expect(down3.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
 					"0001_workspaces",
 					"0002_users_sessions",
+					"0003_terminals",
 				]);
 				throw rollback;
 			}),

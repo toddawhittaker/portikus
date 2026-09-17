@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+	AgentConfigSchema,
 	ApiConfigSchema,
 	ConfigError,
 	ControllerConfigSchema,
@@ -344,4 +345,23 @@ test("ApiConfig coerces SESSION_TTL_SECONDS and rejects zero", () => {
 		{ DATABASE_URL: "postgres://localhost/portikus", SESSION_TTL_SECONDS: "0" },
 		"SESSION_TTL_SECONDS",
 	);
+});
+
+test("AgentConfigSchema applies the workspace agent defaults", () => {
+	const config = loadConfig(AgentConfigSchema, {});
+	expect(config.PORT).toBe(7400);
+	expect(config.TOKEN_PATH).toBe("/etc/portikus/agent.token");
+	expect(config.HOME_DIR).toBe("/home/student");
+});
+
+test("AgentConfigSchema coerces an overridden PORT", () => {
+	expect(loadConfig(AgentConfigSchema, { PORT: "7500" }).PORT).toBe(7500);
+});
+
+test("AGENT_PORT defaults to 7400 for the API and the controller", () => {
+	expect(
+		loadConfig(ApiConfigSchema, { DATABASE_URL: "postgres://localhost/portikus" })
+			.AGENT_PORT,
+	).toBe(7400);
+	expect(loadConfig(ControllerConfigSchema, {}).AGENT_PORT).toBe(7400);
 });

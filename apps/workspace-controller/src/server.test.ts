@@ -4,6 +4,7 @@ import { FakeWorkspaceProvider } from "./fake-provider.js";
 import { buildServer } from "./server.js";
 
 const TOKEN = "test-token-value";
+const AGENT_TOKEN = "a".repeat(64);
 let provider: FakeWorkspaceProvider;
 let app: FastifyInstance;
 
@@ -123,7 +124,7 @@ test("start happy path", async () => {
 		method: "POST",
 		url: "/instances/ws-abc/start",
 		headers: auth(),
-		payload: { timeoutSeconds: 10 },
+		payload: { timeoutSeconds: 10, agentToken: AGENT_TOKEN },
 	});
 	expect(res.statusCode).toBe(200);
 	expect(res.json().ipv4).toBe("10.0.0.2");
@@ -134,7 +135,7 @@ test("start not found returns 404", async () => {
 		method: "POST",
 		url: "/instances/ws-missing/start",
 		headers: auth(),
-		payload: { timeoutSeconds: 10 },
+		payload: { timeoutSeconds: 10, agentToken: AGENT_TOKEN },
 	});
 	expect(res.statusCode).toBe(404);
 });
@@ -162,7 +163,7 @@ test("stop happy path", async () => {
 		method: "POST",
 		url: "/instances/ws-abc/start",
 		headers: auth(),
-		payload: {},
+		payload: { agentToken: AGENT_TOKEN },
 	});
 	const res = await app.inject({
 		method: "POST",
@@ -248,13 +249,13 @@ test("two concurrent starts cause one provider call", async () => {
 			method: "POST",
 			url: "/instances/ws-abc/start",
 			headers: auth(),
-			payload: { timeoutSeconds: 10 },
+			payload: { timeoutSeconds: 10, agentToken: AGENT_TOKEN },
 		}),
 		app.inject({
 			method: "POST",
 			url: "/instances/ws-abc/start",
 			headers: auth(),
-			payload: { timeoutSeconds: 10 },
+			payload: { timeoutSeconds: 10, agentToken: AGENT_TOKEN },
 		}),
 	]);
 
