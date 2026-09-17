@@ -11,13 +11,13 @@
 export type TerminalLink =
 	| {
 			kind: "preview";
-			to: "/workspaces/$id/preview/$port";
-			params: { id: string; port: string };
+			to: "/workspaces/$id/projects/$projectId/preview/$port";
+			params: { id: string; projectId: string; port: string };
 	  }
 	| {
 			kind: "file";
-			to: "/workspaces/$id/files";
-			params: { id: string };
+			to: "/workspaces/$id/projects/$projectId/files";
+			params: { id: string; projectId: string };
 			search: { path: string; line: number };
 	  };
 
@@ -33,7 +33,11 @@ export const FILE_LINE_PATTERN = /([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):(\d+)/;
  * A local development URL such as `http://localhost:3000` becomes the
  * authenticated preview route for that port. Anything else is not ours.
  */
-export function previewRouteFor(url: string, workspaceId: string): TerminalLink | null {
+export function previewRouteFor(
+	url: string,
+	workspaceId: string,
+	projectId: string,
+): TerminalLink | null {
 	let parsed: URL;
 	try {
 		parsed = new URL(url);
@@ -51,8 +55,8 @@ export function previewRouteFor(url: string, workspaceId: string): TerminalLink 
 	if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
 	return {
 		kind: "preview",
-		to: "/workspaces/$id/preview/$port",
-		params: { id: workspaceId, port: String(port) },
+		to: "/workspaces/$id/projects/$projectId/preview/$port",
+		params: { id: workspaceId, projectId, port: String(port) },
 	};
 }
 
@@ -60,7 +64,11 @@ export function previewRouteFor(url: string, workspaceId: string): TerminalLink 
  * A `path:line` reference becomes the file route. The path must be relative
  * and must not climb out of the workspace with `..` (SPEC.md §14.9).
  */
-export function fileRouteFor(match: string, workspaceId: string): TerminalLink | null {
+export function fileRouteFor(
+	match: string,
+	workspaceId: string,
+	projectId: string,
+): TerminalLink | null {
 	const found = FILE_LINE_PATTERN.exec(match);
 	if (!found || found[0] !== match) return null;
 	const path = found[1];
@@ -71,8 +79,8 @@ export function fileRouteFor(match: string, workspaceId: string): TerminalLink |
 	if (!Number.isInteger(line) || line < 1) return null;
 	return {
 		kind: "file",
-		to: "/workspaces/$id/files",
-		params: { id: workspaceId },
+		to: "/workspaces/$id/projects/$projectId/files",
+		params: { id: workspaceId, projectId },
 		search: { path, line },
 	};
 }

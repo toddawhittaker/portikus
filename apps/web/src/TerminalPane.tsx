@@ -11,8 +11,9 @@ import {
 	fileRouteFor,
 	previewRouteFor,
 	type TerminalLink,
-} from "./links";
-import { decodeTerminalFrame } from "./terminalFrames";
+} from "./links.js";
+import { decodeTerminalFrame } from "./terminalFrames.js";
+import { currentPlatform, decide } from "./work/terminalClipboard.js";
 
 const RECONNECT_MS = 3_000;
 const MAX_RECONNECT_MS = 60_000;
@@ -35,10 +36,16 @@ const THEME = {
 
 export interface TerminalPaneProps {
 	workspaceId: string;
+	projectId: string;
 	terminal: TerminalMeta;
 	visible: boolean;
-	onExit: (terminalId: string) => void;
+	/** The shell exited, or the socket will not come back (SPEC.md §9.7). */
+	onExited: (terminalId: string) => void;
 	onSessionEnded: () => void;
+	/** The user clicked or typed in this pane. */
+	onFocus: (terminalId: string) => void;
+	/** Alt+Shift+Q: move focus out of the terminal to the tab strip. */
+	onLeave: () => void;
 }
 
 function socketUrl(
@@ -51,6 +58,21 @@ function socketUrl(
 	return `${scheme}://${location.host}/workspaces/${workspaceId}/terminals/${terminalId}/ws?cols=${cols}&rows=${rows}`;
 }
 
+/** Firefox and older browsers may not expose clipboard reading at all. */
+function canReadClipboard(): boolean {
+	return typeof navigator.clipboard?.readText === "function";
+}
+
+/** Copy to the system clipboard, ignoring a browser that refuses. */
+async function writeClipboard(text: string): Promise<void> {
+	if (text === "") return;
+	try {
+		await navigator.clipboard?.writeText(text);
+	} catch {
+		// Permission denied or no clipboard: nothing the student can act on.
+	}
+}
+
 /**
  * One xterm.js instance attached to one terminal (SPEC.md §9.1, §9.7). The
  * element stays mounted while its tab exists and is hidden with CSS, so
@@ -58,30 +80,33 @@ function socketUrl(
  */
 export function TerminalPane({
 	workspaceId,
+	projectId,
 	terminal,
 	visible,
-	onExit,
+	onExited,
 	onSessionEnded,
+	onFocus,
+	onLeave,
 }: TerminalPaneProps) {
 	const host = useRef<HTMLDivElement | null>(null);
 	const xterm = useRef<Xterm | null>(null);
 	const fit = useRef<FitAddon | null>(null);
 	const [reconnecting, setReconnecting] = useState(false);
+	const [lost, setLost] = useState(false);
 	// Exposed on the pane element so tests can wait for the socket to be open.
 	const [connected, setConnected] = useState(false);
 	const navigate = useNavigate();
 
 	// Callbacks the long-lived effect reads through a ref, so that a new
 	// render does not tear down the terminal and its socket.
-	const handlers = useRef({ onExit, onSessionEnded, navigate });
-	handlers.current = { onExit, onSessionEnded, navigate };
+	const handlers = useRef({ onExited, onSessionEnded, onFocus, onLeave, navigate });
+	handlers.current = { onExited, onSessionEnded, onFocus, onLeave, navigate };
 
 	const terminalId = terminal.id;
-	const ended = terminal.endedAt !== null;
 
 	useEffect(() => {
 		const container = host.current;
-		if (!container || ended) return;
+		if (!container) return;
 
 		function go(link: TerminalLink | null) {
 			if (!link) return;
@@ -106,7 +131,7 @@ export function TerminalPane({
 		term.loadAddon(fitAddon);
 		term.loadAddon(
 			new WebLinksAddon((_event, uri) => {
-				const preview = previewRouteFor(uri, workspaceId);
+				const preview = previewRouteFor(uri, workspaceId, projectId);
 				if (preview) {
 					go(preview);
 					return;
@@ -137,7 +162,7 @@ export function TerminalPane({
 				const links = [];
 				let found = pattern.exec(line);
 				while (found !== null) {
-					const route = fileRouteFor(found[0], workspaceId);
+					const route = fileRouteFor(found[0], workspaceId, projectId);
 					if (route) {
 						const start = found.index + 1;
 						links.push({
@@ -167,11 +192,76 @@ export function TerminalPane({
 			}
 		}
 
-		// Stop retrying and show the tab as ended, with its "New terminal" action.
+		function sendInput(data: string) {
+			if (data !== "") send({ type: "input", data });
+		}
+
+		/** Read the clipboard and type it into the shell. */
+		async function paste(): Promise<boolean> {
+			try {
+				const text = await navigator.clipboard.readText();
+				sendInput(text);
+				return true;
+			} catch {
+				// Firefox may refuse readText; letting the event through means
+				// xterm's textarea still receives the browser's own paste.
+				return false;
+			}
+		}
+
+		const platform = currentPlatform();
+		term.attachCustomKeyEventHandler((event) => {
+			if (
+				event.type === "keydown" &&
+				event.altKey &&
+				event.shiftKey &&
+				event.key.toLowerCase() === "q"
+			) {
+				event.preventDefault();
+				handlers.current.onLeave();
+				return false;
+			}
+			const action = decide(event, term.hasSelection(), platform);
+			if (action === "copy") {
+				const selection = term.getSelection();
+				void writeClipboard(selection);
+				term.clearSelection();
+				return false;
+			}
+			if (action === "paste") {
+				if (!canReadClipboard()) return true;
+				void paste();
+				return false;
+			}
+			return true;
+		});
+
+		// Selecting text copies it, as it does in a UNIX terminal.
+		const selection = term.onSelectionChange(() => {
+			if (term.hasSelection()) void writeClipboard(term.getSelection());
+		});
+
+		function onContextMenu(event: MouseEvent) {
+			event.preventDefault();
+			if (term.hasSelection()) {
+				void writeClipboard(term.getSelection());
+				term.clearSelection();
+				return;
+			}
+			if (canReadClipboard()) void paste();
+		}
+		container.addEventListener("contextmenu", onContextMenu);
+
+		function onPointerDown() {
+			handlers.current.onFocus(terminalId);
+		}
+		container.addEventListener("pointerdown", onPointerDown);
+
+		// Stop retrying and tell the user, rather than pretending to be live.
 		function giveUp() {
 			stopped = true;
 			setReconnecting(false);
-			handlers.current.onExit(terminalId);
+			setLost(true);
 		}
 
 		function connect() {
@@ -199,7 +289,7 @@ export function TerminalPane({
 					stopped = true;
 					setReconnecting(false);
 					setConnected(false);
-					handlers.current.onExit(terminalId);
+					handlers.current.onExited(terminalId);
 					next.close();
 					return;
 				}
@@ -247,13 +337,16 @@ export function TerminalPane({
 			stopped = true;
 			if (retry !== undefined) clearTimeout(retry);
 			observer.disconnect();
+			container.removeEventListener("contextmenu", onContextMenu);
+			container.removeEventListener("pointerdown", onPointerDown);
+			selection.dispose();
 			input.dispose();
 			socket?.close();
 			term.dispose();
 			xterm.current = null;
 			fit.current = null;
 		};
-	}, [workspaceId, terminalId, ended]);
+	}, [workspaceId, projectId, terminalId]);
 
 	// A hidden pane has no size, so re-fit when it comes back into view.
 	useEffect(() => {
@@ -262,19 +355,17 @@ export function TerminalPane({
 
 	return (
 		<div
-			className="pk-terminal-pane"
-			hidden={!visible}
+			className="pk-term-screen"
 			data-testid={`terminal-pane-${terminalId}`}
 			data-connected={connected ? "true" : undefined}
 		>
-			{ended ? (
-				<p className="pk-terminal-notice">
-					This terminal has ended. Use “New terminal” on its tab to start another.
-				</p>
-			) : (
-				<div className="pk-terminal-surface" ref={host} />
+			<div className="pk-terminal-surface" ref={host} />
+			{reconnecting && <div className="pk-term-flag">Reconnecting…</div>}
+			{lost && (
+				<div className="pk-term-flag">
+					This terminal lost its connection. Reload the page to try again.
+				</div>
 			)}
-			{reconnecting && <div className="pk-terminal-overlay">Reconnecting…</div>}
 		</div>
 	);
 }

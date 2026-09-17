@@ -3,20 +3,21 @@ import { canOpenInNewTab, fileRouteFor, previewRouteFor } from "./links";
 import { decodeTerminalFrame } from "./terminalFrames";
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
+const PROJECT = "33333333-3333-4333-8333-333333333333";
 
 test("a localhost URL with a port becomes the preview route", () => {
-	expect(previewRouteFor("http://localhost:3000", WORKSPACE)).toEqual({
+	expect(previewRouteFor("http://localhost:3000", WORKSPACE, PROJECT)).toEqual({
 		kind: "preview",
-		to: "/workspaces/$id/preview/$port",
-		params: { id: WORKSPACE, port: "3000" },
+		to: "/workspaces/$id/projects/$projectId/preview/$port",
+		params: { id: WORKSPACE, projectId: PROJECT, port: "3000" },
 	});
 });
 
 test("a 127.0.0.1 URL with a port becomes the preview route", () => {
-	expect(previewRouteFor("http://127.0.0.1:8000/todos", WORKSPACE)).toEqual({
+	expect(previewRouteFor("http://127.0.0.1:8000/todos", WORKSPACE, PROJECT)).toEqual({
 		kind: "preview",
-		to: "/workspaces/$id/preview/$port",
-		params: { id: WORKSPACE, port: "8000" },
+		to: "/workspaces/$id/projects/$projectId/preview/$port",
+		params: { id: WORKSPACE, projectId: PROJECT, port: "8000" },
 	});
 });
 
@@ -24,10 +25,10 @@ test.each([
 	["http with no port means 80", "http://localhost/", "80"],
 	["https with no port means 443", "https://127.0.0.1/app", "443"],
 ])("%s", (_name, url, port) => {
-	expect(previewRouteFor(url, WORKSPACE)).toEqual({
+	expect(previewRouteFor(url, WORKSPACE, PROJECT)).toEqual({
 		kind: "preview",
-		to: "/workspaces/$id/preview/$port",
-		params: { id: WORKSPACE, port },
+		to: "/workspaces/$id/projects/$projectId/preview/$port",
+		params: { id: WORKSPACE, projectId: PROJECT, port },
 	});
 });
 
@@ -36,7 +37,7 @@ test.each([
 	["a non-http scheme", "file:///etc/passwd"],
 	["text that is not a URL", "not a url"],
 ])("%s is not a preview route", (_name, url) => {
-	expect(previewRouteFor(url, WORKSPACE)).toBeNull();
+	expect(previewRouteFor(url, WORKSPACE, PROJECT)).toBeNull();
 });
 
 test("an ordinary remote URL may open in a new tab", () => {
@@ -60,10 +61,10 @@ test.each([
 });
 
 test("a relative path and line becomes the file route", () => {
-	expect(fileRouteFor("src/auth.ts:73", WORKSPACE)).toEqual({
+	expect(fileRouteFor("src/auth.ts:73", WORKSPACE, PROJECT)).toEqual({
 		kind: "file",
-		to: "/workspaces/$id/files",
-		params: { id: WORKSPACE },
+		to: "/workspaces/$id/projects/$projectId/files",
+		params: { id: WORKSPACE, projectId: PROJECT },
 		search: { path: "src/auth.ts", line: 73 },
 	});
 });
@@ -73,7 +74,7 @@ test.each([
 	["an absolute path", "/etc/passwd:1"],
 	["text with no line number", "src/auth.ts"],
 ])("%s is not a file route", (_name, match) => {
-	expect(fileRouteFor(match, WORKSPACE)).toBeNull();
+	expect(fileRouteFor(match, WORKSPACE, PROJECT)).toBeNull();
 });
 
 test("terminal frames decode by kind", () => {
