@@ -130,6 +130,49 @@ test("clearing a user's input sends null, and a number sets the override", async
 	expect(writes[1]?.body).toEqual({ shutdownGraceSeconds: 45 });
 });
 
+test("the users table shows no default until the settings load", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, ADMIN);
+		if (url === "/admin/users") return json(200, { users: [STUDENT_ROW, ADMIN_ROW] });
+		if (url === "/admin/settings") {
+			return json(500, { code: "INTERNAL", message: "Settings are unavailable." });
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+
+	renderApp("/admin");
+
+	// The failure is shown under the global input.
+	expect(await screen.findByText("Settings are unavailable.")).toBeDefined();
+	// The row with no override claims no default, in the placeholder or the hint.
+	const input = (await screen.findByTestId(
+		`user-grace-input-${ADMIN.id}`,
+	)) as HTMLInputElement;
+	expect(input.value).toBe("");
+	expect(input.placeholder).toBe("");
+	expect(screen.queryByText(/^Default \(/)).toBeNull();
+	expect(
+		screen.queryByText("Workspaces keep running until stopped by hand"),
+	).toBeNull();
+});
+
+test("a value beyond the integer limit is refused before any request", async () => {
+	const writes: { url: string; body: unknown }[] = [];
+	stubAdmin(600, (url, body) => writes.push({ url, body }));
+
+	renderApp("/admin");
+
+	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
+	await waitFor(() => expect(input.value).toBe("600"));
+	fireEvent.change(input, { target: { value: "2147483648" } });
+	fireEvent.click(screen.getByTestId("grace-save"));
+
+	expect(
+		await screen.findByText("Enter a whole number of seconds, 0 or more."),
+	).toBeDefined();
+	expect(writes.length).toBe(0);
+});
+
 test("a student sent to /admin lands on the not-authorized page", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, USER);

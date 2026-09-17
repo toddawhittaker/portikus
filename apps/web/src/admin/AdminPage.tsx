@@ -44,10 +44,16 @@ export function AdminPage() {
 	);
 }
 
-/** Reads a seconds input, or null when it is not a whole number at or above 0. */
+/**
+ * Reads a seconds input, or null when it is not a whole number at or above 0.
+ * The upper bound is the largest value the API's 32-bit integer column takes.
+ */
+const MAX_SECONDS = 2147483647;
+
 function parseSeconds(value: string): number | null {
 	if (!/^\d+$/.test(value.trim())) return null;
-	return Number(value.trim());
+	const seconds = Number(value.trim());
+	return seconds > MAX_SECONDS ? null : seconds;
 }
 
 function errorText(error: unknown): string {
@@ -101,7 +107,7 @@ function GraceSection() {
 					data-testid="grace-input"
 					value={value}
 					hint={seconds === null ? undefined : graceText(seconds)}
-					error={error}
+					error={error ?? (settings.isError ? errorText(settings.error) : null)}
 					disabled={settings.isLoading}
 					onChange={(event) => setDraft(event.target.value)}
 				/>
@@ -121,7 +127,7 @@ function GraceSection() {
 function UsersSection() {
 	const users = useAdminUsers();
 	const settings = usePlatformSettings();
-	const globalSeconds = settings.data?.shutdownGraceSeconds ?? 0;
+	const globalSeconds = settings.data?.shutdownGraceSeconds ?? null;
 
 	return (
 		<section className="pk-card mt-6 p-6" aria-labelledby="users-title">
@@ -147,7 +153,13 @@ function UsersSection() {
 	);
 }
 
-function UserRow({ user, globalSeconds }: { user: AdminUser; globalSeconds: number }) {
+function UserRow({
+	user,
+	globalSeconds,
+}: {
+	user: AdminUser;
+	globalSeconds: number | null;
+}) {
 	const update = useUpdateUserSettings();
 	const toast = useToast();
 	const [draft, setDraft] = useState<string | null>(null);
@@ -193,7 +205,9 @@ function UserRow({ user, globalSeconds }: { user: AdminUser; globalSeconds: numb
 						label="Seconds"
 						className="w-40"
 						inputMode="numeric"
-						placeholder={`Default (${globalSeconds} s)`}
+						placeholder={
+							globalSeconds === null ? undefined : `Default (${globalSeconds} s)`
+						}
 						data-testid={`user-grace-input-${user.id}`}
 						value={value}
 						hint={effective === null ? undefined : graceText(effective)}

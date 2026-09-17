@@ -784,6 +784,35 @@ test.skipIf(skip)("without a settings row the config value is used", async () =>
 	expect(Math.abs(deadlineMs(ws.shutdown_deadline) - expected)).toBeLessThan(2000);
 });
 
+test.skipIf(skip)(
+	"restarting a failed workspace clears the stale disconnect timers",
+	async () => {
+		const now = new Date();
+		const id = await insertWorkspace({
+			state: "error",
+			desired_state: "running",
+			disconnected_at: new Date(now.getTime() - 3600_000).toISOString(),
+			shutdown_deadline: new Date(now.getTime() - 3000_000).toISOString(),
+			// Past the rest period the sweep waits before retrying a start.
+			updated_at: new Date(now.getTime() - 60_000).toISOString(),
+		});
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+		let ws = await getWorkspace(id);
+		expect(ws.state).toBe("running");
+		expect(ws.disconnected_at).toBeNull();
+		expect(ws.shutdown_deadline).toBeNull();
+
+		// A sweep with no connections arms a fresh deadline instead of stopping.
+		const later = new Date(now.getTime() + 1000);
+		await reconcile(tdb.db, fake, cfg, later, later);
+
+		ws = await getWorkspace(id);
+		expect(ws.state).toBe("running");
+		expect(deadlineMs(ws.shutdown_deadline)).toBeGreaterThan(later.getTime());
+	},
+);
+
 test.skipIf(skip)("the agent token never appears in audit metadata", async () => {
 	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
 	const now = new Date();

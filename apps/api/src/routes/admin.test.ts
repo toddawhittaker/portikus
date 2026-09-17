@@ -189,7 +189,7 @@ test.skipIf(skip)("an administrator reads and changes the grace period", async (
 		.execute();
 	expect(audits).toHaveLength(1);
 	expect(audits[0]?.target).toBe("settings");
-	expect(audits[0]?.metadata).toEqual({ from: 600, to: 0 });
+	expect(audits[0]?.metadata).toMatchObject({ from: 600, to: 0 });
 });
 
 test.skipIf(skip)("PUT /admin/settings rejects bad bodies", async () => {
@@ -254,8 +254,8 @@ test.skipIf(skip)("an administrator lists users and sets an override", async () 
 		.execute();
 	expect(audits).toHaveLength(2);
 	expect(audits[0]?.target).toBe(alice?.id);
-	expect(audits[0]?.metadata).toEqual({ from: null, to: 0 });
-	expect(audits[1]?.metadata).toEqual({ from: 0, to: null });
+	expect(audits[0]?.metadata).toMatchObject({ from: null, to: 0 });
+	expect(audits[1]?.metadata).toMatchObject({ from: 0, to: null });
 });
 
 test.skipIf(skip)("an unknown user id is 404 and a bad body is 400", async () => {

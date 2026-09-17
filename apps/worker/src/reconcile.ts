@@ -583,6 +583,9 @@ async function startWorkspace(
 			error_code: null,
 			error_message: null,
 			desired_state: settleRestarting,
+			// A restart is a fresh session: stale timers must not stop it again.
+			disconnected_at: null,
+			shutdown_deadline: null,
 		},
 		now,
 	);
