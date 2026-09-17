@@ -27,6 +27,14 @@ test.describe("administration", () => {
 		return id;
 	}
 
+	test.beforeAll(async () => {
+		// No worker runs here, so seed the settings row the way the worker
+		// does on its first start.
+		await query(
+			"insert into settings (id, shutdown_grace_seconds) values (1, 600) on conflict do nothing",
+		);
+	});
+
 	test.afterAll(async () => {
 		// Leave the platform on its default, whatever the tests did.
 		await query("update settings set shutdown_grace_seconds = 600");
@@ -43,7 +51,7 @@ test.describe("administration", () => {
 		).toBeVisible();
 		await page.getByTestId("grace-save").click();
 
-		await expect(page.getByText("Grace period saved")).toBeVisible();
+		await expect(page.getByText("Grace period saved", { exact: true })).toBeVisible();
 
 		await page.reload();
 		await expect(page.getByTestId("grace-input")).toHaveValue("0");
@@ -51,7 +59,7 @@ test.describe("administration", () => {
 		// Put it back through the page itself, so the saved value is checked twice.
 		await page.getByTestId("grace-input").fill("600");
 		await page.getByTestId("grace-save").click();
-		await expect(page.getByText("Grace period saved")).toBeVisible();
+		await expect(page.getByText("Grace period saved", { exact: true })).toBeVisible();
 		await page.reload();
 		await expect(page.getByTestId("grace-input")).toHaveValue("600");
 		await expect(page.getByText("10 minutes").first()).toBeVisible();
