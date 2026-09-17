@@ -23,6 +23,8 @@ test("signing out ends the session", async ({ page }) => {
 	expect(me.status()).toBe(401);
 });
 
+// The ids this file uses (me, signin, signout, workspace-state) stay the
+// same in the Epic 6 shell (plan, E1), so only the chrome around them moves.
 test("the workspace panel shows a state after login", async ({ page }) => {
 	await loginAs(page, "alice");
 

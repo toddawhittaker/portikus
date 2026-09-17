@@ -1,11 +1,16 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
+	createProject,
 	createStudent,
 	deleteSessions,
+	EPIC6_UI,
 	endTerminal,
+	projectIds,
 	query,
 	terminalIds,
 	WEB_ORIGIN,
+	workspacePath,
+	workTabs,
 } from "./helpers";
 
 /**
@@ -16,7 +21,7 @@ import {
 
 /** The tab strip and the pane of the terminal that is currently shown. */
 function tabs(page: Page): Locator {
-	return page.getByRole("tablist", { name: "Terminals" });
+	return workTabs(page);
 }
 
 function visiblePane(page: Page): Locator {
@@ -28,6 +33,13 @@ function rowsOf(page: Page, terminalId: string): Locator {
 }
 
 async function newTerminal(page: Page): Promise<void> {
+	// TODO(Epic 6): "New terminal" becomes the `launcher` menu button with a
+	// "Terminal" item inside it (plan, E2).
+	if (EPIC6_UI) {
+		await page.getByTestId("launcher").click();
+		await page.getByRole("menuitem", { name: "Terminal", exact: true }).click();
+		return;
+	}
 	await page.getByRole("button", { name: "New terminal", exact: true }).click();
 }
 
@@ -73,9 +85,14 @@ async function typeAndExpectEcho(
 		.toContain(text);
 }
 
-/** Open the workspace screen with one terminal ready, and return its id. */
+/**
+ * Open a project's work area with one terminal ready, and return its id.
+ * Every terminal belongs to a project now (SPEC.md §7.5, §9.4), so the
+ * project is created first and the page goes to its route.
+ */
 async function openWithTerminal(page: Page, workspaceId: string): Promise<string> {
-	await page.goto(`/workspaces/${workspaceId}`);
+	const project = await createProject(workspaceId, { name: "Terminal Work" });
+	await page.goto(workspacePath(workspaceId, project.id));
 	await expect(tabs(page)).toBeVisible({ timeout: 15_000 });
 	await newTerminal(page);
 	await expect(page.getByRole("tab", { name: "Terminal 1" })).toBeVisible();
@@ -212,7 +229,7 @@ test("another student's workspace shows no terminals", async ({ page, browser })
 	// The signed-in user of `page` is a different student.
 	await createStudent(page.context());
 
-	await page.goto(`/workspaces/${student.workspaceId}`);
+	await page.goto(workspacePath(student.workspaceId));
 
 	await expect(page.getByRole("alert")).toContainText("Terminals are unavailable", {
 		timeout: 15_000,
@@ -239,7 +256,8 @@ test("two windows of the same student share one terminal", async ({
 	]);
 	const secondPage = await second.newPage();
 	try {
-		await secondPage.goto(`/workspaces/${student.workspaceId}`);
+		const [projectId] = await projectIds(student.workspaceId);
+		await secondPage.goto(workspacePath(student.workspaceId, projectId));
 		await expect(secondPage.getByRole("tab", { name: "Terminal 1" })).toBeVisible({
 			timeout: 15_000,
 		});
