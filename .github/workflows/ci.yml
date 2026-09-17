@@ -43,13 +43,13 @@ jobs:
         id: detect
         run: |
           if [ -f pnpm-workspace.yaml ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "No pnpm workspace yet; skipping."; fi
-      # The workspace-agent terminal tests need a real tmux, which the runner
-      # image does not ship.
-      - name: Install tmux
+      # The workspace-agent tests need a real tmux for terminals and zip for
+      # the project archive, which the runner image does not ship.
+      - name: Install tmux and zip
         if: steps.detect.outputs.present == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends tmux
+          sudo apt-get install -y --no-install-recommends tmux zip unzip
       - uses: pnpm/action-setup@v6
         if: steps.detect.outputs.present == 'true'
       - uses: actions/setup-node@v7
