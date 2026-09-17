@@ -78,3 +78,14 @@ test("TerminalServerMessage accepts exit and a known error code", () => {
 		false,
 	);
 });
+
+test("TerminalServerMessage accepts a cwd frame with an absolute path", () => {
+	expect(TerminalServerMessage.parse({ type: "cwd", path: "/home/student" })).toEqual({
+		type: "cwd",
+		path: "/home/student",
+	});
+	expect(TerminalServerMessage.safeParse({ type: "cwd", path: "" }).success).toBe(
+		false,
+	);
+	expect(TerminalServerMessage.safeParse({ type: "cwd" }).success).toBe(false);
+});
