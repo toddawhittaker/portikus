@@ -16,6 +16,7 @@ import { AgentTerminalList, MAX_INPUT_FRAME_BYTES } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { TerminalServerMessage } from "@portikus/events";
 import { createLogger } from "@portikus/observability";
+import { collectingLogger } from "@portikus/observability/testing";
 // @ts-expect-error apps/api does not depend on the agent package; the vitest
 // alias in vitest.config.ts resolves it from source for this test only.
 import { buildServer as buildAgentServer } from "@portikus/workspace-agent";
@@ -81,6 +82,9 @@ async function sessionExists(id: string): Promise<boolean> {
 
 /** Every log line the real agent wrote during this run. */
 const agentLogLines: string[] = [];
+
+/** Every log line the API wrote during this run. */
+let apiLines: Record<string, unknown>[] = [];
 
 /**
  * Start the real agent: its own Fastify server on a real port, reading its
@@ -269,7 +273,14 @@ beforeEach(async () => {
 	// The token may have been rotated by a previous test.
 	await writeFile(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
 	await testDb.truncate();
-	app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agentPort });
+	const collected = collectingLogger("debug");
+	apiLines = collected.lines;
+	app = buildTestServer(
+		testDb.db,
+		mock.issuer,
+		{ AGENT_PORT: agentPort },
+		collected.logger,
+	);
 	await app.listen({ port: 0, host: "127.0.0.1" });
 	alice = new CookieJar();
 	await loginAs(app, "alice", alice);
@@ -619,10 +630,12 @@ function apiClients(): WsSocket[] {
 test.skipIf(skip)(
 	"neither the agent nor the API ever logs the agent token",
 	async () => {
-		// The API still writes JSON lines to the console; the agent writes
-		// pino lines into agentLogLines. Both run in this process here.
+		// Both services log through pino into arrays here: the agent into
+		// agentLogLines, the API into apiLines. The console spies stay as a
+		// backstop for anything that bypasses the loggers.
 		const logged: string[] = [];
 		agentLogLines.length = 0;
+		apiLines.length = 0;
 		const record = (...args: unknown[]) => {
 			logged.push(args.map(String).join(" "));
 		};
@@ -650,10 +663,12 @@ test.skipIf(skip)(
 		for (const spy of spies) spy.mockRestore();
 
 		logged.push(...agentLogLines);
+		logged.push(...apiLines.map((line) => JSON.stringify(line)));
 		for (const line of logged) {
 			expect(line).not.toContain(TOKEN);
 		}
-		// A vacuous pass would be worse than a failure: prove something was logged.
-		expect(logged.length).toBeGreaterThan(0);
+		// A vacuous pass would be worse than a failure: prove both logged.
+		expect(agentLogLines.length).toBeGreaterThan(0);
+		expect(apiLines.length).toBeGreaterThan(0);
 	},
 );

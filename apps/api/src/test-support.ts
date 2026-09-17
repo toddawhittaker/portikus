@@ -1,7 +1,7 @@
 import { createOidcClient } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import type { Database } from "@portikus/db";
-import { silentLogger } from "@portikus/observability";
+import { type Logger, silentLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
@@ -39,17 +39,21 @@ export function testConfig(
 	};
 }
 
-/** Build a server wired to the mock provider on `issuerUrl`. */
+/**
+ * Build a server wired to the mock provider on `issuerUrl`. Pass `logger`
+ * when a test needs to read the API's own log lines.
+ */
 export function buildTestServer(
 	db: Kysely<Database>,
 	issuerUrl: string,
 	overrides: Partial<ApiConfig> = {},
+	logger: Logger = silentLogger(),
 ): FastifyInstance {
 	const config = testConfig(issuerUrl, overrides);
 	return buildServer({
 		db,
 		config,
-		logger: silentLogger(),
+		logger,
 		oidc: createOidcClient(toAuthOptions(config)),
 	});
 }
