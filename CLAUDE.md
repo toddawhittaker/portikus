@@ -81,8 +81,8 @@ every start and the controller pushes to `/etc/portikus/agent.token`
 through the Incus files API; `start` then polls the agent's `/health` and
 fails if it is not up within 15 seconds. The Debian package ships the agent
 at `/usr/lib/portikus/workspace-agent`, the workspace profile bind-mounts
-it read-only at `/opt/portikus/workspace-agent`, and workspace image
-`2026.09.2` runs its unit as `student`. The API adds terminal routes and a
+it read-only at `/opt/portikus/workspace-agent`, and the workspace image
+runs its unit as `student`. The API adds terminal routes and a
 byte-pipe WebSocket at `/workspaces/:id/terminals/:tid/ws` that forwards
 frames without parsing them, applies backpressure in both directions,
 serves the workspace owner only (an administrator gets a 404), and
@@ -99,19 +99,39 @@ allows tcp/7400 from the gateway only. Tests are 17 Playwright cases
 against a fake agent, a vitest file against the real agent (it needs tmux,
 now installed in CI), and an Epic 5 block in the smoke test.
 
+Epic 6 is the three-pane shell and project management (ADR 0010). The
+design system is now built: `packages/ui` holds the tokens as a Tailwind
+theme plus the primitives and overlays, and `apps/web` is the real shell,
+with a project pane on the left, a tabbed work area in the middle, a
+placeholder file pane on the right, and a status bar. Projects are
+database rows mirroring `~/projects/<slug>`; all filesystem and Git work
+runs in the workspace agent behind the existing token, and a listing
+discovers repositories already on disk and flags a row whose directory is
+gone. Create, clone, template, Initialize Git, rename (which moves the
+directory and rewrites terminal working directories), duplicate, zip
+download, and archive (a flag, the directory stays) are all there.
+Terminals gained splits, tab reordering, a per-project saved layout in one
+JSON column, closing the pane when the shell exits, and full clipboard
+handling in the terminal. Templates are configuration
+(`PROJECT_TEMPLATES`), and the platform still never makes a commit.
+Workspace image `2026.09.3` adds `zip` for downloads.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
 is wired up, there is no admin UI beyond the one listing route, nothing
 rate-limits login, and disabling a user means setting `users.disabled_at`
-by hand in SQL. From Epic 5, terminal splits and pane reordering are
-deferred to Epic 6; the file and preview link targets are placeholders
-until Epics 7 and 8; traffic between the API and the agent is plaintext on
-the workspace bridge until Epic 12; the token file sits in a directory the
-student owns, so containment relies on the Incus files API resolving paths
-inside the instance; the eight-terminal cap has a benign check-then-act
-race; and terminal rows (open plus the 20 most recent ended per listing)
-are never pruned. Epic 6 (core three-pane UI and project management) is
-next.
+by hand in SQL. From Epic 5, the file and preview link targets are
+placeholders until Epics 7 and 8; traffic between the API and the agent is
+plaintext on the workspace bridge until Epic 12; the token file sits in a
+directory the student owns, so containment relies on the Incus files API
+resolving paths inside the instance; the eight-terminal cap has a benign
+check-then-act race; and terminal rows (open plus the 20 most recent ended
+per listing) are never pruned. From Epic 6, the 1024-wide rail collapse is
+deferred, a clone shows no progress while it runs, a download has no size
+cap, discovery ignores directories that are not repositories, unarchiving
+is only reachable through the API, and right-click paste in Firefox depends
+on the browser's own paste prompt. Epic 7 (files, Monaco, search, and
+change review) is next.
 
 ## Commands
 
