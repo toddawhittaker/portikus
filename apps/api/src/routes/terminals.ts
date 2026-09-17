@@ -547,7 +547,9 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 		});
 
 		upstream.on("error", (error: Error) => {
-			log("error", {
+			// The browser closing first aborts a still-connecting agent socket,
+			// which is the normal path and not a failure.
+			log(closed ? "info" : "error", {
 				msg: "terminal agent socket failed",
 				terminalId,
 				error: error.message,

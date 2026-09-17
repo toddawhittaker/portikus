@@ -31,6 +31,13 @@ async function newTerminal(page: Page): Promise<void> {
 	await page.getByRole("button", { name: "New terminal", exact: true }).click();
 }
 
+/** Wait for a pane's terminal WebSocket to be open. */
+async function expectConnected(page: Page, terminalId: string): Promise<void> {
+	await expect(
+		page.locator(`[data-testid=terminal-pane-${terminalId}]`),
+	).toHaveAttribute("data-connected", "true", { timeout: 15_000 });
+}
+
 /**
  * Type into the terminal that is on screen. `insertText` delivers the whole
  * string in one input event, so the agent sees one frame rather than one per
@@ -75,6 +82,7 @@ async function openWithTerminal(page: Page, workspaceId: string): Promise<string
 	const [id] = await terminalIds(workspaceId);
 	if (!id) throw new Error("the terminal row was not created");
 	await expect(visiblePane(page).locator(".xterm-screen")).toBeVisible();
+	await expectConnected(page, id);
 	return id;
 }
 
@@ -236,6 +244,7 @@ test("two windows of the same student share one terminal", async ({
 			timeout: 15_000,
 		});
 		await expect(visiblePane(secondPage).locator(".xterm-screen")).toBeVisible();
+		await expectConnected(secondPage, terminalId);
 
 		// The agent broadcasts to every attachment of the terminal, so what is
 		// typed in one window shows up in the other.

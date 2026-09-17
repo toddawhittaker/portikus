@@ -67,6 +67,8 @@ export function TerminalPane({
 	const xterm = useRef<Xterm | null>(null);
 	const fit = useRef<FitAddon | null>(null);
 	const [reconnecting, setReconnecting] = useState(false);
+	// Exposed on the pane element so tests can wait for the socket to be open.
+	const [connected, setConnected] = useState(false);
 	const navigate = useNavigate();
 
 	// Callbacks the long-lived effect reads through a ref, so that a new
@@ -184,6 +186,7 @@ export function TerminalPane({
 				backoffMs = RECONNECT_MS;
 				attempts = 0;
 				setReconnecting(false);
+				setConnected(true);
 			};
 
 			next.onmessage = (event: MessageEvent) => {
@@ -195,6 +198,7 @@ export function TerminalPane({
 				if (frame.kind === "exit") {
 					stopped = true;
 					setReconnecting(false);
+					setConnected(false);
 					handlers.current.onExit(terminalId);
 					next.close();
 					return;
@@ -205,6 +209,7 @@ export function TerminalPane({
 			};
 
 			next.onclose = (event: CloseEvent) => {
+				setConnected(false);
 				if (stopped) return;
 				if (event.code === SESSION_ENDED_CODE) {
 					stopped = true;
@@ -260,6 +265,7 @@ export function TerminalPane({
 			className="pk-terminal-pane"
 			hidden={!visible}
 			data-testid={`terminal-pane-${terminalId}`}
+			data-connected={connected ? "true" : undefined}
 		>
 			{ended ? (
 				<p className="pk-terminal-notice">
