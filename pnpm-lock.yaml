@@ -485,9 +485,9 @@ importers:
 
   packages/observability:
     dependencies:
-      fastify:
-        specifier: 5.12.4
-        version: 5.12.4
+      '@portikus/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       pino:
         specifier: 10.3.1
         version: 10.3.1
@@ -495,6 +495,9 @@ importers:
       '@types/node':
         specifier: 24.9.2
         version: 24.9.2
+      fastify:
+        specifier: 5.12.4
+        version: 5.12.4
       pino-pretty:
         specifier: 13.1.3
         version: 13.1.3

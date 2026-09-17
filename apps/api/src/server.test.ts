@@ -1,6 +1,5 @@
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
-import { Writable } from "node:stream";
 import { createOidcClient, type OidcClient } from "@portikus/auth";
 import {
 	CookieJar,
@@ -12,12 +11,8 @@ import {
 import { HealthResponse } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
-import {
-	createLogger,
-	type Logger,
-	type LogLevel,
-	silentLogger,
-} from "@portikus/observability";
+import { type LogLevel, silentLogger } from "@portikus/observability";
+import { collectingLogger } from "@portikus/observability/testing";
 import type { Kysely } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { toAuthOptions } from "./auth-options.js";
@@ -32,23 +27,6 @@ function makeApp(oidc?: OidcClient) {
 		logger: silentLogger(),
 		oidc,
 	});
-}
-
-/** A logger whose lines land in an array, so a test can read them. */
-function collectingLogger(level: LogLevel = "info"): {
-	logger: Logger;
-	lines: Record<string, unknown>[];
-} {
-	const lines: Record<string, unknown>[] = [];
-	const destination = new Writable({
-		write(chunk, _encoding, callback) {
-			for (const text of String(chunk).split("\n")) {
-				if (text.trim() !== "") lines.push(JSON.parse(text));
-			}
-			callback();
-		},
-	});
-	return { logger: createLogger({ service: "api", level, destination }), lines };
 }
 
 /** Request lines only, in order. */

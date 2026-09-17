@@ -30,6 +30,11 @@ workspaceAliases.unshift(
 			.pathname,
 	},
 	{
+		find: "@portikus/observability/testing",
+		replacement: new URL("./packages/observability/src/testing.ts", import.meta.url)
+			.pathname,
+	},
+	{
 		find: "@portikus/db/testing",
 		replacement: new URL("./packages/db/src/testing.ts", import.meta.url).pathname,
 	},
@@ -56,7 +61,7 @@ export default defineConfig({
 				"apps/worker/src/fake-controller.ts",
 				"apps/workspace-controller/src/fake-provider.ts",
 				"packages/db/src/testing.ts",
-				"packages/observability/src/test-support.ts",
+				"packages/observability/src/testing.ts",
 				"packages/ui/src/test-setup.ts",
 				// One-shot scripts and process entrypoints, covered by the
 				// smoke test and the Playwright suite instead.

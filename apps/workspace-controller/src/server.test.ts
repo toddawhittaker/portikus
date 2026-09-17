@@ -1,5 +1,5 @@
-import { Writable } from "node:stream";
-import { createLogger, type LogLevel } from "@portikus/observability";
+import type { LogLevel } from "@portikus/observability";
+import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { FakeWorkspaceProvider } from "./fake-provider.js";
@@ -294,25 +294,6 @@ test("two concurrent starts cause one provider call", async () => {
 
 // Logging (ADR 0012).
 
-/** A logger whose lines the test can read back. */
-function collectingLogger(level: LogLevel) {
-	const lines: Record<string, unknown>[] = [];
-	const destination = new Writable({
-		write(chunk, _encoding, callback) {
-			for (const text of String(chunk).split("\n")) {
-				if (text.trim() !== "") lines.push(JSON.parse(text));
-			}
-			callback();
-		},
-	});
-	const logger = createLogger({
-		service: "workspace-controller",
-		level,
-		destination,
-	});
-	return { logger, lines };
-}
-
 function buildLogging(level: LogLevel = "info") {
 	const { logger, lines } = collectingLogger(level);
 	const logged = buildServer({ provider, token: TOKEN, logger });
@@ -360,7 +341,32 @@ test("PUT /log-level needs the token and a known level", async () => {
 			payload: { level: "verbose" },
 		});
 		expect(bad.statusCode).toBe(400);
+		expect(bad.json().code).toBe("BAD_REQUEST");
 		expect(logged.log.level).toBe("info");
+	} finally {
+		await logged.close();
+	}
+});
+
+test("a null level returns the controller to the level it started with", async () => {
+	const { logged } = buildLogging("warn");
+	try {
+		await logged.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: "debug" },
+		});
+		expect(logged.log.level).toBe("debug");
+
+		const cleared = await logged.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: null },
+		});
+		expect(cleared.statusCode).toBe(204);
+		expect(logged.log.level).toBe("warn");
 	} finally {
 		await logged.close();
 	}

@@ -2,9 +2,9 @@ import { execFile } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Writable } from "node:stream";
 import { promisify } from "node:util";
-import { createLogger, type LogLevel } from "@portikus/observability";
+import type { LogLevel } from "@portikus/observability";
+import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { buildServer } from "./server.js";
@@ -387,21 +387,6 @@ test.skipIf(!haveTmux)(
 // Logging (ADR 0012). These need no tmux: they exercise the routes and the
 // request logging hook only, so they build their own server.
 
-/** A logger whose lines the test can read back. */
-function collectingLogger(level: LogLevel) {
-	const lines: Record<string, unknown>[] = [];
-	const destination = new Writable({
-		write(chunk, _encoding, callback) {
-			for (const text of String(chunk).split("\n")) {
-				if (text.trim() !== "") lines.push(JSON.parse(text));
-			}
-			callback();
-		},
-	});
-	const logger = createLogger({ service: "workspace-agent", level, destination });
-	return { logger, lines };
-}
-
 async function buildLoggingServer(level: LogLevel = "info") {
 	const dir = await mkdtemp(join(tmpdir(), "portikus-agent-log-"));
 	const tokenPath = join(dir, "agent.token");
@@ -455,7 +440,32 @@ test("PUT /log-level needs the token and a known level", async () => {
 			payload: { level: "verbose" },
 		});
 		expect(bad.statusCode).toBe(400);
+		expect(bad.json().error.code).toBe("BAD_REQUEST");
 		expect(server.log.level).toBe("info");
+	} finally {
+		await server.close();
+	}
+});
+
+test("a null level returns the agent to the level it started with", async () => {
+	const { server } = await buildLoggingServer("warn");
+	try {
+		await server.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: "debug" },
+		});
+		expect(server.log.level).toBe("debug");
+
+		const cleared = await server.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: null },
+		});
+		expect(cleared.statusCode).toBe(204);
+		expect(server.log.level).toBe("warn");
 	} finally {
 		await server.close();
 	}
