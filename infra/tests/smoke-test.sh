@@ -383,13 +383,16 @@ else
     smoke_instances=$(ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT incus_instance_name FROM workspaces WHERE owner_user_id IN (${owners})\"" 2>/dev/null || true)
     ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM workspace_connections WHERE workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id IN (${owners}))\"" 2>/dev/null || true
     ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM audit_events WHERE target IN (SELECT id::text FROM workspaces WHERE owner_user_id IN (${owners}))\"" 2>/dev/null || true
+    # Archiving a project audits against the project id, which no longer
+    # resolves once the workspace cascade removes the project row.
+    ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM audit_events WHERE target IN (SELECT id::text FROM projects WHERE workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id IN (${owners})))\"" 2>/dev/null || true
     ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM workspaces WHERE owner_user_id IN (${owners})\"" 2>/dev/null || true
     ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM sessions WHERE user_id IN (${owners})\"" 2>/dev/null || true
     ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM users WHERE oidc_subject IN ('alice','bob','carol')\"" 2>/dev/null || true
     for instance in $smoke_instances; do
       ssh_cmd "bash ${WORKSPACE_SCRIPT} destroy ${instance}" 2>/dev/null || true
     done
-    ssh_cmd "rm -f /tmp/portikus-smoke-*.jar ${WS_PROBE} ${WS_STOP} ${TERM_PROBE} ${TERM_STOP}" 2>/dev/null || true
+    ssh_cmd "rm -f /tmp/portikus-smoke-*.jar /tmp/portikus-smoke-project.* ${WS_PROBE} ${WS_STOP} ${TERM_PROBE} ${TERM_STOP}" 2>/dev/null || true
   }
   # Wrap both cleanups so a single trap covers Epic 2 and Epic 3 and 4.
   cleanup_all() {
@@ -802,7 +805,188 @@ TERMPROBE
       fi
     fi
 
-    # 15. Authorization: one student cannot see another's workspace, and
+    # 15. Epic 6: project management end to end (SPEC.md 7, plan wave 3).
+    #     Every request goes through Caddy as alice, and every effect is
+    #     confirmed inside the container, because a project is a database
+    #     row and a directory under ~/projects that have to agree.
+    echo ""
+    echo "Epic 6: project management..."
+
+    # Project work needs the workspace up, and the shortened grace period
+    # would stop it part-way through, so hold the presence socket open.
+    open_socket
+    ws_state=$(wait_for_state running 60)
+    check_output "workspace is running for the project checks" "running" \
+      echo "$ws_state"
+
+    PROJECTS_URL="${API}/workspaces/${ws_id}/projects"
+    PROJECTS_DIR="/home/student/projects"
+    ZIP_ON_VM="/tmp/portikus-smoke-project.zip"
+    ZIP_HEADERS="/tmp/portikus-smoke-project.headers"
+
+    # Run a command as the student user inside alice's workspace.
+    alice_student() {
+      local escaped="${*//\'/\'\\\'\'}"
+      ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- su -l student -c '${escaped}'"
+    }
+
+    # One field of the project with the given slug in a project list body.
+    # JSON booleans print as true or false; an absent project prints nothing.
+    project_field() {
+      python3 -c '
+import json, sys
+
+slug, field = sys.argv[1], sys.argv[2]
+for project in json.load(sys.stdin).get("projects", []):
+    if project.get("slug") == slug:
+        value = project.get(field)
+        if value is True:
+            print("true")
+        elif value is False:
+            print("false")
+        elif value is not None:
+            print(value)
+        break
+' "$1" "$2" 2>/dev/null || true
+    }
+
+    active_field() { vm_get alice "${PROJECTS_URL}" | project_field "$1" "$2"; }
+    archived_field() {
+      vm_get alice "${PROJECTS_URL}?state=archived" | project_field "$1" "$2"
+    }
+
+    # The recorded working directory of one terminal.
+    terminal_cwd() {
+      vm_get alice "${API}/workspaces/${ws_id}/terminals" | python3 -c '
+import json, sys
+
+wanted = sys.argv[1]
+for terminal in json.load(sys.stdin).get("terminals", []):
+    if terminal.get("id") == wanted:
+        print(terminal.get("cwd", ""))
+        break
+' "$1" 2>/dev/null || true
+    }
+
+    # 15.1 Create a project (SPEC.md 7.2).
+    proj_response=$(vm_get alice "${PROJECTS_URL}" \
+      "-X POST -H 'Origin: ${API}' -H 'Content-Type: application/json' \
+       -d '{\"name\": \"Smoke Project\", \"source\": \"new\"}'")
+    proj_id=$(echo "$proj_response" | json_field id)
+
+    if [ -z "$proj_id" ]; then
+      printf '\033[1;31mFAIL\033[0m  POST /projects returned no id: %s\n' "$proj_response"
+      fail=$((fail + 1))
+    else
+      printf '\033[1;32mPASS\033[0m  POST /projects returned id=%s\n' "$proj_id"
+      pass=$((pass + 1))
+
+      proj_slug=$(echo "$proj_response" | json_field slug)
+      proj_path=$(echo "$proj_response" | json_field path)
+      check_output "created project has slug smoke-project" "smoke-project" \
+        echo "$proj_slug"
+      check_output "created project path is under ~/projects" \
+        "${PROJECTS_DIR}/smoke-project" echo "$proj_path"
+      check "project directory exists in the workspace" \
+        alice_student "test -d ${PROJECTS_DIR}/smoke-project"
+      check "project directory is a git repository" \
+        alice_student "test -d ${PROJECTS_DIR}/smoke-project/.git"
+
+      # 15.2 A terminal opened on the project starts in its directory (SPEC.md 9.4).
+      proj_term_response=$(vm_get alice "${API}/workspaces/${ws_id}/terminals" \
+        "-X POST -H 'Origin: ${API}' -H 'Content-Type: application/json' \
+         -d '{\"projectId\": \"${proj_id}\"}'")
+      proj_term_id=$(echo "$proj_term_response" | json_field id)
+      proj_term_cwd=$(echo "$proj_term_response" | json_field cwd)
+      check_output "terminal on the project starts in the project directory" \
+        "${PROJECTS_DIR}/smoke-project" echo "$proj_term_cwd"
+
+      # 15.3 The listing reports what the agent sees on disk.
+      check_output "project is listed as a git repository" "true" \
+        active_field smoke-project isGitRepo
+      check_output "project is not listed as missing" "false" \
+        active_field smoke-project missing
+
+      # 15.4 Renaming moves the directory and rewrites terminal paths.
+      rename_response=$(vm_get alice "${PROJECTS_URL}/${proj_id}" \
+        "-X PATCH -H 'Origin: ${API}' -H 'Content-Type: application/json' \
+         -d '{\"name\": \"Smoke Renamed\"}'")
+      renamed_slug=$(echo "$rename_response" | json_field slug)
+      check_output "rename gives the slug smoke-renamed" "smoke-renamed" \
+        echo "$renamed_slug"
+      check "old project directory is gone" \
+        alice_student "! test -e ${PROJECTS_DIR}/smoke-project"
+      check "renamed project directory exists" \
+        alice_student "test -d ${PROJECTS_DIR}/smoke-renamed"
+      if [ -n "$proj_term_id" ]; then
+        check_output "rename rewrites the terminal working directory" \
+          "${PROJECTS_DIR}/smoke-renamed" terminal_cwd "$proj_term_id"
+      else
+        printf '\033[1;31mFAIL\033[0m  POST /terminals with a projectId returned no id\n'
+        fail=$((fail + 1))
+      fi
+
+      # 15.5 Download is a zip named after the slug (SPEC.md 7.3).  unzip is
+      #      in the workspace image but not promised on the VM, so the
+      #      archive is pushed back into the container and tested there.
+      dl_status=$(ssh_cmd "${CURL} -b /tmp/portikus-smoke-alice.jar \
+        -D ${ZIP_HEADERS} -o ${ZIP_ON_VM} -w '%{http_code}' \
+        '${PROJECTS_URL}/${proj_id}/download'")
+      check_output "download returns 200" "200" echo "$dl_status"
+      check "download is served as application/zip" \
+        ssh_cmd "grep -qi 'content-type: application/zip' ${ZIP_HEADERS}"
+      check "download is named smoke-renamed.zip" \
+        ssh_cmd "grep -qi 'filename=\"smoke-renamed.zip\"' ${ZIP_HEADERS}"
+      ssh_cmd "incus file push ${ZIP_ON_VM} ${ws_instance}/tmp/smoke-download.zip --project ${PROJECT}" \
+        >/dev/null 2>&1 || true
+      check "downloaded archive passes unzip -t" \
+        ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- unzip -t /tmp/smoke-download.zip"
+
+      # 15.6 Anything Git-enabled under ~/projects becomes a project; a
+      #      plain directory does not (plan, Discovery).
+      alice_student "mkdir -p ${PROJECTS_DIR}/hand-made && git -C ${PROJECTS_DIR}/hand-made init -q" \
+        >/dev/null 2>&1 || true
+      alice_student "mkdir -p ${PROJECTS_DIR}/plain-dir" >/dev/null 2>&1 || true
+      check_output "a git repository made by hand is discovered" "discovered" \
+        active_field hand-made source
+      check_output "a plain directory is not a project" "" \
+        active_field plain-dir slug
+
+      # 15.7 Archiving hides the project but keeps the directory (SPEC.md 7.4).
+      vm_get alice "${PROJECTS_URL}/${proj_id}" \
+        "-X PATCH -H 'Origin: ${API}' -H 'Content-Type: application/json' \
+         -d '{\"state\": \"archived\"}'" >/dev/null
+      check_output "archived project leaves the active list" "" \
+        active_field smoke-renamed slug
+      check_output "archived project is in the archived list" "smoke-renamed" \
+        archived_field smoke-renamed slug
+      check "archived project keeps its directory" \
+        alice_student "test -d ${PROJECTS_DIR}/smoke-renamed"
+
+      vm_get alice "${PROJECTS_URL}/${proj_id}" \
+        "-X PATCH -H 'Origin: ${API}' -H 'Content-Type: application/json' \
+         -d '{\"state\": \"active\"}'" >/dev/null
+      check_output "unarchived project is active again" "smoke-renamed" \
+        active_field smoke-renamed slug
+
+      # 15.8 Leave ~/projects as the run found it.  There is no delete route,
+      #      so the rows go with the workspace the cleanup function removes.
+      if [ -n "$proj_term_id" ]; then
+        check_output "DELETE project terminal returns 204" "204" \
+          http_status alice "${API}/workspaces/${ws_id}/terminals/${proj_term_id}" \
+          "-X DELETE -H 'Origin: ${API}'"
+      fi
+      alice_student "rm -rf ${PROJECTS_DIR}/smoke-renamed ${PROJECTS_DIR}/hand-made ${PROJECTS_DIR}/plain-dir" \
+        >/dev/null 2>&1 || true
+      ssh_cmd "rm -f ${ZIP_ON_VM} ${ZIP_HEADERS}" >/dev/null 2>&1 || true
+    fi
+
+    # Hand the workspace back stopped, which is how the next block finds it.
+    close_socket
+    http_status alice "${API}/workspaces/${ws_id}/stop" "-X POST -H 'Origin: ${API}'" >/dev/null
+    wait_for_state stopped 60 >/dev/null
+
+    # 16. Authorization: one student cannot see another's workspace, and
     #     only an administrator can list them all.
     echo ""
     echo "Checking authorization boundaries..."
@@ -815,7 +999,7 @@ TERMPROBE
     check_output "alice is refused the admin list" "403" \
       http_status alice "${API}/admin/workspaces"
 
-    # 16. Security: portikus is not an Incus admin, and the control-plane
+    # 17. Security: portikus is not an Incus admin, and the control-plane
     #     ports are unreachable from inside a workspace.
     echo ""
     echo "Checking security boundaries..."
@@ -843,7 +1027,7 @@ TERMPROBE
     rm -f "$probe_log"
   fi
 
-  # 17. Logging out ends the session.
+  # 18. Logging out ends the session.
   echo ""
   echo "Logging alice out..."
   http_status alice "${API}/auth/logout" "-X POST -H 'Origin: ${API}'" >/dev/null
