@@ -81,7 +81,7 @@ PORTIKUS_PUBLIC_HOST ?= portikus.$(HOST_IP).nip.io
 wait-vm: ## Wait for the platform VM to finish first boot
 	@test -n "$(VM_IP)" || { echo "wait-vm: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	@for i in $$(seq 1 60); do \
-		ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+		ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
 			-o LogLevel=ERROR deploy@$(VM_IP) 'cloud-init status --wait >/dev/null 2>&1; cloud-init status' 2>/dev/null && exit 0; \
 		sleep 5; \
 	done; echo "wait-vm: $(VM_IP) did not become ready"; exit 1
@@ -130,7 +130,7 @@ deploy-app: ## Build the Debian package and install it on the VM
 	deb="portikus_$${version}_amd64.deb"; \
 	echo "Installing $$deb on $(VM_IP)"; \
 	scp "dist/deb/$$deb" deploy@$(VM_IP):"~/"; \
-	ssh deploy@$(VM_IP) "sudo apt-get install -y --reinstall --allow-downgrades ./$$deb; rm -f ./$$deb"
+	ssh -n deploy@$(VM_IP) "sudo apt-get install -y --reinstall --allow-downgrades ./$$deb; rm -f ./$$deb"
 
 # ── Workspace image and lifecycle targets ─────────────────────────
 
@@ -138,14 +138,14 @@ build-workspace-image: ## Build the workspace image on the VM with distrobuilder
 	@test -n "$(VM_IP)" || { echo "build-workspace-image: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	rsync -av --delete infra/workspace-image/ deploy@$(VM_IP):/var/lib/portikus/image-build/
 	rsync -av --delete infra/incus/ deploy@$(VM_IP):/var/lib/portikus/incus/
-	ssh deploy@$(VM_IP) bash /var/lib/portikus/image-build/build-on-vm.sh
+	ssh -n deploy@$(VM_IP) bash /var/lib/portikus/image-build/build-on-vm.sh
 
 workspace-create: ## Create a test workspace (NAME=<name>)
 	@test -n "$(NAME)" || { echo "workspace-create: NAME is required, e.g. make workspace-create NAME=alice"; exit 1; }
 	@test -n "$(VM_IP)" || { echo "workspace-create: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	ssh deploy@$(VM_IP) bash /var/lib/portikus/incus/workspace.sh create $(NAME)
+	ssh -n deploy@$(VM_IP) bash /var/lib/portikus/incus/workspace.sh create $(NAME)
 
 workspace-destroy: ## Destroy a test workspace (NAME=<name>)
 	@test -n "$(NAME)" || { echo "workspace-destroy: NAME is required, e.g. make workspace-destroy NAME=alice"; exit 1; }
 	@test -n "$(VM_IP)" || { echo "workspace-destroy: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	ssh deploy@$(VM_IP) bash /var/lib/portikus/incus/workspace.sh destroy $(NAME)
+	ssh -n deploy@$(VM_IP) bash /var/lib/portikus/incus/workspace.sh destroy $(NAME)

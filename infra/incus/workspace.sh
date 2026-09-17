@@ -25,6 +25,12 @@ DOCKER_SIZE="20GB"
 # ---------------------------------------------------------------------------
 die() { echo "error: $*" >&2; exit 1; }
 
+# The incus CLI reads a YAML config from standard input whenever standard
+# input is not a terminal, so a command run over ssh from an interactive
+# shell blocks forever waiting for end-of-file. Nothing here feeds incus on
+# standard input, so every call gets /dev/null.
+incus_cmd() { incus "$@" < /dev/null; }
+
 validate_name() {
     local name="$1"
     if [[ ! "$name" =~ ^[a-z][a-z0-9-]{0,30}$ ]]; then
@@ -33,11 +39,11 @@ validate_name() {
 }
 
 container_exists() {
-    incus info "$1" --project "$PROJECT" >/dev/null 2>&1
+    incus_cmd info "$1" --project "$PROJECT" >/dev/null 2>&1
 }
 
 volume_exists() {
-    incus storage volume show "$POOL" "custom/$1" --project "$PROJECT" >/dev/null 2>&1
+    incus_cmd storage volume show "$POOL" "custom/$1" --project "$PROJECT" >/dev/null 2>&1
 }
 
 # Ensure a custom storage volume exists with the given size.
@@ -54,7 +60,7 @@ ensure_volume() {
         # container, so the default UID/GID write-on-first-attach that
         # Incus performs with security.idmap.isolated=true is sufficient.
         # Shifted would add an unnecessary shiftfs/idmapped-mount overlay.
-        incus storage volume create "$POOL" "$vol_name" \
+        incus_cmd storage volume create "$POOL" "$vol_name" \
             --project "$PROJECT" \
             size="$size"
         echo "created volume ${vol_name} (${size})"
@@ -77,29 +83,29 @@ cmd_create() {
     ensure_volume "${name}-docker" "$DOCKER_SIZE"
 
     # Create the container from the workspace image and profile.
-    incus init "$IMAGE" "$name" \
+    incus_cmd init "$IMAGE" "$name" \
         --project "$PROJECT" \
         --profile "$PROFILE"
 
     # Attach persistent volumes as disk devices.
-    incus config device add "$name" home disk \
+    incus_cmd config device add "$name" home disk \
         pool="$POOL" \
         source="${name}-home" \
         path="/home/student" \
         --project "$PROJECT"
 
-    incus config device add "$name" docker disk \
+    incus_cmd config device add "$name" docker disk \
         pool="$POOL" \
         source="${name}-docker" \
         path="/var/lib/docker" \
         --project "$PROJECT"
 
-    incus start "$name" --project "$PROJECT"
+    incus_cmd start "$name" --project "$PROJECT"
 
     # Wait for an IPv4 address (up to 60 seconds).
     local waited=0 ip=""
     while [[ $waited -lt 60 ]]; do
-        ip=$(incus list "$name" --project "$PROJECT" \
+        ip=$(incus_cmd list "$name" --project "$PROJECT" \
             --format csv --columns 4 2>/dev/null \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
         if [[ -n "$ip" ]]; then
@@ -121,7 +127,7 @@ cmd_destroy() {
     validate_name "$name"
 
     if container_exists "$name"; then
-        incus delete --force "$name" --project "$PROJECT"
+        incus_cmd delete --force "$name" --project "$PROJECT"
         echo "deleted container ${name}"
     else
         echo "container ${name} does not exist, skipping"
@@ -130,7 +136,7 @@ cmd_destroy() {
     for suffix in home docker; do
         local vol="${name}-${suffix}"
         if volume_exists "$vol"; then
-            incus storage volume delete "$POOL" "$vol" --project "$PROJECT"
+            incus_cmd storage volume delete "$POOL" "$vol" --project "$PROJECT"
             echo "deleted volume ${vol}"
         else
             echo "volume ${vol} does not exist, skipping"
