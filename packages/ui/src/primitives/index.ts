@@ -14,4 +14,11 @@ export {
 	type StateBadgeProps,
 	type WorkspaceState,
 } from "./StateBadge.js";
-export { TextField, type TextFieldProps } from "./TextField.js";
+export {
+	CONTROL_CLASS,
+	FIELD_CLASS,
+	HINT_CLASS,
+	LABEL_CLASS,
+	TextField,
+	type TextFieldProps,
+} from "./TextField.js";

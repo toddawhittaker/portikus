@@ -1,5 +1,12 @@
 import { type AdminUser, LogLevel } from "@portikus/contracts";
-import { Button, TextField, useToast } from "@portikus/ui";
+import {
+	Button,
+	CONTROL_CLASS,
+	FIELD_CLASS,
+	LABEL_CLASS,
+	TextField,
+	useToast,
+} from "@portikus/ui";
 import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ApiError } from "../api/request.js";
@@ -128,10 +135,6 @@ function GraceSection() {
 /** The value the select uses for "no override"; the API takes null. */
 const SERVICE_DEFAULT = "default";
 
-/** The same look as the text fields, since there is no Select with a testid. */
-const SELECT_CLASS =
-	"pk-focus-ring box-border h-[var(--pk-control)] w-48 cursor-pointer rounded-sm border border-line-strong bg-surface-raised px-[var(--pk-pad)] text-[length:var(--pk-font)] text-ink hover:border-ink-muted disabled:border-line disabled:bg-surface-sunken disabled:text-ink-faint";
-
 /**
  * The runtime log level every service follows (ADR 0012). "Use service
  * default" clears the override, so each service falls back to its own
@@ -171,26 +174,24 @@ function LogLevelSection() {
 				How much every service logs. Takes effect within a few seconds.
 			</p>
 			<div className="pk-actions mt-4 items-end">
-				<div className="pk-field grid gap-1.5">
-					<label
-						className="pk-label text-[13px] font-medium leading-[18px] text-ink"
-						htmlFor="log-level"
-					>
+				<div className={FIELD_CLASS}>
+					<label className={LABEL_CLASS} htmlFor="log-level">
 						Level
 					</label>
 					<select
 						id="log-level"
-						className={SELECT_CLASS}
+						className={`${CONTROL_CLASS} w-48 cursor-pointer disabled:border-line disabled:bg-surface-sunken disabled:text-ink-faint`}
 						data-testid="log-level-select"
 						value={value}
 						disabled={settings.isLoading}
 						onChange={(event) => setDraft(event.target.value)}
 					>
 						<option value={SERVICE_DEFAULT}>Use service default</option>
-						<option value="error">error</option>
-						<option value="warn">warn</option>
-						<option value="info">info</option>
-						<option value="debug">debug</option>
+						{LogLevel.options.map((level) => (
+							<option key={level} value={level}>
+								{level}
+							</option>
+						))}
 					</select>
 					{error ? (
 						<p className="pk-error m-0 text-[12px] leading-4 text-status-error">
