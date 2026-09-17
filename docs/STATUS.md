@@ -116,7 +116,7 @@ request is visible without reproducing it. `LOG_LEVEL` sets each service's
 default, and a `settings.log_level` row set from `/admin` overrides it at
 runtime: the API relays the level to each running workspace's agent and the
 worker relays it to the controller. CI now runs the tests with coverage and
-fails below the floors in docs/WORKFLOW.md.
+fails below the floors set in `vitest.config.ts`.
 
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
@@ -144,5 +144,13 @@ administration page is a settings form, not the Epic 11 mockup, and the
 infrastructure smoke test now signs in as the mock identity provider's
 administrator to shorten the grace period. From structured logging, an agent
 that restarts inside a still-running workspace loses the log level override
-until an administrator changes it again. Epic 7 (files, Monaco, search,
+until an administrator changes it again; a burst of failing requests writes
+one warn line each, with no rate limit and no journald size cap set by
+Ansible, so a flood can push older journal entries out (the fix belongs with
+the login rate-limit gap above: a Caddy rate limit plus a journald
+`SystemMaxUse`); at debug the worker writes one line per workspace per
+second, so debug is meant for short investigations rather than everyday
+running; and a workspace owner who holds the agent token can set their own
+agent's level, which stays until the setting next changes or the workspace
+restarts. Epic 7 (files, Monaco, search,
 and change review) is next.
