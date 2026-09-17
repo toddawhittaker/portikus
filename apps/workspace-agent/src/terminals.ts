@@ -63,6 +63,8 @@ export class TerminalRegistry {
 		private readonly homeDir: string,
 		private readonly log: FastifyBaseLogger,
 		private readonly socketName?: string,
+		/** Overridden by tests so they can drive a fake PTY. */
+		private readonly spawnPty: typeof spawn = spawn,
 	) {}
 
 	/** How many browsers are attached to one terminal. */
@@ -100,7 +102,7 @@ export class TerminalRegistry {
 			throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 		}
 
-		const pty = spawn("tmux", attachArgs(id, this.socketName), {
+		const pty = this.spawnPty("tmux", attachArgs(id, this.socketName), {
 			name: "xterm-256color",
 			cols: options.cols ?? DEFAULT_COLS,
 			rows: options.rows ?? DEFAULT_ROWS,
