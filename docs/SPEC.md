@@ -486,6 +486,89 @@ Each project must maintain independent:
 - preview tabs;
 - file-tree expansion state where practical.
 
+### 7.6 Project API and storage
+
+A project is a durable control-plane row (§26) that mirrors a directory under
+`~/projects`. The row owns the name, state, source, and saved layout; the
+directory owns existence and Git status. The control plane never touches the
+directory itself: every filesystem and Git operation runs in the workspace
+agent behind the per-workspace bearer token of §23.5 (ADR 0010).
+
+The slug names the directory and matches `^[a-z0-9][a-z0-9-]{0,62}$`. It is
+derived from the project name, so the same rule fits a DNS label and cannot
+contain a path separator. The agent resolves `~/projects/<slug>` with realpath
+and refuses the request unless the parent of the result is exactly the realpath
+of `~/projects`, which is what enforces §7.1. Child processes are started
+directly, never through a shell.
+
+The workspace agent exposes `GET /projects` (each entry is a slug and whether
+the directory holds a Git repository), `GET /projects/:slug`,
+`POST /projects`, `POST /projects/:slug/rename`,
+`POST /projects/:slug/duplicate`, `POST /projects/:slug/git-init`, and
+`GET /projects/:slug/archive`, which streams a zip.
+
+The control plane exposes, under the authorization rules of §5.2 and for the
+workspace owner only, `GET` and `POST /workspaces/:id/projects`,
+`GET /workspaces/:id/projects/templates`,
+`PATCH /workspaces/:id/projects/:projectId`, and under that project
+`POST .../duplicate`, `POST .../git-init`, `GET .../download`, and `GET` and
+`PUT .../layout`. An administrator asking for a student's project gets a 404,
+as with terminals. An operation that needs the directory requires a running
+workspace; otherwise it is refused with 409.
+
+Discovery and missing projects. The listing takes a `state` query of `active`
+or `archived` and defaults to active. When the workspace is running, the
+control plane asks the agent what is on disk and reconciles: a directory that
+is a Git repository and has no row gets one, with `source = discovered` and the
+slug as its name; a row whose directory is gone is returned with `missing:
+true` and may only be archived. A directory that is not a Git repository is
+ignored. Discovery never resurrects an archived slug, because that slug already
+has a row. When the workspace is not running, rows are returned with the Git
+and missing fields null.
+
+Rename changes the name, the slug, and the directory together. The agent moves
+the directory and refuses if the target already exists; the control plane
+rewrites the working-directory prefix of that project's terminal rows in the
+same transaction. Running shells are unaffected, because a process's working
+directory follows the inode.
+
+Archive is a state flag on the row plus an archive timestamp, and it writes an
+audit event. The directory is left in place, which is how §7.4 recoverability
+is met. Unarchiving is a change of the same field back to active.
+
+Download is a zip named `<slug>.zip`. The agent streams `zip -r -y`, so a
+symbolic link is stored as a link and never followed out of the project, and
+the control plane pipes the bytes through with a fixed filename taken from the
+slug. There is no size cap in P0.
+
+Templates are configuration: one control-plane setting, `PROJECT_TEMPLATES`,
+of the form `name=url,name=url`, empty by default, and the template option is
+hidden when it is empty. Instantiating a template clones it, removes `.git`,
+and runs `git init`. The platform never runs `git commit` (§12.5).
+
+A clone URL must be `https`, `http`, `ssh`, or the `user@host:path` form.
+Anything else, including `file://`, Git's `ext::` transport, a URL with
+whitespace or control characters, and anything starting with a hyphen, is
+refused by both the control plane and the agent. A clone runs inside the
+request with `GIT_TERMINAL_PROMPT=0` and is abandoned after five minutes; it
+writes into a temporary directory that is renamed on success and removed on
+failure, so a failed clone leaves nothing behind.
+
+The saved layout of §7.5 is one JSON document per project:
+
+```json
+{"tabs": [{"id": "…", "root": {"type": "leaf", "terminalId": "…"}}]}
+```
+
+A node is either a leaf naming one terminal or a split with a direction of
+`row` or `column`, one size per child, and at least two children. The browser
+owns this document and writes it back, at most once a second; the last write
+wins. Before it is used the browser reconciles it against the terminal list:
+a terminal with no leaf is added as a new tab, and a leaf whose terminal no
+longer exists is removed, so a saved layout can never point at a terminal that
+is gone. Ended terminals keep their leaf (§9.7). The selected tab and the pane
+widths are browser-local, not part of this document.
+
 ## 8. Main browser interface
 
 ### 8.1 Three-pane layout
@@ -554,6 +637,10 @@ Users must be able to:
 - rearrange terminal panes/tabs;
 - close a terminal.
 
+A shell that exits, whether by `exit`, Ctrl+D, or any other route, closes its
+terminal and removes its pane, and closes the tab when it was the last pane in
+it. This is the same outcome as the explicit close action.
+
 ### 9.4 Working directory
 
 A new terminal created from a project context should default to that project's directory unless the user explicitly chooses otherwise.
@@ -569,7 +656,8 @@ Input/output behavior must be deterministic and must not create separate hidden 
 The platform should persist:
 
 - terminal display name;
-- project association;
+- project association, as the identifier of the project the terminal belongs
+  to (§7.6);
 - last known working directory where practical;
 - center-layout location.
 
@@ -621,7 +709,10 @@ The workspace agent additionally exposes `GET /health`, `GET /terminals`,
 including the WebSocket upgrade, requires the per-workspace bearer token of
 §23.5. The control plane exposes `GET` and `POST /workspaces/:id/terminals`
 and `PATCH` and `DELETE /workspaces/:id/terminals/:terminalId` under the
-authorization rules of §5.2. The control plane re-checks the session on an
+authorization rules of §5.2. A terminal may be created with a `projectId`,
+which must belong to the same workspace and which sets the working directory
+to that project's directory (§9.4); the listing takes a `projectId` query that
+returns only that project's terminals. The control plane re-checks the session on an
 open terminal WebSocket at most once a second and closes the socket when
 the session is gone.
 
@@ -2240,7 +2331,9 @@ Includes:
 - default Git initialization for new projects;
 - Initialize Git action for non-repository projects;
 - rename/duplicate/download/archive;
-- saved per-project layout.
+- discovery of repositories already present under `~/projects`;
+- saved per-project layout;
+- terminal clipboard handling (copy and paste in the terminal).
 
 Acceptance:
 

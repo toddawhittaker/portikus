@@ -24,3 +24,18 @@ has four sections:
   replace the specification.
 - Records are immutable once accepted. To change a decision, write a new record
   and mark the old one "Superseded by NNNN".
+
+## Records
+
+| Record | Decision |
+|---|---|
+| [0001](0001-typescript-monorepo-with-pnpm.md) | TypeScript monorepo managed with pnpm |
+| [0002](0002-biome-over-eslint-and-prettier.md) | Biome instead of ESLint plus Prettier |
+| [0003](0003-zod-contracts-with-generated-openapi.md) | Zod schemas are the single source of API contracts |
+| [0004](0004-distrobuilder-from-source.md) | Build distrobuilder from source |
+| [0005](0005-incus-rest-over-unix-socket.md) | Incus REST API over unix socket |
+| [0006](0006-lifecycle-reconciler-on-postgres.md) | Lifecycle reconciler on Postgres |
+| [0007](0007-debian-package-for-control-plane.md) | Debian package for the control plane |
+| [0008](0008-server-side-sessions-and-mock-idp.md) | Server-side sessions and an in-repo mock identity provider |
+| [0009](0009-workspace-agent-transport.md) | Workspace agent transport and terminal model |
+| [0010](0010-project-operations-in-the-agent.md) | Project operations run in the workspace agent |
