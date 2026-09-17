@@ -5,7 +5,7 @@ import { useState } from "react";
 import { ApiError } from "../api/request.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { useMe } from "../useMe.js";
-import { graceText } from "./graceText.js";
+import { defaultLabel, graceText } from "./graceText.js";
 import {
 	useAdminUsers,
 	usePlatformSettings,
@@ -206,7 +206,7 @@ function UserRow({
 						className="w-40"
 						inputMode="numeric"
 						placeholder={
-							globalSeconds === null ? undefined : `Default (${globalSeconds} s)`
+							globalSeconds === null ? undefined : defaultLabel(globalSeconds)
 						}
 						data-testid={`user-grace-input-${user.id}`}
 						value={value}

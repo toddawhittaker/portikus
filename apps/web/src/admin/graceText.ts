@@ -4,7 +4,16 @@
  */
 export function graceText(seconds: number): string {
 	if (seconds === 0) return "Workspaces keep running until stopped by hand";
+	return graceLength(seconds);
+}
 
+/** The placeholder for a user with no override: "Default (10 minutes)". */
+export function defaultLabel(globalSeconds: number): string {
+	return `Default (${globalSeconds === 0 ? "indefinite" : graceLength(globalSeconds)})`;
+}
+
+/** A non-zero grace period as hours, minutes and seconds. */
+function graceLength(seconds: number): string {
 	const hours = Math.floor(seconds / 3600);
 	const minutes = Math.floor((seconds % 3600) / 60);
 	const rest = seconds % 60;
