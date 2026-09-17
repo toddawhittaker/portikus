@@ -1,0 +1,130 @@
+import * as RadixAlertDialog from "@radix-ui/react-alert-dialog";
+import * as React from "react";
+import { Button, Icon } from "./_stubs";
+
+export const ConfirmDialogRoot = RadixAlertDialog.Root;
+export const ConfirmDialogTrigger = RadixAlertDialog.Trigger;
+
+export interface ConfirmDialogProps {
+	id?: string;
+	title: string;
+	description?: React.ReactNode;
+	lost?: React.ReactNode[];
+	survives?: React.ReactNode[];
+	confirmLabel: string;
+	cancelLabel?: string;
+	/** Exact text the person must type before the danger button enables. */
+	confirmText?: string;
+	onConfirm?: () => void;
+	onCancel?: () => void;
+	pending?: boolean;
+	inline?: boolean;
+	/** Preview only: start with this text already typed. */
+	typedValue?: string;
+}
+
+/** The destructive confirmation. Render it inside a ConfirmDialogRoot. */
+export function ConfirmDialog({
+	id = "pk-confirm",
+	title,
+	description,
+	lost,
+	survives,
+	confirmLabel,
+	cancelLabel,
+	confirmText,
+	onConfirm,
+	onCancel,
+	pending,
+	inline,
+	typedValue,
+}: ConfirmDialogProps): React.ReactElement {
+	const [typed, setTyped] = React.useState(typedValue ?? "");
+	const ready = !confirmText || typed === confirmText;
+	return (
+		<RadixAlertDialog.Portal>
+			<RadixAlertDialog.Overlay
+				className={`pk-scrim ${inline ? "pk-scrim--inline" : ""}`}
+			/>
+			<RadixAlertDialog.Content
+				id={id}
+				className={`pk-dialog ${inline ? "pk-dialog--inline" : ""}`}
+			>
+				<div className="flex items-start gap-3 px-6 pt-6">
+					<div className="pk-dialog-status">
+						<Icon name="alert" size="lg" />
+					</div>
+					<div>
+						<RadixAlertDialog.Title className="m-0 text-xl font-semibold text-ink">
+							{title}
+						</RadixAlertDialog.Title>
+						{description ? (
+							<RadixAlertDialog.Description className="mt-1 mb-0 text-ink-muted">
+								{description}
+							</RadixAlertDialog.Description>
+						) : null}
+					</div>
+				</div>
+				{lost || survives || confirmText ? (
+					<div className="px-6 pt-4">
+						{lost || survives ? (
+							<div className="pk-consequence">
+								<div className="pk-lost rounded-md bg-surface-sunken p-3">
+									<h3 className="mb-1 text-sm font-semibold text-status-danger">
+										Will be removed
+									</h3>
+									<ul className="m-0 list-disc pl-4 text-ink-muted">
+										{(lost ?? []).map((item, index) => (
+											// The list is static copy, so the index is a stable key.
+											// biome-ignore lint/suspicious/noArrayIndexKey: static copy
+											<li key={index}>{item}</li>
+										))}
+									</ul>
+								</div>
+								<div className="rounded-md bg-surface-sunken p-3">
+									<h3 className="mb-1 text-sm font-semibold text-ink">Will be kept</h3>
+									<ul className="m-0 list-disc pl-4 text-ink-muted">
+										{(survives ?? []).map((item, index) => (
+											// biome-ignore lint/suspicious/noArrayIndexKey: static copy
+											<li key={index}>{item}</li>
+										))}
+									</ul>
+								</div>
+							</div>
+						) : null}
+						{confirmText ? (
+							<div className="mt-4">
+								<label className="block text-sm text-ink" htmlFor={`${id}-typed`}>
+									Type <span className="font-mono">{confirmText}</span> to confirm
+								</label>
+								<input
+									id={`${id}-typed`}
+									className="mt-1 w-full rounded-sm border border-line bg-surface px-2 py-1 font-mono text-ink"
+									value={typed}
+									onChange={(event) => setTyped(event.target.value)}
+									autoComplete="off"
+									spellCheck={false}
+								/>
+							</div>
+						) : null}
+					</div>
+				) : null}
+				<div className="flex justify-end gap-2 p-6">
+					<RadixAlertDialog.Cancel asChild>
+						<Button variant="secondary" onClick={onCancel}>
+							{cancelLabel ?? "Cancel"}
+						</Button>
+					</RadixAlertDialog.Cancel>
+					<Button
+						variant="danger"
+						disabled={!ready || pending}
+						loading={pending}
+						onClick={onConfirm}
+					>
+						{pending ? `${confirmLabel}…` : confirmLabel}
+					</Button>
+				</div>
+			</RadixAlertDialog.Content>
+		</RadixAlertDialog.Portal>
+	);
+}
