@@ -70,8 +70,6 @@ export interface MenuItemProps {
 	shortcut?: Key[];
 	danger?: boolean;
 	disabled?: boolean;
-	/** Preview only: render the item as if the keyboard were on it. */
-	highlighted?: boolean;
 	onSelect?: () => void;
 	children?: React.ReactNode;
 }
@@ -81,7 +79,6 @@ export function MenuItem({
 	shortcut,
 	danger,
 	disabled,
-	highlighted,
 	onSelect,
 	children,
 }: MenuItemProps): React.ReactElement {
@@ -90,7 +87,6 @@ export function MenuItem({
 		<P.Item
 			className={`pk-menu-item ${danger ? "pk-menu-item--danger" : ""}`}
 			disabled={disabled}
-			data-highlighted={highlighted ? "" : undefined}
 			aria-keyshortcuts={shortcut ? keyShortcuts(shortcut) : undefined}
 			onSelect={onSelect}
 		>

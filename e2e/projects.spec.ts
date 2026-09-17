@@ -257,7 +257,9 @@ test.describe("projects", () => {
 		await page.goto(workspacePath(student.workspaceId, project.id));
 
 		const downloadPromise = page.waitForEvent("download");
-		await projectAction(page, project.id, "Download");
+		// The menu item is a plain link, so the browser streams the zip itself.
+		await page.getByTestId(`project-menu-${project.id}`).click();
+		await page.getByTestId("project-download").click();
 		const download = await downloadPromise;
 
 		expect(download.suggestedFilename()).toBe(`${project.slug}.zip`);

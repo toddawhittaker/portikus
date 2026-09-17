@@ -1,3 +1,9 @@
+/**
+ * The jsdom setup shared by the ui and web test projects (it lives here
+ * because this package already depends on React Testing Library): React Testing
+ * Library cleanup, plus the browser APIs Radix, dnd-kit,
+ * react-resizable-panels and xterm.js reach for but jsdom does not have.
+ */
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
@@ -5,13 +11,25 @@ import { afterEach } from "vitest";
 // own automatic cleanup. Unmount between tests so queries see one render at a time.
 afterEach(cleanup);
 
-// jsdom lacks the browser APIs Radix and dnd-kit reach for.
 if (!globalThis.ResizeObserver) {
 	globalThis.ResizeObserver = class {
 		observe() {}
 		unobserve() {}
 		disconnect() {}
 	} as unknown as typeof ResizeObserver;
+}
+
+if (!globalThis.matchMedia) {
+	globalThis.matchMedia = ((query: string) => ({
+		matches: false,
+		media: query,
+		onchange: null,
+		addListener: () => {},
+		removeListener: () => {},
+		addEventListener: () => {},
+		removeEventListener: () => {},
+		dispatchEvent: () => false,
+	})) as unknown as typeof matchMedia;
 }
 
 if (!globalThis.DOMRect) {

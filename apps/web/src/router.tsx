@@ -63,7 +63,6 @@ function ProjectScreen() {
 			workspaceId={id}
 			projectId={project.id}
 			projectPath={project.path}
-			running={true}
 			onSessionEnded={() => router.navigate({ to: "/session-ended" })}
 		/>
 	);

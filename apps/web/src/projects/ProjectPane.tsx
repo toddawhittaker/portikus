@@ -14,7 +14,7 @@ import { ArchiveConfirm } from "./ArchiveConfirm.js";
 import { type CreateMode, CreateProjectDialog } from "./CreateProjectDialog.js";
 import { DuplicateDialog } from "./DuplicateDialog.js";
 import {
-	downloadProject,
+	projectDownloadUrl,
 	useGitInitProject,
 	useProjects,
 	useProjectTemplates,
@@ -156,12 +156,15 @@ export function ProjectPane({
 												>
 													<span data-testid="project-duplicate">Duplicate…</span>
 												</MenuItem>
-												<MenuItem
-													onSelect={() =>
-														void downloadProject(workspaceId, project.id, project.slug)
-													}
-												>
-													<span data-testid="project-download">Download as zip</span>
+												<MenuItem>
+													{/* A plain link so the browser streams the zip to disk. */}
+													<a
+														href={projectDownloadUrl(workspaceId, project.id)}
+														download={`${project.slug}.zip`}
+														data-testid="project-download"
+													>
+														Download as zip
+													</a>
 												</MenuItem>
 												{project.isGitRepo === false && (
 													<MenuItem onSelect={() => gitInit.mutate(project.id)}>

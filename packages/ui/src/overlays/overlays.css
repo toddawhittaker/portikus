@@ -45,6 +45,12 @@
 .pk-menu-item--danger {
 	color: var(--status-danger);
 }
+/* A menu item whose action is a download link, not a button. */
+.pk-menu-item-label a {
+	display: block;
+	color: inherit;
+	text-decoration: none;
+}
 .pk-menu-item-shortcut {
 	color: var(--ink-muted);
 	font-size: 12px;

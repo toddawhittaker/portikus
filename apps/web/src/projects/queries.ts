@@ -120,21 +120,10 @@ export function useUnarchiveProject(workspaceId: string) {
 }
 
 /**
- * Download fetches the zip and saves it through a link. A plain navigation
- * would be answered by the single-page app, because the gateway sends
- * document requests under /workspaces there.
+ * The URL of a project's zip. The menu links to it with a download
+ * attribute, so the browser streams the file to disk itself. The gateway
+ * exempts this path from the single-page app routing.
  */
-export async function downloadProject(
-	workspaceId: string,
-	projectId: string,
-	slug: string,
-): Promise<void> {
-	const response = await fetch(`${base(workspaceId)}/${projectId}/download`);
-	if (!response.ok) throw new Error("the download failed");
-	const url = URL.createObjectURL(await response.blob());
-	const link = document.createElement("a");
-	link.href = url;
-	link.download = `${slug}.zip`;
-	link.click();
-	URL.revokeObjectURL(url);
+export function projectDownloadUrl(workspaceId: string, projectId: string): string {
+	return `${base(workspaceId)}/${projectId}/download`;
 }

@@ -2,7 +2,6 @@ import type { Terminal } from "@portikus/contracts";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { shortenPath, TerminalLeaf } from "./TerminalLeaf";
-import { installBrowserStubs } from "./testDom";
 
 // The pane itself is covered by TerminalPane.test.tsx; here it would only drag
 // xterm.js and a WebSocket into the test.
@@ -12,7 +11,6 @@ vi.mock("../TerminalPane", () => ({
 	),
 }));
 
-installBrowserStubs();
 afterEach(cleanup);
 
 const terminal: Terminal = {

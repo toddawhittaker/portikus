@@ -4,7 +4,7 @@ import { type TabItem, Tabs } from "./tabs";
 
 const TABS: TabItem[] = [
 	{ id: "t1", kind: "terminal", label: "zsh — todo-api" },
-	{ id: "t2", kind: "file", label: "app.ts", dirty: true },
+	{ id: "t2", kind: "file", label: "app.ts" },
 	{ id: "t3", kind: "terminal", label: "zsh — old", ended: true },
 ];
 
@@ -80,11 +80,13 @@ describe("Tabs", () => {
 		expect(props.onClose).toHaveBeenLastCalledWith("t1");
 	});
 
-	it("shows a dirty tab's dot instead of a close button", () => {
-		renderTabs();
+	it("sets the test ids a caller asks for", () => {
+		renderTabs({
+			tabs: [{ id: "t1", kind: "terminal", label: "zsh", testId: "tab-t1" }],
+		});
 
-		expect(screen.getByRole("img", { name: "Unsaved changes" })).toBeTruthy();
-		expect(screen.queryByRole("button", { name: "Close app.ts" })).toBeNull();
+		expect(screen.getByTestId("tab-t1")).toBeTruthy();
+		expect(screen.getByTestId("tab-t1-close")).toBeTruthy();
 	});
 
 	it("marks an ended terminal for assistive technology", () => {

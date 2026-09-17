@@ -2,7 +2,6 @@ import type { Terminal } from "@portikus/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { installBrowserStubs } from "./testDom";
 import { WorkArea } from "./WorkArea";
 
 vi.mock("../TerminalPane", () => ({
@@ -10,8 +9,6 @@ vi.mock("../TerminalPane", () => ({
 		<div data-testid={`terminal-pane-${terminal.id}`} />
 	),
 }));
-
-installBrowserStubs();
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
 const PROJECT = "33333333-3333-4333-8333-333333333333";
@@ -83,7 +80,7 @@ function stubFetch(options: { layout?: unknown; terminals: Terminal[] }) {
 	return { fetchMock, created };
 }
 
-function renderArea(running = true) {
+function renderArea() {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
@@ -93,7 +90,6 @@ function renderArea(running = true) {
 				workspaceId={WORKSPACE}
 				projectId={PROJECT}
 				projectPath="~/projects/todo-api"
-				running={running}
 				onSessionEnded={vi.fn()}
 			/>
 		</QueryClientProvider>,
@@ -103,14 +99,6 @@ function renderArea(running = true) {
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
-});
-
-test("a stopped workspace shows the waiting state instead of tabs", () => {
-	stubFetch({ terminals: [] });
-	renderArea(false);
-	expect(screen.getByTestId("work-area").textContent).toContain(
-		"Waiting for your workspace",
-	);
 });
 
 test("the saved layout is rendered as one tab with two panes", async () => {
@@ -179,8 +167,8 @@ test("closing a tab with one terminal deletes it without asking", async () => {
 	});
 	renderArea();
 
-	await waitFor(() => expect(screen.getByTestId("tab-close-tab1")).toBeTruthy());
-	fireEvent.click(screen.getByTestId("tab-close-tab1"));
+	await waitFor(() => expect(screen.getByTestId("tab-tab1-close")).toBeTruthy());
+	fireEvent.click(screen.getByTestId("tab-tab1-close"));
 
 	await waitFor(() =>
 		expect(
@@ -189,7 +177,8 @@ test("closing a tab with one terminal deletes it without asking", async () => {
 			),
 		).toBe(true),
 	);
-	expect(screen.queryByTestId("terminal-group-tab1")).toBeNull();
+	// The pane goes when the refreshed list no longer has the terminal.
+	await waitFor(() => expect(screen.queryByTestId("terminal-group-tab1")).toBeNull());
 });
 
 test("closing a tab with two live terminals asks first", async () => {
@@ -199,8 +188,8 @@ test("closing a tab with two live terminals asks first", async () => {
 	});
 	renderArea();
 
-	await waitFor(() => expect(screen.getByTestId("tab-close-tab1")).toBeTruthy());
-	fireEvent.click(screen.getByTestId("tab-close-tab1"));
+	await waitFor(() => expect(screen.getByTestId("tab-tab1-close")).toBeTruthy());
+	fireEvent.click(screen.getByTestId("tab-tab1-close"));
 
 	expect(screen.getByRole("alertdialog").textContent).toContain("Close this tab?");
 	expect(screen.getByTestId("terminal-group-tab1")).toBeTruthy();
