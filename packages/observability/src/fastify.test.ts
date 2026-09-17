@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import { expect, test } from "vitest";
 import { quietLogController, registerRequestLogging } from "./fastify.js";
 import type { LogLevel } from "./logger.js";
-import { collectingLogger, lineAt } from "./test-support.js";
+import { collectingLogger, lineAt } from "./testing.js";
 
 function buildApp(level: LogLevel = "info") {
 	const { logger, lines } = collectingLogger(level);
@@ -22,6 +22,10 @@ function buildApp(level: LogLevel = "info") {
 		throw new Error("kaboom");
 	});
 	app.get("/workspaces/:id", async () => ({ ok: true }));
+	app.get("/admin/users/:id/settings", async () => ({ ok: true }));
+	app.get("/long", async (_request, reply) =>
+		reply.code(400).send({ code: "BAD_REQUEST", message: "x".repeat(500) }),
+	);
 	app.get("/whoami", async (request) => {
 		(request as { user?: { id: string } }).user = { id: "user-1" };
 		return { ok: true };
@@ -96,6 +100,20 @@ test("a query string never reaches the line", async () => {
 	await app.inject({ method: "GET", url: "/x?token=abc" });
 	expect(lineAt(requests(), 0).path).toBe("/x");
 	expect(JSON.stringify(lines)).not.toContain("abc");
+});
+
+test("an id outside a workspace route is not labelled as a workspace", async () => {
+	const { app, requests } = buildApp();
+	await app.inject({ method: "GET", url: "/admin/users/u-1/settings" });
+	expect(lineAt(requests(), 0).workspaceId).toBeUndefined();
+});
+
+test("a very long error message is cut to 200 characters", async () => {
+	const { app, requests } = buildApp();
+	await app.inject({ method: "GET", url: "/long" });
+	const error = lineAt(requests(), 0).error as string;
+	expect(error).toHaveLength(201);
+	expect(error.endsWith("\u2026")).toBe(true);
 });
 
 test("the workspace id and the signed-in user are named when known", async () => {

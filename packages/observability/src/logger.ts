@@ -1,9 +1,10 @@
 import type { Writable } from "node:stream";
+import { LOG_LEVELS, LogLevel } from "@portikus/contracts";
 import pino from "pino";
 
-/** The log levels Portikus uses, loudest first (STACK.md §15). */
-export const LOG_LEVELS = ["error", "warn", "info", "debug"] as const;
-export type LogLevel = (typeof LOG_LEVELS)[number];
+// Contracts owns the level list (STACK.md §15); re-exported here so a
+// service that only imports the logger still has the type.
+export { LOG_LEVELS, LogLevel };
 
 export type Logger = pino.Logger;
 
@@ -19,6 +20,9 @@ export interface CreateLoggerOptions {
 
 /**
  * Keys and header names never written to a log line (SPEC.md §24.11).
+ *
+ * This is a backstop two to three levels deep, not a guarantee: log named
+ * fields, never a whole database row, config object or request object.
  */
 const REDACT_PATHS = [
 	"headers.authorization",
@@ -28,11 +32,21 @@ const REDACT_PATHS = [
 	"*.headers.authorization",
 	"*.headers.cookie",
 	"*.token",
+	"*.agent_token",
 	"*.agentToken",
 	"*.clientSecret",
+	"*.cookie",
+	"*.*.token",
+	"*.*.agent_token",
+	"*.*.agentToken",
+	"*.*.clientSecret",
+	"*.*.headers.authorization",
+	"*.*.headers.cookie",
 	"token",
+	"agent_token",
 	"agentToken",
 	"clientSecret",
+	"cookie",
 ];
 
 /**

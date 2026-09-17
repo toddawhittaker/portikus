@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { LOG_LEVELS, silentLogger } from "./logger.js";
-import { collectingLogger, lineAt } from "./test-support.js";
+import { collectingLogger, lineAt } from "./testing.js";
 
 test("every line carries the service, a level label, an ISO time and a message", () => {
 	const { logger, lines } = collectingLogger();
@@ -55,4 +55,17 @@ test("the silent logger writes nothing", () => {
 
 test("the level list is loudest first", () => {
 	expect(LOG_LEVELS).toEqual(["error", "warn", "info", "debug"]);
+});
+
+test("a token nested inside a row or an error object is redacted", () => {
+	const { logger, lines } = collectingLogger();
+	logger.info({ row: { agent_token: "secret-one" } }, "row");
+	logger.info(
+		{ err: { request: { headers: { authorization: "Bearer secret-two" } } } },
+		"err",
+	);
+	const text = JSON.stringify(lines);
+	expect(text).not.toContain("secret-one");
+	expect(text).not.toContain("secret-two");
+	expect(text).toContain("[redacted]");
 });

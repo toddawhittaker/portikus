@@ -43,6 +43,15 @@ function readErrorBody(payload: string): CapturedError | null {
 	return { code, message };
 }
 
+/** Keep a long error message from swamping the line. */
+const MAX_ERROR_LENGTH = 200;
+
+function truncate(message: string): string {
+	return message.length <= MAX_ERROR_LENGTH
+		? message
+		: `${message.slice(0, MAX_ERROR_LENGTH)}\u2026`;
+}
+
 function isJson(reply: FastifyReply): boolean {
 	const type = reply.getHeader("content-type");
 	return typeof type === "string" && type.includes("json");
@@ -102,9 +111,12 @@ export function registerRequestLogging<Log extends FastifyBaseLogger>(
 			reqId: request.id,
 		};
 		if (user && typeof user.id === "string") line.userId = user.id;
-		if (params && typeof params.id === "string") line.workspaceId = params.id;
+		// Only a workspace route's `:id` is a workspace id; /admin/users/:id is not.
+		if (params && typeof params.id === "string" && path.startsWith("/workspaces/")) {
+			line.workspaceId = params.id;
+		}
 		if (details?.code) line.code = details.code;
-		if (details?.message) line.error = details.message;
+		if (details?.message) line.error = truncate(details.message);
 
 		const log = request.log;
 		if (status >= 500) log.error(line, "request");

@@ -19,9 +19,11 @@ One shared logger package, `packages/observability`, built on pino, used by
 the API, the worker, the workspace controller, the workspace agent, and the
 mock identity provider. Each process creates exactly one root logger; every
 line carries the service name, the level as a word, and an ISO timestamp.
-Authorization and cookie headers and any `token`, `agentToken`, or
-`clientSecret` value are replaced with `[redacted]`, so a log line never
-carries a secret (SPEC.md 24.11).
+Authorization and cookie headers and keys named `token`, `agent_token`,
+`agentToken` or `clientSecret` are replaced with `[redacted]`, two to three
+levels deep. That is a backstop, not a guarantee: the rule people keep is to
+log named fields only, never a whole database row, config object or request
+object (SPEC.md 24.11).
 
 Fastify takes that logger as `loggerInstance`, and its own two lines per
 request are turned off. Instead one hook writes a single line per response:
@@ -39,7 +41,9 @@ API relays the level to running workspace agents, and the worker relays it
 to the controller, because those are the processes that already hold the
 credentials for each hop. Health checks log at debug, so routine polling
 does not bury real traffic. Development uses `pino-pretty`; everywhere else
-the output is JSON for the journal.
+the output is JSON for the journal. `pino-pretty` is a development
+dependency and is not in the Debian package, so `NODE_ENV=development` on a
+VM would fail at startup; Ansible pins production.
 
 Test coverage is measured in CI with a floor of 80 percent of lines and 70
 percent of branches overall, and 85 percent of lines in the API and the
