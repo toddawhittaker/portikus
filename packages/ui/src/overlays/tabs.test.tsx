@@ -1,7 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { type TabItem, Tabs } from "./tabs";
-import "./test-setup";
 
 const TABS: TabItem[] = [
 	{ id: "t1", kind: "terminal", label: "zsh — todo-api" },

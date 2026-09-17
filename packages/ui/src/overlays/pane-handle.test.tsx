@@ -2,7 +2,6 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { Group, Panel } from "react-resizable-panels";
 import { describe, expect, it, vi } from "vitest";
 import { PaneHandle } from "./pane-handle";
-import "./test-setup";
 
 function Fixture({ onReset }: { onReset?: () => void }) {
 	return (

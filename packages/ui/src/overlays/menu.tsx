@@ -1,7 +1,7 @@
 import * as RadixContextMenu from "@radix-ui/react-context-menu";
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as React from "react";
-import { Icon, type IconName, type Key } from "./_stubs";
+import { Icon, type IconName, type Key, ShortcutHint } from "../primitives/index.js";
 
 /** Which Radix family the items below render into. */
 const MenuKindContext = React.createContext<"dropdown" | "context">("dropdown");
@@ -96,7 +96,7 @@ export function MenuItem({
 			{icon ? <Icon name={icon} size="sm" /> : null}
 			<span className="pk-menu-item-label flex-1">{children}</span>
 			{shortcut ? (
-				<span className="pk-menu-item-shortcut">{shortcut.join(" ")}</span>
+				<ShortcutHint className="pk-menu-item-shortcut" keys={shortcut} plain />
 			) : null}
 		</P.Item>
 	);

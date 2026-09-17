@@ -1,6 +1,6 @@
 import * as RadixToast from "@radix-ui/react-toast";
 import * as React from "react";
-import { Icon, IconButton, type IconName } from "./_stubs";
+import { Icon, IconButton, type IconName } from "../primitives/index.js";
 
 export type ToastTone = "neutral" | "success" | "warning" | "danger";
 

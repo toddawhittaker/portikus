@@ -16,7 +16,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import * as RadixTabs from "@radix-ui/react-tabs";
 import * as React from "react";
-import { Icon, IconButton, type IconName } from "./_stubs";
+import { Icon, IconButton, type IconName } from "../primitives/index.js";
 
 export interface TabItem {
 	id: string;

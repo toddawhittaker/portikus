@@ -16,7 +16,7 @@
 	},
 	"scripts": {
 		"typecheck": "tsc -b",
-		"build": "mkdir -p dist/primitives dist/fonts && cp src/theme.css dist/theme.css && cp src/primitives/primitives.css dist/primitives/primitives.css && cp src/fonts/*.woff2 dist/fonts/"
+		"build": "mkdir -p dist/primitives dist/overlays dist/fonts && cp src/theme.css dist/theme.css && cp src/primitives/primitives.css dist/primitives/primitives.css && cp src/overlays/overlays.css dist/overlays/overlays.css && cp src/fonts/*.woff2 dist/fonts/"
 	},
 	"dependencies": {
 		"@dnd-kit/core": "6.3.1",

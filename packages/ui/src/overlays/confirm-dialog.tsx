@@ -1,6 +1,6 @@
 import * as RadixAlertDialog from "@radix-ui/react-alert-dialog";
 import * as React from "react";
-import { Button, Icon } from "./_stubs";
+import { Button, Icon, TextField } from "../primitives/index.js";
 
 export const ConfirmDialogRoot = RadixAlertDialog.Root;
 export const ConfirmDialogTrigger = RadixAlertDialog.Trigger;
@@ -94,12 +94,14 @@ export function ConfirmDialog({
 						) : null}
 						{confirmText ? (
 							<div className="mt-4">
-								<label className="block text-sm text-ink" htmlFor={`${id}-typed`}>
-									Type <span className="font-mono">{confirmText}</span> to confirm
-								</label>
-								<input
+								<TextField
 									id={`${id}-typed`}
-									className="mt-1 w-full rounded-sm border border-line bg-surface px-2 py-1 font-mono text-ink"
+									label={
+										<>
+											Type <span className="font-mono">{confirmText}</span> to confirm
+										</>
+									}
+									mono
 									value={typed}
 									onChange={(event) => setTyped(event.target.value)}
 									autoComplete="off"

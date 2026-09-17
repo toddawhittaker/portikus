@@ -1,7 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Toast, ToastProvider, useToast } from "./toast";
-import "./test-setup";
 
 function Fixture() {
 	const { show } = useToast();

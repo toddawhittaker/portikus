@@ -5,7 +5,6 @@ import {
 	ConfirmDialogRoot,
 	ConfirmDialogTrigger,
 } from "./confirm-dialog";
-import "./test-setup";
 
 function Fixture(props: {
 	onConfirm?: () => void;
@@ -47,7 +46,7 @@ describe("ConfirmDialog", () => {
 
 		const confirm = screen.getByRole("button", { name: "Archive project…" });
 		expect(confirm.hasAttribute("disabled")).toBe(true);
-		expect(confirm.getAttribute("data-loading")).toBe("true");
+		expect(confirm.getAttribute("aria-busy")).toBe("true");
 	});
 
 	it("keeps the confirm button disabled until the text matches", () => {

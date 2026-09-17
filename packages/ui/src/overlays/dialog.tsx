@@ -1,6 +1,6 @@
 import * as RadixDialog from "@radix-ui/react-dialog";
 import type * as React from "react";
-import { Icon, IconButton, type IconName } from "./_stubs";
+import { Icon, IconButton, type IconName } from "../primitives/index.js";
 
 export const DialogRoot = RadixDialog.Root;
 export const DialogTrigger = RadixDialog.Trigger;
@@ -44,6 +44,12 @@ export function Dialog({
 				id={id}
 				// Spread so we never override Radix's own role with undefined.
 				{...(role ? { role } : {})}
+				// Focus the dialog itself, not the close button: its tooltip would open
+				// on that focus and swallow the first Escape.
+				onOpenAutoFocus={(event) => {
+					event.preventDefault();
+					(event.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+				}}
 				className={`pk-dialog ${inline ? "pk-dialog--inline" : ""} ${size === "lg" ? "pk-dialog--lg" : ""}`}
 			>
 				<div className="flex items-start gap-3 px-6 pt-6">

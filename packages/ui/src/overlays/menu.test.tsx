@@ -8,7 +8,6 @@ import {
 	MenuSeparator,
 	MenuTrigger,
 } from "./menu";
-import "./test-setup";
 
 function Fixture({ onSelect }: { onSelect: () => void }) {
 	return (
