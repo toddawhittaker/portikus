@@ -128,7 +128,7 @@ plaintext on the workspace bridge until Epic 12; the token file sits in a
 directory the student owns, so containment relies on the Incus files API
 resolving paths inside the instance; the eight-terminal cap has a benign
 check-then-act race; and terminal rows (open plus the 20 most recent ended
-per listing) are never pruned. From Epic 6, the 1024-wide rail collapse is
+per listing) are never pruned (tracked in `docs/BACKLOG.md`). From Epic 6, the 1024-wide rail collapse is
 deferred, a clone shows no progress while it runs, a download has no size
 cap, discovery ignores directories that are not repositories, unarchiving
 is only reachable through the API, right-click paste in Firefox depends on
@@ -136,7 +136,7 @@ the browser's own paste prompt, a failed archive stream can reach the browser
 as a truncated zip, a failed download shows the API's JSON error page, and
 rename is not atomic across the agent and the database, so a crash between
 them leaves the old row missing and the new directory discovered as a
-separate project. Terminal names count per workspace rather than per
+separate project (tracked in `docs/BACKLOG.md`). Terminal names count per workspace rather than per
 project, so a second project's first terminal may be "Terminal 3", and a
 workspace created on an older image lacks zip until it is recreated, which
 the agent reports as a download failure. From the grace period task, the

@@ -59,3 +59,102 @@ requests can evict older journal entries. Both fixes are small and belong
 together.
 
 **Source.** Security review of the structured logging task, 2026-09-17.
+
+## Parallel worker sweep
+
+**What.** Start and stop operations run with a bounded concurrency, and each
+workspace's timers are computed independently of any start in flight.
+
+**Why.** The sweep is serial today, so one slow workspace start delays every
+other workspace's timers. The spec says to revisit this before the
+25-concurrent-workspace target of §25.2.
+
+**What it would take.** Split the sweep into timer work, which stays
+in-line and cheap, and operations, which go through a small concurrency
+limit. Half a day plus a test that a slow start does not delay a timer.
+
+**Source.** `docs/SPEC.md` around line 2223, Epic 3 known gaps, §25.2.
+
+## Re-provision after a failed create
+
+**What.** An administrator action that retries a workspace stuck in `error`.
+
+**Why.** There is no re-provision path today: the row stays in `error` and
+an operator clears it by hand in SQL.
+
+**What it would take.** An admin route that resets the row to a state the
+worker will pick up again, an audit row recording who did it, and a button
+on the administration page. About a day.
+
+**Source.** `docs/SPEC.md` around line 2225, Epic 3 known gaps.
+
+## OpenAPI generation from the Zod contracts
+
+**What.** Generate an OpenAPI document from the schemas in
+`packages/contracts` and serve or publish it.
+
+**Why.** ADR 0003 chose Zod contracts partly so the API could describe
+itself; that generation was never wired up.
+
+**What it would take.** Add the Zod-to-OpenAPI step to the contracts build,
+attach descriptions to the route schemas, and check the generated document
+in CI. About a day.
+
+**Source.** `docs/SPEC.md` around line 2227, Epic 3 known gaps, ADR 0003.
+
+## Mark workspace state unverified when the controller is unreachable
+
+**What.** When the worker cannot reach the controller, the API says the
+state is unverified instead of reporting the last known state as fact.
+
+**Why.** Today a student sees a confident but possibly stale state while the
+controller is down.
+
+**What it would take.** Record the last successful reconcile time, add an
+`unverified` flag to the workspace response once it is too old, and show it
+in the status bar. Half a day.
+
+**Source.** `docs/SPEC.md` around line 2229, Epic 3 known gaps.
+
+## Terminal row pruning and a race-free terminal cap
+
+**What.** Two small fixes in one: the worker deletes ended terminal rows
+older than a set number of days, and the eight-terminal cap is enforced
+without a check-then-act race.
+
+**Why.** Ended rows are never pruned, so the table only grows (a listing
+just hides all but the 20 most recent). The cap check is benign today but
+two fast requests can both pass it.
+
+**What it would take.** A delete in the worker's sweep, and either a
+database constraint or a per-workspace advisory lock around the create.
+Half a day with tests.
+
+**Source.** `docs/STATUS.md`, Epic 5 known gaps.
+
+## Atomic project rename
+
+**What.** A rename that leaves no broken state if the process dies partway.
+
+**Why.** Rename moves the directory in the agent and updates the database
+row separately. A crash between them loses the old row and the new
+directory is then discovered as a second project.
+
+**What it would take.** Write the new row as pending first, move the
+directory, then commit the row, with discovery ignoring pending rows and a
+sweep clearing stale ones. About a day.
+
+**Source.** `docs/STATUS.md`, Epic 6 known gaps.
+
+## Size cap on zip downloads
+
+**What.** A configured limit on the size of a project download, with a clear
+error above it.
+
+**Why.** Downloads stream with no cap, so one large project can tie up the
+agent and the browser gets a very long transfer.
+
+**What it would take.** The agent measures the tree before streaming and
+refuses over the limit; the web app shows the message. Half a day.
+
+**Source.** `docs/STATUS.md`, Epic 6 known gaps.
