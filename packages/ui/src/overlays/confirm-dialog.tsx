@@ -19,6 +19,8 @@ export interface ConfirmDialogProps {
 	onCancel?: () => void;
 	pending?: boolean;
 	inline?: boolean;
+	/** Test hook: set as `data-testid` on the dialog surface. */
+	testId?: string;
 	/** Preview only: start with this text already typed. */
 	typedValue?: string;
 }
@@ -37,6 +39,7 @@ export function ConfirmDialog({
 	onCancel,
 	pending,
 	inline,
+	testId,
 	typedValue,
 }: ConfirmDialogProps): React.ReactElement {
 	const [typed, setTyped] = React.useState(typedValue ?? "");
@@ -48,6 +51,7 @@ export function ConfirmDialog({
 			/>
 			<RadixAlertDialog.Content
 				id={id}
+				data-testid={testId}
 				className={`pk-dialog ${inline ? "pk-dialog--inline" : ""}`}
 			>
 				<div className="flex items-start gap-3 px-6 pt-6">

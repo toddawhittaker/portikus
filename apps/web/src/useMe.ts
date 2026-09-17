@@ -1,48 +1,40 @@
-import { useCallback, useEffect, useState } from "react";
+import { MeResponse } from "@portikus/contracts";
+import { useQuery } from "@tanstack/react-query";
+import { ApiError, request, SessionEndedError } from "./api/request.js";
 
-export type Role = "student" | "administrator";
-
-export interface MeUser {
-	id: string;
-	email: string | null;
-	displayName: string;
-	role: Role;
-}
+export type Role = MeResponse["role"];
+export type MeUser = MeResponse;
 
 export type MeState =
 	| { status: "loading" }
 	| { status: "anonymous" }
+	| { status: "forbidden" }
 	| { status: "authenticated"; user: MeUser };
 
 /**
  * Reads the current session from `GET /auth/me`. A 401 means nobody is
- * signed in.
+ * signed in; a 403 means the account exists but has no access to Portikus
+ * (SPEC.md §5.2), which the not-authorized page explains.
  */
-export function useMe(): { me: MeState; signedOut: () => void } {
-	const [me, setMe] = useState<MeState>({ status: "loading" });
-
-	useEffect(() => {
-		let cancelled = false;
-		fetch("/auth/me", { credentials: "same-origin" })
-			.then(async (response) => {
-				if (response.status === 401) {
-					if (!cancelled) setMe({ status: "anonymous" });
-					return;
+export function useMe(): MeState {
+	const query = useQuery({
+		queryKey: ["me"],
+		// A 401 here is the normal signed-out answer, not a lost session, so it
+		// is caught rather than left to the QueryClient's session handler.
+		queryFn: async (): Promise<MeState> => {
+			try {
+				return { status: "authenticated", user: await request(MeResponse, "/auth/me") };
+			} catch (error) {
+				if (error instanceof SessionEndedError) return { status: "anonymous" };
+				if (error instanceof ApiError && error.status === 403) {
+					return { status: "forbidden" };
 				}
-				const user = (await response.json()) as MeUser;
-				if (!cancelled) setMe({ status: "authenticated", user });
-			})
-			.catch(() => {
-				if (!cancelled) setMe({ status: "anonymous" });
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, []);
+				throw error;
+			}
+		},
+	});
 
-	const signedOut = useCallback(() => {
-		setMe({ status: "anonymous" });
-	}, []);
-
-	return { me, signedOut };
+	if (query.data) return query.data;
+	if (query.isError) return { status: "anonymous" };
+	return { status: "loading" };
 }

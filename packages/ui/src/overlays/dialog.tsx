@@ -16,6 +16,8 @@ export interface DialogProps {
 	hideClose?: boolean;
 	statusIcon?: IconName;
 	role?: "dialog" | "alertdialog";
+	/** Test hook: set as `data-testid` on the dialog surface. */
+	testId?: string;
 	/** Preview only: position inside the nearest positioned ancestor instead of the viewport. */
 	inline?: boolean;
 }
@@ -35,6 +37,7 @@ export function Dialog({
 	hideClose,
 	statusIcon,
 	role,
+	testId,
 	inline,
 }: DialogProps): React.ReactElement {
 	return (
@@ -42,6 +45,7 @@ export function Dialog({
 			<RadixDialog.Overlay className={`pk-scrim ${inline ? "pk-scrim--inline" : ""}`} />
 			<RadixDialog.Content
 				id={id}
+				data-testid={testId}
 				// Spread so we never override Radix's own role with undefined.
 				{...(role ? { role } : {})}
 				// Focus the dialog itself, not the close button: its tooltip would open

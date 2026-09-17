@@ -1,50 +1,119 @@
 import type { Workspace } from "@portikus/contracts";
-import { useEffect, useState } from "react";
+import { Icon, Skeleton } from "@portikus/ui";
 
-const STATE_TEXT: Record<string, string> = {
-	creating: "Creating your workspace…",
-	starting: "Starting your workspace…",
-	stopping: "Stopping your workspace…",
-	stopped: "Your workspace is stopped. Starting it now…",
-	error: "Your workspace could not be started.",
+export type StartingPhase =
+	| "connecting"
+	| "starting"
+	| "restoring"
+	| "stopping"
+	| "error";
+
+const STEPS = ["connecting", "starting", "restoring"] as const;
+const STEP_LABEL = [
+	"Connecting to Portikus",
+	"Starting your workspace",
+	"Reopening your tabs",
+];
+
+const COPY: Record<StartingPhase, [string, string]> = {
+	connecting: [
+		"Connecting to your workspace",
+		"Checking where your workspace is. This takes a second or two.",
+	],
+	starting: [
+		"Starting your workspace",
+		"This usually takes a few seconds. Your files are already saved on your workspace storage.",
+	],
+	restoring: [
+		"Reopening your tabs",
+		"Your workspace is running. Terminals from your last session will show as ended; nothing is rerun.",
+	],
+	stopping: [
+		"Stopping your workspace",
+		"Your files are saved. The workspace will start again when you come back.",
+	],
+	error: [
+		"Your workspace could not be started",
+		"Portikus could not start the machine behind this window. Nothing you did caused this.",
+	],
 };
 
-function remaining(deadline: string, now: number): string {
-	const seconds = Math.max(0, Math.round((Date.parse(deadline) - now) / 1000));
-	const minutes = Math.floor(seconds / 60);
-	const rest = String(seconds % 60).padStart(2, "0");
-	return `${minutes}:${rest}`;
+/** Which part of the wait the person is in (design/mockups/WorkspaceStarting). */
+export function startingPhase(workspace: Workspace | null): StartingPhase {
+	if (!workspace) return "connecting";
+	if (workspace.state === "error") return "error";
+	if (workspace.state === "stopping") return "stopping";
+	if (workspace.state === "running") return "restoring";
+	return "starting";
 }
 
 /**
- * The connecting/starting state (SPEC.md §6.3) and, during the disconnect
- * grace period, how long is left before the workspace stops (SPEC.md §6.4).
+ * The center of the shell while the workspace is not running yet
+ * (SPEC.md §6.3): what is happening, in order, and nothing to click.
  */
 export function WorkspaceStarting({ workspace }: { workspace: Workspace | null }) {
-	const [now, setNow] = useState(() => Date.now());
-	const deadline = workspace?.shutdownDeadline ?? null;
-
-	useEffect(() => {
-		if (!deadline) return;
-		const timer = setInterval(() => setNow(Date.now()), 1000);
-		return () => clearInterval(timer);
-	}, [deadline]);
+	const phase = startingPhase(workspace);
+	const [heading, sub] = COPY[phase];
+	const at = STEPS.indexOf(phase as (typeof STEPS)[number]);
 
 	return (
-		<section className="pk-workspace-starting">
-			<h2>Workspace</h2>
-			<p data-testid="workspace-state">
-				{workspace
-					? (STATE_TEXT[workspace.state] ?? `state: ${workspace.state}`)
-					: "Connecting…"}
-			</p>
-			{workspace?.errorMessage && <p role="alert">{workspace.errorMessage}</p>}
-			{deadline && (
-				<p data-testid="shutdown-countdown">
-					Your workspace will stop in {remaining(deadline, now)}. Your files are saved;
-					running terminals and previews will end.
-				</p>
-			)}
-		</section>
+		<>
+			<div className="pk-tabs-skeleton" aria-hidden="true">
+				<Skeleton variant="block" width="140px" height="14px" />
+				<Skeleton variant="block" width="96px" height="14px" />
+			</div>
+			<div className="flex flex-1 items-center justify-center p-10">
+				<section
+					className="pk-card pk-progress-card"
+					aria-live="polite"
+					aria-labelledby="progress-title"
+					data-testid="workspace-progress"
+					data-phase={phase}
+				>
+					<div className="flex flex-col gap-2">
+						<h1 id="progress-title" className="pk-text-title">
+							{heading}
+						</h1>
+						<p className="pk-text-body pk-muted">{sub}</p>
+					</div>
+					{at >= 0 && (
+						<ol className="pk-steps">
+							{STEP_LABEL.map((label, index) => {
+								const state = index < at ? "done" : index === at ? "active" : "pending";
+								return (
+									<li
+										key={label}
+										className={`pk-step pk-step--${state}`}
+										aria-current={index === at ? "step" : undefined}
+									>
+										<span className="pk-step-glyph">
+											{state === "done" && <Icon name="check" size="md" />}
+											{state === "active" && (
+												<span className="pk-spin" aria-hidden="true" />
+											)}
+											{state === "pending" && (
+												<span className="pk-step-ring" aria-hidden="true" />
+											)}
+										</span>
+										<span>{label}</span>
+									</li>
+								);
+							})}
+						</ol>
+					)}
+					{phase === "error" && workspace?.errorMessage && (
+						<>
+							<hr className="pk-divider" />
+							<div className="flex flex-col gap-3">
+								<p className="pk-text-body">{workspace.errorMessage}</p>
+								{workspace.errorCode && (
+									<p className="pk-techdetail">{workspace.errorCode}</p>
+								)}
+							</div>
+						</>
+					)}
+				</section>
+			</div>
+		</>
 	);
 }

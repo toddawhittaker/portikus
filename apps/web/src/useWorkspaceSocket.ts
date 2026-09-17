@@ -1,31 +1,44 @@
 import type { Workspace } from "@portikus/contracts";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const HEARTBEAT_MS = 15_000;
 const RECONNECT_MS = 3_000;
 const MAX_RECONNECT_MS = 60_000;
-/** The API closes with this code when the session is gone (plan, package C). */
+/** The API closes with this code when the session is gone (SPEC.md §26). */
 const SESSION_ENDED_CODE = 4401;
 
 function socketUrl(workspaceId: string): string {
-	const scheme = location.protocol === "https:" ? "wss" : "ws";
-	return `${scheme}://${location.host}/workspaces/${workspaceId}/ws`;
+	return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/workspaces/${workspaceId}/ws`;
+}
+
+export interface WorkspaceSocket {
+	/** The last `workspace` message the server sent, or null before the first. */
+	workspace: Workspace | null;
+	/** Drop the socket and connect again now, without waiting for the backoff. */
+	reconnect: () => void;
 }
 
 /**
- * Once signed in, makes sure the user has a workspace and keeps a WebSocket
- * open to it. The last `workspace` message the server sent is returned.
+ * Keeps a WebSocket open to one workspace. The connection is what the server
+ * counts as presence (SPEC.md §6.4), so it stays open for as long as the
+ * page is on a workspace screen.
  */
 export function useWorkspaceSocket(
-	enabled: boolean,
+	workspaceId: string | null,
 	onSessionEnded: () => void,
-): Workspace | null {
+): WorkspaceSocket {
 	const [workspace, setWorkspace] = useState<Workspace | null>(null);
+	const [attempt, setAttempt] = useState(0);
 	const sessionEnded = useRef(onSessionEnded);
 	sessionEnded.current = onSessionEnded;
 
+	const reconnect = useCallback(() => setAttempt((value) => value + 1), []);
+
+	// `attempt` is never read in the body on purpose: bumping it is what
+	// reconnect() does, and re-running the effect is how the socket is replaced.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: restart trigger
 	useEffect(() => {
-		if (!enabled) {
+		if (!workspaceId) {
 			setWorkspace(null);
 			return;
 		}
@@ -36,9 +49,9 @@ export function useWorkspaceSocket(
 		let retry: ReturnType<typeof setTimeout> | undefined;
 		let backoffMs = RECONNECT_MS;
 
-		function connect(workspaceId: string) {
+		function connect(id: string) {
 			if (stopped) return;
-			const next = new WebSocket(socketUrl(workspaceId));
+			const next = new WebSocket(socketUrl(id));
 			socket = next;
 			let opened = false;
 
@@ -85,37 +98,18 @@ export function useWorkspaceSocket(
 								sessionEnded.current();
 								return;
 							}
-							retry = setTimeout(() => connect(workspaceId), wait);
+							retry = setTimeout(() => connect(id), wait);
 						})
 						.catch(() => {
-							if (!stopped) retry = setTimeout(() => connect(workspaceId), wait);
+							if (!stopped) retry = setTimeout(() => connect(id), wait);
 						});
 					return;
 				}
-				retry = setTimeout(() => connect(workspaceId), RECONNECT_MS);
+				retry = setTimeout(() => connect(id), RECONNECT_MS);
 			};
 		}
 
-		// `POST /workspaces` is idempotent: it returns the user's workspace.
-		fetch("/workspaces", {
-			method: "POST",
-			credentials: "same-origin",
-			headers: { "content-type": "application/json" },
-			body: "{}",
-		})
-			.then(async (response) => {
-				if (response.status === 401) {
-					sessionEnded.current();
-					return;
-				}
-				if (!response.ok) return;
-				const created = (await response.json()) as Workspace;
-				setWorkspace(created);
-				connect(created.id);
-			})
-			.catch(() => {
-				// Nothing to show; the next sign-in or reload tries again.
-			});
+		connect(workspaceId);
 
 		return () => {
 			stopped = true;
@@ -123,7 +117,7 @@ export function useWorkspaceSocket(
 			if (retry !== undefined) clearTimeout(retry);
 			socket?.close();
 		};
-	}, [enabled]);
+	}, [workspaceId, attempt]);
 
-	return workspace;
+	return { workspace, reconnect };
 }
