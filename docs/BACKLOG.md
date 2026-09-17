@@ -179,3 +179,24 @@ hosted services were considered and rejected for adding a toolchain or an
 external service. Half a day.
 
 **Source.** Todd, 2026-09-17, after the coverage floor landed in PR 101.
+
+## LTI 1.3 launch from the learning management system
+
+**What.** A student opens Portikus from a course in Canvas or Moodle and
+lands in their workspace without a separate sign-in. SPEC.md section 3
+requires the architecture to leave room for it; section 31 lists it as a
+future capability.
+
+**Why.** For a course, the LMS is where students already are, and the launch
+carries the course and roster context that instructor-managed templates
+and roster provisioning would need later.
+
+**What it would take.** An LTI 1.3 launch is an OpenID Connect flow in
+which the LMS is the issuer, so it becomes a second way to create the same
+session row beside the existing login: platform registration and key
+management (JWKS), launch validation with nonce and state, mapping LMS
+roles to `student` and `administrator`, deciding whether an LTI-launched
+user also gets a plain login, and a test harness that plays the LMS. One
+to two weeks; a post-pilot epic candidate.
+
+**Source.** Todd, 2026-09-17.
