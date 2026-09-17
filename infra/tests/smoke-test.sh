@@ -453,25 +453,6 @@ else
   check "frame-ancestors header on /" \
     site_header_matches "content-security-policy: frame-ancestors 'none'"
 
-  # 2b. The API logs one structured line per request, and a failed request
-  # is logged server side with its status (ADR 0012, SPEC.md 25.6).
-  api_journal_has() {
-    ssh_cmd "sudo journalctl -u portikus-api --since '5 min ago' --no-pager | grep -q -- '$1'"
-  }
-  check "api logs one line per request" api_journal_has '"msg":"request"'
-  check_output "api answers 404 for an unknown route" "404" \
-    ssh_cmd "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${API_PORT}/no-such-route"
-  # One line must carry both the warn level and the 404, and journald can lag
-  # a moment behind the response.
-  api_journal_has_warn_404() {
-    for _ in $(seq 1 3); do
-      if api_journal_has '"level":"warn".*"status":404'; then return 0; fi
-      sleep 1
-    done
-    return 1
-  }
-  check "api logs the 404 as one warn line" api_journal_has_warn_404
-
   # 3. The mock identity provider answers through Caddy with the right issuer.
   check "portikus-mock-idp is active"           ssh_cmd systemctl is-active portikus-mock-idp
   mock_issuer() {
@@ -501,7 +482,30 @@ else
   check_output "alice is signed in" "Alice Student" echo "$alice_name"
   check "/auth/me carries alice's user id"      test -n "$alice_id"
 
-  # 5b. Shorten the grace period for the lifecycle checks below.  The original
+  # 5b. The API logs one structured line per request, and a refused request
+  #     is logged server side with its status (ADR 0012, SPEC.md 25.6).  This
+  #     runs after a real authenticated request, because /health is logged at
+  #     debug on purpose and so leaves nothing behind at the default level.
+  api_journal_has() {
+    ssh_cmd "sudo journalctl -u portikus-api --since '5 min ago' --no-pager | grep -q -- '$1'"
+  }
+  check "api logs one line per request" api_journal_has '"msg":"request"'
+  # Authentication runs before routing, so an anonymous request to an unknown
+  # route is refused with 401 rather than reaching the 404 handler.
+  check_output "an anonymous request to an unknown route is refused with 401" "401" \
+    ssh_cmd "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${API_PORT}/no-such-route"
+  # One line must carry the warn level, the 401, and the code, and journald can
+  # lag a moment behind the response.
+  api_journal_has_warn_401() {
+    for _ in $(seq 1 3); do
+      if api_journal_has '"level":"warn".*"status":401.*"code":"UNAUTHORIZED"'; then return 0; fi
+      sleep 1
+    done
+    return 1
+  }
+  check "the refused request is logged at warn" api_journal_has_warn_401
+
+  # 5c. Shorten the grace period for the lifecycle checks below.  The original
   #     value is recorded here and put back by cleanup_epic34.
   orig_grace=$(admin_grace)
   check "read the platform grace period as carol" test -n "$orig_grace"

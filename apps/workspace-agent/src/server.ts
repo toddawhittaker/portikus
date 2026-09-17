@@ -10,7 +10,9 @@ import {
 	TerminalId,
 } from "@portikus/contracts";
 import {
+	applyLevel,
 	type Logger,
+	type LogLevel,
 	quietLogController,
 	registerRequestLogging,
 	silentLogger,
@@ -76,16 +78,19 @@ export interface ServerOptions {
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
 export function buildServer(options: ServerOptions): FastifyInstance {
+	// Keep the root logger: Fastify wraps it in a child, so setting a level on
+	// the instance would leave this process's own debug lines silent (ADR 0012).
+	const rootLogger = options.logger ?? silentLogger();
 	const app = Fastify({
 		// Cast so the instance keeps Fastify's default logger type and
 		// callers can still hold it as a plain FastifyInstance.
-		loggerInstance: (options.logger ?? silentLogger()) as FastifyBaseLogger,
+		loggerInstance: rootLogger as FastifyBaseLogger,
 		logController: quietLogController(),
 	});
 	registerRequestLogging(app, { debugPaths: ["/health"] });
 
 	// The level to return to when the API clears the override (ADR 0012).
-	const startLevel = app.log.level;
+	const startLevel = rootLogger.level as LogLevel;
 
 	const registry = new TerminalRegistry(
 		options.homeDir,
@@ -135,7 +140,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 			// Null clears the override, so this agent goes back to the level it
 			// started with, from its own environment (ADR 0012).
-			app.log.level = parsed.data.level ?? startLevel;
+			applyLevel(rootLogger, startLevel, parsed.data.level);
 			return reply.code(204).send();
 		});
 
