@@ -3,6 +3,8 @@ packages:
   - packages/*
 allowBuilds:
   esbuild: true
+  # node-pty compiles a native addon; the workspace agent needs real PTYs.
+  node-pty: true
 minimumReleaseAgeExclude:
   - '@vitest/mocker@5.0.1'
   - '@vitest/spy@5.0.1'
