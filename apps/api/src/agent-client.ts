@@ -1,7 +1,12 @@
 import {
+	AgentCreateProjectRequest,
 	AgentCreateTerminalRequest,
+	AgentDuplicateProjectRequest,
 	AgentError as AgentErrorBody,
 	type AgentErrorCode,
+	AgentProject,
+	AgentProjectList,
+	AgentRenameProjectRequest,
 } from "@portikus/contracts";
 
 /** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
@@ -20,6 +25,9 @@ export class AgentCallError extends Error {
 
 /** How long any one agent call may take before it is treated as unreachable. */
 const AGENT_TIMEOUT_MS = 5000;
+
+/** Creating a project may clone a repository, which is slow. */
+const AGENT_CREATE_PROJECT_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * The control plane's side of the workspace agent API (ADR 0009, SPEC.md §9.7).
@@ -55,7 +63,82 @@ export class AgentClient {
 		await this.call("DELETE", `/terminals/${terminalId}`);
 	}
 
-	private async call(method: string, path: string, body?: unknown): Promise<unknown> {
+	async listProjects(): Promise<AgentProjectList> {
+		return AgentProjectList.parse(await this.call("GET", "/projects"));
+	}
+
+	async getProject(slug: string): Promise<AgentProject> {
+		return AgentProject.parse(await this.call("GET", `/projects/${slug}`));
+	}
+
+	async createProject(input: {
+		slug: string;
+		source: "new" | "clone" | "template";
+		url?: string;
+		gitInit: boolean;
+	}): Promise<AgentProject> {
+		const payload = await this.call(
+			"POST",
+			"/projects",
+			AgentCreateProjectRequest.parse(input),
+			AGENT_CREATE_PROJECT_TIMEOUT_MS,
+		);
+		return AgentProject.parse(payload);
+	}
+
+	async renameProject(slug: string, to: string): Promise<void> {
+		await this.call(
+			"POST",
+			`/projects/${slug}/rename`,
+			AgentRenameProjectRequest.parse({ to }),
+		);
+	}
+
+	async duplicateProject(slug: string, to: string): Promise<void> {
+		await this.call(
+			"POST",
+			`/projects/${slug}/duplicate`,
+			AgentDuplicateProjectRequest.parse({ to }),
+		);
+	}
+
+	async gitInit(slug: string): Promise<void> {
+		await this.call("POST", `/projects/${slug}/git-init`);
+	}
+
+	/**
+	 * The upstream zip response, still streaming. No timeout, because archiving
+	 * a large project legitimately takes longer than an ordinary call.
+	 */
+	async downloadProject(slug: string): Promise<Response> {
+		let response: Response;
+		try {
+			response = await fetch(
+				`http://${this.address}:${this.port}/projects/${slug}/archive`,
+				{ method: "GET", headers: { authorization: this.authHeader() } },
+			);
+		} catch {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent could not be reached",
+			);
+		}
+		if (!response.ok) {
+			const parsed = AgentErrorBody.safeParse(await readJson(response));
+			throw new AgentCallError(
+				parsed.success ? parsed.data.error.code : "AGENT_UNAVAILABLE",
+				parsed.success ? parsed.data.error.message : "The workspace agent failed",
+			);
+		}
+		return response;
+	}
+
+	private async call(
+		method: string,
+		path: string,
+		body?: unknown,
+		timeoutMs: number = AGENT_TIMEOUT_MS,
+	): Promise<unknown> {
 		let response: Response;
 		try {
 			response = await fetch(`http://${this.address}:${this.port}${path}`, {
@@ -65,7 +148,7 @@ export class AgentClient {
 					...(body === undefined ? {} : { "content-type": "application/json" }),
 				},
 				body: body === undefined ? undefined : JSON.stringify(body),
-				signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
+				signal: AbortSignal.timeout(timeoutMs),
 			});
 		} catch {
 			throw new AgentCallError(

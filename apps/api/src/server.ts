@@ -9,6 +9,7 @@ import { toAuthOptions } from "./auth-options.js";
 import { log } from "./log.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerProjectRoutes } from "./routes/projects.js";
 import { registerTerminalRoutes } from "./routes/terminals.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerWorkspaceSocket } from "./routes/ws.js";
@@ -106,6 +107,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerWorkspaceRoutes(instance, deps);
 		registerWorkspaceSocket(instance, deps);
 		registerTerminalRoutes(instance, deps);
+		registerProjectRoutes(instance, deps);
 		registerAdminRoutes(instance, deps);
 	});
 
