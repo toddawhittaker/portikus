@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	projectDirs,
 	projectIds,
 	query,
 	removeProjectDir,
@@ -303,6 +304,38 @@ test.describe("projects", () => {
 				return rows[0]?.state;
 			})
 			.toBe("active");
+	});
+
+	test("deleting a project requires typing its slug and removes it", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Scratch Pad" });
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByTestId(`project-item-${project.id}`)).toBeVisible();
+
+		await projectAction(page, project.id, "Delete project");
+		await expect(page.getByTestId("dialog-delete-project")).toContainText(project.path);
+		const button = page.getByTestId("delete-confirm-button");
+		await expect(button).toBeDisabled();
+
+		await page.getByTestId("delete-confirm-input").fill("scratch-pa");
+		await expect(button).toBeDisabled();
+
+		await page.getByTestId("delete-confirm-input").fill(project.slug);
+		await expect(button).toBeEnabled();
+		await button.click();
+
+		await expect(page.getByTestId(`project-item-${project.id}`)).toHaveCount(0);
+		await expect
+			.poll(
+				async () =>
+					(await query("select id from projects where id = $1", [project.id])).length,
+			)
+			.toBe(0);
+		// The folder is gone too (SPEC.md 7.3).
+		expect(await projectDirs(student.workspaceId)).not.toContain(project.slug);
 	});
 
 	test("a Git directory made by hand is discovered", async ({ page, context }) => {
