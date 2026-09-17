@@ -46,7 +46,19 @@ beforeEach(async () => {
 	fake.startResult = { ipv4: "10.0.0.2" };
 	fake.stopResult = { forced: false };
 	fake.listResult = [];
+	await setGlobalGrace(cfg.SHUTDOWN_GRACE_SECONDS);
 });
+
+/** Set (or insert) the platform-wide grace period. */
+async function setGlobalGrace(seconds: number): Promise<void> {
+	await tdb.db
+		.insertInto("settings")
+		.values({ id: 1, shutdown_grace_seconds: seconds })
+		.onConflict((oc) =>
+			oc.column("id").doUpdateSet({ shutdown_grace_seconds: seconds }),
+		)
+		.execute();
+}
 
 /** Insert a workspace row and return its id. */
 async function insertWorkspace(
@@ -164,6 +176,9 @@ test.skipIf(skip)(
 			state: "running",
 			desired_state: "running",
 			shutdown_deadline: pastDeadline.toISOString(),
+			disconnected_at: new Date(
+				now.getTime() - (cfg.SHUTDOWN_GRACE_SECONDS + 1) * 1000,
+			).toISOString(),
 		});
 		// No connections.
 
@@ -409,6 +424,9 @@ test.skipIf(skip)(
 			desired_state: "running",
 			incus_instance_name: "ws-deadline-race",
 			shutdown_deadline: new Date(now.getTime() - 1000).toISOString(),
+			disconnected_at: new Date(
+				now.getTime() - (cfg.SHUTDOWN_GRACE_SECONDS + 1) * 1000,
+			).toISOString(),
 		});
 
 		// Deadline pass moves it to stopping and stops it.
@@ -602,6 +620,9 @@ test.skipIf(skip)(
 			state: "running",
 			desired_state: "running",
 			shutdown_deadline: past.toISOString(),
+			disconnected_at: new Date(
+				now.getTime() - (cfg.SHUTDOWN_GRACE_SECONDS + 1) * 1000,
+			).toISOString(),
 		});
 		const open = await insertTerminal(id);
 		const alreadyEnded = await insertTerminal(id, past);
@@ -625,6 +646,172 @@ test.skipIf(skip)("an explicit stop ends open terminals", async () => {
 
 	expect((await getTerminal(open)).ended_at).not.toBeNull();
 });
+
+// --- Live grace period settings (SPEC.md §6.4) ---
+
+/** Insert a running workspace owned by a fresh user; returns both ids. */
+async function runningWorkspace(
+	userOverrides: { shutdown_grace_seconds?: number | null } = {},
+): Promise<{ id: string; ownerId: string }> {
+	const ownerId = await insertTestUser(tdb.db, userOverrides);
+	const id = await insertWorkspace({
+		state: "running",
+		desired_state: "running",
+		owner_user_id: ownerId,
+	});
+	return { id, ownerId };
+}
+
+function deadlineMs(value: unknown): number {
+	return new Date(value as string).getTime();
+}
+
+test.skipIf(skip)("a global grace of 0 never arms a deadline", async () => {
+	await setGlobalGrace(0);
+	const { id } = await runningWorkspace();
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("running");
+	expect(ws.disconnected_at).not.toBeNull();
+	expect(ws.shutdown_deadline).toBeNull();
+});
+
+test.skipIf(skip)("setting the grace to 0 clears an armed deadline", async () => {
+	const { id } = await runningWorkspace();
+	const now = new Date();
+	await reconcile(tdb.db, fake, cfg, now, now);
+	expect((await getWorkspace(id)).shutdown_deadline).not.toBeNull();
+
+	await setGlobalGrace(0);
+	await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("running");
+	expect(ws.shutdown_deadline).toBeNull();
+});
+
+test.skipIf(skip)("raising the grace moves the deadline forward", async () => {
+	const { id } = await runningWorkspace();
+	const now = new Date();
+	await reconcile(tdb.db, fake, cfg, now, now);
+	const first = deadlineMs((await getWorkspace(id)).shutdown_deadline);
+
+	await setGlobalGrace(1200);
+	await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+
+	const second = deadlineMs((await getWorkspace(id)).shutdown_deadline);
+	expect(second - first).toBe(600_000);
+});
+
+test.skipIf(skip)(
+	"lowering the grace into the past stops the workspace on that tick",
+	async () => {
+		const { id } = await runningWorkspace();
+		const now = new Date();
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		await setGlobalGrace(60);
+		const later = new Date(now.getTime() + 120_000);
+		await reconcile(tdb.db, fake, cfg, later, later);
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(fake.calls.some((c) => c.method === "stop")).toBe(true);
+	},
+);
+
+test.skipIf(skip)(
+	"an owner override of 0 keeps that workspace up while another stops",
+	async () => {
+		const forever = await runningWorkspace({ shutdown_grace_seconds: 0 });
+		const mortal = await runningWorkspace();
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+		expect((await getWorkspace(forever.id)).shutdown_deadline).toBeNull();
+
+		const later = new Date(now.getTime() + (cfg.SHUTDOWN_GRACE_SECONDS + 1) * 1000);
+		await reconcile(tdb.db, fake, cfg, later, later);
+
+		expect((await getWorkspace(forever.id)).state).toBe("running");
+		expect((await getWorkspace(mortal.id)).state).toBe("stopped");
+	},
+);
+
+test.skipIf(skip)("an override of 30 applies even when the global is 0", async () => {
+	await setGlobalGrace(0);
+	const { id } = await runningWorkspace({ shutdown_grace_seconds: 30 });
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+	expect((await getWorkspace(id)).shutdown_deadline).not.toBeNull();
+
+	const later = new Date(now.getTime() + 31_000);
+	await reconcile(tdb.db, fake, cfg, later, later);
+
+	expect((await getWorkspace(id)).state).toBe("stopped");
+});
+
+test.skipIf(skip)("clearing an override falls back to the global", async () => {
+	const { id, ownerId } = await runningWorkspace({ shutdown_grace_seconds: 30 });
+	const now = new Date();
+	await reconcile(tdb.db, fake, cfg, now, now);
+	const withOverride = deadlineMs((await getWorkspace(id)).shutdown_deadline);
+
+	await tdb.db
+		.updateTable("users")
+		.set({ shutdown_grace_seconds: null })
+		.where("id", "=", ownerId)
+		.execute();
+	await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+
+	const after = deadlineMs((await getWorkspace(id)).shutdown_deadline);
+	expect(after - withOverride).toBe((cfg.SHUTDOWN_GRACE_SECONDS - 30) * 1000);
+});
+
+test.skipIf(skip)("without a settings row the config value is used", async () => {
+	await tdb.db.deleteFrom("settings").execute();
+	const { id } = await runningWorkspace();
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+
+	const ws = await getWorkspace(id);
+	const expected = now.getTime() + cfg.SHUTDOWN_GRACE_SECONDS * 1000;
+	expect(Math.abs(deadlineMs(ws.shutdown_deadline) - expected)).toBeLessThan(2000);
+});
+
+test.skipIf(skip)(
+	"restarting a failed workspace clears the stale disconnect timers",
+	async () => {
+		const now = new Date();
+		const id = await insertWorkspace({
+			state: "error",
+			desired_state: "running",
+			disconnected_at: new Date(now.getTime() - 3600_000).toISOString(),
+			shutdown_deadline: new Date(now.getTime() - 3000_000).toISOString(),
+			// Past the rest period the sweep waits before retrying a start.
+			updated_at: new Date(now.getTime() - 60_000).toISOString(),
+		});
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+		let ws = await getWorkspace(id);
+		expect(ws.state).toBe("running");
+		expect(ws.disconnected_at).toBeNull();
+		expect(ws.shutdown_deadline).toBeNull();
+
+		// A sweep with no connections arms a fresh deadline instead of stopping.
+		const later = new Date(now.getTime() + 1000);
+		await reconcile(tdb.db, fake, cfg, later, later);
+
+		ws = await getWorkspace(id);
+		expect(ws.state).toBe("running");
+		expect(deadlineMs(ws.shutdown_deadline)).toBeGreaterThan(later.getTime());
+	},
+);
 
 test.skipIf(skip)("the agent token never appears in audit metadata", async () => {
 	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });

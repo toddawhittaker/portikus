@@ -13,6 +13,7 @@ import {
 	NameMark,
 	StateBadge,
 } from "@portikus/ui";
+import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import type { MeUser } from "../useMe.js";
 import { type ThemePreference, useThemePreference } from "./theme.js";
@@ -37,7 +38,8 @@ export function AppHeader({
 	workspace,
 	project,
 }: {
-	workspaceId: string;
+	/** Absent on the administration page, which belongs to no workspace. */
+	workspaceId?: string;
 	user: MeUser;
 	workspace: Workspace | null;
 	project: Project | undefined;
@@ -48,7 +50,7 @@ export function AppHeader({
 
 	return (
 		<header className="pk-appbar" data-testid="app-header">
-			<NameMark size={18} href={`/workspaces/${workspaceId}`} />
+			<NameMark size={18} href={workspaceId ? `/workspaces/${workspaceId}` : "/"} />
 			<span className="pk-appbar-divider" aria-hidden="true" />
 			{project ? (
 				<span className="pk-appbar-context">
@@ -56,35 +58,57 @@ export function AppHeader({
 					<span className="pk-mono-small">~/projects/{project.slug}</span>
 				</span>
 			) : (
-				<span className="pk-appbar-context">Your workspace</span>
+				<span className="pk-appbar-context">
+					{workspaceId ? "Your workspace" : "Administration"}
+				</span>
 			)}
 			<span className="pk-appbar-spacer" />
 
-			<button
-				type="button"
-				className="pk-wsbutton"
-				aria-haspopup="dialog"
-				data-testid="workspace-status"
-				onClick={() => setStatusOpen(true)}
-			>
-				<span>Workspace</span>
-				{workspace ? (
-					<StateBadge
-						state={workspace.state}
-						desiredState={workspace.desiredState}
-						live
-					/>
-				) : (
-					<StateBadge state="starting" desiredState="running" label="Connecting" live />
-				)}
-			</button>
+			{user.role === "administrator" && workspaceId ? (
+				<Link to="/admin" className="pk-wsbutton" data-testid="admin-link">
+					Administration
+				</Link>
+			) : null}
+			{workspaceId ? null : (
+				<Link to="/" className="pk-wsbutton" data-testid="back-to-workspace">
+					Back to your workspace
+				</Link>
+			)}
 
-			<IconButton
-				icon="search"
-				label="Search arrives in Epic 7"
-				shortcut={["Mod", "Shift", "F"]}
-				disabled
-			/>
+			{workspaceId ? (
+				<button
+					type="button"
+					className="pk-wsbutton"
+					aria-haspopup="dialog"
+					data-testid="workspace-status"
+					onClick={() => setStatusOpen(true)}
+				>
+					<span>Workspace</span>
+					{workspace ? (
+						<StateBadge
+							state={workspace.state}
+							desiredState={workspace.desiredState}
+							live
+						/>
+					) : (
+						<StateBadge
+							state="starting"
+							desiredState="running"
+							label="Connecting"
+							live
+						/>
+					)}
+				</button>
+			) : null}
+
+			{workspaceId ? (
+				<IconButton
+					icon="search"
+					label="Search arrives in Epic 7"
+					shortcut={["Mod", "Shift", "F"]}
+					disabled
+				/>
+			) : null}
 
 			<MenuRoot>
 				<MenuTrigger asChild>

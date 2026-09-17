@@ -201,7 +201,13 @@ own state under it. Purging the package removes `/etc/portikus` only.
 Service configuration lives in `/etc/portikus/*.env`. To override a
 variable for testing without changing the Ansible-managed file, create
 the corresponding `.override.env` file (for example,
-`/etc/portikus/worker.override.env` with `SHUTDOWN_GRACE_SECONDS=20`).
+`/etc/portikus/worker.override.env` with `STATUS_REFRESH_SECONDS=5`).
+
+One value is different. `SHUTDOWN_GRACE_SECONDS` in
+`/etc/portikus/worker.env` only seeds the disconnect grace period into the
+database the first time the worker starts (ADR 0011). After that the
+administration page at `/admin` owns it: editing the file has no effect,
+and a change made on the page applies straight away with no restart.
 
 ### Browser access
 

@@ -366,9 +366,26 @@ else
     echo "$state"
   }
 
-  # Shorten the grace period for testing.
-  ssh_cmd 'echo "SHUTDOWN_GRACE_SECONDS=20" | sudo tee /etc/portikus/worker.override.env >/dev/null'
-  ssh_cmd sudo systemctl restart portikus-worker
+  # The disconnect grace period is a live platform setting an administrator
+  # changes through the API (SPEC.md section 6.4), so the test shortens it the
+  # same way, as carol, instead of editing a file and restarting the worker.
+  admin_grace() {
+    vm_get carol "${API}/admin/settings" | json_field shutdownGraceSeconds
+  }
+
+  # set_global_grace SECONDS -- prints the value the API reports back.
+  set_global_grace() {
+    vm_get carol "${API}/admin/settings" \
+      "-X PUT -H 'Origin: ${API}' -H 'Content-Type: application/json' -d '{\"shutdownGraceSeconds\":$1}'" \
+      | json_field shutdownGraceSeconds
+  }
+
+  # set_user_grace USER_ID SECONDS -- prints the value the API reports back.
+  set_user_grace() {
+    vm_get carol "${API}/admin/users/$1/settings" \
+      "-X PUT -H 'Origin: ${API}' -H 'Content-Type: application/json' -d '{\"shutdownGraceSeconds\":$2}'" \
+      | json_field shutdownGraceSeconds
+  }
 
   # Extend the shared cleanup function to also clean Epic 3 and 4
   # resources.  Reading the instance names before deleting the rows keeps
@@ -376,8 +393,10 @@ else
   cleanup_epic34() {
     echo ""
     echo "Cleaning up Epic 3 and 4 smoke resources..."
-    ssh_cmd sudo rm -f /etc/portikus/worker.override.env
-    ssh_cmd sudo systemctl restart portikus-worker 2>/dev/null || true
+    # Put the administrator's grace period back while carol can still sign in.
+    if [ -n "${orig_grace:-}" ]; then
+      set_global_grace "${orig_grace}" >/dev/null 2>&1 || true
+    fi
     local owners="SELECT id FROM users WHERE oidc_subject IN ('alice','bob','carol')"
     local smoke_instances
     smoke_instances=$(ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT incus_instance_name FROM workspaces WHERE owner_user_id IN (${owners})\"" 2>/dev/null || true)
@@ -401,9 +420,6 @@ else
     echo "Destroying ${WS_NAME}..."
     ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null 2>&1 || true
   }
-
-  # Give the worker a moment to start with the short grace period.
-  sleep 3
 
   # 0. The control plane came from the Debian package, not a build on the VM.
   check "portikus package is installed"  ssh_cmd dpkg -s portikus
@@ -462,6 +478,14 @@ else
   alice_id=$(echo "$alice_me" | json_field id)
   check_output "alice is signed in" "Alice Student" echo "$alice_name"
   check "/auth/me carries alice's user id"      test -n "$alice_id"
+
+  # 5b. Shorten the grace period for the lifecycle checks below.  The original
+  #     value is recorded here and put back by cleanup_epic34.
+  orig_grace=$(admin_grace)
+  check "read the platform grace period as carol" test -n "$orig_grace"
+  check_output "admin sets the grace period to 20s" "20" set_global_grace 20
+  check_output "a student is refused the admin settings" "403" \
+    http_status bob "${API}/admin/settings"
 
   # 6. Provision alice's workspace.  The request carries no body: the owner
   #    comes from the session, and the Origin header satisfies the CSRF check.
@@ -584,6 +608,49 @@ PROBE
     # Still running after 25 s (grace was 20 s — it would have stopped).
     sleep 25
     check_output "still running 25s after reconnect" "running" echo "$(workspace_state)"
+
+    # 10b. Zero means indefinite: a disconnected workspace keeps running and
+    #      no deadline is ever armed.
+    echo ""
+    echo "Setting the platform grace period to 0 (never stop)..."
+    check_output "admin sets the grace period to 0" "0" set_global_grace 0
+    close_socket
+    sleep 25
+    check_output "still running 25s after disconnect at grace 0" "running" \
+      echo "$(workspace_state)"
+    check_output "no shutdown deadline at grace 0" "null" echo "$(workspace_deadline)"
+
+    # 10c. A per-user override beats the global value and applies at once, even
+    #      though alice disconnected before it was set.  60 s first, so the
+    #      deadline is visible in the future; 10 s then puts it in the past and
+    #      the workspace stops on that sweep.
+    echo ""
+    echo "Giving alice an override while the platform value stays 0..."
+    check_output "admin sets alice's override to 60" "60" set_user_grace "$alice_id" 60
+    ws_deadline=""
+    for _ in $(seq 1 10); do
+      ws_deadline=$(workspace_deadline)
+      if [ "$ws_deadline" = "set" ]; then break; fi
+      sleep 1
+    done
+    check_output "alice's override arms a deadline" "set" echo "$ws_deadline"
+    check_output "still running on the 60s override" "running" echo "$(workspace_state)"
+
+    check_output "admin shortens alice's override to 10" "10" set_user_grace "$alice_id" 10
+    check_output "workspace stops once the override expires" "stopped" \
+      echo "$(wait_for_state stopped 60)"
+
+    # Back to where this test started: no override, platform value 20 s.
+    check_output "admin clears alice's override" "200" \
+      http_status carol "${API}/admin/users/${alice_id}/settings" \
+      "-X PUT -H 'Origin: ${API}' -H 'Content-Type: application/json' -d '{\"shutdownGraceSeconds\":null}'"
+    check_output "admin sets the grace period back to 20s" "20" set_global_grace 20
+
+    echo ""
+    echo "Reconnecting before the grace expiry check..."
+    open_socket
+    check_output "workspace runs again after reconnect" "running" \
+      echo "$(wait_for_state running 60)"
 
     # 11. Stops after grace: close the socket and wait.
     echo ""

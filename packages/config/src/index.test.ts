@@ -254,6 +254,23 @@ test("timer seconds are coerced from strings", () => {
 	expect(config.SWEEP_INTERVAL_SECONDS).toBe(2);
 });
 
+test("SHUTDOWN_GRACE_SECONDS accepts zero, which means no shutdown", () => {
+	const config = loadConfig(WorkerConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+		SHUTDOWN_GRACE_SECONDS: "0",
+	});
+	expect(config.SHUTDOWN_GRACE_SECONDS).toBe(0);
+});
+
+test("SHUTDOWN_GRACE_SECONDS rejects a negative value", () => {
+	expect(() =>
+		loadConfig(WorkerConfigSchema, {
+			DATABASE_URL: "postgres://localhost/portikus",
+			SHUTDOWN_GRACE_SECONDS: "-1",
+		}),
+	).toThrow();
+});
+
 // --- API auth and session configuration (SPEC.md §5.1, §5.3, §24) ---
 
 const apiProdBase = {

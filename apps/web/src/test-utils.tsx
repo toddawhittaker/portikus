@@ -1,3 +1,4 @@
+import { ToastProvider } from "@portikus/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
@@ -96,8 +97,10 @@ export function renderApp(path: string) {
 	});
 	render(
 		<QueryClientProvider client={queryClient}>
-			{/* biome-ignore lint/suspicious/noExplicitAny: the test router is not the registered one */}
-			<RouterProvider router={router as any} />
+			<ToastProvider>
+				{/* biome-ignore lint/suspicious/noExplicitAny: the test router is not the registered one */}
+				<RouterProvider router={router as any} />
+			</ToastProvider>
 		</QueryClientProvider>,
 	);
 	return { router };
@@ -106,5 +109,9 @@ export function renderApp(path: string) {
 /** Renders one component with a QueryClient, for the dialogs. */
 export function renderWithQuery(ui: React.ReactElement): void {
 	const queryClient = createQueryClient(() => {});
-	render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+	render(
+		<QueryClientProvider client={queryClient}>
+			<ToastProvider>{ui}</ToastProvider>
+		</QueryClientProvider>,
+	);
 }

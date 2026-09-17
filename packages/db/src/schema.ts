@@ -3,7 +3,7 @@ import type { ColumnType, Generated } from "kysely";
 /**
  * Kysely Database interface for the Portikus control plane.
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
- * 0003_terminals, and 0004_projects
+ * 0003_terminals, 0004_projects, and 0005_settings
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -13,6 +13,7 @@ export interface Database {
 	workspace_connections: WorkspaceConnectionsTable;
 	terminals: TerminalsTable;
 	projects: ProjectsTable;
+	settings: SettingsTable;
 	audit_events: AuditEventsTable;
 }
 
@@ -24,6 +25,8 @@ export interface UsersTable {
 	display_name: string;
 	role: string;
 	disabled_at: ColumnType<Date | null, string | null, string | null>;
+	/** Per-user grace period override; null means use the global setting. */
+	shutdown_grace_seconds: number | null;
 	last_login_at: ColumnType<Date | null, string | null, string | null>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;
@@ -52,6 +55,7 @@ export interface WorkspacesTable {
 	error_message: string | null;
 	last_active_connection_at: ColumnType<Date | null, string | null, string | null>;
 	shutdown_deadline: ColumnType<Date | null, string | null, string | null>;
+	disconnected_at: ColumnType<Date | null, string | null, string | null>;
 	agent_token: string | null;
 	agent_address: string | null;
 	created_at: ColumnType<Date, string | undefined, never>;
@@ -80,6 +84,13 @@ export interface ProjectsTable {
 	layout: ColumnType<Record<string, unknown> | null, string | null, string | null>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	archived_at: ColumnType<Date | null, string | null, string | null>;
+}
+
+export interface SettingsTable {
+	id: number;
+	shutdown_grace_seconds: number;
+	updated_at: ColumnType<Date, string | undefined, string>;
+	updated_by: string | null;
 }
 
 export interface WorkspaceConnectionsTable {

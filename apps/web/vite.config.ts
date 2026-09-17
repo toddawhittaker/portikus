@@ -13,7 +13,16 @@ export default defineConfig({
 		proxy: {
 			"/health": api,
 			"/auth": api,
-			"/admin": api,
+			// /admin is the administration screen in the bundle; /admin/*
+			// is its data. Only the document navigation stays in the browser.
+			"/admin": {
+				...api,
+				bypass: (req) => {
+					const path = (req.url ?? "").split("?")[0] ?? "";
+					if (path !== "/admin" && path !== "/admin/") return undefined;
+					return req.headers.accept?.includes("text/html") ? "/index.html" : undefined;
+				},
+			},
 			// The workspace routes include the WebSocket upgrade. They are also
 			// where the single-page application's own screens live, so a page
 			// the browser asks for as a document is served from the bundle and

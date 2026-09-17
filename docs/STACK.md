@@ -439,6 +439,10 @@ Do not introduce Redis in P0 solely for jobs or timers.
 
 Redis may be introduced later if concrete scale or latency requirements justify it.
 
+### Runtime settings
+
+A value an administrator changes while the platform runs is a database row, not an environment variable. The disconnect grace period is the first of these: it lives in a single `settings` row, with an optional per-user override, and the worker reads it on every sweep. The environment variable of the same name only seeds that row on the worker's first start, so a restart never overwrites what an administrator set. See ADR 0011.
+
 ## 8. Authentication
 
 Use **OIDC Authorization Code Flow** with a mature library such as `openid-client`.

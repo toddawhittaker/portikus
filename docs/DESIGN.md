@@ -52,7 +52,10 @@ Built and working:
 - A signed-in state with display name and role, a sign-out action.
 - One workspace per student, created on first visit, shown live over a
   WebSocket: state, desired state, active connection count.
-- An administrator-only listing of all workspaces (API only; no admin UI).
+- An administrator-only listing of all workspaces (API only). There is now
+  a minimal administration page at `/admin`, a plain form for the
+  disconnect grace period and the per-user override; the workspaces table
+  in the mockup is still Epic 11.
 - Refusal states: not signed in (401), not authorized for this workspace
   (404, deliberately indistinguishable from "does not exist"), wrong role
   (403), account not in an allowed group (403 with a friendly message).
