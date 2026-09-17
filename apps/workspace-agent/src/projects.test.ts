@@ -281,6 +281,61 @@ test("rename moves the directory and refuses an existing target", async () => {
 	expect(missing.statusCode).toBe(404);
 });
 
+test("delete removes the directory and 404s when it is not there", async () => {
+	await mkdir(join(projectsRoot, "alpha", "inner"), { recursive: true });
+	await writeFile(join(projectsRoot, "alpha", "inner", "file.txt"), "content\n");
+	await mkdir(join(projectsRoot, "beta"), { recursive: true });
+
+	const deleted = await app.inject({
+		method: "DELETE",
+		url: "/projects/alpha",
+		headers: auth(),
+	});
+	expect(deleted.statusCode).toBe(204);
+	expect(await readdir(projectsRoot)).toEqual(["beta"]);
+
+	const missing = await app.inject({
+		method: "DELETE",
+		url: "/projects/alpha",
+		headers: auth(),
+	});
+	expect(missing.statusCode).toBe(404);
+	expect(missing.json().error.code).toBe("PROJECT_NOT_FOUND");
+});
+
+test("delete refuses a slug that is not a valid slug", async () => {
+	const response = await app.inject({
+		method: "DELETE",
+		url: "/projects/..%2Fx",
+		headers: auth(),
+	});
+	expect(response.statusCode).toBe(400);
+	expect(response.json().error.code).toBe("INVALID_SLUG");
+});
+
+test("deleting a symlinked project removes the link, not its target", async () => {
+	const outside = await mkdtemp(join(tmpdir(), "portikus-outside-"));
+	await writeFile(join(outside, "keep.txt"), "keep\n");
+	await symlink(outside, join(projectsRoot, "escape"));
+	await mkdir(join(projectsRoot, "alpha"), { recursive: true });
+	await symlink(join(projectsRoot, "alpha"), join(projectsRoot, "shortcut"));
+
+	for (const slug of ["escape", "shortcut"]) {
+		const response = await app.inject({
+			method: "DELETE",
+			url: `/projects/${slug}`,
+			headers: auth(),
+		});
+		expect(response.statusCode).toBe(204);
+	}
+
+	// Only the links went; both targets are untouched.
+	expect((await readdir(projectsRoot)).sort()).toEqual(["alpha"]);
+	expect((await readdir(outside)).sort()).toEqual(["keep.txt"]);
+
+	await rm(outside, { recursive: true, force: true });
+});
+
 test("duplicate copies symlinks without following them", async () => {
 	const alpha = join(projectsRoot, "alpha");
 	await mkdir(alpha, { recursive: true });
