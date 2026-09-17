@@ -1,7 +1,7 @@
 # Documented operator entry point (STACK.md section 31).
 # Every target is a thin wrapper over a tool that stays usable on its own.
 
-.PHONY: help install check typecheck lint format test build test-e2e dev clean \
+.PHONY: help install check typecheck lint format test test-coverage build test-e2e dev clean \
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy
@@ -13,7 +13,7 @@ help: ## Show the available targets
 install: ## Install workspace dependencies from the lockfile
 	pnpm install --frozen-lockfile
 
-check: typecheck lint test build infra-check ## Run every repository check, including the infrastructure checks CI runs
+check: typecheck lint test-coverage build infra-check ## Run every repository check, including the infrastructure checks CI runs
 
 typecheck: ## Type-check every package and app
 	pnpm typecheck
@@ -26,6 +26,9 @@ format: ## Rewrite files to the Biome format
 
 test: ## Run the Vitest unit and integration tests
 	pnpm test
+
+test-coverage: ## Run the Vitest tests with coverage and check the coverage floors
+	pnpm test:coverage
 
 build: ## Build every package and app
 	pnpm build

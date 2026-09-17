@@ -64,9 +64,17 @@ jobs:
       - if: steps.detect.outputs.present == 'true'
         run: pnpm lint
       - if: steps.detect.outputs.present == 'true'
-        run: pnpm test
+        run: pnpm test:coverage
         env:
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          retention-days: 3
+          if-no-files-found: ignore
       - if: steps.detect.outputs.present == 'true'
         run: pnpm build
       - name: Cache nfpm

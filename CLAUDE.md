@@ -128,6 +128,16 @@ timestamp and recomputes each running workspace's `shutdown_deadline` every
 second, so a change applies at once, including to a workspace already
 counting down.
 
+Structured logging came next (ADR 0012). One shared pino logger in
+`packages/observability` serves the API, worker, controller, workspace agent,
+and the mock identity provider. Every request produces one JSON line, and
+every 4xx or 5xx response is logged with its code and message, so a failed
+request is visible without reproducing it. `LOG_LEVEL` sets each service's
+default, and a `settings.log_level` row set from `/admin` overrides it at
+runtime: the API relays the level to each running workspace's agent and the
+worker relays it to the controller. CI now runs the tests with coverage and
+fails below the floors in docs/WORKFLOW.md.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
 is wired up, the only admin UI is the grace period page, nothing
@@ -152,7 +162,9 @@ workspace created on an older image lacks zip until it is recreated, which
 the agent reports as a download failure. From the grace period task, the
 administration page is a settings form, not the Epic 11 mockup, and the
 infrastructure smoke test now signs in as the mock identity provider's
-administrator to shorten the grace period. Epic 7 (files, Monaco, search,
+administrator to shorten the grace period. From structured logging, an agent
+that restarts inside a still-running workspace loses the log level override
+until an administrator changes it again. Epic 7 (files, Monaco, search,
 and change review) is next.
 
 ## Commands
@@ -167,10 +179,11 @@ Prerequisites: the Node version in `.nvmrc`, and pnpm via
 | `pnpm lint` / `pnpm lint:fix` | Biome check, and check with fixes applied |
 | `pnpm format` | Rewrite files to the Biome format |
 | `pnpm test` | Vitest, all projects |
+| `pnpm test:coverage` | Vitest with coverage, and the coverage floors CI enforces |
 | `pnpm build` | `tsc -b` plus the Vite build for `apps/web` |
 | `pnpm test:e2e` | Playwright browser tests in `e2e/` |
 | `pnpm dev` | Build, then run every app in watch mode |
-| `make check` | typecheck, lint, test, build |
+| `make check` | typecheck, lint, test with coverage, build |
 
 Deployment goes through Make: `make build-deb` builds the control-plane
 Debian package and `make deploy-app` installs it on the VM.
@@ -188,11 +201,11 @@ Layout: `apps/` holds the five processes, `e2e/` the Playwright tests, and
 | `events` | Schemas for the WebSocket frames, including terminal input and output |
 | `db` | PostgreSQL access: Kysely types, connections, migrations, test helpers |
 | `auth` | OIDC login, sessions, authorization helpers, mock identity provider |
-| `observability` | OpenTelemetry setup and the structured JSON logger |
+| `observability` | pino logger factory, the per-request and error log hook for Fastify, runtime log level |
 | `ui` | Shared React components used by `apps/web` |
 
-`contracts`, `config`, `db`, `auth`, and `events` have real content today;
-`observability` and `ui` are placeholders waiting on their epic.
+`ui` is the only package still waiting on its epic; the rest have real
+content today.
 
 ## How work gets done here
 
