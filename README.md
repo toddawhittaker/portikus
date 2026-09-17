@@ -80,11 +80,12 @@ corepack enable
 git config core.hooksPath .githooks   # once per clone
 pnpm install --frozen-lockfile
 cp .env.example .env                  # .env is git-ignored; never commit it
-make check                            # typecheck, lint, test, build, infra-check
+make check                            # typecheck, lint, test with coverage, build, infra-check
 ```
 
-The `packages/db` tests need a real PostgreSQL. Without `TEST_DATABASE_URL`
-they skip; to run them, start a throwaway instance and export the URL:
+The database-backed test suites (`db`, `api`, `auth`, and `worker`) need a
+real PostgreSQL. Without `TEST_DATABASE_URL` they skip; to run them, start a
+throwaway instance and export the URL:
 
 ```sh
 docker run --rm -d --name portikus-test-pg \
