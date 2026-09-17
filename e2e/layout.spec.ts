@@ -368,4 +368,205 @@ test.describe("work area layout", () => {
 		await expectConnected(page, revived);
 		await expect(page.getByTestId(`terminal-leaf-${revived}`)).toBeVisible();
 	});
+
+	/** Panes are rearranged by dragging their title bars (SPEC.md §8.3, §9.3). */
+	function splits(page: Page, direction: "row" | "column") {
+		return page.locator(`[data-group][data-direction="${direction}"]`);
+	}
+
+	/** The panes of the visible tab, in the order they are laid out. */
+	async function paneOrder(page: Page): Promise<string[]> {
+		const ids = await page
+			.locator(
+				'[data-testid^="terminal-group-"]:not([hidden]) [data-testid^="terminal-leaf-"]',
+			)
+			.evaluateAll((nodes) =>
+				nodes.map((node) => node.getAttribute("data-testid") ?? ""),
+			);
+		return ids.map((id) => id.replace("terminal-leaf-", ""));
+	}
+
+	/**
+	 * Drag one pane's title bar to a point, in several steps so the 4px
+	 * activation distance is crossed and dnd-kit sees the move.
+	 */
+	async function dragPane(
+		page: Page,
+		terminalId: string,
+		to: { x: number; y: number },
+		midDrag?: () => Promise<void>,
+	): Promise<void> {
+		const handle = page.getByTestId(`terminal-handle-${terminalId}`);
+		const box = await handle.boundingBox();
+		if (!box) throw new Error("the pane has no title bar to drag");
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(to.x, to.y, { steps: 12 });
+		await page.mouse.move(to.x, to.y, { steps: 2 });
+		if (midDrag) await midDrag();
+		await page.mouse.up();
+	}
+
+	/** A point inside one pane, given as fractions of its box. */
+	async function pointIn(
+		page: Page,
+		terminalId: string,
+		across: number,
+		down: number,
+	): Promise<{ x: number; y: number }> {
+		const box = await page.getByTestId(`terminal-leaf-${terminalId}`).boundingBox();
+		if (!box) throw new Error("the pane is not on screen");
+		return { x: box.x + box.width * across, y: box.y + box.height * down };
+	}
+
+	/**
+	 * Wait for the debounced save to hold a split running this way, so a
+	 * reload reads what the drag produced rather than what came before it.
+	 */
+	async function waitForSavedDirection(
+		projectId: string,
+		direction: "row" | "column",
+	): Promise<void> {
+		await expect
+			.poll(
+				async () => {
+					const rows = await query<{ layout: unknown }>(
+						"select layout from projects where id = $1",
+						[projectId],
+					);
+					return JSON.stringify(rows[0]?.layout ?? null).includes(
+						`"direction":"${direction}"`,
+					);
+				},
+				{ timeout: 10_000 },
+			)
+			.toBe(true);
+	}
+
+	test("a bottom pane dragged to the right edge becomes a vertical split", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { projectId, terminalId } = await openProjectWithTerminal(
+			page,
+			student.workspaceId,
+			"Dragged",
+		);
+		await paneAction(page, terminalId, "split-down");
+		await expect
+			.poll(async () => (await terminalIds(student.workspaceId, projectId)).length)
+			.toBe(2);
+		const [, second] = await terminalIds(student.workspaceId, projectId);
+		await expectConnected(page, second as string);
+		await expect(splits(page, "column")).toHaveCount(1);
+
+		await dragPane(
+			page,
+			second as string,
+			await pointIn(page, terminalId, 0.9, 0.5),
+			async () => {
+				// The hovered pane shades the half the drop would take.
+				await expect(page.getByTestId(`drop-zone-${terminalId}`)).toHaveAttribute(
+					"data-edge",
+					"right",
+				);
+				await page.screenshot({ path: "screenshots/pane-drop-zone.png" });
+			},
+		);
+
+		await expect(splits(page, "row")).toHaveCount(1);
+		await expect(splits(page, "column")).toHaveCount(0);
+		expect(await paneOrder(page)).toEqual([terminalId, second]);
+
+		await waitForSavedDirection(projectId, "row");
+		await page.reload();
+		await expect(splits(page, "row")).toHaveCount(1, { timeout: 15_000 });
+		await expect(splits(page, "column")).toHaveCount(0);
+	});
+
+	test("a right-hand pane dragged to the bottom edge becomes a stacked split", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { projectId, terminalId } = await openProjectWithTerminal(
+			page,
+			student.workspaceId,
+			"Restacked",
+		);
+		await paneAction(page, terminalId, "split-right");
+		await expect
+			.poll(async () => (await terminalIds(student.workspaceId, projectId)).length)
+			.toBe(2);
+		const [, second] = await terminalIds(student.workspaceId, projectId);
+		await expectConnected(page, second as string);
+		await expect(splits(page, "row")).toHaveCount(1);
+
+		await dragPane(page, second as string, await pointIn(page, terminalId, 0.5, 0.92));
+
+		await expect(splits(page, "column")).toHaveCount(1);
+		await expect(splits(page, "row")).toHaveCount(0);
+		expect(await paneOrder(page)).toEqual([terminalId, second]);
+	});
+
+	test("dropping on the centre swaps the two panes", async ({ page, context }) => {
+		const student = await createStudent(context);
+		const { projectId, terminalId } = await openProjectWithTerminal(
+			page,
+			student.workspaceId,
+			"Swapped",
+		);
+		await paneAction(page, terminalId, "split-right");
+		await expect
+			.poll(async () => (await terminalIds(student.workspaceId, projectId)).length)
+			.toBe(2);
+		const [, second] = await terminalIds(student.workspaceId, projectId);
+		await expectConnected(page, second as string);
+		expect(await paneOrder(page)).toEqual([terminalId, second]);
+
+		await dragPane(page, second as string, await pointIn(page, terminalId, 0.5, 0.5));
+
+		// The shape is untouched; the two panes traded places.
+		await expect(splits(page, "row")).toHaveCount(1);
+		expect(await paneOrder(page)).toEqual([second, terminalId]);
+	});
+
+	test("a pane dragged to the tab bar becomes its own tab", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { projectId, terminalId } = await openProjectWithTerminal(
+			page,
+			student.workspaceId,
+			"Torn off",
+		);
+		await paneAction(page, terminalId, "split-right");
+		await expect
+			.poll(async () => (await terminalIds(student.workspaceId, projectId)).length)
+			.toBe(2);
+		const [, second] = await terminalIds(student.workspaceId, projectId);
+		await expectConnected(page, second as string);
+		const tabs = page.getByTestId("work-tabs").getByRole("tab");
+		await expect(tabs).toHaveCount(1);
+
+		const strip = await page.getByTestId("work-tabs").boundingBox();
+		if (!strip) throw new Error("the tab strip is not on screen");
+		await dragPane(
+			page,
+			second as string,
+			{ x: strip.x + strip.width - 40, y: strip.y + strip.height / 2 },
+			async () => {
+				await expect(page.getByTestId("tab-insert-marker")).toBeVisible();
+			},
+		);
+
+		await expect(tabs).toHaveCount(2);
+		await expect(page.getByTestId(`tab-${second}`)).toBeVisible();
+		// The pane left the tab it came from, which now shows one terminal.
+		await page.getByTestId(`tab-${terminalId}`).click();
+		expect(await paneOrder(page)).toEqual([terminalId]);
+		await expect(splits(page, "row")).toHaveCount(0);
+	});
 });

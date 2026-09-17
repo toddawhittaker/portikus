@@ -3,6 +3,7 @@
  * terminal itself (SPEC.md §9.3). A terminal ended by a workspace stop keeps
  * its place and offers a new one (SPEC.md §6.8).
  */
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { Terminal } from "@portikus/contracts";
 import {
 	Button,
@@ -14,8 +15,17 @@ import {
 	MenuTrigger,
 } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
-import type { SplitDirection } from "../layout/tree.js";
+import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { TerminalPane } from "../TerminalPane.js";
+
+/** The dnd-kit ids for one pane's drag handle and its drop area. */
+export function paneDragId(terminalId: string): string {
+	return `pane-drag-${terminalId}`;
+}
+
+export function paneDropId(terminalId: string): string {
+	return `pane-drop-${terminalId}`;
+}
 
 export interface TerminalLeafProps {
 	workspaceId: string;
@@ -31,6 +41,8 @@ export interface TerminalLeafProps {
 	onReplace: (terminalId: string) => void;
 	onSessionEnded: () => void;
 	onLeave: () => void;
+	/** The zone to shade while a pane is being dragged over this one. */
+	dropEdge?: DropEdge | null;
 }
 
 /** `/home/student/projects/x` reads as `~/projects/x` to a student. */
@@ -54,6 +66,7 @@ export function TerminalLeaf({
 	onReplace,
 	onSessionEnded,
 	onLeave,
+	dropEdge = null,
 }: TerminalLeafProps) {
 	const [renaming, setRenaming] = useState(false);
 	const [draft, setDraft] = useState(terminal.name);
@@ -65,6 +78,16 @@ export function TerminalLeaf({
 	const [liveCwd, setLiveCwd] = useState(terminal.cwd);
 	const ended = terminal.endedAt !== null;
 	const title = `${terminal.name} · ${shortenPath(liveCwd)}`;
+	// The title bar is the drag handle; the whole pane is a drop area
+	// (SPEC.md §9.3).
+	const drag = useDraggable({
+		id: paneDragId(terminal.id),
+		data: { terminalId: terminal.id, title },
+	});
+	const drop = useDroppable({
+		id: paneDropId(terminal.id),
+		data: { terminalId: terminal.id },
+	});
 
 	useEffect(() => {
 		if (!renaming) {
@@ -86,7 +109,8 @@ export function TerminalLeaf({
 
 	return (
 		<section
-			className={`pk-term ${focused ? "is-focused" : ""}`}
+			ref={drop.setNodeRef}
+			className={`pk-term ${focused ? "is-focused" : ""} ${drag.isDragging ? "is-dragged" : ""}`}
 			aria-label={`Terminal: ${title}`}
 			data-testid={`terminal-leaf-${terminal.id}`}
 			onFocusCapture={() => onFocus(terminal.id)}
@@ -113,7 +137,16 @@ export function TerminalLeaf({
 						}}
 					/>
 				) : (
-					<span className="pk-term-bar-title">{title}</span>
+					// Only the drag listeners: dnd-kit's attributes would make the
+					// title a focus stop inside the terminal.
+					<span
+						ref={drag.setNodeRef}
+						className="pk-term-bar-title pk-term-bar-title--handle"
+						data-testid={`terminal-handle-${terminal.id}`}
+						{...drag.listeners}
+					>
+						{title}
+					</span>
 				)}
 				<MenuRoot>
 					<MenuTrigger asChild={true}>
@@ -173,6 +206,13 @@ export function TerminalLeaf({
 					onLeave={onLeave}
 				/>
 			)}
+			{dropEdge ? (
+				<div
+					className={`pk-term-drop pk-term-drop--${dropEdge}`}
+					data-testid={`drop-zone-${terminal.id}`}
+					data-edge={dropEdge}
+				/>
+			) : null}
 		</section>
 	);
 }

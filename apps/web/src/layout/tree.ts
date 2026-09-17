@@ -4,7 +4,12 @@
  * terminal ids. Nothing here touches React or the network, so every rule
  * about splitting, collapsing and reconciling can be tested on its own.
  */
-import type { ProjectLayout, SplitNode } from "@portikus/contracts";
+import {
+	MAX_LAYOUT_TABS,
+	MAX_SPLIT_DEPTH,
+	type ProjectLayout,
+	type SplitNode,
+} from "@portikus/contracts";
 
 export type SplitDirection = "row" | "column";
 
@@ -242,4 +247,141 @@ export function reconcile(layout: ProjectLayout, terminalIds: string[]): Project
 		placed.add(id);
 	}
 	return next;
+}
+
+/** Which half-edge of a pane a drag landed on; centre means swap the two. */
+export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
+
+/** The deepest path from this node to a leaf, counting this node. */
+function depth(node: SplitNode): number {
+	if (node.type === "leaf") return 1;
+	let deepest = 0;
+	for (const child of node.children) deepest = Math.max(deepest, depth(child));
+	return deepest + 1;
+}
+
+function withinDepth(layout: ProjectLayout): boolean {
+	return layout.tabs.every((tab) => depth(tab.root) <= MAX_SPLIT_DEPTH);
+}
+
+/** Exchange the places of two leaves, wherever in the layout they sit. */
+function swapLeaves(layout: ProjectLayout, a: string, b: string): ProjectLayout {
+	function walk(node: SplitNode): SplitNode {
+		if (node.type === "leaf") {
+			if (node.terminalId === a) return { type: "leaf", terminalId: b };
+			if (node.terminalId === b) return { type: "leaf", terminalId: a };
+			return node;
+		}
+		return { ...node, children: node.children.map(walk) };
+	}
+	return { tabs: layout.tabs.map((tab) => ({ ...tab, root: walk(tab.root) })) };
+}
+
+/** Null when this subtree does not hold `targetId`. */
+function insertBeside(
+	node: SplitNode,
+	targetId: string,
+	terminalId: string,
+	direction: SplitDirection,
+	before: boolean,
+): SplitNode | null {
+	if (node.type === "leaf") {
+		if (node.terminalId !== targetId) return null;
+		const moved: SplitNode = { type: "leaf", terminalId };
+		return {
+			type: "split",
+			direction,
+			sizes: evenSizes(2),
+			children: before ? [moved, node] : [node, moved],
+		};
+	}
+	const index = node.children.findIndex(
+		(child) => child.type === "leaf" && child.terminalId === targetId,
+	);
+	if (index >= 0 && node.direction === direction) {
+		const children = [...node.children];
+		children.splice(before ? index : index + 1, 0, { type: "leaf", terminalId });
+		return { ...node, children, sizes: evenSizes(children.length) };
+	}
+	for (let i = 0; i < node.children.length; i++) {
+		const child = node.children[i];
+		if (child === undefined) continue;
+		const replaced = insertBeside(child, targetId, terminalId, direction, before);
+		if (!replaced) continue;
+		const children = [...node.children];
+		children[i] = replaced;
+		return { ...node, children };
+	}
+	return null;
+}
+
+/**
+ * Drag one pane onto another (SPEC.md §9.3). The edge says where it lands:
+ * left and top insert before the target, right and bottom after, and centre
+ * swaps the two panes. A tab left empty by the move disappears. A move that
+ * would make a tab deeper than `MAX_SPLIT_DEPTH` is refused, and the layout
+ * comes back unchanged.
+ */
+export function moveLeaf(
+	layout: ProjectLayout,
+	tabId: string,
+	terminalId: string,
+	targetTerminalId: string,
+	edge: DropEdge,
+): ProjectLayout {
+	if (terminalId === targetTerminalId) return layout;
+	const present = new Set(layoutTerminalIds(layout));
+	if (!present.has(terminalId) || !present.has(targetTerminalId)) return layout;
+	const target = layout.tabs.find(
+		(tab) => tab.id === tabId && leafIds(tab.root).includes(targetTerminalId),
+	);
+	if (!target) return layout;
+
+	if (edge === "center") return swapLeaves(layout, terminalId, targetTerminalId);
+
+	const direction: SplitDirection =
+		edge === "left" || edge === "right" ? "row" : "column";
+	const before = edge === "left" || edge === "top";
+	let inserted = false;
+	const tabs = removeLeaf(layout, terminalId).tabs.map((tab) => {
+		if (tab.id !== tabId) return tab;
+		const root = insertBeside(
+			tab.root,
+			targetTerminalId,
+			terminalId,
+			direction,
+			before,
+		);
+		if (!root) return tab;
+		inserted = true;
+		return { ...tab, root };
+	});
+	if (!inserted) return layout;
+	const next = { tabs };
+	return withinDepth(next) ? next : layout;
+}
+
+/**
+ * Drag one pane out to the tab strip (SPEC.md §8.3): it leaves its tab and
+ * becomes a tab of its own at `index`. A tab left empty disappears, and a
+ * move that would push past `MAX_LAYOUT_TABS` is refused.
+ */
+export function moveLeafToNewTab(
+	layout: ProjectLayout,
+	terminalId: string,
+	index: number,
+): ProjectLayout {
+	if (!layoutTerminalIds(layout).includes(terminalId)) return layout;
+	// A pane that is already its whole tab only moves that tab along the strip.
+	const alone = layout.tabs.some(
+		(tab) => tab.root.type === "leaf" && tab.root.terminalId === terminalId,
+	);
+	const tabs = removeLeaf(layout, terminalId).tabs;
+	if (!alone && tabs.length + 1 > MAX_LAYOUT_TABS) return layout;
+	const next = [...tabs];
+	next.splice(Math.min(Math.max(index, 0), next.length), 0, {
+		id: terminalId,
+		root: { type: "leaf", terminalId },
+	});
+	return { tabs: next };
 }

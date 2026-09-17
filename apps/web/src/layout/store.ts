@@ -26,6 +26,15 @@ export interface LayoutState {
 	removeLeaf: (terminalId: string) => void;
 	replaceLeaf: (terminalId: string, newTerminalId: string) => void;
 	moveTab: (from: number, to: number) => void;
+	/** Drag one pane onto another (SPEC.md §9.3). */
+	moveLeaf: (
+		tabId: string,
+		terminalId: string,
+		targetTerminalId: string,
+		edge: tree.DropEdge,
+	) => void;
+	/** Drag one pane out to the tab strip, where it becomes its own tab. */
+	moveLeafToNewTab: (terminalId: string, index: number) => void;
 	resize: (tabId: string, path: number[], sizes: number[]) => void;
 	setActive: (tabId: string) => void;
 	setFocused: (terminalId: string | null) => void;
@@ -89,6 +98,27 @@ export function createLayoutStore() {
 				change((layout) => tree.replaceLeaf(layout, terminalId, newTerminalId)),
 
 			moveTab: (from, to) => change((layout) => tree.moveTab(layout, from, to)),
+
+			// A pane dragged into another tab follows the drag, so show that tab.
+			moveLeaf: (tabId, terminalId, targetTerminalId, edge) =>
+				set((state) => {
+					const layout = tree.moveLeaf(
+						state.layout,
+						tabId,
+						terminalId,
+						targetTerminalId,
+						edge,
+					);
+					if (layout === state.layout) return state;
+					return { layout, activeTabId: tabId, dirty: true };
+				}),
+
+			moveLeafToNewTab: (terminalId, index) =>
+				set((state) => {
+					const layout = tree.moveLeafToNewTab(state.layout, terminalId, index);
+					if (layout === state.layout) return state;
+					return { layout, activeTabId: terminalId, dirty: true };
+				}),
 
 			resize: (tabId, path, sizes) =>
 				change((layout) => tree.resize(layout, tabId, path, sizes)),
