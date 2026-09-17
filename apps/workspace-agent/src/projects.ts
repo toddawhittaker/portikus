@@ -1,7 +1,7 @@
 import { type ChildProcessByStdio, execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, readdir, realpath, rename, rm, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { Readable } from "node:stream";
 import { promisify } from "node:util";
 import { type AgentProject, CloneUrl, PROJECT_SLUG_PATTERN } from "@portikus/contracts";
@@ -12,8 +12,14 @@ const run = promisify(execFile);
 /** Clones run inside the request, so cap them (plan: Epic 6 decisions). */
 const CLONE_TIMEOUT_MS = 5 * 60 * 1000;
 
+/** Copying a project tree runs inside the request too, with the same budget. */
+const COPY_TIMEOUT_MS = CLONE_TIMEOUT_MS;
+
+/** The prefix every half-finished clone directory carries. */
+const TEMPORARY_PREFIX = ".tmp-";
+
 /** How much git stderr travels back to the student. */
-const STDERR_LIMIT = 2048;
+export const STDERR_LIMIT = 2048;
 
 export function projectsDir(homeDir: string): string {
 	return join(homeDir, "projects");
@@ -47,7 +53,10 @@ export async function resolveProject(
 	} catch {
 		return { slug, path: join(realRoot, slug), exists: false };
 	}
-	if (dirname(real) !== realRoot) {
+	// The real path must be the directory named by the slug, sitting directly
+	// in the real ~/projects. A slug that is a symlink to a sibling project
+	// passes the parent check but fails on its name (SPEC.md §24.6).
+	if (dirname(real) !== realRoot || basename(real) !== slug) {
 		throw new AgentFailure(
 			"INVALID_SLUG",
 			"project path leaves the projects directory",
@@ -84,6 +93,22 @@ export async function listProjects(homeDir: string): Promise<AgentProject[]> {
 	}
 	projects.sort((a, b) => a.slug.localeCompare(b.slug));
 	return projects;
+}
+
+/**
+ * Remove half-finished clone directories left behind by a workspace that
+ * stopped mid-clone. Called once at startup, when nothing else is running.
+ */
+export async function removeStaleTemporaries(homeDir: string): Promise<string[]> {
+	const root = projectsDir(homeDir);
+	await mkdir(root, { recursive: true });
+	const removed: string[] = [];
+	for (const entry of await readdir(root, { withFileTypes: true })) {
+		if (!entry.isDirectory() || !entry.name.startsWith(TEMPORARY_PREFIX)) continue;
+		await rm(join(root, entry.name), { recursive: true, force: true });
+		removed.push(entry.name);
+	}
+	return removed;
 }
 
 export async function getProject(slug: string, homeDir: string): Promise<AgentProject> {
@@ -148,7 +173,7 @@ export async function createProject(
 		throw new AgentFailure("INVALID_URL", "unsupported clone URL");
 	}
 
-	const temporary = join(root, `.tmp-${randomBytes(8).toString("hex")}`);
+	const temporary = join(root, `${TEMPORARY_PREFIX}${randomBytes(8).toString("hex")}`);
 	try {
 		await git(["clone", "--", input.url, temporary], root, CLONE_TIMEOUT_MS);
 		if (input.source === "template") {
@@ -199,6 +224,7 @@ export async function duplicateProject(
 		// outside the project is copied, never followed (SPEC.md §24.6).
 		await run("cp", ["-a", "--no-dereference", "--", source.path, target.path], {
 			maxBuffer: 1024 * 1024,
+			timeout: COPY_TIMEOUT_MS,
 		});
 	} catch (error) {
 		await rm(target.path, { recursive: true, force: true });
@@ -242,6 +268,14 @@ export async function archiveProject(
 	const child = spawn("zip", ["-r", "-y", "-q", "-", "--", slug], {
 		cwd: projectsDir(homeDir),
 		stdio: ["ignore", "pipe", "pipe"],
+	});
+	// An image without zip installed fails here, and an unhandled "error"
+	// event would take the whole agent down.
+	await new Promise<void>((resolve, reject) => {
+		child.once("spawn", resolve);
+		child.once("error", (error: Error) => {
+			reject(new AgentFailure("GIT_FAILED", `could not start zip: ${error.message}`));
+		});
 	});
 	return child;
 }

@@ -21,8 +21,13 @@ export default defineConfig({
 			"/workspaces": {
 				...api,
 				ws: true,
-				bypass: (req) =>
-					req.headers.accept?.includes("text/html") ? "/index.html" : undefined,
+				bypass: (req) => {
+					// A project download is navigated to as a document, but the zip
+					// comes from the API, not the bundle.
+					const path = (req.url ?? "").split("?")[0] ?? "";
+					if (path.endsWith("/download")) return undefined;
+					return req.headers.accept?.includes("text/html") ? "/index.html" : undefined;
+				},
 			},
 		},
 	},
