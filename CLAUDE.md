@@ -13,6 +13,8 @@ section, never here.
   change must respect. Read this first.
 - `docs/STATUS.md`: what each epic and task has delivered and the gaps it
   left. Update it in the same pull request that lands the work.
+- `docs/BACKLOG.md`: wanted work that is not yet an epic or task, with
+  what it would take. Add to it when the user defers something.
 - `docs/VISION.md`: product intent. Wins on questions of intent.
 - `docs/SPEC.md`: requirements. Wins on implementation detail. Section 29
   lists epics in order, section 30 milestone gates, section 24 security.
