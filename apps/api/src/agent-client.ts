@@ -75,7 +75,7 @@ export class AgentClient {
 	}
 
 	/** Set how much this workspace's agent logs, while it runs (ADR 0012). */
-	async setLogLevel(level: LogLevel): Promise<void> {
+	async setLogLevel(level: LogLevel | null): Promise<void> {
 		await this.call("PUT", "/log-level", SetLogLevelRequest.parse({ level }));
 	}
 

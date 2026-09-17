@@ -44,6 +44,7 @@ import {
 } from "./tmux.js";
 
 const ERROR_STATUS: Record<AgentErrorCode, number> = {
+	BAD_REQUEST: 400,
 	UNAUTHORIZED: 401,
 	TERMINAL_NOT_FOUND: 404,
 	TERMINAL_EXISTS: 409,
@@ -82,6 +83,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		logController: quietLogController(),
 	});
 	registerRequestLogging(app, { debugPaths: ["/health"] });
+
+	// The level to return to when the API clears the override (ADR 0012).
+	const startLevel = app.log.level;
+
 	const registry = new TerminalRegistry(
 		options.homeDir,
 		app.log,
@@ -125,10 +130,12 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			const parsed = SetLogLevelRequest.safeParse(request.body);
 			if (!parsed.success) {
 				return reply
-					.code(400)
+					.code(ERROR_STATUS.BAD_REQUEST)
 					.send({ error: { code: "BAD_REQUEST", message: "unknown log level" } });
 			}
-			app.log.level = parsed.data.level;
+			// Null clears the override, so this agent goes back to the level it
+			// started with, from its own environment (ADR 0012).
+			app.log.level = parsed.data.level ?? startLevel;
 			return reply.code(204).send();
 		});
 

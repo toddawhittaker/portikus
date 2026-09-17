@@ -34,8 +34,12 @@ export function startLogLevelSync(options: LogLevelSyncOptions): LogLevelSync {
 	const { db, logger, envLevel, agentPort } = options;
 	const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
 
-	/** The level each running workspace's agent has acknowledged. */
-	const pushed = new Map<string, LogLevel>();
+	/**
+	 * The override each running workspace's agent has acknowledged. Null is a
+	 * real value ("use your own environment level"), so absence from the map
+	 * means nothing has been pushed yet.
+	 */
+	const pushed = new Map<string, LogLevel | null>();
 	let running = false;
 
 	async function readOverride(): Promise<LogLevel | null> {
@@ -49,7 +53,7 @@ export function startLogLevelSync(options: LogLevelSyncOptions): LogLevelSync {
 		return parsed.success ? parsed.data : null;
 	}
 
-	async function pushToAgents(level: LogLevel): Promise<void> {
+	async function pushToAgents(level: LogLevel | null): Promise<void> {
 		const rows = await db
 			.selectFrom("workspaces")
 			.selectAll()
@@ -60,7 +64,7 @@ export function startLogLevelSync(options: LogLevelSyncOptions): LogLevelSync {
 		for (const row of rows) {
 			const workspaceId = row.id as string;
 			stillRunning.add(workspaceId);
-			if (pushed.get(workspaceId) === level) continue;
+			if (pushed.has(workspaceId) && pushed.get(workspaceId) === level) continue;
 			const agent = agentClientFor(row as Record<string, unknown>, agentPort);
 			if (!agent) continue;
 			try {
@@ -87,8 +91,12 @@ export function startLogLevelSync(options: LogLevelSyncOptions): LogLevelSync {
 		if (running) return;
 		running = true;
 		try {
-			const level = applyLevel(logger, envLevel, await readOverride());
-			await pushToAgents(level);
+			// The agents get the override itself, not this process's effective
+			// level: a cleared override sends each agent back to its own
+			// environment level, which may differ from the API's (ADR 0012).
+			const override = await readOverride();
+			applyLevel(logger, envLevel, override);
+			await pushToAgents(override);
 		} catch (error) {
 			logger.debug(
 				{ error: error instanceof Error ? error.message : String(error) },

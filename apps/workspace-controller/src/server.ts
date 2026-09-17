@@ -18,6 +18,7 @@ import { IncusError } from "./incus.js";
 import type { WorkspaceProvider } from "./provider.js";
 
 const ERROR_STATUS: Record<ControllerErrorCode, number> = {
+	BAD_REQUEST: 400,
 	INVALID_NAME: 400,
 	UNAUTHORIZED: 401,
 	NOT_FOUND: 404,
@@ -45,6 +46,9 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		logController: quietLogController(),
 	});
 	registerRequestLogging(app, { debugPaths: ["/health"] });
+
+	// The level to return to when the worker clears the override (ADR 0012).
+	const startLevel = app.log.level;
 
 	app.addHook("preHandler", tokenAuth(token));
 
@@ -88,10 +92,12 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		const parsed = SetLogLevelRequest.safeParse(request.body);
 		if (!parsed.success) {
 			return reply
-				.code(400)
-				.send({ code: "INVALID_NAME", message: "unknown log level" });
+				.code(ERROR_STATUS.BAD_REQUEST)
+				.send({ code: "BAD_REQUEST", message: "unknown log level" });
 		}
-		app.log.level = parsed.data.level;
+		// Null clears the override, so the controller goes back to the level it
+		// started with, from its own environment (ADR 0012).
+		app.log.level = parsed.data.level ?? startLevel;
 		return reply.code(204).send();
 	});
 

@@ -33,7 +33,7 @@ export interface ControllerClient {
 	stop(name: string, timeoutSeconds: number): Promise<StopInstanceResponse>;
 	list(): Promise<ListInstancesResponse>;
 	/** Relay the runtime log level to the controller (ADR 0012). */
-	setLogLevel(level: LogLevel): Promise<void>;
+	setLogLevel(level: LogLevel | null): Promise<void>;
 }
 
 /**
@@ -77,7 +77,7 @@ export class HttpControllerClient implements ControllerClient {
 		return ListInstancesResponseSchema.parse(res);
 	}
 
-	async setLogLevel(level: LogLevel): Promise<void> {
+	async setLogLevel(level: LogLevel | null): Promise<void> {
 		await this.request("PUT", "/log-level", { level });
 	}
 

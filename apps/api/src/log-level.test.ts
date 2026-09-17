@@ -1,6 +1,6 @@
-import { Writable } from "node:stream";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
-import { createLogger, type Logger, type LogLevel } from "@portikus/observability";
+import type { Logger, LogLevel } from "@portikus/observability";
+import { collectingLogger } from "@portikus/observability/testing";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "./fake-agent.js";
 import { startLogLevelSync } from "./log-level.js";
@@ -15,23 +15,6 @@ const AGENT_TOKEN = "log-level-test-token";
 
 let testDb: TestDb;
 let agent: FakeAgent;
-
-/** A logger whose lines land in an array, so a test can read them. */
-function collectingLogger(level: LogLevel = "info"): {
-	logger: Logger;
-	lines: Record<string, unknown>[];
-} {
-	const lines: Record<string, unknown>[] = [];
-	const destination = new Writable({
-		write(chunk, _encoding, callback) {
-			for (const text of String(chunk).split("\n")) {
-				if (text.trim() !== "") lines.push(JSON.parse(text));
-			}
-			callback();
-		},
-	});
-	return { logger: createLogger({ service: "api", level, destination }), lines };
-}
 
 async function setOverride(level: LogLevel | null): Promise<void> {
 	await testDb.db
@@ -125,6 +108,26 @@ test.skipIf(skip)("an override is applied and then cleared", async () => {
 		sync.stop();
 	}
 });
+
+test.skipIf(skip)(
+	"clearing the override pushes null, so each agent keeps its own level",
+	async () => {
+		const { logger } = collectingLogger();
+		const sync = startSync(logger);
+		try {
+			await makeWorkspace("running");
+			await setOverride("debug");
+			await sync.tick();
+			expect(agent.logLevels).toEqual(["debug"]);
+
+			await setOverride(null);
+			await sync.tick();
+			expect(agent.logLevels).toEqual(["debug", null]);
+		} finally {
+			sync.stop();
+		}
+	},
+);
 
 test.skipIf(skip)("each running workspace is pushed once, not every tick", async () => {
 	const { logger } = collectingLogger();

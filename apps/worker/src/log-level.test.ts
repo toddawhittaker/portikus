@@ -1,26 +1,10 @@
-import { Writable } from "node:stream";
+import type { Database } from "@portikus/db";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
-import { createLogger, type Logger } from "@portikus/observability";
+import { collectingLogger } from "@portikus/observability/testing";
+import type { Kysely } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { FakeControllerClient } from "./fake-controller.js";
 import { createLogLevelSync } from "./log-level.js";
-
-/** A logger whose lines are collected in memory, so tests can read them. */
-function collectingLogger(): { logger: Logger; lines: Record<string, unknown>[] } {
-	const lines: Record<string, unknown>[] = [];
-	const destination = new Writable({
-		write(chunk, _encoding, callback) {
-			for (const text of String(chunk).split("\n")) {
-				if (text.trim() !== "") lines.push(JSON.parse(text));
-			}
-			callback();
-		},
-	});
-	return {
-		logger: createLogger({ service: "worker", level: "info", destination }),
-		lines,
-	};
-}
 
 const skip = !hasTestDb();
 let tdb: TestDb;
@@ -67,7 +51,7 @@ function build() {
 }
 
 test.skipIf(skip)(
-	"with no override the tick pushes the environment level once",
+	"with no override the tick pushes null once, so the controller keeps its own level",
 	async () => {
 		const { logger, tick, pushes } = build();
 
@@ -75,7 +59,7 @@ test.skipIf(skip)(
 		await tick();
 
 		expect(logger.level).toBe("info");
-		expect(pushes()).toEqual(["info"]);
+		expect(pushes()).toEqual([null]);
 	},
 );
 
@@ -88,7 +72,7 @@ test.skipIf(skip)("an override applies and is pushed to the controller", async (
 	await tick();
 
 	expect(logger.level).toBe("debug");
-	expect(pushes()).toEqual(["info", "debug"]);
+	expect(pushes()).toEqual([null, "debug"]);
 });
 
 test.skipIf(skip)(
@@ -103,7 +87,7 @@ test.skipIf(skip)(
 		await tick();
 
 		expect(logger.level).toBe("info");
-		expect(pushes()).toEqual(["error", "info"]);
+		expect(pushes()).toEqual(["error", null]);
 	},
 );
 
@@ -112,13 +96,13 @@ test.skipIf(skip)("a failed push is retried on the next tick", async () => {
 	controller.setLogLevelResult = new Error("controller is down");
 
 	await tick();
-	expect(pushes()).toEqual(["info"]);
-	expect(lines.some((line) => line.msg === "log level sync failed")).toBe(false);
+	expect(pushes()).toEqual([null]);
+	expect(lines).toEqual([]);
 
 	controller.setLogLevelResult = null;
 	await tick();
 
-	expect(pushes()).toEqual(["info", "info"]);
+	expect(pushes()).toEqual([null, null]);
 });
 
 test.skipIf(skip)("a failed push is logged at debug", async () => {
@@ -128,9 +112,33 @@ test.skipIf(skip)("a failed push is logged at debug", async () => {
 
 	await tick();
 
-	const failure = lines.find((line) => line.msg === "log level sync failed");
+	const failure = lines.find(
+		(line) => line.msg === "could not set the controller log level",
+	);
 	expect(failure).toBeDefined();
 	expect(failure?.level).toBe("debug");
+});
+
+test("a database failure is logged at warn, not debug", async () => {
+	const { logger, lines } = collectingLogger();
+	// A database that refuses every read, so only the outer catch can run.
+	const brokenDb = {
+		selectFrom() {
+			throw new Error("database is down");
+		},
+	} as unknown as Kysely<Database>;
+	const tick = createLogLevelSync({
+		db: brokenDb,
+		logger,
+		envLevel: "info",
+		controller: new FakeControllerClient(),
+	});
+
+	await tick();
+
+	const failure = lines.find((line) => line.msg === "log level sync failed");
+	expect(failure).toBeDefined();
+	expect(failure?.level).toBe("warn");
 });
 
 test.skipIf(skip)("a tick that lands while one is in flight is skipped", async () => {
@@ -140,5 +148,5 @@ test.skipIf(skip)("a tick that lands while one is in flight is skipped", async (
 	const second = tick();
 	await Promise.all([first, second]);
 
-	expect(pushes()).toEqual(["info"]);
+	expect(pushes()).toEqual([null]);
 });

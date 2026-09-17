@@ -21,7 +21,7 @@ export interface FakeAgent {
 	/** Make the next create call fail with this agent error code. */
 	failCreateWith: string | null;
 	/** Log levels pushed to `PUT /log-level`, in order. */
-	readonly logLevels: string[];
+	readonly logLevels: (string | null)[];
 	/** While true, `PUT /log-level` fails so a retry can be observed. */
 	failLogLevel: boolean;
 	/** Project directories the fake pretends to have under ~/projects. */
@@ -120,7 +120,7 @@ export async function startFakeAgent(
 		openAttachments: 0,
 		failLogLevel: false,
 	};
-	const logLevels: string[] = [];
+	const logLevels: (string | null)[] = [];
 
 	function projectNotFound(reply: FastifyReply) {
 		return reply
@@ -170,7 +170,7 @@ export async function startFakeAgent(
 				.status(500)
 				.send({ error: { code: "INTERNAL", message: "log level refused" } });
 		}
-		logLevels.push((request.body as { level: string }).level);
+		logLevels.push((request.body as { level: string | null }).level);
 		return reply.status(204).send();
 	});
 

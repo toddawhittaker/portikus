@@ -52,7 +52,7 @@ export class FakeControllerClient implements ControllerClient {
 	/** Set to an Error to make the next log level push fail. */
 	setLogLevelResult: Error | null = null;
 
-	async setLogLevel(level: LogLevel): Promise<void> {
+	async setLogLevel(level: LogLevel | null): Promise<void> {
 		this.calls.push({ method: "setLogLevel", args: [level] });
 		if (this.setLogLevelResult) throw this.setLogLevelResult;
 	}

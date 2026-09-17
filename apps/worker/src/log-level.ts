@@ -1,5 +1,6 @@
+import { LogLevel } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import { applyLevel, type Logger, type LogLevel } from "@portikus/observability";
+import { applyLevel, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import type { ControllerClient } from "./controller-client.js";
 
@@ -16,12 +17,15 @@ export interface LogLevelSyncOptions {
  * chose and relays that level to the controller (ADR 0012).
  *
  * The worker is the only service with controller credentials, so it is the
- * one that pushes. A failed push is logged at debug and retried on the next
+ * one that pushes. It pushes the override itself, not its own effective
+ * level, so clearing the override sends the controller back to its own
+ * environment level. A failed push is logged at debug and retried on the next
  * tick, and a tick is skipped while the previous one is still running.
  */
 export function createLogLevelSync(options: LogLevelSyncOptions): () => Promise<void> {
 	const { db, logger, envLevel, controller } = options;
-	let pushed: LogLevel | null = null;
+	// Undefined means nothing has been pushed yet; null is a real value.
+	let pushed: LogLevel | null | undefined;
 	let inFlight = false;
 
 	return async function tick(): Promise<void> {
@@ -33,14 +37,22 @@ export function createLogLevelSync(options: LogLevelSyncOptions): () => Promise<
 				.select("log_level")
 				.where("id", "=", 1)
 				.executeTakeFirst();
-			const override = (row?.log_level ?? null) as LogLevel | null;
-			const effective = applyLevel(logger, envLevel, override);
-			if (effective !== pushed) {
-				await controller.setLogLevel(effective);
-				pushed = effective;
+			const parsed = LogLevel.safeParse(row?.log_level);
+			const override = parsed.success ? parsed.data : null;
+			applyLevel(logger, envLevel, override);
+			if (pushed === undefined || pushed !== override) {
+				try {
+					await controller.setLogLevel(override);
+					pushed = override;
+				} catch (e) {
+					logger.debug(
+						{ error: e instanceof Error ? e.message : String(e) },
+						"could not set the controller log level",
+					);
+				}
 			}
 		} catch (e) {
-			logger.debug(
+			logger.warn(
 				{ error: e instanceof Error ? e.message : String(e) },
 				"log level sync failed",
 			);
