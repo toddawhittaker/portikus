@@ -35,10 +35,22 @@ test.describe("administration", () => {
 		);
 	});
 
+	test.beforeEach(async () => {
+		// Every case starts from no log level override.
+		await query("update settings set log_level = null");
+	});
+
 	test.afterAll(async () => {
 		// Leave the platform on its default, whatever the tests did.
-		await query("update settings set shutdown_grace_seconds = 600");
+		await query("update settings set shutdown_grace_seconds = 600, log_level = null");
 	});
+
+	async function savedLogLevel(): Promise<string | null> {
+		const rows = await query<{ log_level: string | null }>(
+			"select log_level from settings where id = 1",
+		);
+		return rows[0]?.log_level ?? null;
+	}
 
 	test("an administrator changes the platform grace period", async ({ page }) => {
 		await openAdmin(page);
@@ -104,6 +116,29 @@ test.describe("administration", () => {
 			.toBe(null);
 		await page.reload();
 		await expect(page.getByTestId(`user-grace-input-${alice}`)).toHaveValue("");
+	});
+
+	test("an administrator overrides and clears the log level", async ({ page }) => {
+		await openAdmin(page);
+
+		const select = page.getByTestId("log-level-select");
+		await expect(select).toHaveValue("default");
+		await select.selectOption("debug");
+		await page.getByTestId("log-level-save").click();
+
+		await expect(page.getByText("Log level saved", { exact: true })).toBeVisible();
+		await expect.poll(savedLogLevel).toBe("debug");
+
+		await page.reload();
+		await expect(page.getByTestId("log-level-select")).toHaveValue("debug");
+
+		await page.getByTestId("log-level-select").selectOption("default");
+		await page.getByTestId("log-level-save").click();
+		await expect(page.getByText("Log level saved", { exact: true })).toBeVisible();
+		await expect.poll(savedLogLevel).toBe(null);
+
+		await page.reload();
+		await expect(page.getByTestId("log-level-select")).toHaveValue("default");
 	});
 
 	test("a student asking for /admin is turned away", async ({ page }) => {

@@ -1,9 +1,11 @@
+import { Writable } from "node:stream";
 import {
 	createTestDb,
 	hasTestDb,
 	insertTestUser,
 	type TestDb,
 } from "@portikus/db/testing";
+import { createLogger } from "@portikus/observability";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
@@ -826,3 +828,47 @@ test.skipIf(skip)("the agent token never appears in audit metadata", async () =>
 		expect(JSON.stringify(row)).not.toContain(token);
 	}
 });
+
+test.skipIf(skip)(
+	"each live workspace gets one debug line naming its action",
+	async () => {
+		const lines: Record<string, unknown>[] = [];
+		const destination = new Writable({
+			write(chunk, _encoding, callback) {
+				for (const text of String(chunk).split("\n")) {
+					if (text.trim() !== "") lines.push(JSON.parse(text));
+				}
+				callback();
+			},
+		});
+		const log = createLogger({ service: "worker", level: "debug", destination });
+
+		const starting = await insertWorkspace({
+			incus_instance_name: "ws-log-a",
+			state: "stopped",
+			desired_state: "running",
+		});
+		const idle = await insertWorkspace({
+			incus_instance_name: "ws-log-b",
+			state: "stopped",
+			desired_state: "stopped",
+		});
+		// Both instances exist, so drift handling leaves them alone.
+		fake.listResult = [
+			{ name: "ws-log-a", status: "Running", ipv4: "10.0.0.2" },
+			{ name: "ws-log-b", status: "Stopped", ipv4: "10.0.0.3" },
+		];
+
+		await reconcile(tdb.db, fake, cfg, new Date(), null, false, log);
+
+		const decisions = lines.filter((line) => line.msg === "workspace decision");
+		expect(decisions.length).toBe(2);
+		const byId = new Map(decisions.map((line) => [line.workspaceId, line]));
+		expect(byId.get(starting)?.action).toBe("start");
+		expect(byId.get(starting)?.state).toBe("stopped");
+		expect(byId.get(starting)?.desiredState).toBe("running");
+		expect(byId.get(idle)?.action).toBe("none");
+		expect(byId.get(idle)).toHaveProperty("shutdownDeadline");
+		expect(byId.get(idle)).toHaveProperty("disconnectedAt");
+	},
+);

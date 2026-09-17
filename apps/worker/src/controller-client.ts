@@ -3,6 +3,7 @@ import type {
 	CreateInstanceRequest,
 	CreateInstanceResponse,
 	ListInstancesResponse,
+	LogLevel,
 	StartInstanceRequest,
 	StartInstanceResponse,
 	StopInstanceResponse,
@@ -31,6 +32,8 @@ export interface ControllerClient {
 	start(name: string, req: StartInstanceRequest): Promise<StartInstanceResponse>;
 	stop(name: string, timeoutSeconds: number): Promise<StopInstanceResponse>;
 	list(): Promise<ListInstancesResponse>;
+	/** Relay the runtime log level to the controller (ADR 0012). */
+	setLogLevel(level: LogLevel): Promise<void>;
 }
 
 /**
@@ -72,6 +75,10 @@ export class HttpControllerClient implements ControllerClient {
 	async list(): Promise<ListInstancesResponse> {
 		const res = await this.request("GET", "/instances");
 		return ListInstancesResponseSchema.parse(res);
+	}
+
+	async setLogLevel(level: LogLevel): Promise<void> {
+		await this.request("PUT", "/log-level", { level });
 	}
 
 	private async request(

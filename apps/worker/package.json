@@ -13,6 +13,7 @@
 		"@portikus/config": "workspace:*",
 		"@portikus/contracts": "workspace:*",
 		"@portikus/db": "workspace:*",
+		"@portikus/observability": "workspace:*",
 		"kysely": "0.29.5"
 	},
 	"devDependencies": {

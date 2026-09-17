@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { ControllerErrorCode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
+import { type Logger, silentLogger } from "@portikus/observability";
 import { type ExpressionBuilder, type Kysely, sql } from "kysely";
 import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
@@ -155,8 +156,17 @@ export async function reconcile(
 	now: Date,
 	lastRefreshAt: Date | null = null,
 	controllerUnreachable = false,
+	log: Logger = silentLogger(),
 ): Promise<SweepResult> {
 	let transitions = 0;
+	// What this sweep decided per workspace, written out as debug lines at the
+	// end so each live workspace gets exactly one line, "none" included.
+	const actions = new Map<string, string[]>();
+	const record = (id: string, action: string): void => {
+		const taken = actions.get(id);
+		if (taken) taken.push(action);
+		else actions.set(id, [action]);
+	};
 	let refreshAt = lastRefreshAt;
 	let unreachable = controllerUnreachable;
 	let refreshError: { code: string; message: string } | null = null;
@@ -229,6 +239,21 @@ export async function reconcile(
 		where w.id = d.id and w.shutdown_deadline is distinct from d.new_deadline
 	`.execute(db);
 
+	// Snapshot every live workspace after the deadline maths, so the debug
+	// lines show the values the decisions below were made from.
+	const snapshot = await db
+		.selectFrom("workspaces")
+		.select(["id", "state", "desired_state", "shutdown_deadline", "disconnected_at"])
+		.where("state", "in", [
+			"provisioning",
+			"stopped",
+			"starting",
+			"running",
+			"stopping",
+			"error",
+		])
+		.execute();
+
 	// (3) Drive actionable state transitions.
 
 	// 3a: provisioning -> create -> stopped/error
@@ -261,6 +286,7 @@ export async function reconcile(
 			);
 			if (updated) {
 				transitions++;
+				record(ws.id, "created");
 				await audit(db, ws.id, "workspace.provisioned", "ok", {
 					imageFingerprint: result.imageFingerprint,
 				});
@@ -280,6 +306,7 @@ export async function reconcile(
 			);
 			if (updated) {
 				transitions++;
+				record(ws.id, "create failed");
 				await audit(db, ws.id, "workspace.provision_failed", "failed", {
 					errorCode: err.code,
 					message: err.message,
@@ -297,6 +324,7 @@ export async function reconcile(
 		.execute();
 
 	for (const ws of toStart) {
+		record(ws.id, "start");
 		transitions += await startWorkspace(db, controller, config, ws, "stopped", now);
 	}
 
@@ -314,6 +342,7 @@ export async function reconcile(
 		const moved = await casUpdate(db, ws.id, "running", { state: "stopping" }, now);
 		if (!moved) continue;
 		transitions++;
+		record(ws.id, "stop requested");
 		await endOpenTerminals(db, ws.id, now);
 		await doStop(db, controller, config, ws, now);
 	}
@@ -344,6 +373,7 @@ export async function reconcile(
 
 	for (const ws of deadlinePassed) {
 		transitions++;
+		record(ws.id, "stop after grace period");
 		await endOpenTerminals(db, ws.id, now);
 		if (!ws.incus_instance_name) continue;
 		await doStop(db, controller, config, ws, now);
@@ -361,6 +391,7 @@ export async function reconcile(
 		.execute();
 
 	for (const ws of errorRetryStart) {
+		record(ws.id, "retry start");
 		transitions += await startWorkspace(db, controller, config, ws, "error", now);
 	}
 
@@ -383,12 +414,7 @@ export async function reconcile(
 			refreshError = { code: err.code, message: err.message };
 			if (!unreachable) {
 				// Record the start of a failure streak once (SPEC §25.4).
-				console.error(
-					JSON.stringify({
-						msg: "controller unreachable",
-						errorCode: err.code,
-					}),
-				);
+				log.error({ errorCode: err.code }, "controller unreachable");
 				await audit(db, "controller", "controller.unreachable", "failed", {
 					errorCode: err.code,
 				});
@@ -430,6 +456,7 @@ export async function reconcile(
 					if (updated) {
 						transitions++;
 						await endOpenTerminals(db, ws.id, now);
+						record(ws.id, "instance missing");
 						await audit(db, ws.id, "workspace.instance_missing", "failed", {
 							instanceName: ws.incus_instance_name,
 						});
@@ -458,6 +485,7 @@ export async function reconcile(
 					if (updated) {
 						transitions++;
 						await endOpenTerminals(db, ws.id, now);
+						record(ws.id, "observed stopped");
 						await audit(db, ws.id, "workspace.observed_stopped", "ok");
 					}
 				}
@@ -473,6 +501,7 @@ export async function reconcile(
 					);
 					if (updated) {
 						transitions++;
+						record(ws.id, "observed running");
 						await audit(db, ws.id, "workspace.observed_running", "ok");
 					}
 				}
@@ -489,6 +518,7 @@ export async function reconcile(
 						);
 						if (updated) {
 							transitions++;
+							record(ws.id, "start resolved as running");
 							await audit(db, ws.id, "workspace.start", "ok", {
 								resolvedFromList: true,
 							});
@@ -508,6 +538,7 @@ export async function reconcile(
 						if (updated) {
 							transitions++;
 							await endOpenTerminals(db, ws.id, now);
+							record(ws.id, "start resolved as failed");
 							await audit(db, ws.id, "workspace.start_failed", "failed", {
 								resolvedFromList: true,
 							});
@@ -527,6 +558,7 @@ export async function reconcile(
 						if (updated) {
 							transitions++;
 							await endOpenTerminals(db, ws.id, now);
+							record(ws.id, "stop resolved as stopped");
 							await audit(db, ws.id, "workspace.stop", "ok", {
 								resolvedFromList: true,
 							});
@@ -541,6 +573,7 @@ export async function reconcile(
 						);
 						if (updated) {
 							transitions++;
+							record(ws.id, "stop resolved as running");
 							await audit(db, ws.id, "workspace.observed_running", "ok", {
 								resolvedFromList: true,
 							});
@@ -549,6 +582,20 @@ export async function reconcile(
 				}
 			}
 		}
+	}
+
+	for (const ws of snapshot) {
+		log.debug(
+			{
+				workspaceId: ws.id,
+				state: ws.state,
+				desiredState: ws.desired_state,
+				shutdownDeadline: ws.shutdown_deadline,
+				disconnectedAt: ws.disconnected_at,
+				action: actions.get(ws.id)?.join(", ") ?? "none",
+			},
+			"workspace decision",
+		);
 	}
 
 	return {

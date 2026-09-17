@@ -1,7 +1,9 @@
 import { loadConfig, WorkerConfigSchema } from "@portikus/config";
 import { createDb, type Database } from "@portikus/db";
+import { createLogger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { HttpControllerClient } from "./controller-client.js";
+import { createLogLevelSync } from "./log-level.js";
 import { reconcile, type SweepResult } from "./reconcile.js";
 
 export const serviceName = "worker";
@@ -27,16 +29,22 @@ export async function seedSettings(
 	return Number(result?.numInsertedOrUpdatedRows ?? 0n) > 0;
 }
 
+/** How often the worker re-reads the log level an administrator chose. */
+const LOG_LEVEL_SYNC_SECONDS = 5;
+
 /** Start the reconcile loop; only runs when invoked as main. */
 async function main(): Promise<void> {
 	const config = loadConfig(WorkerConfigSchema);
+	const logger = createLogger({
+		service: serviceName,
+		level: config.LOG_LEVEL,
+		pretty: config.NODE_ENV === "development",
+	});
 	const db = createDb(config.DATABASE_URL);
 	if (await seedSettings(db, config.SHUTDOWN_GRACE_SECONDS)) {
-		console.log(
-			JSON.stringify({
-				msg: "seeded platform settings",
-				shutdownGraceSeconds: config.SHUTDOWN_GRACE_SECONDS,
-			}),
+		logger.info(
+			{ shutdownGraceSeconds: config.SHUTDOWN_GRACE_SECONDS },
+			"seeded platform settings",
 		);
 	}
 
@@ -45,12 +53,25 @@ async function main(): Promise<void> {
 		config.CONTROLLER_TOKEN,
 	);
 
-	console.log(
-		JSON.stringify({
-			msg: `${describeService()} starting`,
-			sweepInterval: config.SWEEP_INTERVAL_SECONDS,
-		}),
+	logger.info(
+		{ sweepInterval: config.SWEEP_INTERVAL_SECONDS },
+		`${describeService()} starting`,
 	);
+
+	// The log level lives on its own timer, so a slow read never delays a sweep.
+	const syncLogLevel = createLogLevelSync({
+		db,
+		logger,
+		envLevel: config.LOG_LEVEL,
+		controller,
+	});
+	const logLevelTimer = setInterval(() => {
+		void syncLogLevel();
+	}, LOG_LEVEL_SYNC_SECONDS * 1000);
+	const stopLogLevelSync = () => clearInterval(logLevelTimer);
+	process.once("SIGTERM", stopLogLevelSync);
+	process.once("SIGINT", stopLogLevelSync);
+	void syncLogLevel();
 
 	let lastRefreshAt: Date | null = null;
 	let controllerUnreachable = false;
@@ -65,31 +86,23 @@ async function main(): Promise<void> {
 				now,
 				lastRefreshAt,
 				controllerUnreachable,
+				logger,
 			);
 			lastRefreshAt = result.lastRefreshAt;
 			controllerUnreachable = result.controllerUnreachable;
 			if (result.refreshError) {
-				console.error(
-					JSON.stringify({
-						msg: "controller status refresh failed",
-						errorCode: result.refreshError.code,
-					}),
+				logger.error(
+					{ errorCode: result.refreshError.code },
+					"controller status refresh failed",
 				);
 			}
 			if (result.transitions > 0) {
-				console.log(
-					JSON.stringify({
-						msg: "sweep",
-						transitions: result.transitions,
-					}),
-				);
+				logger.info({ transitions: result.transitions }, "sweep");
 			}
 		} catch (e) {
-			console.error(
-				JSON.stringify({
-					msg: "sweep error",
-					error: e instanceof Error ? e.message : String(e),
-				}),
+			logger.error(
+				{ error: e instanceof Error ? e.message : String(e) },
+				"sweep error",
 			);
 		}
 		setTimeout(loop, config.SWEEP_INTERVAL_SECONDS * 1000);
@@ -100,7 +113,10 @@ async function main(): Promise<void> {
 
 if (process.argv[1]?.endsWith("index.ts") || process.argv[1]?.endsWith("index.js")) {
 	main().catch((e) => {
-		console.error(e);
+		createLogger({ service: serviceName, level: "error" }).error(
+			{ err: e },
+			"worker failed to start",
+		);
 		process.exit(1);
 	});
 }

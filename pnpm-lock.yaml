@@ -321,6 +321,9 @@ importers:
       '@portikus/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@portikus/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       kysely:
         specifier: 0.29.5
         version: 0.29.5
