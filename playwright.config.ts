@@ -3,6 +3,10 @@ import { defineConfig, devices } from "@playwright/test";
 const MOCK_OIDC_ISSUER = "http://127.0.0.1:3002";
 const WEB_URL = "http://127.0.0.1:5173";
 
+/** The fake workspace agent the terminal tests attach to. */
+export const FAKE_AGENT_PORT = 7400;
+export const FAKE_AGENT_TOKEN = "e2e-agent-token";
+
 // The throwaway PostgreSQL from docs/WORKFLOW.md, "Local PostgreSQL for
 // database tests"; CI points TEST_DATABASE_URL at its service container.
 const databaseUrl =
@@ -22,6 +26,18 @@ export default defineConfig({
 	projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 	webServer: [
 		{
+			// Stands in for the workspace agent, which normally runs inside a
+			// container the browser tests do not start (see e2e/helpers.ts).
+			command: "node e2e/fake-agent-server.mjs",
+			port: FAKE_AGENT_PORT,
+			env: {
+				FAKE_AGENT_PORT: String(FAKE_AGENT_PORT),
+				FAKE_AGENT_TOKEN: FAKE_AGENT_TOKEN,
+			},
+			reuseExistingServer: !process.env.CI,
+			timeout: 120_000,
+		},
+		{
 			command: "node packages/auth/dist/testing/mock-oidc-main.js",
 			url: `${MOCK_OIDC_ISSUER}/.well-known/openid-configuration`,
 			env: {
@@ -40,6 +56,7 @@ export default defineConfig({
 			env: {
 				NODE_ENV: "test",
 				PORT: "3000",
+				AGENT_PORT: String(FAKE_AGENT_PORT),
 				DATABASE_URL: databaseUrl,
 				PUBLIC_URL: WEB_URL,
 				OIDC_ISSUER_URL: MOCK_OIDC_ISSUER,
