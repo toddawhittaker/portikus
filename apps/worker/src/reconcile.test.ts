@@ -498,3 +498,139 @@ test.skipIf(skip)("an errored workspace is not retried every second", async () =
 	expect(fake.calls.some((c) => c.method === "start")).toBe(true);
 	expect((await getWorkspace(id)).state).toBe("running");
 });
+
+// --- Agent token, agent address, and terminal lifecycle (SPEC 9.7, 23.5) ---
+
+/** Insert a terminal row and return its id. */
+async function insertTerminal(
+	workspaceId: string,
+	endedAt: Date | null = null,
+): Promise<string> {
+	const row = await tdb.db
+		.insertInto("terminals")
+		.values({
+			workspace_id: workspaceId,
+			name: "terminal",
+			cwd: "/home/student",
+			ended_at: endedAt ? endedAt.toISOString() : null,
+		})
+		.returning("id")
+		.executeTakeFirstOrThrow();
+	return row.id;
+}
+
+async function getTerminal(id: string) {
+	return tdb.db
+		.selectFrom("terminals")
+		.selectAll()
+		.where("id", "=", id)
+		.executeTakeFirstOrThrow();
+}
+
+test.skipIf(skip)(
+	"the agent token is minted once and reused on later starts",
+	async () => {
+		const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+		const first = (await getWorkspace(id)).agent_token;
+		expect(first).toMatch(/^[0-9a-f]{64}$/);
+
+		// Stop it and start it again: the token must not change.
+		await tdb.db
+			.updateTable("workspaces")
+			.set({ state: "stopped", desired_state: "running" })
+			.where("id", "=", id)
+			.execute();
+		const later = new Date(now.getTime() + 1000);
+		await reconcile(tdb.db, fake, cfg, later, later);
+
+		expect((await getWorkspace(id)).agent_token).toBe(first);
+		const starts = fake.calls.filter((c) => c.method === "start");
+		expect(starts).toHaveLength(2);
+		for (const call of starts) {
+			expect(call.args[1]).toMatchObject({
+				timeoutSeconds: cfg.START_TIMEOUT_SECONDS,
+				agentToken: first,
+			});
+		}
+	},
+);
+
+test.skipIf(skip)("a successful start records the agent address", async () => {
+	fake.startResult = { ipv4: "10.200.0.44" };
+	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+
+	expect((await getWorkspace(id)).agent_address).toBe("10.200.0.44");
+});
+
+test.skipIf(skip)("the drift refresh updates a changed agent address", async () => {
+	const id = await insertWorkspace({
+		state: "running",
+		agent_address: "10.200.0.44",
+	});
+	const ws = await getWorkspace(id);
+	fake.listResult = [
+		{
+			name: ws.incus_instance_name as string,
+			status: "Running",
+			ipv4: "10.200.0.99",
+		},
+	];
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, null);
+
+	expect((await getWorkspace(id)).agent_address).toBe("10.200.0.99");
+});
+
+test.skipIf(skip)(
+	"the grace deadline ends open terminals but leaves ended ones",
+	async () => {
+		const now = new Date();
+		const past = new Date(now.getTime() - 1000);
+		const id = await insertWorkspace({
+			state: "running",
+			desired_state: "running",
+			shutdown_deadline: past.toISOString(),
+		});
+		const open = await insertTerminal(id);
+		const alreadyEnded = await insertTerminal(id, past);
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		expect((await getTerminal(open)).ended_at).not.toBeNull();
+		const ended = await getTerminal(alreadyEnded);
+		expect(new Date(ended.ended_at as unknown as string).getTime()).toBe(
+			past.getTime(),
+		);
+	},
+);
+
+test.skipIf(skip)("an explicit stop ends open terminals", async () => {
+	const id = await insertWorkspace({ state: "running", desired_state: "stopped" });
+	const open = await insertTerminal(id);
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+
+	expect((await getTerminal(open)).ended_at).not.toBeNull();
+});
+
+test.skipIf(skip)("the agent token never appears in audit metadata", async () => {
+	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+	const token = (await getWorkspace(id)).agent_token as string;
+
+	const audits = await tdb.db.selectFrom("audit_events").selectAll().execute();
+	expect(audits.length).toBeGreaterThan(0);
+	for (const row of audits) {
+		expect(JSON.stringify(row)).not.toContain(token);
+	}
+});

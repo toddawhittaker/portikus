@@ -233,3 +233,76 @@ test("ping returns false for unreachable server", async () => {
 	});
 	expect(await client.ping()).toBe(false);
 });
+
+test("pushFile sends the files API path, headers, and raw body", async () => {
+	let received: {
+		method: string;
+		url: string;
+		headers: http.IncomingHttpHeaders;
+		body: string;
+	} | null = null;
+	handler = (req, res) => {
+		const chunks: Buffer[] = [];
+		req.on("data", (c: Buffer) => chunks.push(c));
+		req.on("end", () => {
+			received = {
+				method: req.method ?? "",
+				url: req.url ?? "",
+				headers: req.headers,
+				body: Buffer.concat(chunks).toString(),
+			};
+			respond(res, 200, {
+				type: "sync",
+				status: "Success",
+				status_code: 200,
+				metadata: {},
+			});
+		});
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await client.pushFile("ws-test", "/etc/portikus/agent.token", "deadbeef", {
+		uid: 1000,
+		gid: 1000,
+		mode: "0600",
+	});
+
+	const got = received as unknown as {
+		method: string;
+		url: string;
+		headers: http.IncomingHttpHeaders;
+		body: string;
+	};
+	expect(got.method).toBe("POST");
+	expect(got.url).toBe(
+		"/1.0/instances/ws-test/files?path=%2Fetc%2Fportikus%2Fagent.token&project=testproj",
+	);
+	expect(got.headers["x-incus-uid"]).toBe("1000");
+	expect(got.headers["x-incus-gid"]).toBe("1000");
+	expect(got.headers["x-incus-mode"]).toBe("0600");
+	expect(got.headers["x-incus-type"]).toBe("file");
+	expect(got.headers["x-incus-write"]).toBe("overwrite");
+	expect(got.headers["content-type"]).toBe("application/octet-stream");
+	expect(got.body).toBe("deadbeef");
+});
+
+test("pushFile maps a 404 to NOT_FOUND", async () => {
+	handler = (req, res) => {
+		req.resume();
+		req.on("end", () => {
+			respond(res, 404, {
+				type: "error",
+				status: "Not Found",
+				status_code: 404,
+				error: "instance not found",
+			});
+		});
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(
+		client.pushFile("ws-missing", "/etc/portikus/agent.token", "x", {
+			uid: 1000,
+			gid: 1000,
+			mode: "0600",
+		}),
+	).rejects.toMatchObject({ code: "NOT_FOUND" });
+});

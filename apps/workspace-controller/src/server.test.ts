@@ -130,6 +130,32 @@ test("start happy path", async () => {
 	expect(res.json().ipv4).toBe("10.0.0.2");
 });
 
+test("start passes the agent token through to the provider", async () => {
+	await app.inject({
+		method: "POST",
+		url: "/instances",
+		headers: auth(),
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+	});
+	await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/start",
+		headers: auth(),
+		payload: { timeoutSeconds: 10, agentToken: AGENT_TOKEN },
+	});
+	expect(provider.instances.get("ws-abc")?.agentToken).toBe(AGENT_TOKEN);
+});
+
+test("start without an agent token returns 400", async () => {
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/start",
+		headers: auth(),
+		payload: { timeoutSeconds: 10 },
+	});
+	expect(res.statusCode).toBe(400);
+});
+
 test("start not found returns 404", async () => {
 	const res = await app.inject({
 		method: "POST",

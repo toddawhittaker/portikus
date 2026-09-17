@@ -58,6 +58,12 @@ export function Home() {
 								<li data-testid="workspace-state">state: {workspace.state}</li>
 								<li>desired state: {workspace.desiredState}</li>
 								<li>connections: {workspace.activeConnections}</li>
+								<li>
+									{/* A plain link, so this page keeps working without a router. */}
+									<a data-testid="open-workspace" href={`/workspaces/${workspace.id}`}>
+										Open workspace
+									</a>
+								</li>
 							</ul>
 						) : (
 							<p data-testid="workspace-state">state: connecting...</p>

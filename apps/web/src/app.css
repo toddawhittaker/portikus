@@ -1,0 +1,59 @@
+/* The terminal tokens from design/system (they are the same in both themes). */
+:root {
+	--terminal-bg: #11100e;
+	--terminal-fg: #e4dfd4;
+	--terminal-muted: #9a9386;
+	--terminal-cursor: #e8c37a;
+	--terminal-selection: #3a4a48;
+	--terminal-line: #2a2824;
+}
+
+.pk-terminal-tabs {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	flex-wrap: wrap;
+}
+
+.pk-terminal-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.pk-terminal-tab--ended {
+	color: var(--terminal-muted);
+	opacity: 0.7;
+}
+
+.pk-terminal-pane {
+	position: relative;
+	height: 24rem;
+	background: var(--terminal-bg);
+	color: var(--terminal-fg);
+	border-top: 1px solid var(--terminal-line);
+}
+
+.pk-terminal-pane[hidden] {
+	display: none;
+}
+
+.pk-terminal-surface {
+	position: absolute;
+	inset: 0;
+	padding: 0.5rem;
+}
+
+.pk-terminal-notice {
+	padding: 0.75rem;
+	color: var(--terminal-muted);
+}
+
+.pk-terminal-overlay {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	background: rgb(17 16 14 / 70%);
+	color: var(--terminal-fg);
+}
