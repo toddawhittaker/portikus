@@ -158,3 +158,24 @@ agent and the browser gets a very long transfer.
 refuses over the limit; the web app shows the message. Half a day.
 
 **Source.** `docs/STATUS.md`, Epic 6 known gaps.
+
+## Per-change coverage threshold
+
+**What.** A CI check that fails when the lines a pull request adds or
+changes are covered below a threshold, separate from the repository-wide
+floors in `vitest.config.ts`.
+
+**Why.** The floors measure the whole codebase, so a large untested file
+only nudges the totals and can pass. New code has no legacy to hide
+behind, so a stricter bar on changed lines is fair.
+
+**What it would take.** A short TypeScript script in `scripts/` that reads
+`coverage/lcov.info`, takes the changed line ranges from `git diff -U0
+origin/main...HEAD`, skips the same paths the vitest coverage config
+excludes, and exits non-zero below the threshold (80% of changed lines is
+the common choice). Run it in the app job after `pnpm test:coverage`, with
+a fetch depth that includes `main`. No new dependency; `diff-cover` and
+hosted services were considered and rejected for adding a toolchain or an
+external service. Half a day.
+
+**Source.** Todd, 2026-09-17, after the coverage floor landed in PR 101.
