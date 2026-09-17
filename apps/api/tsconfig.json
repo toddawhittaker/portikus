@@ -13,6 +13,7 @@
 		{ "path": "../../packages/config" },
 		{ "path": "../../packages/contracts" },
 		{ "path": "../../packages/db" },
-		{ "path": "../../packages/events" }
+		{ "path": "../../packages/events" },
+		{ "path": "../../packages/observability" }
 	]
 }

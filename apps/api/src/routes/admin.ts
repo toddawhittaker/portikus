@@ -4,17 +4,30 @@ import {
 	type AdminUserList,
 	type AdminWorkspaceList,
 	type ApiError,
+	LogLevel,
 	type PlatformSettings,
 	Role,
 	UpdateAdminUserSettingsRequest,
 	UpdatePlatformSettingsRequest,
 } from "@portikus/contracts";
+import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import type { Updateable } from "kysely";
 import { z } from "zod";
 import type { ServerDeps } from "../server.js";
 import { countActive, toWorkspace } from "./workspace-view.js";
 
 const UuidParam = z.object({ id: z.string().uuid() });
+
+/** The settings columns this route may write. */
+type SettingsUpdate = Partial<Updateable<Database["settings"]>>;
+
+/** The stored level, or null when it is unset or no longer a level we know. */
+function toLogLevel(value: string | null): LogLevel | null {
+	if (value === null) return null;
+	const parsed = LogLevel.safeParse(value);
+	return parsed.success ? parsed.data : null;
+}
 
 const adminOnly = { preHandler: requireRole("administrator") };
 
@@ -76,7 +89,7 @@ export function registerAdminRoutes(
 	app.get("/admin/settings", adminOnly, async (_request, reply) => {
 		const row = await db
 			.selectFrom("settings")
-			.select(["shutdown_grace_seconds", "updated_at"])
+			.select(["shutdown_grace_seconds", "log_level", "updated_at"])
 			.where("id", "=", 1)
 			.executeTakeFirst();
 		if (!row) {
@@ -84,6 +97,7 @@ export function registerAdminRoutes(
 		}
 		const body: PlatformSettings = {
 			shutdownGraceSeconds: row.shutdown_grace_seconds,
+			logLevel: toLogLevel(row.log_level),
 			updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
 		};
 		return body;
@@ -100,45 +114,67 @@ export function registerAdminRoutes(
 
 		const before = await db
 			.selectFrom("settings")
-			.select("shutdown_grace_seconds")
+			.select(["shutdown_grace_seconds", "log_level"])
 			.where("id", "=", 1)
 			.executeTakeFirst();
 		if (!before) {
 			return sendError(reply, 404, "NOT_FOUND", "Platform settings are not set yet");
 		}
 
-		// The change and its audit row commit together (SPEC.md §24.11).
+		// Only the fields the request names are written; the rest keep their value.
+		const changes: SettingsUpdate = {
+			updated_at: new Date().toISOString(),
+			updated_by: user.id,
+		};
+		const audits: { action: string; from: unknown; to: unknown }[] = [];
+		if (body.data.shutdownGraceSeconds !== undefined) {
+			changes.shutdown_grace_seconds = body.data.shutdownGraceSeconds;
+			audits.push({
+				action: "settings.shutdown_grace_updated",
+				from: before.shutdown_grace_seconds,
+				to: body.data.shutdownGraceSeconds,
+			});
+		}
+		if (body.data.logLevel !== undefined) {
+			changes.log_level = body.data.logLevel;
+			audits.push({
+				action: "settings.log_level_updated",
+				from: toLogLevel(before.log_level),
+				to: body.data.logLevel,
+			});
+		}
+
+		// The change and its audit rows commit together (SPEC.md §24.11).
 		const updated = await db.transaction().execute(async (trx) => {
 			const row = await trx
 				.updateTable("settings")
-				.set({
-					shutdown_grace_seconds: body.data.shutdownGraceSeconds,
-					updated_at: new Date().toISOString(),
-					updated_by: user.id,
-				})
+				.set(changes)
 				.where("id", "=", 1)
-				.returning(["shutdown_grace_seconds", "updated_at"])
+				.returning(["shutdown_grace_seconds", "log_level", "updated_at"])
 				.executeTakeFirstOrThrow();
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${user.id}`,
-					target: "settings",
-					action: "settings.shutdown_grace_updated",
-					result: "ok",
-					metadata: JSON.stringify({
-						from: before.shutdown_grace_seconds,
-						to: body.data.shutdownGraceSeconds,
-						ip: request.ip,
-						userAgent: request.headers["user-agent"] ?? null,
-					}),
-				})
-				.execute();
+			for (const audit of audits) {
+				await trx
+					.insertInto("audit_events")
+					.values({
+						actor: `user:${user.id}`,
+						target: "settings",
+						action: audit.action,
+						result: "ok",
+						metadata: JSON.stringify({
+							from: audit.from,
+							to: audit.to,
+							ip: request.ip,
+							userAgent: request.headers["user-agent"] ?? null,
+						}),
+					})
+					.execute();
+			}
 			return row;
 		});
 
 		const out: PlatformSettings = {
 			shutdownGraceSeconds: updated.shutdown_grace_seconds,
+			logLevel: toLogLevel(updated.log_level),
 			updatedAt: updated.updated_at ? new Date(updated.updated_at).toISOString() : null,
 		};
 		return out;

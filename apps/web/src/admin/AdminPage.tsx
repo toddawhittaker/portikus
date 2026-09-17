@@ -1,5 +1,12 @@
-import type { AdminUser } from "@portikus/contracts";
-import { Button, TextField, useToast } from "@portikus/ui";
+import { type AdminUser, LogLevel } from "@portikus/contracts";
+import {
+	Button,
+	CONTROL_CLASS,
+	FIELD_CLASS,
+	LABEL_CLASS,
+	TextField,
+	useToast,
+} from "@portikus/ui";
 import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ApiError } from "../api/request.js";
@@ -38,6 +45,7 @@ export function AdminPage() {
 					Administration
 				</h1>
 				<GraceSection />
+				<LogLevelSection />
 				<UsersSection />
 			</main>
 		</div>
@@ -114,6 +122,86 @@ function GraceSection() {
 				<Button
 					variant="primary"
 					data-testid="grace-save"
+					loading={update.isPending}
+					onClick={save}
+				>
+					Save
+				</Button>
+			</div>
+		</section>
+	);
+}
+
+/** The value the select uses for "no override"; the API takes null. */
+const SERVICE_DEFAULT = "default";
+
+/**
+ * The runtime log level every service follows (ADR 0012). "Use service
+ * default" clears the override, so each service falls back to its own
+ * LOG_LEVEL from the environment.
+ */
+function LogLevelSection() {
+	const settings = usePlatformSettings();
+	const update = useUpdatePlatformSettings();
+	const toast = useToast();
+	const [draft, setDraft] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
+
+	const saved = settings.data?.logLevel ?? null;
+	const value = draft ?? (saved === null ? SERVICE_DEFAULT : saved);
+
+	function save() {
+		setError(null);
+		const parsed = LogLevel.safeParse(value);
+		update.mutate(
+			{ logLevel: parsed.success ? parsed.data : null },
+			{
+				onSuccess: () => {
+					setDraft(null);
+					toast.show({ tone: "success", title: "Log level saved" });
+				},
+				onError: (failure) => setError(errorText(failure)),
+			},
+		);
+	}
+
+	return (
+		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="log-level-title">
+			<h2 className="pk-text-heading m-0" id="log-level-title">
+				Log level
+			</h2>
+			<p className="pk-text-body pk-muted mt-1">
+				How much every service logs. Takes effect within a few seconds.
+			</p>
+			<div className="pk-actions mt-4 items-end">
+				<div className={FIELD_CLASS}>
+					<label className={LABEL_CLASS} htmlFor="log-level">
+						Level
+					</label>
+					<select
+						id="log-level"
+						className={`${CONTROL_CLASS} w-48 cursor-pointer disabled:border-line disabled:bg-surface-sunken disabled:text-ink-faint`}
+						data-testid="log-level-select"
+						value={value}
+						disabled={settings.isLoading}
+						onChange={(event) => setDraft(event.target.value)}
+					>
+						<option value={SERVICE_DEFAULT}>Use service default</option>
+						{LogLevel.options.map((level) => (
+							<option key={level} value={level}>
+								{level}
+							</option>
+						))}
+					</select>
+					{error ? (
+						<p className="pk-error m-0 text-[12px] leading-4 text-status-error">
+							{error}
+						</p>
+					) : null}
+				</div>
+				<Button
+					variant="primary"
+					data-testid="log-level-save"
 					loading={update.isPending}
 					onClick={save}
 				>

@@ -1,10 +1,21 @@
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
-import type { OidcClient } from "@portikus/auth";
+import { createOidcClient, type OidcClient } from "@portikus/auth";
+import {
+	CookieJar,
+	csrfHeaders,
+	loginAs,
+	type MockOidcProvider,
+	startMockOidcProvider,
+} from "@portikus/auth/testing";
 import { HealthResponse } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
+import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import { type LogLevel, silentLogger } from "@portikus/observability";
+import { collectingLogger } from "@portikus/observability/testing";
 import type { Kysely } from "kysely";
-import { expect, test, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { toAuthOptions } from "./auth-options.js";
 import { buildServer } from "./server.js";
 import { PUBLIC_URL, testConfig } from "./test-support.js";
 
@@ -13,8 +24,14 @@ function makeApp(oidc?: OidcClient) {
 	return buildServer({
 		db: {} as unknown as Kysely<Database>,
 		config: testConfig("http://127.0.0.1:3002"),
+		logger: silentLogger(),
 		oidc,
 	});
+}
+
+/** Request lines only, in order. */
+function requestLines(lines: Record<string, unknown>[]): Record<string, unknown>[] {
+	return lines.filter((line) => line.msg === "request");
 }
 
 test("GET /health returns a valid HealthResponse", async () => {
@@ -78,16 +95,24 @@ test("an unexpected error returns a generic INTERNAL body", async () => {
 			throw new Error("unused");
 		},
 	};
-	const app = makeApp(failing);
-	const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+	const { logger, lines } = collectingLogger();
+	const app = buildServer({
+		db: {} as unknown as Kysely<Database>,
+		config: testConfig("http://127.0.0.1:3002"),
+		logger,
+		oidc: failing,
+	});
 	const response = await app.inject({ method: "GET", url: "/auth/login" });
 
 	expect(response.statusCode).toBe(500);
 	expect(response.json().code).toBe("INTERNAL");
 	expect(response.body).not.toContain("postgres://");
-	expect(logged).toHaveBeenCalled();
+	expect(
+		lines.some(
+			(line) => line.level === "error" && line.msg === "unhandled request error",
+		),
+	).toBe(true);
 
-	logged.mockRestore();
 	await app.close();
 });
 
@@ -151,4 +176,105 @@ test("a refused upgrade does not hold shutdown open", async () => {
 	await app.close();
 	agent.destroy();
 	expect(Date.now() - started).toBeLessThan(2_000);
+});
+
+// --- One line per request (ADR 0012, SPEC.md §25.6) ---
+
+/** A stub-database server that writes its request lines into `lines`. */
+function makeLoggingApp(level: LogLevel = "info") {
+	const { logger, lines } = collectingLogger(level);
+	const app = buildServer({
+		db: {} as unknown as Kysely<Database>,
+		config: testConfig("http://127.0.0.1:3002"),
+		logger,
+	});
+	return { app, lines };
+}
+
+test("a refused request is logged at warn with its status and error code", async () => {
+	const { app, lines } = makeLoggingApp();
+	const response = await app.inject({ method: "GET", url: "/workspaces" });
+	expect(response.statusCode).toBe(401);
+
+	const [line] = requestLines(lines);
+	expect(line?.level).toBe("warn");
+	expect(line?.status).toBe(401);
+	expect(line?.code).toBe("UNAUTHORIZED");
+	expect(line?.path).toBe("/workspaces");
+
+	await app.close();
+});
+
+test("a health poll writes no line at info and one at debug", async () => {
+	const quiet = makeLoggingApp("info");
+	await quiet.app.inject({ method: "GET", url: "/health" });
+	expect(requestLines(quiet.lines)).toHaveLength(0);
+	await quiet.app.close();
+
+	const loud = makeLoggingApp("debug");
+	await loud.app.inject({ method: "GET", url: "/health" });
+	expect(requestLines(loud.lines)[0]?.level).toBe("debug");
+	await loud.app.close();
+});
+
+// --- Naming the signed-in user needs a real session ---
+
+const skip = !hasTestDb();
+let testDb: TestDb;
+let mock: MockOidcProvider;
+
+beforeAll(async () => {
+	if (skip) return;
+	testDb = await createTestDb();
+	mock = await startMockOidcProvider({
+		redirectUris: [`${PUBLIC_URL}/auth/callback`],
+	});
+});
+
+afterAll(async () => {
+	if (skip) return;
+	await testDb.close();
+	await mock.close();
+});
+
+beforeEach(async () => {
+	if (skip) return;
+	await testDb.truncate();
+});
+
+test.skipIf(skip)("a request with a session names the user on its line", async () => {
+	const { logger, lines } = collectingLogger();
+	const config = testConfig(mock.issuer);
+	const app = buildServer({
+		db: testDb.db,
+		config,
+		logger,
+		oidc: createOidcClient(toAuthOptions(config)),
+	});
+	await app.ready();
+
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+	const created = await app.inject({
+		method: "POST",
+		url: "/workspaces",
+		headers: csrfHeaders(jar, PUBLIC_URL),
+	});
+	expect(created.statusCode).toBe(201);
+	const response = await app.inject({
+		method: "GET",
+		url: `/workspaces/${created.json().id}`,
+		headers: { cookie: jar.cookieHeader() },
+	});
+	expect(response.statusCode).toBe(200);
+
+	const line = requestLines(lines).at(-1);
+	expect(line?.level).toBe("info");
+	expect(line?.status).toBe(200);
+	expect(line?.workspaceId).toBe(created.json().id);
+	expect(typeof line?.userId).toBe("string");
+	// No cookie value ever reaches a line (SPEC.md §24.11).
+	expect(JSON.stringify(lines)).not.toContain(jar.cookieHeader());
+
+	await app.close();
 });

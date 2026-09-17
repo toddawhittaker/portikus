@@ -24,6 +24,31 @@ async function startUpstream(
 	return (server.address() as AddressInfo).port;
 }
 
+test("setLogLevel puts the level on /log-level behind the bearer token", async () => {
+	const seen: { method?: string; url?: string; auth?: string; body: string } = {
+		body: "",
+	};
+	const port = await startUpstream((request, response) => {
+		seen.method = request.method;
+		seen.url = request.url;
+		seen.auth = request.headers.authorization;
+		request.on("data", (chunk) => {
+			seen.body += String(chunk);
+		});
+		request.on("end", () => {
+			response.writeHead(204);
+			response.end();
+		});
+	});
+	const client = new AgentClient("127.0.0.1", port, "token");
+
+	await expect(client.setLogLevel("debug")).resolves.toBeUndefined();
+	expect(seen.method).toBe("PUT");
+	expect(seen.url).toBe("/log-level");
+	expect(seen.auth).toBe("Bearer token");
+	expect(JSON.parse(seen.body)).toEqual({ level: "debug" });
+});
+
 test("a JSON body past the cap is refused instead of buffered", async () => {
 	const chunk = "x".repeat(64 * 1024);
 	const port = await startUpstream((_request, response) => {

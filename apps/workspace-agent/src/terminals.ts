@@ -4,8 +4,8 @@ import {
 	MAX_INPUT_FRAME_BYTES,
 } from "@portikus/contracts";
 import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/events";
+import type { FastifyBaseLogger } from "fastify";
 import { type IPty, spawn } from "node-pty";
-import { log } from "./log.js";
 import { AgentFailure, attachArgs, hasSession } from "./tmux.js";
 
 /** Pause the PTY once this much output is waiting on the socket (SPEC.md §9.7). */
@@ -46,6 +46,7 @@ export class TerminalRegistry {
 
 	constructor(
 		private readonly homeDir: string,
+		private readonly log: FastifyBaseLogger,
 		private readonly socketName?: string,
 	) {}
 
@@ -86,6 +87,10 @@ export class TerminalRegistry {
 		});
 
 		attachment.pty = pty;
+		this.log.debug(
+			{ terminalId: id, pid: pty.pid, cols: pty.cols, rows: pty.rows },
+			"pty spawned",
+		);
 
 		pty.onData((data) => {
 			socket.send(Buffer.from(data, "utf8"), { binary: true });
@@ -104,6 +109,7 @@ export class TerminalRegistry {
 
 		socket.on("close", () => {
 			this.forget(id, attachment);
+			this.log.debug({ terminalId: id, pid: pty.pid }, "terminal detached");
 			// Killing the attach process only detaches; the session lives on.
 			try {
 				pty.kill();
@@ -186,11 +192,15 @@ export class TerminalRegistry {
 
 		try {
 			pty.resize(message.data.cols, message.data.rows);
+			this.log.debug(
+				{ pid: pty.pid, cols: message.data.cols, rows: message.data.rows },
+				"terminal resized",
+			);
 		} catch (error) {
-			log("warn", {
-				msg: "terminal resize failed",
-				error: error instanceof Error ? error.message : String(error),
-			});
+			this.log.warn(
+				{ error: error instanceof Error ? error.message : String(error) },
+				"terminal resize failed",
+			);
 		}
 	}
 

@@ -1,10 +1,28 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { createLogger, defineConfig } from "vite";
 
 const api = { target: "http://127.0.0.1:3000", changeOrigin: true };
 
+/**
+ * A page that closes or navigates away while a terminal or presence socket
+ * is open leaves the WebSocket proxy writing to a dead socket. Vite reports
+ * each one as "ws proxy error" or "ws proxy socket error" at error level,
+ * which floods the dev server output and every Playwright run with EPIPE
+ * and ECONNRESET lines that mean nothing. Drop those two codes on the
+ * proxy messages only; every other error still prints.
+ */
+const logger = createLogger();
+const vanillaError = logger.error.bind(logger);
+logger.error = (msg, options) => {
+	const code = (options?.error as NodeJS.ErrnoException | undefined)?.code;
+	const isProxyLine = /ws proxy (socket )?error/.test(msg);
+	if (isProxyLine && (code === "EPIPE" || code === "ECONNRESET")) return;
+	vanillaError(msg, options);
+};
+
 export default defineConfig({
+	customLogger: logger,
 	plugins: [react(), tailwindcss()],
 	server: {
 		host: "127.0.0.1",

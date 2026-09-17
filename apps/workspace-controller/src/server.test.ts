@@ -1,3 +1,5 @@
+import type { LogLevel } from "@portikus/observability";
+import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { FakeWorkspaceProvider } from "./fake-provider.js";
@@ -288,4 +290,112 @@ test("two concurrent starts cause one provider call", async () => {
 	expect(r1.statusCode).toBe(200);
 	expect(r2.statusCode).toBe(200);
 	expect(startCount).toBe(1);
+});
+
+// Logging (ADR 0012).
+
+function buildLogging(level: LogLevel = "info") {
+	const { logger, lines } = collectingLogger(level);
+	const logged = buildServer({ provider, token: TOKEN, logger });
+	return {
+		logged,
+		lines,
+		requests: () => lines.filter((l) => l.msg === "request"),
+	};
+}
+
+test("PUT /log-level changes the level the controller logs at", async () => {
+	const { logged, lines } = buildLogging("info");
+	try {
+		const res = await logged.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: "debug" },
+		});
+		expect(res.statusCode).toBe(204);
+		expect(logged.log.level).toBe("debug");
+
+		lines.length = 0;
+		logged.log.debug("now visible");
+		expect(lines).toHaveLength(1);
+	} finally {
+		await logged.close();
+	}
+});
+
+test("PUT /log-level needs the token and a known level", async () => {
+	const { logged } = buildLogging();
+	try {
+		const noToken = await logged.inject({
+			method: "PUT",
+			url: "/log-level",
+			payload: { level: "debug" },
+		});
+		expect(noToken.statusCode).toBe(401);
+
+		const bad = await logged.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: "verbose" },
+		});
+		expect(bad.statusCode).toBe(400);
+		expect(bad.json().code).toBe("BAD_REQUEST");
+		expect(logged.log.level).toBe("info");
+	} finally {
+		await logged.close();
+	}
+});
+
+test("a null level returns the controller to the level it started with", async () => {
+	const { logged } = buildLogging("warn");
+	try {
+		await logged.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: "debug" },
+		});
+		expect(logged.log.level).toBe("debug");
+
+		const cleared = await logged.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: null },
+		});
+		expect(cleared.statusCode).toBe(204);
+		expect(logged.log.level).toBe("warn");
+	} finally {
+		await logged.close();
+	}
+});
+
+test("a request logs one line, and an Incus failure names the reason", async () => {
+	const { logged, requests } = buildLogging();
+	try {
+		const ok = await logged.inject({
+			method: "GET",
+			url: "/instances",
+			headers: auth(),
+		});
+		expect(ok.statusCode).toBe(200);
+		expect(requests()[0]?.level).toBe("info");
+
+		provider.failNext("INCUS_UNAVAILABLE");
+		const failed = await logged.inject({
+			method: "POST",
+			url: "/instances",
+			headers: auth(),
+			payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		});
+		expect(failed.statusCode).toBe(503);
+		const line = requests()[1];
+		expect(line?.level).toBe("error");
+		expect(line?.code).toBe("INCUS_UNAVAILABLE");
+		expect(line?.error).toBe("fake error: INCUS_UNAVAILABLE");
+	} finally {
+		await logged.close();
+	}
 });

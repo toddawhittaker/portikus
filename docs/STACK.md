@@ -753,7 +753,11 @@ At minimum, instrument:
 - recovery operations;
 - job execution.
 
-Structured logs should use machine-readable JSON in production.
+Structured logs are pino JSON lines carrying `service`, `level`, `time`, and
+`msg`, written by the shared logger in `packages/observability`. `LOG_LEVEL`
+sets each service's default level and the `settings.log_level` row overrides it
+at runtime without a restart (ADR 0012). `pino-pretty` is used only when
+`NODE_ENV=development`.
 
 Do not log:
 

@@ -2,15 +2,23 @@ import {
 	type ControllerErrorCode,
 	CreateInstanceRequest,
 	InstanceName,
+	SetLogLevelRequest,
 	StartInstanceRequest,
 	StopInstanceRequest,
 } from "@portikus/contracts";
-import Fastify, { type FastifyInstance } from "fastify";
+import {
+	type Logger,
+	quietLogController,
+	registerRequestLogging,
+	silentLogger,
+} from "@portikus/observability";
+import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { tokenAuth } from "./auth.js";
 import { IncusError } from "./incus.js";
 import type { WorkspaceProvider } from "./provider.js";
 
 const ERROR_STATUS: Record<ControllerErrorCode, number> = {
+	BAD_REQUEST: 400,
 	INVALID_NAME: 400,
 	UNAUTHORIZED: 401,
 	NOT_FOUND: 404,
@@ -25,11 +33,22 @@ const ERROR_STATUS: Record<ControllerErrorCode, number> = {
 interface ServerOptions {
 	provider: WorkspaceProvider;
 	token: string;
+	/** The process logger. Tests default to one that writes nothing. */
+	logger?: Logger;
 }
 
 export function buildServer(opts: ServerOptions): FastifyInstance {
 	const { provider, token } = opts;
-	const app = Fastify({ logger: false });
+	const app = Fastify({
+		// Cast so the instance keeps Fastify's default logger type and
+		// callers can still hold it as a plain FastifyInstance.
+		loggerInstance: (opts.logger ?? silentLogger()) as FastifyBaseLogger,
+		logController: quietLogController(),
+	});
+	registerRequestLogging(app, { debugPaths: ["/health"] });
+
+	// The level to return to when the worker clears the override (ADR 0012).
+	const startLevel = app.log.level;
 
 	app.addHook("preHandler", tokenAuth(token));
 
@@ -67,6 +86,21 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		};
 	});
 
+	// The worker turns debug logging on and off while the controller runs
+	// (ADR 0012); the level lives only in this process.
+	app.put("/log-level", async (request, reply) => {
+		const parsed = SetLogLevelRequest.safeParse(request.body);
+		if (!parsed.success) {
+			return reply
+				.code(ERROR_STATUS.BAD_REQUEST)
+				.send({ code: "BAD_REQUEST", message: "unknown log level" });
+		}
+		// Null clears the override, so the controller goes back to the level it
+		// started with, from its own environment (ADR 0012).
+		app.log.level = parsed.data.level ?? startLevel;
+		return reply.code(204).send();
+	});
+
 	app.post("/instances", async (request, reply) => {
 		const parsed = CreateInstanceRequest.safeParse(request.body);
 		if (!parsed.success) {
@@ -75,11 +109,20 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 				message: parsed.error.issues.map((i) => i.message).join("; "),
 			});
 		}
+		const started = Date.now();
 		try {
 			const result = await provider.create(parsed.data.name, {
 				homeGiB: parsed.data.homeGiB,
 				dockerGiB: parsed.data.dockerGiB,
 			});
+			request.log.info(
+				{
+					instance: parsed.data.name,
+					created: result.created,
+					durationMs: Date.now() - started,
+				},
+				"instance created",
+			);
 			const status = result.created ? 201 : 200;
 			return reply.code(status).send(result);
 		} catch (err) {
@@ -103,12 +146,17 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 				message: bodyResult.error.issues.map((i) => i.message).join("; "),
 			});
 		}
+		const started = Date.now();
 		try {
 			const result = await singleFlight(`start:${params.name}`, () =>
 				provider.start(params.name, {
 					timeoutSeconds: bodyResult.data.timeoutSeconds,
 					agentToken: bodyResult.data.agentToken,
 				}),
+			);
+			request.log.info(
+				{ instance: params.name, durationMs: Date.now() - started },
+				"instance started",
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
@@ -132,11 +180,20 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 				message: bodyResult.error.issues.map((i) => i.message).join("; "),
 			});
 		}
+		const started = Date.now();
 		try {
 			const result = await singleFlight(`stop:${params.name}`, () =>
 				provider.stop(params.name, {
 					timeoutSeconds: bodyResult.data.timeoutSeconds,
 				}),
+			);
+			request.log.info(
+				{
+					instance: params.name,
+					forced: result.forced,
+					durationMs: Date.now() - started,
+				},
+				"instance stopped",
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
@@ -164,7 +221,10 @@ function sendError(
 		const status = ERROR_STATUS[err.code] ?? 500;
 		return reply.code(status).send({ code: err.code, message: err.message });
 	}
-	return reply
-		.code(500)
-		.send({ code: "OPERATION_FAILED", message: "unexpected error" });
+	// The controller is reachable on loopback only and answers the worker, so
+	// the real message is safe here and the request logging hook records it.
+	return reply.code(500).send({
+		code: "OPERATION_FAILED",
+		message: err instanceof Error ? err.message : "unexpected error",
+	});
 }

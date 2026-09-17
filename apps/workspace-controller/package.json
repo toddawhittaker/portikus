@@ -12,6 +12,7 @@
 	"dependencies": {
 		"@portikus/config": "workspace:*",
 		"@portikus/contracts": "workspace:*",
+		"@portikus/observability": "workspace:*",
 		"fastify": "5.12.4"
 	},
 	"devDependencies": {

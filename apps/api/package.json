@@ -16,6 +16,7 @@
 		"@portikus/contracts": "workspace:*",
 		"@portikus/db": "workspace:*",
 		"@portikus/events": "workspace:*",
+		"@portikus/observability": "workspace:*",
 		"fastify": "5.12.4",
 		"kysely": "0.29.5",
 		"ws": "8.21.3",

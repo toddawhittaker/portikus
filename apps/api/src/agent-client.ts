@@ -7,6 +7,8 @@ import {
 	AgentProject,
 	AgentProjectList,
 	AgentRenameProjectRequest,
+	type LogLevel,
+	SetLogLevelRequest,
 } from "@portikus/contracts";
 
 /** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
@@ -70,6 +72,11 @@ export class AgentClient {
 
 	async deleteTerminal(terminalId: string): Promise<void> {
 		await this.call("DELETE", `/terminals/${terminalId}`);
+	}
+
+	/** Set how much this workspace's agent logs, while it runs (ADR 0012). */
+	async setLogLevel(level: LogLevel | null): Promise<void> {
+		await this.call("PUT", "/log-level", SetLogLevelRequest.parse({ level }));
 	}
 
 	async listProjects(): Promise<AgentProjectList> {

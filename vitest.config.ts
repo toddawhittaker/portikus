@@ -30,6 +30,11 @@ workspaceAliases.unshift(
 			.pathname,
 	},
 	{
+		find: "@portikus/observability/testing",
+		replacement: new URL("./packages/observability/src/testing.ts", import.meta.url)
+			.pathname,
+	},
+	{
 		find: "@portikus/db/testing",
 		replacement: new URL("./packages/db/src/testing.ts", import.meta.url).pathname,
 	},
@@ -40,6 +45,42 @@ export default defineConfig({
 	// clean checkout, before anything has been built.
 	resolve: { alias: workspaceAliases },
 	test: {
+		// Coverage sits here and not on each project: with `projects`, Vitest
+		// only reads the root coverage options.
+		coverage: {
+			provider: "v8",
+			reporter: ["text-summary", "lcov"],
+			reportsDirectory: "coverage",
+			include: ["apps/*/src/**", "packages/*/src/**"],
+			exclude: [
+				"**/*.test.*",
+				"**/*.d.ts",
+				// Test doubles and fixtures.
+				"apps/api/src/fake-agent.ts",
+				"apps/api/src/test-support.ts",
+				"apps/worker/src/fake-controller.ts",
+				"apps/workspace-controller/src/fake-provider.ts",
+				"packages/db/src/testing.ts",
+				"packages/observability/src/testing.ts",
+				"packages/ui/src/test-setup.ts",
+				// One-shot scripts and process entrypoints, covered by the
+				// smoke test and the Playwright suite instead.
+				"packages/db/src/migrations/**",
+				"packages/db/src/migrate.ts",
+				"apps/web/src/main.tsx",
+				"apps/api/src/index.ts",
+				"apps/worker/src/index.ts",
+				"apps/workspace-agent/src/index.ts",
+				"apps/workspace-controller/src/index.ts",
+				"packages/auth/src/testing/mock-oidc-main.ts",
+			],
+			thresholds: {
+				lines: 80,
+				branches: 70,
+				"apps/api/src/**": { lines: 85 },
+				"apps/workspace-agent/src/**": { lines: 85 },
+			},
+		},
 		projects: [
 			{
 				extends: true,

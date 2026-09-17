@@ -3,10 +3,14 @@ import { authPlugin, type OidcClient } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import { type ApiError, HealthResponse } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import Fastify, { type FastifyInstance } from "fastify";
+import {
+	type Logger,
+	quietLogController,
+	registerRequestLogging,
+} from "@portikus/observability";
+import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
-import { log } from "./log.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -17,6 +21,8 @@ import { registerWorkspaceSocket } from "./routes/ws.js";
 export interface ServerDeps {
 	db: Kysely<Database>;
 	config: ApiConfig;
+	/** The one root logger of this process (ADR 0012). */
+	logger: Logger;
 	/** Tests inject a client bound to the mock provider. */
 	oidc?: OidcClient;
 }
@@ -25,7 +31,17 @@ export interface ServerDeps {
 export function buildServer(deps: ServerDeps): FastifyInstance {
 	// Caddy on loopback is the only proxy, so trust its X-Forwarded-For and
 	// nothing else; request.ip is then the real client (SPEC.md §24.11).
-	const app = Fastify({ logger: false, trustProxy: "127.0.0.1" });
+	// Widened to Fastify's own logger type so the instance keeps its default
+	// generic; a pino logger satisfies it.
+	const loggerInstance: FastifyBaseLogger = deps.logger;
+	const app = Fastify({
+		loggerInstance,
+		logController: quietLogController(),
+		trustProxy: "127.0.0.1",
+	});
+
+	// One line per response, including every 4xx the routes send (ADR 0012).
+	registerRequestLogging(app, { debugPaths: ["/health"] });
 
 	// A refused upgrade is answered with plain HTTP over a socket Fastify does
 	// not track, so close it here or shutdown waits for it forever. Only that
@@ -89,12 +105,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// Never let a driver or runtime message reach the client (SPEC.md §24, §27).
 	app.setErrorHandler((error, request, reply) => {
-		log("error", {
-			msg: "unhandled request error",
-			method: request.method,
-			url: request.routeOptions.url ?? request.url,
-			error: error instanceof Error ? error.message : String(error),
-		});
+		request.log.error({ err: error }, "unhandled request error");
 		const body: ApiError = {
 			code: "INTERNAL",
 			message: "An unexpected error occurred. Please try again.",

@@ -3,6 +3,7 @@ import {
 	AdminUser,
 	AdminUserList,
 	PlatformSettings,
+	SetLogLevelRequest,
 	UpdateAdminUserSettingsRequest,
 	UpdatePlatformSettingsRequest,
 } from "./index.js";
@@ -10,14 +11,17 @@ import {
 test("PlatformSettings accepts zero, meaning no shutdown", () => {
 	const parsed = PlatformSettings.parse({
 		shutdownGraceSeconds: 0,
+		logLevel: null,
 		updatedAt: null,
 	});
 	expect(parsed.shutdownGraceSeconds).toBe(0);
+	expect(parsed.logLevel).toBeNull();
 });
 
 test("PlatformSettings accepts an ISO timestamp", () => {
 	const parsed = PlatformSettings.parse({
 		shutdownGraceSeconds: 600,
+		logLevel: "debug",
 		updatedAt: "2026-09-17T10:00:00.000Z",
 	});
 	expect(parsed.updatedAt).toBe("2026-09-17T10:00:00.000Z");
@@ -25,8 +29,49 @@ test("PlatformSettings accepts an ISO timestamp", () => {
 
 test("PlatformSettings rejects a non-ISO timestamp", () => {
 	expect(() =>
-		PlatformSettings.parse({ shutdownGraceSeconds: 600, updatedAt: "yesterday" }),
+		PlatformSettings.parse({
+			shutdownGraceSeconds: 600,
+			logLevel: null,
+			updatedAt: "yesterday",
+		}),
 	).toThrow();
+});
+
+test("PlatformSettings rejects a log level we do not have", () => {
+	expect(() =>
+		PlatformSettings.parse({
+			shutdownGraceSeconds: 600,
+			logLevel: "verbose",
+			updatedAt: null,
+		}),
+	).toThrow();
+});
+
+test("UpdatePlatformSettingsRequest takes either field on its own or both", () => {
+	expect(
+		UpdatePlatformSettingsRequest.parse({ shutdownGraceSeconds: 600 }).logLevel,
+	).toBeUndefined();
+	expect(UpdatePlatformSettingsRequest.parse({ logLevel: "debug" }).logLevel).toBe(
+		"debug",
+	);
+	expect(UpdatePlatformSettingsRequest.parse({ logLevel: null }).logLevel).toBeNull();
+	const both = UpdatePlatformSettingsRequest.parse({
+		shutdownGraceSeconds: 60,
+		logLevel: "warn",
+	});
+	expect(both.shutdownGraceSeconds).toBe(60);
+	expect(both.logLevel).toBe("warn");
+});
+
+test("UpdatePlatformSettingsRequest rejects a body that changes nothing", () => {
+	expect(() => UpdatePlatformSettingsRequest.parse({})).toThrow();
+});
+
+test("SetLogLevelRequest takes one known level or null, and nothing else", () => {
+	expect(SetLogLevelRequest.parse({ level: "error" }).level).toBe("error");
+	expect(() => SetLogLevelRequest.parse({ level: "verbose" })).toThrow();
+	expect(SetLogLevelRequest.parse({ level: null }).level).toBeNull();
+	expect(() => SetLogLevelRequest.parse({ level: "info", extra: 1 })).toThrow();
 });
 
 test("UpdatePlatformSettingsRequest rejects negatives, fractions and strings", () => {

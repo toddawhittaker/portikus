@@ -4,6 +4,8 @@ import {
 	insertTestUser,
 	type TestDb,
 } from "@portikus/db/testing";
+import { collectingLogger } from "@portikus/observability/testing";
+import type { KyselyPlugin, PluginTransformQueryArgs, RootOperationNode } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
@@ -825,4 +827,84 @@ test.skipIf(skip)("the agent token never appears in audit metadata", async () =>
 	for (const row of audits) {
 		expect(JSON.stringify(row)).not.toContain(token);
 	}
+});
+
+test.skipIf(skip)(
+	"each live workspace gets one debug line naming its action",
+	async () => {
+		const { logger: log, lines } = collectingLogger("debug");
+
+		const starting = await insertWorkspace({
+			incus_instance_name: "ws-log-a",
+			state: "stopped",
+			desired_state: "running",
+		});
+		const idle = await insertWorkspace({
+			incus_instance_name: "ws-log-b",
+			state: "stopped",
+			desired_state: "stopped",
+		});
+		// Both instances exist, so drift handling leaves them alone.
+		fake.listResult = [
+			{ name: "ws-log-a", status: "Running", ipv4: "10.0.0.2" },
+			{ name: "ws-log-b", status: "Stopped", ipv4: "10.0.0.3" },
+		];
+
+		await reconcile(tdb.db, fake, cfg, new Date(), null, false, log);
+
+		const decisions = lines.filter((line) => line.msg === "workspace decision");
+		expect(decisions.length).toBe(2);
+		const byId = new Map(decisions.map((line) => [line.workspaceId, line]));
+		expect(byId.get(starting)?.action).toBe("start");
+		expect(byId.get(starting)?.state).toBe("stopped");
+		expect(byId.get(starting)?.desiredState).toBe("running");
+		expect(byId.get(idle)?.action).toBe("none");
+		expect(byId.get(idle)).toHaveProperty("shutdownDeadline");
+		expect(byId.get(idle)).toHaveProperty("disconnectedAt");
+	},
+);
+
+/**
+ * Counts the debug snapshot query: the only select over every workspace row
+ * with no where clause.
+ */
+class SnapshotCounter implements KyselyPlugin {
+	count = 0;
+	transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
+		const node = args.node as RootOperationNode & {
+			where?: unknown;
+			selections?: unknown;
+		};
+		if (
+			node.kind === "SelectQueryNode" &&
+			!node.where &&
+			JSON.stringify(node.selections ?? "").includes("disconnected_at")
+		) {
+			this.count++;
+		}
+		return args.node;
+	}
+	async transformResult(args: { result: unknown }): Promise<never> {
+		return args.result as never;
+	}
+}
+
+test.skipIf(skip)("the debug snapshot query is not issued at info", async () => {
+	await insertWorkspace({
+		incus_instance_name: "ws-log-c",
+		state: "stopped",
+		desired_state: "stopped",
+	});
+	fake.listResult = [{ name: "ws-log-c", status: "Stopped", ipv4: "10.0.0.4" }];
+
+	const counter = new SnapshotCounter();
+	const db = tdb.db.withPlugin(counter);
+
+	const { logger: quiet } = collectingLogger("info");
+	await reconcile(db, fake, cfg, new Date(), null, false, quiet);
+	expect(counter.count).toBe(0);
+
+	const { logger: loud } = collectingLogger("debug");
+	await reconcile(db, fake, cfg, new Date(), null, false, loud);
+	expect(counter.count).toBe(1);
 });

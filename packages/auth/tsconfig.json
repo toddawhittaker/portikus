@@ -8,5 +8,9 @@
 		"outDir": "dist"
 	},
 	"include": ["src/**/*.ts"],
-	"references": [{ "path": "../db" }, { "path": "../events" }]
+	"references": [
+		{ "path": "../db" },
+		{ "path": "../events" },
+		{ "path": "../observability" }
+	]
 }

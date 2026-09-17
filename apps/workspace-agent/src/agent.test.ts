@@ -3,6 +3,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import type { LogLevel } from "@portikus/observability";
+import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { buildServer } from "./server.js";
@@ -381,3 +383,137 @@ test.skipIf(!haveTmux)(
 		});
 	},
 );
+
+// Logging (ADR 0012). These need no tmux: they exercise the routes and the
+// request logging hook only, so they build their own server.
+
+async function buildLoggingServer(level: LogLevel = "info") {
+	const dir = await mkdtemp(join(tmpdir(), "portikus-agent-log-"));
+	const tokenPath = join(dir, "agent.token");
+	await writeFile(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
+	const { logger, lines } = collectingLogger(level);
+	const server = buildServer({
+		tokenPath,
+		homeDir: dir,
+		tmuxSocketName: SOCKET_NAME,
+		logger,
+	});
+	await server.ready();
+	return { server, lines, requests: () => lines.filter((l) => l.msg === "request") };
+}
+
+test("PUT /log-level changes the level the agent logs at", async () => {
+	const { server, lines } = await buildLoggingServer("info");
+	try {
+		const res = await server.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: "debug" },
+		});
+		expect(res.statusCode).toBe(204);
+		expect(server.log.level).toBe("debug");
+
+		lines.length = 0;
+		server.log.debug("now visible");
+		expect(lines).toHaveLength(1);
+	} finally {
+		await server.close();
+	}
+});
+
+test("PUT /log-level needs the token and a known level", async () => {
+	const { server } = await buildLoggingServer();
+	try {
+		const noToken = await server.inject({
+			method: "PUT",
+			url: "/log-level",
+			payload: { level: "debug" },
+		});
+		expect(noToken.statusCode).toBe(401);
+		expect(server.log.level).toBe("info");
+
+		const bad = await server.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: "verbose" },
+		});
+		expect(bad.statusCode).toBe(400);
+		expect(bad.json().error.code).toBe("BAD_REQUEST");
+		expect(server.log.level).toBe("info");
+	} finally {
+		await server.close();
+	}
+});
+
+test("a null level returns the agent to the level it started with", async () => {
+	const { server } = await buildLoggingServer("warn");
+	try {
+		await server.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: "debug" },
+		});
+		expect(server.log.level).toBe("debug");
+
+		const cleared = await server.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: null },
+		});
+		expect(cleared.statusCode).toBe(204);
+		expect(server.log.level).toBe("warn");
+	} finally {
+		await server.close();
+	}
+});
+
+test("a successful request logs an info line and a 404 logs a warn line", async () => {
+	const { server, requests } = await buildLoggingServer();
+	try {
+		const ok = await server.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: "info" },
+		});
+		expect(ok.statusCode).toBe(204);
+		const good = requests()[0];
+		expect(good?.level).toBe("info");
+		expect(good?.status).toBe(204);
+		expect(good?.path).toBe("/log-level");
+
+		const missing = await server.inject({
+			method: "DELETE",
+			url: `/terminals/${makeId()}`,
+			headers: auth(),
+		});
+		expect(missing.statusCode).toBe(404);
+		const bad = requests()[1];
+		expect(bad?.level).toBe("warn");
+		expect(bad?.status).toBe(404);
+		expect(bad?.code).toBe("TERMINAL_NOT_FOUND");
+	} finally {
+		await server.close();
+	}
+});
+
+test("the bearer token never reaches a log line", async () => {
+	const { server, lines } = await buildLoggingServer("debug");
+	try {
+		await server.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth(),
+			payload: { level: "debug" },
+		});
+		await server.inject({ method: "GET", url: "/health", headers: auth() });
+		expect(lines.length).toBeGreaterThan(0);
+		expect(JSON.stringify(lines)).not.toContain(TOKEN);
+	} finally {
+		await server.close();
+	}
+});

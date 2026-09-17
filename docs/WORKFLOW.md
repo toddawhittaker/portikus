@@ -21,7 +21,7 @@ Then:
 git config core.hooksPath .githooks   # once per clone
 pnpm install --frozen-lockfile
 cp .env.example .env                  # .env is git-ignored; never commit it
-make check                            # typecheck, lint, test, build, infra-check
+make check                            # typecheck, lint, test with coverage, build, infra-check
 pnpm test:e2e                         # Playwright browser tests
 pnpm dev                              # every app in watch mode
 ```
@@ -129,7 +129,11 @@ merge.
 
 - **Secret scan**: gitleaks over the full history of the branch.
 - **Application checks**: `pnpm install --frozen-lockfile`, typecheck, lint,
-  test, build. Skipped until `pnpm-workspace.yaml` exists.
+  tests with coverage (`pnpm test:coverage`), build. Skipped until
+  `pnpm-workspace.yaml` exists. The run fails if coverage drops below the
+  floors in `vitest.config.ts` (for example 80% of lines overall). The lcov
+  report is uploaded as the `coverage-lcov` artifact and kept for three days. `make check` runs the
+  same coverage command, so a local check catches the same failure.
 - **Browser end-to-end tests**: `pnpm test:e2e` with Playwright. Skipped
   until the script exists.
 - **Infrastructure checks**: `tofu fmt` and `tofu validate`, ansible-lint,

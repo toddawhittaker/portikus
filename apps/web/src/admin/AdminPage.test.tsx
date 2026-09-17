@@ -38,14 +38,20 @@ function stubAdmin(
 	return stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
 		if (url === "/admin/settings" && init?.method === "PUT") {
-			onWrite?.(url, JSON.parse(String(init.body)));
+			const body = JSON.parse(String(init.body));
+			onWrite?.(url, body);
 			return json(200, {
-				shutdownGraceSeconds: JSON.parse(String(init.body)).shutdownGraceSeconds,
+				shutdownGraceSeconds: body.shutdownGraceSeconds ?? graceSeconds,
+				logLevel: body.logLevel ?? null,
 				updatedAt: "2026-01-01T00:00:00.000Z",
 			});
 		}
 		if (url === "/admin/settings") {
-			return json(200, { shutdownGraceSeconds: graceSeconds, updatedAt: null });
+			return json(200, {
+				shutdownGraceSeconds: graceSeconds,
+				logLevel: null,
+				updatedAt: null,
+			});
 		}
 		if (url.startsWith("/admin/users/") && init?.method === "PUT") {
 			const body = JSON.parse(String(init.body));
@@ -182,4 +188,52 @@ test("a student sent to /admin lands on the not-authorized page", async () => {
 	const { router } = renderApp("/admin");
 
 	await waitFor(() => expect(router.state.location.pathname).toBe("/not-authorized"));
+});
+
+test("the log level select starts on the service default", async () => {
+	stubAdmin(600);
+
+	renderApp("/admin");
+
+	const select = (await screen.findByTestId("log-level-select")) as HTMLSelectElement;
+	await waitFor(() => expect(select.disabled).toBe(false));
+	expect(select.value).toBe("default");
+	expect(within(select).getByText("Use service default")).toBeDefined();
+});
+
+test("choosing a level sends only the log level, and the default sends null", async () => {
+	const writes: { url: string; body: unknown }[] = [];
+	stubAdmin(600, (url, body) => writes.push({ url, body }));
+
+	renderApp("/admin");
+
+	const select = (await screen.findByTestId("log-level-select")) as HTMLSelectElement;
+	await waitFor(() => expect(select.disabled).toBe(false));
+	fireEvent.change(select, { target: { value: "debug" } });
+	fireEvent.click(screen.getByTestId("log-level-save"));
+
+	await waitFor(() => expect(writes.length).toBe(1));
+	expect(writes[0]).toEqual({ url: "/admin/settings", body: { logLevel: "debug" } });
+	expect(await screen.findByText("Log level saved")).toBeDefined();
+
+	fireEvent.change(select, { target: { value: "default" } });
+	fireEvent.click(screen.getByTestId("log-level-save"));
+
+	await waitFor(() => expect(writes.length).toBe(2));
+	expect(writes[1]?.body).toEqual({ logLevel: null });
+});
+
+test("the grace form still sends only the seconds", async () => {
+	const writes: { url: string; body: unknown }[] = [];
+	stubAdmin(600, (url, body) => writes.push({ url, body }));
+
+	renderApp("/admin");
+
+	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
+	await waitFor(() => expect(input.value).toBe("600"));
+	fireEvent.change(input, { target: { value: "900" } });
+	fireEvent.click(screen.getByTestId("grace-save"));
+
+	await waitFor(() => expect(writes.length).toBe(1));
+	expect(writes[0]?.body).toEqual({ shutdownGraceSeconds: 900 });
 });

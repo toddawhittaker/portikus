@@ -3,7 +3,6 @@ import { loadSession } from "@portikus/auth";
 import type { Workspace } from "@portikus/contracts";
 import { ClientMessage, type ServerMessage } from "@portikus/events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { log } from "../log.js";
 import type { ServerDeps } from "../server.js";
 import {
 	createPendingWork,
@@ -45,7 +44,7 @@ function signatureOf(workspace: Workspace): string {
  */
 export function registerWorkspaceSocket(
 	app: FastifyInstance,
-	{ db, config }: ServerDeps,
+	{ db, config, logger }: ServerDeps,
 ): void {
 	const watchers = new Map<string, Watcher>();
 
@@ -107,11 +106,7 @@ export function registerWorkspaceSocket(
 					send(subscriber.socket, workspace);
 				}
 			} catch (error) {
-				log("error", {
-					msg: "workspace watcher poll failed",
-					workspaceId,
-					error: error instanceof Error ? error.message : String(error),
-				});
+				logger.error({ err: error, workspaceId }, "workspace watcher poll failed");
 			}
 		}
 
@@ -167,6 +162,11 @@ export function registerWorkspaceSocket(
 				startWatcher(workspaceId, workspace ? signatureOf(workspace) : "");
 			watcher.sockets.add(subscriber);
 
+			request.log.debug(
+				{ workspaceId, connectionId, userId: request.user?.id },
+				"workspace socket opened",
+			);
+
 			async function onMessage(raw: Buffer | string): Promise<void> {
 				// An unhandled rejection in this listener would end the process.
 				try {
@@ -190,25 +190,27 @@ export function registerWorkspaceSocket(
 
 					await touchPresence(db, connectionId);
 				} catch (error) {
-					log("error", {
-						msg: "workspace socket message failed",
-						workspaceId,
-						error: error instanceof Error ? error.message : String(error),
-					});
+					request.log.error(
+						{ err: error, workspaceId },
+						"workspace socket message failed",
+					);
 					socket.close(1011, "internal error");
 				}
 			}
 
 			async function onSocketClose(): Promise<void> {
 				leave(workspaceId, subscriber);
+				request.log.debug(
+					{ workspaceId, connectionId, userId: request.user?.id },
+					"workspace socket closed",
+				);
 				try {
 					await dropConnection(connectionId);
 				} catch (error) {
-					log("error", {
-						msg: "failed to delete workspace connection",
-						connectionId,
-						error: error instanceof Error ? error.message : String(error),
-					});
+					request.log.error(
+						{ err: error, connectionId },
+						"failed to delete workspace connection",
+					);
 				}
 			}
 

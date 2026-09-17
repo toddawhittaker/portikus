@@ -2,6 +2,7 @@ import type {
 	CreateInstanceRequest,
 	CreateInstanceResponse,
 	ListInstancesResponse,
+	LogLevel,
 	StartInstanceRequest,
 	StartInstanceResponse,
 	StopInstanceResponse,
@@ -46,6 +47,14 @@ export class FakeControllerClient implements ControllerClient {
 		this.calls.push({ method: "stop", args: [name, timeoutSeconds] });
 		if (this.stopResult instanceof Error) throw this.stopResult;
 		return this.stopResult;
+	}
+
+	/** Set to an Error to make the next log level push fail. */
+	setLogLevelResult: Error | null = null;
+
+	async setLogLevel(level: LogLevel | null): Promise<void> {
+		this.calls.push({ method: "setLogLevel", args: [level] });
+		if (this.setLogLevelResult) throw this.setLogLevelResult;
 	}
 
 	async list(): Promise<ListInstancesResponse> {

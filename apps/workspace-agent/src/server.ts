@@ -6,12 +6,23 @@ import {
 	type AgentErrorCode,
 	AgentRenameProjectRequest,
 	MAX_TERMINALS_PER_WORKSPACE,
+	SetLogLevelRequest,
 	TerminalId,
 } from "@portikus/contracts";
-import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
+import {
+	type Logger,
+	quietLogController,
+	registerRequestLogging,
+	silentLogger,
+} from "@portikus/observability";
+import Fastify, {
+	type FastifyBaseLogger,
+	type FastifyInstance,
+	type FastifyReply,
+	type FastifyRequest,
+} from "fastify";
 import { z } from "zod";
 import { tokenAuth } from "./auth.js";
-import { log } from "./log.js";
 import {
 	type ArchiveProcess,
 	archiveProject,
@@ -33,6 +44,7 @@ import {
 } from "./tmux.js";
 
 const ERROR_STATUS: Record<AgentErrorCode, number> = {
+	BAD_REQUEST: 400,
 	UNAUTHORIZED: 401,
 	TERMINAL_NOT_FOUND: 404,
 	TERMINAL_EXISTS: 409,
@@ -58,12 +70,28 @@ export interface ServerOptions {
 	tokenPath: string;
 	homeDir: string;
 	tmuxSocketName?: string;
+	/** The process logger. Tests default to one that writes nothing. */
+	logger?: Logger;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
 export function buildServer(options: ServerOptions): FastifyInstance {
-	const app = Fastify({ logger: false });
-	const registry = new TerminalRegistry(options.homeDir, options.tmuxSocketName);
+	const app = Fastify({
+		// Cast so the instance keeps Fastify's default logger type and
+		// callers can still hold it as a plain FastifyInstance.
+		loggerInstance: (options.logger ?? silentLogger()) as FastifyBaseLogger,
+		logController: quietLogController(),
+	});
+	registerRequestLogging(app, { debugPaths: ["/health"] });
+
+	// The level to return to when the API clears the override (ADR 0012).
+	const startLevel = app.log.level;
+
+	const registry = new TerminalRegistry(
+		options.homeDir,
+		app.log,
+		options.tmuxSocketName,
+	);
 
 	// Registered before @fastify/websocket's own preClose so attachments get a
 	// close code before that plugin drops the sockets.
@@ -96,7 +124,22 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	app.register(async (instance) => {
 		instance.get("/health", async () => ({ ok: true }));
 
-		instance.get("/terminals", async (_request, reply) => {
+		// The control plane turns debug logging on and off while the agent
+		// runs (ADR 0012); the level lives only in this process.
+		instance.put("/log-level", async (request, reply) => {
+			const parsed = SetLogLevelRequest.safeParse(request.body);
+			if (!parsed.success) {
+				return reply
+					.code(ERROR_STATUS.BAD_REQUEST)
+					.send({ error: { code: "BAD_REQUEST", message: "unknown log level" } });
+			}
+			// Null clears the override, so this agent goes back to the level it
+			// started with, from its own environment (ADR 0012).
+			app.log.level = parsed.data.level ?? startLevel;
+			return reply.code(204).send();
+		});
+
+		instance.get("/terminals", async (request, reply) => {
 			try {
 				const sessions = await listSessions(options.tmuxSocketName);
 				return {
@@ -107,7 +150,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					})),
 				};
 			} catch (error) {
-				return sendError(reply, error);
+				return sendError(request, reply, error);
 			}
 		});
 
@@ -138,12 +181,15 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					options.homeDir,
 					options.tmuxSocketName,
 				);
-				log("info", { msg: "terminal created", terminalId: created.id });
+				request.log.debug(
+					{ terminalId: created.id, session: `pk-${created.id}` },
+					"tmux session created",
+				);
 				return reply
 					.code(201)
 					.send({ id: created.id, cwd: created.cwd, attachments: 0 });
 			} catch (error) {
-				return sendError(reply, error);
+				return sendError(request, reply, error);
 			}
 		});
 
@@ -161,18 +207,21 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				}
 				await killSession(terminalId, options.tmuxSocketName);
 				registry.closeAll(terminalId, 1000, "terminal deleted");
-				log("info", { msg: "terminal deleted", terminalId });
+				request.log.debug(
+					{ terminalId, session: `pk-${terminalId}` },
+					"tmux session killed",
+				);
 				return reply.code(204).send();
 			} catch (error) {
-				return sendError(reply, error);
+				return sendError(request, reply, error);
 			}
 		});
 
-		instance.get("/projects", async (_request, reply) => {
+		instance.get("/projects", async (request, reply) => {
 			try {
 				return { projects: await listProjects(options.homeDir) };
 			} catch (error) {
-				return sendError(reply, error);
+				return sendError(request, reply, error);
 			}
 		});
 
@@ -181,7 +230,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			try {
 				return await getProject(slug, options.homeDir);
 			} catch (error) {
-				return sendError(reply, error);
+				return sendError(request, reply, error);
 			}
 		});
 
@@ -197,14 +246,13 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 			try {
 				const project = await createProject(parsed.data, options.homeDir);
-				log("info", {
-					msg: "project created",
-					slug: project.slug,
-					source: parsed.data.source,
-				});
+				request.log.debug(
+					{ slug: project.slug, operation: "create", source: parsed.data.source },
+					"project operation",
+				);
 				return reply.code(201).send(project);
 			} catch (error) {
-				return sendError(reply, error);
+				return sendError(request, reply, error);
 			}
 		});
 
@@ -218,10 +266,13 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 			try {
 				const project = await renameProject(slug, parsed.data.to, options.homeDir);
-				log("info", { msg: "project renamed", slug, to: project.slug });
+				request.log.debug(
+					{ slug, operation: "rename", to: project.slug },
+					"project operation",
+				);
 				return project;
 			} catch (error) {
-				return sendError(reply, error);
+				return sendError(request, reply, error);
 			}
 		});
 
@@ -235,10 +286,13 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 			try {
 				const project = await duplicateProject(slug, parsed.data.to, options.homeDir);
-				log("info", { msg: "project duplicated", slug, to: project.slug });
+				request.log.debug(
+					{ slug, operation: "duplicate", to: project.slug },
+					"project operation",
+				);
 				return project;
 			} catch (error) {
-				return sendError(reply, error);
+				return sendError(request, reply, error);
 			}
 		});
 
@@ -246,10 +300,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			const { slug } = request.params as { slug: string };
 			try {
 				const project = await gitInitProject(slug, options.homeDir);
-				log("info", { msg: "project git initialized", slug });
+				request.log.debug({ slug, operation: "git-init" }, "project operation");
 				return project;
 			} catch (error) {
-				return sendError(reply, error);
+				return sendError(request, reply, error);
 			}
 		});
 
@@ -259,9 +313,9 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			try {
 				child = await archiveProject(slug, options.homeDir);
 			} catch (error) {
-				return sendError(reply, error);
+				return sendError(request, reply, error);
 			}
-			log("info", { msg: "project archive streamed", slug });
+			request.log.debug({ slug, operation: "archive" }, "project operation");
 			let stderr = "";
 			child.stderr.on("data", (chunk: Buffer) => {
 				// zip can be noisy; keep only as much as the student needs.
@@ -270,12 +324,12 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			// The process is already running, so the response is on its way;
 			// a late failure ends the stream rather than the agent.
 			child.on("error", (error: Error) => {
-				log("error", { msg: "project archive failed", slug, error: error.message });
+				request.log.error({ slug, error: error.message }, "project archive failed");
 				child.stdout.destroy(new Error("zip failed"));
 			});
 			child.on("close", (code) => {
 				if (code !== 0) {
-					log("error", { msg: "project archive failed", slug, code, stderr });
+					request.log.error({ slug, code, stderr }, "project archive failed");
 					child.stdout.destroy(new Error("zip failed"));
 				}
 			});
@@ -301,7 +355,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				try {
 					await registry.attach(terminalId, socket, query.data);
 					socket.resume();
-					log("info", { msg: "terminal attached", terminalId });
+					request.log.debug(
+						{ terminalId, cols: query.data.cols, rows: query.data.rows },
+						"terminal attached",
+					);
 				} catch (error) {
 					const code = error instanceof AgentFailure ? error.code : "TMUX_FAILED";
 					socket.resume();
@@ -315,16 +372,19 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	return app;
 }
 
-function sendError(reply: FastifyReply, error: unknown) {
+function sendError(request: FastifyRequest, reply: FastifyReply, error: unknown) {
 	if (error instanceof AgentFailure) {
 		return reply
 			.code(ERROR_STATUS[error.code])
 			.send({ error: { code: error.code, message: error.message } });
 	}
-	log("error", {
-		msg: "agent request failed",
-		error: error instanceof Error ? error.message : String(error),
-	});
+	// An expected failure needs no log call: its code and message are on the
+	// body, which the request logging hook reads. An unexpected one does,
+	// because its real message never reaches the body.
+	request.log.error(
+		{ error: error instanceof Error ? error.message : String(error) },
+		"agent request failed",
+	);
 	return reply.code(500).send({
 		error: { code: "TMUX_FAILED", message: "internal error" },
 	});
