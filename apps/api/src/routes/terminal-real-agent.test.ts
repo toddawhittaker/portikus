@@ -348,12 +348,13 @@ test.skipIf(skip)("DELETE through the API kills the tmux session", async () => {
 	expect(response.statusCode).toBe(204);
 	expect(await sessionExists(id)).toBe(false);
 
+	// Closing is a user action, so the row goes with the session (SPEC.md 9.3).
 	const row = await testDb.db
 		.selectFrom("terminals")
 		.selectAll()
 		.where("id", "=", id)
-		.executeTakeFirstOrThrow();
-	expect(row.ended_at).not.toBeNull();
+		.executeTakeFirst();
+	expect(row).toBeUndefined();
 });
 
 test.skipIf(skip)(
