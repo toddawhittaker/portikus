@@ -1,0 +1,124 @@
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import {
+	FakeWebSocket,
+	json,
+	project,
+	renderApp,
+	stubFetch,
+	USER,
+	WORKSPACE,
+} from "../test-utils.js";
+
+const TODO = project();
+const NOTES = project({
+	id: "55555555-5555-4555-8555-555555555555",
+	slug: "notes",
+	name: "notes",
+	path: "/home/student/projects/notes",
+	isGitRepo: false,
+});
+const GONE = project({
+	id: "66666666-6666-4666-8666-666666666666",
+	slug: "gone",
+	name: "gone",
+	missing: true,
+});
+const OLD = project({
+	id: "77777777-7777-4777-8777-777777777777",
+	slug: "old-labs",
+	name: "old labs",
+	state: "archived",
+	archivedAt: "2026-02-01T00:00:00.000Z",
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+/** Mounts the shell on the todo-api project with the given project lists. */
+async function mount(
+	active = [TODO, NOTES, GONE],
+	archived = [OLD],
+	path = `/workspaces/${WORKSPACE.id}/projects/${TODO.id}`,
+) {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, USER);
+		if (url.endsWith("/templates")) return json(200, { templates: [] });
+		if (url.includes("state=archived")) return json(200, { projects: archived });
+		if (url.includes("/projects")) return json(200, { projects: active });
+		throw new Error(`unexpected request: ${url}`);
+	});
+	vi.stubGlobal("WebSocket", FakeWebSocket);
+	FakeWebSocket.last = null;
+	const app = renderApp(path);
+	// The shell only draws the panes once the socket says the workspace runs.
+	await waitFor(() => expect(FakeWebSocket.last).not.toBeNull());
+	await act(async () => {
+		FakeWebSocket.last?.onmessage?.({
+			data: JSON.stringify({ type: "workspace", workspace: WORKSPACE }),
+		});
+	});
+	await screen.findByTestId("project-list");
+	return app;
+}
+
+function openMenu(id: string) {
+	fireEvent.keyDown(screen.getByTestId(`project-menu-${id}`), { key: "Enter" });
+}
+
+test("lists the active projects and marks the one in view", async () => {
+	await mount();
+
+	expect(await screen.findByTestId(`project-item-${TODO.id}`)).toBeDefined();
+	expect(screen.getByTestId(`project-item-${NOTES.id}`)).toBeDefined();
+	const current = screen
+		.getByTestId(`project-item-${TODO.id}`)
+		.querySelector("[aria-current='page']");
+	expect(current).not.toBeNull();
+	expect(screen.getByTestId(`project-item-${NOTES.id}`).textContent).toContain(
+		"not a repo",
+	);
+	expect(screen.getByTestId(`project-item-${GONE.id}`).textContent).toContain(
+		"missing",
+	);
+});
+
+test("a repository offers rename, duplicate, download and archive", async () => {
+	await mount();
+	openMenu(TODO.id);
+
+	expect(screen.getByTestId("project-rename")).toBeDefined();
+	expect(screen.getByTestId("project-duplicate")).toBeDefined();
+	expect(screen.getByTestId("project-download")).toBeDefined();
+	expect(screen.getByTestId("project-archive")).toBeDefined();
+	expect(screen.queryByTestId("project-git-init")).toBeNull();
+});
+
+test("a folder that is not a repository offers Initialize Git", async () => {
+	await mount();
+	openMenu(NOTES.id);
+
+	expect(screen.getByTestId("project-git-init")).toBeDefined();
+});
+
+test("a missing project offers only Archive", async () => {
+	await mount();
+	openMenu(GONE.id);
+
+	expect(screen.getByTestId("project-archive")).toBeDefined();
+	expect(screen.queryByTestId("project-rename")).toBeNull();
+	expect(screen.queryByTestId("project-download")).toBeNull();
+});
+
+test("the archived list opens in place with an unarchive action", async () => {
+	await mount();
+
+	expect(screen.queryByTestId(`project-unarchive-${OLD.id}`)).toBeNull();
+	fireEvent.click(screen.getByTestId("archived-projects"));
+	expect(await screen.findByTestId(`project-unarchive-${OLD.id}`)).toBeDefined();
+});
+
+test("with no projects at all the centre invites you to make one", async () => {
+	await mount([], [], `/workspaces/${WORKSPACE.id}`);
+
+	expect(await screen.findByTestId("empty-projects")).toBeDefined();
+});

@@ -28,6 +28,9 @@ import { findWorkspaceOwnedBy } from "./workspace-view.js";
 const WorkspaceParam = z.object({ id: z.string().uuid() });
 const TerminalParam = z.object({ id: z.string().uuid(), tid: z.string().uuid() });
 
+/** Optional project filter on the terminal listing (SPEC.md §7.5). */
+const ListQuery = z.object({ projectId: z.string().uuid().optional() });
+
 /** Terminal size a browser may ask for on attach. */
 const TerminalSize = z.object({
 	cols: z.coerce.number().int().min(1).max(1000).catch(80),
@@ -76,6 +79,7 @@ function toTerminal(row: {
 	name: string;
 	cwd: string;
 	position: number;
+	project_id: string | null;
 	created_at: Date;
 	ended_at: Date | null;
 }): Terminal {
@@ -85,6 +89,7 @@ function toTerminal(row: {
 		name: row.name,
 		cwd: row.cwd,
 		position: row.position,
+		projectId: row.project_id,
 		createdAt: row.created_at.toISOString(),
 		endedAt: row.ended_at ? row.ended_at.toISOString() : null,
 	};
@@ -122,15 +127,24 @@ export function registerTerminalRoutes(
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 
-		const open = await listTerminalRows(db, params.data.id)
-			.where("ended_at", "is", null)
-			.execute();
+		const filter = ListQuery.safeParse(request.query ?? {});
+		if (!filter.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", filter.error.message);
+		}
+		const projectId = filter.data.projectId;
+
+		let openQuery = listTerminalRows(db, params.data.id).where("ended_at", "is", null);
+		if (projectId) openQuery = openQuery.where("project_id", "=", projectId);
+		const open = await openQuery.execute();
+
 		// Old terminals are history, not a list that grows without bound.
-		const ended = await db
+		let endedQuery = db
 			.selectFrom("terminals")
 			.selectAll()
 			.where("workspace_id", "=", params.data.id)
-			.where("ended_at", "is not", null)
+			.where("ended_at", "is not", null);
+		if (projectId) endedQuery = endedQuery.where("project_id", "=", projectId);
+		const ended = await endedQuery
 			.orderBy("ended_at", "desc")
 			.limit(MAX_ENDED_LISTED)
 			.execute();
@@ -181,9 +195,24 @@ export function registerTerminalRoutes(
 			);
 		}
 
+		// A terminal may belong to one project of this workspace (SPEC.md §7.5).
+		let project: { id: string; path: string } | null = null;
+		if (body.data.projectId) {
+			const row = await db
+				.selectFrom("projects")
+				.select(["id", "path"])
+				.where("id", "=", body.data.projectId)
+				.where("workspace_id", "=", params.data.id)
+				.executeTakeFirst();
+			if (!row) {
+				return sendError(reply, 404, "PROJECT_NOT_FOUND", "Project not found");
+			}
+			project = row;
+		}
+
 		const position = rows.reduce((max, row) => Math.max(max, row.position + 1), 0);
 		const id = crypto.randomUUID();
-		const cwd = body.data.cwd ?? DEFAULT_CWD;
+		const cwd = body.data.cwd ?? project?.path ?? DEFAULT_CWD;
 
 		const created = await db
 			.insertInto("terminals")
@@ -193,6 +222,7 @@ export function registerTerminalRoutes(
 				name: body.data.name ?? `Terminal ${position + 1}`,
 				cwd,
 				position,
+				project_id: project ? project.id : null,
 			})
 			.returningAll()
 			.executeTakeFirstOrThrow();

@@ -1,8 +1,14 @@
 import { AgentConfigSchema, loadConfig } from "@portikus/config";
 import { log } from "./log.js";
+import { removeStaleTemporaries } from "./projects.js";
 import { buildServer } from "./server.js";
 
 const config = loadConfig(AgentConfigSchema);
+
+// A workspace stopped mid-clone leaves a half-finished directory behind.
+for (const name of await removeStaleTemporaries(config.HOME_DIR)) {
+	log("info", { msg: "removed a stale project temporary directory", name });
+}
 
 const app = buildServer({
 	tokenPath: config.TOKEN_PATH,

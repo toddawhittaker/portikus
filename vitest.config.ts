@@ -64,7 +64,18 @@ export default defineConfig({
 				test: {
 					name: "web",
 					environment: "jsdom",
+					setupFiles: ["./packages/ui/src/test-setup.ts"],
 					include: ["apps/web/src/**/*.test.tsx"],
+				},
+			},
+			{
+				extends: true,
+				plugins: [react()],
+				test: {
+					name: "ui",
+					environment: "jsdom",
+					setupFiles: ["./packages/ui/src/test-setup.ts"],
+					include: ["packages/ui/src/**/*.test.tsx"],
 				},
 			},
 		],

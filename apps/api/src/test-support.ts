@@ -31,6 +31,8 @@ export function testConfig(
 		OIDC_ADMIN_GROUP: "portikus-administrators",
 		SESSION_COOKIE_SECRET: "test-session-secret",
 		SESSION_TTL_SECONDS: 43200,
+		PROJECT_TEMPLATES: "",
+		projectTemplates: [],
 		...overrides,
 	};
 }

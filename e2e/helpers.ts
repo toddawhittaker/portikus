@@ -1,5 +1,10 @@
 import * as crypto from "node:crypto";
-import type { APIRequestContext, BrowserContext, Page } from "@playwright/test";
+import type {
+	APIRequestContext,
+	BrowserContext,
+	Locator,
+	Page,
+} from "@playwright/test";
 import pg from "pg";
 
 /** The mock identity provider's users (packages/auth testing). */
@@ -100,7 +105,7 @@ export async function createStudent(
 			user.id,
 			`ws-${workspaceId.replace(/-/g, "").slice(0, 24)}`,
 			options.state ?? "running",
-			FAKE_AGENT_TOKEN,
+			`${FAKE_AGENT_TOKEN}:${workspaceId}`,
 		],
 	);
 
@@ -133,12 +138,120 @@ export async function endTerminal(terminalId: string): Promise<void> {
 	await query("update terminals set ended_at = now() where id = $1", [terminalId]);
 }
 
-export async function terminalIds(workspaceId: string): Promise<string[]> {
+export async function terminalIds(
+	workspaceId: string,
+	projectId?: string,
+): Promise<string[]> {
+	const rows = projectId
+		? await query<{ id: string }>(
+				`select id from terminals where workspace_id = $1 and project_id = $2
+				 order by position`,
+				[workspaceId, projectId],
+			)
+		: await query<{ id: string }>(
+				"select id from terminals where workspace_id = $1 order by position",
+				[workspaceId],
+			);
+	return rows.map((row) => row.id);
+}
+
+/** Where the fake workspace agent from playwright.config.ts listens. */
+const FAKE_AGENT_URL = `http://127.0.0.1:${process.env.FAKE_AGENT_PORT ?? "7400"}`;
+
+/** Where a project directory lives inside the workspace (SPEC.md §7.1). */
+export function projectPath(slug: string): string {
+	return `/home/student/projects/${slug}`;
+}
+
+/** The web route of a workspace, and of one project inside it (plan, E1). */
+export function workspacePath(workspaceId: string, projectId?: string): string {
+	return projectId
+		? `/workspaces/${workspaceId}/projects/${projectId}`
+		: `/workspaces/${workspaceId}`;
+}
+
+/** The work area's tab strip. */
+export function workTabs(page: Page): Locator {
+	return page.getByTestId("work-tabs");
+}
+
+export interface TestProject {
+	id: string;
+	slug: string;
+	name: string;
+	path: string;
+}
+
+/**
+ * Create a project the way a student would end up with one: a row in the
+ * database and a directory the fake agent reports from `~/projects`.
+ */
+export async function createProject(
+	workspaceId: string,
+	options: { name: string; slug?: string; gitInit?: boolean },
+): Promise<TestProject> {
+	const slug = options.slug ?? slugOf(options.name);
+	const path = projectPath(slug);
+	const [row] = await query<{ id: string }>(
+		`insert into projects (workspace_id, slug, name, path, source)
+		 values ($1, $2, $3, $4, 'new') returning id`,
+		[workspaceId, slug, options.name, path],
+	);
+	if (!row) throw new Error("could not create the test project");
+	await seedProjectDir(workspaceId, slug, options.gitInit ?? true);
+	return { id: row.id, slug, name: options.name, path };
+}
+
+/**
+ * Seed a directory under one workspace's `~/projects`, with no row. The fake
+ * agent keeps a listing per workspace, so tests running side by side do not
+ * discover each other's directories.
+ */
+export async function seedProjectDir(
+	workspaceId: string,
+	slug: string,
+	isGitRepo = true,
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/projects`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ slug, isGitRepo, key: workspaceId }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused to seed ${slug}: ${response.status}`);
+	}
+}
+
+/** Remove a directory from the fake agent, as deleting it in a shell would. */
+export async function removeProjectDir(
+	workspaceId: string,
+	slug: string,
+): Promise<void> {
+	const response = await fetch(
+		`${FAKE_AGENT_URL}/__test/projects/${encodeURIComponent(slug)}?key=${workspaceId}`,
+		{ method: "DELETE" },
+	);
+	if (!response.ok) {
+		throw new Error(`the fake agent refused to remove ${slug}: ${response.status}`);
+	}
+}
+
+export async function projectIds(workspaceId: string): Promise<string[]> {
 	const rows = await query<{ id: string }>(
-		"select id from terminals where workspace_id = $1 order by position",
+		"select id from projects where workspace_id = $1 order by created_at",
 		[workspaceId],
 	);
 	return rows.map((row) => row.id);
+}
+
+/** The same rule as `slugify` in packages/contracts, kept local to e2e. */
+function slugOf(name: string): string {
+	return name
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 63)
+		.replace(/-+$/g, "");
 }
 
 /** Revoke every session of one user, as disabling the account would. */

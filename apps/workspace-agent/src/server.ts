@@ -1,7 +1,10 @@
 import websocket, { type WebSocket } from "@fastify/websocket";
 import {
+	AgentCreateProjectRequest,
 	AgentCreateTerminalRequest,
+	AgentDuplicateProjectRequest,
 	type AgentErrorCode,
+	AgentRenameProjectRequest,
 	MAX_TERMINALS_PER_WORKSPACE,
 	TerminalId,
 } from "@portikus/contracts";
@@ -9,6 +12,17 @@ import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { z } from "zod";
 import { tokenAuth } from "./auth.js";
 import { log } from "./log.js";
+import {
+	type ArchiveProcess,
+	archiveProject,
+	createProject,
+	duplicateProject,
+	getProject,
+	gitInitProject,
+	listProjects,
+	renameProject,
+	STDERR_LIMIT,
+} from "./projects.js";
 import { TerminalRegistry } from "./terminals.js";
 import {
 	AgentFailure,
@@ -26,6 +40,11 @@ const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	ATTACHMENT_LIMIT: 409,
 	INVALID_CWD: 400,
 	TMUX_FAILED: 500,
+	PROJECT_EXISTS: 409,
+	PROJECT_NOT_FOUND: 404,
+	INVALID_SLUG: 400,
+	INVALID_URL: 400,
+	GIT_FAILED: 500,
 };
 
 const IdParam = z.object({ terminalId: TerminalId });
@@ -147,6 +166,120 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			} catch (error) {
 				return sendError(reply, error);
 			}
+		});
+
+		instance.get("/projects", async (_request, reply) => {
+			try {
+				return { projects: await listProjects(options.homeDir) };
+			} catch (error) {
+				return sendError(reply, error);
+			}
+		});
+
+		instance.get("/projects/:slug", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			try {
+				return await getProject(slug, options.homeDir);
+			} catch (error) {
+				return sendError(reply, error);
+			}
+		});
+
+		instance.post("/projects", async (request, reply) => {
+			const parsed = AgentCreateProjectRequest.safeParse(request.body);
+			if (!parsed.success) {
+				return reply.code(400).send({
+					error: {
+						code: "INVALID_SLUG",
+						message: parsed.error.issues.map((issue) => issue.message).join("; "),
+					},
+				});
+			}
+			try {
+				const project = await createProject(parsed.data, options.homeDir);
+				log("info", {
+					msg: "project created",
+					slug: project.slug,
+					source: parsed.data.source,
+				});
+				return reply.code(201).send(project);
+			} catch (error) {
+				return sendError(reply, error);
+			}
+		});
+
+		instance.post("/projects/:slug/rename", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			const parsed = AgentRenameProjectRequest.safeParse(request.body);
+			if (!parsed.success) {
+				return reply
+					.code(400)
+					.send({ error: { code: "INVALID_SLUG", message: "invalid target slug" } });
+			}
+			try {
+				const project = await renameProject(slug, parsed.data.to, options.homeDir);
+				log("info", { msg: "project renamed", slug, to: project.slug });
+				return project;
+			} catch (error) {
+				return sendError(reply, error);
+			}
+		});
+
+		instance.post("/projects/:slug/duplicate", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			const parsed = AgentDuplicateProjectRequest.safeParse(request.body);
+			if (!parsed.success) {
+				return reply
+					.code(400)
+					.send({ error: { code: "INVALID_SLUG", message: "invalid target slug" } });
+			}
+			try {
+				const project = await duplicateProject(slug, parsed.data.to, options.homeDir);
+				log("info", { msg: "project duplicated", slug, to: project.slug });
+				return project;
+			} catch (error) {
+				return sendError(reply, error);
+			}
+		});
+
+		instance.post("/projects/:slug/git-init", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			try {
+				const project = await gitInitProject(slug, options.homeDir);
+				log("info", { msg: "project git initialized", slug });
+				return project;
+			} catch (error) {
+				return sendError(reply, error);
+			}
+		});
+
+		instance.get("/projects/:slug/archive", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			let child: ArchiveProcess;
+			try {
+				child = await archiveProject(slug, options.homeDir);
+			} catch (error) {
+				return sendError(reply, error);
+			}
+			log("info", { msg: "project archive streamed", slug });
+			let stderr = "";
+			child.stderr.on("data", (chunk: Buffer) => {
+				// zip can be noisy; keep only as much as the student needs.
+				stderr = (stderr + chunk.toString()).slice(-STDERR_LIMIT);
+			});
+			// The process is already running, so the response is on its way;
+			// a late failure ends the stream rather than the agent.
+			child.on("error", (error: Error) => {
+				log("error", { msg: "project archive failed", slug, error: error.message });
+				child.stdout.destroy(new Error("zip failed"));
+			});
+			child.on("close", (code) => {
+				if (code !== 0) {
+					log("error", { msg: "project archive failed", slug, code, stderr });
+					child.stdout.destroy(new Error("zip failed"));
+				}
+			});
+			return reply.type("application/zip").send(child.stdout);
 		});
 
 		instance.get(

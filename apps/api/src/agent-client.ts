@@ -1,7 +1,12 @@
 import {
+	AgentCreateProjectRequest,
 	AgentCreateTerminalRequest,
+	AgentDuplicateProjectRequest,
 	AgentError as AgentErrorBody,
 	type AgentErrorCode,
+	AgentProject,
+	AgentProjectList,
+	AgentRenameProjectRequest,
 } from "@portikus/contracts";
 
 /** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
@@ -20,6 +25,18 @@ export class AgentCallError extends Error {
 
 /** How long any one agent call may take before it is treated as unreachable. */
 const AGENT_TIMEOUT_MS = 5000;
+
+/** Creating a project may clone a repository, which is slow. */
+const AGENT_CREATE_PROJECT_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** Copying a whole project tree is as slow as a clone, so it gets the same budget. */
+const AGENT_DUPLICATE_PROJECT_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
+
+/** Most bytes the API will buffer from an agent JSON body. */
+const AGENT_JSON_LIMIT_BYTES = 1024 * 1024;
+
+/** How long the agent has to send response headers for a download. */
+const AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS = 5000;
 
 /**
  * The control plane's side of the workspace agent API (ADR 0009, SPEC.md §9.7).
@@ -55,7 +72,91 @@ export class AgentClient {
 		await this.call("DELETE", `/terminals/${terminalId}`);
 	}
 
-	private async call(method: string, path: string, body?: unknown): Promise<unknown> {
+	async listProjects(): Promise<AgentProjectList> {
+		return AgentProjectList.parse(await this.call("GET", "/projects"));
+	}
+
+	async createProject(input: {
+		slug: string;
+		source: "new" | "clone" | "template";
+		url?: string;
+		gitInit: boolean;
+	}): Promise<AgentProject> {
+		const payload = await this.call(
+			"POST",
+			"/projects",
+			AgentCreateProjectRequest.parse(input),
+			AGENT_CREATE_PROJECT_TIMEOUT_MS,
+		);
+		return AgentProject.parse(payload);
+	}
+
+	async renameProject(slug: string, to: string): Promise<void> {
+		await this.call(
+			"POST",
+			`/projects/${slug}/rename`,
+			AgentRenameProjectRequest.parse({ to }),
+		);
+	}
+
+	async duplicateProject(slug: string, to: string): Promise<void> {
+		await this.call(
+			"POST",
+			`/projects/${slug}/duplicate`,
+			AgentDuplicateProjectRequest.parse({ to }),
+			AGENT_DUPLICATE_PROJECT_TIMEOUT_MS,
+		);
+	}
+
+	async gitInit(slug: string): Promise<void> {
+		await this.call("POST", `/projects/${slug}/git-init`);
+	}
+
+	/**
+	 * The upstream zip response, still streaming. The agent gets a short budget
+	 * to send headers; once bytes are flowing there is no further cap, because
+	 * archiving a large project legitimately takes a while.
+	 */
+	async downloadProject(slug: string): Promise<Response> {
+		const controller = new AbortController();
+		const headersTimer = setTimeout(
+			() => controller.abort(),
+			AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS,
+		);
+		let response: Response;
+		try {
+			response = await fetch(
+				`http://${this.address}:${this.port}/projects/${slug}/archive`,
+				{
+					method: "GET",
+					headers: { authorization: this.authHeader() },
+					signal: controller.signal,
+				},
+			);
+		} catch {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent could not be reached",
+			);
+		} finally {
+			clearTimeout(headersTimer);
+		}
+		if (!response.ok) {
+			const parsed = AgentErrorBody.safeParse(await readJson(response));
+			throw new AgentCallError(
+				parsed.success ? parsed.data.error.code : "AGENT_UNAVAILABLE",
+				parsed.success ? parsed.data.error.message : "The workspace agent failed",
+			);
+		}
+		return response;
+	}
+
+	private async call(
+		method: string,
+		path: string,
+		body?: unknown,
+		timeoutMs: number = AGENT_TIMEOUT_MS,
+	): Promise<unknown> {
 		let response: Response;
 		try {
 			response = await fetch(`http://${this.address}:${this.port}${path}`, {
@@ -65,7 +166,7 @@ export class AgentClient {
 					...(body === undefined ? {} : { "content-type": "application/json" }),
 				},
 				body: body === undefined ? undefined : JSON.stringify(body),
-				signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
+				signal: AbortSignal.timeout(timeoutMs),
 			});
 		} catch {
 			throw new AgentCallError(
@@ -86,11 +187,35 @@ export class AgentClient {
 	}
 }
 
+/**
+ * Read a JSON body with a hard byte cap. The agent runs inside the student's
+ * container, so its response is untrusted and must never be buffered without
+ * a limit (SPEC.md §24.6).
+ */
 async function readJson(response: Response): Promise<unknown> {
-	const text = await response.text();
-	if (text === "") return undefined;
+	const body = response.body;
+	if (!body) return undefined;
+	const reader = body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
 	try {
-		return JSON.parse(text);
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			total += value.byteLength;
+			if (total > AGENT_JSON_LIMIT_BYTES) {
+				reader.cancel().catch(() => {});
+				throw new AgentCallError("AGENT_UNAVAILABLE", "agent response too large");
+			}
+			chunks.push(value);
+		}
+	} catch (error) {
+		if (error instanceof AgentCallError) throw error;
+		return undefined;
+	}
+	if (total === 0) return undefined;
+	try {
+		return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 	} catch {
 		return undefined;
 	}

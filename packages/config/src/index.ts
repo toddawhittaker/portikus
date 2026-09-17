@@ -1,3 +1,4 @@
+import { parseProjectTemplates } from "@portikus/contracts";
 import { z } from "zod";
 
 /** Positive integer coerced from a string environment variable. */
@@ -70,6 +71,8 @@ export const ApiConfigSchema = BaseConfig.extend({
 	SESSION_COOKIE_SECRET: z.string().min(1).default(DEV_SESSION_SECRET),
 	SESSION_TTL_SECONDS: positiveInt.default(43200),
 	AGENT_PORT: positiveInt.default(7400),
+	/** `name=url,name=url` (SPEC.md §7.2); parsed once in the transform below. */
+	PROJECT_TEMPLATES: z.string().default(""),
 })
 	.refine(requireProductionHttps("PUBLIC_URL"), {
 		message: productionHttpsMessage("PUBLIC_URL"),
@@ -86,6 +89,24 @@ export const ApiConfigSchema = BaseConfig.extend({
 	.refine(requireProductionSecret("SESSION_COOKIE_SECRET", DEV_SESSION_SECRET), {
 		message: productionSecretMessage("SESSION_COOKIE_SECRET"),
 		path: ["SESSION_COOKIE_SECRET"],
+	})
+	// A typo must stop the API at startup, not when a student opens the
+	// create dialog, so the list is parsed here and reported like any other
+	// bad environment variable.
+	.transform((config, ctx) => {
+		try {
+			return {
+				...config,
+				projectTemplates: parseProjectTemplates(config.PROJECT_TEMPLATES),
+			};
+		} catch (error) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["PROJECT_TEMPLATES"],
+				message: error instanceof Error ? error.message : String(error),
+			});
+			return z.NEVER;
+		}
 	});
 export type ApiConfig = z.infer<typeof ApiConfigSchema>;
 

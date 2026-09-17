@@ -23,6 +23,7 @@ export const Terminal = z.object({
 	name: z.string().min(1).max(64),
 	cwd: z.string().min(1),
 	position: z.number().int().nonnegative(),
+	projectId: z.string().uuid().nullable(),
 	createdAt: z.string().datetime(),
 	endedAt: z.string().datetime().nullable(),
 });
@@ -37,6 +38,7 @@ export const CreateTerminalRequest = z
 	.object({
 		name: z.string().min(1).max(64).optional(),
 		cwd: z.string().min(1).optional(),
+		projectId: z.string().uuid().optional(),
 	})
 	.strict();
 export type CreateTerminalRequest = z.infer<typeof CreateTerminalRequest>;

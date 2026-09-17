@@ -1,10 +1,11 @@
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const api = { target: "http://127.0.0.1:3000", changeOrigin: true };
 
 export default defineConfig({
-	plugins: [react()],
+	plugins: [react(), tailwindcss()],
 	server: {
 		host: "127.0.0.1",
 		port: 5173,
@@ -20,8 +21,13 @@ export default defineConfig({
 			"/workspaces": {
 				...api,
 				ws: true,
-				bypass: (req) =>
-					req.headers.accept?.includes("text/html") ? "/index.html" : undefined,
+				bypass: (req) => {
+					// A project download is navigated to as a document, but the zip
+					// comes from the API, not the bundle.
+					const path = (req.url ?? "").split("?")[0] ?? "";
+					if (path.endsWith("/download")) return undefined;
+					return req.headers.accept?.includes("text/html") ? "/index.html" : undefined;
+				},
 			},
 		},
 	},

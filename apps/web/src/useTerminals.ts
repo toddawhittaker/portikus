@@ -1,124 +1,108 @@
-import type { Terminal } from "@portikus/contracts";
-import { useCallback, useEffect, useRef, useState } from "react";
+/**
+ * The terminals of one project (SPEC.md §9.3, §9.6). Ended terminals stay in
+ * the list so the user can start a new one in their place (SPEC.md §6.8,
+ * §9.7). The server decides the working directory from the project
+ * (SPEC.md §9.4), so nothing here sends a cwd.
+ */
+import { Terminal, TerminalList } from "@portikus/contracts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { z } from "zod";
+import { request, SessionEndedError } from "./api/request.js";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
-/**
- * The terminal list for one workspace (SPEC.md §9.3, §9.6). Ended terminals
- * stay in the list so the user can start a new one in their place
- * (SPEC.md §6.8, §9.7).
- */
+/** How often an idle tab re-reads the list, so a second browser's terminal shows up. */
+const REFETCH_MS = 15_000;
+
 export interface Terminals {
 	terminals: Terminal[];
+	loaded: boolean;
 	error: string | null;
-	create: (init?: { name?: string; cwd?: string }) => Promise<Terminal | null>;
+	create: (init?: { name?: string }) => Promise<Terminal>;
 	rename: (terminalId: string, name: string) => Promise<void>;
 	close: (terminalId: string) => Promise<void>;
-	markEnded: (terminalId: string) => void;
+	refetch: () => void;
+}
+
+export function terminalsKey(workspaceId: string, projectId: string) {
+	return ["terminals", workspaceId, projectId] as const;
 }
 
 export function useTerminals(
-	workspaceId: string | null,
+	workspaceId: string,
+	projectId: string,
 	running: boolean,
 	onSessionEnded: () => void,
 ): Terminals {
-	const [terminals, setTerminals] = useState<Terminal[]>([]);
-	const [error, setError] = useState<string | null>(null);
-	const sessionEnded = useRef(onSessionEnded);
-	sessionEnded.current = onSessionEnded;
+	const queryClient = useQueryClient();
+	const key = terminalsKey(workspaceId, projectId);
+	const url = `/workspaces/${workspaceId}/terminals`;
 
-	const request = useCallback(
-		async (path: string, init?: RequestInit): Promise<Response | null> => {
-			try {
-				const response = await fetch(path, { credentials: "same-origin", ...init });
-				if (response.status === 401) {
-					sessionEnded.current();
-					return null;
-				}
-				if (!response.ok) {
-					setError("Terminals are unavailable right now.");
-					return null;
-				}
-				setError(null);
-				return response;
-			} catch {
-				setError("Terminals are unavailable right now.");
-				return null;
-			}
-		},
-		[],
-	);
+	const query = useQuery({
+		queryKey: key,
+		enabled: running,
+		refetchInterval: running ? REFETCH_MS : false,
+		refetchOnWindowFocus: true,
+		queryFn: () =>
+			request(TerminalList, `${url}?projectId=${encodeURIComponent(projectId)}`),
+	});
 
-	const refresh = useCallback(async () => {
-		if (!workspaceId) return;
-		const response = await request(`/workspaces/${workspaceId}/terminals`);
-		if (!response) return;
-		const body = (await response.json()) as { terminals: Terminal[] };
-		setTerminals(body.terminals);
-	}, [request, workspaceId]);
+	async function invalidate() {
+		await queryClient.invalidateQueries({ queryKey: key });
+	}
 
-	// List on mount, and again each time the workspace starts running.
-	useEffect(() => {
-		if (!workspaceId || !running) return;
-		void refresh();
-	}, [refresh, workspaceId, running]);
-
-	const create = useCallback(
-		async (init?: { name?: string; cwd?: string }) => {
-			if (!workspaceId) return null;
-			const response = await request(`/workspaces/${workspaceId}/terminals`, {
+	const create = useMutation({
+		mutationFn: (init?: { name?: string }) =>
+			// The API answers with the created terminal.
+			request(Terminal, url, {
 				method: "POST",
 				headers: JSON_HEADERS,
-				body: JSON.stringify(init ?? {}),
-			});
-			if (!response) return null;
-			const created = (await response.json()) as Terminal;
-			setTerminals((current) => [...current, created]);
-			return created;
+				body: JSON.stringify({ projectId, ...(init?.name ? { name: init.name } : {}) }),
+			}),
+		onSuccess: invalidate,
+	});
+
+	const rename = useMutation({
+		mutationFn: ({ terminalId, name }: { terminalId: string; name: string }) =>
+			request(Terminal, `${url}/${terminalId}`, {
+				method: "PATCH",
+				headers: JSON_HEADERS,
+				body: JSON.stringify({ name }),
+			}),
+		onSuccess: invalidate,
+	});
+
+	const close = useMutation({
+		mutationFn: (terminalId: string) =>
+			request(z.unknown(), `${url}/${terminalId}`, {
+				method: "DELETE",
+			}),
+		onSuccess: invalidate,
+	});
+
+	// Any 401 means the session is gone, whichever call saw it first.
+	const failure = query.error ?? create.error ?? rename.error ?? close.error ?? null;
+	useEffect(() => {
+		if (failure instanceof SessionEndedError) onSessionEnded();
+	}, [failure, onSessionEnded]);
+
+	return {
+		terminals: query.data?.terminals ?? [],
+		loaded: query.isSuccess,
+		error:
+			failure && !(failure instanceof SessionEndedError)
+				? "Terminals are unavailable right now."
+				: null,
+		create: (init) => create.mutateAsync(init),
+		rename: async (terminalId, name) => {
+			await rename.mutateAsync({ terminalId, name });
 		},
-		[request, workspaceId],
-	);
-
-	const rename = useCallback(
-		async (terminalId: string, name: string) => {
-			if (!workspaceId) return;
-			const response = await request(
-				`/workspaces/${workspaceId}/terminals/${terminalId}`,
-				{ method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ name }) },
-			);
-			if (!response) return;
-			const updated = (await response.json()) as Terminal;
-			setTerminals((current) =>
-				current.map((item) => (item.id === updated.id ? updated : item)),
-			);
+		close: async (terminalId) => {
+			await close.mutateAsync(terminalId);
 		},
-		[request, workspaceId],
-	);
-
-	const close = useCallback(
-		async (terminalId: string) => {
-			if (!workspaceId) return;
-			const response = await request(
-				`/workspaces/${workspaceId}/terminals/${terminalId}`,
-				{ method: "DELETE" },
-			);
-			if (!response) return;
-			// The server decides whether a closed terminal disappears or is
-			// kept as ended, so re-read the list rather than guessing.
-			await refresh();
+		refetch: () => {
+			void invalidate();
 		},
-		[refresh, request, workspaceId],
-	);
-
-	const markEnded = useCallback((terminalId: string) => {
-		setTerminals((current) =>
-			current.map((item) =>
-				item.id === terminalId && item.endedAt === null
-					? { ...item, endedAt: new Date().toISOString() }
-					: item,
-			),
-		);
-	}, []);
-
-	return { terminals, error, create, rename, close, markEnded };
+	};
 }

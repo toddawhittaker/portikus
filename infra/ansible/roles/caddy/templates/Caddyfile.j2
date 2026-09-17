@@ -24,7 +24,9 @@
 	# A browser navigating to a workspace page wants the single-page
 	# application, not the API's JSON.  Only document requests are sent to
 	# the bundle; fetch, XHR, and WebSocket traffic keeps going to the API.
-	@workspace_page expression `path('/workspaces/*') && (header({'Sec-Fetch-Dest': 'document'}) || header({'Accept': 'text/html*'}))`
+	# A project download is the exception: the browser navigates to it as a
+	# document but the zip comes from the API.
+	@workspace_page expression `path('/workspaces/*') && !path('*/download') && (header({'Sec-Fetch-Dest': 'document'}) || header({'Accept': 'text/html*'}))`
 	handle @workspace_page {
 		root * /usr/lib/portikus/web
 		rewrite * /index.html

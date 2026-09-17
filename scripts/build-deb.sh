@@ -39,6 +39,10 @@ nfpm_bin="$(find_nfpm)"
 pnpm install --frozen-lockfile
 pnpm exec tsc -b
 
+# The web bundle imports the ui package's theme and fonts from its dist,
+# which tsc does not copy, so build the ui package first.
+pnpm --filter @portikus/ui build
+
 # Caddy serves this bundle from /usr/lib/portikus/web.
 pnpm --filter @portikus/web build
 chmod -R u=rwX,go=rX apps/web/dist

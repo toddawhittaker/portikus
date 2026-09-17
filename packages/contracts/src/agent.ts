@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CloneUrl, ProjectSlug } from "./project.js";
 import { TerminalId } from "./terminal.js";
 
 /**
@@ -39,6 +40,52 @@ export const AgentCreateTerminalRequest = z
 	.strict();
 export type AgentCreateTerminalRequest = z.infer<typeof AgentCreateTerminalRequest>;
 
+/**
+ * A project directory as the agent sees it under `~/projects`
+ * (SPEC.md §7.1; the agent owns the filesystem, STACK.md §10).
+ */
+export const AgentProject = z.object({
+	slug: ProjectSlug,
+	isGitRepo: z.boolean(),
+});
+export type AgentProject = z.infer<typeof AgentProject>;
+
+/** Response body for `GET /projects` on the agent. */
+export const AgentProjectList = z.object({
+	projects: z.array(AgentProject),
+});
+export type AgentProjectList = z.infer<typeof AgentProjectList>;
+
+/**
+ * Request body for `POST /projects` on the agent (SPEC.md §7.2). The
+ * control plane derives the slug, so the agent never invents one.
+ */
+export const AgentCreateProjectRequest = z
+	.object({
+		slug: ProjectSlug,
+		source: z.enum(["new", "clone", "template"]),
+		url: CloneUrl.optional(),
+		gitInit: z.boolean(),
+	})
+	.strict();
+export type AgentCreateProjectRequest = z.infer<typeof AgentCreateProjectRequest>;
+
+/** Request body for `POST /projects/:slug/rename` (SPEC.md §7.3). */
+export const AgentRenameProjectRequest = z
+	.object({
+		to: ProjectSlug,
+	})
+	.strict();
+export type AgentRenameProjectRequest = z.infer<typeof AgentRenameProjectRequest>;
+
+/** Request body for `POST /projects/:slug/duplicate` (SPEC.md §7.3). */
+export const AgentDuplicateProjectRequest = z
+	.object({
+		to: ProjectSlug,
+	})
+	.strict();
+export type AgentDuplicateProjectRequest = z.infer<typeof AgentDuplicateProjectRequest>;
+
 /** Error codes returned by the workspace agent (SPEC.md §27; STACK.md §10). */
 export const AgentErrorCode = z.enum([
 	"UNAUTHORIZED",
@@ -48,6 +95,11 @@ export const AgentErrorCode = z.enum([
 	"ATTACHMENT_LIMIT",
 	"INVALID_CWD",
 	"TMUX_FAILED",
+	"PROJECT_EXISTS",
+	"PROJECT_NOT_FOUND",
+	"INVALID_SLUG",
+	"INVALID_URL",
+	"GIT_FAILED",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 

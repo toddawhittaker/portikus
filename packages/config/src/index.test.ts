@@ -20,6 +20,38 @@ test("applies defaults and coerces PORT", () => {
 	expect(config.DATABASE_URL).toBe("postgres://localhost/portikus");
 });
 
+test("PROJECT_TEMPLATES defaults to no templates", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+	});
+	expect(config.projectTemplates).toEqual([]);
+});
+
+test("PROJECT_TEMPLATES is parsed into a list", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+		PROJECT_TEMPLATES:
+			"Java=https://git.example/java.git,Py=https://git.example/py.git",
+	});
+	expect(config.projectTemplates).toEqual([
+		{ name: "Java", url: "https://git.example/java.git" },
+		{ name: "Py", url: "https://git.example/py.git" },
+	]);
+});
+
+test("a malformed PROJECT_TEMPLATES entry is a config error", () => {
+	try {
+		loadConfig(ApiConfigSchema, {
+			DATABASE_URL: "postgres://localhost/portikus",
+			PROJECT_TEMPLATES: "Local=file:///tmp/x",
+		});
+		expect.unreachable("loadConfig should have thrown");
+	} catch (error) {
+		expect(error).toBeInstanceOf(ConfigError);
+		expect((error as ConfigError).issues[0]).toContain("PROJECT_TEMPLATES");
+	}
+});
+
 test("lists every missing variable in the error message", () => {
 	try {
 		loadConfig(ApiConfigSchema, {});

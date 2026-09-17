@@ -1,0 +1,278 @@
+/*
+ * Overlay and layout rules that Tailwind utilities cannot express: the Radix
+ * data-state / data-highlighted / data-disabled hooks, the pseudo-element edges
+ * of the tab strip and the pane handle, and hover-only affordances. Everything
+ * else in these components is a utility class on the tokens. Import this next
+ * to theme.css.
+ */
+
+.pk-visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* Menu (Radix DropdownMenu / ContextMenu) */
+.pk-menu {
+	z-index: var(--z-menu);
+}
+.pk-menu-item {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	height: var(--density-comfortable-row);
+	padding: 0 var(--space-2);
+	border-radius: var(--radius-sm);
+	color: var(--ink);
+	cursor: default;
+	user-select: none;
+	outline: none;
+}
+.pk-menu-item[data-highlighted] {
+	background: var(--surface-hover);
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+.pk-menu-item[data-disabled] {
+	color: var(--ink-faint);
+}
+.pk-menu-item--danger {
+	color: var(--status-danger);
+}
+/* A menu item whose action is a download link, not a button. */
+.pk-menu-item-label a {
+	display: block;
+	color: inherit;
+	text-decoration: none;
+}
+.pk-menu-item-shortcut {
+	color: var(--ink-muted);
+	font-size: 12px;
+}
+.pk-menu-sep {
+	height: 1px;
+	margin: var(--space-1) calc(var(--space-1) * -1);
+	background: var(--line);
+}
+
+/* Dialog (Radix Dialog / AlertDialog) */
+.pk-scrim {
+	position: fixed;
+	inset: 0;
+	background: var(--scrim);
+	z-index: var(--z-dialog);
+}
+.pk-scrim--inline {
+	position: absolute;
+}
+.pk-dialog {
+	position: fixed;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	width: min(480px, calc(100vw - 32px));
+	max-height: calc(100vh - 64px);
+	overflow: auto;
+	background: var(--surface-raised);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-lg);
+	z-index: var(--z-dialog);
+}
+.pk-dialog--inline {
+	position: absolute;
+}
+.pk-dialog--lg {
+	width: min(640px, calc(100vw - 32px));
+}
+.pk-dialog-status {
+	flex: none;
+	display: grid;
+	place-items: center;
+	width: 36px;
+	height: 36px;
+	border-radius: var(--radius-full);
+	background: var(--status-danger-soft);
+	color: var(--status-danger);
+}
+.pk-consequence {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: var(--space-3);
+	margin: 0;
+}
+
+/* Tabs (Radix Tabs + dnd-kit sortable) */
+.pk-tabs {
+	display: flex;
+	align-items: stretch;
+	height: var(--density-comfortable-tab);
+	background: var(--surface-sunken);
+	border-bottom: 1px solid var(--line);
+}
+.pk-tab {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	min-width: 96px;
+	max-width: 220px;
+	height: 100%;
+	padding: 0 var(--space-1) 0 var(--space-3);
+	border: 0;
+	border-right: 1px solid var(--line);
+	background: transparent;
+	color: var(--ink-muted);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	outline: none;
+}
+.pk-tab:hover {
+	background: var(--surface-hover);
+	color: var(--ink);
+}
+.pk-tab:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+.pk-tab[data-state="active"] {
+	background: var(--surface-raised);
+	color: var(--ink);
+}
+.pk-tab[data-state="active"]::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 0;
+	height: 2px;
+	background: var(--accent);
+}
+.pk-tab--terminal[data-state="active"] {
+	background: var(--terminal-bg);
+	color: var(--terminal-fg);
+}
+.pk-tab--dragging {
+	box-shadow: var(--shadow-sm);
+	background: var(--surface-raised);
+	color: var(--ink);
+	opacity: 0.96;
+}
+.pk-tab--drop-before {
+	box-shadow: inset 2px 0 0 var(--focus);
+}
+.pk-tab-label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	text-align: left;
+}
+.pk-tab--ended .pk-tab-label {
+	font-style: italic;
+}
+.pk-tab-dirty {
+	width: 8px;
+	height: 8px;
+	border-radius: var(--radius-full);
+	background: currentColor;
+}
+.pk-tab-close {
+	display: grid;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	border-radius: var(--radius-xs);
+	color: var(--ink-muted);
+}
+.pk-tab-close:hover {
+	background: var(--surface-hover);
+	color: var(--ink);
+}
+.pk-tab:not([data-state="active"]):not(:hover):not(:focus-visible)
+	.pk-tab-close--hover {
+	visibility: hidden;
+}
+
+/* PaneHandle (react-resizable-panels Separator, which sets data-separator) */
+.pk-handle {
+	position: relative;
+	flex: none;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	background: transparent;
+	z-index: var(--z-pane-handle);
+}
+.pk-handle[data-orientation="vertical"] {
+	width: var(--size-pane-handle);
+	margin: 0 calc(var(--size-pane-handle) / -2);
+	cursor: col-resize;
+}
+.pk-handle[data-orientation="horizontal"] {
+	height: var(--size-pane-handle);
+	margin: calc(var(--size-pane-handle) / -2) 0;
+	cursor: row-resize;
+}
+.pk-handle::before {
+	content: "";
+	position: absolute;
+	background: var(--line);
+}
+.pk-handle[data-orientation="vertical"]::before {
+	top: 0;
+	bottom: 0;
+	left: calc(50% - 0.5px);
+	width: 1px;
+}
+.pk-handle[data-orientation="horizontal"]::before {
+	left: 0;
+	right: 0;
+	top: calc(50% - 0.5px);
+	height: 1px;
+}
+.pk-handle:hover::before,
+.pk-handle[data-separator="hover"]::before {
+	background: var(--line-strong);
+}
+.pk-handle[data-separator="active"]::before {
+	background: var(--focus);
+}
+.pk-handle[data-orientation="vertical"][data-separator="active"]::before {
+	width: 2px;
+	left: calc(50% - 1px);
+}
+.pk-handle[data-orientation="horizontal"][data-separator="active"]::before {
+	height: 2px;
+	top: calc(50% - 1px);
+}
+.pk-handle:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+.pk-handle-grip {
+	position: relative;
+	display: none;
+	border-radius: var(--radius-full);
+	background: var(--line-strong);
+}
+.pk-handle[data-orientation="vertical"] .pk-handle-grip {
+	width: 4px;
+	height: 24px;
+}
+.pk-handle[data-orientation="horizontal"] .pk-handle-grip {
+	width: 24px;
+	height: 4px;
+}
+.pk-handle:hover .pk-handle-grip,
+.pk-handle:focus-visible .pk-handle-grip,
+.pk-handle[data-separator="hover"] .pk-handle-grip {
+	display: block;
+}
