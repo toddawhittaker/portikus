@@ -3,7 +3,6 @@ import {
 	createProject,
 	createStudent,
 	deleteSessions,
-	EPIC6_UI,
 	endTerminal,
 	projectIds,
 	query,
@@ -25,7 +24,7 @@ function tabs(page: Page): Locator {
 }
 
 function visiblePane(page: Page): Locator {
-	return page.locator(".pk-terminal-pane:not([hidden])");
+	return page.locator(".pk-termgroup:not([hidden]) .pk-term");
 }
 
 function rowsOf(page: Page, terminalId: string): Locator {
@@ -33,14 +32,8 @@ function rowsOf(page: Page, terminalId: string): Locator {
 }
 
 async function newTerminal(page: Page): Promise<void> {
-	// TODO(Epic 6): "New terminal" becomes the `launcher` menu button with a
-	// "Terminal" item inside it (plan, E2).
-	if (EPIC6_UI) {
-		await page.getByTestId("launcher").click();
-		await page.getByRole("menuitem", { name: "Terminal", exact: true }).click();
-		return;
-	}
-	await page.getByRole("button", { name: "New terminal", exact: true }).click();
+	await page.getByTestId("launcher").click();
+	await page.getByRole("menuitem", { name: "Terminal", exact: true }).click();
 }
 
 /** Wait for a pane's terminal WebSocket to be open. */
@@ -135,9 +128,11 @@ test("terminals keep their own output, can be renamed and closed", async ({
 	await expect(rowsOf(page, third)).not.toContainText("alpha");
 	await expect(rowsOf(page, second)).not.toContainText("alpha");
 
-	// Double-clicking a tab renames it.
-	await page.getByRole("tab", { name: "Terminal 2" }).dblclick();
-	const input = page.getByLabel("Rename Terminal 2");
+	// The pane's actions menu renames its terminal.
+	await page.getByRole("tab", { name: "Terminal 2" }).click();
+	await page.getByTestId(`terminal-actions-${second}`).click();
+	await page.getByTestId("terminal-rename").click();
+	const input = page.getByTestId("terminal-rename-field");
 	await input.fill("Build");
 	await input.press("Enter");
 	await expect(page.getByRole("tab", { name: "Build" })).toBeVisible();
@@ -146,12 +141,16 @@ test("terminals keep their own output, can be renamed and closed", async ({
 	await page.getByRole("button", { name: "Close Build" }).click();
 	await expect(page.getByRole("tab", { name: "Build" })).toHaveCount(0);
 	await expect(tabs(page).getByRole("tab")).toHaveCount(2);
-	expect(
-		await query<{ count: string }>(
-			"select count(*)::text as count from terminals where workspace_id = $1",
-			[student.workspaceId],
-		),
-	).toEqual([{ count: "2" }]);
+	// The tab goes at once and the delete lands just after it.
+	await expect
+		.poll(async () => {
+			const rows = await query<{ count: string }>(
+				"select count(*)::text as count from terminals where workspace_id = $1",
+				[student.workspaceId],
+			);
+			return rows[0]?.count;
+		})
+		.toBe("2");
 });
 
 test("a reload keeps the terminal and can attach to it again", async ({
@@ -180,12 +179,14 @@ test("an ended terminal offers a new one in its place", async ({ page, context }
 	await endTerminal(terminalId);
 	await page.reload();
 
-	await expect(page.getByRole("tab", { name: "Terminal 1 (ended)" })).toBeVisible({
-		timeout: 15_000,
-	});
-	await expect(page.getByText("This terminal has ended.")).toBeVisible();
+	await expect(
+		page.getByRole("tab", { name: "Terminal 1 (session ended)" }),
+	).toBeVisible({ timeout: 15_000 });
+	await expect(
+		page.getByText("This terminal ended when the workspace stopped"),
+	).toBeVisible();
 
-	await page.getByRole("button", { name: "New terminal like Terminal 1" }).click();
+	await page.getByTestId("new-terminal-here").click();
 
 	await expect(tabs(page).getByRole("tab")).toHaveCount(2);
 	await expect(visiblePane(page).locator(".xterm-screen")).toBeVisible();
@@ -231,9 +232,8 @@ test("another student's workspace shows no terminals", async ({ page, browser })
 
 	await page.goto(workspacePath(student.workspaceId));
 
-	await expect(page.getByRole("alert")).toContainText("Terminals are unavailable", {
-		timeout: 15_000,
-	});
+	// The shell has nothing to show, because every route for that workspace
+	// answers 404 to this student (SPEC.md §24.3).
 	await expect(tabs(page).getByRole("tab")).toHaveCount(0);
 
 	const response = await page.request.get(
@@ -282,7 +282,7 @@ test("two windows of the same student share one terminal", async ({
  */
 async function clickTerminalText(page: Page, text: string): Promise<void> {
 	const box = await page.evaluate((needle) => {
-		const rows = document.querySelector(".pk-terminal-pane:not([hidden]) .xterm-rows");
+		const rows = document.querySelector(".pk-termgroup:not([hidden]) .xterm-rows");
 		if (!rows) return null;
 		const walker = document.createTreeWalker(rows, NodeFilter.SHOW_TEXT);
 		let node = walker.nextNode();
@@ -316,8 +316,9 @@ test("a file reference in the output opens the file route", async ({
 
 	await clickTerminalText(page, "src/auth.ts:73");
 
+	const [fileProject] = await projectIds(student.workspaceId);
 	await expect(page).toHaveURL(
-		`/workspaces/${student.workspaceId}/files?path=src%2Fauth.ts&line=73`,
+		`/workspaces/${student.workspaceId}/projects/${fileProject}/files?path=src%2Fauth.ts&line=73`,
 	);
 	await expect(page.getByRole("heading", { name: "Files" })).toBeVisible();
 });
@@ -333,6 +334,9 @@ test("a localhost URL in the output opens the preview route", async ({
 
 	await clickTerminalText(page, "http://localhost:3000/x");
 
-	await expect(page).toHaveURL(`/workspaces/${student.workspaceId}/preview/3000`);
+	const [previewProject] = await projectIds(student.workspaceId);
+	await expect(page).toHaveURL(
+		`/workspaces/${student.workspaceId}/projects/${previewProject}/preview/3000`,
+	);
 	await expect(page.getByRole("heading", { name: "Preview" })).toBeVisible();
 });

@@ -160,11 +160,12 @@
 	--duration-spin: 1100ms;
 	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
-	/* Stacking order. */
+	/* Stacking order. A menu or select sits above a dialog, because dialogs
+	   contain them and the one the user just opened has to be reachable. */
 	--z-pane-handle: 10;
 	--z-sticky: 20;
-	--z-menu: 50;
 	--z-dialog: 60;
+	--z-menu: 65;
 	--z-toast: 70;
 }
 

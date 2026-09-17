@@ -2,7 +2,6 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
-	EPIC6_UI,
 	endTerminal,
 	query,
 	terminalIds,
@@ -16,8 +15,6 @@ import {
  * (plan, E2). The orchestrator removes the guard below once E1 and E2 land.
  */
 test.describe("work area layout", () => {
-	test.skip(!EPIC6_UI, "Epic 6 UI not merged yet");
-
 	async function newTerminal(page: Page): Promise<void> {
 		await page.getByTestId("launcher").click();
 		await page.getByRole("menuitem", { name: "Terminal", exact: true }).click();
@@ -181,6 +178,7 @@ test.describe("work area layout", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
+		const beta = await createProject(student.workspaceId, { name: "Beta" });
 		const first = await openProjectWithTerminal(page, student.workspaceId, "Alpha");
 		await newTerminal(page);
 		await expect
@@ -189,7 +187,6 @@ test.describe("work area layout", () => {
 			)
 			.toBe(2);
 
-		const beta = await createProject(student.workspaceId, { name: "Beta" });
 		await page.getByTestId(`project-item-${beta.id}`).click();
 
 		await expect(page).toHaveURL(workspacePath(student.workspaceId, beta.id));
@@ -270,6 +267,9 @@ test.describe("work area layout", () => {
 		await expect(pane(page, terminalId)).toBeVisible();
 		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(1);
 
+		// Losing its neighbour re-lays out this pane, so wait for its socket
+		// to be back before typing into it.
+		await expectConnected(page, terminalId);
 		await pane(page, terminalId).locator(".xterm-screen").click();
 		await page.keyboard.press("Control+d");
 
@@ -331,7 +331,9 @@ test.describe("work area layout", () => {
 		await expect(page.getByTestId(`tab-${terminalId}`)).toBeVisible({
 			timeout: 15_000,
 		});
-		await expect(page.getByText("This terminal has ended.")).toBeVisible();
+		await expect(
+			page.getByText("This terminal ended when the workspace stopped"),
+		).toBeVisible();
 		await expect(page.getByRole("button", { name: "New terminal here" })).toBeVisible();
 		expect(await terminalIds(student.workspaceId, projectId)).toEqual([terminalId]);
 	});

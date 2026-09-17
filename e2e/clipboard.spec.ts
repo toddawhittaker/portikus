@@ -1,11 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import {
-	createProject,
-	createStudent,
-	EPIC6_UI,
-	terminalIds,
-	workspacePath,
-} from "./helpers";
+import { createProject, createStudent, terminalIds, workspacePath } from "./helpers";
 
 /**
  * Terminal copy and paste (SPEC.md §9, plan decisions "Clipboard in the
@@ -14,7 +8,6 @@ import {
  * the Epic 6 work area lands.
  */
 test.describe("terminal clipboard", () => {
-	test.skip(!EPIC6_UI, "Epic 6 UI not merged yet");
 	test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 
 	function rowsOf(page: Page, terminalId: string): Locator {
