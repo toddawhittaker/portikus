@@ -58,8 +58,12 @@ test.describe("administration", () => {
 	});
 
 	test("an administrator sets and clears one student's override", async ({ page }) => {
+		// Alice has to exist as a row before she can be given an override.
 		await loginAs(page, "alice");
 		const alice = await aliceId();
+		await page.getByTestId("me").click();
+		await page.getByTestId("signout").click();
+		await expect(page.getByTestId("signin")).toBeVisible();
 		await openAdmin(page);
 
 		const input = page.getByTestId(`user-grace-input-${alice}`);

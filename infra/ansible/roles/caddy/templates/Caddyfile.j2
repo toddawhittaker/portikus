@@ -26,8 +26,10 @@
 	# the bundle; fetch, XHR, and WebSocket traffic keeps going to the API.
 	# A project download is the exception: the browser navigates to it as a
 	# document but the zip comes from the API.
-	@workspace_page expression `path('/workspaces/*') && !path('*/download') && (header({'Sec-Fetch-Dest': 'document'}) || header({'Accept': 'text/html*'}))`
-	handle @workspace_page {
+	# The administration screen lives at /admin and its data at /admin/*,
+	# so it needs the same split.
+	@app_page expression `(path('/workspaces/*') || path('/admin') || path('/admin/')) && !path('*/download') && (header({'Sec-Fetch-Dest': 'document'}) || header({'Accept': 'text/html*'}))`
+	handle @app_page {
 		root * /usr/lib/portikus/web
 		rewrite * /index.html
 		file_server

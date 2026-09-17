@@ -107,30 +107,35 @@ export function registerAdminRoutes(
 			return sendError(reply, 404, "NOT_FOUND", "Platform settings are not set yet");
 		}
 
-		const updated = await db
-			.updateTable("settings")
-			.set({
-				shutdown_grace_seconds: body.data.shutdownGraceSeconds,
-				updated_at: new Date().toISOString(),
-				updated_by: user.id,
-			})
-			.where("id", "=", 1)
-			.returning(["shutdown_grace_seconds", "updated_at"])
-			.executeTakeFirstOrThrow();
-
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${user.id}`,
-				target: "settings",
-				action: "settings.shutdown_grace_updated",
-				result: "ok",
-				metadata: JSON.stringify({
-					from: before.shutdown_grace_seconds,
-					to: body.data.shutdownGraceSeconds,
-				}),
-			})
-			.execute();
+		// The change and its audit row commit together (SPEC.md §24.11).
+		const updated = await db.transaction().execute(async (trx) => {
+			const row = await trx
+				.updateTable("settings")
+				.set({
+					shutdown_grace_seconds: body.data.shutdownGraceSeconds,
+					updated_at: new Date().toISOString(),
+					updated_by: user.id,
+				})
+				.where("id", "=", 1)
+				.returning(["shutdown_grace_seconds", "updated_at"])
+				.executeTakeFirstOrThrow();
+			await trx
+				.insertInto("audit_events")
+				.values({
+					actor: `user:${user.id}`,
+					target: "settings",
+					action: "settings.shutdown_grace_updated",
+					result: "ok",
+					metadata: JSON.stringify({
+						from: before.shutdown_grace_seconds,
+						to: body.data.shutdownGraceSeconds,
+						ip: request.ip,
+						userAgent: request.headers["user-agent"] ?? null,
+					}),
+				})
+				.execute();
+			return row;
+		});
 
 		const out: PlatformSettings = {
 			shutdownGraceSeconds: updated.shutdown_grace_seconds,
@@ -182,36 +187,41 @@ export function registerAdminRoutes(
 			return sendError(reply, 404, "NOT_FOUND", "User not found");
 		}
 
-		const updated = await db
-			.updateTable("users")
-			.set({
-				shutdown_grace_seconds: body.data.shutdownGraceSeconds,
-				updated_at: new Date().toISOString(),
-			})
-			.where("id", "=", params.data.id)
-			.returning([
-				"id",
-				"display_name",
-				"email",
-				"role",
-				"disabled_at",
-				"shutdown_grace_seconds",
-			])
-			.executeTakeFirstOrThrow();
-
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${actor.id}`,
-				target: params.data.id,
-				action: "user.shutdown_grace_updated",
-				result: "ok",
-				metadata: JSON.stringify({
-					from: before.shutdown_grace_seconds,
-					to: body.data.shutdownGraceSeconds,
-				}),
-			})
-			.execute();
+		// The change and its audit row commit together (SPEC.md §24.11).
+		const updated = await db.transaction().execute(async (trx) => {
+			const row = await trx
+				.updateTable("users")
+				.set({
+					shutdown_grace_seconds: body.data.shutdownGraceSeconds,
+					updated_at: new Date().toISOString(),
+				})
+				.where("id", "=", params.data.id)
+				.returning([
+					"id",
+					"display_name",
+					"email",
+					"role",
+					"disabled_at",
+					"shutdown_grace_seconds",
+				])
+				.executeTakeFirstOrThrow();
+			await trx
+				.insertInto("audit_events")
+				.values({
+					actor: `user:${actor.id}`,
+					target: params.data.id,
+					action: "user.shutdown_grace_updated",
+					result: "ok",
+					metadata: JSON.stringify({
+						from: before.shutdown_grace_seconds,
+						to: body.data.shutdownGraceSeconds,
+						ip: request.ip,
+						userAgent: request.headers["user-agent"] ?? null,
+					}),
+				})
+				.execute();
+			return row;
+		});
 
 		return toAdminUser(updated);
 	});

@@ -39,3 +39,4 @@ has four sections:
 | [0008](0008-server-side-sessions-and-mock-idp.md) | Server-side sessions and an in-repo mock identity provider |
 | [0009](0009-workspace-agent-transport.md) | Workspace agent transport and terminal model |
 | [0010](0010-project-operations-in-the-agent.md) | Project operations run in the workspace agent |
+| [0011](0011-runtime-settings-in-postgres.md) | Runtime settings live in Postgres |

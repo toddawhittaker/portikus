@@ -43,6 +43,8 @@
     portikus_controller_port: 3001
     portikus_database_url: "postgresql://portikus@/portikus?host=/var/run/postgresql"
     portikus_controller_url: "http://127.0.0.1:3001"
+    # Seeds the grace period on the worker's first start; the /admin page
+    # owns it afterwards, so changing this later has no effect (ADR 0011).
     portikus_shutdown_grace_seconds: 600
     portikus_presence_ttl_seconds: 60
     portikus_sweep_interval_seconds: 1

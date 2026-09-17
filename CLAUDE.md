@@ -116,9 +116,21 @@ handling in the terminal. Templates are configuration
 (`PROJECT_TEMPLATES`), and the platform still never makes a commit.
 Workspace image `2026.09.3` adds `zip` for downloads.
 
+After Epic 6 came the live disconnect grace period (ADR 0011). The grace
+period of SPEC.md section 6.4 is now a row in a `settings` table rather
+than a startup constant: `SHUTDOWN_GRACE_SECONDS` seeds it on the worker's
+first start and nothing else ever writes it from the environment.
+Administrators change the platform value through `PUT /admin/settings` and
+one student's override through `PUT /admin/users/<id>/settings`, both from
+a new administration page at `/admin`. Zero means the workspace is never
+stopped for being disconnected. The worker keeps a `disconnected_at`
+timestamp and recomputes each running workspace's `shutdown_deadline` every
+second, so a change applies at once, including to a workspace already
+counting down.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
-is wired up, there is no admin UI beyond the one listing route, nothing
+is wired up, the only admin UI is the grace period page, nothing
 rate-limits login, and disabling a user means setting `users.disabled_at`
 by hand in SQL. From Epic 5, the file and preview link targets are
 placeholders until Epics 7 and 8; traffic between the API and the agent is
@@ -137,8 +149,11 @@ them leaves the old row missing and the new directory discovered as a
 separate project. Terminal names count per workspace rather than per
 project, so a second project's first terminal may be "Terminal 3", and a
 workspace created on an older image lacks zip until it is recreated, which
-the agent reports as a download failure. Epic 7 (files, Monaco, search, and
-change review) is next.
+the agent reports as a download failure. From the grace period task, the
+administration page is a settings form, not the Epic 11 mockup, and the
+infrastructure smoke test now signs in as the mock identity provider's
+administrator to shorten the grace period. Epic 7 (files, Monaco, search,
+and change review) is next.
 
 ## Commands
 

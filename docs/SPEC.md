@@ -367,6 +367,10 @@ The system must not rely on browser `beforeunload` events to determine disconnec
 
 Connection presence must be determined server-side using active WebSocket/session state and heartbeat/timeout behavior.
 
+The grace period is an administrator setting, not a deployment constant. There is one platform-wide default and an optional override for each user; a user's override wins over the default. An administrator changes either value while the platform runs, and the change takes effect immediately, including for workspaces that are already disconnected and counting down. Shortening the value below the time a workspace has already been disconnected stops it on the next sweep.
+
+A grace period of **0** disables the timer: the workspace keeps running until it is stopped by hand. This applies at both levels, so 0 as one user's override keeps that user's workspace up while everyone else's still stops.
+
 ### 6.5 Graceful stop
 
 A stop should allow the workspace operating system and inner services a bounded period to shut down cleanly.
@@ -1446,6 +1450,7 @@ P0 administration must support:
 - reset Docker;
 - inspect quota usage;
 - adjust quotas;
+- adjust the disconnect grace period globally and per user;
 - inspect active preview ports;
 - inspect base-image version;
 - view recent lifecycle/audit events;
