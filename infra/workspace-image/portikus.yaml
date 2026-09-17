@@ -1532,6 +1532,7 @@ packages:
     - gnupg
     - jq
     - unzip
+    - zip
     - less
     - vim-tiny
     - openssh-client
