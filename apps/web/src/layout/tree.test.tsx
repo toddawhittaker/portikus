@@ -159,6 +159,23 @@ test("reconcile keeps an ended terminal, because it is still in the list", () =>
 	expect(layoutTerminalIds(layout)).toEqual(["a"]);
 });
 
+test("reconcile does not bring back an ended terminal that lost its leaf", () => {
+	// A revive swaps the ended id out of the layout; the row stays in the
+	// listing as history (SPEC.md §9.7) and must not come back as a tab.
+	const layout = reconcile(oneTab(leaf("b")), ["a", "b"], ["a"]);
+	expect(layoutTerminalIds(layout)).toEqual(["b"]);
+});
+
+test("reconcile still gives a live terminal from another window a tab", () => {
+	const layout = reconcile(oneTab(leaf("a")), ["a", "b"], ["c"]);
+	expect(layoutTerminalIds(layout)).toEqual(["a", "b"]);
+});
+
+test("reconcile keeps the leaf of an ended terminal it already shows", () => {
+	const layout = reconcile(oneTab(leaf("a")), ["a"], ["a"]);
+	expect(layoutTerminalIds(layout)).toEqual(["a"]);
+});
+
 test("reconcile with nothing to do returns the same layout", () => {
 	const layout = oneTab(leaf("a"));
 	expect(reconcile(layout, ["a"])).toBe(layout);

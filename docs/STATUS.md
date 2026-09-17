@@ -145,6 +145,12 @@ leave the layout alone. The drag uses the dnd-kit already in the repo, with
 the same 4-pixel activation distance as tab reordering, so a click on a
 title bar still just focuses the pane.
 
+Reviving an ended terminal now stays in its own pane (SPEC.md sections 9.5
+and 9.7): `reconcile` no longer gives a tab back to an ended terminal that
+has no pane, since those rows are listing history rather than panes, and the
+store drops any pane a terminal already has before placing it, so a list
+refetch that arrives mid-revive cannot leave the same terminal in two places.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
 is wired up, the only admin UI is the grace period page, nothing
