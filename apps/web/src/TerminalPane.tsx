@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import "./terminal.css";
 import { useEffect, useRef, useState } from "react";
 import {
 	canOpenInNewTab,
@@ -26,6 +27,12 @@ const MAX_RECONNECT_ATTEMPTS = 5;
  * that was too large, and a server error.
  */
 const FATAL_CLOSE_CODES = new Set([1008, 1009, 1011]);
+
+/**
+ * Lines the browser keeps above the visible screen, which is what the wheel
+ * scrolls back through (SPEC.md §9.1). tmux keeps the same number.
+ */
+export const SCROLLBACK_LINES = 5_000;
 
 const THEME = {
 	background: "#11100e",
@@ -136,6 +143,7 @@ export function TerminalPane({
 			fontSize: 13,
 			theme: THEME,
 			convertEol: false,
+			scrollback: SCROLLBACK_LINES,
 		});
 		const fitAddon = new FitAddon();
 		term.loadAddon(fitAddon);

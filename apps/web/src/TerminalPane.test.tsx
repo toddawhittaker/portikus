@@ -1,7 +1,7 @@
 import type { Terminal } from "@portikus/contracts";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { TerminalPane } from "./TerminalPane";
+import { SCROLLBACK_LINES, TerminalPane } from "./TerminalPane";
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 
@@ -175,4 +175,25 @@ test("a cwd frame is reported to the owner of the pane", async () => {
 		sockets[0]?.onmessage?.({ data: JSON.stringify({ type: "cwd" }) });
 	});
 	expect(onCwd).toHaveBeenCalledTimes(1);
+});
+
+test("the terminal keeps a deep scrollback and lets the wheel through", async () => {
+	// The wheel is the only way back through it, so nothing the pane installs
+	// may cancel a wheel event before xterm.js sees it (SPEC.md §9.1).
+	expect(SCROLLBACK_LINES).toBeGreaterThanOrEqual(5_000);
+
+	const { view } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const pane = view.getByTestId(`terminal-pane-${terminal.id}`);
+	const screen = pane.querySelector(".xterm-screen") ?? pane;
+
+	const wheel = new WheelEvent("wheel", {
+		deltaY: -300,
+		bubbles: true,
+		cancelable: true,
+	});
+	act(() => {
+		screen.dispatchEvent(wheel);
+	});
+	expect(wheel.defaultPrevented).toBe(false);
 });
