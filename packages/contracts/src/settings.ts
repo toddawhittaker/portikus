@@ -6,8 +6,11 @@ const MAX_GRACE_SECONDS = 2147483647;
 
 const graceSeconds = z.number().int().min(0).max(MAX_GRACE_SECONDS);
 
+/** The log levels Portikus uses, loudest first (STACK.md §15). */
+export const LOG_LEVELS = ["error", "warn", "info", "debug"] as const;
+
 /** How much a service logs (STACK.md §15). */
-export const LogLevel = z.enum(["error", "warn", "info", "debug"]);
+export const LogLevel = z.enum(LOG_LEVELS);
 export type LogLevel = z.infer<typeof LogLevel>;
 
 /**
@@ -41,8 +44,11 @@ export type UpdatePlatformSettingsRequest = z.infer<
 	typeof UpdatePlatformSettingsRequest
 >;
 
-/** Request body of `PUT /log-level` on the agent and the controller. */
-export const SetLogLevelRequest = z.object({ level: LogLevel }).strict();
+/**
+ * Request body of `PUT /log-level` on the agent and the controller. Null
+ * means "go back to the level in this service's own environment".
+ */
+export const SetLogLevelRequest = z.object({ level: LogLevel.nullable() }).strict();
 export type SetLogLevelRequest = z.infer<typeof SetLogLevelRequest>;
 
 /** A user as the administration pages list them (SPEC.md §5.2). */

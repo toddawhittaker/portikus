@@ -67,10 +67,10 @@ test("UpdatePlatformSettingsRequest rejects a body that changes nothing", () => 
 	expect(() => UpdatePlatformSettingsRequest.parse({})).toThrow();
 });
 
-test("SetLogLevelRequest takes one known level and nothing else", () => {
+test("SetLogLevelRequest takes one known level or null, and nothing else", () => {
 	expect(SetLogLevelRequest.parse({ level: "error" }).level).toBe("error");
 	expect(() => SetLogLevelRequest.parse({ level: "verbose" })).toThrow();
-	expect(() => SetLogLevelRequest.parse({ level: null })).toThrow();
+	expect(SetLogLevelRequest.parse({ level: null }).level).toBeNull();
 	expect(() => SetLogLevelRequest.parse({ level: "info", extra: 1 })).toThrow();
 });
 

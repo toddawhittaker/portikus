@@ -98,6 +98,7 @@ export type ListInstancesResponse = z.infer<typeof ListInstancesResponse>;
  * STACK.md §9).
  */
 export const ControllerErrorCode = z.enum([
+	"BAD_REQUEST",
 	"INVALID_NAME",
 	"NOT_FOUND",
 	"ALREADY_EXISTS",

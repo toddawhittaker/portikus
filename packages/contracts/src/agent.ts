@@ -88,6 +88,7 @@ export type AgentDuplicateProjectRequest = z.infer<typeof AgentDuplicateProjectR
 
 /** Error codes returned by the workspace agent (SPEC.md §27; STACK.md §10). */
 export const AgentErrorCode = z.enum([
+	"BAD_REQUEST",
 	"UNAUTHORIZED",
 	"TERMINAL_NOT_FOUND",
 	"TERMINAL_EXISTS",
