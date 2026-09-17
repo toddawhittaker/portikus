@@ -16,9 +16,8 @@ const db = createDb(config.DATABASE_URL);
 const oidc = createOidcClient(toAuthOptions(config));
 const app = buildServer({ db, config, logger, oidc });
 
-await app.listen({ port: config.PORT, host: "127.0.0.1" });
-logger.info({ port: config.PORT }, "api listening");
-
+// Hooks must be added before listen; the first sweep runs after one
+// interval, so starting the sync here costs nothing at startup.
 const levelSync = startLogLevelSync({
 	db,
 	logger,
@@ -28,3 +27,6 @@ const levelSync = startLogLevelSync({
 app.addHook("onClose", async () => {
 	levelSync.stop();
 });
+
+await app.listen({ port: config.PORT, host: "127.0.0.1" });
+logger.info({ port: config.PORT }, "api listening");
