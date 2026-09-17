@@ -125,6 +125,19 @@ the path changes, which the web app uses to update the title. The path is
 not written to the database, so a new attachment learns it from its own
 first poll.
 
+Terminal panes can now be rearranged by dragging their title bars (SPEC.md
+sections 8.3 and 9.3). Dropping a pane on another pane's left, right, top,
+or bottom half makes it that pane's sibling in a row or column split, and
+dropping on the middle swaps the two, so a stacked pair becomes a
+side-by-side pair and back. While a drag is live the hovered pane shades
+the half it would take. Dropping on the tab strip pulls the pane out into a
+tab of its own at the marked position, and a tab left empty disappears.
+`moveLeaf` and `moveLeafToNewTab` in `apps/web/src/layout/tree.ts` do the
+work; both refuse a move that would break the split-depth or tab limits and
+leave the layout alone. The drag uses the dnd-kit already in the repo, with
+the same 4-pixel activation distance as tab reordering, so a click on a
+title bar still just focuses the pane.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
 is wired up, the only admin UI is the grace period page, nothing
@@ -162,5 +175,7 @@ the login rate-limit gap above: a Caddy rate limit plus a journald
 second, so debug is meant for short investigations rather than everyday
 running; and a workspace owner who holds the agent token can set their own
 agent's level, which stays until the setting next changes or the workspace
-restarts. Epic 7 (files, Monaco, search,
+restarts. From pane dragging, there is no keyboard equivalent: a pane is
+rearranged with a pointer only, and a drop is refused silently when it
+would pass the split-depth or tab limits. Epic 7 (files, Monaco, search,
 and change review) is next.
