@@ -12,11 +12,17 @@ export interface WorkspaceProvider {
 		name: string,
 		sizes: { homeGiB: number; dockerGiB: number },
 	): Promise<CreateInstanceResponse>;
-	start(name: string, opts: { timeoutSeconds: number }): Promise<StartInstanceResponse>;
+	start(
+		name: string,
+		opts: { timeoutSeconds: number; agentToken: string },
+	): Promise<StartInstanceResponse>;
 	stop(name: string, opts: { timeoutSeconds: number }): Promise<StopInstanceResponse>;
 	list(): Promise<InstanceStatus[]>;
 	healthy(): Promise<boolean>;
 }
+
+/** Where the workspace agent reads its bearer token (ADR 0009). */
+const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
 
 function validateName(name: string): void {
 	const result = InstanceName.safeParse(name);
@@ -34,17 +40,20 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly pool: string;
 	private readonly profile: string;
 	private readonly imageAlias: string;
+	private readonly agentPort: number;
 
 	constructor(opts: {
 		client: IncusClient;
 		pool: string;
 		profile: string;
 		imageAlias: string;
+		agentPort: number;
 	}) {
 		this.client = opts.client;
 		this.pool = opts.pool;
 		this.profile = opts.profile;
 		this.imageAlias = opts.imageAlias;
+		this.agentPort = opts.agentPort;
 	}
 
 	async create(
@@ -109,7 +118,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	async start(
 		name: string,
-		opts: { timeoutSeconds: number },
+		opts: { timeoutSeconds: number; agentToken: string },
 	): Promise<StartInstanceResponse> {
 		validateName(name);
 
@@ -123,7 +132,29 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			opts.timeoutSeconds,
 		);
 
+		// One deadline covers reaching Running and the agent becoming healthy,
+		// so a slow boot cannot extend the caller's wait past its timeout.
 		const deadline = Date.now() + opts.timeoutSeconds * 1000;
+		const ipv4 = await this.waitForAddress(name, deadline, signal);
+
+		await this.client.pushFile(
+			name,
+			AGENT_TOKEN_PATH,
+			opts.agentToken,
+			{ uid: 1000, gid: 1000, mode: "0600" },
+			signal,
+		);
+
+		await this.waitForAgent(ipv4, opts.agentToken, deadline);
+
+		return { ipv4 };
+	}
+
+	private async waitForAddress(
+		name: string,
+		deadline: number,
+		signal: AbortSignal,
+	): Promise<string> {
 		while (Date.now() < deadline) {
 			const state = (await this.client.request(
 				"GET",
@@ -149,7 +180,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					(a) => a.family === "inet" && a.scope === "global",
 				);
 				if (addr) {
-					return { ipv4: addr.address };
+					return addr.address;
 				}
 			}
 
@@ -158,7 +189,35 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 		throw new IncusError(
 			"TIMEOUT",
-			`instance ${name} did not reach Running with IPv4 within ${opts.timeoutSeconds}s`,
+			`instance ${name} did not reach Running with IPv4 before the start deadline`,
+		);
+	}
+
+	/** Poll the workspace agent's /health until it answers 200 (SPEC.md 6.3). */
+	private async waitForAgent(
+		ipv4: string,
+		agentToken: string,
+		deadline: number,
+	): Promise<void> {
+		const url = `http://${ipv4}:${this.agentPort}/health`;
+		while (Date.now() < deadline) {
+			try {
+				const res = await fetch(url, {
+					headers: { Authorization: `Bearer ${agentToken}` },
+					signal: AbortSignal.timeout(2000),
+				});
+				if (res.status === 200) {
+					return;
+				}
+			} catch {
+				// Agent not listening yet; retry until the deadline.
+			}
+			await new Promise((r) => setTimeout(r, 1000));
+		}
+
+		throw new IncusError(
+			"TIMEOUT",
+			`workspace agent at ${ipv4} did not become healthy before the start deadline`,
 		);
 	}
 
