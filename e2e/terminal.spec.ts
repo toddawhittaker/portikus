@@ -340,3 +340,16 @@ test("a localhost URL in the output opens the preview route", async ({
 	);
 	await expect(page.getByRole("heading", { name: "Preview" })).toBeVisible();
 });
+
+test("the title bar follows cd", async ({ page, context }) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	const title = visiblePane(page).locator(".pk-term-bar-title");
+	await expect(title).toHaveText("Terminal 1 · ~/projects/terminal-work");
+
+	// The fake agent answers a `cd` with the cwd frame the real agent sends
+	// after it polls tmux (SPEC.md §9.3).
+	await typeAndExpectEcho(page, rowsOf(page, terminalId), "cd /tmp");
+	await expect(title).toHaveText("Terminal 1 · /tmp");
+});

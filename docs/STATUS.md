@@ -118,6 +118,13 @@ runtime: the API relays the level to each running workspace's agent and the
 worker relays it to the controller. CI now runs the tests with coverage and
 fails below the floors set in `vitest.config.ts`.
 
+The terminal title bar now follows `cd` (SPEC.md section 9.3). Each
+attachment in the workspace agent polls tmux for its pane's current path
+every two seconds and sends a `cwd` frame on the terminal WebSocket when
+the path changes, which the web app uses to update the title. The path is
+not written to the database, so a new attachment learns it from its own
+first poll.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
 is wired up, the only admin UI is the grace period page, nothing
