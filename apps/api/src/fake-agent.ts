@@ -348,6 +348,16 @@ export async function startFakeAgent(
 				const inputData = (parsed as { data?: unknown }).data;
 				if (parsed.type === "input" && typeof inputData === "string") {
 					if (inputData.includes("\u0003")) broadcast("^C");
+					// A `cd` moves the terminal, which the real agent notices by
+					// polling tmux and reports as a cwd frame (SPEC.md §9.3).
+					const moved = /cd\s+(\S+)/.exec(inputData);
+					if (moved?.[1]) {
+						for (const peer of peers) {
+							if (peer.readyState === peer.OPEN) {
+								peer.send(JSON.stringify({ type: "cwd", path: moved[1] }));
+							}
+						}
+					}
 					// Ctrl+D ends the shell, and a shell that ends closes its pane.
 					if (inputData.includes("\u0004")) {
 						for (const peer of peers) {

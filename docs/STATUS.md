@@ -118,6 +118,13 @@ runtime: the API relays the level to each running workspace's agent and the
 worker relays it to the controller. CI now runs the tests with coverage and
 fails below the floors set in `vitest.config.ts`.
 
+The terminal title bar now follows `cd` (SPEC.md section 9.3). Each
+attachment in the workspace agent polls tmux for its pane's current path
+every two seconds and sends a `cwd` frame on the terminal WebSocket when
+the path changes, which the web app uses to update the title. The path is
+not written to the database, so a new attachment learns it from its own
+first poll.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
 is wired up, the only admin UI is the grace period page, nothing
@@ -139,7 +146,10 @@ them leaves the old row missing and the new directory discovered as a
 separate project (tracked in `docs/BACKLOG.md`). Terminal names count per workspace rather than per
 project, so a second project's first terminal may be "Terminal 3", and a
 workspace created on an older image lacks zip until it is recreated, which
-the agent reports as a download failure. From the grace period task, the
+the agent reports as a download failure. The projects pane now refetches every
+ten seconds while the tab is visible and again when it regains focus, so a
+repository made in a terminal turns up without any UI action, and every row that
+is not missing shows its folder name next to the project name. From the grace period task, the
 administration page is a settings form, not the Epic 11 mockup, and the
 infrastructure smoke test now signs in as the mock identity provider's
 administrator to shorten the grace period. From structured logging, an agent

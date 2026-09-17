@@ -82,6 +82,15 @@ test("lists the active projects and marks the one in view", async () => {
 	);
 });
 
+test("every row that is not missing shows its folder name", async () => {
+	await mount();
+
+	expect(screen.getByTestId(`project-slug-${TODO.id}`).textContent).toBe(TODO.slug);
+	// A folder that is not a repository still lives in ~/projects.
+	expect(screen.getByTestId(`project-slug-${NOTES.id}`).textContent).toBe(NOTES.slug);
+	expect(screen.queryByTestId(`project-slug-${GONE.id}`)).toBeNull();
+});
+
 test("a repository offers rename, duplicate, download and archive", async () => {
 	await mount();
 	openMenu(TODO.id);

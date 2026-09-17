@@ -16,10 +16,16 @@ export const projectKeys = {
 	templates: (workspaceId: string) => ["project-templates", workspaceId] as const,
 };
 
-/** The active or archived projects of one workspace (SPEC.md §7.4). */
+/**
+ * The active or archived projects of one workspace (SPEC.md §7.4). Polled so a
+ * directory made in a terminal is discovered without any UI action (§7.6);
+ * React Query pauses the polling while the tab is hidden.
+ */
 export function useProjects(workspaceId: string, state: ProjectState = "active") {
 	return useQuery({
 		queryKey: projectKeys.list(workspaceId, state),
+		refetchInterval: 10_000,
+		refetchOnWindowFocus: true,
 		queryFn: async () =>
 			(await request(ProjectList, `${base(workspaceId)}?state=${state}`)).projects,
 	});

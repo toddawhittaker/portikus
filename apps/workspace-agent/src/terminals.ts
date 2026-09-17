@@ -6,6 +6,7 @@ import {
 import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/events";
 import type { FastifyBaseLogger } from "fastify";
 import { type IPty, spawn } from "node-pty";
+import { type CwdWatch, watchCwd } from "./cwd.js";
 import { AgentFailure, attachArgs, hasSession } from "./tmux.js";
 
 /** Pause the PTY once this much output is waiting on the socket (SPEC.md §9.7). */
@@ -17,6 +18,17 @@ const LOW_WATER_BYTES = 256 * 1024;
 /** How often a paused attachment checks whether its socket has drained. */
 const DRAIN_POLL_MS = 50;
 
+/**
+ * How long a new attachment holds input while its `tmux attach-session`
+ * starts up. A tmux client discards anything written before it is ready, so
+ * the queue drains on the first byte of output or when this expires,
+ * whichever comes first.
+ */
+const INPUT_QUEUE_MS = 500;
+
+/** Most input one attachment will hold while tmux starts. */
+const INPUT_QUEUE_MAX_BYTES = 64 * 1024;
+
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 
@@ -25,6 +37,12 @@ interface Attachment {
 	/** Null only while the slot is reserved and the PTY is starting. */
 	pty: IPty | null;
 	drainTimer: NodeJS.Timeout | null;
+	/** Polls tmux for this terminal's directory (SPEC.md §9.3). */
+	cwdWatch: CwdWatch | null;
+	/** Input held until tmux is ready; null once the queue has been flushed. */
+	pendingInput: string[] | null;
+	pendingBytes: number;
+	pendingTimer: NodeJS.Timeout | null;
 }
 
 export interface AttachOptions {
@@ -48,6 +66,8 @@ export class TerminalRegistry {
 		private readonly homeDir: string,
 		private readonly log: FastifyBaseLogger,
 		private readonly socketName?: string,
+		/** Overridden by tests so they can drive a fake PTY. */
+		private readonly spawnPty: typeof spawn = spawn,
 	) {}
 
 	/** How many browsers are attached to one terminal. */
@@ -69,16 +89,25 @@ export class TerminalRegistry {
 		}
 		// Take the slot before the first await so that two attachments racing
 		// each other cannot both pass the limit check.
-		const attachment: Attachment = { socket, pty: null, drainTimer: null };
+		const attachment: Attachment = {
+			socket,
+			pty: null,
+			drainTimer: null,
+			cwdWatch: null,
+			pendingInput: [],
+			pendingBytes: 0,
+			pendingTimer: null,
+		};
 		existing.add(attachment);
 		this.attachments.set(id, existing);
+		attachment.cwdWatch = watchCwd(id, socket, this.socketName);
 
 		if (!(await hasSession(id, this.socketName))) {
 			this.forget(id, attachment);
 			throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 		}
 
-		const pty = spawn("tmux", attachArgs(id, this.socketName), {
+		const pty = this.spawnPty("tmux", attachArgs(id, this.socketName), {
 			name: "xterm-256color",
 			cols: options.cols ?? DEFAULT_COLS,
 			rows: options.rows ?? DEFAULT_ROWS,
@@ -92,7 +121,14 @@ export class TerminalRegistry {
 			"pty spawned",
 		);
 
+		// tmux is only ready to accept input once it has drawn something, so
+		// release the queue on the first output or on the timer.
+		attachment.pendingTimer = setTimeout(() => {
+			this.flushPendingInput(attachment);
+		}, INPUT_QUEUE_MS);
+
 		pty.onData((data) => {
+			this.flushPendingInput(attachment);
 			socket.send(Buffer.from(data, "utf8"), { binary: true });
 			this.applyBackpressure(attachment);
 		});
@@ -134,7 +170,26 @@ export class TerminalRegistry {
 		}
 	}
 
+	/** Write any input that arrived before tmux was ready, in order. */
+	private flushPendingInput(attachment: Attachment): void {
+		if (attachment.pendingTimer) {
+			clearTimeout(attachment.pendingTimer);
+			attachment.pendingTimer = null;
+		}
+		const pending = attachment.pendingInput;
+		attachment.pendingInput = null;
+		attachment.pendingBytes = 0;
+		if (!pending || !attachment.pty) return;
+		for (const chunk of pending) attachment.pty.write(chunk);
+	}
+
 	private forget(id: string, attachment: Attachment): void {
+		attachment.cwdWatch?.stop();
+		attachment.cwdWatch = null;
+		if (attachment.pendingTimer) {
+			clearTimeout(attachment.pendingTimer);
+			attachment.pendingTimer = null;
+		}
 		if (attachment.drainTimer) {
 			clearInterval(attachment.drainTimer);
 			attachment.drainTimer = null;
@@ -184,6 +239,19 @@ export class TerminalRegistry {
 		if (message.data.type === "input") {
 			if (Buffer.byteLength(message.data.data, "utf8") > MAX_INPUT_FRAME_BYTES) {
 				socket.close(1009, "input frame too large");
+				return;
+			}
+			if (attachment.pendingInput) {
+				const size = Buffer.byteLength(message.data.data, "utf8");
+				if (attachment.pendingBytes + size > INPUT_QUEUE_MAX_BYTES) {
+					this.log.warn(
+						{ pid: pty.pid, pendingBytes: attachment.pendingBytes },
+						"dropping early terminal input: queue full",
+					);
+					return;
+				}
+				attachment.pendingInput.push(message.data.data);
+				attachment.pendingBytes += size;
 				return;
 			}
 			pty.write(message.data.data);

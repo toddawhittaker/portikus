@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -50,7 +50,12 @@ interface Sock {
 	close: () => Promise<void>;
 }
 
-async function openSocket(id: string, token = TOKEN, query = ""): Promise<Sock> {
+async function openSocket(
+	id: string,
+	token = TOKEN,
+	query = "",
+	sendOnOpen?: string,
+): Promise<Sock> {
 	const url = `ws://127.0.0.1:${port}/terminals/${id}/attach${query}`;
 	// Node's WebSocket sends extra request headers, but its published type
 	// only allows a protocol list as the second argument.
@@ -62,6 +67,14 @@ async function openSocket(id: string, token = TOKEN, query = ""): Promise<Sock> 
 	let output = "";
 	const textFrames: unknown[] = [];
 	const decoder = new TextDecoder();
+
+	if (sendOnOpen !== undefined) {
+		ws.addEventListener(
+			"open",
+			() => ws.send(JSON.stringify({ type: "input", data: sendOnOpen })),
+			{ once: true },
+		);
+	}
 
 	ws.addEventListener("message", (event) => {
 		if (typeof event.data === "string") {
@@ -538,4 +551,77 @@ test("the bearer token never reaches a log line", async () => {
 	} finally {
 		await server.close();
 	}
+});
+
+test.skipIf(!haveTmux)(
+	"the agent reports the terminal's directory and repeats itself only on a change",
+	async () => {
+		const id = makeId();
+		const created = await app.inject({
+			method: "POST",
+			url: "/terminals",
+			headers: auth(),
+			payload: { id, cwd: homeDir },
+		});
+		expect(created.statusCode).toBe(201);
+
+		const socket = await openSocket(id);
+		await socket.waitFor("$", 1);
+
+		function cwdFrames(): string[] {
+			return socket.textFrames
+				.filter(
+					(frame): frame is { type: string; path: string } =>
+						typeof frame === "object" &&
+						frame !== null &&
+						(frame as { type?: unknown }).type === "cwd",
+				)
+				.map((frame) => frame.path);
+		}
+
+		async function waitForCwd(path: string): Promise<void> {
+			const deadline = Date.now() + 5000;
+			while (Date.now() < deadline) {
+				if (cwdFrames().includes(path)) return;
+				await new Promise((resolve) => setTimeout(resolve, 50));
+			}
+			throw new Error(`never saw cwd ${path}, only ${JSON.stringify(cwdFrames())}`);
+		}
+
+		// The first poll reports where the terminal started.
+		await waitForCwd(await realpath(homeDir));
+
+		socket.ws.send(JSON.stringify({ type: "input", data: "cd /tmp\r" }));
+		await waitForCwd("/tmp");
+
+		// Nothing moves for two more polls, so nothing more is sent.
+		const settled = cwdFrames();
+		await new Promise((resolve) => setTimeout(resolve, 4500));
+		expect(cwdFrames()).toEqual(settled);
+		// And no path was ever sent twice in a row.
+		expect(new Set(settled).size).toBe(settled.length);
+
+		await socket.close();
+		await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
+	},
+	30000,
+);
+test.skipIf(!haveTmux)("input sent before the first output still runs", async () => {
+	const id = makeId();
+	const created = await app.inject({
+		method: "POST",
+		url: "/terminals",
+		headers: auth(),
+		payload: { id, cwd: homeDir },
+	});
+	expect(created.statusCode).toBe(201);
+
+	// The marker is assembled by the shell, so seeing it proves the command
+	// ran rather than merely being echoed back as typed characters.
+	const socket = await openSocket(id, TOKEN, "", 'echo EARLY-"IN"PUT-OK\r');
+	expect(socket.output()).toBe("");
+	await socket.waitFor("EARLY-INPUT-OK");
+
+	await socket.close();
+	await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
 });
