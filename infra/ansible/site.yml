@@ -54,6 +54,8 @@
     portikus_incus_pool: "{{ incus_storage_pool_name }}"
     portikus_incus_profile: workspace
     portikus_incus_image_alias: portikus
+    # The TCP port the workspace agent listens on inside each container.
+    portikus_agent_port: 7400
     portikus_workspace_home_size_gib: 25
     portikus_workspace_docker_size_gib: 20
 

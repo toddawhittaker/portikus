@@ -47,6 +47,9 @@ rm -rf dist/deploy dist/deb
 pnpm --filter @portikus/api deploy --prod --legacy dist/deploy/api
 pnpm --filter @portikus/worker deploy --prod --legacy dist/deploy/worker
 pnpm --filter @portikus/workspace-controller deploy --prod --legacy dist/deploy/controller
+# Runs inside each workspace container, bind-mounted read-only from
+# /usr/lib/portikus/workspace-agent by the Incus workspace profile.
+pnpm --filter @portikus/workspace-agent deploy --prod --legacy dist/deploy/workspace-agent
 
 # pnpm deploy copies the whole package directory. Drop what the runtime never
 # reads: TypeScript sources, tsconfigs, build caches, and the lockfile copies.
@@ -67,9 +70,18 @@ prune_tree() {
 	chmod -R u=rwX,go=rX "$tree"
 }
 
-for name in api worker controller; do
+for name in api worker controller workspace-agent; do
 	prune_tree "dist/deploy/$name"
 done
+
+# systemd inside the container starts the agent through this shim, so the
+# unit does not need to know where node lives or how the tree is laid out.
+mkdir -p dist/deploy/workspace-agent/bin
+cat > dist/deploy/workspace-agent/bin/workspace-agent <<'SHIM'
+#!/bin/sh
+exec /usr/bin/node /opt/portikus/workspace-agent/dist/index.js
+SHIM
+chmod 0755 dist/deploy/workspace-agent/bin dist/deploy/workspace-agent/bin/workspace-agent
 
 mkdir -p dist/deb
 echo "$version" > dist/deb/VERSION
