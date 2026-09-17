@@ -239,20 +239,22 @@ export async function reconcile(
 		where w.id = d.id and w.shutdown_deadline is distinct from d.new_deadline
 	`.execute(db);
 
-	// Snapshot every live workspace after the deadline maths, so the debug
-	// lines show the values the decisions below were made from.
-	const snapshot = await db
-		.selectFrom("workspaces")
-		.select(["id", "state", "desired_state", "shutdown_deadline", "disconnected_at"])
-		.where("state", "in", [
-			"provisioning",
-			"stopped",
-			"starting",
-			"running",
-			"stopping",
-			"error",
-		])
-		.execute();
+	// Snapshot every workspace after the deadline maths, so the debug lines
+	// show the values the decisions below were made from. Only at debug: this
+	// runs every second.
+	const debugging = log.isLevelEnabled("debug");
+	const snapshot = debugging
+		? await db
+				.selectFrom("workspaces")
+				.select([
+					"id",
+					"state",
+					"desired_state",
+					"shutdown_deadline",
+					"disconnected_at",
+				])
+				.execute()
+		: [];
 
 	// (3) Drive actionable state transitions.
 
@@ -584,18 +586,20 @@ export async function reconcile(
 		}
 	}
 
-	for (const ws of snapshot) {
-		log.debug(
-			{
-				workspaceId: ws.id,
-				state: ws.state,
-				desiredState: ws.desired_state,
-				shutdownDeadline: ws.shutdown_deadline,
-				disconnectedAt: ws.disconnected_at,
-				action: actions.get(ws.id)?.join(", ") ?? "none",
-			},
-			"workspace decision",
-		);
+	if (debugging) {
+		for (const ws of snapshot) {
+			log.debug(
+				{
+					workspaceId: ws.id,
+					state: ws.state,
+					desiredState: ws.desired_state,
+					shutdownDeadline: ws.shutdown_deadline,
+					disconnectedAt: ws.disconnected_at,
+					action: actions.get(ws.id)?.join(", ") ?? "none",
+				},
+				"workspace decision",
+			);
+		}
 	}
 
 	return {

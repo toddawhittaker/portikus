@@ -68,9 +68,9 @@ async function main(): Promise<void> {
 	const logLevelTimer = setInterval(() => {
 		void syncLogLevel();
 	}, LOG_LEVEL_SYNC_SECONDS * 1000);
-	const stopLogLevelSync = () => clearInterval(logLevelTimer);
-	process.once("SIGTERM", stopLogLevelSync);
-	process.once("SIGINT", stopLogLevelSync);
+	// Do not keep the process alive for this, and leave Node's default signal
+	// handling in place so systemd's SIGTERM stops the worker at once.
+	logLevelTimer.unref();
 	void syncLogLevel();
 
 	let lastRefreshAt: Date | null = null;
