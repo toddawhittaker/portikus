@@ -2,8 +2,10 @@
 
 Guidance for Claude Code in this repository. Portikus is a browser-based
 agentic development workspace for students. Keep this file under 150
-lines: it holds pointers and process rules, not detail. Detail lives under
-`docs/` and is cited by file and section.
+lines. It holds only pointers and process rules: how work is delegated,
+tested, reviewed, and merged. Status, history, architecture, and anything
+that describes what the code does belong under `docs/`, cited by file and
+section, never here.
 
 ## Where things are documented
 
