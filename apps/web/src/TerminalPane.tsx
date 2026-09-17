@@ -286,8 +286,19 @@ export function TerminalPane({
 			setLost(true);
 		}
 
+		/** Measure the pane and tell the server the size xterm.js now has. */
+		const sendSize = () => {
+			// A pane with no box on screen cannot be measured; keep the last size.
+			if (container.clientWidth !== 0 && container.clientHeight !== 0) {
+				fitAddon.fit();
+			}
+			send({ type: "resize", cols: term.cols, rows: term.rows });
+		};
+
 		function connect() {
 			if (stopped) return;
+			// True once this socket has been told the size the pane really has.
+			let sizeConfirmed = false;
 			const next = new WebSocket(
 				socketUrl(workspaceId, terminalId, term.cols, term.rows),
 			);
@@ -305,6 +316,17 @@ export function TerminalPane({
 				const frame = decodeTerminalFrame(event.data);
 				if (frame.kind === "output") {
 					term.write(frame.bytes);
+					// The size in the connect URL is measured before the pane's box
+					// has settled, and a correction sent in the meantime is lost:
+					// this socket was not open yet, or the workspace agent had not
+					// yet started the PTY. Output means both are ready, so say the
+					// size again. Without this tmux keeps repainting a taller
+					// screen than xterm.js has, which scrolls the shell prompt out
+					// of view and leaves a blank pane (SPEC.md §9.7).
+					if (!sizeConfirmed) {
+						sizeConfirmed = true;
+						sendSize();
+					}
 					return;
 				}
 				if (frame.kind === "exit") {
@@ -352,8 +374,7 @@ export function TerminalPane({
 
 		const observer = new ResizeObserver(() => {
 			if (container.clientWidth === 0 || container.clientHeight === 0) return;
-			fitAddon.fit();
-			send({ type: "resize", cols: term.cols, rows: term.rows });
+			sendSize();
 		});
 		observer.observe(container);
 
