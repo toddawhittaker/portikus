@@ -337,4 +337,34 @@ test.describe("work area layout", () => {
 		await expect(page.getByRole("button", { name: "New terminal here" })).toBeVisible();
 		expect(await terminalIds(student.workspaceId, projectId)).toEqual([terminalId]);
 	});
+
+	test("reviving an ended leaf gives a live terminal in its place", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { projectId, terminalId } = await openProjectWithTerminal(
+			page,
+			student.workspaceId,
+			"Revived",
+		);
+		await endTerminal(terminalId);
+		await page.reload();
+		await expect(page.getByRole("button", { name: "New terminal here" })).toBeVisible({
+			timeout: 15_000,
+		});
+
+		await page.getByRole("button", { name: "New terminal here" }).click();
+
+		await expect
+			.poll(async () => (await terminalIds(student.workspaceId, projectId)).length)
+			.toBe(1);
+		const [revived] = await terminalIds(student.workspaceId, projectId);
+		if (!revived) throw new Error("the replacement terminal row was not created");
+		expect(revived).not.toBe(terminalId);
+		// The new terminal takes the ended one's place and attaches for real.
+		await expectConnected(page, revived);
+		await expect(page.getByTestId(`terminal-leaf-${revived}`)).toBeVisible();
+		await expect(page.getByTestId(`terminal-leaf-${terminalId}`)).toHaveCount(0);
+	});
 });
