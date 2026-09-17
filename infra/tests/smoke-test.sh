@@ -461,8 +461,16 @@ else
   check "api logs one line per request" api_journal_has '"msg":"request"'
   check_output "api answers 404 for an unknown route" "404" \
     ssh_cmd "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${API_PORT}/no-such-route"
-  check "api logs the 404 at warn"     api_journal_has '"level":"warn"'
-  check "api logs the 404 status"      api_journal_has '"status":404'
+  # One line must carry both the warn level and the 404, and journald can lag
+  # a moment behind the response.
+  api_journal_has_warn_404() {
+    for _ in $(seq 1 3); do
+      if api_journal_has '"level":"warn".*"status":404'; then return 0; fi
+      sleep 1
+    done
+    return 1
+  }
+  check "api logs the 404 as one warn line" api_journal_has_warn_404
 
   # 3. The mock identity provider answers through Caddy with the right issuer.
   check "portikus-mock-idp is active"           ssh_cmd systemctl is-active portikus-mock-idp
