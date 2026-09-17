@@ -130,10 +130,9 @@ merge.
 - **Secret scan**: gitleaks over the full history of the branch.
 - **Application checks**: `pnpm install --frozen-lockfile`, typecheck, lint,
   tests with coverage (`pnpm test:coverage`), build. Skipped until
-  `pnpm-workspace.yaml` exists. The run fails if coverage drops below 80%
-  of lines or 70% of branches overall, or below 85% of lines in
-  `apps/api` or `apps/workspace-agent`. The lcov report is uploaded as the
-  `coverage-lcov` artifact and kept for three days. `make check` runs the
+  `pnpm-workspace.yaml` exists. The run fails if coverage drops below the
+  floors in `vitest.config.ts` (for example 80% of lines overall). The lcov
+  report is uploaded as the `coverage-lcov` artifact and kept for three days. `make check` runs the
   same coverage command, so a local check catches the same failure.
 - **Browser end-to-end tests**: `pnpm test:e2e` with Playwright. Skipped
   until the script exists.
