@@ -575,6 +575,51 @@ The platform should persist:
 
 The process itself is not persisted across full workspace stop.
 
+### 9.7 Session model and wire protocol
+
+Each terminal is one tmux session inside the workspace, named
+`pk-<terminalId>` and created with `window-size latest`. Every browser
+attachment is its own PTY running `tmux attach-session` against that
+session, so tmux owns the shell and the WebSocket does not. Several
+attachments to one terminal are a shared tmux attach and must not create a
+second process. A full workspace stop ends the container and therefore the
+tmux sessions with it.
+
+Terminal metadata (§9.6, §26) is a durable control-plane row holding at
+least the terminal ID, its workspace, display name, working directory,
+layout position, creation time, and the time it ended. The control plane
+marks a terminal ended when its workspace begins stopping. An ended
+terminal is shown as ended with an action to create a new one. No output is
+replayed on reconnect.
+
+The browser connects to the control plane at
+`/workspaces/:id/terminals/:terminalId/ws`, and the control plane connects
+to the workspace agent at `/terminals/:terminalId/attach`. The two
+connections carry identical frames so that the control plane can forward
+bytes without interpreting them:
+
+- client to server, text frames: `{"type":"input","data":"…"}` and
+  `{"type":"resize","cols":N,"rows":N}`;
+- server to client, binary frames: raw PTY output;
+- server to client, text frames: `{"type":"exit"}` and
+  `{"type":"error","code":"…"}`.
+
+Limits, enforced by the server:
+
+- at most 8 terminals per workspace;
+- at most 4 simultaneous attachments per terminal;
+- at most 64 KiB of data in one input frame;
+- the workspace agent pauses reading the PTY when a socket's buffered
+  output passes 1 MiB and resumes when it falls below 256 KiB, so that a
+  runaway process cannot exhaust memory.
+
+The workspace agent additionally exposes `GET /health`, `GET /terminals`,
+`POST /terminals`, and `DELETE /terminals/:terminalId`. Every agent route,
+including the WebSocket upgrade, requires the per-workspace bearer token of
+§23.5. The control plane exposes `GET` and `POST /workspaces/:id/terminals`
+and `PATCH` and `DELETE /workspaces/:id/terminals/:terminalId` under the
+authorization rules of §5.2.
+
 ## 10. Coding-agent integration
 
 ### 10.1 Supported agents
@@ -2156,7 +2201,6 @@ Includes:
 - tmux/session persistence during disconnect grace;
 - xterm.js transport;
 - multiple terminals;
-- splits/reordering;
 - project working directories;
 - file/line terminal linkification;
 - localhost URL → authenticated preview linkification;
@@ -2170,12 +2214,22 @@ Acceptance:
 - localhost development links route through the authenticated preview gateway;
 - full workspace stop ends processes cleanly.
 
+Notes on scope. Linkification in Epic 5 is detection and routing only: a
+file/line reference navigates to `/workspaces/:id/files?path=…&line=N` and a
+localhost URL navigates to `/workspaces/:id/preview/PORT/`. Both routes
+answer 501 until the files UI lands in Epic 7 and the preview gateway in
+Epic 8, so the two link acceptance criteria above are proven in those epics
+rather than here. Terminal splits and pane reordering (§9.3) move to Epic 6,
+where the three-pane shell and its layout library arrive. The transport
+decisions are recorded in ADR 0009.
+
 ### Epic 6 — Core three-pane UI and project management
 **Estimate:** 3–4 engineer-days
 
 Includes:
 
 - left/center/right shell;
+- terminal splits and pane reordering, moved here from Epic 5;
 - project switching;
 - new/clone/template;
 - default Git initialization for new projects;
