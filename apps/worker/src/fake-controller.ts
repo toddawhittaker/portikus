@@ -2,6 +2,7 @@ import type {
 	CreateInstanceRequest,
 	CreateInstanceResponse,
 	ListInstancesResponse,
+	StartInstanceRequest,
 	StartInstanceResponse,
 	StopInstanceResponse,
 } from "@portikus/contracts";
@@ -35,8 +36,8 @@ export class FakeControllerClient implements ControllerClient {
 		return this.createResult;
 	}
 
-	async start(name: string, timeoutSeconds: number): Promise<StartInstanceResponse> {
-		this.calls.push({ method: "start", args: [name, timeoutSeconds] });
+	async start(name: string, req: StartInstanceRequest): Promise<StartInstanceResponse> {
+		this.calls.push({ method: "start", args: [name, req] });
 		if (this.startResult instanceof Error) throw this.startResult;
 		return this.startResult;
 	}
