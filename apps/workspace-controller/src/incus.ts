@@ -57,14 +57,49 @@ export class IncusClient {
 		return envelope.metadata;
 	}
 
+	/**
+	 * Push a file into an instance through the Incus files API
+	 * (ADR 0009). The endpoint answers with a sync envelope, not an
+	 * operation, so there is nothing to wait for.
+	 */
+	async pushFile(
+		instance: string,
+		filePath: string,
+		body: string,
+		opts: { uid: number; gid: number; mode: string },
+		signal?: AbortSignal,
+	): Promise<void> {
+		const path =
+			`/1.0/instances/${encodeURIComponent(instance)}/files` +
+			`?path=${encodeURIComponent(filePath)}` +
+			`&project=${encodeURIComponent(this.project)}`;
+
+		await this.rawRequest("POST", path, undefined, signal, {
+			headers: {
+				"Content-Type": "application/octet-stream",
+				"X-Incus-uid": String(opts.uid),
+				"X-Incus-gid": String(opts.gid),
+				"X-Incus-mode": opts.mode,
+				"X-Incus-type": "file",
+				"X-Incus-write": "overwrite",
+			},
+			body,
+		});
+	}
+
 	private rawRequest(
 		method: string,
 		path: string,
 		body?: unknown,
 		signal?: AbortSignal,
+		raw?: { headers: Record<string, string>; body: string },
 	): Promise<IncusEnvelope> {
 		return new Promise<IncusEnvelope>((resolve, reject) => {
-			const payload = body !== undefined ? JSON.stringify(body) : undefined;
+			const payload = raw
+				? raw.body
+				: body !== undefined
+					? JSON.stringify(body)
+					: undefined;
 
 			const req = http.request(
 				{
@@ -72,8 +107,8 @@ export class IncusClient {
 					method,
 					path,
 					headers: {
-						"Content-Type": "application/json",
-						...(payload
+						...(raw ? raw.headers : { "Content-Type": "application/json" }),
+						...(payload !== undefined
 							? {
 									"Content-Length": Buffer.byteLength(payload),
 								}
@@ -125,7 +160,7 @@ export class IncusClient {
 				}
 			});
 
-			if (payload) {
+			if (payload !== undefined) {
 				req.write(payload);
 			}
 			req.end();

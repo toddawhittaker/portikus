@@ -13,6 +13,7 @@ const provider = new IncusWorkspaceProvider({
 	pool: config.INCUS_POOL,
 	profile: config.INCUS_PROFILE,
 	imageAlias: config.INCUS_IMAGE_ALIAS,
+	agentPort: config.AGENT_PORT,
 });
 
 const app = buildServer({
