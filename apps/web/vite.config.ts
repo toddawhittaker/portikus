@@ -13,8 +13,16 @@ export default defineConfig({
 			"/health": api,
 			"/auth": api,
 			"/admin": api,
-			// The workspace routes include the WebSocket upgrade.
-			"/workspaces": { ...api, ws: true },
+			// The workspace routes include the WebSocket upgrade. They are also
+			// where the single-page application's own screens live, so a page
+			// the browser asks for as a document is served from the bundle and
+			// only data and socket requests reach the API.
+			"/workspaces": {
+				...api,
+				ws: true,
+				bypass: (req) =>
+					req.headers.accept?.includes("text/html") ? "/index.html" : undefined,
+			},
 		},
 	},
 });

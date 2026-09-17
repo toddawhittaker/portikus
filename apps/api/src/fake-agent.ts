@@ -19,8 +19,14 @@ export interface FakeAgent {
 	close: () => Promise<void>;
 }
 
-export async function startFakeAgent(token: string): Promise<FakeAgent> {
+export async function startFakeAgent(
+	token: string,
+	options: { port?: number } = {},
+): Promise<FakeAgent> {
 	const terminals = new Map<string, { cwd: string }>();
+	// Every attachment of one terminal, so echoed output reaches them all,
+	// the way a real shared tmux session would.
+	const attached = new Map<string, Set<WebSocket>>();
 	const received: string[] = [];
 	const app: FastifyInstance = Fastify({ logger: false });
 	await app.register(websocket);
@@ -82,8 +88,12 @@ export async function startFakeAgent(token: string): Promise<FakeAgent> {
 				return;
 			}
 			state.openAttachments += 1;
+			const peers = attached.get(id) ?? new Set<WebSocket>();
+			peers.add(socket);
+			attached.set(id, peers);
 			socket.on("close", () => {
 				state.openAttachments -= 1;
+				peers.delete(socket);
 			});
 			const query = request.query as { cols?: string; rows?: string };
 			socket.send(JSON.stringify({ type: "size", cols: query.cols, rows: query.rows }));
@@ -95,12 +105,16 @@ export async function startFakeAgent(token: string): Promise<FakeAgent> {
 					socket.send(JSON.stringify({ type: "size", cols: parsed.cols }));
 					return;
 				}
-				socket.send(Buffer.from(`echo:${text}`), { binary: true });
+				for (const peer of peers) {
+					if (peer.readyState === peer.OPEN) {
+						peer.send(Buffer.from(`echo:${text}`), { binary: true });
+					}
+				}
 			});
 		},
 	);
 
-	await app.listen({ port: 0, host: "127.0.0.1" });
+	await app.listen({ port: options.port ?? 0, host: "127.0.0.1" });
 	const address = app.server.address() as AddressInfo;
 
 	return {
