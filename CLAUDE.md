@@ -70,12 +70,48 @@ disabled unless Ansible's `portikus_mock_idp` is true (ADR 0008). A new
 package now ships, and the smoke test logs in through the real redirect
 flow.
 
-Epic 4 known gaps: a real identity provider is not reachable from the API
-yet, because the units allow loopback traffic only; the real client secret
-travels through the environment until SOPS is wired up; there is no admin
-UI beyond the one listing route; nothing rate-limits login; and disabling a
-user means setting `users.disabled_at` by hand in SQL. Epic 5 (workspace
-agent and terminal transport) is next.
+Epic 5 is the workspace agent and terminal transport (ADR 0009).
+`apps/workspace-agent` is a Fastify service using `node-pty` and tmux that
+runs as the unprivileged `student` user inside each container and listens
+on TCP 7400 on the workspace bridge. Each terminal is one tmux session,
+`pk-<terminalId>`, and every attachment is its own PTY running `tmux
+attach-session`, so tmux and not the browser socket owns the shell. The
+agent authenticates a per-workspace bearer token that the worker mints on
+every start and the controller pushes to `/etc/portikus/agent.token`
+through the Incus files API; `start` then polls the agent's `/health` and
+fails if it is not up within 15 seconds. The Debian package ships the agent
+at `/usr/lib/portikus/workspace-agent`, the workspace profile bind-mounts
+it read-only at `/opt/portikus/workspace-agent`, and workspace image
+`2026.09.2` runs its unit as `student`. The API adds terminal routes and a
+byte-pipe WebSocket at `/workspaces/:id/terminals/:tid/ws` that forwards
+frames without parsing them, applies backpressure in both directions,
+serves the workspace owner only (an administrator gets a 404), and
+re-checks the session about once a second. Terminal metadata lives in a
+`terminals` table, and the worker sets `ended_at` when a workspace stops.
+The web app gains a terminal page built on xterm.js with tabs, reconnect,
+and link routing to the placeholder files and preview routes, which answer
+501 until Epics 7 and 8; Caddy now sends browser document requests under
+`/workspaces` to the single-page app while JSON and WebSocket routes still
+go to the API. On the infrastructure side the `incus_network` role loads
+`br_netfilter`, which is what makes the peer-isolation ACL rule take
+effect, and the workspace nic filters IP and MAC addresses while the ACL
+allows tcp/7400 from the gateway only. Tests are 17 Playwright cases
+against a fake agent, a vitest file against the real agent (it needs tmux,
+now installed in CI), and an Epic 5 block in the smoke test.
+
+Known gaps: from Epic 4, a real identity provider is not reachable from the
+API yet, the real client secret travels through the environment until SOPS
+is wired up, there is no admin UI beyond the one listing route, nothing
+rate-limits login, and disabling a user means setting `users.disabled_at`
+by hand in SQL. From Epic 5, terminal splits and pane reordering are
+deferred to Epic 6; the file and preview link targets are placeholders
+until Epics 7 and 8; traffic between the API and the agent is plaintext on
+the workspace bridge until Epic 12; the token file sits in a directory the
+student owns, so containment relies on the Incus files API resolving paths
+inside the instance; the eight-terminal cap has a benign check-then-act
+race; and terminal rows (open plus the 20 most recent ended per listing)
+are never pruned. Epic 6 (core three-pane UI and project management) is
+next.
 
 ## Commands
 
@@ -105,9 +141,9 @@ Layout: `apps/` holds the five processes, `e2e/` the Playwright tests, and
 
 | Package | Holds |
 |---|---|
-| `contracts` | Zod schemas for the workspace API and the controller API |
+| `contracts` | Zod schemas for the workspace, terminal, controller, and agent APIs |
 | `config` | Per-service `loadConfig`, which validates the environment at startup |
-| `events` | Schemas for the WebSocket and cross-process event streams |
+| `events` | Schemas for the WebSocket frames, including terminal input and output |
 | `db` | PostgreSQL access: Kysely types, connections, migrations, test helpers |
 | `auth` | OIDC login, sessions, authorization helpers, mock identity provider |
 | `observability` | OpenTelemetry setup and the structured JSON logger |

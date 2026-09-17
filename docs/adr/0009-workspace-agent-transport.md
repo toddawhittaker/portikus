@@ -71,3 +71,20 @@ table (SPEC §26); the worker sets `ended_at` when a workspace moves to
   requirements, not tuning.
 - Traffic between the API and the agent is plaintext on the workspace
   bridge. TLS between them is deferred to Gate C in Epic 12.
+
+## Review notes
+
+Three decisions came out of building and reviewing Epic 5. Terminal routes
+and the terminal WebSocket look the workspace up by owner only, so an
+administrator asking for a student's terminal gets a 404 like anyone else
+(SPEC §20.2); administrators read state through their own listing route.
+The worker mints a fresh agent token on every workspace start rather than
+once at create time, so a token that leaked while the workspace ran stops
+working at the next start. The network ACL that isolates peer workspaces
+(SPEC §23.3) only has effect when the `br_netfilter` module is loaded and
+`net.bridge.bridge-nf-call-iptables` is set, because Incus writes its ACL
+rules into the host firewall, which otherwise never sees traffic between
+two containers on the same bridge; the `incus_network` role now sets both
+persistently. One residual risk: the token file sits in a directory the
+`student` user owns inside the container, so containment rests on the Incus
+files API resolving paths inside the instance.
