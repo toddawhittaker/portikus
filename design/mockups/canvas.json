@@ -1,0 +1,220 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "AdminWorkspaces.dc.html": {
+      "h": 900,
+      "title": "Admin: workspaces with row actions · 1440",
+      "w": 1440,
+      "x": 0,
+      "y": 4029
+    },
+    "AdminWorkspaces1024.dc.html": {
+      "h": 768,
+      "title": "Admin: Reset Docker confirmation · 1024",
+      "w": 1024,
+      "x": 1520,
+      "y": 4029
+    },
+    "AdminWorkspaces1024Dark.dc.html": {
+      "h": 768,
+      "title": "Admin: Reset Docker confirmation · 1024 · dark",
+      "w": 1024,
+      "x": 4144,
+      "y": 4029
+    },
+    "AdminWorkspacesDark.dc.html": {
+      "h": 900,
+      "title": "Admin: workspaces with row actions · 1440 · dark",
+      "w": 1440,
+      "x": 2624,
+      "y": 4029
+    },
+    "DisconnectCountdown.dc.html": {
+      "h": 900,
+      "title": "Disconnect countdown · 1440",
+      "w": 1440,
+      "x": 1520,
+      "y": 1343
+    },
+    "DisconnectCountdownDark.dc.html": {
+      "h": 900,
+      "title": "Disconnect countdown · 1440 · dark",
+      "w": 1440,
+      "x": 6080,
+      "y": 1343
+    },
+    "ErrorStorage.dc.html": {
+      "h": 900,
+      "title": "Error: storage full · 1440",
+      "w": 1440,
+      "x": 3040,
+      "y": 1343
+    },
+    "ErrorStorageDark.dc.html": {
+      "h": 900,
+      "title": "Error: storage full · 1440 · dark",
+      "w": 1440,
+      "x": 7600,
+      "y": 1343
+    },
+    "Main.dc.html": {
+      "h": 900,
+      "title": "Sign-in · 1440",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "MainDark.dc.html": {
+      "h": 900,
+      "title": "Sign-in · 1440 · dark",
+      "w": 1440,
+      "x": 4560,
+      "y": 0
+    },
+    "NotAuthorized.dc.html": {
+      "h": 900,
+      "title": "Not authorized · 1440",
+      "w": 1440,
+      "x": 1520,
+      "y": 0
+    },
+    "NotAuthorizedDark.dc.html": {
+      "h": 900,
+      "title": "Not authorized · 1440 · dark",
+      "w": 1440,
+      "x": 6080,
+      "y": 0
+    },
+    "SessionEnded.dc.html": {
+      "h": 900,
+      "title": "Session ended / access ended · 1440",
+      "w": 1440,
+      "x": 3040,
+      "y": 0
+    },
+    "SessionEndedDark.dc.html": {
+      "h": 900,
+      "title": "Session ended / access ended · 1440 · dark",
+      "w": 1440,
+      "x": 7600,
+      "y": 0
+    },
+    "Shell.dc.html": {
+      "h": 900,
+      "title": "Application shell · 1440",
+      "w": 1440,
+      "x": 0,
+      "y": 2686
+    },
+    "Shell1024.dc.html": {
+      "h": 768,
+      "title": "Application shell, collapsed · 1024 (dark)",
+      "w": 1024,
+      "x": 1520,
+      "y": 2686
+    },
+    "ShellDark.dc.html": {
+      "h": 900,
+      "title": "Application shell · 1440 · dark",
+      "w": 1440,
+      "x": 3224,
+      "y": 2686
+    },
+    "WorkspaceStarting.dc.html": {
+      "h": 900,
+      "title": "Workspace starting (connecting) · 1440",
+      "w": 1440,
+      "x": 0,
+      "y": 1343
+    },
+    "WorkspaceStartingDark.dc.html": {
+      "h": 900,
+      "title": "Workspace starting (connecting) · 1440 · dark",
+      "w": 1440,
+      "x": 4560,
+      "y": 1343
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-09-17T01:01:47Z",
+    "v": 1
+  },
+  "designSystems": [
+    {
+      "artifact": "https://claude.ai/artifact/TAPoWu8R6p6Q8GiY7yFmgu",
+      "copiedAt": "2026-09-17T01:01:47Z",
+      "namespace": "portikus",
+      "title": "Portikus",
+      "version": "1789595319-c72a"
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "handoff": {
+      "color": "teal",
+      "maxH": 900,
+      "text": "Handoff: names for packages/ui\n\nMounted from the Portikus system: NameMark, Icon, Button, IconButton, Menu/MenuItem/MenuLabel/MenuSeparator, Tabs, StateBadge, Table (markup + pk-table classes), TextField, Select, Checkbox, Skeleton, ShortcutHint, PaneHandle, ConfirmDialog.\n\nProposed additions (portikus-screens.css, data-component on each): AppHeader, AccountMenuTrigger, WorkspaceStatusButton, AppShell, Pane (+ overlay at 1024), Rail, ProjectList, FileTree, TerminalPane, PreviewPane, StatusBar, DisconnectNotice (Notice), WorkspaceProgress, StorageMeter, ErrorState, StandalonePage, AdminNav, WorkspaceDetailPanel.\n\nProposed token: terminal-line (#2a2824), the hairline on terminal-bg.\nType utilities: pk-text-display … pk-text-caption, pk-mono-body, pk-mono-small map 1:1 to type tokens.\n\nCanvas-only: is-focus-demo / is-focus-demo-inset draw the focus-visible ring on static comps.\n\nLeave-terminal shortcut (Alt+Shift+Q) is a proposal; confirm it against browser and shell bindings.",
+      "w": 520,
+      "x": 2624,
+      "y": 2686
+    },
+    "t-admin": {
+      "kind": "title1",
+      "maxW": 5168,
+      "text": "Administration",
+      "w": 240,
+      "x": 0,
+      "y": 3806
+    },
+    "t-entry": {
+      "kind": "title1",
+      "maxW": 8000,
+      "text": "Entry and refusal pages",
+      "w": 240,
+      "x": 0,
+      "y": -223
+    },
+    "t-life": {
+      "kind": "title1",
+      "maxW": 8000,
+      "text": "Workspace lifecycle",
+      "w": 240,
+      "x": 0,
+      "y": 1120
+    },
+    "t-shell": {
+      "kind": "title1",
+      "maxW": 4664,
+      "text": "Application shell",
+      "w": 240,
+      "x": 0,
+      "y": 2463
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "NotAuthorized.dc.html",
+    "SessionEnded.dc.html",
+    "MainDark.dc.html",
+    "NotAuthorizedDark.dc.html",
+    "SessionEndedDark.dc.html",
+    "WorkspaceStarting.dc.html",
+    "DisconnectCountdown.dc.html",
+    "ErrorStorage.dc.html",
+    "WorkspaceStartingDark.dc.html",
+    "DisconnectCountdownDark.dc.html",
+    "ErrorStorageDark.dc.html",
+    "Shell.dc.html",
+    "Shell1024.dc.html",
+    "ShellDark.dc.html",
+    "AdminWorkspaces.dc.html",
+    "AdminWorkspaces1024.dc.html",
+    "AdminWorkspacesDark.dc.html",
+    "AdminWorkspaces1024Dark.dc.html"
+  ],
+  "pages": [],
+  "title": "Portikus UI"
+}

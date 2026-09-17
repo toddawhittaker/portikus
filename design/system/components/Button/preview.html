@@ -1,0 +1,32 @@
+<!-- @dsCard group="Actions" height=200 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Button</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+</style></head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+ReactDOM.createRoot(document.getElementById('root')).render(h(F,null,
+ h('div',{className:'demo'},
+  h(P.Button,{variant:'primary',size:'lg'},'Sign in with your institution'),
+  h(P.Button,{variant:'primary',iconStart:'play'},'Start workspace'),
+  h(P.Button,{variant:'secondary'},'View details'),
+  h(P.Button,{variant:'quiet',iconStart:'plus'},'New project'),
+  h(P.Button,{variant:'danger'},'Revoke access'),
+  h(P.Button,{variant:'primary',loading:true},'Starting\u2026'),
+  h(P.Button,{variant:'secondary',disabled:true},'Rebuild workspace')),
+ h('div',{className:'demo','data-density':'compact',style:{paddingTop:0}},
+  h('span',{className:'demo-cap',style:{margin:0,width:'100%'}},'Compact density (administrators)'),
+  h(P.Button,{variant:'primary'},'Start'),
+  h(P.Button,{variant:'secondary',iconStart:'restart'},'Restart'),
+  h(P.Button,{variant:'quiet'},'Cancel'),
+  h(P.Button,{variant:'danger'},'Archive'))
+));
+</script>
+</body>
+</html>

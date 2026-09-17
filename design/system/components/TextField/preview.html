@@ -1,0 +1,22 @@
+<!-- @dsCard group="Forms" height=230 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>TextField</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+</style></head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:'16px 20px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'20px',maxWidth:'720px'}},
+ h(P.TextField,{id:'a',label:'Repository URL',mono:true,placeholder:'https://github.com/org/repo.git',hint:'HTTPS or SSH. Portikus clones into ~/projects.'}),
+ h(P.TextField,{id:'b',label:'Folder name',mono:true,defaultValue:'todo api',error:'Use letters, numbers, dots, dashes or underscores. No spaces.'}),
+ h('div',{'data-density':'compact'},h(P.TextField,{id:'c',label:'Docker quota (GB)',defaultValue:'20',hint:'Compact density'})),
+ h(P.TextField,{id:'d',label:'Institution account',defaultValue:'achen12@example.edu',disabled:true})
+));
+</script>
+</body>
+</html>

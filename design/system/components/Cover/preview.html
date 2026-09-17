@@ -1,0 +1,46 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Portikus</title>
+<style>
+  html, body { margin:0; height:100%; }
+  body { background:var(--surface); color:var(--ink); font-family:var(--font-sans); overflow:hidden; }
+  .cover { position:relative; height:288px; overflow:hidden; }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; width:480px; height:288px; }
+  .stone { fill:var(--ink); }
+  .room { fill:var(--terminal-bg); }
+  .code { fill:var(--mark-code); }
+  .cursor { fill:var(--terminal-cursor); }
+  .words { position:absolute; left:var(--space-10); bottom:var(--space-10); max-width:440px; }
+  .name { margin:0; font-size:88px; line-height:.92; font-weight:700; letter-spacing:-.02em; color:var(--ink); }
+  .tag { margin:var(--space-3) 0 0 4px; font-size:14px; line-height:20px; color:var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      ink stone (lintel, columns, base line) at 4x the NameMark grid, 384x192 · terminal-bg room 224x112 · mark-code lines and a terminal-cursor block inside it
+  arrangement the NameMark itself, enlarged and centred in the box; lintel and base line the same length, as in the mark
+  pattern     literal motif, from "Portikus is an entryway, not the destination": the portico frames the terminal; three code lines and a cursor are the only texture
+  scales      4x the 96-unit mark grid (lintel and base line space-6 tall), room radius-none (real tools stay square)
+-->
+<g transform="translate(48 48) scale(4)">
+<path class="stone" d="M0 0h96v6h-96z M2 7L17 7L16 11L3 11z M4 11h11v26h-11z M3 37L16 37L17 41L2 41z M79 7L94 7L93 11L80 11z M81 11h11v26h-11z M80 37L93 37L94 41L79 41z M0 42h96v6h-96z"/>
+<path class="room" d="M20 11h56v28h-56z"/>
+<path class="code" d="M25 16h39v2.5h-39z M25 21h22v2.5h-22z M25 26h30v2.5h-30z"/>
+<path class="cursor" d="M25 31h3v5.5h-3z"/>
+</g>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">Portikus</h1>
+<p class="tag">The entrance to a real workshop, kept calm.</p>
+</div>
+</div>
+</body>
+</html>

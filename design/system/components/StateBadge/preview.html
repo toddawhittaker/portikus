@@ -1,0 +1,31 @@
+<!-- @dsCard group="Feedback" height=200 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>StateBadge</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+</style></head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:'16px 20px',display:'grid',gap:'14px'}},
+ h('div',null,h('p',{className:'demo-cap'},'Settled states'),
+  h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap'}},
+   h(P.StateBadge,{state:'running'}),h(P.StateBadge,{state:'stopped'}),h(P.StateBadge,{state:'error'}))),
+ h('div',null,h('p',{className:'demo-cap'},'Transitions (state differs from desired state) always move; never red'),
+  h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap'}},
+   h(P.StateBadge,{state:'provisioning',desiredState:'running'}),
+   h(P.StateBadge,{state:'starting',desiredState:'running'}),
+   h(P.StateBadge,{state:'stopped',desiredState:'running'}),
+   h(P.StateBadge,{state:'running',desiredState:'stopped'}),
+   h(P.StateBadge,{state:'stopping',desiredState:'stopped'}),
+   h(P.StateBadge,{state:'running',desiredState:'restarting'}))),
+ h('div',null,h('p',{className:'demo-cap'},'Plain, inside a status bar'),
+  h('div',{style:{display:'flex',gap:'16px'}},h(P.StateBadge,{state:'running',plain:true}),h(P.StateBadge,{state:'stopped',desiredState:'running',plain:true})))
+));
+</script>
+</body>
+</html>

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+  <link rel="stylesheet" href="portikus-tokens.css">
+  <link rel="stylesheet" href="ds/portikus/components/bundle.css">
+  <link rel="stylesheet" href="portikus-screens.css">
+  <script src="ds/portikus/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&amp;family=Public+Sans:ital,wght@0,100..900;1,100..900&amp;display=swap">
+  <style>
+    body { margin: 0; }
+  </style>
+</helmet>
+<div class="pk-root" data-theme="{{theme}}" data-density="comfortable" style="position: relative; width: 1024px; height: 768px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); color: var(--ink);">
+<header class="pk-appbar" data-component="AppHeader">
+  <x-import component-from-global-scope="Portikus.NameMark" size="{{markSm}}" href="#"></x-import>
+  <span class="pk-appbar-spacer"></span>
+  <button type="button" class="pk-wsbutton" aria-haspopup="dialog" data-component="WorkspaceStatusButton">
+    <span>Workspace</span>
+    <x-import component-from-global-scope="Portikus.StateBadge" state="running" desired-state="running"></x-import>
+  </button>
+  <x-import component-from-global-scope="Portikus.IconButton" icon="search" label="Search in todo-api" shortcut="{{keys.search}}"></x-import>
+  <button type="button" class="pk-account" aria-haspopup="menu" aria-expanded="false" data-component="AccountMenuTrigger">
+    <span class="pk-initials" aria-hidden="true">AC</span>
+    <span>Avery Chen</span>
+    
+    <x-import component-from-global-scope="Portikus.Icon" name="chevron-down" size="sm"></x-import>
+  </button>
+</header>
+<div class="pk-shell" data-component="AppShell">
+  <nav class="pk-rail" aria-label="Panes" style="border-right: 1px solid var(--line);">
+    <x-import component-from-global-scope="Portikus.IconButton" icon="folder" label="Projects" aria-pressed="{{projectsOpen}}" class-name="is-focus-demo"></x-import>
+    <x-import component-from-global-scope="Portikus.IconButton" icon="search" label="Search in todo-api" shortcut="{{keys.search}}"></x-import>
+  </nav>
+  <main class="pk-work" aria-label="Work area">
+    <x-import component-from-global-scope="Portikus.Tabs" tabs="{{tabs}}" active-id="t4" label="Open tabs in todo-api"></x-import>
+    <div role="tabpanel" aria-label="Preview of port 3000" style="flex: 1; min-height: 0; display: flex; flex-direction: column;" data-component="PreviewPane">
+      <div class="pk-preview-bar">
+        <div class="pk-origin" title="Previews open on a separate site, isolated from Portikus">
+          <x-import component-from-global-scope="Portikus.Icon" name="lock" size="sm"></x-import>
+          <span class="pk-origin-url">https://ws-7f3a2c-3000.portikus-preview.example/todos</span>
+          <span class="pk-origin-tag">Separate site</span>
+        </div>
+        <x-import component-from-global-scope="Portikus.IconButton" icon="restart" label="Reload preview"></x-import>
+        <x-import component-from-global-scope="Portikus.IconButton" icon="external" label="Open in new tab" variant="secondary"></x-import>
+      </div>
+      <div class="pk-preview-frame">
+        <div class="pk-preview-canvas" role="img" aria-label="Embedded preview in a sandboxed frame">[
+  { "id": 1, "title": "Write the 404 test", "done": true },
+  { "id": 2, "title": "Fix GET /todos/:id", "done": false },
+  { "id": 3, "title": "Add pagination", "done": false }
+]</div>
+      </div>
+    </div>
+  </main>
+  <nav class="pk-rail" aria-label="Side panes" style="border-left: 1px solid var(--line);">
+    <x-import component-from-global-scope="Portikus.IconButton" icon="file" label="Files" aria-pressed="{{filesOpen}}"></x-import>
+  </nav>
+  <sc-if value="{{filesOpen}}" hint-placeholder-val="{{yes}}"><aside class="pk-pane pk-pane--overlay" aria-label="Files" data-component="FileTree" style="width: 280px; right: 48px; border-left: 1px solid var(--line);">
+    <div class="pk-pane-head">
+      <h2 class="pk-pane-title">Files</h2>
+      <x-import component-from-global-scope="Portikus.IconButton" icon="plus" label="New file or folder" size="sm" aria-haspopup="menu"></x-import>
+      <x-import component-from-global-scope="Portikus.IconButton" icon="search" label="Find in files" size="sm"></x-import>
+      <x-import component-from-global-scope="Portikus.IconButton" icon="more" label="More file actions: upload, download, refresh" size="sm" aria-haspopup="menu"></x-import>
+    </div>
+    <div class="pk-pane-sub">~/projects/todo-api</div>
+    <div class="pk-pane-body">
+      <ul role="tree" aria-label="Files in todo-api" class="pk-tree">
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-expanded="true" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"><x-import component-from-global-scope="Portikus.Icon" name="chevron-down" size="sm"></x-import></span><x-import component-from-global-scope="Portikus.Icon" name="folder-open" size="md"></x-import><span class="pk-tree-name">src</span><span class="pk-tree-dot" title="Contains changes"><span class="pk-visually-hidden">, contains changes</span></span></li>
+        <li role="treeitem" aria-level="2" tabindex="-1" aria-expanded="false" aria-selected="false" class="pk-tree-row" style="padding-left: 24px;"><span class="pk-tree-twisty"><x-import component-from-global-scope="Portikus.Icon" name="chevron-right" size="sm"></x-import></span><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-tree-name">routes</span><span class="pk-tree-dot" title="Contains changes"><span class="pk-visually-hidden">, contains changes</span></span></li>
+        <li role="treeitem" aria-level="2" tabindex="-1" aria-selected="true" class="pk-tree-row" style="padding-left: 24px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">app.ts</span><span class="pk-tree-git pk-git-modified" title="Modified">M<span class="pk-visually-hidden">, modified</span></span></li>
+        <li role="treeitem" aria-level="2" tabindex="0" aria-selected="false" class="pk-tree-row is-focus-demo-inset" style="padding-left: 24px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">db.ts</span></li>
+        <li role="treeitem" aria-level="2" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 24px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">server.ts</span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-expanded="true" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"><x-import component-from-global-scope="Portikus.Icon" name="chevron-down" size="sm"></x-import></span><x-import component-from-global-scope="Portikus.Icon" name="folder-open" size="md"></x-import><span class="pk-tree-name">tests</span><span class="pk-tree-dot" title="Contains changes"><span class="pk-visually-hidden">, contains changes</span></span></li>
+        <li role="treeitem" aria-level="2" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 24px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">health.test.ts</span></li>
+        <li role="treeitem" aria-level="2" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 24px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">todos.test.ts</span><span class="pk-tree-git pk-git-untracked" title="Untracked">U<span class="pk-visually-hidden">, untracked</span></span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-expanded="false" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"><x-import component-from-global-scope="Portikus.Icon" name="chevron-right" size="sm"></x-import></span><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-tree-name">docs</span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">CLAUDE.md</span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">package.json</span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">package-lock.json</span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">README.md</span><span class="pk-tree-git pk-git-modified" title="Modified">M<span class="pk-visually-hidden">, modified</span></span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">tsconfig.json</span></li>
+      </ul>
+    </div>
+    <div class="pk-pane-foot pk-pane-foot--pad">
+      <x-import component-from-global-scope="Portikus.Checkbox" label="Show hidden and generated files" description="node_modules, .git and dist are hidden" checked="{{no}}"></x-import>
+    </div>
+  </aside>
+</sc-if>
+  <sc-if value="{{projectsOpen}}" hint-placeholder-val="{{no}}"><nav class="pk-pane" aria-label="Projects" data-component="ProjectList" style="position: absolute; top: 0; bottom: 0; left: 48px; width: 260px; z-index: 50; box-shadow: var(--shadow-md); border-right: 1px solid var(--line);">
+    <div class="pk-pane-head">
+      <h2 class="pk-pane-title">Projects</h2>
+      <x-import component-from-global-scope="Portikus.IconButton" icon="plus" label="New project" size="sm" aria-haspopup="menu"></x-import>
+    </div>
+    <div class="pk-pane-body">
+    <ul class="pk-list">
+      <li class="pk-list-item is-current">
+        <a class="pk-list-row" href="#" aria-current="page"><x-import component-from-global-scope="Portikus.Icon" name="folder-open" size="md"></x-import><span class="pk-list-label">todo-api</span><span class="pk-list-meta" title="3 changed files">3</span></a>
+        <x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for todo-api" size="sm" aria-haspopup="menu"></x-import>
+      </li>
+      <li class="pk-list-item">
+        <a class="pk-list-row" href="#"><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-list-label">weather-cli</span></a>
+      </li>
+      <li class="pk-list-item">
+        <a class="pk-list-row" href="#"><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-list-label">portfolio-site</span></a>
+      </li>
+      <li class="pk-list-item">
+        <a class="pk-list-row" href="#"><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-list-label">week-4-exercises</span></a>
+      </li>
+    </ul>
+    </div>
+    <div class="pk-pane-foot">
+      <a class="pk-list-row" href="#"><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-list-label">Archived projects</span><span class="pk-list-meta">2</span><x-import component-from-global-scope="Portikus.Icon" name="chevron-right" size="sm"></x-import></a>
+    </div>
+  </nav>
+</sc-if>
+</div>
+<footer class="pk-statusbar" data-component="StatusBar">
+    <span class="pk-statusbar-item pk-statusbar-mono">main • 3 changes • 2 commits ahead</span>
+    <span class="pk-statusbar-item">app.ts · Saving…</span>
+    
+    <span class="pk-statusbar-spacer"></span>
+    <span class="pk-statusbar-item"><span class="pk-dot pk-tone-running" aria-hidden="true"></span><span class="pk-statusbar-mono">:3000</span> listening</span>
+    </footer>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme": {"editor": "enum", "options": ["light", "dark"], "default": "dark", "section": "Theme"}, "overlay": {"editor": "enum", "options": ["files", "projects", "none"], "default": "files", "section": "State"}, "$preview": {"width": 1024, "height": 768}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const tabs = [
+      { id: 't1', kind: 'terminal', label: 'zsh — todo-api', title: 'zsh in ~/projects/todo-api (split)' },
+      { id: 't2', kind: 'claude', label: 'Claude Code' },
+      { id: 't3', kind: 'file', label: 'app.ts', dirty: true, title: 'src/app.ts — saving' },
+      { id: 't4', kind: 'preview', label: ':3000', title: 'Preview of port 3000' },
+      { id: 't5', kind: 'terminal', label: 'psql', ended: true, title: 'psql — session ended' },
+    ];
+    const overlay = this.props.overlay ?? 'files';
+    const extra = { tabs, filesOpen: overlay === 'files', projectsOpen: overlay === 'projects' };
+    return {
+      theme: this.props.theme ?? 'dark',
+      yes: true,
+      no: false,
+      markSm: 18,
+      markLg: 28,
+      keys: { search: ['Mod', 'Shift', 'F'], leave: ['Alt', 'Shift', 'Q'], newTab: ['Mod', 'Alt', 'T'] },
+      ...extra,
+    };
+  }
+}
+</script>
+</body>
+</html>

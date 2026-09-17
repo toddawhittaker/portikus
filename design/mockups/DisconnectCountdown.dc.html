@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+  <link rel="stylesheet" href="portikus-tokens.css">
+  <link rel="stylesheet" href="ds/portikus/components/bundle.css">
+  <link rel="stylesheet" href="portikus-screens.css">
+  <script src="ds/portikus/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&amp;family=Public+Sans:ital,wght@0,100..900;1,100..900&amp;display=swap">
+  <style>
+    body { margin: 0; }
+  </style>
+</helmet>
+<div class="pk-root" data-theme="{{theme}}" data-density="comfortable" style="position: relative; width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); color: var(--ink);">
+<header class="pk-appbar" data-component="AppHeader">
+  <x-import component-from-global-scope="Portikus.NameMark" size="{{markSm}}" href="#"></x-import>
+  <span class="pk-appbar-divider" aria-hidden="true"></span>
+  <span class="pk-appbar-context"><strong>todo-api</strong><span class="pk-mono-small">~/projects/todo-api</span></span>
+  <span class="pk-appbar-spacer"></span>
+  <button type="button" class="pk-wsbutton" aria-haspopup="dialog" data-component="WorkspaceStatusButton">
+    <span>Workspace</span>
+    <x-import component-from-global-scope="Portikus.StateBadge" state="starting" desired-state="running" label="Reconnecting" live="{{yes}}"></x-import>
+  </button>
+  <x-import component-from-global-scope="Portikus.IconButton" icon="search" label="Search in todo-api" shortcut="{{keys.search}}"></x-import>
+  <button type="button" class="pk-account" aria-haspopup="menu" aria-expanded="false" data-component="AccountMenuTrigger">
+    <span class="pk-initials" aria-hidden="true">AC</span>
+    <span>Avery Chen</span>
+    <span class="pk-account-role">Student</span>
+    <x-import component-from-global-scope="Portikus.Icon" name="chevron-down" size="sm"></x-import>
+  </button>
+</header>
+<div class="pk-shell" data-component="AppShell">
+  <nav class="pk-pane" aria-label="Projects" data-component="ProjectList" style="width: 240px; border-right: 1px solid var(--line);">
+    <div class="pk-pane-head">
+      <h2 class="pk-pane-title">Projects</h2>
+      <x-import component-from-global-scope="Portikus.IconButton" icon="plus" label="New project" size="sm" aria-haspopup="menu"></x-import>
+    </div>
+    <div class="pk-pane-body">
+    <ul class="pk-list">
+      <li class="pk-list-item is-current">
+        <a class="pk-list-row" href="#" aria-current="page"><x-import component-from-global-scope="Portikus.Icon" name="folder-open" size="md"></x-import><span class="pk-list-label">todo-api</span><span class="pk-list-meta" title="3 changed files">3</span></a>
+        <x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for todo-api" size="sm" aria-haspopup="menu"></x-import>
+      </li>
+      <li class="pk-list-item">
+        <a class="pk-list-row" href="#"><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-list-label">weather-cli</span></a>
+      </li>
+      <li class="pk-list-item">
+        <a class="pk-list-row" href="#"><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-list-label">portfolio-site</span></a>
+      </li>
+      <li class="pk-list-item">
+        <a class="pk-list-row" href="#"><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-list-label">week-4-exercises</span></a>
+      </li>
+    </ul>
+    </div>
+    <div class="pk-pane-foot">
+      <a class="pk-list-row" href="#"><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-list-label">Archived projects</span><span class="pk-list-meta">2</span><x-import component-from-global-scope="Portikus.Icon" name="chevron-right" size="sm"></x-import></a>
+    </div>
+  </nav>
+<x-import component-from-global-scope="Portikus.PaneHandle" orientation="vertical" label="Resize project list"></x-import>
+  <main class="pk-work" aria-label="Work area">
+    <div class="pk-notice pk-notice--warning" role="status" aria-live="polite" data-component="DisconnectNotice">
+      <span class="pk-notice-icon"><x-import component-from-global-scope="Portikus.Icon" name="alert" size="md"></x-import></span>
+      <div class="pk-notice-main">
+        <p class="pk-notice-title">You're disconnected from your workspace</p>
+        <p class="pk-notice-body">Portikus is trying to reconnect. If no window reconnects, your workspace will stop in <strong>{{minutes}} minutes</strong>, at <time datetime="2026-09-16T15:42">3:42 PM</time>. Your files are saved; running terminals and previews will end.</p>
+      </div>
+      <div class="pk-notice-actions"><x-import component-from-global-scope="Portikus.Button" variant="secondary" size="sm" class-name="is-focus-demo">Reconnect now</x-import></div>
+    </div>
+    <div style="position: relative; flex: none;">
+      <x-import component-from-global-scope="Portikus.Tabs" tabs="{{tabs}}" active-id="t1" label="Open tabs in todo-api" launcher-open="{{launcher}}"></x-import>
+      
+    </div>
+    <div role="tabpanel" aria-label="zsh — todo-api" class="pk-termgroup">
+    <section class="pk-term is-paused" aria-label="Terminal: zsh · ~/projects/todo-api" data-component="TerminalPane" style="flex-grow: 62;">
+      <div class="pk-term-bar">
+        <span class="pk-term-bar-title">zsh · ~/projects/todo-api</span>
+        <x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Terminal actions: split right, split down, rename, close" size="sm" aria-haspopup="menu"></x-import>
+      </div>
+      <div class="pk-term-flag" role="status"><x-import component-from-global-scope="Portikus.Icon" name="alert" size="sm"></x-import><span>Input paused until you reconnect</span></div>
+      <div class="pk-term-screen">
+        <div class="pk-term-line"><span class="ansi-green">student@portikus</span>:<span class="ansi-blue">~/projects/todo-api</span>$ git status --short</div>
+        <div class="pk-term-line"> <span class="ansi-red">M</span> README.md</div>
+        <div class="pk-term-line"> <span class="ansi-red">M</span> src/app.ts</div>
+        <div class="pk-term-line"><span class="ansi-red">??</span> tests/todos.test.ts</div>
+        <div class="pk-term-line"><span class="ansi-green">student@portikus</span>:<span class="ansi-blue">~/projects/todo-api</span>$ npm test</div>
+        <div class="pk-term-line"></div>
+        <div class="pk-term-line">&gt; todo-api@0.3.0 test</div>
+        <div class="pk-term-line">&gt; vitest run</div>
+        <div class="pk-term-line"></div>
+        <div class="pk-term-line"> <span class="ansi-green">✓</span> tests/health.test.ts <span class="ansi-dim">(2 tests)</span> 12ms</div>
+        <div class="pk-term-line"> <span class="ansi-red">×</span> tests/todos.test.ts <span class="ansi-dim">(5 tests | 1 failed)</span> 31ms</div>
+        <div class="pk-term-line">   <span class="ansi-red">×</span> GET /todos/:id returns 404 for a missing todo</div>
+        <div class="pk-term-line">     <span class="ansi-red">→ expected 500 to be 404</span></div>
+        <div class="pk-term-line"></div>
+        <div class="pk-term-line"> <span class="ansi-bold">Test Files</span>  <span class="ansi-red">1 failed</span> | <span class="ansi-green">1 passed</span> (2)</div>
+        <div class="pk-term-line">      <span class="ansi-bold">Tests</span>  <span class="ansi-red">1 failed</span> | <span class="ansi-green">6 passed</span> (7)</div>
+        <div class="pk-term-line"><span class="ansi-green">student@portikus</span>:<span class="ansi-blue">~/projects/todo-api</span>$ <span class="pk-term-cursor pk-term-cursor--idle" aria-hidden="true"></span></div>
+      </div>
+    </section>
+    <x-import component-from-global-scope="Portikus.PaneHandle" orientation="horizontal" label="Resize terminal split" value="{{62}}" min="{{20}}" max="{{80}}"></x-import>
+    <section class="pk-term" aria-label="Terminal: npm run dev · ~/projects/todo-api" data-component="TerminalPane" style="flex-grow: 38;">
+      <div class="pk-term-bar">
+        <span class="pk-term-bar-title">npm run dev · ~/projects/todo-api</span>
+        <x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Terminal actions: split right, split down, rename, close" size="sm" aria-haspopup="menu"></x-import>
+      </div>
+      
+      <div class="pk-term-screen">
+        <div class="pk-term-line"><span class="ansi-green">student@portikus</span>:<span class="ansi-blue">~/projects/todo-api</span>$ npm run dev</div>
+        <div class="pk-term-line"></div>
+        <div class="pk-term-line">&gt; todo-api@0.3.0 dev</div>
+        <div class="pk-term-line">&gt; tsx watch src/app.ts</div>
+        <div class="pk-term-line"></div>
+        <div class="pk-term-line"><span class="ansi-cyan">[server]</span> listening on http://0.0.0.0:3000</div>
+        <div class="pk-term-line"><span class="ansi-dim">GET  /health     200  2ms</span></div>
+        <div class="pk-term-line"><span class="ansi-dim">GET  /todos      200  4ms</span></div>
+        <div class="pk-term-line">POST /todos      201  7ms</div>
+      </div>
+    </section>
+    </div>
+  </main>
+<x-import component-from-global-scope="Portikus.PaneHandle" orientation="vertical" label="Resize file tree"></x-import>
+  <aside class="pk-pane" aria-label="Files" data-component="FileTree" style="width: 280px; border-left: 1px solid var(--line);">
+    <div class="pk-pane-head">
+      <h2 class="pk-pane-title">Files</h2>
+      <x-import component-from-global-scope="Portikus.IconButton" icon="plus" label="New file or folder" size="sm" aria-haspopup="menu"></x-import>
+      <x-import component-from-global-scope="Portikus.IconButton" icon="search" label="Find in files" size="sm"></x-import>
+      <x-import component-from-global-scope="Portikus.IconButton" icon="more" label="More file actions: upload, download, refresh" size="sm" aria-haspopup="menu"></x-import>
+    </div>
+    <div class="pk-pane-sub">~/projects/todo-api</div>
+    <div class="pk-pane-body">
+      <ul role="tree" aria-label="Files in todo-api" class="pk-tree">
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-expanded="true" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"><x-import component-from-global-scope="Portikus.Icon" name="chevron-down" size="sm"></x-import></span><x-import component-from-global-scope="Portikus.Icon" name="folder-open" size="md"></x-import><span class="pk-tree-name">src</span><span class="pk-tree-dot" title="Contains changes"><span class="pk-visually-hidden">, contains changes</span></span></li>
+        <li role="treeitem" aria-level="2" tabindex="-1" aria-expanded="false" aria-selected="false" class="pk-tree-row" style="padding-left: 24px;"><span class="pk-tree-twisty"><x-import component-from-global-scope="Portikus.Icon" name="chevron-right" size="sm"></x-import></span><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-tree-name">routes</span><span class="pk-tree-dot" title="Contains changes"><span class="pk-visually-hidden">, contains changes</span></span></li>
+        <li role="treeitem" aria-level="2" tabindex="-1" aria-selected="true" class="pk-tree-row" style="padding-left: 24px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">app.ts</span><span class="pk-tree-git pk-git-modified" title="Modified">M<span class="pk-visually-hidden">, modified</span></span></li>
+        <li role="treeitem" aria-level="2" tabindex="0" aria-selected="false" class="pk-tree-row is-focus-demo-inset" style="padding-left: 24px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">db.ts</span></li>
+        <li role="treeitem" aria-level="2" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 24px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">server.ts</span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-expanded="true" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"><x-import component-from-global-scope="Portikus.Icon" name="chevron-down" size="sm"></x-import></span><x-import component-from-global-scope="Portikus.Icon" name="folder-open" size="md"></x-import><span class="pk-tree-name">tests</span><span class="pk-tree-dot" title="Contains changes"><span class="pk-visually-hidden">, contains changes</span></span></li>
+        <li role="treeitem" aria-level="2" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 24px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">health.test.ts</span></li>
+        <li role="treeitem" aria-level="2" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 24px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">todos.test.ts</span><span class="pk-tree-git pk-git-untracked" title="Untracked">U<span class="pk-visually-hidden">, untracked</span></span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-expanded="false" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"><x-import component-from-global-scope="Portikus.Icon" name="chevron-right" size="sm"></x-import></span><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-tree-name">docs</span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">CLAUDE.md</span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">package.json</span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">package-lock.json</span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">README.md</span><span class="pk-tree-git pk-git-modified" title="Modified">M<span class="pk-visually-hidden">, modified</span></span></li>
+        <li role="treeitem" aria-level="1" tabindex="-1" aria-selected="false" class="pk-tree-row" style="padding-left: 8px;"><span class="pk-tree-twisty"></span><x-import component-from-global-scope="Portikus.Icon" name="file" size="md"></x-import><span class="pk-tree-name">tsconfig.json</span></li>
+      </ul>
+    </div>
+    <div class="pk-pane-foot pk-pane-foot--pad">
+      <x-import component-from-global-scope="Portikus.Checkbox" label="Show hidden and generated files" description="node_modules, .git and dist are hidden" checked="{{no}}"></x-import>
+    </div>
+  </aside>
+</div>
+<footer class="pk-statusbar" data-component="StatusBar">
+    <span class="pk-statusbar-item pk-statusbar-mono">main • 3 changes • 2 commits ahead</span>
+    <span class="pk-statusbar-item">app.ts · Saving…</span>
+    
+    <span class="pk-statusbar-spacer"></span>
+    <span class="pk-statusbar-item"><span class="pk-dot pk-tone-running" aria-hidden="true"></span><span class="pk-statusbar-mono">:3000</span> listening</span>
+    <span class="pk-statusbar-item">Leave terminal <x-import component-from-global-scope="Portikus.ShortcutHint" keys="{{keys.leave}}"></x-import></span>
+    <span class="pk-statusbar-item">Storage 4.1 GB of 10 GB</span>
+    </footer>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme": {"editor": "enum", "options": ["light", "dark"], "default": "light", "section": "Theme"}, "minutes": {"editor": "int", "default": 12, "min": 1, "max": 30, "section": "State"}, "$preview": {"width": 1440, "height": 900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const tabs = [
+      { id: 't1', kind: 'terminal', label: 'zsh — todo-api', title: 'zsh in ~/projects/todo-api (split)' },
+      { id: 't2', kind: 'claude', label: 'Claude Code' },
+      { id: 't3', kind: 'file', label: 'app.ts', dirty: true, title: 'src/app.ts — saving' },
+      { id: 't4', kind: 'preview', label: ':3000', title: 'Preview of port 3000' },
+      { id: 't5', kind: 'terminal', label: 'psql', ended: true, title: 'psql — session ended' },
+    ];
+    const extra = { tabs, launcher: false, minutes: this.props.minutes ?? 12 };
+    return {
+      theme: this.props.theme ?? 'light',
+      yes: true,
+      no: false,
+      markSm: 18,
+      markLg: 28,
+      keys: { search: ['Mod', 'Shift', 'F'], leave: ['Alt', 'Shift', 'Q'], newTab: ['Mod', 'Alt', 'T'] },
+      ...extra,
+    };
+  }
+}
+</script>
+</body>
+</html>

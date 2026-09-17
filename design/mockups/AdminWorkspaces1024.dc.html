@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+  <link rel="stylesheet" href="portikus-tokens.css">
+  <link rel="stylesheet" href="ds/portikus/components/bundle.css">
+  <link rel="stylesheet" href="portikus-screens.css">
+  <script src="ds/portikus/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&amp;family=Public+Sans:ital,wght@0,100..900;1,100..900&amp;display=swap">
+  <style>
+    body { margin: 0; }
+  </style>
+</helmet>
+<div class="pk-root" data-theme="{{theme}}" data-density="compact" style="position: relative; width: 1024px; height: 768px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); color: var(--ink);">
+<header class="pk-appbar" data-component="AppHeader">
+  <x-import component-from-global-scope="Portikus.NameMark" size="{{markSm}}" href="#"></x-import>
+  <span class="pk-role-tag">Administration</span>
+  <nav class="pk-adminnav" aria-label="Administration">
+    <a href="#" aria-current="page">Workspaces</a>
+    <a href="#">Users</a>
+    <a href="#">Audit events</a>
+    <a href="#">Health</a>
+  </nav>
+  <span class="pk-appbar-spacer"></span>
+  <button type="button" class="pk-account" aria-haspopup="menu" aria-expanded="false" data-component="AccountMenuTrigger">
+    <span class="pk-initials" aria-hidden="true">JE</span>
+    <span>Jordan Ellis</span>
+    <span class="pk-account-role">Administrator</span>
+    <x-import component-from-global-scope="Portikus.Icon" name="chevron-down" size="sm"></x-import>
+  </button>
+</header>
+<main style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; padding: 24px;">
+  <div style="display: flex; align-items: baseline; gap: 12px;">
+    <h1 class="pk-text-title">Workspaces</h1>
+    <span class="pk-text-compact pk-muted">248 workspaces · 61 running</span>
+  </div>
+  <div style="display: flex; align-items: flex-end; gap: 12px;">
+    <x-import component-from-global-scope="Portikus.TextField" id="f-search" label="Search" placeholder="Name, email or workspace ID" type="search" style="width: 260px;"></x-import>
+    <x-import component-from-global-scope="Portikus.Select" id="f-state" label="State" value="all" options="{{stateOptions}}" style="width: 180px;"></x-import>
+    
+    <span style="flex-grow: 1;"></span>
+    <span class="pk-text-compact pk-muted">Showing 10 of 248</span>
+  </div>
+  <div class="pk-table-wrap" data-component="Table" style="flex: 1; min-width: 0; align-self: flex-start;">
+<table class="pk-table" aria-label="Workspaces">
+<thead><tr><th scope="col" aria-sort="ascending"><button type="button" class="pk-table-sort">Student <x-import component-from-global-scope="Portikus.Icon" name="chevron-up" size="sm"></x-import></button></th><th scope="col">State</th><th scope="col"><button type="button" class="pk-table-sort">Last activity <x-import component-from-global-scope="Portikus.Icon" name="chevron-up-down" size="sm"></x-import></button></th><th scope="col" class="pk-num">Storage</th><th scope="col" class="pk-cell-actions"><span class="pk-visually-hidden">Actions</span></th></tr></thead>
+<tbody>
+<tr aria-selected="true"><td><div class="pk-cell-stack"><span class="pk-cell-primary">Avery Chen</span><span class="pk-cell-secondary">avery.chen@example.edu</span></div></td><td><x-import component-from-global-scope="Portikus.StateBadge" state="error" desired-state="running"></x-import></td><td class="pk-cell-muted">4 min ago</td><td class="pk-num">24.4 GB of 35 GB</td><td class="pk-cell-actions"><x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for Avery Chen" size="sm" aria-haspopup="menu"></x-import></td></tr>
+<tr><td><div class="pk-cell-stack"><span class="pk-cell-primary">Priya Raman</span><span class="pk-cell-secondary">priya.raman@example.edu</span></div></td><td><x-import component-from-global-scope="Portikus.StateBadge" state="running" desired-state="running"></x-import></td><td class="pk-cell-muted">Now</td><td class="pk-num">6.2 GB of 35 GB</td><td class="pk-cell-actions"><x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for Priya Raman" size="sm" aria-haspopup="menu"></x-import></td></tr>
+<tr><td><div class="pk-cell-stack"><span class="pk-cell-primary">Marcus Bell</span><span class="pk-cell-secondary">marcus.bell@example.edu</span></div></td><td><x-import component-from-global-scope="Portikus.StateBadge" state="stopped" desired-state="running"></x-import></td><td class="pk-cell-muted">Now</td><td class="pk-num">11.0 GB of 35 GB</td><td class="pk-cell-actions"><x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for Marcus Bell" size="sm" aria-haspopup="menu"></x-import></td></tr>
+<tr><td><div class="pk-cell-stack"><span class="pk-cell-primary">Lena Okafor</span><span class="pk-cell-secondary">lena.okafor@example.edu</span></div></td><td><x-import component-from-global-scope="Portikus.StateBadge" state="running" desired-state="stopped"></x-import></td><td class="pk-cell-muted">18 min ago</td><td class="pk-num">8.7 GB of 35 GB</td><td class="pk-cell-actions"><x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for Lena Okafor" size="sm" aria-haspopup="menu"></x-import></td></tr>
+<tr><td><div class="pk-cell-stack"><span class="pk-cell-primary">Sam Whitfield</span><span class="pk-cell-secondary">sam.whitfield@example.edu</span></div></td><td><x-import component-from-global-scope="Portikus.StateBadge" state="running" desired-state="restarting"></x-import></td><td class="pk-cell-muted">1 min ago</td><td class="pk-num">15.3 GB of 35 GB</td><td class="pk-cell-actions"><x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for Sam Whitfield" size="sm" aria-haspopup="menu"></x-import></td></tr>
+<tr><td><div class="pk-cell-stack"><span class="pk-cell-primary">Hana Kim</span><span class="pk-cell-secondary">hana.kim@example.edu</span></div></td><td><x-import component-from-global-scope="Portikus.StateBadge" state="provisioning" desired-state="running"></x-import></td><td class="pk-cell-muted">Now</td><td class="pk-num">0 GB of 35 GB</td><td class="pk-cell-actions"><x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for Hana Kim" size="sm" aria-haspopup="menu"></x-import></td></tr>
+<tr><td><div class="pk-cell-stack"><span class="pk-cell-primary">Diego Santos</span><span class="pk-cell-secondary">diego.santos@example.edu</span></div></td><td><x-import component-from-global-scope="Portikus.StateBadge" state="stopped" desired-state="stopped"></x-import></td><td class="pk-cell-muted">2 days ago</td><td class="pk-num">29.1 GB of 35 GB</td><td class="pk-cell-actions"><x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for Diego Santos" size="sm" aria-haspopup="menu"></x-import></td></tr>
+<tr><td><div class="pk-cell-stack"><span class="pk-cell-primary">Noor Haddad</span><span class="pk-cell-secondary">noor.haddad@example.edu</span></div></td><td><x-import component-from-global-scope="Portikus.StateBadge" state="stopped" desired-state="stopped"></x-import></td><td class="pk-cell-muted">12 days ago</td><td class="pk-num">3.9 GB of 35 GB</td><td class="pk-cell-actions"><x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for Noor Haddad" size="sm" aria-haspopup="menu"></x-import></td></tr>
+<tr><td><div class="pk-cell-stack"><span class="pk-cell-primary">Theo Martin</span><span class="pk-cell-secondary">theo.martin@example.edu</span></div></td><td><x-import component-from-global-scope="Portikus.StateBadge" state="running" desired-state="running"></x-import></td><td class="pk-cell-muted">6 min ago</td><td class="pk-num">12.5 GB of 35 GB</td><td class="pk-cell-actions"><x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for Theo Martin" size="sm" aria-haspopup="menu"></x-import></td></tr>
+<tr><td><div class="pk-cell-stack"><span class="pk-cell-primary">Grace Liu <span class="pk-tag">Disabled</span></span><span class="pk-cell-secondary">grace.liu@example.edu</span></div></td><td><x-import component-from-global-scope="Portikus.StateBadge" state="stopped" desired-state="stopped"></x-import></td><td class="pk-cell-muted">31 days ago</td><td class="pk-num">2.2 GB of 35 GB</td><td class="pk-cell-actions"><x-import component-from-global-scope="Portikus.IconButton" icon="more" label="Actions for Grace Liu" size="sm" aria-haspopup="menu"></x-import></td></tr>
+</tbody>
+</table>
+</div>
+</main>
+<sc-if value="{{confirm}}" hint-placeholder-val="{{yes}}"><x-import component-from-global-scope="Portikus.ConfirmDialog" id="reset-docker" inline="{{yes}}" title="Reset Docker for Avery Chen?" description="Docker in workspace ws-7f3a2c will be emptied and restarted. This can&#39;t be undone from a recovery point." lost="{{lost}}" survives="{{survives}}" confirm-label="Reset Docker" confirm-text="ws-7f3a2c" typed-value="ws-7f3a"></x-import></sc-if>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme": {"editor": "enum", "options": ["light", "dark"], "default": "light", "section": "Theme"}, "confirmOpen": {"editor": "boolean", "default": true, "section": "State"}, "$preview": {"width": 1024, "height": 768}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const stateOptions = [{ value: 'all', label: 'All states' }, { value: 'running', label: 'Running' }, { value: 'error', label: 'Error' }];
+    const imageOptions = [{ value: 'all', label: 'All images' }, { value: '2026.09.1', label: 'img 2026.09.1 · current' }];
+    const lost = ['Containers, images and volumes', 'Docker build cache', 'Databases and services running in Docker'];
+    const survives = ['Projects and home folder', 'Recovery points', 'Claude Code and Codex sign-ins'];
+    const extra = { stateOptions, imageOptions, lost, survives, confirm: this.props.confirmOpen ?? true };
+    return {
+      theme: this.props.theme ?? 'light',
+      yes: true,
+      no: false,
+      markSm: 18,
+      markLg: 28,
+      keys: { search: ['Mod', 'Shift', 'F'], leave: ['Alt', 'Shift', 'Q'], newTab: ['Mod', 'Alt', 'T'] },
+      ...extra,
+    };
+  }
+}
+</script>
+</body>
+</html>

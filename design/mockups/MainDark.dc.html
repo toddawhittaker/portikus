@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+  <link rel="stylesheet" href="portikus-tokens.css">
+  <link rel="stylesheet" href="ds/portikus/components/bundle.css">
+  <link rel="stylesheet" href="portikus-screens.css">
+  <script src="ds/portikus/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&amp;family=Public+Sans:ital,wght@0,100..900;1,100..900&amp;display=swap">
+  <style>
+    body { margin: 0; }
+  </style>
+</helmet>
+<div class="pk-root" data-theme="{{theme}}" data-density="comfortable" style="position: relative; width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); color: var(--ink);">
+<main class="pk-standalone" data-component="StandalonePage">
+  <section class="pk-standalone-panel" aria-labelledby="page-title">
+    <x-import component-from-global-scope="Portikus.NameMark" size="{{markLg}}"></x-import>
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <h1 id="page-title" class="pk-text-display">Sign in to Portikus</h1>
+      <p class="pk-text-body pk-muted">A Linux workspace with a shell, Git, Docker, Claude Code and Codex, in your browser. Nothing to install.</p>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <x-import component-from-global-scope="Portikus.Button" variant="primary" size="lg" class-name="{{focusCls}}" style="width: 100%; display: grid;">Continue to institution sign-in</x-import>
+      <p class="pk-text-caption pk-muted">You'll go to your institution's sign-in page and come back here.</p>
+    </div>
+    <hr class="pk-divider">
+    <p class="pk-text-compact pk-muted">There is no sign-up. Access comes from your institution account; if you expect access and don't have it, ask your instructor.</p>
+  </section>
+  <p class="pk-standalone-foot">Portikus keeps your workspace, not your prompts or command history.</p>
+</main>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme": {"editor": "enum", "options": ["light", "dark"], "default": "dark", "section": "Theme"}, "showFocus": {"editor": "boolean", "default": true, "section": "Comp"}, "$preview": {"width": 1440, "height": 900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const extra = { focusCls: (this.props.showFocus ?? true) ? 'is-focus-demo' : '' };
+    return {
+      theme: this.props.theme ?? 'dark',
+      yes: true,
+      no: false,
+      markSm: 18,
+      markLg: 28,
+      keys: { search: ['Mod', 'Shift', 'F'], leave: ['Alt', 'Shift', 'Q'], newTab: ['Mod', 'Alt', 'T'] },
+      ...extra,
+    };
+  }
+}
+</script>
+</body>
+</html>

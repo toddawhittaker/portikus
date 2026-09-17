@@ -1,0 +1,20 @@
+<!-- @dsCard group="Forms" height=120 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Select</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+</style></head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:'16px 20px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'20px',maxWidth:'720px'}},
+ h(P.Select,{id:'s1',label:'Preview port',value:'3000',options:[{value:'3000',label:'3000 \u00b7 node'},{value:'5173',label:'5173 \u00b7 vite'}]}),
+ h(P.Select,{id:'s2',label:'Template',placeholder:'Choose a template\u2026',hint:'Templates are provided by your program.'})
+));
+</script>
+</body>
+</html>

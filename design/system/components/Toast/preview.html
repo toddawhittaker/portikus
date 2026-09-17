@@ -1,0 +1,23 @@
+<!-- @dsCard group="Feedback" height=356 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Toast</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+</style></head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'demo-col',style:{padding:'16px 20px'}},
+ h(P.Toast,{tone:'danger',title:'Your workspace could not start',
+  actions:h(F,null,h(P.Button,{size:'sm',variant:'primary'},'Clean up Docker'),h(P.Button,{size:'sm',variant:'secondary'},'View details'))},
+  'Its storage allocation is full. Docker is using 19.8 GB of your 20 GB Docker quota.'),
+ h(P.Toast,{tone:'warning',title:'Projects & home is 82% full',actions:h(P.Button,{size:'sm',variant:'secondary'},'Review storage')},'4.1 GB of 5 GB used.'),
+ h(P.Toast,{tone:'success',title:'Recovery point created'},'\u201cBefore refactor\u201d \u00b7 just now')
+));
+</script>
+</body>
+</html>

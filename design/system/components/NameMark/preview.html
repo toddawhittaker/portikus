@@ -1,0 +1,23 @@
+<!-- @dsCard group="Identity" height=132 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>NameMark</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+.on-terminal{color:var(--terminal-fg)}</style></head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'demo',style:{gap:'40px',alignItems:'center'}},
+  h(P.NameMark,{size:32}),
+  h(P.NameMark,{size:18}),
+  h(P.NameMark,{size:32,markOnly:true}),
+  h(P.NameMark,{size:18,markOnly:true}),
+  h('div',{style:{background:'var(--terminal-bg)',padding:'12px 16px',borderRadius:'var(--radius-md)',color:'var(--terminal-fg)'}}, h(P.NameMark,{size:18,className:'on-terminal'}))
+));
+</script>
+</body>
+</html>

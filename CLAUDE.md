@@ -16,6 +16,8 @@ and section.
   security.
 - `docs/WORKFLOW.md`: branching (main and epic branches change only by
   pull request), CI, secret scanning, and the local pre-commit hook.
+- `docs/DESIGN.md`: the visual design, with the design system and screen
+  mockups mirrored under `design/`.
 - `docs/STACK.md`: technology choices and why. Section 2 is the repo
   layout, section 34 the stack summary, section 35 what was rejected.
 
