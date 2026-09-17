@@ -18,6 +18,13 @@ const workspaceAliases = [
 // Vite's prefix-based matching resolves them first.
 workspaceAliases.unshift(
 	{
+		// The API's full-chain terminal test starts the real workspace agent
+		// in-process: apps/api/src/routes/terminal-real-agent.test.ts.
+		find: "@portikus/workspace-agent",
+		replacement: new URL("./apps/workspace-agent/src/server.ts", import.meta.url)
+			.pathname,
+	},
+	{
 		find: "@portikus/auth/testing",
 		replacement: new URL("./packages/auth/src/testing/index.ts", import.meta.url)
 			.pathname,
