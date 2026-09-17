@@ -179,7 +179,7 @@ test.skipIf(!haveGit)("git-init initializes once and then no-ops", async () => {
  * only allow http, https, ssh and scp-like URLs, so a plain path or
  * `file://` cannot be used as a test origin.
  */
-async function startOrigin(): Promise<{
+async function startOrigin(extraFiles: Record<string, string> = {}): Promise<{
 	url: string;
 	base: string;
 	stop: () => Promise<void>;
@@ -188,6 +188,9 @@ async function startOrigin(): Promise<{
 	const source = join(work, "source");
 	await mkdir(source);
 	await writeFile(join(source, "README.md"), "hello\n");
+	for (const [name, contents] of Object.entries(extraFiles)) {
+		await writeFile(join(source, name), contents);
+	}
 	const env = {
 		...process.env,
 		GIT_AUTHOR_NAME: "Test",
@@ -196,7 +199,7 @@ async function startOrigin(): Promise<{
 		GIT_COMMITTER_EMAIL: "test@example.invalid",
 	};
 	await run("git", ["init", "-q"], { cwd: source, env });
-	await run("git", ["add", "README.md"], { cwd: source, env });
+	await run("git", ["add", "-A"], { cwd: source, env });
 	await run("git", ["commit", "-q", "-m", "first"], { cwd: source, env });
 	const bare = join(work, "origin.git");
 	await run("git", ["clone", "-q", "--bare", source, bare], { env });
@@ -275,6 +278,43 @@ test.skipIf(!haveGit)(
 		expect(stdout.trim()).toBe("0");
 		expect(await readdir(project)).toContain("README.md");
 		await origin.stop();
+	},
+);
+
+test.skipIf(!haveGit)(
+	"a template without a .gitignore gets the default, and one with it keeps it",
+	async () => {
+		const plain = await startOrigin();
+		expect(
+			(
+				await create({
+					slug: "plaintemplate",
+					source: "template",
+					url: plain.url,
+					gitInit: true,
+				})
+			).statusCode,
+		).toBe(201);
+		expect(
+			await readFile(join(projectsRoot, "plaintemplate", ".gitignore"), "utf8"),
+		).toContain("node_modules/");
+		await plain.stop();
+
+		const opinionated = await startOrigin({ ".gitignore": "theirs\n" });
+		expect(
+			(
+				await create({
+					slug: "opinionated",
+					source: "template",
+					url: opinionated.url,
+					gitInit: true,
+				})
+			).statusCode,
+		).toBe(201);
+		expect(
+			await readFile(join(projectsRoot, "opinionated", ".gitignore"), "utf8"),
+		).toBe("theirs\n");
+		await opinionated.stop();
 	},
 );
 

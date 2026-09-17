@@ -261,6 +261,8 @@ export async function createProject(
 			// A template becomes a fresh project with no upstream history.
 			await rm(join(temporary, ".git"), { recursive: true, force: true });
 			await git(["init"], temporary);
+			// A template that ships its own .gitignore keeps it.
+			await writeDefaultGitignore(temporary);
 		}
 		await rename(temporary, target.path);
 	} catch (error) {
