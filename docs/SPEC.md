@@ -463,13 +463,9 @@ P0:
 - rename;
 - duplicate;
 - download/export;
-- archive.
-
-P2:
-
-- permanent delete.
-
-P0 must not require a permanent delete action in the student UI.
+- archive;
+- permanent delete, behind a confirmation that requires typing the project's
+  slug.
 
 ### 7.4 Archive semantics
 
@@ -2391,7 +2387,9 @@ Includes:
 - a terminal pane can be dragged onto another pane's edge to reflow the
   split, onto its centre to swap, or onto the tab bar to become its own
   tab, with a drop zone drawn while dragging;
-- a terminal revived after a grace-period stop draws its prompt correctly.
+- a terminal revived after a grace-period stop draws its prompt correctly;
+- a project can be deleted for good from its menu, behind a confirmation that
+  requires typing the project's slug.
 
 Acceptance:
 
