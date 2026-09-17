@@ -284,9 +284,26 @@ export async function startFakeAgent(
 					socket.send(JSON.stringify({ type: "size", cols: parsed.cols }));
 					return;
 				}
-				for (const peer of peers) {
-					if (peer.readyState === peer.OPEN) {
-						peer.send(Buffer.from(`echo:${text}`), { binary: true });
+				function broadcast(payload: string) {
+					for (const peer of peers) {
+						if (peer.readyState === peer.OPEN) {
+							peer.send(Buffer.from(payload), { binary: true });
+						}
+					}
+				}
+				broadcast(`echo:${text}`);
+				// A shell prints ^C when the interrupt byte reaches it, and the
+				// clipboard tests need to see that Ctrl+C got through.
+				const inputData = (parsed as { data?: unknown }).data;
+				if (parsed.type === "input" && typeof inputData === "string") {
+					if (inputData.includes("\u0003")) broadcast("^C");
+					// Ctrl+D ends the shell, and a shell that ends closes its pane.
+					if (inputData.includes("\u0004")) {
+						for (const peer of peers) {
+							if (peer.readyState === peer.OPEN) {
+								peer.send(JSON.stringify({ type: "exit" }));
+							}
+						}
 					}
 				}
 			});

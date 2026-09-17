@@ -69,6 +69,9 @@ export default defineConfig({
 				SESSION_COOKIE_SECRET: "e2e-session-secret-not-for-production-0000",
 				SESSION_TTL_SECONDS: "3600",
 				PRESENCE_TTL_SECONDS: "60",
+				// One template, so projects.spec.ts can use the template option;
+				// the "no templates" case fakes an empty list in the browser.
+				PROJECT_TEMPLATES: "Starter=https://example.com/starter.git",
 				WORKSPACE_HOME_SIZE_GIB: "25",
 				WORKSPACE_DOCKER_SIZE_GIB: "20",
 			},
