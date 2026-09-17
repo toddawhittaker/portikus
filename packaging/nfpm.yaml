@@ -37,6 +37,15 @@ contents:
     file_info:
       owner: root
       group: root
+  # Bind-mounted read-only into every workspace container, where the
+  # container's own uid range cannot map root, so the tree must stay
+  # world-readable. prune_tree in build-deb.sh sets those modes.
+  - src: ./dist/deploy/workspace-agent
+    dst: /usr/lib/portikus/workspace-agent
+    type: tree
+    file_info:
+      owner: root
+      group: root
   # The browser bundle Caddy serves.
   - src: ./apps/web/dist
     dst: /usr/lib/portikus/web

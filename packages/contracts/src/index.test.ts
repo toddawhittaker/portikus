@@ -192,3 +192,15 @@ test("ControllerError round-trips", () => {
 	const input = { code: "NOT_FOUND" as const, message: "instance not found" };
 	expect(ControllerError.parse(input)).toEqual(input);
 });
+
+test("ApiErrorCode covers the terminal and agent codes", () => {
+	expect(ApiError.safeParse({ code: "TERMINAL_LIMIT", message: "" }).success).toBe(
+		true,
+	);
+	expect(ApiError.safeParse({ code: "TERMINAL_NOT_FOUND", message: "" }).success).toBe(
+		true,
+	);
+	expect(ApiError.safeParse({ code: "AGENT_UNAVAILABLE", message: "" }).success).toBe(
+		true,
+	);
+});

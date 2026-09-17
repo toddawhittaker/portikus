@@ -72,6 +72,10 @@ export const ApiErrorCode = z.enum([
 	"VALIDATION_FAILED",
 	"CONTROLLER_UNAVAILABLE",
 	"TOO_MANY_CONNECTIONS",
+	"TERMINAL_LIMIT",
+	"TERMINAL_NOT_FOUND",
+	"AGENT_UNAVAILABLE",
+	"NOT_IMPLEMENTED",
 	"INTERNAL",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;

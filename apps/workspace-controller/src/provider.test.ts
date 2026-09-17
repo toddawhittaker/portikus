@@ -2,9 +2,9 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import { IncusClient } from "./incus.js";
-import { IncusWorkspaceProvider } from "./provider.js";
+import { AGENT_HEALTH_TIMEOUT_MS, IncusWorkspaceProvider } from "./provider.js";
 
 let socketPath: string;
 let server: http.Server;
@@ -36,6 +36,17 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 	});
 }
 
+function runningWithAddress(address: string) {
+	return {
+		status: "Running",
+		network: {
+			eth0: {
+				addresses: [{ family: "inet", address, scope: "global" }],
+			},
+		},
+	};
+}
+
 function sync(metadata: unknown) {
 	return {
 		type: "sync",
@@ -44,6 +55,42 @@ function sync(metadata: unknown) {
 		metadata,
 	};
 }
+
+const AGENT_TOKEN = "a".repeat(64);
+
+// A stand-in workspace agent on loopback. The fake Incus reports 127.0.0.1
+// as the instance address, so the provider dials this server.
+let agent: http.Server;
+let agentPort: number;
+let agentRequests: number;
+let agentToken: string;
+
+beforeAll(async () => {
+	agentToken = AGENT_TOKEN;
+	agentRequests = 0;
+	agent = http.createServer((req, res) => {
+		agentRequests++;
+		if (req.headers.authorization === `Bearer ${agentToken}`) {
+			res.writeHead(200, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ status: "ok" }));
+		} else {
+			res.writeHead(401);
+			res.end();
+		}
+	});
+	await new Promise<void>((r) => agent.listen(0, "127.0.0.1", r));
+	agentPort = (agent.address() as { port: number }).port;
+});
+
+afterAll(async () => {
+	await new Promise<void>((resolve, reject) =>
+		agent.close((err) => (err ? reject(err) : resolve())),
+	);
+});
+
+afterEach(() => {
+	agentToken = AGENT_TOKEN;
+});
 
 let provider: IncusWorkspaceProvider;
 
@@ -57,6 +104,7 @@ beforeEach(() => {
 		pool: "mypool",
 		profile: "workspace",
 		imageAlias: "portikus",
+		agentPort,
 	});
 });
 
@@ -127,47 +175,86 @@ test("create reuses existing volumes on 409", async () => {
 	expect(result.created).toBe(true);
 });
 
-test("start polls until inet address and returns ipv4", async () => {
+test("start pushes the agent token, then waits for agent health", async () => {
 	let pollCount = 0;
+	const pushes: Array<{
+		url: string;
+		headers: http.IncomingHttpHeaders;
+		body: string;
+	}> = [];
+	let agentRequestsAtPush = -1;
 	handler = async (req, res) => {
-		await readBody(req);
-		if (req.method === "PUT" && req.url?.includes("/state")) {
+		const body = await readBody(req);
+		if (req.url?.includes("/files")) {
+			pushes.push({ url: req.url, headers: req.headers, body });
+			agentRequestsAtPush = agentRequests;
+			respond(res, 200, sync({}));
+		} else if (req.method === "PUT" && req.url?.includes("/state")) {
 			respond(res, 200, sync({}));
 		} else if (req.method === "GET" && req.url?.includes("/state")) {
 			pollCount++;
 			if (pollCount < 3) {
 				respond(res, 200, sync({ status: "Running", network: {} }));
 			} else {
-				respond(
-					res,
-					200,
-					sync({
-						status: "Running",
-						network: {
-							eth0: {
-								addresses: [
-									{
-										family: "inet",
-										address: "10.0.0.5",
-										scope: "global",
-									},
-								],
-							},
-						},
-					}),
-				);
+				respond(res, 200, sync(runningWithAddress("127.0.0.1")));
 			}
 		} else {
 			respond(res, 200, sync({}));
 		}
 	};
 
+	const before = agentRequests;
 	const result = await provider.start("ws-test", {
 		timeoutSeconds: 10,
+		agentToken: AGENT_TOKEN,
 	});
-	expect(result.ipv4).toBe("10.0.0.5");
+
+	expect(result.ipv4).toBe("127.0.0.1");
 	expect(pollCount).toBeGreaterThanOrEqual(3);
+	expect(pushes).toHaveLength(1);
+	const push = pushes[0];
+	if (!push) {
+		throw new Error("expected one file push");
+	}
+	expect(push.url).toContain("path=%2Fetc%2Fportikus%2Fagent.token");
+	expect(push.headers["x-incus-uid"]).toBe("1000");
+	expect(push.headers["x-incus-mode"]).toBe("0600");
+	expect(push.body).toBe(AGENT_TOKEN);
+	// The token file lands before the first health request.
+	expect(agentRequestsAtPush).toBe(before);
+	expect(agentRequests).toBeGreaterThan(before);
 });
+
+test(
+	"the agent health wait has its own budget, not the whole start timeout",
+	async () => {
+		// The agent only honours a different token, so /health stays 401.
+		agentToken = "b".repeat(64);
+		handler = async (req, res) => {
+			await readBody(req);
+			if (req.url?.includes("/files")) {
+				respond(res, 200, sync({}));
+			} else if (req.method === "PUT" && req.url?.includes("/state")) {
+				respond(res, 200, sync({}));
+			} else if (req.method === "GET" && req.url?.includes("/state")) {
+				respond(res, 200, sync(runningWithAddress("127.0.0.1")));
+			} else {
+				respond(res, 200, sync({}));
+			}
+		};
+
+		const started = Date.now();
+		// A generous start timeout: the health wait must still give up on its
+		// own budget, so one broken agent cannot block the worker's start loop.
+		await expect(
+			provider.start("ws-test", { timeoutSeconds: 120, agentToken: AGENT_TOKEN }),
+		).rejects.toMatchObject({ code: "TIMEOUT" });
+		const elapsed = Date.now() - started;
+		expect(elapsed).toBeGreaterThanOrEqual(AGENT_HEALTH_TIMEOUT_MS - 1000);
+		expect(elapsed).toBeLessThan(AGENT_HEALTH_TIMEOUT_MS + 10_000);
+	},
+	AGENT_HEALTH_TIMEOUT_MS + 15_000,
+);
 
 test("start with no IP by deadline throws TIMEOUT", async () => {
 	handler = async (req, res) => {
@@ -181,7 +268,9 @@ test("start with no IP by deadline throws TIMEOUT", async () => {
 		}
 	};
 
-	await expect(provider.start("ws-test", { timeoutSeconds: 1 })).rejects.toMatchObject({
+	await expect(
+		provider.start("ws-test", { timeoutSeconds: 1, agentToken: AGENT_TOKEN }),
+	).rejects.toMatchObject({
 		code: "TIMEOUT",
 	});
 });

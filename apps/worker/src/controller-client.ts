@@ -3,6 +3,7 @@ import type {
 	CreateInstanceRequest,
 	CreateInstanceResponse,
 	ListInstancesResponse,
+	StartInstanceRequest,
 	StartInstanceResponse,
 	StopInstanceResponse,
 } from "@portikus/contracts";
@@ -27,7 +28,7 @@ export class ControllerClientError extends Error {
 /** Operations the worker needs from the workspace controller. */
 export interface ControllerClient {
 	create(req: CreateInstanceRequest): Promise<CreateInstanceResponse>;
-	start(name: string, timeoutSeconds: number): Promise<StartInstanceResponse>;
+	start(name: string, req: StartInstanceRequest): Promise<StartInstanceResponse>;
 	stop(name: string, timeoutSeconds: number): Promise<StopInstanceResponse>;
 	list(): Promise<ListInstancesResponse>;
 }
@@ -50,11 +51,11 @@ export class HttpControllerClient implements ControllerClient {
 		return CreateInstanceResponseSchema.parse(res);
 	}
 
-	async start(name: string, timeoutSeconds: number): Promise<StartInstanceResponse> {
+	async start(name: string, req: StartInstanceRequest): Promise<StartInstanceResponse> {
 		const res = await this.request(
 			"POST",
 			`/instances/${encodeURIComponent(name)}/start`,
-			{ timeoutSeconds },
+			req,
 		);
 		return StartInstanceResponseSchema.parse(res);
 	}

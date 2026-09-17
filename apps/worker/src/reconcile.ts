@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { ControllerErrorCode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
@@ -103,6 +104,38 @@ async function casUpdate(
 		.returning("id")
 		.execute();
 	return rows[0] ?? null;
+}
+
+/**
+ * Mint a fresh agent token for a workspace and store it (ADR 0009; SPEC.md
+ * section 23.5). Every start rotates the token, so a token that leaked from a
+ * previous run is worthless. Never log or audit the returned value.
+ */
+async function rotateAgentToken(db: Kysely<Database>, id: string): Promise<string> {
+	const token = randomBytes(32).toString("hex");
+	await db
+		.updateTable("workspaces")
+		.set({ agent_token: token })
+		.where("id", "=", id)
+		.execute();
+	return token;
+}
+
+/**
+ * Mark every still-open terminal of a workspace as ended. Called from every
+ * path that takes a workspace out of running (SPEC.md section 9.7).
+ */
+async function endOpenTerminals(
+	db: Kysely<Database>,
+	workspaceId: string,
+	now: Date,
+): Promise<void> {
+	await db
+		.updateTable("terminals")
+		.set({ ended_at: now.toISOString() })
+		.where("workspace_id", "=", workspaceId)
+		.where("ended_at", "is", null)
+		.execute();
 }
 
 /**
@@ -261,6 +294,7 @@ export async function reconcile(
 		const moved = await casUpdate(db, ws.id, "running", { state: "stopping" }, now);
 		if (!moved) continue;
 		transitions++;
+		await endOpenTerminals(db, ws.id, now);
 		await doStop(db, controller, config, ws, now);
 	}
 
@@ -290,6 +324,7 @@ export async function reconcile(
 
 	for (const ws of deadlinePassed) {
 		transitions++;
+		await endOpenTerminals(db, ws.id, now);
 		if (!ws.incus_instance_name) continue;
 		await doStop(db, controller, config, ws, now);
 	}
@@ -347,7 +382,7 @@ export async function reconcile(
 			// Find rows that might be drifted.
 			const tracked = await db
 				.selectFrom("workspaces")
-				.select(["id", "incus_instance_name", "state"])
+				.select(["id", "incus_instance_name", "state", "agent_address"])
 				.where("incus_instance_name", "is not", null)
 				.where("state", "in", ["running", "stopped", "starting", "stopping"])
 				.execute();
@@ -373,11 +408,21 @@ export async function reconcile(
 					);
 					if (updated) {
 						transitions++;
+						await endOpenTerminals(db, ws.id, now);
 						await audit(db, ws.id, "workspace.instance_missing", "failed", {
 							instanceName: ws.incus_instance_name,
 						});
 					}
 					continue;
+				}
+
+				// Keep the recorded agent address in step with the instance.
+				if (inst.ipv4 && inst.ipv4 !== ws.agent_address) {
+					await db
+						.updateTable("workspaces")
+						.set({ agent_address: inst.ipv4 })
+						.where("id", "=", ws.id)
+						.execute();
 				}
 
 				// Drift: row says running but instance is Stopped.
@@ -391,6 +436,7 @@ export async function reconcile(
 					);
 					if (updated) {
 						transitions++;
+						await endOpenTerminals(db, ws.id, now);
 						await audit(db, ws.id, "workspace.observed_stopped", "ok");
 					}
 				}
@@ -440,6 +486,7 @@ export async function reconcile(
 						);
 						if (updated) {
 							transitions++;
+							await endOpenTerminals(db, ws.id, now);
 							await audit(db, ws.id, "workspace.start_failed", "failed", {
 								resolvedFromList: true,
 							});
@@ -458,6 +505,7 @@ export async function reconcile(
 						);
 						if (updated) {
 							transitions++;
+							await endOpenTerminals(db, ws.id, now);
 							await audit(db, ws.id, "workspace.stop", "ok", {
 								resolvedFromList: true,
 							});
@@ -520,12 +568,22 @@ async function startWorkspace(
 	if (!moved) return 0;
 	let transitions = 1;
 
+	// Rotate before the start call so the row always holds the token the
+	// agent is about to be given.
+	const agentToken = await rotateAgentToken(db, ws.id);
+
 	try {
-		const result = await controller.start(
-			ws.incus_instance_name,
-			config.START_TIMEOUT_SECONDS,
+		const result = await controller.start(ws.incus_instance_name, {
+			timeoutSeconds: config.START_TIMEOUT_SECONDS,
+			agentToken,
+		});
+		const updated = await casUpdate(
+			db,
+			ws.id,
+			"starting",
+			{ state: "running", agent_address: result.ipv4 },
+			now,
 		);
-		const updated = await casUpdate(db, ws.id, "starting", { state: "running" }, now);
 		if (updated) {
 			transitions++;
 			await audit(db, ws.id, "workspace.start", "ok", { ipv4: result.ipv4 });

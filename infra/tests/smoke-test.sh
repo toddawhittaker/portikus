@@ -86,6 +86,14 @@ check_zero_lines() {
   fi
 }
 
+# workspace_ip INSTANCE — the address on the workspace bridge.  A running
+# workspace also holds a docker0 address, so pick the bridge NIC by name.
+# Callers are inside blocks that have set PROJECT.
+workspace_ip() {
+  ssh_cmd "incus list $1 --project ${PROJECT} -c4 --format csv" \
+    | tr -d '"' | awk '/eth0/ { print $1; exit }'
+}
+
 echo "--- Portikus pilot smoke test ---"
 echo "Target: ${VM}"
 echo ""
@@ -307,6 +315,8 @@ else
   WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
   WS_PROBE="/tmp/portikus-ws-probe.mjs"
   WS_STOP="/tmp/portikus-ws-stop"
+  TERM_PROBE="/tmp/portikus-term-probe.mjs"
+  TERM_STOP="/tmp/portikus-term-stop"
 
   # Log a mock user in: follow /auth/login to the provider's account list,
   # then request the same page with the chosen account, which redirects
@@ -379,7 +389,7 @@ else
     for instance in $smoke_instances; do
       ssh_cmd "bash ${WORKSPACE_SCRIPT} destroy ${instance}" 2>/dev/null || true
     done
-    ssh_cmd "rm -f /tmp/portikus-smoke-*.jar ${WS_PROBE} ${WS_STOP}" 2>/dev/null || true
+    ssh_cmd "rm -f /tmp/portikus-smoke-*.jar ${WS_PROBE} ${WS_STOP} ${TERM_PROBE} ${TERM_STOP}" 2>/dev/null || true
   }
   # Wrap both cleanups so a single trap covers Epic 2 and Epic 3 and 4.
   cleanup_all() {
@@ -616,7 +626,183 @@ PROBE
       fi
     fi
 
-    # 14. Authorization: one student cannot see another's workspace, and
+    # 14. Epic 5: the terminal transport end to end (SPEC.md 9.7, ADR 0009).
+    #     The workspace must be running, so this block opens the presence
+    #     socket again and later hands the workspace over to a terminal
+    #     socket to prove a terminal counts as presence on its own.
+    echo ""
+    echo "Epic 5: terminal transport..."
+    open_socket
+    ws_state=$(wait_for_state running 60)
+
+    # The probe speaks the browser end of the pipe: it sends one line of
+    # input, then reads frames until the marker appears.  A carriage
+    # return is appended here so the shell runs the line.
+    ssh_cmd_stdin "cat > ${TERM_PROBE}" <<'TERMPROBE'
+import fs from "node:fs";
+// url, origin, input ("-" for none), marker ("-" for none),
+// stop file ("-" for none), timeout in milliseconds.
+const [url, origin, input, marker, stopFile, timeoutMs] = process.argv.slice(2);
+const cookie = fs.readFileSync(0, "utf8").trim();
+const ws = new WebSocket(url, { headers: { origin, cookie } });
+ws.binaryType = "arraybuffer";
+let screen = "";
+let found = marker === "-";
+ws.addEventListener("open", () => {
+	if (input !== "-") ws.send(JSON.stringify({ type: "input", data: `${input}\r` }));
+});
+ws.addEventListener("message", (event) => {
+	screen +=
+		typeof event.data === "string"
+			? event.data
+			: Buffer.from(event.data).toString("utf8");
+	if (!found && screen.includes(marker)) {
+		found = true;
+		if (stopFile === "-") ws.close();
+	}
+});
+ws.addEventListener("error", (event) => {
+	console.error("socket error", event.message ?? "");
+	process.exit(1);
+});
+ws.addEventListener("close", () => process.exit(found ? 0 : 1));
+const poll =
+	stopFile === "-"
+		? null
+		: setInterval(() => {
+				if (fs.existsSync(stopFile)) ws.close();
+			}, 500);
+setTimeout(() => {
+	if (poll) clearInterval(poll);
+	ws.close();
+}, Number(timeoutMs));
+TERMPROBE
+
+    # term_probe TERMINAL_ID INPUT MARKER STOP_FILE TIMEOUT_MS
+    term_probe() {
+      printf '%s=%s' "${SESSION_COOKIE_NAME}" "${alice_cookie}" \
+        | ssh_cmd_stdin "NODE_EXTRA_CA_CERTS=/etc/portikus/caddy-root.crt node ${TERM_PROBE} \
+          'wss://${PUBLIC_HOST}/workspaces/${ws_id}/terminals/${1}/ws' '${API}' \
+          '${2}' '${3}' '${4}' '${5}'"
+    }
+
+    # The tmux sessions the student user can see inside the workspace.
+    tmux_has_session() {
+      ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- su -l student -c 'tmux list-sessions -F \"#{session_name}\"'" 2>/dev/null \
+        | grep -qx "pk-$1"
+    }
+    tmux_lacks_session() { ! tmux_has_session "$1"; }
+
+    # A browser navigating to the workspace page must get the bundle, while
+    # the JSON routes under the same prefix still answer as the API.
+    workspace_page_is_bundle() {
+      vm_get alice "${API}/workspaces/${ws_id}" \
+        "-H 'Sec-Fetch-Dest: document' -H 'Accept: text/html'" | grep -q '<div id="root">'
+    }
+    terminal_list_is_json() {
+      vm_get alice "${API}/workspaces/${ws_id}/terminals" | grep -q '"terminals"'
+    }
+
+    new_terminal() {
+      vm_get alice "${API}/workspaces/${ws_id}/terminals" \
+        "-X POST -H 'Origin: ${API}' -H 'Content-Type: application/json' -d '{}'"
+    }
+
+    term_response=$(new_terminal)
+    term_id=$(echo "$term_response" | json_field id)
+
+    if [ -z "$term_id" ]; then
+      printf '\033[1;31mFAIL\033[0m  POST /terminals returned no id: %s\n' "$term_response"
+      fail=$((fail + 1))
+    else
+      printf '\033[1;32mPASS\033[0m  POST /terminals returned id=%s\n' "$term_id"
+      pass=$((pass + 1))
+
+      check "tmux session pk-<id> runs in the workspace" tmux_has_session "$term_id"
+
+      # A terminal carries what the shell prints back over the socket.
+      mark="MARK-${RANDOM}${RANDOM}"
+      check "terminal socket carries input and output" \
+        term_probe "$term_id" "echo ${mark}" "$mark" - 30000
+
+      # Reattaching inside the grace period redraws the same tmux screen,
+      # so the marker written a moment ago is still on it (SPEC.md 9.2).
+      check "reattached terminal shows the earlier output" \
+        term_probe "$term_id" - "$mark" - 20000
+
+      # Two sockets share one tmux session, so output caused by one
+      # reaches the other (SPEC.md 9.5).
+      mark2="MARK-${RANDOM}${RANDOM}"
+      term_probe "$term_id" - "$mark2" - 30000 >/dev/null 2>&1 &
+      watcher_pid=$!
+      sleep 3
+      term_probe "$term_id" "echo ${mark2}" "$mark2" - 30000 >/dev/null 2>&1
+      check "second socket on the same terminal sees new output" wait "$watcher_pid"
+
+      # A terminal socket counts as presence on its own (SPEC.md 6.4):
+      # hold one open, drop the presence socket, and the workspace stays up.
+      echo ""
+      echo "Checking that a terminal socket alone keeps the workspace up..."
+      ssh_cmd "rm -f ${TERM_STOP}"
+      term_probe "$term_id" - - "${TERM_STOP}" 120000 >/dev/null 2>&1 &
+      term_hold_pid=$!
+      sleep 3
+      close_socket
+      check_output "terminal socket is the only connection row" "1" connection_count
+      check_output "terminal socket keeps the deadline clear" "null" workspace_deadline
+      sleep 25
+      check_output "still running 25s on the terminal socket alone" "running" workspace_state
+      ssh_cmd "touch ${TERM_STOP}"
+      wait "$term_hold_pid" || true
+      sleep 2
+
+      # The agent answers only with the per-workspace token, and only to
+      # the VM: peers on the bridge are cut off (SPEC.md 23.3, 23.5).
+      echo ""
+      echo "Checking agent reachability..."
+      agent_ip=$(workspace_ip "${ws_instance}")
+      agent_token=$(ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT agent_token FROM workspaces WHERE id = '${ws_id}'\"" 2>/dev/null || true)
+      if [ -n "$agent_ip" ] && [ -n "$agent_token" ]; then
+        check_output "agent /health without a token is 401" "401" \
+          ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://${agent_ip}:7400/health"
+        check_output "agent /health with the workspace token is 200" "200" \
+          ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H 'Authorization: Bearer ${agent_token}' http://${agent_ip}:7400/health"
+      else
+        printf '\033[1;31mFAIL\033[0m  no agent address or token for the workspace\n'
+        fail=$((fail + 1))
+      fi
+
+      if [ -n "${WS_NAME:-}" ] && [ -n "$agent_ip" ]; then
+        check "another workspace cannot reach the agent" \
+          ws_exec "! curl -s --max-time 5 -o /dev/null http://${agent_ip}:7400/health"
+      fi
+
+      check "workspace page serves the web bundle to a browser" workspace_page_is_bundle
+      check "terminal list under the same prefix is still JSON" terminal_list_is_json
+
+      # Deleting a terminal ends its tmux session (SPEC.md 9.3).
+      echo ""
+      echo "Deleting the terminal..."
+      check_output "DELETE terminal returns 204" "204" \
+        http_status alice "${API}/workspaces/${ws_id}/terminals/${term_id}" \
+        "-X DELETE -H 'Origin: ${API}'"
+      check "tmux session is gone after delete" tmux_lacks_session "$term_id"
+
+      # A terminal still open when the workspace stops is marked ended by
+      # the worker (SPEC.md 9.7).
+      second_id=$(new_terminal | json_field id)
+      http_status alice "${API}/workspaces/${ws_id}/stop" "-X POST -H 'Origin: ${API}'" >/dev/null
+      wait_for_state stopped 60 >/dev/null
+      if [ -n "$second_id" ]; then
+        check "open terminal is marked ended when the workspace stops" \
+          ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT ended_at IS NOT NULL FROM terminals WHERE id = '${second_id}'\" | grep -qx t"
+      else
+        printf '\033[1;31mFAIL\033[0m  second POST /terminals returned no id\n'
+        fail=$((fail + 1))
+      fi
+    fi
+
+    # 15. Authorization: one student cannot see another's workspace, and
     #     only an administrator can list them all.
     echo ""
     echo "Checking authorization boundaries..."
@@ -629,7 +815,7 @@ PROBE
     check_output "alice is refused the admin list" "403" \
       http_status alice "${API}/admin/workspaces"
 
-    # 15. Security: portikus is not an Incus admin, and the control-plane
+    # 16. Security: portikus is not an Incus admin, and the control-plane
     #     ports are unreachable from inside a workspace.
     echo ""
     echo "Checking security boundaries..."
@@ -657,7 +843,7 @@ PROBE
     rm -f "$probe_log"
   fi
 
-  # 16. Logging out ends the session.
+  # 17. Logging out ends the session.
   echo ""
   echo "Logging alice out..."
   http_status alice "${API}/auth/logout" "-X POST -H 'Origin: ${API}'" >/dev/null
@@ -665,6 +851,41 @@ PROBE
 
   echo ""
   echo "--- Epic 3 and 4 results: $((pass - epic3_pass_start)) passed, $((fail - epic3_fail_start)) failed ---"
+fi
+
+# ── Epic 5: workspace agent ──────────────────────────────────────
+# Static checks only: the unit runs inside the container, the tree the
+# workspace profile bind-mounts is there and not writable by the
+# student, and the agent turns away a request that carries no token.
+# The terminal flow is checked elsewhere.
+#
+# These reuse the workspace the Epic 2 block created, so they are
+# skipped whenever that block did not run.
+if [ -n "${WS_NAME:-}" ]; then
+  echo ""
+  echo "--- Epic 5: workspace agent checks ---"
+  echo ""
+
+  check "workspace agent unit is active" \
+    ws_exec systemctl is-active portikus-workspace-agent
+  check "workspace agent runs as the student user" \
+    ws_exec "systemctl show portikus-workspace-agent -p User | grep -qx User=student"
+  check "agent start script is present" \
+    ws_exec test -x /opt/portikus/workspace-agent/bin/workspace-agent
+  check "agent tree is not writable by student" \
+    ws_student "! test -w /opt/portikus/workspace-agent/bin/workspace-agent"
+
+  # The API dials the agent over the workspace bridge, so probe the same way.
+  ws_ip=$(workspace_ip "${WS_NAME}")
+  if [ -n "$ws_ip" ]; then
+    check_output "agent /health without a token is 401" "401" \
+      ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://${ws_ip}:7400/health"
+  else
+    printf '\033[1;31mFAIL\033[0m  workspace has no bridge address\n'
+    fail=$((fail + 1))
+  fi
+else
+  echo "No Epic 2 workspace; skipping Epic 5 checks."
 fi
 
 echo ""

@@ -1,20 +1,21 @@
 import type { WebSocket } from "@fastify/websocket";
-import { loadSession, requireUser } from "@portikus/auth";
+import { loadSession } from "@portikus/auth";
 import type { Workspace } from "@portikus/contracts";
 import { ClientMessage, type ServerMessage } from "@portikus/events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { z } from "zod";
 import { log } from "../log.js";
 import type { ServerDeps } from "../server.js";
-import { countActive, findOwnedWorkspace, toWorkspace } from "./workspace-view.js";
-
-const UuidParam = z.object({ id: z.string().uuid() });
+import {
+	createPendingWork,
+	dropPresence,
+	openPresence,
+	touchPresence,
+	workspaceUpgradeGuard,
+} from "./presence.js";
+import { countActive, toWorkspace } from "./workspace-view.js";
 
 /** How often the watcher polls for workspace changes. */
 const POLL_INTERVAL_MS = 1000;
-
-/** Concurrent sockets allowed per workspace (SPEC.md §24.2). */
-const MAX_CONNECTIONS_PER_WORKSPACE = 16;
 
 interface Subscriber {
 	socket: WebSocket;
@@ -48,15 +49,7 @@ export function registerWorkspaceSocket(
 ): void {
 	const watchers = new Map<string, Watcher>();
 
-	// Database work started by a socket event or a watcher tick finishes after
-	// the request that caused it. Shutdown has to wait for it: a query that
-	// outlives the pool leaves its connection checked out, and closing the pool
-	// then waits for that connection forever.
-	const pending = new Set<Promise<unknown>>();
-	function track(work: Promise<unknown>): void {
-		pending.add(work);
-		void work.finally(() => pending.delete(work));
-	}
+	const { track, drain } = createPendingWork();
 
 	async function readWorkspace(id: string): Promise<Workspace | null> {
 		const row = await db
@@ -75,10 +68,7 @@ export function registerWorkspaceSocket(
 	}
 
 	async function dropConnection(connectionId: string): Promise<void> {
-		await db
-			.deleteFrom("workspace_connections")
-			.where("id", "=", connectionId)
-			.execute();
+		await dropPresence(db, connectionId);
 	}
 
 	/**
@@ -145,48 +135,24 @@ export function registerWorkspaceSocket(
 		"/workspaces/:id/ws",
 		{
 			websocket: true,
-			preHandler: async (request, reply) => {
-				const user = requireUser(request);
-				const params = UuidParam.safeParse(request.params);
-				if (!params.success) {
-					return reply
-						.status(400)
-						.send({ code: "VALIDATION_FAILED", message: params.error.message });
-				}
-				const row = await findOwnedWorkspace(db, user, params.data.id);
-				if (!row) {
-					return reply
-						.status(404)
-						.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
-				}
-				const active = await countActive(db, params.data.id, config);
-				if (active >= MAX_CONNECTIONS_PER_WORKSPACE) {
-					return reply.status(429).send({
-						code: "TOO_MANY_CONNECTIONS",
-						message: "This workspace already has too many open connections",
-					});
-				}
-			},
+			preHandler: workspaceUpgradeGuard(db, config, { ownerOnly: false }),
 		},
 		async (socket: WebSocket, request: FastifyRequest) => {
+			// Hold incoming frames until the listeners below are attached, so a
+			// browser that closes during this setup cannot be missed.
+			socket.pause();
+
 			const workspaceId = (request.params as { id: string }).id;
 			const connectionId = crypto.randomUUID();
-			const now = new Date().toISOString();
 
-			await db
-				.insertInto("workspace_connections")
-				.values({ id: connectionId, workspace_id: workspaceId })
-				.execute();
+			await openPresence(db, workspaceId, connectionId);
 
-			await db
-				.updateTable("workspaces")
-				.set({
-					desired_state: "running",
-					last_active_connection_at: now,
-					updated_at: now,
-				})
-				.where("id", "=", workspaceId)
-				.execute();
+			if (socket.readyState !== socket.OPEN) {
+				// The browser gave up while we were writing presence.
+				track(dropConnection(connectionId).catch(() => {}));
+				socket.resume();
+				return;
+			}
 
 			const workspace = await readWorkspace(workspaceId);
 			if (workspace) send(socket, workspace);
@@ -222,11 +188,7 @@ export function registerWorkspaceSocket(
 						return;
 					}
 
-					await db
-						.updateTable("workspace_connections")
-						.set({ last_seen_at: new Date().toISOString() })
-						.where("id", "=", connectionId)
-						.execute();
+					await touchPresence(db, connectionId);
 				} catch (error) {
 					log("error", {
 						msg: "workspace socket message failed",
@@ -252,6 +214,7 @@ export function registerWorkspaceSocket(
 
 			socket.on("message", (raw: Buffer | string) => track(onMessage(raw)));
 			socket.on("close", () => track(onSocketClose()));
+			socket.resume();
 		},
 	);
 
@@ -262,10 +225,6 @@ export function registerWorkspaceSocket(
 			clearInterval(watcher.interval);
 			watchers.delete(workspaceId);
 		}
-		// A tick or a close handler already running can start more work, so
-		// keep draining until nothing is left.
-		while (pending.size > 0) {
-			await Promise.allSettled([...pending]);
-		}
+		await drain();
 	});
 }

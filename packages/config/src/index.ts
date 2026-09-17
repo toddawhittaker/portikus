@@ -69,6 +69,7 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_ADMIN_GROUP: z.string().min(1).default("portikus-administrators"),
 	SESSION_COOKIE_SECRET: z.string().min(1).default(DEV_SESSION_SECRET),
 	SESSION_TTL_SECONDS: positiveInt.default(43200),
+	AGENT_PORT: positiveInt.default(7400),
 })
 	.refine(requireProductionHttps("PUBLIC_URL"), {
 		message: productionHttpsMessage("PUBLIC_URL"),
@@ -121,11 +122,25 @@ export const ControllerConfigSchema = BaseConfig.extend({
 	INCUS_POOL: z.string().min(1).default("workspace-data"),
 	INCUS_PROFILE: z.string().min(1).default("workspace"),
 	INCUS_IMAGE_ALIAS: z.string().min(1).default("portikus"),
+	AGENT_PORT: positiveInt.default(7400),
 }).refine(
 	requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),
 	productionSecretMessage("CONTROLLER_TOKEN"),
 );
 export type ControllerConfig = z.infer<typeof ControllerConfigSchema>;
+
+/**
+ * Environment contract for the workspace agent, which runs inside the
+ * student container (STACK.md §10; SPEC.md §23.5).
+ */
+export const AgentConfigSchema = BaseConfig.extend({
+	PORT: positiveInt.default(7400),
+	TOKEN_PATH: z.string().min(1).default("/etc/portikus/agent.token"),
+	HOME_DIR: z.string().min(1).default("/home/student"),
+	// Set only in tests, so they get a tmux server of their own.
+	TMUX_SOCKET_NAME: z.string().optional(),
+});
+export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
 /** Thrown when the environment does not satisfy the config schema. */
 export class ConfigError extends Error {
