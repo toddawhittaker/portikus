@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+  <link rel="stylesheet" href="portikus-tokens.css">
+  <link rel="stylesheet" href="ds/portikus/components/bundle.css">
+  <link rel="stylesheet" href="portikus-screens.css">
+  <script src="ds/portikus/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&amp;family=Public+Sans:ital,wght@0,100..900;1,100..900&amp;display=swap">
+  <style>
+    body { margin: 0; }
+  </style>
+</helmet>
+<div class="pk-root" data-theme="{{theme}}" data-density="comfortable" style="position: relative; width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); color: var(--ink);">
+<header class="pk-appbar" data-component="AppHeader">
+  <x-import component-from-global-scope="Portikus.NameMark" size="{{markSm}}" href="#"></x-import>
+  <span class="pk-appbar-divider" aria-hidden="true"></span>
+  <span class="pk-appbar-context"><strong>Avery Chen</strong><span>workspace</span></span>
+  <span class="pk-appbar-spacer"></span>
+  <button type="button" class="pk-wsbutton" aria-haspopup="dialog" data-component="WorkspaceStatusButton">
+    <span>Workspace</span>
+    <x-import component-from-global-scope="Portikus.StateBadge" state="error" desired-state="running"></x-import>
+  </button>
+  <x-import component-from-global-scope="Portikus.IconButton" icon="search" label="Search in todo-api" shortcut="{{keys.search}}"></x-import>
+  <button type="button" class="pk-account" aria-haspopup="menu" aria-expanded="false" data-component="AccountMenuTrigger">
+    <span class="pk-initials" aria-hidden="true">AC</span>
+    <span>Avery Chen</span>
+    <span class="pk-account-role">Student</span>
+    <x-import component-from-global-scope="Portikus.Icon" name="chevron-down" size="sm"></x-import>
+  </button>
+</header>
+<main class="pk-errorpage" aria-labelledby="err-title">
+  <section class="pk-card pk-errorcard" data-component="ErrorState">
+    <div style="display: flex; gap: 16px; align-items: flex-start;">
+      <div class="pk-dialog-status" style="background: var(--status-error-soft); color: var(--status-error);"><x-import component-from-global-scope="Portikus.Icon" name="alert" size="lg"></x-import></div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <h1 id="err-title" class="pk-text-title">Your workspace could not start</h1>
+        <p class="pk-text-body">Its storage allocation is full. Docker is using 19.8 GB of your 20 GB Docker quota.</p>
+        <p class="pk-text-body pk-muted">Your projects and home folder are not affected.</p>
+      </div>
+    </div>
+    <div class="pk-meters" style="padding-left: 52px;">
+      <div class="pk-meter" role="meter" aria-label="Projects & home" aria-valuenow="32" aria-valuemin="0" aria-valuemax="100" aria-valuetext="3.2 GB of 10 GB" data-component="StorageMeter">
+            <div class="pk-meter-head"><span class="pk-meter-label">Projects & home</span><span class="pk-meter-value">3.2 GB of 10 GB</span></div>
+            <div class="pk-meter-track"><div class="pk-meter-fill" style="width: 32%;"></div></div>
+          </div>
+      <div class="pk-meter pk-meter--full" role="meter" aria-label="Docker" aria-valuenow="99" aria-valuemin="0" aria-valuemax="100" aria-valuetext="19.8 GB of 20 GB, Full" data-component="StorageMeter">
+            <div class="pk-meter-head"><span class="pk-meter-label">Docker</span><span class="pk-meter-value"><x-import component-from-global-scope="Portikus.Icon" name="alert" size="sm"></x-import>19.8 GB of 20 GB · Full</span></div>
+            <div class="pk-meter-track"><div class="pk-meter-fill" style="width: 99%;"></div></div>
+          </div>
+      <div class="pk-meter" role="meter" aria-label="Recovery" aria-valuenow="28" aria-valuemin="0" aria-valuemax="100" aria-valuetext="1.4 GB of 5 GB" data-component="StorageMeter">
+            <div class="pk-meter-head"><span class="pk-meter-label">Recovery</span><span class="pk-meter-value">1.4 GB of 5 GB</span></div>
+            <div class="pk-meter-track"><div class="pk-meter-fill" style="width: 28%;"></div></div>
+          </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px; padding-left: 52px;">
+      <div class="pk-actions">
+        <x-import component-from-global-scope="Portikus.Button" variant="primary" icon-start="storage" class-name="is-focus-demo">Clean up Docker</x-import>
+        <x-import component-from-global-scope="Portikus.Button" variant="secondary" icon-end="{{detailsIcon}}" aria-expanded="{{details}}" aria-controls="err-details">View details</x-import>
+      </div>
+      <p class="pk-text-caption pk-muted">Clean up Docker removes stopped containers, unused images and build cache. It doesn't touch your projects.</p>
+    </div>
+    <sc-if value="{{details}}" hint-placeholder-val="{{yes}}">
+      <div id="err-details" style="display: flex; flex-direction: column; gap: 8px; padding-left: 52px;">
+        <h2 class="pk-text-label pk-muted">Technical details</h2>
+        <dl class="pk-techdetail">
+          <div class="pk-techdetail-row"><dt>Error code</dt><dd>STORAGE_QUOTA_EXCEEDED</dd></div>
+          <div class="pk-techdetail-row"><dt>Message</dt><dd>container create failed: no space left on device (volume ws-7f3a2c-docker, 19.8G of 20G)</dd></div>
+          <div class="pk-techdetail-row"><dt>Workspace</dt><dd>ws-7f3a2c</dd></div>
+          <div class="pk-techdetail-row"><dt>Image</dt><dd>img 2026.09.1</dd></div>
+          <div class="pk-techdetail-row"><dt>Time</dt><dd>2026-09-16 14:31:07 EDT</dd></div>
+        </dl>
+        <div class="pk-actions"><x-import component-from-global-scope="Portikus.Button" variant="quiet" size="sm">Copy details</x-import></div>
+      </div>
+    </sc-if>
+  </section>
+</main>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme": {"editor": "enum", "options": ["light", "dark"], "default": "dark", "section": "Theme"}, "showDetails": {"editor": "boolean", "default": true, "section": "State"}, "$preview": {"width": 1440, "height": 900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const details = this.props.showDetails ?? true;
+    const extra = { details, detailsIcon: details ? 'chevron-up' : 'chevron-down' };
+    return {
+      theme: this.props.theme ?? 'dark',
+      yes: true,
+      no: false,
+      markSm: 18,
+      markLg: 28,
+      keys: { search: ['Mod', 'Shift', 'F'], leave: ['Alt', 'Shift', 'Q'], newTab: ['Mod', 'Alt', 'T'] },
+      ...extra,
+    };
+  }
+}
+</script>
+</body>
+</html>

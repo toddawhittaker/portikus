@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+  <link rel="stylesheet" href="portikus-tokens.css">
+  <link rel="stylesheet" href="ds/portikus/components/bundle.css">
+  <link rel="stylesheet" href="portikus-screens.css">
+  <script src="ds/portikus/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&amp;family=Public+Sans:ital,wght@0,100..900;1,100..900&amp;display=swap">
+  <style>
+    body { margin: 0; }
+  </style>
+</helmet>
+<div class="pk-root" data-theme="{{theme}}" data-density="comfortable" style="position: relative; width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); color: var(--ink);">
+<header class="pk-appbar" data-component="AppHeader">
+  <x-import component-from-global-scope="Portikus.NameMark" size="{{markSm}}" href="#"></x-import>
+  <span class="pk-appbar-divider" aria-hidden="true"></span>
+  <span class="pk-appbar-context"><strong>todo-api</strong><span class="pk-mono-small">~/projects/todo-api</span></span>
+  <span class="pk-appbar-spacer"></span>
+  <button type="button" class="pk-wsbutton" aria-haspopup="dialog" data-component="WorkspaceStatusButton">
+    <span>Workspace</span>
+    <x-import component-from-global-scope="Portikus.StateBadge" state="{{badge.state}}" desired-state="{{badge.desired}}" label="{{badge.label}}" live="{{yes}}"></x-import>
+  </button>
+  <x-import component-from-global-scope="Portikus.IconButton" icon="search" label="Search in todo-api" shortcut="{{keys.search}}"></x-import>
+  <button type="button" class="pk-account" aria-haspopup="menu" aria-expanded="false" data-component="AccountMenuTrigger">
+    <span class="pk-initials" aria-hidden="true">AC</span>
+    <span>Avery Chen</span>
+    <span class="pk-account-role">Student</span>
+    <x-import component-from-global-scope="Portikus.Icon" name="chevron-down" size="sm"></x-import>
+  </button>
+</header>
+<div class="pk-shell">
+  <nav class="pk-pane" aria-label="Projects" aria-busy="true" style="width: 240px; border-right: 1px solid var(--line);">
+    <div class="pk-pane-head"><h2 class="pk-pane-title">Projects</h2></div>
+    <div class="pk-pane-body">
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="70%"></x-import></div>
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="55%"></x-import></div>
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="80%"></x-import></div>
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="60%"></x-import></div>
+    </div>
+  </nav>
+  <main class="pk-work" aria-label="Work area">
+    <div class="pk-tabs-skeleton" aria-hidden="true"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="140px" height="14px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="96px" height="14px"></x-import></div>
+    <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px;">
+      <section class="pk-card pk-progress-card" aria-live="polite" aria-labelledby="progress-title" data-component="WorkspaceProgress">
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <h1 id="progress-title" class="pk-text-title">{{heading}}</h1>
+          <p class="pk-text-body pk-muted">{{sub}}</p>
+        </div>
+        <ol class="pk-steps">
+          <sc-for list="{{steps}}" as="s" hint-placeholder-count="3">
+            <li class="{{s.cls}}" aria-current="{{s.current}}">
+              <span class="pk-step-glyph">
+                <sc-if value="{{s.done}}" hint-placeholder-val="{{no}}"><x-import component-from-global-scope="Portikus.Icon" name="check" size="md"></x-import></sc-if>
+                <sc-if value="{{s.active}}" hint-placeholder-val="{{yes}}"><span class="pk-spin" aria-hidden="true"></span></sc-if>
+                <sc-if value="{{s.pending}}" hint-placeholder-val="{{no}}"><span class="pk-step-ring" aria-hidden="true"></span></sc-if>
+              </span>
+              <span>{{s.label}}</span>
+              <span class="pk-step-time">{{s.time}}</span>
+            </li>
+          </sc-for>
+        </ol>
+        <sc-if value="{{slow}}" hint-placeholder-val="{{no}}">
+          <hr class="pk-divider">
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <p class="pk-text-body">This is taking longer than usual. Portikus is still working on it, and there's nothing you need to do.</p>
+            <div class="pk-actions"><x-import component-from-global-scope="Portikus.Button" variant="secondary" size="sm">View workspace status</x-import></div>
+          </div>
+        </sc-if>
+      </section>
+    </div>
+  </main>
+  <aside class="pk-pane" aria-label="Files" aria-busy="true" style="width: 280px; border-left: 1px solid var(--line);">
+    <div class="pk-pane-head"><h2 class="pk-pane-title">Files</h2></div>
+    <div class="pk-pane-body">
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="60%"></x-import></div>
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="45%"></x-import></div>
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="70%"></x-import></div>
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="50%"></x-import></div>
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="65%"></x-import></div>
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="60%"></x-import></div>
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="45%"></x-import></div>
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="70%"></x-import></div>
+      <div class="pk-skel-row"><x-import component-from-global-scope="Portikus.Skeleton" variant="block" width="16px" height="16px"></x-import><x-import component-from-global-scope="Portikus.Skeleton" variant="text" width="50%"></x-import></div>
+    </div>
+  </aside>
+</div>
+<footer class="pk-statusbar"><span class="pk-statusbar-item">Waiting for your workspace</span></footer>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme": {"editor": "enum", "options": ["light", "dark"], "default": "light", "section": "Theme"}, "phase": {"editor": "enum", "options": ["connecting", "starting", "restoring"], "default": "connecting", "section": "State"}, "slow": {"editor": "boolean", "default": false, "section": "State"}, "$preview": {"width": 1440, "height": 900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const phase = this.props.phase ?? 'connecting';
+    const order = ['connecting', 'starting', 'restoring'];
+    const at = order.indexOf(phase);
+    const labels = ['Connecting to Portikus', 'Starting your workspace', 'Reopening your tabs'];
+    const times = ['0.4 s', '6.2 s', ''];
+    const steps = labels.map((label, i) => ({
+      label,
+      done: i < at, active: i === at, pending: i > at,
+      cls: 'pk-step ' + (i < at ? 'pk-step--done' : i === at ? 'pk-step--active' : 'pk-step--pending'),
+      current: i === at ? 'step' : undefined,
+      time: i < at ? times[i] : '',
+    }));
+    const copy = {
+      connecting: ['Connecting to your workspace', 'Checking where your workspace is. This takes a second or two.'],
+      starting: ['Starting your workspace', 'This usually takes a few seconds. Your files are already saved on your workspace storage.'],
+      restoring: ['Reopening your tabs', 'Your workspace is running. Terminals from your last session will show as ended; nothing is rerun.'],
+    }[phase];
+    const badge = {
+      connecting: { state: 'starting', desired: 'running', label: 'Connecting' },
+      starting: { state: 'stopped', desired: 'running', label: undefined },
+      restoring: { state: 'running', desired: 'running', label: undefined },
+    }[phase];
+    const extra = { steps, heading: copy[0], sub: copy[1], badge, slow: this.props.slow ?? false };
+    return {
+      theme: this.props.theme ?? 'light',
+      yes: true,
+      no: false,
+      markSm: 18,
+      markLg: 28,
+      keys: { search: ['Mod', 'Shift', 'F'], leave: ['Alt', 'Shift', 'Q'], newTab: ['Mod', 'Alt', 'T'] },
+      ...extra,
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!-- @dsCard group="Overlays" height=300 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Menu</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+</style></head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'demo',style:{alignItems:'flex-start',gap:'32px'}},
+ h(P.Menu,{label:'New tab'},
+  h(P.MenuLabel,null,'Open in todo-api'),
+  h(P.MenuItem,{icon:'terminal',shortcut:['Mod','Alt','T'],highlighted:true},'Terminal'),
+  h(P.MenuItem,{icon:'agent'},'Claude Code'),
+  h(P.MenuItem,{icon:'agent'},'Codex'),
+  h(P.MenuItem,{icon:'file',shortcut:['Mod','Alt','N']},'File'),
+  h(P.MenuItem,{icon:'preview'},'Preview')),
+ h(P.Menu,{label:'Project actions'},
+  h(P.MenuItem,{icon:'file'},'Rename'),
+  h(P.MenuItem,{icon:'folder'},'Duplicate'),
+  h(P.MenuItem,{icon:'external',disabled:true},'Download (preparing)'),
+  h(P.MenuSeparator),
+  h(P.MenuItem,{icon:'folder'},'Archive project')),
+ h('div',{'data-density':'compact'}, h(P.Menu,{label:'Workspace actions'},
+  h(P.MenuItem,{icon:'play'},'Start'),
+  h(P.MenuItem,{icon:'stop'},'Stop'),
+  h(P.MenuItem,{icon:'restart'},'Restart'),
+  h(P.MenuSeparator),
+  h(P.MenuItem,{icon:'trash',danger:true},'Reset Docker\u2026'),
+  h(P.MenuItem,{icon:'lock',danger:true},'Revoke access\u2026')))
+));
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+<!-- @dsCard group="Layout" height=240 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>PaneHandle</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+</style></head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:'16px 20px'}},
+ h('div',{style:{display:'flex',height:'200px',border:'1px solid var(--line)'}},
+  h('div',{style:{width:'180px',background:'var(--surface-sunken)',padding:'10px 12px',color:'var(--ink-muted)',fontSize:'13px'}},'Projects', h('br'), h('span',{style:{fontSize:'12px'}},'idle handle \u2192')),
+  h(P.PaneHandle,{label:'Resize project list',value:18,min:12,max:30}),
+  h('div',{style:{flex:1,display:'flex',flexDirection:'column'}},
+   h('div',{className:'pk-mono',style:{flex:1,background:'var(--terminal-bg)',color:'var(--terminal-fg)',padding:'8px 12px',fontSize:'13px'}},'$ npm test'),
+   h(P.PaneHandle,{orientation:'horizontal',state:'drag',label:'Resize split terminal',value:50,min:10,max:90}),
+   h('div',{className:'pk-mono',style:{flex:1,background:'var(--terminal-bg)',color:'var(--terminal-muted)',padding:'8px 12px',fontSize:'13px'}},'dragging handle (focus colour) \u2191')),
+  h(P.PaneHandle,{label:'Resize file tree',state:'hover',value:22,min:14,max:36}),
+  h('div',{style:{width:'180px',background:'var(--surface-sunken)',padding:'10px 12px',color:'var(--ink-muted)',fontSize:'13px'}},'\u2190 hover shows the grip', h('br'), 'Files'))
+));
+</script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+  <link rel="stylesheet" href="portikus-tokens.css">
+  <link rel="stylesheet" href="ds/portikus/components/bundle.css">
+  <link rel="stylesheet" href="portikus-screens.css">
+  <script src="ds/portikus/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&amp;family=Public+Sans:ital,wght@0,100..900;1,100..900&amp;display=swap">
+  <style>
+    body { margin: 0; }
+  </style>
+</helmet>
+<div class="pk-root" data-theme="{{theme}}" data-density="comfortable" style="position: relative; width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); color: var(--ink);">
+<main class="pk-standalone" data-component="StandalonePage">
+  <section class="pk-standalone-panel" aria-labelledby="page-title">
+    <x-import component-from-global-scope="Portikus.NameMark" size="{{markLg}}"></x-import>
+    <sc-if value="{{expired}}" hint-placeholder-val="{{yes}}">
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <h1 id="page-title" class="pk-text-display">Your session ended</h1>
+        <p class="pk-text-body">You were signed out, either after a long period without activity or from another window.</p>
+        <p class="pk-text-body pk-muted">Your projects are saved in your workspace. Sign in again to pick up where you left off.</p>
+      </div>
+      <div class="pk-actions"><x-import component-from-global-scope="Portikus.Button" variant="primary" size="lg" class-name="is-focus-demo">Sign in again</x-import></div>
+    </sc-if>
+    <sc-if value="{{revoked}}" hint-placeholder-val="{{no}}">
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <h1 id="page-title" class="pk-text-display">Your access to Portikus has ended</h1>
+        <p class="pk-text-body">Your institution removed your access, so this window was disconnected from your workspace.</p>
+        <p class="pk-text-body pk-muted">If you think this is a mistake, contact your instructor. Signing in again won't restore access until it is granted.</p>
+      </div>
+      <div class="pk-actions"><x-import component-from-global-scope="Portikus.Button" variant="secondary" class-name="is-focus-demo">Return to the sign-in page</x-import></div>
+    </sc-if>
+  </section>
+  <p class="pk-standalone-foot">Portikus keeps your workspace, not your prompts or command history.</p>
+</main>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme": {"editor": "enum", "options": ["light", "dark"], "default": "light", "section": "Theme"}, "reason": {"editor": "enum", "options": ["expired", "revoked"], "default": "expired", "section": "State"}, "$preview": {"width": 1440, "height": 900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const reason = this.props.reason ?? 'expired';
+    const extra = { expired: reason === 'expired', revoked: reason === 'revoked' };
+    return {
+      theme: this.props.theme ?? 'light',
+      yes: true,
+      no: false,
+      markSm: 18,
+      markLg: 28,
+      keys: { search: ['Mod', 'Shift', 'F'], leave: ['Alt', 'Shift', 'Q'], newTab: ['Mod', 'Alt', 'T'] },
+      ...extra,
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+<!-- @dsCard group="Navigation" height=260 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Tabs</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+</style></head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:'16px 20px',display:'grid',gap:'20px'}},
+ h('div',null, h('p',{className:'demo-cap'},'Active terminal, agent, unsaved file, preview, ended terminal'),
+  h('div',{style:{border:'1px solid var(--line)'}},
+   h(P.Tabs,{activeId:'t1',tabs:[
+    {id:'t1',kind:'terminal',label:'zsh \u2014 todo-api'},
+    {id:'t2',kind:'claude',label:'Claude Code'},
+    {id:'t3',kind:'file',label:'app.ts',dirty:true,title:'src/app.ts \u2014 unsaved changes'},
+    {id:'t4',kind:'preview',label:':3000'},
+    {id:'t5',kind:'terminal',label:'npm run dev',ended:true}]}),
+   h('div',{className:'pk-mono',style:{height:'56px',background:'var(--terminal-bg)',color:'var(--terminal-fg)',padding:'8px 12px',fontSize:'14px',lineHeight:'1.25'}},
+    h('span',{style:{color:'var(--ansi-green)'}},'student@portikus'),':',h('span',{style:{color:'var(--ansi-blue)'}},'~/projects/todo-api'),'$ git status',h('br'),'On branch main'))),
+ h('div',null, h('p',{className:'demo-cap'},'Reordering with the keyboard or pointer: the dragged tab lifts, the drop point shows in the focus colour'),
+  h('div',{style:{border:'1px solid var(--line)'}},
+   h(P.Tabs,{activeId:'a',draggingId:'c',dropBeforeId:'b',tabs:[
+    {id:'a',kind:'file',label:'README.md'},
+    {id:'b',kind:'file',label:'package.json'},
+    {id:'c',kind:'codex',label:'Codex'}]})))
+));
+</script>
+</body>
+</html>

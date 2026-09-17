@@ -1,0 +1,18 @@
+<!-- @dsCard group="Identity" height=116 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Icon</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+</style></head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+var names=['terminal','agent','file','folder','folder-open','preview','plus','x','more','chevron-right','chevron-down','chevron-up-down','external','alert','check','info','search','play','stop','restart','lock','grip','storage','trash','sign-out'];
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'demo',style:{gap:'6px'}}, names.map(function(n){return h('div',{key:n,title:n,style:{display:'grid',justifyItems:'center',gap:'4px',width:'64px',color:'var(--ink)'}}, h(P.Icon,{name:n}), h('span',{className:'pk-mono',style:{fontSize:'10px',lineHeight:'12px',color:'var(--ink-muted)'}},n));})));
+</script>
+</body>
+</html>
