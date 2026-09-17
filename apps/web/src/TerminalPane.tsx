@@ -229,7 +229,11 @@ export function TerminalPane({
 				return false;
 			}
 			if (action === "paste") {
+				// Firefox without readText: let the browser's own paste do the work.
 				if (!canReadClipboard()) return true;
+				// Returning false only stops xterm's key handling; without this the
+				// browser still pastes into xterm's textarea and the text lands twice.
+				event.preventDefault();
 				void paste();
 				return false;
 			}
