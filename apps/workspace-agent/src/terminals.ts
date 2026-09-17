@@ -32,6 +32,7 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 
 interface Attachment {
+	terminalId: string;
 	socket: WebSocket;
 	/** Null only while the slot is reserved and the PTY is starting. */
 	pty: IPty | null;
@@ -40,6 +41,10 @@ interface Attachment {
 	pendingInput: string[] | null;
 	pendingBytes: number;
 	pendingTimer: NodeJS.Timeout | null;
+	/** The last size asked for before the PTY existed; applied at spawn. */
+	pendingResize: { cols: number; rows: number } | null;
+	/** Set when the socket closes, including before the PTY exists. */
+	closed: boolean;
 }
 
 export interface AttachOptions {
@@ -87,28 +92,54 @@ export class TerminalRegistry {
 		// Take the slot before the first await so that two attachments racing
 		// each other cannot both pass the limit check.
 		const attachment: Attachment = {
+			terminalId: id,
 			socket,
 			pty: null,
 			drainTimer: null,
 			pendingInput: [],
 			pendingBytes: 0,
 			pendingTimer: null,
+			pendingResize: null,
+			closed: false,
 		};
 		existing.add(attachment);
 		this.attachments.set(id, existing);
+
+		// Listen before the first await: the browser sends its size straight
+		// after the socket opens, and a frame dropped here leaves the PTY at
+		// the wrong size (SPEC.md §9.7).
+		socket.on("message", (raw: Buffer | string) => {
+			this.onMessage(attachment, raw);
+		});
+		socket.on("close", () => {
+			attachment.closed = true;
+			this.forget(id, attachment);
+			const pty = attachment.pty;
+			if (!pty) return;
+			this.log.debug({ terminalId: id, pid: pty.pid }, "terminal detached");
+			// Killing the attach process only detaches; the session lives on.
+			try {
+				pty.kill();
+			} catch {
+				// The process may already be gone.
+			}
+		});
 
 		if (!(await hasSession(id, this.socketName))) {
 			this.forget(id, attachment);
 			throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 		}
+		// The browser gave up while we were checking; never start a shell for it.
+		if (attachment.closed) return;
 
 		const pty = this.spawnPty("tmux", attachArgs(id, this.socketName), {
 			name: "xterm-256color",
-			cols: options.cols ?? DEFAULT_COLS,
-			rows: options.rows ?? DEFAULT_ROWS,
+			cols: attachment.pendingResize?.cols ?? options.cols ?? DEFAULT_COLS,
+			rows: attachment.pendingResize?.rows ?? options.rows ?? DEFAULT_ROWS,
 			cwd: this.homeDir,
 			env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
 		});
+		attachment.pendingResize = null;
 
 		attachment.pty = pty;
 		this.log.debug(
@@ -132,21 +163,6 @@ export class TerminalRegistry {
 			this.forget(id, attachment);
 			sendText(socket, { type: "exit" });
 			socket.close(1000, "terminal exited");
-		});
-
-		socket.on("message", (raw: Buffer | string) => {
-			this.onMessage(attachment, raw);
-		});
-
-		socket.on("close", () => {
-			this.forget(id, attachment);
-			this.log.debug({ terminalId: id, pid: pty.pid }, "terminal detached");
-			// Killing the attach process only detaches; the session lives on.
-			try {
-				pty.kill();
-			} catch {
-				// The process may already be gone.
-			}
 		});
 	}
 
@@ -214,7 +230,6 @@ export class TerminalRegistry {
 
 	private onMessage(attachment: Attachment, raw: Buffer | string): void {
 		const { socket, pty } = attachment;
-		if (!pty) return;
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(raw.toString());
@@ -238,7 +253,10 @@ export class TerminalRegistry {
 				const size = Buffer.byteLength(message.data.data, "utf8");
 				if (attachment.pendingBytes + size > INPUT_QUEUE_MAX_BYTES) {
 					this.log.warn(
-						{ pid: pty.pid, pendingBytes: attachment.pendingBytes },
+						{
+							terminalId: attachment.terminalId,
+							pendingBytes: attachment.pendingBytes,
+						},
 						"dropping early terminal input: queue full",
 					);
 					return;
@@ -247,7 +265,13 @@ export class TerminalRegistry {
 				attachment.pendingBytes += size;
 				return;
 			}
-			pty.write(message.data.data);
+			pty?.write(message.data.data);
+			return;
+		}
+
+		// No PTY yet: remember the size so it is spawned with it.
+		if (!pty) {
+			attachment.pendingResize = { cols: message.data.cols, rows: message.data.rows };
 			return;
 		}
 
