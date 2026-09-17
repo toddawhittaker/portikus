@@ -59,6 +59,11 @@
     incus_network_existing_egress_descriptions: >-
       {{ (incus_network_acl_yaml.egress | default([])) | map(attribute='description') | list }}
 
+- name: Collect existing ingress rule descriptions
+  ansible.builtin.set_fact:
+    incus_network_existing_ingress_descriptions: >-
+      {{ (incus_network_acl_yaml.ingress | default([])) | map(attribute='description') | list }}
+
 # Default actions are not ACL config keys in Incus. They are set on the
 # network below, in "Attach ACL to workspace network", as
 # security.acls.default.{ingress,egress}.action=drop.
@@ -109,6 +114,21 @@
       destination=0.0.0.0/0
       description="Allow internet egress"
   when: "'Allow internet egress' not in incus_network_existing_egress_descriptions"
+  changed_when: true
+
+# Default ingress is drop, so the API on the VM needs one hole to reach the
+# workspace agent.  The source is the bridge gateway address, which is the
+# VM itself; workspaces cannot reach each other on this port.
+- name: Add ACL rule allowing the VM to reach the workspace agent
+  ansible.builtin.command:
+    cmd: >-
+      incus network acl rule add {{ incus_network_name }}-acl ingress
+      action=allow
+      protocol=tcp
+      source={{ incus_network_cidr | ansible.utils.ipaddr('address') }}/32
+      destination_port={{ portikus_agent_port }}
+      description="Allow control plane to reach the workspace agent"
+  when: "'Allow control plane to reach the workspace agent' not in incus_network_existing_ingress_descriptions"
   changed_when: true
 
 # Attach ACL to the workspace network (only when config differs)

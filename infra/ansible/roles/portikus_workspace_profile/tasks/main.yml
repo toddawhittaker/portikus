@@ -100,3 +100,43 @@
       --project {{ incus_project_name }}
   when: "'root' not in (portikus_workspace_profile_yaml.devices | default({}))"
   changed_when: true
+
+# The workspace agent ships in the portikus Debian package on the VM and is
+# bind-mounted read-only, so a container never carries its own copy and an
+# upgrade is a package upgrade plus a restart.  With isolated idmaps the
+# root-owned host tree shows up as "nobody" inside the container; that is
+# harmless for a world-readable, read-only tree.
+- name: Attach the workspace agent tree to profile
+  ansible.builtin.command:
+    cmd: >-
+      incus profile device add workspace agent disk
+      source=/usr/lib/portikus/workspace-agent
+      path=/opt/portikus/workspace-agent
+      readonly=true
+      --project {{ incus_project_name }}
+  when: "'agent' not in (portikus_workspace_profile_yaml.devices | default({}))"
+  changed_when: true
+
+# Anti-spoofing on the bridged NIC (SPEC.md 23.5): a student must not be
+# able to take another workspace's address and impersonate its agent.
+# Incus installs the filter rules from the address it manages for the NIC.
+- name: Get current agent NIC filtering settings
+  ansible.builtin.command:
+    cmd: >-
+      incus profile device get workspace eth0 {{ item }}
+      --project {{ incus_project_name }}
+  loop:
+    - security.mac_filtering
+    - security.ipv4_filtering
+  register: portikus_workspace_profile_nic_filtering
+  changed_when: false
+  failed_when: false
+
+- name: Enable NIC anti-spoofing filtering
+  ansible.builtin.command:
+    cmd: >-
+      incus profile device set workspace eth0 {{ item.item }}=true
+      --project {{ incus_project_name }}
+  loop: "{{ portikus_workspace_profile_nic_filtering.results }}"
+  when: item.stdout | default('') | trim != 'true'
+  changed_when: true

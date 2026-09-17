@@ -667,6 +667,40 @@ PROBE
   echo "--- Epic 3 and 4 results: $((pass - epic3_pass_start)) passed, $((fail - epic3_fail_start)) failed ---"
 fi
 
+# ── Epic 5: workspace agent ──────────────────────────────────────
+# Static checks only: the unit runs inside the container, the tree the
+# workspace profile bind-mounts is there and not writable by the
+# student, and the agent turns away a request that carries no token.
+# The terminal flow is checked elsewhere.
+#
+# These reuse the workspace the Epic 2 block created, so they are
+# skipped whenever that block did not run.
+if [ -n "${WS_NAME:-}" ]; then
+  echo ""
+  echo "--- Epic 5: workspace agent checks ---"
+  echo ""
+
+  check "workspace agent unit is active" \
+    ws_exec systemctl is-active portikus-workspace-agent
+  check "agent start script is present" \
+    ws_exec test -x /opt/portikus/workspace-agent/bin/workspace-agent
+  check "agent tree is not writable by student" \
+    ws_student "! test -w /opt/portikus/workspace-agent/bin/workspace-agent"
+
+  # The API dials the agent over the workspace bridge, so probe the same way.
+  ws_ip=$(ssh_cmd "incus list ${WS_NAME} --project ${PROJECT} -c4 --format csv" \
+    | head -1 | awk '{print $1}')
+  if [ -n "$ws_ip" ]; then
+    check_output "agent /health without a token is 401" "401" \
+      ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://${ws_ip}:7400/health"
+  else
+    printf '\033[1;31mFAIL\033[0m  workspace has no bridge address\n'
+    fail=$((fail + 1))
+  fi
+else
+  echo "No Epic 2 workspace; skipping Epic 5 checks."
+fi
+
 echo ""
 echo "--- Results: ${pass} passed, ${fail} failed ---"
 
