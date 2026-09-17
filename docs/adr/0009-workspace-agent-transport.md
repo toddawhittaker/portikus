@@ -49,7 +49,11 @@ Terminals are tmux sessions, one per terminal, named `pk-<terminalId>` with
 shell, several clients share one attach, and a full workspace stop ends the
 container and its tmux with it. Durable metadata lives in a `terminals`
 table (SPEC §26); the worker sets `ended_at` when a workspace moves to
-`stopping`. Nothing is replayed on reconnect.
+`stopping`. An attachment is now sent the lines that have scrolled off the
+pane, captured with `tmux capture-pane`, before its PTY starts, and tmux
+draws on a terminal stripped of the `smcup`, `rmcup`, `indn` and `rin`
+capabilities so that the browser's own scrollback fills up and the mouse
+wheel scrolls it.
 
 **Rejected alternatives:**
 

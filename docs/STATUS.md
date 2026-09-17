@@ -177,5 +177,10 @@ running; and a workspace owner who holds the agent token can set their own
 agent's level, which stays until the setting next changes or the workspace
 restarts. From pane dragging, there is no keyboard equivalent: a pane is
 rearranged with a pointer only, and a drop is refused silently when it
-would pass the split-depth or tab limits. Epic 7 (files, Monaco, search,
+would pass the split-depth or tab limits. The mouse wheel now scrolls a
+terminal's own 5,000 line scrollback and the viewport has a thin scrollbar,
+which needed tmux to stop using the alternate screen, and an attachment is
+sent the pane's earlier lines so a reload no longer starts with a bare
+prompt, at the cost of one blank screenful between that history and the
+repainted screen. Epic 7 (files, Monaco, search,
 and change review) is next.
