@@ -210,30 +210,59 @@ public address. It terminates TLS with its own internal certificate
 authority and forwards to the API and the browser bundle, both of which
 stay on loopback.
 
-The site name defaults to `portikus.<vm-ip>.nip.io`. nip.io is a public
-DNS service that resolves any name of that shape back to the address in
-it, so a fresh VM has a working host name without anyone editing DNS.
-Open `https://portikus.<vm-ip>.nip.io` in a browser.
+The VM sits on a libvirt NAT network, so nothing on the LAN can reach it
+until the host forwards to it. Publish it once per VM:
 
-To use a name of your own instead, pass it through:
+```
+make publish-vm
+```
+
+That adds two iptables chains named `PORTIKUS_PUBLISH` on the host, one
+in the `nat` table and one in `filter`. They forward ports 80 and 443
+arriving on the host's LAN interface to the VM, and nothing else. A
+oneshot systemd unit, `portikus-publish-vm.service`, puts the rules back
+after a reboot, reading the VM address from `/etc/portikus-host/vm-ip`.
+The VM address changes when the VM is rebuilt, so run `make publish-vm`
+again after `make rebuild-pilot` (that target already calls it).
+
+Then configure the VM, which names the site after the host's LAN address
+so browsers on the LAN reach it through the forward:
+
+```
+make configure-vm PORTIKUS_MOCK_IDP=true
+```
+
+The site name defaults to `portikus.<host-lan-ip>.nip.io`. nip.io is a
+public DNS service that resolves any name of that shape back to the
+address in it, so no DNS has to be edited. Open
+
+```
+https://portikus.<host-lan-ip>.nip.io/
+```
+
+from any device on the LAN. If the network blocks public DNS, or the
+device cannot resolve nip.io, add a line to that device's hosts file
+instead:
+
+```
+<host-lan-ip> portikus.<host-lan-ip>.nip.io
+```
+
+To use a name of your own instead, pass it through to both targets:
 
 ```
 make configure-vm PORTIKUS_PUBLIC_HOST=portikus.example.test
 make smoke-test PORTIKUS_PUBLIC_HOST=portikus.example.test
 ```
 
-and add a matching line to your workstation's `/etc/hosts`:
-
-```
-<vm-ip> portikus.example.test
-```
+and point that name at the host's LAN address in the device's hosts file.
 
 The browser will not trust Caddy's certificate until you import the
-authority that signed it. Copy it from the VM and add it to your browser
-or system trust store:
+authority that signed it. Fetch it from the VM and add it to your
+browser or system trust store:
 
 ```
-scp deploy@<vm-ip>:/etc/portikus/caddy-root.crt /tmp/portikus-caddy-root.crt
+ssh deploy@<vm-ip> sudo cat /etc/portikus/caddy-root.crt > portikus-caddy-root.crt
 ```
 
 In Firefox: Settings, Privacy & Security, View Certificates, Authorities,
@@ -244,6 +273,17 @@ a `.crt` name and run `sudo update-ca-certificates`.
 The certificate is generated on the VM, so destroying and recreating the
 VM produces a new one. Import the new copy after a rebuild and remove the
 old one.
+
+While the VM is published with the mock sign-in on, every device on the
+LAN can sign in as any mock account, including the administrator. Only do
+this on a network you trust, and withdraw it when you are finished:
+
+```
+make unpublish-vm
+```
+
+That deletes both chains, the systemd unit, and the stored address. It
+leaves libvirt's own rules alone, so the VM keeps its outbound access.
 
 ### Identity provider
 

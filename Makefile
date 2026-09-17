@@ -3,6 +3,7 @@
 
 .PHONY: help install check typecheck lint format test build test-e2e dev clean \
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test destroy-pilot rebuild-pilot \
+       publish-vm unpublish-vm \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy
 
 help: ## Show the available targets
@@ -67,6 +68,13 @@ infra-apply: ## Create or update the platform VM and disks
 VM_IP ?= $(shell cd $(TOFU_DIR) 2>/dev/null && tofu output -json vm_ip 2>/dev/null | python3 -c 'import json,sys; print((json.load(sys.stdin) or [""])[0])')
 MANAGEMENT_CIDR ?= $(shell cd $(TOFU_DIR) 2>/dev/null && tofu output -raw management_cidr 2>/dev/null)
 
+# The host's own LAN address, taken from its default route.
+HOST_IP ?= $(shell ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($$i == "src") { print $$(i + 1); exit }}')
+
+# The site name the VM's Caddy serves. It has to be the host's address, not the
+# VM's, because LAN browsers reach the VM through the host port forward.
+PORTIKUS_PUBLIC_HOST ?= portikus.$(HOST_IP).nip.io
+
 # Block until the VM answers SSH and cloud-init has finished, so Ansible does
 # not race the first-boot apt update. The known-hosts options are for the wait
 # only: a rebuilt VM has a new host key at the same address.
@@ -98,7 +106,14 @@ smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HO
 destroy-pilot: ## Destroy the platform VM (irreversible)
 	cd $(TOFU_DIR) && tofu destroy
 
-rebuild-pilot: destroy-pilot infra-apply configure-vm ## Destroy and recreate the platform VM
+rebuild-pilot: destroy-pilot infra-apply configure-vm publish-vm ## Destroy and recreate the platform VM
+
+publish-vm: ## Forward ports 80 and 443 from the host's LAN address to the VM (rerun after a rebuild)
+	@test -n "$(VM_IP)" || { echo "publish-vm: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	bash infra/host/publish-vm.sh $(VM_IP)
+
+unpublish-vm: ## Withdraw the host port forward to the VM
+	bash infra/host/publish-vm.sh --remove
 
 # ── Application deployment targets ────────────────────────────────
 
