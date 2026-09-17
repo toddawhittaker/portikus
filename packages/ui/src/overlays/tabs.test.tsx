@@ -91,7 +91,7 @@ describe("Tabs", () => {
 		renderTabs();
 
 		const ended = screen.getByRole("tab", { name: /zsh — old/ });
-		expect(ended.textContent).toContain(", session ended");
+		expect(ended.textContent).toContain("(session ended)");
 		expect(ended.className).toContain("pk-tab--ended");
 	});
 });

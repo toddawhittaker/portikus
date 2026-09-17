@@ -38,6 +38,7 @@ export function DuplicateDialog({
 							Cancel
 						</Button>
 						<Button
+							data-testid="dialog-confirm"
 							variant="primary"
 							loading={duplicate.isPending}
 							disabled={slug === "" || duplicate.isPending}

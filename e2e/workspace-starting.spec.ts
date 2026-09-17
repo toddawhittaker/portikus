@@ -21,15 +21,16 @@ test("the starting screen gives way to the terminal tabs", async ({
 
 	await page.goto(workspacePath(student.workspaceId, project.id));
 
-	await expect(page.getByTestId("workspace-state")).toHaveText(
-		"Starting your workspace…",
-	);
+	await expect(page.getByTestId("workspace-state")).toHaveText("Starting");
+	await expect(
+		page.getByRole("heading", { name: "Starting your workspace" }),
+	).toBeVisible();
 	await expect(workTabs(page)).toHaveCount(0);
 
 	await setWorkspaceState(student.workspaceId, "running");
 
 	// No reload: the workspace WebSocket reports the new state.
 	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
-	// TODO(Epic 6): the empty work area shows the launcher (plan, E2).
-	await expect(page.getByText("No terminals yet.")).toBeVisible();
+	await expect(page.getByText("No terminals open")).toBeVisible();
+	await expect(page.getByTestId("launcher")).toBeVisible();
 });

@@ -3,18 +3,17 @@ import { createLayoutStore } from "./store";
 import { layoutTerminalIds, leafIds } from "./tree";
 
 function store() {
-	let next = 0;
-	return createLayoutStore(() => `tab${++next}`);
+	return createLayoutStore();
 }
 
 test("adding a tab activates it and marks the layout dirty", () => {
 	const layout = store();
 	layout.getState().addTab("a");
-	expect(layout.getState().activeTabId).toBe("tab1");
+	expect(layout.getState().activeTabId).toBe("a");
 	expect(layout.getState().dirty).toBe(true);
 	layout.getState().clearDirty();
 	layout.getState().addTab("b");
-	expect(layout.getState().activeTabId).toBe("tab2");
+	expect(layout.getState().activeTabId).toBe("b");
 	expect(layoutTerminalIds(layout.getState().layout)).toEqual(["a", "b"]);
 });
 
@@ -33,7 +32,7 @@ test("removing the last pane of the active tab moves the active tab", () => {
 	layout.getState().addTab("a");
 	layout.getState().addTab("b");
 	layout.getState().removeLeaf("b");
-	expect(layout.getState().activeTabId).toBe("tab1");
+	expect(layout.getState().activeTabId).toBe("a");
 	layout.getState().removeLeaf("a");
 	expect(layout.getState().activeTabId).toBeNull();
 });
@@ -53,10 +52,10 @@ test("the active tab and the focused pane are not structural changes", () => {
 	layout.getState().addTab("a");
 	layout.getState().addTab("b");
 	layout.getState().clearDirty();
-	layout.getState().setActive("tab1");
+	layout.getState().setActive("a");
 	layout.getState().setFocused("a");
 	expect(layout.getState().dirty).toBe(false);
-	expect(layout.getState().activeTabId).toBe("tab1");
+	expect(layout.getState().activeTabId).toBe("a");
 	expect(layout.getState().focusedTerminalId).toBe("a");
 });
 
@@ -65,10 +64,10 @@ test("moving and resizing go through the tree and mark the layout dirty", () => 
 	layout.getState().addTab("a");
 	layout.getState().addTab("b");
 	layout.getState().moveTab(1, 0);
-	expect(layout.getState().layout.tabs.map((tab) => tab.id)).toEqual(["tab2", "tab1"]);
+	expect(layout.getState().layout.tabs.map((tab) => tab.id)).toEqual(["b", "a"]);
 	layout.getState().splitLeaf("a", "row", "c");
 	layout.getState().clearDirty();
-	layout.getState().resize("tab1", [], [70, 30]);
+	layout.getState().resize("a", [], [70, 30]);
 	expect(layout.getState().dirty).toBe(true);
 });
 

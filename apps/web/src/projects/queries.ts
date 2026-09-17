@@ -120,9 +120,21 @@ export function useUnarchiveProject(workspaceId: string) {
 }
 
 /**
- * Download is a plain navigation so the browser saves the zip itself; the
- * session cookie rides along and no blob is held in memory.
+ * Download fetches the zip and saves it through a link. A plain navigation
+ * would be answered by the single-page app, because the gateway sends
+ * document requests under /workspaces there.
  */
-export function downloadProject(workspaceId: string, projectId: string): void {
-	window.location.assign(`${base(workspaceId)}/${projectId}/download`);
+export async function downloadProject(
+	workspaceId: string,
+	projectId: string,
+	slug: string,
+): Promise<void> {
+	const response = await fetch(`${base(workspaceId)}/${projectId}/download`);
+	if (!response.ok) throw new Error("the download failed");
+	const url = URL.createObjectURL(await response.blob());
+	const link = document.createElement("a");
+	link.href = url;
+	link.download = `${slug}.zip`;
+	link.click();
+	URL.revokeObjectURL(url);
 }

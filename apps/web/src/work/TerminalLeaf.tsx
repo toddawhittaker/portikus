@@ -58,8 +58,8 @@ export function TerminalLeaf({
 	const [renaming, setRenaming] = useState(false);
 	const [draft, setDraft] = useState(terminal.name);
 	const field = useRef<HTMLInputElement | null>(null);
-	// The menu returns focus to its trigger as it closes, so the field takes
-	// focus a tick later and only then starts committing on blur.
+	// The menu returns focus to its trigger as it closes, so the field waits
+	// for that to happen and only commits on a blur once it really had focus.
 	const armed = useRef(false);
 	const ended = terminal.endedAt !== null;
 	const title = `${terminal.name} · ${shortenPath(terminal.cwd)}`;
@@ -72,8 +72,7 @@ export function TerminalLeaf({
 		const timer = setTimeout(() => {
 			field.current?.focus();
 			field.current?.select();
-			armed.current = true;
-		}, 0);
+		}, 50);
 		return () => clearTimeout(timer);
 	}, [renaming]);
 
@@ -99,6 +98,9 @@ export function TerminalLeaf({
 						data-testid="terminal-rename-field"
 						className="pk-term-bar-input"
 						value={draft}
+						onFocus={() => {
+							armed.current = true;
+						}}
 						onChange={(event) => setDraft(event.target.value)}
 						onBlur={() => {
 							if (armed.current) commitRename();

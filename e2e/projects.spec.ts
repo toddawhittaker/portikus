@@ -23,6 +23,21 @@ test.describe("projects", () => {
 		await expect(page.getByTestId("dialog-create-project")).toBeVisible();
 	}
 
+	/**
+	 * Wait for the project rows a dialog is creating. The request runs while
+	 * the dialog shows its pending label, so reading the table at once is a
+	 * race.
+	 */
+	async function waitForProjectIds(
+		workspaceId: string,
+		count: number,
+	): Promise<string[]> {
+		await expect
+			.poll(async () => (await projectIds(workspaceId)).length, { timeout: 15_000 })
+			.toBe(count);
+		return projectIds(workspaceId);
+	}
+
 	/** Open a project's "more" menu and pick one of its actions. */
 	async function projectAction(
 		page: Page,
@@ -49,7 +64,7 @@ test.describe("projects", () => {
 		);
 		await page.getByTestId("dialog-confirm").click();
 
-		const [projectId] = await projectIds(student.workspaceId);
+		const [projectId] = await waitForProjectIds(student.workspaceId, 1);
 		if (!projectId) throw new Error("no project row was created");
 		await expect(page.getByTestId(`project-item-${projectId}`)).toContainText(
 			"My First Project",
@@ -80,7 +95,7 @@ test.describe("projects", () => {
 		await page.getByRole("checkbox", { name: /git/i }).uncheck();
 		await page.getByTestId("dialog-confirm").click();
 
-		const [projectId] = await projectIds(student.workspaceId);
+		const [projectId] = await waitForProjectIds(student.workspaceId, 1);
 		if (!projectId) throw new Error("no project row was created");
 		await projectAction(page, projectId, "Initialize Git");
 
@@ -108,7 +123,7 @@ test.describe("projects", () => {
 		await page.getByTestId("field-url").fill("https://example.com/repo.git");
 		await page.getByTestId("dialog-confirm").click();
 
-		const [projectId] = await projectIds(student.workspaceId);
+		const [projectId] = await waitForProjectIds(student.workspaceId, 1);
 		if (!projectId) throw new Error("no project row was created");
 		await expect(page.getByTestId(`project-item-${projectId}`)).toContainText(
 			"Cloned Work",
@@ -145,7 +160,7 @@ test.describe("projects", () => {
 		await page.getByTestId("field-url").fill("file:///etc/passwd");
 		await page.getByTestId("dialog-confirm").click();
 
-		await expect(page.getByTestId("dialog-create-project")).toBeVisible();
+		await expect(page.getByTestId("dialog-error")).toBeVisible();
 		expect(await projectIds(student.workspaceId)).toEqual([]);
 	});
 
@@ -174,10 +189,11 @@ test.describe("projects", () => {
 
 		await startCreate(page, "From template");
 		await page.getByTestId("field-name").fill("From Starter");
-		await page.getByRole("combobox").selectOption({ label: "Starter" });
+		await page.getByRole("combobox").click();
+		await page.getByRole("option", { name: "Starter" }).click();
 		await page.getByTestId("dialog-confirm").click();
 
-		const [projectId] = await projectIds(student.workspaceId);
+		const [projectId] = await waitForProjectIds(student.workspaceId, 1);
 		if (!projectId) throw new Error("no project row was created");
 		await expect(page.getByTestId(`project-item-${projectId}`)).toContainText(
 			"From Starter",
@@ -274,7 +290,7 @@ test.describe("projects", () => {
 
 		await page.getByTestId("archived-projects").click();
 		await expect(page.getByTestId(`project-item-${project.id}`)).toBeVisible();
-		await projectAction(page, project.id, "Unarchive");
+		await page.getByTestId(`project-unarchive-${project.id}`).click();
 
 		await expect
 			.poll(async () => {
@@ -290,9 +306,9 @@ test.describe("projects", () => {
 	test("a Git directory made by hand is discovered", async ({ page, context }) => {
 		const student = await createStudent(context);
 		const slug = `found-${Date.now()}`;
-		await seedProjectDir(slug, true);
+		await seedProjectDir(student.workspaceId, slug, true);
 		// A directory that is not a Git repository is ignored (plan, Discovery).
-		await seedProjectDir(`${slug}-plain`, false);
+		await seedProjectDir(student.workspaceId, `${slug}-plain`, false);
 
 		await page.goto(workspacePath(student.workspaceId));
 
@@ -313,7 +329,7 @@ test.describe("projects", () => {
 		const project = await createProject(student.workspaceId, {
 			name: `Vanished ${Date.now()}`,
 		});
-		await removeProjectDir(project.slug);
+		await removeProjectDir(student.workspaceId, project.slug);
 
 		await page.goto(workspacePath(student.workspaceId));
 

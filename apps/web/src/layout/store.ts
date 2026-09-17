@@ -35,17 +35,13 @@ export interface LayoutState {
 
 export type LayoutStore = ReturnType<typeof createLayoutStore>;
 
-function newTabId(): string {
-	return crypto.randomUUID();
-}
-
 /** Keep the active tab pointing at a tab that still exists. */
 function pickActive(layout: ProjectLayout, current: string | null): string | null {
 	if (current && layout.tabs.some((tab) => tab.id === current)) return current;
 	return layout.tabs[0]?.id ?? null;
 }
 
-export function createLayoutStore(makeTabId: () => string = newTabId) {
+export function createLayoutStore() {
 	return createStore<LayoutState>()((set) => {
 		/** Apply a structural change: new layout, still-valid active tab, dirty. */
 		function change(next: (layout: ProjectLayout) => ProjectLayout) {
@@ -73,10 +69,10 @@ export function createLayoutStore(makeTabId: () => string = newTabId) {
 				})),
 
 			addTab: (terminalId) => {
-				const tabId = makeTabId();
+				// A tab is named after the terminal it was opened for.
 				set((state) => ({
-					layout: tree.addTab(state.layout, terminalId, tabId),
-					activeTabId: tabId,
+					layout: tree.addTab(state.layout, terminalId, terminalId),
+					activeTabId: terminalId,
 					dirty: true,
 				}));
 			},
@@ -103,7 +99,7 @@ export function createLayoutStore(makeTabId: () => string = newTabId) {
 
 			reconcile: (terminalIds) =>
 				set((state) => {
-					const layout = tree.reconcile(state.layout, terminalIds, makeTabId);
+					const layout = tree.reconcile(state.layout, terminalIds);
 					if (layout === state.layout) return state;
 					return {
 						layout,

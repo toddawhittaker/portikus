@@ -145,27 +145,22 @@ test("sizes that do not add up are scaled to 100", () => {
 });
 
 test("reconcile gives every unplaced terminal a tab", () => {
-	let next = 0;
-	const layout = reconcile(emptyLayout(), ["a", "b"], () => `t${++next}`);
-	expect(layout.tabs.map((tab) => tab.id)).toEqual(["t1", "t2"]);
+	const layout = reconcile(emptyLayout(), ["a", "b"]);
+	expect(layout.tabs.map((tab) => tab.id)).toEqual(["a", "b"]);
 	expect(layoutTerminalIds(layout)).toEqual(["a", "b"]);
 });
 
 test("reconcile prunes a pane whose terminal is gone but keeps the rest", () => {
-	const layout = reconcile(
-		splitLeaf(oneTab(leaf("a")), "a", "row", "b"),
-		["a"],
-		() => "new",
-	);
+	const layout = reconcile(splitLeaf(oneTab(leaf("a")), "a", "row", "b"), ["a"]);
 	expect(layout.tabs[0]?.root).toEqual(leaf("a"));
 });
 
 test("reconcile keeps an ended terminal, because it is still in the list", () => {
-	const layout = reconcile(oneTab(leaf("a")), ["a"], () => "new");
+	const layout = reconcile(oneTab(leaf("a")), ["a"]);
 	expect(layoutTerminalIds(layout)).toEqual(["a"]);
 });
 
 test("reconcile with nothing to do returns the same layout", () => {
 	const layout = oneTab(leaf("a"));
-	expect(reconcile(layout, ["a"], () => "new")).toBe(layout);
+	expect(reconcile(layout, ["a"])).toBe(layout);
 });

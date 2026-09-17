@@ -41,6 +41,7 @@ export function RenameDialog({
 							Cancel
 						</Button>
 						<Button
+							data-testid="dialog-confirm"
 							variant="primary"
 							loading={rename.isPending}
 							disabled={slug === "" || rename.isPending}

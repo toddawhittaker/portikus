@@ -122,6 +122,7 @@ export function ConfirmDialog({
 						</Button>
 					</RadixAlertDialog.Cancel>
 					<Button
+						data-testid="dialog-confirm"
 						variant="danger"
 						disabled={!ready || pending}
 						loading={pending}

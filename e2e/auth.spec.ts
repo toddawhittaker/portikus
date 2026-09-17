@@ -16,6 +16,7 @@ test("a student can log in through the mock identity provider", async ({ page })
 test("signing out ends the session", async ({ page }) => {
 	await loginAs(page, "alice");
 
+	await page.click("[data-testid=me]");
 	await page.click("[data-testid=signout]");
 
 	await expect(page.locator("[data-testid=signin]")).toBeVisible();

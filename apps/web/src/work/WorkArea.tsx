@@ -50,6 +50,8 @@ export function WorkArea({
 	const terminals = useTerminals(workspaceId, projectId, running, onSessionEnded);
 	const [closingTabId, setClosingTabId] = useState<string | null>(null);
 	const strip = useRef<HTMLDivElement | null>(null);
+	// Terminals whose delete has been sent but not answered yet.
+	const closing = useRef(new Set<string>());
 
 	const byId = new Map(terminals.terminals.map((terminal) => [terminal.id, terminal]));
 
@@ -58,7 +60,10 @@ export function WorkArea({
 	const terminalIds = terminals.terminals.map((terminal) => terminal.id).join(",");
 	useEffect(() => {
 		if (!loaded || !terminals.loaded) return;
-		store.getState().reconcile(terminalIds === "" ? [] : terminalIds.split(","));
+		const ids = terminalIds === "" ? [] : terminalIds.split(",");
+		// A terminal whose delete is still in flight is already gone from the
+		// layout, so a list answer from before the delete must not bring it back.
+		store.getState().reconcile(ids.filter((id) => !closing.current.has(id)));
 	}, [loaded, terminals.loaded, terminalIds, store]);
 
 	const newTerminal = useCallback(async (): Promise<Terminal | null> => {
@@ -85,8 +90,11 @@ export function WorkArea({
 	}
 
 	function closeTerminal(terminalId: string) {
+		closing.current.add(terminalId);
 		store.getState().removeLeaf(terminalId);
-		void terminals.close(terminalId);
+		void terminals.close(terminalId).finally(() => {
+			closing.current.delete(terminalId);
+		});
 	}
 
 	/** The shell exited (SPEC.md §9.7): drop the pane while the workspace runs. */
@@ -223,7 +231,11 @@ export function WorkArea({
 				/>
 			</div>
 
-			{terminals.error ? <p className="pk-work-error">{terminals.error}</p> : null}
+			{terminals.error ? (
+				<p className="pk-work-error" role="alert">
+					{terminals.error}
+				</p>
+			) : null}
 
 			{layout.tabs.length === 0 ? (
 				<EmptyState icon="terminal" title="No terminals open">

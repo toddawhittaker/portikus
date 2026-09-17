@@ -157,7 +157,9 @@ export function ProjectPane({
 													<span data-testid="project-duplicate">Duplicate…</span>
 												</MenuItem>
 												<MenuItem
-													onSelect={() => downloadProject(workspaceId, project.id)}
+													onSelect={() =>
+														void downloadProject(workspaceId, project.id, project.slug)
+													}
 												>
 													<span data-testid="project-download">Download as zip</span>
 												</MenuItem>
@@ -199,7 +201,11 @@ export function ProjectPane({
 				{showArchived && (
 					<ul className="pk-list mt-1">
 						{(archived.data ?? []).map((project) => (
-							<li key={project.id} className="pk-list-item">
+							<li
+								key={project.id}
+								className="pk-list-item"
+								data-testid={`project-item-${project.id}`}
+							>
 								<span className="pk-list-row">
 									<Icon name="folder" size="md" />
 									<span className="pk-list-label">{project.name}</span>

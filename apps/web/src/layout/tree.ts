@@ -237,11 +237,7 @@ export function resize(
  * gone is removed. Ended terminals are still terminals, so their panes stay
  * (SPEC.md §6.8).
  */
-export function reconcile(
-	layout: ProjectLayout,
-	terminalIds: string[],
-	makeTabId: () => string,
-): ProjectLayout {
+export function reconcile(layout: ProjectLayout, terminalIds: string[]): ProjectLayout {
 	let next = layout;
 	const known = new Set(terminalIds);
 	for (const id of layoutTerminalIds(layout)) {
@@ -250,7 +246,7 @@ export function reconcile(
 	const placed = new Set(layoutTerminalIds(next));
 	for (const id of terminalIds) {
 		if (placed.has(id)) continue;
-		next = addTab(next, id, makeTabId());
+		next = addTab(next, id, id);
 		placed.add(id);
 	}
 	return next;

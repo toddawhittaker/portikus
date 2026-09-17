@@ -104,6 +104,10 @@ export async function startFakeAgent(
 	const attached = new Map<string, Set<WebSocket>>();
 	const received: string[] = [];
 	const projects = new Map<string, { isGitRepo: boolean }>();
+	// One fake agent stands in for every workspace in an end-to-end run, so a
+	// token of the form "<token>:<key>" gets its own ~/projects listing and
+	// workspaces do not discover each other's directories.
+	const perKey = new Map<string, Map<string, { isGitRepo: boolean }>>();
 	const app: FastifyInstance = Fastify({ logger: false });
 	await app.register(websocket);
 
@@ -116,7 +120,26 @@ export async function startFakeAgent(
 	}
 
 	function authorized(request: FastifyRequest): boolean {
-		return request.headers.authorization === `Bearer ${token}`;
+		const header = request.headers.authorization ?? "";
+		return header === `Bearer ${token}` || header.startsWith(`Bearer ${token}:`);
+	}
+
+	/** The ~/projects listing for a key; the bare token keeps the shared one. */
+	function dirsForKey(key: string): Map<string, { isGitRepo: boolean }> {
+		if (key === "") return projects;
+		let dirs = perKey.get(key);
+		if (!dirs) {
+			dirs = new Map();
+			perKey.set(key, dirs);
+		}
+		return dirs;
+	}
+
+	/** The caller's ~/projects, from the suffix on its bearer token. */
+	function dirs(request: FastifyRequest): Map<string, { isGitRepo: boolean }> {
+		const header = request.headers.authorization ?? "";
+		const prefix = `Bearer ${token}:`;
+		return dirsForKey(header.startsWith(prefix) ? header.slice(prefix.length) : "");
 	}
 
 	app.addHook("onRequest", async (request, reply) => {
@@ -163,8 +186,8 @@ export async function startFakeAgent(
 		return reply.status(204).send();
 	});
 
-	app.get("/projects", async () => ({
-		projects: [...projects].map(([slug, value]) => ({
+	app.get("/projects", async (request) => ({
+		projects: [...dirs(request)].map(([slug, value]) => ({
 			slug,
 			isGitRepo: value.isGitRepo,
 		})),
@@ -172,7 +195,7 @@ export async function startFakeAgent(
 
 	app.get("/projects/:slug", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
-		const project = projects.get(slug);
+		const project = dirs(request).get(slug);
 		if (!project) return projectNotFound(reply);
 		return { slug, isGitRepo: project.isGitRepo };
 	});
@@ -184,7 +207,8 @@ export async function startFakeAgent(
 			url?: string;
 			gitInit: boolean;
 		};
-		if (projects.has(body.slug)) {
+		const here = dirs(request);
+		if (here.has(body.slug)) {
 			return reply
 				.status(409)
 				.send({ error: { code: "PROJECT_EXISTS", message: "already exists" } });
@@ -196,42 +220,44 @@ export async function startFakeAgent(
 				.send({ error: { code: "GIT_FAILED", message: "clone failed" } });
 		}
 		const isGitRepo = body.source === "new" ? body.gitInit : true;
-		projects.set(body.slug, { isGitRepo });
+		here.set(body.slug, { isGitRepo });
 		return reply.status(201).send({ slug: body.slug, isGitRepo });
 	});
 
 	app.post("/projects/:slug/rename", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
 		const to = (request.body as { to: string }).to;
-		const project = projects.get(slug);
+		const here = dirs(request);
+		const project = here.get(slug);
 		if (!project) return projectNotFound(reply);
-		if (projects.has(to)) {
+		if (here.has(to)) {
 			return reply
 				.status(409)
 				.send({ error: { code: "PROJECT_EXISTS", message: "already exists" } });
 		}
-		projects.delete(slug);
-		projects.set(to, project);
+		here.delete(slug);
+		here.set(to, project);
 		return reply.status(204).send();
 	});
 
 	app.post("/projects/:slug/duplicate", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
 		const to = (request.body as { to: string }).to;
-		const project = projects.get(slug);
+		const here = dirs(request);
+		const project = here.get(slug);
 		if (!project) return projectNotFound(reply);
-		if (projects.has(to)) {
+		if (here.has(to)) {
 			return reply
 				.status(409)
 				.send({ error: { code: "PROJECT_EXISTS", message: "already exists" } });
 		}
-		projects.set(to, { isGitRepo: project.isGitRepo });
+		here.set(to, { isGitRepo: project.isGitRepo });
 		return reply.status(201).send({ slug: to, isGitRepo: project.isGitRepo });
 	});
 
 	app.post("/projects/:slug/git-init", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
-		const project = projects.get(slug);
+		const project = dirs(request).get(slug);
 		if (!project) return projectNotFound(reply);
 		project.isGitRepo = true;
 		return reply.status(204).send();
@@ -239,21 +265,23 @@ export async function startFakeAgent(
 
 	app.get("/projects/:slug/archive", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
-		if (!projects.has(slug)) return projectNotFound(reply);
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
 		return reply
 			.header("content-type", "application/zip")
 			.send(oneFileZip(`${slug}/README.md`, `# ${slug}\n`));
 	});
 
-	// Test-only hooks: seed or remove a directory without going through the API.
+	// Test-only hooks: seed or remove a directory without going through the
+	// API. "key" picks the workspace listing the bearer token would have.
 	app.post("/__test/projects", async (request, reply) => {
-		const body = request.body as { slug: string; isGitRepo?: boolean };
-		projects.set(body.slug, { isGitRepo: body.isGitRepo ?? true });
+		const body = request.body as { slug: string; isGitRepo?: boolean; key?: string };
+		dirsForKey(body.key ?? "").set(body.slug, { isGitRepo: body.isGitRepo ?? true });
 		return reply.status(204).send();
 	});
 
 	app.delete("/__test/projects/:slug", async (request, reply) => {
-		projects.delete((request.params as { slug: string }).slug);
+		const key = (request.query as { key?: string }).key ?? "";
+		dirsForKey(key).delete((request.params as { slug: string }).slug);
 		return reply.status(204).send();
 	});
 

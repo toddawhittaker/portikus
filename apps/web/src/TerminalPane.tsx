@@ -225,7 +225,7 @@ export function TerminalPane({
 			if (action === "copy") {
 				const selection = term.getSelection();
 				void writeClipboard(selection);
-				term.clearSelection();
+				clearSelection();
 				return false;
 			}
 			if (action === "paste") {
@@ -241,11 +241,19 @@ export function TerminalPane({
 			if (term.hasSelection()) void writeClipboard(term.getSelection());
 		});
 
+		/** Let go of both the terminal's selection and the browser's. */
+		function clearSelection() {
+			term.clearSelection();
+			// The browser settles its own drag selection after the event that
+			// asked for the copy, so let go of it once that has happened.
+			setTimeout(() => window.getSelection()?.removeAllRanges(), 0);
+		}
+
 		function onContextMenu(event: MouseEvent) {
 			event.preventDefault();
 			if (term.hasSelection()) {
 				void writeClipboard(term.getSelection());
-				term.clearSelection();
+				clearSelection();
 				return;
 			}
 			if (canReadClipboard()) void paste();

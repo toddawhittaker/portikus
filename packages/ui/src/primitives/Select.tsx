@@ -62,7 +62,7 @@ export function Select({
 					<RadixSelect.Content
 						position="popper"
 						sideOffset={4}
-						className="pk-menu z-[var(--z-menu)] min-w-[200px] rounded-md border border-line bg-surface-raised p-1 shadow-md"
+						className="pk-menu min-w-[200px] rounded-md border border-line bg-surface-raised p-1 shadow-md"
 					>
 						<RadixSelect.Viewport>
 							{options.map((option) => (

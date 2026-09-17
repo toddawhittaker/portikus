@@ -22,7 +22,7 @@ export function ArchiveConfirm({
 	return (
 		<ConfirmDialogRoot open onOpenChange={(open) => !open && onClose()}>
 			<ConfirmDialog
-				testId="dialog-confirm"
+				testId="dialog-archive-project"
 				title={`Archive ${project.name}?`}
 				description="You can bring it back from Archived projects at any time."
 				lost={["the project from your list"]}

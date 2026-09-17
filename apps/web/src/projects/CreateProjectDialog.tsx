@@ -77,6 +77,7 @@ export function CreateProjectDialog({
 							Cancel
 						</Button>
 						<Button
+							data-testid="dialog-confirm"
 							variant="primary"
 							loading={create.isPending}
 							disabled={!ready || create.isPending}

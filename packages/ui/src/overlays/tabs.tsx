@@ -111,7 +111,7 @@ function TabTrigger({
 			<Icon name={KIND_ICON[tab.kind]} size="sm" />
 			<span className="pk-tab-label">
 				{tab.label}
-				{tab.ended ? <span className="pk-visually-hidden">, session ended</span> : null}
+				{tab.ended ? <span className="pk-visually-hidden">(session ended)</span> : null}
 			</span>
 			{closable ? (
 				tab.dirty ? (

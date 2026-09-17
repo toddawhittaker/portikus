@@ -105,7 +105,7 @@ export async function createStudent(
 			user.id,
 			`ws-${workspaceId.replace(/-/g, "").slice(0, 24)}`,
 			options.state ?? "running",
-			FAKE_AGENT_TOKEN,
+			`${FAKE_AGENT_TOKEN}:${workspaceId}`,
 		],
 	);
 
@@ -198,16 +198,24 @@ export async function createProject(
 		[workspaceId, slug, options.name, path],
 	);
 	if (!row) throw new Error("could not create the test project");
-	await seedProjectDir(slug, options.gitInit ?? true);
+	await seedProjectDir(workspaceId, slug, options.gitInit ?? true);
 	return { id: row.id, slug, name: options.name, path };
 }
 
-/** Seed a directory under the fake agent's `~/projects`, with no row. */
-export async function seedProjectDir(slug: string, isGitRepo = true): Promise<void> {
+/**
+ * Seed a directory under one workspace's `~/projects`, with no row. The fake
+ * agent keeps a listing per workspace, so tests running side by side do not
+ * discover each other's directories.
+ */
+export async function seedProjectDir(
+	workspaceId: string,
+	slug: string,
+	isGitRepo = true,
+): Promise<void> {
 	const response = await fetch(`${FAKE_AGENT_URL}/__test/projects`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ slug, isGitRepo }),
+		body: JSON.stringify({ slug, isGitRepo, key: workspaceId }),
 	});
 	if (!response.ok) {
 		throw new Error(`the fake agent refused to seed ${slug}: ${response.status}`);
@@ -215,9 +223,12 @@ export async function seedProjectDir(slug: string, isGitRepo = true): Promise<vo
 }
 
 /** Remove a directory from the fake agent, as deleting it in a shell would. */
-export async function removeProjectDir(slug: string): Promise<void> {
+export async function removeProjectDir(
+	workspaceId: string,
+	slug: string,
+): Promise<void> {
 	const response = await fetch(
-		`${FAKE_AGENT_URL}/__test/projects/${encodeURIComponent(slug)}`,
+		`${FAKE_AGENT_URL}/__test/projects/${encodeURIComponent(slug)}?key=${workspaceId}`,
 		{ method: "DELETE" },
 	);
 	if (!response.ok) {

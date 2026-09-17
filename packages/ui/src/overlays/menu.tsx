@@ -91,15 +91,23 @@ export function MenuItem({
 			className={`pk-menu-item ${danger ? "pk-menu-item--danger" : ""}`}
 			disabled={disabled}
 			data-highlighted={highlighted ? "" : undefined}
+			aria-keyshortcuts={shortcut ? keyShortcuts(shortcut) : undefined}
 			onSelect={onSelect}
 		>
 			{icon ? <Icon name={icon} size="sm" /> : null}
 			<span className="pk-menu-item-label flex-1">{children}</span>
 			{shortcut ? (
-				<ShortcutHint className="pk-menu-item-shortcut" keys={shortcut} plain />
+				<span aria-hidden="true">
+					<ShortcutHint className="pk-menu-item-shortcut" keys={shortcut} plain />
+				</span>
 			) : null}
 		</P.Item>
 	);
+}
+
+/** The aria-keyshortcuts spelling of a shortcut ("Control+Alt+T"). */
+function keyShortcuts(keys: Key[]): string {
+	return keys.map((key) => (key === "Mod" ? "Control" : key)).join("+");
 }
 
 export function MenuSeparator(): React.ReactElement {
