@@ -933,6 +933,11 @@ for terminal in json.load(sys.stdin).get("terminals", []):
         -D ${ZIP_HEADERS} -o ${ZIP_ON_VM} -w '%{http_code}' \
         '${PROJECTS_URL}/${proj_id}/download'")
       check_output "download returns 200" "200" echo "$dl_status"
+      # A failure leaves a JSON error in the body; show it, or the run only
+      # says 400 and the reason stays on the VM.
+      if [ "$dl_status" != "200" ]; then
+        printf '      download body: %s\n' "$(ssh_cmd "head -c 400 ${ZIP_ON_VM}")"
+      fi
       check "download is served as application/zip" \
         ssh_cmd "grep -qi 'content-type: application/zip' ${ZIP_HEADERS}"
       check "download is named smoke-renamed.zip" \
