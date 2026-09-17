@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { FastifyInstance, InjectOptions } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { removeStaleTemporaries } from "./projects.js";
 import { buildServer } from "./server.js";
 
 const run = promisify(execFile);
@@ -369,6 +370,88 @@ test("traversal and symlinked slugs are refused", async () => {
 	expect(created.statusCode).toBe(400);
 
 	await rm(outside, { recursive: true, force: true });
+});
+
+test("a slug that is a symlink to a sibling project is refused", async () => {
+	await mkdir(join(projectsRoot, "alpha", ".git"), { recursive: true });
+	await symlink(join(projectsRoot, "alpha"), join(projectsRoot, "shortcut"));
+
+	for (const url of [
+		"/projects/shortcut",
+		"/projects/shortcut/archive",
+		"/projects/shortcut/git-init",
+	]) {
+		const response = await app.inject({
+			method: url.endsWith("git-init") ? "POST" : "GET",
+			url,
+			headers: auth(),
+		});
+		expect(response.statusCode).toBe(400);
+		expect(response.json().error.code).toBe("INVALID_SLUG");
+	}
+});
+
+test("stale half-finished clone directories are removed at startup", async () => {
+	await mkdir(join(projectsRoot, ".tmp-abc123", "inner"), { recursive: true });
+	await mkdir(join(projectsRoot, ".tmp-def456"), { recursive: true });
+	await mkdir(join(projectsRoot, "alpha"), { recursive: true });
+
+	const removed = await removeStaleTemporaries(homeDir);
+	expect(removed.sort()).toEqual([".tmp-abc123", ".tmp-def456"]);
+	expect((await readdir(projectsRoot)).sort()).toEqual(["alpha"]);
+});
+
+test("the agent survives an image with no zip installed", async () => {
+	const emptyBin = await mkdtemp(join(tmpdir(), "portikus-nobin-"));
+	await mkdir(join(projectsRoot, "alpha"), { recursive: true });
+	const realPath = process.env.PATH;
+	process.env.PATH = emptyBin;
+	try {
+		const response = await app.inject({
+			method: "GET",
+			url: "/projects/alpha/archive",
+			headers: auth(),
+		});
+		expect(response.statusCode).toBe(500);
+		expect(response.json().error.code).toBe("GIT_FAILED");
+	} finally {
+		process.env.PATH = realPath;
+		await rm(emptyBin, { recursive: true, force: true });
+	}
+
+	// The agent is still answering.
+	const health = await app.inject({ method: "GET", url: "/health", headers: auth() });
+	expect(health.statusCode).toBe(200);
+});
+
+test("a duplicate that fails part way leaves no half-copied project", async () => {
+	const fakeBin = await mkdtemp(join(tmpdir(), "portikus-fakebin-"));
+	// A cp that makes the target, writes into it, and then gives up.
+	await writeFile(
+		join(fakeBin, "cp"),
+		'#!/bin/sh\nfor target in "$@"; do :; done\nmkdir -p "$target"\necho partial > "$target/partial.txt"\nexit 1\n',
+		{ mode: 0o755 },
+	);
+	await mkdir(join(projectsRoot, "alpha"), { recursive: true });
+	await writeFile(join(projectsRoot, "alpha", "file.txt"), "content\n");
+
+	const realPath = process.env.PATH;
+	process.env.PATH = `${fakeBin}:${realPath}`;
+	try {
+		const response = await app.inject({
+			method: "POST",
+			url: "/projects/alpha/duplicate",
+			headers: auth(),
+			payload: { to: "beta" },
+		});
+		expect(response.statusCode).toBe(500);
+		expect(response.json().error.code).toBe("GIT_FAILED");
+	} finally {
+		process.env.PATH = realPath;
+		await rm(fakeBin, { recursive: true, force: true });
+	}
+
+	expect(await readdir(projectsRoot)).not.toContain("beta");
 });
 
 test("every project route needs the bearer token", async () => {

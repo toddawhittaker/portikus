@@ -1,25 +1,6 @@
 import { parseProjectTemplates } from "@portikus/contracts";
 import { z } from "zod";
 
-/**
- * `PROJECT_TEMPLATES` is `name=url,name=url` (SPEC.md §7.2). It is
- * validated here so a typo stops the API at startup rather than at the
- * moment a student opens the create dialog.
- */
-const projectTemplates = z
-	.string()
-	.default("")
-	.superRefine((value, ctx) => {
-		try {
-			parseProjectTemplates(value);
-		} catch (error) {
-			ctx.addIssue({
-				code: "custom",
-				message: error instanceof Error ? error.message : String(error),
-			});
-		}
-	});
-
 /** Positive integer coerced from a string environment variable. */
 const positiveInt = z.coerce.number().int().positive();
 
@@ -90,7 +71,8 @@ export const ApiConfigSchema = BaseConfig.extend({
 	SESSION_COOKIE_SECRET: z.string().min(1).default(DEV_SESSION_SECRET),
 	SESSION_TTL_SECONDS: positiveInt.default(43200),
 	AGENT_PORT: positiveInt.default(7400),
-	PROJECT_TEMPLATES: projectTemplates,
+	/** `name=url,name=url` (SPEC.md §7.2); parsed once in the transform below. */
+	PROJECT_TEMPLATES: z.string().default(""),
 })
 	.refine(requireProductionHttps("PUBLIC_URL"), {
 		message: productionHttpsMessage("PUBLIC_URL"),
@@ -108,10 +90,24 @@ export const ApiConfigSchema = BaseConfig.extend({
 		message: productionSecretMessage("SESSION_COOKIE_SECRET"),
 		path: ["SESSION_COOKIE_SECRET"],
 	})
-	.transform((config) => ({
-		...config,
-		projectTemplates: parseProjectTemplates(config.PROJECT_TEMPLATES),
-	}));
+	// A typo must stop the API at startup, not when a student opens the
+	// create dialog, so the list is parsed here and reported like any other
+	// bad environment variable.
+	.transform((config, ctx) => {
+		try {
+			return {
+				...config,
+				projectTemplates: parseProjectTemplates(config.PROJECT_TEMPLATES),
+			};
+		} catch (error) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["PROJECT_TEMPLATES"],
+				message: error instanceof Error ? error.message : String(error),
+			});
+			return z.NEVER;
+		}
+	});
 export type ApiConfig = z.infer<typeof ApiConfigSchema>;
 
 /**

@@ -575,3 +575,85 @@ test.skipIf(skip)("the test hooks seed and remove a directory", async () => {
 		true,
 	);
 });
+
+test.skipIf(skip)("concurrent listings discover the same directory once", async () => {
+	agent.projects.set("shared", { isGitRepo: true });
+
+	const listings = await Promise.all([
+		listProjects(alice, workspaceId),
+		listProjects(alice, workspaceId),
+		listProjects(alice, workspaceId),
+		listProjects(alice, workspaceId),
+	]);
+	for (const listing of listings) {
+		expect(listing.statusCode).toBe(200);
+	}
+	const rows = await testDb.db.selectFrom("projects").selectAll().execute();
+	expect(rows).toHaveLength(1);
+});
+
+test.skipIf(skip)("a listing past the discovery cap is truncated", async () => {
+	// Slugs are padded so sorting by slug and sorting as numbers agree.
+	for (let index = 0; index < 250; index += 1) {
+		agent.projects.set(`dir-${String(index).padStart(3, "0")}`, { isGitRepo: true });
+	}
+
+	const listed = await listProjects(alice, workspaceId);
+	expect(listed.statusCode).toBe(200);
+	const rows = await testDb.db.selectFrom("projects").select("slug").execute();
+	expect(rows).toHaveLength(200);
+	expect(rows.map((row) => row.slug)).toContain("dir-000");
+	expect(rows.map((row) => row.slug)).not.toContain("dir-249");
+});
+
+test.skipIf(skip)("an archived listing discovers nothing", async () => {
+	agent.projects.set("ondisk", { isGitRepo: true });
+
+	const listed = await listProjects(alice, workspaceId, "?state=archived");
+	expect(listed.statusCode).toBe(200);
+	expect(listed.json().projects).toHaveLength(0);
+	expect(await testDb.db.selectFrom("projects").selectAll().execute()).toHaveLength(0);
+});
+
+test.skipIf(skip)("a second clone on the same workspace is refused", async () => {
+	const first = createProject(alice, workspaceId, {
+		name: "first clone",
+		source: "clone",
+		url: "https://example.com/slow.git",
+	});
+	// Let the first request reach the agent before the second arrives.
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	const second = await createProject(alice, workspaceId, {
+		name: "second clone",
+		source: "clone",
+		url: "https://example.com/slow.git",
+	});
+
+	expect(second.statusCode).toBe(409);
+	expect(second.json().code).toBe("OPERATION_IN_PROGRESS");
+	expect((await first).statusCode).toBe(201);
+
+	// The slot is released, so the next clone goes through.
+	const third = await createProject(alice, workspaceId, {
+		name: "third clone",
+		source: "clone",
+		url: "https://example.com/slow.git",
+	});
+	expect(third.statusCode).toBe(201);
+});
+
+test.skipIf(skip)("a running workspace with no agent token answers 503", async () => {
+	await testDb.db
+		.updateTable("workspaces")
+		.set({ agent_token: "" })
+		.where("id", "=", workspaceId)
+		.execute();
+
+	const created = await createProject(alice, workspaceId, {
+		name: "nowhere",
+		source: "new",
+	});
+	expect(created.statusCode).toBe(503);
+	expect(created.json().code).toBe("AGENT_UNAVAILABLE");
+	expect(created.json().message).toBe("The workspace agent is not reachable.");
+});

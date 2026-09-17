@@ -219,6 +219,10 @@ export async function startFakeAgent(
 				.status(400)
 				.send({ error: { code: "GIT_FAILED", message: "clone failed" } });
 		}
+		// A url the test marks as slow stands in for a clone that takes a while.
+		if ((body.url ?? "").includes("slow")) {
+			await new Promise((resolve) => setTimeout(resolve, 300));
+		}
 		const isGitRepo = body.source === "new" ? body.gitInit : true;
 		here.set(body.slug, { isGitRepo });
 		return reply.status(201).send({ slug: body.slug, isGitRepo });

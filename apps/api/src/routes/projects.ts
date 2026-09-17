@@ -28,7 +28,47 @@ const ListQuery = z.object({ state: ProjectState.default("active") });
 /** Where every project directory lives inside the workspace (SPEC.md §7.1). */
 const PROJECTS_ROOT = "/home/student/projects";
 
+/**
+ * Most directories one listing will adopt as projects. The agent's listing is
+ * untrusted input, so a workspace with thousands of directories must not turn
+ * one page load into thousands of inserts (SPEC.md §24.6).
+ */
+const MAX_DISCOVERED_PROJECTS = 200;
+
 type ProjectRow = Selectable<Database["projects"]>;
+
+interface Scope {
+	workspaceId: string;
+	/** Whether the workspace itself is running, whatever the agent's state. */
+	running: boolean;
+	agent: AgentClient | null;
+}
+
+/**
+ * Workspaces with a long project operation (clone, template, duplicate,
+ * download) running right now. Clone and copy hold a request open for
+ * minutes, and two at once on one workspace race over the same directories.
+ * This is per API process; the pilot runs exactly one (ADR 0010).
+ */
+const longOperations = new Set<string>();
+
+/**
+ * Claim the one long-operation slot for a workspace. Returns false after
+ * answering 409, so the caller just returns.
+ */
+function claimLongOperation(workspaceId: string, reply: FastifyReply): boolean {
+	if (longOperations.has(workspaceId)) {
+		sendError(
+			reply,
+			409,
+			"OPERATION_IN_PROGRESS",
+			"Another project operation is already running on this workspace.",
+		);
+		return false;
+	}
+	longOperations.add(workspaceId);
+	return true;
+}
 
 function projectPath(slug: string): string {
 	return `${PROJECTS_ROOT}/${slug}`;
@@ -113,7 +153,7 @@ export function registerProjectRoutes(
 	async function owned(
 		request: FastifyRequest,
 		reply: FastifyReply,
-	): Promise<{ workspaceId: string; agent: AgentClient | null } | null> {
+	): Promise<Scope | null> {
 		const user = requireUser(request);
 		const params = WorkspaceParam.safeParse(request.params);
 		if (!params.success) {
@@ -125,11 +165,38 @@ export function registerProjectRoutes(
 			sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 			return null;
 		}
+		const running = workspace.state === "running";
 		const agent = agentClientFor(workspace, config.AGENT_PORT);
 		return {
 			workspaceId: params.data.id,
-			agent: workspace.state === "running" ? agent : null,
+			running,
+			agent: running ? agent : null,
 		};
+	}
+
+	/**
+	 * The agent for an operation that needs one, or null after answering. A
+	 * stopped workspace is the student's problem to fix; a running workspace
+	 * with no reachable agent is ours.
+	 */
+	function requireAgent(scope: Scope, reply: FastifyReply): AgentClient | null {
+		if (scope.agent) return scope.agent;
+		if (scope.running) {
+			sendError(
+				reply,
+				503,
+				"AGENT_UNAVAILABLE",
+				"The workspace agent is not reachable.",
+			);
+			return null;
+		}
+		sendError(
+			reply,
+			409,
+			"AGENT_UNAVAILABLE",
+			"The workspace is not running yet. Start it and try again.",
+		);
+		return null;
 	}
 
 	/** The project row of this workspace, or null after answering 404. */
@@ -164,32 +231,41 @@ export function registerProjectRoutes(
 		if (scope.agent) {
 			try {
 				const listed = await scope.agent.listProjects();
-				directories = new Map(listed.projects.map((p) => [p.slug, p.isGitRepo]));
+				let entries = [...listed.projects].sort((a, b) => a.slug.localeCompare(b.slug));
+				if (entries.length > MAX_DISCOVERED_PROJECTS) {
+					request.log.warn(
+						{ workspaceId: scope.workspaceId, count: entries.length },
+						"project listing truncated",
+					);
+					entries = entries.slice(0, MAX_DISCOVERED_PROJECTS);
+				}
+				directories = new Map(entries.map((p) => [p.slug, p.isGitRepo]));
 			} catch {
 				// A workspace whose agent is down still has projects to show.
 				directories = null;
 			}
 		}
 
-		if (directories) {
-			// Anything Git-enabled under ~/projects is a project (plan, Discovery).
-			// An archived slug already has a row, so it is never re-added.
-			const known = new Set(
-				(await listRows(db, scope.workspaceId).select("slug").execute()).map(
-					(row) => row.slug,
-				),
-			);
-			for (const [slug, isGitRepo] of directories) {
-				if (!isGitRepo || known.has(slug)) continue;
+		// Anything Git-enabled under ~/projects is a project (ADR 0010,
+		// Discovery). Archiving does not remove the row, so an archived slug is
+		// never re-added; that also means an archived listing discovers nothing.
+		if (directories && query.data.state === "active") {
+			const discovered = [...directories]
+				.filter(([, isGitRepo]) => isGitRepo)
+				.map(([slug]) => ({
+					workspace_id: scope.workspaceId,
+					slug,
+					name: slug,
+					path: projectPath(slug),
+					source: "discovered",
+				}));
+			if (discovered.length > 0) {
+				// One statement, so two listings at once cannot collide on the
+				// workspace and slug unique constraint.
 				await db
 					.insertInto("projects")
-					.values({
-						workspace_id: scope.workspaceId,
-						slug,
-						name: slug,
-						path: projectPath(slug),
-						source: "discovered",
-					})
+					.values(discovered)
+					.onConflict((oc) => oc.columns(["workspace_id", "slug"]).doNothing())
 					.execute();
 			}
 		}
@@ -227,14 +303,8 @@ export function registerProjectRoutes(
 		if (!body.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
-		if (!scope.agent) {
-			return sendError(
-				reply,
-				409,
-				"AGENT_UNAVAILABLE",
-				"The workspace is not running yet. Start it and try again.",
-			);
-		}
+		const agent = requireAgent(scope, reply);
+		if (!agent) return;
 
 		const slug = slugify(body.data.name);
 		if (slug === "") {
@@ -272,9 +342,13 @@ export function registerProjectRoutes(
 			);
 		}
 
+		// An empty directory is quick; a clone or a template is not.
+		const slow = body.data.source !== "new";
+		if (slow && !claimLongOperation(scope.workspaceId, reply)) return;
+
 		let created: { isGitRepo: boolean };
 		try {
-			created = await scope.agent.createProject({
+			created = await agent.createProject({
 				slug,
 				source: body.data.source,
 				...(url === undefined ? {} : { url }),
@@ -282,6 +356,8 @@ export function registerProjectRoutes(
 			});
 		} catch (error) {
 			return sendAgentError(reply, error);
+		} finally {
+			if (slow) longOperations.delete(scope.workspaceId);
 		}
 
 		const row = await db
@@ -328,14 +404,8 @@ export function registerProjectRoutes(
 				);
 			}
 			if (slug !== current.slug) {
-				if (!scope.agent) {
-					return sendError(
-						reply,
-						409,
-						"AGENT_UNAVAILABLE",
-						"The workspace is not running yet. Start it and try again.",
-					);
-				}
+				const agent = requireAgent(scope, reply);
+				if (!agent) return;
 				const taken = await db
 					.selectFrom("projects")
 					.select("id")
@@ -351,7 +421,7 @@ export function registerProjectRoutes(
 					);
 				}
 				try {
-					await scope.agent.renameProject(current.slug, slug);
+					await agent.renameProject(current.slug, slug);
 				} catch (error) {
 					return sendAgentError(reply, error);
 				}
@@ -425,14 +495,8 @@ export function registerProjectRoutes(
 		}
 		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
 		if (!row) return;
-		if (!scope.agent) {
-			return sendError(
-				reply,
-				409,
-				"AGENT_UNAVAILABLE",
-				"The workspace is not running yet. Start it and try again.",
-			);
-		}
+		const agent = requireAgent(scope, reply);
+		if (!agent) return;
 
 		const slug = slugify(body.data.name);
 		if (slug === "") {
@@ -458,10 +522,13 @@ export function registerProjectRoutes(
 			);
 		}
 
+		if (!claimLongOperation(scope.workspaceId, reply)) return;
 		try {
-			await scope.agent.duplicateProject(row.slug, slug);
+			await agent.duplicateProject(row.slug, slug);
 		} catch (error) {
 			return sendAgentError(reply, error);
+		} finally {
+			longOperations.delete(scope.workspaceId);
 		}
 
 		// The copy is a project the student made here, not a discovered one.
@@ -490,16 +557,10 @@ export function registerProjectRoutes(
 		if (!scope) return;
 		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
 		if (!row) return;
-		if (!scope.agent) {
-			return sendError(
-				reply,
-				409,
-				"AGENT_UNAVAILABLE",
-				"The workspace is not running yet. Start it and try again.",
-			);
-		}
+		const agent = requireAgent(scope, reply);
+		if (!agent) return;
 		try {
-			await scope.agent.gitInit(row.slug);
+			await agent.gitInit(row.slug);
 		} catch (error) {
 			return sendAgentError(reply, error);
 		}
@@ -516,29 +577,34 @@ export function registerProjectRoutes(
 		if (!scope) return;
 		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
 		if (!row) return;
-		if (!scope.agent) {
-			return sendError(
-				reply,
-				409,
-				"AGENT_UNAVAILABLE",
-				"The workspace is not running yet. Start it and try again.",
-			);
-		}
+		const agent = requireAgent(scope, reply);
+		if (!agent) return;
+
+		// Zipping runs while the response streams, so the slot is held until the
+		// response is done, not just until the headers come back.
+		if (!claimLongOperation(scope.workspaceId, reply)) return;
+		const release = () => longOperations.delete(scope.workspaceId);
 
 		let upstream: Response;
 		try {
-			upstream = await scope.agent.downloadProject(row.slug);
+			upstream = await agent.downloadProject(row.slug);
 		} catch (error) {
+			release();
 			return sendAgentError(reply, error);
 		}
 		if (!upstream.body) {
+			release();
 			return sendError(reply, 503, "AGENT_UNAVAILABLE", "The archive was empty.");
 		}
+
+		const stream = Readable.fromWeb(upstream.body as never);
+		stream.on("close", release);
+		stream.on("error", release);
 
 		// The filename is the slug, never anything the student typed.
 		reply.header("content-type", "application/zip");
 		reply.header("content-disposition", `attachment; filename="${row.slug}.zip"`);
-		return reply.send(Readable.fromWeb(upstream.body as never));
+		return reply.send(stream);
 	});
 
 	// GET /workspaces/:id/projects/:pid/layout (SPEC.md §7.5).

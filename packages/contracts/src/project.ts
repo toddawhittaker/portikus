@@ -76,6 +76,20 @@ function hasControlCharacter(value: string): boolean {
 }
 
 /**
+ * Whether a scheme-based URL carries credentials. A secret in a clone URL
+ * ends up in logs and in `.git/config`, so it is refused (SPEC.md §24.8).
+ * A bare `git@` on an ssh URL is the ordinary way to name the remote account
+ * and carries no secret, so it stays allowed; on http and https any userinfo
+ * is a token or a password.
+ */
+function hasCredentials(value: string, scheme: string): boolean {
+	const authority = value.slice(value.indexOf("//") + 2).split(/[/?#]/, 1)[0] ?? "";
+	const at = authority.lastIndexOf("@");
+	if (at < 0) return false;
+	return scheme === "ssh" ? authority.slice(0, at).includes(":") : true;
+}
+
+/**
  * A Git URL the platform is willing to clone (SPEC.md §7.2, §24).
  * Only https, http, ssh and the scp-like `user@host:path` form are allowed;
  * everything else, including `file://` and Git's `ext::` transport, can
@@ -90,9 +104,10 @@ export const CloneUrl = z
 		if (/\s/.test(value)) return false;
 		// A leading hyphen would be read as an option by git.
 		if (value.startsWith("-")) return false;
-		if (/^(https?|ssh):\/\/[^/]/.test(value)) return true;
+		const scheme = /^(https?|ssh):\/\/[^/]/.exec(value)?.[1];
+		if (scheme) return !hasCredentials(value, scheme);
 		return SCP_LIKE.test(value);
-	}, "must be an http, https, ssh or user@host:path Git URL");
+	}, "must be an http, https, ssh or user@host:path Git URL without credentials");
 export type CloneUrl = z.infer<typeof CloneUrl>;
 
 /** One configured project template (SPEC.md §7.2). */
@@ -229,13 +244,46 @@ export const SplitNode: z.ZodType<SplitNode> = z.lazy(() =>
 	]),
 );
 
-/** The saved layout of one project (SPEC.md §7.5). */
+/** Most tabs one project may save. Well past what fits on a screen. */
+export const MAX_LAYOUT_TABS = 16;
+
+/** Most nodes on any one path from a tab's root to a leaf. */
+export const MAX_SPLIT_DEPTH = 8;
+
+/** The deepest path from this node to a leaf, counting this node. */
+function splitDepth(node: SplitNode): number {
+	if (node.type === "leaf") return 1;
+	let deepest = 0;
+	for (const child of node.children) {
+		deepest = Math.max(deepest, splitDepth(child));
+	}
+	return deepest + 1;
+}
+
+/**
+ * The saved layout of one project (SPEC.md §7.5). The browser writes this
+ * column, so its size is bounded here: the whole tree is otherwise
+ * attacker-controlled JSON the API stores and hands back.
+ */
 export const ProjectLayout = z.object({
-	tabs: z.array(
-		z.object({
-			id: z.string().min(1),
-			root: SplitNode,
+	tabs: z
+		.array(
+			z.object({
+				id: z.string().min(1).max(64),
+				root: SplitNode,
+			}),
+		)
+		.max(MAX_LAYOUT_TABS)
+		.superRefine((tabs, ctx) => {
+			tabs.forEach((tab, index) => {
+				if (splitDepth(tab.root) > MAX_SPLIT_DEPTH) {
+					ctx.addIssue({
+						code: "custom",
+						path: [index, "root"],
+						message: `a split may be at most ${MAX_SPLIT_DEPTH} levels deep`,
+					});
+				}
+			});
 		}),
-	),
 });
 export type ProjectLayout = z.infer<typeof ProjectLayout>;

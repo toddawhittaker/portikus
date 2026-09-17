@@ -80,6 +80,7 @@ export const ApiErrorCode = z.enum([
 	"INVALID_URL",
 	"GIT_FAILED",
 	"AGENT_UNAVAILABLE",
+	"OPERATION_IN_PROGRESS",
 	"NOT_IMPLEMENTED",
 	"INTERNAL",
 ]);

@@ -21,6 +21,7 @@ import {
 	gitInitProject,
 	listProjects,
 	renameProject,
+	STDERR_LIMIT,
 } from "./projects.js";
 import { TerminalRegistry } from "./terminals.js";
 import {
@@ -263,7 +264,14 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			log("info", { msg: "project archive streamed", slug });
 			let stderr = "";
 			child.stderr.on("data", (chunk: Buffer) => {
-				stderr += chunk.toString();
+				// zip can be noisy; keep only as much as the student needs.
+				stderr = (stderr + chunk.toString()).slice(-STDERR_LIMIT);
+			});
+			// The process is already running, so the response is on its way;
+			// a late failure ends the stream rather than the agent.
+			child.on("error", (error: Error) => {
+				log("error", { msg: "project archive failed", slug, error: error.message });
+				child.stdout.destroy(new Error("zip failed"));
 			});
 			child.on("close", (code) => {
 				if (code !== 0) {

@@ -3,6 +3,8 @@ import {
 	CloneUrl,
 	CreateProjectRequest,
 	DuplicateProjectRequest,
+	MAX_LAYOUT_TABS,
+	MAX_SPLIT_DEPTH,
 	Project,
 	ProjectLayout,
 	ProjectList,
@@ -102,6 +104,24 @@ test("CloneUrl rejects local and command transports", () => {
 	]) {
 		expect(CloneUrl.safeParse(url).success).toBe(false);
 	}
+});
+
+test("CloneUrl rejects credentials in the URL", () => {
+	for (const url of [
+		"https://user:pass@github.com/example/repo.git",
+		"https://token@github.com/example/repo.git",
+		"http://user:pass@git.internal/example/repo.git",
+		"ssh://user:pass@github.com/example/repo.git",
+	]) {
+		expect(CloneUrl.safeParse(url).success).toBe(false);
+	}
+	// The scp form and a bare ssh username carry no secret and stay allowed.
+	expect(CloneUrl.safeParse("git@github.com:example/repo.git").success).toBe(true);
+	expect(CloneUrl.safeParse("ssh://git@github.com/example/repo.git").success).toBe(
+		true,
+	);
+	// An @ later in the path is not userinfo.
+	expect(CloneUrl.safeParse("https://github.com/example/re@po.git").success).toBe(true);
 });
 
 test("CloneUrl rejects an option-looking argument", () => {
@@ -290,5 +310,45 @@ test("ProjectLayout holds tabs of split trees", () => {
 	expect(ProjectLayout.parse({ tabs: [] })).toEqual({ tabs: [] });
 	expect(
 		ProjectLayout.safeParse({ tabs: [{ id: "", root: leaf(terminalA) }] }).success,
+	).toBe(false);
+});
+
+test("ProjectLayout caps the number of tabs", () => {
+	function tabs(count: number) {
+		return {
+			tabs: Array.from({ length: count }, (_, index) => ({
+				id: `tab-${index}`,
+				root: leaf(terminalA),
+			})),
+		};
+	}
+	expect(ProjectLayout.safeParse(tabs(MAX_LAYOUT_TABS)).success).toBe(true);
+	expect(ProjectLayout.safeParse(tabs(MAX_LAYOUT_TABS + 1)).success).toBe(false);
+});
+
+test("ProjectLayout caps the length of a tab id", () => {
+	const ok = { tabs: [{ id: "t".repeat(64), root: leaf(terminalA) }] };
+	const tooLong = { tabs: [{ id: "t".repeat(65), root: leaf(terminalA) }] };
+	expect(ProjectLayout.safeParse(ok).success).toBe(true);
+	expect(ProjectLayout.safeParse(tooLong).success).toBe(false);
+});
+
+test("ProjectLayout caps how deep a split tree may nest", () => {
+	function nest(depth: number): unknown {
+		if (depth <= 1) return leaf(terminalA);
+		return {
+			type: "split",
+			direction: "row",
+			sizes: [50, 50],
+			children: [nest(depth - 1), leaf(terminalB)],
+		};
+	}
+	expect(
+		ProjectLayout.safeParse({ tabs: [{ id: "t", root: nest(MAX_SPLIT_DEPTH) }] })
+			.success,
+	).toBe(true);
+	expect(
+		ProjectLayout.safeParse({ tabs: [{ id: "t", root: nest(MAX_SPLIT_DEPTH + 1) }] })
+			.success,
 	).toBe(false);
 });
