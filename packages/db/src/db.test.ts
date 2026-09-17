@@ -382,6 +382,67 @@ describe("database migrations and schema", () => {
 		},
 	);
 
+	test.skipIf(!hasTestDb())("settings holds exactly one row, with id 1", async () => {
+		await t.db
+			.insertInto("settings")
+			.values({ id: 1, shutdown_grace_seconds: 600 })
+			.execute();
+		const row = await t.db.selectFrom("settings").selectAll().executeTakeFirstOrThrow();
+		expect(row.shutdown_grace_seconds).toBe(600);
+		expect(row.updated_by).toBeNull();
+
+		await expect(
+			t.db
+				.insertInto("settings")
+				.values({ id: 2, shutdown_grace_seconds: 600 })
+				.execute(),
+		).rejects.toThrow();
+	});
+
+	test.skipIf(!hasTestDb())("settings rejects a negative grace period", async () => {
+		await expect(
+			t.db
+				.insertInto("settings")
+				.values({ id: 1, shutdown_grace_seconds: -1 })
+				.execute(),
+		).rejects.toThrow();
+	});
+
+	test.skipIf(!hasTestDb())(
+		"a user grace override defaults to null and rejects negatives",
+		async () => {
+			const userId = await insertTestUser(t.db);
+			const row = await t.db
+				.selectFrom("users")
+				.select("shutdown_grace_seconds")
+				.where("id", "=", userId)
+				.executeTakeFirstOrThrow();
+			expect(row.shutdown_grace_seconds).toBeNull();
+
+			await expect(
+				t.db
+					.updateTable("users")
+					.set({ shutdown_grace_seconds: -1 })
+					.where("id", "=", userId)
+					.execute(),
+			).rejects.toThrow();
+		},
+	);
+
+	test.skipIf(!hasTestDb())("workspaces record a disconnect time", async () => {
+		const userId = await insertTestUser(t.db);
+		const row = await t.db
+			.insertInto("workspaces")
+			.values({
+				owner_user_id: userId,
+				state: "running",
+				disconnected_at: new Date().toISOString(),
+			})
+			.returning("disconnected_at")
+			.executeTakeFirstOrThrow();
+		expect(row.disconnected_at).toBeInstanceOf(Date);
+	});
+
 	test.skipIf(!hasTestDb())("migrations roll back and reapply", async () => {
 		const { Migrator } = await import("kysely/migration");
 		const { migrations } = await import("./migrations/index.js");
@@ -403,6 +464,8 @@ describe("database migrations and schema", () => {
 				expect(down3.error).toBeUndefined();
 				const down4 = await migrator.migrateDown();
 				expect(down4.error).toBeUndefined();
+				const down5 = await migrator.migrateDown();
+				expect(down5.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -410,6 +473,7 @@ describe("database migrations and schema", () => {
 					"0002_users_sessions",
 					"0003_terminals",
 					"0004_projects",
+					"0005_settings",
 				]);
 				throw rollback;
 			}),

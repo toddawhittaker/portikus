@@ -38,6 +38,7 @@ export async function createTestDb(): Promise<TestDb> {
 		await db.deleteFrom("workspace_connections").execute();
 		await db.deleteFrom("audit_events").execute();
 		await db.deleteFrom("workspaces").execute();
+		await db.deleteFrom("settings").execute();
 		await db.deleteFrom("sessions").execute();
 		await db.deleteFrom("users").execute();
 	};

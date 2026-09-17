@@ -4,6 +4,9 @@ import { z } from "zod";
 /** Positive integer coerced from a string environment variable. */
 const positiveInt = z.coerce.number().int().positive();
 
+/** Non-negative integer coerced from a string environment variable. */
+const nonNegativeInt = z.coerce.number().int().nonnegative();
+
 const DEV_TOKEN = "dev-controller-token-not-for-production";
 const DEV_SESSION_SECRET = "dev-session-secret-not-for-production";
 const DEV_CLIENT_SECRET = "portikus-dev-secret";
@@ -117,7 +120,12 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	DATABASE_URL: z.string().min(1),
 	CONTROLLER_URL: z.string().url().default("http://127.0.0.1:3001"),
 	CONTROLLER_TOKEN: z.string().default(DEV_TOKEN),
-	SHUTDOWN_GRACE_SECONDS: positiveInt.default(600),
+	/**
+	 * Seeds the `settings` row on the worker's first start. After that the
+	 * admin page owns the value and this variable is ignored (SPEC.md §6.4).
+	 * Zero means a disconnected workspace keeps running indefinitely.
+	 */
+	SHUTDOWN_GRACE_SECONDS: nonNegativeInt.default(600),
 	PRESENCE_TTL_SECONDS: positiveInt.default(60),
 	SWEEP_INTERVAL_SECONDS: positiveInt.default(1),
 	START_TIMEOUT_SECONDS: positiveInt.default(60),
