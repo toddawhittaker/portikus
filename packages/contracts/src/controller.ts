@@ -43,6 +43,9 @@ export type CreateInstanceResponse = z.infer<typeof CreateInstanceResponse>;
  */
 export const StartInstanceRequest = z.object({
 	timeoutSeconds: z.number().int().positive().default(60),
+	// Per-workspace agent token, pushed into the container as a file so the
+	// API can authenticate to the agent (SPEC.md §23.5).
+	agentToken: z.string().regex(/^[0-9a-f]{64}$/, "Must be 64 hex characters"),
 });
 export type StartInstanceRequest = z.infer<typeof StartInstanceRequest>;
 

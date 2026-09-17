@@ -15,6 +15,7 @@ export function testConfig(issuerUrl: string): ApiConfig {
 		PORT: 3000,
 		DATABASE_URL: process.env.TEST_DATABASE_URL ?? "",
 		PRESENCE_TTL_SECONDS: 60,
+		AGENT_PORT: 7400,
 		WORKSPACE_HOME_SIZE_GIB: 25,
 		WORKSPACE_DOCKER_SIZE_GIB: 20,
 		PUBLIC_URL,
