@@ -88,7 +88,7 @@ portikus/
 │   ├── api/
 │   ├── worker/
 │   ├── workspace-controller/
-│   └── workspace-agent/
+│   └── workspace-agent/   # Fastify service that runs inside each workspace
 │
 ├── packages/
 │   ├── contracts/
@@ -119,6 +119,11 @@ portikus/
 ├── pnpm-workspace.yaml
 └── Makefile
 ```
+
+All five apps hold real code. `apps/workspace-agent` is built and shipped
+with the control plane but does not run on the platform VM: the Debian
+package installs it and the workspace profile bind-mounts it into each
+container, where it runs as the `student` user (section 10, ADR 0009).
 
 A monorepo allows:
 
@@ -510,7 +515,8 @@ This separation limits the blast radius of an application-layer compromise.
 
 The **workspace agent** runs inside each student LXC workspace.
 
-Initial implementation: TypeScript/Node.
+Initial implementation: TypeScript/Node, built with Fastify and
+`@fastify/websocket` like the main API.
 
 Responsibilities include:
 
@@ -527,6 +533,27 @@ Responsibilities include:
 - selected Docker health/status;
 - coding-agent launch support;
 - project discovery.
+
+### Transport and delivery
+
+The agent runs as the unprivileged `student` user inside the container and
+listens on TCP port **7400** on the workspace bridge (`10.200.0.0/24`). The
+API dials it directly; the workspace controller is not in the terminal path.
+See ADR 0009 for why we did not tunnel through the Incus `exec` websocket.
+
+Every request carries a per-workspace bearer token. The control plane writes
+it into the container at `/etc/portikus/agent.token`, owned by uid 1000 with
+mode 0600, and the agent re-reads that file on each request and compares
+with `timingSafeEqual`. Incus address and MAC filtering on the profile nic,
+plus a network ACL that isolates peers and allows tcp/7400 from the gateway
+only, are what keep one workspace from receiving another's token.
+
+The agent is not baked into the workspace image. The control-plane Debian
+package (ADR 0007) ships the built agent tree at
+`/usr/lib/portikus/workspace-agent`, and the workspace profile bind-mounts
+it read-only at `/opt/portikus/workspace-agent`, where the image's
+pre-enabled systemd unit expects `bin/workspace-agent`. Upgrading the
+package upgrades every agent.
 
 ### PTY implementation
 
@@ -547,6 +574,19 @@ node-pty / tmux
    ↓
 shell / claude / codex
 ```
+
+The packages chosen for that path, at exact versions pinned in
+`package.json` as every dependency is:
+
+| Package | Side | Role |
+|---|---|---|
+| `node-pty` | agent | real PTYs |
+| `@xterm/xterm` | browser | terminal emulator |
+| `@xterm/addon-fit` | browser | size the terminal to its pane |
+| `@xterm/addon-web-links` | browser | detect links for §14.9 linkification |
+
+`@xterm/xterm` is the maintained scope of the package STACK calls xterm.js;
+the old `xterm` package name is not used.
 
 ### Search
 
