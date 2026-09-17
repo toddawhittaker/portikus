@@ -1,0 +1,577 @@
+import {
+	CookieJar,
+	csrfHeaders,
+	loginAs,
+	type MockOidcProvider,
+	startMockOidcProvider,
+} from "@portikus/auth/testing";
+import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import type { FastifyInstance } from "fastify";
+import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
+import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+
+/**
+ * Project routes (SPEC.md §7, §26). The row is the record; the directory
+ * belongs to the workspace agent.
+ */
+
+const skip = !hasTestDb();
+const AGENT_TOKEN = "fake-agent-token";
+const TEMPLATES = "Starter=https://example.com/starter.git";
+
+let testDb: TestDb;
+let mock: MockOidcProvider;
+let agent: FakeAgent;
+let app: FastifyInstance;
+let alice: CookieJar;
+let workspaceId: string;
+
+async function makeRunningWorkspace(jar: CookieJar): Promise<string> {
+	const id = (
+		await app.inject({
+			method: "POST",
+			url: "/workspaces",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+		})
+	).json().id;
+	await testDb.db
+		.updateTable("workspaces")
+		.set({
+			state: "running",
+			agent_address: "127.0.0.1",
+			agent_token: AGENT_TOKEN,
+			updated_at: new Date().toISOString(),
+		})
+		.where("id", "=", id)
+		.execute();
+	return id;
+}
+
+beforeAll(async () => {
+	if (skip) return;
+	testDb = await createTestDb();
+	mock = await startMockOidcProvider({
+		redirectUris: [`${PUBLIC_URL}/auth/callback`],
+	});
+	agent = await startFakeAgent(AGENT_TOKEN);
+});
+
+afterAll(async () => {
+	if (skip) return;
+	await testDb.close();
+	await mock.close();
+	await agent.close();
+});
+
+beforeEach(async () => {
+	if (skip) return;
+	await testDb.truncate();
+	agent.terminals.clear();
+	agent.projects.clear();
+	app = buildTestServer(testDb.db, mock.issuer, {
+		AGENT_PORT: agent.port,
+		PROJECT_TEMPLATES: TEMPLATES,
+		projectTemplates: [{ name: "Starter", url: "https://example.com/starter.git" }],
+	});
+	await app.listen({ port: 0, host: "127.0.0.1" });
+	alice = new CookieJar();
+	await loginAs(app, "alice", alice);
+	workspaceId = await makeRunningWorkspace(alice);
+	return async () => {
+		await app.close();
+	};
+});
+
+function createProject(jar: CookieJar, id: string, payload: Record<string, unknown>) {
+	return app.inject({
+		method: "POST",
+		url: `/workspaces/${id}/projects`,
+		headers: csrfHeaders(jar, PUBLIC_URL),
+		payload,
+	});
+}
+
+function listProjects(jar: CookieJar, id: string, query = "") {
+	return app.inject({
+		method: "GET",
+		url: `/workspaces/${id}/projects${query}`,
+		headers: { cookie: jar.cookieHeader() },
+	});
+}
+
+test.skipIf(skip)("create a new project, then list it", async () => {
+	const created = await createProject(alice, workspaceId, {
+		name: "My First Project",
+		source: "new",
+	});
+	expect(created.statusCode).toBe(201);
+	const project = created.json();
+	expect(project.slug).toBe("my-first-project");
+	expect(project.path).toBe("/home/student/projects/my-first-project");
+	expect(project.source).toBe("new");
+	expect(project.isGitRepo).toBe(true);
+	expect(agent.projects.has("my-first-project")).toBe(true);
+
+	const listed = await listProjects(alice, workspaceId);
+	expect(listed.statusCode).toBe(200);
+	expect(listed.json().projects).toHaveLength(1);
+	expect(listed.json().projects[0].missing).toBe(false);
+});
+
+test.skipIf(skip)("a name with no usable characters is refused", async () => {
+	const created = await createProject(alice, workspaceId, {
+		name: "!!!",
+		source: "new",
+	});
+	expect(created.statusCode).toBe(400);
+	expect(created.json().code).toBe("INVALID_SLUG");
+});
+
+test.skipIf(skip)("a duplicate slug is refused", async () => {
+	await createProject(alice, workspaceId, { name: "notes", source: "new" });
+	const again = await createProject(alice, workspaceId, {
+		name: "Notes",
+		source: "new",
+	});
+	expect(again.statusCode).toBe(409);
+	expect(again.json().code).toBe("PROJECT_EXISTS");
+});
+
+test.skipIf(skip)("a clone url the platform will not accept is refused", async () => {
+	const created = await createProject(alice, workspaceId, {
+		name: "sneaky",
+		source: "clone",
+		url: "file:///etc/passwd",
+	});
+	expect(created.statusCode).toBe(400);
+	expect(created.json().code).toBe("VALIDATION_FAILED");
+});
+
+test.skipIf(skip)("a clone that fails leaves no project row", async () => {
+	const created = await createProject(alice, workspaceId, {
+		name: "broken",
+		source: "clone",
+		url: "https://example.com/fail.git",
+	});
+	expect(created.statusCode).toBe(400);
+	expect(created.json().code).toBe("GIT_FAILED");
+	const rows = await testDb.db.selectFrom("projects").selectAll().execute();
+	expect(rows).toHaveLength(0);
+});
+
+test.skipIf(skip)("templates are listed and instantiated by name", async () => {
+	const templates = await app.inject({
+		method: "GET",
+		url: `/workspaces/${workspaceId}/projects/templates`,
+		headers: { cookie: alice.cookieHeader() },
+	});
+	expect(templates.statusCode).toBe(200);
+	expect(templates.json().templates).toEqual([
+		{ name: "Starter", url: "https://example.com/starter.git" },
+	]);
+
+	const created = await createProject(alice, workspaceId, {
+		name: "from template",
+		source: "template",
+		template: "Starter",
+	});
+	expect(created.statusCode).toBe(201);
+	expect(created.json().source).toBe("template");
+
+	const unknown = await createProject(alice, workspaceId, {
+		name: "nope",
+		source: "template",
+		template: "Missing",
+	});
+	expect(unknown.statusCode).toBe(400);
+	expect(unknown.json().code).toBe("VALIDATION_FAILED");
+});
+
+test.skipIf(skip)(
+	"discovery adds a row for a Git directory and marks a vanished one missing",
+	async () => {
+		agent.projects.set("found", { isGitRepo: true });
+		agent.projects.set("plain", { isGitRepo: false });
+
+		const listed = await listProjects(alice, workspaceId);
+		const projects = listed.json().projects as Array<Record<string, unknown>>;
+		const first = projects[0] as Record<string, unknown>;
+		expect(projects.map((p) => p.slug)).toEqual(["found"]);
+		expect(first.source).toBe("discovered");
+		expect(first.name).toBe("found");
+		expect(first.isGitRepo).toBe(true);
+
+		// The directory goes away: the row stays, marked missing.
+		agent.projects.delete("found");
+		const after = await listProjects(alice, workspaceId);
+		expect(after.json().projects[0].missing).toBe(true);
+		expect(after.json().projects[0].isGitRepo).toBe(false);
+	},
+);
+
+test.skipIf(skip)("an archived slug is never re-added by discovery", async () => {
+	const created = await createProject(alice, workspaceId, {
+		name: "old work",
+		source: "new",
+	});
+	const project = created.json();
+
+	const archived = await app.inject({
+		method: "PATCH",
+		url: `/workspaces/${workspaceId}/projects/${project.id}`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: { state: "archived" },
+	});
+	expect(archived.statusCode).toBe(200);
+	expect(archived.json().archivedAt).not.toBeNull();
+
+	const events = await testDb.db
+		.selectFrom("audit_events")
+		.selectAll()
+		.where("action", "=", "project.archived")
+		.execute();
+	expect(events).toHaveLength(1);
+	expect(events[0]?.target).toBe(project.id);
+
+	// The directory is still there, so discovery could be tempted to re-add it.
+	const active = await listProjects(alice, workspaceId);
+	expect(active.json().projects).toHaveLength(0);
+	const rows = await testDb.db.selectFrom("projects").selectAll().execute();
+	expect(rows).toHaveLength(1);
+
+	const archivedList = await listProjects(alice, workspaceId, "?state=archived");
+	expect(archivedList.json().projects).toHaveLength(1);
+
+	const back = await app.inject({
+		method: "PATCH",
+		url: `/workspaces/${workspaceId}/projects/${project.id}`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: { state: "active" },
+	});
+	expect(back.statusCode).toBe(200);
+	expect(back.json().archivedAt).toBeNull();
+});
+
+test.skipIf(skip)("rename moves the directory and rewrites terminal cwds", async () => {
+	const project = (
+		await createProject(alice, workspaceId, { name: "essay", source: "new" })
+	).json();
+
+	const terminal = (
+		await app.inject({
+			method: "POST",
+			url: `/workspaces/${workspaceId}/terminals`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { projectId: project.id },
+		})
+	).json();
+	expect(terminal.cwd).toBe("/home/student/projects/essay");
+	expect(terminal.projectId).toBe(project.id);
+
+	// A terminal deeper inside the project moves with it too.
+	await testDb.db
+		.updateTable("terminals")
+		.set({ cwd: "/home/student/projects/essay/src" })
+		.where("id", "=", terminal.id)
+		.execute();
+
+	const renamed = await app.inject({
+		method: "PATCH",
+		url: `/workspaces/${workspaceId}/projects/${project.id}`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: { name: "Final Essay" },
+	});
+	expect(renamed.statusCode).toBe(200);
+	expect(renamed.json().slug).toBe("final-essay");
+	expect(renamed.json().path).toBe("/home/student/projects/final-essay");
+	expect(agent.projects.has("final-essay")).toBe(true);
+	expect(agent.projects.has("essay")).toBe(false);
+
+	const row = await testDb.db
+		.selectFrom("terminals")
+		.selectAll()
+		.where("id", "=", terminal.id)
+		.executeTakeFirstOrThrow();
+	expect(row.cwd).toBe("/home/student/projects/final-essay/src");
+});
+
+test.skipIf(skip)("rename onto an existing slug is refused", async () => {
+	const first = (
+		await createProject(alice, workspaceId, { name: "one", source: "new" })
+	).json();
+	await createProject(alice, workspaceId, { name: "two", source: "new" });
+
+	const renamed = await app.inject({
+		method: "PATCH",
+		url: `/workspaces/${workspaceId}/projects/${first.id}`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: { name: "Two" },
+	});
+	expect(renamed.statusCode).toBe(409);
+	expect(renamed.json().code).toBe("PROJECT_EXISTS");
+	expect(agent.projects.has("one")).toBe(true);
+});
+
+test.skipIf(skip)("duplicate copies the directory into a new project", async () => {
+	const project = (
+		await createProject(alice, workspaceId, { name: "lab", source: "new" })
+	).json();
+
+	const copy = await app.inject({
+		method: "POST",
+		url: `/workspaces/${workspaceId}/projects/${project.id}/duplicate`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: { name: "Lab copy" },
+	});
+	expect(copy.statusCode).toBe(201);
+	expect(copy.json().slug).toBe("lab-copy");
+	expect(agent.projects.has("lab-copy")).toBe(true);
+
+	const again = await app.inject({
+		method: "POST",
+		url: `/workspaces/${workspaceId}/projects/${project.id}/duplicate`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: { name: "Lab copy" },
+	});
+	expect(again.statusCode).toBe(409);
+});
+
+test.skipIf(skip)(
+	"Initialize Git turns a plain directory into a repository",
+	async () => {
+		const project = (
+			await createProject(alice, workspaceId, {
+				name: "plain",
+				source: "new",
+				gitInit: false,
+			})
+		).json();
+		expect(project.isGitRepo).toBe(false);
+
+		const initialized = await app.inject({
+			method: "POST",
+			url: `/workspaces/${workspaceId}/projects/${project.id}/git-init`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+		});
+		expect(initialized.statusCode).toBe(200);
+		expect(initialized.json().isGitRepo).toBe(true);
+		expect(agent.projects.get("plain")?.isGitRepo).toBe(true);
+	},
+);
+
+test.skipIf(skip)("download streams a zip named after the slug", async () => {
+	const project = (
+		await createProject(alice, workspaceId, { name: "report", source: "new" })
+	).json();
+
+	const downloaded = await app.inject({
+		method: "GET",
+		url: `/workspaces/${workspaceId}/projects/${project.id}/download`,
+		headers: { cookie: alice.cookieHeader() },
+	});
+	expect(downloaded.statusCode).toBe(200);
+	expect(downloaded.headers["content-type"]).toBe("application/zip");
+	expect(downloaded.headers["content-disposition"]).toBe(
+		'attachment; filename="report.zip"',
+	);
+	// "PK" is the zip magic number.
+	expect(downloaded.rawPayload.subarray(0, 2).toString()).toBe("PK");
+});
+
+test.skipIf(skip)("a layout is stored and read back", async () => {
+	const project = (
+		await createProject(alice, workspaceId, { name: "layout", source: "new" })
+	).json();
+
+	const empty = await app.inject({
+		method: "GET",
+		url: `/workspaces/${workspaceId}/projects/${project.id}/layout`,
+		headers: { cookie: alice.cookieHeader() },
+	});
+	expect(empty.statusCode).toBe(204);
+
+	const layout = {
+		tabs: [
+			{
+				id: "tab-1",
+				root: { type: "leaf", terminalId: crypto.randomUUID() },
+			},
+		],
+	};
+	const saved = await app.inject({
+		method: "PUT",
+		url: `/workspaces/${workspaceId}/projects/${project.id}/layout`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: layout,
+	});
+	expect(saved.statusCode).toBe(204);
+
+	const read = await app.inject({
+		method: "GET",
+		url: `/workspaces/${workspaceId}/projects/${project.id}/layout`,
+		headers: { cookie: alice.cookieHeader() },
+	});
+	expect(read.statusCode).toBe(200);
+	expect(read.json()).toEqual(layout);
+
+	const bad = await app.inject({
+		method: "PUT",
+		url: `/workspaces/${workspaceId}/projects/${project.id}/layout`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: { tabs: [{ id: "tab-1", root: { type: "leaf" } }] },
+	});
+	expect(bad.statusCode).toBe(400);
+});
+
+test.skipIf(skip)("the listing still works when the agent is down", async () => {
+	await createProject(alice, workspaceId, { name: "offline", source: "new" });
+	// A port nothing listens on stands in for an agent that is not answering.
+	const lonely = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: 1 });
+	await lonely.listen({ port: 0, host: "127.0.0.1" });
+	const jar = new CookieJar();
+	await loginAs(lonely, "alice", jar);
+
+	const listed = await lonely.inject({
+		method: "GET",
+		url: `/workspaces/${workspaceId}/projects`,
+		headers: { cookie: jar.cookieHeader() },
+	});
+	expect(listed.statusCode).toBe(200);
+	expect(listed.json().projects).toHaveLength(1);
+	expect(listed.json().projects[0].isGitRepo).toBeNull();
+	expect(listed.json().projects[0].missing).toBeNull();
+	await lonely.close();
+});
+
+test.skipIf(skip)(
+	"another student and an administrator get 404 on every project route",
+	async () => {
+		const project = (
+			await createProject(alice, workspaceId, { name: "private", source: "new" })
+		).json();
+
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+		const carol = new CookieJar();
+		await loginAs(app, "carol", carol);
+
+		for (const jar of [bob, carol]) {
+			expect((await listProjects(jar, workspaceId)).statusCode).toBe(404);
+			expect(
+				(await createProject(jar, workspaceId, { name: "theirs", source: "new" }))
+					.statusCode,
+			).toBe(404);
+			const templates = await app.inject({
+				method: "GET",
+				url: `/workspaces/${workspaceId}/projects/templates`,
+				headers: { cookie: jar.cookieHeader() },
+			});
+			expect(templates.statusCode).toBe(404);
+			const patched = await app.inject({
+				method: "PATCH",
+				url: `/workspaces/${workspaceId}/projects/${project.id}`,
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload: { state: "archived" },
+			});
+			expect(patched.statusCode).toBe(404);
+			const duplicated = await app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/projects/${project.id}/duplicate`,
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload: { name: "stolen" },
+			});
+			expect(duplicated.statusCode).toBe(404);
+			const initialized = await app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/projects/${project.id}/git-init`,
+				headers: csrfHeaders(jar, PUBLIC_URL),
+			});
+			expect(initialized.statusCode).toBe(404);
+			const downloaded = await app.inject({
+				method: "GET",
+				url: `/workspaces/${workspaceId}/projects/${project.id}/download`,
+				headers: { cookie: jar.cookieHeader() },
+			});
+			expect(downloaded.statusCode).toBe(404);
+			const layout = await app.inject({
+				method: "GET",
+				url: `/workspaces/${workspaceId}/projects/${project.id}/layout`,
+				headers: { cookie: jar.cookieHeader() },
+			});
+			expect(layout.statusCode).toBe(404);
+		}
+	},
+);
+
+test.skipIf(skip)(
+	"a project of another workspace is not a terminal's project",
+	async () => {
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+		const bobWorkspace = await makeRunningWorkspace(bob);
+		const foreign = (
+			await createProject(bob, bobWorkspace, { name: "bobs", source: "new" })
+		).json();
+
+		const terminal = await app.inject({
+			method: "POST",
+			url: `/workspaces/${workspaceId}/terminals`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { projectId: foreign.id },
+		});
+		expect(terminal.statusCode).toBe(404);
+		expect(terminal.json().code).toBe("PROJECT_NOT_FOUND");
+	},
+);
+
+test.skipIf(skip)("the terminal listing can be filtered by project", async () => {
+	const project = (
+		await createProject(alice, workspaceId, { name: "filtered", source: "new" })
+	).json();
+	await app.inject({
+		method: "POST",
+		url: `/workspaces/${workspaceId}/terminals`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: { projectId: project.id },
+	});
+	await app.inject({
+		method: "POST",
+		url: `/workspaces/${workspaceId}/terminals`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: {},
+	});
+
+	const all = await app.inject({
+		method: "GET",
+		url: `/workspaces/${workspaceId}/terminals`,
+		headers: { cookie: alice.cookieHeader() },
+	});
+	expect(all.json().terminals).toHaveLength(2);
+
+	const filtered = await app.inject({
+		method: "GET",
+		url: `/workspaces/${workspaceId}/terminals?projectId=${project.id}`,
+		headers: { cookie: alice.cookieHeader() },
+	});
+	expect(filtered.json().terminals).toHaveLength(1);
+	expect(filtered.json().terminals[0].projectId).toBe(project.id);
+});
+
+test.skipIf(skip)("the test hooks seed and remove a directory", async () => {
+	const seeded = await fetch(`http://127.0.0.1:${agent.port}/__test/projects`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ slug: "seeded", isGitRepo: true }),
+	});
+	expect(seeded.status).toBe(204);
+	expect((await listProjects(alice, workspaceId)).json().projects).toHaveLength(1);
+
+	const removed = await fetch(`http://127.0.0.1:${agent.port}/__test/projects/seeded`, {
+		method: "DELETE",
+	});
+	expect(removed.status).toBe(204);
+	expect((await listProjects(alice, workspaceId)).json().projects[0].missing).toBe(
+		true,
+	);
+});
