@@ -256,6 +256,9 @@ echo ""
 MOCK_IDP="${PORTIKUS_MOCK_IDP:-false}"
 PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${VM}.nip.io}"
 API="https://${PUBLIC_HOST}"
+# The API's loopback port, used where a request has to reach the API itself
+# rather than whatever Caddy decides to serve for that path.
+API_PORT="${PORTIKUS_API_PORT:-3000}"
 # Caddy signs with its own internal authority, so every request has to
 # trust the root certificate the Ansible caddy role copied here.
 CURL="curl -s --cacert /etc/portikus/caddy-root.crt"
@@ -449,6 +452,17 @@ else
     site_header_matches 'strict-transport-security: max-age=31536000'
   check "frame-ancestors header on /" \
     site_header_matches "content-security-policy: frame-ancestors 'none'"
+
+  # 2b. The API logs one structured line per request, and a failed request
+  # is logged server side with its status (ADR 0012, SPEC.md 25.6).
+  api_journal_has() {
+    ssh_cmd "sudo journalctl -u portikus-api --since '5 min ago' --no-pager | grep -q -- '$1'"
+  }
+  check "api logs one line per request" api_journal_has '"msg":"request"'
+  check_output "api answers 404 for an unknown route" "404" \
+    ssh_cmd "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${API_PORT}/no-such-route"
+  check "api logs the 404 at warn"     api_journal_has '"level":"warn"'
+  check "api logs the 404 status"      api_journal_has '"status":404'
 
   # 3. The mock identity provider answers through Caddy with the right issuer.
   check "portikus-mock-idp is active"           ssh_cmd systemctl is-active portikus-mock-idp

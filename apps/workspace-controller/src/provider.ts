@@ -5,6 +5,7 @@ import {
 	type StartInstanceResponse,
 	type StopInstanceResponse,
 } from "@portikus/contracts";
+import { type Logger, silentLogger } from "@portikus/observability";
 import { type IncusClient, IncusError } from "./incus.js";
 
 export interface WorkspaceProvider {
@@ -48,6 +49,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly profile: string;
 	private readonly imageAlias: string;
 	private readonly agentPort: number;
+	private readonly log: Logger;
 
 	constructor(opts: {
 		client: IncusClient;
@@ -55,12 +57,14 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		profile: string;
 		imageAlias: string;
 		agentPort: number;
+		logger?: Logger;
 	}) {
 		this.client = opts.client;
 		this.pool = opts.pool;
 		this.profile = opts.profile;
 		this.imageAlias = opts.imageAlias;
 		this.agentPort = opts.agentPort;
+		this.log = opts.logger ?? silentLogger();
 	}
 
 	async create(
@@ -202,7 +206,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private async waitForAgent(ipv4: string, agentToken: string): Promise<void> {
 		const url = `http://${ipv4}:${this.agentPort}/health`;
 		const deadline = Date.now() + AGENT_HEALTH_TIMEOUT_MS;
+		let attempt = 0;
 		while (Date.now() < deadline) {
+			attempt += 1;
+			this.log.debug({ ipv4, attempt }, "polling the workspace agent");
 			try {
 				const res = await fetch(url, {
 					headers: { Authorization: `Bearer ${agentToken}` },

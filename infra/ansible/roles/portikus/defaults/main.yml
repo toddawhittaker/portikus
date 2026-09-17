@@ -1,0 +1,4 @@
+---
+# The log level every control-plane service starts at; an administrator can
+# change it at runtime from the admin page (ADR 0012).
+portikus_log_level: info

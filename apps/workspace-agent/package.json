@@ -13,6 +13,7 @@
 		"@fastify/websocket": "11.3.0",
 		"@portikus/config": "workspace:*",
 		"@portikus/contracts": "workspace:*",
+		"@portikus/observability": "workspace:*",
 		"@portikus/events": "workspace:*",
 		"fastify": "5.12.4",
 		"node-pty": "1.1.0",

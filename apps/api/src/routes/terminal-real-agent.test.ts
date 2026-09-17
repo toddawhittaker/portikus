@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Writable } from "node:stream";
 import { promisify } from "node:util";
 import {
 	CookieJar,
@@ -14,6 +15,7 @@ import {
 import { AgentTerminalList, MAX_INPUT_FRAME_BYTES } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { TerminalServerMessage } from "@portikus/events";
+import { createLogger } from "@portikus/observability";
 // @ts-expect-error apps/api does not depend on the agent package; the vitest
 // alias in vitest.config.ts resolves it from source for this test only.
 import { buildServer as buildAgentServer } from "@portikus/workspace-agent";
@@ -77,16 +79,31 @@ async function sessionExists(id: string): Promise<boolean> {
 	}
 }
 
+/** Every log line the real agent wrote during this run. */
+const agentLogLines: string[] = [];
+
 /**
  * Start the real agent: its own Fastify server on a real port, reading its
  * token from a real file, with tmux behind it (ADR 0009). Only the process
  * boundary is missing, and the API still reaches it over TCP.
  */
 async function startRealAgent(): Promise<void> {
+	// The agent logs through pino, so collect its lines here rather than
+	// through the console (ADR 0012).
 	agentApp = buildAgentServer({
 		tokenPath,
 		homeDir,
 		tmuxSocketName: SOCKET_NAME,
+		logger: createLogger({
+			service: "workspace-agent",
+			level: "debug",
+			destination: new Writable({
+				write(chunk, _encoding, callback) {
+					agentLogLines.push(String(chunk));
+					callback();
+				},
+			}),
+		}),
 	}) as FastifyInstance;
 	await agentApp.listen({ port: 0, host: "127.0.0.1" });
 	agentPort = (agentApp.server.address() as AddressInfo).port;
@@ -602,9 +619,10 @@ function apiClients(): WsSocket[] {
 test.skipIf(skip)(
 	"neither the agent nor the API ever logs the agent token",
 	async () => {
-		// Both loggers write JSON lines to the console (apps/api/src/log.ts and
-		// apps/workspace-agent/src/log.ts), and both run in this process here.
+		// The API still writes JSON lines to the console; the agent writes
+		// pino lines into agentLogLines. Both run in this process here.
 		const logged: string[] = [];
+		agentLogLines.length = 0;
 		const record = (...args: unknown[]) => {
 			logged.push(args.map(String).join(" "));
 		};
@@ -631,6 +649,7 @@ test.skipIf(skip)(
 		await new Promise((resolve) => setTimeout(resolve, 300));
 		for (const spy of spies) spy.mockRestore();
 
+		logged.push(...agentLogLines);
 		for (const line of logged) {
 			expect(line).not.toContain(TOKEN);
 		}

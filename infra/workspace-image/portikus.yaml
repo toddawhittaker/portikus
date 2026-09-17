@@ -1501,8 +1501,12 @@ files:
     Group=student
     WorkingDirectory=/home/student
     Environment=NODE_ENV=production
-    # The controller writes the per-workspace bearer token here; the file
-    # may not exist yet on a container that was never provisioned.
+    # The agent's starting log level; the control plane can change it at
+    # runtime through PUT /log-level (ADR 0012).
+    Environment=LOG_LEVEL=info
+    # Nothing writes this file today. It is an override hook: an operator
+    # can drop settings here, and the dash keeps the unit starting when
+    # the file is absent.
     EnvironmentFile=-/etc/portikus/agent.env
     ExecStart=/opt/portikus/workspace-agent/bin/workspace-agent
     Restart=on-failure
