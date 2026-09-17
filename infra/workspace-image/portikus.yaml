@@ -1483,18 +1483,27 @@ files:
     [Install]
     WantedBy=multi-user.target
 
-# Portikus workspace agent systemd unit (inert until Epic 5 delivers the binary)
+# Portikus workspace agent systemd unit.  The agent tree itself is
+# bind-mounted read-only from the VM by the workspace profile, so the
+# condition keeps the unit inert on a container that has no mount.
 - path: /etc/systemd/system/portikus-workspace-agent.service
   generator: dump
   mode: "0644"
   content: |-
     [Unit]
     Description=Portikus Workspace Agent
-    After=network-online.target
+    After=portikus-home-init.service network-online.target
     Wants=network-online.target
     ConditionPathExists=/opt/portikus/workspace-agent/bin/workspace-agent
 
     [Service]
+    User=student
+    Group=student
+    WorkingDirectory=/home/student
+    Environment=NODE_ENV=production
+    # The controller writes the per-workspace bearer token here; the file
+    # may not exist yet on a container that was never provisioned.
+    EnvironmentFile=-/etc/portikus/agent.env
     ExecStart=/opt/portikus/workspace-agent/bin/workspace-agent
     Restart=on-failure
     RestartSec=5
@@ -1675,8 +1684,12 @@ actions:
     #!/bin/sh
     set -eux
 
-    # Create directory for the workspace agent binary (arrives in Epic 5)
+    # Mount point for the read-only agent tree bind-mounted from the VM.
     mkdir -p /opt/portikus/workspace-agent/bin
+
+    # The controller pushes the per-workspace agent token into this
+    # directory over the Incus files API, as uid 1000 mode 0600.
+    install -d -o student -g student -m 0750 /etc/portikus
 
     # Enable docker.  The workspace-agent unit is placed by the files
     # section, which runs after post-packages, so it is enabled post-files.
