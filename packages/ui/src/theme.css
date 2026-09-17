@@ -5,9 +5,11 @@
  */
 
 @import "./primitives/primitives.css";
+@import "./overlays/overlays.css";
 
 /* Tailwind must scan the built components for the utility classes they use. */
 @source "./primitives";
+@source "./overlays";
 
 @font-face {
 	font-family: "Public Sans";
