@@ -466,6 +466,8 @@ describe("database migrations and schema", () => {
 				expect(down4.error).toBeUndefined();
 				const down5 = await migrator.migrateDown();
 				expect(down5.error).toBeUndefined();
+				const down6 = await migrator.migrateDown();
+				expect(down6.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -474,6 +476,7 @@ describe("database migrations and schema", () => {
 					"0003_terminals",
 					"0004_projects",
 					"0005_settings",
+					"0006_log_level",
 				]);
 				throw rollback;
 			}),

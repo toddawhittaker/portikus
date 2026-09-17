@@ -3,7 +3,7 @@ import type { ColumnType, Generated } from "kysely";
 /**
  * Kysely Database interface for the Portikus control plane.
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
- * 0003_terminals, 0004_projects, and 0005_settings
+ * 0003_terminals, 0004_projects, 0005_settings, and 0006_log_level
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -89,6 +89,8 @@ export interface ProjectsTable {
 export interface SettingsTable {
 	id: number;
 	shutdown_grace_seconds: number;
+	/** Runtime log level for every service; null means use each LOG_LEVEL. */
+	log_level: string | null;
 	updated_at: ColumnType<Date, string | undefined, string>;
 	updated_by: string | null;
 }
