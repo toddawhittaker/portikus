@@ -16,7 +16,16 @@ VM="${1:?Usage: smoke-test.sh <vm-ip>}"
 pass=0
 fail=0
 
+# -n keeps the remote command away from this script's standard input. Without
+# it, ssh forwards our terminal as a pipe that never ends, and a remote incus
+# command waits forever for a YAML config on it.
 ssh_cmd() {
+  ssh -n -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "deploy@${VM}" "$@"
+}
+
+# Same connection, but for the two places that deliberately feed the remote
+# command on standard input.
+ssh_cmd_stdin() {
   ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "deploy@${VM}" "$@"
 }
 
@@ -474,7 +483,7 @@ else
     # 7. Install the presence WebSocket client on the VM.  It sends one
     #    heartbeat, waits for the first server message, and stays open until
     #    the stop file appears, which is how the test controls the session.
-    ssh_cmd "cat > ${WS_PROBE}" <<'PROBE'
+    ssh_cmd_stdin "cat > ${WS_PROBE}" <<'PROBE'
 import fs from "node:fs";
 const [url, origin, stopFile] = process.argv.slice(2);
 // The session cookie arrives on standard input so that it never appears
@@ -510,7 +519,7 @@ PROBE
     open_socket() {
       ssh_cmd "rm -f ${WS_STOP}"
       printf '%s=%s' "${SESSION_COOKIE_NAME}" "${alice_cookie}" \
-        | ssh_cmd "NODE_EXTRA_CA_CERTS=/etc/portikus/caddy-root.crt node ${WS_PROBE} \
+        | ssh_cmd_stdin "NODE_EXTRA_CA_CERTS=/etc/portikus/caddy-root.crt node ${WS_PROBE} \
         'wss://${PUBLIC_HOST}/workspaces/${ws_id}/ws' '${API}' '${WS_STOP}'" >"$probe_log" 2>&1 &
       probe_pid=$!
       sleep 3
