@@ -2,7 +2,6 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
-	EPIC6_UI,
 	projectIds,
 	query,
 	removeProjectDir,
@@ -17,8 +16,6 @@ import {
  * below once the Epic 6 shell and work area are merged.
  */
 test.describe("projects", () => {
-	test.skip(!EPIC6_UI, "Epic 6 UI not merged yet");
-
 	/** Open the "New project" menu and pick one of its items. */
 	async function startCreate(page: Page, item: string): Promise<void> {
 		await page.getByTestId("new-project").click();

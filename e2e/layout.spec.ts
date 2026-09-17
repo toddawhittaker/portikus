@@ -2,7 +2,6 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
-	EPIC6_UI,
 	endTerminal,
 	query,
 	terminalIds,
@@ -16,8 +15,6 @@ import {
  * (plan, E2). The orchestrator removes the guard below once E1 and E2 land.
  */
 test.describe("work area layout", () => {
-	test.skip(!EPIC6_UI, "Epic 6 UI not merged yet");
-
 	async function newTerminal(page: Page): Promise<void> {
 		await page.getByTestId("launcher").click();
 		await page.getByRole("menuitem", { name: "Terminal", exact: true }).click();

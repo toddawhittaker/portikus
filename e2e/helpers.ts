@@ -155,14 +155,6 @@ export async function terminalIds(
 	return rows.map((row) => row.id);
 }
 
-/**
- * Epic 6 groundwork. The shell (plan E1) and the work area (plan E2) are
- * being built in parallel with these tests, so anything written against the
- * new test ids stays off until they land. The orchestrator deletes this flag
- * and every `test.skip` that reads it once E1 and E2 are merged.
- */
-export const EPIC6_UI = !!process.env.PORTIKUS_E2E_EPIC6;
-
 /** Where the fake workspace agent from playwright.config.ts listens. */
 const FAKE_AGENT_URL = `http://127.0.0.1:${process.env.FAKE_AGENT_PORT ?? "7400"}`;
 
@@ -173,19 +165,14 @@ export function projectPath(slug: string): string {
 
 /** The web route of a workspace, and of one project inside it (plan, E1). */
 export function workspacePath(workspaceId: string, projectId?: string): string {
-	return projectId && EPIC6_UI
+	return projectId
 		? `/workspaces/${workspaceId}/projects/${projectId}`
 		: `/workspaces/${workspaceId}`;
 }
 
-/**
- * The work area's tab strip.
- * TODO(Epic 6): once E2 lands this is just `page.getByTestId("work-tabs")`.
- */
+/** The work area's tab strip. */
 export function workTabs(page: Page): Locator {
-	return EPIC6_UI
-		? page.getByTestId("work-tabs")
-		: page.getByRole("tablist", { name: "Terminals" });
+	return page.getByTestId("work-tabs");
 }
 
 export interface TestProject {

@@ -3,7 +3,6 @@ import {
 	createProject,
 	createStudent,
 	deleteSessions,
-	EPIC6_UI,
 	endTerminal,
 	projectIds,
 	query,
@@ -33,14 +32,8 @@ function rowsOf(page: Page, terminalId: string): Locator {
 }
 
 async function newTerminal(page: Page): Promise<void> {
-	// TODO(Epic 6): "New terminal" becomes the `launcher` menu button with a
-	// "Terminal" item inside it (plan, E2).
-	if (EPIC6_UI) {
-		await page.getByTestId("launcher").click();
-		await page.getByRole("menuitem", { name: "Terminal", exact: true }).click();
-		return;
-	}
-	await page.getByRole("button", { name: "New terminal", exact: true }).click();
+	await page.getByTestId("launcher").click();
+	await page.getByRole("menuitem", { name: "Terminal", exact: true }).click();
 }
 
 /** Wait for a pane's terminal WebSocket to be open. */
