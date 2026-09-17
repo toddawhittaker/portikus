@@ -21,6 +21,7 @@
 		"@fastify/cookie": "11.1.2",
 		"@portikus/db": "workspace:*",
 		"@portikus/events": "workspace:*",
+		"@portikus/observability": "workspace:*",
 		"fastify": "5.12.4",
 		"fastify-plugin": "6.0.0",
 		"jose": "6.2.12",

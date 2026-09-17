@@ -20,6 +20,10 @@ export interface FakeAgent {
 	readonly openAttachments: number;
 	/** Make the next create call fail with this agent error code. */
 	failCreateWith: string | null;
+	/** Log levels pushed to `PUT /log-level`, in order. */
+	readonly logLevels: string[];
+	/** While true, `PUT /log-level` fails so a retry can be observed. */
+	failLogLevel: boolean;
 	/** Project directories the fake pretends to have under ~/projects. */
 	projects: Map<string, { isGitRepo: boolean }>;
 	close: () => Promise<void>;
@@ -111,7 +115,12 @@ export async function startFakeAgent(
 	const app: FastifyInstance = Fastify({ logger: false });
 	await app.register(websocket);
 
-	const state = { failCreateWith: null as string | null, openAttachments: 0 };
+	const state = {
+		failCreateWith: null as string | null,
+		openAttachments: 0,
+		failLogLevel: false,
+	};
+	const logLevels: string[] = [];
 
 	function projectNotFound(reply: FastifyReply) {
 		return reply
@@ -154,6 +163,16 @@ export async function startFakeAgent(
 	});
 
 	app.get("/health", async () => ({ ok: true }));
+
+	app.put("/log-level", async (request, reply) => {
+		if (state.failLogLevel) {
+			return reply
+				.status(500)
+				.send({ error: { code: "INTERNAL", message: "log level refused" } });
+		}
+		logLevels.push((request.body as { level: string }).level);
+		return reply.status(204).send();
+	});
 
 	app.get("/terminals", async () => ({
 		terminals: [...terminals].map(([id, value]) => ({
@@ -351,6 +370,13 @@ export async function startFakeAgent(
 		terminals,
 		received,
 		projects,
+		logLevels,
+		get failLogLevel() {
+			return state.failLogLevel;
+		},
+		set failLogLevel(value: boolean) {
+			state.failLogLevel = value;
+		},
 		get openAttachments() {
 			return state.openAttachments;
 		},

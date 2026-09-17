@@ -9,12 +9,16 @@ import {
 	type TerminalList,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type {
+	FastifyBaseLogger,
+	FastifyInstance,
+	FastifyReply,
+	FastifyRequest,
+} from "fastify";
 import type { Kysely } from "kysely";
 import WebSocketClient, { type RawData } from "ws";
 import { z } from "zod";
 import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
-import { log } from "../log.js";
 import type { ServerDeps } from "../server.js";
 import {
 	createPendingWork,
@@ -373,11 +377,10 @@ export function registerTerminalRoutes(
 				// The browser gave up while we were writing presence.
 				track(
 					dropPresence(db, connectionId).catch((error) => {
-						log("error", {
-							msg: "failed to delete workspace connection",
-							connectionId,
-							error: error instanceof Error ? error.message : String(error),
-						});
+						request.log.error(
+							{ err: error, connectionId },
+							"failed to delete workspace connection",
+						);
 					}),
 				);
 				socket.resume();
@@ -389,8 +392,10 @@ export function registerTerminalRoutes(
 					db,
 					socket,
 					agent,
+					workspaceId,
 					terminalId,
 					connectionId,
+					log: request.log,
 					sessionToken: request.sessionToken,
 					cols: size.cols,
 					rows: size.rows,
@@ -435,8 +440,10 @@ interface PipeOptions {
 	db: Kysely<Database>;
 	socket: WebSocket;
 	agent: AgentClient;
+	workspaceId: string;
 	terminalId: string;
 	connectionId: string;
+	log: FastifyBaseLogger;
 	sessionToken: string | null;
 	cols: number;
 	rows: number;
@@ -483,7 +490,18 @@ export function pipeBackpressure(
  * are carried unchanged in both directions (SPEC.md §9.7).
  */
 async function pipeTerminal(options: PipeOptions): Promise<void> {
-	const { db, socket, agent, terminalId, connectionId, sessionToken } = options;
+	const {
+		db,
+		socket,
+		agent,
+		workspaceId,
+		terminalId,
+		connectionId,
+		sessionToken,
+		log,
+	} = options;
+
+	log.debug({ workspaceId, terminalId, connectionId }, "terminal pipe opened");
 
 	const upstream = new WebSocketClient(
 		agent.attachUrl(terminalId, options.cols, options.rows),
@@ -579,11 +597,9 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 		upstream.on("error", (error: Error) => {
 			// The browser closing first aborts a still-connecting agent socket,
 			// which is the normal path and not a failure.
-			log(closed ? "info" : "error", {
-				msg: "terminal agent socket failed",
-				terminalId,
-				error: error.message,
-			});
+			const line = { err: error, workspaceId, terminalId, connectionId };
+			if (closed) log.info(line, "terminal agent socket failed");
+			else log.error(line, "terminal agent socket failed");
 			if (socket.readyState === socket.OPEN) {
 				socket.close(1011, "agent unavailable");
 			}
@@ -592,14 +608,11 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 	});
 
 	await done;
+	log.debug({ workspaceId, terminalId, connectionId }, "terminal pipe closed");
 	try {
 		await dropPresence(db, connectionId);
 	} catch (error) {
-		log("error", {
-			msg: "failed to delete workspace connection",
-			connectionId,
-			error: error instanceof Error ? error.message : String(error),
-		});
+		log.error({ err: error, connectionId }, "failed to delete workspace connection");
 	}
 }
 

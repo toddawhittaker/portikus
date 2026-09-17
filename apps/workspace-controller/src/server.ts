@@ -8,6 +8,7 @@ import {
 } from "@portikus/contracts";
 import {
 	type Logger,
+	quietLogController,
 	registerRequestLogging,
 	silentLogger,
 } from "@portikus/observability";
@@ -41,7 +42,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		// Cast so the instance keeps Fastify's default logger type and
 		// callers can still hold it as a plain FastifyInstance.
 		loggerInstance: (opts.logger ?? silentLogger()) as FastifyBaseLogger,
-		disableRequestLogging: true,
+		logController: quietLogController(),
 	});
 	registerRequestLogging(app, { debugPaths: ["/health"] });
 

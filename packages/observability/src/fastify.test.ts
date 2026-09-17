@@ -1,12 +1,12 @@
 import Fastify from "fastify";
 import { expect, test } from "vitest";
-import { registerRequestLogging } from "./fastify.js";
+import { quietLogController, registerRequestLogging } from "./fastify.js";
 import type { LogLevel } from "./logger.js";
 import { collectingLogger, lineAt } from "./test-support.js";
 
 function buildApp(level: LogLevel = "info") {
 	const { logger, lines } = collectingLogger(level);
-	const app = Fastify({ loggerInstance: logger, disableRequestLogging: true });
+	const app = Fastify({ loggerInstance: logger, logController: quietLogController() });
 	registerRequestLogging(app, { debugPaths: ["/health"] });
 
 	app.get("/health", async () => ({ status: "ok" }));

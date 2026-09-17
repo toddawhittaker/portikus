@@ -1,6 +1,11 @@
 import * as crypto from "node:crypto";
 import type { AddressInfo } from "node:net";
-import Fastify from "fastify";
+import {
+	type Logger,
+	quietLogController,
+	registerRequestLogging,
+} from "@portikus/observability";
+import Fastify, { type FastifyBaseLogger } from "fastify";
 import { exportJWK, generateKeyPair, type JWK, type KeyObject, SignJWT } from "jose";
 
 /**
@@ -61,6 +66,11 @@ export interface MockOidcOptions {
 	clientSecret?: string;
 	/** When set, /authorize only redirects to one of these exact URIs. */
 	redirectUris?: string[];
+	/**
+	 * When given, requests are logged through this logger (ADR 0012). The
+	 * standalone unit passes one; the tests leave it out and stay silent.
+	 */
+	logger?: Logger;
 }
 
 export interface MockOidcProvider {
@@ -102,7 +112,15 @@ export async function startMockOidcProvider(
 	const clientId = options.clientId ?? MOCK_CLIENT_ID;
 	const clientSecret = options.clientSecret ?? MOCK_CLIENT_SECRET;
 	const redirectUris = options.redirectUris ?? null;
-	const app = Fastify({ logger: false });
+	// Only the path reaches a log line, so no code, token or client secret from
+	// a query string or a form body is ever logged (SPEC.md §24.11).
+	// Widened to Fastify's own logger type so the instance keeps its default
+	// generic; a pino logger satisfies it.
+	const loggerInstance: FastifyBaseLogger | undefined = options.logger;
+	const app = loggerInstance
+		? Fastify({ loggerInstance, logController: quietLogController() })
+		: Fastify({ logger: false });
+	if (loggerInstance) registerRequestLogging(app, { debugPaths: [] });
 
 	// The token endpoint is form-encoded; parse it without another dependency.
 	app.addContentTypeParser(

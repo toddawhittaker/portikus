@@ -6,6 +6,7 @@ import type {
 	FastifyRequest,
 	RawServerDefault,
 } from "fastify";
+import { LogController } from "fastify";
 
 interface CapturedError {
 	code: string | null;
@@ -52,6 +53,16 @@ function pathOf(request: FastifyRequest): string {
 	const url = request.url;
 	const query = url.indexOf("?");
 	return query === -1 ? url : url.slice(0, query);
+}
+
+/**
+ * Turns off Fastify's own "incoming request" and "request completed" pair, so
+ * `registerRequestLogging` is the only source of request lines. Pass it as the
+ * `logController` option: Fastify 5.12 deprecated the top-level
+ * `disableRequestLogging` flag in favour of this (warning FSTDEP023).
+ */
+export function quietLogController(): LogController {
+	return new LogController({ disableRequestLogging: true });
 }
 
 export interface RequestLoggingOptions {

@@ -7,6 +7,7 @@ import {
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import { silentLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { toAuthOptions } from "../auth-options.js";
@@ -241,6 +242,7 @@ test.skipIf(skip)("an https public URL uses the __Host- cookie prefix", async ()
 	const secure = buildServer({
 		db: testDb.db,
 		config,
+		logger: silentLogger(),
 		oidc: createOidcClient(toAuthOptions(config)),
 	});
 	try {

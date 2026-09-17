@@ -10,6 +10,7 @@ import {
 	type ProjectList,
 	ProjectState,
 	type ProjectTemplateList,
+	type SplitNode,
 	slugify,
 	UpdateProjectRequest,
 } from "@portikus/contracts";
@@ -137,6 +138,12 @@ function listRows(db: Kysely<Database>, workspaceId: string) {
 		.orderBy("created_at");
 }
 
+/** Terminal panes in one layout tab, for the debug line on a save. */
+function countPanes(node: SplitNode): number {
+	if (node.type === "leaf") return 1;
+	return node.children.reduce((total, child) => total + countPanes(child), 0);
+}
+
 /**
  * Project management (SPEC.md §7, §26). The database row is the record; the
  * directory under `~/projects` belongs to the workspace agent, which the API
@@ -228,6 +235,7 @@ export function registerProjectRoutes(
 		}
 
 		let directories: Map<string, boolean> | null = null;
+		let truncated = false;
 		if (scope.agent) {
 			try {
 				const listed = await scope.agent.listProjects();
@@ -238,6 +246,7 @@ export function registerProjectRoutes(
 						"project listing truncated",
 					);
 					entries = entries.slice(0, MAX_DISCOVERED_PROJECTS);
+					truncated = true;
 				}
 				directories = new Map(entries.map((p) => [p.slug, p.isGitRepo]));
 			} catch {
@@ -273,6 +282,20 @@ export function registerProjectRoutes(
 		const rows = await listRows(db, scope.workspaceId)
 			.where("state", "=", query.data.state)
 			.execute();
+
+		request.log.debug(
+			{
+				workspaceId: scope.workspaceId,
+				rows: rows.length,
+				discovered: directories ? directories.size : 0,
+				missing: directories
+					? rows.filter((row) => !directories.has(row.slug)).length
+					: 0,
+				truncated,
+			},
+			"project listing",
+		);
+
 		const body: ProjectList = {
 			projects: rows.map((row) =>
 				directories
@@ -641,6 +664,17 @@ export function registerProjectRoutes(
 			.set({ layout: JSON.stringify(body.data) })
 			.where("id", "=", row.id)
 			.execute();
+
+		request.log.debug(
+			{
+				workspaceId: scope.workspaceId,
+				projectId: row.id,
+				tabs: body.data.tabs.length,
+				panes: body.data.tabs.reduce((total, tab) => total + countPanes(tab.root), 0),
+			},
+			"layout saved",
+		);
+
 		return reply.status(204).send();
 	});
 }

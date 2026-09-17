@@ -214,6 +214,98 @@ test.skipIf(skip)("PUT /admin/settings rejects bad bodies", async () => {
 	}
 });
 
+// --- The runtime log level (ADR 0012, SPEC.md §25.6) ---
+
+test.skipIf(skip)("the log level starts unset and can be set and cleared", async () => {
+	await seedSettings();
+	const jar = await adminJar();
+
+	const before = await app.inject({
+		method: "GET",
+		url: "/admin/settings",
+		headers: { cookie: jar.cookieHeader() },
+	});
+	expect(before.json().logLevel).toBeNull();
+
+	const set = await app.inject({
+		method: "PUT",
+		url: "/admin/settings",
+		headers: csrfHeaders(jar, PUBLIC_URL),
+		payload: { logLevel: "debug" },
+	});
+	expect(set.statusCode).toBe(200);
+	expect(set.json().logLevel).toBe("debug");
+	// The grace period was not named, so it is untouched.
+	expect(set.json().shutdownGraceSeconds).toBe(600);
+
+	const cleared = await app.inject({
+		method: "PUT",
+		url: "/admin/settings",
+		headers: csrfHeaders(jar, PUBLIC_URL),
+		payload: { logLevel: null },
+	});
+	expect(cleared.statusCode).toBe(200);
+	expect(cleared.json().logLevel).toBeNull();
+
+	const audits = await testDb.db
+		.selectFrom("audit_events")
+		.selectAll()
+		.where("action", "=", "settings.log_level_updated")
+		.orderBy("id")
+		.execute();
+	expect(audits).toHaveLength(2);
+	expect(audits[0]?.metadata).toMatchObject({ from: null, to: "debug" });
+	expect(audits[1]?.metadata).toMatchObject({ from: "debug", to: null });
+});
+
+test.skipIf(skip)(
+	"both settings change together, each with its audit row",
+	async () => {
+		await seedSettings(600);
+		const jar = await adminJar();
+
+		const res = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { shutdownGraceSeconds: 30, logLevel: "warn" },
+		});
+		expect(res.statusCode).toBe(200);
+		expect(res.json()).toMatchObject({ shutdownGraceSeconds: 30, logLevel: "warn" });
+
+		const actions = (
+			await testDb.db
+				.selectFrom("audit_events")
+				.select("action")
+				.where("target", "=", "settings")
+				.execute()
+		).map((row) => row.action);
+		expect(actions.sort()).toEqual([
+			"settings.log_level_updated",
+			"settings.shutdown_grace_updated",
+		]);
+	},
+);
+
+test.skipIf(skip)(
+	"a request that changes nothing or names a bad level is 400",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+
+		for (const payload of [{}, { logLevel: "verbose" }, { logLevel: 3 }]) {
+			const res = await app.inject({
+				method: "PUT",
+				url: "/admin/settings",
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload,
+			});
+			expect(res.statusCode).toBe(400);
+			expect(res.json().code).toBe("VALIDATION_FAILED");
+		}
+	},
+);
+
 test.skipIf(skip)("an administrator lists users and sets an override", async () => {
 	const student = new CookieJar();
 	await loginAs(app, "alice", student);

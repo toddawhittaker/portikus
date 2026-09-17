@@ -1,6 +1,7 @@
 import { createOidcClient } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import type { Database } from "@portikus/db";
+import { silentLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
@@ -45,5 +46,10 @@ export function buildTestServer(
 	overrides: Partial<ApiConfig> = {},
 ): FastifyInstance {
 	const config = testConfig(issuerUrl, overrides);
-	return buildServer({ db, config, oidc: createOidcClient(toAuthOptions(config)) });
+	return buildServer({
+		db,
+		config,
+		logger: silentLogger(),
+		oidc: createOidcClient(toAuthOptions(config)),
+	});
 }

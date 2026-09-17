@@ -405,6 +405,9 @@ importers:
       '@portikus/events':
         specifier: workspace:*
         version: link:../events
+      '@portikus/observability':
+        specifier: workspace:*
+        version: link:../observability
       fastify:
         specifier: 5.12.4
         version: 5.12.4
