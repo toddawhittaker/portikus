@@ -107,6 +107,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			const result = await singleFlight(`start:${params.name}`, () =>
 				provider.start(params.name, {
 					timeoutSeconds: bodyResult.data.timeoutSeconds,
+					agentToken: bodyResult.data.agentToken,
 				}),
 			);
 			return reply.code(200).send(result);
