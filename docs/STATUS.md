@@ -118,6 +118,13 @@ runtime: the API relays the level to each running workspace's agent and the
 worker relays it to the controller. CI now runs the tests with coverage and
 fails below the floors set in `vitest.config.ts`.
 
+On the pilot feedback branch, the workspace agent no longer drops the frames a
+browser sends while an attachment is still starting. It listens from the first
+moment of the attach, holds input in the existing early-input queue, and uses
+the last size asked for during that window as the size of the new PTY, so a
+pane that corrects its size straight after opening is no longer left blank
+(SPEC.md 9.7). A socket that closes in that window aborts the attach without
+starting a shell.
 The terminal title bar now follows `cd` (SPEC.md section 9.3). Each
 attachment in the workspace agent polls tmux for its pane's current path
 every two seconds and sends a `cwd` frame on the terminal WebSocket when
