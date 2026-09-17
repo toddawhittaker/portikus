@@ -39,6 +39,29 @@ test.describe("work area layout", () => {
 		});
 	}
 
+	/**
+	 * Wait until the saved layout holds a leaf for this terminal. The browser
+	 * writes the layout at most once a second (SPEC.md §7.5), so a reload before
+	 * that write rebuilds the tabs from the terminal list instead.
+	 */
+	async function waitForSavedLeaf(
+		projectId: string,
+		terminalId: string,
+	): Promise<void> {
+		await expect
+			.poll(
+				async () => {
+					const rows = await query<{ layout: unknown }>(
+						"select layout from projects where id = $1",
+						[projectId],
+					);
+					return JSON.stringify(rows[0]?.layout ?? null).includes(terminalId);
+				},
+				{ timeout: 15_000 },
+			)
+			.toBe(true);
+	}
+
 	/** Open a project's work area with one terminal, and return both ids. */
 	async function openProjectWithTerminal(
 		page: Page,
@@ -324,6 +347,8 @@ test.describe("work area layout", () => {
 			"Ended",
 		);
 
+		await waitForSavedLeaf(projectId, terminalId);
+
 		// What stopping the workspace does to the terminal rows (SPEC.md §6.8).
 		await endTerminal(terminalId);
 		await page.reload();
@@ -348,6 +373,7 @@ test.describe("work area layout", () => {
 			student.workspaceId,
 			"Revived",
 		);
+		await waitForSavedLeaf(projectId, terminalId);
 		await endTerminal(terminalId);
 		await page.reload();
 		await expect(page.getByRole("button", { name: "New terminal here" })).toBeVisible({
@@ -388,18 +414,7 @@ test.describe("work area layout", () => {
 
 		// The split has to reach the saved layout before the reload, or the
 		// reload rebuilds two tabs instead of one (SPEC.md §7.5).
-		await expect
-			.poll(
-				async () =>
-					(
-						await query<{ layout: { tabs: unknown[] } | null }>(
-							"select layout from projects where id = $1",
-							[projectId],
-						)
-					)[0]?.layout?.tabs?.length ?? 0,
-				{ timeout: 15_000 },
-			)
-			.toBe(1);
+		await waitForSavedLeaf(projectId, second);
 
 		// What stopping the workspace does to both rows (SPEC.md §6.8, §9.7).
 		await endTerminal(terminalId);

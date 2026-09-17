@@ -150,6 +150,9 @@ and 9.7): `reconcile` no longer gives a tab back to an ended terminal that
 has no pane, since those rows are listing history rather than panes, and the
 store drops any pane a terminal already has before placing it, so a list
 refetch that arrives mid-revive cannot leave the same terminal in two places.
+One consequence: a terminal that ends within about a second of being opened,
+before its pane reaches the saved layout, is not restored as a tab on reload
+and stays only in the ended list.
 
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
