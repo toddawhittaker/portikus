@@ -76,7 +76,7 @@ function stubBrowserApis() {
 	);
 }
 
-function renderPane(onExited = vi.fn()) {
+function renderPane(onExited = vi.fn(), onCwd = vi.fn()) {
 	stubBrowserApis();
 	vi.stubGlobal("WebSocket", FakeWebSocket);
 	const view = render(
@@ -87,11 +87,12 @@ function renderPane(onExited = vi.fn()) {
 			visible={true}
 			onExited={onExited}
 			onSessionEnded={vi.fn()}
+			onCwd={onCwd}
 			onFocus={vi.fn()}
 			onLeave={vi.fn()}
 		/>,
 	);
-	return { view, onExited };
+	return { view, onExited, onCwd };
 }
 
 test("the pane opens a socket for its terminal and reports it as connected", async () => {
@@ -158,4 +159,20 @@ test("a close before any exit is retried, not reported as an exit", async () => 
 		sockets[0]?.onclose?.({ code: 1006 });
 	});
 	expect(onExited).not.toHaveBeenCalled();
+});
+
+test("a cwd frame is reported to the owner of the pane", async () => {
+	const { onCwd } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+
+	act(() => {
+		sockets[0]?.onmessage?.({ data: JSON.stringify({ type: "cwd", path: "/tmp" }) });
+	});
+	expect(onCwd).toHaveBeenCalledWith("/tmp");
+
+	// A frame with no path is not a directory report and is ignored.
+	act(() => {
+		sockets[0]?.onmessage?.({ data: JSON.stringify({ type: "cwd" }) });
+	});
+	expect(onCwd).toHaveBeenCalledTimes(1);
 });

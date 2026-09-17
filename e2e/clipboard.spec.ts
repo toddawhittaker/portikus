@@ -72,6 +72,32 @@ test.describe("terminal clipboard", () => {
 		await page.mouse.up();
 	}
 
+	/** How many times a marker shows in the terminal's rows. */
+	async function countIn(
+		page: Page,
+		terminalId: string,
+		text: string,
+	): Promise<number> {
+		const seen = (await rowsOf(page, terminalId).textContent()) ?? "";
+		return seen.split(text).length - 1;
+	}
+
+	/**
+	 * A paste must land exactly once. Ctrl+V used to reach the shell twice,
+	 * once from our clipboard read and once from the browser's own paste
+	 * event, which a "contains" assertion cannot tell apart.
+	 */
+	async function expectPastedOnce(
+		page: Page,
+		terminalId: string,
+		text: string,
+	): Promise<void> {
+		await expect(rowsOf(page, terminalId)).toContainText(text, { timeout: 15_000 });
+		// Give a second paste time to arrive before ruling it out.
+		await page.waitForTimeout(1500);
+		expect(await countIn(page, terminalId, text)).toBe(1);
+	}
+
 	async function typeAndExpectEcho(
 		page: Page,
 		terminalId: string,
@@ -174,9 +200,7 @@ test.describe("terminal clipboard", () => {
 
 		await writeClipboard(page, "pasted-with-shift");
 		await page.keyboard.press("Control+Shift+KeyV");
-		await expect(rowsOf(page, terminalId)).toContainText("pasted-with-shift", {
-			timeout: 15_000,
-		});
+		await expectPastedOnce(page, terminalId, "pasted-with-shift");
 	});
 
 	test("Ctrl+V pastes", async ({ page, context }) => {
@@ -189,9 +213,7 @@ test.describe("terminal clipboard", () => {
 			.click();
 		await page.keyboard.press("Control+KeyV");
 
-		await expect(rowsOf(page, terminalId)).toContainText("pasted-with-ctrl-v", {
-			timeout: 15_000,
-		});
+		await expectPastedOnce(page, terminalId, "pasted-with-ctrl-v");
 	});
 
 	test("Ctrl+C with a selection copies it", async ({ page, context }) => {

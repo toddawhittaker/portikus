@@ -61,8 +61,10 @@ export function TerminalLeaf({
 	// The menu returns focus to its trigger as it closes, so the field waits
 	// for that to happen and only commits on a blur once it really had focus.
 	const armed = useRef(false);
+	// The agent reports the directory as the student cds around (SPEC.md §9.3).
+	const [liveCwd, setLiveCwd] = useState(terminal.cwd);
 	const ended = terminal.endedAt !== null;
-	const title = `${terminal.name} · ${shortenPath(terminal.cwd)}`;
+	const title = `${terminal.name} · ${shortenPath(liveCwd)}`;
 
 	useEffect(() => {
 		if (!renaming) {
@@ -166,6 +168,7 @@ export function TerminalLeaf({
 					visible={visible}
 					onExited={onExited}
 					onSessionEnded={onSessionEnded}
+					onCwd={setLiveCwd}
 					onFocus={onFocus}
 					onLeave={onLeave}
 				/>

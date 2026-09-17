@@ -6,6 +6,7 @@
 export type TerminalFrame =
 	| { kind: "output"; bytes: Uint8Array }
 	| { kind: "exit" }
+	| { kind: "cwd"; path: string }
 	| { kind: "error"; code: string }
 	| { kind: "ignored" };
 
@@ -21,8 +22,15 @@ export function decodeTerminalFrame(data: unknown): TerminalFrame {
 		return { kind: "ignored" };
 	}
 	if (typeof message !== "object" || message === null) return { kind: "ignored" };
-	const { type, code } = message as { type?: unknown; code?: unknown };
+	const { type, code, path } = message as {
+		type?: unknown;
+		code?: unknown;
+		path?: unknown;
+	};
 	if (type === "exit") return { kind: "exit" };
+	if (type === "cwd" && typeof path === "string" && path !== "") {
+		return { kind: "cwd", path };
+	}
 	if (type === "error") {
 		return { kind: "error", code: typeof code === "string" ? code : "unknown" };
 	}
