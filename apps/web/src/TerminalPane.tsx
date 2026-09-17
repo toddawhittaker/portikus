@@ -6,6 +6,7 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
 import {
+	canOpenInNewTab,
 	FILE_LINE_PATTERN,
 	fileRouteFor,
 	previewRouteFor,
@@ -17,6 +18,13 @@ const RECONNECT_MS = 3_000;
 const MAX_RECONNECT_MS = 60_000;
 /** The API closes with this code when the session is gone. */
 const SESSION_ENDED_CODE = 4401;
+/** Give up after this many consecutive failed connection attempts. */
+const MAX_RECONNECT_ATTEMPTS = 5;
+/**
+ * Close codes that will not get better by retrying: a policy refusal, a frame
+ * that was too large, and a server error.
+ */
+const FATAL_CLOSE_CODES = new Set([1008, 1009, 1011]);
 
 const THEME = {
 	background: "#11100e",
@@ -101,8 +109,9 @@ export function TerminalPane({
 					go(preview);
 					return;
 				}
-				// Any other http(s) URL leaves the app in a new tab.
-				if (uri.startsWith("http://") || uri.startsWith("https://")) {
+				// Any other URL leaves the app in a new tab, unless it points at
+				// the student's own machine or uses a scheme we do not open.
+				if (canOpenInNewTab(uri)) {
 					window.open(uri, "_blank", "noopener,noreferrer");
 				}
 			}),
@@ -148,11 +157,19 @@ export function TerminalPane({
 		let socket: WebSocket | null = null;
 		let retry: ReturnType<typeof setTimeout> | undefined;
 		let backoffMs = RECONNECT_MS;
+		let attempts = 0;
 
 		function send(message: unknown) {
 			if (socket && socket.readyState === WebSocket.OPEN) {
 				socket.send(JSON.stringify(message));
 			}
+		}
+
+		// Stop retrying and show the tab as ended, with its "New terminal" action.
+		function giveUp() {
+			stopped = true;
+			setReconnecting(false);
+			handlers.current.onExit(terminalId);
 		}
 
 		function connect() {
@@ -165,6 +182,7 @@ export function TerminalPane({
 
 			next.onopen = () => {
 				backoffMs = RECONNECT_MS;
+				attempts = 0;
 				setReconnecting(false);
 			};
 
@@ -191,6 +209,15 @@ export function TerminalPane({
 				if (event.code === SESSION_ENDED_CODE) {
 					stopped = true;
 					handlers.current.onSessionEnded();
+					return;
+				}
+				if (FATAL_CLOSE_CODES.has(event.code)) {
+					giveUp();
+					return;
+				}
+				attempts++;
+				if (attempts >= MAX_RECONNECT_ATTEMPTS) {
+					giveUp();
 					return;
 				}
 				setReconnecting(true);

@@ -44,7 +44,10 @@ function sendText(socket: WebSocket, message: TerminalServerMessage): void {
 export class TerminalRegistry {
 	private readonly attachments = new Map<string, Set<Attachment>>();
 
-	constructor(private readonly homeDir: string) {}
+	constructor(
+		private readonly homeDir: string,
+		private readonly socketName?: string,
+	) {}
 
 	/** How many browsers are attached to one terminal. */
 	countAttachments(id: string): number {
@@ -69,12 +72,12 @@ export class TerminalRegistry {
 		existing.add(attachment);
 		this.attachments.set(id, existing);
 
-		if (!(await hasSession(id))) {
+		if (!(await hasSession(id, this.socketName))) {
 			this.forget(id, attachment);
 			throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 		}
 
-		const pty = spawn("tmux", attachArgs(id), {
+		const pty = spawn("tmux", attachArgs(id, this.socketName), {
 			name: "xterm-256color",
 			cols: options.cols ?? DEFAULT_COLS,
 			rows: options.rows ?? DEFAULT_ROWS,
@@ -192,9 +195,7 @@ export class TerminalRegistry {
 	}
 
 	private rejectFrame(socket: WebSocket): void {
-		// BAD_FRAME is not in AgentErrorCode: it describes the frame, not the
-		// terminal, and the browser only needs to see why the socket closed.
-		socket.send(JSON.stringify({ type: "error", code: "BAD_FRAME" }));
+		sendText(socket, { type: "error", code: "BAD_FRAME" });
 		socket.close(1008, "malformed frame");
 	}
 }

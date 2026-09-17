@@ -38,12 +38,13 @@ const AttachQuery = z.object({
 export interface ServerOptions {
 	tokenPath: string;
 	homeDir: string;
+	tmuxSocketName?: string;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
 export function buildServer(options: ServerOptions): FastifyInstance {
 	const app = Fastify({ logger: false });
-	const registry = new TerminalRegistry(options.homeDir);
+	const registry = new TerminalRegistry(options.homeDir, options.tmuxSocketName);
 
 	// Registered before @fastify/websocket's own preClose so attachments get a
 	// close code before that plugin drops the sockets.
@@ -51,7 +52,9 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		registry.closeEverything();
 	});
 
-	app.register(websocket);
+	// A terminal input frame is small; refuse anything far past that before it
+	// is buffered (SPEC.md §9.7).
+	app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
 	// Every route, the upgrade included, needs the token (SPEC.md §23.5).
 	app.addHook("preHandler", tokenAuth(options.tokenPath));
@@ -76,7 +79,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 
 		instance.get("/terminals", async (_request, reply) => {
 			try {
-				const sessions = await listSessions();
+				const sessions = await listSessions(options.tmuxSocketName);
 				return {
 					terminals: sessions.map((session) => ({
 						id: session.id,
@@ -100,10 +103,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				});
 			}
 			try {
-				if (await hasSession(parsed.data.id)) {
+				if (await hasSession(parsed.data.id, options.tmuxSocketName)) {
 					throw new AgentFailure("TERMINAL_EXISTS", "terminal already exists");
 				}
-				const sessions = await listSessions();
+				const sessions = await listSessions(options.tmuxSocketName);
 				if (sessions.length >= MAX_TERMINALS_PER_WORKSPACE) {
 					throw new AgentFailure(
 						"TERMINAL_LIMIT",
@@ -114,6 +117,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					parsed.data.id,
 					parsed.data.cwd,
 					options.homeDir,
+					options.tmuxSocketName,
 				);
 				log("info", { msg: "terminal created", terminalId: created.id });
 				return reply
@@ -133,10 +137,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 			const { terminalId } = params.data;
 			try {
-				if (!(await hasSession(terminalId))) {
+				if (!(await hasSession(terminalId, options.tmuxSocketName))) {
 					throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 				}
-				await killSession(terminalId);
+				await killSession(terminalId, options.tmuxSocketName);
 				registry.closeAll(terminalId, 1000, "terminal deleted");
 				log("info", { msg: "terminal deleted", terminalId });
 				return reply.code(204).send();

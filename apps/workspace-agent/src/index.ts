@@ -7,6 +7,7 @@ const config = loadConfig(AgentConfigSchema);
 const app = buildServer({
 	tokenPath: config.TOKEN_PATH,
 	homeDir: config.HOME_DIR,
+	tmuxSocketName: config.TMUX_SOCKET_NAME,
 });
 
 // The workspace bridge is the only network the container has, and the Incus

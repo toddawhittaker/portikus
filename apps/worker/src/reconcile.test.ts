@@ -528,7 +528,7 @@ async function getTerminal(id: string) {
 }
 
 test.skipIf(skip)(
-	"the agent token is minted once and reused on later starts",
+	"the agent token is rotated on each start, and the request carries the current value",
 	async () => {
 		const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
 		const now = new Date();
@@ -537,7 +537,7 @@ test.skipIf(skip)(
 		const first = (await getWorkspace(id)).agent_token;
 		expect(first).toMatch(/^[0-9a-f]{64}$/);
 
-		// Stop it and start it again: the token must not change.
+		// Stop it and start it again: the token must be a fresh one.
 		await tdb.db
 			.updateTable("workspaces")
 			.set({ state: "stopped", desired_state: "running" })
@@ -546,15 +546,20 @@ test.skipIf(skip)(
 		const later = new Date(now.getTime() + 1000);
 		await reconcile(tdb.db, fake, cfg, later, later);
 
-		expect((await getWorkspace(id)).agent_token).toBe(first);
+		const second = (await getWorkspace(id)).agent_token;
+		expect(second).toMatch(/^[0-9a-f]{64}$/);
+		expect(second).not.toBe(first);
+
 		const starts = fake.calls.filter((c) => c.method === "start");
 		expect(starts).toHaveLength(2);
-		for (const call of starts) {
-			expect(call.args[1]).toMatchObject({
-				timeoutSeconds: cfg.START_TIMEOUT_SECONDS,
-				agentToken: first,
-			});
-		}
+		expect(starts[0]?.args[1]).toMatchObject({
+			timeoutSeconds: cfg.START_TIMEOUT_SECONDS,
+			agentToken: first,
+		});
+		expect(starts[1]?.args[1]).toMatchObject({
+			timeoutSeconds: cfg.START_TIMEOUT_SECONDS,
+			agentToken: second,
+		});
 	},
 );
 
