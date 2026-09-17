@@ -13,6 +13,7 @@
 		"typecheck": "tsc -b"
 	},
 	"dependencies": {
+		"@portikus/contracts": "workspace:*",
 		"zod": "4.6.5"
 	},
 	"devDependencies": {

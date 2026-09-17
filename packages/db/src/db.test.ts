@@ -263,6 +263,125 @@ describe("database migrations and schema", () => {
 		},
 	);
 
+	test.skipIf(!hasTestDb())("projects table accepts a valid row", async () => {
+		const ws = await t.db
+			.insertInto("workspaces")
+			.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+			.returning("id")
+			.executeTakeFirstOrThrow();
+
+		const row = await t.db
+			.insertInto("projects")
+			.values({
+				workspace_id: ws.id,
+				slug: "demo",
+				name: "Demo",
+				path: "/home/student/projects/demo",
+				source: "new",
+			})
+			.returningAll()
+			.executeTakeFirstOrThrow();
+
+		expect(row.state).toBe("active");
+		expect(row.layout).toBeNull();
+		expect(row.archived_at).toBeNull();
+		expect(row.created_at).toBeInstanceOf(Date);
+	});
+
+	test.skipIf(!hasTestDb())("projects rejects a bad state or source", async () => {
+		const ws = await t.db
+			.insertInto("workspaces")
+			.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+			.returning("id")
+			.executeTakeFirstOrThrow();
+
+		const base = {
+			workspace_id: ws.id,
+			name: "Demo",
+			path: "/home/student/projects/demo",
+		};
+
+		await expect(
+			t.db
+				.insertInto("projects")
+				.values({ ...base, slug: "a", source: "invented" })
+				.execute(),
+		).rejects.toThrow();
+
+		await expect(
+			t.db
+				.insertInto("projects")
+				.values({ ...base, slug: "b", source: "new", state: "deleted" })
+				.execute(),
+		).rejects.toThrow();
+	});
+
+	test.skipIf(!hasTestDb())(
+		"projects rejects a duplicate slug per workspace",
+		async () => {
+			const ws = await t.db
+				.insertInto("workspaces")
+				.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+
+			const values = {
+				workspace_id: ws.id,
+				slug: "demo",
+				name: "Demo",
+				path: "/home/student/projects/demo",
+				source: "new",
+			};
+			await t.db.insertInto("projects").values(values).execute();
+			await expect(
+				t.db.insertInto("projects").values(values).execute(),
+			).rejects.toThrow();
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"deleting a project leaves its terminals with a null project_id",
+		async () => {
+			const ws = await t.db
+				.insertInto("workspaces")
+				.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+
+			const project = await t.db
+				.insertInto("projects")
+				.values({
+					workspace_id: ws.id,
+					slug: "demo",
+					name: "Demo",
+					path: "/home/student/projects/demo",
+					source: "new",
+				})
+				.returning("id")
+				.executeTakeFirstOrThrow();
+
+			const terminal = await t.db
+				.insertInto("terminals")
+				.values({
+					workspace_id: ws.id,
+					name: "shell",
+					cwd: "/home/student/projects/demo",
+					project_id: project.id,
+				})
+				.returning("id")
+				.executeTakeFirstOrThrow();
+
+			await t.db.deleteFrom("projects").where("id", "=", project.id).execute();
+
+			const row = await t.db
+				.selectFrom("terminals")
+				.where("id", "=", terminal.id)
+				.selectAll()
+				.executeTakeFirstOrThrow();
+			expect(row.project_id).toBeNull();
+		},
+	);
+
 	test.skipIf(!hasTestDb())("migrations roll back and reapply", async () => {
 		const { Migrator } = await import("kysely/migration");
 		const { migrations } = await import("./migrations/index.js");
@@ -282,12 +401,15 @@ describe("database migrations and schema", () => {
 				expect(down2.error).toBeUndefined();
 				const down3 = await migrator.migrateDown();
 				expect(down3.error).toBeUndefined();
+				const down4 = await migrator.migrateDown();
+				expect(down4.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
 					"0001_workspaces",
 					"0002_users_sessions",
 					"0003_terminals",
+					"0004_projects",
 				]);
 				throw rollback;
 			}),

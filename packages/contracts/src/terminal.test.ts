@@ -15,12 +15,30 @@ const sampleTerminal = {
 	name: "shell",
 	cwd: "/home/student/projects/demo",
 	position: 0,
+	projectId: null,
 	createdAt: "2026-01-01T00:00:00.000Z",
 	endedAt: null,
 };
 
 test("Terminal round-trips a complete record", () => {
 	expect(Terminal.parse(sampleTerminal)).toEqual(sampleTerminal);
+});
+
+test("Terminal carries the project it belongs to", () => {
+	const owned = {
+		...sampleTerminal,
+		projectId: "550e8400-e29b-41d4-a716-446655440222",
+	};
+	expect(Terminal.parse(owned)).toEqual(owned);
+	expect(Terminal.safeParse({ ...sampleTerminal, projectId: "nope" }).success).toBe(
+		false,
+	);
+});
+
+test("CreateTerminalRequest accepts an optional projectId", () => {
+	const projectId = "550e8400-e29b-41d4-a716-446655440222";
+	expect(CreateTerminalRequest.parse({ projectId })).toEqual({ projectId });
+	expect(CreateTerminalRequest.safeParse({ projectId: "nope" }).success).toBe(false);
 });
 
 test("Terminal rejects an empty or over-long name", () => {

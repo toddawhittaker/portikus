@@ -67,6 +67,15 @@ export default defineConfig({
 					include: ["apps/web/src/**/*.test.tsx"],
 				},
 			},
+			{
+				extends: true,
+				plugins: [react()],
+				test: {
+					name: "ui",
+					environment: "jsdom",
+					include: ["packages/ui/src/**/*.test.tsx"],
+				},
+			},
 		],
 	},
 });

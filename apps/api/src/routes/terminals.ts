@@ -76,6 +76,7 @@ function toTerminal(row: {
 	name: string;
 	cwd: string;
 	position: number;
+	project_id: string | null;
 	created_at: Date;
 	ended_at: Date | null;
 }): Terminal {
@@ -85,6 +86,7 @@ function toTerminal(row: {
 		name: row.name,
 		cwd: row.cwd,
 		position: row.position,
+		projectId: row.project_id,
 		createdAt: row.created_at.toISOString(),
 		endedAt: row.ended_at ? row.ended_at.toISOString() : null,
 	};
