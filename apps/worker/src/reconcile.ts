@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { ControllerErrorCode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import { type Kysely, sql } from "kysely";
+import { type ExpressionBuilder, type Kysely, sql } from "kysely";
 import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
 
@@ -168,46 +168,66 @@ export async function reconcile(
 		.where("last_seen_at", "<", ttlCutoff)
 		.execute();
 
-	// (2) Manage shutdown deadlines for running workspaces.
-	const runningRows = await db
-		.selectFrom("workspaces")
-		.select(["id", "shutdown_deadline"])
+	// (2) Track disconnection and recompute shutdown deadlines.
+	// A running workspace with no connections gets a disconnected_at stamp;
+	// one with connections loses both the stamp and any deadline.
+	const noConnections = (eb: ExpressionBuilder<Database, "workspaces">) =>
+		eb(
+			eb
+				.selectFrom("workspace_connections")
+				.select(db.fn.countAll<string>().as("cnt"))
+				.whereRef("workspace_connections.workspace_id", "=", "workspaces.id"),
+			"=",
+			"0",
+		);
+
+	await db
+		.updateTable("workspaces")
+		.set({ disconnected_at: now.toISOString(), updated_at: now.toISOString() })
 		.where("state", "=", "running")
+		.where("disconnected_at", "is", null)
+		.where(noConnections)
 		.execute();
 
-	for (const ws of runningRows) {
-		const conns = await db
-			.selectFrom("workspace_connections")
-			.select(db.fn.countAll<string>().as("cnt"))
-			.where("workspace_id", "=", ws.id)
-			.executeTakeFirstOrThrow();
-		const active = Number(conns.cnt);
+	await db
+		.updateTable("workspaces")
+		.set({
+			disconnected_at: null,
+			shutdown_deadline: null,
+			updated_at: now.toISOString(),
+		})
+		.where("state", "=", "running")
+		.where((eb) =>
+			eb.or([
+				eb("disconnected_at", "is not", null),
+				eb("shutdown_deadline", "is not", null),
+			]),
+		)
+		.where((eb) => eb.not(noConnections(eb)))
+		.execute();
 
-		if (active === 0 && ws.shutdown_deadline === null) {
-			// Set deadline.
-			const deadline = new Date(now.getTime() + config.SHUTDOWN_GRACE_SECONDS * 1000);
-			await db
-				.updateTable("workspaces")
-				.set({
-					shutdown_deadline: deadline.toISOString(),
-					updated_at: now.toISOString(),
-				})
-				.where("id", "=", ws.id)
-				.where("state", "=", "running")
-				.execute();
-		} else if (active > 0 && ws.shutdown_deadline !== null) {
-			// Clear deadline.
-			await db
-				.updateTable("workspaces")
-				.set({
-					shutdown_deadline: null,
-					updated_at: now.toISOString(),
-				})
-				.where("id", "=", ws.id)
-				.where("state", "=", "running")
-				.execute();
-		}
-	}
+	// Recompute every disconnected workspace's deadline from settings an
+	// administrator can change while we run (SPEC.md §6.4). A per-user override
+	// wins over the platform value, and zero means "never shut down", so the
+	// deadline is cleared. Rows whose deadline already matches are left alone.
+	const grace = sql`coalesce(u.shutdown_grace_seconds, s.shutdown_grace_seconds, ${sql.lit(
+		config.SHUTDOWN_GRACE_SECONDS,
+	)})`;
+	await sql`
+		update workspaces w
+		set shutdown_deadline = d.new_deadline, updated_at = ${now.toISOString()}::timestamptz
+		from (
+			select
+				ws.id,
+				case when ${grace} = 0 then null
+					else ws.disconnected_at + ${grace} * interval '1 second' end as new_deadline
+			from workspaces ws
+			join users u on u.id = ws.owner_user_id
+			left join settings s on s.id = 1
+			where ws.state = 'running' and ws.disconnected_at is not null
+		) d
+		where w.id = d.id and w.shutdown_deadline is distinct from d.new_deadline
+	`.execute(db);
 
 	// (3) Drive actionable state transitions.
 
@@ -403,6 +423,7 @@ export async function reconcile(
 							error_code: "INSTANCE_MISSING",
 							error_message: INSTANCE_MISSING_MESSAGE,
 							shutdown_deadline: null,
+							disconnected_at: null,
 						},
 						now,
 					);
@@ -431,7 +452,7 @@ export async function reconcile(
 						db,
 						ws.id,
 						"running",
-						{ state: "stopped", shutdown_deadline: null },
+						{ state: "stopped", shutdown_deadline: null, disconnected_at: null },
 						now,
 					);
 					if (updated) {
@@ -500,7 +521,7 @@ export async function reconcile(
 							db,
 							ws.id,
 							"stopping",
-							{ state: "stopped", shutdown_deadline: null },
+							{ state: "stopped", shutdown_deadline: null, disconnected_at: null },
 							now,
 						);
 						if (updated) {
@@ -636,6 +657,7 @@ export async function doStop(
 				state: "stopped",
 				shutdown_deadline: null,
 				desired_state: settleRestarting,
+				disconnected_at: null,
 			},
 			now,
 		);

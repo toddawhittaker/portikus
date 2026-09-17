@@ -1,5 +1,6 @@
 import { loadConfig, WorkerConfigSchema } from "@portikus/config";
-import { createDb } from "@portikus/db";
+import { createDb, type Database } from "@portikus/db";
+import type { Kysely } from "kysely";
 import { HttpControllerClient } from "./controller-client.js";
 import { reconcile, type SweepResult } from "./reconcile.js";
 
@@ -9,10 +10,36 @@ export function describeService(): string {
 	return `portikus ${serviceName}`;
 }
 
+/**
+ * Put the platform-wide grace period in the database the first time the
+ * worker runs (SPEC.md §6.4). Later starts leave the administrator's value
+ * alone. Returns true when this call inserted the row.
+ */
+export async function seedSettings(
+	db: Kysely<Database>,
+	graceSeconds: number,
+): Promise<boolean> {
+	const result = await db
+		.insertInto("settings")
+		.values({ id: 1, shutdown_grace_seconds: graceSeconds })
+		.onConflict((oc) => oc.doNothing())
+		.executeTakeFirst();
+	return Number(result?.numInsertedOrUpdatedRows ?? 0n) > 0;
+}
+
 /** Start the reconcile loop; only runs when invoked as main. */
 async function main(): Promise<void> {
 	const config = loadConfig(WorkerConfigSchema);
 	const db = createDb(config.DATABASE_URL);
+	if (await seedSettings(db, config.SHUTDOWN_GRACE_SECONDS)) {
+		console.log(
+			JSON.stringify({
+				msg: "seeded platform settings",
+				shutdownGraceSeconds: config.SHUTDOWN_GRACE_SECONDS,
+			}),
+		);
+	}
+
 	const controller = new HttpControllerClient(
 		config.CONTROLLER_URL,
 		config.CONTROLLER_TOKEN,

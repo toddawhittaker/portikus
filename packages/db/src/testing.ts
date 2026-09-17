@@ -57,6 +57,7 @@ export interface TestUserOverrides {
 	display_name?: string;
 	role?: string;
 	disabled_at?: string | null;
+	shutdown_grace_seconds?: number | null;
 }
 
 /** Insert a user row and return its id. */

@@ -67,6 +67,7 @@ export type AdminWorkspaceList = z.infer<typeof AdminWorkspaceList>;
  */
 export const ApiErrorCode = z.enum([
 	"WORKSPACE_NOT_FOUND",
+	"NOT_FOUND",
 	"UNAUTHORIZED",
 	"FORBIDDEN",
 	"VALIDATION_FAILED",
