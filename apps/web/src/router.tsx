@@ -5,6 +5,7 @@ import {
 	Outlet,
 	useParams,
 } from "@tanstack/react-router";
+import { AdminPage } from "./admin/AdminPage.js";
 import { ComingLater } from "./ComingLater.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
@@ -32,6 +33,12 @@ const notAuthorizedRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/not-authorized",
 	component: NotAuthorized,
+});
+
+const adminRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/admin",
+	component: AdminPage,
 });
 
 /** The shell: header, three panes and status bar. Its children fill the centre. */
@@ -111,6 +118,7 @@ export const routeTree = rootRoute.addChildren([
 	indexRoute,
 	sessionEndedRoute,
 	notAuthorizedRoute,
+	adminRoute,
 	workspaceRoute.addChildren([workspaceIndexRoute, projectRoute]),
 	filesRoute,
 	previewRoute,
