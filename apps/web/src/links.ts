@@ -21,7 +21,10 @@ export type TerminalLink =
 			search: { path: string; line: number };
 	  };
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
+const PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+/** Hostnames that mean "this machine" and so must never open in a new tab. */
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
 
 /** `([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):(\d+)`, for example `src/auth.ts:73`. */
 export const FILE_LINE_PATTERN = /([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):(\d+)/;
@@ -38,8 +41,13 @@ export function previewRouteFor(url: string, workspaceId: string): TerminalLink 
 		return null;
 	}
 	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
-	if (!LOCAL_HOSTS.has(parsed.hostname)) return null;
-	const port = Number(parsed.port);
+	if (!PREVIEW_HOSTS.has(parsed.hostname)) return null;
+	// A URL with no port means the scheme's default port.
+	const port = parsed.port
+		? Number(parsed.port)
+		: parsed.protocol === "https:"
+			? 443
+			: 80;
 	if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
 	return {
 		kind: "preview",
@@ -67,4 +75,24 @@ export function fileRouteFor(match: string, workspaceId: string): TerminalLink |
 		params: { id: workspaceId },
 		search: { path, line },
 	};
+}
+
+/**
+ * Whether a URL printed by a terminal may be opened in a new browser tab.
+ * Local addresses are refused: in the browser they would mean the student's
+ * own machine, not the workspace, and only the preview route reaches a
+ * workspace port (SPEC.md §14.9, §24.2). Non-http(s) schemes are refused too.
+ */
+export function canOpenInNewTab(url: string): boolean {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return false;
+	}
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+	const host = parsed.hostname.toLowerCase();
+	if (LOCAL_HOSTS.has(host)) return false;
+	if (host.endsWith(".localhost")) return false;
+	return true;
 }

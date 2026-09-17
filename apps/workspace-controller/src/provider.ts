@@ -24,6 +24,13 @@ export interface WorkspaceProvider {
 /** Where the workspace agent reads its bearer token (ADR 0009). */
 const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
 
+/**
+ * How long the agent has to answer /health once the instance is running. This
+ * is its own budget, not the rest of the start timeout, so one broken agent
+ * cannot hold the worker's serial start loop for the whole start deadline.
+ */
+export const AGENT_HEALTH_TIMEOUT_MS = 15_000;
+
 function validateName(name: string): void {
 	const result = InstanceName.safeParse(name);
 	if (!result.success) {
@@ -132,8 +139,6 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			opts.timeoutSeconds,
 		);
 
-		// One deadline covers reaching Running and the agent becoming healthy,
-		// so a slow boot cannot extend the caller's wait past its timeout.
 		const deadline = Date.now() + opts.timeoutSeconds * 1000;
 		const ipv4 = await this.waitForAddress(name, deadline, signal);
 
@@ -145,7 +150,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			signal,
 		);
 
-		await this.waitForAgent(ipv4, opts.agentToken, deadline);
+		await this.waitForAgent(ipv4, opts.agentToken);
 
 		return { ipv4 };
 	}
@@ -194,18 +199,17 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	}
 
 	/** Poll the workspace agent's /health until it answers 200 (SPEC.md 6.3). */
-	private async waitForAgent(
-		ipv4: string,
-		agentToken: string,
-		deadline: number,
-	): Promise<void> {
+	private async waitForAgent(ipv4: string, agentToken: string): Promise<void> {
 		const url = `http://${ipv4}:${this.agentPort}/health`;
+		const deadline = Date.now() + AGENT_HEALTH_TIMEOUT_MS;
 		while (Date.now() < deadline) {
 			try {
 				const res = await fetch(url, {
 					headers: { Authorization: `Bearer ${agentToken}` },
 					signal: AbortSignal.timeout(2000),
 				});
+				// Read the body so the connection is released either way.
+				await res.arrayBuffer().catch(() => undefined);
 				if (res.status === 200) {
 					return;
 				}
@@ -217,7 +221,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 		throw new IncusError(
 			"TIMEOUT",
-			`workspace agent at ${ipv4} did not become healthy before the start deadline`,
+			`workspace agent at ${ipv4} did not become healthy within ${AGENT_HEALTH_TIMEOUT_MS}ms`,
 		);
 	}
 

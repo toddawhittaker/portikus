@@ -107,25 +107,18 @@ async function casUpdate(
 }
 
 /**
- * Return the workspace's agent token, minting one the first time
- * (ADR 0009; SPEC.md section 23.5). The compare-and-set on
- * `agent_token IS NULL` means only the first writer wins, so the token is
- * stable across sweeps. Never log or audit the returned value.
+ * Mint a fresh agent token for a workspace and store it (ADR 0009; SPEC.md
+ * section 23.5). Every start rotates the token, so a token that leaked from a
+ * previous run is worthless. Never log or audit the returned value.
  */
-async function ensureAgentToken(db: Kysely<Database>, id: string): Promise<string> {
+async function rotateAgentToken(db: Kysely<Database>, id: string): Promise<string> {
+	const token = randomBytes(32).toString("hex");
 	await db
 		.updateTable("workspaces")
-		.set({ agent_token: randomBytes(32).toString("hex") })
+		.set({ agent_token: token })
 		.where("id", "=", id)
-		.where("agent_token", "is", null)
 		.execute();
-	const row = await db
-		.selectFrom("workspaces")
-		.select("agent_token")
-		.where("id", "=", id)
-		.executeTakeFirstOrThrow();
-	if (!row.agent_token) throw new Error("agent token missing after mint");
-	return row.agent_token;
+	return token;
 }
 
 /**
@@ -248,7 +241,6 @@ export async function reconcile(
 			);
 			if (updated) {
 				transitions++;
-				await ensureAgentToken(db, ws.id);
 				await audit(db, ws.id, "workspace.provisioned", "ok", {
 					imageFingerprint: result.imageFingerprint,
 				});
@@ -576,7 +568,9 @@ async function startWorkspace(
 	if (!moved) return 0;
 	let transitions = 1;
 
-	const agentToken = await ensureAgentToken(db, ws.id);
+	// Rotate before the start call so the row always holds the token the
+	// agent is about to be given.
+	const agentToken = await rotateAgentToken(db, ws.id);
 
 	try {
 		const result = await controller.start(ws.incus_instance_name, {

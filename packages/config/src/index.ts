@@ -137,6 +137,8 @@ export const AgentConfigSchema = BaseConfig.extend({
 	PORT: positiveInt.default(7400),
 	TOKEN_PATH: z.string().min(1).default("/etc/portikus/agent.token"),
 	HOME_DIR: z.string().min(1).default("/home/student"),
+	// Set only in tests, so they get a tmux server of their own.
+	TMUX_SOCKET_NAME: z.string().optional(),
 });
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 

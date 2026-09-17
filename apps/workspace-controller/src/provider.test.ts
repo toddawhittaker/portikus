@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import { IncusClient } from "./incus.js";
-import { IncusWorkspaceProvider } from "./provider.js";
+import { AGENT_HEALTH_TIMEOUT_MS, IncusWorkspaceProvider } from "./provider.js";
 
 let socketPath: string;
 let server: http.Server;
@@ -225,26 +225,36 @@ test("start pushes the agent token, then waits for agent health", async () => {
 	expect(agentRequests).toBeGreaterThan(before);
 });
 
-test("start times out when the agent never accepts the token", async () => {
-	// The agent only honours a different token, so /health stays 401.
-	agentToken = "b".repeat(64);
-	handler = async (req, res) => {
-		await readBody(req);
-		if (req.url?.includes("/files")) {
-			respond(res, 200, sync({}));
-		} else if (req.method === "PUT" && req.url?.includes("/state")) {
-			respond(res, 200, sync({}));
-		} else if (req.method === "GET" && req.url?.includes("/state")) {
-			respond(res, 200, sync(runningWithAddress("127.0.0.1")));
-		} else {
-			respond(res, 200, sync({}));
-		}
-	};
+test(
+	"the agent health wait has its own budget, not the whole start timeout",
+	async () => {
+		// The agent only honours a different token, so /health stays 401.
+		agentToken = "b".repeat(64);
+		handler = async (req, res) => {
+			await readBody(req);
+			if (req.url?.includes("/files")) {
+				respond(res, 200, sync({}));
+			} else if (req.method === "PUT" && req.url?.includes("/state")) {
+				respond(res, 200, sync({}));
+			} else if (req.method === "GET" && req.url?.includes("/state")) {
+				respond(res, 200, sync(runningWithAddress("127.0.0.1")));
+			} else {
+				respond(res, 200, sync({}));
+			}
+		};
 
-	await expect(
-		provider.start("ws-test", { timeoutSeconds: 2, agentToken: AGENT_TOKEN }),
-	).rejects.toMatchObject({ code: "TIMEOUT" });
-});
+		const started = Date.now();
+		// A generous start timeout: the health wait must still give up on its
+		// own budget, so one broken agent cannot block the worker's start loop.
+		await expect(
+			provider.start("ws-test", { timeoutSeconds: 120, agentToken: AGENT_TOKEN }),
+		).rejects.toMatchObject({ code: "TIMEOUT" });
+		const elapsed = Date.now() - started;
+		expect(elapsed).toBeGreaterThanOrEqual(AGENT_HEALTH_TIMEOUT_MS - 1000);
+		expect(elapsed).toBeLessThan(AGENT_HEALTH_TIMEOUT_MS + 10_000);
+	},
+	AGENT_HEALTH_TIMEOUT_MS + 15_000,
+);
 
 test("start with no IP by deadline throws TIMEOUT", async () => {
 	handler = async (req, res) => {
