@@ -111,15 +111,28 @@
           the development default, or portikus-api will refuse to start.
       when: not portikus_mock_idp
 
+  # Each role carries its own name as a tag, so a single part of the VM
+  # can be converged on its own with --tags <role>.
   roles:
-    - base
-    - firewall
-    - lvm
-    - incus
-    - incus_network
-    - portikus_workspace_profile
-    - image_builder
-    - postgresql
-    - node
-    - caddy
-    - portikus
+    - role: base
+      tags: base
+    - role: firewall
+      tags: firewall
+    - role: lvm
+      tags: lvm
+    - role: incus
+      tags: incus
+    - role: incus_network
+      tags: incus_network
+    - role: portikus_workspace_profile
+      tags: portikus_workspace_profile
+    - role: image_builder
+      tags: image_builder
+    - role: postgresql
+      tags: postgresql
+    - role: node
+      tags: node
+    - role: caddy
+      tags: caddy
+    - role: portikus
+      tags: portikus
