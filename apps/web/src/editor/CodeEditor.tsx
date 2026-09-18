@@ -12,7 +12,13 @@ import {
 	languageForFile,
 	watchTheme,
 } from "./monaco.js";
-import { DEFAULT_ZOOM, fontSizeFor, stepZoom } from "./zoom.js";
+import {
+	DEFAULT_ZOOM,
+	fontSizeFor,
+	rememberedZoom,
+	rememberZoom,
+	stepZoom,
+} from "./zoom.js";
 import "./editor.css";
 
 export interface CodeEditorProps {
@@ -36,6 +42,13 @@ export interface CodeEditorProps {
 	 * file at a line it is already showing still moves the cursor there.
 	 */
 	revealNonce?: number;
+	/**
+	 * Monaco's saved view state for this file: cursor, selections and scroll.
+	 * It is put back once the model holds the real text (issue #161).
+	 */
+	viewState?: unknown;
+	/** Hand the newest view state back, so it survives leaving the route. */
+	onViewState?: (viewState: unknown) => void;
 }
 
 export function CodeEditor({
@@ -47,12 +60,14 @@ export function CodeEditor({
 	wordWrap = "off",
 	revealLine,
 	revealNonce,
+	viewState,
+	onViewState,
 }: CodeEditorProps) {
 	const host = useRef<HTMLDivElement | null>(null);
 	// The whole tab: Monaco above, the zoom bar below.
 	const container = useRef<HTMLDivElement | null>(null);
-	// Zoom is per open editor and lasts for this session only (SPEC.md §13.1).
-	const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+	// Zoom is per open file and lasts for this session only (SPEC.md §13.1).
+	const [zoom, setZoom] = useState(() => rememberedZoom(path));
 	// Shown on the bar under the editor, so the guessed language is visible.
 	const [language, setLanguage] = useState("plaintext");
 	// The editor and the wheel handler are set up once, so they read the newest
@@ -73,8 +88,17 @@ export function CodeEditor({
 
 	// The editor is created once, so it reads the newest callbacks and text
 	// through refs rather than being torn down on every render.
-	const latest = useRef({ value, version, onChange, onSave, revealLine });
-	latest.current = { value, version, onChange, onSave, revealLine };
+	const latest = useRef({ value, version, onChange, onSave, revealLine, onViewState });
+	latest.current = { value, version, onChange, onSave, revealLine, onViewState };
+
+	// Read once: a save while the tab is open must not make the editor jump.
+	const initialViewState = useRef<{ read: boolean; value: unknown }>({
+		read: false,
+		value: undefined,
+	});
+	if (!initialViewState.current.read) {
+		initialViewState.current = { read: true, value: viewState };
+	}
 
 	// A later request to jump, once the editor is already up. The one that
 	// arrives before Monaco has loaded is handled where the editor is created.
@@ -143,11 +167,35 @@ export function CodeEditor({
 				if (applying.current) return;
 				latest.current.onChange(model.getValue());
 			});
+			// Put the cursor and scroll back now that the model holds the real
+			// text (issue #161). A tab in the background has no height yet, and
+			// Monaco clamps a scroll it cannot show, so this waits for a layout
+			// with a height rather than restoring into nothing.
+			const saved = initialViewState.current.value;
+			let restored = saved === undefined || saved === null;
+			function restore() {
+				if (restored || editor.getLayoutInfo().height <= 0) return;
+				restored = true;
+				editor.restoreViewState(saved as Monaco.editor.ICodeEditorViewState);
+			}
+			restore();
+			editor.onDidLayoutChange(restore);
+			// An explicit "open at line" wins over the remembered position.
 			const line = latest.current.revealLine;
 			if (line !== undefined) {
+				restored = true;
 				editor.setPosition({ lineNumber: line, column: 1 });
 				editor.revealLineInCenter(line);
 			}
+			// Every move and scroll goes straight into the layout store, which
+			// is cheap; writing it to this browser's storage is what the layout
+			// hook debounces (persist.ts, issue #161).
+			function report() {
+				if (!restored) return;
+				latest.current.onViewState?.(editor.saveViewState());
+			}
+			editor.onDidChangeCursorPosition(report);
+			editor.onDidScrollChange(report);
 		});
 		return () => {
 			disposed = true;
@@ -178,7 +226,8 @@ export function CodeEditor({
 
 	useEffect(() => {
 		editorRef.current?.updateOptions({ fontSize: fontSizeFor(zoom) });
-	}, [zoom]);
+		rememberZoom(path, zoom);
+	}, [zoom, path]);
 
 	// Word wrap comes from the student's settings (issue #159, SPEC.md §13.1).
 	useEffect(() => {

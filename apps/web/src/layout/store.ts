@@ -2,12 +2,13 @@
  * The live copy of one project's layout (SPEC.md §7.5). One store per
  * project: switching project mounts a new one, so nothing carries over.
  * `dirty` marks a structural change the persistence hook still has to save;
- * the active tab and the focused pane are local to this browser and are
- * never saved.
+ * the active tab, the editor view states and the focused pane are local to
+ * this browser and are kept in localStorage instead (local.ts, issue #161).
  */
 import type { ProjectLayout } from "@portikus/contracts";
-import { createContext, useContext, useRef } from "react";
+import { createContext, useCallback, useContext, useRef } from "react";
 import { createStore, useStore } from "zustand";
+import type { LocalLayout } from "./local.js";
 import * as tree from "./tree.js";
 
 export interface LayoutState {
@@ -25,6 +26,12 @@ export interface LayoutState {
 	 * pending line, and never saved.
 	 */
 	pendingDiff: Record<string, number>;
+	/**
+	 * Monaco's view state (cursor, selections, scroll) for each open file, by
+	 * project-relative path. It belongs to this browser, so it is kept beside
+	 * the layout rather than in the saved document (issue #161).
+	 */
+	viewStates: Record<string, unknown>;
 	dirty: boolean;
 	/** Replace the whole layout with what the server had saved. */
 	load: (layout: ProjectLayout) => void;
@@ -61,6 +68,10 @@ export interface LayoutState {
 	moveLeafToNewTab: (terminalId: string, index: number) => void;
 	resize: (tabId: string, path: number[], sizes: number[]) => void;
 	setActive: (tabId: string) => void;
+	/** Remember where the cursor and scroll are in one open file. */
+	setViewState: (path: string, viewState: unknown) => void;
+	/** Put back what this browser remembered for this project (issue #161). */
+	restoreLocal: (local: LocalLayout) => void;
 	setFocused: (terminalId: string | null) => void;
 	reconcile: (terminalIds: string[], endedIds?: string[]) => void;
 	clearDirty: () => void;
@@ -106,6 +117,7 @@ export function createLayoutStore() {
 			focusedTerminalId: null,
 			pendingLine: {},
 			pendingDiff: {},
+			viewStates: {},
 			dirty: false,
 
 			load: (saved) =>
@@ -158,11 +170,15 @@ export function createLayoutStore() {
 			},
 
 			closeTab: (tabId) => {
+				const closing = get().layout.tabs.find((tab) => tab.id === tabId);
 				change((layout) => tree.closeTab(layout, tabId));
 				set((state) => {
 					const { [tabId]: _line, ...pendingLine } = state.pendingLine;
 					const { [tabId]: _diff, ...pendingDiff } = state.pendingDiff;
-					return { pendingLine, pendingDiff };
+					const viewStates = { ...state.viewStates };
+					// Nothing to put back next time: the file tab is gone.
+					if (closing?.root.type === "file") delete viewStates[closing.root.path];
+					return { pendingLine, pendingDiff, viewStates };
 				});
 			},
 
@@ -237,6 +253,17 @@ export function createLayoutStore() {
 
 			setActive: (tabId) => set({ activeTabId: tabId }),
 
+			setViewState: (path, viewState) =>
+				set((state) => ({ viewStates: { ...state.viewStates, [path]: viewState } })),
+
+			// The saved layout usually arrives after this, and its load keeps an
+			// active tab that still exists, so the remembered tab survives.
+			restoreLocal: (local) =>
+				set((state) => ({
+					activeTabId: local.activeTabId ?? state.activeTabId,
+					viewStates: { ...local.viewStates, ...state.viewStates },
+				})),
+
 			setFocused: (terminalId) => set({ focusedTerminalId: terminalId }),
 
 			reconcile: (terminalIds, endedIds) =>
@@ -274,6 +301,31 @@ export function useLayoutStore(projectId: string): LayoutStore {
 		held.current = { projectId, store: createLayoutStore() };
 	}
 	return shared ?? held.current.store;
+}
+
+/**
+ * The remembered cursor and scroll position of one open file, and a way to
+ * put the newest one back (issue #161). `initial` is read once, when the tab
+ * mounts, so later saves do not make the editor jump. A file tab rendered
+ * outside a workspace has no store and simply remembers nothing.
+ */
+export function useEditorViewState(path: string): {
+	initial: unknown;
+	save: (viewState: unknown) => void;
+} {
+	const store = useContext(LayoutStoreContext);
+	const initial = useRef<{ read: boolean; value: unknown }>({
+		read: false,
+		value: undefined,
+	});
+	if (!initial.current.read) {
+		initial.current = { read: true, value: store?.getState().viewStates[path] };
+	}
+	const save = useCallback(
+		(viewState: unknown) => store?.getState().setViewState(path, viewState),
+		[store, path],
+	);
+	return { initial: initial.current.value, save };
 }
 
 /** Read one slice of a layout store. */
