@@ -302,3 +302,70 @@ test("a remembered tab that is no longer in the layout falls back to the first",
 		.load({ tabs: [{ id: "a", root: { type: "leaf", terminalId: "a" } }] });
 	expect(layout.getState().activeTabId).toBe("a");
 });
+
+test("closing the active tab goes back to the last tab that was active", () => {
+	const layout = store();
+	layout.getState().openFile("a.ts");
+	layout.getState().openFile("b.ts");
+	layout.getState().openFile("c.ts");
+	layout.getState().setActive("file:a.ts");
+	layout.getState().setActive("file:c.ts");
+	layout.getState().closeTab("file:c.ts");
+	expect(layout.getState().activeTabId).toBe("file:a.ts");
+});
+
+test("with no history the tab to the left takes over", () => {
+	const layout = store();
+	layout.getState().load({
+		tabs: [
+			{ id: "a", root: { type: "file", path: "a.ts" } },
+			{ id: "b", root: { type: "file", path: "b.ts" } },
+			{ id: "c", root: { type: "file", path: "c.ts" } },
+		],
+	});
+	layout.getState().setActive("b");
+	// Only "b" was ever active, so its own history entry goes with it.
+	layout.getState().closeTab("b");
+	expect(layout.getState().activeTabId).toBe("a");
+});
+
+test("closing the leftmost tab with no history takes the tab to its right", () => {
+	const layout = store();
+	layout.getState().load({
+		tabs: [
+			{ id: "a", root: { type: "file", path: "a.ts" } },
+			{ id: "b", root: { type: "file", path: "b.ts" } },
+		],
+	});
+	layout.getState().setActive("a");
+	layout.getState().closeTab("a");
+	expect(layout.getState().activeTabId).toBe("b");
+});
+
+test("closing the last tab leaves no active tab", () => {
+	const layout = store();
+	layout.getState().openFile("a.ts");
+	layout.getState().closeTab("file:a.ts");
+	expect(layout.getState().activeTabId).toBeNull();
+});
+
+test("closing a tab that is not active leaves the active tab alone", () => {
+	const layout = store();
+	layout.getState().openFile("a.ts");
+	layout.getState().openFile("b.ts");
+	layout.getState().openFile("c.ts");
+	layout.getState().setActive("file:b.ts");
+	layout.getState().closeTab("file:a.ts");
+	expect(layout.getState().activeTabId).toBe("file:b.ts");
+});
+
+test("a closed tab is forgotten, so reopening it does not jump backwards", () => {
+	const layout = store();
+	layout.getState().openFile("a.ts");
+	layout.getState().openFile("b.ts");
+	layout.getState().openFile("c.ts");
+	layout.getState().closeTab("file:c.ts");
+	expect(layout.getState().activeTabId).toBe("file:b.ts");
+	layout.getState().closeTab("file:b.ts");
+	expect(layout.getState().activeTabId).toBe("file:a.ts");
+});

@@ -313,6 +313,14 @@ test.describe("file editor", () => {
 		await page.keyboard.type("answer");
 		// Monaco counts the matches and highlights them in the text.
 		await expect(find.locator(".matchesCount")).toContainText("1");
+		// The next/previous/close buttons are glyphs from Monaco's codicon
+		// font. If the font never loads they draw as empty boxes (issue #219).
+		await expect(find.locator(".codicon").first()).toBeVisible();
+		await expect
+			.poll(() => page.evaluate(() => document.fonts.check("16px codicon")), {
+				timeout: 10_000,
+			})
+			.toBe(true);
 		await expect(editor.locator(".findMatch, .currentFindMatch").first()).toBeVisible();
 
 		await page.keyboard.press("Escape");

@@ -603,6 +603,13 @@ Supported P0 tab types:
 
 Tabs must be closable and reorderable.
 
+Closing the selected tab selects the tab that was selected most recently before
+it, the way a web browser does. When no earlier selection is still open, the tab
+to the left takes over, or the tab to the right when the closed tab was the
+leftmost one. Closing a tab that is not selected does not change the selection.
+This selection history lasts only as long as the workspace is open in the
+browser; it is not saved.
+
 Terminal panes must additionally support splitting.
 
 ### 8.4 Right pane
@@ -837,9 +844,12 @@ P0 file-tree operations:
 
 ### 11.3 Hidden and generated files
 
-The default tree should reduce noise from generated/dependency directories.
+The tree shows hidden and generated files by default, because students kept
+looking for a dotfile that was there all along. The **Show hidden/generated
+files** control turns them off, which reduces noise from the
+generated/dependency directories below.
 
-Examples that may be hidden/collapsed by default:
+Examples the control hides:
 
 ```text
 .git/
@@ -851,7 +861,7 @@ target/
 __pycache__/
 ```
 
-The user must have a **Show hidden/generated files** control.
+The user must have a **Show hidden/generated files** control, on by default.
 
 Hiding a path in the UI must not make it inaccessible to the terminal or coding agent.
 
@@ -929,6 +939,11 @@ At minimum, distinguish:
 - renamed where available;
 - staged/unstaged state where the UI design supports it;
 - ignored files when hidden files are shown.
+
+An untracked file's name is drawn in italic and slightly dimmed, so it reads
+as not yet part of the repository. Directories are not styled this way: the
+status data lists untracked files individually and says nothing about the
+tracked files a directory may also hold.
 
 ### 12.2 Git source of truth
 

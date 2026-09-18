@@ -5,6 +5,7 @@ import {
 	query,
 	readSeededFile,
 	seedFile,
+	seedGit,
 	type TestProject,
 	toast,
 	workspacePath,
@@ -36,7 +37,8 @@ test.describe("file tree", () => {
 		return page.getByTestId(`file-row-${path}`);
 	}
 
-	test("hides generated and dotted names until Show hidden is on", async ({
+	/** Issue #221: hidden and generated names are on by default (SPEC.md §11.3). */
+	test("shows generated and dotted names until Show hidden is turned off", async ({
 		page,
 		context,
 	}) => {
@@ -45,16 +47,48 @@ test.describe("file tree", () => {
 
 		await expect(row(page, "src")).toBeVisible();
 		await expect(row(page, "README.md")).toBeVisible();
-		await expect(row(page, ".env")).toHaveCount(0);
-		await expect(row(page, "node_modules")).toHaveCount(0);
+		await expect(row(page, ".env")).toBeVisible();
+		await expect(row(page, "node_modules")).toBeVisible();
 
 		await page.getByTestId("files-more").click();
 		await page.getByText("Show hidden and generated files").click();
 		await page.keyboard.press("Escape");
 
 		// Hiding is only a view filter (SPEC.md §11.3).
-		await expect(row(page, ".env")).toBeVisible();
-		await expect(row(page, "node_modules")).toBeVisible();
+		await expect(row(page, ".env")).toHaveCount(0);
+		await expect(row(page, "node_modules")).toHaveCount(0);
+	});
+
+	/** Issue #221: an untracked name is italic and dimmer (SPEC.md §12.1). */
+	test("draws an untracked file's name in italic", async ({ page, context }) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Untracked" });
+		await seedFile(student.workspaceId, project.slug, "README.md", "# hello\n");
+		await seedFile(student.workspaceId, project.slug, "new.ts", "x\n");
+		await seedGit(student.workspaceId, project.slug, {
+			status: {
+				repo: true,
+				branch: "main",
+				detached: false,
+				upstream: "origin/main",
+				ahead: 0,
+				behind: 0,
+				conflicts: 0,
+				entries: [{ path: "new.ts", x: "?", y: "?", unmerged: false }],
+				ignored: [],
+				truncated: false,
+			},
+		});
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByTestId("file-tree")).toBeVisible({ timeout: 15_000 });
+
+		await expect(row(page, "new.ts")).toHaveAttribute("data-git", "untracked");
+		const untracked = row(page, "new.ts").locator(".pk-tree-name");
+		const tracked = row(page, "README.md").locator(".pk-tree-name");
+		await expect(untracked).toHaveCSS("font-style", "italic");
+		await expect(tracked).toHaveCSS("font-style", "normal");
+		const dim = await untracked.evaluate((el) => getComputedStyle(el).opacity);
+		expect(Number(dim)).toBeLessThan(1);
 	});
 
 	test("expanding a directory and clicking a file opens a file tab", async ({
@@ -335,6 +369,14 @@ test.describe("file tree", () => {
 		await expect(page.getByTestId("file-tree-root-hint")).toContainText(
 			"Drop to upload to Dropping",
 		);
+
+		// Issue #220: crossing a top-level file row must not drop the target.
+		const file = row(page, "README.md");
+		await file.dispatchEvent("dragenter", { dataTransfer: transfer });
+		await file.dispatchEvent("dragover", { dataTransfer: transfer });
+		await body.dispatchEvent("dragleave", { dataTransfer: transfer });
+		await expect(body).toHaveAttribute("data-upload-root", "true");
+		await expect(page.getByTestId("file-tree-root-hint")).toBeVisible();
 	});
 
 	/** Issue #186: the name field is ready to type into. */
