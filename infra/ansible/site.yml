@@ -86,7 +86,15 @@
     portikus_public_host: >-
       {{ lookup('env', 'PORTIKUS_PUBLIC_HOST')
          | default('portikus.' ~ ansible_host ~ '.nip.io', true) }}
-    portikus_public_url: "https://{{ portikus_public_host }}"
+    # The port the browser connects to.  It is not always 443: on the pilot
+    # host another service owns 443, so the host forwards 8443 instead, and
+    # the port has to appear in every URL the API builds (redirect URI,
+    # allowed origin, mock provider issuer).
+    portikus_public_port: >-
+      {{ lookup('env', 'PORTIKUS_PUBLIC_PORT') | default('443', true) }}
+    portikus_public_url: >-
+      https://{{ portikus_public_host }}{{ '' if portikus_public_port | int == 443
+                                            else ':' ~ portikus_public_port }}
     # Caddy signing key from Cloudsmith, verified 2026-09-16.
     caddy_gpg_checksum: "783dfee04b19e851a928cd87b34710213ebbe7628f98d9f34595ab83be578c00"
     # Caddy's internal certificate authority root, written on first start.
