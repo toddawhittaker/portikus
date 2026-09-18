@@ -1,6 +1,7 @@
 import { PaneHandle, Skeleton } from "@portikus/ui";
 import { Navigate, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
+import { LayoutStoreContext, useLayoutStore } from "./layout/store.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
 import { AppHeader } from "./shell/AppHeader.js";
@@ -37,51 +38,56 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const project = projects.data?.find((item) => item.id === projectId);
 	const running = workspace?.state === "running";
 	const layout = useDefaultLayout({ id: "pk-shell", panelIds: PANEL_IDS });
+	// The work area and the file tree share one layout store, so a file
+	// opened in the tree becomes a tab in the work area (SPEC.md §8.3, §8.4).
+	const layoutStore = useLayoutStore(projectId ?? "none");
 
 	return (
-		<div className="pk-root">
-			<AppHeader
-				workspaceId={workspaceId}
-				user={user}
-				workspace={workspace}
-				project={project}
-			/>
-			<Group
-				className="pk-shell"
-				orientation="horizontal"
-				defaultLayout={layout.defaultLayout}
-				onLayoutChanged={layout.onLayoutChanged}
-			>
-				<Panel id="projects" defaultSize={240} minSize={180} maxSize={420}>
-					{running ? (
-						<ProjectPane workspaceId={workspaceId} currentProjectId={projectId} />
-					) : (
-						<PaneSkeleton label="Projects" side="left" rows={4} />
-					)}
-				</Panel>
-				<PaneHandle label="Resize project list" />
-				<Panel id="work" minSize={360}>
-					<main className="pk-work" aria-label="Work area">
-						{workspace?.shutdownDeadline && (
-							<DisconnectNotice
-								deadline={workspace.shutdownDeadline}
-								onReconnect={reconnect}
-							/>
+		<LayoutStoreContext.Provider value={projectId ? layoutStore : null}>
+			<div className="pk-root">
+				<AppHeader
+					workspaceId={workspaceId}
+					user={user}
+					workspace={workspace}
+					project={project}
+				/>
+				<Group
+					className="pk-shell"
+					orientation="horizontal"
+					defaultLayout={layout.defaultLayout}
+					onLayoutChanged={layout.onLayoutChanged}
+				>
+					<Panel id="projects" defaultSize={240} minSize={180} maxSize={420}>
+						{running ? (
+							<ProjectPane workspaceId={workspaceId} currentProjectId={projectId} />
+						) : (
+							<PaneSkeleton label="Projects" side="left" rows={4} />
 						)}
-						{running ? <Outlet /> : <WorkspaceStarting workspace={workspace} />}
-					</main>
-				</Panel>
-				<PaneHandle label="Resize file tree" />
-				<Panel id="files" defaultSize={280} minSize={200} maxSize={480}>
-					{running ? (
-						<FilesPane project={project} />
-					) : (
-						<PaneSkeleton label="Files" side="right" rows={9} />
-					)}
-				</Panel>
-			</Group>
-			<StatusBar project={project} workspace={workspace} />
-		</div>
+					</Panel>
+					<PaneHandle label="Resize project list" />
+					<Panel id="work" minSize={360}>
+						<main className="pk-work" aria-label="Work area">
+							{workspace?.shutdownDeadline && (
+								<DisconnectNotice
+									deadline={workspace.shutdownDeadline}
+									onReconnect={reconnect}
+								/>
+							)}
+							{running ? <Outlet /> : <WorkspaceStarting workspace={workspace} />}
+						</main>
+					</Panel>
+					<PaneHandle label="Resize file tree" />
+					<Panel id="files" defaultSize={280} minSize={200} maxSize={480}>
+						{running ? (
+							<FilesPane workspaceId={workspaceId} project={project} />
+						) : (
+							<PaneSkeleton label="Files" side="right" rows={9} />
+						)}
+					</Panel>
+				</Group>
+				<StatusBar project={project} workspace={workspace} />
+			</div>
+		</LayoutStoreContext.Provider>
 	);
 }
 
