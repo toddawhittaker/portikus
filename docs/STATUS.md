@@ -390,7 +390,13 @@ file tab obeying them without a reload (SPEC.md §13.1, §13.5) (#159). The
 editor's external-change detection now ignores writes the editor itself
 made: the save that used to race the project events socket's own refetch
 of the same change no longer raises a false "this file changed on disk"
-prompt (§13.3, §13.5) (#157). The stock Monaco experience is on: find and
+prompt (§13.3, §13.5) (#157). The same prompt had a second cause, found
+on the pilot: Caddy compresses the file read and appends "-gzip" to its
+ETag, so the editor saved against an ETag the workspace agent could not
+match and every first save after a read was refused as a conflict. The
+file read and write now say `Cache-Control: no-transform`, which Caddy
+honours, and a save refused while the file on disk is still the tab's own
+version saves again instead of prompting (§13.3, §13.5) (#157). The stock Monaco experience is on: find and
 replace, code folding, bracket matching and colouring, multi-cursor, the
 minimap, and the command palette, loaded as named contributions so the
 excluded language services stay out of the bundle; the editor also gained

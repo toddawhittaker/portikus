@@ -244,7 +244,7 @@ export function FileLeaf({
 		[],
 	);
 
-	async function write(body: string, against: string | null) {
+	async function write(body: string, against: string | null, retried = false) {
 		// Three is enough to cover the reads that were already on their way
 		// when this write went out.
 		sent.current = [...sent.current.slice(-2), body];
@@ -277,6 +277,18 @@ export function FileLeaf({
 				const fresh = await file.refetch();
 				const disk = fresh.data;
 				const readable = disk !== undefined && !disk.binary && !disk.tooLarge;
+				// The file on disk may hold a version this tab itself wrote or
+				// loaded. Then nobody else has touched it, the refusal came from an
+				// etag that had gone stale here, and a conflict would be a lie. Save
+				// again against the version the server just gave, once (issue #157).
+				if (
+					!retried &&
+					readable &&
+					(known.current.has(disk.etag) || sent.current.includes(disk.text))
+				) {
+					await write(body, disk.etag, true);
+					return;
+				}
 				setConflict({
 					etag: readable ? disk.etag : error.etag,
 					text: readable ? disk.text : "",
