@@ -412,6 +412,16 @@ the editor and preview at the same relative position as either side
 scrolls, and the code side's scrollbar is now drawn in a visible colour on
 both editor themes (#154).
 
+The rich Markdown view no longer loses a file that contains raw HTML.
+Turning HTML processing off had left the editor with no handler for an
+HTML node, so it stopped at the first one, showed only the text above it,
+and silently dropped every keystroke typed in that pane; a single
+agent-written HTML comment was enough. Raw HTML is now shown as its own
+source text through a custom visitor that never builds a DOM from it,
+Markdown images render with an http(s)-or-relative address allowlist, and
+a file the importer still cannot read drops the tab to the Code view with
+a short notice instead of losing keystrokes.
+
 **Files pane.** The header's three-dots menu and an empty project's own
 empty state now offer New file and New folder on the project root, the
 same items a row's menu shows (#153). The pane now supports selecting
@@ -540,8 +550,9 @@ update-check setting belongs with the rest of agent configuration in Epic
 flake once during the batch (an admin grace-period toast, a full tab
 strip, reviving both ended panes, and the two conflict-diff tests before
 auto-save was turned off in their setup) and are worth watching rather
-than fixing blind. A line of raw HTML in a Markdown file is invisible in
-the Rich view, though it round-trips unchanged; an unusual Markdown
+than fixing blind. Reference-style links and images (`[text][id]`) still
+send the tab to Code view; relative image paths resolve against the app
+origin and show as broken images. An unusual Markdown
 dialect is normalised the first time it is edited in the Rich view; and
 the default Markdown view is now Rich rather than Code. Parallel local
 end-to-end runs still collide on fixed ports and one shared database;

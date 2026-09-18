@@ -523,3 +523,42 @@ workers a database name derived from the run's process id, the way the
 unit test suite already does for database test files. About half a day.
 
 **Source.** `docs/STATUS.md`, Epic 7.1.
+
+## Reference-style Markdown links and images in the Rich view
+
+**What.** Support reference-style links and images, written as
+`[text][id]` with the address given elsewhere in the file, in the rich
+Markdown view instead of sending the tab to Code view whenever one
+appears.
+
+**Why.** The importer that turns Markdown into the rich view's document
+model has a handler for inline links and images but not the
+reference-style form, so a file that uses it looks unreadable in the one
+view most students will use.
+
+**What it would take.** A visitor for the reference-style link and image
+nodes, mirroring the one already written for inline links and images,
+plus a definition-node visitor that keeps the referenced address in the
+document model without rendering it as its own line. About a day,
+including tests.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.
+
+## Relative Markdown image paths resolve against the workspace, not the app origin
+
+**What.** A relative image path in a Markdown file (for example
+`![diagram](./diagram.png)`) should resolve against that file's location
+in the project, the way a browser resolves a relative link on a normal
+page, instead of against the web app's own origin.
+
+**Why.** The rich Markdown view now renders images from an allowlisted
+address, but a relative path is handed to the browser unchanged, so it
+resolves against `https://<app host>/...` rather than the file's own
+folder, and the image shows as broken.
+
+**What it would take.** Rewrite a relative image address to the
+workspace's file-read route for that project and path before handing it
+to the renderer, the way the file tree already builds download links.
+About half a day, including tests for a nested-folder Markdown file.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.

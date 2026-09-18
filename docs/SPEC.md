@@ -2548,6 +2548,11 @@ Includes:
 - Markdown tabs offer Code, Rich, and Split views, with a rich-text
   toolbar over the same Markdown buffer, both sides editable and kept in
   step (§13.4; ADR 0017) (#155);
+- Rich Markdown view shows raw HTML as source and renders safe images
+  rather than stopping at the first construct nothing claims, falls back
+  to the Code view when a file still cannot be read, warns on an
+  oversized OSC 52 copy, and treats 100.64.0.0/10 as private (13.4, 24.2;
+  ADR 0017);
 - security follow-up: OSC 52 clipboard writes gated on a visible, focused
   pane with a 100 KB cap and a visible toast; terminal URLs with
   credentials refused; loopback and private addresses refused by range;
