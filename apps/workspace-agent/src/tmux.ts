@@ -102,7 +102,7 @@ export const HISTORY_LINES = 5000;
  *
  * The terminal overrides take three capabilities away from the terminal tmux
  * thinks it is drawing on, so that the browser's own scrollback fills up
- * (SPEC.md §9.1). `smcup`/`rmcup` switch to the alternate screen, which in
+ * (SPEC.md §9.7). `smcup`/`rmcup` switch to the alternate screen, which in
  * xterm.js has no scrollback at all and turns the wheel into arrow keys.
  * `indn`/`rin` scroll by N lines in place, which xterm.js does not save.
  * Without them tmux uses plain line feeds at the bottom of the screen, and
@@ -243,7 +243,7 @@ export async function createSession(
 export interface PaneState {
 	/** The pane's working directory (SPEC.md §9.3). */
 	path: string | null;
-	/** True while a full-screen program holds the pane (SPEC.md §9.1). */
+	/** True while a full-screen program holds the pane (SPEC.md §9.7). */
 	alternate: boolean;
 }
 
