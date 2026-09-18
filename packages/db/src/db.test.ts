@@ -1,5 +1,13 @@
+import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { createTestDb, hasTestDb, insertTestUser, type TestDb } from "./testing.js";
+import {
+	basePrefix,
+	createTestDb,
+	hasTestDb,
+	hostId,
+	insertTestUser,
+	type TestDb,
+} from "./testing.js";
 
 if (!hasTestDb()) {
 	console.log(
@@ -498,4 +506,43 @@ describe("database migrations and schema", () => {
 			}),
 		).rejects.toBe(rollback);
 	});
+});
+
+describe("orphaned test database sweep", () => {
+	test.skipIf(!hasTestDb())(
+		"drops this host's dead orphans but leaves another host's alone",
+		async () => {
+			const sharedUrl = process.env.TEST_DATABASE_URL as string;
+			const base = basePrefix(new URL(sharedUrl));
+			// A dead pid: 999999 does not belong to a running process.
+			const otherHostDb = `${base}_hffff_p999999_deadbeef`;
+			const thisHostDb = `${base}_h${hostId()}_p999999_deadbeef`;
+
+			const client = new pg.Client({ connectionString: sharedUrl });
+			await client.connect();
+			try {
+				await client.query(`DROP DATABASE IF EXISTS "${otherHostDb}" WITH (FORCE)`);
+				await client.query(`CREATE DATABASE "${otherHostDb}"`);
+				await client.query(`DROP DATABASE IF EXISTS "${thisHostDb}" WITH (FORCE)`);
+				await client.query(`CREATE DATABASE "${thisHostDb}"`);
+
+				// Creating a database runs the sweep as a side effect.
+				const swept = await createTestDb();
+				await swept.close();
+
+				const { rows } = await client.query<{ datname: string }>(
+					"SELECT datname FROM pg_database WHERE datname = $1 OR datname = $2",
+					[otherHostDb, thisHostDb],
+				);
+				const names = rows.map((r) => r.datname);
+				expect(names).toContain(otherHostDb);
+				expect(names).not.toContain(thisHostDb);
+			} finally {
+				await client
+					.query(`DROP DATABASE IF EXISTS "${otherHostDb}" WITH (FORCE)`)
+					.catch(() => {});
+				await client.end();
+			}
+		},
+	);
 });

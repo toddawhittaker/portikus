@@ -41,11 +41,14 @@ jobs:
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             git fetch --no-tags --quiet origin "$GITHUB_BASE_REF"
-            changed=$(git diff --name-only "origin/$GITHUB_BASE_REF...HEAD")
+            changed=$(git diff --no-renames --name-only "origin/$GITHUB_BASE_REF...HEAD")
           elif [ -z "$GITHUB_EVENT_BEFORE" ] || [ "$GITHUB_EVENT_BEFORE" = "0000000000000000000000000000000000000000" ]; then
             changed=$(git ls-files)
+          elif ! git cat-file -e "$GITHUB_EVENT_BEFORE^{commit}" 2>/dev/null; then
+            # A force-push can leave the previous SHA unreachable; treat everything as changed.
+            changed=$(git ls-files)
           else
-            changed=$(git diff --name-only "$GITHUB_EVENT_BEFORE..HEAD")
+            changed=$(git diff --no-renames --name-only "$GITHUB_EVENT_BEFORE..HEAD")
           fi
           echo "Changed files:"
           echo "$changed"
