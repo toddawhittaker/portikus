@@ -1,18 +1,20 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { WORKSPACE } from "./test-utils.js";
+import { renderWithQuery, WORKSPACE } from "./test-utils.js";
 import { startingPhase, WorkspaceStarting } from "./WorkspaceStarting.js";
 
 test("no workspace yet means connecting", () => {
 	expect(startingPhase(null)).toBe("connecting");
-	render(<WorkspaceStarting workspace={null} />);
+	renderWithQuery(<WorkspaceStarting workspaceId={WORKSPACE.id} workspace={null} />);
 	expect(screen.getByRole("heading").textContent).toBe("Connecting to your workspace");
 });
 
 test("a stopped workspace that should run is starting", () => {
 	const workspace = { ...WORKSPACE, state: "stopped" as const };
 	expect(startingPhase(workspace)).toBe("starting");
-	render(<WorkspaceStarting workspace={workspace} />);
+	renderWithQuery(
+		<WorkspaceStarting workspaceId={WORKSPACE.id} workspace={workspace} />,
+	);
 	expect(screen.getByRole("heading").textContent).toBe("Starting your workspace");
 });
 
@@ -30,7 +32,7 @@ test("stopping and error have their own copy, and the error shows the detail", (
 	};
 	expect(startingPhase(failed)).toBe("error");
 
-	render(<WorkspaceStarting workspace={failed} />);
+	renderWithQuery(<WorkspaceStarting workspaceId={WORKSPACE.id} workspace={failed} />);
 	expect(screen.getByRole("heading").textContent).toBe(
 		"Your workspace could not be started",
 	);
@@ -38,4 +40,21 @@ test("stopping and error have their own copy, and the error shows the detail", (
 		screen.getByText("Your workspace could not start because its storage is full."),
 	).toBeDefined();
 	expect(screen.getByText("STORAGE_FULL")).toBeDefined();
+});
+
+test("a workspace the student stopped offers a way to start it again", () => {
+	const workspace = {
+		...WORKSPACE,
+		state: "stopped" as const,
+		desiredState: "stopped" as const,
+	};
+	expect(startingPhase(workspace)).toBe("stopped");
+
+	renderWithQuery(
+		<WorkspaceStarting workspaceId={WORKSPACE.id} workspace={workspace} />,
+	);
+	expect(screen.getByRole("heading").textContent).toBe("Your workspace is stopped");
+	expect(screen.getByTestId("workspace-resume")).toBeDefined();
+	// Nothing is happening, so there is no spinner pretending otherwise.
+	expect(document.querySelector(".pk-spin")).toBeNull();
 });

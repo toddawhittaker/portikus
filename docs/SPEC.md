@@ -350,6 +350,8 @@ If an authenticated user opens the platform and the assigned workspace is stoppe
 3. the control plane waits for workspace-agent health;
 4. the browser reconnects to project/file/terminal services when ready.
 
+If the workspace is stopped because the student stopped it by hand, the platform does not start it again on its own. The work area says the workspace is stopped and offers a button that starts it, which is the same request as the Start button in the workspace dialog. The platform never shows starting progress while no start has been requested.
+
 Target cold-start performance is defined in the non-functional requirements.
 
 ### 6.4 Disconnect grace period

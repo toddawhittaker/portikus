@@ -73,7 +73,11 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 									onReconnect={reconnect}
 								/>
 							)}
-							{running ? <Outlet /> : <WorkspaceStarting workspace={workspace} />}
+							{running ? (
+								<Outlet />
+							) : (
+								<WorkspaceStarting workspaceId={workspaceId} workspace={workspace} />
+							)}
 						</main>
 					</Panel>
 					<PaneHandle label="Resize file tree" />
