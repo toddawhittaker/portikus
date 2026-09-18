@@ -23,6 +23,24 @@ test.describe("file editor", () => {
 		return page.getByTestId(`editor-${path}`).locator(".view-lines");
 	}
 
+	/** Open the editor settings dialog from the account menu (issue #159). */
+	async function openEditorSettings(page: Page) {
+		await page.getByTestId("me").click();
+		await page.getByRole("menuitem", { name: "Editor settings" }).click();
+		await expect(page.getByTestId("dialog-editor-settings")).toBeVisible();
+	}
+
+	/**
+	 * Turn auto-save off, so nothing is written until the test presses Ctrl+S.
+	 * That is what makes the conflict tests below free of timing.
+	 */
+	async function turnAutoSaveOff(page: Page) {
+		await openEditorSettings(page);
+		await page.locator(".pk-setting-autosave").click();
+		await page.getByTestId("editor-settings-save").click();
+		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
+	}
+
 	test("a file opens in the editor and typing autosaves it", async ({
 		page,
 		context,
@@ -169,22 +187,26 @@ test.describe("file editor", () => {
 			timeout: 60_000,
 		});
 
-		// Save the local edit first, so the conflict is only about the change
-		// that lands on disk afterwards and the test cannot race the debounce.
+		// With auto-save off nothing is written behind the test's back, so the
+		// order of the save, the keystroke and the change on disk is fixed.
+		await turnAutoSaveOff(page);
+
 		await lines(page).click();
 		await page.keyboard.press("End");
 		await page.keyboard.type(" // mine");
+		await page.keyboard.press("Control+s");
 		await expect(status(page)).toHaveText("Saved", { timeout: 15_000 });
 
+		// The tab is dirty before the file changes on disk, which is what
+		// makes that change a conflict rather than a silent refresh.
+		await page.keyboard.type("!");
+		await expect(status(page)).toHaveText("Unsaved");
 		await seedFile(
 			student.workspaceId,
 			project.slug,
 			PATH,
 			"const answer = 7; // theirs\n",
 		);
-		// One more keystroke makes the tab dirty against the version it read,
-		// which is what turns the change on disk into a conflict.
-		await page.keyboard.type("!");
 		await expect(page.getByTestId("file-conflict")).toBeVisible({ timeout: 20_000 });
 
 		await page.getByTestId("keep-mine").click();
@@ -224,17 +246,22 @@ test.describe("file editor", () => {
 			timeout: 60_000,
 		});
 
+		// Auto-save off keeps the order of events fixed; see the test above.
+		await turnAutoSaveOff(page);
+
 		await lines(page).click();
 		await page.keyboard.press("End");
 		await page.keyboard.type(" // mine");
+		await page.keyboard.press("Control+s");
 		await expect(status(page)).toHaveText("Saved", { timeout: 15_000 });
+		await page.keyboard.type("!");
+		await expect(status(page)).toHaveText("Unsaved");
 		await seedFile(
 			student.workspaceId,
 			project.slug,
 			PATH,
 			"const answer = 7; // theirs\n",
 		);
-		await page.keyboard.type("!");
 		await expect(page.getByTestId(`conflict-editor-${PATH}`)).toBeVisible({
 			timeout: 30_000,
 		});
@@ -358,5 +385,90 @@ test.describe("file editor", () => {
 		await expect(page.getByTestId(`editor-language-${path}`)).toHaveText("shell", {
 			timeout: 60_000,
 		});
+	});
+
+	test("auto-save can be turned off, and Ctrl+S still saves (issue #159)", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openFileTab(page, student, "Settings", PATH, CONTENT);
+		await expect(lines(page)).toContainText("const answer = 42;", {
+			timeout: 60_000,
+		});
+
+		await turnAutoSaveOff(page);
+
+		await lines(page).click();
+		await page.keyboard.press("End");
+		await page.keyboard.type(" // by hand");
+		// Nothing is written while auto-save is off, however long we wait.
+		await page.waitForTimeout(8000);
+		await expect(status(page)).toHaveText("Unsaved");
+		expect(await readSeededFile(student.workspaceId, project.slug, PATH)).not.toContain(
+			"// by hand",
+		);
+
+		await page.keyboard.press("Control+s");
+		await expect(status(page)).toHaveText("Saved", { timeout: 15_000 });
+		await expect
+			.poll(async () => readSeededFile(student.workspaceId, project.slug, PATH), {
+				timeout: 15_000,
+			})
+			.toContain("// by hand");
+	});
+
+	test("word wrap can be turned on from the settings dialog (issue #159)", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		// One line far too long for the pane. Without wrapping Monaco draws it
+		// as a single row that scrolls sideways; with wrapping it draws the
+		// same line as many rows.
+		await openFileTab(
+			page,
+			student,
+			"Wrap",
+			PATH,
+			`const text = "${"x".repeat(600)}";\n`,
+		);
+		await expect(lines(page)).toContainText("xxx", { timeout: 60_000 });
+		const rows = page.getByTestId(`editor-${PATH}`).locator(".view-line");
+		const unwrapped = await rows.count();
+		expect(unwrapped).toBeLessThan(4);
+
+		await openEditorSettings(page);
+		await page.locator(".pk-setting-wordwrap").click();
+		await page.getByTestId("editor-settings-save").click();
+		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
+
+		// The setting reaches the open editor without a reload.
+		await expect
+			.poll(async () => rows.count(), { timeout: 15_000 })
+			.toBeGreaterThan(unwrapped + 3);
+	});
+
+	test("the editor settings survive a reload (issue #159)", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openFileTab(page, student, "Kept", PATH, CONTENT);
+		await expect(lines(page)).toContainText("const answer = 42;", {
+			timeout: 60_000,
+		});
+
+		await openEditorSettings(page);
+		await page.getByTestId("editor-settings-delay").fill("9");
+		await page.getByTestId("editor-settings-save").click();
+		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
+
+		await page.reload();
+		await expect(page.getByTestId(`file-pane-${PATH}`)).toBeVisible({
+			timeout: 30_000,
+		});
+		await openEditorSettings(page);
+		await expect(page.getByTestId("editor-settings-delay")).toHaveValue("9");
 	});
 });

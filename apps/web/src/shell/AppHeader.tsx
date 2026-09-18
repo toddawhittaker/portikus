@@ -21,6 +21,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useWorkspaceAction } from "../api/workspace.js";
+import { EditorSettingsDialog } from "../settings/EditorSettingsDialog.js";
 import type { MeUser } from "../useMe.js";
 import { type ThemePreference, useThemePreference } from "./theme.js";
 
@@ -57,6 +58,7 @@ export function AppHeader({
 	project: Project | undefined;
 }) {
 	const [statusOpen, setStatusOpen] = useState(false);
+	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [preference, setPreference] = useThemePreference();
 	const signOutForm = useRef<HTMLFormElement>(null);
 
@@ -158,6 +160,10 @@ export function AppHeader({
 						</>
 					) : null}
 					<MenuSeparator />
+					<MenuItem onSelect={() => setSettingsOpen(true)}>
+						<span data-testid="editor-settings">Editor settings</span>
+					</MenuItem>
+					<MenuSeparator />
 					<MenuItem
 						icon="sign-out"
 						onSelect={() => signOutForm.current?.requestSubmit()}
@@ -168,6 +174,10 @@ export function AppHeader({
 			</MenuRoot>
 			{/* A real form post, so the session cookie is cleared by the server. */}
 			<form ref={signOutForm} method="post" action="/auth/logout" className="hidden" />
+
+			{settingsOpen ? (
+				<EditorSettingsDialog onClose={() => setSettingsOpen(false)} />
+			) : null}
 
 			<DialogRoot open={statusOpen} onOpenChange={setStatusOpen}>
 				{statusOpen && (
