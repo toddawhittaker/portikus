@@ -78,6 +78,27 @@ expect "xsel -t value is not a file"                            "${osc_hi}" \
   "$(cd "${work}/cwd" && printf hi | run "${work}/xsel" -i -t 100)"
 expect "xsel -l value is not a file"                            "${osc_hi}" \
   "$(cd "${work}/cwd" && printf hi | run "${work}/xsel" -i -l copy.log)"
+# xclip's -t, -l and -d take a value too, and a file of that name in the
+# working directory must not be copied instead of stdin.
+printf 'from the file' > "${work}/cwd/1"
+printf 'from the file' > "${work}/cwd/UTF8_STRING"
+printf 'from the file' > "${work}/cwd/:0"
+expect "xclip -t value is not a file"                           "${osc_hi}" \
+  "$(cd "${work}/cwd" && printf hi | run "${work}/xclip" -t UTF8_STRING)"
+expect "xclip -target value is not a file"                      "${osc_hi}" \
+  "$(cd "${work}/cwd" && printf hi | run "${work}/xclip" -target UTF8_STRING)"
+expect "xclip -l value is not a file"                           "${osc_hi}" \
+  "$(cd "${work}/cwd" && printf hi | run "${work}/xclip" -selection clipboard -l 1)"
+expect "xclip -loops value is not a file"                       "${osc_hi}" \
+  "$(cd "${work}/cwd" && printf hi | run "${work}/xclip" -loops 1)"
+expect "xclip -d value is not a file"                           "${osc_hi}" \
+  "$(cd "${work}/cwd" && printf hi | run "${work}/xclip" -d :0)"
+expect "xclip -display value is not a file"                     "${osc_hi}" \
+  "$(cd "${work}/cwd" && printf hi | run "${work}/xclip" -display :0)"
+# xsel keeps its own meanings: -d is delete, and -t and -l take values.
+expect "xsel -d is not an xclip display option"                 "" \
+  "$(cd "${work}/cwd" && printf hi | run "${work}/xsel" -d :0)"
+
 # A trailing option with no value must not break the loop.
 expect "xclip -selection with no value still copies"            "${osc_hi}" \
   "$(printf hi | run "${work}/xclip" -selection)"
