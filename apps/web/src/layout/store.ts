@@ -26,14 +26,35 @@ export interface LayoutState {
 	removeLeaf: (terminalId: string) => void;
 	replaceLeaf: (terminalId: string, newTerminalId: string) => void;
 	moveTab: (from: number, to: number) => void;
+	/** Drag one pane onto another (SPEC.md §9.3). */
+	moveLeaf: (
+		tabId: string,
+		terminalId: string,
+		targetTerminalId: string,
+		edge: tree.DropEdge,
+	) => void;
+	/** Drag one pane out to the tab strip, where it becomes its own tab. */
+	moveLeafToNewTab: (terminalId: string, index: number) => void;
 	resize: (tabId: string, path: number[], sizes: number[]) => void;
 	setActive: (tabId: string) => void;
 	setFocused: (terminalId: string | null) => void;
-	reconcile: (terminalIds: string[]) => void;
+	reconcile: (terminalIds: string[], endedIds?: string[]) => void;
 	clearDirty: () => void;
 }
 
 export type LayoutStore = ReturnType<typeof createLayoutStore>;
+
+/**
+ * A terminal id belongs to exactly one pane. A create refetches the terminal
+ * list, so a reconcile can put the new terminal in a tab of its own before
+ * the action that asked for it gets to place it; dropping any pane it already
+ * has first keeps that from leaving two copies behind.
+ */
+function place(layout: ProjectLayout, terminalId: string): ProjectLayout {
+	return tree.layoutTerminalIds(layout).includes(terminalId)
+		? tree.removeLeaf(layout, terminalId)
+		: layout;
+}
 
 /** Keep the active tab pointing at a tab that still exists. */
 function pickActive(layout: ProjectLayout, current: string | null): string | null {
@@ -71,7 +92,7 @@ export function createLayoutStore() {
 			addTab: (terminalId) => {
 				// A tab is named after the terminal it was opened for.
 				set((state) => ({
-					layout: tree.addTab(state.layout, terminalId, terminalId),
+					layout: tree.addTab(place(state.layout, terminalId), terminalId, terminalId),
 					activeTabId: terminalId,
 					dirty: true,
 				}));
@@ -79,16 +100,47 @@ export function createLayoutStore() {
 
 			splitLeaf: (terminalId, direction, newTerminalId) =>
 				change((layout) =>
-					tree.splitLeaf(layout, terminalId, direction, newTerminalId),
+					tree.splitLeaf(
+						place(layout, newTerminalId),
+						terminalId,
+						direction,
+						newTerminalId,
+					),
 				),
 
 			removeLeaf: (terminalId) =>
 				change((layout) => tree.removeLeaf(layout, terminalId)),
 
 			replaceLeaf: (terminalId, newTerminalId) =>
-				change((layout) => tree.replaceLeaf(layout, terminalId, newTerminalId)),
+				change((layout) =>
+					tree.replaceLeaf(place(layout, newTerminalId), terminalId, newTerminalId),
+				),
 
 			moveTab: (from, to) => change((layout) => tree.moveTab(layout, from, to)),
+
+			// A pane dragged into another tab follows the drag, so show that tab.
+			moveLeaf: (tabId, terminalId, targetTerminalId, edge) =>
+				set((state) => {
+					const layout = tree.moveLeaf(
+						state.layout,
+						tabId,
+						terminalId,
+						targetTerminalId,
+						edge,
+					);
+					if (layout === state.layout) return state;
+					return { layout, activeTabId: tabId, dirty: true };
+				}),
+
+			moveLeafToNewTab: (terminalId, index) =>
+				set((state) => {
+					// A fresh id: the tab this pane is leaving may already be named
+					// after the terminal, and two tabs cannot share an id.
+					const tabId = crypto.randomUUID();
+					const layout = tree.moveLeafToNewTab(state.layout, terminalId, index, tabId);
+					if (layout === state.layout) return state;
+					return { layout, activeTabId: tabId, dirty: true };
+				}),
 
 			resize: (tabId, path, sizes) =>
 				change((layout) => tree.resize(layout, tabId, path, sizes)),
@@ -97,9 +149,9 @@ export function createLayoutStore() {
 
 			setFocused: (terminalId) => set({ focusedTerminalId: terminalId }),
 
-			reconcile: (terminalIds) =>
+			reconcile: (terminalIds, endedIds) =>
 				set((state) => {
-					const layout = tree.reconcile(state.layout, terminalIds);
+					const layout = tree.reconcile(state.layout, terminalIds, endedIds);
 					if (layout === state.layout) return state;
 					return {
 						layout,

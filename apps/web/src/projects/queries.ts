@@ -6,6 +6,7 @@ import {
 	ProjectTemplateList,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { z } from "zod";
 import { request } from "../api/request.js";
 
 const base = (workspaceId: string) => `/workspaces/${workspaceId}/projects`;
@@ -16,10 +17,15 @@ export const projectKeys = {
 	templates: (workspaceId: string) => ["project-templates", workspaceId] as const,
 };
 
-/** The active or archived projects of one workspace (SPEC.md §7.4). */
+/**
+ * The active or archived projects of one workspace (SPEC.md §7.4). Polled so a
+ * directory made in a terminal is discovered without any UI action (§7.6);
+ * React Query pauses the polling while the tab is hidden.
+ */
 export function useProjects(workspaceId: string, state: ProjectState = "active") {
 	return useQuery({
 		queryKey: projectKeys.list(workspaceId, state),
+		refetchInterval: 10_000,
 		queryFn: async () =>
 			(await request(ProjectList, `${base(workspaceId)}?state=${state}`)).projects,
 	});
@@ -114,6 +120,20 @@ export function useUnarchiveProject(workspaceId: string) {
 				Project,
 				`${base(workspaceId)}/${projectId}`,
 				json("PATCH", { state: "active" }),
+			),
+		onSuccess: invalidate,
+	});
+}
+
+/** Deleting answers 204, so nothing comes back to parse. */
+export function useDeleteProject(workspaceId: string) {
+	const invalidate = useInvalidateProjects(workspaceId);
+	return useMutation({
+		mutationFn: ({ projectId, slug }: { projectId: string; slug: string }) =>
+			request(
+				z.undefined(),
+				`${base(workspaceId)}/${projectId}`,
+				json("DELETE", { slug }),
 			),
 		onSuccess: invalidate,
 	});

@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
 	FakeWebSocket,
@@ -82,6 +82,15 @@ test("lists the active projects and marks the one in view", async () => {
 	);
 });
 
+test("every row that is not missing shows its folder name", async () => {
+	await mount();
+
+	expect(screen.getByTestId(`project-slug-${TODO.id}`).textContent).toBe(TODO.slug);
+	// A folder that is not a repository still lives in ~/projects.
+	expect(screen.getByTestId(`project-slug-${NOTES.id}`).textContent).toBe(NOTES.slug);
+	expect(screen.queryByTestId(`project-slug-${GONE.id}`)).toBeNull();
+});
+
 test("a repository offers rename, duplicate, download and archive", async () => {
 	await mount();
 	openMenu(TODO.id);
@@ -100,13 +109,32 @@ test("a folder that is not a repository offers Initialize Git", async () => {
 	expect(screen.getByTestId("project-git-init")).toBeDefined();
 });
 
-test("a missing project offers only Archive", async () => {
+test("a missing project offers only Archive and Delete", async () => {
 	await mount();
 	openMenu(GONE.id);
 
 	expect(screen.getByTestId("project-archive")).toBeDefined();
+	// A row whose folder is gone can still be removed from the list for good.
+	expect(screen.getByTestId(`project-delete-${GONE.id}`)).toBeDefined();
 	expect(screen.queryByTestId("project-rename")).toBeNull();
 	expect(screen.queryByTestId("project-download")).toBeNull();
+});
+
+test("delete stays disabled until the folder name is typed exactly", async () => {
+	await mount();
+	openMenu(TODO.id);
+	fireEvent.click(screen.getByTestId(`project-delete-${TODO.id}`));
+
+	const dialog = within(await screen.findByTestId("dialog-delete-project"));
+	const button = dialog.getByTestId("dialog-confirm");
+	expect((button as HTMLButtonElement).disabled).toBe(true);
+
+	const input = dialog.getByRole("textbox");
+	fireEvent.change(input, { target: { value: `${TODO.slug}x` } });
+	expect((button as HTMLButtonElement).disabled).toBe(true);
+
+	fireEvent.change(input, { target: { value: TODO.slug } });
+	expect((button as HTMLButtonElement).disabled).toBe(false);
 });
 
 test("the archived list opens in place with an unarchive action", async () => {

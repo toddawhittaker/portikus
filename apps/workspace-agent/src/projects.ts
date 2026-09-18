@@ -1,6 +1,17 @@
 import { type ChildProcessByStdio, execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, readdir, realpath, rename, rm, stat } from "node:fs/promises";
+import {
+	access,
+	lstat,
+	mkdir,
+	readdir,
+	realpath,
+	rename,
+	rm,
+	stat,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { Readable } from "node:stream";
 import { promisify } from "node:util";
@@ -142,6 +153,75 @@ async function git(args: string[], cwd: string, timeout?: number): Promise<void>
 	}
 }
 
+/**
+ * The .gitignore a project gets when Portikus initializes Git for it
+ * (SPEC.md 7.2). It is written untracked; the platform never commits
+ * (SPEC.md 12.5). Kept short and general so a student can edit it.
+ */
+const DEFAULT_GITIGNORE = `# Secrets and environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+.cache/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Databases and local data
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Coverage and test output
+coverage/
+.nyc_output/
+htmlcov/
+
+# Local Docker overrides
+docker-compose.override.yml
+`;
+
+/** Write the default .gitignore, unless the project already has one. */
+async function writeDefaultGitignore(path: string): Promise<void> {
+	const file = join(path, ".gitignore");
+	try {
+		await access(file);
+		return;
+	} catch {
+		// No .gitignore yet, so the default is welcome.
+	}
+	await writeFile(file, DEFAULT_GITIGNORE);
+}
+
 export interface CreateProjectInput {
 	slug: string;
 	source: "new" | "clone" | "template";
@@ -164,6 +244,7 @@ export async function createProject(
 		await mkdir(target.path);
 		if (input.gitInit) {
 			await git(["init"], target.path);
+			await writeDefaultGitignore(target.path);
 		}
 		return { slug: input.slug, isGitRepo: input.gitInit };
 	}
@@ -180,6 +261,8 @@ export async function createProject(
 			// A template becomes a fresh project with no upstream history.
 			await rm(join(temporary, ".git"), { recursive: true, force: true });
 			await git(["init"], temporary);
+			// A template that ships its own .gitignore keeps it.
+			await writeDefaultGitignore(temporary);
 		}
 		await rename(temporary, target.path);
 	} catch (error) {
@@ -187,6 +270,36 @@ export async function createProject(
 		throw error;
 	}
 	return { slug: input.slug, isGitRepo: true };
+}
+
+/**
+ * Remove a project directory for good (SPEC.md §7.3). A slug that is itself
+ * a symlink has only the link removed, so the target is never followed and
+ * never deleted; anything else must sit directly in the real `~/projects`
+ * before it is removed (SPEC.md §24.6, §24.11).
+ */
+export async function deleteProject(slug: string, homeDir: string): Promise<void> {
+	if (!PROJECT_SLUG_PATTERN.test(slug)) {
+		throw new AgentFailure("INVALID_SLUG", "invalid project slug");
+	}
+	const root = projectsDir(homeDir);
+	await mkdir(root, { recursive: true });
+	const entry = join(root, slug);
+	let link: boolean;
+	try {
+		link = (await lstat(entry)).isSymbolicLink();
+	} catch {
+		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
+	}
+	if (link) {
+		await unlink(entry);
+		return;
+	}
+	const target = await resolveProject(slug, homeDir);
+	if (!target.exists) {
+		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
+	}
+	await rm(target.path, { recursive: true, force: true });
 }
 
 export async function renameProject(
@@ -247,6 +360,7 @@ export async function gitInitProject(
 	}
 	if (!(await isGitRepo(target.path))) {
 		await git(["init"], target.path);
+		await writeDefaultGitignore(target.path);
 	}
 	return { slug, isGitRepo: true };
 }

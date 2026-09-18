@@ -7,7 +7,7 @@ import {
 } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
@@ -296,6 +296,103 @@ test.skipIf(skip)("rename moves the directory and rewrites terminal cwds", async
 	expect(row.cwd).toBe("/home/student/projects/final-essay/src");
 });
 
+function deleteProject(jar: CookieJar, id: string, projectId: string, slug: string) {
+	return app.inject({
+		method: "DELETE",
+		url: `/workspaces/${id}/projects/${projectId}`,
+		headers: csrfHeaders(jar, PUBLIC_URL),
+		payload: { slug },
+	});
+}
+
+test.skipIf(skip)(
+	"delete removes the row, its terminals and the directory",
+	async () => {
+		const project = (
+			await createProject(alice, workspaceId, { name: "doomed", source: "new" })
+		).json();
+		const inside = (
+			await app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/terminals`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+				payload: { projectId: project.id },
+			})
+		).json();
+		// A terminal elsewhere in the workspace must survive.
+		const elsewhere = (
+			await app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/terminals`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+				payload: { cwd: "/home/student" },
+			})
+		).json();
+
+		const deleted = await deleteProject(alice, workspaceId, project.id, "doomed");
+		expect(deleted.statusCode).toBe(204);
+		expect(agent.projects.has("doomed")).toBe(false);
+		expect(
+			await testDb.db
+				.selectFrom("projects")
+				.selectAll()
+				.where("id", "=", project.id)
+				.executeTakeFirst(),
+		).toBeUndefined();
+
+		const rows = await testDb.db.selectFrom("terminals").selectAll().execute();
+		const ended = rows.find((row) => row.id === inside.id);
+		expect(ended?.ended_at).not.toBeNull();
+		expect(agent.terminals.has(inside.id)).toBe(false);
+		expect(rows.find((row) => row.id === elsewhere.id)?.ended_at).toBeNull();
+
+		const audit = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "project.deleted")
+			.executeTakeFirstOrThrow();
+		expect(audit.target).toBe(project.id);
+		expect(audit.metadata).toMatchObject({ slug: "doomed", name: "doomed" });
+		expect(typeof (audit.metadata as { ip: string }).ip).toBe("string");
+	},
+);
+
+test.skipIf(skip)("a slug that does not match deletes nothing", async () => {
+	const project = (
+		await createProject(alice, workspaceId, { name: "keeper", source: "new" })
+	).json();
+
+	const wrong = await deleteProject(alice, workspaceId, project.id, "keepers");
+	expect(wrong.statusCode).toBe(400);
+	expect(wrong.json().code).toBe("VALIDATION_FAILED");
+	expect(wrong.json().message).toBe("The slug you typed does not match");
+	expect(agent.projects.has("keeper")).toBe(true);
+	expect(await testDb.db.selectFrom("projects").selectAll().execute()).toHaveLength(1);
+	expect(
+		await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "project.deleted")
+			.execute(),
+	).toHaveLength(0);
+});
+
+test.skipIf(skip)(
+	"a project whose directory is already gone still deletes",
+	async () => {
+		const project = (
+			await createProject(alice, workspaceId, { name: "ghost", source: "new" })
+		).json();
+		agent.projects.delete("ghost");
+
+		const deleted = await deleteProject(alice, workspaceId, project.id, "ghost");
+		expect(deleted.statusCode).toBe(204);
+		expect(await testDb.db.selectFrom("projects").selectAll().execute()).toHaveLength(
+			0,
+		);
+	},
+);
+
 test.skipIf(skip)("rename onto an existing slug is refused", async () => {
 	const first = (
 		await createProject(alice, workspaceId, { name: "one", source: "new" })
@@ -475,6 +572,9 @@ test.skipIf(skip)(
 				payload: { state: "archived" },
 			});
 			expect(patched.statusCode).toBe(404);
+			expect(
+				(await deleteProject(jar, workspaceId, project.id, "private")).statusCode,
+			).toBe(404);
 			const duplicated = await app.inject({
 				method: "POST",
 				url: `/workspaces/${workspaceId}/projects/${project.id}/duplicate`,
@@ -656,4 +756,55 @@ test.skipIf(skip)("a running workspace with no agent token answers 503", async (
 	expect(created.statusCode).toBe(503);
 	expect(created.json().code).toBe("AGENT_UNAVAILABLE");
 	expect(created.json().message).toBe("The workspace agent is not reachable.");
+});
+
+test.skipIf(skip)("delete waits for another long operation to finish", async () => {
+	const project = (
+		await createProject(alice, workspaceId, { name: "doomed", source: "new" })
+	).json();
+
+	const clone = createProject(alice, workspaceId, {
+		name: "slow clone",
+		source: "clone",
+		url: "https://example.com/slow.git",
+	});
+	// Let the clone reach the agent and take the slot before the delete arrives.
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	const refused = await deleteProject(alice, workspaceId, project.id, "doomed");
+
+	expect(refused.statusCode).toBe(409);
+	expect(refused.json().code).toBe("OPERATION_IN_PROGRESS");
+	expect(refused.json().message).toBe(
+		"Another project operation is already running on this workspace.",
+	);
+	expect(agent.projects.has("doomed")).toBe(true);
+	expect((await clone).statusCode).toBe(201);
+
+	// The slot is released, so the delete goes through.
+	const deleted = await deleteProject(alice, workspaceId, project.id, "doomed");
+	expect(deleted.statusCode).toBe(204);
+	expect(agent.projects.has("doomed")).toBe(false);
+
+	// The delete released its own slot too, so the next one is not refused.
+	const second = (
+		await createProject(alice, workspaceId, { name: "also doomed", source: "new" })
+	).json();
+	const again = await deleteProject(alice, workspaceId, second.id, "also-doomed");
+	expect(again.statusCode).toBe(204);
+});
+
+test.skipIf(skip)("a listing with nothing new writes nothing", async () => {
+	agent.projects.set("already-here", { isGitRepo: true });
+	// The first listing adopts the directory; the second must not write again.
+	expect((await listProjects(alice, workspaceId)).statusCode).toBe(200);
+
+	const insertInto = vi.spyOn(testDb.db, "insertInto");
+	try {
+		const again = await listProjects(alice, workspaceId);
+		expect(again.statusCode).toBe(200);
+		expect(again.json().projects).toHaveLength(1);
+		expect(insertInto).not.toHaveBeenCalled();
+	} finally {
+		insertInto.mockRestore();
+	}
 });

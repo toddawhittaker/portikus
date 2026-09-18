@@ -106,7 +106,12 @@ export async function startFakeAgent(
 	// Every attachment of one terminal, so echoed output reaches them all,
 	// the way a real shared tmux session would.
 	const attached = new Map<string, Set<WebSocket>>();
+	// Output this terminal has already produced. The real agent replays the
+	// same thing from tmux when a browser attaches (SPEC.md §9.1).
+	const history = new Map<string, string[]>();
 	const received: string[] = [];
+	// The same frames, with the terminal each arrived on.
+	const receivedByTerminal: { terminalId: string; text: string }[] = [];
 	const projects = new Map<string, { isGitRepo: boolean }>();
 	// One fake agent stands in for every workspace in an end-to-end run, so a
 	// token of the form "<token>:<key>" gets its own ~/projects listing and
@@ -247,6 +252,12 @@ export async function startFakeAgent(
 		return reply.status(201).send({ slug: body.slug, isGitRepo });
 	});
 
+	app.delete("/projects/:slug", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).delete(slug)) return projectNotFound(reply);
+		return reply.status(204).send();
+	});
+
 	app.post("/projects/:slug/rename", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
 		const to = (request.body as { to: string }).to;
@@ -302,9 +313,61 @@ export async function startFakeAgent(
 		return reply.status(204).send();
 	});
 
+	app.get("/__test/projects", async (request) => {
+		const key = (request.query as { key?: string }).key ?? "";
+		return { slugs: [...dirsForKey(key).keys()] };
+	});
+
 	app.delete("/__test/projects/:slug", async (request, reply) => {
 		const key = (request.query as { key?: string }).key ?? "";
 		dirsForKey(key).delete((request.params as { slug: string }).slug);
+		return reply.status(204).send();
+	});
+
+	/** Send one line of output to every attachment, and remember it. */
+	function emit(id: string, payload: string): void {
+		const lines = history.get(id) ?? [];
+		lines.push(payload);
+		history.set(id, lines);
+		for (const peer of attached.get(id) ?? []) {
+			if (peer.readyState === peer.OPEN) {
+				peer.send(Buffer.from(payload), { binary: true });
+			}
+		}
+	}
+
+	/**
+	 * Every frame the fake has been sent with the terminal it arrived on, so a
+	 * browser test can read its own terminal's frames. One fake agent serves
+	 * every workspace in a run, so an unscoped list would mix the workers up.
+	 */
+	app.get("/__test/received", async () => ({ received: receivedByTerminal }));
+
+	/** How many attachments the fake has for a terminal, so a test can wait. */
+	app.get("/__test/terminals/:id/attachments", async (request) => {
+		const id = (request.params as { id: string }).id;
+		return { attachments: attached.get(id)?.size ?? 0 };
+	});
+
+	// Say a full-screen program has taken the terminal, or given it back, the
+	// way the real agent does when it sees tmux's alternate screen.
+	app.post("/__test/terminals/:id/screen", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const body = request.body as { alternate: boolean };
+		for (const peer of attached.get(id) ?? []) {
+			if (peer.readyState === peer.OPEN) {
+				peer.send(JSON.stringify({ type: "screen", alternate: body.alternate }));
+			}
+		}
+		return reply.status(204).send();
+	});
+
+	// Output a test wants on screen without typing for it, so a browser test
+	// can fill the scrollback.
+	app.post("/__test/terminals/:id/output", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const body = request.body as { lines: string[] };
+		emit(id, `${body.lines.join("\r\n")}\r\n`);
 		return reply.status(204).send();
 	});
 
@@ -326,28 +389,43 @@ export async function startFakeAgent(
 				peers.delete(socket);
 			});
 			const query = request.query as { cols?: string; rows?: string };
+			// Earlier output first, then blank lines to push it into the
+			// browser's scrollback, exactly as the real agent does.
+			const earlier = history.get(id) ?? [];
+			if (earlier.length > 0) {
+				const rows = Number(query.rows ?? "24");
+				const blank = "\r\n".repeat(Number.isFinite(rows) ? rows : 24);
+				socket.send(Buffer.from(`${earlier.join("\r\n")}\r\n${blank}`), {
+					binary: true,
+				});
+			}
 			socket.send(JSON.stringify({ type: "size", cols: query.cols, rows: query.rows }));
 			socket.on("message", (data: Buffer) => {
 				const text = data.toString();
 				received.push(text);
+				receivedByTerminal.push({ terminalId: id, text });
 				const parsed = JSON.parse(text) as { type: string; cols?: number };
 				if (parsed.type === "resize") {
 					socket.send(JSON.stringify({ type: "size", cols: parsed.cols }));
 					return;
 				}
-				function broadcast(payload: string) {
-					for (const peer of peers) {
-						if (peer.readyState === peer.OPEN) {
-							peer.send(Buffer.from(payload), { binary: true });
-						}
-					}
-				}
+				const broadcast = (payload: string) => emit(id, payload);
 				broadcast(`echo:${text}`);
 				// A shell prints ^C when the interrupt byte reaches it, and the
 				// clipboard tests need to see that Ctrl+C got through.
 				const inputData = (parsed as { data?: unknown }).data;
 				if (parsed.type === "input" && typeof inputData === "string") {
 					if (inputData.includes("\u0003")) broadcast("^C");
+					// A `cd` moves the terminal, which the real agent notices by
+					// polling tmux and reports as a cwd frame (SPEC.md §9.3).
+					const moved = /cd\s+(\S+)/.exec(inputData);
+					if (moved?.[1]) {
+						for (const peer of peers) {
+							if (peer.readyState === peer.OPEN) {
+								peer.send(JSON.stringify({ type: "cwd", path: moved[1] }));
+							}
+						}
+					}
 					// Ctrl+D ends the shell, and a shell that ends closes its pane.
 					if (inputData.includes("\u0004")) {
 						for (const peer of peers) {

@@ -172,3 +172,6 @@ jobs:
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true'
         run: sudo apt-get install -y shellcheck && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/*
+      - name: Smoke test cleanup scope
+        if: steps.detect.outputs.shell == 'true'
+        run: bash infra/tests/cleanup-scope-test.sh

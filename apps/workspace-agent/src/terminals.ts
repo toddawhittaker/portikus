@@ -6,7 +6,8 @@ import {
 import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/events";
 import type { FastifyBaseLogger } from "fastify";
 import { type IPty, spawn } from "node-pty";
-import { AgentFailure, attachArgs, hasSession } from "./tmux.js";
+import { type PaneWatcher, watchPanes } from "./cwd.js";
+import { AgentFailure, attachArgs, captureHistory, hasSession } from "./tmux.js";
 
 /** Pause the PTY once this much output is waiting on the socket (SPEC.md §9.7). */
 const HIGH_WATER_BYTES = 1024 * 1024;
@@ -17,14 +18,36 @@ const LOW_WATER_BYTES = 256 * 1024;
 /** How often a paused attachment checks whether its socket has drained. */
 const DRAIN_POLL_MS = 50;
 
+/**
+ * How long a new attachment holds input while its `tmux attach-session`
+ * starts up. A tmux client discards anything written before it is ready, so
+ * the queue drains on the first byte of output or when this expires,
+ * whichever comes first.
+ */
+const INPUT_QUEUE_MS = 500;
+
+/** Most input one attachment will hold while tmux starts. */
+const INPUT_QUEUE_MAX_BYTES = 64 * 1024;
+
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 
 interface Attachment {
+	terminalId: string;
 	socket: WebSocket;
 	/** Null only while the slot is reserved and the PTY is starting. */
 	pty: IPty | null;
 	drainTimer: NodeJS.Timeout | null;
+	/** Input held until tmux is ready; null once the queue has been flushed. */
+	pendingInput: string[] | null;
+	pendingBytes: number;
+	pendingTimer: NodeJS.Timeout | null;
+	/** The last size asked for before the PTY existed; applied at spawn. */
+	pendingResize: { cols: number; rows: number } | null;
+	/** Set when the socket closes, including before the PTY exists. */
+	closed: boolean;
+	/** The full early-input queue has already been logged for this socket. */
+	warnedQueueFull: boolean;
 }
 
 export interface AttachOptions {
@@ -48,6 +71,10 @@ export class TerminalRegistry {
 		private readonly homeDir: string,
 		private readonly log: FastifyBaseLogger,
 		private readonly socketName?: string,
+		/** Overridden by tests so they can drive a fake PTY. */
+		private readonly spawnPty: typeof spawn = spawn,
+		/** One pane poll for the whole agent (SPEC.md §9.1, §9.3). */
+		private readonly panes: PaneWatcher = watchPanes(socketName),
 	) {}
 
 	/** How many browsers are attached to one terminal. */
@@ -69,22 +96,69 @@ export class TerminalRegistry {
 		}
 		// Take the slot before the first await so that two attachments racing
 		// each other cannot both pass the limit check.
-		const attachment: Attachment = { socket, pty: null, drainTimer: null };
+		const attachment: Attachment = {
+			terminalId: id,
+			socket,
+			pty: null,
+			drainTimer: null,
+			pendingInput: [],
+			pendingBytes: 0,
+			pendingTimer: null,
+			pendingResize: null,
+			closed: false,
+			warnedQueueFull: false,
+		};
 		existing.add(attachment);
 		this.attachments.set(id, existing);
+		this.panes.add(id, socket);
+
+		// Listen before the first await: the browser sends its size straight
+		// after the socket opens, and a frame dropped here leaves the PTY at
+		// the wrong size (SPEC.md §9.7).
+		socket.on("message", (raw: Buffer | string) => {
+			this.onMessage(attachment, raw);
+		});
+		socket.on("close", () => {
+			attachment.closed = true;
+			this.forget(id, attachment);
+			const pty = attachment.pty;
+			if (!pty) return;
+			this.log.debug({ terminalId: id, pid: pty.pid }, "terminal detached");
+			// Killing the attach process only detaches; the session lives on.
+			try {
+				pty.kill();
+			} catch {
+				// The process may already be gone.
+			}
+		});
 
 		if (!(await hasSession(id, this.socketName))) {
 			this.forget(id, attachment);
 			throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 		}
+		// The browser gave up while we were checking; never start a shell for it.
+		if (attachment.closed) return;
 
-		const pty = spawn("tmux", attachArgs(id, this.socketName), {
+		// One size for both: the blank lines after the history have to be as
+		// tall as the screen tmux is about to repaint over them, or the
+		// repaint erases the newest history. The browser's first resize can
+		// arrive before the PTY exists, and it wins when it does.
+		const cols = attachment.pendingResize?.cols ?? options.cols ?? DEFAULT_COLS;
+		const rows = attachment.pendingResize?.rows ?? options.rows ?? DEFAULT_ROWS;
+		await this.sendHistory(id, socket, rows);
+
+		// Check again: the capture is another await, and a PTY started for an
+		// attachment that has already been forgotten would never be killed.
+		if (attachment.closed) return;
+
+		const pty = this.spawnPty("tmux", attachArgs(id, this.socketName), {
 			name: "xterm-256color",
-			cols: options.cols ?? DEFAULT_COLS,
-			rows: options.rows ?? DEFAULT_ROWS,
+			cols,
+			rows,
 			cwd: this.homeDir,
 			env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
 		});
+		attachment.pendingResize = null;
 
 		attachment.pty = pty;
 		this.log.debug(
@@ -92,7 +166,14 @@ export class TerminalRegistry {
 			"pty spawned",
 		);
 
+		// tmux is only ready to accept input once it has drawn something, so
+		// release the queue on the first output or on the timer.
+		attachment.pendingTimer = setTimeout(() => {
+			this.flushPendingInput(attachment);
+		}, INPUT_QUEUE_MS);
+
 		pty.onData((data) => {
+			this.flushPendingInput(attachment);
 			socket.send(Buffer.from(data, "utf8"), { binary: true });
 			this.applyBackpressure(attachment);
 		});
@@ -102,21 +183,6 @@ export class TerminalRegistry {
 			sendText(socket, { type: "exit" });
 			socket.close(1000, "terminal exited");
 		});
-
-		socket.on("message", (raw: Buffer | string) => {
-			this.onMessage(attachment, raw);
-		});
-
-		socket.on("close", () => {
-			this.forget(id, attachment);
-			this.log.debug({ terminalId: id, pid: pty.pid }, "terminal detached");
-			// Killing the attach process only detaches; the session lives on.
-			try {
-				pty.kill();
-			} catch {
-				// The process may already be gone.
-			}
-		});
 	}
 
 	/** Close every attachment to a terminal, used when the terminal is deleted. */
@@ -125,6 +191,9 @@ export class TerminalRegistry {
 			attachment.socket.close(code, reason);
 		}
 		this.attachments.delete(id);
+		// The terminal is going away, so it leaves the poll whether or not each
+		// socket's close handler has run yet.
+		this.panes.drop(id);
 	}
 
 	/** Tear down every attachment on shutdown. */
@@ -132,9 +201,60 @@ export class TerminalRegistry {
 		for (const id of [...this.attachments.keys()]) {
 			this.closeAll(id, 1001, "agent shutting down");
 		}
+		this.panes.stop();
+	}
+
+	/**
+	 * Give a new attachment the lines that scrolled off the terminal's screen
+	 * before it arrived, so a reload does not start with a bare prompt
+	 * (SPEC.md §9.1). This runs before the PTY exists, so nothing tmux draws
+	 * can land in the middle of it.
+	 *
+	 * The blank lines at the end push the history into the browser's
+	 * scrollback, out of the way of the screen tmux is about to repaint over
+	 * it; without them the repaint would erase the last screenful of history.
+	 */
+	private async sendHistory(
+		id: string,
+		socket: WebSocket,
+		rows: number,
+	): Promise<void> {
+		let history: string;
+		try {
+			history = await captureHistory(id, this.socketName);
+		} catch (error) {
+			// A terminal with no history to show is worth no more than a log line.
+			this.log.warn(
+				{ terminalId: id, error: error instanceof Error ? error.message : error },
+				"could not capture terminal history",
+			);
+			return;
+		}
+		if (history === "" || socket.readyState !== socket.OPEN) return;
+		socket.send(Buffer.from(history + "\r\n".repeat(rows), "utf8"), {
+			binary: true,
+		});
+	}
+
+	/** Write any input that arrived before tmux was ready, in order. */
+	private flushPendingInput(attachment: Attachment): void {
+		if (attachment.pendingTimer) {
+			clearTimeout(attachment.pendingTimer);
+			attachment.pendingTimer = null;
+		}
+		const pending = attachment.pendingInput;
+		attachment.pendingInput = null;
+		attachment.pendingBytes = 0;
+		if (!pending || !attachment.pty) return;
+		for (const chunk of pending) attachment.pty.write(chunk);
 	}
 
 	private forget(id: string, attachment: Attachment): void {
+		this.panes.remove(id, attachment.socket);
+		if (attachment.pendingTimer) {
+			clearTimeout(attachment.pendingTimer);
+			attachment.pendingTimer = null;
+		}
 		if (attachment.drainTimer) {
 			clearInterval(attachment.drainTimer);
 			attachment.drainTimer = null;
@@ -166,7 +286,6 @@ export class TerminalRegistry {
 
 	private onMessage(attachment: Attachment, raw: Buffer | string): void {
 		const { socket, pty } = attachment;
-		if (!pty) return;
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(raw.toString());
@@ -186,7 +305,33 @@ export class TerminalRegistry {
 				socket.close(1009, "input frame too large");
 				return;
 			}
-			pty.write(message.data.data);
+			if (attachment.pendingInput) {
+				const size = Buffer.byteLength(message.data.data, "utf8");
+				if (attachment.pendingBytes + size > INPUT_QUEUE_MAX_BYTES) {
+					// One line per attachment, not one per frame: a browser that
+					// keeps typing would otherwise fill the journal.
+					if (attachment.warnedQueueFull) return;
+					attachment.warnedQueueFull = true;
+					this.log.warn(
+						{
+							terminalId: attachment.terminalId,
+							pendingBytes: attachment.pendingBytes,
+						},
+						"dropping early terminal input: queue full",
+					);
+					return;
+				}
+				attachment.pendingInput.push(message.data.data);
+				attachment.pendingBytes += size;
+				return;
+			}
+			pty?.write(message.data.data);
+			return;
+		}
+
+		// No PTY yet: remember the size so it is spawned with it.
+		if (!pty) {
+			attachment.pendingResize = { cols: message.data.cols, rows: message.data.rows };
 			return;
 		}
 

@@ -153,6 +153,76 @@
 	font-size: 13px;
 }
 
+/* Dragging a pane (SPEC.md §9.3). The pane itself never moves: the title
+   follows the pointer and the target pane shades the half it would take. */
+.pk-term-bar-title--handle {
+	cursor: grab;
+	touch-action: none;
+	user-select: none;
+}
+
+.pk-term.is-dragged .pk-term-bar {
+	opacity: 0.6;
+}
+
+.pk-term-drag {
+	padding: var(--space-1) var(--space-3);
+	border: 1px solid var(--terminal-line);
+	border-radius: var(--radius-sm);
+	background: var(--terminal-bg);
+	color: var(--terminal-fg);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 16px;
+	cursor: grabbing;
+	pointer-events: none;
+}
+
+/* The shaded half shows where the pane would land. */
+.pk-term-drop {
+	position: absolute;
+	z-index: 2;
+	background: color-mix(in srgb, var(--accent) 24%, transparent);
+	border: 2px solid var(--accent);
+	pointer-events: none;
+}
+
+.pk-term-drop--left {
+	inset: 0 50% 0 0;
+}
+
+.pk-term-drop--right {
+	inset: 0 0 0 50%;
+}
+
+.pk-term-drop--top {
+	inset: 0 0 50% 0;
+}
+
+.pk-term-drop--bottom {
+	inset: 50% 0 0 0;
+}
+
+/* Centre means swap, so the whole pane lights up. */
+.pk-term-drop--center {
+	inset: 0;
+}
+
+/* The tab strip as a drop area, with the insertion marker. */
+.pk-work-tabs-drop {
+	position: relative;
+	flex: none;
+}
+
+.pk-tab-insert {
+	position: absolute;
+	top: var(--space-1);
+	bottom: var(--space-1);
+	width: 2px;
+	background: var(--accent);
+	pointer-events: none;
+}
+
 /* The handle's default line is a light-theme colour; on terminal ground it
    needs the terminal hairline to be visible at all. */
 .pk-termgroup .pk-handle::before {

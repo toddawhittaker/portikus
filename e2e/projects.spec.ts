@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	projectDirs,
 	projectIds,
 	query,
 	removeProjectDir,
@@ -305,6 +306,39 @@ test.describe("projects", () => {
 			.toBe("active");
 	});
 
+	test("deleting a project requires typing its slug and removes it", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Scratch Pad" });
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByTestId(`project-item-${project.id}`)).toBeVisible();
+
+		await projectAction(page, project.id, "Delete project");
+		await expect(page.getByTestId("dialog-delete-project")).toContainText(project.path);
+		const dialog = page.getByTestId("dialog-delete-project");
+		const button = dialog.getByTestId("dialog-confirm");
+		await expect(button).toBeDisabled();
+
+		await dialog.getByRole("textbox").fill("scratch-pa");
+		await expect(button).toBeDisabled();
+
+		await dialog.getByRole("textbox").fill(project.slug);
+		await expect(button).toBeEnabled();
+		await button.click();
+
+		await expect(page.getByTestId(`project-item-${project.id}`)).toHaveCount(0);
+		await expect
+			.poll(
+				async () =>
+					(await query("select id from projects where id = $1", [project.id])).length,
+			)
+			.toBe(0);
+		// The folder is gone too (SPEC.md 7.3).
+		expect(await projectDirs(student.workspaceId)).not.toContain(project.slug);
+	});
+
 	test("a Git directory made by hand is discovered", async ({ page, context }) => {
 		const student = await createStudent(context);
 		const slug = `found-${Date.now()}`;
@@ -321,6 +355,25 @@ test.describe("projects", () => {
 			[student.workspaceId],
 		);
 		expect(rows).toEqual([{ slug, source: "discovered" }]);
+	});
+
+	test("a repository created from the shell shows up without any UI action", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await page.goto(workspacePath(student.workspaceId));
+		// The pane is open and empty; an empty list has no height, so wait on the button.
+		await expect(page.getByTestId("new-project")).toBeVisible();
+
+		// The student makes the repository in a terminal, with the pane already open.
+		const slug = `shell-${Date.now()}`;
+		await seedProjectDir(student.workspaceId, slug, true);
+
+		// The pane polls, so the row turns up on its own (SPEC.md §7.6).
+		await expect(page.getByTestId("project-list")).toContainText(slug, {
+			timeout: 15_000,
+		});
 	});
 
 	test("a project whose directory is gone is shown as missing", async ({

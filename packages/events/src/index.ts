@@ -41,6 +41,12 @@ export type TerminalErrorCode = z.infer<typeof TerminalErrorCode>;
  */
 export const TerminalServerMessage = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("exit") }),
+	// The terminal's directory, resent by the agent whenever it changes.
+	z.object({ type: z.literal("cwd"), path: z.string().min(1) }),
+	// Whether a full-screen program such as nano holds the terminal, resent by
+	// the agent whenever it changes. The browser sends arrow keys rather than
+	// scrolling its own buffer while it does (SPEC.md §9.1).
+	z.object({ type: z.literal("screen"), alternate: z.boolean() }),
 	z.object({ type: z.literal("error"), code: TerminalErrorCode }),
 ]);
 export type TerminalServerMessage = z.infer<typeof TerminalServerMessage>;

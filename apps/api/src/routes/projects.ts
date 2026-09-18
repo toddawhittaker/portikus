@@ -4,6 +4,7 @@ import {
 	type ApiError,
 	type ApiErrorCode,
 	CreateProjectRequest,
+	DeleteProjectRequest,
 	DuplicateProjectRequest,
 	type Project,
 	ProjectLayout,
@@ -259,8 +260,16 @@ export function registerProjectRoutes(
 		// Discovery). Archiving does not remove the row, so an archived slug is
 		// never re-added; that also means an archived listing discovers nothing.
 		if (directories && query.data.state === "active") {
+			// The pane polls every ten seconds, so read first and write only when
+			// a directory is genuinely new (rows of any state count as known).
+			const known = await db
+				.selectFrom("projects")
+				.select("slug")
+				.where("workspace_id", "=", scope.workspaceId)
+				.execute();
+			const knownSlugs = new Set(known.map((row) => row.slug));
 			const discovered = [...directories]
-				.filter(([, isGitRepo]) => isGitRepo)
+				.filter(([slug, isGitRepo]) => isGitRepo && !knownSlugs.has(slug))
 				.map(([slug]) => ({
 					workspace_id: scope.workspaceId,
 					slug,
@@ -269,8 +278,8 @@ export function registerProjectRoutes(
 					source: "discovered",
 				}));
 			if (discovered.length > 0) {
-				// One statement, so two listings at once cannot collide on the
-				// workspace and slug unique constraint.
+				// One statement, and it still ignores conflicts, so two listings at
+				// once cannot collide on the workspace and slug unique constraint.
 				await db
 					.insertInto("projects")
 					.values(discovered)
@@ -503,6 +512,115 @@ export function registerProjectRoutes(
 
 		return toProject(current, null, null);
 	});
+
+	// DELETE /workspaces/:id/projects/:pid -- permanent (SPEC.md §7.3, §24.11).
+	app.delete("/workspaces/:id/projects/:pid", async (request, reply) => {
+		const user = requireUser(request);
+		const params = ProjectParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const scope = await owned(request, reply);
+		if (!scope) return;
+		const body = DeleteProjectRequest.safeParse(request.body ?? {});
+		if (!body.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
+		}
+		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+		if (!row) return;
+		// Typing the folder name back is the whole safeguard, so it is checked
+		// against the row rather than anything the browser chose.
+		if (body.data.slug !== row.slug) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"The slug you typed does not match",
+			);
+		}
+		const agent = requireAgent(scope, reply);
+		if (!agent) return;
+
+		// Removing a tree can take a while, and a copy running at the same time
+		// would read directories this is deleting.
+		if (!claimLongOperation(scope.workspaceId, reply)) return;
+		try {
+			return await deleteProjectTree(request, reply, scope, row, agent, user.id);
+		} finally {
+			longOperations.delete(scope.workspaceId);
+		}
+	});
+
+	/** The slow half of the delete, so the slot is released on every exit. */
+	async function deleteProjectTree(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		scope: Scope,
+		row: ProjectRow,
+		agent: AgentClient,
+		userId: string,
+	): Promise<void> {
+		// A terminal created in the directory that is about to go must end
+		// first, or its shell keeps a deleted working directory (SPEC.md §9.3).
+		// `terminals.cwd` is only the directory it started in, so one that
+		// moved in or out of the project by `cd` is not matched.
+		const open = await db
+			.selectFrom("terminals")
+			.selectAll()
+			.where("workspace_id", "=", scope.workspaceId)
+			.where("ended_at", "is", null)
+			.execute();
+		const inside = open.filter(
+			(terminal) =>
+				terminal.cwd === row.path || terminal.cwd.startsWith(`${row.path}/`),
+		);
+		for (const terminal of inside) {
+			try {
+				await agent.deleteTerminal(terminal.id);
+			} catch (error) {
+				// A session the agent has already lost is still an ended terminal.
+				if (!(error instanceof AgentCallError)) throw error;
+			}
+			await db
+				.updateTable("terminals")
+				.set({ ended_at: new Date().toISOString() })
+				.where("id", "=", terminal.id)
+				.execute();
+		}
+
+		try {
+			await agent.deleteProject(row.slug);
+		} catch (error) {
+			// A directory that is already gone still leaves a row to remove.
+			const gone =
+				error instanceof AgentCallError && error.code === "PROJECT_NOT_FOUND";
+			if (!gone) return sendAgentError(reply, error);
+		}
+
+		await db.transaction().execute(async (trx) => {
+			await trx.deleteFrom("projects").where("id", "=", row.id).execute();
+			await trx
+				.insertInto("audit_events")
+				.values({
+					actor: `user:${userId}`,
+					target: row.id,
+					action: "project.deleted",
+					result: "ok",
+					metadata: JSON.stringify({
+						slug: row.slug,
+						name: row.name,
+						ip: request.ip,
+					}),
+				})
+				.execute();
+		});
+
+		request.log.info(
+			{ workspaceId: scope.workspaceId, projectId: row.id, slug: row.slug },
+			"project deleted",
+		);
+		reply.status(204).send();
+	}
 
 	// POST /workspaces/:id/projects/:pid/duplicate (SPEC.md §7.3).
 	app.post("/workspaces/:id/projects/:pid/duplicate", async (request, reply) => {

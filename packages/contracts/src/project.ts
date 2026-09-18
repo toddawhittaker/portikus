@@ -190,6 +190,18 @@ export const CreateProjectRequest = z
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
 
 /**
+ * Request body for `DELETE /workspaces/:id/projects/:projectId`
+ * (SPEC.md §7.3). Deleting is permanent, so the student types the slug
+ * back and the API refuses anything else.
+ */
+export const DeleteProjectRequest = z
+	.object({
+		slug: ProjectSlug,
+	})
+	.strict();
+export type DeleteProjectRequest = z.infer<typeof DeleteProjectRequest>;
+
+/**
  * Request body for `PATCH /workspaces/:id/projects/:projectId`
  * (SPEC.md §7.3, §7.4). A name change renames the slug and the directory.
  */
@@ -251,7 +263,7 @@ export const MAX_LAYOUT_TABS = 16;
 export const MAX_SPLIT_DEPTH = 8;
 
 /** The deepest path from this node to a leaf, counting this node. */
-function splitDepth(node: SplitNode): number {
+export function splitDepth(node: SplitNode): number {
 	if (node.type === "leaf") return 1;
 	let deepest = 0;
 	for (const child of node.children) {
@@ -275,7 +287,17 @@ export const ProjectLayout = z.object({
 		)
 		.max(MAX_LAYOUT_TABS)
 		.superRefine((tabs, ctx) => {
+			const seen = new Set<string>();
 			tabs.forEach((tab, index) => {
+				// Two tabs with one id render on top of each other in the browser.
+				if (seen.has(tab.id)) {
+					ctx.addIssue({
+						code: "custom",
+						path: [index, "id"],
+						message: "tab ids must be unique",
+					});
+				}
+				seen.add(tab.id);
 				if (splitDepth(tab.root) > MAX_SPLIT_DEPTH) {
 					ctx.addIssue({
 						code: "custom",

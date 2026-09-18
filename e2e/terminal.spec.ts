@@ -4,10 +4,13 @@ import {
 	createStudent,
 	deleteSessions,
 	endTerminal,
+	expectConnected,
+	newTerminal,
 	projectIds,
 	query,
 	terminalIds,
 	WEB_ORIGIN,
+	waitForSavedLeaf,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -29,18 +32,6 @@ function visiblePane(page: Page): Locator {
 
 function rowsOf(page: Page, terminalId: string): Locator {
 	return page.locator(`[data-testid=terminal-pane-${terminalId}] .xterm-rows`);
-}
-
-async function newTerminal(page: Page): Promise<void> {
-	await page.getByTestId("launcher").click();
-	await page.getByRole("menuitem", { name: "Terminal", exact: true }).click();
-}
-
-/** Wait for a pane's terminal WebSocket to be open. */
-async function expectConnected(page: Page, terminalId: string): Promise<void> {
-	await expect(
-		page.locator(`[data-testid=terminal-pane-${terminalId}]`),
-	).toHaveAttribute("data-connected", "true", { timeout: 15_000 });
 }
 
 /**
@@ -166,7 +157,8 @@ test("a reload keeps the terminal and can attach to it again", async ({
 	await expect(page.getByRole("tab", { name: "Terminal 1" })).toBeVisible({
 		timeout: 15_000,
 	});
-	// Scrollback is not replayed (SPEC.md §9.7); new input must still echo.
+	// The terminal comes back with its earlier output above it, and new input
+	// must still echo (SPEC.md §9.1, §9.7).
 	await expect(visiblePane(page).locator(".xterm-screen")).toBeVisible();
 	await typeAndExpectEcho(page, rowsOf(page, terminalId), "after-reload");
 });
@@ -174,6 +166,12 @@ test("a reload keeps the terminal and can attach to it again", async ({
 test("an ended terminal offers a new one in its place", async ({ page, context }) => {
 	const student = await createStudent(context);
 	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	// The pane has to reach the saved layout first, or the reload has no leaf
+	// to show the ended terminal in (SPEC.md §7.5, §9.7).
+	const [projectId] = await projectIds(student.workspaceId);
+	if (!projectId) throw new Error("the project row was not created");
+	await waitForSavedLeaf(projectId, terminalId);
 
 	// What stopping the workspace does to the terminal rows.
 	await endTerminal(terminalId);
@@ -188,7 +186,9 @@ test("an ended terminal offers a new one in its place", async ({ page, context }
 
 	await page.getByTestId("new-terminal-here").click();
 
-	await expect(tabs(page).getByRole("tab")).toHaveCount(2);
+	// The new terminal takes the ended one's pane, so there is still one tab
+	// even though the listing now holds two rows (SPEC.md §9.7).
+	await expect(tabs(page).getByRole("tab")).toHaveCount(1);
 	await expect(visiblePane(page).locator(".xterm-screen")).toBeVisible();
 	const ids = await terminalIds(student.workspaceId);
 	expect(ids).toHaveLength(2);
@@ -339,4 +339,222 @@ test("a localhost URL in the output opens the preview route", async ({
 		`/workspaces/${student.workspaceId}/projects/${previewProject}/preview/3000`,
 	);
 	await expect(page.getByRole("heading", { name: "Preview" })).toBeVisible();
+});
+
+test("the title bar follows cd", async ({ page, context }) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	const title = visiblePane(page).locator(".pk-term-bar-title");
+	await expect(title).toHaveText("Terminal 1 · ~/projects/terminal-work");
+
+	// The fake agent answers a `cd` with the cwd frame the real agent sends
+	// after it polls tmux (SPEC.md §9.3).
+	await typeAndExpectEcho(page, rowsOf(page, terminalId), "cd /tmp");
+	await expect(title).toHaveText("Terminal 1 · /tmp");
+});
+
+/** The fake agent, which the end-to-end run puts on this port. */
+const FAKE_AGENT_URL = `http://127.0.0.1:${process.env.FAKE_AGENT_PORT ?? "7400"}`;
+
+/** Put lines on a terminal's screen without typing for them. */
+async function printLines(terminalId: string, lines: string[]): Promise<void> {
+	const response = await fetch(
+		`${FAKE_AGENT_URL}/__test/terminals/${terminalId}/output`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ lines }),
+		},
+	);
+	if (!response.ok) throw new Error(`could not print lines: ${response.status}`);
+}
+
+/** Numbered so that no line's text is contained in another line's. */
+function manyLines(count: number): string[] {
+	return Array.from(
+		{ length: count },
+		(_, i) => `SCROLL-${String(i + 1).padStart(4, "0")}`,
+	);
+}
+
+/** How many browsers the agent has attached to a terminal. */
+async function attachmentsOf(terminalId: string): Promise<number> {
+	const response = await fetch(
+		`${FAKE_AGENT_URL}/__test/terminals/${terminalId}/attachments`,
+	);
+	const body = (await response.json()) as { attachments: number };
+	return body.attachments;
+}
+
+/**
+ * Print lines and wait for them. The agent only sends output to the
+ * attachments it has, and the browser's attachment lands a moment after the
+ * page says it is connected, so wait for the agent to have it first.
+ */
+async function printUntilVisible(
+	page: Page,
+	terminalId: string,
+	lines: string[],
+): Promise<void> {
+	await expect.poll(() => attachmentsOf(terminalId)).toBeGreaterThan(0);
+	await printLines(terminalId, lines);
+	await expect(rowsOf(page, terminalId)).toContainText(lines[lines.length - 1] ?? "");
+}
+
+/**
+ * Turn the wheel over the terminal. One wheel event moves it a few lines
+ * however large the delta is, the way one notch of a real wheel does, so
+ * going a long way back takes many of them.
+ */
+async function wheelOverTerminal(page: Page, notches: number): Promise<void> {
+	await visiblePane(page).locator(".xterm-screen").hover();
+	const delta = notches < 0 ? -300 : 300;
+	for (let i = 0; i < Math.abs(notches); i += 1) {
+		await page.mouse.wheel(0, delta);
+	}
+}
+
+test("the wheel scrolls back through earlier output", async ({ page, context }) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+	const rows = rowsOf(page, terminalId);
+
+	await printUntilVisible(page, terminalId, manyLines(200));
+	// The screen is far shorter than 200 lines, so the first ones are above it.
+	await expect(rows).not.toContainText("SCROLL-0001");
+
+	// Wheel up, the conventional direction for older output.
+	await wheelOverTerminal(page, -80);
+	await expect(rows).toContainText("SCROLL-0001");
+	await expect(rows).not.toContainText("SCROLL-0200");
+
+	// And back down to where the prompt is.
+	await wheelOverTerminal(page, 80);
+	await expect(rows).toContainText("SCROLL-0200");
+	await expect(rows).not.toContainText("SCROLL-0001");
+});
+
+test("a reload shows earlier output above the prompt", async ({ page, context }) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	await printUntilVisible(page, terminalId, manyLines(60));
+
+	await page.reload();
+	await expect(page.getByRole("tab", { name: "Terminal 1" })).toBeVisible({
+		timeout: 15_000,
+	});
+	await expectConnected(page, terminalId);
+
+	// The agent sends what scrolled off before the shell's screen is drawn, so
+	// there is earlier output to scroll back to (SPEC.md §9.1).
+	await wheelOverTerminal(page, -40);
+	await expect(rowsOf(page, terminalId)).toContainText("SCROLL-0001");
+});
+
+/** Everything the fake agent has been sent on any attachment. */
+async function framesSentToAgent(terminalId: string): Promise<string[]> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/received`);
+	const body = (await response.json()) as {
+		received: { terminalId: string; text: string }[];
+	};
+	// One fake agent serves every workspace in the run, so take this
+	// terminal's frames only.
+	return body.received
+		.filter((frame) => frame.terminalId === terminalId)
+		.map((frame) => frame.text);
+}
+
+/** The escape a terminal sends for the down and up arrow keys. */
+const ARROW_KEY = /\\u001b\[[AB]|\\u001bO[AB]/;
+
+/** Say a full-screen program has taken the terminal, or given it back. */
+async function setAlternateScreen(
+	terminalId: string,
+	alternate: boolean,
+): Promise<void> {
+	const response = await fetch(
+		`${FAKE_AGENT_URL}/__test/terminals/${terminalId}/screen`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ alternate }),
+		},
+	);
+	if (!response.ok) throw new Error(`could not set the screen: ${response.status}`);
+}
+
+/**
+ * While a full-screen program such as nano or less holds the terminal there
+ * is nothing of its own to scroll, so wheel notches become arrow keys and
+ * move it a line at a time. At a shell prompt the wheel scrolls the
+ * terminal's own output instead (SPEC.md §9.1).
+ */
+test("the wheel moves a full-screen program a line at a time", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+	const rows = rowsOf(page, terminalId);
+
+	await printUntilVisible(page, terminalId, manyLines(200));
+
+	await setAlternateScreen(terminalId, true);
+	const before = (await framesSentToAgent(terminalId)).length;
+	await wheelOverTerminal(page, -1);
+	await expect
+		.poll(async () => (await framesSentToAgent(terminalId)).slice(before).join(""))
+		.toMatch(ARROW_KEY);
+	// The program owns the screen, so nothing of the terminal's scrolled.
+	await expect(rows).toContainText("SCROLL-0200");
+
+	// Giving the screen back puts the wheel on the terminal's own output.
+	await setAlternateScreen(terminalId, false);
+	const afterLeaving = (await framesSentToAgent(terminalId)).length;
+	await wheelOverTerminal(page, -80);
+	await expect(rows).toContainText("SCROLL-0001");
+	expect(
+		(await framesSentToAgent(terminalId)).slice(afterLeaving).join(""),
+	).not.toMatch(ARROW_KEY);
+});
+
+/**
+ * xterm.js 6 draws its own scrollbar rather than letting the browser do it,
+ * so the thin quiet bar of the design system is set through xterm's options
+ * and has to be checked on the element it actually draws (SPEC.md §9.1).
+ */
+test("the terminal's scrollbar is thin, rounded and has no track", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	await printUntilVisible(page, terminalId, manyLines(200));
+	await wheelOverTerminal(page, -20);
+
+	const measured = await page.evaluate(() => {
+		const bar = document.querySelector(
+			".pk-terminal-surface .xterm-scrollable-element > .scrollbar.vertical",
+		);
+		const slider = bar?.querySelector(".slider");
+		if (!(bar instanceof HTMLElement) || !(slider instanceof HTMLElement)) return null;
+		return {
+			barWidth: bar.getBoundingClientRect().width,
+			track: getComputedStyle(bar).backgroundColor,
+			sliderWidth: slider.getBoundingClientRect().width,
+			sliderBackground: getComputedStyle(slider).backgroundColor,
+			sliderRadius: getComputedStyle(slider).borderRadius,
+		};
+	});
+
+	expect(measured).toEqual({
+		barWidth: 6,
+		track: "rgba(0, 0, 0, 0)",
+		sliderWidth: 6,
+		sliderBackground: "rgba(154, 147, 134, 0.4)",
+		sliderRadius: "9999px",
+	});
 });

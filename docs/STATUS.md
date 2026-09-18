@@ -118,6 +118,51 @@ runtime: the API relays the level to each running workspace's agent and the
 worker relays it to the controller. CI now runs the tests with coverage and
 fails below the floors set in `vitest.config.ts`.
 
+On the pilot feedback branch, the workspace agent no longer drops the frames a
+browser sends while an attachment is still starting. It listens from the first
+moment of the attach, holds input in the existing early-input queue, and uses
+the last size asked for during that window as the size of the new PTY, so a
+pane that corrects its size straight after opening is no longer left blank
+(SPEC.md 9.7). A socket that closes in that window aborts the attach without
+starting a shell.
+The terminal title bar now follows `cd` (SPEC.md section 9.3). The
+workspace agent's single pane poll, described below, sends a `cwd` frame on
+the terminal WebSocket when a pane's path changes, which the web app uses
+to update the title. The path is not written to the database, so a new
+attachment learns it from the next poll.
+
+Terminal panes can now be rearranged by dragging their title bars (SPEC.md
+sections 8.3 and 9.3). Dropping a pane on another pane's left, right, top,
+or bottom half makes it that pane's sibling in a row or column split, and
+dropping on the middle swaps the two, so a stacked pair becomes a
+side-by-side pair and back. While a drag is live the hovered pane shades
+the half it would take. Dropping on the tab strip pulls the pane out into a
+tab of its own at the marked position, and a tab left empty disappears.
+`moveLeaf` and `moveLeafToNewTab` in `apps/web/src/layout/tree.ts` do the
+work; both refuse a move that would break the split-depth or tab limits and
+leave the layout alone. The drag uses the dnd-kit already in the repo, with
+the same 4-pixel activation distance as tab reordering, so a click on a
+title bar still just focuses the pane.
+
+Reviving an ended terminal now stays in its own pane (SPEC.md sections 9.5
+and 9.7): `reconcile` no longer gives a tab back to an ended terminal that
+has no pane, since those rows are listing history rather than panes, and the
+store drops any pane a terminal already has before placing it, so a list
+refetch that arrives mid-revive cannot leave the same terminal in two places.
+Creating a terminal no longer refetches the terminal list by itself either:
+the caller places the new terminal and then asks for the refetch, so no
+reconcile ever sees a terminal that has no pane yet and no half-placed layout
+can be saved. One consequence: a terminal that ends within about a second of being opened,
+before its pane reaches the saved layout, is not restored as a tab on reload
+and stays only in the ended list.
+
+Workspace image `2026.09.4` keeps the apt package lists instead of deleting
+them at the end of the build and adds Debian's `command-not-found`, so a
+fresh workspace can run `sudo apt install <package>` without `apt update`
+first, and a mistyped or missing command names the package that provides
+it. The lists are as of the build date and Debian's daily timer refreshes
+them in a running workspace.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
 is wired up, the only admin UI is the grace period page, nothing
@@ -139,7 +184,22 @@ them leaves the old row missing and the new directory discovered as a
 separate project (tracked in `docs/BACKLOG.md`). Terminal names count per workspace rather than per
 project, so a second project's first terminal may be "Terminal 3", and a
 workspace created on an older image lacks zip until it is recreated, which
-the agent reports as a download failure. From the grace period task, the
+the agent reports as a download failure, and the same workspace has empty
+apt lists and no `command-not-found` until it is recreated. The projects pane now refetches every
+ten seconds while the tab is visible and again when it regains focus, so a
+repository made in a terminal turns up without any UI action, and every row that
+is not missing shows its folder name next to the project name. A project can
+also be deleted for good from its menu: the student types the project's slug
+back, the API ends any terminal sitting in the folder, the agent removes
+`~/projects/<slug>`, and the row and an audit event record it. The delete now
+takes the same one-at-a-time slot the other slow project operations take, so it
+cannot run beside a clone or a copy, but it only ends terminals that were
+created in the project: a terminal that had moved into the folder with `cd`
+keeps running with its shell in a directory that no longer exists, until the
+student opens a new one. Whenever the
+agent runs `git init` for a project, whether on create, on a template, or
+through Initialize Git, it also writes a default `.gitignore` if the project
+has none, so a template that ships its own keeps it. From the grace period task, the
 administration page is a settings form, not the Epic 11 mockup, and the
 infrastructure smoke test now signs in as the mock identity provider's
 administrator to shorten the grace period. From structured logging, an agent
@@ -152,5 +212,32 @@ the login rate-limit gap above: a Caddy rate limit plus a journald
 second, so debug is meant for short investigations rather than everyday
 running; and a workspace owner who holds the agent token can set their own
 agent's level, which stays until the setting next changes or the workspace
-restarts. Epic 7 (files, Monaco, search,
+restarts. From pane dragging, there is no keyboard equivalent: a pane is
+rearranged with a pointer only, and a drop is refused silently when it
+would pass the split-depth or tab limits. The mouse wheel now scrolls a
+terminal's own scrollback and the viewport has a thin scrollbar, which
+needed tmux to stop using the alternate screen. tmux and the browser both
+keep 5,000 lines, and an attachment is sent the pane's earlier lines, at
+most 256 KiB of them, so a reload no longer starts with a bare prompt; the
+cost is one blank screenful between that history and the repainted screen,
+and a capture cut at the byte limit can lose the colour of its first few
+lines. A full-screen program such as nano still moves a line at a time: one
+poll for the whole agent asks tmux which panes have such a program on them
+and tells the browser, which turns wheel notches into arrow keys while it
+does. The poll runs twice a second normally and four times a second while
+any pane is in that state, so for up to about half a second after a program
+takes the screen, and a quarter of a second after it lets go, a wheel notch
+may do the other thing. The workspace dialog can now start,
+stop and restart the workspace (a confirmation first for stop and restart),
+and dialog rows wrap rather than scrolling sideways, so a 64-character image
+fingerprint no longer pushes the title and close button off screen; the
+fingerprint is shown shortened with the full value in its tooltip. A review of
+the epic branch also fixed a few things: a pane torn off to the tab strip now
+gets a tab id of its own rather than reusing the terminal id, which could give
+two tabs the same id, and the layout schema rejects a saved layout with
+duplicate tab ids; a newly created terminal is written into the cached list, so
+a list request already in flight cannot answer without it and take its pane
+away; and a split keys its children by terminal, so dropping a pane on another
+pane's centre swaps them without tearing down and reconnecting both terminals. The infrastructure smoke test now records every workspace, Incus instance and user row it creates and deletes only those, and lists any workspace that already exists, leaves it alone, and skips the lifecycle checks entirely rather than adopting or shortening the grace period around somebody else's workspace; `infra/tests/cleanup-scope-test.sh` proves that with a stubbed SSH command and runs in `make infra-check`.
+Epic 7 (files, Monaco, search,
 and change review) is next.

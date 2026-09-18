@@ -454,7 +454,7 @@ P0 creation methods:
 
 For a new project, `git init` should be the default behavior because source control is part of the standard Portikus workflow. The UI may allow an explicit opt-out when appropriate.
 
-If Portikus opens an existing project that is not a Git repository, the UI must identify that state clearly and offer an **Initialize Git** action. Initialization must invoke real Git and must not create hidden commits.
+If Portikus opens an existing project that is not a Git repository, the UI must identify that state clearly and offer an **Initialize Git** action. Initialization must invoke real Git and must not create hidden commits. A new project initialised with Git starts with a default `.gitignore` covering secrets, dependency directories, build output and local databases; it is left untracked, and a project that already has one keeps it.
 
 ### 7.3 Project operations
 
@@ -463,13 +463,9 @@ P0:
 - rename;
 - duplicate;
 - download/export;
-- archive.
-
-P2:
-
-- permanent delete.
-
-P0 must not require a permanent delete action in the student UI.
+- archive;
+- permanent delete, behind a confirmation that requires typing the project's
+  slug.
 
 ### 7.4 Archive semantics
 
@@ -683,8 +679,10 @@ layout position, creation time, and the time it ended. The control plane
 marks a terminal ended when its workspace begins stopping; closing a
 terminal deliberately deletes its row instead. An ended terminal is shown
 as ended with an action to create a new one, and a listing returns every
-open terminal plus the 20 most recently ended ones. No output is replayed
-on reconnect.
+open terminal plus the 20 most recently ended ones. On attach the agent
+replays the pane's recent history from tmux, up to the capture limit, into
+the browser's scrollback, so a reload shows earlier output above the
+prompt; the platform still stores no terminal output anywhere.
 
 The browser connects to the control plane at
 `/workspaces/:id/terminals/:terminalId/ws`, and the control plane connects
@@ -2370,6 +2368,53 @@ Acceptance:
 
 - switching projects restores project-specific UI state;
 - project filesystem paths conform to `~/projects/<slug>`.
+
+### Epic 6.1 — Pilot feedback on terminals and projects
+**Estimate:** 2–3 engineer-days
+
+Fixes and small features from the first hands-on use of the pilot after
+Epic 6, gathered on 2026-09-17. Each item lands as its own pull request into
+the epic branch.
+
+Includes:
+
+- terminal input sent in the first moments after attach is queued, not
+  dropped, and the smoke test's terminal checks no longer race the agent;
+- Ctrl+V and Ctrl+Shift+V paste once (the browser's own paste no longer
+  runs alongside the application's);
+- the project list refreshes on its own, so a repository created from the
+  shell appears without any UI action, and every project row shows its
+  folder;
+- the terminal title follows the shell's current directory;
+- a terminal pane can be dragged onto another pane's edge to reflow the
+  split, onto its centre to swap, or onto the tab bar to become its own
+  tab, with a drop zone drawn while dragging;
+- a terminal revived after a grace-period stop draws its prompt correctly;
+- a terminal revived after a grace-period stop takes the ended terminal's
+  pane rather than also appearing as a new tab, and ended terminals no
+  longer return as tabs;
+- the workspace dialog can start, stop and restart the workspace, and its
+  rows wrap instead of scrolling sideways;
+- a project can be deleted for good from its menu, behind a confirmation that
+  requires typing the project's slug;
+- the mouse wheel scrolls the terminal's own output, wheel up for older
+  lines, behind a thin scrollbar, and still moves a full-screen program
+  such as nano a line at a time;
+- initializing Git in a project writes a default `.gitignore` when the
+  project has none;
+- the workspace image ships with the apt package lists in place and with
+  `command-not-found` installed, so `sudo apt install <package>` works in a
+  fresh workspace without `apt update` first, and typing a command that is
+  not installed prints the package that provides it.
+
+Acceptance:
+
+- every user-visible item above has a Playwright case, the default
+  `.gitignore` is covered by workspace-agent unit tests, and the smoke test
+  passes with no failures on the pilot after the epic is deployed;
+- no terminal keystroke is lost between socket open and the first prompt;
+- a drag that would exceed the split depth limit leaves the layout as it
+  was.
 
 ### Epic 7 — Files, Monaco, search, Git status, and change review
 **Estimate:** 7–9 engineer-days
