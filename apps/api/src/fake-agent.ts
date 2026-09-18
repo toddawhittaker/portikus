@@ -933,12 +933,6 @@ export async function startFakeAgent(
 		return lastSearches.get(answerKey(query.key ?? "", query.slug)) ?? null;
 	});
 
-	// What the last search of one project actually asked for.
-	app.get("/__test/search/last", async (request) => {
-		const query = request.query as { key?: string; slug: string };
-		return lastSearches.get(answerKey(query.key ?? "", query.slug)) ?? null;
-	});
-
 	app.post("/__test/events", async (request, reply) => {
 		const body = request.body as {
 			key?: string;
