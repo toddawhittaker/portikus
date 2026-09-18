@@ -3,10 +3,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { MAX_DIFF_SIDE_BYTES } from "@portikus/contracts";
+import { MAX_DIFF_SIDE_BYTES, MAX_GIT_ENTRIES } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { gitDiff, gitStatus, parsePorcelainV2 } from "./git.js";
+import { gitDiff, gitStatus, parsePorcelainV2, showFromHead } from "./git.js";
 import { buildServer } from "./server.js";
 
 const execFileAsync = promisify(execFile);
@@ -93,12 +93,34 @@ test("the parser reads every record kind, including paths with spaces", () => {
 	expect(status.conflicts).toBe(1);
 	expect(status.ignored).toEqual(["ignored.log"]);
 	expect(status.entries).toEqual([
-		{ path: "src/my file.ts", x: ".", y: "M" },
-		{ path: "new name.ts", x: "R", y: ".", origPath: "old name.ts" },
-		{ path: "conflict.ts", x: "U", y: "U" },
-		{ path: "untracked.txt", x: "?", y: "?" },
+		{ path: "src/my file.ts", x: ".", y: "M", unmerged: false },
+		{
+			path: "new name.ts",
+			x: "R",
+			y: ".",
+			unmerged: false,
+			origPath: "old name.ts",
+		},
+		{ path: "conflict.ts", x: "U", y: "U", unmerged: true },
+		{ path: "untracked.txt", x: "?", y: "?", unmerged: false },
 	]);
 	expect(status.truncated).toBe(false);
+});
+
+test("a both-added record is a conflict as much as a both-modified one", () => {
+	const text = [
+		"# branch.head main",
+		"u AA N... 100644 100644 100644 100644 e1 e2 e3 both-added.ts",
+		"u DD N... 100644 100644 100644 100644 f1 f2 f3 both-deleted.ts",
+		"",
+	].join("\0");
+
+	const status = parsePorcelainV2(text);
+	expect(status.conflicts).toBe(2);
+	expect(status.entries).toEqual([
+		{ path: "both-added.ts", x: "A", y: "A", unmerged: true },
+		{ path: "both-deleted.ts", x: "D", y: "D", unmerged: true },
+	]);
 });
 
 test("a detached head has no branch name", () => {
@@ -114,6 +136,17 @@ test("the entry list is capped and says so", () => {
 	}
 	const status = parsePorcelainV2(records.join("\0"));
 	expect(status.entries).toHaveLength(5000);
+	expect(status.truncated).toBe(true);
+});
+
+test("ignored paths share the entry cap", () => {
+	const records: string[] = [];
+	for (let i = 0; i < 100; i += 1) records.push(`? file-${i}.txt`);
+	for (let i = 0; i < MAX_GIT_ENTRIES; i += 1) records.push(`! noise-${i}.log`);
+
+	const status = parsePorcelainV2(records.join("\0"));
+	expect(status.entries).toHaveLength(100);
+	expect(status.ignored).toHaveLength(MAX_GIT_ENTRIES - 100);
 	expect(status.truncated).toBe(true);
 });
 
@@ -140,7 +173,9 @@ test("a repository with no commits lists untracked files and adds them", async (
 	const status = await gitStatus(homeDir, SLUG, { hidden: false });
 	expect(status.repo).toBe(true);
 	expect(status.branch).toBe("main");
-	expect(status.entries).toEqual([{ path: "new.txt", x: "?", y: "?" }]);
+	expect(status.entries).toEqual([
+		{ path: "new.txt", x: "?", y: "?", unmerged: false },
+	]);
 	expect(status.upstream).toBeNull();
 
 	const diff = await gitDiff(homeDir, SLUG, "new.txt");
@@ -156,7 +191,7 @@ test("a modified tracked file diffs HEAD against the working tree", async () => 
 	await writeFile(join(project, "a.txt"), "two\n");
 
 	const status = await gitStatus(homeDir, SLUG, { hidden: false });
-	expect(status.entries).toEqual([{ path: "a.txt", x: ".", y: "M" }]);
+	expect(status.entries).toEqual([{ path: "a.txt", x: ".", y: "M", unmerged: false }]);
 
 	const diff = await gitDiff(homeDir, SLUG, "a.txt");
 	expect(diff.status).toBe("M");
@@ -308,14 +343,61 @@ test("an oversized HEAD side is capped while git is still writing it", async () 
 	expect(diff.after).toBeNull();
 });
 
-test("a directory has no working-tree side", async () => {
+test("a directory is refused, tracked or not, rather than shown as content", async () => {
 	await initRepo(project);
 	await mkdir(join(project, "src"));
 	await writeFile(join(project, "src", "a.txt"), "one\n");
 
-	const diff = await gitDiff(homeDir, SLUG, "src");
-	expect(diff.after).toBeNull();
-	expect(diff.status).toBe("A");
+	// Untracked: the working tree has a directory there.
+	await expect(gitDiff(homeDir, SLUG, "src")).rejects.toThrow("not a file");
+
+	// Tracked: HEAD has a tree there, and git show would print its listing.
+	await commitAll(project, "first");
+	await expect(gitDiff(homeDir, SLUG, "src")).rejects.toThrow("not a file");
+
+	// And when the directory is gone from the working tree but still in HEAD.
+	await rm(join(project, "src"), { recursive: true });
+	await expect(gitDiff(homeDir, SLUG, "src")).rejects.toThrow("not a file");
+});
+
+test("a git timeout is an error, not a missing HEAD side", async () => {
+	await initRepo(project);
+	await writeFile(join(project, "a.txt"), "one\n");
+	await commitAll(project, "first");
+
+	await expect(showFromHead(project, "a.txt", { timeoutMs: 1 })).rejects.toThrow(
+		"git timed out",
+	);
+});
+
+test("an unmerged entry carries the conflict flag", async () => {
+	await initRepo(project);
+	await writeFile(join(project, "a.txt"), "base\n");
+	await commitAll(project, "base");
+	await git(["checkout", "-b", "other"], project);
+	await writeFile(join(project, "a.txt"), "theirs\n");
+	await commitAll(project, "theirs");
+	await git(["checkout", "main"], project);
+	await writeFile(join(project, "a.txt"), "ours\n");
+	await commitAll(project, "ours");
+	await expect(git(["merge", "other"], project)).rejects.toThrow();
+
+	const status = await gitStatus(homeDir, SLUG, { hidden: false });
+	expect(status.entries.find((entry) => entry.path === "a.txt")?.unmerged).toBe(true);
+});
+
+test("the ignored list is capped with the entries and says so", async () => {
+	await initRepo(project);
+	await writeFile(join(project, ".gitignore"), "*.log\n");
+	const noise = join(project, "noise");
+	await mkdir(noise);
+	for (let i = 0; i < MAX_GIT_ENTRIES + 10; i += 1) {
+		await writeFile(join(noise, `f-${i}.log`), "x");
+	}
+
+	const status = await gitStatus(homeDir, SLUG, { hidden: true });
+	expect(status.entries.length + status.ignored.length).toBe(MAX_GIT_ENTRIES);
+	expect(status.truncated).toBe(true);
 });
 
 test("a file in a project that is not a repository reads as added", async () => {

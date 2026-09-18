@@ -1,10 +1,10 @@
-import { GitStatusQuery } from "@portikus/contracts";
+import { GitStatusQuery, ProjectPath } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { gitDiff, gitStatus } from "./git.js";
 import { AgentFailure } from "./tmux.js";
 
-const DiffQuery = z.object({ path: z.string().min(1).max(1024) });
+const DiffQuery = z.object({ path: ProjectPath });
 
 type SendError = (
 	request: FastifyRequest,
@@ -23,14 +23,15 @@ export function registerGitRoutes(
 ): void {
 	instance.get("/projects/:slug/git/status", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
-		const query = GitStatusQuery.safeParse(request.query ?? {});
-		if (!query.success) {
-			return reply
-				.code(400)
-				.send({ error: { code: "BAD_REQUEST", message: "invalid hidden flag" } });
-		}
 		try {
-			return await gitStatus(options.homeDir, slug, { hidden: query.data.hidden });
+			const query = GitStatusQuery.safeParse(request.query ?? {});
+			if (!query.success) {
+				throw new AgentFailure("BAD_REQUEST", "invalid hidden flag");
+			}
+			return await gitStatus(options.homeDir, slug, {
+				hidden: query.data.hidden,
+				log: request.log,
+			});
 		} catch (error) {
 			return sendError(request, reply, error);
 		}
@@ -38,12 +39,14 @@ export function registerGitRoutes(
 
 	instance.get("/projects/:slug/git/diff", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
-		const query = DiffQuery.safeParse(request.query ?? {});
 		try {
+			const query = DiffQuery.safeParse(request.query ?? {});
 			if (!query.success) {
 				throw new AgentFailure("PATH_INVALID", "invalid path");
 			}
-			return await gitDiff(options.homeDir, slug, query.data.path);
+			return await gitDiff(options.homeDir, slug, query.data.path, {
+				log: request.log,
+			});
 		} catch (error) {
 			return sendError(request, reply, error);
 		}

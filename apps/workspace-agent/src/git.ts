@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { open, stat } from "node:fs/promises";
+import { lstat, open, stat } from "node:fs/promises";
 import {
 	type GitDiff,
 	type GitEntry,
@@ -16,54 +16,84 @@ const GIT_TIMEOUT_MS = 10_000;
 /** How much of a side is sniffed for a NUL byte before it is called binary. */
 const SNIFF_BYTES = 8 * 1024;
 
-/** How much git stderr travels back to the student. */
+/** How much git stderr is kept for the debug log. It never reaches a body. */
 const STDERR_LIMIT = 2048;
 
-interface GitResult {
+/** Somewhere to put git stderr that is not the response body (STACK.md §15). */
+export interface GitDebugLog {
+	debug: (details: object, message: string) => void;
+}
+
+export interface GitResult {
 	ok: boolean;
 	stdout: Buffer;
 	stderr: string;
 	/** The output passed the byte cap and the child was killed. */
 	overflow: boolean;
+	/** The timer fired and the child was killed. */
+	timedOut: boolean;
+	/** The exit status, or null when a signal ended the child. */
+	exitCode: number | null;
+}
+
+/** Kill the whole process group, so any helper git spawned dies with it. */
+function killGroup(pid: number | undefined): void {
+	if (pid === undefined) return;
+	try {
+		process.kill(-pid, "SIGKILL");
+	} catch {
+		// The child is already gone, which is the outcome we wanted.
+	}
 }
 
 /**
  * Run git with argv only, never a shell. Output is capped, so a huge blob
  * cannot be buffered without limit; the child is killed once past the cap.
  */
-async function runGit(
+export async function runGit(
 	args: string[],
 	cwd: string,
 	maxBytes: number,
+	timeoutMs: number = GIT_TIMEOUT_MS,
 ): Promise<GitResult> {
 	return new Promise<GitResult>((resolve, reject) => {
-		const child = spawn("git", args, {
-			cwd,
-			stdio: ["ignore", "pipe", "pipe"],
-			env: {
-				...process.env,
-				// Reading status must never write the index or ask for a password.
-				GIT_OPTIONAL_LOCKS: "0",
-				GIT_TERMINAL_PROMPT: "0",
-				LC_ALL: "C",
+		const child = spawn(
+			"git",
+			// A repository's own config could name a filesystem-monitor command,
+			// which git would run during status. Turn it off (SPEC.md §24.6).
+			["-c", "core.fsmonitor=", ...args],
+			{
+				cwd,
+				stdio: ["ignore", "pipe", "pipe"],
+				// Its own process group, so a kill reaches helpers too.
+				detached: true,
+				env: {
+					...process.env,
+					// Reading status must never write the index or ask for a password.
+					GIT_OPTIONAL_LOCKS: "0",
+					GIT_TERMINAL_PROMPT: "0",
+					LC_ALL: "C",
+				},
 			},
-		});
+		);
 		const chunks: Buffer[] = [];
 		let size = 0;
 		let overflow = false;
+		let timedOut = false;
 		let stderr = "";
 		let settled = false;
 
 		const timer = setTimeout(() => {
-			child.kill("SIGKILL");
-		}, GIT_TIMEOUT_MS);
+			timedOut = true;
+			killGroup(child.pid);
+		}, timeoutMs);
 
 		child.stdout.on("data", (chunk: Buffer) => {
 			if (overflow) return;
 			size += chunk.length;
 			if (size > maxBytes) {
 				overflow = true;
-				child.kill("SIGKILL");
+				killGroup(child.pid);
 				return;
 			}
 			chunks.push(chunk);
@@ -82,10 +112,12 @@ async function runGit(
 			settled = true;
 			clearTimeout(timer);
 			resolve({
-				ok: code === 0 && !overflow,
+				ok: code === 0 && !overflow && !timedOut,
 				stdout: Buffer.concat(chunks),
 				stderr: stderr.trim(),
 				overflow,
+				timedOut,
+				exitCode: code,
 			});
 		});
 	});
@@ -115,6 +147,8 @@ export function parsePorcelainV2(text: string): GitStatus {
 	const status = emptyStatus();
 	status.repo = true;
 	const records = text.split("\0");
+	// Entries and ignored paths share one budget: both travel in the response.
+	let budget = MAX_GIT_ENTRIES;
 	for (let i = 0; i < records.length; i += 1) {
 		const record = records[i];
 		if (!record) continue;
@@ -140,13 +174,18 @@ export function parsePorcelainV2(text: string): GitStatus {
 		}
 
 		if (kind === "!") {
+			if (budget <= 0) {
+				status.truncated = true;
+				continue;
+			}
+			budget -= 1;
 			status.ignored.push(record.slice(2));
 			continue;
 		}
 
 		let entry: GitEntry;
 		if (kind === "?") {
-			entry = { path: record.slice(2), x: "?", y: "?" };
+			entry = { path: record.slice(2), x: "?", y: "?", unmerged: false };
 		} else if (kind === "1") {
 			const fields = record.split(" ");
 			const xy = fields[1] ?? "..";
@@ -154,6 +193,7 @@ export function parsePorcelainV2(text: string): GitStatus {
 				path: fields.slice(8).join(" "),
 				x: xy[0] ?? ".",
 				y: xy[1] ?? ".",
+				unmerged: false,
 			};
 		} else if (kind === "2") {
 			const fields = record.split(" ");
@@ -164,6 +204,7 @@ export function parsePorcelainV2(text: string): GitStatus {
 				path: fields.slice(9).join(" "),
 				x: xy[0] ?? ".",
 				y: xy[1] ?? ".",
+				unmerged: false,
 				origPath: records[i] ?? "",
 			};
 			if (!entry.origPath) delete entry.origPath;
@@ -171,19 +212,23 @@ export function parsePorcelainV2(text: string): GitStatus {
 			const fields = record.split(" ");
 			const xy = fields[1] ?? "UU";
 			status.conflicts += 1;
+			// Every `u` record is a conflict, including both-added (AA) and
+			// both-deleted (DD) (SPEC.md §12.8).
 			entry = {
 				path: fields.slice(10).join(" "),
 				x: xy[0] ?? "U",
 				y: xy[1] ?? "U",
+				unmerged: true,
 			};
 		} else {
 			continue;
 		}
 
-		if (status.entries.length >= MAX_GIT_ENTRIES) {
+		if (budget <= 0) {
 			status.truncated = true;
 			continue;
 		}
+		budget -= 1;
 		status.entries.push(entry);
 	}
 	return status;
@@ -206,11 +251,17 @@ async function isRepoRoot(dir: string): Promise<boolean> {
 	return top === dir;
 }
 
+/** Drop the trailing partial record of a truncated NUL-separated stream. */
+function completeRecords(text: string): string {
+	const end = text.lastIndexOf("\0");
+	return end === -1 ? "" : text.slice(0, end + 1);
+}
+
 /** Read the repository status for one project (SPEC.md §12.1, §12.8). */
 export async function gitStatus(
 	homeDir: string,
 	slug: string,
-	options: { hidden: boolean },
+	options: { hidden: boolean; log?: GitDebugLog },
 ): Promise<GitStatus> {
 	const dir = await projectDir(homeDir, slug);
 	if (!(await isRepoRoot(dir))) {
@@ -221,13 +272,14 @@ export async function gitStatus(
 	// A capped read is enough: past the cap the list is truncated anyway.
 	const result = await runGit(args, dir, 32 * 1024 * 1024);
 	if (result.overflow) {
-		const status = emptyStatus();
-		status.repo = true;
+		// Keep what arrived whole, so the branch line and ahead/behind survive.
+		const status = parsePorcelainV2(completeRecords(result.stdout.toString()));
 		status.truncated = true;
 		return status;
 	}
 	if (!result.ok) {
-		throw new AgentFailure("GIT_FAILED", result.stderr || "git status failed");
+		options.log?.debug({ stderr: result.stderr }, "git status failed");
+		throw new AgentFailure("GIT_FAILED", "git status failed");
 	}
 	return parsePorcelainV2(result.stdout.toString());
 }
@@ -239,11 +291,34 @@ interface Side {
 
 const MISSING: Side = { content: null, tooLarge: false };
 
-/** Read a blob out of HEAD, capped. A path HEAD does not have reads as null. */
-async function showFromHead(dir: string, path: string): Promise<Side> {
-	const result = await runGit(["show", `HEAD:${path}`], dir, MAX_DIFF_SIDE_BYTES + 1);
+/**
+ * Read a blob out of HEAD, capped. A path HEAD does not have reads as null,
+ * but only when git said so itself: a killed git is an error, not an add.
+ */
+export async function showFromHead(
+	dir: string,
+	path: string,
+	options: { log?: GitDebugLog; timeoutMs?: number } = {},
+): Promise<Side> {
+	const result = await runGit(
+		["show", `HEAD:${path}`],
+		dir,
+		MAX_DIFF_SIDE_BYTES + 1,
+		options.timeoutMs,
+	);
 	if (result.overflow) return { content: null, tooLarge: true };
-	if (!result.ok) return MISSING;
+	if (result.timedOut) {
+		throw new AgentFailure("GIT_FAILED", "git timed out");
+	}
+	if (result.exitCode === null) {
+		// A signal ended it. Nothing here says the path is absent from HEAD.
+		options.log?.debug({ stderr: result.stderr }, "git show failed");
+		throw new AgentFailure("GIT_FAILED", "git show failed");
+	}
+	if (!result.ok) {
+		options.log?.debug({ stderr: result.stderr }, "git show failed");
+		return MISSING;
+	}
 	if (result.stdout.length > MAX_DIFF_SIDE_BYTES) {
 		return { content: null, tooLarge: true };
 	}
@@ -272,6 +347,47 @@ function isBinary(side: Side): boolean {
 	return side.content?.subarray(0, SNIFF_BYTES).includes(0) ?? false;
 }
 
+interface PathState {
+	origPath?: string;
+	unmerged: boolean;
+}
+
+/**
+ * The rename origin and conflict state of one path. Git only reports a rename
+ * when it can see both the old and the new path, so there is no pathspec and
+ * the whole status is walked once per diff. That walk is the price of rename
+ * detection; if it proves slow the UI can pass the old path it already has
+ * from the status response, in a later task.
+ *
+ * The raw records are scanned rather than parsed into entries, so a rename
+ * past the entry cap is still found.
+ */
+async function pathState(dir: string, relPath: string): Promise<PathState> {
+	const result = await runGit(
+		["status", "--porcelain=v2", "--untracked-files=no", "-z"],
+		dir,
+		32 * 1024 * 1024,
+	);
+	const state: PathState = { unmerged: false };
+	if (!result.ok) return state;
+	const records = completeRecords(result.stdout.toString()).split("\0");
+	for (let i = 0; i < records.length; i += 1) {
+		const record = records[i];
+		if (!record) continue;
+		if (record.startsWith("2 ")) {
+			const fields = record.split(" ");
+			const path = fields.slice(9).join(" ");
+			// The original path is the next NUL-separated field.
+			i += 1;
+			if (path === relPath && records[i]) state.origPath = records[i];
+		} else if (record.startsWith("u ")) {
+			const fields = record.split(" ");
+			if (fields.slice(10).join(" ") === relPath) state.unmerged = true;
+		}
+	}
+	return state;
+}
+
 /**
  * The HEAD version of a file against its working-tree version (SPEC.md §12.6).
  * Read-only: this never commits, adds, stashes, checks out, branches or tags
@@ -281,49 +397,40 @@ export async function gitDiff(
 	homeDir: string,
 	slug: string,
 	relPath: string,
+	options: { log?: GitDebugLog } = {},
 ): Promise<GitDiff> {
-	if (relPath === "") {
-		throw new AgentFailure("PATH_INVALID", "a diff needs a file path");
-	}
 	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: false });
 	const dir = target.root;
-	const repo = await isRepoRoot(dir);
 
-	let origPath: string | undefined;
-	let unmerged = false;
-	if (repo) {
-		// No pathspec: Git only reports a rename when it can see both paths.
-		const result = await runGit(
-			["status", "--porcelain=v2", "--untracked-files=no", "-z"],
-			dir,
-			32 * 1024 * 1024,
-		);
-		if (result.ok) {
-			const text = result.stdout.toString();
-			origPath = parsePorcelainV2(text).entries.find(
-				(candidate) => candidate.path === relPath,
-			)?.origPath;
-			// An unmerged record is the only place Git records a conflict.
-			unmerged = text
-				.split("\0")
-				.some(
-					(record) =>
-						record.startsWith("u ") &&
-						record.split(" ").slice(10).join(" ") === relPath,
-				);
-		}
+	// A directory is not a diffable file on either side: git would happily
+	// show a tree listing as if it were the file's content.
+	// A missing path is fine here: HEAD may still have it.
+	const info = await lstat(target.path).catch(() => null);
+	if (info && !info.isFile()) {
+		throw new AgentFailure("PATH_INVALID", "not a file");
 	}
+
+	const repo = await isRepoRoot(dir);
+	const state = repo ? await pathState(dir, relPath) : { unmerged: false };
+	const origPath = state.origPath;
+	const headPath = origPath ?? relPath;
 
 	const hasHead =
 		repo && (await runGit(["rev-parse", "--verify", "HEAD"], dir, 4096)).ok;
-	const before = hasHead ? await showFromHead(dir, origPath ?? relPath) : MISSING;
+	if (hasHead) {
+		const kind = await runGit(["cat-file", "-t", `HEAD:${headPath}`], dir, 4096);
+		if (kind.ok && kind.stdout.toString().trim() !== "blob") {
+			throw new AgentFailure("PATH_INVALID", "not a file");
+		}
+	}
+	const before = hasHead ? await showFromHead(dir, headPath, options) : MISSING;
 	const after = await readWorkingTree(target.path);
 
 	const tooLarge = before.tooLarge || after.tooLarge;
 	const binary = !tooLarge && (isBinary(before) || isBinary(after));
 
 	let status: GitDiff["status"];
-	if (unmerged) status = "U";
+	if (state.unmerged) status = "U";
 	else if (origPath) status = "R";
 	else if (before.content === null && !before.tooLarge) status = "A";
 	else if (after.content === null && !after.tooLarge) status = "D";
