@@ -192,7 +192,12 @@ repository made in a terminal turns up without any UI action, and every row that
 is not missing shows its folder name next to the project name. A project can
 also be deleted for good from its menu: the student types the project's slug
 back, the API ends any terminal sitting in the folder, the agent removes
-`~/projects/<slug>`, and the row and an audit event record it. Whenever the
+`~/projects/<slug>`, and the row and an audit event record it. The delete now
+takes the same one-at-a-time slot the other slow project operations take, so it
+cannot run beside a clone or a copy, but it only ends terminals that were
+created in the project: a terminal that had moved into the folder with `cd`
+keeps running with its shell in a directory that no longer exists, until the
+student opens a new one. Whenever the
 agent runs `git init` for a project, whether on create, on a template, or
 through Initialize Git, it also writes a default `.gitignore` if the project
 has none, so a template that ships its own keeps it. From the grace period task, the
