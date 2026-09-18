@@ -25,6 +25,8 @@ export const fileKeys = {
 		["files", workspaceId, projectId, dir] as const,
 	file: (workspaceId: string, projectId: string, path: string) =>
 		["file", workspaceId, projectId, path] as const,
+	diff: (workspaceId: string, projectId: string, path: string) =>
+		["git-diff", workspaceId, projectId, path] as const,
 };
 
 function treeUrl(workspaceId: string, projectId: string, dir: string): string {
@@ -315,7 +317,15 @@ function writeHeaders(etag: string | null): Record<string, string> {
 
 /** Write a file, conditional on its etag; a 412 becomes a FileConflictError. */
 export function useSaveFile(workspaceId: string, projectId: string, path: string) {
+	const queryClient = useQueryClient();
 	return useMutation({
+		// A saved file changes its diff, and nothing else invalidates it until
+		// the project events consumer lands (task 11 of this epic).
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: fileKeys.diff(workspaceId, projectId, path),
+			});
+		},
 		mutationFn: async ({ text, etag }: SaveFileInput): Promise<{ etag: string }> => {
 			const response = await fetch(fileUrl(workspaceId, projectId, path), {
 				method: "PUT",
