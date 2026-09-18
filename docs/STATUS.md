@@ -157,6 +157,13 @@ can be saved. One consequence: a terminal that ends within about a second of bei
 before its pane reaches the saved layout, is not restored as a tab on reload
 and stays only in the ended list.
 
+Workspace image `2026.09.4` keeps the apt package lists instead of deleting
+them at the end of the build and adds Debian's `command-not-found`, so a
+fresh workspace can run `sudo apt install <package>` without `apt update`
+first, and a mistyped or missing command names the package that provides
+it. The lists are as of the build date and Debian's daily timer refreshes
+them in a running workspace.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
 is wired up, the only admin UI is the grace period page, nothing
@@ -178,7 +185,8 @@ them leaves the old row missing and the new directory discovered as a
 separate project (tracked in `docs/BACKLOG.md`). Terminal names count per workspace rather than per
 project, so a second project's first terminal may be "Terminal 3", and a
 workspace created on an older image lacks zip until it is recreated, which
-the agent reports as a download failure. The projects pane now refetches every
+the agent reports as a download failure, and the same workspace has empty
+apt lists and no `command-not-found` until it is recreated. The projects pane now refetches every
 ten seconds while the tab is visible and again when it regains focus, so a
 repository made in a terminal turns up without any UI action, and every row that
 is not missing shows its folder name next to the project name. A project can

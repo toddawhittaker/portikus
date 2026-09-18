@@ -1548,6 +1548,12 @@ packages:
     - systemd-sysv
     - dbus
     - locales
+    # Suggests a package when a student types a command that is not
+    # installed.  On Debian the suggestion database is built from the
+    # apt-file Contents index, which the apt-file dependency enables in
+    # /etc/apt/apt.conf.d/50apt-file.conf; Debian publishes no cnf
+    # Commands index, so nothing extra has to be turned on.
+    - command-not-found
     action: install
 
   # Docker Engine and compose plugin
@@ -1666,6 +1672,11 @@ actions:
     # Add student to the docker group
     usermod -aG docker student
 
+    # command-not-found only prefixes its suggestion with "sudo" for a
+    # member of the sudo group.  /etc/sudoers.d/student already grants
+    # the same rights, so this adds no privilege.
+    usermod -aG sudo student
+
     # Create projects directory owned by student
     mkdir -p /home/student/projects
     chown 1000:1000 /home/student/projects
@@ -1719,6 +1730,21 @@ actions:
 
     echo "${PORTIKUS_IMAGE_VERSION:-unknown}" > /etc/portikus-image-version
 
+# Refresh the apt lists so a fresh workspace can install a package, and
+# suggest one, without running apt-get update first.  This must stay ahead
+# of the action that unmounts the build host's resolv.conf, which is the
+# last step in the build that needs the network.
+- trigger: post-packages
+  action: |-
+    #!/bin/sh
+    set -eux
+
+    mkdir -p /var/lib/apt/lists/partial
+    apt-get update -o Acquire::Retries=3
+
+    # Build the command-not-found database from the indexes just fetched.
+    update-command-not-found
+
 # Enable systemd-networkd
 - trigger: post-packages
   action: |-
@@ -1736,13 +1762,12 @@ actions:
     umount -l /etc/resolv.conf || true
     ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
-# Clean up apt lists to keep the image small
+# Final tidy-up.  The apt lists are deliberately kept; see the apt-get
+# update action above.
 - trigger: post-packages
   action: |-
     #!/bin/sh
     set -eux
-
-    rm -rf /var/lib/apt/lists/*
 
     # Clean up temporary shadow files
     rm -f /etc/*-
