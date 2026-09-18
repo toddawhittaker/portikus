@@ -230,12 +230,13 @@ export function gitBar(status: GitStatus | undefined): GitBar | null {
 /**
  * The decoration behind a diff's one-letter status, so a diff header is drawn
  * from the same table as the tree and the Changes list (SPEC.md §12.6). The
- * diff route reports "A" for anything that is not in HEAD, which for a student
- * is a new file, so it reads as untracked here.
+ * diff route reports "A" for anything that is not in HEAD, staged or not, so
+ * it reads as added; the note under the header says which. Calling it
+ * untracked would mislabel a file the student has already staged.
  */
 export const DIFF_KIND: Record<GitDiff["status"], GitDecorationKind> = {
 	M: "modified",
-	A: "untracked",
+	A: "added",
 	D: "deleted",
 	R: "renamed",
 	U: "conflict",

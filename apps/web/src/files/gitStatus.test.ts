@@ -56,8 +56,10 @@ test("an untracked file is its own kind, not a modification", () => {
 });
 
 test("a diff status is drawn from the same table as the tree", () => {
-	expect(LETTER[DIFF_KIND.A]).toBe("?");
-	expect(WORD[DIFF_KIND.A]).toBe("Untracked");
+	// Not in HEAD is "added", staged or not; the note under the header says
+	// which. Only the tree calls a path untracked (SPEC.md §12.6).
+	expect(LETTER[DIFF_KIND.A]).toBe("A");
+	expect(WORD[DIFF_KIND.A]).toBe("Added");
 	expect(LETTER[DIFF_KIND.U]).toBe("!");
 	expect(WORD[DIFF_KIND.U]).toBe("Conflict");
 	expect(LETTER[DIFF_KIND.M]).toBe("M");

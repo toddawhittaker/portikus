@@ -80,7 +80,7 @@ test.describe("diff tab", () => {
 			[PATH]: diff({ status: "A", before: null, after: "brand new\n" }),
 		});
 
-		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("?");
+		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("A");
 		await expect(page.getByTestId("diff-note")).toHaveText("New file (not in HEAD)");
 		await expect(page.getByTestId(`diff-editor-${PATH}`)).toContainText("brand new", {
 			timeout: 60_000,
