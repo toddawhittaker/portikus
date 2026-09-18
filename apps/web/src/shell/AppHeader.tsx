@@ -21,6 +21,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useWorkspaceAction } from "../api/workspace.js";
+import { clearLocalLayouts } from "../layout/local.js";
 import { EditorSettingsDialog } from "../settings/EditorSettingsDialog.js";
 import type { MeUser } from "../useMe.js";
 import { type ThemePreference, useThemePreference } from "./theme.js";
@@ -166,7 +167,11 @@ export function AppHeader({
 					<MenuSeparator />
 					<MenuItem
 						icon="sign-out"
-						onSelect={() => signOutForm.current?.requestSubmit()}
+						onSelect={() => {
+							// The next person at this browser starts clean (SPEC.md §24.2).
+							clearLocalLayouts();
+							signOutForm.current?.requestSubmit();
+						}}
 					>
 						<span data-testid="signout">Sign out</span>
 					</MenuItem>
