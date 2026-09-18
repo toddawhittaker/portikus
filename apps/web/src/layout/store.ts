@@ -6,7 +6,7 @@
  * never saved.
  */
 import type { ProjectLayout } from "@portikus/contracts";
-import { useRef } from "react";
+import { createContext, useContext, useRef } from "react";
 import { createStore, useStore } from "zustand";
 import * as tree from "./tree.js";
 
@@ -231,15 +231,24 @@ export function createLayoutStore() {
 }
 
 /**
+ * The store of the project on screen, shared by the work area and the file
+ * tree: the tree opens file tabs in the same layout the work area draws.
+ * The workspace screen provides it; a component rendered on its own still
+ * gets a store of its own.
+ */
+export const LayoutStoreContext = createContext<LayoutStore | null>(null);
+
+/**
  * One store per project id. Switching projects hands back a fresh store, so
  * tabs, splits and focus start from that project's own saved layout.
  */
 export function useLayoutStore(projectId: string): LayoutStore {
+	const shared = useContext(LayoutStoreContext);
 	const held = useRef<{ projectId: string; store: LayoutStore } | null>(null);
 	if (held.current === null || held.current.projectId !== projectId) {
 		held.current = { projectId, store: createLayoutStore() };
 	}
-	return held.current.store;
+	return shared ?? held.current.store;
 }
 
 /** Read one slice of a layout store. */

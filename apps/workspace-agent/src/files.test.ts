@@ -489,6 +489,17 @@ test("a body stream that fails mid-write leaves the existing file intact", async
 	expect(await tempLeftovers(project)).toEqual([]);
 });
 
+test("If-Match: * replaces any existing file, and only an existing one", async () => {
+	await writeFileFs(join(project, "notes.txt"), "old");
+	const replaced = await writeFile("notes.txt", "new", { "if-match": "*" });
+	expect(replaced.statusCode).toBe(200);
+	expect(await readFileFs(join(project, "notes.txt"), "utf8")).toBe("new");
+
+	const missing = await writeFile("gone.txt", "new", { "if-match": "*" });
+	expect(missing.statusCode).toBe(404);
+	expect(missing.json().error.code).toBe("FILE_NOT_FOUND");
+});
+
 test("a write keeps the existing file's mode", async () => {
 	const script = join(project, "run.sh");
 	await writeFileFs(script, "old", { mode: 0o755 });

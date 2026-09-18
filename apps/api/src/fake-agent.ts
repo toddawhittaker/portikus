@@ -617,7 +617,8 @@ export async function startFakeAgent(
 				}
 				const current = etagOf(node.content);
 				const asked = String(ifMatch).replace(/^W\//, "").replace(/^"|"$/g, "");
-				if (current !== asked) {
+				// "*" is the HTTP wildcard: any existing file will do.
+				if (asked !== "*" && current !== asked) {
 					throw new FakeFileError(
 						"FILE_CHANGED",
 						"the file changed on disk since it was read",
