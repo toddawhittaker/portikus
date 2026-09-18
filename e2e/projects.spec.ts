@@ -317,13 +317,14 @@ test.describe("projects", () => {
 
 		await projectAction(page, project.id, "Delete project");
 		await expect(page.getByTestId("dialog-delete-project")).toContainText(project.path);
-		const button = page.getByTestId("delete-confirm-button");
+		const dialog = page.getByTestId("dialog-delete-project");
+		const button = dialog.getByTestId("dialog-confirm");
 		await expect(button).toBeDisabled();
 
-		await page.getByTestId("delete-confirm-input").fill("scratch-pa");
+		await dialog.getByRole("textbox").fill("scratch-pa");
 		await expect(button).toBeDisabled();
 
-		await page.getByTestId("delete-confirm-input").fill(project.slug);
+		await dialog.getByRole("textbox").fill(project.slug);
 		await expect(button).toBeEnabled();
 		await button.click();
 
