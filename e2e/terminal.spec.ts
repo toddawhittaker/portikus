@@ -466,11 +466,27 @@ async function framesSentToAgent(): Promise<string[]> {
 /** The escape a terminal sends for the down and up arrow keys. */
 const ARROW_KEY = /\\u001b\[[AB]|\\u001bO[AB]/;
 
+/** Say a full-screen program has taken the terminal, or given it back. */
+async function setAlternateScreen(
+	terminalId: string,
+	alternate: boolean,
+): Promise<void> {
+	const response = await fetch(
+		`${FAKE_AGENT_URL}/__test/terminals/${terminalId}/screen`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ alternate }),
+		},
+	);
+	if (!response.ok) throw new Error(`could not set the screen: ${response.status}`);
+}
+
 /**
- * A full-screen program such as nano or less asks for the alternate screen,
- * where there is no scrollback to scroll. The terminal turns the wheel into
- * arrow keys there instead, which is what moves nano a line at a time, and
- * this must keep working (SPEC.md §9.1).
+ * While a full-screen program such as nano or less holds the terminal there
+ * is nothing of its own to scroll, so wheel notches become arrow keys and
+ * move it a line at a time. At a shell prompt the wheel scrolls the
+ * terminal's own output instead (SPEC.md §9.1).
  */
 test("the wheel moves a full-screen program a line at a time", async ({
 	page,
@@ -482,22 +498,60 @@ test("the wheel moves a full-screen program a line at a time", async ({
 
 	await printUntilVisible(page, terminalId, manyLines(200));
 
-	// Enter the alternate screen, the way nano does when it starts.
-	await printLines(terminalId, ["[?1049hEDITING"]);
-	await expect(rows).toContainText("EDITING");
-
+	await setAlternateScreen(terminalId, true);
 	const before = (await framesSentToAgent()).length;
-	await wheelOverTerminal(page, 1);
+	await wheelOverTerminal(page, -1);
 	await expect
 		.poll(async () => (await framesSentToAgent()).slice(before).join(""))
 		.toMatch(ARROW_KEY);
+	// The program owns the screen, so nothing of the terminal's scrolled.
+	await expect(rows).toContainText("SCROLL-0200");
 
-	// Leaving it puts the earlier output, and the wheel, back.
-	await printLines(terminalId, ["[?1049l"]);
+	// Giving the screen back puts the wheel on the terminal's own output.
+	await setAlternateScreen(terminalId, false);
 	const afterLeaving = (await framesSentToAgent()).length;
 	await wheelOverTerminal(page, -80);
 	await expect(rows).toContainText("SCROLL-0001");
 	expect((await framesSentToAgent()).slice(afterLeaving).join("")).not.toMatch(
 		ARROW_KEY,
 	);
+});
+
+/**
+ * xterm.js 6 draws its own scrollbar rather than letting the browser do it,
+ * so the thin quiet bar of the design system is set through xterm's options
+ * and has to be checked on the element it actually draws (SPEC.md §9.1).
+ */
+test("the terminal's scrollbar is thin, rounded and has no track", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	await printUntilVisible(page, terminalId, manyLines(200));
+	await wheelOverTerminal(page, -20);
+
+	const measured = await page.evaluate(() => {
+		const bar = document.querySelector(
+			".pk-terminal-surface .xterm-scrollable-element > .scrollbar.vertical",
+		);
+		const slider = bar?.querySelector(".slider");
+		if (!(bar instanceof HTMLElement) || !(slider instanceof HTMLElement)) return null;
+		return {
+			barWidth: bar.getBoundingClientRect().width,
+			track: getComputedStyle(bar).backgroundColor,
+			sliderWidth: slider.getBoundingClientRect().width,
+			sliderBackground: getComputedStyle(slider).backgroundColor,
+			sliderRadius: getComputedStyle(slider).borderRadius,
+		};
+	});
+
+	expect(measured).toEqual({
+		barWidth: 6,
+		track: "rgba(0, 0, 0, 0)",
+		sliderWidth: 6,
+		sliderBackground: "rgba(154, 147, 134, 0.4)",
+		sliderRadius: "9999px",
+	});
 });

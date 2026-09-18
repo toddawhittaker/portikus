@@ -326,6 +326,19 @@ export async function startFakeAgent(
 	/** Every frame the fake has been sent, so a browser test can read it. */
 	app.get("/__test/received", async () => ({ received }));
 
+	// Say a full-screen program has taken the terminal, or given it back, the
+	// way the real agent does when it sees tmux's alternate screen.
+	app.post("/__test/terminals/:id/screen", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const body = request.body as { alternate: boolean };
+		for (const peer of attached.get(id) ?? []) {
+			if (peer.readyState === peer.OPEN) {
+				peer.send(JSON.stringify({ type: "screen", alternate: body.alternate }));
+			}
+		}
+		return reply.status(204).send();
+	});
+
 	// Output a test wants on screen without typing for it, so a browser test
 	// can fill the scrollback.
 	app.post("/__test/terminals/:id/output", async (request, reply) => {
