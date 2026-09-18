@@ -6,6 +6,7 @@ import {
 	readSeededFile,
 	seedFile,
 	type TestProject,
+	toast,
 	workspacePath,
 } from "./helpers";
 
@@ -173,13 +174,10 @@ test.describe("file tree", () => {
 
 		await row(page, "README.md").click();
 
-		const capToast = page.getByText(
-			"Too many tabs are open. Close one to open another.",
-			{ exact: true },
-		);
-		await expect(capToast).toBeVisible();
-		// One toast, not one per place that can open a file.
-		await expect(capToast).toHaveCount(1);
+		const refused = toast(page, "Too many tabs are open. Close one to open another.");
+		await expect(refused).toBeVisible();
+		// One click refuses once: a second toast would mean a doubled handler.
+		await expect(refused).toHaveCount(1);
 		await expect(page.getByTestId("tab-file:README.md")).toHaveCount(0);
 	});
 
@@ -226,7 +224,7 @@ test.describe("file tree", () => {
 		});
 
 		await expect(
-			page.getByText("Something with that name already exists here"),
+			toast(page, "Something with that name already exists here"),
 		).toBeVisible();
 		expect(await readSeededFile(student.workspaceId, project.slug, "README.md")).toBe(
 			"# hello\n",

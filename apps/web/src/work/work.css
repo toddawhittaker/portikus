@@ -363,3 +363,27 @@
 	outline: 2px solid var(--focus);
 	outline-offset: -2px;
 }
+
+/* The M/A/D/R/U badge on a diff tab (SPEC.md §12.6). */
+.pk-diff-status {
+	flex: none;
+	margin-left: auto;
+	min-width: 20px;
+	padding: 2px var(--space-2);
+	border-radius: 999px;
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
+	font-weight: 600;
+	text-align: center;
+}
+
+.pk-diff-status[data-status="A"] {
+	background: var(--status-running-soft);
+	color: var(--status-running);
+}
+
+.pk-diff-status[data-status="D"],
+.pk-diff-status[data-status="U"] {
+	background: var(--status-error-soft);
+	color: var(--status-error);
+}

@@ -33,6 +33,8 @@ export interface TerminalGroupProps {
 	onCloseTab: () => void;
 	/** The line this tab was last asked to open at, or undefined for none. */
 	pendingLine: number | undefined;
+	/** Open one path as a file tab: a diff tab offers it (SPEC.md §12.6). */
+	onOpenFile: (path: string) => void;
 	/** Read and forget the line a file tab was opened at. */
 	consumePendingLine: () => number | undefined;
 	/** The pane a drag is hovering, and the zone it would drop into. */
@@ -79,14 +81,24 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					path={node.path}
 					workspaceId={props.workspaceId}
 					projectId={props.projectId}
-					visible={visible}
 					onClose={props.onCloseTab}
 					pendingLine={props.pendingLine}
 					consumePendingLine={props.consumePendingLine}
 				/>
 			);
 		}
-		if (node.type === "diff") return <DiffLeaf key={node.path} path={node.path} />;
+		if (node.type === "diff") {
+			return (
+				<DiffLeaf
+					key={node.path}
+					path={node.path}
+					workspaceId={props.workspaceId}
+					projectId={props.projectId}
+					visible={visible}
+					onOpenFile={props.onOpenFile}
+				/>
+			);
+		}
 		const orientation = node.direction === "row" ? "horizontal" : "vertical";
 		const ids = node.children.map((_, index) => panelId(path, index));
 		const defaultLayout = Object.fromEntries(

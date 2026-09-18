@@ -5,7 +5,13 @@
  */
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef } from "react";
-import { currentThemeName, getMonaco, watchTheme } from "./monaco.js";
+import {
+	baseEditorOptions,
+	currentThemeName,
+	getMonaco,
+	languageForPath,
+	watchTheme,
+} from "./monaco.js";
 import "./editor.css";
 
 export interface CodeEditorProps {
@@ -27,21 +33,6 @@ export interface CodeEditorProps {
 	 * file at a line it is already showing still moves the cursor there.
 	 */
 	revealNonce?: number;
-}
-
-/** The language id whose extension or file name matches this path. */
-function languageForPath(monaco: typeof Monaco, path: string): string {
-	const name = path.split("/").pop() ?? path;
-	const dot = name.lastIndexOf(".");
-	const extension = dot > 0 ? name.slice(dot) : "";
-	for (const language of monaco.languages.getLanguages()) {
-		if (language.filenames?.includes(name)) return language.id;
-	}
-	if (extension === "") return "plaintext";
-	for (const language of monaco.languages.getLanguages()) {
-		if (language.extensions?.includes(extension)) return language.id;
-	}
-	return "plaintext";
 }
 
 export function CodeEditor({
@@ -91,13 +82,9 @@ export function CodeEditor({
 					uri,
 				);
 			const editor = monaco.editor.create(host.current, {
+				...baseEditorOptions,
 				model,
 				theme: currentThemeName(),
-				automaticLayout: true,
-				fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-				fontSize: 13,
-				minimap: { enabled: false },
-				scrollBeyondLastLine: false,
 				renderLineHighlight: "line",
 			});
 			editorRef.current = editor;

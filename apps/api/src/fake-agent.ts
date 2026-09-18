@@ -639,6 +639,7 @@ export async function startFakeAgent(
 				throw new FakeFileError("FILE_TOO_LARGE", "that file is too large");
 			}
 			fsOf(request).set(nodeKey(slug, path), { type: "file", content: body });
+			noteFsChange(keyOf(request), slug, [path]);
 			const etag = etagOf(body);
 			return reply.header("etag", etag).status(200).send({ etag, size: body.length });
 		} catch (error) {
@@ -666,6 +667,7 @@ export async function startFakeAgent(
 					if (key.startsWith(prefix)) tree.delete(key);
 				}
 			}
+			noteFsChange(keyOf(request), slug, [path]);
 			return reply.status(204).send();
 		} catch (error) {
 			return fileError(reply, error as FakeFileError);
@@ -681,6 +683,7 @@ export async function startFakeAgent(
 			}
 			requireParent(request, slug, path);
 			fsOf(request).set(nodeKey(slug, path), { type: "dir" });
+			noteFsChange(keyOf(request), slug, [path]);
 			return reply.status(201).send({ ok: true });
 		} catch (error) {
 			return fileError(reply, error as FakeFileError);
@@ -709,6 +712,7 @@ export async function startFakeAgent(
 				tree.delete(key);
 				tree.set(`${slug}/${to}/${key.slice(prefix.length)}`, value);
 			}
+			noteFsChange(keyOf(request), slug, [from, to]);
 			return reply.status(204).send();
 		} catch (error) {
 			return fileError(reply, error as FakeFileError);
@@ -869,6 +873,32 @@ export async function startFakeAgent(
 		return pushEvent(key, slug, { type: "fs", paths, git: false, truncated: false });
 	}
 
+	// Like the real watcher, a filesystem change becomes one coalesced
+	// "fs" frame to every subscriber of that project (SPEC.md 11.4).
+	const pendingFsPaths = new Map<string, Set<string>>();
+	const pendingFsTimers = new Map<string, NodeJS.Timeout>();
+
+	function noteFsChange(key: string, slug: string, paths: string[]): void {
+		const id = answerKey(key, slug);
+		const batch = pendingFsPaths.get(id) ?? new Set<string>();
+		for (const path of paths) if (path) batch.add(path);
+		pendingFsPaths.set(id, batch);
+		if (pendingFsTimers.has(id)) return;
+		const timer = setTimeout(() => {
+			pendingFsTimers.delete(id);
+			const flushed = pendingFsPaths.get(id) ?? new Set<string>();
+			pendingFsPaths.delete(id);
+			pushEvent(key, slug, {
+				type: "fs",
+				paths: [...flushed],
+				git: false,
+				truncated: false,
+			});
+		}, 50);
+		timer.unref?.();
+		pendingFsTimers.set(id, timer);
+	}
+
 	// Test-only hooks for Git, search and events.
 	app.post("/__test/git", async (request, reply) => {
 		const body = request.body as {
@@ -933,6 +963,7 @@ export async function startFakeAgent(
 		}
 		addParents(tree, slug, rest.join("/"));
 		tree.set(body.path, { type: "file", content: Buffer.from(body.content, "utf8") });
+		noteFsChange(body.key ?? "", slug, [rest.join("/")]);
 		return reply.status(204).send();
 	});
 
@@ -949,7 +980,10 @@ export async function startFakeAgent(
 
 	app.delete("/__test/files", async (request, reply) => {
 		const query = request.query as { key?: string; path?: string };
-		filesForKey(query.key ?? "").delete(query.path ?? "");
+		const target = query.path ?? "";
+		filesForKey(query.key ?? "").delete(target);
+		const [slug, ...rest] = target.split("/");
+		if (slug && rest.length > 0) noteFsChange(query.key ?? "", slug, [rest.join("/")]);
 		return reply.status(204).send();
 	});
 
@@ -1131,6 +1165,11 @@ export async function startFakeAgent(
 		set failCreateWith(code: string | null) {
 			state.failCreateWith = code;
 		},
-		close: () => app.close(),
+		close: async () => {
+			for (const timer of pendingFsTimers.values()) clearTimeout(timer);
+			pendingFsTimers.clear();
+			pendingFsPaths.clear();
+			await app.close();
+		},
 	};
 }

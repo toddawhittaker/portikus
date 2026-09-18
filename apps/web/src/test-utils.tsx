@@ -1,5 +1,5 @@
 import { ToastProvider } from "@portikus/ui";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
 	createRouter,
@@ -76,9 +76,12 @@ export class FakeWebSocket {
 	onmessage: ((event: { data: string }) => void) | null = null;
 	onclose: ((event: { code: number }) => void) | null = null;
 	static last: FakeWebSocket | null = null;
+	/** Every socket made since the list was last cleared, oldest first. */
+	static all: FakeWebSocket[] = [];
 
 	constructor(public url: string) {
 		FakeWebSocket.last = this;
+		FakeWebSocket.all.push(this);
 	}
 	send() {}
 	close() {
@@ -106,12 +109,16 @@ export function renderApp(path: string) {
 	return { router };
 }
 
-/** Renders one component with a QueryClient, for the dialogs. */
-export function renderWithQuery(ui: React.ReactElement): void {
+/**
+ * Renders one component with a QueryClient, for the dialogs. The client is
+ * returned so a test can refetch the way the project events socket does.
+ */
+export function renderWithQuery(ui: React.ReactElement): QueryClient {
 	const queryClient = createQueryClient(() => {});
 	render(
 		<QueryClientProvider client={queryClient}>
 			<ToastProvider>{ui}</ToastProvider>
 		</QueryClientProvider>,
 	);
+	return queryClient;
 }

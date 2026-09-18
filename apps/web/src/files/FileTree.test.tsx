@@ -27,6 +27,23 @@ const ROOT = {
 
 const SRC = { entries: [entry("app.ts")], truncated: false };
 
+/** An empty repository, so the tests do not run with a failed Git query. */
+const NO_CHANGES = {
+	repo: true,
+	branch: "main",
+	detached: false,
+	upstream: "origin/main",
+	ahead: 0,
+	behind: 0,
+	conflicts: 0,
+	entries: [] as unknown[],
+	ignored: [] as string[],
+	truncated: false,
+};
+
+/** What the stubbed API answers for Git status; a test may replace it. */
+let gitStatus: typeof NO_CHANGES = NO_CHANGES;
+
 function renderPane(store = createLayoutStore()) {
 	const client = createQueryClient(() => {});
 	render(
@@ -48,8 +65,10 @@ function renderPane(store = createLayoutStore()) {
 beforeEach(() => {
 	// The view store outlives a test, so each one starts from a closed tree.
 	useFileViewStore.setState({ byProject: {} });
+	gitStatus = NO_CHANGES;
 	stubFetch((url, init) => {
 		if (init?.method === "DELETE") return json(204, null);
+		if (url.includes("/git/status")) return json(200, gitStatus);
 		if (url.includes("/tree?path=src")) return json(200, SRC);
 		if (url.includes("/tree?path=")) return json(200, ROOT);
 		throw new Error(`unexpected request: ${url}`);
@@ -88,6 +107,19 @@ describe("the file tree", () => {
 		expect(await screen.findByText("app.ts")).toBeDefined();
 	});
 
+	/** SPEC.md §12.1: a changed file carries its state on its row. */
+	it("marks a modified file with its letter", async () => {
+		gitStatus = {
+			...NO_CHANGES,
+			entries: [{ path: "README.md", x: ".", y: "M", unmerged: false }],
+		};
+		renderPane();
+
+		const row = await screen.findByTestId("file-row-README.md");
+		await waitFor(() => expect(row.getAttribute("data-git")).toBe("modified"));
+		expect(row.textContent).toContain("M");
+	});
+
 	/** SPEC.md §8.3: a file opens as a tab in the work area. */
 	it("opens a clicked file as a tab", async () => {
 		const store = renderPane();
@@ -115,6 +147,8 @@ describe("the file tree", () => {
 		expect(
 			await screen.findByText("Too many tabs are open. Close one to open another."),
 		).toBeDefined();
+		// One click must refuse once, not once per handler on the row.
+		expect(document.querySelectorAll(".pk-toast")).toHaveLength(1);
 	});
 
 	/** SPEC.md §11.2: the tree is usable from the keyboard alone. */

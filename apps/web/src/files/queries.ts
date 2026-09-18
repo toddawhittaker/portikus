@@ -25,6 +25,10 @@ export const fileKeys = {
 		["files", workspaceId, projectId, dir] as const,
 	file: (workspaceId: string, projectId: string, path: string) =>
 		["file", workspaceId, projectId, path] as const,
+	diff: (workspaceId: string, projectId: string, path: string) =>
+		["git-diff", workspaceId, projectId, path] as const,
+	git: (workspaceId: string, projectId: string, hidden: boolean) =>
+		["git-status", workspaceId, projectId, hidden] as const,
 };
 
 function treeUrl(workspaceId: string, projectId: string, dir: string): string {
@@ -55,16 +59,13 @@ export function directoryDownloadUrl(
 }
 
 /**
- * One directory listing, fetched while the directory is mounted.
- *
- * The ten-second poll is an interim stand-in for the live filesystem events
- * of SPEC.md §11.4: the agent already publishes them on its socket, but the
- * API relay and the browser consumer arrive with a later task.
+ * One directory listing, fetched while the directory is mounted. Nothing
+ * polls any more: the project events socket refetches the listing when
+ * something in that directory changes (SPEC.md §11.4, useProjectEvents.ts).
  */
 export function useTree(workspaceId: string, projectId: string, dir: string) {
 	return useQuery({
 		queryKey: fileKeys.tree(workspaceId, projectId, dir),
-		refetchInterval: 10_000,
 		queryFn: () => request(TreeResponse, treeUrl(workspaceId, projectId, dir)),
 	});
 }
@@ -260,22 +261,13 @@ const NO_WRITE_ETAG =
 	"The server did not say which version it saved, so this file cannot be saved safely.";
 
 /**
- * One file's text. Polled while its tab is visible, because the filesystem
- * event pipe that would push an external change arrives in a later task;
- * until then this is how an edit by an agent or a shell is noticed
- * (SPEC.md §13.3).
+ * One file's text. Nothing polls any more: an edit made by a coding agent or
+ * a shell arrives on the project events socket, which refetches this file
+ * (SPEC.md §11.4, §13.3).
  */
-export function useFile(
-	workspaceId: string,
-	projectId: string,
-	path: string,
-	visible = true,
-) {
+export function useFile(workspaceId: string, projectId: string, path: string) {
 	return useQuery({
 		queryKey: fileKeys.file(workspaceId, projectId, path),
-		refetchInterval: visible ? 5000 : false,
-		refetchOnWindowFocus: true,
-		retry: false,
 		queryFn: async (): Promise<FileContent> => {
 			const response = await fetch(fileUrl(workspaceId, projectId, path), {
 				credentials: "same-origin",
@@ -315,7 +307,15 @@ function writeHeaders(etag: string | null): Record<string, string> {
 
 /** Write a file, conditional on its etag; a 412 becomes a FileConflictError. */
 export function useSaveFile(workspaceId: string, projectId: string, path: string) {
+	const queryClient = useQueryClient();
 	return useMutation({
+		// A saved file changes its diff, and nothing else invalidates it until
+		// the project events consumer lands (task 11 of this epic).
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: fileKeys.diff(workspaceId, projectId, path),
+			});
+		},
 		mutationFn: async ({ text, etag }: SaveFileInput): Promise<{ etag: string }> => {
 			const response = await fetch(fileUrl(workspaceId, projectId, path), {
 				method: "PUT",

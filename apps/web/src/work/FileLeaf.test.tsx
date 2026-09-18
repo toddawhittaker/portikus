@@ -193,7 +193,7 @@ afterEach(() => {
 });
 
 function renderLeaf(onClose = () => {}, path = PATH) {
-	renderWithQuery(
+	return renderWithQuery(
 		<FileLeaf
 			path={path}
 			workspaceId={WORKSPACE}
@@ -203,20 +203,30 @@ function renderLeaf(onClose = () => {}, path = PATH) {
 	);
 }
 
+/**
+ * Monaco loads after the first render, so the host element appears before
+ * the model exists. Waiting for the element alone raced on a busy machine.
+ */
+async function findEditor(path = PATH): Promise<HTMLElement> {
+	const host = await screen.findByTestId(`editor-${path}`);
+	await waitFor(() => expect(state.model).not.toBeNull());
+	return host;
+}
+
 function status() {
 	return screen.getByTestId(`file-status-${PATH}`);
 }
 
 test("the file loads into the editor and shows Saved", async () => {
 	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	await findEditor();
 	expect(state.model?.getValue()).toBe("hello");
 	expect(status().textContent).toBe("Saved");
 });
 
 test("typing autosaves with the etag it was read at", async () => {
 	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	await findEditor();
 	type("hello world");
 	expect(status().textContent).toBe("Unsaved");
 	await waitFor(() => expect(requests).toHaveLength(1), { timeout: 3000 });
@@ -230,7 +240,7 @@ test("typing autosaves with the etag it was read at", async () => {
 
 test("Ctrl+S saves at once instead of waiting for the debounce", async () => {
 	renderLeaf();
-	const host = await screen.findByTestId(`editor-${PATH}`);
+	const host = await findEditor();
 	type("saved by hand");
 	const event = new KeyboardEvent("keydown", {
 		key: "s",
@@ -248,7 +258,7 @@ test("Ctrl+S saves at once instead of waiting for the debounce", async () => {
 test("typing while a save is in flight leaves the file unsaved", async () => {
 	const release = holdWrites();
 	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	await findEditor();
 	type("first");
 	await waitFor(() => expect(requests).toHaveLength(1), { timeout: 3000 });
 	// The student keeps typing while that write is still in the air.
@@ -267,7 +277,7 @@ test("typing while a save is in flight leaves the file unsaved", async () => {
 test("only one save is in flight at a time, so no false conflict", async () => {
 	const release = holdWrites();
 	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	await findEditor();
 	type("one");
 	await waitFor(() => expect(requests).toHaveLength(1), { timeout: 3000 });
 	type("one two");
@@ -284,7 +294,7 @@ test("only one save is in flight at a time, so no false conflict", async () => {
 
 test("unmounting mid-debounce flushes the pending write", async () => {
 	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	await findEditor();
 	type("half typed");
 	expect(requests).toHaveLength(0);
 	act(() => cleanup());
@@ -300,7 +310,7 @@ test("unmounting mid-debounce flushes the pending write", async () => {
 
 test("a stale write is a conflict, and Keep mine writes over the new version", async () => {
 	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	await findEditor();
 	type("mine");
 	// Someone else writes the file before the debounce fires.
 	seed = { text: "theirs", etag: "etag-other" };
@@ -316,7 +326,7 @@ test("a stale write is a conflict, and Keep mine writes over the new version", a
 
 test("an unresolved conflict does not autosave", async () => {
 	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	await findEditor();
 	type("mine");
 	seed = { text: "theirs", etag: "etag-other" };
 	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
@@ -330,7 +340,7 @@ test("an unresolved conflict does not autosave", async () => {
 
 test("Take theirs replaces the local text with the file on disk", async () => {
 	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	await findEditor();
 	type("mine");
 	seed = { text: "theirs", etag: "etag-other" };
 	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
@@ -342,12 +352,12 @@ test("Take theirs replaces the local text with the file on disk", async () => {
 });
 
 test("an external change with no local edits refreshes the editor silently", async () => {
-	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	const client = renderLeaf();
+	await findEditor();
 	seed = { text: "from the agent", etag: "etag-agent" };
-	// The query refetches when the tab regains focus, which is what a student
-	// coming back from a terminal does.
-	document.dispatchEvent(new Event("visibilitychange"));
+	// The project events socket refetches the file when it changes on disk
+	// (SPEC.md §11.4, §13.3).
+	void client.invalidateQueries();
 	await waitFor(() => expect(state.model?.getValue()).toBe("from the agent"), {
 		timeout: 8000,
 	});
@@ -356,10 +366,10 @@ test("an external change with no local edits refreshes the editor silently", asy
 }, 12_000);
 
 test("a file deleted while it is open keeps the editor and recreates it", async () => {
-	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	const client = renderLeaf();
+	await findEditor();
 	seed = { ...seed, status: 404 };
-	document.dispatchEvent(new Event("visibilitychange"));
+	void client.invalidateQueries();
 
 	const banner = await screen.findByTestId("file-banner", undefined, { timeout: 8000 });
 	expect(banner.textContent).toBe(
@@ -375,10 +385,10 @@ test("a file deleted while it is open keeps the editor and recreates it", async 
 }, 12_000);
 
 test("a read that fails after loading keeps the editor and warns", async () => {
-	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	const client = renderLeaf();
+	await findEditor();
 	seed = { ...seed, status: 500 };
-	document.dispatchEvent(new Event("visibilitychange"));
+	void client.invalidateQueries();
 
 	const banner = await screen.findByTestId("file-banner", undefined, { timeout: 8000 });
 	expect(banner.textContent).toContain("Could not check the file on disk");
@@ -398,7 +408,7 @@ test("a read without an etag is an error, not an empty If-Match", async () => {
 
 test("a write answered without an etag fails loudly", async () => {
 	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	await findEditor();
 	seed = { ...seed, noWriteEtag: true };
 	type("hello world");
 
@@ -448,7 +458,7 @@ const MD_PATH = "README.md";
 async function renderMarkdownLeaf() {
 	seed = { text: "# Notes\n", etag: "etag-0" };
 	renderLeaf(() => {}, MD_PATH);
-	await screen.findByTestId(`editor-${MD_PATH}`);
+	await findEditor(MD_PATH);
 	await screen.findByTestId("markdown-preview");
 }
 
@@ -489,7 +499,7 @@ test("switching views keeps the editor's model, so undo and cursor survive", asy
 
 test("a file that is not Markdown offers no view buttons", async () => {
 	renderLeaf();
-	await screen.findByTestId(`editor-${PATH}`);
+	await findEditor();
 	expect(screen.queryByTestId("markdown-mode-edit")).toBeNull();
 	expect(screen.queryByTestId("markdown-split")).toBeNull();
 });
