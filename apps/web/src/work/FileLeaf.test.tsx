@@ -10,6 +10,11 @@ import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react
 import { useState } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { FileContent } from "../files/queries.js";
+import {
+	createLayoutStore,
+	type LayoutStore,
+	LayoutStoreContext,
+} from "../layout/store.js";
 import { renderWithQuery } from "../test-utils.js";
 import { FileLeaf } from "./FileLeaf.js";
 
@@ -53,6 +58,10 @@ const diffState: { models: { original: FakeModel; modified: FakeModel } | null }
 /** Where the editor was told to put the cursor, and what it scrolled to. */
 const cursorLines: number[] = [];
 const revealedLines: number[] = [];
+/** The view states the editor was asked to put back (issue #161). */
+const restoredViewStates: unknown[] = [];
+/** Reports a cursor move the way Monaco would. */
+let moveCursor: (() => void) | null = null;
 
 vi.mock("../editor/features.js", () => ({ loadEditorFeatures: async () => {} }));
 vi.mock("monaco-editor/basic-languages/monaco.contribution.js", () => ({}));
@@ -103,9 +112,29 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 			) => {
 				state.model = options.model;
 				state.created = options;
+				let position = 1;
 				return {
 					onDidChangeModelContent: (listener: () => void) => {
 						options.model.listeners.push(listener);
+					},
+					onDidChangeCursorPosition: (listener: () => void) => {
+						moveCursor = () => {
+							position += 1;
+							listener();
+						};
+					},
+					// Nothing scrolls in jsdom, so the scroll hooks the split
+					// view uses (issue #154) only have to exist and answer.
+					onDidScrollChange: () => {},
+					onDidLayoutChange: () => {},
+					getScrollTop: () => 0,
+					getScrollHeight: () => 0,
+					setScrollTop: () => {},
+					// jsdom has no layout, so the fake editor claims a size.
+					getLayoutInfo: () => ({ width: 800, height: 600 }),
+					saveViewState: () => ({ line: position }),
+					restoreViewState: (viewState: unknown) => {
+						restoredViewStates.push(viewState);
 					},
 					setPosition: (position: { lineNumber: number }) => {
 						cursorLines.push(position.lineNumber);
@@ -253,6 +282,8 @@ beforeEach(() => {
 	state.updates.length = 0;
 	diffState.models = null;
 	gate = null;
+	restoredViewStates.length = 0;
+	moveCursor = null;
 	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSaveDelaySeconds: 1 };
 	seed = { text: "hello", etag: "etag-0" };
 	stubServer();
@@ -270,6 +301,20 @@ function renderLeaf(onClose = () => {}, path = PATH) {
 			projectId={PROJECT}
 			onClose={onClose}
 		/>,
+	);
+}
+
+/** The same tab, but inside a layout store that can remember its cursor. */
+function renderLeafWithStore(store: LayoutStore, path = PATH) {
+	return renderWithQuery(
+		<LayoutStoreContext.Provider value={store}>
+			<FileLeaf
+				path={path}
+				workspaceId={WORKSPACE}
+				projectId={PROJECT}
+				onClose={() => {}}
+			/>
+		</LayoutStoreContext.Provider>,
 	);
 }
 
@@ -837,4 +882,29 @@ test("word wrap on reaches Monaco (issue #159)", async () => {
 				state.updates.some((options) => options.wordWrap === "on"),
 		).toBe(true),
 	);
+});
+
+test("a remembered cursor is put back when the tab opens again (issue #161)", async () => {
+	const store = createLayoutStore();
+	store.getState().openFile(PATH);
+	store.getState().setViewState(PATH, { line: 42 });
+	renderLeafWithStore(store);
+	await findEditor();
+	// Only once the model holds the real text, so Monaco has lines to scroll to.
+	await waitFor(() => expect(restoredViewStates).toEqual([{ line: 42 }]));
+	expect(state.model?.getValue()).toBe("hello");
+});
+
+test("moving the cursor is remembered for the next mount (issue #161)", async () => {
+	const store = createLayoutStore();
+	store.getState().openFile(PATH);
+	renderLeafWithStore(store);
+	await findEditor();
+	act(() => moveCursor?.());
+	await waitFor(() => expect(store.getState().viewStates[PATH]).toEqual({ line: 2 }));
+	// The store has it at once, so leaving the route cannot race the save.
+	act(() => moveCursor?.());
+	expect(store.getState().viewStates[PATH]).toEqual({ line: 3 });
+	act(() => cleanup());
+	expect(store.getState().viewStates[PATH]).toEqual({ line: 3 });
 });

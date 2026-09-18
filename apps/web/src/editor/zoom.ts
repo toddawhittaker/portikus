@@ -1,7 +1,9 @@
 /**
  * Editor-only zoom (SPEC.md §13.1). The zoom is a percentage of the base font
- * size, held per open editor for this session only; nothing is persisted and
- * the browser's own zoom is left alone.
+ * size, held per open file for this session only; nothing is persisted and
+ * the browser's own zoom is left alone. It is kept in this module rather than
+ * in the editor component so that leaving the workspace and coming back does
+ * not reset it (issue #161, #162).
  */
 
 /** The font size at 100%, matching baseEditorOptions in monaco.ts. */
@@ -26,4 +28,15 @@ export function stepZoom(percent: number, steps: number): number {
 /** The Monaco font size for a zoom percentage, never below one pixel. */
 export function fontSizeFor(percent: number): number {
 	return Math.max(1, Math.round((BASE_FONT_SIZE * clampZoom(percent)) / 100));
+}
+
+/** The zoom of each open file this session, lost on reload. */
+const zooms = new Map<string, number>();
+
+export function rememberedZoom(path: string): number {
+	return zooms.get(path) ?? DEFAULT_ZOOM;
+}
+
+export function rememberZoom(path: string, percent: number): void {
+	zooms.set(path, percent);
 }

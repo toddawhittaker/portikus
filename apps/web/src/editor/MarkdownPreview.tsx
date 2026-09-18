@@ -5,7 +5,7 @@
  * escapes it without `rehype-raw`, so a student's `<script>` line shows as
  * text (SPEC.md §24, student content is untrusted).
  */
-import type { ComponentPropsWithoutRef } from "react";
+import type { ComponentPropsWithoutRef, Ref, UIEventHandler } from "react";
 import Markdown from "react-markdown";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
@@ -19,12 +19,20 @@ const PLUGINS = [remarkGfm, remarkFrontmatter];
 
 export interface MarkdownPreviewProps {
 	text: string;
+	/** The scrolling element, so the split view can follow the editor. */
+	scrollRef?: Ref<HTMLDivElement>;
+	onScroll?: UIEventHandler<HTMLDivElement>;
 }
 
-export function MarkdownPreview({ text }: MarkdownPreviewProps) {
+export function MarkdownPreview({ text, scrollRef, onScroll }: MarkdownPreviewProps) {
 	const { frontmatter, body } = splitFrontmatter(text);
 	return (
-		<div className="pk-markdown" data-testid="markdown-preview">
+		<div
+			className="pk-markdown"
+			data-testid="markdown-preview"
+			ref={scrollRef}
+			onScroll={onScroll}
+		>
 			{frontmatter ? (
 				<details className="pk-frontmatter" data-testid="markdown-frontmatter">
 					<summary>Front matter</summary>

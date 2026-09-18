@@ -104,7 +104,11 @@ function defineThemes(monaco: typeof Monaco): void {
 			"editorIndentGuide.background1": "#dcd7cc",
 			"editorWidget.background": "#fdfcfa",
 			"editorWidget.border": "#dcd7cc",
-			"scrollbarSlider.background": "#dcd7cc80",
+			// The split view's code side needs a scrollbar a student can see
+			// against a pale background (issue #154).
+			"scrollbarSlider.background": "#c1b9a8cc",
+			"scrollbarSlider.hoverBackground": "#a89f8ce6",
+			"scrollbarSlider.activeBackground": "#8d8472",
 		},
 	});
 	monaco.editor.defineTheme(DARK_THEME, {
@@ -122,7 +126,9 @@ function defineThemes(monaco: typeof Monaco): void {
 			"editorIndentGuide.background1": "#35322d",
 			"editorWidget.background": "#211f1c",
 			"editorWidget.border": "#35322d",
-			"scrollbarSlider.background": "#35322d80",
+			"scrollbarSlider.background": "#4b473fcc",
+			"scrollbarSlider.hoverBackground": "#615c52e6",
+			"scrollbarSlider.activeBackground": "#7a7466",
 		},
 	});
 }
