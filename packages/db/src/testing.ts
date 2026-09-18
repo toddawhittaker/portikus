@@ -34,15 +34,19 @@ export interface TestDb {
  * characters, hence the trimmed base (30 + "_hXXXX" + "_p<pid>" + "_XXXXXXXX"
  * stays well under that).
  */
-function basePrefix(url: URL): string {
+export function basePrefix(url: URL): string {
 	return url.pathname
 		.slice(1)
 		.replace(/[^A-Za-z0-9_]/g, "_")
 		.slice(0, 30);
 }
 
-/** A short, stable identifier for this host, used to tell its own test databases apart from another machine's. */
-function hostId(): string {
+/**
+ * A short, stable identifier for this host, used to tell its own test
+ * databases apart from another machine's. Exported so the orphan-sweep
+ * test can build fixture database names that match and don't match it.
+ */
+export function hostId(): string {
 	return createHash("sha256").update(hostname()).digest("hex").slice(0, 4);
 }
 
