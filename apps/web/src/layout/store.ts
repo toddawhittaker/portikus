@@ -45,6 +45,13 @@ export interface LayoutState {
 	 * never written to this browser's storage.
 	 */
 	zooms: Record<string, number>;
+	/**
+	 * The tabs that have been active, newest first, so closing a tab can go
+	 * back to the one before it the way a browser does (issue #223). It only
+	 * matters while this workspace is open, so it is neither saved to the
+	 * server nor written to this browser's storage.
+	 */
+	tabHistory: string[];
 	dirty: boolean;
 	/** Replace the whole layout with what the server had saved. */
 	load: (layout: ProjectLayout) => void;
@@ -108,10 +115,29 @@ function place(layout: ProjectLayout, terminalId: string): ProjectLayout {
 		: layout;
 }
 
-/** Keep the active tab pointing at a tab that still exists. */
-function pickActive(layout: ProjectLayout, current: string | null): string | null {
+/** Put `tabId` at the front of the history, with no duplicates. */
+function remember(history: string[], tabId: string | null): string[] {
+	if (tabId === null) return history;
+	return [tabId, ...history.filter((id) => id !== tabId)];
+}
+
+/** Drop tabs that are no longer in the layout. */
+function pruneHistory(history: string[], layout: ProjectLayout): string[] {
+	const ids = new Set(layout.tabs.map((tab) => tab.id));
+	return history.filter((id) => ids.has(id));
+}
+
+/**
+ * Keep the active tab pointing at a tab that still exists, preferring the one
+ * that was active most recently (issue #223).
+ */
+function pickActive(
+	layout: ProjectLayout,
+	current: string | null,
+	history: string[],
+): string | null {
 	if (current && layout.tabs.some((tab) => tab.id === current)) return current;
-	return layout.tabs[0]?.id ?? null;
+	return history[0] ?? layout.tabs[0]?.id ?? null;
 }
 
 export function createLayoutStore() {
@@ -120,9 +146,12 @@ export function createLayoutStore() {
 		function change(next: (layout: ProjectLayout) => ProjectLayout) {
 			set((state) => {
 				const layout = next(state.layout);
+				const history = pruneHistory(state.tabHistory, layout);
+				const activeTabId = pickActive(layout, state.activeTabId, history);
 				return {
 					layout,
-					activeTabId: pickActive(layout, state.activeTabId),
+					activeTabId,
+					tabHistory: remember(history, activeTabId),
 					dirty: true,
 				};
 			});
@@ -137,6 +166,7 @@ export function createLayoutStore() {
 			pendingEdit: {},
 			viewStates: {},
 			zooms: {},
+			tabHistory: [],
 			dirty: false,
 
 			load: (saved) =>
@@ -148,9 +178,12 @@ export function createLayoutStore() {
 					for (const tabId of diffTabIds) {
 						pendingDiff[tabId] = (pendingDiff[tabId] ?? 0) + 1;
 					}
+					const history = pruneHistory(state.tabHistory, layout);
+					const activeTabId = pickActive(layout, state.activeTabId, history);
 					return {
 						layout,
-						activeTabId: pickActive(layout, state.activeTabId),
+						activeTabId,
+						tabHistory: remember(history, activeTabId),
 						pendingDiff,
 						dirty: layout !== saved,
 					};
@@ -161,6 +194,7 @@ export function createLayoutStore() {
 				set((state) => ({
 					layout: tree.addTab(place(state.layout, terminalId), terminalId, terminalId),
 					activeTabId: terminalId,
+					tabHistory: remember(state.tabHistory, terminalId),
 					dirty: true,
 				}));
 			},
@@ -188,6 +222,7 @@ export function createLayoutStore() {
 				set({
 					layout: opened.layout,
 					activeTabId: opened.tabId,
+					tabHistory: remember(state.tabHistory, opened.tabId),
 					pendingLine,
 					pendingDiff,
 					pendingEdit,
@@ -197,20 +232,47 @@ export function createLayoutStore() {
 			},
 
 			closeTab: (tabId) => {
-				const closing = get().layout.tabs.find((tab) => tab.id === tabId);
-				change((layout) => tree.closeTab(layout, tabId));
+				const tabs = get().layout.tabs;
+				const index = tabs.findIndex((tab) => tab.id === tabId);
+				const closing = tabs[index];
+				if (!closing) return;
 				set((state) => {
+					const layout = tree.closeTab(state.layout, tabId);
+					const tabHistory = pruneHistory(state.tabHistory, layout);
+					const stillThere =
+						state.activeTabId !== null &&
+						layout.tabs.some((tab) => tab.id === state.activeTabId);
+					// Closing another tab leaves the student where they are. Closing
+					// the active one goes back to the tab that was active before it,
+					// then to the neighbour on the left, then the one on the right
+					// (issue #223). After the removal `index` is the right neighbour.
+					const activeTabId = stillThere
+						? state.activeTabId
+						: (tabHistory[0] ??
+							layout.tabs[index - 1]?.id ??
+							layout.tabs[index]?.id ??
+							null);
 					const { [tabId]: _line, ...pendingLine } = state.pendingLine;
 					const { [tabId]: _diff, ...pendingDiff } = state.pendingDiff;
 					const { [tabId]: _edit, ...pendingEdit } = state.pendingEdit;
 					const viewStates = { ...state.viewStates };
 					const zooms = { ...state.zooms };
 					// Nothing to put back next time: the file tab is gone.
-					if (closing?.root.type === "file") {
+					if (closing.root.type === "file") {
 						delete viewStates[closing.root.path];
 						delete zooms[closing.root.path];
 					}
-					return { pendingLine, pendingDiff, pendingEdit, viewStates, zooms };
+					return {
+						layout,
+						activeTabId,
+						tabHistory: remember(tabHistory, activeTabId),
+						pendingLine,
+						pendingDiff,
+						pendingEdit,
+						viewStates,
+						zooms,
+						dirty: true,
+					};
 				});
 			},
 
@@ -278,7 +340,12 @@ export function createLayoutStore() {
 						edge,
 					);
 					if (layout === state.layout) return state;
-					return { layout, activeTabId: tabId, dirty: true };
+					return {
+						layout,
+						activeTabId: tabId,
+						tabHistory: remember(pruneHistory(state.tabHistory, layout), tabId),
+						dirty: true,
+					};
 				}),
 
 			moveLeafToNewTab: (terminalId, index) =>
@@ -288,13 +355,22 @@ export function createLayoutStore() {
 					const tabId = crypto.randomUUID();
 					const layout = tree.moveLeafToNewTab(state.layout, terminalId, index, tabId);
 					if (layout === state.layout) return state;
-					return { layout, activeTabId: tabId, dirty: true };
+					return {
+						layout,
+						activeTabId: tabId,
+						tabHistory: remember(pruneHistory(state.tabHistory, layout), tabId),
+						dirty: true,
+					};
 				}),
 
 			resize: (tabId, path, sizes) =>
 				change((layout) => tree.resize(layout, tabId, path, sizes)),
 
-			setActive: (tabId) => set({ activeTabId: tabId }),
+			setActive: (tabId) =>
+				set((state) => ({
+					activeTabId: tabId,
+					tabHistory: remember(state.tabHistory, tabId),
+				})),
 
 			setViewState: (path, viewState) =>
 				set((state) => ({ viewStates: { ...state.viewStates, [path]: viewState } })),
@@ -305,10 +381,14 @@ export function createLayoutStore() {
 			// The saved layout usually arrives after this, and its load keeps an
 			// active tab that still exists, so the remembered tab survives.
 			restoreLocal: (local) =>
-				set((state) => ({
-					activeTabId: local.activeTabId ?? state.activeTabId,
-					viewStates: { ...local.viewStates, ...state.viewStates },
-				})),
+				set((state) => {
+					const activeTabId = local.activeTabId ?? state.activeTabId;
+					return {
+						activeTabId,
+						tabHistory: remember(state.tabHistory, activeTabId),
+						viewStates: { ...local.viewStates, ...state.viewStates },
+					};
+				}),
 
 			setFocused: (terminalId) => set({ focusedTerminalId: terminalId }),
 
@@ -316,9 +396,12 @@ export function createLayoutStore() {
 				set((state) => {
 					const layout = tree.reconcile(state.layout, terminalIds, endedIds);
 					if (layout === state.layout) return state;
+					const history = pruneHistory(state.tabHistory, layout);
+					const activeTabId = pickActive(layout, state.activeTabId, history);
 					return {
 						layout,
-						activeTabId: pickActive(layout, state.activeTabId),
+						activeTabId,
+						tabHistory: remember(history, activeTabId),
 						dirty: true,
 					};
 				}),

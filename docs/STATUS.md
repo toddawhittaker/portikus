@@ -410,7 +410,12 @@ take-disk, and keep-editing (#160, #158). The selected tab, the editor
 cursor, selection, and scroll position now survive leaving the workspace
 route and returning; they live in this browser's `localStorage` and are
 never sent to the server (§7.5) (#161). Zoom is kept in memory for the
-session only and resets on reload (#162).
+session only and resets on reload (#162). Closing a tab now selects the
+tab that was selected most recently before it, the way a web browser
+does, falling back to the neighbour on the left, or on the right when the
+closed tab was the leftmost one; closing a tab that is not selected
+leaves the selection alone. The selection history lives in the layout
+store for this session only and is never saved (§8.3) (#223).
 
 **Markdown.** The three Markdown viewer defects from pilot feedback are
 fixed (§13.4): rendered lists show their markers again, split view keeps
