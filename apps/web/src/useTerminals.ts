@@ -63,6 +63,18 @@ export function useTerminals(
 		// No refetch here on purpose: a list answer holding a terminal the caller
 		// has not placed yet would be reconciled into a tab of its own. The
 		// caller places the terminal first and then calls refetch.
+		//
+		// The new terminal goes straight into the cache instead, so a poll that
+		// was already in flight cannot answer without it and strip its pane.
+		onSuccess: async (terminal) => {
+			// A poll already on its way would otherwise land after this write.
+			await queryClient.cancelQueries({ queryKey: key });
+			queryClient.setQueryData<TerminalList>(key, (current) => {
+				if (!current) return { terminals: [terminal] };
+				if (current.terminals.some((item) => item.id === terminal.id)) return current;
+				return { terminals: [...current.terminals, terminal] };
+			});
+		},
 	});
 
 	const rename = useMutation({
