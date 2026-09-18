@@ -123,8 +123,13 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 							listener();
 						};
 					},
+					// Nothing scrolls in jsdom, so the scroll hooks the split
+					// view uses (issue #154) only have to exist and answer.
 					onDidScrollChange: () => {},
 					onDidLayoutChange: () => {},
+					getScrollTop: () => 0,
+					getScrollHeight: () => 0,
+					setScrollTop: () => {},
 					// jsdom has no layout, so the fake editor claims a size.
 					getLayoutInfo: () => ({ width: 800, height: 600 }),
 					saveViewState: () => ({ line: position }),

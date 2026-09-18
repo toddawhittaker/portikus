@@ -4,7 +4,7 @@
  * the saving.
  */
 import type * as Monaco from "monaco-editor";
-import { useEffect, useRef, useState } from "react";
+import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
 	baseEditorOptions,
 	currentThemeName,
@@ -12,6 +12,7 @@ import {
 	languageForFile,
 	watchTheme,
 } from "./monaco.js";
+import { scrollRatio, scrollTopForRatio } from "./scrollSync.js";
 import {
 	DEFAULT_ZOOM,
 	fontSizeFor,
@@ -49,6 +50,18 @@ export interface CodeEditorProps {
 	viewState?: unknown;
 	/** Hand the newest view state back, so it survives leaving the route. */
 	onViewState?: (viewState: unknown) => void;
+	/**
+	 * Reports where the editor is in its own scroll range, from 0 to 1, so the
+	 * Markdown split view can put the preview in the same place (issue #154).
+	 */
+	onScrollRatio?: (ratio: number) => void;
+	/** Lets the tab scroll this editor to a relative position. */
+	ref?: Ref<CodeEditorHandle>;
+}
+
+export interface CodeEditorHandle {
+	/** Scroll to a relative position, from 0 at the top to 1 at the end. */
+	setScrollRatio: (ratio: number) => void;
 }
 
 export function CodeEditor({
@@ -62,6 +75,8 @@ export function CodeEditor({
 	revealNonce,
 	viewState,
 	onViewState,
+	onScrollRatio,
+	ref,
 }: CodeEditorProps) {
 	const host = useRef<HTMLDivElement | null>(null);
 	// The whole tab: Monaco above, the zoom bar below.
@@ -88,8 +103,24 @@ export function CodeEditor({
 
 	// The editor is created once, so it reads the newest callbacks and text
 	// through refs rather than being torn down on every render.
-	const latest = useRef({ value, version, onChange, onSave, revealLine, onViewState });
-	latest.current = { value, version, onChange, onSave, revealLine, onViewState };
+	const latest = useRef({
+		value,
+		version,
+		onChange,
+		onSave,
+		revealLine,
+		onViewState,
+		onScrollRatio,
+	});
+	latest.current = {
+		value,
+		version,
+		onChange,
+		onSave,
+		revealLine,
+		onViewState,
+		onScrollRatio,
+	};
 
 	// Read once: a save while the tab is open must not make the editor jump.
 	const initialViewState = useRef<{ read: boolean; value: unknown }>({
@@ -99,6 +130,20 @@ export function CodeEditor({
 	if (!initialViewState.current.read) {
 		initialViewState.current = { read: true, value: viewState };
 	}
+
+	useImperativeHandle(ref, () => ({
+		setScrollRatio(ratio: number) {
+			const editor = editorRef.current;
+			if (!editor) return;
+			editor.setScrollTop(
+				scrollTopForRatio(
+					ratio,
+					editor.getScrollHeight(),
+					editor.getLayoutInfo().height,
+				),
+			);
+		},
+	}));
 
 	// A later request to jump, once the editor is already up. The one that
 	// arrives before Monaco has loaded is handled where the editor is created.
@@ -196,6 +241,22 @@ export function CodeEditor({
 			}
 			editor.onDidChangeCursorPosition(report);
 			editor.onDidScrollChange(report);
+			// The split view follows the editor's scroll (issue #154). It is
+			// attached after the restore above so the remembered position is put
+			// back first and the preview then follows it, rather than the two
+			// pulling against each other while the tab is still opening.
+			editor.onDidScrollChange(() => {
+				if (!restored) return;
+				const toPreview = latest.current.onScrollRatio;
+				if (!toPreview) return;
+				toPreview(
+					scrollRatio(
+						editor.getScrollTop(),
+						editor.getScrollHeight(),
+						editor.getLayoutInfo().height,
+					),
+				);
+			});
 		});
 		return () => {
 			disposed = true;
