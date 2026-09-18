@@ -744,8 +744,10 @@ const ws = new WebSocket(url, { headers: { origin, cookie } });
 ws.binaryType = "arraybuffer";
 let screen = "";
 let found = marker === "-";
-// A freshly attached tmux client discards anything typed before it is
-// ready, so wait for its first frame of output before sending input.
+// Wait for a frame of output before sending input. The first frame is now
+// the agent's replay of the pane's history, not tmux's own drawing, so this
+// no longer proves tmux is ready; what makes the input safe is the agent's
+// queue, which holds it until tmux has drawn something.
 let sent = input === "-";
 function sendInput() {
 	if (sent) return;
