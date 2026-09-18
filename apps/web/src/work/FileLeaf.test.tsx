@@ -182,7 +182,7 @@ afterEach(() => {
 });
 
 function renderLeaf(onClose = () => {}, path = PATH) {
-	renderWithQuery(
+	return renderWithQuery(
 		<FileLeaf
 			path={path}
 			workspaceId={WORKSPACE}
@@ -341,12 +341,12 @@ test("Take theirs replaces the local text with the file on disk", async () => {
 });
 
 test("an external change with no local edits refreshes the editor silently", async () => {
-	renderLeaf();
+	const client = renderLeaf();
 	await findEditor();
 	seed = { text: "from the agent", etag: "etag-agent" };
-	// The query refetches when the tab regains focus, which is what a student
-	// coming back from a terminal does.
-	document.dispatchEvent(new Event("visibilitychange"));
+	// The project events socket refetches the file when it changes on disk
+	// (SPEC.md §11.4, §13.3).
+	void client.invalidateQueries();
 	await waitFor(() => expect(state.model?.getValue()).toBe("from the agent"), {
 		timeout: 8000,
 	});
@@ -355,10 +355,10 @@ test("an external change with no local edits refreshes the editor silently", asy
 }, 12_000);
 
 test("a file deleted while it is open keeps the editor and recreates it", async () => {
-	renderLeaf();
+	const client = renderLeaf();
 	await findEditor();
 	seed = { ...seed, status: 404 };
-	document.dispatchEvent(new Event("visibilitychange"));
+	void client.invalidateQueries();
 
 	const banner = await screen.findByTestId("file-banner", undefined, { timeout: 8000 });
 	expect(banner.textContent).toBe(
@@ -374,10 +374,10 @@ test("a file deleted while it is open keeps the editor and recreates it", async 
 }, 12_000);
 
 test("a read that fails after loading keeps the editor and warns", async () => {
-	renderLeaf();
+	const client = renderLeaf();
 	await findEditor();
 	seed = { ...seed, status: 500 };
-	document.dispatchEvent(new Event("visibilitychange"));
+	void client.invalidateQueries();
 
 	const banner = await screen.findByTestId("file-banner", undefined, { timeout: 8000 });
 	expect(banner.textContent).toContain("Could not check the file on disk");

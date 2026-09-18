@@ -61,8 +61,6 @@ export interface FileLeafProps {
 	path: string;
 	workspaceId: string;
 	projectId: string;
-	/** False while this tab is in the background, which stops the polling. */
-	visible?: boolean;
 	/** Close this tab: offered when the file is gone (SPEC.md §13.3). */
 	onClose: () => void;
 	/** The line this tab was opened at, read once. */
@@ -73,11 +71,10 @@ export function FileLeaf({
 	path,
 	workspaceId,
 	projectId,
-	visible = true,
 	onClose,
 	consumePendingLine,
 }: FileLeafProps) {
-	const file = useFile(workspaceId, projectId, path, visible);
+	const file = useFile(workspaceId, projectId, path);
 	const save = useSaveFile(workspaceId, projectId, path);
 
 	// `text` is null until the first load; `etag` is the version the text was
