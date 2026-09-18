@@ -3,7 +3,8 @@
  * the viewer flow (SPEC.md §13.2, §13.3, §13.5). Monaco itself is replaced
  * by a fake, so these tests are about the states, not about rendering text.
  */
-import { act, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { renderWithQuery } from "../test-utils.js";
 import { FileLeaf } from "./FileLeaf.js";
@@ -32,6 +33,9 @@ class FakeModel {
 }
 
 const state: { model: FakeModel | null } = { model: null };
+/** Where the editor was told to put the cursor, and what it scrolled to. */
+const cursorLines: number[] = [];
+const revealedLines: number[] = [];
 
 vi.mock("monaco-editor/basic-languages/monaco.contribution.js", () => ({}));
 vi.mock("monaco-editor/language/json/monaco.contribution.js", () => ({
@@ -64,8 +68,13 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 					onDidChangeModelContent: (listener: () => void) => {
 						options.model.listeners.push(listener);
 					},
-					setPosition: () => {},
-					revealLineInCenter: () => {},
+					setPosition: (position: { lineNumber: number }) => {
+						cursorLines.push(position.lineNumber);
+					},
+					revealLineInCenter: (line: number) => {
+						revealedLines.push(line);
+					},
+					focus: () => {},
 					updateOptions: () => {},
 					dispose: () => {},
 				};
@@ -171,6 +180,8 @@ function stubServer() {
 
 beforeEach(() => {
 	requests.length = 0;
+	cursorLines.length = 0;
+	revealedLines.length = 0;
 	state.model = null;
 	gate = null;
 	seed = { text: "hello", etag: "etag-0" };
@@ -491,4 +502,40 @@ test("a file that is not Markdown offers no view buttons", async () => {
 	await findEditor();
 	expect(screen.queryByTestId("markdown-mode-edit")).toBeNull();
 	expect(screen.queryByTestId("markdown-split")).toBeNull();
+});
+
+/** Asking for a line while the tab is already open, as a search result does. */
+function Harness() {
+	const [line, setLine] = useState<number | undefined>(undefined);
+	return (
+		<>
+			<button type="button" data-testid="ask" onClick={() => setLine(9)}>
+				ask
+			</button>
+			<FileLeaf
+				path={PATH}
+				workspaceId={WORKSPACE}
+				projectId={PROJECT}
+				onClose={() => {}}
+				pendingLine={line}
+				consumePendingLine={() => {
+					setLine(undefined);
+					return line;
+				}}
+			/>
+		</>
+	);
+}
+
+test("a file already open jumps to a line it is asked for again", async () => {
+	renderWithQuery(<Harness />);
+	await screen.findByTestId(`editor-${PATH}`);
+	await waitFor(() => expect(state.model?.getValue()).toBe("hello"));
+	cursorLines.length = 0;
+	revealedLines.length = 0;
+
+	fireEvent.click(screen.getByTestId("ask"));
+
+	await waitFor(() => expect(cursorLines).toContain(9));
+	expect(revealedLines).toContain(9);
 });

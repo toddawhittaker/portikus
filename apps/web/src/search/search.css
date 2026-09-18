@@ -1,0 +1,86 @@
+/* The find-in-files view that replaces the tree in the right pane. */
+.pk-search {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.pk-search-controls {
+	flex: none;
+	display: grid;
+	gap: var(--space-2);
+	padding: 0 var(--space-2);
+}
+
+.pk-search-results {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+.pk-search-group {
+	margin-bottom: var(--space-2);
+}
+
+.pk-search-path {
+	position: sticky;
+	top: 0;
+	padding: var(--space-1) var(--space-2);
+	background: var(--surface);
+	color: var(--ink-muted);
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+	font-size: 12px;
+	line-height: 16px;
+	overflow-wrap: anywhere;
+}
+
+.pk-search-row {
+	display: block;
+	width: 100%;
+	border: 0;
+	background: none;
+	padding: 0 var(--space-2);
+	color: var(--ink);
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+	font-size: 12px;
+	line-height: 18px;
+	text-align: left;
+	white-space: pre;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	cursor: pointer;
+}
+
+.pk-search-row:hover,
+.pk-search-row:focus-visible {
+	background: var(--surface-hover);
+}
+
+.pk-search-line {
+	display: inline-block;
+	min-width: 3.5em;
+	color: var(--ink-muted);
+}
+
+.pk-search-hit {
+	background: color-mix(in srgb, var(--accent) 32%, transparent);
+	border-radius: 2px;
+}
+
+.pk-search-context {
+	color: var(--ink-muted);
+}
+
+.pk-search-note {
+	flex: none;
+	margin: 0;
+	padding: var(--space-1) var(--space-2);
+	color: var(--ink-muted);
+	font-size: 12px;
+	line-height: 16px;
+}

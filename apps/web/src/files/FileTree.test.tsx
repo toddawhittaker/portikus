@@ -50,7 +50,11 @@ function renderPane(store = createLayoutStore()) {
 		<QueryClientProvider client={client}>
 			<ToastProvider>
 				<LayoutStoreContext.Provider value={store}>
-					<FileTreePane workspaceId={WORKSPACE.id} project={PROJECT} />
+					<FileTreePane
+						workspaceId={WORKSPACE.id}
+						project={PROJECT}
+						onSearch={() => {}}
+					/>
 				</LayoutStoreContext.Provider>
 			</ToastProvider>
 		</QueryClientProvider>,

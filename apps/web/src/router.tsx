@@ -1,8 +1,11 @@
+import { ProjectPath } from "@portikus/contracts";
 import {
 	createRootRoute,
 	createRoute,
 	createRouter,
 	Outlet,
+	redirect,
+	type SearchSchemaInput,
 	useParams,
 } from "@tanstack/react-router";
 import { AdminPage } from "./admin/AdminPage.js";
@@ -54,14 +57,38 @@ const workspaceIndexRoute = createRoute({
 	component: ProjectIndex,
 });
 
+/**
+ * A file path from a link is only ever a path inside the project (SPEC.md
+ * §24.6); anything else opens nothing rather than being sent to the agent.
+ */
+function safePath(value: unknown): string | undefined {
+	const parsed = ProjectPath.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
+}
+
+/** A line number from a link is a whole line, counted from one. */
+function safeLine(value: unknown): number | undefined {
+	const line = Number(value);
+	return Number.isInteger(line) && line >= 1 ? line : undefined;
+}
+
 const projectRoute = createRoute({
 	getParentRoute: () => workspaceRoute,
 	path: "/projects/$projectId",
+	// `open` and `line` carry "open this file here", which is where the files
+	// route and a terminal link land (SPEC.md §14.9).
+	// SearchSchemaInput keeps both parameters optional, so every other link to
+	// a project stays a plain link.
+	validateSearch: (search: Record<string, unknown> & SearchSchemaInput) => ({
+		open: safePath(search.open),
+		line: safeLine(search.line),
+	}),
 	component: ProjectScreen,
 });
 
 function ProjectScreen() {
 	const { id, projectId } = useParams({ from: "/workspaces/$id/projects/$projectId" });
+	const { open, line } = projectRoute.useSearch();
 	const projects = useProjects(id, "active");
 	const project = projects.data?.find((item) => item.id === projectId);
 	if (!project) return <div className="flex-1" aria-busy="true" />;
@@ -70,32 +97,34 @@ function ProjectScreen() {
 			workspaceId={id}
 			projectId={project.id}
 			projectPath={project.path}
+			openPath={open}
+			openLine={line}
 			onSessionEnded={() => router.navigate({ to: "/session-ended" })}
 		/>
 	);
 }
 
+/**
+ * `?path=&line=` opens one file at one line (SPEC.md §14.9). It is the
+ * project screen with an instruction, so it hands straight over to that
+ * route and lets the work area open the tab.
+ */
 const filesRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/workspaces/$id/projects/$projectId/files",
 	validateSearch: (search: Record<string, unknown>) => ({
-		path: typeof search.path === "string" ? search.path : "",
-		line: Number(search.line) > 0 ? Number(search.line) : 1,
+		path: safePath(search.path),
+		line: safeLine(search.line),
 	}),
-	component: FilesPlaceholder,
+	beforeLoad: ({ params, search }) => {
+		throw redirect({
+			to: "/workspaces/$id/projects/$projectId",
+			params,
+			search: { open: search.path, line: search.line },
+			replace: true,
+		});
+	},
 });
-
-function FilesPlaceholder() {
-	const { id } = filesRoute.useParams();
-	const { path, line } = filesRoute.useSearch();
-	return (
-		<ComingLater
-			title="Files"
-			workspaceId={id}
-			detail={`Opening ${path || "a file"} at line ${line} is not built yet.`}
-		/>
-	);
-}
 
 const previewRoute = createRoute({
 	getParentRoute: () => rootRoute,

@@ -28,8 +28,10 @@ import {
 	MenuTrigger,
 	type TabItem,
 	Tabs,
+	useToast,
 } from "@portikus/ui";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { tooManyTabsToast } from "../files/errors.js";
 import { useLayoutPersistence } from "../layout/persist.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { type DropEdge, type SplitDirection, terminalIds } from "../layout/tree.js";
@@ -60,6 +62,9 @@ export interface WorkAreaProps {
 	workspaceId: string;
 	projectId: string;
 	projectPath: string;
+	/** A file the URL asked to open, and the line to jump to (SPEC.md §14.9). */
+	openPath?: string;
+	openLine?: number;
 	onSessionEnded: () => void;
 }
 
@@ -67,12 +72,16 @@ export function WorkArea({
 	workspaceId,
 	projectId,
 	projectPath,
+	openPath,
+	openLine,
 	onSessionEnded,
 }: WorkAreaProps) {
 	const store = useLayoutStore(projectId);
+	const toast = useToast();
 	const layout = useLayout(store, (state) => state.layout);
 	const activeTabId = useLayout(store, (state) => state.activeTabId);
 	const focusedTerminalId = useLayout(store, (state) => state.focusedTerminalId);
+	const pendingLine = useLayout(store, (state) => state.pendingLine);
 	const loaded = useLayoutPersistence(workspaceId, projectId, store, onSessionEnded);
 	const terminals = useTerminals(workspaceId, projectId, true, onSessionEnded);
 	const [closingTabId, setClosingTabId] = useState<string | null>(null);
@@ -101,6 +110,15 @@ export function WorkArea({
 		const ended = endedTerminalIds === "" ? [] : endedTerminalIds.split(",");
 		store.getState().reconcile(ids, ended);
 	}, [loaded, terminals.loaded, terminalIdKey, endedTerminalIds, store]);
+
+	// A file the URL named opens once the saved layout is in, because loading
+	// it would otherwise replace the tab this just opened.
+	useEffect(() => {
+		if (!loaded || !openPath) return;
+		if (!store.getState().openFile(openPath, openLine)) {
+			toast.show(tooManyTabsToast());
+		}
+	}, [loaded, openPath, openLine, store, toast]);
 
 	const newTerminal = useCallback(async (): Promise<Terminal | null> => {
 		try {
@@ -394,6 +412,7 @@ export function WorkArea({
 							onSessionEnded={onSessionEnded}
 							onLeave={leaveTerminal}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
+							pendingLine={pendingLine[tab.id]}
 							onOpenFile={(path) => store.getState().openFile(path)}
 							consumePendingLine={() => store.getState().consumePendingLine(tab.id)}
 							dropTarget={
