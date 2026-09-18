@@ -1,465 +1,601 @@
-# How we work: building Portikus with AI agents
+# How we work: building software with AI agents
 
-This document describes how Portikus is actually built. It is written for a
-course, so it explains the reasoning as well as the rules, and it includes the
-mistakes. Everything here traces to something in the repository, to the
-project's memory notes, or to a recorded session. Where a note and the code
-disagree, the document says which one is current.
+This is a guide to building real software by directing artificial-intelligence
+agents instead of typing code yourself. It is written for someone who has never
+programmed. If you know what a file is and what a web page is, you know enough
+to read it.
 
-Portikus is a browser-based agentic development workspace for students. One
-person, Todd, is the product owner. He does not write the code. He writes the
-requirements, runs a conversation with a single orchestrating agent, rules on
-disputes, and merges. Between September 15 and September 18 of 2026 this
-arrangement produced eight epics, more than 180 pull requests, a Debian
-package, a reproducible virtual machine, and a running pilot deployment.
+Every technical word is explained the first time it appears, and there is a
+glossary at the end. The guide is not a theory. It is a working method that came
+out of building one real product over several months, and it includes the
+mistakes, because the mistakes are where the rules came from.
+
+A note on two words used constantly below. An **agent** is an AI assistant that
+has been given a job, a set of tools, and permission to use them on its own: it
+can read files, change them, run programs, and report back. The **orchestrator**
+is the one conversation you personally have. It does not write the software. It
+plans, splits the work, hands pieces to other agents, checks what they send
+back, and tells you in plain language what happened. Throughout this guide, "the
+owner" means you: the person who decides what the product should be and who
+approves the final result.
 
 ---
 
 ## 1. Why work this way
 
-The goal is a real product, not a demonstration. Portikus has students as its
-audience, so it has to survive contact with untrusted code, flaky networks, and
-people who have never used a terminal. That rules out the common pattern of
-asking an assistant for a file, pasting it in, and moving on.
+The goal is a real product that real people use, not a demonstration. Real
+products have to survive bad networks, strange input, people who do the
+unexpected, and attackers who do the unexpected on purpose. That rules out the
+familiar pattern of asking an AI for a chunk of code, pasting it in, and hoping.
 
-Four constraints shape everything that follows.
+Four facts shape everything that follows.
 
-**One person cannot read every line.** At the rate agents produce code, a
-careful human reviewer becomes the bottleneck within a day. The project's
-answer is not to review less but to move the review off the human: automated
-tests, a coverage floor, two reviewing agents with different mandates, and a
-full test battery run on real hardware. The human reads reports and reviews one
-pull request per epic.
+**One person cannot read every line.** Agents produce work far faster than a
+careful human can read it. Within a day, the human becomes the traffic jam. The
+answer is not to read less carefully. It is to move most of the checking off the
+human and onto machines: automated tests, a minimum standard those tests must
+meet, two separate reviewing agents with different jobs, and a full run of every
+check on a real machine. The owner then reads reports and personally reviews one
+large batch of work at a time.
 
-**Model time is the real budget.** Todd says this directly. Correcting the
-orchestrator on 2026-09-16: "you, Fable, the expensive orchestrator are doing
-too much work that should be delegated to a cheaper subagent." Later the same
-evening, after the orchestrator ran a single verification command itself: "you
-are expensive and the agents are cheaper. That's why I vigorously protect the
-context here." Every structural decision in this document — the explorer agent,
-the merger agent, the epic branch, the per-agent scratch files — exists partly
-to keep expensive reasoning scarce and cheap work plentiful.
+**Model time is the real budget.** A **model** is the particular AI doing the
+thinking. Models come in sizes: larger ones reason better and cost more per unit
+of work, smaller ones are cheaper and faster but shallower. Work is billed in
+**tokens**, which are roughly chunks of a word — every word an agent reads and
+every word it writes costs tokens. So reading a large file into the expensive
+planning conversation is a real expense, and doing it twice is waste. The owner
+of the project this guide came from put it bluntly to the orchestrator: "you,
+the expensive orchestrator, are doing too much work that should be delegated to
+a cheaper subagent," and later, "you are expensive and the agents are cheaper.
+That's why I vigorously protect the context here." Almost every structural idea
+in this guide exists partly to keep expensive thinking rare and cheap work
+plentiful.
 
-**Wall-clock time matters too.** Todd frequently starts a wave of work and
-leaves. "I'm AFK. I want to wake up tomorrow to a finished epic." That works
-only if the work is split so many agents can run at once without colliding, and
-if agents resolve their own failures rather than queuing questions for a human
-who is asleep.
+**Wall-clock time matters too.** The owner often starts a wave of work and walks
+away: "I'm away from the keyboard. I want to wake up tomorrow to a finished
+batch of work." That only works if the work is divided so many agents can run at
+the same time without stepping on each other, and if agents fix their own
+failures instead of stacking up questions for a person who is asleep.
 
-**Quality gates must not depend on trust.** Agents report confidently and are
-sometimes wrong. A builder once reported that lint passed; continuous
-integration then failed on a Biome warning. Todd: "why are we not running pnpm
-lint (even other linters) locally before pushing to CI? Failures on PR 27 were
-avoidable if we were checking locally before pushing." The orchestrator now
-verifies an agent's claim before relaying it.
+**Quality checks must not depend on trust.** Agents report confidently and are
+sometimes wrong. In one project an agent reported that the code-style checker
+had passed; the shared automated check then failed on exactly that. The owner's
+response set a permanent rule: run the checks yourself before you believe the
+report. The orchestrator now verifies an agent's claim before repeating it.
 
 ---
 
-## 2. Roles
+## 2. Start with the vision and the specification
 
-### The human: product owner and final gate
+Everything in this guide depends on one thing that happens before any code is
+written: someone sits down and writes what the product is for and what it must
+do. Agents are fast, literal, and confident. Point them at a clear written
+requirement and they produce work you can keep. Point them at a vague one and
+they will fill the gap with a guess, and you will not find out which guess until
+you use the result.
 
-Todd owns intent and owns merges. He decides what a student should experience,
-he rules when agents disagree and the specification does not settle it, and he
-is the only one who merges an epic into `main`. He answers with short
-authorizations — "go", "make it so", "merge it" — and he expects questions to
-be answered rather than implemented until he says one of those words.
+The owner states the chain directly: no vision means a poor specification, and a
+poor specification means software you throw away. Each link is worth spelling
+out.
 
-He also does the things the permission system will not let an agent do:
-exposing a local service to the network, deleting branches in bulk, and driving
-the pilot through a browser.
+A weak vision makes a vague specification, because nobody can say what belongs
+in the product and what does not. A vague specification makes agents guess,
+because an agent cannot ask you a question at three in the morning. And guessing
+agents produce software very quickly — plausible, tidy, tested against its own
+assumptions, and wrong. Throwing it away costs more than the time it took to
+write, because by then other work sits on top of it.
 
-### The orchestrator: the main session
+### The vision document
 
-The main conversation is an orchestrator, not an implementer. Its job, in the
-words of `CLAUDE.md`, is to "understand the request, write good prompts, spawn
-agents, verify their claims, and report in plain English." It does work itself
-only for a one-line lookup or edit.
+The **vision** is a short document, a few pages at most, that answers questions
+of intent rather than mechanism. It should say:
 
-The orchestrator holds the plan, the arbitration, and the context. That context
-is the scarce resource being protected, which is why the same file is never
-read into it twice if an explorer can summarize it instead.
+**Who it is for.** Not "users" but a specific group, named plainly, with what
+they already know and what they do not. Every later argument about how much to
+explain traces back to this line.
+
+**What problem it solves.** One or two sentences that would still be true if
+every technical choice changed.
+
+**The central principle.** One sentence a person can hold in their head, which
+settles arguments that the detailed requirements never anticipated. In one
+project the sentence was: simplify access to the environment without simplifying
+the environment itself. Months later, that one line decided whether a feature
+should imitate a real tool in a friendlier form or expose the real tool with an
+easier way in. It chose the real tool, every time, without anyone needing to go
+back and ask.
+
+**What it will never do.** This is the part people skip, and it is the part that
+saves the most work. A written list of non-goals is what lets an agent — or a
+reviewer — say "this is out of scope" with evidence instead of instinct. One
+project's list ran to fifteen items, and each one was a feature somebody would
+otherwise have built.
+
+**The principles that settle later arguments.** A handful of rules stated as
+absolutes. Two from one project, both written before any code existed, show how
+far a principle reaches. The first: the platform will never change the user's
+own version history on their behalf, because a tool that silently saves your
+work in your name takes away the thing you were learning to do. Months later
+that one line decided the whole design of the recovery feature, which had to let
+users undo a bad hour without touching their history. The second: the platform
+never records the user's content — not their keys, their instructions to agents,
+their source code, or what scrolls past in their terminal. That line decided
+what every part of the system could write to a log, and settled a design
+question months later with no discussion at all.
+
+### The specification
+
+The **specification** grows out of the vision and is much longer. Where the
+vision says why, the specification says what, in enough detail that an agent can
+build it. It holds:
+
+**Requirements, in numbered sections.** The numbering is not bureaucracy. It is
+the addressing system that makes everything else in this guide work. An
+instruction to an agent says "read sections 12.3 and 12.4 before you start," and
+the agent reads exactly those and nothing else. That is both cheaper and more
+accurate than telling it to read the whole document.
+
+**The security boundaries.** A section listing every place where trust stops,
+and what is on each side. This is what the security-reviewing agent is measured
+against.
+
+**The list of work, in order.** The epics, each with what it delivers and what
+must be true before it counts as done.
+
+**The milestone gates.** The points where the project must stop and prove
+something works before going further.
+
+### The technology document
+
+A third document records the technology choices: what was picked, why, and — at
+least as valuable — what was rejected and why. Without that last part, every
+rejected option gets proposed again by a different agent six weeks later, and
+someone reconstructs the argument from memory. With it, the orchestrator answers
+in one line and moves on.
+
+### How the three documents settle arguments
+
+The rule is simple and worth stating out loud in your own project: the vision
+wins on questions of intent, the specification wins on questions of detail. If
+an agent and a reviewer disagree about whether a feature should exist at all,
+that is intent, and the vision decides. If they disagree about how it should
+behave, that is detail, and the specification decides. Only when neither
+document settles it does the question reach the owner, and when it does, the
+answer gets written into whichever document should have contained it.
+
+In practice this happens constantly. A builder that thinks a test is wrong must
+name the requirement section supporting its reading. A reviewer that wants
+something simplified is answered by pointing at the requirement that made it
+complicated. Disputes that would otherwise be settled by whoever sounded more
+confident become a matter of reading the same paragraph.
+
+### How much time this takes
+
+Honestly: in the project this guide came from, the very first thing saved into
+the project was the documents, and nothing else. That first save held a vision
+of about 325 lines, a specification of about 2,400, a technology document of
+about 1,600, a one-page orientation, and the definitions of five agents — some
+4,700 lines, and not one line of the product. Its message said so plainly: "No
+application code yet." Code began the same day, but only after all of that
+existed. How long the writing took beforehand is not recorded, so this guide
+will not invent a number. The ordering is the point.
+
+If that feels like a lot of writing before anything runs, compare it to the
+alternative. The specification is read by every agent on every task, forever. It
+is the cheapest way to give a hundred separate pieces of work the same
+understanding of what you actually want.
+
+---
+
+## 3. Roles
+
+### The owner: decides what is true, and approves the result
+
+You own intent and you own the final approval. You decide what the product
+should do and what a user should experience. You settle arguments between agents
+when the written requirements do not settle them. And you are the only one who
+approves a finished batch of work into the main line of the project.
+
+In practice you answer with short authorizations — "go", "make it so", "merge
+it" — and you expect that until you say one of those words, a question you asked
+gets answered, not acted on.
+
+You also do the few things the safety system will not let an agent do on its
+own: opening a service to the outside network, deleting many things at once, and
+using the finished product in a browser like a real user.
+
+### The orchestrator: the conversation you are in
+
+The main conversation is a manager, not a bricklayer. Its job is to understand
+the request, write good instructions, start agents, verify their claims, and
+report in plain English. It does work itself only for a one-line lookup or a
+one-line edit.
+
+The orchestrator holds the plan, the arbitration, and the accumulated
+understanding of the project. That understanding is the scarce thing being
+protected, which is why the same file is never read into it twice if a cheap
+agent can summarize it instead.
 
 ### The agent roster
 
-Agent definitions live in `.claude/agents/` as Markdown files with a model and
-an effort level in their front matter. Each one carries a persona, because Todd
-asked for it: "I notice that the agents don't have any persona (e.g. expert in
-DevOps, etc. for the infra agent). Does that make a difference? It seems that
-it should." The rest of each file is rules and a required report format.
+Each agent is defined by a small text file that says which model it runs on, how
+hard it should think, who it is pretending to be, what it is allowed to do, and
+what its report must contain. Giving each agent a persona turned out to matter.
+The owner asked for it: "I notice that the agents don't have any persona (for
+example, expert in operations for the infrastructure agent). Does that make a
+difference? It seems that it should."
 
-**explorer** (Haiku, low effort) is a read-only repository scout. It uses
-ripgrep and glob patterns, reports paths with line numbers and short quotes,
-and ends by naming anything it searched for and did not find so the absence is
-known to be real. Its instructions tell it: "You locate; you do not judge."
-Todd asked for it by name when the roster was being designed: "I want a low
-cost 'explorer' agent that can use ripgrep to figure out where things are in
-the repo and report those back to smarter, better agents like the tester,
-security reviewer, etc."
+A roster that works looks roughly like this.
 
-**builder** (Opus, low effort) implements one scoped change against a named
-specification section. It is told to build only what the task asks, to prefer
-the boring solution, to run the tests and lint that cover its change, and to
-say plainly when it added behavior with no test. It is also told what to do
-when it disagrees: "If a test or review finding looks wrong to you, do not
-silently work around it or change the test. Say which spec section you believe
-supports your reading and why. The orchestrator decides."
+**A scout.** Cheap and small, read-only. Its whole job is to find where things
+are. It searches the project and reports file names, line numbers, and short
+quotes, then names anything it looked for and could not find, so that an absence
+is known to be real rather than assumed. Its instructions say: "You locate; you
+do not judge." The owner asked for this one by name: "I want a low-cost explorer
+agent that can figure out where things are and report those back to smarter,
+better agents."
 
-**tester** (Opus, low effort) designs tests from specification invariants
-rather than from what the code happens to do. Its file lists examples of the
-kind of invariant it should hunt for: recovery points never create commits or
-branches, a stale editor write cannot overwrite a newer file on disk, a
-workspace stops after the grace period and not before. It is forbidden to
-weaken a test to make it pass, and forbidden to describe a test as passing
-unless it ran it and saw it pass.
+**A builder.** A strong model doing one clearly scoped change at a time. It is
+told to build only what the task asks, to prefer the boring solution, to run the
+checks that cover its change, and to say plainly when it added something with no
+test. It is also told what to do when it disagrees with a reviewer or a test:
+say which written requirement supports its reading and why, and let the
+orchestrator decide. It must not quietly work around the problem.
 
-**security-reviewer** (Opus, medium effort) is read-only and reviews against
-the eight trust zones in specification section 24. It is told to assume every
-zone is hostile to its neighbors and that student code "will bind arbitrary
-ports, attempt privilege escalation, exhaust resources, probe the network,
-serve malicious JavaScript, create symlinks, manipulate filenames, and attack
-platform services." Every finding needs a file, a line, and a concrete failure
-scenario.
+**A tester.** A strong model that writes checks based on what the requirements
+promise, not on what the code happens to do — otherwise the checks simply agree
+with any bug already there. It may not weaken a check to make it pass, and may
+not call a check passing unless it ran it and watched it pass.
 
-**code-reviewer** (Opus, medium effort) is read-only and reviews correctness
-first, then simplicity. Todd specified it himself: "write the code-reviewer
-agent — correctness and quality/refactors. YAGNI, KISS, SOLID, etc. as applied
-to both program code and infra code." Its rules include a guard against
-reviewer noise: if it cannot name a concrete simpler alternative, it may not
-report the finding.
+**A security reviewer.** Read-only, pointed at the places where untrusted input
+meets trusted machinery. It works from a written list of **security
+boundaries**: the lines where you stop trusting what comes across. It assumes
+anything on the far side is hostile — that user code will seize resources, probe
+the network, escape its directory, and attack the product's own services. Every
+finding must name a file, a line, and a concrete way things go wrong.
 
-**infra** (Opus, medium effort) owns everything under `infra/`: host bootstrap,
-the OpenTofu virtual machine, cloud-init, Ansible, Incus, the workspace image,
-and Caddy. Its persona is a DevOps engineer "who has run libvirt, LXC, and
-Debian fleets in production and been paged for the consequences." Because its
-mistakes are slow and hard to undo, it must state the evidence before any
-destructive command and prefer a dry run.
+**A code reviewer.** Read-only, and looking first for outright mistakes, then
+for needless complexity. The owner specified this one himself: correctness and
+quality, judged by the old rules of thumb — do not build what nobody needs, keep
+it simple, do not repeat yourself, and keep each piece responsible for one
+thing. It carries one guard against reviewer noise: if it cannot name a concrete
+simpler alternative, it is not allowed to report the complaint at all.
 
-**merger** (Sonnet, low effort) lands pull requests. It waits for continuous
-integration, updates a branch that has fallen behind, squash-merges, classifies
-a red run as a flake, a conflict, or a real failure, reruns flakes at most twice
-itself, and escalates anything needing judgment. It does not change code. Todd
-proposed it during Epic 7.1: "This workflow really begs for a CI/merge agent on
-Opus low, don't you think? It would further reduce Fable usage. It could
-escalate to you as the orchestrator only if needed." It shipped as
-`.claude/agents/merger.md` at Sonnet rather than Opus.
+**An infrastructure agent.** For the machines the product runs on, rather than
+the product itself. Its persona is an operations engineer "who has run fleets in
+production and been paged for the consequences." Because its mistakes are slow
+and hard to undo, it states its evidence before any destructive command and
+prefers a rehearsal run that changes nothing.
 
-*Current as of this writing:* `merger.md` and the decision record that codified
-automatic merges, `docs/adr/0016-automatic-task-merges-with-epic-level-review.md`,
-landed on the `epic/7-1-pilot-fixes` branch in pull request #179 and are not yet
-on `main`. The six agents on `main` are explorer, builder, tester,
-security-reviewer, code-reviewer, and infra.
+**A merger.** A small, cheap clerk that lands finished work. It waits for the
+automated checks, brings a branch up to date when it has fallen behind, combines
+the work, and decides whether a failed check is a random **flake** — a check
+that sometimes fails without the code changing — a collision with someone else's
+change, or a genuine problem. It retries a flake at most twice and escalates
+anything needing judgement. It never changes the code. The owner proposed it
+after watching the orchestrator do this by hand: "This workflow really begs for
+a merge agent. It could escalate to you as the orchestrator only if needed."
 
 ### Why cheap agents do most of the work
 
-Three reasons. Most of the work is not hard: finding where a symbol is defined,
-waiting for a check to go green, and updating a branch that fell behind require
-diligence, not reasoning. Every token the orchestrator spends reading a file is
-context it cannot spend on the plan, and an explorer that reads twenty files and
-returns thirty lines has converted an expensive read into a cheap one. And
-interruptions cost more than they look: the merger agent was created because the
-orchestrator "was interrupted a dozen times a day by pure bookkeeping: CI waits,
-BEHIND updates, flake reruns, helper timeouts."
+Most of the work is not hard: finding where something is defined, waiting for a
+check to finish, and updating a stale branch need diligence, not insight. Every
+token the orchestrator spends reading a file is attention it cannot spend on the
+plan, and a scout that reads twenty files and returns thirty lines has turned an
+expensive read into a cheap one. And interruptions cost more than they appear
+to: the merger agent exists because the orchestrator "was interrupted a dozen
+times a day by pure bookkeeping."
 
-There is a practical trap worth knowing: an agent definition file only loads in
-sessions started after it exists. When `merger.md` was written, it could not be
-spawned by name in the session that wrote it. The workaround is to spawn a
-general-purpose agent at the right model and tell it to read the file.
+One trap is worth knowing in advance: a newly written agent definition usually
+only becomes available in conversations started after it exists. The workaround
+is to start a general agent on the right model and tell it to read the new
+definition file first.
 
 ---
 
-## 3. The unit of work
+## 4. The unit of work
 
-### The documents
+### Words for the machinery
 
-Four tracked documents carry the project's intent and are cited by section
-number in every prompt, commit, and review. `docs/VISION.md` holds product
-intent and wins any question about what the product is for. `docs/SPEC.md`
-holds requirements and wins on implementation detail; section 29 lists the
-epics in order, section 30 the milestone gates, section 24 the security trust
-zones. `docs/STACK.md` holds technology choices and the reasoning behind them,
-including a section on what was rejected. `docs/OVERVIEW.md` is a one-page
-orientation that every agent reads first.
+A **repository** is the folder holding all the project's files, together with
+its complete history. A **commit** is one saved snapshot of changes, with a
+message saying what changed and why. A **branch** is a separate line of work: a
+copy of the project where you can make commits without disturbing the main line,
+which is conventionally called `main`. To **push** is to send your commits from
+your own machine to the shared copy that everyone works from.
 
-Two more track state. `docs/STATUS.md` records what each epic delivered and the
-gaps it left, updated in the same pull request that lands the work.
-`docs/BACKLOG.md` holds wanted work that is not yet an epic. Decisions a later
-reader would ask "why" about go into a numbered record under `docs/adr/`; there
-are sixteen so far, covering the monorepo tooling, the Incus access method, the
-reconciler design, the Debian package, sessions, the agent transport, logging,
-the editor stack, and the merge policy.
+A **pull request** is a formal proposal to fold one branch into another. It
+shows exactly what changed, collects automated checks and comments, and waits
+for approval. To **merge** it is to accept it. A **squash** merge compresses all
+the small commits on a branch into one tidy commit on the receiving branch,
+which keeps the shared history readable at the cost of losing the step-by-step
+detail.
 
-`CLAUDE.md` is deliberately small. Todd capped it: "CLAUDE.md is too big. We
-need to keep it lean: 150 lines max. Most should be pointers to where other
-information is along with rules about processes (e.g. delegating to cheap
-subagents where possible, test driven development, merge rules, etc.)." It now
-holds only pointers and process rules. Anything describing what the code does
-lives under `docs/`.
+**Continuous integration**, almost always shortened to **CI**, is the robot that
+runs every check automatically on every pull request and reports pass or fail. A
+**test** is an automated check that some behaviour is correct. A **unit test**
+checks one small piece in isolation and runs in milliseconds. An **end-to-end
+test** drives the real product the way a person would — clicking buttons in a
+real browser — and catches everything the small checks cannot see. **Coverage**
+is the percentage of the code that the tests actually exercise.
 
-### Epics and task pull requests
+A **gate** is a point where work stops until a condition is met. Some gates are
+automatic, like CI. One gate is always a person: nothing reaches the main line
+without the owner's approval.
 
-An epic is a coherent slice of the product listed in specification section 29,
-with its own acceptance criteria. It gets a long-lived branch named
-`epic/<n>-<slug>`. Work happens on short-lived task branches cut from the epic
-branch, each merged into it by a squash merge. When the acceptance criteria are
-met, the epic branch is merged into `main` by one pull request, with a merge
-commit so the epic's history is kept.
+A **worktree** is a second copy of the repository on disk, checked out to its
+own branch, so that two agents can work at the same time without overwriting
+each other's files.
 
-The branch protection rules shape the mechanics more than anyone expected. Every
-push to an epic branch needs a pull request, including a sync from `main`. A
-pull request branch must be up to date with its base before it merges, and
-automatic merging is disabled, so pull requests land strictly one at a time:
-update, wait for the run whose head matches, merge, repeat. Epic branches reject
-merge commits, so task pull requests must be squashed; `main` accepts a merge
-commit.
+### Epics, tasks, and batches
+
+An **epic** is a coherent slice of the product large enough to be worth planning
+as a unit — "the file browser and editor", say — with its own written acceptance
+criteria. It gets a long-lived branch of its own.
+
+Inside the epic, work is cut into **tasks**: single scoped changes, each with
+its own short-lived branch and its own pull request into the epic branch, each
+squashed in when its checks go green. When the acceptance criteria are met, the
+whole epic branch is proposed to `main` as one pull request, and that one is the
+owner's to approve.
+
+A **milestone** is a named point the project must reach — a demonstration, a
+first real deployment — with a list of what must be true before it counts.
+
+The rules the hosting service enforces on branches shape the mechanics more than
+anyone expects. If every change to a protected branch must arrive by pull
+request, even routine housekeeping needs one. If a pull request must be fully up
+to date with its target before it can merge, pull requests land strictly one at
+a time. Learn these rules early; they will otherwise surprise you at the worst
+moment.
 
 ### The fix batch
 
-Small problems found on the running pilot do not each get a branch. Todd's rule,
-stated on 2026-09-18: "I really just want to batch up a bunch of fixes into one
-epic unless they're showstoppers. Like we did with epic 6.1." Each small finding
-becomes a GitHub issue under a milestone named "Pilot fixes (next fix batch)",
-carrying its cause, a proposed fix, a size estimate, and the specification
-sections it touches. When Todd says go, the milestone's issues become a
-fractional epic: a branch, one pull request per issue, one review pass, one
-merge, one deployment. Epic 6.1 carried eighteen such pull requests; Epic 7.1
-carried the issues numbered 153 to 164.
+Small problems found in a running product do not each get their own branch and
+their own ceremony. The owner's rule: "I really just want to batch up a bunch of
+fixes into one epic unless they're showstoppers."
 
-He is explicit about what he does not want in between. Offered a pull request
-whose only purpose was to record a note: "We have a BACKLOG of features. This
-seems like a small fix. Unfortunately, I don't want to open a new PR just to
-create a FIXES.md file and merge it. Seems odd."
+Each small finding becomes a tracked issue under a milestone named something
+like "next fix batch", carrying what caused it, a proposed fix, a rough size,
+and the requirement sections it touches. When the owner says go, the whole
+milestone becomes a small epic: one branch, one pull request per issue, one
+review pass, one approval, one deployment. A genuine showstopper — something
+that makes the product unusable — skips the queue and gets its own branch
+immediately.
 
-### How an epic runs, end to end
+The owner is equally clear about what he does not want in between. Offered a
+pull request whose only purpose was to write down a note, he said: "We have a
+backlog of features. This seems like a small fix. I don't want to open a new
+pull request just to create a notes file and merge it. Seems odd."
 
-Epic 7, which delivered the file tree, the Monaco editor, search, Git status,
-and change review, is a good worked example. It ran overnight between
-2026-09-17 and 2026-09-18 and is typical in shape.
+### How an epic runs, start to finish
 
-It began in plan mode. Todd asked for a plan, named one thing he cared about —
-"we'll have a markdown viewer, but we also need to edit markdown, so we need a
-way of doing both when clicking on the file" — and said how to gather the
-information: "Use the explore agent to read the files you need to plan the
-epic." The orchestrator sent explorers to map the code, synthesized a plan of
-non-overlapping waves, and brought open questions back for a ruling. Todd
-ruled: Markdown opens in preview with an Edit, Preview and Split control; front
-matter renders as a collapsed block; agent-session review moves to a later epic.
+Here is one real epic, generically described. It delivered a file browser, a
+code editor, a search feature, and a way to review changes. It ran overnight and
+is typical in shape.
 
-Then he left. "After authorizing the plan, you will cut the epic branch and I
-will go AFK. I expect you to do your best to iterate through all the issues,
-fixing bugs, merging PRs, etc. so that when I come back in the morning, epic 7
-will be ready for me to test."
+It began in planning mode, with no changes allowed. The owner asked for a plan,
+named the one thing he cared most about, and said how to gather the information:
+"Use the explorer agent to read the files you need to plan the epic." The
+orchestrator sent scouts to map the existing code, turned their reports into a
+plan built from waves of non-overlapping work, and brought the open questions
+back for a ruling. The owner ruled on each one.
 
-The orchestrator cut `epic/7-files`, spawned builders in waves, and landed
-seventeen task pull requests, numbered 131 to 149, each squash-merged after its
-checks went green. Work touching the workspace agent, the API or file handling
-also went through security review before it landed. When the last task was in,
-security-reviewer and code-reviewer ran in parallel over the epic head; their
-findings became further task pull requests; a confirmation review followed.
+Then he left, with explicit temporary authority: "After authorizing the plan,
+you will cut the branch and I will go away from the keyboard. I expect you to do
+your best to work through all the issues, fixing bugs and landing work, so that
+when I come back in the morning it will be ready for me to test."
 
-The final gate ran on Todd's workstation with a fresh database: `make check`
-green at 1179 tests, `pnpm test:e2e` at 109 passed, `make build-deb` producing
-version 0.1.179. Only then did the orchestrator open pull request #150 into
-`main` and stop. Todd merged it on 2026-09-18 as commit 3849f09. The release
-workflow published a package, an infra agent deployed it to the pilot as
-0.1.163, and the smoke test passed 63 of 63 checks.
+The orchestrator cut the epic branch, started builders in waves, and landed
+seventeen task pull requests, each squashed in after its checks passed. Anything
+touching a security boundary went through the security reviewer first. When the
+last task was in, the security reviewer and the code reviewer ran at the same
+time over the whole epic; their findings became further task pull requests; then
+both reviewers ran again over the fixed result.
 
-Todd then used the pilot as a student would, found twelve problems, and filed
-them as issues 153 to 164 for the next fix batch. One, a false "changed on disk"
-prompt, he marked a showstopper.
+The final gate ran on the owner's own machine with a freshly created database:
+every check green, every browser test passing, and a real installable package
+produced. Only then did the orchestrator open the one pull request into `main`
+and stop. The owner approved it, an infrastructure agent deployed it, and the
+automated smoke test on the live machine passed every check.
+
+The owner then used the deployed product as a user would, found twelve problems
+in under an hour, and filed them for the next fix batch. One he marked a
+showstopper. That last sentence is the important one: every automated gate had
+passed.
 
 ---
 
-## 4. Prompts that work
+## 5. Instructions that work
 
-A delegation prompt is a small specification. `CLAUDE.md` names the parts: "A
-good prompt names the SPEC.md and STACK.md sections, the files in scope, the
-base commit, what done looks like, and what to leave alone."
+An instruction to an agent is a small specification in its own right. A good one
+names the requirement sections it must satisfy, the files it is allowed to
+touch, the exact starting point in the project's history, what "done" looks
+like, and what to leave alone.
 
-**Specification sections by number.** Agents read the cited sections before
-writing code. This is what lets a builder push back with evidence instead of
+**Requirement sections, by number.** Agents read the cited sections before
+writing anything. This is what lets a builder push back with evidence instead of
 opinion, and what lets the orchestrator settle the argument by reading the same
 lines.
 
-**Files in scope, and files not in scope.** Parallel agents must never share a
-file. The split is by package or directory. Epic 5 ran eight agents at once —
-shared packages, agent, controller, worker, API, web, infrastructure and docs —
-across nine pull requests with no file conflicts. The one file two agents would
-have touched was assigned explicitly to one of them.
+**Files in scope, and files out of scope.** Agents working at the same time must
+never share a file. Split the work by area. In one project, eight agents ran
+simultaneously across nine pull requests with no collisions, because the split
+was drawn along clean lines and the one file two of them would have touched was
+assigned explicitly to one of them.
 
-**The exact base commit.** Agent worktrees start at `main`, not at the branch
-the orchestrator is on. During the grace-period task both builders found
-themselves at the wrong commit and had to reset by hand. The rule that came out
-of it: tell a worktree agent the exact commit to reset to.
+**The exact starting point.** A new worktree usually starts from the main line,
+not from the branch the orchestrator happens to be on. In one project both
+builders on a task silently started from the wrong point and had to be reset by
+hand. The rule that came out of it: always tell an agent the exact commit to
+start from.
 
-**What done looks like.** Which tests must pass, which commands must be run,
-and what the report must contain. The builder definition requires command output
-rather than a claim, because a claim was wrong once and cost a red run.
+**What done looks like.** Which checks must pass, which commands must be run,
+and what the report must contain. Require the actual output of the command, not
+a sentence claiming it passed, because a claim was wrong once and cost a failed
+run.
 
-**The preamble pattern.** Each agent file opens with a persona and a short list
-of non-negotiables before any task detail. The infra agent's non-negotiables are
-a good example: everything reproducible from source control, unprivileged
-containers with per-workspace identifier maps, user data on separate volumes,
-nothing outside the storage adapter depending on LVM, management networks
-unreachable from workspaces. A task prompt then adds only what is specific to
-the job.
+**A preamble of non-negotiables.** Each agent definition opens with its persona
+and a short list of things never up for debate, before any task detail. For an
+infrastructure agent that might be: everything reproducible from source control,
+user data on separate storage, management networks unreachable from user code.
+The task instruction adds only what is specific to the job.
 
-**Private databases and ports.** Parallel agents collide on shared
-infrastructure in ways that look exactly like real bugs. Tests that share one
-PostgreSQL database must not run in parallel; the project sets
-`fileParallelism: false` on the relevant Vitest project, a fix prompted by a
-suite that passed locally by timing luck and failed in continuous integration.
-Each agent is told to create its own database. Playwright is worse: its ports
-are fixed, so two browser runs on one machine fight whatever database they use.
-Browser-test agents are serialized, or reruns are accepted.
+**Private databases and ports.** Agents running at the same time collide on
+shared resources in ways that look exactly like real bugs. If several tests
+share one database, they must not run at the same time. Each agent should create
+its own database rather than share one. Browser tests are worse, because they
+usually claim fixed network ports, so two browser runs on one machine fight each
+other. Run browser-test agents one at a time, or accept that some will need a
+rerun.
 
 **Time boxes.** A debugging agent without a limit will burn an afternoon. One
-spent thirty minutes rerunning a fifteen-minute smoke test instead of
-reproducing a single request. The rule: give debugging agents a tight
-reproduction recipe and a time box, and check on them after ten minutes. The
-merger agent has its limits written into its own file — ninety minutes per pull
-request, four hours for a list.
+spent thirty minutes repeatedly rerunning a fifteen-minute test instead of
+reproducing the single failing request. The rule: give debugging agents a tight
+recipe for reproducing the problem and a hard time limit, and check on them
+after ten minutes. Write the limits into the agent's own definition where you
+can.
 
-**Report a paragraph; do not edit a shared document.** Every pull request into
-an epic branch used to conflict in `docs/STATUS.md` and in the specification's
-epic list, because each builder appended to the same paragraph. The resolution
-was always to keep both, but it cost a manual step on nearly every merge. Since
-Epic 7.1, builders report their status sentence and their specification bullet
-in the pull request body, and the orchestrator writes them all in one
-documentation pull request at the end.
+**Report a sentence; do not edit a shared document.** Early on, every pull
+request collided in the status document, because each builder appended to the
+same paragraph. The fix: builders report their status sentence in the pull
+request description, and the orchestrator writes them all into the document
+once, at the end.
 
----
+### What a prompt actually looks like
 
-## 5. Saving tokens and time
+A short example, to make it concrete. This is the shape, not the content:
 
-**Send the cheapest agent that can do the job.** Explorer before builder,
-always, when a location is unknown. `CLAUDE.md` puts it plainly: "Run explorer
-first when a location is unknown and pass its paths on, rather than making a
-stronger agent search."
+```
+Read requirement sections 12.3 and 12.4 before you start.
+Work only in the file-list component and its tests.
+Do not touch the editor or anything under the server folder.
+Start from commit a1b2c3d.
+Done means: the list shows folders before files, sorted by name;
+a new unit test covers the sort order; the existing checks still pass.
+Report the actual output of the test command, not a summary.
+```
 
-**Parallelize on disjoint files.** Epic 4 ran seven builders from one plan
-file. The only conflicts were a shared API test file, resolved by taking one
-agent's version, and the lockfile, resolved by regenerating it. Epic 5's wave
-shape is the template: one agent alone on the shared packages, then seven in
-parallel on separate services, then testers and reviewers in parallel, then two
-fix builders split by file ownership.
-
-**Know when not to parallelize.** Epic 7.1's plan has two waves for a reason.
-Wave one is nine parallel tasks on disjoint files. Wave two is five tasks that
-all pass through one file, `apps/web/src/work/FileLeaf.tsx`, and they run
-strictly in series. Forcing them to run together would produce conflicts that
-cost more than the time saved.
-
-**Hand bookkeeping to a clerk.** The merger agent exists because merge
-mechanics are mechanical. Todd noticed the pattern and named the fix himself.
-
-**Do not let debugging agents rerun whole suites.** Reproduce one request, not
-the system.
-
-**Never wait with sleep loops.** A background wait keyed on a process pattern
-deadlocks: the waiting shell's own command line matches the pattern, so it waits
-for itself forever, and killing the pattern then kills the replacement too. Use
-a background loop polling the check state, or the completion notification from a
-background job.
-
-**Keep continuous integration fast.** Todd: "do it. I always want CI to be as
-fast as possible." Caching Ansible collections cut a four-minute lint step. The
-Chromium headless shell is installed instead of full Chromium. Any step over a
-minute is a candidate to cache or drop, and pull request reports mention
-continuous integration time.
-
-**Split the test run for parallelism, carefully.** The database tests are
-serialized within their project; everything else runs in parallel. The browser
-tests run one at a time per machine.
-
-**Accept known contention rather than serializing everything.** Building the
-workspace image and several parallel browser suites together starved Todd's own
-workspace container. Offered the choice, he said: "No, it's okay. You can
-continue to work. I'll live with the contention." The rule is to warn him when a
-heavy build starts so a spike is not mistaken for a bug.
+Five short instructions, and nothing left to interpretation.
 
 ---
 
-## 6. Quality gates that replace line-by-line human review
+## 6. Saving money and time
 
-The human reviews one pull request per epic. Everything below is what makes
-that safe.
+**Send the cheapest agent that can do the job.** Scout before builder, always,
+when you do not know where something lives. The standing rule: run the scout
+first when a location is unknown and pass its file paths on, rather than making
+an expensive agent search.
 
-**Tests are part of done.** Not a follow-up. A change ships with unit tests for
-its logic, and anything a student or administrator can see ships with browser
-tests too. Write the test first when the behavior is clear enough to state; a
-bug fix starts with a failing test that reproduces it.
+**Run agents in parallel, split by boundary.** In one project seven builders ran
+from a single plan with only two collisions, both trivial. The template that
+works is waves: one agent alone on the shared foundations first, then many in
+parallel on separate areas, then testers and reviewers in parallel, then a few
+fix agents split by file ownership.
 
-**Browser tests are not optional.** Todd made this a rule during Epic 5 after a
-web task landed without one: "We need thorough e2e tests for each epic or task
-that builds the interface." The evidence was already in hand from Epic 4, where
-a plain HTML sign-out form returned a 415 error in a real browser because
-Fastify's injection helper sends no form content type. No unit test could catch
-it; Playwright did. During the logging task, browser tests caught the API
-registering a shutdown hook after the server was already listening, which
-Fastify refuses and which unit coverage never reaches.
+**Know when not to parallelize.** In one plan, wave one was nine parallel tasks
+on separate files and wave two was five tasks that all had to pass through a
+single file, run strictly one after another. Forcing the second wave to run
+together would have produced collisions costing more than the time saved.
 
-**Coverage floors.** Continuous integration fails if coverage drops below the
-floors in `vitest.config.ts` — eighty percent of lines overall at present. The
-rule attached to it matters more than the number: do not lower a floor to make
-a run pass. Say so and let the human decide.
+**Hand bookkeeping to a clerk.** Waiting for checks, updating stale branches,
+and retrying random failures are mechanical. Give them to the cheapest agent
+that can be trusted with them.
 
-**Security review on trust boundaries.** Anything touching authentication, the
-preview gateway, the workspace agent, file APIs, Incus or nested Docker goes
-through security-reviewer before it is called done. In Epic 6 it found unbounded
-reads of agent responses and uncapped inserts during project discovery. In Epic
-6.1, a pseudo-terminal leak on a socket closed mid-capture and a memory burst a
-student could trigger. In Epic 7: a dangling-symlink write that escaped its
-directory, a file watcher following symlinks by default, a search cap that
-ripgrep silently ignores in its JSON mode, a Zod coercion where the string
-"false" becomes true, agent error text relayed to the browser verbatim, and a
-100 MiB default message size limit.
+**Never wait by sleeping in a loop.** A background wait that watches for a
+process matching some pattern can deadlock, because the waiting command's own
+text matches the pattern and it waits for itself forever. Worse, stopping the
+pattern then stops the replacement too. Instead, poll the actual status of the
+thing you are waiting for, or use a proper completion notification.
 
-**Code review over the epic head.** Run once, over the whole branch, before the
-epic pull request. It catches seams that appear only after parallel work lands
-together: a leftover polling loop, a single letter meaning two different things
-in two files, a watcher that failed without telling the sockets depending on it,
-duplicate tab identifiers, a tmux history limit set after session creation where
-it does nothing, a signal handler that would have hung every service restart for
-ninety seconds, and a query running once a second for debug lines nobody was
-printing.
+**Keep the automated checks fast.** The owner: "do it. I always want the
+automated checks to be as fast as possible." Caching downloads cut one four-
+minute step to seconds. Installing a minimal browser instead of a full one cut
+another. Any step over a minute is a candidate to cache or remove, and reports
+should mention how long the checks took.
+
+**Accept some contention rather than serializing everything.** Heavy jobs
+running alongside test suites once starved the owner's own machine. Offered the
+choice, he said: "No, it's okay. I'll live with the contention." The rule: warn
+him when a heavy job starts, so a slow machine is not mistaken for a bug.
+
+---
+
+## 7. The gates that replace line-by-line human reading
+
+The owner reads one pull request per epic. Everything in this section is what
+makes that safe.
+
+**Tests are part of done, not a follow-up.** A change ships with unit tests for
+its logic, and anything a person can see on screen ships with browser tests too.
+Write the test first when the behaviour is clear enough to state. A bug fix
+starts with a test that fails for exactly the reported reason.
+
+**Browser tests are not optional.** This became a rule after a visible feature
+landed without one. In one project a plain sign-out button returned an error in
+a real browser, because the helper the small tests used sent data in a different
+format than a browser does. No unit test could have caught it; the browser test
+caught it at once.
+
+**A coverage floor.** The automated checks fail if coverage drops below a set
+percentage. The rule attached to the number matters more than the number: nobody
+may lower the floor to make a run pass. If a change genuinely cannot meet it,
+say so and let the owner decide.
+
+**Security review at every boundary.** Anything touching sign-in, the gateway
+that serves user content, the component that runs user code, file handling, or
+container isolation goes through the security reviewer before it is called done.
+Across three epics in one project this found unbounded reads a user could turn
+into a memory-exhaustion attack, a write that followed a broken shortcut out of
+its own directory, a limit the underlying search tool silently ignores, a
+conversion where the text "false" was treated as true, internal error text
+relayed to the browser word for word, and a message size limit set a hundred
+times too high. None were visible in a functional test.
+
+**One code review over the whole epic.** Run once, over everything, before the
+final pull request. It catches the seams that appear only after parallel work
+lands together: a leftover polling loop nobody removed, one abbreviation meaning
+two different things in two files, a watcher that failed silently while other
+parts depended on it, and a shutdown handler that would have hung every restart
+for ninety seconds.
 
 **A confirmation review.** After the review findings are fixed, both reviewers
-run again over the merged head. Fixes made in a hurry are still fixes made in a
+run again over the result. Fixes made in a hurry are still fixes made in a
 hurry.
 
-**The full battery locally, on a fresh database.** Before the epic pull request:
-`make check` and `pnpm test:e2e` green on this machine, with a database
-container created for the run. The freshness is not ceremony. The admin browser
-test once passed locally only because an unrelated unit test had left a row in
-the shared database; continuous integration's fresh database failed.
+**The full battery locally, on a fresh database.** Before the epic's pull
+request, run everything on a real machine with a database created from nothing
+for that run. The freshness is not ceremony. One browser test once passed
+locally only because an unrelated earlier test had left a row behind in a shared
+database; the automated checks, which start clean, failed.
 
-**Real-host verification for infrastructure.** Continuous integration only
-lints and validates infrastructure code. Pull request #6 merged green and then
-failed at every step of the first real run: initialization, provider schema,
-the cloud-init path, AppArmor on the disks, Ansible filters, Incus keys, and the
-smoke test. Since then, anything under `infra/` runs the full lifecycle on this
-machine before its pull request is called ready — bootstrap, plan, apply from
-nothing, Ansible twice with the second run reporting no changes, smoke test,
-operating-system disk reinstall keeping the data disk, and a fresh-host
-bootstrap in a throwaway virtual machine — reported per step in a table.
+**Real-machine verification for infrastructure.** Automated checks can only
+inspect infrastructure descriptions; they cannot prove a machine will actually
+come up. One early change passed every check and then failed at every single
+step of the first real run: initialization, provider versions, boot
+configuration, disk permissions, data processing, keys, and the final smoke
+test. Since then, anything touching infrastructure runs its whole lifecycle on a real
+machine before its pull request is called ready: build from nothing, configure,
+configure again and confirm the second run changes nothing, run the smoke test,
+and boot a throwaway machine from scratch, reported step by step.
 
-**Adversarial probes.** The tester's first run planted a secret, a type error,
-and an unused variable to see whether the checks would notice. They found a real
-defect: Biome was exiting successfully on warnings. Those probes stayed in the
-tester's prompts.
+**Adversarial probes.** The first time a tester agent ran, it deliberately
+planted a fake password, a type error, and an unused variable to see whether the
+checks would notice. They found a real defect: the style checker was reporting
+success despite its own warnings. Those probes stayed in the tester's standing
+instructions.
 
-**Run it again.** Todd's summary of why all of this exists: "Every time we've
-run tests, we've found something. Let's run the battery again." And before the
-Epic 2 merge: "tear down the VM and run the battery one more time before we
-merge."
+**Run it again.** The owner's summary of why all of this exists: "Every time
+we've run tests, we've found something. Let's run the battery again." And before
+a major approval: "tear down the machine and run the battery one more time
+before we merge."
 
 ---
 
-## 7. Todd's working rules, in his words
+## 8. The owner's working rules, in his words
 
-These come from his global working instructions and from what he has said in
-session. They are short because they are meant to be remembered.
+These come from the owner's standing instructions and from what he has said
+during sessions. They are short because they are meant to be remembered.
 
 **Done means done.** "Not half done. Not done except for the part I decided to
 skip. And not a report about how it will be done. N things asked means N things
@@ -467,192 +603,304 @@ delivered, however long they take. If one is genuinely blocked, finish the rest
 and name the specific blocker in one sentence — not 'this needs more
 investigation.'"
 
-**Act, don't ask.** Reversible and cheap work gets done and then reported:
-research, analysis, drafts, refactors inside the given scope. "A question costs
-me more than a re-run costs you." Ask first only for something that reaches an
-audience, cannot be undone, or is expensive. Something broken gets fixed, not
-reported: "reporting an issue I could have had fixed turns your work into my
-to-do list."
+**Act, don't ask.** Work that is cheap and reversible gets done and then
+reported: research, analysis, drafts, tidying inside the scope already given. "A
+question costs me more than a re-run costs you." Ask first only for something
+that reaches an audience, something that cannot be undone, or something
+expensive. Something broken gets fixed, not reported: "reporting an issue I
+could have had fixed turns your work into my to-do list."
 
 **A question is a question.** "'Should we use X?' is not 'migrate to X.' 'What
 would it take to add Y?' is not 'add Y.' When in doubt, assume it's a question.
-Answer first; act when I say go." He uses this constantly. Asking about
-workspace hostnames, he closed with "Don't change anything, but let me know your
-thoughts." Asking about a single-command installation for people bringing their
-own Debian host: "Don't do that right now, but tell me what that would entail."
+Answer first; act when I say go." He uses this constantly, and usually says so
+outright: "Don't change anything, but let me know your thoughts," or "Don't do
+that right now, but tell me what that would entail."
 
-**Build only what was asked.** No configuration options, abstractions, or
+**Build only what was asked.** No settings, no layers of abstraction, and no
 extension points for needs nobody has today. "If a future need is real, say so
 in one sentence and still leave it unbuilt."
 
 **Prefer boring.** "Longer and obvious beats short and clever. Fewer moving
-parts, fewer layers, fewer new files." Remove duplication that is real and leave
-alone things that merely look alike, because sharing two things too early is
-harder to undo than a copy. Use what is already in the repository before adding
-a dependency, and say why out loud if you add one.
+parts, fewer layers, fewer new files." Remove duplication that is real, and
+leave alone things that merely look alike, because merging two things too early
+is harder to undo than keeping a copy. Use what is already in the project before
+adding anything new, and say out loud why if you add one.
 
 **Recommend, do not survey.** "Recommend the simplest thing that solves the
 problem actually in front of you, and say which option you would pick rather
 than listing them all." He also expects to be argued with, and he changes his
-mind: he asked to be challenged on model choices and did change one when given
-a real argument.
+mind: he has asked to be challenged and has reversed decisions when given a real
+argument.
 
-**Merges are his gate.** Task pull requests into an epic branch merge
-automatically once their checks are green. The one pull request from the epic
-into `main` is his. He grants merge authority explicitly and temporarily — "I'm
-going AFK, so do your best to resolve issues on your own. You have my authority
-to merge all PRs for the remainder of this session" — and it does not carry
-over.
+**Approval is his gate.** Task pull requests inside an epic can land
+automatically once their checks are green. The one pull request that reaches the
+main line is his. He grants authority beyond that explicitly and temporarily —
+"I'm going away from the keyboard, so do your best to resolve issues on your
+own. You have my authority to merge all pull requests for the remainder of this
+session" — and it does not carry over to the next session.
 
 **How he corrects drift.** He does not soften it, and he asks for the cause
-rather than an apology. "It seems like you were stuck. Plus, you, Fable, the
-expensive orchestrator are doing too much work that should be delegated to a
-cheaper subagent. What is going on?" "Is the infra agent stuck? It's been
-waiting a while." "I think the merge subagent is stuck polling 166, which is
-green." "You've enabled claude-fable-5-1 on low, but the merge agent is sonnet.
-Is that right?" Each of these produced a durable change: delegation of
-verification runs, a merger agent, an escalation rule.
+rather than an apology. "It seems like you were stuck. Plus, you, the expensive
+orchestrator, are doing too much work that should be delegated to a cheaper
+subagent. What is going on?" "Is the infrastructure agent stuck? It's been
+waiting a while." "I think the merge agent is stuck polling something that is
+already green." "You've set one agent to a cheap model. Is that right?" Each of
+those questions produced a permanent change: delegation of verification runs, a
+dedicated merge agent, an escalation rule.
 
 ---
 
-## 8. Lessons learned the hard way
+## 9. Lessons learned the hard way
 
-Each of these cost real time, and each produced a rule that is now written down
-somewhere an agent will read it.
+Each of these cost real time, and each produced a rule now written somewhere an
+agent will read it.
 
-**Squash merges break rebases, so apply diffs instead.** Builder worktrees start
-from an older base and often merge the epic branch in. Once the epic branch has
-squash-merged their siblings, a rebase replays the whole chain and conflicts on
-every file the squash already contains. The fix is to take the content
-difference and apply it: `git diff <their base> <their head> | git apply
---3way` onto the current epic head, then commit once. This worked three times in
-Epic 6.1 alone, and it is now written into the merger agent's standing rules.
+**Squashed history breaks replays, so apply the difference instead.** Agents
+work in separate copies started from an older point, and often pull the shared
+branch in as they go. Once the shared branch has squashed their siblings' work
+into single commits, the usual technique of replaying an agent's commits on top
+collides on every file the squash already contains, because the same changes now
+appear twice with different histories. What happened: three separate agents'
+work stalled for the better part of an hour each. The rule: take the plain
+difference between where the agent started and where it ended, apply that
+difference to the current shared branch, and commit it once. Do not replay the
+history.
 
-**Branches cut early go stale fast.** A pull request cut before three siblings
-landed conflicted in the code it touched, and worse, the reviewers pointed at
-its head were reviewing a tree missing four pull requests entirely. The review
-was wasted. The rule: before spawning a reviewer or merging, confirm the branch
-actually contains the epic head, and state which commits it holds.
+**Branches cut early go stale fast.** Reviewers pointed at a branch created
+before three sibling changes landed were reviewing a version of the project
+missing four completed changes entirely, so the whole review was wasted. The
+rule: before starting a reviewer or approving anything, confirm the branch
+actually contains the current state, and say which changes it holds.
 
-**Phantom merges.** A merge loop that printed "merged" without checking the exit
-code reported four merges that never happened. Earlier, a failed merge command
-piped through a text filter looked like success and three more were reported
-that had not occurred. The rule: never print "merged" unless a state query says
-`MERGED`, and check `mergeStateStatus` for `BEHIND`, `BLOCKED` or `CONFLICTING`
-first.
+**Phantom merges.** A loop that printed "merged" without checking whether the
+command had succeeded reported four merges that never happened, and an hour went
+into building on a state that did not exist. The rule: never report something as
+merged unless a separate query confirms it, and check first whether the branch
+is behind, blocked, or in conflict.
 
-**Deleting a base branch closes its pull requests.** GitHub closes a pull
-request when the branch it targets is deleted. Every task pull request therefore
-targets the epic branch and never another pull request's branch, and a branch
-that other pull requests depend on is never deleted on merge.
+**Deleting a target branch closes its pull requests.** Hosting services close a
+pull request when the branch it aims at disappears; in one project this silently
+closed several at once. The rule: every task pull request aims at the epic
+branch, never at another pull request's branch, and a branch other work depends
+on is never deleted when it merges.
 
-**Shared test ports and databases masquerade as bugs.** Parallel agents share
-the Playwright ports 5173, 7400, 3000 and 3002 and the database named
-`portikus_test`. Two agents running the browser suite at once produce failures
-that look like application bugs and are not. Each agent now gets a private
-database; browser-running agents are serialized or accept a rerun.
+**Shared test resources masquerade as bugs.** Agents running at once shared
+fixed network ports and one test database. Two browser runs together produced
+failures that looked exactly like real application bugs, and an hour went into
+chasing one that did not exist. The rule: every agent gets its own database, and
+browser-running agents run one at a time or accept a rerun.
 
-**The smoke test deleted a live workspace.** On 2026-09-17 the infrastructure
-smoke test ran against the pilot while Todd was signed in to it. Its cleanup
-removed every workspace belonging to the mock users, and Todd signs in as one.
-His running workspace, its home volume and its Docker volume were destroyed. The
-test was fixed in pull request #119 to delete only what the run created, but the
-rule stands independently of the fix: never run the smoke test against a virtual
-machine someone is using, and ask before running it against the pilot at all.
+**An automated test destroyed live work.** A smoke test aimed at the live
+deployment cleaned up after itself by deleting everything belonging to its test
+users. The owner happened to be signed in as one of them, and his running work
+and its storage were destroyed. The test was fixed to delete only what that run
+created, but the rule stands independently: never run a destructive test against
+a machine someone is using, and ask before running one against a live deployment
+at all.
 
-**Classifier quirks that trap agents.** The permission system that keeps agents
-from doing dangerous things has sharp edges. It blocked merging a pull request
-as "merge without review", so Todd ran the command himself until permissions
-were granted explicitly. It blocks disabling a security-relevant test, even a
-temporary skip ordered by the orchestrator, so the answer is to fold the
-dependent fix into the same pull request. It blocks exposing a local service, so
-the port forward was written as a script and Todd ran it. It blocks deleting
-branches in bulk, so the orchestrator removes worktrees itself and hands Todd
-one line to run. And it blocks any command mentioning "git" twice, which meant a
-branch named `7-files/git` trapped every agent that touched it. Avoid the word
-"git" in branch names.
+**The safety system has sharp edges.** The permission layer that stops agents
+doing dangerous things is pattern-based, and patterns misfire. It blocked a
+legitimate approval as if it were an attempt to skip review. It blocks disabling
+a security-related test even temporarily, so the answer is to fold the dependent
+fix into the same change. It blocks opening a local service to the network, so
+that step was written as a script for the owner to run. And in one memorable
+case it blocked every command that mentioned version control twice, so a branch
+whose own name contained that word trapped every agent that touched it and cost
+half a morning. The rule: keep tool names out of branch names, and when the
+safety system blocks something legitimate, hand that one step to the owner
+rather than fighting it.
 
-**Agent claims that were wrong.** A builder reported that lint passed and
-continuous integration failed on a Biome warning. An infrastructure agent
-reported a throwaway storage pool removed that a later agent found still
-present. Both produced the same rule: verify before relaying. Run the checks
-yourself in the agent's worktree, require the command output in the report
-rather than the claim, and confirm state changes with the tool that owns the
-state.
+**Agent claims that were wrong.** A builder reported that the style check
+passed; the shared automated check failed on it. An infrastructure agent
+reported that a temporary storage pool had been removed; a later agent found it
+still there and built on a false assumption. Both produced the same rule: verify
+before relaying. Run the checks yourself in the agent's own copy, require the
+command's actual output in the report rather than a claim about it, and confirm
+any change of state with the tool that owns that state.
 
-**The false autosave conflict.** In Epic 7 the editor warned "This file changed
-on disk while you were editing it" immediately on typing, and again after every
-autosave, when nothing had touched the file but the editor itself. Todd
-reported it in exactly those terms and added what he wanted instead: "If
-something actually does change the file while in the editor, Monaco should use
-diff mode." It became issue #157 and he marked it a showstopper — the one class
-of finding that does not wait for the next fix batch. The lesson is about the
-limits of the other gates: every test passed, both reviewers were clean, and the
-bug was still obvious within a minute of real use. Human hands-on testing of the
-deployed pilot is a gate, not a courtesy.
+**The false conflict warning.** In one epic the editor warned "this file changed
+on disk while you were editing it" the moment anyone typed, and again after
+every automatic save, when nothing but the editor itself had touched the file.
+The owner found it within a minute of real use and added what he wanted instead:
+if something really does change the file, show the two versions side by side. It
+became a showstopper and jumped the queue. The lesson is about the limits of
+every other gate: all tests passed, both reviewers were clean, and the bug was
+obvious in sixty seconds of real typing. Hands-on use of the deployed product is
+a gate, not a courtesy.
 
-**Orphaned load generators.** A debugging agent investigating a search timeout
-forked sixteen infinite busy loops to simulate a loaded machine, then tried to
-stop them with shell job control that does not exist inside a non-interactive
-script. They spun at full CPU for five hours until Todd noticed, alongside five
-idle test workers left by deleted worktrees. The rule: never create background
-load with detached loops, and if load is needed, kill the recorded process
-identifiers from an exit trap. Check for stray processes after an agent session.
+**Orphaned load generators.** A debugging agent investigating a slow search
+started sixteen endless loops to simulate a busy machine, then tried to stop them
+with a shell feature that does not exist in a non-interactive script. They ran at
+full processor for five hours until the owner noticed. The rule: never create
+background load with detached loops; if load is needed, record the process
+numbers and kill them from a cleanup routine that runs however the script ends.
+Check for stray processes after any agent session.
 
-**The merger's permission workaround had to be said out loud.** Automatic
-merges only work because `.claude/settings.json` grants agents permission to run
-the merge command and read-only repository queries. That is a real loosening of
-a real guard, and the decision record says so rather than burying it: the cost
-is that a bad task pull request reaches the epic branch before any human has
-seen it, and the epic-level review plus the full local battery are what catch
-it. A workaround that buys speed by relaxing a safety rule gets written down
-where the next reader will find it, with what now compensates for it.
+**A safety relaxation must be written down.** Automatic merging of task work
+only became possible by granting agents permission to run the merge command
+themselves — a real loosening of a real guard. The decision record says so
+plainly: the cost is that a bad change can reach the epic branch before any
+human has seen it, and the epic-level review plus the full local battery are
+what compensate. Any workaround that buys speed by relaxing a safety rule gets
+written down where the next reader will find it, with what now makes up for it.
 
 **Clean up after every merge.** Fifty-two stale agent branches and nine
-worktrees accumulated across Epics 2 through 5 before anyone noticed. Todd:
-"We need to always clean up local branches/worktrees after a merge." It is now
-part of the merge step, not a later chore.
+abandoned working copies accumulated across several epics before anyone noticed,
+consuming disk and confusing later agents about which branch was current. The
+owner: "We need to always clean up branches and working copies after a merge."
+It is now part of the merge step, not a later chore.
 
 ---
 
-## 9. What a student should take away
+## 10. What to take away
 
 A one-page distillation.
 
-**Write the requirements down before you write the prompt.** A numbered
+**Spend the time on the vision and the specification first.** Everything flows
+from those two documents. No vision gives you a vague specification; a vague
+specification makes agents guess; and guessing agents produce a great deal of
+software that has to be thrown away. Write who it is for, what problem it
+solves, what it will never do, and the handful of principles that will settle
+arguments nobody has had yet. Then write the requirements out in numbered
+sections.
+
+**Write the requirements down before you write the instruction.** A numbered
 specification is what lets a cheap agent do good work, lets two agents settle an
-argument with evidence, and lets a reviewer tell over-engineering from a
-requirement.
+argument with evidence, and lets a reviewer tell over-engineering from a genuine
+requirement. The vision wins on questions of intent; the specification wins on
+questions of detail; only what neither settles reaches you.
 
 **Be the orchestrator, not the typist.** Decide what is true, split the work so
-pieces do not collide, write prompts that name the sections, the files, the base
-commit and the definition of done, and check what comes back. If you are reading
-files in order to write code, you have taken someone else's job.
+the pieces cannot collide, write instructions that name the requirement
+sections, the files, the starting point and the definition of done, and check
+what comes back. If you find yourself reading files in order to write code, you
+have taken someone else's job.
 
 **Send the cheapest agent that can do the job.** A search is a search. A merge
-is a merge. Save expensive reasoning for planning, arbitration, and decisions
-nobody has made yet.
+is a merge. Save expensive reasoning for planning, for settling arguments, and
+for decisions nobody has made yet.
 
 **Parallelize by boundary, never by hope.** Two agents must never be able to
-touch the same file, database or port. When a change has to pass through one
-file, run those tasks in series and say so in the plan.
+touch the same file, database, or network port. When several changes must pass
+through one file, run them one after another and say so in the plan.
 
 **Replace human reading with machine checking.** Tests written from the
-specification's invariants, a coverage floor that cannot be lowered to pass,
-browser tests for anything a person can see, a security reviewer with a threat
-model, a code reviewer with a simplicity mandate, and a full battery on a fresh
-database. Then one human review, where it is worth a human's time.
+requirements rather than from the code, a coverage floor nobody may lower to
+pass, browser tests for anything a person can see, a security reviewer with a
+real threat model, a code reviewer with a mandate for simplicity, and a full run
+of everything on a fresh database. Then one human review, spent where a human is
+actually worth it.
 
-**Trust no report you have not verified.** Run the lint yourself. Query the
-merge state. Check the pool is really gone. This is not about dishonesty; it is
-the difference between believing a command succeeded and having seen it succeed.
+**Trust no report you have not verified.** Run the check yourself. Query the
+state. Confirm the thing is really gone. This is not about dishonesty; it is the
+difference between believing a command succeeded and having watched it succeed.
 
-**Nothing is done until a person has used it.** Every gate passed on the false
-autosave conflict, and sixty seconds of real typing found it. Deploy to
-something real, use it as your user would, and treat what you find as data about
-your gates as much as your code.
+**Nothing is done until a person has used it.** Every automated gate passed on
+the false conflict warning, and sixty seconds of real typing found it. Deploy to
+something real, use it the way your users will, and treat what you find as
+information about your gates as much as about your code.
 
 **Write down every lesson where an agent will read it.** A lesson learned and
-not written into the next prompt will be learned again, at full price.
+not written into the next instruction will be learned again, at full price.
 
 **Ask a question as a question.** And when you are the one answering, answer it.
+
+---
+
+## Appendix: where this came from
+
+This guide grew out of building one real product over several months, entirely
+by directing AI agents. One person owned the intent, wrote the requirements,
+ruled on disputes, and approved every release. He did not write the code. The
+arrangement produced a working, deployed product used by real people, along with
+a great many of the mistakes recorded above. The specific product does not
+matter; the method transfers.
+
+---
+
+## Glossary
+
+**ADR (architecture decision record)** — A short numbered document recording one
+significant technical decision, the alternatives considered, and the reasoning,
+written when the decision is made.
+
+**Agent** — An AI assistant given a job, a set of tools, and permission to use
+them independently: reading files, changing them, running programs, and
+reporting back.
+
+**Branch** — A separate line of work in a repository, where changes can be made
+without disturbing the main line.
+
+**Commit** — One saved snapshot of changes, with a message explaining what
+changed and why.
+
+**Continuous integration (CI)** — The automated system that runs every check on
+every proposed change and reports pass or fail.
+
+**Coverage** — The percentage of a project's code that its tests actually
+exercise.
+
+**Debounce** — To wait for a short quiet period before acting on rapid repeated
+events, so that many keystrokes produce one save rather than fifty.
+
+**End-to-end test** — An automated check that drives the whole product the way a
+person would, usually in a real browser.
+
+**Epic** — A coherent slice of the product large enough to plan as a unit, with
+its own branch and its own acceptance criteria.
+
+**Flake** — A test that sometimes passes and sometimes fails without the code
+changing, usually because of timing or a shared resource.
+
+**Gate** — A point where work stops until a condition is met, such as all checks
+passing or the owner approving.
+
+**Merge** — To fold one branch's changes into another, accepting them.
+
+**Milestone** — A named point the project must reach, with a list of what must
+be true before it counts.
+
+**Model** — The particular AI doing the thinking. Larger models reason better
+and cost more; smaller ones are cheaper and faster.
+
+**Non-goal** — Something written down as deliberately out of scope, so that it
+can be ruled out later with evidence rather than instinct.
+
+**Orchestrator** — The single conversation the owner has, which plans, delegates
+to other agents, verifies their work, and reports in plain language. It does not
+write the software itself.
+
+**Pull request** — A formal proposal to merge one branch into another, showing
+what changed and collecting automated checks and comments before approval.
+
+**Push** — To send commits from your own machine to the shared copy of the
+repository.
+
+**Repository** — The folder holding all of a project's files together with its
+complete history.
+
+**Review** — A careful read of a proposed change looking for mistakes, risks, or
+needless complexity, done here by dedicated agents and finally by the owner.
+
+**Security boundary** — A line in the system where you stop trusting what comes
+across it, such as between user-supplied code and the product's own services.
+
+**Specification** — The written description of what the product must do,
+organized into numbered sections so instructions can point at exact ones.
+
+**Squash** — To compress all the commits on a branch into one commit when
+merging, keeping the shared history readable.
+
+**Test** — An automated check that some behaviour is correct.
+
+**Token** — Roughly a chunk of a word. AI work is measured and billed in tokens,
+counting everything the model reads and everything it writes.
+
+**Unit test** — An automated check of one small piece of the code in isolation,
+running in milliseconds.
+
+**Vision** — The short document stating who the product is for, what problem it
+solves, what it will never do, and the principles that settle later arguments.
+
+**Worktree** — A second copy of a repository on disk, checked out to its own
+branch, so two agents can work at once without overwriting each other.
