@@ -263,7 +263,7 @@ export const MAX_LAYOUT_TABS = 16;
 export const MAX_SPLIT_DEPTH = 8;
 
 /** The deepest path from this node to a leaf, counting this node. */
-function splitDepth(node: SplitNode): number {
+export function splitDepth(node: SplitNode): number {
 	if (node.type === "leaf") return 1;
 	let deepest = 0;
 	for (const child of node.children) {

@@ -9,6 +9,7 @@ import {
 	MAX_SPLIT_DEPTH,
 	type ProjectLayout,
 	type SplitNode,
+	splitDepth,
 } from "@portikus/contracts";
 
 export type SplitDirection = "row" | "column";
@@ -259,16 +260,8 @@ export function reconcile(
 /** Which half-edge of a pane a drag landed on; centre means swap the two. */
 export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
 
-/** The deepest path from this node to a leaf, counting this node. */
-function depth(node: SplitNode): number {
-	if (node.type === "leaf") return 1;
-	let deepest = 0;
-	for (const child of node.children) deepest = Math.max(deepest, depth(child));
-	return deepest + 1;
-}
-
 function withinDepth(layout: ProjectLayout): boolean {
-	return layout.tabs.every((tab) => depth(tab.root) <= MAX_SPLIT_DEPTH);
+	return layout.tabs.every((tab) => splitDepth(tab.root) <= MAX_SPLIT_DEPTH);
 }
 
 /** Exchange the places of two leaves, wherever in the layout they sit. */
