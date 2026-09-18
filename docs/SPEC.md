@@ -2485,6 +2485,85 @@ Acceptance:
 Session change review (§12.7) is built in Epic 9, with the launchers that
 create the baseline; its acceptance line moved there.
 
+### Epic 7.1 — Pilot fixes after Epic 7
+**Estimate:** 4–5 engineer-days
+
+Fixes and small features from the first hands-on use of the pilot after
+Epic 7, gathered on 2026-09-18. Each item lands as its own pull request
+into the epic branch by the merger agent.
+
+Includes:
+
+- quieter unit test output, by stubbing canvas and window scrolling in the
+  shared jsdom setup, and the CI cache action moved to v5 to clear the Node
+  20 deprecation warning (#151, #152);
+- the files pane header menu offers the project-root create actions, so an
+  empty project can get its first file (#153);
+- the workspace image disables the Claude Code self-updater through
+  `/etc/profile.d/portikus-agents.sh` (§10; the equivalent Codex setting is
+  left for Epic 9, with the rest of agent configuration) (#127);
+- the clone dialog asks for the repository URL first and derives the
+  project name, slug, and `.git` suffix from it (#130);
+- per-user editor settings — auto-save, its delay, and word wrap — are
+  stored on the server behind `GET`/`PUT /me/settings`, readable and
+  writable only by their own user, and reached from an account-menu dialog
+  that keeps all three in the browser without a reload (§13.1, §13.5)
+  (#159);
+- Administration is reached from the account menu as a link that opens in
+  a new tab, so visiting it no longer disconnects the workspace and starts
+  the grace timer (#164; closes #124);
+- terminal names are numbered from the live terminals of the same project,
+  and a revived terminal keeps the name of the ended terminal it replaces
+  (§9.6, §9.7) (#123);
+- terminal pilot fixes: tmux clipboard pass-through and focus events, OSC
+  52 copying handled in the browser, wrapped URLs linkified as one link,
+  and an OSC 52 clipboard shim shipped in the workspace image as `xclip`,
+  `xsel`, and `pbcopy` (§9, §9.7, §14.9) (#125, #126, #128);
+- the editor's external-change detection ignores writes the editor itself
+  made, so autosaving never raises a false "this file changed on disk"
+  prompt (§13.3, §13.5) (#157);
+- editor pilot fixes: stock Monaco features turned on (find and replace,
+  folding, bracket matching and colouring, minimap, multi-cursor, command
+  palette), per-editor session zoom by wheel, keys, and a bottom bar, and
+  language detection from the first line when the file name says nothing
+  (§13.1, §13.2; DESIGN §10) (#156, #162, #163);
+- one tab per file: the Changes surface opens a file's diff inside that
+  file's own tab, with a toggle back to the editor, and a real on-disk
+  change during editing opens as a Monaco conflict diff with keep-mine,
+  take-disk, and keep-editing actions (#160, #158);
+- create project warns about a name clash as it is typed, comparing the
+  previewed slug against the workspace's existing project slugs
+  client-side and disabling Create, with the server 409 kept as the final
+  guard (#175);
+- files pane batch operations: multi-row selection with mass delete and
+  download, a visible project-root drop target for uploads, a tighter tree
+  row density token, file-type icons, and an autofocused name dialog
+  (#182–#186);
+- the selected tab, the editor cursor, selection and scroll position, and
+  the per-file zoom survive leaving the workspace route and returning; they
+  are browser-local (§7.5) and never sent to the server (#161);
+- Markdown viewer fixes: list markers in the rendered preview, scroll sync
+  between the two sides of split view by relative position, and a visible
+  scrollbar on the code side (§13.4) (#154);
+- two flaky unit tests (the workspace-agent git timeout test, the API
+  terminal input-limit test) made deterministic, so CI runs are repeatable;
+- the unit test suite runs fully in parallel again: the shared-database
+  test files each get a database of their own, created and dropped by the
+  test helper, instead of one database that forced them to run one at a
+  time (STACK §13);
+- continuous integration keeps reporting its four required checks on a
+  documentation-only change, but skips the heavy installs, builds, and
+  test runs inside them;
+- a merger agent lands task pull requests into an epic branch without
+  human review once their CI is green, with the review moved to once per
+  epic (ADR 0016);
+- each Ansible role in the platform playbook carries its own name as a
+  tag, so one role can be converged alone (infra);
+- a generic, plain-English guide to how Portikus is built with AI agents
+  (`docs/HOW-WE-WORK.md`).
+
+Issue #129 (Codex agent configuration) stays open for Epic 9. Issue #124
+was closed by #164.
 
 ### Epic 8 — Verification, running services, and authenticated preview
 **Estimate:** 5–7 engineer-days
