@@ -206,24 +206,32 @@ the pipeline is green on a repo with no code and starts enforcing as code
 lands. Do not remove the detection steps; remove the skip once a check is
 expected to always run.
 
-The app, e2e, and infra jobs also run a "Detect changed files" step right
-after checkout. It lists the files changed in the pull request (against the
-base branch) or the push (against the commit before it, or every tracked
-file on a brand new branch), and sets an `app` output true when any changed
-path falls outside `docs/`, `design/`, `screenshots/`, `.claude/`, and
-root-level `*.md` files, and an `infra` output true when any changed path is
-under `infra/` or is the workflow file itself. The heavy steps in each job
-(the installs, typecheck, lint, `test:coverage`, build, package build,
+A `changes` job runs once, before the app, e2e, and infra jobs, and does
+nothing but check out full history and detect what changed. It lists the
+files changed in the pull request (against the base branch) or the push
+(against the commit before it, or every tracked file on a brand new
+branch), and exposes two job outputs: `app`, true when any changed path
+falls outside `docs/`, `design/`, `screenshots/`, `.claude/`, and
+root-level `*.md` files; and `infra`, true when any changed path is under
+`infra/`, under `scripts/` or `packaging/`, is any other `*.sh` file, or is
+the workflow file itself (a path under `scripts/` or `packaging/`, or any
+shell script, sets both outputs, since those are exercised by both the
+application build and the infrastructure shellcheck step). The app, e2e,
+and infra jobs declare `needs: changes` and read these two outputs instead
+of running their own copy of the detection script. The heavy steps in each
+job (the installs, typecheck, lint, `test:coverage`, build, package build,
 Playwright, and the OpenTofu, Ansible, and shellcheck steps) only run when
 both the existing "does this input exist" detection and the matching
-changed-files output are true. A pull request that only touches
+`needs.changes.outputs.*` value are true. A pull request that only touches
 documentation, such as this paragraph, still gets four green checks (Secret
 scan, Application checks, Browser end-to-end tests, Infrastructure checks),
 because path filters on the workflow trigger are not an option: GitHub never
 reports a status for a job a path filter skipped, and the branch protection
 rules that require these checks would then block the merge forever. Running
 the jobs but skipping their heavy steps keeps the checks reporting while
-cutting the runtime on a docs-only change.
+cutting the runtime on a docs-only change. Only the `changes` job needs
+full history for the diff; the app, e2e, and infra jobs go back to a
+shallow checkout since they only need the working tree.
 
 `.github/workflows/release.yml` publishes a release when an `epic/` or
 `task/` branch merges into `main`, or when the workflow is run by hand from `main` for a
