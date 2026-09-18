@@ -25,8 +25,26 @@ export const ProjectPath = z
 export type ProjectPath = z.infer<typeof ProjectPath>;
 
 /** One entry of a directory listing (SPEC.md §11.2). */
+/**
+ * One entry's name: a single path segment and nothing else, so a listing
+ * cannot smuggle a separator or a traversal into the tree (SPEC.md §24.6).
+ */
+const EntryName = z
+	.string()
+	.min(1)
+	.max(255)
+	.refine(
+		(value) =>
+			!value.includes("/") &&
+			!value.includes("\\") &&
+			!value.includes("\0") &&
+			value !== "." &&
+			value !== "..",
+		{ message: "a name must be one path segment" },
+	);
+
 export const TreeEntry = z.object({
-	name: z.string().min(1),
+	name: EntryName,
 	type: z.enum(["file", "dir", "symlink", "other"]),
 	size: z.number().nonnegative(),
 	mtimeMs: z.number().nonnegative(),
