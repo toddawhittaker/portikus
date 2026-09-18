@@ -221,6 +221,52 @@ test.describe("markdown tab", () => {
 			.toBe("# Notes\n\nFirst line. Second sentence.\n");
 	});
 
+	test("a README with a badge and an HTML comment shows all its text, and typing still saves", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const before = [
+			"# Project",
+			"",
+			"![build](https://img.example.invalid/badge.svg)",
+			"",
+			"<!-- written by a coding agent -->",
+			"",
+			"How to run it.",
+			"",
+		].join("\n");
+		const project = await openFileTab(page, student, "Readme", "DOC.md", before);
+		const rich = page.getByTestId("markdown-rich");
+		await expect(rich).toBeVisible({ timeout: 30_000 });
+
+		// Everything after the badge and the comment is on screen: the whole
+		// point of the fix. The comment shows as its own source, not as markup.
+		await expect(rich.getByRole("heading", { name: "Project" })).toBeVisible();
+		await expect(rich).toContainText("<!-- written by a coding agent -->");
+		await expect(rich.getByText("How to run it.")).toBeVisible();
+		// The badge is drawn as an image. Its address does not resolve in a
+		// test, so only its alt text is checked here; the address allowlist is
+		// covered by the unit tests.
+		await expect(rich.locator("img")).toHaveAttribute("alt", "build");
+		// The tab did not have to fall back to the code view.
+		await expect(page.getByTestId("rich-unsupported")).toHaveCount(0);
+
+		// And keystrokes after the comment reach the file.
+		await rich.getByText("How to run it.").click();
+		await page.keyboard.press("End");
+		await page.keyboard.type(" Read on.");
+
+		await expect(page.getByTestId("file-status-DOC.md")).toHaveText("Saved", {
+			timeout: 20_000,
+		});
+		await expect
+			.poll(async () => readSeededFile(student.workspaceId, project.slug, "DOC.md"), {
+				timeout: 20_000,
+			})
+			.toBe(before.replace("How to run it.", "How to run it. Read on."));
+	});
+
 	test("the toolbar's bold button wraps the selection in asterisks (issue #155)", async ({
 		page,
 		context,

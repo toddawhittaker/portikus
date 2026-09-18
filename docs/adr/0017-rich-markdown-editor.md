@@ -35,7 +35,13 @@ files never downloads it.
 Raw HTML processing is switched off (`suppressHtmlProcessing`), keeping ADR
 0015's promise that a tag a coding agent wrote never becomes markup in the
 control-plane origin (SPEC §24.2). Link URLs are limited to a protocol
-allowlist by Lexical, so a `javascript:` link loses its href.
+allowlist by Lexical, so a `javascript:` link loses its href. What the rich
+view does instead with raw HTML is under Consequences below.
+
+`lexical` is a direct dependency of the web app, pinned to 0.48.0, the same
+version MDXEditor itself uses. It is MDXEditor's own document model, and the
+custom node in `verbatimMarkdown.ts` is written against it. Nothing new is
+downloaded: it was already in the tree under MDXEditor.
 
 The two sides are kept in step by the plainest guard that works, in
 `apps/web/src/editor/markdownSync.ts`: each side remembers the last text it
@@ -73,7 +79,26 @@ quotes and front matter were all checked to come back byte for byte. One
 thing does not: MDXEditor drops the file's final newline, so the sync layer
 puts it back.
 
-A line of raw HTML is invisible in the rich view. It is kept in the text and
-shows in the code view, and it round-trips unchanged, but a student editing
-in the rich view will not see it. That is the cost of not rendering HTML, and
-it is the safe side to fail on.
+Raw HTML is shown in the rich view as its own source text, in the monospace
+face, and never as markup. That is a deliberate second decision, because the
+first attempt at it was wrong: turning HTML processing off left no visitor
+for MDXEditor to use on a raw HTML node, MDXEditor throws on a node nothing
+claims, and the rich view then showed only the text above the first tag and
+quietly dropped every keystroke. One HTML comment written by a coding agent
+was enough. `apps/web/src/editor/verbatimMarkdown.ts` adds a visitor that
+claims those nodes, puts their source in the document as text, and writes the
+original node back out unchanged, so the file still round-trips byte for
+byte. The source text is never handed to a DOM parser, so the promise that a
+tag a coding agent wrote does not become markup is kept.
+
+Markdown images (`![alt](src)`) are rendered, because README badges are
+common and a blank page in their place is confusing. The address is checked
+first: only ordinary web addresses and relative paths are loaded, and
+anything else - `javascript:`, `data:`, `file:` - is shown as source in the
+same way. HTML images are not special-cased; they are raw HTML, so they are
+shown as source too. That keeps MDXEditor's own HTML-image path, which builds
+a DOM element out of the raw HTML with `innerHTML`, unreachable.
+
+A construct no plugin claims can still turn up - a reference-style link, for
+one. MDXEditor reports it, and the tab then moves to the code view and says
+so, rather than showing a truncated file that cannot be typed in.

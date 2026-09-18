@@ -21,7 +21,13 @@ const SAMPLES: Record<string, string> = {
 	"block quotes": "> a quoted line\n",
 	"front matter": "---\ntitle: Notes\n---\n\n# Title\n",
 	"bold and italic": "Some **bold** and *italic* text.\n",
-	"raw HTML": "# Title\n\n<script>alert(1)</script>\n",
+	"raw HTML": "# Title\n\n<script>alert(1)</script>\n\nAfter the tag.\n",
+	"HTML comments": "# Title\n\n<!-- a note from an agent -->\n\nAfter the comment.\n",
+	"inline HTML": "A line<br>and more.\n",
+	"HTML blocks": "<details>\n<summary>More</summary>\n\nHidden.\n\n</details>\n",
+	"HTML images": '<img src=x onerror="boom()">\n\nAfter the tag.\n',
+	images: "# Title\n\n![build](https://img.example/badge.svg)\n\nAfter the badge.\n",
+	"images with a refused address": "![x](javascript:boom)\n\nAfter the image.\n",
 };
 
 for (const [name, sample] of Object.entries(SAMPLES)) {
@@ -83,21 +89,78 @@ test("an edit on the code side is loaded, and is not sent back as an edit", asyn
 	}
 });
 
-test("raw HTML never becomes markup in the rich view", () => {
+test("raw HTML is shown as its own source and never becomes markup", () => {
 	const { container } = render(
 		<RichMarkdownEditor
-			text={"# Title\n\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n"}
+			text={
+				"# Title\n\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\nThe end.\n"
+			}
 			onChange={() => {}}
 		/>,
 	);
-	// The rich view draws nothing at all for an HTML line; the text itself is
-	// kept in the Markdown, which the round-trip tests above cover.
 	const body = container.querySelector(".pk-rich-markdown-body");
-	expect(body?.innerHTML).toBe(
-		'<h1 dir="auto"><span data-lexical-text="true">Title</span></h1>',
-	);
+	// The source is displayed as text, so the student can see what is there.
+	expect(body?.textContent).toContain("<script>alert(1)</script>");
+	expect(body?.textContent).toContain("<img src=x onerror=alert(1)>");
+	// Nothing after the HTML is lost. That was the bug: the importer threw on
+	// the first HTML node and the rest of the file never appeared.
+	expect(body?.textContent).toContain("The end.");
+	// And none of it became markup in the control-plane origin (SPEC.md §24.2).
 	expect(container.querySelector("script")).toBeNull();
 	expect(container.querySelector("img")).toBeNull();
+});
+
+test("a README badge and an HTML comment leave the rest of the file readable", () => {
+	let reported = 0;
+	const { container } = render(
+		<RichMarkdownEditor
+			text={
+				"# Project\n\n![build](https://img.example/badge.svg)\n\n<!-- written by an agent -->\n\nHow to run it.\n"
+			}
+			onChange={() => {}}
+			onUnsupported={() => {
+				reported += 1;
+			}}
+		/>,
+	);
+	const body = container.querySelector(".pk-rich-markdown-body");
+	expect(body?.textContent).toContain("<!-- written by an agent -->");
+	expect(body?.textContent).toContain("How to run it.");
+	// No error was reported, so MDXEditor's export path is live and keystrokes
+	// in this file reach the buffer.
+	expect(reported).toBe(0);
+});
+
+test("an image whose address is not http(s) is shown as source, not loaded", () => {
+	const { container } = render(
+		<RichMarkdownEditor
+			text={"![x](javascript:boom)\n\n![y](data:image/svg+xml;base64,AAAA)\n\nAfter.\n"}
+			onChange={() => {}}
+		/>,
+	);
+	const body = container.querySelector(".pk-rich-markdown-body");
+	expect(body?.textContent).toContain("![x](javascript:boom)");
+	expect(body?.textContent).toContain("![y](data:image/svg+xml;base64,AAAA)");
+	expect(body?.textContent).toContain("After.");
+	expect(container.querySelector("img")).toBeNull();
+});
+
+test("a construct nothing can read is reported instead of quietly losing the file", () => {
+	let reported = 0;
+	const { container } = render(
+		<RichMarkdownEditor
+			// A reference-style link: no plugin in this set claims it.
+			text={"See [the docs][d].\n\n[d]: https://example.invalid/\n\nAfter.\n"}
+			onChange={() => {}}
+			onUnsupported={() => {
+				reported += 1;
+			}}
+		/>,
+	);
+	expect(reported).toBeGreaterThan(0);
+	// This is the state a student must not be left in, which is why FileLeaf
+	// moves the tab to the code view when it hears this.
+	expect(container.textContent).not.toContain("After.");
 });
 
 test("a javascript: link does not keep its href", () => {

@@ -966,3 +966,37 @@ test("moving the cursor is remembered for the next mount (issue #161)", async ()
 	act(() => cleanup());
 	expect(store.getState().viewStates[PATH]).toEqual({ line: 3 });
 });
+
+test("Markdown the rich view cannot read falls back to the code view (ADR 0017)", async () => {
+	// A reference-style link: MDXEditor's importer cannot read it, and while
+	// it is in that state the rich view shows only part of the file and drops
+	// every keystroke. The tab must not leave a student there.
+	seed = {
+		text: "See [the docs][d].\n\n[d]: https://example.invalid/\n\nAfter.\n",
+		etag: "etag-0",
+	};
+	renderLeaf(() => {}, "README.md");
+	const notice = await screen.findByTestId("rich-unsupported");
+	expect(notice.textContent).toContain("editing in Code view");
+	// The code view is the one on screen, and the other two are not offered.
+	expect(screen.getByTestId("markdown-mode-code").getAttribute("aria-pressed")).toBe(
+		"true",
+	);
+	expect(screen.getByTestId("markdown-mode-rich").hasAttribute("disabled")).toBe(true);
+	expect(screen.getByTestId("markdown-mode-split").hasAttribute("disabled")).toBe(true);
+	// Monaco holds the whole file, so no keystroke is lost.
+	await findEditor("README.md");
+	expect(state.model?.getValue()).toContain("After.");
+});
+
+test("Markdown with a badge and an HTML comment stays in the rich view", async () => {
+	seed = {
+		text: "# Project\n\n![build](https://img.example/b.svg)\n\n<!-- a note -->\n\nHow to run it.\n",
+		etag: "etag-0",
+	};
+	renderLeaf(() => {}, "README.md");
+	const rich = await screen.findByTestId("markdown-rich");
+	await waitFor(() => expect(rich.textContent).toContain("How to run it."));
+	expect(rich.textContent).toContain("<!-- a note -->");
+	expect(screen.queryByTestId("rich-unsupported")).toBeNull();
+});

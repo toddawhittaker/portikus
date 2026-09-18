@@ -163,6 +163,8 @@ test.each([
 	["a 172.16/12 private address", "http://172.20.1.1/"],
 	["a 192.168/16 private address", "http://192.168.1.1/"],
 	["a link-local address", "http://169.254.169.254/latest/meta-data/"],
+	["a carrier-grade NAT address", "http://100.64.0.1/"],
+	["the top of the carrier-grade NAT range", "http://100.127.255.255/"],
 	["a unique local IPv6 address", "http://[fd00::1]/"],
 	["an IPv6 link-local address", "http://[fe80::1]/"],
 ])("%s does not open in a new tab", (_name, url) => {
@@ -173,6 +175,8 @@ test.each([
 	["a public host", "https://example.invalid/docs"],
 	["a public IPv4 address", "http://93.184.216.34/"],
 	["a host that only starts like a private range", "https://172.32.0.1/"],
+	["an address just below carrier-grade NAT", "http://100.63.255.255/"],
+	["an address just above carrier-grade NAT", "http://100.128.0.1/"],
 	["a public IPv6 address", "http://[2001:db8::1]/"],
 ])("%s still opens in a new tab", (_name, url) => {
 	expect(canOpenInNewTab(url)).toBe(true);
