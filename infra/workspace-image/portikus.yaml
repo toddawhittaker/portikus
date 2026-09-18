@@ -1466,6 +1466,22 @@ files:
 
     while [ "$#" -gt 0 ]; do
       arg=$1
+
+      # xclip's -t (target), -l (loops) and -d (display) each take a value
+      # that must not be read as a file to copy, and xclip accepts any
+      # unambiguous abbreviation.  xsel's -d means delete, so it is left
+      # to the case below.
+      if [ "$name" = xclip ] && [ "$#" -gt 1 ]; then
+        case "$arg" in
+          -t|-ta|-tar|-targ|-targe|-target|\
+          -l|-lo|-loo|-loop|-loops|\
+          -d|-di|-dis|-disp|-displ|-displa|-display)
+            shift 2
+            continue
+            ;;
+        esac
+      fi
+
       case "$arg" in
         -version|--version)
           echo "portikus clipboard shim"
