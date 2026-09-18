@@ -1,6 +1,56 @@
-/* The Monaco host fills whatever the tab gives it. */
+/* The editor fills whatever the tab gives it: Monaco above, zoom bar below. */
 .pk-editor {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+}
+
+.pk-editor-host {
 	flex: 1;
 	min-height: 0;
 	min-width: 0;
+}
+
+/* A thin bar under the editor, like the file status strip above it. */
+.pk-editor-bar {
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-1);
+	padding: 0 var(--space-2);
+	border-top: 1px solid var(--line);
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
+	font-size: 12px;
+}
+
+.pk-zoom-button,
+.pk-zoom-reset {
+	border: none;
+	background: none;
+	color: inherit;
+	cursor: pointer;
+	padding: 2px var(--space-1);
+	border-radius: var(--radius-sm);
+	font: inherit;
+	line-height: 1.6;
+}
+
+.pk-zoom-button:hover,
+.pk-zoom-reset:hover {
+	background: var(--surface-hover);
+	color: var(--ink);
+}
+
+.pk-editor-language {
+	margin-right: auto;
+}
+
+.pk-zoom-value {
+	min-width: 4ch;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
 }
