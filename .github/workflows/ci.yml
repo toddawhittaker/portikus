@@ -80,7 +80,7 @@ jobs:
         run: pnpm build
       - name: Cache nfpm
         if: steps.detect.outputs.present == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/portikus/nfpm
           key: nfpm-${{ runner.os }}-${{ hashFiles('scripts/build-deb.sh') }}
@@ -161,7 +161,7 @@ jobs:
       - name: Cache Ansible collections
         id: collections
         if: steps.detect.outputs.ansible == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.ansible/collections
           key: ansible-collections-${{ hashFiles('infra/ansible/requirements.yml') }}
