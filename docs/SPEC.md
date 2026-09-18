@@ -2393,7 +2393,11 @@ Includes:
 - a project can be deleted for good from its menu, behind a confirmation that
   requires typing the project's slug;
 - initializing Git in a project writes a default `.gitignore` when the
-  project has none.
+  project has none;
+- the workspace image ships with the apt package lists in place and with
+  `command-not-found` installed, so `sudo apt install <package>` works in a
+  fresh workspace without `apt update` first, and typing a command that is
+  not installed prints the package that provides it.
 
 Acceptance:
 
