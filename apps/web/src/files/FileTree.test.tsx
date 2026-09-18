@@ -80,20 +80,20 @@ afterEach(() => {
 });
 
 describe("the file tree", () => {
-	/** SPEC.md §11.3. */
-	it("hides generated and dotted names until Show hidden is on", async () => {
+	/** SPEC.md §11.3, issue #221: hidden and generated names are shown by default. */
+	it("shows generated and dotted names until Show hidden is turned off", async () => {
 		renderPane();
 
 		expect(await screen.findByText("README.md")).toBeDefined();
 		expect(screen.getByText("src")).toBeDefined();
-		expect(screen.queryByText(".env")).toBeNull();
-		expect(screen.queryByText("node_modules")).toBeNull();
+		expect(screen.getByText(".env")).toBeDefined();
+		expect(screen.getByText("node_modules")).toBeDefined();
 
 		fireEvent.keyDown(screen.getByTestId("files-more"), { key: "Enter" });
 		fireEvent.click(await screen.findByText("Show hidden and generated files"));
 
-		expect(await screen.findByText(".env")).toBeDefined();
-		expect(screen.getByText("node_modules")).toBeDefined();
+		await waitFor(() => expect(screen.queryByText(".env")).toBeNull());
+		expect(screen.queryByText("node_modules")).toBeNull();
 	});
 
 	/** SPEC.md §11.2: a directory is fetched when it is expanded. */
@@ -205,8 +205,15 @@ describe("the file tree", () => {
 
 	/** SPEC.md §11.3: a project whose files are all hidden says so. */
 	it("says when everything in the project is hidden", async () => {
-		stubFetch(() => json(200, { entries: [entry(".env")], truncated: false }));
+		stubFetch((url) =>
+			url.includes("/git/status")
+				? json(200, NO_CHANGES)
+				: json(200, { entries: [entry(".env")], truncated: false }),
+		);
 		renderPane();
+		// Hidden files are on by default, so the test turns them off first.
+		fireEvent.keyDown(await screen.findByTestId("files-more"), { key: "Enter" });
+		fireEvent.click(await screen.findByText("Show hidden and generated files"));
 
 		expect(
 			await screen.findByText(
@@ -401,6 +408,40 @@ describe("the file tree", () => {
 
 		fireEvent.dragLeave(body);
 		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBeNull());
+	});
+
+	/** Issue #220: the root drop target must not flicker over a top-level row. */
+	it("keeps the root drop target while the drag crosses a top-level file", async () => {
+		renderPane();
+		const body = await screen.findByTestId("file-tree-body");
+		const row = await screen.findByTestId("file-row-README.md");
+
+		fireEvent.dragEnter(body, { dataTransfer: { types: ["Files"] } });
+		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBe("true"));
+
+		// Entering the row and leaving it again, both inside the pane.
+		fireEvent.dragEnter(row, { dataTransfer: { types: ["Files"] } });
+		fireEvent.dragOver(row, { dataTransfer: { types: ["Files"] } });
+		fireEvent.dragLeave(body);
+
+		expect(body.getAttribute("data-upload-root")).toBe("true");
+		expect(screen.getByTestId("file-tree-root-hint")).toBeDefined();
+
+		// Leaving the pane altogether still clears it.
+		fireEvent.dragLeave(body);
+		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBeNull());
+	});
+
+	/** Issue #221: an untracked file is marked so the CSS can dim it. */
+	it("marks an untracked file's row as untracked", async () => {
+		gitStatus = {
+			...NO_CHANGES,
+			entries: [{ path: "README.md", x: "?", y: "?", unmerged: false }],
+		};
+		renderPane();
+
+		const row = await screen.findByTestId("file-row-README.md");
+		await waitFor(() => expect(row.getAttribute("data-git")).toBe("untracked"));
 	});
 
 	/** Issue #186: the name field is ready to type into. */

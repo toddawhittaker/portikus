@@ -12,7 +12,9 @@ interface ProjectView {
 	showHidden: boolean;
 }
 
-const EMPTY: ProjectView = { expanded: [], showHidden: false };
+// Hidden and generated files are shown by default: students kept missing
+// their dotfiles (SPEC.md §11.3).
+const EMPTY: ProjectView = { expanded: [], showHidden: true };
 
 interface FileViewState {
 	byProject: Record<string, ProjectView>;
@@ -103,5 +105,7 @@ export function useExpanded(projectId: string): string[] {
 }
 
 export function useShowHidden(projectId: string): boolean {
-	return useFileViewStore((state) => state.byProject[projectId]?.showHidden ?? false);
+	return useFileViewStore(
+		(state) => state.byProject[projectId]?.showHidden ?? EMPTY.showHidden,
+	);
 }
