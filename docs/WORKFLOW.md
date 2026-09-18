@@ -44,6 +44,22 @@ docker rm -f portikus-test-pg
 CI sets `TEST_DATABASE_URL` automatically via a `postgres:17` service
 container, so database tests always run there.
 
+When more than one agent or session runs the tests at the same time, give each
+one its own database instead of sharing `portikus_test`. The tests truncate the
+tables they use, so two runs against one database fail in ways that look like
+real bugs. Create a private database in the same container and point that run
+at it:
+
+```sh
+docker exec portikus-test-pg psql -U postgres -c 'create database portikus_test_files'
+export TEST_DATABASE_URL=postgres://postgres:portikus@127.0.0.1:55432/portikus_test_files
+```
+
+The Playwright run has the same problem for a different reason: its ports are
+fixed, so two `pnpm test:e2e` runs on one machine fight over the API and web
+dev server ports whatever database they use. Run the browser tests one at a
+time.
+
 ### Logging in locally
 
 Logging in uses a mock OpenID Connect identity provider that lives in this
