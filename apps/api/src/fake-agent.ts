@@ -250,6 +250,12 @@ export async function startFakeAgent(
 		return reply.status(201).send({ slug: body.slug, isGitRepo });
 	});
 
+	app.delete("/projects/:slug", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).delete(slug)) return projectNotFound(reply);
+		return reply.status(204).send();
+	});
+
 	app.post("/projects/:slug/rename", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
 		const to = (request.body as { to: string }).to;
@@ -303,6 +309,11 @@ export async function startFakeAgent(
 		const body = request.body as { slug: string; isGitRepo?: boolean; key?: string };
 		dirsForKey(body.key ?? "").set(body.slug, { isGitRepo: body.isGitRepo ?? true });
 		return reply.status(204).send();
+	});
+
+	app.get("/__test/projects", async (request) => {
+		const key = (request.query as { key?: string }).key ?? "";
+		return { slugs: [...dirsForKey(key).keys()] };
 	});
 
 	app.delete("/__test/projects/:slug", async (request, reply) => {

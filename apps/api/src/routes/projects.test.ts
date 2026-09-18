@@ -296,6 +296,103 @@ test.skipIf(skip)("rename moves the directory and rewrites terminal cwds", async
 	expect(row.cwd).toBe("/home/student/projects/final-essay/src");
 });
 
+function deleteProject(jar: CookieJar, id: string, projectId: string, slug: string) {
+	return app.inject({
+		method: "DELETE",
+		url: `/workspaces/${id}/projects/${projectId}`,
+		headers: csrfHeaders(jar, PUBLIC_URL),
+		payload: { slug },
+	});
+}
+
+test.skipIf(skip)(
+	"delete removes the row, its terminals and the directory",
+	async () => {
+		const project = (
+			await createProject(alice, workspaceId, { name: "doomed", source: "new" })
+		).json();
+		const inside = (
+			await app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/terminals`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+				payload: { projectId: project.id },
+			})
+		).json();
+		// A terminal elsewhere in the workspace must survive.
+		const elsewhere = (
+			await app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/terminals`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+				payload: { cwd: "/home/student" },
+			})
+		).json();
+
+		const deleted = await deleteProject(alice, workspaceId, project.id, "doomed");
+		expect(deleted.statusCode).toBe(204);
+		expect(agent.projects.has("doomed")).toBe(false);
+		expect(
+			await testDb.db
+				.selectFrom("projects")
+				.selectAll()
+				.where("id", "=", project.id)
+				.executeTakeFirst(),
+		).toBeUndefined();
+
+		const rows = await testDb.db.selectFrom("terminals").selectAll().execute();
+		const ended = rows.find((row) => row.id === inside.id);
+		expect(ended?.ended_at).not.toBeNull();
+		expect(agent.terminals.has(inside.id)).toBe(false);
+		expect(rows.find((row) => row.id === elsewhere.id)?.ended_at).toBeNull();
+
+		const audit = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "project.deleted")
+			.executeTakeFirstOrThrow();
+		expect(audit.target).toBe(project.id);
+		expect(audit.metadata).toMatchObject({ slug: "doomed", name: "doomed" });
+		expect(typeof (audit.metadata as { ip: string }).ip).toBe("string");
+	},
+);
+
+test.skipIf(skip)("a slug that does not match deletes nothing", async () => {
+	const project = (
+		await createProject(alice, workspaceId, { name: "keeper", source: "new" })
+	).json();
+
+	const wrong = await deleteProject(alice, workspaceId, project.id, "keepers");
+	expect(wrong.statusCode).toBe(400);
+	expect(wrong.json().code).toBe("VALIDATION_FAILED");
+	expect(wrong.json().message).toBe("The slug you typed does not match");
+	expect(agent.projects.has("keeper")).toBe(true);
+	expect(await testDb.db.selectFrom("projects").selectAll().execute()).toHaveLength(1);
+	expect(
+		await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "project.deleted")
+			.execute(),
+	).toHaveLength(0);
+});
+
+test.skipIf(skip)(
+	"a project whose directory is already gone still deletes",
+	async () => {
+		const project = (
+			await createProject(alice, workspaceId, { name: "ghost", source: "new" })
+		).json();
+		agent.projects.delete("ghost");
+
+		const deleted = await deleteProject(alice, workspaceId, project.id, "ghost");
+		expect(deleted.statusCode).toBe(204);
+		expect(await testDb.db.selectFrom("projects").selectAll().execute()).toHaveLength(
+			0,
+		);
+	},
+);
+
 test.skipIf(skip)("rename onto an existing slug is refused", async () => {
 	const first = (
 		await createProject(alice, workspaceId, { name: "one", source: "new" })
@@ -475,6 +572,9 @@ test.skipIf(skip)(
 				payload: { state: "archived" },
 			});
 			expect(patched.statusCode).toBe(404);
+			expect(
+				(await deleteProject(jar, workspaceId, project.id, "private")).statusCode,
+			).toBe(404);
 			const duplicated = await app.inject({
 				method: "POST",
 				url: `/workspaces/${workspaceId}/projects/${project.id}/duplicate`,

@@ -38,11 +38,23 @@ export interface LayoutState {
 	resize: (tabId: string, path: number[], sizes: number[]) => void;
 	setActive: (tabId: string) => void;
 	setFocused: (terminalId: string | null) => void;
-	reconcile: (terminalIds: string[]) => void;
+	reconcile: (terminalIds: string[], endedIds?: string[]) => void;
 	clearDirty: () => void;
 }
 
 export type LayoutStore = ReturnType<typeof createLayoutStore>;
+
+/**
+ * A terminal id belongs to exactly one pane. A create refetches the terminal
+ * list, so a reconcile can put the new terminal in a tab of its own before
+ * the action that asked for it gets to place it; dropping any pane it already
+ * has first keeps that from leaving two copies behind.
+ */
+function place(layout: ProjectLayout, terminalId: string): ProjectLayout {
+	return tree.layoutTerminalIds(layout).includes(terminalId)
+		? tree.removeLeaf(layout, terminalId)
+		: layout;
+}
 
 /** Keep the active tab pointing at a tab that still exists. */
 function pickActive(layout: ProjectLayout, current: string | null): string | null {
@@ -80,7 +92,7 @@ export function createLayoutStore() {
 			addTab: (terminalId) => {
 				// A tab is named after the terminal it was opened for.
 				set((state) => ({
-					layout: tree.addTab(state.layout, terminalId, terminalId),
+					layout: tree.addTab(place(state.layout, terminalId), terminalId, terminalId),
 					activeTabId: terminalId,
 					dirty: true,
 				}));
@@ -88,14 +100,21 @@ export function createLayoutStore() {
 
 			splitLeaf: (terminalId, direction, newTerminalId) =>
 				change((layout) =>
-					tree.splitLeaf(layout, terminalId, direction, newTerminalId),
+					tree.splitLeaf(
+						place(layout, newTerminalId),
+						terminalId,
+						direction,
+						newTerminalId,
+					),
 				),
 
 			removeLeaf: (terminalId) =>
 				change((layout) => tree.removeLeaf(layout, terminalId)),
 
 			replaceLeaf: (terminalId, newTerminalId) =>
-				change((layout) => tree.replaceLeaf(layout, terminalId, newTerminalId)),
+				change((layout) =>
+					tree.replaceLeaf(place(layout, newTerminalId), terminalId, newTerminalId),
+				),
 
 			moveTab: (from, to) => change((layout) => tree.moveTab(layout, from, to)),
 
@@ -127,9 +146,9 @@ export function createLayoutStore() {
 
 			setFocused: (terminalId) => set({ focusedTerminalId: terminalId }),
 
-			reconcile: (terminalIds) =>
+			reconcile: (terminalIds, endedIds) =>
 				set((state) => {
-					const layout = tree.reconcile(state.layout, terminalIds);
+					const layout = tree.reconcile(state.layout, terminalIds, endedIds);
 					if (layout === state.layout) return state;
 					return {
 						layout,
