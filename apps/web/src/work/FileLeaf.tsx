@@ -8,6 +8,8 @@ import { Button, EmptyState, PaneHandle } from "@portikus/ui";
 import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import { ApiError } from "../api/request.js";
+import type { CodeEditorHandle } from "../editor/CodeEditor.js";
+import { scrollRatio, scrollTopForRatio } from "../editor/scrollSync.js";
 import { useEditorSettings } from "../editor/settingsQueries.js";
 import {
 	FileConflictError,
@@ -121,6 +123,12 @@ export function FileLeaf({
 	const markdown = isMarkdownPath(path);
 	// Markdown opens rendered; the choice belongs to this tab and is not saved.
 	const [mode, setMode] = useState<MarkdownMode>("preview");
+	// The split view keeps both sides at the same relative position (issue
+	// #154). The flag stops the scroll each side causes in the other from
+	// being sent straight back.
+	const editorScroll = useRef<CodeEditorHandle | null>(null);
+	const previewScroll = useRef<HTMLDivElement | null>(null);
+	const syncing = useRef(false);
 	// The preview may lag the keystrokes so typing stays smooth, but it is
 	// never a frame behind on the first render.
 	const previewText = useDeferredValue(text ?? "");
@@ -360,6 +368,34 @@ export function FileLeaf({
 	// while the editor is empty there is nothing to have saved.
 	const showStatus = text !== null && !viewer;
 
+	// The two sides of the Markdown split view follow each other by relative
+	// position: how far down its own scrollable range each side is (issue
+	// #154, SPEC.md §13.4). Scrolling one side scrolls the other, which fires
+	// that side's own scroll event, so the flag drops the echo.
+	function followEditor(ratio: number) {
+		const node = previewScroll.current;
+		if (mode !== "split" || !node || syncing.current) return;
+		syncing.current = true;
+		node.scrollTop = scrollTopForRatio(ratio, node.scrollHeight, node.clientHeight);
+		releaseSync();
+	}
+
+	function followPreview() {
+		const node = previewScroll.current;
+		if (mode !== "split" || !node || syncing.current) return;
+		syncing.current = true;
+		editorScroll.current?.setScrollRatio(
+			scrollRatio(node.scrollTop, node.scrollHeight, node.clientHeight),
+		);
+		releaseSync();
+	}
+
+	function releaseSync() {
+		requestAnimationFrame(() => {
+			syncing.current = false;
+		});
+	}
+
 	function banner() {
 		if (text === null) return null;
 		if (gone) {
@@ -432,13 +468,19 @@ export function FileLeaf({
 					wordWrap={settings.wordWrap ? "on" : "off"}
 					revealLine={reveal?.line}
 					revealNonce={reveal?.nonce}
+					ref={markdown ? editorScroll : undefined}
+					onScrollRatio={markdown ? followEditor : undefined}
 				/>
 			</Suspense>
 		);
 		if (!markdown) return editor;
 		const preview = (
 			<Suspense fallback={<p className="pk-file-note">Loading preview…</p>}>
-				<MarkdownPreview text={previewText} />
+				<MarkdownPreview
+					text={previewText}
+					scrollRef={previewScroll}
+					onScroll={followPreview}
+				/>
 			</Suspense>
 		);
 		// All three modes render the same tree and hide the panel they do not

@@ -4,7 +4,7 @@
  * the saving.
  */
 import type * as Monaco from "monaco-editor";
-import { useEffect, useRef, useState } from "react";
+import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
 	baseEditorOptions,
 	currentThemeName,
@@ -12,6 +12,7 @@ import {
 	languageForFile,
 	watchTheme,
 } from "./monaco.js";
+import { scrollRatio, scrollTopForRatio } from "./scrollSync.js";
 import { DEFAULT_ZOOM, fontSizeFor, stepZoom } from "./zoom.js";
 import "./editor.css";
 
@@ -36,6 +37,18 @@ export interface CodeEditorProps {
 	 * file at a line it is already showing still moves the cursor there.
 	 */
 	revealNonce?: number;
+	/**
+	 * Reports where the editor is in its own scroll range, from 0 to 1, so the
+	 * Markdown split view can put the preview in the same place (issue #154).
+	 */
+	onScrollRatio?: (ratio: number) => void;
+	/** Lets the tab scroll this editor to a relative position. */
+	ref?: Ref<CodeEditorHandle>;
+}
+
+export interface CodeEditorHandle {
+	/** Scroll to a relative position, from 0 at the top to 1 at the end. */
+	setScrollRatio: (ratio: number) => void;
 }
 
 export function CodeEditor({
@@ -47,6 +60,8 @@ export function CodeEditor({
 	wordWrap = "off",
 	revealLine,
 	revealNonce,
+	onScrollRatio,
+	ref,
 }: CodeEditorProps) {
 	const host = useRef<HTMLDivElement | null>(null);
 	// The whole tab: Monaco above, the zoom bar below.
@@ -73,8 +88,29 @@ export function CodeEditor({
 
 	// The editor is created once, so it reads the newest callbacks and text
 	// through refs rather than being torn down on every render.
-	const latest = useRef({ value, version, onChange, onSave, revealLine });
-	latest.current = { value, version, onChange, onSave, revealLine };
+	const latest = useRef({
+		value,
+		version,
+		onChange,
+		onSave,
+		revealLine,
+		onScrollRatio,
+	});
+	latest.current = { value, version, onChange, onSave, revealLine, onScrollRatio };
+
+	useImperativeHandle(ref, () => ({
+		setScrollRatio(ratio: number) {
+			const editor = editorRef.current;
+			if (!editor) return;
+			editor.setScrollTop(
+				scrollTopForRatio(
+					ratio,
+					editor.getScrollHeight(),
+					editor.getLayoutInfo().height,
+				),
+			);
+		},
+	}));
 
 	// A later request to jump, once the editor is already up. The one that
 	// arrives before Monaco has loaded is handled where the editor is created.
@@ -139,6 +175,17 @@ export function CodeEditor({
 			monaco.editor.setModelLanguage(model, settled);
 			setLanguage(settled);
 			applied.current = latest.current.version;
+			editor.onDidScrollChange(() => {
+				const report = latest.current.onScrollRatio;
+				if (!report) return;
+				report(
+					scrollRatio(
+						editor.getScrollTop(),
+						editor.getScrollHeight(),
+						editor.getLayoutInfo().height,
+					),
+				);
+			});
 			editor.onDidChangeModelContent(() => {
 				if (applying.current) return;
 				latest.current.onChange(model.getValue());

@@ -53,6 +53,8 @@ const diffState: { models: { original: FakeModel; modified: FakeModel } | null }
 /** Where the editor was told to put the cursor, and what it scrolled to. */
 const cursorLines: number[] = [];
 const revealedLines: number[] = [];
+/** The editor's scroll listeners, which the split view registers (issue #154). */
+const scrollListeners: (() => void)[] = [];
 
 vi.mock("../editor/features.js", () => ({ loadEditorFeatures: async () => {} }));
 vi.mock("monaco-editor/basic-languages/monaco.contribution.js", () => ({}));
@@ -107,6 +109,16 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 					onDidChangeModelContent: (listener: () => void) => {
 						options.model.listeners.push(listener);
 					},
+					// The Markdown split view follows the editor's scrolling
+					// (issue #154). Nothing scrolls in jsdom, so this only has
+					// to exist and answer.
+					onDidScrollChange: (listener: () => void) => {
+						scrollListeners.push(listener);
+					},
+					getScrollTop: () => 0,
+					getScrollHeight: () => 0,
+					setScrollTop: () => {},
+					getLayoutInfo: () => ({ height: 0 }),
 					setPosition: (position: { lineNumber: number }) => {
 						cursorLines.push(position.lineNumber);
 					},

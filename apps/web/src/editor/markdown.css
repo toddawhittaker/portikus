@@ -45,13 +45,42 @@
 	margin: 0 0 var(--space-3);
 }
 
+/* Tailwind's preflight strips the markers off every list on the page, so the
+   rendered document puts them back for its own lists only. */
 .pk-markdown ul,
 .pk-markdown ol {
 	padding-left: var(--space-5);
+	list-style-position: outside;
+}
+
+.pk-markdown ul {
+	list-style-type: disc;
+}
+
+.pk-markdown ul ul {
+	list-style-type: circle;
+}
+
+.pk-markdown ul ul ul {
+	list-style-type: square;
+}
+
+.pk-markdown ol {
+	list-style-type: decimal;
 }
 
 .pk-markdown li {
 	margin-bottom: var(--space-1);
+}
+
+/* GitHub task lists show their checkbox instead of a marker. */
+.pk-markdown li:has(> input[type="checkbox"]) {
+	list-style-type: none;
+}
+
+.pk-markdown li > input[type="checkbox"] {
+	margin-right: var(--space-2);
+	vertical-align: middle;
 }
 
 .pk-markdown a {
