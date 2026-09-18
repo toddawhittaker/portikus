@@ -72,7 +72,9 @@ test.describe("project search", () => {
 
 		await page.getByTestId("search-input").fill("answer");
 
-		await expect(page.getByTestId("search-truncated")).toContainText("first 500");
+		await expect(page.getByTestId("search-truncated")).toHaveText(
+			"Showing the first matches only. Narrow the search to see the rest.",
+		);
 	});
 
 	test("including hidden files changes what the agent is asked", async ({

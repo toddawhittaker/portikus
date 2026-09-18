@@ -4,13 +4,29 @@
  * line number and the matching line, and opening one opens the file at that
  * line.
  */
-import { MAX_SEARCH_MATCHES } from "@portikus/contracts";
 import { Checkbox, EmptyState, TextField, useToast } from "@portikus/ui";
 import { type KeyboardEvent, useContext, useRef, useState } from "react";
+import { ApiError } from "../api/request.js";
+import { tooManyTabsToast } from "../files/errors.js";
 import { LayoutStoreContext } from "../layout/store.js";
 import { groupByFile, highlightParts } from "./results.js";
 import { useSearch } from "./useSearch.js";
 import "./search.css";
+
+/** The longest query the box takes; a search term is a phrase, not a file. */
+const MAX_QUERY_LENGTH = 512;
+
+/**
+ * What the student is told when a search fails (SPEC.md §28). The agent's own
+ * message is never shown, because it is written for an administrator and can
+ * carry paths the student has no use for (SPEC.md §24.6).
+ */
+function searchErrorMessage(error: unknown): string {
+	if (error instanceof ApiError && error.code === "AGENT_UNAVAILABLE") {
+		return "The workspace is not responding. Try again in a moment.";
+	}
+	return "Something went wrong. Please try again.";
+}
 
 export interface SearchPanelProps {
 	workspaceId: string;
@@ -35,11 +51,7 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 	/** Open one match in the work area, at its line (SPEC.md §11.5). */
 	function open(path: string, line: number) {
 		if (store?.getState().openFile(path, line)) return;
-		toast.show({
-			tone: "warning",
-			title: "That file could not be opened",
-			children: "Close a tab and try again.",
-		});
+		toast.show(tooManyTabsToast());
 	}
 
 	/** Escape leaves the search; the arrows walk the result rows. */
@@ -75,7 +87,7 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 		if (result.isError) {
 			return (
 				<EmptyState icon="alert" title="The search failed">
-					<span data-testid="search-error">{result.error.message}</span>
+					<span data-testid="search-error">{searchErrorMessage(result.error)}</span>
 				</EmptyState>
 			);
 		}
@@ -162,20 +174,19 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 					value={query}
 					autoFocus={true}
 					data-testid="search-input"
+					maxLength={MAX_QUERY_LENGTH}
 					onChange={(event) => setQuery(event.target.value)}
 				/>
 				<Checkbox
 					label="Include hidden and generated files"
 					checked={hidden}
 					onChange={(event) => setHidden(event.target.checked)}
-					className="pk-search-hidden"
 				/>
 			</div>
 			{body()}
 			{result.data?.truncated ? (
 				<p className="pk-search-note" data-testid="search-truncated">
-					Showing the first {MAX_SEARCH_MATCHES} matches. Narrow the search to see the
-					rest.
+					Showing the first matches only. Narrow the search to see the rest.
 				</p>
 			) : null}
 		</div>

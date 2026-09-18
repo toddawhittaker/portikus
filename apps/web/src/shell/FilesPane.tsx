@@ -1,6 +1,6 @@
 import type { Project } from "@portikus/contracts";
 import { EmptyState, IconButton } from "@portikus/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileTreePane } from "../files/FileTree.js";
 import { SearchPanel } from "../search/SearchPanel.js";
 
@@ -16,10 +16,12 @@ export function FilesPane({
 	project: Project | undefined;
 }) {
 	const [searching, setSearching] = useState(false);
+	const open = project !== undefined && !project.missing;
 
 	// Mod+Shift+F opens find in files from anywhere in the workspace
-	// (SPEC.md §11.5).
+	// (SPEC.md §11.5). With no project open there is nothing to search.
 	useEffect(() => {
+		if (!open) return;
 		function onKeyDown(event: KeyboardEvent) {
 			if (!event.shiftKey || !(event.ctrlKey || event.metaKey)) return;
 			if (event.key.toLowerCase() !== "f") return;
@@ -28,13 +30,18 @@ export function FilesPane({
 		}
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, []);
+	}, [open]);
 
-	const open = project !== undefined && !project.missing;
+	// Switching project leaves the search: its results belong to the old one.
+	const shown = useRef(project?.id);
+	if (shown.current !== project?.id) {
+		shown.current = project?.id;
+		setSearching(false);
+	}
 
 	if (open && searching) {
 		return (
-			<aside className="pk-pane pk-pane--right" aria-label="Files">
+			<aside className="pk-pane pk-pane--right" aria-label="Find in files">
 				<div className="pk-pane-head">
 					<h2 className="pk-pane-title">Find in files</h2>
 					<IconButton
@@ -46,6 +53,7 @@ export function FilesPane({
 					/>
 				</div>
 				<SearchPanel
+					key={project.id}
 					workspaceId={workspaceId}
 					projectId={project.id}
 					onClose={() => setSearching(false)}

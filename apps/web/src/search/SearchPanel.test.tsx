@@ -83,8 +83,19 @@ test("a truncated answer says only the first matches are shown", async () => {
 	type("answer");
 
 	await waitFor(() =>
-		expect(screen.getByTestId("search-truncated").textContent).toContain("first 500"),
+		expect(screen.getByTestId("search-truncated").textContent).toBe(
+			"Showing the first matches only. Narrow the search to see the rest.",
+		),
 	);
+});
+
+test("the query is capped, so no huge string is ever sent", () => {
+	stubSearch({ matches: [] });
+	renderWithQuery(
+		<SearchPanel workspaceId={WORKSPACE} projectId={PROJECT} onClose={() => {}} />,
+	);
+
+	expect(screen.getByTestId("search-input").getAttribute("maxlength")).toBe("512");
 });
 
 test("a search with no matches says so", async () => {
@@ -98,20 +109,23 @@ test("a search with no matches says so", async () => {
 	await waitFor(() => expect(screen.getByTestId("search-empty")).toBeTruthy());
 });
 
-test("a failed search says so", async () => {
+/** Answer every search with one error body. */
+function stubError(status: number, body: unknown) {
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(
 			async () =>
-				new Response(
-					JSON.stringify({ code: "AGENT_UNAVAILABLE", message: "no agent" }),
-					{
-						status: 503,
-						headers: { "content-type": "application/json" },
-					},
-				),
+				new Response(JSON.stringify(body), {
+					status,
+					headers: { "content-type": "application/json" },
+				}),
 		),
 	);
+}
+
+test("an unreachable workspace is explained in plain English", async () => {
+	// SPEC.md §24.6, §28: the agent's own message is never shown.
+	stubError(503, { code: "AGENT_UNAVAILABLE", message: "no agent at /run/pk.sock" });
 	renderWithQuery(
 		<SearchPanel workspaceId={WORKSPACE} projectId={PROJECT} onClose={() => {}} />,
 	);
@@ -119,7 +133,24 @@ test("a failed search says so", async () => {
 	type("answer");
 
 	await waitFor(() =>
-		expect(screen.getByTestId("search-error").textContent).toBe("no agent"),
+		expect(screen.getByTestId("search-error").textContent).toBe(
+			"The workspace is not responding. Try again in a moment.",
+		),
+	);
+});
+
+test("any other failure gets the general sentence, not the raw message", async () => {
+	stubError(500, { code: "INTERNAL", message: "ripgrep died in /home/student" });
+	renderWithQuery(
+		<SearchPanel workspaceId={WORKSPACE} projectId={PROJECT} onClose={() => {}} />,
+	);
+
+	type("answer");
+
+	await waitFor(() =>
+		expect(screen.getByTestId("search-error").textContent).toBe(
+			"Something went wrong. Please try again.",
+		),
 	);
 });
 
@@ -183,5 +214,7 @@ test("a click with no work area to open into says so", async () => {
 	);
 	fireEvent.click(screen.getByTestId("search-result-src/app.ts-3"));
 
-	expect(await screen.findByText("That file could not be opened")).toBeTruthy();
+	expect(
+		await screen.findByText("Too many tabs are open. Close one to open another."),
+	).toBeTruthy();
 });

@@ -28,8 +28,10 @@ import {
 	MenuTrigger,
 	type TabItem,
 	Tabs,
+	useToast,
 } from "@portikus/ui";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { tooManyTabsToast } from "../files/errors.js";
 import { useLayoutPersistence } from "../layout/persist.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { type DropEdge, type SplitDirection, terminalIds } from "../layout/tree.js";
@@ -75,6 +77,7 @@ export function WorkArea({
 	onSessionEnded,
 }: WorkAreaProps) {
 	const store = useLayoutStore(projectId);
+	const toast = useToast();
 	const layout = useLayout(store, (state) => state.layout);
 	const activeTabId = useLayout(store, (state) => state.activeTabId);
 	const focusedTerminalId = useLayout(store, (state) => state.focusedTerminalId);
@@ -112,8 +115,10 @@ export function WorkArea({
 	// it would otherwise replace the tab this just opened.
 	useEffect(() => {
 		if (!loaded || !openPath) return;
-		store.getState().openFile(openPath, openLine);
-	}, [loaded, openPath, openLine, store]);
+		if (!store.getState().openFile(openPath, openLine)) {
+			toast.show(tooManyTabsToast());
+		}
+	}, [loaded, openPath, openLine, store, toast]);
 
 	const newTerminal = useCallback(async (): Promise<Terminal | null> => {
 		try {

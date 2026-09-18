@@ -173,11 +173,13 @@ test.describe("file tree", () => {
 
 		await row(page, "README.md").click();
 
-		await expect(
-			page.getByText("Too many tabs are open. Close one to open another.", {
-				exact: true,
-			}),
-		).toBeVisible();
+		const capToast = page.getByText(
+			"Too many tabs are open. Close one to open another.",
+			{ exact: true },
+		);
+		await expect(capToast).toBeVisible();
+		// One toast, not one per place that can open a file.
+		await expect(capToast).toHaveCount(1);
 		await expect(page.getByTestId("tab-file:README.md")).toHaveCount(0);
 	});
 

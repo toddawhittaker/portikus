@@ -1,3 +1,4 @@
+import { ProjectPath } from "@portikus/contracts";
 import {
 	createRootRoute,
 	createRoute,
@@ -56,6 +57,21 @@ const workspaceIndexRoute = createRoute({
 	component: ProjectIndex,
 });
 
+/**
+ * A file path from a link is only ever a path inside the project (SPEC.md
+ * §24.6); anything else opens nothing rather than being sent to the agent.
+ */
+function safePath(value: unknown): string | undefined {
+	const parsed = ProjectPath.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
+}
+
+/** A line number from a link is a whole line, counted from one. */
+function safeLine(value: unknown): number | undefined {
+	const line = Number(value);
+	return Number.isInteger(line) && line >= 1 ? line : undefined;
+}
+
 const projectRoute = createRoute({
 	getParentRoute: () => workspaceRoute,
 	path: "/projects/$projectId",
@@ -64,9 +80,8 @@ const projectRoute = createRoute({
 	// SearchSchemaInput keeps both parameters optional, so every other link to
 	// a project stays a plain link.
 	validateSearch: (search: Record<string, unknown> & SearchSchemaInput) => ({
-		open:
-			typeof search.open === "string" && search.open !== "" ? search.open : undefined,
-		line: Number(search.line) > 0 ? Number(search.line) : undefined,
+		open: safePath(search.open),
+		line: safeLine(search.line),
 	}),
 	component: ProjectScreen,
 });
@@ -98,14 +113,14 @@ const filesRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/workspaces/$id/projects/$projectId/files",
 	validateSearch: (search: Record<string, unknown>) => ({
-		path: typeof search.path === "string" ? search.path : "",
-		line: Number(search.line) > 0 ? Number(search.line) : 1,
+		path: safePath(search.path),
+		line: safeLine(search.line),
 	}),
 	beforeLoad: ({ params, search }) => {
 		throw redirect({
 			to: "/workspaces/$id/projects/$projectId",
 			params,
-			search: { open: search.path || undefined, line: search.line },
+			search: { open: search.path, line: search.line },
 			replace: true,
 		});
 	},

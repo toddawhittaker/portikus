@@ -50,7 +50,12 @@ import {
 } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
-import { fileErrorToast, isFileExists, tooLargeToast } from "./errors.js";
+import {
+	fileErrorToast,
+	isFileExists,
+	tooLargeToast,
+	tooManyTabsToast,
+} from "./errors.js";
 import "./files.css";
 import { NameDialog } from "./NameDialog.js";
 import {
@@ -267,12 +272,7 @@ export function FileTreePane({
 
 	const openFile = useCallback(
 		(node: FileNode) => {
-			if (!openFileTab(node.path)) {
-				toast.show({
-					tone: "warning",
-					title: "Too many tabs are open. Close one to open another.",
-				});
-			}
+			if (!openFileTab(node.path)) toast.show(tooManyTabsToast());
 		},
 		[openFileTab, toast],
 	);

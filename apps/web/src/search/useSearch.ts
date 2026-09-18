@@ -10,10 +10,10 @@ import { useEffect, useState } from "react";
 import { request } from "../api/request.js";
 
 /** How long typing pauses before a search is sent (SPEC.md §11.5). */
-export const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_DEBOUNCE_MS = 250;
 
 /** Hold a value back until it has stopped changing for `delay`. */
-export function useDebounced<T>(value: T, delay: number): T {
+function useDebounced<T>(value: T, delay: number): T {
 	const [held, setHeld] = useState(value);
 	useEffect(() => {
 		const timer = setTimeout(() => setHeld(value), delay);
@@ -28,7 +28,7 @@ export const searchKeys = {
 };
 
 /** The URL of one project's search. */
-export function searchUrl(
+function searchUrl(
 	workspaceId: string,
 	projectId: string,
 	q: string,
@@ -48,11 +48,12 @@ export function useSearch(
 	const result = useQuery({
 		queryKey: searchKeys.search(workspaceId, projectId, term, hidden),
 		enabled: term.length > 0,
-		retry: false,
 		// Nothing is kept: a search is asked again when it is asked again, and
 		// dropping the old query is what aborts its request.
 		gcTime: 0,
 		staleTime: 0,
+		// Coming back to the tab must not re-run the search behind the student.
+		refetchOnWindowFocus: false,
 		queryFn: ({ signal }) =>
 			request(SearchResponse, searchUrl(workspaceId, projectId, term, hidden), {
 				signal,
