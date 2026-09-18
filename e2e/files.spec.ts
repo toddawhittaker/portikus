@@ -192,6 +192,9 @@ test.describe("file tree", () => {
 
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(page.getByTestId("file-tree")).toBeVisible({ timeout: 15_000 });
+		// The saved layout arrives after the tree; clicking before it lands
+		// would open the file instead of refusing it.
+		await expect(page.getByTestId("tab-file:full-15.txt")).toBeVisible();
 
 		await row(page, "README.md").click();
 
