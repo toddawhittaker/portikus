@@ -2390,6 +2390,9 @@ Includes:
   split, onto its centre to swap, or onto the tab bar to become its own
   tab, with a drop zone drawn while dragging;
 - a terminal revived after a grace-period stop draws its prompt correctly;
+- a terminal revived after a grace-period stop takes the ended terminal's
+  pane rather than also appearing as a new tab, and ended terminals no
+  longer return as tabs;
 - the workspace dialog can start, stop and restart the workspace, and its
   rows wrap instead of scrolling sideways;
 - a project can be deleted for good from its menu, behind a confirmation that
