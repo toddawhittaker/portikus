@@ -65,6 +65,8 @@ would not let you run), that denial is an escalation: stop and report it,
 and never retry the same effect through a different command to get
 around the denial. This is different from a harness note that tells you
 how to wait or how to phrase a command; follow that guidance and continue.
+A settings change (permissions) does not reach a running agent; the
+orchestrator starts a fresh merger after changing settings.
 
 ## Loop for each PR
 

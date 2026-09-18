@@ -2545,6 +2545,16 @@ Includes:
 - Markdown viewer fixes: list markers in the rendered preview, scroll sync
   between the two sides of split view by relative position, and a visible
   scrollbar on the code side (§13.4) (#154);
+- Markdown tabs offer Code, Rich, and Split views, with a rich-text
+  toolbar over the same Markdown buffer, both sides editable and kept in
+  step (§13.4; ADR 0017) (#155);
+- security follow-up: OSC 52 clipboard writes gated on a visible, focused
+  pane with a 100 KB cap and a visible toast; terminal URLs with
+  credentials refused; loopback and private addresses refused by range;
+  browser-local layout cleared at sign-out (§24.2);
+- browser test stability: a setup check that refuses to run when the API
+  under test reads a different database from the test helpers, plus a
+  fix for the file-tree tab-cap race (§6.4, §7.5);
 - two flaky unit tests (the workspace-agent git timeout test, the API
   terminal input-limit test) made deterministic, so CI runs are repeatable;
 - the unit test suite runs fully in parallel again: the shared-database

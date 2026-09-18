@@ -374,8 +374,15 @@ Epic 7.1 is a batch of fixes and small features from the first hands-on
 use of the pilot after Epic 7, gathered on 2026-09-18 and landed as
 individual pull requests into the epic branch.
 
-**Editor.** Rich Markdown editing (#155): see the follow-up docs commit.
-Editor settings — auto-save, its delay, and word wrap — now persist per
+**Editor.** Markdown tabs gain a rich editing view: the three views are
+now Code, Rich, and Split, the rich view is MDXEditor with a toolbar for
+headings, bold, italic, inline code, lists, links, code blocks, tables,
+and quotes, and both sides of Split edit the same buffer through the same
+auto-save and Ctrl+S path. MDXEditor treats Markdown as the source of
+truth, so the save path did not change, and it is loaded lazily like
+Monaco, adding 556 KB to the build and nothing to the first load. The
+read-only preview, its front-matter splitter, and react-markdown had no
+other user and were removed (§13.4; ADR 0017) (#155). Editor settings — auto-save, its delay, and word wrap — now persist per
 user: a `users.editor_settings` JSONB column holds whatever the student
 has changed, `GET`/`PUT /me/settings` read and write only the signed-in
 user's own row, and an account-menu dialog reaches all three, with the
@@ -441,6 +448,16 @@ so Claude Code stops trying to update itself into a root-owned npm prefix
 it cannot write; Codex has no equivalent environment variable, so its
 update check is left for Epic 9 (§10) (#127).
 
+A security review of the batch found four issues in the web app, all now
+closed: an OSC 52 clipboard write can only change the system clipboard
+from the pane the student is looking at and typing in, is capped at
+100 KB per copy, and shows a toast naming the terminal that did it; a URL
+printed by a terminal no longer opens in a new tab when it carries a
+username or password; the loopback and private-address refusal is now a
+range check covering 127/8, IPv4-mapped IPv6 forms, and the private,
+link-local, and unique-local ranges; and signing out clears every
+project's browser-local layout from local storage (§24.2).
+
 **Administration and settings.** The Administration entry moved out of
 the workspace header and into the account dropdown menu, where only
 administrators see it, and opens `/admin` in a new browser tab with
@@ -464,7 +481,19 @@ with coverage went from about 99 seconds to about 26 on a 32-core host
 inside each job and skips every heavy step — installs, typecheck, lint,
 tests, builds, Playwright, OpenTofu, Ansible, shellcheck — on a
 documentation-only change, while the job itself still reports its check,
-so branch protection is never blocked by a workflow that never ran.
+so branch protection is never blocked by a workflow that never ran; a
+docs-only pull request now finishes CI in under 40 seconds per job. The
+Application checks job went from 4m03s at the start of the batch to
+2m48s after the test changes above. The browser test suite is now stable
+on a machine where several agents run Playwright at once: a new setup
+check compares the database the API under test is reading with the one
+the test helpers write to, and stops the run with a clear message when
+they differ, which is what made a different administration test fail on
+each full-suite run while each passed alone because Playwright had
+reused another checkout's servers on the fixed ports; a genuine race in
+the file-tree "full tab strip" test was also fixed, and the
+administration test file is recorded as needing a single worker because
+those tests share one settings row (§6.4, §7.5).
 
 **Process.** A merger agent now lands a list of task pull requests into
 an epic branch on its own: it waits for CI, updates a branch that has
@@ -495,4 +524,9 @@ update-check setting belongs with the rest of agent configuration in Epic
 flake once during the batch (an admin grace-period toast, a full tab
 strip, reviving both ended panes, and the two conflict-diff tests before
 auto-save was turned off in their setup) and are worth watching rather
-than fixing blind.
+than fixing blind. A line of raw HTML in a Markdown file is invisible in
+the Rich view, though it round-trips unchanged; an unusual Markdown
+dialect is normalised the first time it is edited in the Rich view; and
+the default Markdown view is now Rich rather than Code. Parallel local
+end-to-end runs still collide on fixed ports and one shared database;
+per-run e2e ports and database are tracked in `docs/BACKLOG.md`.

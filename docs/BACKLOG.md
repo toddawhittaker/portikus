@@ -504,3 +504,22 @@ answered once rather than agent by agent.
 separate estimate. Issue #129 stays open for it.
 
 **Source.** `docs/STATUS.md`, Epic 7.1.
+
+## Per-run e2e ports and database
+
+**What.** Give each Playwright run its own set of ports and its own
+database, instead of the fixed ports and one shared `TEST_DATABASE_URL`
+several agents' local runs use today.
+
+**Why.** Epic 7.1 added a setup check that stops a run cleanly when the
+API under test reads a different database than the test helpers write to,
+which is what several agents running the suite on this host at once used
+to trip over. The check catches the collision instead of preventing it;
+two agents still cannot run the full suite on this host at the same time.
+
+**What it would take.** Pick each run's web, API, and worker ports from a
+free range instead of a fixed list, and give each run's Playwright
+workers a database name derived from the run's process id, the way the
+unit test suite already does for database test files. About half a day.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.
