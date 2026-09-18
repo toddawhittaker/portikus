@@ -12,7 +12,7 @@
 	display: flex;
 	align-items: center;
 	gap: var(--space-1\.5);
-	height: var(--pk-row);
+	height: var(--pk-tree-row);
 	padding-right: var(--space-1);
 	border-radius: var(--radius-sm);
 	font-size: 13px;
@@ -67,6 +67,20 @@
 }
 .pk-pane-sub[data-drop-over="true"] {
 	background: var(--surface-selected);
+}
+
+/* The whole pane is the drop target for an upload to the project root
+   (SPEC.md §11.2). */
+.pk-pane-body.is-upload-root {
+	background: var(--surface-selected);
+	box-shadow: inset 0 0 0 2px var(--accent);
+}
+.pk-upload-hint {
+	margin: 0;
+	padding: var(--space-1) var(--space-2);
+	color: var(--ink-muted);
+	font-size: 12px;
+	text-align: center;
 }
 .pk-tree-face {
 	flex: 1;

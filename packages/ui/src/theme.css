@@ -145,11 +145,13 @@
 	/* Density source values; --pk-* below picks one set. */
 	--density-comfortable-control: 36px;
 	--density-comfortable-row: 32px;
+	--density-comfortable-tree-row: 24px;
 	--density-comfortable-tab: 36px;
 	--density-comfortable-pad: 12px;
 	--density-comfortable-font: 14px;
 	--density-compact-control: 28px;
 	--density-compact-row: 28px;
+	--density-compact-tree-row: 22px;
 	--density-compact-tab: 30px;
 	--density-compact-pad: 8px;
 	--density-compact-font: 13px;
@@ -285,6 +287,7 @@
 [data-density="comfortable"] {
 	--pk-control: var(--density-comfortable-control);
 	--pk-row: var(--density-comfortable-row);
+	--pk-tree-row: var(--density-comfortable-tree-row);
 	--pk-tab: var(--density-comfortable-tab);
 	--pk-pad: var(--density-comfortable-pad);
 	--pk-font: var(--density-comfortable-font);
@@ -294,6 +297,7 @@
 [data-density="compact"] {
 	--pk-control: var(--density-compact-control);
 	--pk-row: var(--density-compact-row);
+	--pk-tree-row: var(--density-compact-tree-row);
 	--pk-tab: var(--density-compact-tab);
 	--pk-pad: var(--density-compact-pad);
 	--pk-font: var(--density-compact-font);

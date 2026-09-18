@@ -3,10 +3,12 @@
  * (SPEC.md §8.3, §13.1, §13.3, §13.5). Local text is never thrown away
  * without the student clicking a button.
  */
+import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { Button, EmptyState, PaneHandle } from "@portikus/ui";
 import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import { ApiError } from "../api/request.js";
+import { useEditorSettings } from "../editor/settingsQueries.js";
 import {
 	FileConflictError,
 	fileDownloadUrl,
@@ -39,9 +41,6 @@ type View = "edit" | "diff";
 
 /** The tab is hidden, not unmounted, so the editor keeps its undo history. */
 const HIDDEN = { display: "none" } as const;
-
-/** How long after the last keystroke the text is written (SPEC.md §13.5). */
-const AUTOSAVE_DELAY_MS = 750;
 
 /** Which of the three Markdown views this tab shows (SPEC.md §13.4). */
 type MarkdownMode = "edit" | "preview" | "split";
@@ -98,6 +97,10 @@ export function FileLeaf({
 	consumePendingDiff,
 	visible = true,
 }: FileLeafProps) {
+	// The student's own editor settings (issue #159). They load once per
+	// session; until they arrive the editor uses the defaults.
+	const settingsQuery = useEditorSettings();
+	const settings = settingsQuery.data ?? EDITOR_SETTINGS_DEFAULTS;
 	const file = useFile(workspaceId, projectId, path);
 	const save = useSaveFile(workspaceId, projectId, path);
 
@@ -168,6 +171,11 @@ export function FileLeaf({
 	const latest = useRef({ text, etag, deleted });
 	latest.current = { text, etag, deleted };
 
+	// The pending timer reads the newest settings, so a change takes effect on
+	// the next keystroke rather than on the next reload.
+	const settingsRef = useRef(settings);
+	settingsRef.current = settings;
+
 	function cancelTimer() {
 		if (timer.current !== null) clearTimeout(timer.current);
 		timer.current = null;
@@ -218,7 +226,10 @@ export function FileLeaf({
 			} else {
 				setDirty(true);
 				setStatus("unsaved");
-				scheduleSave();
+				// With auto-save off the student asked for this save, so the
+				// keystrokes that arrived during it go out at once rather than
+				// waiting for another Ctrl+S.
+				scheduleSave(settingsRef.current.autoSave ? undefined : 0);
 			}
 		} catch (error) {
 			if (error instanceof FileConflictError) {
@@ -242,20 +253,24 @@ export function FileLeaf({
 		}
 	}
 
-	function scheduleSave() {
+	/**
+	 * Write the newest text after `delayMs`. The default is the student's
+	 * auto-save delay; a Ctrl+S that has more to write passes zero.
+	 */
+	function scheduleSave(delayMs = settingsRef.current.autoSaveDelaySeconds * 1000) {
 		cancelTimer();
 		timer.current = setTimeout(() => {
 			timer.current = null;
 			// One write at a time: a second would carry the etag the first is
 			// about to replace. Wait another debounce instead.
 			if (writing.current) {
-				scheduleSave();
+				scheduleSave(delayMs);
 				return;
 			}
 			const current = latest.current;
 			if (current.text === null) return;
 			void write(current.text, current.deleted ? null : current.etag);
-		}, AUTOSAVE_DELAY_MS);
+		}, delayMs);
 	}
 
 	function onChange(next: string) {
@@ -265,7 +280,8 @@ export function FileLeaf({
 		// produce another 412 (SPEC.md §13.3).
 		if (conflict !== null) return;
 		setStatus("unsaved");
-		scheduleSave();
+		// With auto-save off the text waits for Ctrl+S (SPEC.md §13.5).
+		if (settingsRef.current.autoSave) scheduleSave();
 	}
 
 	function saveNow() {
@@ -273,7 +289,8 @@ export function FileLeaf({
 		const current = latest.current;
 		if (current.text === null) return;
 		if (writing.current) {
-			scheduleSave();
+			// A write is already in the air; this one follows it at once.
+			scheduleSave(0);
 			return;
 		}
 		cancelTimer();
@@ -412,6 +429,7 @@ export function FileLeaf({
 					version={etag}
 					onChange={onChange}
 					onSave={saveNow}
+					wordWrap={settings.wordWrap ? "on" : "off"}
 					revealLine={reveal?.line}
 					revealNonce={reveal?.nonce}
 				/>
