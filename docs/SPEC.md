@@ -2391,7 +2391,11 @@ Includes:
 - a terminal pane can be dragged onto another pane's edge to reflow the
   split, onto its centre to swap, or onto the tab bar to become its own
   tab, with a drop zone drawn while dragging;
-- a terminal revived after a grace-period stop draws its prompt correctly.
+- a terminal revived after a grace-period stop draws its prompt correctly;
+- the workspace image ships with the apt package lists in place and with
+  `command-not-found` installed, so `sudo apt install <package>` works in a
+  fresh workspace without `apt update` first, and typing a command that is
+  not installed prints the package that provides it.
 
 Acceptance:
 

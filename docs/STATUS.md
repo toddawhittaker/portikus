@@ -145,6 +145,13 @@ leave the layout alone. The drag uses the dnd-kit already in the repo, with
 the same 4-pixel activation distance as tab reordering, so a click on a
 title bar still just focuses the pane.
 
+Workspace image `2026.09.4` keeps the apt package lists instead of deleting
+them at the end of the build and adds Debian's `command-not-found`, so a
+fresh workspace can run `sudo apt install <package>` without `apt update`
+first, and a mistyped or missing command names the package that provides
+it. The lists are as of the build date and Debian's daily timer refreshes
+them in a running workspace.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
 is wired up, the only admin UI is the grace period page, nothing
@@ -166,7 +173,8 @@ them leaves the old row missing and the new directory discovered as a
 separate project (tracked in `docs/BACKLOG.md`). Terminal names count per workspace rather than per
 project, so a second project's first terminal may be "Terminal 3", and a
 workspace created on an older image lacks zip until it is recreated, which
-the agent reports as a download failure. The projects pane now refetches every
+the agent reports as a download failure, and the same workspace has empty
+apt lists and no `command-not-found` until it is recreated. The projects pane now refetches every
 ten seconds while the tab is visible and again when it regains focus, so a
 repository made in a terminal turns up without any UI action, and every row that
 is not missing shows its folder name next to the project name. From the grace period task, the

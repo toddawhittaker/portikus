@@ -213,6 +213,15 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "node --version"                        ws_student "node --version"
   check "python3 --version"                     ws_student "python3 --version"
 
+  # 17b. The image ships populated apt lists, so a student can install a
+  # package, and be told about a missing one, without running apt update.
+  apt_list_count() {
+    ws_exec "ls /var/lib/apt/lists | wc -l"
+  }
+  check_gt "apt lists are populated" 0         apt_list_count
+  check "apt install needs no update first"     ws_student "timeout 60 sudo apt-get install -y --dry-run btop"
+  check "command-not-found suggests a package"  ws_student 'timeout 30 bash -ic nslookup 2>&1 | grep -q "apt install"'
+
   # 18. Security: no Incus API socket, no host data disk
   check "/dev/incus absent"                     ws_exec test ! -e /dev/incus
   check "/dev/vdb absent"                       ws_exec test ! -e /dev/vdb
