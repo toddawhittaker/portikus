@@ -437,6 +437,19 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					reply.header("etag", result.etag);
 					return reply.code(200).send(result);
 				} catch (error) {
+					if (
+						error instanceof AgentFailure &&
+						error.code === "FILE_TOO_LARGE" &&
+						!request.raw.readableEnded
+					) {
+						// The rest of the body is never read, so the connection cannot be
+						// reused; say so, and only tear the socket down once the 413 has
+						// gone out, or the client sees a reset instead (SPEC.md §13.5).
+						reply.header("connection", "close");
+						reply.raw.once("finish", () => {
+							request.raw.destroy();
+						});
+					}
 					return sendError(request, reply, error, "INTERNAL");
 				}
 			});

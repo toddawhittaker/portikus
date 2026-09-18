@@ -353,27 +353,32 @@ export async function writeFile(
 			fsConstants.O_NOFOLLOW,
 		0o644,
 	);
-	let streaming = false;
+	let closed = false;
 	try {
 		if (mode !== undefined) {
 			// Keep executable bits and the like across the rename.
 			await handle.chmod(mode);
 		}
-		streaming = true;
-		await pipeline(
-			body,
-			async function* (source: AsyncIterable<Buffer>) {
-				for await (const chunk of source) {
-					size += chunk.length;
-					if (size > limit) {
-						throw new AgentFailure("FILE_TOO_LARGE", "that file is too large");
-					}
-					hash.update(chunk);
-					yield chunk;
-				}
-			},
-			handle.createWriteStream(),
-		);
+		// destroyOnReturn: false, so stopping at the cap leaves the request
+		// stream alive and the route can still answer on it (SPEC.md §13.5).
+		let overLimit = false;
+		for await (const chunk of body.iterator({ destroyOnReturn: false })) {
+			const buffer = chunk as Buffer;
+			if (size + buffer.length > limit) {
+				overLimit = true;
+				break;
+			}
+			size += buffer.length;
+			hash.update(buffer);
+			await handle.write(buffer);
+		}
+		if (overLimit) {
+			// Stop pulling bytes; the caller decides when to close the socket.
+			body.pause();
+			throw new AgentFailure("FILE_TOO_LARGE", "that file is too large");
+		}
+		await handle.close();
+		closed = true;
 		if (options.ifNoneMatch) {
 			// link fails with EEXIST rather than replacing anything, so a file
 			// that appeared while the body was in flight survives. It also
@@ -398,9 +403,7 @@ export async function writeFile(
 			await rename(tmpPath, target.path);
 		}
 	} catch (error) {
-		// The write stream closes the handle itself; if it never started, this
-		// is the only thing that can close it.
-		if (!streaming) {
+		if (!closed) {
 			await handle.close().catch(() => {});
 		}
 		// Nothing touched the target, so leaving the temp file behind is the

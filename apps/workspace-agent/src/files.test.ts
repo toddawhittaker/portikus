@@ -674,3 +674,89 @@ test("a download carries a matching length and no etag", async () => {
 	expect(response.headers["content-length"]).toBe("5");
 	expect(response.body).toBe("hello");
 });
+
+// --- SPEC.md §13.5: a streaming client is answered, not reset -------------
+
+async function withListeningAgent<T>(body: (base: string) => Promise<T>): Promise<T> {
+	const server = buildServer({ tokenPath: join(homeDir, "agent.token"), homeDir });
+	await server.listen({ host: "127.0.0.1", port: 0 });
+	const address = server.server.address();
+	const port = typeof address === "object" && address ? address.port : 0;
+	try {
+		return await body(`http://127.0.0.1:${port}`);
+	} finally {
+		await server.close();
+	}
+}
+
+/** A body with no Content-Length that keeps producing 1 MiB chunks. */
+function chunkedBody(chunks: number, onChunk?: (index: number) => void) {
+	let sent = 0;
+	return new ReadableStream<Uint8Array>({
+		pull(controller) {
+			if (sent >= chunks) {
+				controller.close();
+				return;
+			}
+			onChunk?.(sent);
+			sent += 1;
+			controller.enqueue(new Uint8Array(1024 * 1024).fill(0x61));
+		},
+	});
+}
+
+test("a streaming write past the cap gets a 413, not a reset", async () => {
+	await withListeningAgent(async (base) => {
+		const response = await fetch(`${base}/projects/alpha/file?path=big.txt`, {
+			method: "PUT",
+			headers: {
+				...auth(),
+				"content-type": "text/plain",
+				"if-none-match": "*",
+			},
+			body: chunkedBody(8),
+			duplex: "half",
+		} as RequestInit & { duplex: "half" });
+		expect(response.status).toBe(413);
+		const failure = (await response.json()) as { error: { code: string } };
+		expect(failure.error.code).toBe("FILE_TOO_LARGE");
+	});
+	expect(await readdir(project)).not.toContain("big.txt");
+	expect(await tempLeftovers(project)).toEqual([]);
+});
+
+test("a streaming write under the cap still succeeds", async () => {
+	await withListeningAgent(async (base) => {
+		const response = await fetch(`${base}/projects/alpha/file?path=ok.txt`, {
+			method: "PUT",
+			headers: { ...auth(), "content-type": "text/plain", "if-none-match": "*" },
+			body: chunkedBody(1),
+			duplex: "half",
+		} as RequestInit & { duplex: "half" });
+		expect(response.status).toBe(200);
+		const written = (await response.json()) as { size: number };
+		expect(written.size).toBe(1024 * 1024);
+	});
+	expect((await stat(join(project, "ok.txt"))).size).toBe(1024 * 1024);
+	expect(await tempLeftovers(project)).toEqual([]);
+});
+
+test("a client that aborts mid-stream leaves nothing behind", async () => {
+	await withListeningAgent(async (base) => {
+		const controller = new AbortController();
+		const request = fetch(`${base}/projects/alpha/file?path=aborted.txt`, {
+			method: "PUT",
+			headers: { ...auth(), "content-type": "text/plain", "if-none-match": "*" },
+			body: chunkedBody(2, (index) => {
+				if (index === 1) controller.abort();
+			}),
+			signal: controller.signal,
+			duplex: "half",
+		} as RequestInit & { duplex: "half" });
+		await expect(request).rejects.toThrow();
+		// Let the server finish tearing the half-written upload down.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	});
+	expect(await readdir(project)).not.toContain("aborted.txt");
+	expect(await tempLeftovers(project)).toEqual([]);
+});
