@@ -9,6 +9,7 @@ import {
 	USER,
 	WORKSPACE,
 } from "../test-utils.js";
+import type { MeUser } from "../useMe.js";
 import { AppHeader } from "./AppHeader.js";
 
 afterEach(() => {
@@ -17,11 +18,11 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-function renderHeader(workspace: Workspace | null = WORKSPACE) {
+function renderHeader(workspace: Workspace | null = WORKSPACE, user: MeUser = USER) {
 	renderWithQuery(
 		<AppHeader
 			workspaceId={WORKSPACE.id}
-			user={USER}
+			user={user}
 			workspace={workspace}
 			project={project()}
 		/>,
@@ -140,4 +141,21 @@ test("a long image fingerprint is shortened and kept in full in the title", () =
 	const cell = screen.getByTestId("workspace-status-image");
 	expect(cell.textContent).toBe(`${"a".repeat(12)}…`);
 	expect(cell.getAttribute("title")).toBe(fingerprint);
+});
+
+test("an administrator gets an Administration link that opens in a new tab", () => {
+	renderHeader(WORKSPACE, { ...USER, role: "administrator" });
+	openAccountMenu();
+
+	const link = screen.getByTestId("admin-link");
+	expect(link.getAttribute("href")).toBe("/admin");
+	expect(link.getAttribute("target")).toBe("_blank");
+	expect(link.getAttribute("rel")).toBe("noopener");
+});
+
+test("a student gets no Administration link", () => {
+	renderHeader();
+	openAccountMenu();
+
+	expect(screen.queryByTestId("admin-link")).toBeNull();
 });
