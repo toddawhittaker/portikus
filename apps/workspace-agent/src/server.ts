@@ -29,6 +29,7 @@ import {
 	type ArchiveProcess,
 	archiveProject,
 	createProject,
+	deleteProject,
 	duplicateProject,
 	getProject,
 	gitInitProject,
@@ -259,6 +260,17 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			} catch (error) {
 				return sendError(request, reply, error);
 			}
+		});
+
+		instance.delete("/projects/:slug", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			try {
+				await deleteProject(slug, options.homeDir);
+			} catch (error) {
+				return sendError(request, reply, error);
+			}
+			request.log.info({ slug, operation: "delete" }, "project deleted");
+			return reply.code(204).send();
 		});
 
 		instance.post("/projects/:slug/rename", async (request, reply) => {

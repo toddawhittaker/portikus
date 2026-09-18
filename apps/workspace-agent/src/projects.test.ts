@@ -4,6 +4,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readdir,
+	readFile,
 	readlink,
 	rm,
 	symlink,
@@ -119,6 +120,42 @@ test.skipIf(!haveGit)("a new project is created with and without git", async () 
 	expect(again.json().error.code).toBe("PROJECT_EXISTS");
 });
 
+test.skipIf(!haveGit)("initializing Git writes a default .gitignore", async () => {
+	await create({ slug: "alpha", source: "new", gitInit: true });
+	const created = await readFile(join(projectsRoot, "alpha", ".gitignore"), "utf8");
+	for (const entry of [".env", "node_modules/", "__pycache__/", "*.sqlite"]) {
+		expect(created).toContain(entry);
+	}
+
+	// A project made without Git gets nothing written for it.
+	await create({ slug: "beta", source: "new", gitInit: false });
+	expect(await readdir(join(projectsRoot, "beta"))).toEqual([]);
+
+	// Initialize Git on that same project writes the file.
+	await app.inject({
+		method: "POST",
+		url: "/projects/beta/git-init",
+		headers: auth(),
+	});
+	expect(await readFile(join(projectsRoot, "beta", ".gitignore"), "utf8")).toContain(
+		".env",
+	);
+});
+
+test.skipIf(!haveGit)("an existing .gitignore is left alone", async () => {
+	await create({ slug: "alpha", source: "new", gitInit: false });
+	await writeFile(join(projectsRoot, "alpha", ".gitignore"), "mine\n");
+
+	await app.inject({
+		method: "POST",
+		url: "/projects/alpha/git-init",
+		headers: auth(),
+	});
+	expect(await readFile(join(projectsRoot, "alpha", ".gitignore"), "utf8")).toBe(
+		"mine\n",
+	);
+});
+
 test.skipIf(!haveGit)("git-init initializes once and then no-ops", async () => {
 	await create({ slug: "alpha", source: "new", gitInit: false });
 	const first = await app.inject({
@@ -142,7 +179,7 @@ test.skipIf(!haveGit)("git-init initializes once and then no-ops", async () => {
  * only allow http, https, ssh and scp-like URLs, so a plain path or
  * `file://` cannot be used as a test origin.
  */
-async function startOrigin(): Promise<{
+async function startOrigin(extraFiles: Record<string, string> = {}): Promise<{
 	url: string;
 	base: string;
 	stop: () => Promise<void>;
@@ -151,6 +188,9 @@ async function startOrigin(): Promise<{
 	const source = join(work, "source");
 	await mkdir(source);
 	await writeFile(join(source, "README.md"), "hello\n");
+	for (const [name, contents] of Object.entries(extraFiles)) {
+		await writeFile(join(source, name), contents);
+	}
 	const env = {
 		...process.env,
 		GIT_AUTHOR_NAME: "Test",
@@ -159,7 +199,7 @@ async function startOrigin(): Promise<{
 		GIT_COMMITTER_EMAIL: "test@example.invalid",
 	};
 	await run("git", ["init", "-q"], { cwd: source, env });
-	await run("git", ["add", "README.md"], { cwd: source, env });
+	await run("git", ["add", "-A"], { cwd: source, env });
 	await run("git", ["commit", "-q", "-m", "first"], { cwd: source, env });
 	const bare = join(work, "origin.git");
 	await run("git", ["clone", "-q", "--bare", source, bare], { env });
@@ -241,6 +281,43 @@ test.skipIf(!haveGit)(
 	},
 );
 
+test.skipIf(!haveGit)(
+	"a template without a .gitignore gets the default, and one with it keeps it",
+	async () => {
+		const plain = await startOrigin();
+		expect(
+			(
+				await create({
+					slug: "plaintemplate",
+					source: "template",
+					url: plain.url,
+					gitInit: true,
+				})
+			).statusCode,
+		).toBe(201);
+		expect(
+			await readFile(join(projectsRoot, "plaintemplate", ".gitignore"), "utf8"),
+		).toContain("node_modules/");
+		await plain.stop();
+
+		const opinionated = await startOrigin({ ".gitignore": "theirs\n" });
+		expect(
+			(
+				await create({
+					slug: "opinionated",
+					source: "template",
+					url: opinionated.url,
+					gitInit: true,
+				})
+			).statusCode,
+		).toBe(201);
+		expect(
+			await readFile(join(projectsRoot, "opinionated", ".gitignore"), "utf8"),
+		).toBe("theirs\n");
+		await opinionated.stop();
+	},
+);
+
 test("a clone URL the contracts refuse is a 400", async () => {
 	const response = await create({
 		slug: "cloned",
@@ -279,6 +356,61 @@ test("rename moves the directory and refuses an existing target", async () => {
 		payload: { to: "delta" },
 	});
 	expect(missing.statusCode).toBe(404);
+});
+
+test("delete removes the directory and 404s when it is not there", async () => {
+	await mkdir(join(projectsRoot, "alpha", "inner"), { recursive: true });
+	await writeFile(join(projectsRoot, "alpha", "inner", "file.txt"), "content\n");
+	await mkdir(join(projectsRoot, "beta"), { recursive: true });
+
+	const deleted = await app.inject({
+		method: "DELETE",
+		url: "/projects/alpha",
+		headers: auth(),
+	});
+	expect(deleted.statusCode).toBe(204);
+	expect(await readdir(projectsRoot)).toEqual(["beta"]);
+
+	const missing = await app.inject({
+		method: "DELETE",
+		url: "/projects/alpha",
+		headers: auth(),
+	});
+	expect(missing.statusCode).toBe(404);
+	expect(missing.json().error.code).toBe("PROJECT_NOT_FOUND");
+});
+
+test("delete refuses a slug that is not a valid slug", async () => {
+	const response = await app.inject({
+		method: "DELETE",
+		url: "/projects/..%2Fx",
+		headers: auth(),
+	});
+	expect(response.statusCode).toBe(400);
+	expect(response.json().error.code).toBe("INVALID_SLUG");
+});
+
+test("deleting a symlinked project removes the link, not its target", async () => {
+	const outside = await mkdtemp(join(tmpdir(), "portikus-outside-"));
+	await writeFile(join(outside, "keep.txt"), "keep\n");
+	await symlink(outside, join(projectsRoot, "escape"));
+	await mkdir(join(projectsRoot, "alpha"), { recursive: true });
+	await symlink(join(projectsRoot, "alpha"), join(projectsRoot, "shortcut"));
+
+	for (const slug of ["escape", "shortcut"]) {
+		const response = await app.inject({
+			method: "DELETE",
+			url: `/projects/${slug}`,
+			headers: auth(),
+		});
+		expect(response.statusCode).toBe(204);
+	}
+
+	// Only the links went; both targets are untouched.
+	expect((await readdir(projectsRoot)).sort()).toEqual(["alpha"]);
+	expect((await readdir(outside)).sort()).toEqual(["keep.txt"]);
+
+	await rm(outside, { recursive: true, force: true });
 });
 
 test("duplicate copies symlinks without following them", async () => {

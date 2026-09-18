@@ -181,7 +181,13 @@ workspace created on an older image lacks zip until it is recreated, which
 the agent reports as a download failure. The projects pane now refetches every
 ten seconds while the tab is visible and again when it regains focus, so a
 repository made in a terminal turns up without any UI action, and every row that
-is not missing shows its folder name next to the project name. From the grace period task, the
+is not missing shows its folder name next to the project name. A project can
+also be deleted for good from its menu: the student types the project's slug
+back, the API ends any terminal sitting in the folder, the agent removes
+`~/projects/<slug>`, and the row and an audit event record it. Whenever the
+agent runs `git init` for a project, whether on create, on a template, or
+through Initialize Git, it also writes a default `.gitignore` if the project
+has none, so a template that ships its own keeps it. From the grace period task, the
 administration page is a settings form, not the Epic 11 mockup, and the
 infrastructure smoke test now signs in as the mock identity provider's
 administrator to shorten the grace period. From structured logging, an agent

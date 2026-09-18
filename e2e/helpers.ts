@@ -262,6 +262,15 @@ export async function removeProjectDir(
 	}
 }
 
+/** The directories the fake agent currently has for this workspace. */
+export async function projectDirs(workspaceId: string): Promise<string[]> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/projects?key=${workspaceId}`);
+	if (!response.ok) {
+		throw new Error(`the fake agent refused to list: ${response.status}`);
+	}
+	return ((await response.json()) as { slugs: string[] }).slugs;
+}
+
 export async function projectIds(workspaceId: string): Promise<string[]> {
 	const rows = await query<{ id: string }>(
 		"select id from projects where workspace_id = $1 order by created_at",

@@ -6,6 +6,7 @@ import {
 	ProjectTemplateList,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { z } from "zod";
 import { request } from "../api/request.js";
 
 const base = (workspaceId: string) => `/workspaces/${workspaceId}/projects`;
@@ -120,6 +121,20 @@ export function useUnarchiveProject(workspaceId: string) {
 				Project,
 				`${base(workspaceId)}/${projectId}`,
 				json("PATCH", { state: "active" }),
+			),
+		onSuccess: invalidate,
+	});
+}
+
+/** Deleting answers 204, so nothing comes back to parse. */
+export function useDeleteProject(workspaceId: string) {
+	const invalidate = useInvalidateProjects(workspaceId);
+	return useMutation({
+		mutationFn: ({ projectId, slug }: { projectId: string; slug: string }) =>
+			request(
+				z.undefined(),
+				`${base(workspaceId)}/${projectId}`,
+				json("DELETE", { slug }),
 			),
 		onSuccess: invalidate,
 	});
