@@ -27,11 +27,11 @@ const CodeEditor = lazy(() =>
 	import("../editor/CodeEditor.js").then((module) => ({ default: module.CodeEditor })),
 );
 
-// The rich Markdown editor is its own chunk for the same reason: a student
-// who only ever opens code files never downloads it (ADR 0017).
-const RichMarkdownEditor = lazy(() =>
-	import("../editor/RichMarkdownEditor.js").then((module) => ({
-		default: module.RichMarkdownEditor,
+// The Markdown preview is its own chunk for the same reason: a student who
+// only ever opens code files never downloads it.
+const MarkdownPreview = lazy(() =>
+	import("../editor/MarkdownPreview.js").then((module) => ({
+		default: module.MarkdownPreview,
 	})),
 );
 
@@ -46,14 +46,12 @@ type View = "edit" | "diff";
 /** The tab is hidden, not unmounted, so the editor keeps its undo history. */
 const HIDDEN = { display: "none" } as const;
 
-/** Which of the three Markdown views this tab shows (SPEC.md §13.4). */
-type MarkdownMode = "code" | "rich" | "split";
-
-const MARKDOWN_MODES: { mode: MarkdownMode; label: string }[] = [
-	{ mode: "code", label: "Code" },
-	{ mode: "rich", label: "Rich" },
-	{ mode: "split", label: "Split" },
-];
+/**
+ * How close two positions have to be to count as the same place. A side that
+ * is put where it already is reports a scroll of its own; this is how that
+ * echo is told from a student's own small scroll (issue #218).
+ */
+const SAME_PLACE = 0.001;
 
 /** True for the file names that open as Markdown. */
 function isMarkdownPath(path: string): boolean {
@@ -137,23 +135,16 @@ export function FileLeaf({
 	// Which view this tab shows. It belongs to this browser and is not saved.
 	const [view, setView] = useState<View>("edit");
 	const markdown = isMarkdownPath(path);
-	// Markdown opens in the rich view; the choice belongs to this tab and is
-	// not saved.
-	const [mode, setMode] = useState<MarkdownMode>("rich");
-	// True once the rich editor has told us it cannot read this file. In that
-	// state it shows only part of the file and drops keystrokes, so the tab
-	// moves to the code view and stays there (ADR 0017).
-	const [richUnsupported, setRichUnsupported] = useState(false);
-	const shownMode: MarkdownMode = richUnsupported ? "code" : mode;
-	// The split view keeps both sides at the same relative position (issue
-	// #154). The flag stops the scroll each side causes in the other from
-	// being sent straight back.
+	// The two sides of the Markdown split keep the same relative position
+	// (issue #154, #218). Each side remembers the position it last put the
+	// other one at, so it can recognise that side's answering scroll event.
 	const editorScroll = useRef<CodeEditorHandle | null>(null);
-	const richScroll = useRef<HTMLDivElement | null>(null);
-	const syncing = useRef(false);
-	// The rich view may lag the keystrokes so typing stays smooth, but it is
+	const previewScroll = useRef<HTMLDivElement | null>(null);
+	const sentToPreview = useRef<number | null>(null);
+	const sentToEditor = useRef<number | null>(null);
+	// The preview may lag the keystrokes so typing stays smooth, but it is
 	// never a frame behind on the first render.
-	const richText = useDeferredValue(text ?? "");
+	const previewText = useDeferredValue(text ?? "");
 	// The file was deleted on disk while it was open, so the next save has to
 	// create it rather than replace a version (SPEC.md §13.3).
 	const [deleted, setDeleted] = useState(false);
@@ -417,32 +408,33 @@ export function FileLeaf({
 	// while the editor is empty there is nothing to have saved.
 	const showStatus = text !== null && !viewer;
 
-	// The two sides of the Markdown split view follow each other by relative
+	// The two sides of the Markdown split follow each other by relative
 	// position: how far down its own scrollable range each side is (issue
-	// #154, SPEC.md §13.4). Scrolling one side scrolls the other, which fires
-	// that side's own scroll event, so the flag drops the echo.
+	// #154, #218; SPEC.md §13.4). Putting one side in its place makes that
+	// side report a scroll, which must not be sent straight back, so each
+	// side ignores exactly the position it was just asked for.
 	function followEditor(ratio: number) {
-		const node = richScroll.current;
-		if (mode !== "split" || !node || syncing.current) return;
-		syncing.current = true;
+		const node = previewScroll.current;
+		if (!node) return;
+		if (sentToEditor.current !== null && near(ratio, sentToEditor.current)) {
+			// The editor is only reporting the move the preview asked for.
+			sentToEditor.current = null;
+			return;
+		}
+		sentToPreview.current = ratio;
 		node.scrollTop = scrollTopForRatio(ratio, node.scrollHeight, node.clientHeight);
-		releaseSync();
 	}
 
-	function followRich() {
-		const node = richScroll.current;
-		if (mode !== "split" || !node || syncing.current) return;
-		syncing.current = true;
-		editorScroll.current?.setScrollRatio(
-			scrollRatio(node.scrollTop, node.scrollHeight, node.clientHeight),
-		);
-		releaseSync();
-	}
-
-	function releaseSync() {
-		requestAnimationFrame(() => {
-			syncing.current = false;
-		});
+	function followPreview() {
+		const node = previewScroll.current;
+		if (!node) return;
+		const ratio = scrollRatio(node.scrollTop, node.scrollHeight, node.clientHeight);
+		if (sentToPreview.current !== null && near(ratio, sentToPreview.current)) {
+			sentToPreview.current = null;
+			return;
+		}
+		sentToEditor.current = ratio;
+		editorScroll.current?.setScrollRatio(ratio);
 	}
 
 	function banner() {
@@ -521,28 +513,23 @@ export function FileLeaf({
 					viewState={viewState.initial}
 					onViewState={viewState.save}
 					ref={markdown ? editorScroll : undefined}
-					onScrollRatio={markdown ? followEditor : undefined}
+					onScrollRatio={markdown && !inDiff ? followEditor : undefined}
 				/>
 			</Suspense>
 		);
 		if (!markdown) return editor;
-		// Both sides edit the same buffer, so an edit in the rich view goes
-		// through the same dirty state, autosave and Ctrl+S as a code edit
-		// (issue #155).
-		const rich = (
-			<Suspense fallback={<p className="pk-file-note">Loading rich editor…</p>}>
-				<RichMarkdownEditor
-					text={richText}
-					onChange={onChange}
-					scrollRef={richScroll}
-					onScroll={followRich}
-					onUnsupported={() => setRichUnsupported(true)}
+		// A Markdown tab is always a split: the raw text on the left, and on
+		// the right either the rendered file or its diff (SPEC.md §13.4,
+		// issue #218). The preview is read-only; every edit happens in Monaco.
+		const preview = (
+			<Suspense fallback={<p className="pk-file-note">Loading preview…</p>}>
+				<MarkdownPreview
+					text={previewText}
+					scrollRef={previewScroll}
+					onScroll={followPreview}
 				/>
 			</Suspense>
 		);
-		// All three modes render the same tree and hide the panel they do not
-		// use, so Monaco keeps its undo history, cursor and scroll position
-		// when the student switches views (SPEC.md §13.4).
 		return (
 			<Group
 				orientation="horizontal"
@@ -550,36 +537,31 @@ export function FileLeaf({
 				// react-resizable-panels copies the id onto data-testid.
 				id="markdown-split"
 			>
-				<Panel
-					id="md-code-pane"
-					minSize="20%"
-					className="pk-split-panel"
-					hidden={shownMode === "rich"}
-				>
+				<Panel id="md-code-pane" minSize="20%" className="pk-split-panel">
 					{editor}
 				</Panel>
-				<PaneHandle
-					orientation="vertical"
-					label="Resize rich view"
-					style={shownMode === "split" ? undefined : { display: "none" }}
-				/>
-				<Panel
-					id="md-rich-pane"
-					minSize="20%"
-					className="pk-split-panel"
-					hidden={shownMode === "code"}
-				>
-					{/* In code view the rich editor is unmounted rather than
-					    hidden: it holds no state the code side does not, and
-					    reloading it on every keystroke would cost for nothing. */}
-					{shownMode === "code" ? null : rich}
+				<PaneHandle orientation="vertical" label="Resize preview" />
+				<Panel id="md-preview-pane" minSize="20%" className="pk-split-panel">
+					{inDiff ? (
+						<DiffLeaf
+							path={path}
+							workspaceId={workspaceId}
+							projectId={projectId}
+							visible={visible}
+						/>
+					) : (
+						preview
+					)}
 				</Panel>
 			</Group>
 		);
 	}
 
 	const note = banner();
+	// A Markdown tab shows its diff in the right pane, so only other tabs
+	// hide the editor and put a diff tab in its place (issue #218).
 	const inDiff = view === "diff";
+	const diffInstead = inDiff && !markdown;
 	// The version on disk on the left, the student's own text on the right and
 	// still editable (issue #158). The editor below is hidden rather than
 	// unmounted, so it keeps its undo history while the diff is up.
@@ -597,7 +579,22 @@ export function FileLeaf({
 				/>
 			</Suspense>
 		) : null;
-	const toggle = (
+	// A Markdown tab has one button, because its diff replaces the preview
+	// rather than the whole tab (issue #218). Every other tab still swaps
+	// between the editor and the diff, so it needs both.
+	const toggle = markdown ? (
+		<fieldset className="pk-md-modes pk-view-modes">
+			<legend className="pk-visually-hidden">File view</legend>
+			<button
+				type="button"
+				aria-pressed={inDiff}
+				onClick={() => setView(inDiff ? "edit" : "diff")}
+				data-testid={`file-view-diff-${path}`}
+			>
+				Diff
+			</button>
+		</fieldset>
+	) : (
 		<fieldset className="pk-md-modes pk-view-modes">
 			<legend className="pk-visually-hidden">File view</legend>
 			<button
@@ -624,30 +621,13 @@ export function FileLeaf({
 			<div
 				className="pk-doc-leaf pk-file-leaf"
 				data-testid={`file-pane-${path}`}
-				style={inDiff ? HIDDEN : undefined}
+				style={diffInstead ? HIDDEN : undefined}
 			>
 				<div className="pk-file-header">
 					<span className="pk-file-path">{path}</span>
 					{/* Only the view on screen draws the toggle, so the controls
 					    are never there twice. */}
-					{inDiff ? null : toggle}
-					{markdown ? (
-						<fieldset className="pk-md-modes">
-							<legend className="pk-visually-hidden">Markdown view</legend>
-							{MARKDOWN_MODES.map((choice) => (
-								<button
-									key={choice.mode}
-									type="button"
-									aria-pressed={shownMode === choice.mode}
-									disabled={richUnsupported && choice.mode !== "code"}
-									onClick={() => setMode(choice.mode)}
-									data-testid={`markdown-mode-${choice.mode}`}
-								>
-									{choice.label}
-								</button>
-							))}
-						</fieldset>
-					) : null}
+					{diffInstead ? null : toggle}
 					{showStatus ? (
 						<span
 							className="pk-file-status"
@@ -658,11 +638,6 @@ export function FileLeaf({
 						</span>
 					) : null}
 				</div>
-				{richUnsupported ? (
-					<div className="pk-file-banner" role="status" data-testid="rich-unsupported">
-						This file has Markdown the rich view cannot show; editing in Code view.
-					</div>
-				) : null}
 				{conflict !== null ? (
 					<div className="pk-file-conflict" role="alert" data-testid="file-conflict">
 						<span>
@@ -703,7 +678,7 @@ export function FileLeaf({
 					{body()}
 				</div>
 			</div>
-			{inDiff ? (
+			{diffInstead ? (
 				<DiffLeaf
 					path={path}
 					workspaceId={workspaceId}
@@ -714,6 +689,11 @@ export function FileLeaf({
 			) : null}
 		</>
 	);
+}
+
+/** True when two relative positions are the same place on screen. */
+function near(one: number, other: number): boolean {
+	return Math.abs(one - other) < SAME_PLACE;
 }
 
 /** A byte count a student can read. */

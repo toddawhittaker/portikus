@@ -489,7 +489,7 @@ test.describe("file editor", () => {
 		await openEditorSettings(page);
 		await expect(page.getByTestId("editor-settings-delay")).toHaveValue("9");
 	});
-	test("a Markdown file in split view is never a false conflict (issue #157)", async ({
+	test("a Markdown file is never a false conflict (issue #157)", async ({
 		page,
 		context,
 	}) => {
@@ -527,7 +527,6 @@ test.describe("file editor", () => {
 			MD,
 			"# pfSense Docker Alias\n",
 		);
-		await page.getByTestId("markdown-mode-split").click();
 		await expect(lines(page, MD)).toContainText("pfSense", { timeout: 60_000 });
 
 		// A short auto-save delay, so several saves fit in one test.

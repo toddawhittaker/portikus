@@ -1106,9 +1106,15 @@ If a file changes on disk while open:
 
 Markdown files must support:
 
-- editing mode;
-- rendered preview mode;
-- convenient toggle or side-by-side behavior.
+- editing the raw Markdown text;
+- a rendered preview of the same file;
+- both at once, side by side.
+
+A Markdown tab is always a split: the raw Markdown in the code editor on
+the left, and on the right either the rendered preview or, when Diff is
+turned on, this file's diff against the last commit. The preview is
+read-only; the raw text is the only place a file is edited, and the two
+sides stay scrolled to the same relative place.
 
 ### 13.5 Autosave and version-aware writes
 
@@ -2560,14 +2566,12 @@ Includes:
 - Markdown viewer fixes: list markers in the rendered preview, scroll sync
   between the two sides of split view by relative position, and a visible
   scrollbar on the code side (§13.4) (#154);
-- Markdown tabs offer Code, Rich, and Split views, with a rich-text
-  toolbar over the same Markdown buffer, both sides editable and kept in
-  step (§13.4; ADR 0017) (#155);
-- Rich Markdown view shows raw HTML as source and renders safe images
-  rather than stopping at the first construct nothing claims, falls back
-  to the Code view when a file still cannot be read, warns on an
-  oversized OSC 52 copy, and treats 100.64.0.0/10 as private (13.4, 24.2;
-  ADR 0017);
+- a Markdown tab is always a split: the raw Markdown in Monaco on the
+  left, a read-only rendered preview on the right, one Diff button that
+  puts this file's diff in the right pane instead of the preview, and the
+  two sides scrolled together (§13.4) (#155, #218);
+- an oversized OSC 52 copy warns, and 100.64.0.0/10 counts as private
+  (§24.2);
 - security follow-up: OSC 52 clipboard writes gated on a visible, focused
   pane with a 100 KB cap and a visible toast; terminal URLs with
   credentials refused; loopback and private addresses refused by range;

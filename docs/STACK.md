@@ -247,30 +247,27 @@ Do not attempt to reproduce the complete VS Code extension system.
 
 ### Markdown editing and rendering
 
-Use **MDXEditor** (`@mdxeditor/editor`, pinned at 4.2.5) for the rich Markdown
-view of SPEC.md section 13.4. A Markdown tab holds one buffer of Markdown
-text that autosave, Ctrl+S, the conflict view and the diff view all work on,
-so the editor behind the rich view has to keep that text as the truth.
-MDXEditor is Markdown-native: it is Lexical-based, parses Markdown into its
-document model, and serializes Markdown back out, so no HTML round trip can
-rewrite the student's file. Its toolbar covers undo, bold, italic, inline
-code, block type including headings and quotes, bullet and numbered lists,
-links, code blocks, tables and horizontal rules.
+Use **react-markdown** (pinned at 10.1.0) with **remark-gfm** for tables,
+task lists and strikethrough, and **remark-frontmatter** so a metadata block
+at the top of a file never renders as Markdown. A Markdown tab is always a
+split: Monaco holds the raw Markdown on the left and this renders a read-only
+preview on the right (SPEC.md section 13.4). The file itself is the only
+truth, so no editor can rewrite it in a different Markdown dialect.
 
-Raw HTML processing is switched off (`suppressHtmlProcessing`), keeping the
-promise that a tag a coding agent wrote never becomes markup in the
-control-plane origin; not rendering HTML at all is a smaller promise to keep
-than sanitizing it correctly. Link URLs are limited to a protocol allowlist
-by Lexical. It is loaded lazily, the same way Monaco is, so a student who
-only opens code files never downloads it.
+Raw HTML in the file is rendered as text, never as markup: react-markdown
+without `rehype-raw` does that by itself, which keeps the promise that a tag
+a coding agent wrote never becomes markup in the control-plane origin. Link
+and image addresses go through react-markdown's own URL check, so a
+`javascript:` address loses its href. The preview is loaded lazily, the way
+Monaco is.
 
-Rejected: TipTap, because HTML is its document model and would need a
-Markdown serializer this app would own and maintain; Milkdown, Markdown-native
-too but a larger plugin surface to assemble and keep working across upgrades
-for the same toolbar; and a toolbar over Monaco that inserts Markdown syntax,
-cheapest in dependencies but not what students asked for, since they want to
-see the formatting, not type the marks. ADR 0017, which supersedes the
-Markdown-rendering half of ADR 0015; Monaco remains ADR 0015's editor.
+Rejected: a rich what-you-see Markdown editor (MDXEditor, TipTap, Milkdown).
+Portikus shipped the MDXEditor version in Epic 7.1 and took it out again in
+the same epic (issue #218): it added a second editing surface over the same
+buffer, its own Markdown dialect on the way out, and failure modes of its own
+for constructs it could not parse, and the students who tried it wanted the
+raw text beside a preview instead. ADR 0015 covers Monaco; ADR 0017 described
+the MDXEditor step and no longer describes what ships.
 
 ### Terminal
 
@@ -1559,7 +1556,7 @@ Zustand
 Tailwind
 Radix-style accessible primitives
 Monaco
-MDXEditor
+react-markdown
 xterm.js
 
 Fastify

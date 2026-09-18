@@ -3,18 +3,18 @@ import {
 	createStudent,
 	openFileTab,
 	readSeededFile,
+	seedGit,
 	type TestProject,
 	type TestStudent,
 } from "./helpers";
 
 /**
- * Markdown tabs: the Code, Rich and Split views (SPEC.md §13.2, §13.4, issue
- * #155). Both sides are editable and edit the same text, and everything a
- * student types reaches the file through the tab's ordinary save path.
+ * Markdown tabs: the raw text and the rendered preview side by side, the one
+ * Diff button, and the two sides scrolling together (SPEC.md §13.2, §13.4,
+ * issue #218).
  */
 test.describe("markdown tab", () => {
-	// Monaco and the rich editor are large chunks the dev server transforms on
-	// first use.
+	// Monaco is a large chunk the dev server transforms on first use.
 	test.describe.configure({ timeout: 90_000 });
 
 	const PATH = "README.md";
@@ -38,34 +38,45 @@ test.describe("markdown tab", () => {
 		return openFileTab(page, student, "Markdown", PATH, CONTENT);
 	}
 
-	test("a Markdown file opens in the rich view, with a toolbar", async ({
+	test("a Markdown file opens as raw text beside a read-only preview", async ({
 		page,
 		context,
 	}) => {
 		const student = await createStudent(context);
 		await openMarkdownTab(page, student);
 
-		const rich = page.getByTestId("markdown-rich");
-		await expect(rich).toBeVisible({ timeout: 30_000 });
-		await expect(page.getByTestId("markdown-mode-rich")).toHaveAttribute(
-			"aria-pressed",
-			"true",
-		);
+		const preview = page.getByTestId("markdown-preview");
+		await expect(preview).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByTestId("markdown-split")).toBeVisible();
+		// The raw Markdown is on the left, in Monaco.
+		const lines = page.getByTestId(`editor-${PATH}`).locator(".view-lines");
+		await expect(lines).toContainText("title: Project notes", { timeout: 60_000 });
+		await expect(lines).toContainText("## Ports");
 
-		await expect(rich.getByRole("heading", { name: "Ports" })).toBeVisible();
-		await expect(rich.locator("table")).toBeVisible();
-		await expect(rich.getByRole("cell", { name: "3000" })).toBeVisible();
+		await expect(preview.getByRole("heading", { name: "Ports" })).toBeVisible();
+		await expect(preview.locator("table")).toBeVisible();
+		await expect(preview.getByRole("cell", { name: "3000" })).toBeVisible();
 
-		// The toolbar's basics are there and the document is editable.
-		await expect(rich.getByLabel("Bold")).toBeVisible();
-		await expect(rich.getByLabel("Italic")).toBeVisible();
-		await expect(rich.locator(".pk-rich-markdown-body")).toHaveAttribute(
-			"contenteditable",
-			"true",
-		);
+		// The script tag is text, not an element the browser ran.
+		await expect(preview).toContainText("<script>alert(1)</script>");
+		await expect(preview.locator("script")).toHaveCount(0);
 
-		// The script tag never becomes an element the browser ran.
-		await expect(rich.locator("script")).toHaveCount(0);
+		// Nothing in the preview can be typed into, and the view buttons are
+		// gone: the split is the only layout (issue #218).
+		await expect(preview.locator("[contenteditable]")).toHaveCount(0);
+		await expect(page.getByTestId("markdown-mode-code")).toHaveCount(0);
+		await expect(page.getByTestId("markdown-mode-rich")).toHaveCount(0);
+		await expect(page.getByTestId("markdown-mode-split")).toHaveCount(0);
+		await expect(page.getByTestId(`file-view-edit-${PATH}`)).toHaveCount(0);
+
+		// Frontmatter is collapsed and never becomes a heading.
+		const block = page.getByTestId("markdown-frontmatter");
+		await expect(block.locator("summary")).toHaveText("Front matter");
+		await expect(
+			preview.getByRole("heading", { name: /title: Project notes/ }),
+		).toHaveCount(0);
+		await block.locator("summary").click();
+		await expect(block).toContainText("title: Project notes");
 	});
 
 	test("lists render with their markers (issue #154)", async ({ page, context }) => {
@@ -75,30 +86,34 @@ test.describe("markdown tab", () => {
 			student,
 			"Lists",
 			"LIST.md",
-			"- one\n- two\n  - nested\n\n1. first\n2. second\n",
+			"- one\n- two\n  - nested\n\n5. five\n6. six\n",
 		);
 
-		const rich = page.getByTestId("markdown-rich");
-		await expect(rich).toBeVisible({ timeout: 30_000 });
-		const bullet = rich.locator("ul > li").first();
-		await expect(bullet).toHaveCSS("list-style-type", "disc");
-		await expect(rich.locator("ul ul > li").first()).toHaveCSS(
+		const preview = page.getByTestId("markdown-preview");
+		await expect(preview).toBeVisible({ timeout: 30_000 });
+		await expect(preview.locator("ul > li").first()).toHaveCSS(
+			"list-style-type",
+			"disc",
+		);
+		await expect(preview.locator("ul ul > li").first()).toHaveCSS(
 			"list-style-type",
 			"circle",
 		);
-		await expect(rich.locator("ol > li").first()).toHaveCSS(
+		await expect(preview.locator("ol > li").first()).toHaveCSS(
 			"list-style-type",
 			"decimal",
 		);
+		// An ordered list that starts at 5 is numbered from 5.
+		await expect(preview.locator("ol")).toHaveAttribute("start", "5");
 		// The markers sit in a real indent, not flush against the text.
-		const padding = await rich
+		const padding = await preview
 			.locator("ul")
 			.first()
 			.evaluate((node) => Number.parseFloat(getComputedStyle(node).paddingLeft));
 		expect(padding).toBeGreaterThan(10);
 	});
 
-	test("split view scrolls both sides together and shows the editor's scrollbar (issue #154)", async ({
+	test("the two sides scroll together, by wheel and by keyboard (issue #218)", async ({
 		page,
 		context,
 	}) => {
@@ -108,76 +123,86 @@ test.describe("markdown tab", () => {
 			(_, index) => `## Heading ${index + 1}\n\nParagraph ${index + 1}.\n`,
 		).join("\n");
 		await openFileTab(page, student, "Long", "LONG.md", long);
-		await expect(page.getByTestId("markdown-rich")).toBeVisible({
-			timeout: 30_000,
-		});
-		await page.getByTestId("markdown-mode-split").click();
-		await expect(page.getByTestId("markdown-split")).toBeVisible();
+		const preview = page.getByTestId("markdown-preview");
+		await expect(preview).toBeVisible({ timeout: 30_000 });
 
 		const editor = page.getByTestId("editor-LONG.md");
 		await expect(editor.locator(".view-lines")).toContainText("Heading 1", {
 			timeout: 60_000,
 		});
 
-		// The code side has a scrollbar slider with real height.
+		// The code side has a scrollbar slider with real height, inside its
+		// own panel rather than past its right edge (issue #154).
 		const slider = editor.locator(".scrollbar.vertical .slider").first();
 		await expect(slider).toBeVisible();
 		const sliderBox = await slider.boundingBox();
 		expect(sliderBox?.height ?? 0).toBeGreaterThan(0);
 		expect(sliderBox?.width ?? 0).toBeGreaterThan(0);
-		// It is on screen, not scrolled out past the right edge of its panel.
 		const panel = await page.getByTestId("md-code-pane").boundingBox();
 		expect(sliderBox?.x ?? 0).toBeLessThan((panel?.x ?? 0) + (panel?.width ?? 0));
 		await expect(slider).toHaveCSS("opacity", "1");
 
-		const rich = page.getByTestId("markdown-rich");
-		await expect(rich).toBeVisible();
-		expect(await rich.evaluate((node) => node.scrollTop)).toBe(0);
+		expect(await previewScrollTop(page)).toBe(0);
 
-		// Scrolling the editor moves the rich side to the same relative place.
+		// The keyboard test below needs the editor focused, and after the
+		// wheel the first line is behind the tab header, so click it now.
 		await editor.locator(".view-line").first().click();
+
+		// A student scrolls with the wheel, so that is what is tested first:
+		// the preview must follow, and keep following, not stop after a step.
+		const box = await editor.boundingBox();
+		await page.mouse.move(
+			(box?.x ?? 0) + (box?.width ?? 0) / 2,
+			(box?.y ?? 0) + (box?.height ?? 0) / 2,
+		);
+		for (let step = 0; step < 10; step += 1) {
+			await page.mouse.wheel(0, 400);
+		}
+		await expect
+			.poll(() => previewScrollTop(page), { timeout: 10_000 })
+			.toBeGreaterThan(0);
+
+		// Keyboard scrolling to the end takes the preview to the end too.
 		await page.keyboard.press("Control+End");
 		await expect
 			.poll(() => firstVisibleLine(page), { timeout: 10_000 })
 			.toBeGreaterThan(100);
-		await expect.poll(() => richRatio(page), { timeout: 10_000 }).toBeGreaterThan(0.8);
+		await expect
+			.poll(() => previewRatio(page), { timeout: 10_000 })
+			.toBeGreaterThan(0.8);
 
-		// Scrolling the rich side back to the top brings the editor with it.
-		await rich.evaluate((node) => {
+		// And scrolling the preview back to the top brings the editor with it.
+		await preview.evaluate((node) => {
 			node.scrollTop = 0;
 		});
 		await expect
 			.poll(() => firstVisibleLine(page), { timeout: 10_000 })
 			.toBeLessThan(5);
+
+		// Scrolling the preview down again moves the editor down again, so
+		// following works repeatedly, in both directions.
+		await preview.evaluate((node) => {
+			node.scrollTop = (node.scrollHeight - node.clientHeight) / 2;
+		});
+		await expect
+			.poll(() => firstVisibleLine(page), { timeout: 10_000 })
+			.toBeGreaterThan(50);
 	});
 
-	test("Code shows the raw text, Split shows both, and typing autosaves", async ({
+	test("typing in the raw side updates the preview and saves", async ({
 		page,
 		context,
 	}) => {
 		const student = await createStudent(context);
 		const project = await openMarkdownTab(page, student);
-		await expect(page.getByTestId("markdown-rich")).toBeVisible({
-			timeout: 30_000,
-		});
-
-		await page.getByTestId("markdown-mode-code").click();
 		const lines = page.getByTestId(`editor-${PATH}`).locator(".view-lines");
-		await expect(lines).toContainText("title: Project notes", { timeout: 60_000 });
-		await expect(lines).toContainText("---");
-		await expect(page.getByTestId("markdown-rich")).toBeHidden();
+		await expect(lines).toContainText("## Ports", { timeout: 60_000 });
 
-		await page.getByTestId("markdown-mode-split").click();
-		await expect(page.getByTestId("markdown-split")).toBeVisible();
-		await expect(lines).toContainText("## Ports", { timeout: 30_000 });
-		await expect(page.getByTestId("markdown-rich")).toBeVisible();
-
-		// Typing in the code side reaches the rich side, and the file saves.
 		await lines.getByText("## Ports").click();
 		await page.keyboard.press("End");
 		await page.keyboard.type(" and hosts");
 		await expect(
-			page.getByTestId("markdown-rich").getByRole("heading", {
+			page.getByTestId("markdown-preview").getByRole("heading", {
 				name: "Ports and hosts",
 			}),
 		).toBeVisible({ timeout: 10_000 });
@@ -192,7 +217,7 @@ test.describe("markdown tab", () => {
 			.toContain("## Ports and hosts");
 	});
 
-	test("typing in the rich view saves Markdown to the file (issue #155)", async ({
+	test("Diff swaps the preview for this file's diff, and back (issue #218)", async ({
 		page,
 		context,
 	}) => {
@@ -200,107 +225,57 @@ test.describe("markdown tab", () => {
 		const project = await openFileTab(
 			page,
 			student,
-			"Rich",
-			"NOTES.md",
-			"# Notes\n\nFirst line.\n",
+			"Diffable",
+			PATH,
+			"# Notes\n\nSecond line.\n",
 		);
-		const rich = page.getByTestId("markdown-rich");
-		await expect(rich).toBeVisible({ timeout: 30_000 });
+		await seedGit(student.workspaceId, project.slug, {
+			diffs: {
+				[PATH]: {
+					status: "M",
+					before: "# Notes\n",
+					after: "# Notes\n\nSecond line.\n",
+					binary: false,
+					tooLarge: false,
+				},
+			},
+		});
+		await expect(page.getByTestId("markdown-preview")).toBeVisible({
+			timeout: 30_000,
+		});
 
-		await rich.getByText("First line.").click();
+		await page.getByTestId(`file-view-diff-${PATH}`).click();
+		const diff = page.getByTestId(`diff-editor-${PATH}`);
+		await expect(diff.locator(".monaco-diff-editor")).toBeVisible({ timeout: 60_000 });
+		await expect(diff).toContainText("Second line.");
+		// The preview is gone; the editable raw text is still there.
+		await expect(page.getByTestId("markdown-preview")).toHaveCount(0);
+		await expect(page.getByTestId(`editor-${PATH}`)).toBeVisible();
+
+		// The raw side still edits the file while the diff is up.
+		const lines = page.getByTestId(`editor-${PATH}`).locator(".view-lines");
+		await lines.getByText("Second line.").click();
 		await page.keyboard.press("End");
-		await page.keyboard.type(" Second sentence.");
-
-		await expect(page.getByTestId("file-status-NOTES.md")).toHaveText("Saved", {
-			timeout: 20_000,
+		await page.keyboard.type(" Third.");
+		await expect(page.getByTestId(`file-status-${PATH}`)).toHaveText("Saved", {
+			timeout: 15_000,
 		});
-		await expect
-			.poll(async () => readSeededFile(student.workspaceId, project.slug, "NOTES.md"), {
-				timeout: 20_000,
-			})
-			.toBe("# Notes\n\nFirst line. Second sentence.\n");
-	});
 
-	test("a README with a badge and an HTML comment shows all its text, and typing still saves", async ({
-		page,
-		context,
-	}) => {
-		const student = await createStudent(context);
-		const before = [
-			"# Project",
-			"",
-			"![build](https://img.example.invalid/badge.svg)",
-			"",
-			"<!-- written by a coding agent -->",
-			"",
-			"How to run it.",
-			"",
-		].join("\n");
-		const project = await openFileTab(page, student, "Readme", "DOC.md", before);
-		const rich = page.getByTestId("markdown-rich");
-		await expect(rich).toBeVisible({ timeout: 30_000 });
-
-		// Everything after the badge and the comment is on screen: the whole
-		// point of the fix. The comment shows as its own source, not as markup.
-		await expect(rich.getByRole("heading", { name: "Project" })).toBeVisible();
-		await expect(rich).toContainText("<!-- written by a coding agent -->");
-		await expect(rich.getByText("How to run it.")).toBeVisible();
-		// The badge is drawn as an image. Its address does not resolve in a
-		// test, so only its alt text is checked here; the address allowlist is
-		// covered by the unit tests.
-		await expect(rich.locator("img")).toHaveAttribute("alt", "build");
-		// The tab did not have to fall back to the code view.
-		await expect(page.getByTestId("rich-unsupported")).toHaveCount(0);
-
-		// And keystrokes after the comment reach the file.
-		await rich.getByText("How to run it.").click();
-		await page.keyboard.press("End");
-		await page.keyboard.type(" Read on.");
-
-		await expect(page.getByTestId("file-status-DOC.md")).toHaveText("Saved", {
-			timeout: 20_000,
-		});
-		await expect
-			.poll(async () => readSeededFile(student.workspaceId, project.slug, "DOC.md"), {
-				timeout: 20_000,
-			})
-			.toBe(before.replace("How to run it.", "How to run it. Read on."));
-	});
-
-	test("the toolbar's bold button wraps the selection in asterisks (issue #155)", async ({
-		page,
-		context,
-	}) => {
-		const student = await createStudent(context);
-		const project = await openFileTab(
-			page,
-			student,
-			"Bold",
-			"BOLD.md",
-			"Make important stand out.\n",
-		);
-		const rich = page.getByTestId("markdown-rich");
-		await expect(rich).toBeVisible({ timeout: 30_000 });
-
-		// Double-clicking a word selects it, which is what the button acts on.
-		await rich.getByText("Make important stand out.").dblclick();
-		await rich.getByLabel("Bold").click();
-
-		await expect(page.getByTestId("file-status-BOLD.md")).toHaveText("Saved", {
-			timeout: 20_000,
-		});
-		await expect
-			.poll(async () => readSeededFile(student.workspaceId, project.slug, "BOLD.md"), {
-				timeout: 20_000,
-			})
-			.toContain("**");
+		await page.getByTestId(`file-view-diff-${PATH}`).click();
+		await expect(page.getByTestId(`diff-pane-${PATH}`)).toHaveCount(0);
+		await expect(page.getByTestId("markdown-preview")).toBeVisible();
 	});
 });
 
-/** How far down its own scrollable range the rich side sits, from 0 to 1. */
-function richRatio(page: Page): Promise<number> {
+/** Where the preview is scrolled to, in pixels. */
+function previewScrollTop(page: Page): Promise<number> {
+	return page.getByTestId("markdown-preview").evaluate((node) => node.scrollTop);
+}
+
+/** How far down its own scrollable range the preview sits, from 0 to 1. */
+function previewRatio(page: Page): Promise<number> {
 	return page
-		.getByTestId("markdown-rich")
+		.getByTestId("markdown-preview")
 		.evaluate((node) => node.scrollTop / (node.scrollHeight - node.clientHeight));
 }
 
