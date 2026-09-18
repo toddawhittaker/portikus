@@ -587,11 +587,23 @@ test.describe("work area layout", () => {
 		await expectConnected(page, second as string);
 		expect(await paneOrder(page)).toEqual([terminalId, second]);
 
+		// Each pane stamps a fresh id when it mounts, so an unchanged stamp
+		// means the terminal was not torn down and reconnected.
+		const mountIds = async () =>
+			Promise.all(
+				[terminalId, second as string].map((id) =>
+					page.getByTestId(`terminal-leaf-${id}`).getAttribute("data-mount-id"),
+				),
+			);
+		const before = await mountIds();
+
 		await dragPane(page, second as string, await pointIn(page, terminalId, 0.5, 0.5));
 
 		// The shape is untouched; the two panes traded places.
 		await expect(splits(page, "row")).toHaveCount(1);
 		expect(await paneOrder(page)).toEqual([second, terminalId]);
+		// Swapping moves the panes, it does not remount them (SPEC.md §9.3).
+		expect(await mountIds()).toEqual(before);
 	});
 
 	test("a pane dragged to the tab bar becomes its own tab", async ({
