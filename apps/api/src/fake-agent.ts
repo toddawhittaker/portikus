@@ -165,6 +165,31 @@ function addParents(tree: Map<string, FakeNode>, slug: string, path: string): vo
 	}
 }
 
+/** Drop a project directory and everything under it. */
+function removeTree(tree: Map<string, FakeNode>, slug: string): void {
+	for (const key of [...tree.keys()]) {
+		if (key === slug || key.startsWith(`${slug}/`)) tree.delete(key);
+	}
+}
+
+/** Move (or copy) a project's whole subtree onto a new slug. */
+function rekeyTree(
+	tree: Map<string, FakeNode>,
+	from: string,
+	to: string,
+	options: { copy: boolean },
+): void {
+	for (const [key, value] of [...tree]) {
+		if (key !== from && !key.startsWith(`${from}/`)) continue;
+		const moved: FakeNode =
+			value.type === "file"
+				? { type: "file", content: Buffer.from(value.content) }
+				: { type: "dir" };
+		tree.set(`${to}${key.slice(from.length)}`, moved);
+		if (!options.copy) tree.delete(key);
+	}
+}
+
 export async function startFakeAgent(
 	token: string,
 	options: { port?: number } = {},
@@ -190,9 +215,29 @@ export async function startFakeAgent(
 	await app.register(websocket);
 
 	// A file write carries a raw body of any type, so keep it as bytes. JSON
-	// still goes to Fastify own parser, which this does not replace.
-	app.addContentTypeParser("*", { parseAs: "buffer" }, (_request, body, done) => {
-		done(null, body);
+	// still goes to Fastify's own parser, which this does not replace. Like the
+	// real agent, a body past the upload cap tears the request down mid-stream
+	// rather than being buffered to the end (SPEC.md 11.2).
+	app.addContentTypeParser("*", (request, payload, done) => {
+		const chunks: Buffer[] = [];
+		let total = 0;
+		let stopped = false;
+		payload.on("data", (chunk: Buffer) => {
+			if (stopped) return;
+			total += chunk.length;
+			if (total > MAX_UPLOAD_BYTES) {
+				stopped = true;
+				request.raw.destroy();
+				return;
+			}
+			chunks.push(chunk);
+		});
+		payload.on("end", () => {
+			if (!stopped) done(null, Buffer.concat(chunks));
+		});
+		payload.on("error", (error: Error) => {
+			if (!stopped) done(error);
+		});
 	});
 
 	const state = {
@@ -350,6 +395,7 @@ export async function startFakeAgent(
 	app.delete("/projects/:slug", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
 		if (!dirs(request).delete(slug)) return projectNotFound(reply);
+		removeTree(fsOf(request), slug);
 		return reply.status(204).send();
 	});
 
@@ -366,6 +412,7 @@ export async function startFakeAgent(
 		}
 		here.delete(slug);
 		here.set(to, project);
+		rekeyTree(fsOf(request), slug, to, { copy: false });
 		return reply.status(204).send();
 	});
 
@@ -381,6 +428,7 @@ export async function startFakeAgent(
 				.send({ error: { code: "PROJECT_EXISTS", message: "already exists" } });
 		}
 		here.set(to, { isGitRepo: project.isGitRepo });
+		rekeyTree(fsOf(request), slug, to, { copy: true });
 		return reply.status(201).send({ slug: to, isGitRepo: project.isGitRepo });
 	});
 
@@ -499,7 +547,8 @@ export async function startFakeAgent(
 		const slug = (request.params as { slug: string }).slug;
 		const path = (request.query as { path?: string }).path ?? "";
 		const ifMatch = request.headers["if-match"];
-		const ifNoneMatch = request.headers["if-none-match"];
+		// Only the literal "*" is a condition, exactly as the real agent reads it.
+		const ifNoneMatch = request.headers["if-none-match"] === "*";
 		// Fastify parses text/plain itself, so a text write arrives as a string.
 		const raw = request.body;
 		const body = Buffer.isBuffer(raw)

@@ -9,7 +9,7 @@ import { AgentCallError, type AgentClient, agentClientFor } from "../agent-clien
 import { findWorkspaceOwnedBy } from "./workspace-view.js";
 
 /** Where every project directory lives inside the workspace (SPEC.md §7.1). */
-export const PROJECTS_ROOT = "/home/student/projects";
+const PROJECTS_ROOT = "/home/student/projects";
 
 export function projectPath(slug: string): string {
 	return `${PROJECTS_ROOT}/${slug}`;
@@ -49,6 +49,7 @@ export const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>>
 	FILE_CHANGED: [412, "FILE_CHANGED"],
 	FILE_TOO_LARGE: [413, "FILE_TOO_LARGE"],
 	NOT_A_DIRECTORY: [400, "NOT_A_DIRECTORY"],
+	BAD_REQUEST: [400, "VALIDATION_FAILED"],
 	// The agent answers these with a 500 of its own, so the control plane is
 	// reporting a failure upstream of it rather than one of its own.
 	SEARCH_FAILED: [502, "SEARCH_FAILED"],
@@ -69,6 +70,37 @@ export function sendAgentError(reply: FastifyReply, error: unknown): void {
 		"AGENT_UNAVAILABLE",
 		"The workspace agent could not be reached.",
 	);
+}
+
+/**
+ * Workspaces with a long project operation (clone, template, duplicate,
+ * download) running right now. Clone and copy hold a request open for
+ * minutes, and two at once on one workspace race over the same directories.
+ * This is per API process; the pilot runs exactly one (ADR 0010).
+ */
+const longOperations = new Set<string>();
+
+/**
+ * Claim the one long-operation slot for a workspace. Returns false after
+ * answering 409, so the caller just returns.
+ */
+export function claimLongOperation(workspaceId: string, reply: FastifyReply): boolean {
+	if (longOperations.has(workspaceId)) {
+		sendError(
+			reply,
+			409,
+			"OPERATION_IN_PROGRESS",
+			"Another project operation is already running on this workspace.",
+		);
+		return false;
+	}
+	longOperations.add(workspaceId);
+	return true;
+}
+
+/** Give the long-operation slot back. */
+export function releaseLongOperation(workspaceId: string): void {
+	longOperations.delete(workspaceId);
 }
 
 /**
@@ -121,17 +153,6 @@ export function requireAgent(scope: Scope, reply: FastifyReply): AgentClient | n
 		"The workspace is not running yet. Start it and try again.",
 	);
 	return null;
-}
-
-/**
- * An attachment Content-Disposition for a name the student chose. The quoted
- * form keeps only plain ASCII, and `filename*` carries the real name for
- * browsers that read RFC 5987.
- */
-export function contentDisposition(name: string): string {
-	const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "");
-	const fallback = ascii === "" ? "download" : ascii;
-	return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 /** The project row of this workspace, or null after answering 404. */

@@ -74,3 +74,27 @@ export const GENERATED_NAMES = [
 	"target",
 	"__pycache__",
 ] as const;
+
+/**
+ * An attachment Content-Disposition for a name the student chose. Control
+ * characters would let a name inject a header line, so they are dropped; the
+ * quoted form is plain ASCII, and `filename*` carries the real name for
+ * browsers that read RFC 5987. Used by both the API and the workspace agent
+ * so one download has one name (SPEC.md §11.2).
+ */
+export function contentDisposition(name: string): string {
+	const stripped = Array.from(name)
+		.filter((char) => {
+			const code = char.codePointAt(0) ?? 0;
+			return code >= 0x20 && code !== 0x7f;
+		})
+		.join("");
+	const ascii = stripped.replace(/[^\u0020-\u007e]/g, "_").replace(/["\\]/g, "");
+	// A name with nothing ASCII left to show gets a plain fallback.
+	const fallback = /[^_]/.test(ascii) ? ascii : "download";
+	const encoded = encodeURIComponent(stripped).replace(
+		/['()*]/g,
+		(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+	);
+	return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}

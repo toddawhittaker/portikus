@@ -137,3 +137,18 @@ test("a download that streams slowly after its headers is not cut off", async ()
 	const upstream = await client.downloadProject("alpha");
 	expect(await upstream.text()).toBe("firstsecond");
 }, 20_000);
+
+test("a caller cannot override the bearer token on fetchRaw", async () => {
+	let seen: string | undefined;
+	const port = await startUpstream((request, response) => {
+		seen = request.headers.authorization;
+		response.writeHead(204);
+		response.end();
+	});
+	const client = new AgentClient("127.0.0.1", port, "real-token");
+
+	await client.fetchRaw("GET", "/projects/lab/tree", {
+		headers: { authorization: "Bearer stolen" },
+	});
+	expect(seen).toBe("Bearer real-token");
+});
