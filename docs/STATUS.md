@@ -182,5 +182,10 @@ terminal's own 5,000 line scrollback and the viewport has a thin scrollbar,
 which needed tmux to stop using the alternate screen, and an attachment is
 sent the pane's earlier lines so a reload no longer starts with a bare
 prompt, at the cost of one blank screenful between that history and the
-repainted screen. Epic 7 (files, Monaco, search,
+repainted screen. A full-screen program such as nano still moves a line at
+a time: the agent polls tmux every half second and tells the browser when
+the pane is on the alternate screen, and the browser turns wheel notches
+into arrow keys while it is, so for up to about half a second after a
+program takes the screen a wheel notch may scroll the buffer instead.
+Epic 7 (files, Monaco, search,
 and change review) is next.

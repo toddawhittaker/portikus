@@ -683,8 +683,10 @@ layout position, creation time, and the time it ended. The control plane
 marks a terminal ended when its workspace begins stopping; closing a
 terminal deliberately deletes its row instead. An ended terminal is shown
 as ended with an action to create a new one, and a listing returns every
-open terminal plus the 20 most recently ended ones. No output is replayed
-on reconnect.
+open terminal plus the 20 most recently ended ones. On attach the agent
+replays the pane's recent history from tmux, up to the capture limit, into
+the browser's scrollback, so a reload shows earlier output above the
+prompt; the platform still stores no terminal output anywhere.
 
 The browser connects to the control plane at
 `/workspaces/:id/terminals/:terminalId/ws`, and the control plane connects
@@ -2391,7 +2393,10 @@ Includes:
 - a terminal pane can be dragged onto another pane's edge to reflow the
   split, onto its centre to swap, or onto the tab bar to become its own
   tab, with a drop zone drawn while dragging;
-- a terminal revived after a grace-period stop draws its prompt correctly.
+- a terminal revived after a grace-period stop draws its prompt correctly;
+- the mouse wheel scrolls the terminal's own output, wheel up for older
+  lines, behind a thin scrollbar, and still moves a full-screen program
+  such as nano a line at a time.
 
 Acceptance:
 

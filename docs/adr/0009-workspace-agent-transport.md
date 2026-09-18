@@ -53,7 +53,11 @@ table (SPEC §26); the worker sets `ended_at` when a workspace moves to
 pane, captured with `tmux capture-pane`, before its PTY starts, and tmux
 draws on a terminal stripped of the `smcup`, `rmcup`, `indn` and `rin`
 capabilities so that the browser's own scrollback fills up and the mouse
-wheel scrolls it.
+wheel scrolls it. Because tmux never passes a pane program's alternate
+screen through to the client, the agent's pane poll also reports
+`#{alternate_on}` as a `screen` frame, and the browser turns wheel notches
+into arrow keys while it is set, which is what moves nano a line at a
+time.
 
 **Rejected alternatives:**
 
