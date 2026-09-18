@@ -208,6 +208,28 @@ test.skipIf(skip)("the ready frame comes first, then agent frames", async () => 
 	await socket.close();
 });
 
+// SPEC.md 11.4: a change on disk, however it was made, reaches the browser.
+test.skipIf(skip)("a file written on the agent sends an fs frame", async () => {
+	const socket = await openEvents(workspaceId, projectId, alice);
+	expect(JSON.parse(await socket.next())).toEqual(READY);
+
+	const seeded = await fetch(`http://127.0.0.1:${agent.port}/__test/files`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ path: `${slug}/notes.md`, content: "# notes\n" }),
+	});
+	expect(seeded.status).toBe(204);
+
+	expect(JSON.parse(await socket.next())).toEqual({
+		type: "fs",
+		paths: ["notes.md"],
+		git: false,
+		truncated: false,
+	});
+
+	await socket.close();
+});
+
 test.skipIf(skip)("a frame from the browser is not forwarded", async () => {
 	const socket = await openEvents(workspaceId, projectId, alice);
 	expect(JSON.parse(await socket.next())).toEqual(READY);
