@@ -1,19 +1,23 @@
 import { requireUser } from "@portikus/auth";
 import {
 	EDITOR_SETTINGS_DEFAULTS,
-	type EditorSettings,
+	EditorSettings,
 	UpdateEditorSettingsRequest,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import type { ServerDeps } from "../server.js";
 import { sendError } from "./project-scope.js";
 
+/** Stored settings as we read them back: every field optional (issue #159). */
+const StoredEditorSettings = EditorSettings.partial();
+
 /**
  * Fill in the defaults for anything the user has not set, and ignore anything
  * stored that is no longer a setting we know (issue #159).
  */
 function toEditorSettings(stored: unknown): EditorSettings {
-	const parsed = UpdateEditorSettingsRequest.safeParse(stored ?? {});
+	// Not strict: unknown keys are stripped, the known ones are kept.
+	const parsed = StoredEditorSettings.safeParse(stored ?? {});
 	return { ...EDITOR_SETTINGS_DEFAULTS, ...(parsed.success ? parsed.data : {}) };
 }
 

@@ -57,13 +57,11 @@ Each file's connection pool is capped at four connections, because a whole run
 holds a pool per database test file at once and PostgreSQL allows 100
 connections by default.
 
-If a run is killed part-way through, its databases are left behind. Drop them
-by hand:
-
-```sh
-docker exec portikus-test-pg psql -U postgres -tAc \
-  "select datname from pg_database where datname ~ '_p[0-9]+_[0-9a-f]{8}$'"
-```
+If a run is killed part-way through, it never gets to drop its databases. The
+next run cleans them up: before a test file creates its own database, it drops
+every database on the server whose name starts with the base name plus `_p`
+and whose process id no longer belongs to a running process. Databases of a
+run still in progress are left alone, so parallel runs stay safe.
 
 The Playwright run has the same problem for a different reason: its ports are
 fixed, so two `pnpm test:e2e` runs on one machine fight over the API and web
