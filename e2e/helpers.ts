@@ -201,6 +201,19 @@ export function workTabs(page: Page): Locator {
 	return page.getByTestId("work-tabs");
 }
 
+/** Open a new terminal from the launcher menu. */
+export async function newTerminal(page: Page): Promise<void> {
+	await page.getByTestId("launcher").click();
+	await page.getByRole("menuitem", { name: "Terminal", exact: true }).click();
+}
+
+/** Wait for a pane's terminal WebSocket to be open. */
+export async function expectConnected(page: Page, terminalId: string): Promise<void> {
+	await expect(
+		page.locator(`[data-testid=terminal-pane-${terminalId}]`),
+	).toHaveAttribute("data-connected", "true", { timeout: 15_000 });
+}
+
 export interface TestProject {
 	id: string;
 	slug: string;
