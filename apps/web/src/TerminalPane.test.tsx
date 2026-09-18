@@ -339,6 +339,15 @@ test("an OSC 52 payload larger than the cap is dropped", async () => {
 
 	await new Promise((resolve) => setTimeout(resolve, 50));
 	expect(writeText).not.toHaveBeenCalled();
+	// The workspace's own shim allows a megabyte, so the student has to be
+	// told why the paste is going to be empty.
+	await waitFor(() =>
+		expect(
+			view.getByText(
+				`A program in ${terminal.name} tried to copy more than 100 KB; nothing was copied.`,
+			),
+		).toBeTruthy(),
+	);
 });
 
 test("an OSC 52 read request is ignored rather than handing over the clipboard", async () => {

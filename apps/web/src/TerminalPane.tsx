@@ -250,7 +250,15 @@ export function TerminalPane({
 			if (!visibleRef.current || !focused) return true;
 			const text = decodeOsc52(encoded);
 			if (text === "") return true;
-			if (new TextEncoder().encode(text).length > MAX_CLIPBOARD_BYTES) return true;
+			// The workspace's own shim allows more than this, so a student can
+			// ask for a copy that is refused here. Say so rather than letting
+			// the paste come back empty for no visible reason.
+			if (new TextEncoder().encode(text).length > MAX_CLIPBOARD_BYTES) {
+				handlers.current.toast.show({
+					title: `A program in ${handlers.current.terminalName} tried to copy more than 100 KB; nothing was copied.`,
+				});
+				return true;
+			}
 			void writeClipboard(text);
 			handlers.current.toast.show({
 				title: `Copied to your clipboard by a program in ${handlers.current.terminalName}`,
