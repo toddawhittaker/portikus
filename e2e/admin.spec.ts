@@ -152,14 +152,24 @@ test.describe("administration", () => {
 
 	test("only an administrator sees the Administration link", async ({ page }) => {
 		await loginAs(page, "carol");
-		await expect(page.getByTestId("admin-link")).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 
+		await page.getByTestId("me").click();
+		const link = page.getByTestId("admin-link");
+		await expect(link).toBeVisible();
+		await expect(link).toHaveAttribute("href", "/admin");
+		// A new tab keeps this tab's sockets open, so the grace timer never starts.
+		await expect(link).toHaveAttribute("target", "_blank");
+		await expect(link).toHaveAttribute("rel", "noopener");
+
+		await page.keyboard.press("Escape");
 		await page.getByTestId("me").click();
 		await page.getByTestId("signout").click();
 		await expect(page.getByTestId("signin")).toBeVisible();
 
 		await loginAs(page, "alice");
 		await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+		await page.getByTestId("me").click();
 		await expect(page.getByTestId("admin-link")).toHaveCount(0);
 	});
 });
