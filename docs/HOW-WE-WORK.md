@@ -657,6 +657,20 @@ session after the cache expires is expensive for usage budgets." If a long
 break is coming, it is cheaper to save memories and end the session than to
 come back to a cold one.
 
+**Keep the standing instructions file short.** Most tools of this kind read a
+**standing instructions file** at the start of every session and hand the same
+file to every agent they launch — the project's house rules, always present.
+Because it is attached to every single call, every line in it is paid for
+thousands of times over. So it holds only process rules and pointers to the
+documents that carry the substance: how work is delegated, tested, reviewed and
+merged, and where to read the vision, the requirements, and the status. It never
+describes what the code does; that belongs in the documents it points at, cited
+by file and section. One project holds the file under 150 lines by rule. The
+owner: "Part of managing tokens as well is keeping [the standing instructions
+file] deliberately short and process-oriented only, with pointers to where other
+documentation files are, because it is injected into every subagent's
+instructions."
+
 **Give subagents small, self-contained briefs.** An agent sent a tight brief —
 the requirement sections, the files, the starting point, the definition of done
 — keeps its own context short and finishes before drift can set in. The
@@ -966,6 +980,10 @@ start a fresh session rather than letting the tool summarise in place. Keep a
 session warm rather than idle, because resuming a cold one pays to read the
 whole conversation again.
 
+**Keep the standing instructions file short.** It is attached to every call to
+every agent, so it should carry process rules and pointers only, never a
+description of the code.
+
 **Write down every lesson where an agent will read it.** A lesson learned and
 not written into the next instruction will be learned again, at full price.
 
@@ -1079,6 +1097,10 @@ organized into numbered sections so instructions can point at exact ones.
 
 **Squash** — To compress all the commits on a branch into one commit when
 merging, keeping the shared history readable.
+
+**Standing instructions file** — The file the tool reads at the start of every
+session and attaches to every agent it launches. Because it is paid for on every
+call, it holds only process rules and pointers to the documents with the detail.
 
 **Test** — An automated check that some behaviour is correct.
 
