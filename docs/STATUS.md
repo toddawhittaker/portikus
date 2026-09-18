@@ -157,6 +157,13 @@ can be saved. One consequence: a terminal that ends within about a second of bei
 before its pane reaches the saved layout, is not restored as a tab on reload
 and stays only in the ended list.
 
+Workspace image `2026.09.4` keeps the apt package lists instead of deleting
+them at the end of the build and adds Debian's `command-not-found`, so a
+fresh workspace can run `sudo apt install <package>` without `apt update`
+first, and a mistyped or missing command names the package that provides
+it. The lists are as of the build date and Debian's daily timer refreshes
+them in a running workspace.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
 is wired up, the only admin UI is the grace period page, nothing
@@ -178,13 +185,19 @@ them leaves the old row missing and the new directory discovered as a
 separate project (tracked in `docs/BACKLOG.md`). Terminal names count per workspace rather than per
 project, so a second project's first terminal may be "Terminal 3", and a
 workspace created on an older image lacks zip until it is recreated, which
-the agent reports as a download failure. The projects pane now refetches every
+the agent reports as a download failure, and the same workspace has empty
+apt lists and no `command-not-found` until it is recreated. The projects pane now refetches every
 ten seconds while the tab is visible and again when it regains focus, so a
 repository made in a terminal turns up without any UI action, and every row that
 is not missing shows its folder name next to the project name. A project can
 also be deleted for good from its menu: the student types the project's slug
 back, the API ends any terminal sitting in the folder, the agent removes
-`~/projects/<slug>`, and the row and an audit event record it. Whenever the
+`~/projects/<slug>`, and the row and an audit event record it. The delete now
+takes the same one-at-a-time slot the other slow project operations take, so it
+cannot run beside a clone or a copy, but it only ends terminals that were
+created in the project: a terminal that had moved into the folder with `cd`
+keeps running with its shell in a directory that no longer exists, until the
+student opens a new one. Whenever the
 agent runs `git init` for a project, whether on create, on a template, or
 through Initialize Git, it also writes a default `.gitignore` if the project
 has none, so a template that ships its own keeps it. From the grace period task, the
@@ -215,5 +228,17 @@ and tells the browser, which turns wheel notches into arrow keys while it
 does. The poll runs twice a second normally and four times a second while
 any pane is in that state, so for up to about half a second after a program
 takes the screen, and a quarter of a second after it lets go, a wheel notch
-may do the other thing. Epic 7 (files, Monaco, search,
+may do the other thing. The workspace dialog can now start,
+stop and restart the workspace (a confirmation first for stop and restart),
+and dialog rows wrap rather than scrolling sideways, so a 64-character image
+fingerprint no longer pushes the title and close button off screen; the
+fingerprint is shown shortened with the full value in its tooltip. A review of
+the epic branch also fixed a few things: a pane torn off to the tab strip now
+gets a tab id of its own rather than reusing the terminal id, which could give
+two tabs the same id, and the layout schema rejects a saved layout with
+duplicate tab ids; a newly created terminal is written into the cached list, so
+a list request already in flight cannot answer without it and take its pane
+away; and a split keys its children by terminal, so dropping a pane on another
+pane's centre swaps them without tearing down and reconnecting both terminals.
+Epic 7 (files, Monaco, search,
 and change review) is next.

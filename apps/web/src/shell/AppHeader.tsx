@@ -1,5 +1,8 @@
 import type { Project, Workspace } from "@portikus/contracts";
 import {
+	Button,
+	ConfirmDialog,
+	ConfirmDialogRoot,
 	Dialog,
 	DialogRoot,
 	Icon,
@@ -11,10 +14,13 @@ import {
 	MenuSeparator,
 	MenuTrigger,
 	NameMark,
+	resolveWorkspaceState,
 	StateBadge,
+	useToast,
 } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
+import { useWorkspaceAction } from "../api/workspace.js";
 import type { MeUser } from "../useMe.js";
 import { type ThemePreference, useThemePreference } from "./theme.js";
 
@@ -25,6 +31,12 @@ const APPEARANCE: { value: ThemePreference; label: string }[] = [
 	{ value: "light", label: "Light" },
 	{ value: "dark", label: "Dark" },
 ];
+
+/** Image fingerprints are 64 characters; a student only ever needs the head of one. */
+function shortImage(imageVersion: string | null): string {
+	if (!imageVersion) return "—";
+	return imageVersion.length > 12 ? `${imageVersion.slice(0, 12)}…` : imageVersion;
+}
 
 function initials(displayName: string): string {
 	const parts = displayName.trim().split(/\s+/).slice(0, 2);
@@ -154,7 +166,7 @@ export function AppHeader({
 						description="What Portikus knows about the machine behind this window."
 						onClose={() => setStatusOpen(false)}
 					>
-						<dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-[13px]">
+						<dl className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1 text-[13px]">
 							<dt className="text-ink-muted">State</dt>
 							<dd className="m-0" data-testid="workspace-status-state">
 								{workspace?.state ?? "connecting"}
@@ -164,16 +176,124 @@ export function AppHeader({
 							<dt className="text-ink-muted">Connections</dt>
 							<dd className="m-0">{workspace?.activeConnections ?? 0}</dd>
 							<dt className="text-ink-muted">Image</dt>
-							<dd className="m-0 pk-mono-small">{workspace?.imageVersion ?? "—"}</dd>
+							<dd
+								className="m-0 min-w-0 pk-mono-small"
+								data-testid="workspace-status-image"
+								title={workspace?.imageVersion ?? undefined}
+							>
+								{shortImage(workspace?.imageVersion ?? null)}
+							</dd>
 						</dl>
 						{workspace?.errorMessage ? (
 							<p className="pk-text-body mt-4 text-status-error">
 								{workspace.errorMessage}
 							</p>
 						) : null}
+						{workspaceId ? (
+							<WorkspaceControls workspaceId={workspaceId} workspace={workspace} />
+						) : null}
 					</Dialog>
 				)}
 			</DialogRoot>
 		</header>
+	);
+}
+
+/**
+ * Start, stop and restart from the workspace dialog (SPEC.md §6.2). These
+ * only ask the API to change the desired state, so they still work when the
+ * workspace itself is hung, which is how a student recovers one.
+ */
+function WorkspaceControls({
+	workspaceId,
+	workspace,
+}: {
+	workspaceId: string;
+	workspace: Workspace | null;
+}) {
+	const action = useWorkspaceAction(workspaceId);
+	const toast = useToast();
+	const [confirming, setConfirming] = useState<"stop" | "restart" | null>(null);
+
+	const resolved = workspace
+		? resolveWorkspaceState(workspace.state, workspace.desiredState)
+		: null;
+	// No workspace yet means the presence socket has not reported one.
+	const moving = resolved === null || resolved.moving || action.isPending;
+	const stopped = workspace?.state === "stopped" || workspace?.state === "error";
+
+	function run(next: "start" | "stop" | "restart") {
+		setConfirming(null);
+		action.mutate(next, {
+			onError: (error) =>
+				toast.show({
+					tone: "danger",
+					title: "The workspace did not change",
+					children: error instanceof Error ? error.message : undefined,
+				}),
+		});
+	}
+
+	return (
+		<div className="mt-5 flex flex-wrap items-center gap-2">
+			{stopped ? (
+				<Button
+					variant="primary"
+					disabled={moving}
+					data-testid="workspace-start"
+					onClick={() => run("start")}
+				>
+					Start workspace
+				</Button>
+			) : (
+				<>
+					<Button
+						disabled={moving}
+						data-testid="workspace-restart"
+						onClick={() => setConfirming("restart")}
+					>
+						Restart workspace
+					</Button>
+					<Button
+						disabled={moving}
+						data-testid="workspace-stop"
+						onClick={() => setConfirming("stop")}
+					>
+						Stop workspace
+					</Button>
+				</>
+			)}
+			{resolved?.moving ? (
+				<span
+					className="pk-text-small text-ink-muted"
+					data-testid="workspace-transition"
+				>
+					{resolved.label} your workspace.
+				</span>
+			) : null}
+
+			<ConfirmDialogRoot
+				open={confirming !== null}
+				onOpenChange={(open) => !open && setConfirming(null)}
+			>
+				{confirming ? (
+					<ConfirmDialog
+						testId={`dialog-workspace-${confirming}`}
+						title={
+							confirming === "stop" ? "Stop your workspace?" : "Restart your workspace?"
+						}
+						description="Programs running in the workspace end. Your files are kept."
+						lost={["everything running now, including terminals and servers"]}
+						survives={["every file in your home directory"]}
+						confirmLabel={
+							confirming === "stop" ? "Stop workspace" : "Restart workspace"
+						}
+						pending={action.isPending}
+						onCancel={() => setConfirming(null)}
+						onConfirm={() => run(confirming)}
+					/>
+				) : null}
+			</ConfirmDialogRoot>
+		</div>
 	);
 }

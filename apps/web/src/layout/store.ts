@@ -134,9 +134,12 @@ export function createLayoutStore() {
 
 			moveLeafToNewTab: (terminalId, index) =>
 				set((state) => {
-					const layout = tree.moveLeafToNewTab(state.layout, terminalId, index);
+					// A fresh id: the tab this pane is leaving may already be named
+					// after the terminal, and two tabs cannot share an id.
+					const tabId = crypto.randomUUID();
+					const layout = tree.moveLeafToNewTab(state.layout, terminalId, index, tabId);
 					if (layout === state.layout) return state;
-					return { layout, activeTabId: terminalId, dirty: true };
+					return { layout, activeTabId: tabId, dirty: true };
 				}),
 
 			resize: (tabId, path, sizes) =>

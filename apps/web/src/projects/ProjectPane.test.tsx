@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
 	FakeWebSocket,
@@ -125,10 +125,11 @@ test("delete stays disabled until the folder name is typed exactly", async () =>
 	openMenu(TODO.id);
 	fireEvent.click(screen.getByTestId(`project-delete-${TODO.id}`));
 
-	const button = await screen.findByTestId("delete-confirm-button");
+	const dialog = within(await screen.findByTestId("dialog-delete-project"));
+	const button = dialog.getByTestId("dialog-confirm");
 	expect((button as HTMLButtonElement).disabled).toBe(true);
 
-	const input = screen.getByTestId("delete-confirm-input");
+	const input = dialog.getByRole("textbox");
 	fireEvent.change(input, { target: { value: `${TODO.slug}x` } });
 	expect((button as HTMLButtonElement).disabled).toBe(true);
 

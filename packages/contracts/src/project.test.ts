@@ -333,6 +333,24 @@ test("ProjectLayout caps the length of a tab id", () => {
 	expect(ProjectLayout.safeParse(tooLong).success).toBe(false);
 });
 
+test("ProjectLayout refuses two tabs with the same id", () => {
+	// Two tabs with one id render on top of each other in the browser.
+	const clashing = {
+		tabs: [
+			{ id: "t", root: leaf(terminalA) },
+			{ id: "t", root: leaf(terminalB) },
+		],
+	};
+	expect(ProjectLayout.safeParse(clashing).success).toBe(false);
+	const distinct = {
+		tabs: [
+			{ id: "t", root: leaf(terminalA) },
+			{ id: "u", root: leaf(terminalB) },
+		],
+	};
+	expect(ProjectLayout.safeParse(distinct).success).toBe(true);
+});
+
 test("ProjectLayout caps how deep a split tree may nest", () => {
 	function nest(depth: number): unknown {
 		if (depth <= 1) return leaf(terminalA);

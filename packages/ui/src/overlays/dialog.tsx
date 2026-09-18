@@ -50,7 +50,7 @@ export function Dialog({
 				className={`pk-dialog ${size === "lg" ? "pk-dialog--lg" : ""}`}
 			>
 				<div className="flex items-start gap-3 px-6 pt-6">
-					<div>
+					<div className="min-w-0">
 						<RadixDialog.Title className="m-0 text-xl font-semibold text-ink">
 							{title}
 						</RadixDialog.Title>
@@ -73,7 +73,10 @@ export function Dialog({
 						/>
 					</RadixDialog.Close>
 				</div>
-				{children ? <div className="px-6 pt-4">{children}</div> : null}
+				{/* Without a footer the body carries the bottom padding itself. */}
+				{children ? (
+					<div className={`px-6 pt-4 ${footer ? "" : "pb-6"}`}>{children}</div>
+				) : null}
 				{footer ? <div className="flex justify-end gap-2 p-6">{footer}</div> : null}
 			</RadixDialog.Content>
 		</RadixDialog.Portal>

@@ -587,11 +587,23 @@ test.describe("work area layout", () => {
 		await expectConnected(page, second as string);
 		expect(await paneOrder(page)).toEqual([terminalId, second]);
 
+		// Each pane stamps a fresh id when it mounts, so an unchanged stamp
+		// means the terminal was not torn down and reconnected.
+		const mountIds = async () =>
+			Promise.all(
+				[terminalId, second as string].map((id) =>
+					page.getByTestId(`terminal-leaf-${id}`).getAttribute("data-mount-id"),
+				),
+			);
+		const before = await mountIds();
+
 		await dragPane(page, second as string, await pointIn(page, terminalId, 0.5, 0.5));
 
 		// The shape is untouched; the two panes traded places.
 		await expect(splits(page, "row")).toHaveCount(1);
 		expect(await paneOrder(page)).toEqual([second, terminalId]);
+		// Swapping moves the panes, it does not remount them (SPEC.md §9.3).
+		expect(await mountIds()).toEqual(before);
 	});
 
 	test("a pane dragged to the tab bar becomes its own tab", async ({
@@ -625,10 +637,48 @@ test.describe("work area layout", () => {
 		);
 
 		await expect(tabs).toHaveCount(2);
-		await expect(page.getByTestId(`tab-${second}`)).toBeVisible();
+		expect(await paneOrder(page)).toEqual([second]);
 		// The pane left the tab it came from, which now shows one terminal.
 		await page.getByTestId(`tab-${terminalId}`).click();
 		expect(await paneOrder(page)).toEqual([terminalId]);
 		await expect(splits(page, "row")).toHaveCount(0);
+	});
+
+	test("a pane dragged back out of the tab it named gets its own tab id", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { projectId, terminalId } = await openProjectWithTerminal(
+			page,
+			student.workspaceId,
+			"Renamed tabs",
+		);
+		// The one tab is named after this first terminal. Splitting puts a
+		// second pane in it, so the tab's name and one of its panes differ.
+		await paneAction(page, terminalId, "split-right");
+		await expect
+			.poll(async () => (await terminalIds(student.workspaceId, projectId)).length)
+			.toBe(2);
+		const [, second] = await terminalIds(student.workspaceId, projectId);
+		if (!second) throw new Error("the second terminal row was not created");
+		await expectConnected(page, second);
+		const tabs = page.getByTestId("work-tabs").getByRole("tab");
+		await expect(tabs).toHaveCount(1);
+
+		// Pull the first pane out to the strip. The new tab needs an id of its
+		// own; reusing the terminal id would make two tabs called the same.
+		const strip = await page.getByTestId("work-tabs").boundingBox();
+		if (!strip) throw new Error("the tab strip is not on screen");
+		await dragPane(page, terminalId, {
+			x: strip.x + strip.width - 40,
+			y: strip.y + strip.height / 2,
+		});
+
+		await expect(tabs).toHaveCount(2);
+		const ids = await tabs.evaluateAll((nodes) =>
+			nodes.map((node) => node.getAttribute("data-testid") ?? ""),
+		);
+		expect(new Set(ids).size).toBe(ids.length);
 	});
 });
