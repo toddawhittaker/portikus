@@ -206,5 +206,10 @@ would pass the split-depth or tab limits. The workspace dialog can now start,
 stop and restart the workspace (a confirmation first for stop and restart),
 and dialog rows wrap rather than scrolling sideways, so a 64-character image
 fingerprint no longer pushes the title and close button off screen; the
-fingerprint is shown shortened with the full value in its tooltip. Epic 7 (files, Monaco, search,
+fingerprint is shown shortened with the full value in its tooltip. The
+infrastructure smoke test now records every workspace, Incus instance and user
+row it creates and deletes only those, and lists any workspace that already
+exists, leaves it alone, and skips the lifecycle checks entirely rather than
+adopting or shortening the grace period around somebody else's workspace; `infra/tests/cleanup-scope-test.sh` proves that
+with a stubbed SSH command and runs in `make infra-check`. Epic 7 (files, Monaco, search,
 and change review) is next.

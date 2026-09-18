@@ -255,6 +255,11 @@ echo ""
 # the same variable selects which of the two blocks below runs.
 MOCK_IDP="${PORTIKUS_MOCK_IDP:-false}"
 PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${VM}.nip.io}"
+# The default name only works where Caddy was told to serve it, so say so
+# rather than letting every HTTPS check fail for a reason nobody can see.
+if [ -z "${PORTIKUS_PUBLIC_HOST:-}" ]; then
+  printf '\033[1;33mWARN\033[0m  PORTIKUS_PUBLIC_HOST is unset: the HTTPS checks will use %s. If Caddy on this VM serves a different name, set PORTIKUS_PUBLIC_HOST and run again.\n' "${PUBLIC_HOST}"
+fi
 API="https://${PUBLIC_HOST}"
 # The API's loopback port, used where a request has to reach the API itself
 # rather than whatever Caddy decides to serve for that path.
@@ -320,6 +325,13 @@ else
   WS_STOP="/tmp/portikus-ws-stop"
   TERM_PROBE="/tmp/portikus-term-probe.mjs"
   TERM_STOP="/tmp/portikus-term-stop"
+
+  # Everything this run creates is recorded here and the cleanup below
+  # deletes nothing else.  On the pilot the mock accounts belong to a real
+  # person, whose workspace and volumes must survive the test.
+  created_workspace_ids=()
+  created_instance_names=()
+  created_user_subjects=()
 
   # Log a mock user in: follow /auth/login to the provider's account list,
   # then request the same page with the chosen account, which redirects
@@ -390,9 +402,19 @@ else
       | json_field shutdownGraceSeconds
   }
 
-  # Extend the shared cleanup function to also clean Epic 3 and 4
-  # resources.  Reading the instance names before deleting the rows keeps
-  # the destroy targeted: only the mock users' instances are touched.
+  # >>> smoke-cleanup-begin (extracted by infra/tests/cleanup-scope-test.sh)
+  # sql_in_list ITEM... prints 'a','b' for an SQL IN clause.
+  sql_in_list() {
+    local out="" item
+    for item in "$@"; do
+      out="${out}${out:+,}'${item}'"
+    done
+    printf '%s' "$out"
+  }
+
+  # Clean up Epic 3 and 4 resources.  Only what this run recorded is
+  # deleted: an earlier version removed every workspace owned by a mock
+  # account, and on the pilot an operator signs in as one of them.
   cleanup_epic34() {
     echo ""
     echo "Cleaning up Epic 3 and 4 smoke resources..."
@@ -400,29 +422,57 @@ else
     if [ -n "${orig_grace:-}" ]; then
       set_global_grace "${orig_grace}" >/dev/null 2>&1 || true
     fi
-    local owners="SELECT id FROM users WHERE oidc_subject IN ('alice','bob','carol')"
-    local smoke_instances
-    smoke_instances=$(ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT incus_instance_name FROM workspaces WHERE owner_user_id IN (${owners})\"" 2>/dev/null || true)
-    ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM workspace_connections WHERE workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id IN (${owners}))\"" 2>/dev/null || true
-    ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM audit_events WHERE target IN (SELECT id::text FROM workspaces WHERE owner_user_id IN (${owners}))\"" 2>/dev/null || true
-    # Archiving a project audits against the project id, which no longer
-    # resolves once the workspace cascade removes the project row.
-    ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM audit_events WHERE target IN (SELECT id::text FROM projects WHERE workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id IN (${owners})))\"" 2>/dev/null || true
-    ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM workspaces WHERE owner_user_id IN (${owners})\"" 2>/dev/null || true
-    ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM sessions WHERE user_id IN (${owners})\"" 2>/dev/null || true
-    ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM users WHERE oidc_subject IN ('alice','bob','carol')\"" 2>/dev/null || true
-    for instance in $smoke_instances; do
-      ssh_cmd "bash ${WORKSPACE_SCRIPT} destroy ${instance}" 2>/dev/null || true
-    done
+
+    local ws_count=${#created_workspace_ids[@]}
+    local user_count=${#created_user_subjects[@]}
+    local instance_count=${#created_instance_names[@]}
+    echo "This run created ${ws_count} workspace row(s), ${instance_count} Incus instance(s) and ${user_count} user row(s). Nothing else is deleted."
+
+    if [ "$ws_count" -gt 0 ]; then
+      local ws_list
+      ws_list=$(sql_in_list "${created_workspace_ids[@]}")
+      echo "Deleting workspace rows: ${created_workspace_ids[*]}"
+      ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM workspace_connections WHERE workspace_id IN (${ws_list})\"" 2>/dev/null || true
+      ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM audit_events WHERE target IN (${ws_list})\"" 2>/dev/null || true
+      # Archiving a project audits against the project id, which no longer
+      # resolves once the workspace cascade removes the project row.
+      ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM audit_events WHERE target IN (SELECT id::text FROM projects WHERE workspace_id IN (${ws_list}))\"" 2>/dev/null || true
+      ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM workspaces WHERE id IN (${ws_list})\"" 2>/dev/null || true
+    fi
+
+    if [ "$user_count" -gt 0 ]; then
+      local user_list
+      user_list=$(sql_in_list "${created_user_subjects[@]}")
+      echo "Deleting user rows this run created: ${created_user_subjects[*]}"
+      ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE oidc_subject IN (${user_list}))\"" 2>/dev/null || true
+      # A user who still owns a workspace stays: that workspace is not ours.
+      ssh_cmd "sudo -u postgres psql -d portikus -c \"DELETE FROM users u WHERE u.oidc_subject IN (${user_list}) AND NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.owner_user_id = u.id)\"" 2>/dev/null || true
+    fi
+
+    if [ "$instance_count" -gt 0 ]; then
+      echo "Destroying Incus instances: ${created_instance_names[*]}"
+      local instance
+      for instance in "${created_instance_names[@]}"; do
+        ssh_cmd "bash ${WORKSPACE_SCRIPT} destroy ${instance}" 2>/dev/null || true
+      done
+    fi
+
     ssh_cmd "rm -f /tmp/portikus-smoke-*.jar /tmp/portikus-smoke-project.* ${WS_PROBE} ${WS_STOP} ${TERM_PROBE} ${TERM_STOP}" 2>/dev/null || true
   }
-  # Wrap both cleanups so a single trap covers Epic 2 and Epic 3 and 4.
+  # <<< smoke-cleanup-end
+
+  # Wrap both cleanups so a single trap covers Epic 2 and Epic 3 and 4.  The
+  # trap is set here as well, because the Epic 2 block is skipped when the
+  # workspace image is missing and then nothing else would arm it.
   cleanup_all() {
     cleanup_epic34
-    echo ""
-    echo "Destroying ${WS_NAME}..."
-    ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null 2>&1 || true
+    if [ -n "${WS_NAME:-}" ]; then
+      echo ""
+      echo "Destroying ${WS_NAME}..."
+      ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null 2>&1 || true
+    fi
   }
+  trap cleanup_all EXIT
 
   # 0. The control plane came from the Debian package, not a build on the VM.
   check "portikus package is installed"  ssh_cmd dpkg -s portikus
@@ -470,11 +520,34 @@ else
   check_output "POST /workspaces is 401 anonymously" "401" \
     http_status - "${API}/workspaces" "-X POST -H 'Origin: ${API}'"
 
+  # 4b. Anything already on the VM belongs to somebody else.  List it and
+  #     leave it alone, and remember which mock user rows were already there.
+  #     POST /workspaces is idempotent, so on a VM where a mock account
+  #     already has a workspace the test would be handed that workspace and
+  #     later destroy it; the lifecycle checks are skipped instead.  They are
+  #     also skipped for a workspace belonging to anyone else, because they
+  #     shorten the platform grace period and would stop it.
+  echo ""
+  echo "Looking for workspaces that exist before this run..."
+  existing_workspaces=$(ssh_cmd "sudo -u postgres psql -t -A -F' ' -d portikus -c \"SELECT COALESCE(u.oidc_subject, '(unknown)'), w.id, w.incus_instance_name FROM workspaces w LEFT JOIN users u ON u.id = w.owner_user_id ORDER BY 1\"" 2>/dev/null || true)
+  skip_lifecycle=no
+  if [ -n "$existing_workspaces" ]; then
+    skip_lifecycle=yes
+    echo "These workspaces already exist and this run will not touch them:"
+    echo "$existing_workspaces" | awk '{ print "  " $0 }'
+  else
+    echo "None."
+  fi
+  existing_users=$(ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT oidc_subject FROM users WHERE oidc_subject IN ('alice','bob','carol')\"" 2>/dev/null || true)
+
   # 5. Log the mock users in.
   echo ""
   echo "Logging in as alice, bob, and carol..."
   for mock_user in alice bob carol; do
     login_as "$mock_user" >/dev/null 2>&1 || true
+    if ! echo "$existing_users" | grep -qx "$mock_user"; then
+      created_user_subjects+=("$mock_user")
+    fi
   done
   alice_me=$(vm_get alice "${API}/auth/me")
   alice_name=$(echo "$alice_me" | json_field displayName)
@@ -506,24 +579,37 @@ else
   check "the refused request is logged at warn" api_journal_has_warn_401
 
   # 5c. Shorten the grace period for the lifecycle checks below.  The original
-  #     value is recorded here and put back by cleanup_epic34.
-  orig_grace=$(admin_grace)
-  check "read the platform grace period as carol" test -n "$orig_grace"
-  check_output "admin sets the grace period to 20s" "20" set_global_grace 20
+  #     value is recorded here and put back by cleanup_epic34.  The platform
+  #     value applies to every workspace, so it is left alone when somebody
+  #     else's workspace is on this VM.
   check_output "a student is refused the admin settings" "403" \
     http_status bob "${API}/admin/settings"
+  if [ "$skip_lifecycle" = "no" ]; then
+    orig_grace=$(admin_grace)
+    check "read the platform grace period as carol" test -n "$orig_grace"
+    check_output "admin sets the grace period to 20s" "20" set_global_grace 20
+  fi
 
   # 6. Provision alice's workspace.  The request carries no body: the owner
   #    comes from the session, and the Origin header satisfies the CSRF check.
   echo ""
-  echo "Provisioning a workspace for alice..."
-  ws_response=$(vm_get alice "${API}/workspaces" "-X POST -H 'Origin: ${API}'")
-  ws_id=$(echo "$ws_response" | json_field id)
+  ws_response=""
+  ws_id=""
+  if [ "$skip_lifecycle" = "no" ]; then
+    echo "Provisioning a workspace for alice..."
+    ws_response=$(vm_get alice "${API}/workspaces" "-X POST -H 'Origin: ${API}'")
+    ws_id=$(echo "$ws_response" | json_field id)
+  fi
 
-  if [ -z "$ws_id" ]; then
+  if [ "$skip_lifecycle" = "yes" ]; then
+    echo "A workspace this run did not create is already on this VM."
+    echo "Skipping the lifecycle, terminal, and project checks, and leaving it alone."
+    echo "Run them against a VM nobody is using."
+  elif [ -z "$ws_id" ]; then
     printf '\033[1;31mFAIL\033[0m  POST /workspaces returned no id: %s\n' "$ws_response"
     fail=$((fail + 1))
   else
+    created_workspace_ids+=("$ws_id")
     printf '\033[1;32mPASS\033[0m  POST /workspaces returned id=%s\n' "$ws_id"
     pass=$((pass + 1))
 
@@ -539,6 +625,7 @@ else
 
     ws_instance=$(vm_get alice "${API}/workspaces/${ws_id}" | json_field incusInstanceName)
     if [ -n "$ws_instance" ]; then
+      created_instance_names+=("$ws_instance")
       check "Incus instance exists and is Stopped" \
         ssh_cmd "incus info ${ws_instance} --project ${PROJECT} 2>/dev/null | grep -q 'Status: STOPPED'"
     fi
