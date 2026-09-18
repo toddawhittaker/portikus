@@ -190,6 +190,18 @@ export const CreateProjectRequest = z
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
 
 /**
+ * Request body for `DELETE /workspaces/:id/projects/:projectId`
+ * (SPEC.md §7.3). Deleting is permanent, so the student types the slug
+ * back and the API refuses anything else.
+ */
+export const DeleteProjectRequest = z
+	.object({
+		slug: ProjectSlug,
+	})
+	.strict();
+export type DeleteProjectRequest = z.infer<typeof DeleteProjectRequest>;
+
+/**
  * Request body for `PATCH /workspaces/:id/projects/:projectId`
  * (SPEC.md §7.3, §7.4). A name change renames the slug and the directory.
  */

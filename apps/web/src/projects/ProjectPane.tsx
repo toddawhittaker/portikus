@@ -12,6 +12,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ArchiveConfirm } from "./ArchiveConfirm.js";
 import { type CreateMode, CreateProjectDialog } from "./CreateProjectDialog.js";
+import { DeleteConfirm } from "./DeleteConfirm.js";
 import { DuplicateDialog } from "./DuplicateDialog.js";
 import {
 	projectDownloadUrl,
@@ -27,7 +28,8 @@ type Open =
 	| { kind: "create"; mode: CreateMode }
 	| { kind: "rename"; project: Project }
 	| { kind: "duplicate"; project: Project }
-	| { kind: "archive"; project: Project };
+	| { kind: "archive"; project: Project }
+	| { kind: "delete"; project: Project };
 
 /** The left pane: the active projects, their actions, and the archived list (SPEC.md §8.2). */
 export function ProjectPane({
@@ -55,10 +57,11 @@ export function ProjectPane({
 		});
 	}
 
-	function afterArchive(archivedProject: Project) {
+	/** After a project leaves the list, move off it if it was the one in view. */
+	function afterRemoval(removed: Project) {
 		setOpen({ kind: "none" });
-		if (archivedProject.id !== currentProjectId) return;
-		const next = projects.find((project) => project.id !== archivedProject.id);
+		if (removed.id !== currentProjectId) return;
+		const next = projects.find((project) => project.id !== removed.id);
 		if (next) {
 			goTo(next);
 			return;
@@ -182,6 +185,15 @@ export function ProjectPane({
 										>
 											<span data-testid="project-archive">Archive…</span>
 										</MenuItem>
+										<MenuSeparator />
+										<MenuItem
+											danger
+											onSelect={() => setOpen({ kind: "delete", project })}
+										>
+											<span data-testid={`project-delete-${project.id}`}>
+												Delete project…
+											</span>
+										</MenuItem>
 									</Menu>
 								</MenuRoot>
 							</li>
@@ -261,12 +273,20 @@ export function ProjectPane({
 					}}
 				/>
 			)}
+			{open.kind === "delete" && (
+				<DeleteConfirm
+					workspaceId={workspaceId}
+					project={open.project}
+					onClose={() => setOpen({ kind: "none" })}
+					onDeleted={() => afterRemoval(open.project)}
+				/>
+			)}
 			{open.kind === "archive" && (
 				<ArchiveConfirm
 					workspaceId={workspaceId}
 					project={open.project}
 					onClose={() => setOpen({ kind: "none" })}
-					onArchived={() => afterArchive(open.project)}
+					onArchived={() => afterRemoval(open.project)}
 				/>
 			)}
 		</nav>

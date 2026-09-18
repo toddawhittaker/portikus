@@ -454,7 +454,7 @@ P0 creation methods:
 
 For a new project, `git init` should be the default behavior because source control is part of the standard Portikus workflow. The UI may allow an explicit opt-out when appropriate.
 
-If Portikus opens an existing project that is not a Git repository, the UI must identify that state clearly and offer an **Initialize Git** action. Initialization must invoke real Git and must not create hidden commits.
+If Portikus opens an existing project that is not a Git repository, the UI must identify that state clearly and offer an **Initialize Git** action. Initialization must invoke real Git and must not create hidden commits. A new project initialised with Git starts with a default `.gitignore` covering secrets, dependency directories, build output and local databases; it is left untracked, and a project that already has one keeps it.
 
 ### 7.3 Project operations
 
@@ -463,13 +463,9 @@ P0:
 - rename;
 - duplicate;
 - download/export;
-- archive.
-
-P2:
-
-- permanent delete.
-
-P0 must not require a permanent delete action in the student UI.
+- archive;
+- permanent delete, behind a confirmation that requires typing the project's
+  slug.
 
 ### 7.4 Archive semantics
 
@@ -2392,6 +2388,8 @@ Includes:
   split, onto its centre to swap, or onto the tab bar to become its own
   tab, with a drop zone drawn while dragging;
 - a terminal revived after a grace-period stop draws its prompt correctly;
+- a project can be deleted for good from its menu, behind a confirmation that
+  requires typing the project's slug;
 - the workspace image ships with the apt package lists in place and with
   `command-not-found` installed, so `sudo apt install <package>` works in a
   fresh workspace without `apt update` first, and typing a command that is

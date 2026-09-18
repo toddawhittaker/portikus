@@ -115,6 +115,10 @@ export class AgentClient {
 		);
 	}
 
+	async deleteProject(slug: string): Promise<void> {
+		await this.call("DELETE", `/projects/${slug}`);
+	}
+
 	async gitInit(slug: string): Promise<void> {
 		await this.call("POST", `/projects/${slug}/git-init`);
 	}
