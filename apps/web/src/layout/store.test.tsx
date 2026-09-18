@@ -223,6 +223,41 @@ test("opening a file is refused when the tab strip is full", () => {
 	expect(layout.getState().pendingLine).toEqual({});
 });
 
+test("opening a file for editing asks its tab for the editor", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts", { diff: true });
+	// Opening the file again from the tree or a terminal link must take the
+	// tab out of diff view, so the diff request is replaced by an edit one.
+	layout.getState().openFile("src/app.ts");
+	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(false);
+	expect(layout.getState().consumePendingEdit("file:src/app.ts")).toBe(true);
+	expect(layout.getState().consumePendingEdit("file:src/app.ts")).toBe(false);
+});
+
+test("asking for the diff cancels an edit request that was waiting", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	layout.getState().openFile("src/app.ts", { diff: true });
+	expect(layout.getState().consumePendingEdit("file:src/app.ts")).toBe(false);
+	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
+});
+
+test("closing a file tab forgets the editor request it was waiting for", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	layout.getState().closeTab("file:src/app.ts");
+	expect(layout.getState().pendingEdit).toEqual({});
+});
+
+test("a file's zoom is kept for the session and dropped with the tab", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	layout.getState().setZoom("src/app.ts", 130);
+	expect(layout.getState().zooms).toEqual({ "src/app.ts": 130 });
+	layout.getState().closeTab("file:src/app.ts");
+	expect(layout.getState().zooms).toEqual({});
+});
+
 test("a file tab's view state is kept and dropped with the tab", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts");

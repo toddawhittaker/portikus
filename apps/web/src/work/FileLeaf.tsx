@@ -86,6 +86,10 @@ export interface FileLeafProps {
 	pendingDiff?: number;
 	/** Take that request from the layout store, so it is acted on once. */
 	consumePendingDiff?: () => boolean;
+	/** Counts the times this tab was asked to show the editor again. */
+	pendingEdit?: number;
+	/** Take that request from the layout store, so it is acted on once. */
+	consumePendingEdit?: () => boolean;
 	/** False while this tab is in the background. */
 	visible?: boolean;
 }
@@ -99,6 +103,8 @@ export function FileLeaf({
 	consumePendingLine,
 	pendingDiff,
 	consumePendingDiff,
+	pendingEdit,
+	consumePendingEdit,
 	visible = true,
 }: FileLeafProps) {
 	// The student's own editor settings (issue #159). They load once per
@@ -123,6 +129,11 @@ export function FileLeaf({
 	// A conflict opens as a diff; the student can put it aside and carry on
 	// typing, and the banner brings the diff back (issue #158).
 	const [showConflict, setShowConflict] = useState(false);
+	// Counts the edits made on the conflict side. The editor below only takes
+	// new text when its version changes, and typing in the conflict diff does
+	// not change the etag, so without this counter "Keep editing" would come
+	// back to an editor still holding the text from before those keystrokes.
+	const [conflictEdits, setConflictEdits] = useState(0);
 	// Which view this tab shows. It belongs to this browser and is not saved.
 	const [view, setView] = useState<View>("edit");
 	const markdown = isMarkdownPath(path);
@@ -179,6 +190,15 @@ export function FileLeaf({
 	useEffect(() => {
 		if (consumeDiff.current?.()) setView("diff");
 	}, [pendingDiff]);
+
+	// Opening the file again from the tree or a terminal link takes a tab that
+	// was left in diff view back to the editor.
+	const consumeEdit = useRef(consumePendingEdit);
+	consumeEdit.current = consumePendingEdit;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: pendingEdit is the trigger
+	useEffect(() => {
+		if (consumeEdit.current?.()) setView("edit");
+	}, [pendingEdit]);
 
 	// The save reads the newest text and etag, not the ones captured when the
 	// timer was set.
@@ -296,6 +316,12 @@ export function FileLeaf({
 		setStatus("unsaved");
 		// With auto-save off the text waits for Ctrl+S (SPEC.md §13.5).
 		if (settingsRef.current.autoSave) scheduleSave();
+	}
+
+	/** A keystroke on the student's side of the conflict diff (issue #158). */
+	function onConflictChange(next: string) {
+		setConflictEdits((count) => count + 1);
+		onChange(next);
 	}
 
 	function saveNow() {
@@ -467,8 +493,9 @@ export function FileLeaf({
 			<Suspense fallback={<p className="pk-file-note">Loading editor…</p>}>
 				<CodeEditor
 					path={path}
+					projectId={projectId}
 					value={text}
-					version={etag}
+					version={`${etag}:${conflictEdits}`}
 					onChange={onChange}
 					onSave={saveNow}
 					wordWrap={settings.wordWrap ? "on" : "off"}
@@ -547,7 +574,7 @@ export function FileLeaf({
 					modified={text}
 					version={conflict.etag}
 					editable
-					onChange={onChange}
+					onChange={onConflictChange}
 					testId={`conflict-editor-${path}`}
 				/>
 			</Suspense>

@@ -6,8 +6,9 @@
  * this browser and are kept in localStorage instead (local.ts, issue #161).
  */
 import type { ProjectLayout } from "@portikus/contracts";
-import { createContext, useCallback, useContext, useRef } from "react";
+import { createContext, useCallback, useContext, useRef, useState } from "react";
 import { createStore, useStore } from "zustand";
+import { DEFAULT_ZOOM } from "../editor/zoom.js";
 import type { LocalLayout } from "./local.js";
 import * as tree from "./tree.js";
 
@@ -27,11 +28,23 @@ export interface LayoutState {
 	 */
 	pendingDiff: Record<string, number>;
 	/**
+	 * Which file tabs have been asked to show the editor again, counted the
+	 * same way. Reopening a file from the tree or a terminal link must take a
+	 * tab that is showing its diff back to the editor.
+	 */
+	pendingEdit: Record<string, number>;
+	/**
 	 * Monaco's view state (cursor, selections, scroll) for each open file, by
 	 * project-relative path. It belongs to this browser, so it is kept beside
 	 * the layout rather than in the saved document (issue #161).
 	 */
 	viewStates: Record<string, unknown>;
+	/**
+	 * The editor zoom of each open file, by project-relative path. Issue #162
+	 * asks for zoom that lasts the session only, so this one lives here and is
+	 * never written to this browser's storage.
+	 */
+	zooms: Record<string, number>;
 	dirty: boolean;
 	/** Replace the whole layout with what the server had saved. */
 	load: (layout: ProjectLayout) => void;
@@ -49,6 +62,8 @@ export interface LayoutState {
 	consumePendingLine: (tabId: string) => number | undefined;
 	/** Read and forget whether a file tab was asked to show its diff. */
 	consumePendingDiff: (tabId: string) => boolean;
+	/** Read and forget whether a file tab was asked to show the editor. */
+	consumePendingEdit: (tabId: string) => boolean;
 	splitLeaf: (
 		terminalId: string,
 		direction: tree.SplitDirection,
@@ -70,6 +85,8 @@ export interface LayoutState {
 	setActive: (tabId: string) => void;
 	/** Remember where the cursor and scroll are in one open file. */
 	setViewState: (path: string, viewState: unknown) => void;
+	/** Remember the editor zoom of one open file for this session. */
+	setZoom: (path: string, percent: number) => void;
 	/** Put back what this browser remembered for this project (issue #161). */
 	restoreLocal: (local: LocalLayout) => void;
 	setFocused: (terminalId: string | null) => void;
@@ -117,7 +134,9 @@ export function createLayoutStore() {
 			focusedTerminalId: null,
 			pendingLine: {},
 			pendingDiff: {},
+			pendingEdit: {},
 			viewStates: {},
+			zooms: {},
 			dirty: false,
 
 			load: (saved) =>
@@ -155,15 +174,23 @@ export function createLayoutStore() {
 				// Always write the key, so a stale line from an earlier open goes.
 				if (line === undefined) delete pendingLine[opened.tabId];
 				else pendingLine[opened.tabId] = line;
+				// Exactly one of the two is asked for, so a tab left in diff view
+				// goes back to the editor when the file is opened again.
 				const pendingDiff = { ...state.pendingDiff };
+				const pendingEdit = { ...state.pendingEdit };
 				if (options?.diff) {
 					pendingDiff[opened.tabId] = (pendingDiff[opened.tabId] ?? 0) + 1;
+					delete pendingEdit[opened.tabId];
+				} else {
+					pendingEdit[opened.tabId] = (pendingEdit[opened.tabId] ?? 0) + 1;
+					delete pendingDiff[opened.tabId];
 				}
 				set({
 					layout: opened.layout,
 					activeTabId: opened.tabId,
 					pendingLine,
 					pendingDiff,
+					pendingEdit,
 					dirty: state.dirty || opened.layout !== state.layout,
 				});
 				return true;
@@ -175,10 +202,15 @@ export function createLayoutStore() {
 				set((state) => {
 					const { [tabId]: _line, ...pendingLine } = state.pendingLine;
 					const { [tabId]: _diff, ...pendingDiff } = state.pendingDiff;
+					const { [tabId]: _edit, ...pendingEdit } = state.pendingEdit;
 					const viewStates = { ...state.viewStates };
+					const zooms = { ...state.zooms };
 					// Nothing to put back next time: the file tab is gone.
-					if (closing?.root.type === "file") delete viewStates[closing.root.path];
-					return { pendingLine, pendingDiff, viewStates };
+					if (closing?.root.type === "file") {
+						delete viewStates[closing.root.path];
+						delete zooms[closing.root.path];
+					}
+					return { pendingLine, pendingDiff, pendingEdit, viewStates, zooms };
 				});
 			},
 
@@ -199,6 +231,17 @@ export function createLayoutStore() {
 					set((state) => {
 						const { [tabId]: _gone, ...rest } = state.pendingDiff;
 						return { pendingDiff: rest };
+					});
+				}
+				return asked;
+			},
+
+			consumePendingEdit: (tabId) => {
+				const asked = get().pendingEdit[tabId] !== undefined;
+				if (asked) {
+					set((state) => {
+						const { [tabId]: _gone, ...rest } = state.pendingEdit;
+						return { pendingEdit: rest };
 					});
 				}
 				return asked;
@@ -255,6 +298,9 @@ export function createLayoutStore() {
 
 			setViewState: (path, viewState) =>
 				set((state) => ({ viewStates: { ...state.viewStates, [path]: viewState } })),
+
+			setZoom: (path, percent) =>
+				set((state) => ({ zooms: { ...state.zooms, [path]: percent } })),
 
 			// The saved layout usually arrives after this, and its load keeps an
 			// active tab that still exists, so the remembered tab survives.
@@ -326,6 +372,28 @@ export function useEditorViewState(path: string): {
 		[store, path],
 	);
 	return { initial: initial.current.value, save };
+}
+
+/**
+ * The editor zoom of one open file (issue #162). It is held in the layout
+ * store, beside the cursor and scroll position, so there is one place that
+ * remembers what a tab looked like; unlike those it is never written to this
+ * browser's storage, so a reload starts at 100% again. A file tab rendered
+ * outside a workspace has no store and simply keeps its own zoom.
+ */
+export function useEditorZoom(path: string): [number, (percent: number) => void] {
+	const store = useContext(LayoutStoreContext);
+	const [zoom, setLocal] = useState(
+		() => store?.getState().zooms[path] ?? DEFAULT_ZOOM,
+	);
+	const set = useCallback(
+		(percent: number) => {
+			setLocal(percent);
+			store?.getState().setZoom(path, percent);
+		},
+		[store, path],
+	);
+	return [zoom, set];
 }
 
 /** Read one slice of a layout store. */

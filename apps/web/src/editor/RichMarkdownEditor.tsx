@@ -34,12 +34,7 @@ import {
 	UndoRedo,
 } from "@mdxeditor/editor";
 import { type Ref, useEffect, useRef } from "react";
-import {
-	debounce,
-	endWithNewline,
-	isIncomingNew,
-	isOutgoingNew,
-} from "./markdownSync.js";
+import { debounce, endWithNewline, hasChanged } from "./markdownSync.js";
 import "@mdxeditor/editor/style.css";
 import "./markdown.css";
 import "./rich-markdown.css";
@@ -140,7 +135,7 @@ export function RichMarkdownEditor({
 	// An edit on the code side has to be loaded here; MDXEditor reads its
 	// `markdown` prop only when it mounts.
 	useEffect(() => {
-		if (!isIncomingNew(seen.current, text)) return;
+		if (!hasChanged(seen.current, text)) return;
 		seen.current = text;
 		push.current.cancel();
 		loading.current = true;
@@ -173,7 +168,7 @@ export function RichMarkdownEditor({
 						seen.current = next;
 						return;
 					}
-					if (!isOutgoingNew(seen.current, next)) return;
+					if (!hasChanged(seen.current, next)) return;
 					seen.current = next;
 					push.current.call(next);
 				}}

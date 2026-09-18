@@ -50,7 +50,9 @@ const state: {
 	/** The options the editor was created with, and every later change. */
 	created: Record<string, unknown> | null;
 	updates: Record<string, unknown>[];
-} = { model: null, created: null, updates: [] };
+	/** The names the editor gave its models, newest last. */
+	uris: string[];
+} = { model: null, created: null, updates: [], uris: [] };
 /** The two sides of the conflict diff, once it has been created. */
 const diffState: { models: { original: FakeModel; modified: FakeModel } | null } = {
 	models: null,
@@ -94,6 +96,7 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 				// models are nobody else's to find.
 				if (uri) {
 					models.set(uri.value, model);
+					state.uris.push(uri.value);
 					state.model = model;
 				}
 				return model;
@@ -280,6 +283,7 @@ beforeEach(() => {
 	state.model = null;
 	state.created = null;
 	state.updates.length = 0;
+	state.uris.length = 0;
 	diffState.models = null;
 	gate = null;
 	restoredViewStates.length = 0;
@@ -766,6 +770,59 @@ test("Keep editing puts the conflict diff away and brings it back", async () => 
 
 	fireEvent.click(screen.getByTestId("keep-editing"));
 	expect(await screen.findByTestId(`conflict-editor-${PATH}`)).not.toBeNull();
+});
+
+test("Keep editing carries the conflict edits into the editor (issue #158)", async () => {
+	renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
+	await screen.findByTestId(`conflict-editor-${PATH}`);
+
+	typeInConflict("mine, merged by hand");
+	fireEvent.click(screen.getByTestId("keep-editing"));
+
+	// The editor below the diff has to hold what was typed in the diff, or
+	// the next keystroke would write the older text back over it.
+	await waitFor(() => expect(state.model?.getValue()).toBe("mine, merged by hand"));
+});
+
+test("the model is named after the project as well as the file (issue #160)", async () => {
+	renderLeaf();
+	await findEditor();
+	// Two projects can hold a README.md; one model must not serve both.
+	expect(state.uris.at(-1)).toBe(`pk:/${PROJECT}/${PATH}`);
+});
+
+test("opening a file again brings a tab in diff view back to the editor", async () => {
+	function Reopen() {
+		const [opened, setOpened] = useState(0);
+		return (
+			<>
+				<button type="button" data-testid="reopen" onClick={() => setOpened(1)}>
+					Open the file again
+				</button>
+				<FileLeaf
+					path={PATH}
+					workspaceId={WORKSPACE}
+					projectId={PROJECT}
+					onClose={() => {}}
+					pendingDiff={1}
+					consumePendingDiff={() => opened === 0}
+					pendingEdit={opened}
+					consumePendingEdit={() => opened === 1}
+				/>
+			</>
+		);
+	}
+	renderWithQuery(<Reopen />);
+	expect(await screen.findByTestId(`diff-pane-${PATH}`)).not.toBeNull();
+
+	fireEvent.click(screen.getByTestId("reopen"));
+
+	await waitFor(() => expect(screen.queryByTestId(`diff-pane-${PATH}`)).toBeNull());
+	expect(screen.getByTestId(`file-pane-${PATH}`).style.display).toBe("");
 });
 
 test("Take disk closes the conflict diff", async () => {

@@ -38,6 +38,10 @@ export interface TerminalGroupProps {
 	pendingDiff: number | undefined;
 	/** Read and forget whether a file tab was asked to show its diff. */
 	consumePendingDiff: () => boolean;
+	/** How many times this tab has been asked to show the editor again. */
+	pendingEdit: number | undefined;
+	/** Read and forget whether a file tab was asked to show the editor. */
+	consumePendingEdit: () => boolean;
 	/** The pane a drag is hovering, and the zone it would drop into. */
 	dropTarget?: { terminalId: string; edge: DropEdge } | null;
 }
@@ -91,6 +95,8 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					consumePendingLine={props.consumePendingLine}
 					pendingDiff={props.pendingDiff}
 					consumePendingDiff={props.consumePendingDiff}
+					pendingEdit={props.pendingEdit}
+					consumePendingEdit={props.consumePendingEdit}
 				/>
 			);
 		}
