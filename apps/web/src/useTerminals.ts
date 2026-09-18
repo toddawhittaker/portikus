@@ -43,7 +43,6 @@ export function useTerminals(
 		queryKey: key,
 		enabled: running,
 		refetchInterval: running ? REFETCH_MS : false,
-		refetchOnWindowFocus: true,
 		queryFn: () =>
 			request(TerminalList, `${url}?projectId=${encodeURIComponent(projectId)}`),
 	});
