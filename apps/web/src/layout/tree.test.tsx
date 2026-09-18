@@ -301,7 +301,7 @@ test("a pane dragged to the tab strip becomes its own tab at that position", () 
 	let layout = addTab(emptyLayout(), "a", "tab1");
 	layout = splitLeaf(layout, "a", "row", "b");
 	layout = addTab(layout, "c", "tab2");
-	const moved = moveLeafToNewTab(layout, "b", 1);
+	const moved = moveLeafToNewTab(layout, "b", 1, "new1");
 	expect(moved.tabs.map((tab) => tab.id)).toEqual(["tab1", "b", "tab2"]);
 	expect(moved.tabs[0]?.root).toEqual(leaf("a"));
 	expect(moved.tabs[1]?.root).toEqual(leaf("b"));
@@ -314,18 +314,18 @@ test("moving the only pane of a tab to the strip just moves that tab", () => {
 			{ id: "b", root: leaf("b") },
 		],
 	};
-	const moved = moveLeafToNewTab(layout, "b", 0);
+	const moved = moveLeafToNewTab(layout, "b", 0, "new1");
 	expect(moved.tabs.map((tab) => tab.id)).toEqual(["b", "a"]);
 });
 
 test("an out-of-range index lands at the nearest end of the strip", () => {
 	let layout = addTab(emptyLayout(), "a", "tab1");
 	layout = splitLeaf(layout, "a", "row", "b");
-	expect(moveLeafToNewTab(layout, "b", 99).tabs.map((tab) => tab.id)).toEqual([
+	expect(moveLeafToNewTab(layout, "b", 99, "new1").tabs.map((tab) => tab.id)).toEqual([
 		"tab1",
 		"b",
 	]);
-	expect(moveLeafToNewTab(layout, "b", -3).tabs.map((tab) => tab.id)).toEqual([
+	expect(moveLeafToNewTab(layout, "b", -3, "new1").tabs.map((tab) => tab.id)).toEqual([
 		"b",
 		"tab1",
 	]);
@@ -333,7 +333,7 @@ test("an out-of-range index lands at the nearest end of the strip", () => {
 
 test("moveLeafToNewTab ignores a terminal that has no pane", () => {
 	const layout = oneTab(leaf("a"));
-	expect(moveLeafToNewTab(layout, "zz", 0)).toBe(layout);
+	expect(moveLeafToNewTab(layout, "zz", 0, "new1")).toBe(layout);
 });
 
 test("a new tab past the tab limit is refused", () => {
@@ -352,5 +352,21 @@ test("a new tab past the tab limit is refused", () => {
 			...tabs.slice(1),
 		],
 	};
-	expect(moveLeafToNewTab(full, "extra", 0)).toBe(full);
+	expect(moveLeafToNewTab(full, "extra", 0, "fresh")).toBe(full);
+});
+
+test("a pane dragged out of a tab named after it gets a fresh tab id", () => {
+	// Reconcile names each tab after its terminal, so tab "a" holds leaf "a".
+	let layout = addTab(emptyLayout(), "a", "a");
+	layout = addTab(layout, "b", "b");
+	// Dragging b onto a's right edge leaves one tab, "a", holding both panes.
+	layout = moveLeaf(layout, "a", "b", "a", "right");
+	expect(layout.tabs.map((tab) => tab.id)).toEqual(["a"]);
+
+	// Pulling a back out must not make a second tab that is also called "a".
+	const moved = moveLeafToNewTab(layout, "a", 1, "fresh");
+	expect(moved.tabs.map((tab) => tab.id)).toEqual(["a", "fresh"]);
+	expect(new Set(moved.tabs.map((tab) => tab.id)).size).toBe(moved.tabs.length);
+	expect(moved.tabs[0]?.root).toEqual(leaf("b"));
+	expect(moved.tabs[1]?.root).toEqual(leaf("a"));
 });
