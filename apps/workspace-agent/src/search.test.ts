@@ -43,14 +43,40 @@ beforeAll(async () => {
 	await writeFile(join(projectDir, ".gitignore"), "secret.txt\n");
 	await writeFile(join(projectDir, "secret.txt"), "call a.b( hidden\n");
 
-	// A file with more lines than one search will return.
+	// One file with more matching lines than a single search will return.
 	const bulk = Array.from({ length: 501 }, () => "needle").join("\n");
 	await mkdir(join(projectDir, "bulk"), { recursive: true });
-	for (let file = 0; file < 11; file += 1) {
-		await writeFile(join(projectDir, "bulk", `f${file}.txt`), `${bulk}\n`);
-	}
+	await writeFile(join(projectDir, "bulk", "f0.txt"), `${bulk}\n`);
 
-	// One very long line: --max-columns does nothing in --json mode.
+	// Two matches two lines apart: line 11 is context for both.
+	await writeFile(
+		join(projectDir, "gap.txt"),
+		[
+			"l1",
+			"l2",
+			"l3",
+			"l4",
+			"l5",
+			"l6",
+			"l7",
+			"l8",
+			"l9",
+			"gapterm ten",
+			"eleven",
+			"gapterm twelve",
+		].join("\n"),
+	);
+
+	// A non-ASCII line, to show the column is a character offset.
+	await writeFile(join(projectDir, "utf8.txt"), "café needle\n");
+
+	// Two files where b.txt's context line number is a.txt's match line plus one.
+	const pair = join(homeDir, "projects", "pair");
+	await mkdir(pair, { recursive: true });
+	await writeFile(join(pair, "a.txt"), "x\nneedle\n");
+	await writeFile(join(pair, "b.txt"), "p\nq\ncontextline\nneedle\n");
+
+	// One very long line, to show the returned text is cut to 300 characters.
 	const wide = `${"x".repeat(200_000)}wideterm`;
 	const oneWide = join(homeDir, "projects", "wide-one");
 	await mkdir(oneWide, { recursive: true });
@@ -121,6 +147,29 @@ test.skipIf(!haveRg)("stops at the match limit and reports truncation", async ()
 	const result = await searchProject(homeDir, "demo", "needle", { hidden: false });
 	expect(result.matches).toHaveLength(500);
 	expect(result.truncated).toBe(true);
+});
+
+test.skipIf(!haveRg)("context never crosses a file boundary", async () => {
+	const result = await searchProject(homeDir, "pair", "needle", { hidden: false });
+	const a = result.matches.find((match) => match.path === "a.txt");
+	const b = result.matches.find((match) => match.path === "b.txt");
+	expect(a?.line).toBe(2);
+	expect(a?.after).toEqual([]);
+	expect(b?.line).toBe(4);
+	expect(b?.before).toEqual(["contextline"]);
+});
+
+test.skipIf(!haveRg)("a line between two matches is context for both", async () => {
+	const result = await searchProject(homeDir, "demo", "gapterm", { hidden: false });
+	expect(result.matches).toHaveLength(2);
+	expect(result.matches[0]?.after).toEqual(["eleven"]);
+	expect(result.matches[1]?.before).toEqual(["eleven"]);
+});
+
+test.skipIf(!haveRg)("the column counts characters, not bytes", async () => {
+	const result = await searchProject(homeDir, "demo", "needle", { hidden: false });
+	const match = result.matches.find((hit) => hit.path === "utf8.txt");
+	expect(match?.column).toBe(6);
 });
 
 test.skipIf(!haveRg)("aborting the signal kills ripgrep", async () => {

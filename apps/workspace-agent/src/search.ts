@@ -16,7 +16,7 @@ export interface SearchOptions {
 	onChild?: (child: ChildProcess) => void;
 }
 
-/** The longest slice of any line we return; --max-columns does nothing in JSON mode. */
+/** The longest slice of any line we return. */
 const MAX_LINE_CHARS = 300;
 
 /** How much line text one search may take from ripgrep before it gives up. */
@@ -52,19 +52,7 @@ export async function searchProject(
 		return { matches: [], truncated: false };
 	}
 
-	const args = [
-		"--json",
-		"-F",
-		"-S",
-		"-C1",
-		"--max-count",
-		"50",
-		"--max-columns",
-		"300",
-		"--max-filesize",
-		"1M",
-		"--no-follow",
-	];
+	const args = ["--json", "-F", "-S", "-C1", "--max-filesize", "1M", "--no-follow"];
 	if (options.hidden) {
 		args.push("-uu");
 	}
@@ -96,8 +84,13 @@ export async function searchProject(
 	options.signal?.addEventListener("abort", onAbort, { once: true });
 
 	// A context line before a match belongs to that match; one after belongs
-	// to the match we last saw. With -C1 there is at most one of each.
+	// to the match we last saw. With -C1 there is at most one of each, and a
+	// single line can serve as both when two matches are two lines apart.
 	let pendingBefore: { line: number; text: string } | undefined;
+	// The file ripgrep is currently reporting, from its `begin` message.
+	let currentFile: string | undefined;
+	// The file the most recent match came from, so context never crosses files.
+	let lastMatchFile: string | undefined;
 	// Counted before slicing, because that is the text ripgrep made us handle.
 	let textBytes = 0;
 
@@ -109,7 +102,20 @@ export async function searchProject(
 			return;
 		}
 		const data = message.data;
-		if (!data || data.line_number === undefined) {
+		if (!data) {
+			return;
+		}
+		if (message.type === "begin") {
+			currentFile = data.path?.text;
+			pendingBefore = undefined;
+			return;
+		}
+		if (message.type === "end") {
+			currentFile = undefined;
+			pendingBefore = undefined;
+			return;
+		}
+		if (data.line_number === undefined) {
 			return;
 		}
 		const fullText = stripNewline(data.lines?.text ?? "");
@@ -122,10 +128,16 @@ export async function searchProject(
 		const text = fullText.slice(0, MAX_LINE_CHARS);
 		if (message.type === "context") {
 			const last = matches.at(-1);
-			if (last && data.line_number === last.line + 1 && last.after.length === 0) {
+			if (
+				last &&
+				currentFile !== undefined &&
+				currentFile === lastMatchFile &&
+				data.line_number === last.line + 1 &&
+				last.after.length === 0
+			) {
 				last.after.push(text);
-				return;
 			}
+			// The same line may still be the `before` of the next match.
 			pendingBefore = { line: data.line_number, text };
 			return;
 		}
@@ -149,14 +161,17 @@ export async function searchProject(
 			return;
 		}
 		const before =
-			pendingBefore && pendingBefore.line === data.line_number - 1
+			pendingBefore &&
+			currentFile === pathText &&
+			pendingBefore.line === data.line_number - 1
 				? [pendingBefore.text]
 				: [];
 		pendingBefore = undefined;
+		lastMatchFile = pathText;
 		matches.push({
 			path: relativePath,
 			line: data.line_number,
-			column: (data.submatches?.[0]?.start ?? 0) + 1,
+			column: toColumn(fullText, data.submatches?.[0]?.start ?? 0),
 			text,
 			before,
 			after: [],
@@ -204,6 +219,15 @@ export async function searchProject(
 	}
 
 	return { matches: matches.slice(0, MAX_SEARCH_MATCHES), truncated };
+}
+
+/**
+ * ripgrep reports the match start as a byte offset; the API returns a
+ * 1-based character offset (packages/contracts/src/search.ts).
+ */
+function toColumn(lineText: string, byteStart: number): number {
+	const prefix = Buffer.from(lineText, "utf8").subarray(0, byteStart);
+	return prefix.toString("utf8").length + 1;
 }
 
 function stripNewline(text: string): string {

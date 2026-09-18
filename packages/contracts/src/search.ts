@@ -13,6 +13,8 @@ export const SEARCH_TIMEOUT_MS = 10_000;
 export const SearchMatch = z.object({
 	path: z.string(),
 	line: z.number().int().positive(),
+	// A 1-based character offset, which on a long line can be past the end of
+	// the 300-character `text` slice below.
 	column: z.number().int().positive(),
 	text: z.string(),
 	before: z.array(z.string()),

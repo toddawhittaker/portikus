@@ -304,7 +304,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 		});
 
-		registerSearchRoutes(instance, { homeDir: options.homeDir });
+		registerSearchRoutes(instance, options.homeDir);
 
 		instance.get("/projects/:slug/archive", async (request, reply) => {
 			const { slug } = request.params as { slug: string };

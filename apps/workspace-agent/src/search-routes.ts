@@ -3,15 +3,8 @@ import type { FastifyInstance } from "fastify";
 import { sendError } from "./errors.js";
 import { searchProject } from "./search.js";
 
-export interface SearchRouteOptions {
-	homeDir: string;
-}
-
 /** `GET /projects/:slug/search` (SPEC.md §11.5). */
-export function registerSearchRoutes(
-	app: FastifyInstance,
-	options: SearchRouteOptions,
-): void {
+export function registerSearchRoutes(app: FastifyInstance, homeDir: string): void {
 	app.get("/projects/:slug/search", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
 		const parsed = SearchQuery.safeParse(request.query ?? {});
@@ -25,7 +18,7 @@ export function registerSearchRoutes(
 		const controller = new AbortController();
 		request.raw.on("close", () => controller.abort());
 		try {
-			return await searchProject(options.homeDir, slug, parsed.data.q, {
+			return await searchProject(homeDir, slug, parsed.data.q, {
 				hidden: parsed.data.hidden,
 				signal: controller.signal,
 			});

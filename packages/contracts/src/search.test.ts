@@ -1,10 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-	MAX_SEARCH_MATCHES,
-	SEARCH_TIMEOUT_MS,
-	SearchQuery,
-	SearchResponse,
-} from "./search.js";
+import { SearchQuery, SearchResponse } from "./search.js";
 
 describe("SearchQuery", () => {
 	test("defaults hidden to false and keeps the query", () => {
@@ -29,6 +24,5 @@ test("a response carries matches and a truncation flag", () => {
 		truncated: true,
 	});
 	expect(parsed.matches[0]?.path).toBe("a.txt");
-	expect(MAX_SEARCH_MATCHES).toBe(500);
-	expect(SEARCH_TIMEOUT_MS).toBe(10_000);
+	expect(parsed.truncated).toBe(true);
 });
