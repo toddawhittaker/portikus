@@ -4,6 +4,7 @@
 :root, [data-density="comfortable"] {
   --pk-control: var(--density-comfortable-control);
   --pk-row: var(--density-comfortable-row);
+  --pk-tree-row: var(--density-comfortable-tree-row);
   --pk-tab: var(--density-comfortable-tab);
   --pk-pad: var(--density-comfortable-pad);
   --pk-font: var(--density-comfortable-font);
@@ -12,6 +13,7 @@
 [data-density="compact"] {
   --pk-control: var(--density-compact-control);
   --pk-row: var(--density-compact-row);
+  --pk-tree-row: var(--density-compact-tree-row);
   --pk-tab: var(--density-compact-tab);
   --pk-pad: var(--density-compact-pad);
   --pk-font: var(--density-compact-font);

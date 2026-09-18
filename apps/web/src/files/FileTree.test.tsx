@@ -285,6 +285,113 @@ describe("the file tree", () => {
 		expect(await screen.findByText("In the project root.")).toBeDefined();
 	});
 
+	/** Issue #185: the icon says what kind of file the row holds. */
+	it("draws a different icon for a markdown file and a TypeScript file", async () => {
+		renderPane();
+		fireEvent.click(await screen.findByText("src"));
+		await screen.findByText("app.ts");
+
+		const md = screen
+			.getByTestId("file-row-README.md")
+			.querySelector("[data-icon^=file]");
+		const ts = screen
+			.getByTestId("file-row-src/app.ts")
+			.querySelector("[data-icon^=file]");
+		expect(md?.getAttribute("data-icon")).toBe("file-markdown");
+		expect(ts?.getAttribute("data-icon")).toBe("file-code");
+	});
+
+	/** SPEC.md §11.2, issue #182: Ctrl-click selects more than one row. */
+	it("deletes every selected row after one confirmation", async () => {
+		const deleted: string[] = [];
+		stubFetch((url, init) => {
+			if (init?.method === "DELETE") {
+				deleted.push(url);
+				return json(204, null);
+			}
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=src")) return json(200, SRC);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+
+		fireEvent.click(await screen.findByText("README.md"));
+		fireEvent.click(screen.getByText("src"), { ctrlKey: true });
+		await waitFor(() =>
+			expect(screen.getByTestId("file-row-src").getAttribute("data-selected")).toBe(
+				"true",
+			),
+		);
+
+		fireEvent.keyDown(screen.getByTestId("file-menu-README.md"), { key: "Enter" });
+		fireEvent.click(await screen.findByText("Delete 2 items…"));
+
+		const dialog = await screen.findByTestId("dialog-delete-file");
+		expect(dialog.textContent).toContain("Delete 2 items");
+		// The names are listed in the order the rows are drawn.
+		expect(dialog.textContent).toContain("src, README.md");
+		fireEvent.click(screen.getByTestId("dialog-confirm"));
+
+		await waitFor(() => expect(deleted).toHaveLength(2));
+		expect(deleted.some((url) => url.includes("path=README.md"))).toBe(true);
+		expect(deleted.some((url) => url.includes("path=src"))).toBe(true);
+	});
+
+	/** A Ctrl-click changes the selection without opening the file. */
+	it("does not open a file that is Ctrl-clicked", async () => {
+		const store = renderPane();
+		fireEvent.click(await screen.findByText("README.md"), { ctrlKey: true });
+
+		await waitFor(() =>
+			expect(
+				screen.getByTestId("file-row-README.md").getAttribute("data-selected"),
+			).toBe("true"),
+		);
+		expect(store.getState().layout.tabs).toEqual([]);
+	});
+
+	/** Issue #183: dragging an upload over the pane shows where it will land. */
+	it("highlights the whole pane while a file is dragged over the root", async () => {
+		renderPane();
+		const body = await screen.findByTestId("file-tree-body");
+		expect(body.getAttribute("data-upload-root")).toBeNull();
+
+		fireEvent.dragEnter(body, { dataTransfer: { types: ["Files"] } });
+
+		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBe("true"));
+		expect(screen.getByTestId("file-tree-root-hint").textContent).toContain(
+			"Drop to upload to",
+		);
+
+		fireEvent.dragLeave(body);
+		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBeNull());
+	});
+
+	/** Issue #186: the name field is ready to type into. */
+	it("focuses the name field when the New file dialog opens", async () => {
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("files-more"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("files-more-new-file"));
+
+		const field = await screen.findByTestId("field-file-name");
+		await waitFor(() => expect(document.activeElement).toBe(field));
+	});
+
+	/** The rename dialog opens with the old name selected, ready to replace. */
+	it("focuses and selects the name in the rename dialog", async () => {
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {
+			key: "Enter",
+		});
+		fireEvent.click(await screen.findByTestId("row-rename"));
+
+		const field = (await screen.findByTestId("field-file-name")) as HTMLInputElement;
+		await waitFor(() => expect(document.activeElement).toBe(field));
+		expect(field.selectionStart).toBe(0);
+		expect(field.selectionEnd).toBe("README.md".length);
+	});
+
 	it("offers a download link for each file", async () => {
 		renderPane();
 		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {
