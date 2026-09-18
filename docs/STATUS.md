@@ -374,15 +374,20 @@ Epic 7.1 is a batch of fixes and small features from the first hands-on
 use of the pilot after Epic 7, gathered on 2026-09-18 and landed as
 individual pull requests into the epic branch.
 
-**Editor.** Markdown tabs gain a rich editing view: the three views are
-now Code, Rich, and Split, the rich view is MDXEditor with a toolbar for
-headings, bold, italic, inline code, lists, links, code blocks, tables,
-and quotes, and both sides of Split edit the same buffer through the same
-auto-save and Ctrl+S path. MDXEditor treats Markdown as the source of
-truth, so the save path did not change, and it is loaded lazily like
-Monaco, adding 556 KB to the build and nothing to the first load. The
-read-only preview, its front-matter splitter, and react-markdown had no
-other user and were removed (§13.4; ADR 0017) (#155). Editor settings — auto-save, its delay, and word wrap — now persist per
+**Editor.** A Markdown tab is always a split: Monaco holds the raw
+Markdown on the left, and the right pane shows a read-only rendered
+preview, or this file's diff when the one Diff button is on. There are no
+Code, Rich, and Split buttons and no rich-text toolbar any more. The rich
+MDXEditor view that landed earlier in this epic (#155) was taken out
+again after use: a second editing surface over one buffer brought its own
+Markdown dialect and its own parse failures, and the raw text beside a
+preview is what students wanted. `@mdxeditor/editor` and `lexical` are
+gone from the web app, and react-markdown with remark-gfm and
+remark-frontmatter is back. The two sides are kept at the same relative
+position, and each side now ignores exactly the position it last asked
+the other one for, instead of muting itself for a frame: the old flag
+dropped a student's own wheel scrolls, which is why synchronized
+scrolling looked broken on the pilot (§13.4) (#155, #218). Editor settings — auto-save, its delay, and word wrap — now persist per
 user: a `users.editor_settings` JSONB column holds whatever the student
 has changed, `GET`/`PUT /me/settings` read and write only the signed-in
 user's own row, and an account-menu dialog reaches all three, with the
@@ -418,15 +423,11 @@ the editor and preview at the same relative position as either side
 scrolls, and the code side's scrollbar is now drawn in a visible colour on
 both editor themes (#154).
 
-The rich Markdown view no longer loses a file that contains raw HTML.
-Turning HTML processing off had left the editor with no handler for an
-HTML node, so it stopped at the first one, showed only the text above it,
-and silently dropped every keystroke typed in that pane; a single
-agent-written HTML comment was enough. Raw HTML is now shown as its own
-source text through a custom visitor that never builds a DOM from it,
-Markdown images render with an http(s)-or-relative address allowlist, and
-a file the importer still cannot read drops the tab to the Code view with
-a short notice instead of losing keystrokes.
+The rich view's own failures — a file that stopped at the first raw HTML
+node, and the keystrokes that were dropped after it — went away with the
+rich view itself (#218). The preview renders raw HTML as text, so nothing
+in a file is lost or run, and images render with react-markdown's own
+address check.
 
 **Files pane.** The header's three-dots menu and an empty project's own
 empty state now offer New file and New folder on the project root, the
@@ -532,7 +533,7 @@ crashed run; CI now classifies infra documentation and shell scripts
 correctly from one shared change-detection job; and the clipboard shim
 treats a selection name given as an argument the same as one piped in.
 Duplication the parallel builders had introduced in the batch was also
-removed: one shared `hasChanged` check, one scroll listener, one tree
+removed: one scroll listener, one tree
 query, one way to make a menu item a link, and zoom handled in one place
 in the layout store. A security review of the batch is described above
 under Terminal and image, which found and closed four issues in the web
@@ -556,10 +557,7 @@ update-check setting belongs with the rest of agent configuration in Epic
 flake once during the batch (an admin grace-period toast, a full tab
 strip, reviving both ended panes, and the two conflict-diff tests before
 auto-save was turned off in their setup) and are worth watching rather
-than fixing blind. Reference-style links and images (`[text][id]`) still
-send the tab to Code view; relative image paths resolve against the app
-origin and show as broken images. An unusual Markdown
-dialect is normalised the first time it is edited in the Rich view; and
-the default Markdown view is now Rich rather than Code. Parallel local
+than fixing blind. Relative image paths in the Markdown
+preview resolve against the app origin and show as broken images. Parallel local
 end-to-end runs still collide on fixed ports and one shared database;
 per-run e2e ports and database are tracked in `docs/BACKLOG.md`.

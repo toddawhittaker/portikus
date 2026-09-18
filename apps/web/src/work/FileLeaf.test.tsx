@@ -643,55 +643,74 @@ test("a deleted file says so and can be closed", async () => {
 
 const MD_PATH = "README.md";
 
-/** Open a Markdown tab and wait for both panels to be on the page. */
+/** Open a Markdown tab and wait for both panes to be on the page. */
 async function renderMarkdownLeaf() {
 	seed = { text: "# Notes\n", etag: "etag-0" };
 	renderLeaf(() => {}, MD_PATH);
 	await findEditor(MD_PATH);
-	await screen.findByTestId("markdown-rich");
+	await screen.findByTestId("markdown-preview");
 }
 
-test("a Markdown file opens in the rich view with all three views offered", async () => {
+test("a Markdown file opens as a split of the raw text and the preview", async () => {
 	await renderMarkdownLeaf();
-	expect(screen.getByTestId("markdown-mode-code").textContent).toBe("Code");
-	expect(screen.getByTestId("markdown-mode-rich").textContent).toBe("Rich");
-	expect(screen.getByTestId("markdown-mode-split").textContent).toBe("Split");
-	expect(screen.getByTestId("markdown-mode-rich").getAttribute("aria-pressed")).toBe(
-		"true",
-	);
-	expect(screen.getByTestId("md-rich-pane").hasAttribute("hidden")).toBe(false);
-	expect(screen.getByTestId("md-code-pane").hasAttribute("hidden")).toBe(true);
+	expect(screen.getByTestId("md-code-pane")).not.toBeNull();
+	expect(screen.getByTestId("md-preview-pane")).not.toBeNull();
+	// No view buttons are left: the split is the only layout (issue #218).
+	expect(screen.queryByTestId("markdown-mode-code")).toBeNull();
+	expect(screen.queryByTestId("markdown-mode-rich")).toBeNull();
+	expect(screen.queryByTestId("markdown-mode-split")).toBeNull();
 });
 
-test("Code hides the rich view instead of unmounting the editor", async () => {
+test("the Markdown preview is read-only", async () => {
 	await renderMarkdownLeaf();
-	act(() => screen.getByTestId("markdown-mode-code").click());
+	const preview = screen.getByTestId("markdown-preview");
+	expect(preview.getAttribute("contenteditable")).toBeNull();
+	expect(preview.querySelector("[contenteditable]")).toBeNull();
+});
 
-	expect(screen.getByTestId("md-rich-pane").hasAttribute("hidden")).toBe(true);
-	expect(screen.queryByTestId("markdown-rich")).toBeNull();
-	expect(screen.getByTestId("md-code-pane").hasAttribute("hidden")).toBe(false);
+test("a Markdown tab has one Diff button, which swaps the preview for the diff", async () => {
+	await renderMarkdownLeaf();
+	expect(screen.queryByTestId(`file-view-edit-${MD_PATH}`)).toBeNull();
+	const button = screen.getByTestId(`file-view-diff-${MD_PATH}`);
+	expect(button.getAttribute("aria-pressed")).toBe("false");
+
+	fireEvent.click(button);
+	expect(await screen.findByTestId(`diff-pane-${MD_PATH}`)).not.toBeNull();
+	// The raw text stays on screen and editable beside the diff.
+	expect(screen.getByTestId(`file-pane-${MD_PATH}`).style.display).toBe("");
 	expect(screen.getByTestId(`editor-${MD_PATH}`)).not.toBeNull();
+	expect(screen.queryByTestId("markdown-preview")).toBeNull();
+	expect(
+		screen.getByTestId(`file-view-diff-${MD_PATH}`).getAttribute("aria-pressed"),
+	).toBe("true");
+
+	// The same button turns the diff off again.
+	fireEvent.click(screen.getByTestId(`file-view-diff-${MD_PATH}`));
+	expect(screen.queryByTestId(`diff-pane-${MD_PATH}`)).toBeNull();
+	expect(await screen.findByTestId("markdown-preview")).not.toBeNull();
 });
 
-test("switching views keeps the editor's model, so undo and cursor survive", async () => {
+test("showing and hiding the diff keeps the editor's model, so undo survives", async () => {
 	await renderMarkdownLeaf();
 	const model = state.model;
 	expect(model).not.toBeNull();
 
-	act(() => screen.getByTestId("markdown-mode-code").click());
-	act(() => screen.getByTestId("markdown-mode-split").click());
-	act(() => screen.getByTestId("markdown-mode-rich").click());
+	fireEvent.click(screen.getByTestId(`file-view-diff-${MD_PATH}`));
+	await screen.findByTestId(`diff-pane-${MD_PATH}`);
+	fireEvent.click(screen.getByTestId(`file-view-diff-${MD_PATH}`));
 
 	// A disposed model would have lost the undo history with it.
 	expect(model?.disposed).toBe(false);
 	expect(state.model).toBe(model);
 });
 
-test("a file that is not Markdown offers no view buttons", async () => {
+test("a file that is not Markdown is one editor, with Edit and Diff", async () => {
 	renderLeaf();
 	await findEditor();
-	expect(screen.queryByTestId("markdown-mode-code")).toBeNull();
 	expect(screen.queryByTestId("markdown-split")).toBeNull();
+	expect(screen.queryByTestId("markdown-preview")).toBeNull();
+	expect(screen.getByTestId(`file-view-edit-${PATH}`)).not.toBeNull();
+	expect(screen.getByTestId(`file-view-diff-${PATH}`)).not.toBeNull();
 });
 
 /** Asking for a line while the tab is already open, as a search result does. */
@@ -980,38 +999,20 @@ test("moving the cursor is remembered for the next mount (issue #161)", async ()
 	expect(store.getState().viewStates[PATH]).toEqual({ line: 3 });
 });
 
-test("Markdown the rich view cannot read falls back to the code view (ADR 0017)", async () => {
-	// A reference-style link: MDXEditor's importer cannot read it, and while
-	// it is in that state the rich view shows only part of the file and drops
-	// every keystroke. The tab must not leave a student there.
-	seed = {
-		text: "See [the docs][d].\n\n[d]: https://example.invalid/\n\nAfter.\n",
-		etag: "etag-0",
-	};
-	renderLeaf(() => {}, "README.md");
-	const notice = await screen.findByTestId("rich-unsupported");
-	expect(notice.textContent).toContain("editing in Code view");
-	// The code view is the one on screen, and the other two are not offered.
-	expect(screen.getByTestId("markdown-mode-code").getAttribute("aria-pressed")).toBe(
-		"true",
-	);
-	expect(screen.getByTestId("markdown-mode-rich").hasAttribute("disabled")).toBe(true);
-	expect(screen.getByTestId("markdown-mode-split").hasAttribute("disabled")).toBe(true);
-	// Monaco holds the whole file, so no keystroke is lost.
-	await findEditor("README.md");
-	expect(state.model?.getValue()).toContain("After.");
-});
-
-test("Markdown with a badge and an HTML comment stays in the rich view", async () => {
+test("the Markdown preview shows the whole file, HTML included (issue #213)", async () => {
 	seed = {
 		text: "# Project\n\n![build](https://img.example/b.svg)\n\n<!-- a note -->\n\nHow to run it.\n",
 		etag: "etag-0",
 	};
 	renderLeaf(() => {}, "README.md");
-	const rich = await screen.findByTestId("markdown-rich");
-	await waitFor(() => expect(rich.textContent).toContain("How to run it."));
-	expect(rich.textContent).toContain("<!-- a note -->");
-	expect(screen.queryByTestId("rich-unsupported")).toBeNull();
+	const preview = await screen.findByTestId("markdown-preview");
+	await waitFor(() => expect(preview.textContent).toContain("How to run it."));
+	// Raw HTML is text in the preview, never markup the browser builds.
+	expect(preview.textContent).toContain("<!-- a note -->");
+	expect(preview.querySelector("img")?.getAttribute("alt")).toBe("build");
+	// The raw text is beside it, in Monaco.
+	await findEditor("README.md");
+	expect(state.model?.getValue()).toContain("How to run it.");
 });
 
 test("a save refused while the file on disk is still ours saves again (issue #157)", async () => {

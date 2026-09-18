@@ -1,6 +1,10 @@
 # 0017. Rich Markdown editing with MDXEditor
 
-- **Status**: Accepted
+- **Status**: Reversed (issue #218, later in Epic 7.1). The rich view and
+  MDXEditor were removed. A Markdown tab is now always a split of the raw
+  Markdown in Monaco and a read-only `react-markdown` preview, which puts
+  ADR 0015's Markdown rendering back in force. This record is kept for the
+  reasoning, not as a description of what ships.
 - **Date**: 2026-09-18
 - **References**: SPEC.md §13.2, §13.4, §24.2; STACK.md §3; ADR 0015
 
