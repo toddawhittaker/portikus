@@ -133,9 +133,11 @@ name Caddy serves on that VM; without it the HTTPS checks fall back to
   only through a pull request.
 - Work happens on short-lived task branches cut from the epic branch, named
   `<epic-slug>/<task>`. A task branch is merged into its epic by pull
-  request, squash merge.
-- When an epic's acceptance criteria are met, the epic branch is merged into
-  `main` by pull request, merge commit, so the epic's history is kept.
+  request, squash merge. Once its CI is green, the merger agent lands it
+  and deletes the branch; no person reviews a task pull request.
+- When an epic's acceptance criteria are met and its epic-level review is
+  done (see "Pull requests" below), the epic branch is merged into `main`
+  by pull request, merge commit, so the epic's history is kept.
 - To sync changes from `main` into an epic branch, create a short-lived
   branch from the epic, merge `main` into it, and open a pull request back
   into the epic branch. The branch ruleset requires a PR for every push to
@@ -148,9 +150,30 @@ Every pull request cites the SPEC.md and STACK.md sections it serves and
 says how it was verified. The template asks for both. CI must be green.
 A pull request branch must be up to date with its base before it is merged;
 `gh pr update-branch <number>` does that.
-Anything touching auth, the preview gateway, the workspace agent, file APIs,
-Incus, or nested Docker is reviewed by the security-reviewer agent before
-merge.
+
+There are two kinds of pull request, merged by different people at
+different times:
+
+- A task pull request, from a task branch into its epic branch, is merged
+  by the merger agent as soon as its CI is green. No one reviews it by
+  hand; review happens once, later, over the whole epic.
+- An epic pull request, from an epic branch into `main`, is opened only
+  after every task pull request for that epic has landed, security-reviewer
+  (when the epic touches auth, the preview gateway, the workspace agent,
+  file APIs, Incus, or nested Docker) and code-reviewer have run over the
+  epic branch's head, every finding they required has been fixed or
+  explicitly deferred, and the full local battery (`make check` plus
+  Playwright against a fresh database) is green. Only the user merges an
+  epic pull request into `main`.
+
+The merger agent reruns a task pull request's CI up to twice when a failure
+looks like a flake, a test unrelated to the change failing on a
+timing-shaped error that also passed on an earlier run. A failure that
+touches the changed files, or repeats after a rerun, is escalated to the
+orchestrator rather than retried again; the merger agent never edits code
+to make a check pass. `.claude/settings.json` grants agents permission to
+run `gh pr merge` and read-only `gh` calls, which is what lets merger land
+task pull requests without asking each time.
 
 ## CI
 

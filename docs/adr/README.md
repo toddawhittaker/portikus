@@ -44,3 +44,4 @@ has four sections:
 | [0013](0013-file-api-in-the-workspace-agent.md) | The file API lives in the workspace agent, with conditional writes |
 | [0014](0014-filesystem-events-over-a-per-project-websocket.md) | Filesystem events over a per-project WebSocket |
 | [0015](0015-editor-stack.md) | Editor stack: bundled Monaco and react-markdown |
+| [0016](0016-automatic-task-merges-with-epic-level-review.md) | Automatic task merges with epic-level review |
