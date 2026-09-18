@@ -3,9 +3,12 @@
  * the viewer flow (SPEC.md §13.2, §13.3, §13.5). Monaco itself is replaced
  * by a fake, so these tests are about the states, not about rendering text.
  */
+
+import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type { FileContent } from "../files/queries.js";
 import { renderWithQuery } from "../test-utils.js";
 import { FileLeaf } from "./FileLeaf.js";
 
@@ -165,21 +168,25 @@ function stubServer() {
 				body,
 				keepalive: init?.keepalive === true,
 			});
-			if (gate) await gate.promise;
 			const creating = headers.get("if-none-match") === "*";
 			if (!creating && headers.get("if-match") !== seed.etag) {
+				if (gate) await gate.promise;
 				return new Response(
 					JSON.stringify({ error: { code: "FILE_CHANGED", message: "changed" } }),
 					{ status: 412, headers: { etag: seed.etag } },
 				);
 			}
+			// The disk changes as soon as the write arrives; only the answer is
+			// held back, the way a slow response really behaves.
 			seed = { ...seed, status: 200, text: body, etag: `etag-${requests.length}` };
 			const payload = seed.noWriteEtag
 				? { size: body.length }
 				: { etag: seed.etag, size: body.length };
+			const savedEtag = seed.etag;
+			if (gate) await gate.promise;
 			return new Response(JSON.stringify(payload), {
 				status: 200,
-				headers: { "content-type": "application/json", etag: seed.etag },
+				headers: { "content-type": "application/json", etag: savedEtag },
 			});
 		}),
 	);
@@ -218,6 +225,20 @@ async function findEditor(path = PATH): Promise<HTMLElement> {
 	const host = await screen.findByTestId(`editor-${path}`);
 	await waitFor(() => expect(state.model).not.toBeNull());
 	return host;
+}
+
+/** Let a refetch the socket asked for land and be rendered. */
+async function settle(client: QueryClient) {
+	await waitFor(
+		() =>
+			expect(
+				(client.getQueryData(["file", WORKSPACE, PROJECT, PATH]) as FileContent).etag,
+			).not.toBe("etag-0"),
+		{ timeout: 8000 },
+	);
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	});
 }
 
 function status() {
@@ -297,6 +318,49 @@ test("only one save is in flight at a time, so no false conflict", async () => {
 	// The queued save used the etag the first write returned.
 	expect(requests[1]?.ifMatch).toBe("etag-1");
 	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
+});
+
+test("a refetch of the editor's own write is not a conflict (issue #157)", async () => {
+	const release = holdWrites();
+	const client = renderLeaf();
+	await findEditor();
+	type("hello world");
+	await waitFor(() => expect(requests).toHaveLength(1), { timeout: 3000 });
+
+	// The project events socket sees the editor's own write and refetches the
+	// file before the write's own response has come back.
+	void client.invalidateQueries();
+	await settle(client);
+	expect(screen.queryByTestId("file-conflict")).toBeNull();
+
+	await release();
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
+	expect(screen.queryByTestId("file-conflict")).toBeNull();
+});
+
+test("a refetch after a finished save is not a conflict either", async () => {
+	const client = renderLeaf();
+	await findEditor();
+	type("hello world");
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
+	type("hello world again");
+	void client.invalidateQueries();
+	await settle(client);
+
+	expect(screen.queryByTestId("file-conflict")).toBeNull();
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
+	expect(requests.at(-1)?.body).toBe("hello world again");
+});
+
+test("someone else's text on disk while there are local edits is a conflict", async () => {
+	const client = renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	void client.invalidateQueries();
+
+	await screen.findByTestId("file-conflict", undefined, { timeout: 8000 });
+	expect(state.model?.getValue()).toBe("mine");
 });
 
 test("unmounting mid-debounce flushes the pending write", async () => {
