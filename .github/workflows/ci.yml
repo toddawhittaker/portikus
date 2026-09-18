@@ -39,6 +39,47 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Detect changed files
+        id: changed
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --quiet origin "$GITHUB_BASE_REF"
+            changed=$(git diff --name-only "origin/$GITHUB_BASE_REF...HEAD")
+          elif [ -z "$GITHUB_EVENT_BEFORE" ] || [ "$GITHUB_EVENT_BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            changed=$(git ls-files)
+          else
+            changed=$(git diff --name-only "$GITHUB_EVENT_BEFORE..HEAD")
+          fi
+          echo "Changed files:"
+          echo "$changed"
+          app=false
+          infra=false
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            case "$path" in
+              docs/*|design/*|screenshots/*|.claude/*) ;;
+              *.md)
+                case "$path" in */*) app=true ;; esac
+                ;;
+              infra/*)
+                infra=true
+                ;;
+              .github/workflows/ci.yml)
+                app=true
+                infra=true
+                ;;
+              *)
+                app=true
+                ;;
+            esac
+          done <<< "$changed"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "infra=$infra" >> "$GITHUB_OUTPUT"
       - name: Detect application code
         id: detect
         run: |
@@ -47,24 +88,24 @@ jobs:
       # project archive, and ripgrep for project search, none of which the
       # runner image ships.
       - name: Install tmux, zip, and ripgrep
-        if: steps.detect.outputs.present == 'true'
+        if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends tmux zip unzip ripgrep
       - uses: pnpm/action-setup@v6
-        if: steps.detect.outputs.present == 'true'
+        if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
       - uses: actions/setup-node@v7
-        if: steps.detect.outputs.present == 'true'
+        if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - if: steps.detect.outputs.present == 'true'
+      - if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         run: pnpm install --frozen-lockfile
-      - if: steps.detect.outputs.present == 'true'
+      - if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         run: pnpm typecheck
-      - if: steps.detect.outputs.present == 'true'
+      - if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         run: pnpm lint
-      - if: steps.detect.outputs.present == 'true'
+      - if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         run: pnpm test:coverage
         env:
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
@@ -76,17 +117,17 @@ jobs:
           path: coverage/lcov.info
           retention-days: 3
           if-no-files-found: ignore
-      - if: steps.detect.outputs.present == 'true'
+      - if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         run: pnpm build
       - name: Cache nfpm
-        if: steps.detect.outputs.present == 'true'
+        if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         uses: actions/cache@v5
         with:
           path: ~/.cache/portikus/nfpm
           key: nfpm-${{ runner.os }}-${{ hashFiles('scripts/build-deb.sh') }}
       # A build-only check: the package is not kept, so the version does not matter.
       - name: Build Debian package
-        if: steps.detect.outputs.present == 'true'
+        if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         run: pnpm build:deb
         env:
           PORTIKUS_VERSION: 0.0.0+ci
@@ -110,27 +151,68 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Detect changed files
+        id: changed
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --quiet origin "$GITHUB_BASE_REF"
+            changed=$(git diff --name-only "origin/$GITHUB_BASE_REF...HEAD")
+          elif [ -z "$GITHUB_EVENT_BEFORE" ] || [ "$GITHUB_EVENT_BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            changed=$(git ls-files)
+          else
+            changed=$(git diff --name-only "$GITHUB_EVENT_BEFORE..HEAD")
+          fi
+          echo "Changed files:"
+          echo "$changed"
+          app=false
+          infra=false
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            case "$path" in
+              docs/*|design/*|screenshots/*|.claude/*) ;;
+              *.md)
+                case "$path" in */*) app=true ;; esac
+                ;;
+              infra/*)
+                infra=true
+                ;;
+              .github/workflows/ci.yml)
+                app=true
+                infra=true
+                ;;
+              *)
+                app=true
+                ;;
+            esac
+          done <<< "$changed"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "infra=$infra" >> "$GITHUB_OUTPUT"
       - name: Detect end-to-end tests
         id: detect
         run: |
           if [ -f pnpm-workspace.yaml ] && grep -q '"test:e2e"' package.json; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "No test:e2e script yet; skipping."; fi
       - uses: pnpm/action-setup@v6
-        if: steps.detect.outputs.present == 'true'
+        if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
       - uses: actions/setup-node@v7
-        if: steps.detect.outputs.present == 'true'
+        if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - if: steps.detect.outputs.present == 'true'
+      - if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         run: pnpm install --frozen-lockfile
-      - if: steps.detect.outputs.present == 'true'
+      - if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         run: pnpm exec playwright install --with-deps --only-shell chromium
       # The Playwright servers run the compiled output, and Vite serves the
       # ui package's theme and fonts from its dist, so build both first.
-      - if: steps.detect.outputs.present == 'true'
+      - if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         run: pnpm typecheck && pnpm --filter @portikus/ui build
       - id: run
-        if: steps.detect.outputs.present == 'true'
+        if: steps.detect.outputs.present == 'true' && steps.changed.outputs.app == 'true'
         run: pnpm test:e2e
         env:
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
@@ -147,6 +229,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Detect changed files
+        id: changed
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --quiet origin "$GITHUB_BASE_REF"
+            changed=$(git diff --name-only "origin/$GITHUB_BASE_REF...HEAD")
+          elif [ -z "$GITHUB_EVENT_BEFORE" ] || [ "$GITHUB_EVENT_BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            changed=$(git ls-files)
+          else
+            changed=$(git diff --name-only "$GITHUB_EVENT_BEFORE..HEAD")
+          fi
+          echo "Changed files:"
+          echo "$changed"
+          app=false
+          infra=false
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            case "$path" in
+              docs/*|design/*|screenshots/*|.claude/*) ;;
+              *.md)
+                case "$path" in */*) app=true ;; esac
+                ;;
+              infra/*)
+                infra=true
+                ;;
+              .github/workflows/ci.yml)
+                app=true
+                infra=true
+                ;;
+              *)
+                app=true
+                ;;
+            esac
+          done <<< "$changed"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "infra=$infra" >> "$GITHUB_OUTPUT"
       - name: Detect infrastructure code
         id: detect
         run: |
@@ -155,27 +278,27 @@ jobs:
           find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' | grep -q . && echo "shell=true" >> "$GITHUB_OUTPUT"
           true
       - uses: opentofu/setup-opentofu@v2
-        if: steps.detect.outputs.tofu == 'true'
-      - if: steps.detect.outputs.tofu == 'true'
+        if: steps.detect.outputs.tofu == 'true' && steps.changed.outputs.infra == 'true'
+      - if: steps.detect.outputs.tofu == 'true' && steps.changed.outputs.infra == 'true'
         run: tofu fmt -check -recursive infra/tofu && cd infra/tofu/environments/dev-libvirt && tofu init -backend=false && tofu validate
       - name: Cache Ansible collections
         id: collections
-        if: steps.detect.outputs.ansible == 'true'
+        if: steps.detect.outputs.ansible == 'true' && steps.changed.outputs.infra == 'true'
         uses: actions/cache@v5
         with:
           path: ~/.ansible/collections
           key: ansible-collections-${{ hashFiles('infra/ansible/requirements.yml') }}
       - name: Install Ansible collections
-        if: steps.detect.outputs.ansible == 'true' && steps.collections.outputs.cache-hit != 'true'
+        if: steps.detect.outputs.ansible == 'true' && steps.changed.outputs.infra == 'true' && steps.collections.outputs.cache-hit != 'true'
         run: ansible-galaxy collection install -r infra/ansible/requirements.yml
-      - if: steps.detect.outputs.ansible == 'true'
+      - if: steps.detect.outputs.ansible == 'true' && steps.changed.outputs.infra == 'true'
         run: pipx install ansible-lint && ansible-lint infra/ansible
       - name: shellcheck
-        if: steps.detect.outputs.shell == 'true'
+        if: steps.detect.outputs.shell == 'true' && steps.changed.outputs.infra == 'true'
         run: sudo apt-get install -y shellcheck && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/*
       - name: Smoke test cleanup scope
-        if: steps.detect.outputs.shell == 'true'
+        if: steps.detect.outputs.shell == 'true' && steps.changed.outputs.infra == 'true'
         run: bash infra/tests/cleanup-scope-test.sh
       - name: Clipboard shim
-        if: steps.detect.outputs.shell == 'true'
+        if: steps.detect.outputs.shell == 'true' && steps.changed.outputs.infra == 'true'
         run: bash infra/tests/clipboard-shim-test.sh
