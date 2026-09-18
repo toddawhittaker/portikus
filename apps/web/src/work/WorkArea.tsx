@@ -393,6 +393,8 @@ export function WorkArea({
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
 							onSessionEnded={onSessionEnded}
 							onLeave={leaveTerminal}
+							onCloseTab={() => store.getState().closeTab(tab.id)}
+							consumePendingLine={() => store.getState().consumePendingLine(tab.id)}
 							dropTarget={
 								dragTarget?.kind === "pane" && dragTarget.tabId === tab.id
 									? { terminalId: dragTarget.terminalId, edge: dragTarget.edge }

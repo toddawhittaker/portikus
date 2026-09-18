@@ -24,6 +24,15 @@ logger.error = (msg, options) => {
 export default defineConfig({
 	customLogger: logger,
 	plugins: [react(), tailwindcss()],
+	// Monaco is thousands of small modules. Without pre-bundling, the first
+	// file tab opened against the dev server takes over a minute to load.
+	optimizeDeps: {
+		include: [
+			"monaco-editor/editor/editor.api.js",
+			"monaco-editor/basic-languages/monaco.contribution.js",
+			"monaco-editor/language/json/monaco.contribution.js",
+		],
+	},
 	server: {
 		host: "127.0.0.1",
 		port: 5173,
