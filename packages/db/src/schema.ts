@@ -3,7 +3,8 @@ import type { ColumnType, Generated } from "kysely";
 /**
  * Kysely Database interface for the Portikus control plane.
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
- * 0003_terminals, 0004_projects, 0005_settings, and 0006_log_level
+ * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level, and
+ * 0007_editor_settings
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -27,6 +28,8 @@ export interface UsersTable {
 	disabled_at: ColumnType<Date | null, string | null, string | null>;
 	/** Per-user grace period override; null means use the global setting. */
 	shutdown_grace_seconds: number | null;
+	/** Editor preferences the user has changed; the API fills in the rest. */
+	editor_settings: ColumnType<Record<string, unknown>, string | undefined, string>;
 	last_login_at: ColumnType<Date | null, string | null, string | null>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;

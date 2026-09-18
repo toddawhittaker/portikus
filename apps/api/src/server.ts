@@ -15,6 +15,7 @@ import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerGitSearchRoutes } from "./routes/git-search.js";
+import { registerMeRoutes } from "./routes/me.js";
 import { registerProjectEventsSocket } from "./routes/project-events.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerTerminalRoutes } from "./routes/terminals.js";
@@ -125,6 +126,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerFileRoutes(instance, deps);
 		registerGitSearchRoutes(instance, deps);
 		registerProjectEventsSocket(instance, deps);
+		registerMeRoutes(instance, deps);
 		registerAdminRoutes(instance, deps);
 	});
 
