@@ -63,7 +63,9 @@ export interface FileLeafProps {
 	projectId: string;
 	/** Close this tab: offered when the file is gone (SPEC.md §13.3). */
 	onClose: () => void;
-	/** The line this tab was opened at, read once. */
+	/** The line this tab was last asked to open at, or undefined for none. */
+	pendingLine?: number;
+	/** Take that line from the layout store, so it is acted on only once. */
 	consumePendingLine?: () => number | undefined;
 }
 
@@ -72,6 +74,7 @@ export function FileLeaf({
 	workspaceId,
 	projectId,
 	onClose,
+	pendingLine,
 	consumePendingLine,
 }: FileLeafProps) {
 	const file = useFile(workspaceId, projectId, path);
@@ -102,15 +105,21 @@ export function FileLeaf({
 	// during a save cannot put the older text back.
 	const known = useRef(new Set<string>());
 
-	// StrictMode renders twice, so the pending line is read in an effect that
-	// runs once rather than in a state initializer that does not.
-	const revealLine = useRef<number | undefined>(undefined);
+	// A file can be opened at a line again while its tab is already there, so
+	// the pending line is taken every time the store gets a new one, not only
+	// on mount. The nonce makes a repeat of the same line a new request.
+	const [reveal, setReveal] = useState<{ line: number; nonce: number } | null>(null);
 	const [revealReady, setRevealReady] = useState(false);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: read once, on open
+	const consume = useRef(consumePendingLine);
+	consume.current = consumePendingLine;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: pendingLine is the trigger
 	useEffect(() => {
-		revealLine.current = consumePendingLine?.();
+		const line = consume.current?.();
+		if (line !== undefined) {
+			setReveal((current) => ({ line, nonce: (current?.nonce ?? 0) + 1 }));
+		}
 		setRevealReady(true);
-	}, []);
+	}, [pendingLine]);
 
 	// The save reads the newest text and etag, not the ones captured when the
 	// timer was set.
@@ -338,7 +347,8 @@ export function FileLeaf({
 					version={etag}
 					onChange={onChange}
 					onSave={saveNow}
-					revealLine={revealLine.current}
+					revealLine={reveal?.line}
+					revealNonce={reveal?.nonce}
 				/>
 			</Suspense>
 		);

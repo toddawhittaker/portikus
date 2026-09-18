@@ -316,11 +316,15 @@ test("a file reference in the output opens the file route", async ({
 
 	await clickTerminalText(page, "src/auth.ts:73");
 
+	// The files route hands over to the project screen, which opens the tab
+	// (SPEC.md §14.9).
 	const [fileProject] = await projectIds(student.workspaceId);
 	await expect(page).toHaveURL(
-		`/workspaces/${student.workspaceId}/projects/${fileProject}/files?path=src%2Fauth.ts&line=73`,
+		`/workspaces/${student.workspaceId}/projects/${fileProject}?open=src%2Fauth.ts&line=73`,
 	);
-	await expect(page.getByRole("heading", { name: "Files" })).toBeVisible();
+	await expect(page.getByTestId("file-pane-src/auth.ts")).toBeVisible({
+		timeout: 30_000,
+	});
 });
 
 test("a localhost URL in the output opens the preview route", async ({

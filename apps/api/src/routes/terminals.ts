@@ -405,17 +405,8 @@ export function registerTerminalRoutes(
 		},
 	);
 
-	// Epic 5 linkification navigates here; the real routes land in Epics 7 and 8
-	// (SPEC.md §14.9, §29 Epic 5 scope note).
-	app.get("/workspaces/:id/files", async (_request, reply) => {
-		return sendError(
-			reply,
-			501,
-			"NOT_IMPLEMENTED",
-			"The file browser is not available yet.",
-		);
-	});
-
+	// Epic 5 linkification navigates to the preview route, which lands in
+	// Epic 8 (SPEC.md §14.9, §29 Epic 5 scope note).
 	app.get("/workspaces/:id/preview/:port/*", async (_request, reply) => {
 		return sendError(
 			reply,

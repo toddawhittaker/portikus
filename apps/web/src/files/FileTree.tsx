@@ -50,7 +50,12 @@ import {
 } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
-import { fileErrorToast, isFileExists, tooLargeToast } from "./errors.js";
+import {
+	fileErrorToast,
+	isFileExists,
+	tooLargeToast,
+	tooManyTabsToast,
+} from "./errors.js";
 import "./files.css";
 import { ChangesList } from "./ChangesList.js";
 import {
@@ -141,9 +146,12 @@ async function runWithLimit<T>(
 export function FileTreePane({
 	workspaceId,
 	project,
+	onSearch,
 }: {
 	workspaceId: string;
 	project: Project;
+	/** Swap this pane for find in files (SPEC.md 11.5). */
+	onSearch: () => void;
 }) {
 	const toast = useToast();
 	const mutations = useFileMutations(workspaceId, project.id);
@@ -283,12 +291,7 @@ export function FileTreePane({
 
 	const openFile = useCallback(
 		(node: FileNode) => {
-			if (!openFileTab(node.path)) {
-				toast.show({
-					tone: "warning",
-					title: "Too many tabs are open. Close one to open another.",
-				});
-			}
+			if (!openFileTab(node.path)) toast.show(tooManyTabsToast());
 		},
 		[openFileTab, toast],
 	);
@@ -387,8 +390,13 @@ export function FileTreePane({
 							</MenuItem>
 						</Menu>
 					</MenuRoot>
-					{/* Project-wide search is a later task (SPEC.md §11.5). */}
-					<IconButton icon="search" label="Find in files" size="sm" disabled />
+					<IconButton
+						icon="search"
+						label="Find in files"
+						size="sm"
+						data-testid="search-open"
+						onClick={onSearch}
+					/>
 					<MenuRoot>
 						<MenuTrigger asChild>
 							<IconButton

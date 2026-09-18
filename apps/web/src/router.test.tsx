@@ -74,3 +74,83 @@ test("a 401 from a data request ends the session", async () => {
 	await waitFor(() => expect(router.state.location.pathname).toBe("/session-ended"));
 	expect(screen.getByTestId("page-session-ended")).toBeDefined();
 });
+
+test("the files route hands over to the project screen with the file to open", async () => {
+	// SPEC.md §14.9: a `path:line` link from a terminal lands in the editor.
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, USER);
+		if (url.endsWith("/templates")) return json(200, { templates: [] });
+		if (url.includes("/projects")) return json(200, { projects: [project()] });
+		throw new Error(`unexpected request: ${url}`);
+	});
+	vi.stubGlobal("WebSocket", FakeWebSocket);
+
+	const { router } = renderApp(
+		`/workspaces/${WORKSPACE.id}/projects/${project().id}/files?path=src/app.ts&line=3`,
+	);
+
+	await waitFor(() =>
+		expect(router.state.location.pathname).toBe(
+			`/workspaces/${WORKSPACE.id}/projects/${project().id}`,
+		),
+	);
+	expect(router.state.location.search).toEqual({ open: "src/app.ts", line: 3 });
+});
+
+/** The stubs every link test needs: the user, the templates and the project. */
+function stubProject() {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, USER);
+		if (url.endsWith("/templates")) return json(200, { templates: [] });
+		if (url.includes("/projects")) return json(200, { projects: [project()] });
+		throw new Error(`unexpected request: ${url}`);
+	});
+	vi.stubGlobal("WebSocket", FakeWebSocket);
+}
+
+test("an open link that leaves the project opens nothing", async () => {
+	// SPEC.md §14.9, §24.6: `?open=` is a project path or it is nothing.
+	stubProject();
+
+	const { router } = renderApp(
+		`/workspaces/${WORKSPACE.id}/projects/${project().id}?open=../x`,
+	);
+
+	await waitFor(() => expect(router.state.matches.length).toBeGreaterThan(0));
+	expect(router.state.matches.at(-1)?.search).toEqual({
+		open: undefined,
+		line: undefined,
+	});
+});
+
+test("a line that is not a whole line number is ignored", async () => {
+	stubProject();
+
+	const { router } = renderApp(
+		`/workspaces/${WORKSPACE.id}/projects/${project().id}?open=src/app.ts&line=3.7`,
+	);
+
+	await waitFor(() => expect(router.state.matches.length).toBeGreaterThan(0));
+	expect(router.state.matches.at(-1)?.search).toEqual({
+		open: "src/app.ts",
+		line: undefined,
+	});
+});
+
+test("the files route drops an unsafe path and a fractional line", async () => {
+	stubProject();
+
+	const { router } = renderApp(
+		`/workspaces/${WORKSPACE.id}/projects/${project().id}/files?path=../etc/passwd&line=3.7`,
+	);
+
+	await waitFor(() =>
+		expect(router.state.location.pathname).toBe(
+			`/workspaces/${WORKSPACE.id}/projects/${project().id}`,
+		),
+	);
+	expect(router.state.matches.at(-1)?.search).toEqual({
+		open: undefined,
+		line: undefined,
+	});
+});

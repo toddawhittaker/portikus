@@ -31,6 +31,8 @@ export interface TerminalGroupProps {
 	onLeave: () => void;
 	/** Close this whole tab: a file tab offers it when the file is gone. */
 	onCloseTab: () => void;
+	/** The line this tab was last asked to open at, or undefined for none. */
+	pendingLine: number | undefined;
 	/** Open one path as a file tab: a diff tab offers it (SPEC.md §12.6). */
 	onOpenFile: (path: string) => void;
 	/** Read and forget the line a file tab was opened at. */
@@ -80,6 +82,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					workspaceId={props.workspaceId}
 					projectId={props.projectId}
 					onClose={props.onCloseTab}
+					pendingLine={props.pendingLine}
 					consumePendingLine={props.consumePendingLine}
 				/>
 			);

@@ -373,15 +373,29 @@ export async function seedSearch(
 	workspaceId: string,
 	slug: string,
 	matches: unknown[],
+	truncated = false,
 ): Promise<void> {
 	const response = await fetch(`${FAKE_AGENT_URL}/__test/search`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ key: workspaceId, slug, matches }),
+		body: JSON.stringify({ key: workspaceId, slug, matches, truncated }),
 	});
 	if (!response.ok) {
 		throw new Error(`the fake agent refused the search seed: ${response.status}`);
 	}
+}
+
+/** What the last search of one project asked the fake agent for. */
+export async function lastSearch(
+	workspaceId: string,
+	slug: string,
+): Promise<{ q: string; hidden: boolean } | null> {
+	const query = new URLSearchParams({ key: workspaceId, slug });
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/search/last?${query}`);
+	if (!response.ok) {
+		throw new Error(`the fake agent refused to report: ${response.status}`);
+	}
+	return (await response.json()) as { q: string; hidden: boolean } | null;
 }
 
 /**
