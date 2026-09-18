@@ -14,7 +14,7 @@ import {
 	useSensor,
 	useSensors,
 } from "@dnd-kit/core";
-import { documentTabId, type Terminal } from "@portikus/contracts";
+import type { Terminal } from "@portikus/contracts";
 import {
 	ConfirmDialog,
 	ConfirmDialogRoot,
@@ -147,7 +147,7 @@ export function WorkArea({
 		const tab = layout.tabs.find((item) => item.id === tabId);
 		if (!tab) return;
 		// A file or diff tab holds no process, so closing it is just the tab.
-		if (documentTabId(tab.root) !== null) {
+		if (tab.root.type === "file" || tab.root.type === "diff") {
 			store.getState().closeTab(tabId);
 			setClosingTabId(null);
 			return;

@@ -257,6 +257,14 @@ export function reconcile(
 	const placed = new Set(layoutTerminalIds(next));
 	for (const id of terminalIds) {
 		if (placed.has(id) || ended.has(id)) continue;
+		if (next.tabs.length >= MAX_LAYOUT_TABS) {
+			// A terminal is a process and a document tab is not, so the oldest
+			// file or diff tab gives up its place. With none to close the
+			// terminal stays unplaced; it can be opened again later.
+			const oldest = next.tabs.find((tab) => documentTabId(tab.root) !== null);
+			if (!oldest) continue;
+			next = closeTab(next, oldest.id);
+		}
 		next = addTab(next, id, id);
 		placed.add(id);
 	}
@@ -403,26 +411,29 @@ export function moveLeafToNewTab(
  */
 function openDocument(
 	layout: ProjectLayout,
-	node: SplitNode,
-): { layout: ProjectLayout; tabId: string } {
-	const tabId = documentTabId(node) ?? "";
+	kind: "file" | "diff",
+	path: string,
+): { layout: ProjectLayout; tabId: string } | null {
+	const node: SplitNode = { type: kind, path };
+	const tabId = `${kind}:${path}`;
 	if (layout.tabs.some((tab) => tab.id === tabId)) return { layout, tabId };
-	if (layout.tabs.length >= MAX_LAYOUT_TABS) return { layout, tabId };
+	// No room for another tab: the caller tells the student to close one.
+	if (layout.tabs.length >= MAX_LAYOUT_TABS) return null;
 	return { layout: { tabs: [...layout.tabs, { id: tabId, root: node }] }, tabId };
 }
 
 export function openFile(
 	layout: ProjectLayout,
 	path: string,
-): { layout: ProjectLayout; tabId: string } {
-	return openDocument(layout, { type: "file", path });
+): { layout: ProjectLayout; tabId: string } | null {
+	return openDocument(layout, "file", path);
 }
 
 export function openDiff(
 	layout: ProjectLayout,
 	path: string,
-): { layout: ProjectLayout; tabId: string } {
-	return openDocument(layout, { type: "diff", path });
+): { layout: ProjectLayout; tabId: string } | null {
+	return openDocument(layout, "diff", path);
 }
 
 /** Drop one whole tab. Terminal tabs are closed by closing their terminals. */

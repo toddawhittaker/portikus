@@ -693,6 +693,7 @@ test.describe("work area layout", () => {
 		await expect(tab).toBeVisible({ timeout: 15_000 });
 		await expect(tab).toContainText("app.ts");
 		await expect(tab).toHaveAttribute("title", "src/app.ts");
+		await expect(page.getByTestId("file-pane-src/app.ts")).toBeVisible();
 
 		await page.reload();
 		await expect(page.getByTestId("tab-file:src/app.ts")).toBeVisible({

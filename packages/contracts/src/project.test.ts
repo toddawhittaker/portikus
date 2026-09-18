@@ -327,12 +327,26 @@ test("ProjectLayout caps the number of tabs", () => {
 	expect(ProjectLayout.safeParse(tabs(MAX_LAYOUT_TABS + 1)).success).toBe(false);
 });
 
-test("ProjectLayout caps the length of a tab id", () => {
-	// Long enough for a file tab id, which is a kind prefix and a path.
-	const ok = { tabs: [{ id: "t".repeat(1_100), root: leaf(terminalA) }] };
-	const tooLong = { tabs: [{ id: "t".repeat(1_101), root: leaf(terminalA) }] };
+test("ProjectLayout caps the length of a terminal tab id", () => {
+	const ok = { tabs: [{ id: "t".repeat(64), root: leaf(terminalA) }] };
+	const tooLong = { tabs: [{ id: "t".repeat(65), root: leaf(terminalA) }] };
 	expect(ProjectLayout.safeParse(ok).success).toBe(true);
 	expect(ProjectLayout.safeParse(tooLong).success).toBe(false);
+});
+
+test("a file or diff tab id must match its path", () => {
+	// The id is long by nature, so only the path bounds it.
+	const path = `src/${"a".repeat(200)}.ts`;
+	const ok = { tabs: [{ id: `file:${path}`, root: { type: "file", path } }] };
+	expect(ProjectLayout.safeParse(ok).success).toBe(true);
+	const wrong = {
+		tabs: [{ id: "tab-1", root: { type: "file", path: "src/app.ts" } }],
+	};
+	expect(ProjectLayout.safeParse(wrong).success).toBe(false);
+	const wrongKind = {
+		tabs: [{ id: "file:src/app.ts", root: { type: "diff", path: "src/app.ts" } }],
+	};
+	expect(ProjectLayout.safeParse(wrongKind).success).toBe(false);
 });
 
 test("ProjectLayout holds a file tab and a diff tab of the same path", () => {

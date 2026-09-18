@@ -343,7 +343,24 @@ export const ProjectLayout = z.object({
 					});
 				}
 				const document = documentTabId(tab.root);
-				if (document !== null) {
+				if (document === null) {
+					// A terminal tab id is a terminal id or a made-up name.
+					if (tab.id.length > 64) {
+						ctx.addIssue({
+							code: "custom",
+							path: [index, "id"],
+							message: "a terminal tab id may be at most 64 characters",
+						});
+					}
+				} else {
+					// A document tab is found by its id, so it must match its path.
+					if (tab.id !== document) {
+						ctx.addIssue({
+							code: "custom",
+							path: [index, "id"],
+							message: `a file or diff tab id must be "${document}"`,
+						});
+					}
 					// One tab per path per kind; two would edit the same file twice.
 					if (documents.has(document)) {
 						ctx.addIssue({

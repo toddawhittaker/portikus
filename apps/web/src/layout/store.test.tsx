@@ -1,3 +1,4 @@
+import { MAX_LAYOUT_TABS } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import { createLayoutStore } from "./store";
 import { layoutTerminalIds, terminalIds } from "./tree";
@@ -170,4 +171,30 @@ test("the line a file was opened at is handed out once", () => {
 	// A file opened with no line asks the editor for nothing.
 	layout.getState().openFile("src/other.ts");
 	expect(layout.getState().consumePendingLine("file:src/other.ts")).toBeUndefined();
+});
+
+test("reopening a file with no line forgets the line it was opened at before", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts", 42);
+	layout.getState().openFile("src/app.ts");
+	expect(layout.getState().consumePendingLine("file:src/app.ts")).toBeUndefined();
+});
+
+test("closing a file tab forgets the line it was waiting to jump to", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts", 42);
+	layout.getState().closeTab("file:src/app.ts");
+	expect(layout.getState().pendingLine).toEqual({});
+});
+
+test("opening a file is refused when the tab strip is full", () => {
+	const layout = store();
+	for (let i = 0; i < MAX_LAYOUT_TABS; i++) layout.getState().addTab(`t${i}`);
+	const before = layout.getState().layout;
+	expect(layout.getState().openFile("src/app.ts", 7)).toBe(false);
+	expect(layout.getState().openDiff("src/app.ts")).toBe(false);
+	// The layout and the active tab are left exactly as they were.
+	expect(layout.getState().layout).toBe(before);
+	expect(layout.getState().activeTabId).toBe(`t${MAX_LAYOUT_TABS - 1}`);
+	expect(layout.getState().pendingLine).toEqual({});
 });
