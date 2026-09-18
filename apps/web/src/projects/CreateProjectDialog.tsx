@@ -3,7 +3,7 @@ import { Button, Checkbox, Dialog, DialogRoot, Select, TextField } from "@portik
 import { useState } from "react";
 import { cloneUrlForRequest, projectNameFromCloneUrl } from "./cloneUrl.js";
 import { DialogError } from "./DialogError.js";
-import { useCreateProject, useProjectTemplates } from "./queries.js";
+import { useCreateProject, useProjects, useProjectTemplates } from "./queries.js";
 
 export type CreateMode = "new" | "clone" | "template";
 
@@ -37,9 +37,19 @@ export function CreateProjectDialog({
 	const [nameEdited, setNameEdited] = useState(false);
 	const [gitInit, setGitInit] = useState(true);
 	const templates = useProjectTemplates(workspaceId);
+	// Archived projects keep their folder, so they clash too (SPEC.md §7.4).
+	const activeProjects = useProjects(workspaceId, "active");
+	const archivedProjects = useProjects(workspaceId, "archived");
 	const create = useCreateProject(workspaceId);
 
 	const slug = slugify(name);
+	const takenSlugs = new Set(
+		[...(activeProjects.data ?? []), ...(archivedProjects.data ?? [])].map(
+			(item) => item.slug,
+		),
+	);
+	// Warn before Create is pressed; the server 409 stays the final guard (§7.2).
+	const clash = slug !== "" && takenSlugs.has(slug);
 	const modeOptions = [
 		{ value: "new", label: "New project" },
 		{ value: "clone", label: "Clone repository" },
@@ -64,6 +74,7 @@ export function CreateProjectDialog({
 
 	const ready =
 		slug !== "" &&
+		!clash &&
 		(mode !== "clone" || url.trim() !== "") &&
 		(mode !== "template" || template !== "");
 
@@ -155,6 +166,13 @@ export function CreateProjectDialog({
 							setName(event.target.value);
 							setNameEdited(true);
 						}}
+						warning={
+							clash ? (
+								<span data-testid="name-clash">
+									A project called {slug} already exists
+								</span>
+							) : undefined
+						}
 						hint={
 							<span data-testid="slug-preview" className="pk-mono-small">
 								{slug === "" ? "~/projects/…" : `~/projects/${slug}`}
