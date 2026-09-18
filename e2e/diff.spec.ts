@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	newTerminal,
 	query,
 	seedGit,
 	type TestProject,
@@ -100,7 +101,7 @@ test.describe("diff tab", () => {
 			timeout: 60_000,
 		});
 		// There is no file left to open.
-		await expect(page.getByTestId("diff-open")).toHaveCount(0);
+		await expect(page.getByTestId(`diff-open-${PATH}`)).toHaveCount(0);
 	});
 
 	test("a rename shows the old path and the new one", async ({ page, context }) => {
@@ -145,7 +146,7 @@ test.describe("diff tab", () => {
 		);
 
 		await expect(page.getByText("Binary file changed")).toBeVisible();
-		await expect(page.getByTestId("diff-download")).toHaveAttribute(
+		await expect(page.getByTestId(`diff-download-${binaryPath}`)).toHaveAttribute(
 			"href",
 			`/workspaces/${student.workspaceId}/projects/${project.id}/file?path=assets%2Flogo.png&download=1`,
 		);
@@ -162,15 +163,15 @@ test.describe("diff tab", () => {
 		});
 
 		await expect(page.getByText("This diff is too large to show here")).toBeVisible();
-		await expect(page.getByTestId("diff-download")).toBeVisible();
+		await expect(page.getByTestId(`diff-download-${PATH}`)).toBeVisible();
 		// Open file turns the diff tab's path into a file tab.
-		await page.getByTestId("diff-open").click();
+		await page.getByTestId(`diff-open-${PATH}`).click();
 		await expect(page.getByTestId(`file-pane-${PATH}`)).toBeVisible({
 			timeout: 30_000,
 		});
 	});
 
-	test("a change on disk refreshes the diff without a reload", async ({
+	test("coming back to the window refreshes the diff without a reload", async ({
 		page,
 		context,
 	}) => {
@@ -187,5 +188,24 @@ test.describe("diff tab", () => {
 		await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
 
 		await expect(editor).toContainText("// changed", { timeout: 20_000 });
+	});
+
+	test("coming back to the diff tab refreshes it", async ({ page, context }) => {
+		const student = await createStudent(context);
+		const project = await openDiffTab(page, student, "Return", { [PATH]: diff() });
+		const editor = page.getByTestId(`diff-editor-${PATH}`);
+		await expect(editor).toContainText("const answer = 42;", { timeout: 60_000 });
+
+		// A new terminal tab puts the diff in the background, which stops it
+		// asking for the diff at all.
+		await newTerminal(page);
+		await expect(page.getByTestId(`diff-pane-${PATH}`)).toBeHidden();
+
+		await seedGit(student.workspaceId, project.slug, {
+			diffs: { [PATH]: diff({ after: "const answer = 44; // while away\n" }) },
+		});
+
+		await page.getByTestId(`tab-diff:${PATH}`).click();
+		await expect(editor).toContainText("// while away", { timeout: 20_000 });
 	});
 });

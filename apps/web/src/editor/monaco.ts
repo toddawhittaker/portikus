@@ -41,6 +41,19 @@ export function languageForPath(monaco: typeof Monaco, path: string): string {
 	return "plaintext";
 }
 
+/**
+ * The options every Portikus editor shares, so the file editor and the diff
+ * editor cannot drift apart. Each editor adds its own theme and anything
+ * particular to it.
+ */
+export const baseEditorOptions: Monaco.editor.IEditorOptions = {
+	automaticLayout: true,
+	fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+	fontSize: 13,
+	minimap: { enabled: false },
+	scrollBeyondLastLine: false,
+};
+
 export const LIGHT_THEME = "portikus-light";
 export const DARK_THEME = "portikus-dark";
 

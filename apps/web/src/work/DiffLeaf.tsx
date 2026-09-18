@@ -47,7 +47,7 @@ export function DiffLeaf({
 	visible = true,
 	onOpenFile,
 }: DiffLeafProps) {
-	const diff = useGitDiff(workspaceId, projectId, path);
+	const diff = useGitDiff(workspaceId, projectId, path, visible);
 
 	// Coming back to a diff that was in the background shows what is on disk
 	// now, not what it was when the tab was last looked at (SPEC.md §12.6).
@@ -60,7 +60,9 @@ export function DiffLeaf({
 	const download = fileDownloadUrl(workspaceId, projectId, path);
 
 	function body() {
-		if (diff.error) {
+		// A failed refresh of a diff already on screen is a banner, not a
+		// replacement: the last good diff is still worth reading.
+		if (diff.error && !data) {
 			return (
 				<EmptyState icon="file" title="This diff could not be shown">
 					{diff.error.message}
@@ -69,17 +71,27 @@ export function DiffLeaf({
 		}
 		if (!data) return <p className="pk-file-note">Loading…</p>;
 		if (data.binary) {
+			// A deleted binary has nothing left on disk to download.
+			const deleted = data.status === "D";
 			return (
 				<EmptyState
 					icon="file"
-					title="Binary file changed"
+					title={deleted ? "Binary file deleted" : "Binary file changed"}
 					actions={
-						<a className="pk-file-download" href={download} data-testid="diff-download">
-							Download
-						</a>
+						deleted ? undefined : (
+							<a
+								className="pk-file-download"
+								href={download}
+								data-testid={`diff-download-${path}`}
+							>
+								Download
+							</a>
+						)
 					}
 				>
-					{path} is not text, so its changes cannot be shown side by side.
+					{deleted
+						? `${path} is not text, and it was deleted from the working tree, so there is nothing to show or download.`
+						: `${path} is not text, so its changes cannot be shown side by side.`}
 				</EmptyState>
 			);
 		}
@@ -89,7 +101,11 @@ export function DiffLeaf({
 					icon="file"
 					title="This diff is too large to show here"
 					actions={
-						<a className="pk-file-download" href={download} data-testid="diff-download">
+						<a
+							className="pk-file-download"
+							href={download}
+							data-testid={`diff-download-${path}`}
+						>
 							Download
 						</a>
 					}
@@ -135,11 +151,20 @@ export function DiffLeaf({
 					</span>
 				) : null}
 				{data?.status === "D" ? null : (
-					<Button size="sm" onClick={() => onOpenFile(path)} data-testid="diff-open">
+					<Button
+						size="sm"
+						onClick={() => onOpenFile(path)}
+						data-testid={`diff-open-${path}`}
+					>
 						Open file
 					</Button>
 				)}
 			</div>
+			{diff.error && data ? (
+				<div className="pk-file-banner" role="status" data-testid="diff-error">
+					This diff could not be refreshed: {diff.error.message}
+				</div>
+			) : null}
 			{note !== null ? (
 				<div className="pk-file-banner" role="status" data-testid="diff-note">
 					{note}

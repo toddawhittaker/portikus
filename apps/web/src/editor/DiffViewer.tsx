@@ -5,7 +5,13 @@
  */
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef } from "react";
-import { currentThemeName, getMonaco, languageForPath, watchTheme } from "./monaco.js";
+import {
+	baseEditorOptions,
+	currentThemeName,
+	getMonaco,
+	languageForPath,
+	watchTheme,
+} from "./monaco.js";
 import "./editor.css";
 
 export interface DiffViewerProps {
@@ -47,6 +53,7 @@ export function DiffViewer({ path, original, modified, version }: DiffViewerProp
 				modified: monaco.editor.createModel(latest.current.modified, language),
 			};
 			const editor = monaco.editor.createDiffEditor(host.current, {
+				...baseEditorOptions,
 				theme: currentThemeName(),
 				// Both sides are a view of what is on disk, never an edit surface
 				// (SPEC.md §12.6): staging and committing are the student's own
@@ -54,11 +61,6 @@ export function DiffViewer({ path, original, modified, version }: DiffViewerProp
 				readOnly: true,
 				originalEditable: false,
 				renderSideBySide: true,
-				automaticLayout: true,
-				fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-				fontSize: 13,
-				minimap: { enabled: false },
-				scrollBeyondLastLine: false,
 			});
 			editor.setModel(models);
 			editorRef.current = editor;

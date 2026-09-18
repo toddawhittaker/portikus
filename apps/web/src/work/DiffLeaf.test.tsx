@@ -137,7 +137,7 @@ test("a deleted file shows the HEAD side and offers no Open file", async () => {
 	expect(screen.getByTestId("diff-note").textContent).toBe(
 		"Deleted from the working tree",
 	);
-	expect(screen.queryByTestId("diff-open")).toBeNull();
+	expect(screen.queryByTestId(`diff-open-${PATH}`)).toBeNull();
 });
 
 test("a rename shows the old path and the new one", async () => {
@@ -164,7 +164,7 @@ test("a binary change offers a download instead of a diff", async () => {
 	};
 	renderLeaf();
 	expect(await screen.findByText("Binary file changed")).not.toBeNull();
-	expect(screen.getByTestId("diff-download").getAttribute("href")).toBe(
+	expect(screen.getByTestId(`diff-download-${PATH}`).getAttribute("href")).toBe(
 		`/workspaces/${WORKSPACE}/projects/${PROJECT}/file?path=src%2Fapp.ts&download=1`,
 	);
 	expect(screen.queryByTestId(`diff-editor-${PATH}`)).toBeNull();
@@ -177,8 +177,8 @@ test("a diff past the limit explains it and offers the file instead", async () =
 	};
 	const onOpenFile = renderLeaf();
 	expect(await screen.findByText("This diff is too large to show here")).not.toBeNull();
-	expect(screen.getByTestId("diff-download")).not.toBeNull();
-	screen.getByTestId("diff-open").click();
+	expect(screen.getByTestId(`diff-download-${PATH}`)).not.toBeNull();
+	screen.getByTestId(`diff-open-${PATH}`).click();
 	expect(onOpenFile).toHaveBeenCalledWith(PATH);
 });
 
@@ -206,4 +206,45 @@ test("a refresh keeps the reader's place around the new text", async () => {
 	);
 	// The view state is taken before the swap and put back after it.
 	expect(editorState.calls.slice(0, 2)).toEqual(["save", "restore"]);
+});
+
+test("a failed refresh keeps the diff and says so in a banner", async () => {
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+
+	answer = {
+		status: 500,
+		body: { code: "INTERNAL", message: "the workspace agent is not answering" },
+	};
+	window.dispatchEvent(new Event("visibilitychange"));
+
+	await screen.findByTestId("diff-error");
+	expect(screen.getByTestId("diff-error").textContent).toContain(
+		"the workspace agent is not answering",
+	);
+	// The last good diff is still on screen.
+	expect(screen.getByTestId(`diff-editor-${PATH}`)).not.toBeNull();
+	expect(screen.queryByText("This diff could not be shown")).toBeNull();
+	expect(editorState.models?.modified.getValue()).toBe("two\n");
+});
+
+test("a deleted binary file offers no download", async () => {
+	answer = {
+		status: 200,
+		body: diff({ status: "D", before: null, after: null, binary: true }),
+	};
+	renderLeaf();
+	expect(await screen.findByText("Binary file deleted")).not.toBeNull();
+	expect(screen.queryByTestId(`diff-download-${PATH}`)).toBeNull();
+});
+
+test("closing the tab disposes both sides of the diff", async () => {
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	const models = editorState.models;
+
+	cleanup();
+
+	expect(models?.original.disposed).toBe(true);
+	expect(models?.modified.disposed).toBe(true);
 });

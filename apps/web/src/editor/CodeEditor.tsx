@@ -5,7 +5,13 @@
  */
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef } from "react";
-import { currentThemeName, getMonaco, languageForPath, watchTheme } from "./monaco.js";
+import {
+	baseEditorOptions,
+	currentThemeName,
+	getMonaco,
+	languageForPath,
+	watchTheme,
+} from "./monaco.js";
 import "./editor.css";
 
 export interface CodeEditorProps {
@@ -59,13 +65,9 @@ export function CodeEditor({
 					uri,
 				);
 			const editor = monaco.editor.create(host.current, {
+				...baseEditorOptions,
 				model,
 				theme: currentThemeName(),
-				automaticLayout: true,
-				fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-				fontSize: 13,
-				minimap: { enabled: false },
-				scrollBeyondLastLine: false,
 				renderLineHighlight: "line",
 			});
 			editorRef.current = editor;
