@@ -225,7 +225,8 @@ because path filters on the workflow trigger are not an option: GitHub never
 reports a status for a job a path filter skipped, and the branch protection
 rules that require these checks would then block the merge forever. Running
 the jobs but skipping their heavy steps keeps the checks reporting while
-cutting the runtime on a docs-only change.
+cutting the runtime on a docs-only change. This sentence exists only to
+verify that behavior against a real pull request; remove it once verified.
 
 `.github/workflows/release.yml` publishes a release when an `epic/` or
 `task/` branch merges into `main`, or when the workflow is run by hand from `main` for a
