@@ -13,6 +13,7 @@ import {
 	fileRouteFor,
 	previewRouteFor,
 	type TerminalLink,
+	wrappedUrlsOnRow,
 } from "./links.js";
 import { decodeTerminalFrame } from "./terminalFrames.js";
 import { currentPlatform, decide } from "./work/terminalClipboard.js";
@@ -78,6 +79,21 @@ function socketUrl(
 /** Firefox and older browsers may not expose clipboard reading at all. */
 function canReadClipboard(): boolean {
 	return typeof navigator.clipboard?.readText === "function";
+}
+
+/**
+ * The text an OSC 52 copy request carries. The payload is base64, and the
+ * bytes inside it are UTF-8, so a URL with an accented character survives.
+ * Anything that is not valid base64 is treated as an empty copy.
+ */
+export function decodeOsc52(encoded: string): string {
+	try {
+		const binary = atob(encoded);
+		const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+		return new TextDecoder().decode(bytes);
+	} catch {
+		return "";
+	}
 }
 
 /** Copy to the system clipboard, ignoring a browser that refuses. */
@@ -153,22 +169,49 @@ export function TerminalPane({
 			convertEol: false,
 			scrollback: SCROLLBACK_LINES,
 		});
+		function openUrl(uri: string) {
+			const preview = previewRouteFor(uri, workspaceId, projectId);
+			if (preview) {
+				go(preview);
+				return;
+			}
+			// Any other URL leaves the app in a new tab, unless it points at
+			// the student's own machine or uses a scheme we do not open.
+			if (canOpenInNewTab(uri)) {
+				window.open(uri, "_blank", "noopener,noreferrer");
+			}
+		}
+
 		const fitAddon = new FitAddon();
 		term.loadAddon(fitAddon);
-		term.loadAddon(
-			new WebLinksAddon((_event, uri) => {
-				const preview = previewRouteFor(uri, workspaceId, projectId);
-				if (preview) {
-					go(preview);
-					return;
-				}
-				// Any other URL leaves the app in a new tab, unless it points at
-				// the student's own machine or uses a scheme we do not open.
-				if (canOpenInNewTab(uri)) {
-					window.open(uri, "_blank", "noopener,noreferrer");
-				}
-			}),
-		);
+		// Registered before the web-links addon: where two providers offer a
+		// link over the same cells, xterm.js keeps the one registered first, and
+		// a URL that wrapped should be one link rather than the fragment the
+		// addon finds on this row (SPEC.md §14.9).
+		term.registerLinkProvider({
+			provideLinks(lineNumber, callback) {
+				const links = wrappedUrlsOnRow(
+					lineNumber,
+					(y) => term.buffer.active.getLine(y - 1)?.translateToString(true) ?? null,
+					term.cols,
+				).map((link) => ({
+					range: link.range,
+					text: link.text,
+					activate: () => openUrl(link.text),
+				}));
+				callback(links.length > 0 ? links : undefined);
+			},
+		});
+		term.loadAddon(new WebLinksAddon((_event, uri) => openUrl(uri)));
+		// A program in the pane copies by emitting OSC 52, which tmux passes
+		// through (SPEC.md §9, §10). A read request ("?") is ignored: nothing in
+		// the workspace needs to be handed the student's clipboard.
+		term.parser.registerOscHandler(52, (data) => {
+			const encoded = data.split(";")[1];
+			if (encoded === undefined || encoded === "?") return true;
+			void writeClipboard(decodeOsc52(encoded));
+			return true;
+		});
 		term.open(container);
 		xterm.current = term;
 		fit.current = fitAddon;
