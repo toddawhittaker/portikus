@@ -115,16 +115,21 @@ Orchestration rules:
 
 ## Review and merge rules
 
-- Send anything touching auth, the preview gateway, the workspace agent,
-  file APIs, Incus, or nested Docker through security-reviewer before it
-  is called done.
-- Run code-reviewer over a task or epic branch before its pull request
-  and fix or explicitly defer every finding it requires.
-- `main` and epic branches change only by pull request, CI must be green,
-  and the pull request cites the SPEC.md and STACK.md sections it serves
-  and says how it was verified (WORKFLOW.md, "Pull requests").
-- Merging is the user's decision. Prepare the pull request, report, and
-  stop.
+- A task pull request into an epic branch has no human review. Once its
+  CI is green, merger squash-merges it and deletes the branch. The user's
+  review happens once, at the epic level.
+- After every task PR for an epic has landed, run security-reviewer over
+  the epic head (when the epic touches auth, the preview gateway, the
+  workspace agent, file APIs, Incus, or nested Docker) and code-reviewer
+  over the epic head. Fix or explicitly defer every finding through
+  further task PRs, also landed by merger without review, then run a
+  confirmation review.
+- `main` changes only by pull request, and only the user merges it. The
+  pull request from the epic branch cites the SPEC.md and STACK.md
+  sections it serves and says how it was verified (WORKFLOW.md, "Pull
+  requests").
+- Merging into `main` is the user's decision. Prepare the pull request,
+  report, and stop.
 
 ## Design defaults
 
