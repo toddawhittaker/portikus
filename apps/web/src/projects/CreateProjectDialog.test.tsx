@@ -70,6 +70,44 @@ test("an API error is shown in the dialog, user sentence first", async () => {
 	expect(error.textContent).toContain("PROJECT_EXISTS");
 });
 
+test("pasting a clone URL fills the name and slug, and editing the name wins", async () => {
+	stubFetch(() => json(200, { templates: [] }));
+	open("clone");
+
+	fireEvent.change(screen.getByTestId("field-url"), {
+		target: { value: "https://github.com/user/todo-api.git" },
+	});
+	expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("todo-api");
+	expect(screen.getByTestId("slug-preview").textContent).toBe("~/projects/todo-api");
+
+	fireEvent.change(screen.getByTestId("field-name"), { target: { value: "My Work" } });
+	fireEvent.change(screen.getByTestId("field-url"), {
+		target: { value: "https://github.com/user/other.git" },
+	});
+	expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("My Work");
+});
+
+test("a GitHub URL without .git is sent with the suffix", async () => {
+	const sent: string[] = [];
+	stubFetch((url, init) => {
+		if (url.endsWith("/templates")) return json(200, { templates: [] });
+		if (init?.method === "POST") {
+			sent.push(JSON.parse(String(init.body)).url);
+			return json(201, {});
+		}
+		throw new Error(`unexpected ${url}`);
+	});
+	open("clone");
+
+	fireEvent.change(screen.getByTestId("field-url"), {
+		target: { value: "https://github.com/user/todo-api" },
+	});
+	const form = screen.getByTestId("field-url").closest("form") as HTMLFormElement;
+	fireEvent.submit(form);
+
+	await waitFor(() => expect(sent).toEqual(["https://github.com/user/todo-api.git"]));
+});
+
 test("cloning reports progress on the button and hands back the project", async () => {
 	const created = {
 		id: "44444444-4444-4444-8444-444444444444",

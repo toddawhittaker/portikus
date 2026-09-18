@@ -1,6 +1,7 @@
 import { type Project, slugify } from "@portikus/contracts";
 import { Button, Checkbox, Dialog, DialogRoot, Select, TextField } from "@portikus/ui";
 import { useState } from "react";
+import { cloneUrlForRequest, projectNameFromCloneUrl } from "./cloneUrl.js";
 import { DialogError } from "./DialogError.js";
 import { useCreateProject, useProjectTemplates } from "./queries.js";
 
@@ -32,6 +33,8 @@ export function CreateProjectDialog({
 	const [name, setName] = useState("");
 	const [url, setUrl] = useState("");
 	const [template, setTemplate] = useState("");
+	// Once the student types a name, pasting another URL must not overwrite it.
+	const [nameEdited, setNameEdited] = useState(false);
 	const [gitInit, setGitInit] = useState(true);
 	const templates = useProjectTemplates(workspaceId);
 	const create = useCreateProject(workspaceId);
@@ -52,7 +55,7 @@ export function CreateProjectDialog({
 				name,
 				source: mode,
 				gitInit: mode === "new" ? gitInit : true,
-				...(mode === "clone" ? { url } : {}),
+				...(mode === "clone" ? { url: cloneUrlForRequest(url) } : {}),
 				...(mode === "template" ? { template } : {}),
 			},
 			{ onSuccess: onCreated },
@@ -118,21 +121,8 @@ export function CreateProjectDialog({
 							))}
 						</div>
 					</fieldset>
-					<TextField
-						id="field-name"
-						data-testid="field-name"
-						label="Project name"
-						value={name}
-						autoFocus
-						autoComplete="off"
-						spellCheck={false}
-						onChange={(event) => setName(event.target.value)}
-						hint={
-							<span data-testid="slug-preview" className="pk-mono-small">
-								{slug === "" ? "~/projects/…" : `~/projects/${slug}`}
-							</span>
-						}
-					/>
+					{/* In clone mode the URL comes first: a student pastes it and the
+					    name and slug follow from it (SPEC.md §7.2). */}
 					{mode === "clone" && (
 						<TextField
 							id="field-url"
@@ -140,13 +130,37 @@ export function CreateProjectDialog({
 							label="Repository URL"
 							mono
 							value={url}
+							autoFocus
 							autoComplete="off"
 							spellCheck={false}
 							placeholder="https://github.com/owner/repo.git"
-							onChange={(event) => setUrl(event.target.value)}
+							onChange={(event) => {
+								setUrl(event.target.value);
+								if (nameEdited) return;
+								const derived = projectNameFromCloneUrl(event.target.value);
+								setName(derived);
+							}}
 							hint="An https, ssh or user@host:path Git URL."
 						/>
 					)}
+					<TextField
+						id="field-name"
+						data-testid="field-name"
+						label="Project name"
+						value={name}
+						autoFocus={mode !== "clone"}
+						autoComplete="off"
+						spellCheck={false}
+						onChange={(event) => {
+							setName(event.target.value);
+							setNameEdited(true);
+						}}
+						hint={
+							<span data-testid="slug-preview" className="pk-mono-small">
+								{slug === "" ? "~/projects/…" : `~/projects/${slug}`}
+							</span>
+						}
+					/>
 					{mode === "template" && (
 						<div data-testid="field-template">
 							<Select
