@@ -448,6 +448,18 @@ highlighted project-root drop target while an upload is dragged over it, a
 tighter 24-pixel row height, file-type icons, and an autofocused name field
 when the New file, New folder, or Rename dialog opens (#182–#186).
 
+Two more pilot findings are fixed. The project-root drop target no longer
+flickers when the upload drag crosses a top-level file row: the pane counts
+how many of its elements the drag is inside, so the leave event fired for the
+element behind a row no longer looks like the drag leaving the pane (#220).
+Hidden and generated files are now shown by default, with the Show hidden and
+generated files control still there to turn them off, and an untracked file's
+name is drawn in italic and slightly dimmed (SPEC.md §11.3, §12.1) (#221).
+Directories are not styled as untracked: Git status lists untracked files one
+by one and says nothing about the tracked files a directory may also hold, so
+the tree cannot tell a wholly untracked folder from a partly tracked one
+without a second listing.
+
 **Projects.** The clone dialog now asks for the repository URL first and
 derives the project name, slug, and `.git` suffix from it, while any name
 the student typed by hand is never overwritten (#130). Create project now

@@ -202,6 +202,10 @@ export function FileTreePane({
 	const [focusedPath, setFocusedPath] = useState<string | null>(null);
 	const [dropDir, setDropDir] = useState<string | null>(null);
 	const [uploadDrag, setUploadDrag] = useState(false);
+	// How many pane elements the upload drag is currently inside. Moving onto a
+	// child row fires a leave for the element behind it, so counting is the only
+	// way to tell "moved within the pane" from "left the pane" (issue #220).
+	const uploadDepth = useRef(0);
 	const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
 	const [dialog, setDialog] = useState<
 		| { kind: "none" }
@@ -569,10 +573,14 @@ export function FileTreePane({
 						}}
 						onDragEnter={(event) => {
 							if (!event.dataTransfer.types.includes("Files")) return;
+							uploadDepth.current += 1;
 							setUploadDrag(true);
 							setDropDir(dirUnder(event.target));
 						}}
 						onDragLeave={() => {
+							if (uploadDepth.current === 0) return;
+							uploadDepth.current -= 1;
+							if (uploadDepth.current > 0) return;
 							setDropDir(null);
 							setUploadDrag(false);
 						}}
@@ -580,6 +588,7 @@ export function FileTreePane({
 							if (!event.dataTransfer.files.length) return;
 							event.preventDefault();
 							const dir = dirUnder(event.target);
+							uploadDepth.current = 0;
 							setDropDir(null);
 							setUploadDrag(false);
 							uploadInto(dir, event.dataTransfer.files);

@@ -111,6 +111,11 @@
 [data-git="untracked"] .pk-git-letter {
 	color: var(--git-added);
 }
+/* Untracked entries read as not-yet-part-of-the-project (issue #221). */
+.pk-tree-item[data-git="untracked"] .pk-tree-name {
+	font-style: italic;
+	opacity: 0.75;
+}
 [data-git="deleted"] .pk-git-letter {
 	color: var(--git-deleted);
 }

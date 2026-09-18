@@ -844,9 +844,12 @@ P0 file-tree operations:
 
 ### 11.3 Hidden and generated files
 
-The default tree should reduce noise from generated/dependency directories.
+The tree shows hidden and generated files by default, because students kept
+looking for a dotfile that was there all along. The **Show hidden/generated
+files** control turns them off, which reduces noise from the
+generated/dependency directories below.
 
-Examples that may be hidden/collapsed by default:
+Examples the control hides:
 
 ```text
 .git/
@@ -858,7 +861,7 @@ target/
 __pycache__/
 ```
 
-The user must have a **Show hidden/generated files** control.
+The user must have a **Show hidden/generated files** control, on by default.
 
 Hiding a path in the UI must not make it inaccessible to the terminal or coding agent.
 
@@ -936,6 +939,11 @@ At minimum, distinguish:
 - renamed where available;
 - staged/unstaged state where the UI design supports it;
 - ignored files when hidden files are shown.
+
+An untracked file's name is drawn in italic and slightly dimmed, so it reads
+as not yet part of the repository. Directories are not styled this way: the
+status data lists untracked files individually and says nothing about the
+tracked files a directory may also hold.
 
 ### 12.2 Git source of truth
 
