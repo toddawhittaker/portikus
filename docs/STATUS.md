@@ -125,12 +125,11 @@ the last size asked for during that window as the size of the new PTY, so a
 pane that corrects its size straight after opening is no longer left blank
 (SPEC.md 9.7). A socket that closes in that window aborts the attach without
 starting a shell.
-The terminal title bar now follows `cd` (SPEC.md section 9.3). Each
-attachment in the workspace agent polls tmux for its pane's current path
-every two seconds and sends a `cwd` frame on the terminal WebSocket when
-the path changes, which the web app uses to update the title. The path is
-not written to the database, so a new attachment learns it from its own
-first poll.
+The terminal title bar now follows `cd` (SPEC.md section 9.3). The
+workspace agent's single pane poll, described below, sends a `cwd` frame on
+the terminal WebSocket when a pane's path changes, which the web app uses
+to update the title. The path is not written to the database, so a new
+attachment learns it from the next poll.
 
 Terminal panes can now be rearranged by dragging their title bars (SPEC.md
 sections 8.3 and 9.3). Dropping a pane on another pane's left, right, top,
