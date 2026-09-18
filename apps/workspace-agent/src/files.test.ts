@@ -540,7 +540,7 @@ test("a download name drops control characters and carries an encoded form", asy
 	expect(response.statusCode).toBe(200);
 	const disposition = response.headers["content-disposition"] as string;
 	expect(disposition).not.toMatch(/[\r\n]/);
-	expect(disposition).toContain('filename="badname ?.txt"');
+	expect(disposition).toContain('filename="badname _.txt"');
 	expect(disposition).toContain("filename*=UTF-8''bad");
 	expect(disposition).toContain("%E2%98%83");
 });
