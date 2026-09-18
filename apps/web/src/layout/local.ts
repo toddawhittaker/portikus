@@ -12,8 +12,10 @@ export interface LocalLayout {
 	viewStates: Record<string, unknown>;
 }
 
+const PREFIX = "portikus.layout.";
+
 function key(projectId: string): string {
-	return `portikus.layout.${projectId}`;
+	return `${PREFIX}${projectId}`;
 }
 
 export function readLocalLayout(projectId: string): LocalLayout | null {
@@ -41,5 +43,23 @@ export function writeLocalLayout(projectId: string, state: LocalLayout): void {
 		localStorage.setItem(key(projectId), JSON.stringify(state));
 	} catch {
 		// A full or blocked store only costs the cursor position.
+	}
+}
+
+/**
+ * Forget every project's browser-local layout. Called at sign-out so the next
+ * person to use this browser does not inherit the last one's open tabs and
+ * cursor positions (SPEC.md §24.2).
+ */
+export function clearLocalLayouts(): void {
+	try {
+		const doomed: string[] = [];
+		for (let at = 0; at < localStorage.length; at += 1) {
+			const name = localStorage.key(at);
+			if (name?.startsWith(PREFIX)) doomed.push(name);
+		}
+		for (const name of doomed) localStorage.removeItem(name);
+	} catch {
+		// A blocked store has nothing to clear.
 	}
 }
