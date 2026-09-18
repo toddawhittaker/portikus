@@ -204,6 +204,8 @@ const requests: Write[] = [];
 /** What GET /me/settings answers in this test (issue #159). */
 let settings: EditorSettings;
 let seed: Seed;
+/** Refuse this many writes with a 412 although the file on disk is unchanged. */
+let refuseWrites = 0;
 /** When set, every PUT waits for this to be resolved before it answers. */
 let gate: { promise: Promise<void>; open: () => void } | null = null;
 
@@ -252,6 +254,16 @@ function stubServer() {
 				body,
 				keepalive: init?.keepalive === true,
 			});
+			// A refusal although nothing on disk has moved: what a rewritten
+			// etag between the browser and the agent produces (issue #157).
+			if (refuseWrites > 0) {
+				refuseWrites -= 1;
+				if (gate) await gate.promise;
+				return new Response(
+					JSON.stringify({ error: { code: "FILE_CHANGED", message: "changed" } }),
+					{ status: 412, headers: { etag: seed.etag } },
+				);
+			}
 			const creating = headers.get("if-none-match") === "*";
 			if (!creating && headers.get("if-match") !== seed.etag) {
 				if (gate) await gate.promise;
@@ -286,6 +298,7 @@ beforeEach(() => {
 	state.uris.length = 0;
 	diffState.models = null;
 	gate = null;
+	refuseWrites = 0;
 	restoredViewStates.length = 0;
 	moveCursor = null;
 	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSaveDelaySeconds: 1 };
@@ -999,4 +1012,27 @@ test("Markdown with a badge and an HTML comment stays in the rich view", async (
 	await waitFor(() => expect(rich.textContent).toContain("How to run it."));
 	expect(rich.textContent).toContain("<!-- a note -->");
 	expect(screen.queryByTestId("rich-unsupported")).toBeNull();
+});
+
+test("a save refused while the file on disk is still ours saves again (issue #157)", async () => {
+	renderLeaf();
+	await findEditor();
+	// The write comes back 412 although the file on disk is the very version
+	// this tab loaded, so there is nothing to resolve and no conflict to show.
+	refuseWrites = 1;
+	type("hello world");
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 4000 });
+	expect(screen.queryByTestId("file-conflict")).toBeNull();
+	expect(requests).toHaveLength(2);
+	expect(requests[1]).toMatchObject({ ifMatch: "etag-0", body: "hello world" });
+	expect(seed.text).toBe("hello world");
+});
+
+test("a save refused twice over is a real conflict (issue #157)", async () => {
+	renderLeaf();
+	await findEditor();
+	refuseWrites = 2;
+	type("hello world");
+	await screen.findByTestId("file-conflict", undefined, { timeout: 4000 });
+	expect(status().textContent).toBe("Conflict");
 });

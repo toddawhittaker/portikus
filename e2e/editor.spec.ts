@@ -481,4 +481,67 @@ test.describe("file editor", () => {
 		await openEditorSettings(page);
 		await expect(page.getByTestId("editor-settings-delay")).toHaveValue("9");
 	});
+	test("a Markdown file in split view is never a false conflict (issue #157)", async ({
+		page,
+		context,
+	}) => {
+		const MD = "README.md";
+		const student = await createStudent(context);
+
+		// Stand in for the pilot's Caddy, which appends "-gzip" to the etag of
+		// any response it compresses. The editor saves against the etag it
+		// read, so a rewritten one turns the next save into a conflict nobody
+		// caused (issue #157). Caddy leaves a response marked no-transform
+		// alone, which is what the API now says on this route. The route is in
+		// place before the page loads, so even the first read goes through it.
+		await page.route(/\/file\?path=/, async (route) => {
+			if (route.request().method() !== "GET") {
+				await route.continue();
+				return;
+			}
+			const response = await route.fetch();
+			const headers = response.headers();
+			const etag = headers.etag;
+			if (!etag || (headers["cache-control"] ?? "").includes("no-transform")) {
+				await route.fulfill({ response });
+				return;
+			}
+			await route.fulfill({
+				response,
+				headers: { ...headers, etag: `${etag}-gzip` },
+			});
+		});
+
+		const project = await openFileTab(
+			page,
+			student,
+			"Split editing",
+			MD,
+			"# pfSense Docker Alias\n",
+		);
+		await page.getByTestId("markdown-mode-split").click();
+		await expect(lines(page, MD)).toContainText("pfSense", { timeout: 60_000 });
+
+		// A short auto-save delay, so several saves fit in one test.
+		await openEditorSettings(page);
+		await page.getByTestId("editor-settings-delay").fill("1");
+		await page.getByTestId("editor-settings-save").click();
+		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
+
+		await lines(page, MD).click();
+		await page.keyboard.press("End");
+		for (const word of [" Yay!", " Really", " Truly"]) {
+			await page.keyboard.type(word);
+			await page.waitForTimeout(2000);
+			await expect(page.getByTestId("file-conflict")).toHaveCount(0);
+		}
+
+		await expect(status(page, MD)).toHaveText("Saved", { timeout: 15_000 });
+		await expect(page.getByTestId("file-conflict")).toHaveCount(0);
+		await expect
+			.poll(async () => readSeededFile(student.workspaceId, project.slug, MD), {
+				timeout: 15_000,
+			})
+			.toContain("Yay! Really Truly");
+	});
 });
