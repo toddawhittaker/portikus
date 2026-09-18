@@ -218,6 +218,18 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "Claude Code auto-update off in a login shell" \
     "DISABLE_AUTOUPDATER=1" ws_student 'env | grep DISABLE_AUTOUPDATER'
 
+  # 17ab. The clipboard shim turns a copy into an OSC 52 escape, because
+  # a workspace has no X display (issue #125).  There is no terminal here,
+  # so the shim falls back to stdout and we read the escape from there.
+  # The first 12 base64 characters cover ESC ] 5 2 ; c ; and the start of
+  # the encoded text.
+  check_output "xclip writes an OSC 52 clipboard escape" \
+    "G101MjtjO2FH" ws_student 'printf hi | xclip -selection clipboard | base64 | cut -c1-12'
+  check_output "xsel is the same shim" \
+    "/usr/local/bin/xclip" ws_exec readlink -f /usr/local/bin/xsel
+  check_output "pbcopy is the same shim" \
+    "/usr/local/bin/xclip" ws_exec readlink -f /usr/local/bin/pbcopy
+
   # 17b. The image ships populated apt lists, so a student can install a
   # package, and be told about a missing one, without running apt update.
   apt_list_count() {
