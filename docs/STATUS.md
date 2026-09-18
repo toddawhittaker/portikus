@@ -485,7 +485,7 @@ documentation-only change, while the job itself still reports its check,
 so branch protection is never blocked by a workflow that never ran; a
 docs-only pull request now finishes CI in under 40 seconds per job. The
 Application checks job went from 4m03s at the start of the batch to
-2m48s after the test changes above. The browser test suite is now stable
+about 2m30s now. The browser test suite is now stable
 on a machine where several agents run Playwright at once: a new setup
 check compares the database the API under test is reading with the one
 the test helpers write to, and stops the run with a clear message when
@@ -506,6 +506,23 @@ role can be converged on its own, verified on the pilot host by applying
 only the Caddy role. `docs/HOW-WE-WORK.md` is a new, generic guide to how
 Portikus is built with AI agents, written in plain English for
 non-technical readers.
+
+**Review.** A code review over the epic head produced eleven findings,
+all fixed in the batch: text typed on the student's side of a conflict
+diff now survives Keep editing; opening a file that is showing its diff
+takes the tab back to the editor; Monaco models are named per project;
+deleting a folder together with a selected file inside it sends one
+request instead of two; a user's stored editor settings survive an
+unknown key in the row; per-file test databases are swept after a
+crashed run; CI now classifies infra documentation and shell scripts
+correctly from one shared change-detection job; and the clipboard shim
+treats a selection name given as an argument the same as one piped in.
+Duplication the parallel builders had introduced in the batch was also
+removed: one shared `hasChanged` check, one scroll listener, one tree
+query, one way to make a menu item a link, and zoom handled in one place
+in the layout store. A security review of the batch is described above
+under Terminal and image, which found and closed four issues in the web
+app.
 
 Known gaps. Multi-row selection downloads one file or zip per row rather
 than one merged zip, because the download route takes a single path; a
