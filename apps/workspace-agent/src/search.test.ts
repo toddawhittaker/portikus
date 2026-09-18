@@ -43,10 +43,14 @@ beforeAll(async () => {
 	await writeFile(join(projectDir, ".gitignore"), "secret.txt\n");
 	await writeFile(join(projectDir, "secret.txt"), "call a.b( hidden\n");
 
-	// One file with more matching lines than a single search will return.
-	const bulk = Array.from({ length: 501 }, () => "needle").join("\n");
-	await mkdir(join(projectDir, "bulk"), { recursive: true });
-	await writeFile(join(projectDir, "bulk", "f0.txt"), `${bulk}\n`);
+	// One file with more matching lines than a single search will return. It
+	// lives in its own project: in `demo` it would race every other `needle`
+	// test, because a search stops at the match limit and ripgrep's file
+	// order is not fixed.
+	const bulkText = Array.from({ length: 501 }, () => "needle").join("\n");
+	const bulk = join(homeDir, "projects", "bulk");
+	await mkdir(bulk, { recursive: true });
+	await writeFile(join(bulk, "f0.txt"), `${bulkText}\n`);
 
 	// Two matches two lines apart: line 11 is context for both.
 	await writeFile(
@@ -144,7 +148,7 @@ test.skipIf(!haveRg)("skips ignored files unless hidden is asked for", async () 
 });
 
 test.skipIf(!haveRg)("stops at the match limit and reports truncation", async () => {
-	const result = await searchProject(homeDir, "demo", "needle", { hidden: false });
+	const result = await searchProject(homeDir, "bulk", "needle", { hidden: false });
 	expect(result.matches).toHaveLength(500);
 	expect(result.truncated).toBe(true);
 });
