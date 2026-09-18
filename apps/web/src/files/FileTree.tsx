@@ -477,7 +477,11 @@ export function FileTreePane({
 				</TreeContext.Provider>
 
 				{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
-				<ChangesList projectId={project.id} status={gitStatus.data} />
+				<ChangesList
+					projectId={project.id}
+					status={gitStatus.data}
+					error={gitStatus.isError}
+				/>
 
 				{/* One hidden input serves every upload action. */}
 				<input
@@ -757,7 +761,6 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 					drag.isDragging ? " is-dragging" : ""
 				}${ignored ? " is-ignored" : ""}`}
 				title={title}
-				data-git={decoration?.kind}
 				style={{ paddingLeft: `${level * 16 - 8}px` }}
 				data-drop-dir={isDir ? path : dir}
 			>

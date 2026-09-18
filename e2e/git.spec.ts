@@ -171,6 +171,53 @@ test.describe("git status in the workspace", () => {
 		);
 	});
 
+	// SPEC.md §12.3: a shell that edits a tracked file sends an ordinary
+	// filesystem event, with no Git flag, and the decorations must still move.
+	test("an ordinary file change refreshes the Git decorations too", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openProject(page, student.workspaceId, "Plain edit");
+		await expect(page.getByTestId("changes-title")).toHaveText("Changes (5)");
+		await expect(page.getByTestId("file-row-new.ts")).toHaveAttribute(
+			"data-git",
+			"untracked",
+		);
+
+		// The file was added to the index, so it is no longer untracked and two
+		// other changes are gone.
+		await seedGit(student.workspaceId, project.slug, {
+			status: statusFor(
+				[
+					{ path: "README.md", x: ".", y: "M", unmerged: false },
+					{ path: "new.ts", x: "A", y: ".", unmerged: false },
+				],
+				{ conflicts: 0 },
+			),
+		});
+		await expect
+			.poll(
+				() =>
+					pushEvent(student.workspaceId, project.slug, {
+						type: "fs",
+						paths: ["new.ts"],
+						git: false,
+						truncated: false,
+					}),
+				{ timeout: 15_000 },
+			)
+			.toBeGreaterThan(0);
+
+		await expect(page.getByTestId("changes-title")).toHaveText("Changes (2)", {
+			timeout: 2000,
+		});
+		await expect(page.getByTestId("file-row-new.ts")).toHaveAttribute(
+			"data-git",
+			"added",
+		);
+	});
+
 	test("a file created outside the browser appears in the tree without a reload", async ({
 		page,
 		context,

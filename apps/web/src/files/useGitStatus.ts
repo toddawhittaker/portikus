@@ -21,8 +21,6 @@ export function useGitStatus(workspaceId: string, projectId: string) {
 	const hidden = useShowHidden(projectId);
 	return useQuery({
 		queryKey: fileKeys.git(workspaceId, projectId, hidden),
-		refetchOnWindowFocus: true,
-		retry: false,
 		queryFn: () => request(GitStatus, gitStatusUrl(workspaceId, projectId, hidden)),
 	});
 }

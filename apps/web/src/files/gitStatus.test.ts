@@ -1,6 +1,13 @@
 import type { GitEntry, GitStatus } from "@portikus/contracts";
 import { expect, test } from "vitest";
-import { changeRows, decorate, decorations, gitBar, isIgnored } from "./gitStatus.js";
+import {
+	changeRows,
+	decorate,
+	decorations,
+	gitBar,
+	ignoredPaths,
+	isIgnored,
+} from "./gitStatus.js";
 
 function entry(partial: Partial<GitEntry> & { path: string }): GitEntry {
 	return { x: ".", y: ".", unmerged: false, ...partial };
@@ -26,7 +33,6 @@ test("the working-tree state decides the letter and the kind", () => {
 	expect(decorate(entry({ path: "a.ts", y: "M" }))).toMatchObject({
 		letter: "M",
 		kind: "modified",
-		staged: false,
 	});
 	expect(decorate(entry({ path: "a.ts", y: "D" }))).toMatchObject({
 		letter: "D",
@@ -35,7 +41,6 @@ test("the working-tree state decides the letter and the kind", () => {
 	expect(decorate(entry({ path: "a.ts", x: "A", y: "." }))).toMatchObject({
 		letter: "A",
 		kind: "added",
-		staged: true,
 	});
 });
 
@@ -43,7 +48,6 @@ test("an untracked file is its own kind, not a modification", () => {
 	const decoration = decorate(entry({ path: "new.ts", x: "?", y: "?" }));
 	expect(decoration.kind).toBe("untracked");
 	expect(decoration.letter).toBe("U");
-	expect(decoration.staged).toBe(false);
 });
 
 test("a conflict never looks like a modification", () => {
@@ -76,7 +80,7 @@ test("a project that is not a repository has no decorations", () => {
 });
 
 test("an ignored entry ending in a slash covers its whole subtree", () => {
-	const ignored = ["node_modules/", "notes.txt"];
+	const ignored = ignoredPaths(["node_modules/", "notes.txt"]);
 	expect(isIgnored("node_modules", ignored)).toBe(true);
 	expect(isIgnored("node_modules/pkg/index.js", ignored)).toBe(true);
 	expect(isIgnored("notes.txt", ignored)).toBe(true);
@@ -112,7 +116,9 @@ test("the compact status line says branch, changes and commits ahead", () => {
 });
 
 test("the compact status line carries behind, no upstream and detached", () => {
-	expect(gitBar(status({ behind: 1 }))?.text).toBe("main • 0 changes • 1 behind");
+	expect(gitBar(status({ behind: 1 }))?.text).toBe(
+		"main • 0 changes • 1 commit behind",
+	);
 	expect(gitBar(status({ upstream: null }))?.text).toBe(
 		"main • 0 changes • no upstream",
 	);
@@ -138,7 +144,7 @@ test("conflicts show in the line and are counted for the conspicuous style", () 
 test("a truncated status marks the count, and no repository is said plainly", () => {
 	expect(
 		gitBar(status({ truncated: true, entries: [entry({ path: "a", y: "M" })] }))?.text,
-	).toBe("main • 1… changes");
+	).toBe("main • more than 1 changes");
 	expect(gitBar(status({ repo: false }))).toMatchObject({
 		text: "not a git repository",
 		repo: false,

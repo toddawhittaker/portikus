@@ -76,9 +76,12 @@ export class FakeWebSocket {
 	onmessage: ((event: { data: string }) => void) | null = null;
 	onclose: ((event: { code: number }) => void) | null = null;
 	static last: FakeWebSocket | null = null;
+	/** Every socket made since the list was last cleared, oldest first. */
+	static all: FakeWebSocket[] = [];
 
 	constructor(public url: string) {
 		FakeWebSocket.last = this;
+		FakeWebSocket.all.push(this);
 	}
 	send() {}
 	close() {

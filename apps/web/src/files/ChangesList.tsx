@@ -11,9 +11,12 @@ import { type ChangeRow, changeRows } from "./gitStatus.js";
 export function ChangesList({
 	projectId,
 	status,
+	error = false,
 }: {
 	projectId: string;
 	status: GitStatus | undefined;
+	/** The status query failed; the list says so rather than "no changes". */
+	error?: boolean;
 }) {
 	const [open, setOpen] = useState(true);
 	const toast = useToast();
@@ -21,6 +24,8 @@ export function ChangesList({
 	const openDiff = useLayout(layoutStore, (state) => state.openDiff);
 	const rows = changeRows(status);
 	const notARepo = status !== undefined && !status.repo;
+	// Until the first status arrives nothing is known, so nothing is claimed.
+	const unknown = status === undefined;
 
 	function show(row: ChangeRow) {
 		if (!openDiff(row.path)) {
@@ -42,11 +47,15 @@ export function ChangesList({
 			>
 				<Icon name={open ? "chevron-down" : "chevron-right"} size="sm" />
 				<span data-testid="changes-title">
-					{notARepo ? "Changes" : `Changes (${rows.length})`}
+					{unknown || notARepo ? "Changes" : `Changes (${rows.length})`}
 				</span>
 			</button>
 			{open ? (
-				notARepo ? (
+				error ? (
+					<p className="pk-changes-empty" data-testid="changes-error">
+						Could not read Git status
+					</p>
+				) : unknown ? null : notARepo ? (
 					<p className="pk-changes-empty" data-testid="changes-no-repo">
 						This project is not a Git repository.
 					</p>

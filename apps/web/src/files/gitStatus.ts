@@ -26,8 +26,6 @@ export interface GitDecoration {
 	kind: GitDecorationKind;
 	/** The hover text: what changed, and where a rename came from. */
 	title: string;
-	/** True when the change is in the index as well as, or instead of, on disk. */
-	staged: boolean;
 }
 
 /** The letter for one porcelain code, ignoring conflicts and untracked files. */
@@ -82,7 +80,7 @@ export function decorate(entry: GitEntry): GitDecoration {
 	const parts = [WORD[kind]];
 	if (staged) parts.push(entry.y === "." ? "(staged)" : "(staged and changed since)");
 	if (entry.origPath) parts.push(`from ${entry.origPath}`);
-	return { letter: LETTER[kind], kind, title: parts.join(" "), staged };
+	return { letter: LETTER[kind], kind, title: parts.join(" ") };
 }
 
 /** Everything the tree and the Changes list need about one project's Git state. */
@@ -92,14 +90,41 @@ export interface GitDecorations {
 	byPath: Map<string, GitDecoration>;
 	/** Directories with a change somewhere underneath them. */
 	changedDirs: Set<string>;
-	ignored: readonly string[];
+	ignored: IgnoredPaths;
+}
+
+/**
+ * The ignore list in the shape the tree asks it in: one lookup per row
+ * instead of a walk of the whole list, because a repository can ignore a
+ * great many paths and every row asks (SPEC.md §25.1).
+ */
+export interface IgnoredPaths {
+	/** Paths ignored exactly, including a directory without its slash. */
+	exact: Set<string>;
+	/** Ignored directories, with the trailing slash, covering their subtrees. */
+	prefixes: string[];
+}
+
+/** Turn Git's ignore list into the two collections `isIgnored` looks in. */
+export function ignoredPaths(ignored: readonly string[]): IgnoredPaths {
+	const exact = new Set<string>();
+	const prefixes: string[] = [];
+	for (const entry of ignored) {
+		if (entry.endsWith("/")) {
+			prefixes.push(entry);
+			exact.add(entry.slice(0, -1));
+		} else {
+			exact.add(entry);
+		}
+	}
+	return { exact, prefixes };
 }
 
 export const NO_DECORATIONS: GitDecorations = {
 	repo: false,
 	byPath: new Map(),
 	changedDirs: new Set(),
-	ignored: [],
+	ignored: { exact: new Set(), prefixes: [] },
 };
 
 export function decorations(status: GitStatus | undefined): GitDecorations {
@@ -112,21 +137,17 @@ export function decorations(status: GitStatus | undefined): GitDecorations {
 			changedDirs.add(dir);
 		}
 	}
-	return { repo: true, byPath, changedDirs, ignored: status.ignored };
+	return { repo: true, byPath, changedDirs, ignored: ignoredPaths(status.ignored) };
 }
 
 /**
  * Whether Git ignores this path. An ignored entry that ends in `/` stands
  * for the whole subtree below it, so a prefix match is the right test.
  */
-export function isIgnored(path: string, ignored: readonly string[]): boolean {
-	for (const entry of ignored) {
-		if (entry.endsWith("/")) {
-			const dir = entry.slice(0, -1);
-			if (path === dir || path.startsWith(entry)) return true;
-		} else if (path === entry) {
-			return true;
-		}
+export function isIgnored(path: string, ignored: IgnoredPaths): boolean {
+	if (ignored.exact.has(path)) return true;
+	for (const prefix of ignored.prefixes) {
+		if (path.startsWith(prefix)) return true;
 	}
 	return false;
 }
@@ -178,9 +199,12 @@ export function gitBar(status: GitStatus | undefined): GitBar | null {
 	const parts: string[] = [];
 	parts.push(status.detached ? "detached HEAD" : (status.branch ?? "no branch"));
 	const count = status.entries.length;
-	const suffix = status.truncated ? "…" : "";
 	parts.push(
-		count === 1 && !status.truncated ? "1 change" : `${count}${suffix} changes`,
+		status.truncated
+			? `more than ${count} changes`
+			: count === 1
+				? "1 change"
+				: `${count} changes`,
 	);
 	if (status.conflicts > 0) {
 		parts.push(status.conflicts === 1 ? "1 conflict" : `${status.conflicts} conflicts`);
@@ -193,7 +217,11 @@ export function gitBar(status: GitStatus | undefined): GitBar | null {
 				status.ahead === 1 ? "1 commit ahead" : `${status.ahead} commits ahead`,
 			);
 		}
-		if (status.behind > 0) parts.push(`${status.behind} behind`);
+		if (status.behind > 0) {
+			parts.push(
+				status.behind === 1 ? "1 commit behind" : `${status.behind} commits behind`,
+			);
+		}
 	}
 	return { text: parts.join(" • "), conflicts: status.conflicts, repo: true };
 }

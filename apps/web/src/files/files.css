@@ -104,7 +104,7 @@
 [data-git="conflict"] .pk-icon {
 	color: var(--git-conflict);
 }
-.pk-tree-row[data-git="conflict"],
+.pk-tree-item[data-git="conflict"] > .pk-tree-row,
 .pk-changes-row[data-git="conflict"] {
 	background: var(--status-warning-soft);
 }

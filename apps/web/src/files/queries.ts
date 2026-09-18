@@ -66,7 +66,6 @@ export function directoryDownloadUrl(
 export function useTree(workspaceId: string, projectId: string, dir: string) {
 	return useQuery({
 		queryKey: fileKeys.tree(workspaceId, projectId, dir),
-		refetchOnWindowFocus: true,
 		queryFn: () => request(TreeResponse, treeUrl(workspaceId, projectId, dir)),
 	});
 }
@@ -264,18 +263,11 @@ const NO_WRITE_ETAG =
 /**
  * One file's text. Nothing polls any more: an edit made by a coding agent or
  * a shell arrives on the project events socket, which refetches this file
- * (SPEC.md §11.4, §13.3). `visible` is kept so callers need not change.
+ * (SPEC.md §11.4, §13.3).
  */
-export function useFile(
-	workspaceId: string,
-	projectId: string,
-	path: string,
-	_visible = true,
-) {
+export function useFile(workspaceId: string, projectId: string, path: string) {
 	return useQuery({
 		queryKey: fileKeys.file(workspaceId, projectId, path),
-		refetchOnWindowFocus: true,
-		retry: false,
 		queryFn: async (): Promise<FileContent> => {
 			const response = await fetch(fileUrl(workspaceId, projectId, path), {
 				credentials: "same-origin",
