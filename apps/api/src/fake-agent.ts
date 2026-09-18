@@ -2,9 +2,14 @@ import { createHash } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import websocket, { type WebSocket } from "@fastify/websocket";
 import {
+	type GitDiff,
+	type GitStatus,
+	GitStatusQuery,
 	MAX_EDITOR_FILE_BYTES,
 	MAX_UPLOAD_BYTES,
 	ProjectPath,
+	type SearchMatch,
+	SearchQuery,
 } from "@portikus/contracts";
 import Fastify, {
 	type FastifyInstance,
@@ -34,7 +39,23 @@ export interface FakeAgent {
 	projects: Map<string, { isGitRepo: boolean }>;
 	/** Everything under those directories, keyed the same way as the listings. */
 	files: Map<string, FakeNode>;
+	/** Seeded Git answers, keyed by `<workspace key>/<slug>`. */
+	git: Map<string, FakeGitAnswer>;
+	/** Seeded search matches, keyed the same way. */
+	search: Map<string, SearchMatch[]>;
+	/** Searches the fake saw cancelled by the caller hanging up. */
+	readonly searchAborted: number;
+	/** While true, the next events socket is refused as over the cap. */
+	eventLimit: boolean;
+	/** Push one frame to every events subscriber of a project. */
+	pushEvent: (key: string, slug: string, frame: unknown) => number;
 	close: () => Promise<void>;
+}
+
+/** What the fake answers the Git routes of one project with. */
+export interface FakeGitAnswer {
+	status?: GitStatus;
+	diffs?: Record<string, GitDiff>;
 }
 
 /** One entry of the fake filesystem. Paths are `<slug>/<path inside it>`. */
@@ -240,10 +261,17 @@ export async function startFakeAgent(
 		});
 	});
 
+	// Git, search and events answers are seeded per workspace key and slug.
+	const gitAnswers = new Map<string, FakeGitAnswer>();
+	const searchAnswers = new Map<string, SearchMatch[]>();
+	const eventSockets = new Map<string, Set<WebSocket>>();
+
 	const state = {
 		failCreateWith: null as string | null,
 		openAttachments: 0,
 		failLogLevel: false,
+		searchAborted: 0,
+		eventLimit: false,
 	};
 	const logLevels: (string | null)[] = [];
 
@@ -267,6 +295,11 @@ export async function startFakeAgent(
 			perKey.set(key, dirs);
 		}
 		return dirs;
+	}
+
+	/** The map key one project's seeded answers live under. */
+	function answerKey(key: string, slug: string): string {
+		return `${key}/${slug}`;
 	}
 
 	/** The workspace key on the caller's bearer token; "" is the shared one. */
@@ -666,6 +699,148 @@ export async function startFakeAgent(
 		}
 	});
 
+	// The read-only Git, search and events routes, with the same status and
+	// close codes as the real agent (SPEC.md §11.4, §11.5, §12.1, §12.6).
+
+	/** An empty repository answer, so an unseeded project still reads. */
+	function emptyStatus(): GitStatus {
+		return {
+			repo: false,
+			branch: null,
+			detached: false,
+			upstream: null,
+			ahead: 0,
+			behind: 0,
+			conflicts: 0,
+			entries: [],
+			ignored: [],
+			truncated: false,
+		};
+	}
+
+	app.get("/projects/:slug/git/status", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		const query = GitStatusQuery.safeParse(request.query ?? {});
+		if (!query.success) {
+			return fileError(reply, new FakeFileError("BAD_REQUEST", "invalid hidden flag"));
+		}
+		const status = gitAnswers.get(answerKey(keyOf(request), slug))?.status;
+		if (!status) return emptyStatus();
+		// Ignored paths are only sent when hidden files are shown.
+		return query.data.hidden ? status : { ...status, ignored: [] };
+	});
+
+	app.get("/projects/:slug/git/diff", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		const path = (request.query as { path?: string }).path ?? "";
+		if (!ProjectPath.safeParse(path).success) {
+			return fileError(reply, new FakeFileError("PATH_INVALID", "invalid path"));
+		}
+		const diff = gitAnswers.get(answerKey(keyOf(request), slug))?.diffs?.[path];
+		if (!diff) {
+			return fileError(reply, new FakeFileError("FILE_NOT_FOUND", "no such file"));
+		}
+		return diff;
+	});
+
+	app.get("/projects/:slug/search", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		const query = SearchQuery.safeParse(request.query ?? {});
+		if (!query.success) {
+			return fileError(reply, new FakeFileError("BAD_REQUEST", "invalid search query"));
+		}
+		// A query the test marks as slow stands in for a search still running
+		// when the browser gives up, so cancellation can be observed.
+		if (query.data.q.includes("slow")) {
+			await new Promise<void>((resolve) => {
+				const timer = setTimeout(resolve, 5000);
+				request.raw.on("close", () => {
+					state.searchAborted += 1;
+					clearTimeout(timer);
+					resolve();
+				});
+			});
+			if (request.raw.destroyed) {
+				// Nobody is listening any more, so send nothing at all.
+				reply.hijack();
+				return;
+			}
+		}
+		const matches = searchAnswers.get(answerKey(keyOf(request), slug)) ?? [];
+		return { matches, truncated: false };
+	});
+
+	app.get(
+		"/projects/:slug/events",
+		{ websocket: true },
+		(socket: WebSocket, request: FastifyRequest) => {
+			const slug = (request.params as { slug: string }).slug;
+			if (!dirs(request).has(slug)) {
+				socket.close(4404, "PROJECT_NOT_FOUND");
+				return;
+			}
+			if (state.eventLimit) {
+				socket.send(JSON.stringify({ type: "error", code: "EVENT_SOCKET_LIMIT" }));
+				socket.close(1008, "EVENT_SOCKET_LIMIT");
+				return;
+			}
+			const key = answerKey(keyOf(request), slug);
+			const peers = eventSockets.get(key) ?? new Set<WebSocket>();
+			peers.add(socket);
+			eventSockets.set(key, peers);
+			socket.on("close", () => peers.delete(socket));
+			// The real agent says the watcher is live before anything else.
+			socket.send(
+				JSON.stringify({ type: "fs", paths: [], git: true, truncated: true }),
+			);
+		},
+	);
+
+	/** Push one frame to every events subscriber of a project. */
+	function pushEvent(key: string, slug: string, frame: unknown): number {
+		const peers = eventSockets.get(answerKey(key, slug)) ?? new Set<WebSocket>();
+		let sent = 0;
+		for (const peer of peers) {
+			if (peer.readyState !== peer.OPEN) continue;
+			peer.send(JSON.stringify(frame));
+			sent += 1;
+		}
+		return sent;
+	}
+
+	// Test-only hooks for Git, search and events.
+	app.post("/__test/git", async (request, reply) => {
+		const body = request.body as {
+			key?: string;
+			slug: string;
+			status?: GitStatus;
+			diffs?: Record<string, GitDiff>;
+		};
+		gitAnswers.set(answerKey(body.key ?? "", body.slug), {
+			status: body.status,
+			diffs: body.diffs,
+		});
+		return reply.status(204).send();
+	});
+
+	app.post("/__test/search", async (request, reply) => {
+		const body = request.body as { key?: string; slug: string; matches: SearchMatch[] };
+		searchAnswers.set(answerKey(body.key ?? "", body.slug), body.matches);
+		return reply.status(204).send();
+	});
+
+	app.get("/__test/search/aborted", async () => ({ aborted: state.searchAborted }));
+
+	app.post("/__test/events", async (request, reply) => {
+		const body = request.body as { key?: string; slug: string; frame: unknown };
+		return reply
+			.status(200)
+			.send({ sent: pushEvent(body.key ?? "", body.slug, body.frame) });
+	});
+
 	// Test-only hooks for the filesystem. The path carries the project slug,
 	// so seeding is the same shape as the map key.
 	app.post("/__test/files", async (request, reply) => {
@@ -843,7 +1018,19 @@ export async function startFakeAgent(
 		received,
 		projects,
 		files,
+		git: gitAnswers,
+		search: searchAnswers,
+		pushEvent,
 		logLevels,
+		get searchAborted() {
+			return state.searchAborted;
+		},
+		get eventLimit() {
+			return state.eventLimit;
+		},
+		set eventLimit(value: boolean) {
+			state.eventLimit = value;
+		},
 		get failLogLevel() {
 			return state.failLogLevel;
 		},

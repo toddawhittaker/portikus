@@ -10,7 +10,6 @@ import {
 	WriteFileResponse,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { z } from "zod";
 import {
 	AGENT_TIMEOUT_MS,
 	type AgentClient,
@@ -20,15 +19,11 @@ import {
 import type { ServerDeps } from "../server.js";
 import {
 	claimLongOperation,
-	ownedProject,
-	ownedScope,
 	releaseLongOperation,
-	requireAgent,
+	scopedProject,
 	sendAgentError,
 	sendError,
 } from "./project-scope.js";
-
-const ProjectParam = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 
 /** What a route needs once the caller has been shown to own the project. */
 interface FileScope {
@@ -117,18 +112,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 			request: FastifyRequest,
 			reply: FastifyReply,
 		): Promise<(FileScope & { workspaceId: string }) | null> {
-			const params = ProjectParam.safeParse(request.params);
-			if (!params.success) {
-				sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-				return null;
-			}
-			const scope = await ownedScope(db, config, request, reply);
-			if (!scope) return null;
-			const row = await ownedProject(db, scope.workspaceId, params.data.pid, reply);
-			if (!row) return null;
-			const agent = requireAgent(scope, reply);
-			if (!agent) return null;
-			return { agent, slug: row.slug, workspaceId: scope.workspaceId };
+			return scopedProject(db, config, request, reply);
 		}
 
 		/** Turn an unsuccessful agent response into the browser's error. */

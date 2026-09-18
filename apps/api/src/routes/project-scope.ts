@@ -18,6 +18,7 @@ export function projectPath(slug: string): string {
 export type ProjectRow = Selectable<Database["projects"]>;
 
 const WorkspaceParam = z.object({ id: z.string().uuid() });
+const ProjectParam = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 
 export interface Scope {
 	workspaceId: string;
@@ -173,4 +174,36 @@ export async function ownedProject(
 		return null;
 	}
 	return row;
+}
+
+/** The project and agent one brokered project route works against. */
+export interface ProjectScope {
+	agent: AgentClient;
+	slug: string;
+	workspaceId: string;
+}
+
+/**
+ * The single ownership gate every brokered project route goes through: the
+ * workspace for its owner, the project inside it and the agent, or null
+ * after answering (SPEC.md §5.2, §24.6).
+ */
+export async function scopedProject(
+	db: Kysely<Database>,
+	config: ApiConfig,
+	request: FastifyRequest,
+	reply: FastifyReply,
+): Promise<ProjectScope | null> {
+	const params = ProjectParam.safeParse(request.params);
+	if (!params.success) {
+		sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		return null;
+	}
+	const scope = await ownedScope(db, config, request, reply);
+	if (!scope) return null;
+	const row = await ownedProject(db, scope.workspaceId, params.data.pid, reply);
+	if (!row) return null;
+	const agent = requireAgent(scope, reply);
+	if (!agent) return null;
+	return { agent, slug: row.slug, workspaceId: scope.workspaceId };
 }
