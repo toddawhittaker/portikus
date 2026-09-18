@@ -14,6 +14,7 @@
 		"@portikus/config": "workspace:*",
 		"@portikus/contracts": "workspace:*",
 		"@portikus/observability": "workspace:*",
+		"chokidar": "4.0.3",
 		"@portikus/events": "workspace:*",
 		"fastify": "5.12.4",
 		"node-pty": "1.1.0",

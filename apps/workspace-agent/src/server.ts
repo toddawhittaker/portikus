@@ -25,6 +25,7 @@ import Fastify, {
 } from "fastify";
 import { z } from "zod";
 import { tokenAuth } from "./auth.js";
+import { eventsRoute } from "./events-route.js";
 import {
 	type ArchiveProcess,
 	archiveProject,
@@ -60,6 +61,7 @@ const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	INVALID_SLUG: 400,
 	INVALID_URL: 400,
 	GIT_FAILED: 500,
+	WATCH_FAILED: 500,
 };
 
 const IdParam = z.object({ terminalId: TerminalId });
@@ -352,6 +354,8 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			});
 			return reply.type("application/zip").send(child.stdout);
 		});
+
+		instance.register(eventsRoute, { homeDir: options.homeDir });
 
 		instance.get(
 			"/terminals/:terminalId/attach",
