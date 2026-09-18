@@ -428,6 +428,11 @@ Markdown images render with an http(s)-or-relative address allowlist, and
 a file the importer still cannot read drops the tab to the Code view with
 a short notice instead of losing keystrokes.
 
+**Projects pane.** A long project name no longer pushes the row's
+three-dots menu out of sight when the pane is dragged narrow. The name
+truncates with an ellipsis and the menu button keeps its width, in the
+pane header row as well as in each project row (#222).
+
 **Files pane.** The header's three-dots menu and an empty project's own
 empty state now offer New file and New folder on the project root, the
 same items a row's menu shows (#153). The pane now supports selecting
