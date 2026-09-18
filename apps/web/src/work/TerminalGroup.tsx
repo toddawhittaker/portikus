@@ -29,6 +29,10 @@ export interface TerminalGroupProps {
 	onResize: (path: number[], sizes: number[]) => void;
 	onSessionEnded: () => void;
 	onLeave: () => void;
+	/** Close this whole tab: a file tab offers it when the file is gone. */
+	onCloseTab: () => void;
+	/** Read and forget the line a file tab was opened at. */
+	consumePendingLine: () => number | undefined;
 	/** The pane a drag is hovering, and the zone it would drop into. */
 	dropTarget?: { terminalId: string; edge: DropEdge } | null;
 }
@@ -66,7 +70,19 @@ export function TerminalGroup(props: TerminalGroupProps) {
 				/>
 			);
 		}
-		if (node.type === "file") return <FileLeaf key={node.path} path={node.path} />;
+		if (node.type === "file") {
+			return (
+				<FileLeaf
+					key={node.path}
+					path={node.path}
+					workspaceId={props.workspaceId}
+					projectId={props.projectId}
+					visible={visible}
+					onClose={props.onCloseTab}
+					consumePendingLine={props.consumePendingLine}
+				/>
+			);
+		}
 		if (node.type === "diff") return <DiffLeaf key={node.path} path={node.path} />;
 		const orientation = node.direction === "row" ? "horizontal" : "vertical";
 		const ids = node.children.map((_, index) => panelId(path, index));
