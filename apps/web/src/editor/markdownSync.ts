@@ -11,20 +11,13 @@
  */
 
 /**
- * True when text arriving from the tab is genuinely new for this side, so it
- * should be loaded. False when it is this side's own edit coming back.
+ * True when text differs from the last text this side saw, in either
+ * direction: text arriving from the tab is worth loading, and text this side
+ * produced is worth sending on. False means it is the same text coming back,
+ * which happens when the editor reformats or a selection changes nothing.
  */
-export function isIncomingNew(lastSeen: string, incoming: string): boolean {
-	return incoming !== lastSeen;
-}
-
-/**
- * True when text this side produced differs from what it last saw, so it is a
- * real edit worth sending on. False when the editor re-reported the same text,
- * which happens when it reformats or when a selection changes nothing.
- */
-export function isOutgoingNew(lastSeen: string, outgoing: string): boolean {
-	return outgoing !== lastSeen;
+export function hasChanged(lastSeen: string, text: string): boolean {
+	return text !== lastSeen;
 }
 
 /**

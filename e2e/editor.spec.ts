@@ -266,20 +266,30 @@ test.describe("file editor", () => {
 			timeout: 30_000,
 		});
 
+		// The student's own side of the diff is editable, and what they type
+		// there has to survive going back to the editor.
+		const mySide = page
+			.getByTestId(`conflict-editor-${PATH}`)
+			.locator(".editor.modified .view-lines[data-mprt]");
+		await mySide.click();
+		await page.keyboard.press("Control+End");
+		await page.keyboard.type(" and merged");
+
 		// Back to the editor, with the student's own text still in it.
 		await page.getByTestId("keep-editing").click();
 		await expect(page.getByTestId(`conflict-editor-${PATH}`)).toHaveCount(0);
-		await expect(lines(page)).toContainText("// mine");
+		await expect(lines(page)).toContainText("// mine! and merged");
 		await expect(status(page)).toHaveText("Conflict");
 
-		// Their text goes to disk when they say so.
+		// Their text, including what they typed in the diff, goes to disk when
+		// they say so.
 		await page.getByTestId("keep-mine").click();
 		await expect(status(page)).toHaveText("Saved", { timeout: 15_000 });
 		await expect
 			.poll(async () => readSeededFile(student.workspaceId, project.slug, PATH), {
 				timeout: 15_000,
 			})
-			.toContain("// mine");
+			.toContain("// mine! and merged");
 	});
 
 	test("Ctrl+F finds a match and Ctrl+H replaces it", async ({ page, context }) => {

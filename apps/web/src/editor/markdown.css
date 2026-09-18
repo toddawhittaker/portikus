@@ -71,16 +71,6 @@
 	margin-bottom: var(--space-1);
 }
 
-/* GitHub task lists show their checkbox instead of a marker. */
-.pk-markdown li:has(> input[type="checkbox"]) {
-	list-style-type: none;
-}
-
-.pk-markdown li > input[type="checkbox"] {
-	margin-right: var(--space-2);
-	vertical-align: middle;
-}
-
 .pk-markdown a {
 	color: var(--accent-text);
 }
