@@ -6,6 +6,7 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { useEffect, useRef, useState } from "react";
+import { wsUrl } from "./api/ws.js";
 import {
 	canOpenInNewTab,
 	FILE_LINE_PATTERN,
@@ -69,8 +70,9 @@ function socketUrl(
 	cols: number,
 	rows: number,
 ): string {
-	const scheme = location.protocol === "https:" ? "wss" : "ws";
-	return `${scheme}://${location.host}/workspaces/${workspaceId}/terminals/${terminalId}/ws?cols=${cols}&rows=${rows}`;
+	return wsUrl(
+		`/workspaces/${workspaceId}/terminals/${terminalId}/ws?cols=${cols}&rows=${rows}`,
+	);
 }
 
 /** Firefox and older browsers may not expose clipboard reading at all. */

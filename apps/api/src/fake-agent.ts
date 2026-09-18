@@ -927,8 +927,6 @@ export async function startFakeAgent(
 		return reply.status(204).send();
 	});
 
-	app.get("/__test/search/aborted", async () => ({ aborted: state.searchAborted }));
-
 	// What the last search of one project actually asked for.
 	app.get("/__test/search/last", async (request) => {
 		const query = request.query as { key?: string; slug: string };
@@ -947,8 +945,6 @@ export async function startFakeAgent(
 			: pushEvent(body.key ?? "", body.slug, body.frame);
 		return reply.status(200).send({ sent });
 	});
-
-	app.get("/__test/events/received", async () => ({ received: state.eventsReceived }));
 
 	// Test-only hooks for the filesystem. The path carries the project slug,
 	// so seeding is the same shape as the map key.

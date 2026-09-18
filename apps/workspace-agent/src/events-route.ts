@@ -8,6 +8,8 @@ export interface EventsRouteOptions {
 	homeDir: string;
 	/** Overrides the socket cap. For tests. */
 	maxSockets?: number;
+	/** Overrides the watchers, so a test can break one. For tests. */
+	watchers?: ProjectWatchers;
 }
 
 /** Close code for a project that does not exist (SPEC.md §11.4). */
@@ -29,7 +31,7 @@ export async function eventsRoute(
 	instance: FastifyInstance,
 	options: EventsRouteOptions,
 ): Promise<void> {
-	const watchers = new ProjectWatchers(instance.log);
+	const watchers = options.watchers ?? new ProjectWatchers(instance.log);
 	const maxSockets = options.maxSockets ?? MAX_EVENT_SOCKETS;
 	let open = 0;
 
@@ -61,8 +63,16 @@ export async function eventsRoute(
 				const stop = await watchers.subscribe(
 					options.homeDir,
 					slug,
-					(event: FsEvent) => {
-						send(socket, event);
+					(event: FsEvent | null) => {
+						if (event !== null) {
+							send(socket, event);
+							return;
+						}
+						// The watcher is gone, so this socket can carry nothing
+						// more. Closing with 1011 is what makes the browser
+						// reconnect and refetch everything (SPEC.md §11.4).
+						send(socket, { type: "error", code: "WATCH_FAILED" });
+						socket.close(SERVER_ERROR_CLOSE, "WATCH_FAILED");
 					},
 				);
 				// The socket may have closed while the watcher was starting.

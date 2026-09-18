@@ -125,7 +125,7 @@ test.describe("diff tab", () => {
 			[PATH]: diff({ status: "U", after: "<<<<<<< HEAD\nmine\n=======\ntheirs\n" }),
 		});
 
-		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("U");
+		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("!");
 		await expect(page.getByTestId("diff-note")).toHaveText(
 			"Unresolved merge conflict; the working-tree side shows the conflict markers",
 		);

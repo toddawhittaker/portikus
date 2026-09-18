@@ -1,7 +1,7 @@
 /**
- * Saving a file also refreshes that file's diff (SPEC.md §12.6). Nothing
- * else invalidates a diff until the project events consumer lands, so this
- * is the link between a file tab's autosave and an open diff tab.
+ * Saving a file also refreshes that file's diff (SPEC.md §12.6): the link
+ * between a file tab's autosave and an open diff tab, without waiting for
+ * the project events socket to say the same thing.
  */
 import { QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";

@@ -364,7 +364,8 @@
 	outline-offset: -2px;
 }
 
-/* The M/A/D/R/U badge on a diff tab (SPEC.md §12.6). */
+/* The change badge on a diff tab, lettered and styled by the same kinds the
+   tree and the Changes list use (SPEC.md §12.6). */
 .pk-diff-status {
 	flex: none;
 	margin-left: auto;
@@ -377,13 +378,14 @@
 	text-align: center;
 }
 
-.pk-diff-status[data-status="A"] {
+.pk-diff-status[data-git="added"],
+.pk-diff-status[data-git="untracked"] {
 	background: var(--status-running-soft);
 	color: var(--status-running);
 }
 
-.pk-diff-status[data-status="D"],
-.pk-diff-status[data-status="U"] {
+.pk-diff-status[data-git="deleted"],
+.pk-diff-status[data-git="conflict"] {
 	background: var(--status-error-soft);
 	color: var(--status-error);
 }

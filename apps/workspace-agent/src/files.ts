@@ -297,8 +297,8 @@ export interface WriteOptions {
  * Write a file with a conditional guard, so a stale browser cannot overwrite
  * a newer version on disk (SPEC.md §13.5).
  *
- * The body streams into a temporary file in the same directory and is renamed
- * linked or renamed over the target only once it has arrived whole. A failed save - over the
+ * The body streams into a temporary file in the same directory and is moved
+ * over the target only once it has arrived whole. A failed save - over the
  * cap, a dropped connection, a stream error - must never lose the student's
  * file, so the target is never truncated before the body is known good
  * (SPEC.md §13.5). The temporary file is opened with O_EXCL and O_NOFOLLOW,

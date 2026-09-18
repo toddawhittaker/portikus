@@ -309,8 +309,8 @@ function writeHeaders(etag: string | null): Record<string, string> {
 export function useSaveFile(workspaceId: string, projectId: string, path: string) {
 	const queryClient = useQueryClient();
 	return useMutation({
-		// A saved file changes its diff, and nothing else invalidates it until
-		// the project events consumer lands (task 11 of this epic).
+		// A saved file changes its diff, and this is the quickest way to say
+		// so; the project events socket would get there a moment later.
 		onSuccess: () => {
 			void queryClient.invalidateQueries({
 				queryKey: fileKeys.diff(workspaceId, projectId, path),

@@ -6,9 +6,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FsEvent } from "@portikus/contracts";
+import type { FSWatcher } from "chokidar";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { buildServer } from "./server.js";
+import { ProjectWatchers } from "./watch.js";
 
 const TOKEN = "c".repeat(64);
 
@@ -124,6 +126,31 @@ test("a missing project closes the socket with 4404", async () => {
 	const socket = await openEvents("absent");
 	expect(await socket.closed).toBe(4404);
 	expect(socket.frames[0]).toEqual({ type: "error", code: "PROJECT_NOT_FOUND" });
+});
+
+test("a watcher that fails after start closes the socket with 1011", async () => {
+	const watchers = new ProjectWatchers(app.log);
+	const other = buildServer({
+		tokenPath: join(homeDir, "agent.token"),
+		homeDir,
+		watchers,
+	});
+	await other.listen({ port: 0, host: "127.0.0.1" });
+	const otherPort = (other.server.address() as { port: number }).port;
+	try {
+		const socket = await openEvents("demo", otherPort);
+		await waitForReady(socket);
+		const entries = (
+			watchers as unknown as { entries: Map<string, { watcher: FSWatcher }> }
+		).entries;
+		const broken = [...entries.values()][0]?.watcher;
+		broken?.emit("error", Object.assign(new Error("boom"), { code: "EIO" }));
+		// The browser retries a 1011 and refetches everything on reopen.
+		expect(await socket.closed).toBe(1011);
+		expect(socket.frames.at(-1)).toEqual({ type: "error", code: "WATCH_FAILED" });
+	} finally {
+		await other.close();
+	}
 });
 
 test("the upgrade needs the token", async () => {

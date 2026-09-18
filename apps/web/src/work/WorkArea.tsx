@@ -413,7 +413,13 @@ export function WorkArea({
 							onLeave={leaveTerminal}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
 							pendingLine={pendingLine[tab.id]}
-							onOpenFile={(path) => store.getState().openFile(path)}
+							onOpenFile={(path) => {
+								// Opening from a diff hits the same tab cap as anywhere
+								// else, and must say so rather than do nothing.
+								if (!store.getState().openFile(path)) {
+									toast.show(tooManyTabsToast());
+								}
+							}}
 							consumePendingLine={() => store.getState().consumePendingLine(tab.id)}
 							dropTarget={
 								dragTarget?.kind === "pane" && dragTarget.tabId === tab.id

@@ -101,7 +101,7 @@ export function FileLeaf({
 	// True while a write is in flight: a second one would send a stale etag
 	// and be refused as a false conflict.
 	const writing = useRef(false);
-	// Every version this tab has already seen, so a poll that was in flight
+	// Every version this tab has already seen, so a refetch that was in flight
 	// during a save cannot put the older text back.
 	const known = useRef(new Set<string>());
 

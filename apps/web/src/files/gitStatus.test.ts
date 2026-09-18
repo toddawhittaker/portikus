@@ -2,11 +2,14 @@ import type { GitEntry, GitStatus } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import {
 	changeRows,
+	DIFF_KIND,
 	decorate,
 	decorations,
 	gitBar,
 	ignoredPaths,
 	isIgnored,
+	LETTER,
+	WORD,
 } from "./gitStatus.js";
 
 function entry(partial: Partial<GitEntry> & { path: string }): GitEntry {
@@ -47,7 +50,21 @@ test("the working-tree state decides the letter and the kind", () => {
 test("an untracked file is its own kind, not a modification", () => {
 	const decoration = decorate(entry({ path: "new.ts", x: "?", y: "?" }));
 	expect(decoration.kind).toBe("untracked");
-	expect(decoration.letter).toBe("U");
+	// Git's own mark, and never the "!" a conflict wears (SPEC.md §12.1).
+	expect(decoration.letter).toBe("?");
+	expect(decoration.title).toContain("Untracked");
+});
+
+test("a diff status is drawn from the same table as the tree", () => {
+	// Not in HEAD is "added", staged or not; the note under the header says
+	// which. Only the tree calls a path untracked (SPEC.md §12.6).
+	expect(LETTER[DIFF_KIND.A]).toBe("A");
+	expect(WORD[DIFF_KIND.A]).toBe("Added");
+	expect(LETTER[DIFF_KIND.U]).toBe("!");
+	expect(WORD[DIFF_KIND.U]).toBe("Conflict");
+	expect(LETTER[DIFF_KIND.M]).toBe("M");
+	expect(LETTER[DIFF_KIND.D]).toBe("D");
+	expect(LETTER[DIFF_KIND.R]).toBe("R");
 });
 
 test("a conflict never looks like a modification", () => {

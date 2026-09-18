@@ -5,6 +5,7 @@
  */
 import { Button, EmptyState } from "@portikus/ui";
 import { lazy, Suspense, useEffect } from "react";
+import { DIFF_KIND, LETTER, WORD } from "../files/gitStatus.js";
 import { fileDownloadUrl } from "../files/queries.js";
 import { useGitDiff } from "../files/useGitDiff.js";
 
@@ -13,15 +14,6 @@ import { useGitDiff } from "../files/useGitDiff.js";
 const DiffViewer = lazy(() =>
 	import("../editor/DiffViewer.js").then((module) => ({ default: module.DiffViewer })),
 );
-
-/** What each status letter says at a glance. */
-const STATUS_LABEL: Record<string, string> = {
-	M: "Modified",
-	A: "Added",
-	D: "Deleted",
-	R: "Renamed",
-	U: "Conflict",
-};
 
 /** The one line under the header that explains an unusual status. */
 const STATUS_NOTE: Record<string, string> = {
@@ -47,7 +39,7 @@ export function DiffLeaf({
 	visible = true,
 	onOpenFile,
 }: DiffLeafProps) {
-	const diff = useGitDiff(workspaceId, projectId, path, visible);
+	const diff = useGitDiff(workspaceId, projectId, path);
 
 	// Coming back to a diff that was in the background shows what is on disk
 	// now, not what it was when the tab was last looked at (SPEC.md §12.6).
@@ -131,6 +123,9 @@ export function DiffLeaf({
 
 	const status = data?.status;
 	const note = status === undefined ? null : (STATUS_NOTE[status] ?? null);
+	// The badge comes from the same table the tree and the Changes list use,
+	// so one file never wears two letters (SPEC.md §12.6).
+	const kind = status === undefined ? null : DIFF_KIND[status];
 
 	return (
 		<div className="pk-doc-leaf pk-file-leaf" data-testid={`diff-pane-${path}`}>
@@ -140,14 +135,14 @@ export function DiffLeaf({
 						? `Diff · ${data.oldPath} → ${path}`
 						: `Diff · ${path}`}
 				</span>
-				{status !== undefined ? (
+				{kind !== null ? (
 					<span
 						className="pk-diff-status"
 						data-testid={`diff-status-${path}`}
-						data-status={status}
-						title={STATUS_LABEL[status]}
+						data-git={kind}
+						title={WORD[kind]}
 					>
-						{status}
+						{LETTER[kind]}
 					</span>
 				) : null}
 				{data?.status === "D" ? null : (
