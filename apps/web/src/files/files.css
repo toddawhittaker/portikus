@@ -1,0 +1,77 @@
+/* The file tree (design/mockups Shell, "FileTree"). */
+.pk-tree,
+.pk-tree-group {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.pk-tree-item {
+	outline: none;
+}
+.pk-tree-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	height: var(--pk-row);
+	padding-right: var(--space-1);
+	border-radius: var(--radius-sm);
+	font-size: 13px;
+	color: var(--ink);
+	cursor: default;
+}
+.pk-tree-row:hover {
+	background: var(--surface-hover);
+}
+.pk-tree-item[aria-selected="true"] > .pk-tree-row {
+	background: var(--surface-selected);
+}
+.pk-tree-item:focus-visible > .pk-tree-row {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+.pk-tree-row.is-drop-target {
+	background: var(--surface-selected);
+	box-shadow: inset 0 0 0 1px var(--accent);
+}
+.pk-tree-row.is-dragging {
+	opacity: 0.5;
+}
+.pk-tree-row .pk-icon {
+	color: var(--ink-muted);
+}
+.pk-tree-twisty {
+	flex: none;
+	width: 14px;
+	display: grid;
+	place-items: center;
+	color: var(--ink-muted);
+}
+.pk-tree-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pk-tree-actions {
+	opacity: 0;
+}
+.pk-tree-row:hover .pk-tree-actions,
+.pk-tree-actions:focus-visible {
+	opacity: 1;
+}
+.pk-tree-more {
+	padding: var(--space-1) var(--space-2);
+	color: var(--ink-muted);
+	font-size: 12px;
+}
+.pk-pane-sub[data-drop-over="true"] {
+	background: var(--surface-selected);
+}
+.pk-tree-face {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+}
