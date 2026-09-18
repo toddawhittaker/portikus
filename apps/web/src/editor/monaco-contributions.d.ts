@@ -15,3 +15,15 @@ declare module "monaco-editor/language/json/monaco.contribution.js" {
 		}): void;
 	};
 }
+
+/** Monaco's editing features; imported for their side effects only. */
+declare module "monaco-editor/features/find/register.js";
+declare module "monaco-editor/editor/contrib/folding/browser/folding.js";
+declare module "monaco-editor/editor/contrib/bracketMatching/browser/bracketMatching.js";
+declare module "monaco-editor/editor/contrib/multicursor/browser/multicursor.js";
+declare module "monaco-editor/editor/contrib/contextmenu/browser/contextmenu.js";
+declare module "monaco-editor/editor/contrib/wordOperations/browser/wordOperations.js";
+declare module "monaco-editor/editor/contrib/linesOperations/browser/linesOperations.js";
+declare module "monaco-editor/editor/contrib/comment/browser/comment.js";
+declare module "monaco-editor/editor/standalone/browser/quickAccess/standaloneCommandsQuickAccess.js";
+declare module "monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoLineQuickAccess.js";
