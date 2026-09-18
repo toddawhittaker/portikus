@@ -60,7 +60,9 @@ export function useTerminals(
 				headers: JSON_HEADERS,
 				body: JSON.stringify({ projectId, ...(init?.name ? { name: init.name } : {}) }),
 			}),
-		onSuccess: invalidate,
+		// No refetch here on purpose: a list answer holding a terminal the caller
+		// has not placed yet would be reconciled into a tab of its own. The
+		// caller places the terminal first and then calls refetch.
 	});
 
 	const rename = useMutation({

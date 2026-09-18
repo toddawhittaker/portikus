@@ -8,7 +8,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyBaseLogger } from "fastify";
 import type { IPty, spawn } from "node-pty";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
-import { TerminalRegistry } from "./terminals.js";
+import { type AttachOptions, TerminalRegistry } from "./terminals.js";
 import { createSession, killSession } from "./tmux.js";
 
 const run = promisify(execFile);
@@ -30,10 +30,14 @@ const haveTmux = await tmuxAvailable();
 /** A PTY the test drives: it records writes and emits output on demand. */
 class FakePty {
 	readonly pid = 4242;
-	readonly cols = 80;
-	readonly rows = 24;
 	readonly writes: string[] = [];
+	readonly resizes: { cols: number; rows: number }[] = [];
 	killed = false;
+	constructor(
+		readonly cols = 80,
+		readonly rows = 24,
+	) {}
+
 	private dataHandler: ((data: string) => void) | null = null;
 	private exitHandler: (() => void) | null = null;
 
@@ -48,7 +52,9 @@ class FakePty {
 	write(data: string) {
 		this.writes.push(data);
 	}
-	resize() {}
+	resize(cols: number, rows: number) {
+		this.resizes.push({ cols, rows });
+	}
 	pause() {}
 	resume() {}
 	kill() {
@@ -86,6 +92,9 @@ class FakeSocket {
 	input(data: string) {
 		this.fire("message", Buffer.from(JSON.stringify({ type: "input", data })));
 	}
+	resize(cols: number, rows: number) {
+		this.fire("message", Buffer.from(JSON.stringify({ type: "resize", cols, rows })));
+	}
 }
 
 let nextId = 0;
@@ -102,20 +111,41 @@ interface Harness {
 	lines: Record<string, unknown>[];
 }
 
-async function attachFake(): Promise<Harness> {
+interface PendingHarness extends Omit<Harness, "pty"> {
+	/** Null until the registry spawns the PTY. */
+	ptyOf: () => FakePty | null;
+	attached: Promise<void>;
+}
+
+/**
+ * Start an attach without waiting for it, so a test can send frames during
+ * the window before the PTY exists.
+ */
+async function startAttach(options: AttachOptions = {}): Promise<PendingHarness> {
 	const id = makeId();
 	await createSession(id, homeDir, homeDir, SOCKET_NAME);
-	const pty = new FakePty();
+	let pty: FakePty | null = null;
 	const { logger, lines } = collectingLogger();
 	const registry = new TerminalRegistry(
 		homeDir,
 		logger as unknown as FastifyBaseLogger,
 		SOCKET_NAME,
-		(() => pty as unknown as IPty) as unknown as typeof spawn,
+		((_file: string, _args: string[], opts: { cols: number; rows: number }) => {
+			pty = new FakePty(opts.cols, opts.rows);
+			return pty as unknown as IPty;
+		}) as unknown as typeof spawn,
 	);
 	const socket = new FakeSocket();
-	await registry.attach(id, socket as unknown as WebSocket, {});
-	return { registry, pty, socket, id, lines };
+	const attached = registry.attach(id, socket as unknown as WebSocket, options);
+	return { registry, socket, id, lines, attached, ptyOf: () => pty };
+}
+
+async function attachFake(): Promise<Harness> {
+	const pending = await startAttach();
+	await pending.attached;
+	const pty = pending.ptyOf();
+	if (!pty) throw new Error("no pty was spawned");
+	return { ...pending, pty };
 }
 
 beforeAll(async () => {
@@ -210,3 +240,94 @@ test.skipIf(!haveTmux)("closing the socket drops the queue and its timer", async
 		vi.useRealTimers();
 	}
 });
+
+test.skipIf(!haveTmux)(
+	"a resize sent before the pty exists sizes the pty",
+	async () => {
+		const pending = await startAttach({ cols: 80, rows: 24 });
+		// The PTY does not exist yet: attach is still checking the tmux session.
+		expect(pending.ptyOf()).toBeNull();
+		pending.socket.resize(60, 13);
+		await pending.attached;
+
+		const pty = pending.ptyOf();
+		expect(pty).not.toBeNull();
+		expect({ cols: pty?.cols, rows: pty?.rows }).toEqual({ cols: 60, rows: 13 });
+
+		pending.registry.closeAll(pending.id, 1000, "done");
+		await killSession(pending.id, SOCKET_NAME);
+	},
+);
+
+test.skipIf(!haveTmux)("only the last early resize is used", async () => {
+	const pending = await startAttach({ cols: 80, rows: 24 });
+	pending.socket.resize(100, 30);
+	pending.socket.resize(60, 13);
+	await pending.attached;
+
+	const pty = pending.ptyOf();
+	expect({ cols: pty?.cols, rows: pty?.rows }).toEqual({ cols: 60, rows: 13 });
+
+	pending.registry.closeAll(pending.id, 1000, "done");
+	await killSession(pending.id, SOCKET_NAME);
+});
+
+test.skipIf(!haveTmux)(
+	"input sent before the pty exists is written in order after the first output",
+	async () => {
+		const pending = await startAttach();
+		pending.socket.input("early");
+		await pending.attached;
+
+		const pty = pending.ptyOf();
+		if (!pty) throw new Error("no pty was spawned");
+		pending.socket.input("late");
+		expect(pty.writes).toEqual([]);
+
+		pty.emit("prompt$ ");
+		expect(pty.writes).toEqual(["early", "late"]);
+
+		pending.registry.closeAll(pending.id, 1000, "done");
+		await killSession(pending.id, SOCKET_NAME);
+	},
+);
+
+test.skipIf(!haveTmux)(
+	"a socket that closes before the pty exists leaves no attachment and no pty",
+	async () => {
+		const pending = await startAttach();
+		pending.socket.input("gone");
+		pending.socket.close();
+		await pending.attached;
+
+		expect(pending.ptyOf()).toBeNull();
+		expect(pending.registry.countAttachments(pending.id)).toBe(0);
+
+		await killSession(pending.id, SOCKET_NAME);
+	},
+);
+
+test.skipIf(!haveTmux)(
+	"early frames before the pty respect the queue cap",
+	async () => {
+		const pending = await startAttach();
+		const big = "x".repeat(48 * 1024);
+		pending.socket.input("first");
+		pending.socket.input(big);
+		pending.socket.input(big);
+		await pending.attached;
+
+		const warnings = pending.lines.filter(
+			(line) => line.msg === "dropping early terminal input: queue full",
+		);
+		expect(warnings).toHaveLength(1);
+
+		const pty = pending.ptyOf();
+		if (!pty) throw new Error("no pty was spawned");
+		pty.emit("prompt$ ");
+		expect(pty.writes).toEqual(["first", big]);
+
+		pending.registry.closeAll(pending.id, 1000, "done");
+		await killSession(pending.id, SOCKET_NAME);
+	},
+);

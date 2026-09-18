@@ -6,6 +6,8 @@ import {
 	evenSizes,
 	layoutTerminalIds,
 	leafIds,
+	moveLeaf,
+	moveLeafToNewTab,
 	moveTab,
 	normaliseSizes,
 	reconcile,
@@ -157,7 +159,198 @@ test("reconcile keeps an ended terminal, because it is still in the list", () =>
 	expect(layoutTerminalIds(layout)).toEqual(["a"]);
 });
 
+test("reconcile does not bring back an ended terminal that lost its leaf", () => {
+	// A revive swaps the ended id out of the layout; the row stays in the
+	// listing as history (SPEC.md §9.7) and must not come back as a tab.
+	const layout = reconcile(oneTab(leaf("b")), ["a", "b"], ["a"]);
+	expect(layoutTerminalIds(layout)).toEqual(["b"]);
+});
+
+test("reconcile still gives a live terminal from another window a tab", () => {
+	const layout = reconcile(oneTab(leaf("a")), ["a", "b"], ["c"]);
+	expect(layoutTerminalIds(layout)).toEqual(["a", "b"]);
+});
+
+test("reconcile keeps the leaf of an ended terminal it already shows", () => {
+	const layout = reconcile(oneTab(leaf("a")), ["a"], ["a"]);
+	expect(layoutTerminalIds(layout)).toEqual(["a"]);
+});
+
 test("reconcile with nothing to do returns the same layout", () => {
 	const layout = oneTab(leaf("a"));
 	expect(reconcile(layout, ["a"])).toBe(layout);
+});
+
+/** A split node, for the assertions that read its direction and sizes. */
+function split(node: SplitNode | undefined): Extract<SplitNode, { type: "split" }> {
+	if (node?.type !== "split") throw new Error("expected a split");
+	return node;
+}
+
+test("dragging the lower pane to the right edge turns a column into a row", () => {
+	const column = splitLeaf(oneTab(leaf("a")), "a", "column", "b");
+	const layout = moveLeaf(column, "tab1", "b", "a", "right");
+	const root = split(layout.tabs[0]?.root);
+	expect(root.direction).toBe("row");
+	expect(leafIds(root)).toEqual(["a", "b"]);
+	expect(root.sizes).toEqual([50, 50]);
+	expect(sumsTo100(root)).toBe(true);
+});
+
+test("and dragging it back to the bottom edge turns the row into a column", () => {
+	const row = splitLeaf(oneTab(leaf("a")), "a", "row", "b");
+	const layout = moveLeaf(row, "tab1", "b", "a", "bottom");
+	const root = split(layout.tabs[0]?.root);
+	expect(root.direction).toBe("column");
+	expect(leafIds(root)).toEqual(["a", "b"]);
+});
+
+test("the left edge inserts the pane before its target", () => {
+	const row = splitLeaf(oneTab(leaf("a")), "a", "row", "b");
+	const layout = moveLeaf(row, "tab1", "b", "a", "left");
+	expect(leafIds(split(layout.tabs[0]?.root))).toEqual(["b", "a"]);
+});
+
+test("the top edge inserts the pane above its target", () => {
+	const column = splitLeaf(oneTab(leaf("a")), "a", "column", "b");
+	const layout = moveLeaf(column, "tab1", "b", "a", "top");
+	expect(leafIds(split(layout.tabs[0]?.root))).toEqual(["b", "a"]);
+});
+
+test("a pane joins an existing split of the same direction as a sibling", () => {
+	let layout = splitLeaf(oneTab(leaf("a")), "a", "row", "b");
+	layout = splitLeaf(layout, "b", "row", "c");
+	layout = moveLeaf(layout, "tab1", "c", "a", "left");
+	const root = split(layout.tabs[0]?.root);
+	expect(leafIds(root)).toEqual(["c", "a", "b"]);
+	expect(root.sizes).toEqual(evenSizes(3));
+	expect(sumsTo100(root)).toBe(true);
+});
+
+test("dropping on the centre swaps the two panes", () => {
+	let layout = splitLeaf(oneTab(leaf("a")), "a", "row", "b");
+	layout = splitLeaf(layout, "b", "column", "c");
+	const swapped = moveLeaf(layout, "tab1", "a", "c", "center");
+	expect(leafIds(swapped.tabs[0]?.root as SplitNode)).toEqual(["c", "b", "a"]);
+	// The shape is untouched: only the two terminal ids traded places.
+	expect(split(swapped.tabs[0]?.root).direction).toBe("row");
+});
+
+test("a pane dragged out of another tab leaves that tab behind when it was alone", () => {
+	const layout: ProjectLayout = {
+		tabs: [
+			{ id: "tab1", root: leaf("a") },
+			{ id: "tab2", root: leaf("b") },
+		],
+	};
+	const moved = moveLeaf(layout, "tab1", "b", "a", "right");
+	expect(moved.tabs.map((tab) => tab.id)).toEqual(["tab1"]);
+	expect(leafIds(split(moved.tabs[0]?.root))).toEqual(["a", "b"]);
+});
+
+test("a pane dragged out of a split tab collapses the split it left", () => {
+	const layout: ProjectLayout = {
+		tabs: [
+			{ id: "tab1", root: leaf("a") },
+			{
+				id: "tab2",
+				root: splitLeaf(oneTab(leaf("b"), "tab2"), "b", "row", "c").tabs[0]
+					?.root as SplitNode,
+			},
+		],
+	};
+	const moved = moveLeaf(layout, "tab1", "c", "a", "bottom");
+	expect(moved.tabs.map((tab) => tab.id)).toEqual(["tab1", "tab2"]);
+	expect(moved.tabs[1]?.root).toEqual(leaf("b"));
+	expect(leafIds(split(moved.tabs[0]?.root))).toEqual(["a", "c"]);
+});
+
+/** A tab nested to exactly `MAX_SPLIT_DEPTH`, with "deep" at the bottom. */
+function deepTab(levels: number): SplitNode {
+	if (levels <= 1) return leaf("deep");
+	return {
+		type: "split",
+		direction: "column",
+		sizes: evenSizes(2),
+		children: [leaf(`p${levels}`), deepTab(levels - 1)],
+	};
+}
+
+test("a move that would go past the depth limit is refused", () => {
+	const layout: ProjectLayout = {
+		tabs: [
+			{ id: "tab1", root: deepTab(8) },
+			{ id: "tab2", root: leaf("x") },
+		],
+	};
+	// Splitting the deepest leaf would make a ninth level.
+	expect(moveLeaf(layout, "tab1", "x", "deep", "right")).toBe(layout);
+	// One level up there is still room.
+	expect(moveLeaf(layout, "tab1", "x", "p3", "right")).not.toBe(layout);
+});
+
+test("moveLeaf ignores a pane dropped on itself or an unknown target", () => {
+	const layout = splitLeaf(oneTab(leaf("a")), "a", "row", "b");
+	expect(moveLeaf(layout, "tab1", "a", "a", "right")).toBe(layout);
+	expect(moveLeaf(layout, "tab1", "a", "zz", "right")).toBe(layout);
+	expect(moveLeaf(layout, "tab1", "zz", "a", "right")).toBe(layout);
+	expect(moveLeaf(layout, "nope", "a", "b", "right")).toBe(layout);
+});
+
+test("a pane dragged to the tab strip becomes its own tab at that position", () => {
+	let layout = addTab(emptyLayout(), "a", "tab1");
+	layout = splitLeaf(layout, "a", "row", "b");
+	layout = addTab(layout, "c", "tab2");
+	const moved = moveLeafToNewTab(layout, "b", 1);
+	expect(moved.tabs.map((tab) => tab.id)).toEqual(["tab1", "b", "tab2"]);
+	expect(moved.tabs[0]?.root).toEqual(leaf("a"));
+	expect(moved.tabs[1]?.root).toEqual(leaf("b"));
+});
+
+test("moving the only pane of a tab to the strip just moves that tab", () => {
+	const layout: ProjectLayout = {
+		tabs: [
+			{ id: "a", root: leaf("a") },
+			{ id: "b", root: leaf("b") },
+		],
+	};
+	const moved = moveLeafToNewTab(layout, "b", 0);
+	expect(moved.tabs.map((tab) => tab.id)).toEqual(["b", "a"]);
+});
+
+test("an out-of-range index lands at the nearest end of the strip", () => {
+	let layout = addTab(emptyLayout(), "a", "tab1");
+	layout = splitLeaf(layout, "a", "row", "b");
+	expect(moveLeafToNewTab(layout, "b", 99).tabs.map((tab) => tab.id)).toEqual([
+		"tab1",
+		"b",
+	]);
+	expect(moveLeafToNewTab(layout, "b", -3).tabs.map((tab) => tab.id)).toEqual([
+		"b",
+		"tab1",
+	]);
+});
+
+test("moveLeafToNewTab ignores a terminal that has no pane", () => {
+	const layout = oneTab(leaf("a"));
+	expect(moveLeafToNewTab(layout, "zz", 0)).toBe(layout);
+});
+
+test("a new tab past the tab limit is refused", () => {
+	const tabs = Array.from({ length: 16 }, (_, index) => ({
+		id: `tab${index}`,
+		root: leaf(`t${index}`),
+	}));
+	// The first tab has two panes, so pulling one out would make a 17th tab.
+	const full: ProjectLayout = {
+		tabs: [
+			{
+				id: "tab0",
+				root: splitLeaf(oneTab(leaf("t0"), "tab0"), "t0", "row", "extra").tabs[0]
+					?.root as SplitNode,
+			},
+			...tabs.slice(1),
+		],
+	};
+	expect(moveLeafToNewTab(full, "extra", 0)).toBe(full);
 });

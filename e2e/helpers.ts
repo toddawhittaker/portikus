@@ -1,9 +1,10 @@
 import * as crypto from "node:crypto";
-import type {
-	APIRequestContext,
-	BrowserContext,
-	Locator,
-	Page,
+import {
+	type APIRequestContext,
+	type BrowserContext,
+	expect,
+	type Locator,
+	type Page,
 } from "@playwright/test";
 import pg from "pg";
 
@@ -131,6 +132,31 @@ export async function setWorkspaceState(
 		workspaceId,
 		state,
 	]);
+}
+
+/**
+ * Wait until the saved layout holds a leaf for this terminal. The browser
+ * writes the layout at most once a second (SPEC.md §7.5), and an ended
+ * terminal with no saved pane is listing history rather than a tab
+ * (SPEC.md §9.7), so a test that ends a terminal and then expects its tab
+ * or pane back has to wait for the write first.
+ */
+export async function waitForSavedLeaf(
+	projectId: string,
+	terminalId: string,
+): Promise<void> {
+	await expect
+		.poll(
+			async () => {
+				const rows = await query<{ layout: unknown }>(
+					"select layout from projects where id = $1",
+					[projectId],
+				);
+				return JSON.stringify(rows[0]?.layout ?? null).includes(terminalId);
+			},
+			{ timeout: 15_000 },
+		)
+		.toBe(true);
 }
 
 /** Mark a terminal ended, the way stopping a workspace does. */

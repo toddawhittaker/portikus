@@ -118,12 +118,44 @@ runtime: the API relays the level to each running workspace's agent and the
 worker relays it to the controller. CI now runs the tests with coverage and
 fails below the floors set in `vitest.config.ts`.
 
+On the pilot feedback branch, the workspace agent no longer drops the frames a
+browser sends while an attachment is still starting. It listens from the first
+moment of the attach, holds input in the existing early-input queue, and uses
+the last size asked for during that window as the size of the new PTY, so a
+pane that corrects its size straight after opening is no longer left blank
+(SPEC.md 9.7). A socket that closes in that window aborts the attach without
+starting a shell.
 The terminal title bar now follows `cd` (SPEC.md section 9.3). Each
 attachment in the workspace agent polls tmux for its pane's current path
 every two seconds and sends a `cwd` frame on the terminal WebSocket when
 the path changes, which the web app uses to update the title. The path is
 not written to the database, so a new attachment learns it from its own
 first poll.
+
+Terminal panes can now be rearranged by dragging their title bars (SPEC.md
+sections 8.3 and 9.3). Dropping a pane on another pane's left, right, top,
+or bottom half makes it that pane's sibling in a row or column split, and
+dropping on the middle swaps the two, so a stacked pair becomes a
+side-by-side pair and back. While a drag is live the hovered pane shades
+the half it would take. Dropping on the tab strip pulls the pane out into a
+tab of its own at the marked position, and a tab left empty disappears.
+`moveLeaf` and `moveLeafToNewTab` in `apps/web/src/layout/tree.ts` do the
+work; both refuse a move that would break the split-depth or tab limits and
+leave the layout alone. The drag uses the dnd-kit already in the repo, with
+the same 4-pixel activation distance as tab reordering, so a click on a
+title bar still just focuses the pane.
+
+Reviving an ended terminal now stays in its own pane (SPEC.md sections 9.5
+and 9.7): `reconcile` no longer gives a tab back to an ended terminal that
+has no pane, since those rows are listing history rather than panes, and the
+store drops any pane a terminal already has before placing it, so a list
+refetch that arrives mid-revive cannot leave the same terminal in two places.
+Creating a terminal no longer refetches the terminal list by itself either:
+the caller places the new terminal and then asks for the refetch, so no
+reconcile ever sees a terminal that has no pane yet and no half-placed layout
+can be saved. One consequence: a terminal that ends within about a second of being opened,
+before its pane reaches the saved layout, is not restored as a tab on reload
+and stays only in the ended list.
 
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
@@ -168,5 +200,7 @@ the login rate-limit gap above: a Caddy rate limit plus a journald
 second, so debug is meant for short investigations rather than everyday
 running; and a workspace owner who holds the agent token can set their own
 agent's level, which stays until the setting next changes or the workspace
-restarts. Epic 7 (files, Monaco, search,
+restarts. From pane dragging, there is no keyboard equivalent: a pane is
+rearranged with a pointer only, and a drop is refused silently when it
+would pass the split-depth or tab limits. Epic 7 (files, Monaco, search,
 and change review) is next.

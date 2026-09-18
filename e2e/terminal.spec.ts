@@ -8,6 +8,7 @@ import {
 	query,
 	terminalIds,
 	WEB_ORIGIN,
+	waitForSavedLeaf,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -175,6 +176,12 @@ test("an ended terminal offers a new one in its place", async ({ page, context }
 	const student = await createStudent(context);
 	const terminalId = await openWithTerminal(page, student.workspaceId);
 
+	// The pane has to reach the saved layout first, or the reload has no leaf
+	// to show the ended terminal in (SPEC.md §7.5, §9.7).
+	const [projectId] = await projectIds(student.workspaceId);
+	if (!projectId) throw new Error("the project row was not created");
+	await waitForSavedLeaf(projectId, terminalId);
+
 	// What stopping the workspace does to the terminal rows.
 	await endTerminal(terminalId);
 	await page.reload();
@@ -188,7 +195,9 @@ test("an ended terminal offers a new one in its place", async ({ page, context }
 
 	await page.getByTestId("new-terminal-here").click();
 
-	await expect(tabs(page).getByRole("tab")).toHaveCount(2);
+	// The new terminal takes the ended one's pane, so there is still one tab
+	// even though the listing now holds two rows (SPEC.md §9.7).
+	await expect(tabs(page).getByRole("tab")).toHaveCount(1);
 	await expect(visiblePane(page).locator(".xterm-screen")).toBeVisible();
 	const ids = await terminalIds(student.workspaceId);
 	expect(ids).toHaveLength(2);

@@ -7,7 +7,7 @@ import type { SplitNode, Terminal } from "@portikus/contracts";
 import { PaneHandle } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { Group, Panel } from "react-resizable-panels";
-import type { SplitDirection } from "../layout/tree.js";
+import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { TerminalLeaf } from "./TerminalLeaf.js";
 
 export interface TerminalGroupProps {
@@ -27,6 +27,8 @@ export interface TerminalGroupProps {
 	onResize: (path: number[], sizes: number[]) => void;
 	onSessionEnded: () => void;
 	onLeave: () => void;
+	/** The pane a drag is hovering, and the zone it would drop into. */
+	dropTarget?: { terminalId: string; edge: DropEdge } | null;
 }
 
 export function TerminalGroup(props: TerminalGroupProps) {
@@ -56,6 +58,9 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					onReplace={props.onReplace}
 					onSessionEnded={props.onSessionEnded}
 					onLeave={props.onLeave}
+					dropEdge={
+						props.dropTarget?.terminalId === terminal.id ? props.dropTarget.edge : null
+					}
 				/>
 			);
 		}
@@ -68,6 +73,8 @@ export function TerminalGroup(props: TerminalGroupProps) {
 			<Group
 				orientation={orientation}
 				className="pk-split"
+				// So a test can see which way a split runs.
+				data-direction={node.direction}
 				defaultLayout={defaultLayout}
 				onLayoutChanged={(layout, meta) => {
 					if (!meta.isUserInteraction) return;

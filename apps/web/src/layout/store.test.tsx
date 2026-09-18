@@ -88,6 +88,34 @@ test("reconcile with no change leaves the layout clean", () => {
 	expect(layout.getState().dirty).toBe(false);
 });
 
+test("a terminal reconcile already placed is not left in two places", () => {
+	// A create refetches the list, so reconcile may put the new terminal in a
+	// tab of its own before the action that asked for it places it.
+	const layout = store();
+	layout.getState().addTab("a");
+	layout.getState().reconcile(["a", "b"]);
+	layout.getState().replaceLeaf("a", "b");
+	expect(layoutTerminalIds(layout.getState().layout)).toEqual(["b"]);
+	expect(layout.getState().layout.tabs).toHaveLength(1);
+});
+
+test("splitting in a terminal reconcile already placed keeps one tab", () => {
+	const layout = store();
+	layout.getState().addTab("a");
+	layout.getState().reconcile(["a", "b"]);
+	layout.getState().splitLeaf("a", "row", "b");
+	expect(layoutTerminalIds(layout.getState().layout)).toEqual(["a", "b"]);
+	expect(layout.getState().layout.tabs).toHaveLength(1);
+});
+
+test("opening a tab for a terminal reconcile already placed makes one tab", () => {
+	const layout = store();
+	layout.getState().reconcile(["a"]);
+	layout.getState().addTab("a");
+	expect(layoutTerminalIds(layout.getState().layout)).toEqual(["a"]);
+	expect(layout.getState().layout.tabs).toHaveLength(1);
+});
+
 test("replacing a pane keeps one tab", () => {
 	const layout = store();
 	layout.getState().addTab("a");
