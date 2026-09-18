@@ -367,3 +367,132 @@ in a repository does not render. Code blocks inside Markdown have no syntax
 highlighting. The test database name and the Playwright ports are shared,
 so two local test runs at once collide (`docs/WORKFLOW.md`). Two CI flakes
 were seen during the epic and are still being isolated.
+
+## Epic 7.1
+
+Epic 7.1 is a batch of fixes and small features from the first hands-on
+use of the pilot after Epic 7, gathered on 2026-09-18 and landed as
+individual pull requests into the epic branch.
+
+**Editor.** Rich Markdown editing (#155): see the follow-up docs commit.
+Editor settings — auto-save, its delay, and word wrap — now persist per
+user: a `users.editor_settings` JSONB column holds whatever the student
+has changed, `GET`/`PUT /me/settings` read and write only the signed-in
+user's own row, and an account-menu dialog reaches all three, with the
+file tab obeying them without a reload (SPEC.md §13.1, §13.5) (#159). The
+editor's external-change detection now ignores writes the editor itself
+made: the save that used to race the project events socket's own refetch
+of the same change no longer raises a false "this file changed on disk"
+prompt (§13.3, §13.5) (#157). The stock Monaco experience is on: find and
+replace, code folding, bracket matching and colouring, multi-cursor, the
+minimap, and the command palette, loaded as named contributions so the
+excluded language services stay out of the bundle; the editor also gained
+its own zoom, per open file and per session, and language detection from a
+file's first line when its name says nothing (§13.1, §13.2; DESIGN.md §10)
+(#156, #162, #163). A file now has one tab: opening a change from the
+Changes list shows the diff inside that file's own tab rather than a
+separate diff tab, with a toggle back to the editor, and a real on-disk
+change during editing opens as a Monaco conflict diff offering keep-mine,
+take-disk, and keep-editing (#160, #158). The selected tab, the editor
+cursor, selection, scroll position, and per-file zoom now survive leaving
+the workspace route and returning; they live in this browser's
+`localStorage` and are never sent to the server (§7.5) (#161).
+
+**Markdown.** The three Markdown viewer defects from pilot feedback are
+fixed (§13.4): rendered lists show their markers again, split view keeps
+the editor and preview at the same relative position as either side
+scrolls, and the code side's scrollbar is now drawn in a visible colour on
+both editor themes (#154).
+
+**Files pane.** The header's three-dots menu and an empty project's own
+empty state now offer New file and New folder on the project root, the
+same items a row's menu shows (#153). The pane now supports selecting
+several rows — a plain click, Ctrl-click to toggle, Shift-click for a run
+— with the row menu and the Delete key acting on the selection behind one
+confirmation, a download that sends one file or zip per selected row, a
+highlighted project-root drop target while an upload is dragged over it, a
+tighter 24-pixel row height, file-type icons, and an autofocused name field
+when the New file, New folder, or Rename dialog opens (#182–#186).
+
+**Projects.** The clone dialog now asks for the repository URL first and
+derives the project name, slug, and `.git` suffix from it, while any name
+the student typed by hand is never overwritten (#130). Create project now
+warns about a name clash while the student types, comparing the previewed
+slug against the workspace's existing project slugs client-side and
+disabling Create until the name changes, with the server's 409 kept as the
+final guard (#175).
+
+**Terminal and image.** Terminal names are now chosen from the terminals
+of the same project rather than a row position that counted every
+terminal the workspace ever had, so terminals renumber from 1 after a
+restart and a second project starts at Terminal 1; a terminal created in
+an ended terminal's place takes its chosen name back (§9.6, §9.7) (#123).
+The workspace agent starts tmux with `set-clipboard` and `focus-events`
+on, the browser decodes a program's OSC 52 copy request itself (and
+ignores any request to read the clipboard back, since terminal programs
+are untrusted, §24.2), and a URL too wide for the pane is joined into one
+link across every row it covers (§9, §9.7, §14.9) (#125, #126, #128). A
+shell shim at `/usr/local/bin/xclip`, with `xsel` and `pbcopy` as links to
+it, lets command-line tools that copy through those names reach the
+browser by writing an OSC 52 escape instead (workspace image 2026.09.6)
+(#125 follow-up). The image also ships
+`/etc/profile.d/portikus-agents.sh`, which exports `DISABLE_AUTOUPDATER=1`
+so Claude Code stops trying to update itself into a root-owned npm prefix
+it cannot write; Codex has no equivalent environment variable, so its
+update check is left for Epic 9 (§10) (#127).
+
+**Administration and settings.** The Administration entry moved out of
+the workspace header and into the account dropdown menu, where only
+administrators see it, and opens `/admin` in a new browser tab with
+`rel="noopener"`, so the workspace tab's terminal sockets and disconnect
+grace countdown never start while an administrator works on settings
+(§6.4) (#164, closing #124).
+
+**Tests and CI.** Two intermittently failing unit tests were made
+deterministic without changing what they assert: the workspace-agent git
+timeout test no longer races a real git process, and the API terminal
+input-limit test now waits for the server to clear its presence row
+instead of reading the count the instant the close frame arrives. Unit
+test output lost 44 jsdom "Not implemented" warnings by stubbing canvas
+and window scrolling in the shared test setup, and the CI cache action
+moved from v4 to v5 to clear a Node 20 deprecation warning (#151, #152).
+Every database test file now gets a database of its own, created and
+dropped by the test helper, so the suite runs fully in parallel again
+instead of serializing the files that share one database; the whole suite
+with coverage went from about 99 seconds to about 26 on a 32-core host
+(STACK.md §13). Continuous integration now computes which files changed
+inside each job and skips every heavy step — installs, typecheck, lint,
+tests, builds, Playwright, OpenTofu, Ansible, shellcheck — on a
+documentation-only change, while the job itself still reports its check,
+so branch protection is never blocked by a workflow that never ran.
+
+**Process.** A merger agent now lands a list of task pull requests into
+an epic branch on its own: it waits for CI, updates a branch that has
+fallen behind, squash-merges, and reruns or escalates failures, so a task
+lands as soon as it is green instead of waiting on a person between every
+task; the human review moves to once per epic (ADR 0016). Each role in
+the Ansible platform playbook now carries its own name as a tag, so one
+role can be converged on its own, verified on the pilot host by applying
+only the Caddy role. `docs/HOW-WE-WORK.md` is a new, generic guide to how
+Portikus is built with AI agents, written in plain English for
+non-technical readers.
+
+Known gaps. Multi-row selection downloads one file or zip per row rather
+than one merged zip, because the download route takes a single path; a
+multi-path agent endpoint would let the files pane send one request for a
+merged zip (tracked in `docs/BACKLOG.md`). A new terminal in a project
+with an ended, custom-named terminal inherits that name rather than
+matching it exactly; a `replacesTerminalId` hint from the browser would
+make the revive exact. The xclip/xsel/pbcopy shim covers the common
+command-line case, but `@xterm/addon-clipboard` was not adopted because
+its xterm 6 support is still in beta. `DiffViewer` still picks its
+language from the file extension only; there is no Makefile grammar in
+Monaco. Source-line to preview-line scroll mapping in the Markdown split
+view is deferred; the current sync is by relative scroll position, not by
+the corresponding source line (tracked in `docs/BACKLOG.md`). Codex's
+update-check setting belongs with the rest of agent configuration in Epic
+9, so issue #129 stays open. A handful of end-to-end tests were seen to
+flake once during the batch (an admin grace-period toast, a full tab
+strip, reviving both ended panes, and the two conflict-diff tests before
+auto-save was turned off in their setup) and are worth watching rather
+than fixing blind.
