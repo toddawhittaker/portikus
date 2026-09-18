@@ -5,7 +5,6 @@ import {
 	AgentCreateProjectRequest,
 	AgentCreateTerminalRequest,
 	AgentDuplicateProjectRequest,
-	type AgentErrorCode,
 	AgentRenameProjectRequest,
 	contentDisposition,
 	MAX_TERMINALS_PER_WORKSPACE,
@@ -25,14 +24,13 @@ import {
 import Fastify, {
 	type FastifyBaseLogger,
 	type FastifyInstance,
-	type FastifyReply,
 	type FastifyRequest,
 } from "fastify";
 import { z } from "zod";
 import { tokenAuth } from "./auth.js";
+import { ERROR_STATUS, sendError } from "./errors.js";
 import { eventsRoute } from "./events-route.js";
 import {
-	FileChanged,
 	listDir,
 	mkdir,
 	move,
@@ -54,6 +52,7 @@ import {
 	renameProject,
 	STDERR_LIMIT,
 } from "./projects.js";
+import { registerSearchRoutes } from "./search-routes.js";
 import { TerminalRegistry } from "./terminals.js";
 import {
 	AgentFailure,
@@ -62,32 +61,6 @@ import {
 	killSession,
 	listSessions,
 } from "./tmux.js";
-
-const ERROR_STATUS: Record<AgentErrorCode, number> = {
-	BAD_REQUEST: 400,
-	UNAUTHORIZED: 401,
-	TERMINAL_NOT_FOUND: 404,
-	TERMINAL_EXISTS: 409,
-	TERMINAL_LIMIT: 409,
-	ATTACHMENT_LIMIT: 409,
-	INVALID_CWD: 400,
-	TMUX_FAILED: 500,
-	INTERNAL: 500,
-	PROJECT_EXISTS: 409,
-	PROJECT_NOT_FOUND: 404,
-	INVALID_SLUG: 400,
-	INVALID_URL: 400,
-	GIT_FAILED: 500,
-	PATH_INVALID: 400,
-	FILE_NOT_FOUND: 404,
-	FILE_EXISTS: 409,
-	FILE_CHANGED: 412,
-	FILE_TOO_LARGE: 413,
-	NOT_A_DIRECTORY: 400,
-	SEARCH_FAILED: 500,
-	WATCH_FAILED: 500,
-	EVENT_SOCKET_LIMIT: 409,
-};
 
 const IdParam = z.object({ terminalId: TerminalId });
 
@@ -378,6 +351,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 		});
 
+		registerSearchRoutes(instance, options.homeDir);
 		// The file routes. Paths are logged at debug only and file contents
 		// never (STACK.md §15, ADR 0012).
 		instance.get("/projects/:slug/tree", async (request, reply) => {
@@ -580,34 +554,4 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 /** Strip the quotes an HTTP entity tag is usually sent with. */
 function unquote(value: string): string {
 	return value.replace(/^W\//, "").replace(/^"|"$/g, "");
-}
-
-/**
- * Send a failure. An unexpected error from a file route is INTERNAL rather
- * than TMUX_FAILED, which belongs to the terminal paths (SPEC.md §27).
- */
-function sendError(
-	request: FastifyRequest,
-	reply: FastifyReply,
-	error: unknown,
-	fallback: AgentErrorCode = "TMUX_FAILED",
-) {
-	if (error instanceof FileChanged) {
-		reply.header("etag", error.etag);
-	}
-	if (error instanceof AgentFailure) {
-		return reply
-			.code(ERROR_STATUS[error.code])
-			.send({ error: { code: error.code, message: error.message } });
-	}
-	// An expected failure needs no log call: its code and message are on the
-	// body, which the request logging hook reads. An unexpected one does,
-	// because its real message never reaches the body.
-	request.log.error(
-		{ error: error instanceof Error ? error.message : String(error) },
-		"agent request failed",
-	);
-	return reply.code(500).send({
-		error: { code: fallback, message: "internal error" },
-	});
 }
