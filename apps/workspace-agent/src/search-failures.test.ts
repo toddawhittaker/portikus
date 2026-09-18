@@ -48,7 +48,9 @@ afterEach(() => {
 
 afterAll(async () => {
 	process.env.PATH = realPath;
-	process.env.PORTIKUS_TEST_PROJECT = undefined;
+	// Assigning undefined would leave the string "undefined" behind for any
+	// test file that shares this worker.
+	delete process.env.PORTIKUS_TEST_PROJECT;
 	await rm(homeDir, { recursive: true, force: true });
 });
 
