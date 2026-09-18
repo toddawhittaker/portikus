@@ -2,7 +2,7 @@
 # Caddy terminates TLS with its own internal certificate authority and
 # proxies to services that listen on loopback only.
 
-{{ portikus_public_host }} {
+https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	tls internal
 	encode gzip
 

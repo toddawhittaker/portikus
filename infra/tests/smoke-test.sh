@@ -286,7 +286,15 @@ PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${VM}.nip.io}"
 if [ -z "${PORTIKUS_PUBLIC_HOST:-}" ]; then
   printf '\033[1;33mWARN\033[0m  PORTIKUS_PUBLIC_HOST is unset: the HTTPS checks will use %s. If Caddy on this VM serves a different name, set PORTIKUS_PUBLIC_HOST and run again.\n' "${PUBLIC_HOST}"
 fi
-API="https://${PUBLIC_HOST}"
+# The port Caddy serves the site on. It is 8443 on the pilot host, because
+# another service there owns 443.
+PUBLIC_PORT="${PORTIKUS_PUBLIC_PORT:-443}"
+if [ "${PUBLIC_PORT}" = "443" ]; then
+  PUBLIC_AUTHORITY="${PUBLIC_HOST}"
+else
+  PUBLIC_AUTHORITY="${PUBLIC_HOST}:${PUBLIC_PORT}"
+fi
+API="https://${PUBLIC_AUTHORITY}"
 # The API's loopback port, used where a request has to reach the API itself
 # rather than whatever Caddy decides to serve for that path.
 API_PORT="${PORTIKUS_API_PORT:-3000}"
@@ -696,7 +704,7 @@ PROBE
       ssh_cmd "rm -f ${WS_STOP}"
       printf '%s=%s' "${SESSION_COOKIE_NAME}" "${alice_cookie}" \
         | ssh_cmd_stdin "NODE_EXTRA_CA_CERTS=/etc/portikus/caddy-root.crt node ${WS_PROBE} \
-        'wss://${PUBLIC_HOST}/workspaces/${ws_id}/ws' '${API}' '${WS_STOP}'" >"$probe_log" 2>&1 &
+        'wss://${PUBLIC_AUTHORITY}/workspaces/${ws_id}/ws' '${API}' '${WS_STOP}'" >"$probe_log" 2>&1 &
       probe_pid=$!
       sleep 3
     }
@@ -903,7 +911,7 @@ TERMPROBE
     term_probe() {
       printf '%s=%s' "${SESSION_COOKIE_NAME}" "${alice_cookie}" \
         | ssh_cmd_stdin "NODE_EXTRA_CA_CERTS=/etc/portikus/caddy-root.crt node ${TERM_PROBE} \
-          'wss://${PUBLIC_HOST}/workspaces/${ws_id}/terminals/${1}/ws' '${API}' \
+          'wss://${PUBLIC_AUTHORITY}/workspaces/${ws_id}/terminals/${1}/ws' '${API}' \
           '${2}' '${3}' '${4}' '${5}'"
     }
 

@@ -133,8 +133,9 @@ alone, and the lifecycle checks are skipped altogether when the VM already
 holds any workspace. Even so, do not run it against a VM someone is using: it
 stops and starts workspaces and, on a VM with none, it shortens the
 platform-wide disconnect grace period for the length of the run. Set `PORTIKUS_PUBLIC_HOST` to the
-name Caddy serves on that VM; without it the HTTPS checks fall back to
-`portikus.<vm-ip>.nip.io` and the script prints a warning.
+name Caddy serves on that VM, and `PORTIKUS_PUBLIC_PORT` to the port it
+serves on (8443 on the pilot); without the name the HTTPS checks fall back
+to `portikus.<vm-ip>.nip.io` and the script prints a warning.
 
 ## Branches
 

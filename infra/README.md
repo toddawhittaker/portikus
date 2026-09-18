@@ -224,9 +224,11 @@ make publish-vm
 ```
 
 That adds two iptables chains named `PORTIKUS_PUBLISH` on the host, one
-in the `nat` table and one in `filter`. They forward ports 80 and 443
-arriving on the host's LAN interface to the VM, and nothing else. A
-oneshot systemd unit, `portikus-publish-vm.service`, puts the rules back
+in the `nat` table and one in `filter`. They forward port 8443 arriving
+on the host's LAN interface to port 8443 on the VM, and nothing else.
+The site is on 8443 rather than 443 because another service on the pilot
+host already owns 80 and 443, so the public address is
+`https://<host-lan-address-name>:8443`. A oneshot systemd unit, `portikus-publish-vm.service`, puts the rules back
 after a reboot, reading the VM address from `/etc/portikus-host/vm-ip`.
 The VM address changes when the VM is rebuilt, so run `make publish-vm`
 again after `make rebuild-pilot` (that target already calls it).
@@ -295,7 +297,7 @@ leaves libvirt's own rules alone, so the VM keeps its outbound access.
 
 The in-repo mock identity provider (ADR 0008) is off unless you turn it
 on. It is a pilot convenience, not a login system: while it is on, anyone
-who can reach port 443 on the VM can sign in as any mock account,
+who can reach the site's port on the VM can sign in as any mock account,
 including the administrator. Turn it on only on a pilot VM you control,
 and only on a network you trust.
 
@@ -381,7 +383,8 @@ short list below by hand, and run the playbook.
 - Nothing to do about the network interface name: the firewall takes it
   from the host's own default route at run time.
 - An IP address you can reach on port 22, and that browsers can reach on
-  ports 80 and 443. There is no port forward to set up, so `make
+  the site's port (8443 by default; pass `PORTIKUS_PUBLIC_PORT=443` to
+  serve the usual one). There is no port forward to set up, so `make
   publish-vm` is not needed.
 - Hardware virtualisation is not required. Workspaces are containers, and
   the host is the container host.
@@ -412,7 +415,7 @@ address, so `VM_IP=` is enough:
 make build-workspace-image VM_IP=192.0.2.10
 make deploy-app VM_IP=192.0.2.10
 make smoke-test VM_IP=192.0.2.10 PORTIKUS_MOCK_IDP=true \
-  PORTIKUS_PUBLIC_HOST=portikus.192.0.2.10.nip.io
+  PORTIKUS_PUBLIC_HOST=portikus.192.0.2.10.nip.io PORTIKUS_PUBLIC_PORT=443
 ```
 
 The playbook already installed the newest published release, so `make
@@ -432,6 +435,10 @@ warning above before leaving the mock sign-in on.
   the address inside it. A real DNS name works, but only because you pass
   it in `PORTIKUS_PUBLIC_HOST`; nothing here manages DNS, and Caddy still
   issues its own certificate rather than a publicly trusted one.
+- The port is a single variable, `PORTIKUS_PUBLIC_PORT`. It has to match
+  in three places at once: Caddy's site address, the URLs the API builds,
+  and the host's port forward. Setting it on `configure-vm` covers the
+  first two; the forward in `infra/host/publish-vm.sh` is fixed at 8443.
 - `PORTIKUS_PUBLIC_HOST` must be set explicitly when going through Make.
   The Makefile builds a default from your workstation's own LAN address,
   which is the wrong address for a host you did not create locally.
