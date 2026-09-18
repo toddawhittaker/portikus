@@ -27,6 +27,7 @@ export const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	NOT_A_DIRECTORY: 400,
 	SEARCH_FAILED: 500,
 	WATCH_FAILED: 500,
+	EVENT_SOCKET_LIMIT: 409,
 };
 
 /**

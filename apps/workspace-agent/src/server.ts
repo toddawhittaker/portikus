@@ -6,6 +6,7 @@ import {
 	AgentCreateTerminalRequest,
 	AgentDuplicateProjectRequest,
 	AgentRenameProjectRequest,
+	contentDisposition,
 	MAX_TERMINALS_PER_WORKSPACE,
 	MkdirRequest,
 	MoveRequest,
@@ -28,6 +29,7 @@ import Fastify, {
 import { z } from "zod";
 import { tokenAuth } from "./auth.js";
 import { ERROR_STATUS, sendError } from "./errors.js";
+import { eventsRoute } from "./events-route.js";
 import {
 	listDir,
 	mkdir,
@@ -96,6 +98,8 @@ export interface ServerOptions {
 	tmuxSocketName?: string;
 	/** The process logger. Tests default to one that writes nothing. */
 	logger?: Logger;
+	/** Overrides the cap on concurrent event sockets. For tests. */
+	maxEventSockets?: number;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -506,6 +510,11 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			return reply.type("application/zip").send(child.stdout);
 		});
 
+		instance.register(eventsRoute, {
+			homeDir: options.homeDir,
+			maxSockets: options.maxEventSockets,
+		});
+
 		instance.get(
 			"/terminals/:terminalId/attach",
 			{ websocket: true },
@@ -540,26 +549,6 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	});
 
 	return app;
-}
-
-/**
- * A download header for a name the student chose. Control characters would
- * let a file name inject a header line, so they are dropped, the quoted form
- * is plain ASCII, and the real name follows RFC 5987 encoded as UTF-8.
- */
-function contentDisposition(name: string): string {
-	const stripped = Array.from(name)
-		.filter((char) => {
-			const code = char.codePointAt(0) ?? 0;
-			return code >= 0x20 && code !== 0x7f;
-		})
-		.join("");
-	const ascii = stripped.replace(/[^\u0020-\u007e]/g, "?").replace(/["\\]/g, "");
-	const encoded = encodeURIComponent(stripped).replace(
-		/['()*]/g,
-		(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
-	);
-	return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
 /** Strip the quotes an HTTP entity tag is usually sent with. */

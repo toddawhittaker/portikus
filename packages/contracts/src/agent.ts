@@ -110,6 +110,7 @@ export const AgentErrorCode = z.enum([
 	"NOT_A_DIRECTORY",
 	"SEARCH_FAILED",
 	"WATCH_FAILED",
+	"EVENT_SOCKET_LIMIT",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 
