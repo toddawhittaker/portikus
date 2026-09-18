@@ -244,4 +244,50 @@ test.describe("terminal clipboard", () => {
 		// The fake agent answers the interrupt byte with ^C, as a shell does.
 		await expect(rowsOf(page, terminalId)).toContainText("^C", { timeout: 15_000 });
 	});
+
+	/** The fake agent, which the end-to-end run puts on this port. */
+	const FAKE_AGENT_URL = `http://127.0.0.1:${process.env.FAKE_AGENT_PORT ?? "7400"}`;
+
+	/** How many browsers the agent has attached to a terminal. */
+	async function attachmentsOf(terminalId: string): Promise<number> {
+		const response = await fetch(
+			`${FAKE_AGENT_URL}/__test/terminals/${terminalId}/attachments`,
+		);
+		const body = (await response.json()) as { attachments: number };
+		return body.attachments;
+	}
+
+	/** Put bytes on a terminal's screen without typing for them. */
+	async function printLine(terminalId: string, line: string): Promise<void> {
+		await expect.poll(() => attachmentsOf(terminalId)).toBeGreaterThan(0);
+		const response = await fetch(
+			`${FAKE_AGENT_URL}/__test/terminals/${terminalId}/output`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ lines: [line] }),
+			},
+		);
+		if (!response.ok) throw new Error(`could not print: ${response.status}`);
+	}
+
+	test("a program copying with OSC 52 reaches the system clipboard", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const terminalId = await openWithOutput(page, student.workspaceId, "osc52");
+		await writeClipboard(page, "stale");
+
+		// This is how a coding agent's "press c to copy the login URL" works: the
+		// program writes OSC 52, tmux passes it on, and the browser copies it
+		// (SPEC.md §9, §10).
+		const url = "https://accounts.example.com/device?code=OSC52CODE";
+		const encoded = Buffer.from(url, "utf8").toString("base64");
+		const esc = String.fromCharCode(27);
+		const bell = String.fromCharCode(7);
+		await printLine(terminalId, `${esc}]52;c;${encoded}${bell}`);
+
+		await expect.poll(() => readClipboard(page), { timeout: 15_000 }).toBe(url);
+	});
 });

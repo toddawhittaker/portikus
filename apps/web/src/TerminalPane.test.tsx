@@ -1,7 +1,7 @@
 import type { Terminal } from "@portikus/contracts";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { SCROLLBACK_LINES, TerminalPane } from "./TerminalPane";
+import { decodeOsc52, SCROLLBACK_LINES, TerminalPane } from "./TerminalPane";
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 
@@ -237,4 +237,56 @@ test("the wheel becomes arrow keys while a full-screen program has the terminal"
 	const before = inputs().length;
 	expect(wheelOver(pane, -300)).toBe(false);
 	expect(inputs()).toHaveLength(before);
+});
+
+/** jsdom has no clipboard; give it one the test can watch. */
+function stubClipboard(clipboard: Record<string, unknown>) {
+	Object.defineProperty(navigator, "clipboard", {
+		value: clipboard,
+		configurable: true,
+	});
+}
+
+/** An OSC 52 request as a program in the pane writes it, as output bytes. */
+function osc52(payload: string): ArrayBuffer {
+	const esc = String.fromCharCode(27);
+	const bell = String.fromCharCode(7);
+	const text = `${esc}]52;${payload}${bell}`;
+	const bytes = new Uint8Array(text.length);
+	for (let at = 0; at < text.length; at += 1) bytes[at] = text.charCodeAt(at);
+	return bytes.buffer;
+}
+
+test("an OSC 52 copy from a program in the pane reaches the system clipboard", async () => {
+	const writeText = vi.fn(async () => undefined);
+	stubClipboard({ writeText });
+	renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+
+	const url = "https://accounts.example.com/oauth?code=abc123";
+	act(() => {
+		sockets[0]?.onmessage?.({ data: osc52(`c;${btoa(url)}`) });
+	});
+
+	await waitFor(() => expect(writeText).toHaveBeenCalledWith(url));
+});
+
+test("an OSC 52 read request is ignored rather than handing over the clipboard", async () => {
+	const writeText = vi.fn(async () => undefined);
+	const readText = vi.fn(async () => "secret");
+	stubClipboard({ writeText, readText });
+	renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+
+	act(() => {
+		sockets[0]?.onmessage?.({ data: osc52("c;?") });
+	});
+
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	expect(readText).not.toHaveBeenCalled();
+	expect(writeText).not.toHaveBeenCalled();
+});
+
+test("an OSC 52 payload that is not base64 copies nothing", () => {
+	expect(decodeOsc52("not base64!!")).toBe("");
 });
