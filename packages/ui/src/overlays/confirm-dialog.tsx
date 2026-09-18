@@ -58,7 +58,7 @@ export function ConfirmDialog({
 					<div className="pk-dialog-status">
 						<Icon name="alert" size="lg" />
 					</div>
-					<div>
+					<div className="min-w-0">
 						<RadixAlertDialog.Title className="m-0 text-xl font-semibold text-ink">
 							{title}
 						</RadixAlertDialog.Title>
