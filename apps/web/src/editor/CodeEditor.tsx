@@ -5,7 +5,7 @@
  */
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef } from "react";
-import { currentThemeName, getMonaco } from "./monaco.js";
+import { currentThemeName, getMonaco, watchTheme } from "./monaco.js";
 import "./editor.css";
 
 export interface CodeEditorProps {
@@ -18,7 +18,6 @@ export interface CodeEditorProps {
 	 * put older text back.
 	 */
 	version: string;
-	readOnly?: boolean;
 	onChange: (text: string) => void;
 	onSave: () => void;
 	/** Jump here when the editor opens, for "open at line" (SPEC.md §15.3). */
@@ -26,7 +25,7 @@ export interface CodeEditorProps {
 }
 
 /** The language id whose extension or file name matches this path. */
-export function languageForPath(monaco: typeof Monaco, path: string): string {
+function languageForPath(monaco: typeof Monaco, path: string): string {
 	const name = path.split("/").pop() ?? path;
 	const dot = name.lastIndexOf(".");
 	const extension = dot > 0 ? name.slice(dot) : "";
@@ -44,7 +43,6 @@ export function CodeEditor({
 	path,
 	value,
 	version,
-	readOnly,
 	onChange,
 	onSave,
 	revealLine,
@@ -60,8 +58,8 @@ export function CodeEditor({
 
 	// The editor is created once, so it reads the newest callbacks and text
 	// through refs rather than being torn down on every render.
-	const latest = useRef({ value, onChange, onSave, revealLine });
-	latest.current = { value, onChange, onSave, revealLine };
+	const latest = useRef({ value, version, onChange, onSave, revealLine });
+	latest.current = { value, version, onChange, onSave, revealLine };
 
 	useEffect(() => {
 		let disposed = false;
@@ -87,6 +85,19 @@ export function CodeEditor({
 			});
 			editorRef.current = editor;
 			modelRef.current = model;
+			// Monaco loads after the first renders, so the model starts from the
+			// newest text, not from the `value` of the render that set it up.
+			if (model.getValue() !== latest.current.value) {
+				applying.current = true;
+				try {
+					model.applyEdits([
+						{ range: model.getFullModelRange(), text: latest.current.value },
+					]);
+				} finally {
+					applying.current = false;
+				}
+			}
+			applied.current = latest.current.version;
 			editor.onDidChangeModelContent(() => {
 				if (applying.current) return;
 				latest.current.onChange(model.getValue());
@@ -106,8 +117,8 @@ export function CodeEditor({
 		};
 	}, [path]);
 
-	// A refreshed file replaces the text through an edit operation, so the undo
-	// stack, the cursor and the scroll position survive (SPEC.md §13.3).
+	// A refreshed file replaces the text through an edit operation, so the
+	// cursor and the scroll position survive (SPEC.md §13.3).
 	useEffect(() => {
 		const model = modelRef.current;
 		if (!model || applied.current === version) return;
@@ -115,19 +126,14 @@ export function CodeEditor({
 		if (model.getValue() === value) return;
 		applying.current = true;
 		try {
-			model.pushEditOperations(
-				[],
-				[{ range: model.getFullModelRange(), text: value }],
-				() => null,
-			);
+			// applyEdits, not pushEditOperations: an external refresh must not
+			// enter the undo stack, or Ctrl+Z would bring stale text back and
+			// the next save would write it over the newer file (SPEC.md §13.3).
+			model.applyEdits([{ range: model.getFullModelRange(), text: value }]);
 		} finally {
 			applying.current = false;
 		}
 	}, [value, version]);
-
-	useEffect(() => {
-		editorRef.current?.updateOptions({ readOnly: readOnly ?? false });
-	}, [readOnly]);
 
 	// Ctrl/Cmd+S saves now instead of opening the browser's save dialog
 	// (SPEC.md §13.5). It is a listener rather than a JSX handler because the
@@ -145,22 +151,10 @@ export function CodeEditor({
 		return () => node.removeEventListener("keydown", onKeyDown);
 	}, []);
 
-	// The theme follows the page's choice (shell/theme.ts).
+	// The theme follows the page's choice (shell/theme.ts). One watcher serves
+	// every editor on the page, so this only makes sure it is running.
 	useEffect(() => {
-		function apply() {
-			void getMonaco().then((monaco) => monaco.editor.setTheme(currentThemeName()));
-		}
-		const observer = new MutationObserver(apply);
-		observer.observe(document.documentElement, {
-			attributes: true,
-			attributeFilter: ["data-theme"],
-		});
-		const media = matchMedia("(prefers-color-scheme: dark)");
-		media.addEventListener("change", apply);
-		return () => {
-			observer.disconnect();
-			media.removeEventListener("change", apply);
-		};
+		watchTheme();
 	}, []);
 
 	return <div className="pk-editor" data-testid={`editor-${path}`} ref={host} />;

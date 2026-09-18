@@ -296,6 +296,14 @@
 	font-size: 13px;
 }
 
+.pk-file-banner {
+	flex: none;
+	padding: var(--space-2) var(--space-3);
+	background: var(--status-warning-soft);
+	color: var(--ink);
+	font-size: 13px;
+}
+
 .pk-file-note {
 	margin: 0;
 	padding: var(--space-3);

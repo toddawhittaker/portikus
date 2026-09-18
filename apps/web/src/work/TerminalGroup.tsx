@@ -77,6 +77,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					path={node.path}
 					workspaceId={props.workspaceId}
 					projectId={props.projectId}
+					visible={visible}
 					onClose={props.onCloseTab}
 					consumePendingLine={props.consumePendingLine}
 				/>

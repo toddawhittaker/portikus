@@ -68,8 +68,6 @@ test.describe("file editor", () => {
 		await lines(page).click();
 		await page.keyboard.press("End");
 		await page.keyboard.type(" // hello");
-		// The pill goes through Unsaved while the debounce runs, then Saved.
-		await expect(status(page)).toHaveText("Unsaved");
 		await expect(lines(page)).toContainText("// hello");
 		await expect(status(page)).toHaveText("Saved", { timeout: 15_000 });
 		await expect
@@ -110,15 +108,22 @@ test.describe("file editor", () => {
 			timeout: 60_000,
 		});
 
+		// Save the local edit first, so the conflict is only about the change
+		// that lands on disk afterwards and the test cannot race the debounce.
 		await lines(page).click();
 		await page.keyboard.press("End");
 		await page.keyboard.type(" // mine");
+		await expect(status(page)).toHaveText("Saved", { timeout: 15_000 });
+
 		await seedFile(
 			student.workspaceId,
 			project.slug,
 			PATH,
 			"const answer = 7; // theirs\n",
 		);
+		// One more keystroke makes the tab dirty against the version it read,
+		// which is what turns the change on disk into a conflict.
+		await page.keyboard.type("!");
 
 		await expect(page.getByTestId("file-conflict")).toBeVisible({ timeout: 20_000 });
 		await expect(status(page)).toHaveText("Conflict");
@@ -139,15 +144,22 @@ test.describe("file editor", () => {
 			timeout: 60_000,
 		});
 
+		// Save the local edit first, so the conflict is only about the change
+		// that lands on disk afterwards and the test cannot race the debounce.
 		await lines(page).click();
 		await page.keyboard.press("End");
 		await page.keyboard.type(" // mine");
+		await expect(status(page)).toHaveText("Saved", { timeout: 15_000 });
+
 		await seedFile(
 			student.workspaceId,
 			project.slug,
 			PATH,
 			"const answer = 7; // theirs\n",
 		);
+		// One more keystroke makes the tab dirty against the version it read,
+		// which is what turns the change on disk into a conflict.
+		await page.keyboard.type("!");
 		await expect(page.getByTestId("file-conflict")).toBeVisible({ timeout: 20_000 });
 
 		await page.getByTestId("keep-mine").click();

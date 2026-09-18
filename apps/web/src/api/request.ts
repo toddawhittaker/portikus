@@ -22,6 +22,18 @@ export class ApiError extends Error {
 	}
 }
 
+/** Turn an error response into the error the caller should see (SPEC.md §27). */
+export async function toApiError(response: Response): Promise<Error> {
+	if (response.status === 401) return new SessionEndedError();
+	const body = await response.json().catch(() => null);
+	const parsed = ApiErrorBody.safeParse(body);
+	return new ApiError(
+		response.status,
+		parsed.success ? parsed.data.message : "Something went wrong. Please try again.",
+		parsed.success ? parsed.data.code : undefined,
+	);
+}
+
 /**
  * Fetch `input` and parse the response through `schema`. A 204 resolves to
  * undefined, which is why callers of a no-content route pass a schema that
@@ -34,18 +46,8 @@ export async function request<T>(
 ): Promise<T> {
 	const response = await fetch(input, { credentials: "same-origin", ...init });
 
-	if (response.status === 401) {
-		throw new SessionEndedError();
-	}
-
 	if (!response.ok) {
-		const body = await response.json().catch(() => null);
-		const parsed = ApiErrorBody.safeParse(body);
-		throw new ApiError(
-			response.status,
-			parsed.success ? parsed.data.message : "Something went wrong. Please try again.",
-			parsed.success ? parsed.data.code : undefined,
-		);
+		throw await toApiError(response);
 	}
 
 	if (response.status === 204) {

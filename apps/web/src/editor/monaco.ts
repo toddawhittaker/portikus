@@ -18,7 +18,7 @@ import JsonWorker from "monaco-editor/language/json/json.worker.js?worker";
 
 const environment: Monaco.Environment = {
 	// JSON is the one language service kept, because JSON files are named in
-	// SPEC.md §13.2; its validation is turned off below.
+	// SPEC.md §13.2; its diagnostics are turned off in getMonaco below.
 	getWorker: (_id: string, label: string) =>
 		label === "json" ? new JsonWorker() : new EditorWorker(),
 };
@@ -80,7 +80,15 @@ export function getMonaco(): Promise<typeof Monaco> {
 		// language with a service rather than a highlighter, because SPEC.md
 		// §13.2 names it; it only checks JSON syntax and asks for no schemas.
 		await import("monaco-editor/basic-languages/monaco.contribution.js");
-		await import("monaco-editor/language/json/monaco.contribution.js");
+		const json = await import("monaco-editor/language/json/monaco.contribution.js");
+		// No schemas and no validation: a student's JSON is checked by the tool
+		// that reads it, not by the editor guessing at a schema.
+		json.jsonDefaults.setDiagnosticsOptions({
+			validate: false,
+			allowComments: true,
+			schemas: [],
+			enableSchemaRequest: false,
+		});
 		defineThemes(monaco);
 		return monaco;
 	})();
@@ -96,4 +104,25 @@ export function currentThemeName(): string {
 		typeof matchMedia === "function" &&
 		matchMedia("(prefers-color-scheme: dark)").matches;
 	return dark ? DARK_THEME : LIGHT_THEME;
+}
+
+let watching = false;
+
+/**
+ * Follow the page's light or dark choice. Monaco's theme is global, so one
+ * watcher serves every editor rather than one subscription per editor.
+ */
+export function watchTheme(): void {
+	if (watching) return;
+	watching = true;
+	const apply = () => {
+		void getMonaco().then((monaco) => monaco.editor.setTheme(currentThemeName()));
+	};
+	new MutationObserver(apply).observe(document.documentElement, {
+		attributes: true,
+		attributeFilter: ["data-theme"],
+	});
+	if (typeof matchMedia === "function") {
+		matchMedia("(prefers-color-scheme: dark)").addEventListener("change", apply);
+	}
 }
