@@ -487,6 +487,15 @@ administrators see it, and opens `/admin` in a new browser tab with
 grace countdown never start while an administrator works on settings
 (§6.4) (#164, closing #124).
 
+**Editor icons.** The find widget's next, previous and close buttons
+drew as empty rectangles. Monaco paints them with its "codicon" icon
+font, whose `@font-face` rule lives in a stylesheet only
+`editor.main.js` imports, and the workspace deliberately loads the
+editor API plus named features instead of `editor.main.js`. The
+codicon feature module is now loaded with the other features, so the
+built bundle carries the font's stylesheet as well as the font file
+(#219).
+
 **Tests and CI.** Two intermittently failing unit tests were made
 deterministic without changing what they assert: the workspace-agent git
 timeout test no longer races a real git process, and the API terminal
