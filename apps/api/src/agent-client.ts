@@ -61,6 +61,11 @@ export class AgentClient {
 		return `ws://${this.address}:${this.port}/terminals/${terminalId}/attach?${query}`;
 	}
 
+	/** The websocket URL the project's filesystem events are piped from. */
+	projectEventsUrl(slug: string): string {
+		return `ws://${this.address}:${this.port}/projects/${encodeURIComponent(slug)}/events`;
+	}
+
 	/** The Authorization header for the agent. Never log the result. */
 	authHeader(): string {
 		return `Bearer ${this.token}`;

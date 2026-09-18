@@ -68,3 +68,9 @@ export const MAX_GIT_ENTRIES = 5000;
 
 /** Largest side of a diff the agent will send (SPEC.md §12.6). */
 export const MAX_DIFF_SIDE_BYTES = 1024 * 1024;
+
+/**
+ * How long one git command may run in the agent (SPEC.md §12.1). The control
+ * plane budgets its own waits from this, so the two never disagree.
+ */
+export const GIT_TIMEOUT_MS = 10_000;

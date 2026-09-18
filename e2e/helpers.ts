@@ -340,6 +340,61 @@ export async function projectDirs(workspaceId: string): Promise<string[]> {
 	return ((await response.json()) as { slugs: string[] }).slugs;
 }
 
+/**
+ * Seed the Git answers the fake agent gives for one project: the status of
+ * the repository and a diff per path (SPEC.md §12.1, §12.6).
+ */
+export async function seedGit(
+	workspaceId: string,
+	slug: string,
+	answer: { status?: unknown; diffs?: Record<string, unknown> },
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/git`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, slug, ...answer }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused the Git seed: ${response.status}`);
+	}
+}
+
+/** Seed the matches the fake agent answers a search of one project with. */
+export async function seedSearch(
+	workspaceId: string,
+	slug: string,
+	matches: unknown[],
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/search`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, slug, matches }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused the search seed: ${response.status}`);
+	}
+}
+
+/**
+ * Push one events frame to every browser watching this project, the way a
+ * change on disk would (SPEC.md §11.4). Returns how many sockets got it.
+ */
+export async function pushEvent(
+	workspaceId: string,
+	slug: string,
+	frame: unknown,
+): Promise<number> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/events`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, slug, frame }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused the event: ${response.status}`);
+	}
+	return ((await response.json()) as { sent: number }).sent;
+}
+
 export async function projectIds(workspaceId: string): Promise<string[]> {
 	const rows = await query<{ id: string }>(
 		"select id from projects where workspace_id = $1 order by created_at",

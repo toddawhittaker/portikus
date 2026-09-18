@@ -2,9 +2,14 @@ import { createHash } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import websocket, { type WebSocket } from "@fastify/websocket";
 import {
+	type GitDiff,
+	type GitStatus,
+	GitStatusQuery,
 	MAX_EDITOR_FILE_BYTES,
 	MAX_UPLOAD_BYTES,
 	ProjectPath,
+	type SearchMatch,
+	SearchQuery,
 } from "@portikus/contracts";
 import Fastify, {
 	type FastifyInstance,
@@ -34,7 +39,31 @@ export interface FakeAgent {
 	projects: Map<string, { isGitRepo: boolean }>;
 	/** Everything under those directories, keyed the same way as the listings. */
 	files: Map<string, FakeNode>;
+	/** Seeded Git answers, keyed by `<workspace key>/<slug>`. */
+	git: Map<string, FakeGitAnswer>;
+	/** Seeded search matches, keyed the same way. */
+	search: Map<string, SearchMatch[]>;
+	/** Searches the fake saw cancelled by the caller hanging up. */
+	readonly searchAborted: number;
+	/** While true, the next events socket is refused as over the cap. */
+	eventLimit: boolean;
+	/** Projects whose watcher fails, keyed like the Git answers. */
+	watchFailures: Set<string>;
+	/** Frames the fake received on its events sockets, which must stay zero. */
+	readonly eventsReceived: number;
+	/** How each events socket was closed by the caller, in order. */
+	eventCloses: Array<{ code: number; reason: string }>;
+	/** Push one frame to every events subscriber of a project. */
+	pushEvent: (key: string, slug: string, frame: unknown) => number;
+	/** Push one frame larger than the control plane's 1 MiB cap. */
+	pushOversizedEvent: (key: string, slug: string) => number;
 	close: () => Promise<void>;
+}
+
+/** What the fake answers the Git routes of one project with. */
+export interface FakeGitAnswer {
+	status?: GitStatus;
+	diffs?: Record<string, GitDiff>;
 }
 
 /** One entry of the fake filesystem. Paths are `<slug>/<path inside it>`. */
@@ -240,10 +269,20 @@ export async function startFakeAgent(
 		});
 	});
 
+	// Git, search and events answers are seeded per workspace key and slug.
+	const gitAnswers = new Map<string, FakeGitAnswer>();
+	const searchAnswers = new Map<string, SearchMatch[]>();
+	const eventSockets = new Map<string, Set<WebSocket>>();
+	const watchFailures = new Set<string>();
+	const eventCloses: Array<{ code: number; reason: string }> = [];
+
 	const state = {
 		failCreateWith: null as string | null,
 		openAttachments: 0,
 		failLogLevel: false,
+		searchAborted: 0,
+		eventLimit: false,
+		eventsReceived: 0,
 	};
 	const logLevels: (string | null)[] = [];
 
@@ -267,6 +306,11 @@ export async function startFakeAgent(
 			perKey.set(key, dirs);
 		}
 		return dirs;
+	}
+
+	/** The map key one project's seeded answers live under. */
+	function answerKey(key: string, slug: string): string {
+		return `${key}/${slug}`;
 	}
 
 	/** The workspace key on the caller's bearer token; "" is the shared one. */
@@ -666,6 +710,196 @@ export async function startFakeAgent(
 		}
 	});
 
+	// The read-only Git, search and events routes, with the same status and
+	// close codes as the real agent (SPEC.md §11.4, §11.5, §12.1, §12.6).
+
+	/** An empty repository answer, so an unseeded project still reads. */
+	function emptyStatus(): GitStatus {
+		return {
+			repo: false,
+			branch: null,
+			detached: false,
+			upstream: null,
+			ahead: 0,
+			behind: 0,
+			conflicts: 0,
+			entries: [],
+			ignored: [],
+			truncated: false,
+		};
+	}
+
+	/**
+	 * A slug the test marks as slow stands in for a git command that takes
+	 * most of the agent's own per-command budget, so the control plane's wait
+	 * can be observed.
+	 */
+	const SLOW_GIT_MS = 6000;
+	async function slowIfMarked(slug: string): Promise<void> {
+		if (!slug.includes("slow")) return;
+		await new Promise((resolve) => setTimeout(resolve, SLOW_GIT_MS));
+	}
+
+	app.get("/projects/:slug/git/status", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		await slowIfMarked(slug);
+		const query = GitStatusQuery.safeParse(request.query ?? {});
+		if (!query.success) {
+			return fileError(reply, new FakeFileError("BAD_REQUEST", "invalid hidden flag"));
+		}
+		const status = gitAnswers.get(answerKey(keyOf(request), slug))?.status;
+		if (!status) return emptyStatus();
+		// Ignored paths are only sent when hidden files are shown.
+		return query.data.hidden ? status : { ...status, ignored: [] };
+	});
+
+	app.get("/projects/:slug/git/diff", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		await slowIfMarked(slug);
+		const path = (request.query as { path?: string }).path ?? "";
+		if (!ProjectPath.safeParse(path).success) {
+			return fileError(reply, new FakeFileError("PATH_INVALID", "invalid path"));
+		}
+		const diff = gitAnswers.get(answerKey(keyOf(request), slug))?.diffs?.[path];
+		if (!diff) {
+			return fileError(reply, new FakeFileError("FILE_NOT_FOUND", "no such file"));
+		}
+		return diff;
+	});
+
+	app.get("/projects/:slug/search", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		const query = SearchQuery.safeParse(request.query ?? {});
+		if (!query.success) {
+			return fileError(reply, new FakeFileError("BAD_REQUEST", "invalid search query"));
+		}
+		// A query the test marks as slow stands in for a search still running
+		// when the browser gives up, so cancellation can be observed.
+		if (query.data.q.includes("slow")) {
+			await new Promise<void>((resolve) => {
+				const onClose = () => {
+					state.searchAborted += 1;
+					clearTimeout(timer);
+					resolve();
+				};
+				const timer = setTimeout(() => {
+					// The caller waited it out, so this search was not cancelled.
+					request.raw.off("close", onClose);
+					resolve();
+				}, 5000);
+				request.raw.on("close", onClose);
+			});
+			if (request.raw.destroyed) {
+				// Nobody is listening any more, so send nothing at all.
+				reply.hijack();
+				return;
+			}
+		}
+		const matches = searchAnswers.get(answerKey(keyOf(request), slug)) ?? [];
+		return { matches, truncated: false };
+	});
+
+	app.get(
+		"/projects/:slug/events",
+		{ websocket: true },
+		(socket: WebSocket, request: FastifyRequest) => {
+			const slug = (request.params as { slug: string }).slug;
+			// Anything the browser sends must never reach here; count it so a
+			// test can prove the pipe is one-way.
+			socket.on("message", () => {
+				state.eventsReceived += 1;
+			});
+			socket.on("close", (code: number, reason: Buffer) => {
+				eventCloses.push({ code, reason: reason.toString() });
+			});
+			// Like the real agent, the reason is an error frame and the close
+			// code only carries the kind of failure (SPEC.md §11.4).
+			if (!dirs(request).has(slug)) {
+				socket.send(JSON.stringify({ type: "error", code: "PROJECT_NOT_FOUND" }));
+				socket.close(4404, "PROJECT_NOT_FOUND");
+				return;
+			}
+			if (state.eventLimit) {
+				socket.send(JSON.stringify({ type: "error", code: "EVENT_SOCKET_LIMIT" }));
+				socket.close(1008, "EVENT_SOCKET_LIMIT");
+				return;
+			}
+			const key = answerKey(keyOf(request), slug);
+			if (watchFailures.has(key)) {
+				socket.send(JSON.stringify({ type: "error", code: "WATCH_FAILED" }));
+				socket.close(1011, "WATCH_FAILED");
+				return;
+			}
+			const peers = eventSockets.get(key) ?? new Set<WebSocket>();
+			peers.add(socket);
+			eventSockets.set(key, peers);
+			socket.on("close", () => peers.delete(socket));
+			// The real agent says the watcher is live before anything else.
+			socket.send(
+				JSON.stringify({ type: "fs", paths: [], git: true, truncated: true }),
+			);
+		},
+	);
+
+	/** Push one frame to every events subscriber of a project. */
+	function pushEvent(key: string, slug: string, frame: unknown): number {
+		const peers = eventSockets.get(answerKey(key, slug)) ?? new Set<WebSocket>();
+		let sent = 0;
+		for (const peer of peers) {
+			if (peer.readyState !== peer.OPEN) continue;
+			peer.send(JSON.stringify(frame));
+			sent += 1;
+		}
+		return sent;
+	}
+
+	/** Push a frame past the control plane's 1 MiB cap on the agent socket. */
+	function pushOversizedEvent(key: string, slug: string): number {
+		const paths = ["x".repeat(1024 * 1024 + 1024)];
+		return pushEvent(key, slug, { type: "fs", paths, git: false, truncated: false });
+	}
+
+	// Test-only hooks for Git, search and events.
+	app.post("/__test/git", async (request, reply) => {
+		const body = request.body as {
+			key?: string;
+			slug: string;
+			status?: GitStatus;
+			diffs?: Record<string, GitDiff>;
+		};
+		gitAnswers.set(answerKey(body.key ?? "", body.slug), {
+			status: body.status,
+			diffs: body.diffs,
+		});
+		return reply.status(204).send();
+	});
+
+	app.post("/__test/search", async (request, reply) => {
+		const body = request.body as { key?: string; slug: string; matches: SearchMatch[] };
+		searchAnswers.set(answerKey(body.key ?? "", body.slug), body.matches);
+		return reply.status(204).send();
+	});
+
+	app.get("/__test/search/aborted", async () => ({ aborted: state.searchAborted }));
+
+	app.post("/__test/events", async (request, reply) => {
+		const body = request.body as {
+			key?: string;
+			slug: string;
+			frame?: unknown;
+			oversized?: boolean;
+		};
+		const sent = body.oversized
+			? pushOversizedEvent(body.key ?? "", body.slug)
+			: pushEvent(body.key ?? "", body.slug, body.frame);
+		return reply.status(200).send({ sent });
+	});
+
+	app.get("/__test/events/received", async () => ({ received: state.eventsReceived }));
+
 	// Test-only hooks for the filesystem. The path carries the project slug,
 	// so seeding is the same shape as the map key.
 	app.post("/__test/files", async (request, reply) => {
@@ -843,7 +1077,25 @@ export async function startFakeAgent(
 		received,
 		projects,
 		files,
+		git: gitAnswers,
+		search: searchAnswers,
+		watchFailures,
+		eventCloses,
+		pushEvent,
+		pushOversizedEvent,
 		logLevels,
+		get searchAborted() {
+			return state.searchAborted;
+		},
+		get eventsReceived() {
+			return state.eventsReceived;
+		},
+		get eventLimit() {
+			return state.eventLimit;
+		},
+		set eventLimit(value: boolean) {
+			state.eventLimit = value;
+		},
 		get failLogLevel() {
 			return state.failLogLevel;
 		},
