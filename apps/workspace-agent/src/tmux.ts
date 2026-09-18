@@ -111,6 +111,13 @@ export const HISTORY_LINES = 5000;
  * `history-limit` has to be global and set first: tmux reads it when a window
  * is created, so setting it on a session afterwards leaves that session's
  * pane on tmux's default of 2000 lines.
+ *
+ * `set-clipboard on` makes tmux pass an OSC 52 copy request from a program in
+ * the pane through to the browser; its default of `external` drops it, so a
+ * coding agent's "press c to copy the login URL" does nothing.
+ *
+ * `focus-events on` makes tmux forward focus in and out to those programs, so
+ * Claude Code stops warning about it on first launch.
  */
 function serverOptionArgs(): string[] {
 	return [
@@ -118,6 +125,16 @@ function serverOptionArgs(): string[] {
 		"-s",
 		"terminal-overrides",
 		"*:smcup@:rmcup@:indn@:rin@",
+		";",
+		"set-option",
+		"-s",
+		"set-clipboard",
+		"on",
+		";",
+		"set-option",
+		"-s",
+		"focus-events",
+		"on",
 		";",
 		"set-option",
 		"-g",
