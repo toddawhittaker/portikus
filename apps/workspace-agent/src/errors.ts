@@ -1,5 +1,6 @@
 import type { AgentErrorCode } from "@portikus/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { FileChanged } from "./files.js";
 import { AgentFailure } from "./tmux.js";
 
 /** The HTTP status each agent failure maps to (SPEC.md §27). */
@@ -17,15 +18,31 @@ export const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	INVALID_SLUG: 400,
 	INVALID_URL: 400,
 	GIT_FAILED: 500,
+	INTERNAL: 500,
+	PATH_INVALID: 400,
+	FILE_NOT_FOUND: 404,
+	FILE_EXISTS: 409,
+	FILE_CHANGED: 412,
+	FILE_TOO_LARGE: 413,
+	NOT_A_DIRECTORY: 400,
 	SEARCH_FAILED: 500,
+	WATCH_FAILED: 500,
 };
 
-/** Turn a failure into a response body that never carries internal detail. */
+/**
+ * Turn a failure into a response body that never carries internal detail. An
+ * unexpected error from a file route is INTERNAL rather than TMUX_FAILED,
+ * which belongs to the terminal paths (SPEC.md §27).
+ */
 export function sendError(
 	request: FastifyRequest,
 	reply: FastifyReply,
 	error: unknown,
+	fallback: AgentErrorCode = "TMUX_FAILED",
 ) {
+	if (error instanceof FileChanged) {
+		reply.header("etag", error.etag);
+	}
 	if (error instanceof AgentFailure) {
 		return reply
 			.code(ERROR_STATUS[error.code])
@@ -39,6 +56,6 @@ export function sendError(
 		"agent request failed",
 	);
 	return reply.code(500).send({
-		error: { code: "TMUX_FAILED", message: "internal error" },
+		error: { code: fallback, message: "internal error" },
 	});
 }

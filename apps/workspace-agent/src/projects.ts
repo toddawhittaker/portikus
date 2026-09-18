@@ -379,8 +379,16 @@ export async function archiveProject(
 	if (!target.exists) {
 		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
 	}
-	const child = spawn("zip", ["-r", "-y", "-q", "-", "--", slug], {
-		cwd: projectsDir(homeDir),
+	return archiveDir(target.path);
+}
+
+/**
+ * Zip one directory from its parent, so the archive holds a single top-level
+ * entry named after that directory (SPEC.md §11.2).
+ */
+export async function archiveDir(dir: string): Promise<ArchiveProcess> {
+	const child = spawn("zip", ["-r", "-y", "-q", "-", "--", basename(dir)], {
+		cwd: dirname(dir),
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	// An image without zip installed fails here, and an unhandled "error"

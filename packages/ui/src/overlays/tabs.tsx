@@ -20,8 +20,10 @@ import { Icon, IconButton, type IconName } from "../primitives/index.js";
 
 export interface TabItem {
 	id: string;
-	kind: "terminal" | "claude" | "codex" | "file" | "preview" | "panel";
+	kind: "terminal" | "claude" | "codex" | "file" | "diff" | "preview" | "panel";
 	label: string;
+	/** Hover text, when the label is a shortened form of something longer. */
+	title?: string;
 	ended?: boolean;
 	/** Test hook: set as `data-testid` on the trigger, plus `-close` on the close control. */
 	testId?: string;
@@ -44,6 +46,7 @@ const KIND_ICON: Record<TabItem["kind"], IconName> = {
 	claude: "agent",
 	codex: "agent",
 	file: "file",
+	diff: "file",
 	preview: "preview",
 	panel: "info",
 };
@@ -60,7 +63,7 @@ function TabTrigger({ tab, onClose, onMove }: TabTriggerProps): React.ReactEleme
 		<RadixTabs.Trigger
 			ref={sortable.setNodeRef}
 			value={tab.id}
-			title={tab.label}
+			title={tab.title ?? tab.label}
 			data-testid={tab.testId}
 			className={[
 				"pk-tab",
