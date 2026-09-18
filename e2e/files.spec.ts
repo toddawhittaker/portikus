@@ -121,6 +121,27 @@ test.describe("file tree", () => {
 		await expect(row(page, "docs")).toBeVisible();
 	});
 
+	/** SPEC.md §11.2: an empty project can still get its first file. */
+	test("creating the first file in an empty project from the header menu", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Empty" });
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByText("No files yet")).toBeVisible({ timeout: 15_000 });
+
+		await page.getByTestId("files-more").click();
+		await page.getByTestId("files-more-new-file").click();
+		await page.getByTestId("field-file-name").fill("first.txt");
+		await page.getByTestId("dialog-confirm").click();
+
+		await expect(row(page, "first.txt")).toBeVisible();
+		expect(await readSeededFile(student.workspaceId, project.slug, "first.txt")).toBe(
+			"",
+		);
+	});
+
 	test("uploading a file puts it in the tree with its contents", async ({
 		page,
 		context,
