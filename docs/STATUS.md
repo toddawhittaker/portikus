@@ -145,6 +145,18 @@ leave the layout alone. The drag uses the dnd-kit already in the repo, with
 the same 4-pixel activation distance as tab reordering, so a click on a
 title bar still just focuses the pane.
 
+Reviving an ended terminal now stays in its own pane (SPEC.md sections 9.5
+and 9.7): `reconcile` no longer gives a tab back to an ended terminal that
+has no pane, since those rows are listing history rather than panes, and the
+store drops any pane a terminal already has before placing it, so a list
+refetch that arrives mid-revive cannot leave the same terminal in two places.
+Creating a terminal no longer refetches the terminal list by itself either:
+the caller places the new terminal and then asks for the refetch, so no
+reconcile ever sees a terminal that has no pane yet and no half-placed layout
+can be saved. One consequence: a terminal that ends within about a second of being opened,
+before its pane reaches the saved layout, is not restored as a tab on reload
+and stays only in the ended list.
+
 Known gaps: from Epic 4, a real identity provider is not reachable from the
 API yet, the real client secret travels through the environment until SOPS
 is wired up, the only admin UI is the grace period page, nothing
@@ -169,7 +181,13 @@ workspace created on an older image lacks zip until it is recreated, which
 the agent reports as a download failure. The projects pane now refetches every
 ten seconds while the tab is visible and again when it regains focus, so a
 repository made in a terminal turns up without any UI action, and every row that
-is not missing shows its folder name next to the project name. From the grace period task, the
+is not missing shows its folder name next to the project name. A project can
+also be deleted for good from its menu: the student types the project's slug
+back, the API ends any terminal sitting in the folder, the agent removes
+`~/projects/<slug>`, and the row and an audit event record it. Whenever the
+agent runs `git init` for a project, whether on create, on a template, or
+through Initialize Git, it also writes a default `.gitignore` if the project
+has none, so a template that ships its own keeps it. From the grace period task, the
 administration page is a settings form, not the Epic 11 mockup, and the
 infrastructure smoke test now signs in as the mock identity provider's
 administrator to shorten the grace period. From structured logging, an agent

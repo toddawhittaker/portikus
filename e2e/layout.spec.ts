@@ -6,6 +6,7 @@ import {
 	query,
 	terminalIds,
 	WEB_ORIGIN,
+	waitForSavedLeaf,
 	workspacePath,
 } from "./helpers";
 
@@ -324,6 +325,8 @@ test.describe("work area layout", () => {
 			"Ended",
 		);
 
+		await waitForSavedLeaf(projectId, terminalId);
+
 		// What stopping the workspace does to the terminal rows (SPEC.md §6.8).
 		await endTerminal(terminalId);
 		await page.reload();
@@ -348,6 +351,7 @@ test.describe("work area layout", () => {
 			student.workspaceId,
 			"Revived",
 		);
+		await waitForSavedLeaf(projectId, terminalId);
 		await endTerminal(terminalId);
 		await page.reload();
 		await expect(page.getByRole("button", { name: "New terminal here" })).toBeVisible({
@@ -367,6 +371,64 @@ test.describe("work area layout", () => {
 		// The new terminal takes the ended one's place and attaches for real.
 		await expectConnected(page, revived);
 		await expect(page.getByTestId(`terminal-leaf-${revived}`)).toBeVisible();
+	});
+
+	test("reviving both ended panes of a split adds no tabs", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { projectId, terminalId } = await openProjectWithTerminal(
+			page,
+			student.workspaceId,
+			"Revived split",
+		);
+		await paneAction(page, terminalId, "split-right");
+		await expect
+			.poll(async () => (await terminalIds(student.workspaceId, projectId)).length)
+			.toBe(2);
+		const [, second] = await terminalIds(student.workspaceId, projectId);
+		if (!second) throw new Error("the second terminal row was not created");
+
+		// The split has to reach the saved layout before the reload, or the
+		// reload rebuilds two tabs instead of one (SPEC.md §7.5).
+		await waitForSavedLeaf(projectId, second);
+
+		// What stopping the workspace does to both rows (SPEC.md §6.8, §9.7).
+		await endTerminal(terminalId);
+		await endTerminal(second);
+		await page.reload();
+		await expect(page.getByRole("button", { name: "New terminal here" })).toHaveCount(
+			2,
+			{ timeout: 15_000 },
+		);
+
+		await page.getByRole("button", { name: "New terminal here" }).first().click();
+		await expect
+			.poll(async () => (await terminalIds(student.workspaceId, projectId)).length)
+			.toBe(3);
+		await page.getByRole("button", { name: "New terminal here" }).first().click();
+		await expect
+			.poll(async () => (await terminalIds(student.workspaceId, projectId)).length)
+			.toBe(4);
+
+		const ids = await terminalIds(student.workspaceId, projectId);
+		const revived = ids.filter((id) => id !== terminalId && id !== second);
+		expect(revived).toHaveLength(2);
+
+		// The two new terminals take the two panes of the one tab, and neither
+		// they nor the ended rows they replaced get a tab of their own.
+		for (const id of revived) {
+			await expect(page.getByTestId(`terminal-leaf-${id}`)).toBeVisible({
+				timeout: 15_000,
+			});
+		}
+		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(1);
+		for (const id of [second, ...revived]) {
+			await expect(page.getByTestId(`tab-${id}`)).toHaveCount(0);
+		}
+		await expect(page.getByTestId(`terminal-leaf-${terminalId}`)).toHaveCount(0);
+		await expect(page.getByTestId(`terminal-leaf-${second}`)).toHaveCount(0);
 	});
 
 	/** Panes are rearranged by dragging their title bars (SPEC.md §8.3, §9.3). */

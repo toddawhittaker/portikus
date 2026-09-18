@@ -109,13 +109,31 @@ test("a folder that is not a repository offers Initialize Git", async () => {
 	expect(screen.getByTestId("project-git-init")).toBeDefined();
 });
 
-test("a missing project offers only Archive", async () => {
+test("a missing project offers only Archive and Delete", async () => {
 	await mount();
 	openMenu(GONE.id);
 
 	expect(screen.getByTestId("project-archive")).toBeDefined();
+	// A row whose folder is gone can still be removed from the list for good.
+	expect(screen.getByTestId(`project-delete-${GONE.id}`)).toBeDefined();
 	expect(screen.queryByTestId("project-rename")).toBeNull();
 	expect(screen.queryByTestId("project-download")).toBeNull();
+});
+
+test("delete stays disabled until the folder name is typed exactly", async () => {
+	await mount();
+	openMenu(TODO.id);
+	fireEvent.click(screen.getByTestId(`project-delete-${TODO.id}`));
+
+	const button = await screen.findByTestId("delete-confirm-button");
+	expect((button as HTMLButtonElement).disabled).toBe(true);
+
+	const input = screen.getByTestId("delete-confirm-input");
+	fireEvent.change(input, { target: { value: `${TODO.slug}x` } });
+	expect((button as HTMLButtonElement).disabled).toBe(true);
+
+	fireEvent.change(input, { target: { value: TODO.slug } });
+	expect((button as HTMLButtonElement).disabled).toBe(false);
 });
 
 test("the archived list opens in place with an unarchive action", async () => {
