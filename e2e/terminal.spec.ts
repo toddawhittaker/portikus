@@ -192,6 +192,35 @@ test("an ended terminal offers a new one in its place", async ({ page, context }
 	await expect(visiblePane(page).locator(".xterm-screen")).toBeVisible();
 	const ids = await terminalIds(student.workspaceId);
 	expect(ids).toHaveLength(2);
+	// The ended row is history, so its number is free again (SPEC.md §9.7).
+	await expect(page.getByRole("tab", { name: "Terminal 1" })).toBeVisible();
+});
+
+test("a revived terminal keeps the name it was given", async ({ page, context }) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	await page.getByTestId(`terminal-actions-${terminalId}`).click();
+	await page.getByTestId("terminal-rename").click();
+	const input = page.getByTestId("terminal-rename-field");
+	await input.fill("Build");
+	await input.press("Enter");
+	await expect(page.getByRole("tab", { name: "Build" })).toBeVisible();
+
+	const [projectId] = await projectIds(student.workspaceId);
+	if (!projectId) throw new Error("the project row was not created");
+	await waitForSavedLeaf(projectId, terminalId);
+
+	// What stopping the workspace does to the terminal rows.
+	await endTerminal(terminalId);
+	await page.reload();
+	await expect(page.getByTestId("new-terminal-here")).toBeVisible({ timeout: 15_000 });
+
+	await page.getByTestId("new-terminal-here").click();
+
+	// The terminal that takes the ended one's place takes its name too.
+	await expect(page.getByRole("tab", { name: "Build" })).toBeVisible();
+	await expect(page.getByRole("tab", { name: "Terminal 1" })).toHaveCount(0);
 });
 
 test("a workspace is held to eight terminals", async ({ page, context }) => {
