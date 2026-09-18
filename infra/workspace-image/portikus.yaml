@@ -1456,12 +1456,13 @@ files:
     name=${0##*/}
     file=
 
-    # xsel with no flags reads the selection; xclip and pbcopy write it.
+    # xsel with no flags follows stdin (decided below); xclip and pbcopy write.
     if [ "$name" = xsel ]; then
       mode='paste'
     else
       mode='copy'
     fi
+    explicit=
 
     for arg in "$@"; do
       case "$arg" in
@@ -1475,14 +1476,17 @@ files:
           ;;
         -o|-out|-output|--output)
           mode='paste'
+          explicit=1
           ;;
         -i|-in|--input|-a|--append)
           mode='copy'
+          explicit=1
           ;;
         -c|--clear|-d|--delete)
           # Only xsel means "clear" or "delete" here; xclip's -d is the display.
           if [ "$name" = xsel ]; then
             mode='paste'
+            explicit=1
           fi
           ;;
         -*)
@@ -1495,6 +1499,12 @@ files:
           ;;
       esac
     done
+
+    # Real xsel with no input or output flag copies when stdin is a pipe or a
+    # file and reads the selection when stdin is a terminal.
+    if [ "$name" = xsel ] && [ -z "$explicit" ] && [ ! -t 0 ]; then
+      mode='copy'
+    fi
 
     # The clipboard cannot be read from here, so report it as empty.
     if [ "$mode" = paste ]; then

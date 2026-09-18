@@ -1,0 +1,71 @@
+/* The rich Markdown editor (issue #155, DESIGN.md "Editor and Markdown").
+   MDXEditor draws itself from a set of CSS variables, so theming it is a
+   matter of pointing those variables at our design tokens. The tokens already
+   change with the theme, so light and dark both follow with no JavaScript. */
+
+.pk-rich-markdown {
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	overflow: auto;
+	background: var(--surface);
+}
+
+.pk-rich-markdown .mdxeditor {
+	--basePageBg: var(--surface);
+	--baseBase: var(--surface);
+	--baseBg: var(--surface-raised);
+	--baseBgSubtle: var(--surface-sunken);
+	--baseBgHover: var(--surface-hover);
+	--baseBgActive: var(--surface-selected);
+	--baseLine: var(--line);
+	--baseBorder: var(--line);
+	--baseBorderHover: var(--line-strong);
+	--baseSolid: var(--line-strong);
+	--baseSolidHover: var(--ink-muted);
+	--baseText: var(--ink);
+	--baseTextContrast: var(--ink);
+
+	--accentBase: var(--surface);
+	--accentBg: var(--accent-soft);
+	--accentBgSubtle: var(--accent-soft);
+	--accentBgHover: var(--accent-soft);
+	--accentBgActive: var(--accent-soft);
+	--accentLine: var(--accent);
+	--accentBorder: var(--accent);
+	--accentBorderHover: var(--accent-hover);
+	--accentSolid: var(--accent);
+	--accentSolidHover: var(--accent-hover);
+	--accentText: var(--accent-text);
+	--accentTextContrast: var(--accent-text);
+
+	--font-body: inherit;
+	--font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+	color: var(--ink);
+	font-family: inherit;
+}
+
+/* The toolbar stays in view while the document scrolls under it. */
+.pk-rich-markdown .mdxeditor-toolbar {
+	position: sticky;
+	top: 0;
+	z-index: var(--z-sticky);
+	border-radius: 0;
+	border-bottom: 1px solid var(--line);
+	background: var(--surface-raised);
+}
+
+.pk-rich-markdown .mdxeditor-root-contenteditable {
+	min-height: 100%;
+}
+
+/* markdown.css styles the document; the editable area only adds its focus
+   behaviour, because the browser's own outline would box the whole file. */
+.pk-rich-markdown-body {
+	outline: none;
+}
+
+.pk-rich-markdown-body:focus-visible {
+	outline: none;
+}

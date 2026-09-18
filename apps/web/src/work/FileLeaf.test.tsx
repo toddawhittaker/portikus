@@ -631,27 +631,28 @@ async function renderMarkdownLeaf() {
 	seed = { text: "# Notes\n", etag: "etag-0" };
 	renderLeaf(() => {}, MD_PATH);
 	await findEditor(MD_PATH);
-	await screen.findByTestId("markdown-preview");
+	await screen.findByTestId("markdown-rich");
 }
 
-test("a Markdown file opens in Preview with all three views offered", async () => {
+test("a Markdown file opens in the rich view with all three views offered", async () => {
 	await renderMarkdownLeaf();
-	expect(screen.getByTestId("markdown-mode-edit").textContent).toBe("Edit");
-	expect(screen.getByTestId("markdown-mode-preview").textContent).toBe("Preview");
+	expect(screen.getByTestId("markdown-mode-code").textContent).toBe("Code");
+	expect(screen.getByTestId("markdown-mode-rich").textContent).toBe("Rich");
 	expect(screen.getByTestId("markdown-mode-split").textContent).toBe("Split");
-	expect(screen.getByTestId("markdown-mode-preview").getAttribute("aria-pressed")).toBe(
+	expect(screen.getByTestId("markdown-mode-rich").getAttribute("aria-pressed")).toBe(
 		"true",
 	);
-	expect(screen.getByTestId("md-preview-pane").hasAttribute("hidden")).toBe(false);
-	expect(screen.getByTestId("md-edit-pane").hasAttribute("hidden")).toBe(true);
+	expect(screen.getByTestId("md-rich-pane").hasAttribute("hidden")).toBe(false);
+	expect(screen.getByTestId("md-code-pane").hasAttribute("hidden")).toBe(true);
 });
 
-test("Edit hides the preview instead of unmounting the editor", async () => {
+test("Code hides the rich view instead of unmounting the editor", async () => {
 	await renderMarkdownLeaf();
-	act(() => screen.getByTestId("markdown-mode-edit").click());
+	act(() => screen.getByTestId("markdown-mode-code").click());
 
-	expect(screen.getByTestId("md-preview-pane").hasAttribute("hidden")).toBe(true);
-	expect(screen.getByTestId("md-edit-pane").hasAttribute("hidden")).toBe(false);
+	expect(screen.getByTestId("md-rich-pane").hasAttribute("hidden")).toBe(true);
+	expect(screen.queryByTestId("markdown-rich")).toBeNull();
+	expect(screen.getByTestId("md-code-pane").hasAttribute("hidden")).toBe(false);
 	expect(screen.getByTestId(`editor-${MD_PATH}`)).not.toBeNull();
 });
 
@@ -660,9 +661,9 @@ test("switching views keeps the editor's model, so undo and cursor survive", asy
 	const model = state.model;
 	expect(model).not.toBeNull();
 
-	act(() => screen.getByTestId("markdown-mode-edit").click());
+	act(() => screen.getByTestId("markdown-mode-code").click());
 	act(() => screen.getByTestId("markdown-mode-split").click());
-	act(() => screen.getByTestId("markdown-mode-preview").click());
+	act(() => screen.getByTestId("markdown-mode-rich").click());
 
 	// A disposed model would have lost the undo history with it.
 	expect(model?.disposed).toBe(false);
@@ -672,7 +673,7 @@ test("switching views keeps the editor's model, so undo and cursor survive", asy
 test("a file that is not Markdown offers no view buttons", async () => {
 	renderLeaf();
 	await findEditor();
-	expect(screen.queryByTestId("markdown-mode-edit")).toBeNull();
+	expect(screen.queryByTestId("markdown-mode-code")).toBeNull();
 	expect(screen.queryByTestId("markdown-split")).toBeNull();
 });
 

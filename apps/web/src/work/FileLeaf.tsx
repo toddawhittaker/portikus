@@ -27,10 +27,11 @@ const CodeEditor = lazy(() =>
 	import("../editor/CodeEditor.js").then((module) => ({ default: module.CodeEditor })),
 );
 
-// The Markdown renderer is its own chunk for the same reason.
-const MarkdownPreview = lazy(() =>
-	import("../editor/MarkdownPreview.js").then((module) => ({
-		default: module.MarkdownPreview,
+// The rich Markdown editor is its own chunk for the same reason: a student
+// who only ever opens code files never downloads it (ADR 0017).
+const RichMarkdownEditor = lazy(() =>
+	import("../editor/RichMarkdownEditor.js").then((module) => ({
+		default: module.RichMarkdownEditor,
 	})),
 );
 
@@ -46,11 +47,11 @@ type View = "edit" | "diff";
 const HIDDEN = { display: "none" } as const;
 
 /** Which of the three Markdown views this tab shows (SPEC.md §13.4). */
-type MarkdownMode = "edit" | "preview" | "split";
+type MarkdownMode = "code" | "rich" | "split";
 
 const MARKDOWN_MODES: { mode: MarkdownMode; label: string }[] = [
-	{ mode: "edit", label: "Edit" },
-	{ mode: "preview", label: "Preview" },
+	{ mode: "code", label: "Code" },
+	{ mode: "rich", label: "Rich" },
 	{ mode: "split", label: "Split" },
 ];
 
@@ -125,17 +126,18 @@ export function FileLeaf({
 	// Which view this tab shows. It belongs to this browser and is not saved.
 	const [view, setView] = useState<View>("edit");
 	const markdown = isMarkdownPath(path);
-	// Markdown opens rendered; the choice belongs to this tab and is not saved.
-	const [mode, setMode] = useState<MarkdownMode>("preview");
+	// Markdown opens in the rich view; the choice belongs to this tab and is
+	// not saved.
+	const [mode, setMode] = useState<MarkdownMode>("rich");
 	// The split view keeps both sides at the same relative position (issue
 	// #154). The flag stops the scroll each side causes in the other from
 	// being sent straight back.
 	const editorScroll = useRef<CodeEditorHandle | null>(null);
-	const previewScroll = useRef<HTMLDivElement | null>(null);
+	const richScroll = useRef<HTMLDivElement | null>(null);
 	const syncing = useRef(false);
-	// The preview may lag the keystrokes so typing stays smooth, but it is
+	// The rich view may lag the keystrokes so typing stays smooth, but it is
 	// never a frame behind on the first render.
-	const previewText = useDeferredValue(text ?? "");
+	const richText = useDeferredValue(text ?? "");
 	// The file was deleted on disk while it was open, so the next save has to
 	// create it rather than replace a version (SPEC.md §13.3).
 	const [deleted, setDeleted] = useState(false);
@@ -377,15 +379,15 @@ export function FileLeaf({
 	// #154, SPEC.md §13.4). Scrolling one side scrolls the other, which fires
 	// that side's own scroll event, so the flag drops the echo.
 	function followEditor(ratio: number) {
-		const node = previewScroll.current;
+		const node = richScroll.current;
 		if (mode !== "split" || !node || syncing.current) return;
 		syncing.current = true;
 		node.scrollTop = scrollTopForRatio(ratio, node.scrollHeight, node.clientHeight);
 		releaseSync();
 	}
 
-	function followPreview() {
-		const node = previewScroll.current;
+	function followRich() {
+		const node = richScroll.current;
 		if (mode !== "split" || !node || syncing.current) return;
 		syncing.current = true;
 		editorScroll.current?.setScrollRatio(
@@ -480,12 +482,16 @@ export function FileLeaf({
 			</Suspense>
 		);
 		if (!markdown) return editor;
-		const preview = (
-			<Suspense fallback={<p className="pk-file-note">Loading preview…</p>}>
-				<MarkdownPreview
-					text={previewText}
-					scrollRef={previewScroll}
-					onScroll={followPreview}
+		// Both sides edit the same buffer, so an edit in the rich view goes
+		// through the same dirty state, autosave and Ctrl+S as a code edit
+		// (issue #155).
+		const rich = (
+			<Suspense fallback={<p className="pk-file-note">Loading rich editor…</p>}>
+				<RichMarkdownEditor
+					text={richText}
+					onChange={onChange}
+					scrollRef={richScroll}
+					onScroll={followRich}
 				/>
 			</Suspense>
 		);
@@ -500,25 +506,28 @@ export function FileLeaf({
 				id="markdown-split"
 			>
 				<Panel
-					id="md-edit-pane"
+					id="md-code-pane"
 					minSize="20%"
 					className="pk-split-panel"
-					hidden={mode === "preview"}
+					hidden={mode === "rich"}
 				>
 					{editor}
 				</Panel>
 				<PaneHandle
 					orientation="vertical"
-					label="Resize preview"
+					label="Resize rich view"
 					style={mode === "split" ? undefined : { display: "none" }}
 				/>
 				<Panel
-					id="md-preview-pane"
+					id="md-rich-pane"
 					minSize="20%"
 					className="pk-split-panel"
-					hidden={mode === "edit"}
+					hidden={mode === "code"}
 				>
-					{preview}
+					{/* In code view the rich editor is unmounted rather than
+					    hidden: it holds no state the code side does not, and
+					    reloading it on every keystroke would cost for nothing. */}
+					{mode === "code" ? null : rich}
 				</Panel>
 			</Group>
 		);

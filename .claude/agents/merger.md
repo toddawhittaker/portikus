@@ -35,7 +35,14 @@ code, and you do not decide whether a real failure is acceptable.
   squash-merged) is rebuilt by diff-apply, never rebase:
   `git diff <its base> <its head> | git apply --3way` onto the current
   base head, one commit, `git push --force-with-lease`. Stop and report
-  if the apply leaves conflicts.
+  if the apply leaves conflicts. Before that force-push, confirm with
+  `git log -1` that `HEAD` is the commit you just made (not something left
+  from an earlier attempt) and that `git diff <base>..HEAD` is non-empty;
+  an empty diff or a stale `HEAD` means the apply did not do what you
+  think, and the force-push must wait until you know what happened.
+- In a fresh worktree, run `nvm use` and `pnpm install --frozen-lockfile`
+  before committing anything there, so the pre-commit hook actually runs
+  instead of failing on a missing toolchain.
 - Never `git add -A`. Never put the word "git" in a branch name.
 - Never touch `main` except when told explicitly.
 
@@ -44,15 +51,32 @@ code, and you do not decide whether a real failure is acceptable.
 Say so in one line and continue with the rules in this file. Do not
 stop for it; a missing reference is not a blocker.
 
+## How to wait
+
+Never write your own sleep loop; the harness blocks a long foreground
+sleep anyway. Wait with `gh run watch <run-id> --exit-status` for a
+single run, or `gh pr checks N --watch` for every check on a PR. Either
+command blocks until the result is in and gives you a clean exit code.
+
+## Escalation is not optional
+
+If the permission classifier denies an action you tried (a command it
+would not let you run), that denial is an escalation: stop and report it,
+and never retry the same effect through a different command to get
+around the denial. This is different from a harness note that tells you
+how to wait or how to phrase a command; follow that guidance and continue.
+
 ## Loop for each PR
 
 1. `gh pr view N --json state,mergeStateStatus,headRefOid,baseRefName`.
    Skip if not `OPEN`. Stop and report if the base is not the one given.
-2. If `BEHIND`: `gh pr update-branch N`, then wait for the new head SHA.
-3. Wait for `gh run list --commit <head> --json status,conclusion` to
-   show every run completed. Poll every 90 seconds. Do not sleep in
-   loops longer than 10 minutes without re-reading state; a merge
-   elsewhere may have made the branch `BEHIND` again.
+2. If `BEHIND`, or `mergeStateStatus` is `UNKNOWN` for more than two
+   checks in a row: `gh pr update-branch N`, then wait for
+   `headRefOid` to change to the new SHA before doing anything else.
+3. Wait with `gh pr checks N --watch` (or `gh run watch <id>
+   --exit-status` for one run) rather than polling by hand. If a merge
+   elsewhere makes the branch `BEHIND` again while you wait, go back to
+   step 2.
 4. All green: `gh pr merge N --squash [--delete-branch]`. Confirm with
    `gh pr view N --json state`.
 5. Any run failed: read only the failed step with
