@@ -1,14 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import {
-	createProject,
-	createStudent,
-	query,
-	readSeededFile,
-	seedFile,
-	type TestProject,
-	type TestStudent,
-	workspacePath,
-} from "./helpers";
+import { createStudent, openFileTab, readSeededFile, seedFile } from "./helpers";
 
 /**
  * The file editor: autosave, external refresh, conflicts and the viewer for
@@ -21,28 +12,7 @@ test.describe("file editor", () => {
 
 	const PATH = "src/app.ts";
 
-	/** Open a project whose saved layout already has one file tab. */
-	async function openFileTab(
-		page: Page,
-		student: TestStudent,
-		name: string,
-		path = PATH,
-		content = "const answer = 42;\n",
-	): Promise<TestProject> {
-		const project = await createProject(student.workspaceId, { name });
-		await seedFile(student.workspaceId, project.slug, path, content);
-		await query("update projects set layout = $2 where id = $1", [
-			project.id,
-			JSON.stringify({
-				tabs: [{ id: `file:${path}`, root: { type: "file", path } }],
-			}),
-		]);
-		await page.goto(workspacePath(student.workspaceId, project.id));
-		await expect(page.getByTestId(`file-pane-${path}`)).toBeVisible({
-			timeout: 15_000,
-		});
-		return project;
-	}
+	const CONTENT = "const answer = 42;\n";
 
 	function status(page: Page, path = PATH) {
 		return page.getByTestId(`file-status-${path}`);
@@ -58,7 +28,7 @@ test.describe("file editor", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		const project = await openFileTab(page, student, "Editing");
+		const project = await openFileTab(page, student, "Editing", PATH, CONTENT);
 
 		await expect(lines(page)).toContainText("const answer = 42;", {
 			timeout: 60_000,
@@ -82,7 +52,7 @@ test.describe("file editor", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		const project = await openFileTab(page, student, "Refresh");
+		const project = await openFileTab(page, student, "Refresh", PATH, CONTENT);
 		await expect(lines(page)).toContainText("const answer = 42;", {
 			timeout: 60_000,
 		});
@@ -103,7 +73,7 @@ test.describe("file editor", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		const project = await openFileTab(page, student, "Conflict");
+		const project = await openFileTab(page, student, "Conflict", PATH, CONTENT);
 		await expect(lines(page)).toContainText("const answer = 42;", {
 			timeout: 60_000,
 		});
@@ -139,7 +109,7 @@ test.describe("file editor", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		const project = await openFileTab(page, student, "Keep mine");
+		const project = await openFileTab(page, student, "Keep mine", PATH, CONTENT);
 		await expect(lines(page)).toContainText("const answer = 42;", {
 			timeout: 60_000,
 		});
