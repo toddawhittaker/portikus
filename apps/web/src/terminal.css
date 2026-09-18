@@ -1,0 +1,19 @@
+/*
+ * The terminal's scrollbar (SPEC.md §9.1). xterm.js 6 draws its own scrollbar
+ * as a plain element rather than letting the browser do it, so its width and
+ * shape are set here and its colours in `TerminalPane.tsx`, through xterm's
+ * theme. The same element is used in every browser, and the terminal is dark
+ * in both themes, so there is nothing here that has to vary.
+ *
+ * xterm.js writes the width of both elements as an inline style, and its only
+ * option for that width is the overview ruler's, which makes it draw a canvas
+ * the terminal has no use for. So the width is the one place the cascade has
+ * to be overruled.
+ */
+
+.pk-terminal-surface .xterm-scrollable-element > .scrollbar.vertical,
+.pk-terminal-surface .xterm-scrollable-element > .scrollbar.vertical > .slider {
+	/* biome-ignore lint/complexity/noImportantStyles: beats xterm's inline width */
+	width: 6px !important;
+	border-radius: var(--radius-full);
+}

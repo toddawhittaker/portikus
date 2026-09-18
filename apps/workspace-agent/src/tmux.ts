@@ -38,9 +38,19 @@ export function attachArgs(id: string, socketName?: string): string[] {
 	return [...socketArgs(socketName), "attach-session", "-t", sessionName(id)];
 }
 
+/**
+ * How much output one tmux command may produce. A history capture is the only
+ * large one, and it is cut to a much smaller budget straight afterwards; this
+ * is the ceiling that keeps a pathological pane from being read into memory in
+ * the first place.
+ */
+const TMUX_MAX_OUTPUT_BYTES = 1024 * 1024;
+
 async function tmux(args: string[], socketName?: string): Promise<string> {
 	try {
-		const { stdout } = await run("tmux", [...socketArgs(socketName), ...args]);
+		const { stdout } = await run("tmux", [...socketArgs(socketName), ...args], {
+			maxBuffer: TMUX_MAX_OUTPUT_BYTES,
+		});
 		return stdout;
 	} catch (error) {
 		const stderr =
@@ -75,6 +85,104 @@ async function resolveCwd(cwd: string, homeDir: string): Promise<string> {
 		throw new AgentFailure("INVALID_CWD", "cwd is not a directory");
 	}
 	return real;
+}
+
+/**
+ * How many lines of history a pane keeps, and so the most an attachment can
+ * be sent back. The browser keeps the same number (`SCROLLBACK_LINES` in
+ * `TerminalPane.tsx`); what a replay is really bounded by is `HISTORY_BYTES`.
+ */
+export const HISTORY_LINES = 5000;
+
+/**
+ * Settings that belong to the tmux server rather than one session. They are
+ * passed on the same command line as `new-session`, in front of it: tmux
+ * starts the server for the whole list, so the options are in place before
+ * the session's window exists.
+ *
+ * The terminal overrides take three capabilities away from the terminal tmux
+ * thinks it is drawing on, so that the browser's own scrollback fills up
+ * (SPEC.md §9.1). `smcup`/`rmcup` switch to the alternate screen, which in
+ * xterm.js has no scrollback at all and turns the wheel into arrow keys.
+ * `indn`/`rin` scroll by N lines in place, which xterm.js does not save.
+ * Without them tmux uses plain line feeds at the bottom of the screen, and
+ * those do get saved.
+ *
+ * `history-limit` has to be global and set first: tmux reads it when a window
+ * is created, so setting it on a session afterwards leaves that session's
+ * pane on tmux's default of 2000 lines.
+ */
+function serverOptionArgs(): string[] {
+	return [
+		"set-option",
+		"-s",
+		"terminal-overrides",
+		"*:smcup@:rmcup@:indn@:rin@",
+		";",
+		"set-option",
+		"-g",
+		"history-limit",
+		String(HISTORY_LINES),
+		";",
+	];
+}
+
+/**
+ * And how many bytes, which is the limit that actually holds: a line can be
+ * any length, and escape sequences make it longer again. The newest lines are
+ * the ones worth keeping, so the cut is made from the front.
+ */
+const HISTORY_BYTES = 256 * 1024;
+
+/**
+ * The tail of `text` that fits in the budget, starting at a line boundary.
+ * The newest lines are the ones worth keeping, so the cut is at the front.
+ */
+function newestLinesWithin(text: string, budget: number): string {
+	if (Buffer.byteLength(text, "utf8") <= budget) return text;
+	const kept = Buffer.from(text, "utf8").subarray(-budget).toString("utf8");
+	const boundary = kept.indexOf("\n");
+	// A single line longer than the whole budget leaves no boundary to cut at.
+	return boundary === -1 ? "" : kept.slice(boundary + 1);
+}
+
+/**
+ * The lines that have scrolled off the top of a terminal's visible screen, as
+ * a terminal would print them: escape sequences kept, wrapped lines joined,
+ * and CRLF endings. Empty when the terminal has no history yet.
+ *
+ * A re-attaching tmux repaints only the visible screen, so without this a
+ * reload leaves the student with nothing above the prompt.
+ */
+export async function captureHistory(id: string, socketName?: string): Promise<string> {
+	const name = sessionName(id);
+	const size = Number.parseInt(
+		(
+			await tmux(["display-message", "-p", "-t", name, "#{history_size}"], socketName)
+		).trim(),
+		10,
+	);
+	if (!Number.isFinite(size) || size <= 0) return "";
+	const text = await tmux(
+		[
+			"capture-pane",
+			"-p",
+			"-e",
+			"-J",
+			"-S",
+			`-${Math.min(size, HISTORY_LINES)}`,
+			"-E",
+			"-1",
+			"-t",
+			name,
+		],
+		socketName,
+	);
+	if (text === "") return "";
+	// CRLF first, then the cut, so the budget is what actually goes on the
+	// wire rather than what tmux printed.
+	const lines = `${text.replace(/\n$/, "").replace(/\n/g, "\r\n")}\r\n`;
+	return newestLinesWithin(lines, HISTORY_BYTES);
 }
 
 export interface TmuxSession {
@@ -121,26 +229,49 @@ export async function createSession(
 ): Promise<TmuxSession> {
 	const name = sessionName(id);
 	const real = await resolveCwd(cwd, homeDir);
-	await tmux(["new-session", "-d", "-s", name, "-c", real], socketName);
+	await tmux(
+		[...serverOptionArgs(), "new-session", "-d", "-s", name, "-c", real],
+		socketName,
+	);
 	// `latest` sizes the session to the most recent client, so a second
 	// attachment does not shrink the terminal to the smallest window.
 	await tmux(["set-option", "-t", name, "window-size", "latest"], socketName);
 	await tmux(["set-option", "-t", name, "status", "off"], socketName);
-	await tmux(["set-option", "-t", name, "history-limit", "5000"], socketName);
 	return { id, cwd: real };
 }
 
-/** The current directory of a terminal's tmux pane (SPEC.md §9.3). */
-export async function panePath(
-	id: string,
-	socketName?: string,
-): Promise<string | null> {
+export interface PaneState {
+	/** The pane's working directory (SPEC.md §9.3). */
+	path: string | null;
+	/** True while a full-screen program holds the pane (SPEC.md §9.1). */
+	alternate: boolean;
+}
+
+/**
+ * What the browser needs to know about every terminal's pane, keyed by
+ * terminal id. One tmux call for the whole workspace, because this is polled
+ * several times a second and a workspace can have eight terminals.
+ */
+export async function listPanes(socketName?: string): Promise<Map<string, PaneState>> {
 	const stdout = await tmux(
-		["display-message", "-p", "-t", sessionName(id), "#{pane_current_path}"],
+		[
+			"list-panes",
+			"-a",
+			"-F",
+			"#{session_name}\t#{pane_current_path}\t#{alternate_on}",
+		],
 		socketName,
 	);
-	const path = stdout.trim();
-	return path === "" ? null : path;
+	const panes = new Map<string, PaneState>();
+	for (const line of stdout.split("\n")) {
+		const [name, path = "", alternate = ""] = line.split("\t");
+		if (!name?.startsWith("pk-")) continue;
+		panes.set(name.slice(3), {
+			path: path === "" ? null : path,
+			alternate: alternate === "1",
+		});
+	}
+	return panes;
 }
 
 export async function killSession(id: string, socketName?: string): Promise<void> {

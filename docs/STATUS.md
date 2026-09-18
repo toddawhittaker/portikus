@@ -215,7 +215,20 @@ running; and a workspace owner who holds the agent token can set their own
 agent's level, which stays until the setting next changes or the workspace
 restarts. From pane dragging, there is no keyboard equivalent: a pane is
 rearranged with a pointer only, and a drop is refused silently when it
-would pass the split-depth or tab limits. The workspace dialog can now start,
+would pass the split-depth or tab limits. The mouse wheel now scrolls a
+terminal's own scrollback and the viewport has a thin scrollbar, which
+needed tmux to stop using the alternate screen. tmux and the browser both
+keep 5,000 lines, and an attachment is sent the pane's earlier lines, at
+most 256 KiB of them, so a reload no longer starts with a bare prompt; the
+cost is one blank screenful between that history and the repainted screen,
+and a capture cut at the byte limit can lose the colour of its first few
+lines. A full-screen program such as nano still moves a line at a time: one
+poll for the whole agent asks tmux which panes have such a program on them
+and tells the browser, which turns wheel notches into arrow keys while it
+does. The poll runs twice a second normally and four times a second while
+any pane is in that state, so for up to about half a second after a program
+takes the screen, and a quarter of a second after it lets go, a wheel notch
+may do the other thing. The workspace dialog can now start,
 stop and restart the workspace (a confirmation first for stop and restart),
 and dialog rows wrap rather than scrolling sideways, so a 64-character image
 fingerprint no longer pushes the title and close button off screen; the
