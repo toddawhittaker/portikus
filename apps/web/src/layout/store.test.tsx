@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { createLayoutStore } from "./store";
-import { layoutTerminalIds, leafIds } from "./tree";
+import { layoutTerminalIds, terminalIds } from "./tree";
 
 function store() {
 	return createLayoutStore();
@@ -23,7 +23,9 @@ test("splitting adds the new terminal to the same tab", () => {
 	layout.getState().splitLeaf("a", "row", "b");
 	expect(layout.getState().layout.tabs).toHaveLength(1);
 	expect(
-		leafIds(layout.getState().layout.tabs[0]?.root ?? { type: "leaf", terminalId: "" }),
+		terminalIds(
+			layout.getState().layout.tabs[0]?.root ?? { type: "leaf", terminalId: "" },
+		),
 	).toEqual(["a", "b"]);
 });
 
@@ -121,4 +123,51 @@ test("replacing a pane keeps one tab", () => {
 	layout.getState().addTab("a");
 	layout.getState().replaceLeaf("a", "b");
 	expect(layoutTerminalIds(layout.getState().layout)).toEqual(["b"]);
+});
+
+test("opening a file activates its tab, and opening it again just activates it", () => {
+	const layout = store();
+	layout.getState().addTab("a");
+	layout.getState().openFile("src/app.ts");
+	expect(layout.getState().activeTabId).toBe("file:src/app.ts");
+	expect(layout.getState().layout.tabs).toHaveLength(2);
+
+	layout.getState().setActive("a");
+	layout.getState().clearDirty();
+	layout.getState().openFile("src/app.ts");
+	expect(layout.getState().activeTabId).toBe("file:src/app.ts");
+	expect(layout.getState().layout.tabs).toHaveLength(2);
+	// Nothing changed, so there is nothing to save.
+	expect(layout.getState().dirty).toBe(false);
+});
+
+test("a diff tab is separate from the file tab for the same path", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	layout.getState().openDiff("src/app.ts");
+	expect(layout.getState().layout.tabs.map((tab) => tab.id)).toEqual([
+		"file:src/app.ts",
+		"diff:src/app.ts",
+	]);
+	expect(layout.getState().activeTabId).toBe("diff:src/app.ts");
+});
+
+test("closing a file tab removes it and marks the layout dirty", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	layout.getState().clearDirty();
+	layout.getState().closeTab("file:src/app.ts");
+	expect(layout.getState().layout.tabs).toEqual([]);
+	expect(layout.getState().activeTabId).toBeNull();
+	expect(layout.getState().dirty).toBe(true);
+});
+
+test("the line a file was opened at is handed out once", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts", 42);
+	expect(layout.getState().consumePendingLine("file:src/app.ts")).toBe(42);
+	expect(layout.getState().consumePendingLine("file:src/app.ts")).toBeUndefined();
+	// A file opened with no line asks the editor for nothing.
+	layout.getState().openFile("src/other.ts");
+	expect(layout.getState().consumePendingLine("file:src/other.ts")).toBeUndefined();
 });

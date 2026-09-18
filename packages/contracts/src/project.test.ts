@@ -8,6 +8,7 @@ import {
 	Project,
 	ProjectLayout,
 	ProjectList,
+	ProjectPath,
 	ProjectSlug,
 	ProjectTemplate,
 	ProjectTemplateList,
@@ -327,10 +328,58 @@ test("ProjectLayout caps the number of tabs", () => {
 });
 
 test("ProjectLayout caps the length of a tab id", () => {
-	const ok = { tabs: [{ id: "t".repeat(64), root: leaf(terminalA) }] };
-	const tooLong = { tabs: [{ id: "t".repeat(65), root: leaf(terminalA) }] };
+	// Long enough for a file tab id, which is a kind prefix and a path.
+	const ok = { tabs: [{ id: "t".repeat(1_100), root: leaf(terminalA) }] };
+	const tooLong = { tabs: [{ id: "t".repeat(1_101), root: leaf(terminalA) }] };
 	expect(ProjectLayout.safeParse(ok).success).toBe(true);
 	expect(ProjectLayout.safeParse(tooLong).success).toBe(false);
+});
+
+test("ProjectLayout holds a file tab and a diff tab of the same path", () => {
+	const layout = {
+		tabs: [
+			{ id: "file:src/app.ts", root: { type: "file", path: "src/app.ts" } },
+			{ id: "diff:src/app.ts", root: { type: "diff", path: "src/app.ts" } },
+		],
+	};
+	expect(ProjectLayout.parse(layout)).toEqual(layout);
+});
+
+test("ProjectLayout refuses a file node inside a split", () => {
+	// Only terminals split (SPEC.md §8.3).
+	const nested = {
+		tabs: [
+			{
+				id: "tab-1",
+				root: {
+					type: "split",
+					direction: "row",
+					sizes: [50, 50],
+					children: [leaf(terminalA), { type: "file", path: "src/app.ts" }],
+				},
+			},
+		],
+	};
+	expect(ProjectLayout.safeParse(nested).success).toBe(false);
+});
+
+test("ProjectLayout refuses the same path open twice as a file", () => {
+	const twice = {
+		tabs: [
+			{ id: "file:src/app.ts", root: { type: "file", path: "src/app.ts" } },
+			{ id: "file:src/app.ts ", root: { type: "file", path: "src/app.ts" } },
+		],
+	};
+	expect(ProjectLayout.safeParse(twice).success).toBe(false);
+});
+
+test("ProjectPath refuses paths that leave the project", () => {
+	expect(ProjectPath.safeParse("src/app.ts").success).toBe(true);
+	for (const bad of ["", "/etc/passwd", "a\\b", "../secret", "a/./b", "a/../b"]) {
+		expect(ProjectPath.safeParse(bad).success).toBe(false);
+	}
+	expect(ProjectPath.safeParse("a\u0000b").success).toBe(false);
+	expect(ProjectPath.safeParse("a".repeat(1_025)).success).toBe(false);
 });
 
 test("ProjectLayout refuses two tabs with the same id", () => {

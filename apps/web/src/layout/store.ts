@@ -14,10 +14,23 @@ export interface LayoutState {
 	layout: ProjectLayout;
 	activeTabId: string | null;
 	focusedTerminalId: string | null;
+	/**
+	 * Where a file tab should jump to when its editor opens, by tab id. It is
+	 * a one-off request from this browser, so it is never saved.
+	 */
+	pendingLine: Record<string, number>;
 	dirty: boolean;
 	/** Replace the whole layout with what the server had saved. */
 	load: (layout: ProjectLayout) => void;
 	addTab: (terminalId: string) => void;
+	/** Open a file tab, or activate the one already open for this path. */
+	openFile: (path: string, line?: number) => void;
+	/** Open a diff tab, or activate the one already open for this path. */
+	openDiff: (path: string) => void;
+	/** Close one whole tab. Terminal tabs close by closing their terminals. */
+	closeTab: (tabId: string) => void;
+	/** Read and forget the line a file tab was asked to jump to. */
+	consumePendingLine: (tabId: string) => number | undefined;
 	splitLeaf: (
 		terminalId: string,
 		direction: tree.SplitDirection,
@@ -63,7 +76,7 @@ function pickActive(layout: ProjectLayout, current: string | null): string | nul
 }
 
 export function createLayoutStore() {
-	return createStore<LayoutState>()((set) => {
+	return createStore<LayoutState>()((set, get) => {
 		/** Apply a structural change: new layout, still-valid active tab, dirty. */
 		function change(next: (layout: ProjectLayout) => ProjectLayout) {
 			set((state) => {
@@ -80,6 +93,7 @@ export function createLayoutStore() {
 			layout: tree.emptyLayout(),
 			activeTabId: null,
 			focusedTerminalId: null,
+			pendingLine: {},
 			dirty: false,
 
 			load: (layout) =>
@@ -96,6 +110,44 @@ export function createLayoutStore() {
 					activeTabId: terminalId,
 					dirty: true,
 				}));
+			},
+
+			openFile: (path, line) =>
+				set((state) => {
+					const opened = tree.openFile(state.layout, path);
+					const pendingLine =
+						line === undefined
+							? state.pendingLine
+							: { ...state.pendingLine, [opened.tabId]: line };
+					return {
+						layout: opened.layout,
+						activeTabId: opened.tabId,
+						pendingLine,
+						dirty: state.dirty || opened.layout !== state.layout,
+					};
+				}),
+
+			openDiff: (path) =>
+				set((state) => {
+					const opened = tree.openDiff(state.layout, path);
+					return {
+						layout: opened.layout,
+						activeTabId: opened.tabId,
+						dirty: state.dirty || opened.layout !== state.layout,
+					};
+				}),
+
+			closeTab: (tabId) => change((layout) => tree.closeTab(layout, tabId)),
+
+			consumePendingLine: (tabId) => {
+				const line = get().pendingLine[tabId];
+				if (line !== undefined) {
+					set((state) => {
+						const { [tabId]: _gone, ...rest } = state.pendingLine;
+						return { pendingLine: rest };
+					});
+				}
+				return line;
 			},
 
 			splitLeaf: (terminalId, direction, newTerminalId) =>

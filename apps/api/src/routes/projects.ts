@@ -141,7 +141,7 @@ function listRows(db: Kysely<Database>, workspaceId: string) {
 
 /** Terminal panes in one layout tab, for the debug line on a save. */
 function countPanes(node: SplitNode): number {
-	if (node.type === "leaf") return 1;
+	if (node.type !== "split") return node.type === "leaf" ? 1 : 0;
 	return node.children.reduce((total, child) => total + countPanes(child), 0);
 }
 
