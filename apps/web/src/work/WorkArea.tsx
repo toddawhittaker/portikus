@@ -394,6 +394,7 @@ export function WorkArea({
 							onSessionEnded={onSessionEnded}
 							onLeave={leaveTerminal}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
+							onOpenFile={(path) => store.getState().openFile(path)}
 							consumePendingLine={() => store.getState().consumePendingLine(tab.id)}
 							dropTarget={
 								dragTarget?.kind === "pane" && dragTarget.tabId === tab.id

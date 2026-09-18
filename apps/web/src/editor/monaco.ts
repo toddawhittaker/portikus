@@ -26,6 +26,34 @@ const environment: Monaco.Environment = {
 (self as unknown as { MonacoEnvironment: Monaco.Environment }).MonacoEnvironment =
 	environment;
 
+/** The language id whose extension or file name matches this path. */
+export function languageForPath(monaco: typeof Monaco, path: string): string {
+	const name = path.split("/").pop() ?? path;
+	const dot = name.lastIndexOf(".");
+	const extension = dot > 0 ? name.slice(dot) : "";
+	for (const language of monaco.languages.getLanguages()) {
+		if (language.filenames?.includes(name)) return language.id;
+	}
+	if (extension === "") return "plaintext";
+	for (const language of monaco.languages.getLanguages()) {
+		if (language.extensions?.includes(extension)) return language.id;
+	}
+	return "plaintext";
+}
+
+/**
+ * The options every Portikus editor shares, so the file editor and the diff
+ * editor cannot drift apart. Each editor adds its own theme and anything
+ * particular to it.
+ */
+export const baseEditorOptions: Monaco.editor.IEditorOptions = {
+	automaticLayout: true,
+	fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+	fontSize: 13,
+	minimap: { enabled: false },
+	scrollBeyondLastLine: false,
+};
+
 export const LIGHT_THEME = "portikus-light";
 export const DARK_THEME = "portikus-dark";
 

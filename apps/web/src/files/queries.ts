@@ -307,7 +307,15 @@ function writeHeaders(etag: string | null): Record<string, string> {
 
 /** Write a file, conditional on its etag; a 412 becomes a FileConflictError. */
 export function useSaveFile(workspaceId: string, projectId: string, path: string) {
+	const queryClient = useQueryClient();
 	return useMutation({
+		// A saved file changes its diff, and nothing else invalidates it until
+		// the project events consumer lands (task 11 of this epic).
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: fileKeys.diff(workspaceId, projectId, path),
+			});
+		},
 		mutationFn: async ({ text, etag }: SaveFileInput): Promise<{ etag: string }> => {
 			const response = await fetch(fileUrl(workspaceId, projectId, path), {
 				method: "PUT",
