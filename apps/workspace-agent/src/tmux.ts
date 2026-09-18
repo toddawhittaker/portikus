@@ -193,17 +193,30 @@ export async function createSession(
 	return { id, cwd: real };
 }
 
-/** The current directory of a terminal's tmux pane (SPEC.md §9.3). */
-export async function panePath(
-	id: string,
-	socketName?: string,
-): Promise<string | null> {
+export interface PaneState {
+	/** The pane's working directory (SPEC.md §9.3). */
+	path: string | null;
+	/** True while a full-screen program holds the pane (SPEC.md §9.1). */
+	alternate: boolean;
+}
+
+/**
+ * What the browser needs to know about a terminal's pane, in one tmux call
+ * because this is polled several times a second per attachment.
+ */
+export async function paneState(id: string, socketName?: string): Promise<PaneState> {
 	const stdout = await tmux(
-		["display-message", "-p", "-t", sessionName(id), "#{pane_current_path}"],
+		[
+			"display-message",
+			"-p",
+			"-t",
+			sessionName(id),
+			"#{pane_current_path}\t#{alternate_on}",
+		],
 		socketName,
 	);
-	const path = stdout.trim();
-	return path === "" ? null : path;
+	const [path = "", alternate = ""] = stdout.trim().split("\t");
+	return { path: path === "" ? null : path, alternate: alternate === "1" };
 }
 
 export async function killSession(id: string, socketName?: string): Promise<void> {

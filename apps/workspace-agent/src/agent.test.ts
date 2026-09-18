@@ -660,3 +660,55 @@ test.skipIf(!haveTmux)("input sent before the first output still runs", async ()
 	await socket.close();
 	await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
 });
+
+test.skipIf(!haveTmux)(
+	"a full-screen program is reported as taking the terminal",
+	async () => {
+		const id = makeId();
+		const created = await app.inject({
+			method: "POST",
+			url: "/terminals",
+			headers: auth(),
+			payload: { id, cwd: homeDir },
+		});
+		expect(created.statusCode).toBe(201);
+
+		const socket = await openSocket(id, TOKEN, "?cols=80&rows=24");
+		await socket.waitFor("$", 1);
+
+		function screenFrames(): boolean[] {
+			return socket.textFrames
+				.filter(
+					(frame): frame is { type: string; alternate: boolean } =>
+						typeof frame === "object" &&
+						frame !== null &&
+						(frame as { type?: unknown }).type === "screen",
+				)
+				.map((frame) => frame.alternate);
+		}
+
+		async function waitForScreen(alternate: boolean): Promise<void> {
+			const deadline = Date.now() + 5000;
+			while (Date.now() < deadline) {
+				if (screenFrames().at(-1) === alternate) return;
+				await new Promise((resolve) => setTimeout(resolve, 50));
+			}
+			throw new Error(
+				`never saw alternate=${alternate}, only ${JSON.stringify(screenFrames())}`,
+			);
+		}
+
+		// A shell prompt is the ordinary screen.
+		await waitForScreen(false);
+
+		// `less` takes the whole screen, and quitting gives it back.
+		socket.ws.send(JSON.stringify({ type: "input", data: "seq 1 200 | less\r" }));
+		await waitForScreen(true);
+		socket.ws.send(JSON.stringify({ type: "input", data: "q" }));
+		await waitForScreen(false);
+
+		await socket.close();
+		await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
+	},
+	30000,
+);
