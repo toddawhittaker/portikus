@@ -8,7 +8,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { buildServer } from "./server.js";
-import { hasSession } from "./tmux.js";
+import { captureHistory, HISTORY_LINES, hasSession } from "./tmux.js";
 
 const run = promisify(execFile);
 
@@ -712,3 +712,73 @@ test.skipIf(!haveTmux)(
 	},
 	30000,
 );
+
+test.skipIf(!haveTmux)(
+	"a history of long escape-heavy lines is cut to the byte budget",
+	async () => {
+		const id = makeId();
+		const created = await app.inject({
+			method: "POST",
+			url: "/terminals",
+			headers: auth(),
+			payload: { id, cwd: homeDir },
+		});
+		expect(created.statusCode).toBe(201);
+
+		const socket = await openSocket(id, TOKEN, "?cols=80&rows=24");
+		await socket.waitFor("$", 1);
+		// 2000 lines of about 250 bytes each, every one coloured, so the
+		// capture is far larger than the budget while the line count is not.
+		socket.ws.send(
+			JSON.stringify({
+				type: "input",
+				data:
+					'seq 1 2000 | awk \'{ pad = sprintf("%240s", ""); gsub(/ /, "x", pad);' +
+					' printf "\\033[31mBULK-%04d-%s\\033[0m\\n", $1, pad }\'\r',
+			}),
+		);
+		await socket.waitFor("BULK-2000", 1);
+		await socket.close();
+
+		const history = await captureHistory(id, SOCKET_NAME);
+		const bytes = Buffer.byteLength(history, "utf8");
+		expect(bytes).toBeGreaterThan(0);
+		expect(bytes).toBeLessThanOrEqual(256 * 1024);
+		// The newest lines are the ones kept. The very last ones are still on
+		// the visible screen, which the capture leaves out on purpose.
+		expect(history).toContain("BULK-1950");
+		expect(history).not.toContain("BULK-0001");
+		// And the cut was made on a line boundary, not in the middle of one:
+		// every line here begins with the marker.
+		expect(history.startsWith("BULK-")).toBe(true);
+
+		await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
+	},
+	60000,
+);
+
+test.skipIf(!haveTmux)("a new session keeps the whole scrollback", async () => {
+	const id = makeId();
+	const created = await app.inject({
+		method: "POST",
+		url: "/terminals",
+		headers: auth(),
+		payload: { id, cwd: homeDir },
+	});
+	expect(created.statusCode).toBe(201);
+
+	// tmux reads history-limit when it makes the window, so setting it on the
+	// session afterwards would silently leave the pane on tmux's default.
+	const { stdout } = await run("tmux", [
+		"-L",
+		SOCKET_NAME,
+		"display-message",
+		"-p",
+		"-t",
+		`pk-${id}`,
+		"#{history_limit}",
+	]);
+	expect(stdout.trim()).toBe(String(HISTORY_LINES));
+
+	await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
+});
