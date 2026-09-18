@@ -59,9 +59,13 @@ connections by default.
 
 If a run is killed part-way through, it never gets to drop its databases. The
 next run cleans them up: before a test file creates its own database, it drops
-every database on the server whose name starts with the base name plus `_p`
-and whose process id no longer belongs to a running process. Databases of a
-run still in progress are left alone, so parallel runs stay safe.
+every database on the server whose name starts with the base name plus a
+host identifier and `_p`, and whose process id no longer belongs to a
+running process. The host identifier limits the sweep to this machine's own
+databases, because a process id only means something within the host (or
+PID namespace) that assigned it, and several machines can share one
+PostgreSQL server. Databases of a run still in progress are left alone, so
+parallel runs on the same machine stay safe.
 
 The Playwright run has the same problem for a different reason: its ports are
 fixed, so two `pnpm test:e2e` runs on one machine fight over the API and web

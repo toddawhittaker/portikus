@@ -478,23 +478,21 @@ Every database test file now gets a database of its own, created and
 dropped by the test helper, so the suite runs fully in parallel again
 instead of serializing the files that share one database; the whole suite
 with coverage went from about 99 seconds to about 26 on a 32-core host
-(STACK.md §13). Continuous integration now computes which files changed
-inside each job and skips every heavy step — installs, typecheck, lint,
-tests, builds, Playwright, OpenTofu, Ansible, shellcheck — on a
-documentation-only change, while the job itself still reports its check,
-so branch protection is never blocked by a workflow that never ran; a
-docs-only pull request now finishes CI in under 40 seconds per job. The
-Application checks job went from 4m03s at the start of the batch to
-about 2m30s now. The browser test suite is now stable
-on a machine where several agents run Playwright at once: a new setup
-check compares the database the API under test is reading with the one
-the test helpers write to, and stops the run with a clear message when
-they differ, which is what made a different administration test fail on
-each full-suite run while each passed alone because Playwright had
-reused another checkout's servers on the fixed ports; a genuine race in
-the file-tree "full tab strip" test was also fixed, and the
-administration test file is recorded as needing a single worker because
-those tests share one settings row (§6.4, §7.5).
+(STACK.md §13). Continuous integration now computes which files changed inside
+each job and skips every heavy step — installs, typecheck, lint, tests, builds,
+Playwright, OpenTofu, Ansible, shellcheck — on a documentation-only change,
+while the job itself still reports its check, so branch protection is never
+blocked by a workflow that never ran; a docs-only pull request now finishes CI
+in under 40 seconds per job. The Application checks job went from 4m03s at the
+start of the batch to about 2m30s now. The browser test suite is now stable on
+a machine where several agents run Playwright at once: a new setup check
+compares the database the API under test is reading with the one the test
+helpers write to, and stops the run with a clear message when they differ,
+which is what made a different administration test fail on each full-suite run
+while each passed alone because Playwright had reused another checkout's
+servers on the fixed ports; a genuine race in the file-tree "full tab strip"
+test was also fixed, and the administration test file is recorded as needing a
+single worker because those tests share one settings row (§6.4, §7.5).
 
 **Process.** A merger agent now lands a list of task pull requests into
 an epic branch on its own: it waits for CI, updates a branch that has
