@@ -40,6 +40,7 @@ import {
 	resolveInProject,
 	writeFile,
 } from "./files.js";
+import { registerGitRoutes } from "./git-routes.js";
 import {
 	type ArchiveProcess,
 	archiveDir,
@@ -517,6 +518,8 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			});
 			return reply.type("application/zip").send(child.stdout);
 		});
+
+		registerGitRoutes(instance, { homeDir: options.homeDir }, sendError);
 
 		instance.get(
 			"/terminals/:terminalId/attach",
