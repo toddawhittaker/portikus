@@ -131,6 +131,27 @@ test.describe("projects", () => {
 		);
 	});
 
+	test("pasting a clone URL fills the name and slug", async ({ page, context }) => {
+		const student = await createStudent(context);
+		await page.goto(workspacePath(student.workspaceId));
+
+		await startCreate(page, "Clone repository");
+		await page.getByTestId("field-url").fill("https://github.com/user/todo-api");
+
+		await expect(page.getByTestId("field-name")).toHaveValue("todo-api");
+		await expect(page.getByTestId("slug-preview")).toHaveText("~/projects/todo-api");
+
+		// The known hosts get the .git suffix added before the request is sent.
+		const request = page.waitForRequest(
+			(candidate) =>
+				candidate.method() === "POST" && candidate.url().endsWith("/projects"),
+		);
+		await page.getByTestId("dialog-confirm").click();
+		expect(JSON.parse((await request).postData() ?? "{}").url).toBe(
+			"https://github.com/user/todo-api.git",
+		);
+	});
+
 	test("a clone that fails explains itself and leaves no project", async ({
 		page,
 		context,
