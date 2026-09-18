@@ -591,3 +591,60 @@ test("the terminal's scrollbar is thin, rounded and has no track", async ({
 		sliderRadius: "9999px",
 	});
 });
+
+/**
+ * How many columns wide the pane is, measured by printing a line long enough
+ * to fill several rows and reading how much of it fits on one.
+ */
+async function measureCols(page: Page, terminalId: string): Promise<number> {
+	await printLines(terminalId, ["#".repeat(1000)]);
+	const rows = rowsOf(page, terminalId);
+	await expect(rows).toContainText("####");
+	return page.evaluate((id) => {
+		const screen = document.querySelector(
+			`[data-testid=terminal-pane-${id}] .xterm-rows`,
+		);
+		let widest = 0;
+		for (const row of screen?.children ?? []) {
+			const text = row.textContent ?? "";
+			if (/^#+$/.test(text)) widest = Math.max(widest, text.length);
+		}
+		return widest;
+	}, terminalId);
+}
+
+/**
+ * A login URL from a coding agent is far wider than the pane, so it covers
+ * several rows. tmux repaints those rows separately, without the marker that
+ * says one row continues on the next, so the test prints them the same way:
+ * full-width rows each ended with a line break. Clicking a part of the URL
+ * that is not on its first row must still open the whole link
+ * (SPEC.md §14.9).
+ */
+test("a URL wrapped over rows is one link on every row it covers", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	const marker = "marker=zzzzzzzz";
+	await expect.poll(() => attachmentsOf(terminalId)).toBeGreaterThan(0);
+	const cols = await measureCols(page, terminalId);
+	expect(cols).toBeGreaterThan(20);
+	// Long enough to need at least three rows however wide the pane is.
+	const long = `http://localhost:3000/callback?a=${"a".repeat(cols)}&${marker}&b=${"b".repeat(cols)}`;
+	const rows: string[] = [];
+	for (let at = 0; at < long.length; at += cols) rows.push(long.slice(at, at + cols));
+	await printLines(terminalId, rows);
+	await expect(rowsOf(page, terminalId)).toContainText(marker, { timeout: 15_000 });
+
+	// The marker is more than one row in, so it is never on the first row.
+	await clickTerminalText(page, marker);
+
+	const [previewProject] = await projectIds(student.workspaceId);
+	await expect(page).toHaveURL(
+		`/workspaces/${student.workspaceId}/projects/${previewProject}/preview/3000`,
+	);
+	await expect(page.getByRole("heading", { name: "Preview" })).toBeVisible();
+});
