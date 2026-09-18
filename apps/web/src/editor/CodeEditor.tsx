@@ -4,14 +4,15 @@
  * the saving.
  */
 import type * as Monaco from "monaco-editor";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	baseEditorOptions,
 	currentThemeName,
 	getMonaco,
-	languageForPath,
+	languageForFile,
 	watchTheme,
 } from "./monaco.js";
+import { DEFAULT_ZOOM, fontSizeFor, stepZoom } from "./zoom.js";
 import "./editor.css";
 
 export interface CodeEditorProps {
@@ -45,6 +46,16 @@ export function CodeEditor({
 	revealNonce,
 }: CodeEditorProps) {
 	const host = useRef<HTMLDivElement | null>(null);
+	// The whole tab: Monaco above, the zoom bar below.
+	const container = useRef<HTMLDivElement | null>(null);
+	// Zoom is per open editor and lasts for this session only (SPEC.md §13.1).
+	const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+	// Shown on the bar under the editor, so the guessed language is visible.
+	const [language, setLanguage] = useState("plaintext");
+	// The editor and the wheel handler are set up once, so they read the newest
+	// zoom through a ref rather than being rebuilt on every step.
+	const zoomRef = useRef(zoom);
+	zoomRef.current = zoom;
 	const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	const modelRef = useRef<Monaco.editor.ITextModel | null>(null);
 	// True while an external refresh is being applied, so that edit is not
@@ -78,7 +89,7 @@ export function CodeEditor({
 				monaco.editor.getModel(uri) ??
 				monaco.editor.createModel(
 					latest.current.value,
-					languageForPath(monaco, path),
+					languageForFile(monaco, path, firstLineOf(latest.current.value)),
 					uri,
 				);
 			const editor = monaco.editor.create(host.current, {
@@ -86,6 +97,19 @@ export function CodeEditor({
 				model,
 				theme: currentThemeName(),
 				renderLineHighlight: "line",
+				fontSize: fontSizeFor(zoomRef.current),
+			});
+			// Editor-only zoom by keyboard (SPEC.md §13.1). Monaco swallows these
+			// keys, so the browser's own zoom does not also fire.
+			const mod = monaco.KeyMod.CtrlCmd;
+			editor.addCommand(mod | monaco.KeyMod.Shift | monaco.KeyCode.Equal, () => {
+				setZoom((current) => stepZoom(current, 1));
+			});
+			editor.addCommand(mod | monaco.KeyMod.Shift | monaco.KeyCode.Minus, () => {
+				setZoom((current) => stepZoom(current, -1));
+			});
+			editor.addCommand(mod | monaco.KeyCode.Digit0, () => {
+				setZoom(DEFAULT_ZOOM);
 			});
 			editorRef.current = editor;
 			modelRef.current = model;
@@ -101,6 +125,11 @@ export function CodeEditor({
 					applying.current = false;
 				}
 			}
+			// The first line may only be known now, so the guessed language is
+			// settled once the model holds the real text (SPEC.md §13.2).
+			const settled = languageForFile(monaco, path, firstLineOf(model.getValue()));
+			monaco.editor.setModelLanguage(model, settled);
+			setLanguage(settled);
 			applied.current = latest.current.version;
 			editor.onDidChangeModelContent(() => {
 				if (applying.current) return;
@@ -139,11 +168,30 @@ export function CodeEditor({
 		}
 	}, [value, version]);
 
+	useEffect(() => {
+		editorRef.current?.updateOptions({ fontSize: fontSizeFor(zoom) });
+	}, [zoom]);
+
+	// Ctrl + wheel zooms the editor only. preventDefault stops the browser from
+	// zooming the whole page, so the listener cannot be passive (SPEC.md §13.1).
+	useEffect(() => {
+		const node = host.current;
+		if (!node) return;
+		function onWheel(event: WheelEvent) {
+			if (!(event.ctrlKey || event.metaKey)) return;
+			event.preventDefault();
+			if (event.deltaY === 0) return;
+			setZoom(stepZoom(zoomRef.current, event.deltaY < 0 ? 1 : -1));
+		}
+		node.addEventListener("wheel", onWheel, { passive: false });
+		return () => node.removeEventListener("wheel", onWheel);
+	}, []);
+
 	// Ctrl/Cmd+S saves now instead of opening the browser's save dialog
 	// (SPEC.md §13.5). It is a listener rather than a JSX handler because the
 	// keys arrive on Monaco's own elements inside this host.
 	useEffect(() => {
-		const node = host.current;
+		const node = container.current;
 		if (!node) return;
 		function onKeyDown(event: KeyboardEvent) {
 			if (event.key.toLowerCase() !== "s") return;
@@ -161,5 +209,46 @@ export function CodeEditor({
 		watchTheme();
 	}, []);
 
-	return <div className="pk-editor" data-testid={`editor-${path}`} ref={host} />;
+	return (
+		<div className="pk-editor" data-testid={`editor-${path}`} ref={container}>
+			<div className="pk-editor-host" ref={host} />
+			<div className="pk-editor-bar">
+				<span className="pk-editor-language" data-testid={`editor-language-${path}`}>
+					{language}
+				</span>
+				<button
+					type="button"
+					className="pk-zoom-button"
+					aria-label="Zoom out"
+					onClick={() => setZoom(stepZoom(zoom, -1))}
+				>
+					&minus;
+				</button>
+				<span className="pk-zoom-value" data-testid={`editor-zoom-${path}`}>
+					{zoom}%
+				</span>
+				<button
+					type="button"
+					className="pk-zoom-button"
+					aria-label="Zoom in"
+					onClick={() => setZoom(stepZoom(zoom, 1))}
+				>
+					+
+				</button>
+				<button
+					type="button"
+					className="pk-zoom-reset"
+					onClick={() => setZoom(DEFAULT_ZOOM)}
+				>
+					Reset
+				</button>
+			</div>
+		</div>
+	);
+}
+
+/** The first line of a file, for guessing its language. */
+function firstLineOf(text: string): string {
+	const end = text.indexOf("\n");
+	return (end < 0 ? text : text.slice(0, end)).slice(0, 200);
 }
