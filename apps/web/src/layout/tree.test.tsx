@@ -302,7 +302,7 @@ test("a pane dragged to the tab strip becomes its own tab at that position", () 
 	layout = splitLeaf(layout, "a", "row", "b");
 	layout = addTab(layout, "c", "tab2");
 	const moved = moveLeafToNewTab(layout, "b", 1, "new1");
-	expect(moved.tabs.map((tab) => tab.id)).toEqual(["tab1", "b", "tab2"]);
+	expect(moved.tabs.map((tab) => tab.id)).toEqual(["tab1", "new1", "tab2"]);
 	expect(moved.tabs[0]?.root).toEqual(leaf("a"));
 	expect(moved.tabs[1]?.root).toEqual(leaf("b"));
 });
@@ -315,7 +315,7 @@ test("moving the only pane of a tab to the strip just moves that tab", () => {
 		],
 	};
 	const moved = moveLeafToNewTab(layout, "b", 0, "new1");
-	expect(moved.tabs.map((tab) => tab.id)).toEqual(["b", "a"]);
+	expect(moved.tabs.map((tab) => tab.id)).toEqual(["new1", "a"]);
 });
 
 test("an out-of-range index lands at the nearest end of the strip", () => {
@@ -323,10 +323,10 @@ test("an out-of-range index lands at the nearest end of the strip", () => {
 	layout = splitLeaf(layout, "a", "row", "b");
 	expect(moveLeafToNewTab(layout, "b", 99, "new1").tabs.map((tab) => tab.id)).toEqual([
 		"tab1",
-		"b",
+		"new1",
 	]);
 	expect(moveLeafToNewTab(layout, "b", -3, "new1").tabs.map((tab) => tab.id)).toEqual([
-		"b",
+		"new1",
 		"tab1",
 	]);
 });

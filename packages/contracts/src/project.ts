@@ -287,7 +287,17 @@ export const ProjectLayout = z.object({
 		)
 		.max(MAX_LAYOUT_TABS)
 		.superRefine((tabs, ctx) => {
+			const seen = new Set<string>();
 			tabs.forEach((tab, index) => {
+				// Two tabs with one id render on top of each other in the browser.
+				if (seen.has(tab.id)) {
+					ctx.addIssue({
+						code: "custom",
+						path: [index, "id"],
+						message: "tab ids must be unique",
+					});
+				}
+				seen.add(tab.id);
 				if (splitDepth(tab.root) > MAX_SPLIT_DEPTH) {
 					ctx.addIssue({
 						code: "custom",
