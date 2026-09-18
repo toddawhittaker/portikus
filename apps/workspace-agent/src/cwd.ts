@@ -1,5 +1,5 @@
 /**
- * Telling the browser what each terminal's pane is doing (SPEC.md §9.1,
+ * Telling the browser what each terminal's pane is doing (SPEC.md §9.7,
  * §9.3). tmux knows every pane's current path and whether a full-screen
  * program holds its screen, and it will list them all in one call, so the
  * agent runs one poll for the whole workspace and sends a frame to a

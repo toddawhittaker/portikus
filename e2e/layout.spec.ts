@@ -3,6 +3,8 @@ import {
 	createProject,
 	createStudent,
 	endTerminal,
+	expectConnected,
+	newTerminal,
 	query,
 	terminalIds,
 	WEB_ORIGIN,
@@ -12,15 +14,9 @@ import {
 
 /**
  * The tabbed work area, splits and the saved per-project layout (SPEC.md
- * §7.5, §8.3, §9.3). Written against the test ids the work-area builder owns
- * (plan, E2). The orchestrator removes the guard below once E1 and E2 land.
+ * §7.5, §8.3, §9.3).
  */
 test.describe("work area layout", () => {
-	async function newTerminal(page: Page): Promise<void> {
-		await page.getByTestId("launcher").click();
-		await page.getByRole("menuitem", { name: "Terminal", exact: true }).click();
-	}
-
 	async function paneAction(
 		page: Page,
 		terminalId: string,
@@ -32,12 +28,6 @@ test.describe("work area layout", () => {
 
 	function pane(page: Page, terminalId: string) {
 		return page.getByTestId(`terminal-pane-${terminalId}`);
-	}
-
-	async function expectConnected(page: Page, terminalId: string): Promise<void> {
-		await expect(pane(page, terminalId)).toHaveAttribute("data-connected", "true", {
-			timeout: 15_000,
-		});
 	}
 
 	/** Open a project's work area with one terminal, and return both ids. */

@@ -4,6 +4,8 @@ import {
 	createStudent,
 	deleteSessions,
 	endTerminal,
+	expectConnected,
+	newTerminal,
 	projectIds,
 	query,
 	terminalIds,
@@ -30,18 +32,6 @@ function visiblePane(page: Page): Locator {
 
 function rowsOf(page: Page, terminalId: string): Locator {
 	return page.locator(`[data-testid=terminal-pane-${terminalId}] .xterm-rows`);
-}
-
-async function newTerminal(page: Page): Promise<void> {
-	await page.getByTestId("launcher").click();
-	await page.getByRole("menuitem", { name: "Terminal", exact: true }).click();
-}
-
-/** Wait for a pane's terminal WebSocket to be open. */
-async function expectConnected(page: Page, terminalId: string): Promise<void> {
-	await expect(
-		page.locator(`[data-testid=terminal-pane-${terminalId}]`),
-	).toHaveAttribute("data-connected", "true", { timeout: 15_000 });
 }
 
 /**
