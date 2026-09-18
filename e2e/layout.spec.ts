@@ -671,4 +671,49 @@ test.describe("work area layout", () => {
 		);
 		expect(new Set(ids).size).toBe(ids.length);
 	});
+
+	test("a saved file tab survives a reload and closing removes it", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Files" });
+		// Seed the layout the file editor will write (SPEC.md §7.5, §8.3).
+		const saved = {
+			tabs: [{ id: "file:src/app.ts", root: { type: "file", path: "src/app.ts" } }],
+		};
+		await query("update projects set layout = $2 where id = $1", [
+			project.id,
+			JSON.stringify(saved),
+		]);
+
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		const tab = page.getByTestId("tab-file:src/app.ts");
+		// The strip shows the file name, with the whole path on hover.
+		await expect(tab).toBeVisible({ timeout: 15_000 });
+		await expect(tab).toContainText("app.ts");
+		await expect(tab).toHaveAttribute("title", "src/app.ts");
+		await expect(page.getByTestId("file-pane-src/app.ts")).toBeVisible();
+
+		await page.reload();
+		await expect(page.getByTestId("tab-file:src/app.ts")).toBeVisible({
+			timeout: 15_000,
+		});
+
+		// The tab holds no terminal, so closing it asks nothing and just drops it.
+		await page.getByTestId("tab-file:src/app.ts-close").click();
+		await expect(page.getByTestId("tab-file:src/app.ts")).toHaveCount(0);
+		await expect
+			.poll(
+				async () => {
+					const rows = await query<{ layout: unknown }>(
+						"select layout from projects where id = $1",
+						[project.id],
+					);
+					return JSON.stringify(rows[0]?.layout ?? null).includes("src/app.ts");
+				},
+				{ timeout: 10_000 },
+			)
+			.toBe(false);
+	});
 });
