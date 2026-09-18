@@ -85,7 +85,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 						)}
 					</Panel>
 				</Group>
-				<StatusBar project={project} workspace={workspace} />
+				<StatusBar workspaceId={workspaceId} project={project} workspace={workspace} />
 			</div>
 		</LayoutStoreContext.Provider>
 	);

@@ -4,9 +4,9 @@
  * the student asks for them, and offers create, rename, move, delete,
  * upload and download.
  *
- * Live updates from the workspace agent (SPEC.md §11.4) are a later task:
- * the agent publishes filesystem events already, but the API relay and the
- * browser consumer do not exist yet, so each open directory polls.
+ * Rows carry their Git state (SPEC.md §12.1) and the pane keeps one events
+ * socket open, so a change made in a terminal shows here on its own
+ * (SPEC.md §11.4, §12.3).
  */
 import {
 	DndContext,
@@ -52,6 +52,13 @@ import { useLayout, useLayoutStore } from "../layout/store.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
 import { fileErrorToast, isFileExists, tooLargeToast } from "./errors.js";
 import "./files.css";
+import { ChangesList } from "./ChangesList.js";
+import {
+	decorations as buildDecorations,
+	type GitDecorations,
+	isIgnored,
+	NO_DECORATIONS,
+} from "./gitStatus.js";
 import { NameDialog } from "./NameDialog.js";
 import {
 	baseName,
@@ -72,6 +79,8 @@ import {
 	useTree,
 } from "./queries.js";
 import { useExpanded, useFileViewStore, useShowHidden } from "./store.js";
+import { useGitStatus } from "./useGitStatus.js";
+import { useProjectEvents } from "./useProjectEvents.js";
 
 /** A row of the tree: a project-relative path and what it is. */
 export interface FileNode {
@@ -99,6 +108,8 @@ interface TreeApi {
 	focusedPath: string | null;
 	setFocusedPath: (path: string | null) => void;
 	dropDir: string | null;
+	/** Git decorations for the rows (SPEC.md §12.1). */
+	git: GitDecorations;
 }
 
 const TreeContext = createContext<TreeApi | null>(null);
@@ -146,6 +157,14 @@ export function FileTreePane({
 	const layoutStore = useLayoutStore(project.id);
 	const openFileTab = useLayout(layoutStore, (state) => state.openFile);
 	const root = useTree(workspaceId, project.id, "");
+	// One socket per open project keeps the tree, the open files and the Git
+	// status fresh without polling (SPEC.md §11.4, §25.1).
+	useProjectEvents(workspaceId, project.id);
+	const gitStatus = useGitStatus(workspaceId, project.id);
+	const git = useMemo(
+		() => (gitStatus.data ? buildDecorations(gitStatus.data) : NO_DECORATIONS),
+		[gitStatus.data],
+	);
 
 	const [focusedPath, setFocusedPath] = useState<string | null>(null);
 	const [dropDir, setDropDir] = useState<string | null>(null);
@@ -296,6 +315,7 @@ export function FileTreePane({
 			focusedPath,
 			setFocusedPath,
 			dropDir,
+			git,
 		}),
 		[
 			workspaceId,
@@ -309,6 +329,7 @@ export function FileTreePane({
 			pickUpload,
 			focusedPath,
 			dropDir,
+			git,
 		],
 	);
 
@@ -454,6 +475,9 @@ export function FileTreePane({
 						)}
 					</div>
 				</TreeContext.Provider>
+
+				{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
+				<ChangesList projectId={project.id} status={gitStatus.data} />
 
 				{/* One hidden input serves every upload action. */}
 				<input
@@ -677,6 +701,12 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	const open = isDir && api.expanded.includes(path);
 	// A name is drawn without the characters that could disguise it.
 	const shown = displayName(entry.name);
+	// Git state: the file's own letter, or a dot when a directory holds a
+	// change (SPEC.md §12.1).
+	const decoration = api.git.byPath.get(path);
+	const dirty = isDir && api.git.changedDirs.has(path);
+	const ignored = api.git.repo && isIgnored(path, api.git.ignored);
+	const title = decoration ? `${shown} — ${decoration.title}` : undefined;
 
 	const drag = useDraggable({ id: `row:${path}` });
 	// dnd-kit offers a button role and a tab stop; the row outside is the
@@ -702,6 +732,8 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 			data-path={path}
 			data-kind={isDir ? "dir" : "file"}
 			data-testid={`file-row-${path}`}
+			data-git={decoration?.kind ?? (dirty ? "dir" : undefined)}
+			data-ignored={ignored ? "true" : undefined}
 			className="pk-tree-item"
 			onFocus={() => api.setFocusedPath(path)}
 			onClick={(event) => {
@@ -723,7 +755,9 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 				{...dragAttributes}
 				className={`pk-tree-row${over ? " is-drop-target" : ""}${
 					drag.isDragging ? " is-dragging" : ""
-				}`}
+				}${ignored ? " is-ignored" : ""}`}
+				title={title}
+				data-git={decoration?.kind}
 				style={{ paddingLeft: `${level * 16 - 8}px` }}
 				data-drop-dir={isDir ? path : dir}
 			>
@@ -742,6 +776,18 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 								size="md"
 							/>
 							<span className="pk-tree-name">{shown}</span>
+							{decoration ? (
+								<>
+									{decoration.kind === "conflict" ? (
+										<Icon name="alert" size="sm" />
+									) : null}
+									<span className="pk-git-letter" aria-hidden="true">
+										{decoration.letter}
+									</span>
+								</>
+							) : dirty ? (
+								<span className="pk-git-dot" aria-hidden="true" />
+							) : null}
 						</span>
 					</ContextMenuTrigger>
 					<Menu label={`Actions for ${shown}`}>
