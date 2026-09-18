@@ -9,12 +9,31 @@ import {
 } from "./git.js";
 
 test("a status entry carries one character per side and an optional old path", () => {
-	expect(GitEntry.safeParse({ path: "a.ts", x: ".", y: "M" }).success).toBe(true);
 	expect(
-		GitEntry.safeParse({ path: "b.ts", x: "R", y: ".", origPath: "a.ts" }).success,
+		GitEntry.safeParse({ path: "a.ts", x: ".", y: "M", unmerged: false }).success,
 	).toBe(true);
-	expect(GitEntry.safeParse({ path: "a.ts", x: "MM", y: "M" }).success).toBe(false);
-	expect(GitEntry.safeParse({ path: "", x: "M", y: "M" }).success).toBe(false);
+	expect(
+		GitEntry.safeParse({
+			path: "b.ts",
+			x: "R",
+			y: ".",
+			unmerged: false,
+			origPath: "a.ts",
+		}).success,
+	).toBe(true);
+	expect(
+		GitEntry.safeParse({ path: "a.ts", x: "MM", y: "M", unmerged: false }).success,
+	).toBe(false);
+	expect(
+		GitEntry.safeParse({ path: "", x: "M", y: "M", unmerged: false }).success,
+	).toBe(false);
+});
+
+test("the conflict flag is required on every entry", () => {
+	expect(GitEntry.safeParse({ path: "a.ts", x: "U", y: "U" }).success).toBe(false);
+	expect(
+		GitEntry.safeParse({ path: "a.ts", x: "U", y: "U", unmerged: true }).success,
+	).toBe(true);
 });
 
 test("a repository status accepts a null branch for detached HEAD", () => {

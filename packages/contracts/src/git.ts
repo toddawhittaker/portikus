@@ -9,6 +9,8 @@ export const GitEntry = z.object({
 	path: z.string().min(1),
 	x: z.string().length(1),
 	y: z.string().length(1),
+	/** True when the path has an unresolved merge conflict (SPEC.md §12.8). */
+	unmerged: z.boolean(),
 	/** The path the file had before Git detected a rename. */
 	origPath: z.string().min(1).optional(),
 });
@@ -28,6 +30,10 @@ export const GitStatus = z.object({
 	behind: z.number().int().nonnegative(),
 	conflicts: z.number().int().nonnegative(),
 	entries: z.array(GitEntry),
+	/**
+	 * Ignored paths, sent only when hidden files are shown. A path ending in
+	 * `/` means the whole subtree below it is ignored, not only that directory.
+	 */
 	ignored: z.array(z.string()),
 	truncated: z.boolean(),
 });
