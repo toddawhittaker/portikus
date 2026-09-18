@@ -25,6 +25,13 @@ function Fixture({ onSelect }: { onSelect: () => void }) {
 				<MenuItem danger onSelect={onSelect}>
 					Archive…
 				</MenuItem>
+				<MenuItem
+					href="/projects/demo/archive.zip"
+					download="demo.zip"
+					testId="download-project"
+				>
+					Download
+				</MenuItem>
 			</Menu>
 		</MenuRoot>
 	);
@@ -58,6 +65,16 @@ describe("Menu", () => {
 		expect(disabled.getAttribute("data-disabled")).not.toBeNull();
 		fireEvent.click(disabled);
 		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("renders a download item as a link that saves under a name", () => {
+		render(<Fixture onSelect={vi.fn()} />);
+		fireEvent.pointerDown(screen.getByText("Actions"), { button: 0 });
+
+		const link = screen.getByTestId("download-project");
+		expect(link.tagName).toBe("A");
+		expect(link.getAttribute("href")).toBe("/projects/demo/archive.zip");
+		expect(link.getAttribute("download")).toBe("demo.zip");
 	});
 
 	it("marks a destructive item", () => {

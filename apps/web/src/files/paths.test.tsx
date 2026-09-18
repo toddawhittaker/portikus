@@ -14,7 +14,26 @@ import {
 	rewritePaths,
 	tabIdsUnder,
 	visibleEntries,
+	withoutNested,
 } from "./paths.js";
+
+/** SPEC.md §11.2: deleting a folder already deletes what is inside it. */
+describe("dropping paths covered by a selected folder", () => {
+	it("keeps only the outermost paths", () => {
+		expect(withoutNested(["src", "src/app.ts", "README.md"])).toEqual([
+			"src",
+			"README.md",
+		]);
+		expect(withoutNested(["src", "src/lib", "src/lib/deep.ts"])).toEqual(["src"]);
+	});
+
+	it("leaves a list with nothing nested alone", () => {
+		expect(withoutNested(["src/app.ts", "README.md"])).toEqual([
+			"src/app.ts",
+			"README.md",
+		]);
+	});
+});
 
 describe("path arithmetic", () => {
 	it("splits a path into its parent and its name", () => {

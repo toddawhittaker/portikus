@@ -338,6 +338,41 @@ describe("the file tree", () => {
 		expect(deleted.some((url) => url.includes("path=src"))).toBe(true);
 	});
 
+	/** SPEC.md §11.2: the folder takes its children, so they are not asked for. */
+	it("deletes a folder once when a file inside it is selected too", async () => {
+		const deleted: string[] = [];
+		stubFetch((url, init) => {
+			if (init?.method === "DELETE") {
+				deleted.push(url);
+				return json(204, null);
+			}
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=src")) return json(200, SRC);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+
+		// Open src so its child has a row, then select both the folder and it.
+		fireEvent.click(await screen.findByText("src"));
+		fireEvent.click(await screen.findByText("app.ts"), { ctrlKey: true });
+		await waitFor(() =>
+			expect(
+				screen.getByTestId("file-row-src/app.ts").getAttribute("data-selected"),
+			).toBe("true"),
+		);
+
+		fireEvent.keyDown(screen.getByTestId("file-menu-src"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("row-delete"));
+
+		const dialog = await screen.findByTestId("dialog-delete-file");
+		expect(dialog.textContent).toContain("Delete src");
+		fireEvent.click(screen.getByTestId("dialog-confirm"));
+
+		await waitFor(() => expect(deleted).toHaveLength(1));
+		expect(deleted[0]).toContain("path=src");
+	});
+
 	/** A Ctrl-click changes the selection without opening the file. */
 	it("does not open a file that is Ctrl-clicked", async () => {
 		const store = renderPane();
