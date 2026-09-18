@@ -64,6 +64,24 @@ expect "pbcopy copies"                      "${osc_hi}" "$(printf hi | run "${wo
 printf hi > "${work}/hi.txt"
 expect "xclip reads a file argument"        "${osc_hi}" "$(run "${work}/xclip" "${work}/hi.txt" < /dev/null)"
 
+# A selection name is a value, not a file.  With a file called "clipboard" in
+# the working directory, "xclip -selection clipboard" must still copy stdin.
+mkdir -p "${work}/cwd"
+printf 'from the file' > "${work}/cwd/clipboard"
+printf 'from the file' > "${work}/cwd/100"
+printf 'from the file' > "${work}/cwd/copy.log"
+expect "xclip -selection clipboard ignores a file of that name" "${osc_hi}" \
+  "$(cd "${work}/cwd" && printf hi | run "${work}/xclip" -selection clipboard)"
+expect "xclip -sel abbreviation ignores a file of that name"    "${osc_hi}" \
+  "$(cd "${work}/cwd" && printf hi | run "${work}/xclip" -sel clipboard)"
+expect "xsel -t value is not a file"                            "${osc_hi}" \
+  "$(cd "${work}/cwd" && printf hi | run "${work}/xsel" -i -t 100)"
+expect "xsel -l value is not a file"                            "${osc_hi}" \
+  "$(cd "${work}/cwd" && printf hi | run "${work}/xsel" -i -l copy.log)"
+# A trailing option with no value must not break the loop.
+expect "xclip -selection with no value still copies"            "${osc_hi}" \
+  "$(printf hi | run "${work}/xclip" -selection)"
+
 expect "xclip -o prints nothing"            "" "$(printf hi | run "${work}/xclip" -o)"
 expect "xsel -o prints nothing"             "" "$(printf hi | run "${work}/xsel" -o)"
 # Real xsel copies when stdin is not a terminal, even with no -i, so the shim

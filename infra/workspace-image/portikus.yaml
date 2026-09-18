@@ -1464,7 +1464,8 @@ files:
     fi
     explicit=
 
-    for arg in "$@"; do
+    while [ "$#" -gt 0 ]; do
+      arg=$1
       case "$arg" in
         -version|--version)
           echo "portikus clipboard shim"
@@ -1489,6 +1490,19 @@ files:
             explicit=1
           fi
           ;;
+        -se|-sel|-sele|-selec|-select|-selecti|-selectio|-selection|--selection)
+          # xclip accepts any unambiguous abbreviation, and the selection name
+          # that follows is a value, not a file to copy.
+          if [ "$#" -gt 1 ]; then
+            shift
+          fi
+          ;;
+        -t|--selectionTimeout|-l|--logfile)
+          # The only xsel options that take a value.
+          if [ "$name" = xsel ] && [ "$#" -gt 1 ]; then
+            shift
+          fi
+          ;;
         -*)
           : # every other flag is accepted and ignored
           ;;
@@ -1498,6 +1512,7 @@ files:
           fi
           ;;
       esac
+      shift
     done
 
     # Real xsel with no input or output flag copies when stdin is a pipe or a

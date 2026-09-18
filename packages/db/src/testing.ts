@@ -29,13 +29,53 @@ export interface TestDb {
  * of one run apart and says which file a leftover database came from.
  * PostgreSQL identifiers stop at 63 characters, hence the trimmed base.
  */
-function perFileDbName(url: URL, testPath: string): string {
-	const base = url.pathname
+function basePrefix(url: URL): string {
+	return url.pathname
 		.slice(1)
 		.replace(/[^A-Za-z0-9_]/g, "_")
 		.slice(0, 30);
+}
+
+function perFileDbName(url: URL, testPath: string): string {
 	const hash = createHash("sha256").update(testPath).digest("hex").slice(0, 8);
-	return `${base}_p${process.pid}_${hash}`;
+	return `${basePrefix(url)}_p${process.pid}_${hash}`;
+}
+
+/**
+ * Drop test databases left behind by runs whose process is gone. A test file
+ * that crashes never reaches `close`, so without this the server collects
+ * databases forever.
+ */
+async function dropOrphanedDbs(url: string, prefix: string): Promise<void> {
+	const client = new pg.Client({ connectionString: url });
+	await client.connect();
+	try {
+		const { rows } = await client.query<{ datname: string }>(
+			"SELECT datname FROM pg_database WHERE datname LIKE $1",
+			[`${prefix}\\_p%`],
+		);
+		for (const { datname } of rows) {
+			const pid = Number(/_p(\d+)_/.exec(datname)?.[1]);
+			if (!Number.isInteger(pid) || pid <= 0 || isProcessAlive(pid)) continue;
+			try {
+				await client.query(`DROP DATABASE IF EXISTS "${datname}" WITH (FORCE)`);
+			} catch {
+				// Someone else is using it; leaving it behind is harmless.
+			}
+		}
+	} finally {
+		await client.end();
+	}
+}
+
+function isProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		// EPERM means the process exists but belongs to another user.
+		return (error as NodeJS.ErrnoException).code === "EPERM";
+	}
 }
 
 /**
@@ -60,6 +100,7 @@ export async function createTestDb(): Promise<TestDb> {
 
 	const url = new URL(sharedUrl);
 	const name = perFileDbName(url, expect.getState().testPath ?? "unknown");
+	await dropOrphanedDbs(sharedUrl, basePrefix(url));
 	// A crashed earlier run with the same pid could have left this behind.
 	await runOnServer(sharedUrl, [
 		`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`,
