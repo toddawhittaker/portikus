@@ -1,0 +1,6 @@
+/* The Monaco host fills whatever the tab gives it. */
+.pk-editor {
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+}
