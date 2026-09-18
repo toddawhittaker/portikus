@@ -39,6 +39,12 @@ const THEME = {
 	foreground: "#e4dfd4",
 	cursor: "#e8c37a",
 	selectionBackground: "#3a4a48",
+	// The scrollbar thumb: the terminal's muted foreground, quiet until the
+	// pointer is on it. xterm.js would otherwise derive it from the text
+	// colour, which is far too loud.
+	scrollbarSliderBackground: "#9a938666",
+	scrollbarSliderHoverBackground: "#9a9386b3",
+	scrollbarSliderActiveBackground: "#9a9386cc",
 };
 
 export interface TerminalPaneProps {
@@ -227,6 +233,45 @@ export function TerminalPane({
 			}
 		}
 
+		// True while a full-screen program such as nano or less holds the
+		// terminal, as the agent reports it (SPEC.md §9.1).
+		let alternateScreen = false;
+
+		/** The height of one row on screen, for turning pixels into lines. */
+		const rowHeight = (): number => {
+			const row = container.querySelector(".xterm-rows")?.firstElementChild;
+			const height = row instanceof HTMLElement ? row.offsetHeight : 0;
+			return height > 0 ? height : 17;
+		};
+
+		/**
+		 * A wheel turn over a full-screen program moves it a line at a time,
+		 * the way it does in any terminal: there is nothing of that program's
+		 * to scroll, so the notches become arrow keys. Everywhere else the
+		 * wheel scrolls the terminal's own scrollback (SPEC.md §9.1).
+		 */
+		function onWheel(event: WheelEvent) {
+			if (!alternateScreen) return;
+			// A program that asked to be told about the mouse gets the event.
+			if (term.modes.mouseTrackingMode !== "none") return;
+			// Stop the terminal scrolling its own buffer instead.
+			event.preventDefault();
+			event.stopPropagation();
+			// A wheel reports pixels, lines, or pages; turn them all into rows.
+			let scrolled = Math.abs(event.deltaY);
+			if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) scrolled /= rowHeight();
+			if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) scrolled *= term.rows;
+			const notches = Math.min(term.rows, Math.max(1, Math.round(scrolled)));
+			const key = term.modes.applicationCursorKeysMode
+				? `\u001bO${event.deltaY < 0 ? "A" : "B"}`
+				: `\u001b[${event.deltaY < 0 ? "A" : "B"}`;
+			sendInput(key.repeat(notches));
+		}
+		// xterm.js 6 scrolls in its own scrollable element and never calls
+		// `attachCustomWheelEventHandler`, so the event has to be caught on the
+		// way down, before that element sees it.
+		container.addEventListener("wheel", onWheel, { capture: true, passive: false });
+
 		const platform = currentPlatform();
 		term.attachCustomKeyEventHandler((event) => {
 			if (
@@ -349,6 +394,10 @@ export function TerminalPane({
 					handlers.current.onCwd(frame.path);
 					return;
 				}
+				if (frame.kind === "screen") {
+					alternateScreen = frame.alternate;
+					return;
+				}
 				if (frame.kind === "error") {
 					term.writeln(`\r\n[portikus] terminal error: ${frame.code}`);
 				}
@@ -392,6 +441,7 @@ export function TerminalPane({
 			stopped = true;
 			if (retry !== undefined) clearTimeout(retry);
 			observer.disconnect();
+			container.removeEventListener("wheel", onWheel, { capture: true });
 			container.removeEventListener("contextmenu", onContextMenu);
 			container.removeEventListener("pointerdown", onPointerDown);
 			selection.dispose();
