@@ -405,17 +405,8 @@ export function registerTerminalRoutes(
 		},
 	);
 
-	// Epic 5 linkification navigates here; the real routes land in Epics 7 and 8
-	// (SPEC.md §14.9, §29 Epic 5 scope note).
-	app.get("/workspaces/:id/files", async (_request, reply) => {
-		return sendError(
-			reply,
-			501,
-			"NOT_IMPLEMENTED",
-			"The file browser is not available yet.",
-		);
-	});
-
+	// Epic 5 linkification navigates to the preview route, which lands in
+	// Epic 8 (SPEC.md §14.9, §29 Epic 5 scope note).
 	app.get("/workspaces/:id/preview/:port/*", async (_request, reply) => {
 		return sendError(
 			reply,
@@ -429,7 +420,7 @@ export function registerTerminalRoutes(
 }
 
 /** Close codes a WebSocket peer is allowed to send on. */
-function safeCloseCode(code: number): number {
+export function safeCloseCode(code: number): number {
 	if (code === 1000 || (code >= 1001 && code <= 1003)) return code;
 	if (code >= 1007 && code <= 1011) return code;
 	if (code >= 3000 && code <= 4999) return code;

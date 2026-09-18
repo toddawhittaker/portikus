@@ -86,6 +86,11 @@
 	--danger-hover: #86281f;
 	--on-danger: #ffffff;
 	--mark-code: #3a8a7e;
+	/* Git decorations (SPEC.md §12.1): subtle, and a conflict is its own hue. */
+	--git-added: #2e6e34;
+	--git-modified: #855b00;
+	--git-deleted: #a4342a;
+	--git-conflict: #8a3ea0;
 
 	/* Terminal colours are the same in both themes: a terminal is always dark. */
 	--terminal-bg: #11100e;
@@ -213,6 +218,10 @@
 	--status-danger-soft: #3a1f1b;
 	--danger-hover: #f5b3ab;
 	--on-danger: #1f0d0b;
+	--git-added: #86c98b;
+	--git-modified: #e3b85c;
+	--git-deleted: #f0998f;
+	--git-conflict: #d39fe8;
 	--terminal-bg: #0c0b0a;
 	--shadow-sm: 0 1px 2px #00000066;
 	--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #35322d;
@@ -260,6 +269,10 @@
 		--status-danger-soft: #3a1f1b;
 		--danger-hover: #f5b3ab;
 		--on-danger: #1f0d0b;
+		--git-added: #86c98b;
+		--git-modified: #e3b85c;
+		--git-deleted: #f0998f;
+		--git-conflict: #d39fe8;
 		--terminal-bg: #0c0b0a;
 		--shadow-sm: 0 1px 2px #00000066;
 		--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #35322d;
@@ -354,6 +367,10 @@
 	--color-danger-hover: var(--danger-hover);
 	--color-on-danger: var(--on-danger);
 	--color-mark-code: var(--mark-code);
+	--color-git-added: var(--git-added);
+	--color-git-modified: var(--git-modified);
+	--color-git-deleted: var(--git-deleted);
+	--color-git-conflict: var(--git-conflict);
 	--color-terminal-bg: var(--terminal-bg);
 	--color-terminal-fg: var(--terminal-fg);
 	--color-terminal-muted: var(--terminal-muted);

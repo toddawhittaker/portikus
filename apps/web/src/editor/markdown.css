@@ -1,0 +1,139 @@
+/* The rendered Markdown document (DESIGN.md, "Editor and Markdown"). */
+.pk-markdown {
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	overflow: auto;
+	padding: var(--space-4);
+	color: var(--ink);
+	font-size: 14px;
+	line-height: 1.6;
+}
+
+.pk-markdown > *:first-child {
+	margin-top: 0;
+}
+
+.pk-markdown h1,
+.pk-markdown h2,
+.pk-markdown h3,
+.pk-markdown h4 {
+	margin: var(--space-4) 0 var(--space-2);
+	font-weight: 600;
+	line-height: 1.3;
+}
+
+.pk-markdown h1 {
+	font-size: 22px;
+}
+
+.pk-markdown h2 {
+	font-size: 18px;
+}
+
+.pk-markdown h3 {
+	font-size: 15px;
+}
+
+.pk-markdown h4 {
+	font-size: 14px;
+}
+
+.pk-markdown p,
+.pk-markdown ul,
+.pk-markdown ol {
+	margin: 0 0 var(--space-3);
+}
+
+.pk-markdown ul,
+.pk-markdown ol {
+	padding-left: var(--space-5);
+}
+
+.pk-markdown li {
+	margin-bottom: var(--space-1);
+}
+
+.pk-markdown a {
+	color: var(--accent-text);
+}
+
+.pk-markdown blockquote {
+	margin: 0 0 var(--space-3);
+	padding: var(--space-1) var(--space-3);
+	border-left: 3px solid var(--line-strong);
+	color: var(--ink-muted);
+}
+
+.pk-markdown code {
+	padding: 1px 4px;
+	border-radius: 4px;
+	background: var(--surface-sunken);
+	font-family: "JetBrains Mono", ui-monospace, monospace;
+	font-size: 12.5px;
+}
+
+.pk-markdown pre {
+	margin: 0 0 var(--space-3);
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	background: var(--surface-sunken);
+	overflow: auto;
+}
+
+.pk-markdown pre code {
+	padding: 0;
+	background: none;
+}
+
+.pk-markdown table {
+	margin: 0 0 var(--space-3);
+	border-collapse: collapse;
+}
+
+.pk-markdown th,
+.pk-markdown td {
+	padding: var(--space-1) var(--space-3);
+	border: 1px solid var(--line);
+	text-align: left;
+}
+
+.pk-markdown th {
+	background: var(--surface-sunken);
+	font-weight: 600;
+}
+
+.pk-markdown img {
+	max-width: 100%;
+}
+
+.pk-markdown hr {
+	margin: var(--space-4) 0;
+	border: none;
+	border-top: 1px solid var(--line);
+}
+
+.pk-frontmatter {
+	margin-bottom: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	background: var(--surface-sunken);
+}
+
+.pk-frontmatter summary {
+	padding: var(--space-1) var(--space-3);
+	color: var(--ink-muted);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.pk-frontmatter pre {
+	margin: 0;
+	border: none;
+	border-top: 1px solid var(--line);
+	border-radius: 0;
+	background: none;
+	font-family: "JetBrains Mono", ui-monospace, monospace;
+	font-size: 12.5px;
+}

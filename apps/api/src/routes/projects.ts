@@ -1,14 +1,15 @@
+import { basename } from "node:path";
 import { Readable } from "node:stream";
 import { requireUser } from "@portikus/auth";
 import {
-	type ApiError,
-	type ApiErrorCode,
 	CreateProjectRequest,
+	contentDisposition,
 	DeleteProjectRequest,
 	DuplicateProjectRequest,
 	type Project,
 	ProjectLayout,
 	type ProjectList,
+	ProjectPath,
 	ProjectState,
 	type ProjectTemplateList,
 	type SplitNode,
@@ -17,18 +18,25 @@ import {
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { Kysely, Selectable } from "kysely";
+import type { Kysely } from "kysely";
 import { z } from "zod";
-import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
+import { AgentCallError, type AgentClient } from "../agent-client.js";
 import type { ServerDeps } from "../server.js";
-import { findWorkspaceOwnedBy } from "./workspace-view.js";
+import {
+	claimLongOperation,
+	ownedProject as ownedProjectRow,
+	ownedScope,
+	type ProjectRow,
+	projectPath,
+	releaseLongOperation,
+	requireAgent,
+	type Scope,
+	sendAgentError,
+	sendError,
+} from "./project-scope.js";
 
-const WorkspaceParam = z.object({ id: z.string().uuid() });
 const ProjectParam = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 const ListQuery = z.object({ state: ProjectState.default("active") });
-
-/** Where every project directory lives inside the workspace (SPEC.md §7.1). */
-const PROJECTS_ROOT = "/home/student/projects";
 
 /**
  * Most directories one listing will adopt as projects. The agent's listing is
@@ -36,80 +44,6 @@ const PROJECTS_ROOT = "/home/student/projects";
  * one page load into thousands of inserts (SPEC.md §24.6).
  */
 const MAX_DISCOVERED_PROJECTS = 200;
-
-type ProjectRow = Selectable<Database["projects"]>;
-
-interface Scope {
-	workspaceId: string;
-	/** Whether the workspace itself is running, whatever the agent's state. */
-	running: boolean;
-	agent: AgentClient | null;
-}
-
-/**
- * Workspaces with a long project operation (clone, template, duplicate,
- * download) running right now. Clone and copy hold a request open for
- * minutes, and two at once on one workspace race over the same directories.
- * This is per API process; the pilot runs exactly one (ADR 0010).
- */
-const longOperations = new Set<string>();
-
-/**
- * Claim the one long-operation slot for a workspace. Returns false after
- * answering 409, so the caller just returns.
- */
-function claimLongOperation(workspaceId: string, reply: FastifyReply): boolean {
-	if (longOperations.has(workspaceId)) {
-		sendError(
-			reply,
-			409,
-			"OPERATION_IN_PROGRESS",
-			"Another project operation is already running on this workspace.",
-		);
-		return false;
-	}
-	longOperations.add(workspaceId);
-	return true;
-}
-
-function projectPath(slug: string): string {
-	return `${PROJECTS_ROOT}/${slug}`;
-}
-
-function sendError(
-	reply: FastifyReply,
-	statusCode: number,
-	code: ApiErrorCode,
-	message: string,
-): void {
-	const body: ApiError = { code, message };
-	reply.status(statusCode).send(body);
-}
-
-/** The status and code each agent error becomes (SPEC.md §27). */
-const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>> = {
-	PROJECT_EXISTS: [409, "PROJECT_EXISTS"],
-	PROJECT_NOT_FOUND: [404, "PROJECT_NOT_FOUND"],
-	INVALID_SLUG: [400, "INVALID_SLUG"],
-	INVALID_URL: [400, "INVALID_URL"],
-	GIT_FAILED: [400, "GIT_FAILED"],
-};
-
-/** Report an agent failure to the browser; anything else is a real error. */
-function sendAgentError(reply: FastifyReply, error: unknown): void {
-	if (!(error instanceof AgentCallError)) throw error;
-	const mapped = AGENT_ERROR_STATUS[error.code];
-	if (mapped) {
-		sendError(reply, mapped[0], mapped[1], error.message);
-		return;
-	}
-	sendError(
-		reply,
-		503,
-		"AGENT_UNAVAILABLE",
-		"The workspace agent could not be reached.",
-	);
-}
 
 function toProject(
 	row: ProjectRow,
@@ -142,6 +76,7 @@ function listRows(db: Kysely<Database>, workspaceId: string) {
 /** Terminal panes in one layout tab, for the debug line on a save. */
 function countPanes(node: SplitNode): number {
 	if (node.type === "leaf") return 1;
+	if (node.type !== "split") return 0;
 	return node.children.reduce((total, child) => total + countPanes(child), 0);
 }
 
@@ -154,76 +89,14 @@ export function registerProjectRoutes(
 	app: FastifyInstance,
 	{ db, config }: ServerDeps,
 ): void {
-	/**
-	 * Load the workspace for its owner, plus an agent client when the workspace
-	 * is running. Returns null after answering, so callers just return.
-	 */
-	async function owned(
-		request: FastifyRequest,
-		reply: FastifyReply,
-	): Promise<Scope | null> {
-		const user = requireUser(request);
-		const params = WorkspaceParam.safeParse(request.params);
-		if (!params.success) {
-			sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			return null;
-		}
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
-		if (!workspace) {
-			sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
-			return null;
-		}
-		const running = workspace.state === "running";
-		const agent = agentClientFor(workspace, config.AGENT_PORT);
-		return {
-			workspaceId: params.data.id,
-			running,
-			agent: running ? agent : null,
-		};
-	}
-
-	/**
-	 * The agent for an operation that needs one, or null after answering. A
-	 * stopped workspace is the student's problem to fix; a running workspace
-	 * with no reachable agent is ours.
-	 */
-	function requireAgent(scope: Scope, reply: FastifyReply): AgentClient | null {
-		if (scope.agent) return scope.agent;
-		if (scope.running) {
-			sendError(
-				reply,
-				503,
-				"AGENT_UNAVAILABLE",
-				"The workspace agent is not reachable.",
-			);
-			return null;
-		}
-		sendError(
-			reply,
-			409,
-			"AGENT_UNAVAILABLE",
-			"The workspace is not running yet. Start it and try again.",
-		);
-		return null;
+	/** Every project route resolves its workspace through the one owner check. */
+	function owned(request: FastifyRequest, reply: FastifyReply) {
+		return ownedScope(db, config, request, reply);
 	}
 
 	/** The project row of this workspace, or null after answering 404. */
-	async function ownedProject(
-		workspaceId: string,
-		projectId: string,
-		reply: FastifyReply,
-	): Promise<ProjectRow | null> {
-		const row = await db
-			.selectFrom("projects")
-			.selectAll()
-			.where("id", "=", projectId)
-			.where("workspace_id", "=", workspaceId)
-			.executeTakeFirst();
-		if (!row) {
-			sendError(reply, 404, "PROJECT_NOT_FOUND", "Project not found");
-			return null;
-		}
-		return row;
+	function ownedProject(workspaceId: string, projectId: string, reply: FastifyReply) {
+		return ownedProjectRow(db, workspaceId, projectId, reply);
 	}
 
 	// GET /workspaces/:id/projects -- rows reconciled with what the agent sees.
@@ -389,7 +262,7 @@ export function registerProjectRoutes(
 		} catch (error) {
 			return sendAgentError(reply, error);
 		} finally {
-			if (slow) longOperations.delete(scope.workspaceId);
+			if (slow) releaseLongOperation(scope.workspaceId);
 		}
 
 		const row = await db
@@ -547,7 +420,7 @@ export function registerProjectRoutes(
 		try {
 			return await deleteProjectTree(request, reply, scope, row, agent, user.id);
 		} finally {
-			longOperations.delete(scope.workspaceId);
+			releaseLongOperation(scope.workspaceId);
 		}
 	});
 
@@ -669,7 +542,7 @@ export function registerProjectRoutes(
 		} catch (error) {
 			return sendAgentError(reply, error);
 		} finally {
-			longOperations.delete(scope.workspaceId);
+			releaseLongOperation(scope.workspaceId);
 		}
 
 		// The copy is a project the student made here, not a discovered one.
@@ -709,6 +582,7 @@ export function registerProjectRoutes(
 	});
 
 	// GET /workspaces/:id/projects/:pid/download -- the agent's zip, streamed.
+	// With `?path=` it is one directory inside the project (SPEC.md §11.2).
 	app.get("/workspaces/:id/projects/:pid/download", async (request, reply) => {
 		const params = ProjectParam.safeParse(request.params);
 		if (!params.success) {
@@ -721,14 +595,31 @@ export function registerProjectRoutes(
 		const agent = requireAgent(scope, reply);
 		if (!agent) return;
 
+		// The path is checked here as well as in the agent, so a traversal
+		// attempt never leaves the control plane (SPEC.md §11.1, §24.6).
+		const asked = (request.query as { path?: unknown }).path;
+		let subPath = "";
+		if (asked !== undefined && asked !== "") {
+			const parsed = typeof asked === "string" ? ProjectPath.safeParse(asked) : null;
+			if (!parsed?.success) {
+				return sendError(
+					reply,
+					400,
+					"VALIDATION_FAILED",
+					"that path is not inside the project",
+				);
+			}
+			subPath = parsed.data;
+		}
+
 		// Zipping runs while the response streams, so the slot is held until the
 		// response is done, not just until the headers come back.
 		if (!claimLongOperation(scope.workspaceId, reply)) return;
-		const release = () => longOperations.delete(scope.workspaceId);
+		const release = () => releaseLongOperation(scope.workspaceId);
 
 		let upstream: Response;
 		try {
-			upstream = await agent.downloadProject(row.slug);
+			upstream = await agent.downloadProject(row.slug, subPath);
 		} catch (error) {
 			release();
 			return sendAgentError(reply, error);
@@ -742,9 +633,11 @@ export function registerProjectRoutes(
 		stream.on("close", release);
 		stream.on("error", release);
 
-		// The filename is the slug, never anything the student typed.
+		// The name is the slug, or the directory that was asked for; either way
+		// it is escaped rather than sent through as typed.
+		const name = subPath === "" ? row.slug : basename(subPath);
 		reply.header("content-type", "application/zip");
-		reply.header("content-disposition", `attachment; filename="${row.slug}.zip"`);
+		reply.header("content-disposition", contentDisposition(`${name}.zip`));
 		return reply.send(stream);
 	});
 

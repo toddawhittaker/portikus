@@ -1,4 +1,5 @@
-import type { Terminal } from "@portikus/contracts";
+import { MAX_LAYOUT_TABS, type Terminal } from "@portikus/contracts";
+import { ToastProvider } from "@portikus/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -74,24 +75,40 @@ function stubFetch(options: { layout?: unknown; terminals: Terminal[] }) {
 				json: async () => ({ terminals: list }),
 			} as Response;
 		}
+		if (url.includes("/diff")) {
+			return {
+				status: 200,
+				ok: true,
+				json: async () => ({
+					status: "M",
+					before: "a\n",
+					after: "b\n",
+					binary: false,
+					tooLarge: false,
+				}),
+			} as Response;
+		}
 		throw new Error(`unexpected request: ${url}`);
 	});
 	vi.stubGlobal("fetch", fetchMock);
 	return { fetchMock, created };
 }
 
-function renderArea() {
+function renderArea(props: { openPath?: string; openLine?: number } = {}) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
 	return render(
 		<QueryClientProvider client={client}>
-			<WorkArea
-				workspaceId={WORKSPACE}
-				projectId={PROJECT}
-				projectPath="~/projects/todo-api"
-				onSessionEnded={vi.fn()}
-			/>
+			<ToastProvider>
+				<WorkArea
+					workspaceId={WORKSPACE}
+					projectId={PROJECT}
+					projectPath="~/projects/todo-api"
+					onSessionEnded={vi.fn()}
+					{...props}
+				/>
+			</ToastProvider>
 		</QueryClientProvider>,
 	);
 }
@@ -193,4 +210,39 @@ test("closing a tab with two live terminals asks first", async () => {
 
 	expect(screen.getByRole("alertdialog").textContent).toContain("Close this tab?");
 	expect(screen.getByTestId("terminal-group-tab1")).toBeTruthy();
+});
+
+test("a file the URL asks for says so when the tab strip is full", async () => {
+	// SPEC.md §14.9: a link that cannot open must not fail in silence.
+	const tabs = Array.from({ length: MAX_LAYOUT_TABS }, (_, index) => ({
+		id: `file:src/file${index}.ts`,
+		root: { type: "file", path: `src/file${index}.ts` },
+	}));
+	stubFetch({ layout: { tabs }, terminals: [] });
+	renderArea({ openPath: "src/new.ts", openLine: 4 });
+
+	expect(
+		await screen.findByText("Too many tabs are open. Close one to open another."),
+	).toBeTruthy();
+	expect(screen.queryByTestId("tab-file:src/new.ts")).toBeNull();
+});
+
+test("opening a file from a diff says so when the tab strip is full", async () => {
+	// SPEC.md §8.3: the tab cap must be reported, not swallowed.
+	const tabs = [
+		{ id: "diff:src/app.ts", root: { type: "diff", path: "src/app.ts" } },
+		...Array.from({ length: MAX_LAYOUT_TABS - 1 }, (_, index) => ({
+			id: `file:src/file${index}.ts`,
+			root: { type: "file", path: `src/file${index}.ts` },
+		})),
+	];
+	stubFetch({ layout: { tabs }, terminals: [] });
+	renderArea();
+
+	fireEvent.click(await screen.findByTestId("diff-open-src/app.ts"));
+
+	expect(
+		await screen.findByText("Too many tabs are open. Close one to open another."),
+	).toBeTruthy();
+	expect(screen.queryByTestId("tab-file:src/app.ts")).toBeNull();
 });

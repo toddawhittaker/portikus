@@ -8,6 +8,15 @@ import {
 } from "@playwright/test";
 import pg from "pg";
 
+/**
+ * The visible toast carrying this text. Radix Toast also renders a hidden
+ * copy of the same words for screen readers during the first second after
+ * it appears, so a bare text locator matches twice and fails strict mode.
+ */
+export function toast(page: Page, text: string): Locator {
+	return page.locator(".pk-toast").filter({ hasText: text });
+}
+
 /** The mock identity provider's users (packages/auth testing). */
 export type MockUser = "alice" | "bob" | "carol" | "dave";
 
@@ -261,6 +270,62 @@ export async function seedProjectDir(
 	}
 }
 
+/**
+ * Seed one file inside a seeded project directory, the way a shell or a
+ * coding agent would create it. Missing parent directories are created.
+ */
+export async function seedFile(
+	workspaceId: string,
+	slug: string,
+	path: string,
+	content: string,
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/files`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, path: `${slug}/${path}`, content }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused to seed ${path}: ${response.status}`);
+	}
+}
+
+/**
+ * Open a project whose saved layout already has one file tab, with the file
+ * already on disk (SPEC.md §13.1).
+ */
+export async function openFileTab(
+	page: Page,
+	student: TestStudent,
+	name: string,
+	path: string,
+	content: string,
+): Promise<TestProject> {
+	const project = await createProject(student.workspaceId, { name });
+	await seedFile(student.workspaceId, project.slug, path, content);
+	await query("update projects set layout = $2 where id = $1", [
+		project.id,
+		JSON.stringify({ tabs: [{ id: `file:${path}`, root: { type: "file", path } }] }),
+	]);
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(page.getByTestId(`file-pane-${path}`)).toBeVisible({ timeout: 15_000 });
+	return project;
+}
+
+/** Read a seeded file back, to check what a write actually stored. */
+export async function readSeededFile(
+	workspaceId: string,
+	slug: string,
+	path: string,
+): Promise<string> {
+	const query = new URLSearchParams({ key: workspaceId, path: `${slug}/${path}` });
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/files?${query}`);
+	if (!response.ok) {
+		throw new Error(`the fake agent has no ${path}: ${response.status}`);
+	}
+	return ((await response.json()) as { content: string }).content;
+}
+
 /** Remove a directory from the fake agent, as deleting it in a shell would. */
 export async function removeProjectDir(
 	workspaceId: string,
@@ -282,6 +347,75 @@ export async function projectDirs(workspaceId: string): Promise<string[]> {
 		throw new Error(`the fake agent refused to list: ${response.status}`);
 	}
 	return ((await response.json()) as { slugs: string[] }).slugs;
+}
+
+/**
+ * Seed the Git answers the fake agent gives for one project: the status of
+ * the repository and a diff per path (SPEC.md §12.1, §12.6).
+ */
+export async function seedGit(
+	workspaceId: string,
+	slug: string,
+	answer: { status?: unknown; diffs?: Record<string, unknown> },
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/git`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, slug, ...answer }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused the Git seed: ${response.status}`);
+	}
+}
+
+/** Seed the matches the fake agent answers a search of one project with. */
+export async function seedSearch(
+	workspaceId: string,
+	slug: string,
+	matches: unknown[],
+	truncated = false,
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/search`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, slug, matches, truncated }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused the search seed: ${response.status}`);
+	}
+}
+
+/** What the last search of one project asked the fake agent for. */
+export async function lastSearch(
+	workspaceId: string,
+	slug: string,
+): Promise<{ q: string; hidden: boolean } | null> {
+	const query = new URLSearchParams({ key: workspaceId, slug });
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/search/last?${query}`);
+	if (!response.ok) {
+		throw new Error(`the fake agent refused to report: ${response.status}`);
+	}
+	return (await response.json()) as { q: string; hidden: boolean } | null;
+}
+
+/**
+ * Push one events frame to every browser watching this project, the way a
+ * change on disk would (SPEC.md §11.4). Returns how many sockets got it.
+ */
+export async function pushEvent(
+	workspaceId: string,
+	slug: string,
+	frame: unknown,
+): Promise<number> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/events`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, slug, frame }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused the event: ${response.status}`);
+	}
+	return ((await response.json()) as { sent: number }).sent;
 }
 
 export async function projectIds(workspaceId: string): Promise<string[]> {

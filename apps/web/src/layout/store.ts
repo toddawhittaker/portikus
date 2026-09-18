@@ -6,7 +6,7 @@
  * never saved.
  */
 import type { ProjectLayout } from "@portikus/contracts";
-import { useRef } from "react";
+import { createContext, useContext, useRef } from "react";
 import { createStore, useStore } from "zustand";
 import * as tree from "./tree.js";
 
@@ -14,10 +14,26 @@ export interface LayoutState {
 	layout: ProjectLayout;
 	activeTabId: string | null;
 	focusedTerminalId: string | null;
+	/**
+	 * Where a file tab should jump to when its editor opens, by tab id. It is
+	 * a one-off request from this browser, so it is never saved.
+	 */
+	pendingLine: Record<string, number>;
 	dirty: boolean;
 	/** Replace the whole layout with what the server had saved. */
 	load: (layout: ProjectLayout) => void;
 	addTab: (terminalId: string) => void;
+	/**
+	 * Open a file tab, or activate the one already open for this path. False
+	 * when there is no room for another tab, so the caller can say so.
+	 */
+	openFile: (path: string, line?: number) => boolean;
+	/** Open a diff tab, or activate the one already open. False when full. */
+	openDiff: (path: string) => boolean;
+	/** Close one whole tab. Terminal tabs close by closing their terminals. */
+	closeTab: (tabId: string) => void;
+	/** Read and forget the line a file tab was asked to jump to. */
+	consumePendingLine: (tabId: string) => number | undefined;
 	splitLeaf: (
 		terminalId: string,
 		direction: tree.SplitDirection,
@@ -63,7 +79,7 @@ function pickActive(layout: ProjectLayout, current: string | null): string | nul
 }
 
 export function createLayoutStore() {
-	return createStore<LayoutState>()((set) => {
+	return createStore<LayoutState>()((set, get) => {
 		/** Apply a structural change: new layout, still-valid active tab, dirty. */
 		function change(next: (layout: ProjectLayout) => ProjectLayout) {
 			set((state) => {
@@ -80,6 +96,7 @@ export function createLayoutStore() {
 			layout: tree.emptyLayout(),
 			activeTabId: null,
 			focusedTerminalId: null,
+			pendingLine: {},
 			dirty: false,
 
 			load: (layout) =>
@@ -96,6 +113,54 @@ export function createLayoutStore() {
 					activeTabId: terminalId,
 					dirty: true,
 				}));
+			},
+
+			openFile: (path, line) => {
+				const state = get();
+				const opened = tree.openFile(state.layout, path);
+				if (!opened) return false;
+				const pendingLine = { ...state.pendingLine };
+				// Always write the key, so a stale line from an earlier open goes.
+				if (line === undefined) delete pendingLine[opened.tabId];
+				else pendingLine[opened.tabId] = line;
+				set({
+					layout: opened.layout,
+					activeTabId: opened.tabId,
+					pendingLine,
+					dirty: state.dirty || opened.layout !== state.layout,
+				});
+				return true;
+			},
+
+			openDiff: (path) => {
+				const state = get();
+				const opened = tree.openDiff(state.layout, path);
+				if (!opened) return false;
+				set({
+					layout: opened.layout,
+					activeTabId: opened.tabId,
+					dirty: state.dirty || opened.layout !== state.layout,
+				});
+				return true;
+			},
+
+			closeTab: (tabId) => {
+				change((layout) => tree.closeTab(layout, tabId));
+				set((state) => {
+					const { [tabId]: _gone, ...rest } = state.pendingLine;
+					return { pendingLine: rest };
+				});
+			},
+
+			consumePendingLine: (tabId) => {
+				const line = get().pendingLine[tabId];
+				if (line !== undefined) {
+					set((state) => {
+						const { [tabId]: _gone, ...rest } = state.pendingLine;
+						return { pendingLine: rest };
+					});
+				}
+				return line;
 			},
 
 			splitLeaf: (terminalId, direction, newTerminalId) =>
@@ -166,15 +231,24 @@ export function createLayoutStore() {
 }
 
 /**
+ * The store of the project on screen, shared by the work area and the file
+ * tree: the tree opens file tabs in the same layout the work area draws.
+ * The workspace screen provides it; a component rendered on its own still
+ * gets a store of its own.
+ */
+export const LayoutStoreContext = createContext<LayoutStore | null>(null);
+
+/**
  * One store per project id. Switching projects hands back a fresh store, so
  * tabs, splits and focus start from that project's own saved layout.
  */
 export function useLayoutStore(projectId: string): LayoutStore {
+	const shared = useContext(LayoutStoreContext);
 	const held = useRef<{ projectId: string; store: LayoutStore } | null>(null);
 	if (held.current === null || held.current.projectId !== projectId) {
 		held.current = { projectId, store: createLayoutStore() };
 	}
-	return held.current.store;
+	return shared ?? held.current.store;
 }
 
 /** Read one slice of a layout store. */

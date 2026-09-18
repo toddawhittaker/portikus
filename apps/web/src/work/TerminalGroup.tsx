@@ -8,6 +8,8 @@ import { PaneHandle } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
+import { DiffLeaf } from "./DiffLeaf.js";
+import { FileLeaf } from "./FileLeaf.js";
 import { TerminalLeaf } from "./TerminalLeaf.js";
 
 export interface TerminalGroupProps {
@@ -27,6 +29,14 @@ export interface TerminalGroupProps {
 	onResize: (path: number[], sizes: number[]) => void;
 	onSessionEnded: () => void;
 	onLeave: () => void;
+	/** Close this whole tab: a file tab offers it when the file is gone. */
+	onCloseTab: () => void;
+	/** The line this tab was last asked to open at, or undefined for none. */
+	pendingLine: number | undefined;
+	/** Open one path as a file tab: a diff tab offers it (SPEC.md §12.6). */
+	onOpenFile: (path: string) => void;
+	/** Read and forget the line a file tab was opened at. */
+	consumePendingLine: () => number | undefined;
 	/** The pane a drag is hovering, and the zone it would drop into. */
 	dropTarget?: { terminalId: string; edge: DropEdge } | null;
 }
@@ -61,6 +71,31 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					dropEdge={
 						props.dropTarget?.terminalId === terminal.id ? props.dropTarget.edge : null
 					}
+				/>
+			);
+		}
+		if (node.type === "file") {
+			return (
+				<FileLeaf
+					key={node.path}
+					path={node.path}
+					workspaceId={props.workspaceId}
+					projectId={props.projectId}
+					onClose={props.onCloseTab}
+					pendingLine={props.pendingLine}
+					consumePendingLine={props.consumePendingLine}
+				/>
+			);
+		}
+		if (node.type === "diff") {
+			return (
+				<DiffLeaf
+					key={node.path}
+					path={node.path}
+					workspaceId={props.workspaceId}
+					projectId={props.projectId}
+					visible={visible}
+					onOpenFile={props.onOpenFile}
 				/>
 			);
 		}

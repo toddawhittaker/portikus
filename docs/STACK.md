@@ -245,6 +245,16 @@ Use Monaco Diff Editor for file diffs.
 
 Do not attempt to reproduce the complete VS Code extension system.
 
+### Markdown rendering
+
+Use **react-markdown** with **remark-gfm** and **remark-frontmatter** for the
+rendered preview of SPEC.md section 13.4. It builds React elements directly
+rather than producing an HTML string, and raw HTML is off unless `rehype-raw`
+is added, which it is not. Markdown in a project may have been written by a
+coding agent, so it is untrusted content; not rendering HTML at all is a
+smaller promise to keep than sanitizing it correctly. Front matter is split
+off and shown as a collapsed block. ADR 0015.
+
 ### Terminal
 
 Use **xterm.js** in the browser.
@@ -558,6 +568,24 @@ package (ADR 0007) ships the built agent tree at
 it read-only at `/opt/portikus/workspace-agent`, where the image's
 pre-enabled systemd unit expects `bin/workspace-agent`. Upgrading the
 package upgrades every agent.
+
+### File, Git, search, and event routes
+
+Beside the project routes of SPEC.md section 7.6, the agent serves, all of
+them under one project and all confined to it (ADRs 0013 and 0014):
+
+| Route | What it does |
+|---|---|
+| `GET /projects/:slug/tree` | One directory listing, at most 2,000 entries, saying when it was truncated |
+| `GET /projects/:slug/file` | Streams one file out with a content-hash ETag |
+| `PUT /projects/:slug/file` | Conditional write: `If-Match` to overwrite, `If-None-Match: *` to create |
+| `DELETE /projects/:slug/file` | Removes one file or an empty directory |
+| `POST /projects/:slug/mkdir` | Creates one directory |
+| `POST /projects/:slug/move` | Moves or renames inside the project, both ends confined |
+| `GET /projects/:slug/git/status` | Branch, upstream, ahead and behind, conflicts, and one entry per changed path |
+| `GET /projects/:slug/git/diff` | One file, `HEAD` against the working tree, each side capped at 1 MiB |
+| `GET /projects/:slug/search` | ripgrep over the project, at most 500 matches |
+| `GET /projects/:slug/events` (WebSocket) | Batched filesystem changes, with a ready frame first |
 
 ### PTY implementation
 
@@ -1514,6 +1542,7 @@ Zustand
 Tailwind
 Radix-style accessible primitives
 Monaco
+react-markdown
 xterm.js
 
 Fastify
@@ -1528,6 +1557,7 @@ openid-client
 
 node-pty
 tmux
+chokidar
 ripgrep
 git CLI
 

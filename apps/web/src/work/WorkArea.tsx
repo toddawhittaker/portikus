@@ -28,11 +28,13 @@ import {
 	MenuTrigger,
 	type TabItem,
 	Tabs,
+	useToast,
 } from "@portikus/ui";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { tooManyTabsToast } from "../files/errors.js";
 import { useLayoutPersistence } from "../layout/persist.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
-import { type DropEdge, leafIds, type SplitDirection } from "../layout/tree.js";
+import { type DropEdge, type SplitDirection, terminalIds } from "../layout/tree.js";
 import { useTerminals } from "../useTerminals.js";
 import { dropZone, insertionIndex } from "./dropZone.js";
 import { TerminalGroup } from "./TerminalGroup.js";
@@ -60,6 +62,9 @@ export interface WorkAreaProps {
 	workspaceId: string;
 	projectId: string;
 	projectPath: string;
+	/** A file the URL asked to open, and the line to jump to (SPEC.md §14.9). */
+	openPath?: string;
+	openLine?: number;
 	onSessionEnded: () => void;
 }
 
@@ -67,12 +72,16 @@ export function WorkArea({
 	workspaceId,
 	projectId,
 	projectPath,
+	openPath,
+	openLine,
 	onSessionEnded,
 }: WorkAreaProps) {
 	const store = useLayoutStore(projectId);
+	const toast = useToast();
 	const layout = useLayout(store, (state) => state.layout);
 	const activeTabId = useLayout(store, (state) => state.activeTabId);
 	const focusedTerminalId = useLayout(store, (state) => state.focusedTerminalId);
+	const pendingLine = useLayout(store, (state) => state.pendingLine);
 	const loaded = useLayoutPersistence(workspaceId, projectId, store, onSessionEnded);
 	const terminals = useTerminals(workspaceId, projectId, true, onSessionEnded);
 	const [closingTabId, setClosingTabId] = useState<string | null>(null);
@@ -90,17 +99,26 @@ export function WorkArea({
 	// An ended terminal with no pane stays out of the way: it is history in the
 	// listing, not a pane (SPEC.md §9.7). The two joined id lists are the
 	// effect's keys, so it re-runs when a terminal appears, goes, or ends.
-	const terminalIds = terminals.terminals.map((terminal) => terminal.id).join(",");
+	const terminalIdKey = terminals.terminals.map((terminal) => terminal.id).join(",");
 	const endedTerminalIds = terminals.terminals
 		.filter((terminal) => terminal.endedAt != null)
 		.map((terminal) => terminal.id)
 		.join(",");
 	useEffect(() => {
 		if (!loaded || !terminals.loaded) return;
-		const ids = terminalIds === "" ? [] : terminalIds.split(",");
+		const ids = terminalIdKey === "" ? [] : terminalIdKey.split(",");
 		const ended = endedTerminalIds === "" ? [] : endedTerminalIds.split(",");
 		store.getState().reconcile(ids, ended);
-	}, [loaded, terminals.loaded, terminalIds, endedTerminalIds, store]);
+	}, [loaded, terminals.loaded, terminalIdKey, endedTerminalIds, store]);
+
+	// A file the URL named opens once the saved layout is in, because loading
+	// it would otherwise replace the tab this just opened.
+	useEffect(() => {
+		if (!loaded || !openPath) return;
+		if (!store.getState().openFile(openPath, openLine)) {
+			toast.show(tooManyTabsToast());
+		}
+	}, [loaded, openPath, openLine, store, toast]);
 
 	const newTerminal = useCallback(async (): Promise<Terminal | null> => {
 		try {
@@ -146,14 +164,20 @@ export function WorkArea({
 	function closeTab(tabId: string) {
 		const tab = layout.tabs.find((item) => item.id === tabId);
 		if (!tab) return;
-		for (const terminalId of leafIds(tab.root)) closeTerminal(terminalId);
+		// A file or diff tab holds no process, so closing it is just the tab.
+		if (tab.root.type === "file" || tab.root.type === "diff") {
+			store.getState().closeTab(tabId);
+			setClosingTabId(null);
+			return;
+		}
+		for (const terminalId of terminalIds(tab.root)) closeTerminal(terminalId);
 		setClosingTabId(null);
 	}
 
 	function requestCloseTab(tabId: string) {
 		const tab = layout.tabs.find((item) => item.id === tabId);
 		if (!tab) return;
-		const live = leafIds(tab.root).filter((id) => byId.get(id)?.endedAt == null);
+		const live = terminalIds(tab.root).filter((id) => byId.get(id)?.endedAt == null);
 		if (live.length > 1) {
 			setClosingTabId(tabId);
 			return;
@@ -185,7 +209,18 @@ export function WorkArea({
 	}
 
 	const items: TabItem[] = layout.tabs.map((tab) => {
-		const ids = leafIds(tab.root);
+		if (tab.root.type === "file" || tab.root.type === "diff") {
+			const path = tab.root.path;
+			return {
+				id: tab.id,
+				kind: tab.root.type,
+				// The strip has no room for a path, so the file name is the label.
+				label: path.split("/").pop() ?? path,
+				title: path,
+				testId: `tab-${tab.id}`,
+			};
+		}
+		const ids = terminalIds(tab.root);
 		const first = ids[0] ? byId.get(ids[0]) : undefined;
 		return {
 			id: tab.id,
@@ -245,7 +280,7 @@ export function WorkArea({
 			return;
 		}
 		const terminalId = String(over.data.current?.terminalId ?? "");
-		const tab = layout.tabs.find((item) => leafIds(item.root).includes(terminalId));
+		const tab = layout.tabs.find((item) => terminalIds(item.root).includes(terminalId));
 		if (!terminalId || terminalId === dragged || !tab) {
 			setDragTarget(null);
 			return;
@@ -376,6 +411,16 @@ export function WorkArea({
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
 							onSessionEnded={onSessionEnded}
 							onLeave={leaveTerminal}
+							onCloseTab={() => store.getState().closeTab(tab.id)}
+							pendingLine={pendingLine[tab.id]}
+							onOpenFile={(path) => {
+								// Opening from a diff hits the same tab cap as anywhere
+								// else, and must say so rather than do nothing.
+								if (!store.getState().openFile(path)) {
+									toast.show(tooManyTabsToast());
+								}
+							}}
+							consumePendingLine={() => store.getState().consumePendingLine(tab.id)}
 							dropTarget={
 								dragTarget?.kind === "pane" && dragTarget.tabId === tab.id
 									? { terminalId: dragTarget.terminalId, edge: dragTarget.edge }
@@ -393,7 +438,7 @@ export function WorkArea({
 				>
 					<ConfirmDialog
 						title="Close this tab?"
-						description={`It has ${closingTab ? leafIds(closingTab.root).length : 0} terminals. Closing the tab ends them all.`}
+						description={`It has ${closingTab ? terminalIds(closingTab.root).length : 0} terminals. Closing the tab ends them all.`}
 						confirmLabel="Close tab"
 						onConfirm={() => {
 							if (closingTabId) closeTab(closingTabId);

@@ -73,6 +73,8 @@ export default defineConfig({
 				"apps/workspace-agent/src/index.ts",
 				"apps/workspace-controller/src/index.ts",
 				"packages/auth/src/testing/mock-oidc-main.ts",
+				// Monaco worker and theme glue; only the browser exercises it.
+				"apps/web/src/editor/monaco.ts",
 			],
 			thresholds: {
 				lines: 80,
@@ -106,7 +108,7 @@ export default defineConfig({
 					name: "web",
 					environment: "jsdom",
 					setupFiles: ["./packages/ui/src/test-setup.ts"],
-					include: ["apps/web/src/**/*.test.tsx"],
+					include: ["apps/web/src/**/*.test.ts", "apps/web/src/**/*.test.tsx"],
 				},
 			},
 			{
