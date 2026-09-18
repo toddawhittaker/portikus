@@ -37,4 +37,30 @@ describe("TextField", () => {
 		expect(input.getAttribute("aria-describedby")).toBe("slug-hint slug-err");
 		expect(screen.getByText("No spaces.")).toBeDefined();
 	});
+
+	it("links its warning text without marking the input invalid", () => {
+		render(
+			<TextField
+				id="slug"
+				label="Folder name"
+				warning="A project called todo-api already exists"
+				hint="Lowercase letters."
+			/>,
+		);
+		const input = screen.getByLabelText("Folder name");
+		expect(input.getAttribute("aria-invalid")).toBeNull();
+		expect(input.getAttribute("data-warning")).toBe("true");
+		expect(input.getAttribute("aria-describedby")).toBe("slug-hint slug-warn");
+		expect(screen.getByText("A project called todo-api already exists")).toBeDefined();
+	});
+
+	it("shows the error and drops the warning when both are given", () => {
+		render(
+			<TextField id="slug" label="Folder name" error="No spaces." warning="Taken." />,
+		);
+		const input = screen.getByLabelText("Folder name");
+		expect(input.getAttribute("aria-invalid")).toBe("true");
+		expect(input.getAttribute("data-warning")).toBeNull();
+		expect(screen.queryByText("Taken.")).toBeNull();
+	});
 });
