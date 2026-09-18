@@ -66,8 +66,20 @@ expect "xclip reads a file argument"        "${osc_hi}" "$(run "${work}/xclip" "
 
 expect "xclip -o prints nothing"            "" "$(printf hi | run "${work}/xclip" -o)"
 expect "xsel -o prints nothing"             "" "$(printf hi | run "${work}/xsel" -o)"
-expect "xsel with no flags prints nothing"  "" "$(printf hi | run "${work}/xsel")"
-expect "xsel -b prints nothing"             "" "$(printf hi | run "${work}/xsel" -b)"
+# Real xsel copies when stdin is not a terminal, even with no -i, so the shim
+# must too: "echo hi | xsel -b" is how many programs put text on the clipboard.
+expect "xsel with piped stdin copies"       "${osc_hi}" "$(printf hi | run "${work}/xsel")"
+expect "xsel -b with piped stdin copies"    "${osc_hi}" "$(printf hi | run "${work}/xsel" -b)"
+
+# With a terminal on stdin and no flags, xsel reads the selection instead, and
+# this shim cannot read one, so it must print nothing.  That needs a real
+# terminal, which setsid cannot give us; script provides one.
+if command -v script > /dev/null 2>&1; then
+  tty_out="$(script -qec "'${work}/xsel' -b" /dev/null < /dev/null 2>/dev/null | tr -d '\r\n')"
+  expect "xsel -b on a terminal prints nothing" "" "${tty_out}"
+else
+  echo "SKIP  xsel -b on a terminal prints nothing (script is not installed)"
+fi
 
 printf hi | run "${work}/xclip" -selection clipboard > /dev/null
 expect "a copy exits 0" 0 $?

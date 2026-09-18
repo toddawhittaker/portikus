@@ -450,3 +450,57 @@ filesystem events and have every consumer subscribe to it. Half a day, best
 done as part of Epic 9 rather than on its own.
 
 **Source.** Epic 7 review, 2026-09-18.
+
+## One merged zip for a multi-file download
+
+**What.** Selecting several files or folders in the files pane and getting
+back one zip, instead of one download per selected row.
+
+**Why.** Epic 7.1's multi-row selection (#182–#186) can select many rows at
+once, but the download route only ever takes a single path, so a large
+selection opens one download per row, which the browser throttles and a
+student has to save one at a time.
+
+**What it would take.** A workspace-agent endpoint that takes a list of
+paths and streams one zip back, plus a control-plane route that relays it
+under the same authorization and byte caps as the existing download route.
+About a day, including the path-confinement checks each path needs on its
+own.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.
+
+## Source-line scroll mapping in the Markdown split view
+
+**What.** Scroll the preview to the line that corresponds to where the
+student is editing, instead of keeping the two sides at the same relative
+scroll position.
+
+**Why.** Epic 7.1 (#154) fixed split view drifting apart, by syncing the
+two sides' relative scroll position, but a long document with short and
+tall sections still leaves the preview a little off from the exact line
+being edited.
+
+**What it would take.** A source-map from Markdown source lines to
+rendered DOM nodes, built while parsing, and using it instead of the
+relative-position sync on both sides. Half a day; worth doing once a pilot
+student notices the drift on a long document.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.
+
+## Codex agent configuration, including its update-check setting
+
+**What.** The same kind of environment and configuration control Epic 7.1
+gave Claude Code's self-updater (`DISABLE_AUTOUPDATER=1` in
+`/etc/profile.d/portikus-agents.sh`, #127), extended to Codex and folded
+into whatever general agent-configuration story Epic 9 builds.
+
+**Why.** Codex has no equivalent environment variable; its update check is
+a config file setting (`check_for_update_on_startup` in
+`/etc/codex/config.toml`), which is one small piece of a larger question
+about how the platform configures every coding agent it ships, better
+answered once rather than agent by agent.
+
+**What it would take.** Part of Epic 9's agent configuration work; no
+separate estimate. Issue #129 stays open for it.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.
