@@ -20,3 +20,6 @@ export const FS_EVENT_BATCH_MS = 150;
 
 /** The most paths one batch lists before it is truncated. */
 export const MAX_FS_EVENT_PATHS = 200;
+
+/** The most event sockets one agent serves at once (SPEC.md §11.4). */
+export const MAX_EVENT_SOCKETS = 32;

@@ -15,12 +15,15 @@ export type FsListener = (event: FsEvent) => void;
 /** Names skipped outright; `.git` is handled separately (SPEC.md §11.4). */
 const SKIPPED = new Set(GENERATED_NAMES.filter((name) => name !== ".git"));
 
+/** How long a watcher may take to become ready before we give up. */
+const READY_TIMEOUT_MS = 10_000;
+
 /**
  * True for paths the watcher should not follow: anything inside a generated
  * directory, and inside `.git` everything below `objects`, so that changes to
  * `.git/index`, `.git/HEAD`, and `.git/refs` still arrive.
  */
-export function isIgnored(root: string, path: string): boolean {
+function isIgnored(root: string, path: string): boolean {
 	const rel = relative(root, path);
 	if (rel === "" || rel.startsWith("..")) return false;
 	const segments = rel.split(sep);
@@ -30,6 +33,12 @@ export function isIgnored(root: string, path: string): boolean {
 		if (segment === ".git" && segments[index + 1] === "objects") return true;
 	}
 	return false;
+}
+
+/** The errno code of a filesystem error, safe to log: it holds no path. */
+function errnoCode(error: unknown): string {
+	const code = (error as NodeJS.ErrnoException | null)?.code;
+	return typeof code === "string" ? code : "UNKNOWN";
 }
 
 interface Entry {
@@ -71,7 +80,12 @@ export class ProjectWatchers {
 		if (!project.exists) {
 			throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
 		}
-		const entry = await this.open(project.path);
+		let entry = await this.open(project.path);
+		// The watcher may have failed and been dropped while we waited, so a
+		// late subscriber must not attach to one nobody is watching any more.
+		if (this.entries.get(project.path) !== entry) {
+			entry = await this.open(project.path);
+		}
 		entry.listeners.add(listener);
 		return () => {
 			if (!entry.listeners.delete(listener)) return;
@@ -85,6 +99,16 @@ export class ProjectWatchers {
 			entry.listeners.clear();
 			this.close(entry);
 		}
+		// A watcher still starting would otherwise outlive the routes.
+		for (const pending of [...this.starting.values()]) {
+			void pending.then(
+				(entry) => {
+					entry.listeners.clear();
+					this.close(entry);
+				},
+				() => {},
+			);
+		}
 	}
 
 	private async open(root: string): Promise<Entry> {
@@ -93,30 +117,59 @@ export class ProjectWatchers {
 		const pending = this.starting.get(root);
 		if (pending) return pending;
 
-		const started = (async () => {
-			const watcher = watch(root, {
-				ignoreInitial: true,
-				ignored: (path: string) => isIgnored(root, path),
-			});
-			const entry: Entry = {
-				watcher,
-				root,
-				listeners: new Set(),
-				paths: new Set(),
-				git: false,
-				truncated: false,
-				timer: null,
-				failed: false,
-			};
-			watcher.on("all", (_event, path) => this.record(entry, path));
-			watcher.on("error", (error) => this.fail(entry, error));
-			await new Promise<void>((resolve) => watcher.once("ready", () => resolve()));
-			this.entries.set(root, entry);
-			return entry;
-		})().finally(() => this.starting.delete(root));
-
+		const started = this.start(root).finally(() => this.starting.delete(root));
 		this.starting.set(root, started);
 		return started;
+	}
+
+	private async start(root: string): Promise<Entry> {
+		const watcher = watch(root, {
+			ignoreInitial: true,
+			followSymlinks: false,
+			ignored: (path: string) => isIgnored(root, path),
+		});
+		const entry: Entry = {
+			watcher,
+			root,
+			listeners: new Set(),
+			paths: new Set(),
+			git: false,
+			truncated: false,
+			timer: null,
+			failed: false,
+		};
+		try {
+			// Chokidar never emits `ready` when the first scan fails, so wait on
+			// all three outcomes rather than only the happy one.
+			await new Promise<void>((resolve, reject) => {
+				const timer = setTimeout(
+					() => reject(new Error("watcher did not become ready")),
+					READY_TIMEOUT_MS,
+				);
+				// A start that is still waiting must not hold the process open.
+				timer.unref();
+				watcher.once("ready", () => {
+					clearTimeout(timer);
+					resolve();
+				});
+				watcher.once("error", (error) => {
+					clearTimeout(timer);
+					reject(error);
+				});
+			});
+		} catch (error) {
+			this.log.warn({ code: errnoCode(error) }, "project watcher failed to start");
+			this.log.debug(
+				{ error: error instanceof Error ? error.message : String(error) },
+				"project watcher start error",
+			);
+			await watcher.close().catch(() => {});
+			throw new AgentFailure("WATCH_FAILED", "could not watch project");
+		}
+		watcher.on("all", (_event, path) => this.record(entry, path));
+		watcher.on("error", (error) => this.fail(entry, error));
+		this.entries.set(root, entry);
+		return entry;
 	}
 
 	private record(entry: Entry, path: string): void {
@@ -132,6 +185,7 @@ export class ProjectWatchers {
 		}
 		if (entry.timer === null) {
 			entry.timer = setTimeout(() => this.flush(entry), FS_EVENT_BATCH_MS);
+			// A pending batch must not hold the process open at shutdown.
 			entry.timer.unref();
 		}
 	}
@@ -152,17 +206,23 @@ export class ProjectWatchers {
 	}
 
 	private fail(entry: Entry, error: unknown): void {
-		if (entry.failed) return;
-		entry.failed = true;
-		// Never log the paths themselves, only how many were pending.
-		this.log.warn(
-			{
-				pending: entry.paths.size,
-				error: error instanceof Error ? error.message : String(error),
-			},
-			"project watcher failed",
-		);
-		this.emit(entry, { type: "fs", paths: [], git: true, truncated: true });
+		if (!entry.failed) {
+			entry.failed = true;
+			// Never log the paths themselves, only how many were pending, and
+			// never the message, which carries the path (SPEC.md §24.6).
+			this.log.warn(
+				{ pending: entry.paths.size, code: errnoCode(error) },
+				"project watcher failed",
+			);
+			this.log.debug(
+				{ error: error instanceof Error ? error.message : String(error) },
+				"project watcher error",
+			);
+			this.emit(entry, { type: "fs", paths: [], git: true, truncated: true });
+		}
+		// Drop the broken watcher so the next subscriber builds a fresh one.
+		entry.listeners.clear();
+		this.close(entry);
 	}
 
 	private emit(entry: Entry, event: FsEvent): void {
@@ -178,7 +238,11 @@ export class ProjectWatchers {
 	private close(entry: Entry): void {
 		if (entry.timer !== null) clearTimeout(entry.timer);
 		entry.timer = null;
-		this.entries.delete(entry.root);
-		void entry.watcher.close();
+		if (this.entries.get(entry.root) === entry) this.entries.delete(entry.root);
+		entry.watcher
+			.close()
+			.catch((error) =>
+				this.log.warn({ code: errnoCode(error) }, "watcher close failed"),
+			);
 	}
 }

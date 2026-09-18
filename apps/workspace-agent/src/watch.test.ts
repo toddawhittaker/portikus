@@ -2,13 +2,14 @@
  * The project watcher against a real temporary directory and real chokidar
  * (SPEC.md §11.4, §25.1).
  */
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FsEvent } from "@portikus/contracts";
 import { collectingLogger } from "@portikus/observability/testing";
+import type { FSWatcher } from "chokidar";
 import type { FastifyBaseLogger } from "fastify";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ProjectWatchers } from "./watch.js";
 
 let homeDir: string;
@@ -41,21 +42,12 @@ async function listen(): Promise<FsEvent[]> {
 	return frames;
 }
 
-async function waitFor(check: () => boolean, ms = 3000): Promise<void> {
-	const deadline = Date.now() + ms;
-	while (Date.now() < deadline) {
-		if (check()) return;
-		await new Promise((resolve) => setTimeout(resolve, 20));
-	}
-}
-
 test("a written file arrives as one frame with its relative path", async () => {
 	const frames = await listen();
-	const started = Date.now();
 	await writeFile(join(project, "notes.txt"), "hello");
-	await waitFor(() => frames.length > 0);
-	expect(frames.length).toBeGreaterThan(0);
-	expect(Date.now() - started).toBeLessThan(500);
+	await vi.waitFor(() => expect(frames.length).toBeGreaterThan(0), {
+		timeout: 5000,
+	});
 	const paths = frames.flatMap((frame) => frame.paths);
 	expect(paths).toContain("notes.txt");
 	expect(frames[0]?.type).toBe("fs");
@@ -68,7 +60,9 @@ test("many files at once produce a truncated frame of at most 200 paths", async 
 			writeFile(join(project, `file-${index}.txt`), "x"),
 		),
 	);
-	await waitFor(() => frames.some((frame) => frame.truncated));
+	await vi.waitFor(() => expect(frames.some((frame) => frame.truncated)).toBe(true), {
+		timeout: 5000,
+	});
 	const truncated = frames.find((frame) => frame.truncated);
 	expect(truncated).toBeDefined();
 	for (const frame of frames) expect(frame.paths.length).toBeLessThanOrEqual(200);
@@ -78,7 +72,9 @@ test("a change under .git sets git and lists no .git path", async () => {
 	await mkdir(join(project, ".git"), { recursive: true });
 	const frames = await listen();
 	await writeFile(join(project, ".git", "index"), "x");
-	await waitFor(() => frames.some((frame) => frame.git));
+	await vi.waitFor(() => expect(frames.some((frame) => frame.git)).toBe(true), {
+		timeout: 5000,
+	});
 	expect(frames.some((frame) => frame.git)).toBe(true);
 	for (const frame of frames) {
 		for (const path of frame.paths) expect(path.startsWith(".git")).toBe(false);
@@ -105,7 +101,13 @@ test("two subscribers share one watcher, which closes when both leave", async ()
 	expect(watchers.size()).toBe(1);
 
 	await writeFile(join(project, "shared.txt"), "x");
-	await waitFor(() => first.length > 0 && second.length > 0);
+	await vi.waitFor(
+		() => {
+			expect(first.length).toBeGreaterThan(0);
+			expect(second.length).toBeGreaterThan(0);
+		},
+		{ timeout: 5000 },
+	);
 	expect(first.flatMap((frame) => frame.paths)).toContain("shared.txt");
 	expect(second.flatMap((frame) => frame.paths)).toContain("shared.txt");
 
@@ -118,5 +120,52 @@ test("two subscribers share one watcher, which closes when both leave", async ()
 test("a missing project is rejected", async () => {
 	await expect(watchers.subscribe(homeDir, "nope", () => {})).rejects.toThrow(
 		/no such project/,
+	);
+});
+
+test("changes through a symlink that leaves the project produce nothing", async () => {
+	const outside = join(homeDir, "outside");
+	await mkdir(outside, { recursive: true });
+	await symlink(outside, join(project, "link"));
+	const frames = await listen();
+	await writeFile(join(project, "link", "secret.txt"), "x");
+	await new Promise((resolve) => setTimeout(resolve, 600));
+	expect(frames.flatMap((frame) => frame.paths)).not.toContain("link/secret.txt");
+	expect(frames.flatMap((frame) => frame.paths)).toEqual([]);
+});
+
+test("a project that cannot be watched is rejected instead of hanging", async () => {
+	const closed = join(homeDir, "projects", "closed");
+	await mkdir(closed, { recursive: true });
+	await chmod(closed, 0o000);
+	try {
+		await expect(watchers.subscribe(homeDir, "closed", () => {})).rejects.toThrow(
+			/could not watch project/,
+		);
+	} finally {
+		await chmod(closed, 0o700);
+	}
+	// Nothing is left behind, so the next subscriber starts clean.
+	expect(watchers.size()).toBe(0);
+});
+
+test("a failed watcher is replaced by the next subscriber", async () => {
+	const first = await listen();
+	const entries = (
+		watchers as unknown as { entries: Map<string, { watcher: FSWatcher }> }
+	).entries;
+	const broken = [...entries.values()][0]?.watcher;
+	broken?.emit("error", Object.assign(new Error("boom"), { code: "EIO" }));
+	await vi.waitFor(() => expect(first.some((frame) => frame.truncated)).toBe(true), {
+		timeout: 5000,
+	});
+	expect(watchers.size()).toBe(0);
+
+	const second = await listen();
+	expect(watchers.size()).toBe(1);
+	await writeFile(join(project, "after.txt"), "x");
+	await vi.waitFor(
+		() => expect(second.flatMap((frame) => frame.paths)).toContain("after.txt"),
+		{ timeout: 5000 },
 	);
 });

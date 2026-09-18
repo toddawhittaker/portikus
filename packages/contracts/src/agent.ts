@@ -102,6 +102,7 @@ export const AgentErrorCode = z.enum([
 	"INVALID_URL",
 	"GIT_FAILED",
 	"WATCH_FAILED",
+	"EVENT_SOCKET_LIMIT",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FsEvent } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { buildServer } from "./server.js";
 
 const TOKEN = "c".repeat(64);
@@ -23,8 +23,8 @@ interface Sock {
 	close: () => Promise<void>;
 }
 
-async function openEvents(slug: string): Promise<Sock> {
-	const ws = new WebSocket(`ws://127.0.0.1:${port}/projects/${slug}/events`, {
+async function openEvents(slug: string, at = port): Promise<Sock> {
+	const ws = new WebSocket(`ws://127.0.0.1:${at}/projects/${slug}/events`, {
 		headers: { authorization: `Bearer ${TOKEN}` },
 	} as unknown as string[]);
 	const frames: unknown[] = [];
@@ -49,12 +49,17 @@ async function openEvents(slug: string): Promise<Sock> {
 	};
 }
 
-async function waitFor(check: () => boolean, ms = 3000): Promise<void> {
-	const deadline = Date.now() + ms;
-	while (Date.now() < deadline) {
-		if (check()) return;
-		await new Promise((resolve) => setTimeout(resolve, 20));
-	}
+/** The frame the agent sends once the watcher is live (SPEC.md §11.4). */
+async function waitForReady(socket: Sock): Promise<void> {
+	await vi.waitFor(() => expect(socket.frames.length).toBeGreaterThan(0), {
+		timeout: 5000,
+	});
+	expect(socket.frames[0]).toEqual({
+		type: "fs",
+		paths: [],
+		git: true,
+		truncated: true,
+	});
 }
 
 beforeAll(async () => {
@@ -74,17 +79,45 @@ afterAll(async () => {
 
 test("a file written in the project arrives as a frame", async () => {
 	const socket = await openEvents("demo");
-	// The upgrade completes before the watcher is ready, so keep touching the
-	// file until a frame comes back.
-	const writing = setInterval(() => {
-		void writeFile(join(homeDir, "projects", "demo", "hello.txt"), "hi");
-	}, 100);
-	await waitFor(() => socket.frames.length > 0);
-	clearInterval(writing);
-	const event = socket.frames[0] as FsEvent;
+	// The ready frame says the watcher is live, so one write is enough.
+	await waitForReady(socket);
+	await writeFile(join(homeDir, "projects", "demo", "hello.txt"), "hi");
+	await vi.waitFor(() => expect(socket.frames.length).toBeGreaterThan(1), {
+		timeout: 5000,
+	});
+	const event = socket.frames[1] as FsEvent;
 	expect(event.type).toBe("fs");
 	expect(event.paths).toContain("hello.txt");
 	await socket.close();
+});
+
+test("a bad slug closes the socket with 1008", async () => {
+	const socket = await openEvents("Bad_Slug");
+	expect(await socket.closed).toBe(1008);
+	expect(socket.frames[0]).toEqual({ type: "error", code: "INVALID_SLUG" });
+});
+
+test("a socket beyond the cap is refused", async () => {
+	const other = buildServer({
+		tokenPath: join(homeDir, "agent.token"),
+		homeDir,
+		maxEventSockets: 1,
+	});
+	await other.listen({ port: 0, host: "127.0.0.1" });
+	const otherPort = (other.server.address() as { port: number }).port;
+	try {
+		const first = await openEvents("demo", otherPort);
+		await waitForReady(first);
+		const second = await openEvents("demo", otherPort);
+		expect(await second.closed).toBe(1008);
+		expect(second.frames[0]).toEqual({
+			type: "error",
+			code: "EVENT_SOCKET_LIMIT",
+		});
+		await first.close();
+	} finally {
+		await other.close();
+	}
 });
 
 test("a missing project closes the socket with 4404", async () => {
