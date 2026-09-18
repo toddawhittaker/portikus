@@ -7,6 +7,7 @@ import {
 	newTerminal,
 	openFileTab,
 	query,
+	seedFile,
 	terminalIds,
 	WEB_ORIGIN,
 	waitForSavedLeaf,
@@ -781,5 +782,51 @@ test.describe("work area layout", () => {
 		);
 		await page.getByTestId(`tab-file:${path}`).click();
 		await expect(activeLine).toHaveText("200", { timeout: 30_000 });
+	});
+
+	/**
+	 * Closing a tab goes back to the tab that was selected before it, then to
+	 * the neighbour on the left (SPEC.md §8.3, issue #223).
+	 */
+	test("closing a tab selects the last tab that was selected", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Tab order" });
+		const paths = ["a.ts", "b.ts", "c.ts"];
+		for (const path of paths) {
+			await seedFile(student.workspaceId, project.slug, path, `// ${path}\n`);
+		}
+		await query("update projects set layout = $2 where id = $1", [
+			project.id,
+			JSON.stringify({
+				tabs: paths.map((path) => ({
+					id: `file:${path}`,
+					root: { type: "file", path },
+				})),
+			}),
+		]);
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(3, {
+			timeout: 15_000,
+		});
+
+		const tab = (path: string) => page.getByTestId(`tab-file:${path}`);
+		await tab("a.ts").click();
+		await expect(tab("a.ts")).toHaveAttribute("data-state", "active");
+		await tab("c.ts").click();
+		await expect(tab("c.ts")).toHaveAttribute("data-state", "active");
+
+		// c was selected last, so closing it goes back to a, not to b.
+		await page.getByTestId("tab-file:c.ts-close").click();
+		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(2);
+		await expect(tab("a.ts")).toHaveAttribute("data-state", "active");
+
+		// Nothing older is left, so the neighbour rule applies: a is leftmost,
+		// so the tab to its right takes over.
+		await page.getByTestId("tab-file:a.ts-close").click();
+		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(1);
+		await expect(tab("b.ts")).toHaveAttribute("data-state", "active");
 	});
 });

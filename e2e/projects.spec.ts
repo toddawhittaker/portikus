@@ -470,4 +470,45 @@ test.describe("projects", () => {
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(page.getByTestId("project-list")).toHaveCount(0);
 	});
+
+	test("the three-dots menu stays visible when the pane is dragged narrow", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, {
+			name: "A Very Long Project Name That Will Not Fit In A Narrow Pane",
+		});
+		await page.goto(workspacePath(student.workspaceId, project.id));
+
+		const menu = page.getByTestId(`project-menu-${project.id}`);
+		await expect(menu).toBeVisible();
+
+		// Drag the handle as far left as it goes; the pane stops at its minSize.
+		const handle = page.getByRole("separator", { name: "Resize project list" });
+		const grip = await handle.boundingBox();
+		if (!grip) throw new Error("the project pane handle has no box");
+		await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(0, grip.y + grip.height / 2, { steps: 10 });
+		await page.mouse.up();
+
+		const pane = page.getByRole("navigation", { name: "Projects" });
+		const paneBox = await pane.boundingBox();
+		const menuBox = await menu.boundingBox();
+		if (!paneBox || !menuBox) throw new Error("the pane or its menu has no box");
+		expect(menuBox.width).toBeGreaterThan(0);
+		expect(menuBox.x).toBeGreaterThanOrEqual(paneBox.x);
+		expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(
+			paneBox.x + paneBox.width + 1,
+		);
+
+		// The head's "New project" button stays reachable too.
+		const newBox = await page.getByTestId("new-project").boundingBox();
+		if (!newBox) throw new Error("the new project button has no box");
+		expect(newBox.x + newBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width + 1);
+
+		await menu.click();
+		await expect(page.getByRole("menuitem", { name: "Rename" })).toBeVisible();
+	});
 });

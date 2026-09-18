@@ -410,7 +410,12 @@ take-disk, and keep-editing (#160, #158). The selected tab, the editor
 cursor, selection, and scroll position now survive leaving the workspace
 route and returning; they live in this browser's `localStorage` and are
 never sent to the server (§7.5) (#161). Zoom is kept in memory for the
-session only and resets on reload (#162).
+session only and resets on reload (#162). Closing a tab now selects the
+tab that was selected most recently before it, the way a web browser
+does, falling back to the neighbour on the left, or on the right when the
+closed tab was the leftmost one; closing a tab that is not selected
+leaves the selection alone. The selection history lives in the layout
+store for this session only and is never saved (§8.3) (#223).
 
 **Markdown.** The three Markdown viewer defects from pilot feedback are
 fixed (§13.4): rendered lists show their markers again, split view keeps
@@ -427,6 +432,11 @@ source text through a custom visitor that never builds a DOM from it,
 Markdown images render with an http(s)-or-relative address allowlist, and
 a file the importer still cannot read drops the tab to the Code view with
 a short notice instead of losing keystrokes.
+
+**Projects pane.** A long project name no longer pushes the row's
+three-dots menu out of sight when the pane is dragged narrow. The name
+truncates with an ellipsis and the menu button keeps its width, in the
+pane header row as well as in each project row (#222).
 
 **Files pane.** The header's three-dots menu and an empty project's own
 empty state now offer New file and New folder on the project root, the
@@ -493,6 +503,15 @@ administrators see it, and opens `/admin` in a new browser tab with
 `rel="noopener"`, so the workspace tab's terminal sockets and disconnect
 grace countdown never start while an administrator works on settings
 (§6.4) (#164, closing #124).
+
+**Editor icons.** The find widget's next, previous and close buttons
+drew as empty rectangles. Monaco paints them with its "codicon" icon
+font, whose `@font-face` rule lives in a stylesheet only
+`editor.main.js` imports, and the workspace deliberately loads the
+editor API plus named features instead of `editor.main.js`. The
+codicon feature module is now loaded with the other features, so the
+built bundle carries the font's stylesheet as well as the font file
+(#219).
 
 **Tests and CI.** Two intermittently failing unit tests were made
 deterministic without changing what they assert: the workspace-agent git

@@ -603,6 +603,13 @@ Supported P0 tab types:
 
 Tabs must be closable and reorderable.
 
+Closing the selected tab selects the tab that was selected most recently before
+it, the way a web browser does. When no earlier selection is still open, the tab
+to the left takes over, or the tab to the right when the closed tab was the
+leftmost one. Closing a tab that is not selected does not change the selection.
+This selection history lasts only as long as the workspace is open in the
+browser; it is not saved.
+
 Terminal panes must additionally support splitting.
 
 ### 8.4 Right pane
