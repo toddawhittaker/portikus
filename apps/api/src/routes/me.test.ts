@@ -150,3 +150,42 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		wordWrap: true,
 	});
 });
+
+test.skipIf(skip)(
+	"an unknown key in the stored row does not lose the known ones",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "alice", jar);
+
+		await testDb.db
+			.updateTable("users")
+			.set({
+				editor_settings: JSON.stringify({
+					autoSave: false,
+					autoSaveDelaySeconds: 20,
+					wordWrap: true,
+					theme: "dark",
+				}),
+			})
+			.execute();
+
+		const read = await app.inject({
+			method: "GET",
+			url: "/me/settings",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		expect(read.json()).toEqual({
+			autoSave: false,
+			autoSaveDelaySeconds: 20,
+			wordWrap: true,
+		});
+
+		// A later change must not write the defaults over the other stored values.
+		const res = await put(jar, { wordWrap: false });
+		expect(res.json()).toEqual({
+			autoSave: false,
+			autoSaveDelaySeconds: 20,
+			wordWrap: false,
+		});
+	},
+);
