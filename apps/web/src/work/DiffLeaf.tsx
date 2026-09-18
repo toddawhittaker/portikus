@@ -1,10 +1,11 @@
 /**
- * A diff tab: one file's changes, HEAD against the working tree
- * (SPEC.md §8.3, §12.6). Staged and unstaged changes are one picture, so
- * there is no staging state to choose here.
+ * The diff view of a file tab: that file's changes, HEAD against the working
+ * tree (SPEC.md §8.3, §12.6). Staged and unstaged changes are one picture, so
+ * there is no staging state to choose here. The tab above owns the toggle
+ * between this view and the editor (issue #160).
  */
-import { Button, EmptyState } from "@portikus/ui";
-import { lazy, Suspense, useEffect } from "react";
+import { EmptyState } from "@portikus/ui";
+import { lazy, type ReactNode, Suspense, useEffect } from "react";
 import { DIFF_KIND, LETTER, WORD } from "../files/gitStatus.js";
 import { fileDownloadUrl } from "../files/queries.js";
 import { useGitDiff } from "../files/useGitDiff.js";
@@ -28,8 +29,8 @@ export interface DiffLeafProps {
 	projectId: string;
 	/** False while this tab is in the background. */
 	visible?: boolean;
-	/** Open the same path as a file tab. */
-	onOpenFile: (path: string) => void;
+	/** The tab's own controls, drawn in this view's header. */
+	toolbar?: ReactNode;
 }
 
 export function DiffLeaf({
@@ -37,7 +38,7 @@ export function DiffLeaf({
 	workspaceId,
 	projectId,
 	visible = true,
-	onOpenFile,
+	toolbar,
 }: DiffLeafProps) {
 	const diff = useGitDiff(workspaceId, projectId, path);
 
@@ -102,8 +103,8 @@ export function DiffLeaf({
 						</a>
 					}
 				>
-					{path} has more changes than the diff view can hold. Open it as a file with
-					the button above, or download it.
+					{path} has more changes than the diff view can hold. Switch to Edit above to
+					open it, or download it.
 				</EmptyState>
 			);
 		}
@@ -145,15 +146,7 @@ export function DiffLeaf({
 						{LETTER[kind]}
 					</span>
 				) : null}
-				{data?.status === "D" ? null : (
-					<Button
-						size="sm"
-						onClick={() => onOpenFile(path)}
-						data-testid={`diff-open-${path}`}
-					>
-						Open file
-					</Button>
-				)}
+				{toolbar}
 			</div>
 			{diff.error && data ? (
 				<div className="pk-file-banner" role="status" data-testid="diff-error">

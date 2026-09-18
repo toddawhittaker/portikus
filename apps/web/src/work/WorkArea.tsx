@@ -82,6 +82,7 @@ export function WorkArea({
 	const activeTabId = useLayout(store, (state) => state.activeTabId);
 	const focusedTerminalId = useLayout(store, (state) => state.focusedTerminalId);
 	const pendingLine = useLayout(store, (state) => state.pendingLine);
+	const pendingDiff = useLayout(store, (state) => state.pendingDiff);
 	const loaded = useLayoutPersistence(workspaceId, projectId, store, onSessionEnded);
 	const terminals = useTerminals(workspaceId, projectId, true, onSessionEnded);
 	const [closingTabId, setClosingTabId] = useState<string | null>(null);
@@ -115,7 +116,7 @@ export function WorkArea({
 	// it would otherwise replace the tab this just opened.
 	useEffect(() => {
 		if (!loaded || !openPath) return;
-		if (!store.getState().openFile(openPath, openLine)) {
+		if (!store.getState().openFile(openPath, { line: openLine })) {
 			toast.show(tooManyTabsToast());
 		}
 	}, [loaded, openPath, openLine, store, toast]);
@@ -413,14 +414,9 @@ export function WorkArea({
 							onLeave={leaveTerminal}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
 							pendingLine={pendingLine[tab.id]}
-							onOpenFile={(path) => {
-								// Opening from a diff hits the same tab cap as anywhere
-								// else, and must say so rather than do nothing.
-								if (!store.getState().openFile(path)) {
-									toast.show(tooManyTabsToast());
-								}
-							}}
 							consumePendingLine={() => store.getState().consumePendingLine(tab.id)}
+							pendingDiff={pendingDiff[tab.id]}
+							consumePendingDiff={() => store.getState().consumePendingDiff(tab.id)}
 							dropTarget={
 								dragTarget?.kind === "pane" && dragTarget.tabId === tab.id
 									? { terminalId: dragTarget.terminalId, edge: dragTarget.edge }

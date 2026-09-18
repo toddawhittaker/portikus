@@ -142,15 +142,38 @@ test("opening a file activates its tab, and opening it again just activates it",
 	expect(layout.getState().dirty).toBe(false);
 });
 
-test("a diff tab is separate from the file tab for the same path", () => {
+test("asking for the diff of an open file reuses that tab (issue #160)", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts");
-	layout.getState().openDiff("src/app.ts");
+	layout.getState().addTab("a");
+	layout.getState().openFile("src/app.ts", { diff: true });
 	expect(layout.getState().layout.tabs.map((tab) => tab.id)).toEqual([
 		"file:src/app.ts",
-		"diff:src/app.ts",
+		"a",
 	]);
-	expect(layout.getState().activeTabId).toBe("diff:src/app.ts");
+	expect(layout.getState().activeTabId).toBe("file:src/app.ts");
+	// The tab is told once to show its diff.
+	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
+	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(false);
+});
+
+test("a file opened for editing is not asked to show its diff", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(false);
+});
+
+test("a saved diff tab loads as the file's tab showing its diff", () => {
+	const layout = store();
+	layout.getState().load({
+		tabs: [{ id: "diff:src/app.ts", root: { type: "diff", path: "src/app.ts" } }],
+	});
+	expect(layout.getState().layout.tabs.map((tab) => tab.id)).toEqual([
+		"file:src/app.ts",
+	]);
+	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
+	// The old shape is gone, so the layout is worth saving again.
+	expect(layout.getState().dirty).toBe(true);
 });
 
 test("closing a file tab removes it and marks the layout dirty", () => {
@@ -165,7 +188,7 @@ test("closing a file tab removes it and marks the layout dirty", () => {
 
 test("the line a file was opened at is handed out once", () => {
 	const layout = store();
-	layout.getState().openFile("src/app.ts", 42);
+	layout.getState().openFile("src/app.ts", { line: 42 });
 	expect(layout.getState().consumePendingLine("file:src/app.ts")).toBe(42);
 	expect(layout.getState().consumePendingLine("file:src/app.ts")).toBeUndefined();
 	// A file opened with no line asks the editor for nothing.
@@ -175,24 +198,25 @@ test("the line a file was opened at is handed out once", () => {
 
 test("reopening a file with no line forgets the line it was opened at before", () => {
 	const layout = store();
-	layout.getState().openFile("src/app.ts", 42);
+	layout.getState().openFile("src/app.ts", { line: 42 });
 	layout.getState().openFile("src/app.ts");
 	expect(layout.getState().consumePendingLine("file:src/app.ts")).toBeUndefined();
 });
 
 test("closing a file tab forgets the line it was waiting to jump to", () => {
 	const layout = store();
-	layout.getState().openFile("src/app.ts", 42);
+	layout.getState().openFile("src/app.ts", { line: 42, diff: true });
 	layout.getState().closeTab("file:src/app.ts");
 	expect(layout.getState().pendingLine).toEqual({});
+	expect(layout.getState().pendingDiff).toEqual({});
 });
 
 test("opening a file is refused when the tab strip is full", () => {
 	const layout = store();
 	for (let i = 0; i < MAX_LAYOUT_TABS; i++) layout.getState().addTab(`t${i}`);
 	const before = layout.getState().layout;
-	expect(layout.getState().openFile("src/app.ts", 7)).toBe(false);
-	expect(layout.getState().openDiff("src/app.ts")).toBe(false);
+	expect(layout.getState().openFile("src/app.ts", { line: 7 })).toBe(false);
+	expect(layout.getState().openFile("src/app.ts", { diff: true })).toBe(false);
 	// The layout and the active tab are left exactly as they were.
 	expect(layout.getState().layout).toBe(before);
 	expect(layout.getState().activeTabId).toBe(`t${MAX_LAYOUT_TABS - 1}`);

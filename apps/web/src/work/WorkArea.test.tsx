@@ -227,22 +227,15 @@ test("a file the URL asks for says so when the tab strip is full", async () => {
 	expect(screen.queryByTestId("tab-file:src/new.ts")).toBeNull();
 });
 
-test("opening a file from a diff says so when the tab strip is full", async () => {
-	// SPEC.md §8.3: the tab cap must be reported, not swallowed.
+test("a saved diff tab loads as the file's own tab (issue #160)", async () => {
+	// SPEC.md §8.3: one path has one tab, and a diff is a view of that tab.
 	const tabs = [
+		{ id: "file:src/app.ts", root: { type: "file", path: "src/app.ts" } },
 		{ id: "diff:src/app.ts", root: { type: "diff", path: "src/app.ts" } },
-		...Array.from({ length: MAX_LAYOUT_TABS - 1 }, (_, index) => ({
-			id: `file:src/file${index}.ts`,
-			root: { type: "file", path: `src/file${index}.ts` },
-		})),
 	];
 	stubFetch({ layout: { tabs }, terminals: [] });
 	renderArea();
 
-	fireEvent.click(await screen.findByTestId("diff-open-src/app.ts"));
-
-	expect(
-		await screen.findByText("Too many tabs are open. Close one to open another."),
-	).toBeTruthy();
-	expect(screen.queryByTestId("tab-file:src/app.ts")).toBeNull();
+	expect(await screen.findByTestId("tab-file:src/app.ts")).toBeTruthy();
+	expect(screen.queryByTestId("tab-diff:src/app.ts")).toBeNull();
 });
