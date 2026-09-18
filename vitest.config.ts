@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { configDefaults, defineConfig } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
 const workspaceAliases = [
 	"auth",
@@ -39,43 +39,6 @@ workspaceAliases.unshift(
 		replacement: new URL("./packages/db/src/testing.ts", import.meta.url).pathname,
 	},
 );
-
-/**
- * The test files that talk to the shared PostgreSQL test database. They
- * truncate tables between tests, so they run one file at a time, in the
- * "node-db" project. Everything else runs in parallel in "node".
- *
- * A new test file belongs here if it imports `@portikus/db/testing`,
- * `createTestDb`, or `apps/api/src/test-support.ts`, or reads
- * TEST_DATABASE_URL. Otherwise leave it out and it runs in parallel; if it
- * needs a private resource, give that resource a name of its own (the
- * real-tmux tests each use their own tmux socket name, so they are safe to
- * run side by side).
- */
-const databaseTestFiles = [
-	"apps/api/src/log-level.test.ts",
-	"apps/api/src/routes/admin.test.ts",
-	"apps/api/src/routes/auth.test.ts",
-	"apps/api/src/routes/files.test.ts",
-	"apps/api/src/routes/git-search.test.ts",
-	"apps/api/src/routes/hardening.test.ts",
-	"apps/api/src/routes/me.test.ts",
-	"apps/api/src/routes/project-events.test.ts",
-	"apps/api/src/routes/projects.test.ts",
-	"apps/api/src/routes/terminal-real-agent.test.ts",
-	"apps/api/src/routes/terminal-ws.test.ts",
-	"apps/api/src/routes/terminals.test.ts",
-	"apps/api/src/routes/workspaces.test.ts",
-	"apps/api/src/routes/ws-isolation.test.ts",
-	"apps/api/src/routes/ws.test.ts",
-	"apps/api/src/server.test.ts",
-	"apps/worker/src/log-level.test.ts",
-	"apps/worker/src/reconcile.test.ts",
-	"apps/worker/src/seed.test.ts",
-	"packages/auth/src/plugin.integration.test.ts",
-	"packages/auth/src/sessions.test.ts",
-	"packages/db/src/db.test.ts",
-];
 
 export default defineConfig({
 	// Tests import workspace packages from source so `pnpm test` works on a
@@ -133,18 +96,6 @@ export default defineConfig({
 						"apps/workspace-agent/src/**/*.test.ts",
 						"apps/workspace-controller/src/**/*.test.ts",
 					],
-					exclude: [...configDefaults.exclude, ...databaseTestFiles],
-				},
-			},
-			{
-				extends: true,
-				test: {
-					name: "node-db",
-					environment: "node",
-					// These files share one database and truncate between
-					// tests, so they must not run in parallel.
-					fileParallelism: false,
-					include: databaseTestFiles,
 				},
 			},
 			{
