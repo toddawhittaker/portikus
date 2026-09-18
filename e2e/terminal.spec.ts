@@ -388,30 +388,28 @@ function manyLines(count: number): string[] {
 	);
 }
 
+/** How many browsers the agent has attached to a terminal. */
+async function attachmentsOf(terminalId: string): Promise<number> {
+	const response = await fetch(
+		`${FAKE_AGENT_URL}/__test/terminals/${terminalId}/attachments`,
+	);
+	const body = (await response.json()) as { attachments: number };
+	return body.attachments;
+}
+
 /**
- * Print lines until they show up. The agent only sends output to the
+ * Print lines and wait for them. The agent only sends output to the
  * attachments it has, and the browser's attachment lands a moment after the
- * page says it is connected, so the first print can fall in the gap.
+ * page says it is connected, so wait for the agent to have it first.
  */
 async function printUntilVisible(
 	page: Page,
 	terminalId: string,
 	lines: string[],
 ): Promise<void> {
-	const rows = rowsOf(page, terminalId);
-	const last = lines[lines.length - 1] ?? "";
-	await expect
-		.poll(
-			async () => {
-				const seen = (await rows.textContent()) ?? "";
-				if (seen.includes(last)) return seen;
-				await printLines(terminalId, lines);
-				await page.waitForTimeout(300);
-				return (await rows.textContent()) ?? "";
-			},
-			{ timeout: 20_000 },
-		)
-		.toContain(last);
+	await expect.poll(() => attachmentsOf(terminalId)).toBeGreaterThan(0);
+	await printLines(terminalId, lines);
+	await expect(rowsOf(page, terminalId)).toContainText(lines[lines.length - 1] ?? "");
 }
 
 /**
@@ -466,10 +464,16 @@ test("a reload shows earlier output above the prompt", async ({ page, context })
 });
 
 /** Everything the fake agent has been sent on any attachment. */
-async function framesSentToAgent(): Promise<string[]> {
+async function framesSentToAgent(terminalId: string): Promise<string[]> {
 	const response = await fetch(`${FAKE_AGENT_URL}/__test/received`);
-	const body = (await response.json()) as { received: string[] };
-	return body.received;
+	const body = (await response.json()) as {
+		received: { terminalId: string; text: string }[];
+	};
+	// One fake agent serves every workspace in the run, so take this
+	// terminal's frames only.
+	return body.received
+		.filter((frame) => frame.terminalId === terminalId)
+		.map((frame) => frame.text);
 }
 
 /** The escape a terminal sends for the down and up arrow keys. */
@@ -508,22 +512,22 @@ test("the wheel moves a full-screen program a line at a time", async ({
 	await printUntilVisible(page, terminalId, manyLines(200));
 
 	await setAlternateScreen(terminalId, true);
-	const before = (await framesSentToAgent()).length;
+	const before = (await framesSentToAgent(terminalId)).length;
 	await wheelOverTerminal(page, -1);
 	await expect
-		.poll(async () => (await framesSentToAgent()).slice(before).join(""))
+		.poll(async () => (await framesSentToAgent(terminalId)).slice(before).join(""))
 		.toMatch(ARROW_KEY);
 	// The program owns the screen, so nothing of the terminal's scrolled.
 	await expect(rows).toContainText("SCROLL-0200");
 
 	// Giving the screen back puts the wheel on the terminal's own output.
 	await setAlternateScreen(terminalId, false);
-	const afterLeaving = (await framesSentToAgent()).length;
+	const afterLeaving = (await framesSentToAgent(terminalId)).length;
 	await wheelOverTerminal(page, -80);
 	await expect(rows).toContainText("SCROLL-0001");
-	expect((await framesSentToAgent()).slice(afterLeaving).join("")).not.toMatch(
-		ARROW_KEY,
-	);
+	expect(
+		(await framesSentToAgent(terminalId)).slice(afterLeaving).join(""),
+	).not.toMatch(ARROW_KEY);
 });
 
 /**

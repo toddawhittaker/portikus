@@ -110,6 +110,8 @@ export async function startFakeAgent(
 	// same thing from tmux when a browser attaches (SPEC.md §9.1).
 	const history = new Map<string, string[]>();
 	const received: string[] = [];
+	// The same frames, with the terminal each arrived on.
+	const receivedByTerminal: { terminalId: string; text: string }[] = [];
 	const projects = new Map<string, { isGitRepo: boolean }>();
 	// One fake agent stands in for every workspace in an end-to-end run, so a
 	// token of the form "<token>:<key>" gets its own ~/projects listing and
@@ -334,8 +336,18 @@ export async function startFakeAgent(
 		}
 	}
 
-	/** Every frame the fake has been sent, so a browser test can read it. */
-	app.get("/__test/received", async () => ({ received }));
+	/**
+	 * Every frame the fake has been sent with the terminal it arrived on, so a
+	 * browser test can read its own terminal's frames. One fake agent serves
+	 * every workspace in a run, so an unscoped list would mix the workers up.
+	 */
+	app.get("/__test/received", async () => ({ received: receivedByTerminal }));
+
+	/** How many attachments the fake has for a terminal, so a test can wait. */
+	app.get("/__test/terminals/:id/attachments", async (request) => {
+		const id = (request.params as { id: string }).id;
+		return { attachments: attached.get(id)?.size ?? 0 };
+	});
 
 	// Say a full-screen program has taken the terminal, or given it back, the
 	// way the real agent does when it sees tmux's alternate screen.
@@ -391,6 +403,7 @@ export async function startFakeAgent(
 			socket.on("message", (data: Buffer) => {
 				const text = data.toString();
 				received.push(text);
+				receivedByTerminal.push({ terminalId: id, text });
 				const parsed = JSON.parse(text) as { type: string; cols?: number };
 				if (parsed.type === "resize") {
 					socket.send(JSON.stringify({ type: "size", cols: parsed.cols }));
