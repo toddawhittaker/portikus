@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { lstat, open, stat } from "node:fs/promises";
 import {
+	GIT_TIMEOUT_MS,
 	type GitDiff,
 	type GitEntry,
 	type GitStatus,
@@ -9,9 +10,6 @@ import {
 } from "@portikus/contracts";
 import { resolveInProject } from "./files.js";
 import { AgentFailure } from "./tmux.js";
-
-/** Reading Git state happens inside a request, so keep it short. */
-const GIT_TIMEOUT_MS = 10_000;
 
 /** How much of a side is sniffed for a NUL byte before it is called binary. */
 const SNIFF_BYTES = 8 * 1024;

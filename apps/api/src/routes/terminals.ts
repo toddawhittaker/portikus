@@ -429,7 +429,7 @@ export function registerTerminalRoutes(
 }
 
 /** Close codes a WebSocket peer is allowed to send on. */
-function safeCloseCode(code: number): number {
+export function safeCloseCode(code: number): number {
 	if (code === 1000 || (code >= 1001 && code <= 1003)) return code;
 	if (code >= 1007 && code <= 1011) return code;
 	if (code >= 3000 && code <= 4999) return code;
