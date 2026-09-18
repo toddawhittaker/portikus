@@ -39,6 +39,11 @@ code, and you do not decide whether a real failure is acceptable.
 - Never `git add -A`. Never put the word "git" in a branch name.
 - Never touch `main` except when told explicitly.
 
+## If the prompt points at a file that does not exist
+
+Say so in one line and continue with the rules in this file. Do not
+stop for it; a missing reference is not a blocker.
+
 ## Loop for each PR
 
 1. `gh pr view N --json state,mergeStateStatus,headRefOid,baseRefName`.
