@@ -147,8 +147,13 @@ test.describe("file editor", () => {
 
 		await expect(page.getByTestId("file-conflict")).toBeVisible({ timeout: 20_000 });
 		await expect(status(page)).toHaveText("Conflict");
+		// The two versions are shown side by side, not a bare prompt (#158).
+		const conflict = page.getByTestId(`conflict-editor-${PATH}`);
+		await expect(conflict).toBeVisible({ timeout: 30_000 });
+		await expect(conflict).toContainText("// theirs");
+		await expect(conflict).toContainText("// mine");
 
-		await page.getByTestId("take-theirs").click();
+		await page.getByTestId("take-disk").click();
 		await expect(lines(page)).toContainText("// theirs");
 		await expect(page.getByTestId("file-conflict")).toHaveCount(0);
 		await expect(status(page)).toHaveText("Saved");
@@ -205,6 +210,49 @@ test.describe("file editor", () => {
 			"href",
 			/download=1/,
 		);
+	});
+
+	test("a conflict can be put aside and the file saved later", async ({
+		page,
+		context,
+	}) => {
+		// Issue #158: the student can keep typing on their own side and
+		// resolve the conflict when they are ready.
+		const student = await createStudent(context);
+		const project = await openFileTab(page, student, "Keep editing", PATH, CONTENT);
+		await expect(lines(page)).toContainText("const answer = 42;", {
+			timeout: 60_000,
+		});
+
+		await lines(page).click();
+		await page.keyboard.press("End");
+		await page.keyboard.type(" // mine");
+		await expect(status(page)).toHaveText("Saved", { timeout: 15_000 });
+		await seedFile(
+			student.workspaceId,
+			project.slug,
+			PATH,
+			"const answer = 7; // theirs\n",
+		);
+		await page.keyboard.type("!");
+		await expect(page.getByTestId(`conflict-editor-${PATH}`)).toBeVisible({
+			timeout: 30_000,
+		});
+
+		// Back to the editor, with the student's own text still in it.
+		await page.getByTestId("keep-editing").click();
+		await expect(page.getByTestId(`conflict-editor-${PATH}`)).toHaveCount(0);
+		await expect(lines(page)).toContainText("// mine");
+		await expect(status(page)).toHaveText("Conflict");
+
+		// Their text goes to disk when they say so.
+		await page.getByTestId("keep-mine").click();
+		await expect(status(page)).toHaveText("Saved", { timeout: 15_000 });
+		await expect
+			.poll(async () => readSeededFile(student.workspaceId, project.slug, PATH), {
+				timeout: 15_000,
+			})
+			.toContain("// mine");
 	});
 
 	test("Ctrl+F finds a match and Ctrl+H replaces it", async ({ page, context }) => {

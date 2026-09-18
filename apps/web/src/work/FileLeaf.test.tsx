@@ -19,6 +19,10 @@ class FakeModel {
 	getValue() {
 		return this.value;
 	}
+	/** The conflict diff listens for the student's keystrokes this way. */
+	onDidChangeContent(listener: () => void) {
+		this.listeners.push(listener);
+	}
 	getFullModelRange() {
 		return { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 };
 	}
@@ -36,6 +40,10 @@ class FakeModel {
 }
 
 const state: { model: FakeModel | null } = { model: null };
+/** The two sides of the conflict diff, once it has been created. */
+const diffState: { models: { original: FakeModel; modified: FakeModel } | null } = {
+	models: null,
+};
 /** Where the editor was told to put the cursor, and what it scrolled to. */
 const cursorLines: number[] = [];
 const revealedLines: number[] = [];
@@ -65,12 +73,24 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 				const held = models.get(uri.value);
 				return held && !held.disposed ? held : null;
 			},
-			createModel: (value: string, _language: string, uri: { value: string }) => {
+			createModel: (value: string, _language: string, uri?: { value: string }) => {
 				const model = new FakeModel(value);
-				models.set(uri.value, model);
-				state.model = model;
+				// Only the file editor names its models; the diff editor's two
+				// models are nobody else's to find.
+				if (uri) {
+					models.set(uri.value, model);
+					state.model = model;
+				}
 				return model;
 			},
+			createDiffEditor: () => ({
+				setModel: (sides: { original: FakeModel; modified: FakeModel }) => {
+					diffState.models = sides;
+				},
+				saveViewState: () => null,
+				restoreViewState: () => {},
+				dispose: () => {},
+			}),
 			create: (_host: HTMLElement, options: { model: FakeModel }) => {
 				state.model = options.model;
 				return {
@@ -97,6 +117,16 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 function type(text: string) {
 	const model = state.model;
 	if (!model) throw new Error("the editor was never created");
+	act(() => {
+		model.value = text;
+		for (const listener of model.listeners) listener();
+	});
+}
+
+/** Type on the right-hand side of the conflict diff. */
+function typeInConflict(text: string) {
+	const model = diffState.models?.modified;
+	if (!model) throw new Error("the conflict diff was never created");
 	act(() => {
 		model.value = text;
 		for (const listener of model.listeners) listener();
@@ -197,6 +227,7 @@ beforeEach(() => {
 	cursorLines.length = 0;
 	revealedLines.length = 0;
 	state.model = null;
+	diffState.models = null;
 	gate = null;
 	seed = { text: "hello", etag: "etag-0" };
 	stubServer();
@@ -409,14 +440,14 @@ test("an unresolved conflict does not autosave", async () => {
 	expect(status().textContent).toBe("Conflict");
 });
 
-test("Take theirs replaces the local text with the file on disk", async () => {
+test("Take disk replaces the local text with the file on disk", async () => {
 	renderLeaf();
 	await findEditor();
 	type("mine");
 	seed = { text: "theirs", etag: "etag-other" };
 	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
 
-	screen.getByTestId("take-theirs").click();
+	screen.getByTestId("take-disk").click();
 	await waitFor(() => expect(state.model?.getValue()).toBe("theirs"));
 	expect(screen.queryByTestId("file-conflict")).toBeNull();
 	expect(status().textContent).toBe("Saved");
@@ -609,4 +640,103 @@ test("a file already open jumps to a line it is asked for again", async () => {
 
 	await waitFor(() => expect(cursorLines).toContain(9));
 	expect(revealedLines).toContain(9);
+});
+
+test("a real change on disk opens a diff of the two versions (issue #158)", async () => {
+	renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
+
+	await screen.findByTestId(`conflict-editor-${PATH}`);
+	// The version on disk is on the left and the student's is on the right.
+	expect(diffState.models?.original.getValue()).toBe("theirs");
+	expect(diffState.models?.modified.getValue()).toBe("mine");
+	// There is no keep-or-take prompt without a diff to read behind it.
+	expect(screen.getByTestId("keep-mine")).not.toBeNull();
+});
+
+test("editing the conflict diff keeps the text and saves it with Keep mine", async () => {
+	renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
+	await screen.findByTestId(`conflict-editor-${PATH}`);
+
+	const sent = requests.length;
+	typeInConflict("mine, merged by hand");
+	// Nothing is written while the conflict is unresolved (SPEC.md §13.3).
+	await new Promise((resolve) => setTimeout(resolve, 1200));
+	expect(requests).toHaveLength(sent);
+
+	screen.getByTestId("keep-mine").click();
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
+	expect(requests.at(-1)).toMatchObject({
+		ifMatch: "etag-other",
+		body: "mine, merged by hand",
+	});
+});
+
+test("Keep editing puts the conflict diff away and brings it back", async () => {
+	renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
+	await screen.findByTestId(`conflict-editor-${PATH}`);
+
+	fireEvent.click(screen.getByTestId("keep-editing"));
+	expect(screen.queryByTestId(`conflict-editor-${PATH}`)).toBeNull();
+	// The editor and the student's text are still there, and so is the offer.
+	expect(state.model?.getValue()).toBe("mine");
+	expect(screen.getByTestId("file-conflict")).not.toBeNull();
+
+	fireEvent.click(screen.getByTestId("keep-editing"));
+	expect(await screen.findByTestId(`conflict-editor-${PATH}`)).not.toBeNull();
+});
+
+test("Take disk closes the conflict diff", async () => {
+	renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
+	await screen.findByTestId(`conflict-editor-${PATH}`);
+
+	fireEvent.click(screen.getByTestId("take-disk"));
+	await waitFor(() => expect(state.model?.getValue()).toBe("theirs"));
+	expect(screen.queryByTestId(`conflict-editor-${PATH}`)).toBeNull();
+	expect(screen.queryByTestId("file-conflict")).toBeNull();
+});
+
+test("a tab asked for its diff shows it, and the toggle goes back (issue #160)", async () => {
+	renderWithQuery(
+		<FileLeaf
+			path={PATH}
+			workspaceId={WORKSPACE}
+			projectId={PROJECT}
+			onClose={() => {}}
+			pendingDiff={1}
+			consumePendingDiff={() => true}
+		/>,
+	);
+
+	// The diff view of this tab, not a second tab.
+	expect(await screen.findByTestId(`diff-pane-${PATH}`)).not.toBeNull();
+	expect(screen.getByTestId(`file-pane-${PATH}`).style.display).toBe("none");
+
+	fireEvent.click(screen.getAllByTestId(`file-view-edit-${PATH}`)[0] as HTMLElement);
+	expect(screen.queryByTestId(`diff-pane-${PATH}`)).toBeNull();
+	expect(screen.getByTestId(`file-pane-${PATH}`).style.display).toBe("");
+});
+
+test("a tab opened for editing shows the editor until Diff is clicked", async () => {
+	renderLeaf();
+	await findEditor();
+	expect(screen.queryByTestId(`diff-pane-${PATH}`)).toBeNull();
+
+	fireEvent.click(screen.getByTestId(`file-view-diff-${PATH}`));
+	expect(await screen.findByTestId(`diff-pane-${PATH}`)).not.toBeNull();
 });

@@ -5,19 +5,21 @@
  */
 import type { GitStatus } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store.js";
 import { ChangesList } from "./ChangesList.js";
 
 function show(status: GitStatus | undefined, error = false) {
+	const store = createLayoutStore();
 	render(
 		<ToastProvider>
-			<LayoutStoreContext.Provider value={createLayoutStore()}>
+			<LayoutStoreContext.Provider value={store}>
 				<ChangesList projectId="pid" status={status} error={error} />
 			</LayoutStoreContext.Provider>
 		</ToastProvider>,
 	);
+	return store;
 }
 
 const EMPTY: GitStatus = {
@@ -55,4 +57,36 @@ test("a repository with nothing changed says so", () => {
 	expect(screen.getByTestId("changes-empty").textContent).toBe(
 		"No changes since the last commit",
 	);
+});
+
+test("clicking a changed file opens its one tab, showing the diff", () => {
+	// Issue #160: a file already open is switched to its diff, not opened
+	// again, so one path never has two tabs (SPEC.md §8.3, §12.6).
+	const store = show({
+		...EMPTY,
+		entries: [{ path: "src/app.ts", x: ".", y: "M", unmerged: false }],
+	});
+	store.getState().openFile("src/app.ts");
+
+	fireEvent.click(screen.getByTestId("change-row-src/app.ts"));
+
+	expect(store.getState().layout.tabs.map((tab) => tab.id)).toEqual([
+		"file:src/app.ts",
+	]);
+	expect(store.getState().activeTabId).toBe("file:src/app.ts");
+	expect(store.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
+});
+
+test("clicking a changed file that is not open opens one tab in diff view", () => {
+	const store = show({
+		...EMPTY,
+		entries: [{ path: "src/app.ts", x: ".", y: "M", unmerged: false }],
+	});
+
+	fireEvent.click(screen.getByTestId("change-row-src/app.ts"));
+
+	expect(store.getState().layout.tabs.map((tab) => tab.id)).toEqual([
+		"file:src/app.ts",
+	]);
+	expect(store.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
 });

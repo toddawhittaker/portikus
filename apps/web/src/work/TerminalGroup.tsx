@@ -8,7 +8,6 @@ import { PaneHandle } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
-import { DiffLeaf } from "./DiffLeaf.js";
 import { FileLeaf } from "./FileLeaf.js";
 import { TerminalLeaf } from "./TerminalLeaf.js";
 
@@ -33,10 +32,12 @@ export interface TerminalGroupProps {
 	onCloseTab: () => void;
 	/** The line this tab was last asked to open at, or undefined for none. */
 	pendingLine: number | undefined;
-	/** Open one path as a file tab: a diff tab offers it (SPEC.md §12.6). */
-	onOpenFile: (path: string) => void;
 	/** Read and forget the line a file tab was opened at. */
 	consumePendingLine: () => number | undefined;
+	/** How many times this tab has been asked to show its diff. */
+	pendingDiff: number | undefined;
+	/** Read and forget whether a file tab was asked to show its diff. */
+	consumePendingDiff: () => boolean;
 	/** The pane a drag is hovering, and the zone it would drop into. */
 	dropTarget?: { terminalId: string; edge: DropEdge } | null;
 }
@@ -74,28 +75,22 @@ export function TerminalGroup(props: TerminalGroupProps) {
 				/>
 			);
 		}
-		if (node.type === "file") {
+		// A diff is a view of the file's tab, not a tab of its own (issue
+		// #160); a layout saved before that still names one, and it opens as
+		// the file it shows.
+		if (node.type === "file" || node.type === "diff") {
 			return (
 				<FileLeaf
 					key={node.path}
 					path={node.path}
 					workspaceId={props.workspaceId}
 					projectId={props.projectId}
+					visible={visible}
 					onClose={props.onCloseTab}
 					pendingLine={props.pendingLine}
 					consumePendingLine={props.consumePendingLine}
-				/>
-			);
-		}
-		if (node.type === "diff") {
-			return (
-				<DiffLeaf
-					key={node.path}
-					path={node.path}
-					workspaceId={props.workspaceId}
-					projectId={props.projectId}
-					visible={visible}
-					onOpenFile={props.onOpenFile}
+					pendingDiff={props.pendingDiff}
+					consumePendingDiff={props.consumePendingDiff}
 				/>
 			);
 		}

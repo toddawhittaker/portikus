@@ -14,6 +14,7 @@ import {
 	useFile,
 	useSaveFile,
 } from "../files/queries.js";
+import { DiffLeaf } from "./DiffLeaf.js";
 
 // Monaco is large, so it is its own chunk and is only fetched when a file tab
 // is actually opened (STACK.md §3).
@@ -27,6 +28,17 @@ const MarkdownPreview = lazy(() =>
 		default: module.MarkdownPreview,
 	})),
 );
+
+// The conflict view is the same Monaco diff editor the Changes view uses.
+const DiffViewer = lazy(() =>
+	import("../editor/DiffViewer.js").then((module) => ({ default: module.DiffViewer })),
+);
+
+/** The editor, or this file's changes against the last commit (issue #160). */
+type View = "edit" | "diff";
+
+/** The tab is hidden, not unmounted, so the editor keeps its undo history. */
+const HIDDEN = { display: "none" } as const;
 
 /** How long after the last keystroke the text is written (SPEC.md §13.5). */
 const AUTOSAVE_DELAY_MS = 750;
@@ -67,6 +79,12 @@ export interface FileLeafProps {
 	pendingLine?: number;
 	/** Take that line from the layout store, so it is acted on only once. */
 	consumePendingLine?: () => number | undefined;
+	/** Counts the times this tab was asked to show its diff (issue #160). */
+	pendingDiff?: number;
+	/** Take that request from the layout store, so it is acted on once. */
+	consumePendingDiff?: () => boolean;
+	/** False while this tab is in the background. */
+	visible?: boolean;
 }
 
 export function FileLeaf({
@@ -76,6 +94,9 @@ export function FileLeaf({
 	onClose,
 	pendingLine,
 	consumePendingLine,
+	pendingDiff,
+	consumePendingDiff,
+	visible = true,
 }: FileLeafProps) {
 	const file = useFile(workspaceId, projectId, path);
 	const save = useSaveFile(workspaceId, projectId, path);
@@ -86,7 +107,14 @@ export function FileLeaf({
 	const [etag, setEtag] = useState("");
 	const [dirty, setDirty] = useState(false);
 	const [status, setStatus] = useState<Status>("loading");
-	const [conflictEtag, setConflictEtag] = useState<string | null>(null);
+	// The version on disk that this tab's text no longer follows from, and
+	// what that version says. Null when there is nothing to resolve.
+	const [conflict, setConflict] = useState<{ etag: string; text: string } | null>(null);
+	// A conflict opens as a diff; the student can put it aside and carry on
+	// typing, and the banner brings the diff back (issue #158).
+	const [showConflict, setShowConflict] = useState(false);
+	// Which view this tab shows. It belongs to this browser and is not saved.
+	const [view, setView] = useState<View>("edit");
 	const markdown = isMarkdownPath(path);
 	// Markdown opens rendered; the choice belongs to this tab and is not saved.
 	const [mode, setMode] = useState<MarkdownMode>("preview");
@@ -125,6 +153,15 @@ export function FileLeaf({
 		}
 		setRevealReady(true);
 	}, [pendingLine]);
+
+	// Clicking a file in the Changes list puts its tab in diff view, whether
+	// the tab was already open or not, so one path never has two tabs.
+	const consumeDiff = useRef(consumePendingDiff);
+	consumeDiff.current = consumePendingDiff;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: pendingDiff is the trigger
+	useEffect(() => {
+		if (consumeDiff.current?.()) setView("diff");
+	}, [pendingDiff]);
 
 	// The save reads the newest text and etag, not the ones captured when the
 	// timer was set.
@@ -172,7 +209,7 @@ export function FileLeaf({
 			known.current.add(result.etag);
 			setEtag(result.etag);
 			setDeleted(false);
-			setConflictEtag(null);
+			setConflict(null);
 			// The student may have typed while that write was in the air. Only
 			// what was actually sent is saved; anything newer is still unsaved.
 			if (latest.current.text === body) {
@@ -185,7 +222,16 @@ export function FileLeaf({
 			}
 		} catch (error) {
 			if (error instanceof FileConflictError) {
-				setConflictEtag(error.etag);
+				// The refusal carries the version on disk but not its text, and
+				// the conflict view needs both sides.
+				const fresh = await file.refetch();
+				const disk = fresh.data;
+				const readable = disk !== undefined && !disk.binary && !disk.tooLarge;
+				setConflict({
+					etag: readable ? disk.etag : error.etag,
+					text: readable ? disk.text : "",
+				});
+				setShowConflict(true);
 				setStatus("conflict");
 				return;
 			}
@@ -217,13 +263,13 @@ export function FileLeaf({
 		setDirty(true);
 		// An unresolved conflict waits for the student; autosaving would only
 		// produce another 412 (SPEC.md §13.3).
-		if (conflictEtag !== null) return;
+		if (conflict !== null) return;
 		setStatus("unsaved");
 		scheduleSave();
 	}
 
 	function saveNow() {
-		if (!dirty || conflictEtag !== null) return;
+		if (!dirty || conflict !== null) return;
 		const current = latest.current;
 		if (current.text === null) return;
 		if (writing.current) {
@@ -250,7 +296,8 @@ export function FileLeaf({
 			if (text !== null && dirty) return;
 		}
 		if (text !== null && dirty) {
-			setConflictEtag(data.etag);
+			setConflict({ etag: data.etag, text: data.text });
+			setShowConflict(true);
 			setStatus("conflict");
 			return;
 		}
@@ -278,15 +325,17 @@ export function FileLeaf({
 		setEtag(fresh.data.etag);
 		setDirty(false);
 		setDeleted(false);
-		setConflictEtag(null);
+		setConflict(null);
+		setShowConflict(false);
 		setStatus("saved");
 	}
 
 	function keepMine() {
 		cancelTimer();
 		const current = latest.current;
-		if (current.text === null || conflictEtag === null) return;
-		void write(current.text, conflictEtag);
+		if (current.text === null || conflict === null) return;
+		setShowConflict(false);
+		void write(current.text, conflict.etag);
 	}
 
 	const viewer = data?.tooLarge === true || data?.binary === true;
@@ -410,63 +459,134 @@ export function FileLeaf({
 	}
 
 	const note = banner();
+	const inDiff = view === "diff";
+	// The version on disk on the left, the student's own text on the right and
+	// still editable (issue #158). The editor below is hidden rather than
+	// unmounted, so it keeps its undo history while the diff is up.
+	const conflictDiff =
+		conflict !== null && showConflict && text !== null ? (
+			<Suspense fallback={<p className="pk-file-note">Loading diff…</p>}>
+				<DiffViewer
+					path={path}
+					original={conflict.text}
+					modified={text}
+					version={conflict.etag}
+					editable
+					onChange={onChange}
+					testId={`conflict-editor-${path}`}
+				/>
+			</Suspense>
+		) : null;
+	const toggle = (
+		<fieldset className="pk-md-modes pk-view-modes">
+			<legend className="pk-visually-hidden">File view</legend>
+			<button
+				type="button"
+				aria-pressed={!inDiff}
+				onClick={() => setView("edit")}
+				data-testid={`file-view-edit-${path}`}
+			>
+				Edit
+			</button>
+			<button
+				type="button"
+				aria-pressed={inDiff}
+				onClick={() => setView("diff")}
+				data-testid={`file-view-diff-${path}`}
+			>
+				Diff
+			</button>
+		</fieldset>
+	);
 
 	return (
-		<div className="pk-doc-leaf pk-file-leaf" data-testid={`file-pane-${path}`}>
-			<div className="pk-file-header">
-				<span className="pk-file-path">{path}</span>
-				{markdown ? (
-					<fieldset className="pk-md-modes">
-						<legend className="pk-visually-hidden">Markdown view</legend>
-						{MARKDOWN_MODES.map((choice) => (
-							<button
-								key={choice.mode}
-								type="button"
-								aria-pressed={mode === choice.mode}
-								onClick={() => setMode(choice.mode)}
-								data-testid={`markdown-mode-${choice.mode}`}
-							>
-								{choice.label}
-							</button>
-						))}
-					</fieldset>
+		<>
+			<div
+				className="pk-doc-leaf pk-file-leaf"
+				data-testid={`file-pane-${path}`}
+				style={inDiff ? HIDDEN : undefined}
+			>
+				<div className="pk-file-header">
+					<span className="pk-file-path">{path}</span>
+					{/* Only the view on screen draws the toggle, so the controls
+					    are never there twice. */}
+					{inDiff ? null : toggle}
+					{markdown ? (
+						<fieldset className="pk-md-modes">
+							<legend className="pk-visually-hidden">Markdown view</legend>
+							{MARKDOWN_MODES.map((choice) => (
+								<button
+									key={choice.mode}
+									type="button"
+									aria-pressed={mode === choice.mode}
+									onClick={() => setMode(choice.mode)}
+									data-testid={`markdown-mode-${choice.mode}`}
+								>
+									{choice.label}
+								</button>
+							))}
+						</fieldset>
+					) : null}
+					{showStatus ? (
+						<span
+							className="pk-file-status"
+							data-testid={`file-status-${path}`}
+							data-status={status}
+						>
+							{STATUS_LABEL[status]}
+						</span>
+					) : null}
+				</div>
+				{conflict !== null ? (
+					<div className="pk-file-conflict" role="alert" data-testid="file-conflict">
+						<span>
+							This file changed on disk while you were editing it. The version on disk
+							is on the left and yours is on the right; you can edit yours and save
+							later.
+						</span>
+						<Button
+							size="sm"
+							variant="primary"
+							onClick={keepMine}
+							data-testid="keep-mine"
+						>
+							Keep mine
+						</Button>
+						<Button size="sm" onClick={() => void takeTheirs()} data-testid="take-disk">
+							Take disk
+						</Button>
+						<Button
+							size="sm"
+							onClick={() => setShowConflict((shown) => !shown)}
+							data-testid="keep-editing"
+						>
+							{showConflict ? "Keep editing" : "Show differences"}
+						</Button>
+					</div>
 				) : null}
-				{showStatus ? (
-					<span
-						className="pk-file-status"
-						data-testid={`file-status-${path}`}
-						data-status={status}
-					>
-						{STATUS_LABEL[status]}
-					</span>
+				{note !== null ? (
+					<div className="pk-file-banner" role="status" data-testid="file-banner">
+						{note}
+					</div>
 				) : null}
+				{conflictDiff}
+				<div
+					className="pk-file-body"
+					style={conflictDiff !== null ? HIDDEN : undefined}
+				>
+					{body()}
+				</div>
 			</div>
-			{conflictEtag !== null ? (
-				<div className="pk-file-conflict" role="alert" data-testid="file-conflict">
-					<span>
-						This file changed on disk while you were editing it. Keep your version or
-						take the one on disk.
-					</span>
-					<Button
-						size="sm"
-						variant="primary"
-						onClick={keepMine}
-						data-testid="keep-mine"
-					>
-						Keep mine
-					</Button>
-					<Button size="sm" onClick={() => void takeTheirs()} data-testid="take-theirs">
-						Take theirs
-					</Button>
-				</div>
+			{inDiff ? (
+				<DiffLeaf
+					path={path}
+					workspaceId={workspaceId}
+					projectId={projectId}
+					visible={visible}
+					toolbar={toggle}
+				/>
 			) : null}
-			{note !== null ? (
-				<div className="pk-file-banner" role="status" data-testid="file-banner">
-					{note}
-				</div>
-			) : null}
-			{body()}
-		</div>
+		</>
 	);
 }
 

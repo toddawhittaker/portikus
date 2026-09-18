@@ -1,5 +1,5 @@
 /**
- * The diff tab: what each Git status shows, the two cases that cannot be
+ * The diff view of a file tab: what each status shows, the two cases that cannot be
  * diffed, and what a live refresh does to the reader's place (SPEC.md §12.6).
  * Monaco is replaced by a fake, so these tests are about the states.
  */
@@ -99,16 +99,15 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-function renderLeaf(onOpenFile = vi.fn()) {
+function renderLeaf() {
 	renderWithQuery(
 		<DiffLeaf
 			path={PATH}
 			workspaceId={WORKSPACE}
 			projectId={PROJECT}
-			onOpenFile={onOpenFile}
+			toolbar={<button type="button">Edit</button>}
 		/>,
 	);
-	return onOpenFile;
 }
 
 test("a modified file shows both sides with no note", async () => {
@@ -171,16 +170,20 @@ test("a binary change offers a download instead of a diff", async () => {
 	expect(screen.queryByTestId(`diff-editor-${PATH}`)).toBeNull();
 });
 
-test("a diff past the limit explains it and offers the file instead", async () => {
+test("a diff past the limit explains it and offers a download", async () => {
 	answer = {
 		status: 200,
 		body: diff({ before: null, after: null, tooLarge: true }),
 	};
-	const onOpenFile = renderLeaf();
+	renderLeaf();
 	expect(await screen.findByText("This diff is too large to show here")).not.toBeNull();
 	expect(screen.getByTestId(`diff-download-${PATH}`)).not.toBeNull();
-	screen.getByTestId(`diff-open-${PATH}`).click();
-	expect(onOpenFile).toHaveBeenCalledWith(PATH);
+});
+
+test("the tab's own controls are drawn in the header", async () => {
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	expect(screen.getByRole("button", { name: "Edit" })).not.toBeNull();
 });
 
 test("a path the server refuses shows its message", async () => {
