@@ -258,6 +258,98 @@ test.describe("file tree", () => {
 			.toBe("# replaced\n");
 	});
 
+	/** SPEC.md §11.2, issue #182: several rows at once. */
+	test("Shift-click selects a run of files and deletes them together", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openProject(page, student.workspaceId, "Selecting");
+		await seedFile(student.workspaceId, project.slug, "a.txt", "a\n");
+		await seedFile(student.workspaceId, project.slug, "b.txt", "b\n");
+		await seedFile(student.workspaceId, project.slug, "c.txt", "c\n");
+		await expect(row(page, "c.txt")).toBeVisible({ timeout: 15_000 });
+
+		await row(page, "a.txt").click();
+		await row(page, "c.txt").click({ modifiers: ["Shift"] });
+
+		for (const name of ["a.txt", "b.txt", "c.txt"]) {
+			await expect(row(page, name)).toHaveAttribute("data-selected", "true");
+		}
+
+		await page.getByTestId("file-menu-b.txt").click();
+		await page.getByTestId("row-delete").click();
+
+		const dialog = page.getByTestId("dialog-delete-file");
+		await expect(dialog).toContainText("Delete 3 items");
+		await expect(dialog).toContainText("a.txt, b.txt, c.txt");
+		await page.getByTestId("dialog-confirm").click();
+
+		for (const name of ["a.txt", "b.txt", "c.txt"]) {
+			await expect(row(page, name)).toHaveCount(0);
+		}
+		// The rest of the project is untouched.
+		await expect(row(page, "README.md")).toBeVisible();
+	});
+
+	/** Issue #185: the icon says what kind of file the row holds. */
+	test("a markdown file and a TypeScript file get different icons", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Icons");
+		await row(page, "src").click();
+		await expect(row(page, "src/app.ts")).toBeVisible();
+
+		await expect(
+			row(page, "README.md").locator("[data-icon^=file]").first(),
+		).toHaveAttribute("data-icon", "file-markdown");
+		await expect(
+			row(page, "src/app.ts").locator("[data-icon^=file]").first(),
+		).toHaveAttribute("data-icon", "file-code");
+	});
+
+	/** Issue #183: an upload dragged over the pane says where it will land. */
+	test("dragging a file over the pane highlights the project root", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Dropping");
+
+		const body = page.getByTestId("file-tree-body");
+		await expect(body).not.toHaveAttribute("data-upload-root", "true");
+
+		const transfer = await page.evaluateHandle(() => {
+			const data = new DataTransfer();
+			data.items.add(new File(["hello"], "dropped.txt", { type: "text/plain" }));
+			return data;
+		});
+		await body.dispatchEvent("dragenter", { dataTransfer: transfer });
+
+		await expect(body).toHaveAttribute("data-upload-root", "true");
+		await expect(page.getByTestId("file-tree-root-hint")).toContainText(
+			"Drop to upload to Dropping",
+		);
+	});
+
+	/** Issue #186: the name field is ready to type into. */
+	test("the New file dialog takes typing straight away", async ({ page, context }) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Typing");
+
+		await page.getByTestId("files-new").click();
+		await page.getByTestId("files-new-file").click();
+		await expect(page.getByTestId("field-file-name")).toBeFocused();
+
+		await page.keyboard.type("straight.txt");
+		await expect(page.getByTestId("field-file-name")).toHaveValue("straight.txt");
+
+		await page.getByTestId("dialog-confirm").click();
+		await expect(row(page, "straight.txt")).toBeVisible();
+	});
+
 	test("deleting a directory says what goes with it", async ({ page, context }) => {
 		const student = await createStudent(context);
 		await openProject(page, student.workspaceId, "Deleting");
