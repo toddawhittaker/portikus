@@ -84,6 +84,37 @@ test.describe("projects", () => {
 		await expect(page.getByRole("menuitem", { name: "Initialize Git" })).toHaveCount(0);
 	});
 
+	test("a name that would clash warns before Create is pressed", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await createProject(student.workspaceId, { name: "Todo API" });
+		await page.goto(workspacePath(student.workspaceId));
+		await expect(page.getByTestId("empty-projects")).toHaveCount(0);
+
+		await startCreate(page, "New project");
+		// Matching is by slug, so a different capitalisation still clashes.
+		await page.getByTestId("field-name").fill("todo api");
+		await expect(page.getByTestId("name-clash")).toHaveText(
+			"A project called todo-api already exists",
+		);
+		await expect(page.getByTestId("dialog-confirm")).toBeDisabled();
+
+		await page.getByTestId("field-name").fill("Todo API 2");
+		await expect(page.getByTestId("name-clash")).toHaveCount(0);
+		await expect(page.getByTestId("dialog-confirm")).toBeEnabled();
+		await page.getByTestId("dialog-confirm").click();
+
+		const ids = await waitForProjectIds(student.workspaceId, 2);
+		expect(ids.length).toBe(2);
+		const [created] = await query<{ slug: string }>(
+			"select slug from projects where workspace_id = $1 and slug = $2",
+			[student.workspaceId, "todo-api-2"],
+		);
+		expect(created?.slug).toBe("todo-api-2");
+	});
+
 	test("a project made without Git offers Initialize Git, and it works", async ({
 		page,
 		context,
