@@ -26,7 +26,7 @@ export class AgentCallError extends Error {
 }
 
 /** How long any one agent call may take before it is treated as unreachable. */
-const AGENT_TIMEOUT_MS = 5000;
+export const AGENT_TIMEOUT_MS = 5000;
 
 /** Creating a project may clone a repository, which is slow. */
 const AGENT_CREATE_PROJECT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -181,7 +181,8 @@ export class AgentClient {
 		try {
 			return await fetch(`http://${this.address}:${this.port}${path}`, {
 				method,
-				headers: { authorization: this.authHeader(), ...options.headers },
+				// The token goes on last: a caller cannot override it.
+				headers: { ...options.headers, authorization: this.authHeader() },
 				body: options.body,
 				...(options.signal ? { signal: options.signal } : {}),
 				// Required by undici whenever the request body is a stream.
@@ -236,7 +237,7 @@ export class AgentClient {
  * container, so its response is untrusted and must never be buffered without
  * a limit (SPEC.md §24.6).
  */
-async function readJson(response: Response): Promise<unknown> {
+export async function readJson(response: Response): Promise<unknown> {
 	const body = response.body;
 	if (!body) return undefined;
 	const reader = body.getReader();
@@ -275,11 +276,6 @@ export async function readAgentError(response: Response): Promise<AgentCallError
 		parsed.success ? parsed.data.error.code : "AGENT_UNAVAILABLE",
 		parsed.success ? parsed.data.error.message : "The workspace agent failed",
 	);
-}
-
-/** Read a small JSON body from the agent, under the same cap as every call. */
-export async function readAgentJson(response: Response): Promise<unknown> {
-	return readJson(response);
 }
 
 /** Build a client for a workspace row, or null when it has no agent yet. */

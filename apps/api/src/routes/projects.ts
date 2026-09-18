@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { requireUser } from "@portikus/auth";
 import {
 	CreateProjectRequest,
+	contentDisposition,
 	DeleteProjectRequest,
 	DuplicateProjectRequest,
 	type Project,
@@ -22,11 +23,12 @@ import { z } from "zod";
 import { AgentCallError, type AgentClient } from "../agent-client.js";
 import type { ServerDeps } from "../server.js";
 import {
-	contentDisposition,
+	claimLongOperation,
 	ownedProject as ownedProjectRow,
 	ownedScope,
 	type ProjectRow,
 	projectPath,
+	releaseLongOperation,
 	requireAgent,
 	type Scope,
 	sendAgentError,
@@ -42,32 +44,6 @@ const ListQuery = z.object({ state: ProjectState.default("active") });
  * one page load into thousands of inserts (SPEC.md §24.6).
  */
 const MAX_DISCOVERED_PROJECTS = 200;
-
-/**
- * Workspaces with a long project operation (clone, template, duplicate,
- * download) running right now. Clone and copy hold a request open for
- * minutes, and two at once on one workspace race over the same directories.
- * This is per API process; the pilot runs exactly one (ADR 0010).
- */
-const longOperations = new Set<string>();
-
-/**
- * Claim the one long-operation slot for a workspace. Returns false after
- * answering 409, so the caller just returns.
- */
-function claimLongOperation(workspaceId: string, reply: FastifyReply): boolean {
-	if (longOperations.has(workspaceId)) {
-		sendError(
-			reply,
-			409,
-			"OPERATION_IN_PROGRESS",
-			"Another project operation is already running on this workspace.",
-		);
-		return false;
-	}
-	longOperations.add(workspaceId);
-	return true;
-}
 
 function toProject(
 	row: ProjectRow,
@@ -286,7 +262,7 @@ export function registerProjectRoutes(
 		} catch (error) {
 			return sendAgentError(reply, error);
 		} finally {
-			if (slow) longOperations.delete(scope.workspaceId);
+			if (slow) releaseLongOperation(scope.workspaceId);
 		}
 
 		const row = await db
@@ -444,7 +420,7 @@ export function registerProjectRoutes(
 		try {
 			return await deleteProjectTree(request, reply, scope, row, agent, user.id);
 		} finally {
-			longOperations.delete(scope.workspaceId);
+			releaseLongOperation(scope.workspaceId);
 		}
 	});
 
@@ -566,7 +542,7 @@ export function registerProjectRoutes(
 		} catch (error) {
 			return sendAgentError(reply, error);
 		} finally {
-			longOperations.delete(scope.workspaceId);
+			releaseLongOperation(scope.workspaceId);
 		}
 
 		// The copy is a project the student made here, not a discovered one.
@@ -639,7 +615,7 @@ export function registerProjectRoutes(
 		// Zipping runs while the response streams, so the slot is held until the
 		// response is done, not just until the headers come back.
 		if (!claimLongOperation(scope.workspaceId, reply)) return;
-		const release = () => longOperations.delete(scope.workspaceId);
+		const release = () => releaseLongOperation(scope.workspaceId);
 
 		let upstream: Response;
 		try {

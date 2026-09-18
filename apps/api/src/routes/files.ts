@@ -1,6 +1,7 @@
 import { basename } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import {
+	contentDisposition,
 	MAX_UPLOAD_BYTES,
 	MkdirRequest,
 	MoveRequest,
@@ -10,12 +11,18 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { type AgentClient, readAgentError, readAgentJson } from "../agent-client.js";
+import {
+	AGENT_TIMEOUT_MS,
+	type AgentClient,
+	readAgentError,
+	readJson,
+} from "../agent-client.js";
 import type { ServerDeps } from "../server.js";
 import {
-	contentDisposition,
+	claimLongOperation,
 	ownedProject,
 	ownedScope,
+	releaseLongOperation,
 	requireAgent,
 	sendAgentError,
 	sendError,
@@ -23,13 +30,37 @@ import {
 
 const ProjectParam = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 
-/** A small file operation is a local HTTP call and should be quick. */
-const AGENT_TIMEOUT_MS = 5000;
-
 /** What a route needs once the caller has been shown to own the project. */
 interface FileScope {
 	agent: AgentClient;
 	slug: string;
+}
+
+/**
+ * A budget for the agent's response headers alone. Once headers are back the
+ * body may take as long as it likes, but a wedged agent must not hold a
+ * control-plane connection open (SPEC.md §24.6).
+ */
+function headersDeadline() {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), AGENT_TIMEOUT_MS);
+	return {
+		signal: controller.signal,
+		abort: () => controller.abort(),
+		clear: () => clearTimeout(timer),
+	};
+}
+
+/**
+ * The content type the browser is given. Student content must never be
+ * served as HTML on the control-plane origin, so the agent's own value is
+ * never relayed: it is plain text or bytes, nothing else (SPEC.md §24.3).
+ */
+function pinnedType(value: string | null): string {
+	const media = (value ?? "").split(";")[0]?.trim().toLowerCase();
+	return media === "text/plain"
+		? "text/plain; charset=utf-8"
+		: "application/octet-stream";
 }
 
 /**
@@ -85,7 +116,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 		async function scoped(
 			request: FastifyRequest,
 			reply: FastifyReply,
-		): Promise<FileScope | null> {
+		): Promise<(FileScope & { workspaceId: string }) | null> {
 			const params = ProjectParam.safeParse(request.params);
 			if (!params.success) {
 				sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
@@ -97,7 +128,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 			if (!row) return null;
 			const agent = requireAgent(scope, reply);
 			if (!agent) return null;
-			return { agent, slug: row.slug };
+			return { agent, slug: row.slug, workspaceId: scope.workspaceId };
 		}
 
 		/** Turn an unsuccessful agent response into the browser's error. */
@@ -117,13 +148,18 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 			const path = queryPath(request, reply, { allowRoot: true });
 			if (path === null) return;
 
-			const response = await scope.agent.fetchRaw(
-				"GET",
-				agentUrl(scope.slug, "tree", { path }),
-				{ signal: AbortSignal.timeout(AGENT_TIMEOUT_MS) },
-			);
+			let response: Response;
+			try {
+				response = await scope.agent.fetchRaw(
+					"GET",
+					agentUrl(scope.slug, "tree", { path }),
+					{ signal: AbortSignal.timeout(AGENT_TIMEOUT_MS) },
+				);
+			} catch (error) {
+				return sendAgentError(reply, error);
+			}
 			if (!response.ok) return relayFailure(reply, response);
-			const parsed = TreeResponse.safeParse(await readAgentJson(response));
+			const parsed = TreeResponse.safeParse(await readJson(response));
 			if (!parsed.success) {
 				return sendError(
 					reply,
@@ -143,13 +179,42 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 			if (path === null) return;
 			const download = (request.query as { download?: string }).download === "1";
 
-			const response = await scope.agent.fetchRaw(
-				"GET",
-				agentUrl(scope.slug, "file", download ? { path, download: "1" } : { path }),
-			);
-			if (!response.ok) return relayFailure(reply, response);
+			// A download streams for as long as the file takes, so it shares the
+			// one long-operation slot with the zip download.
+			if (download && !claimLongOperation(scope.workspaceId, reply)) return;
+			let held = download;
+			const release = () => {
+				if (!held) return;
+				held = false;
+				releaseLongOperation(scope.workspaceId);
+			};
+
+			const deadline = headersDeadline();
+			let response: Response;
+			try {
+				response = await scope.agent.fetchRaw(
+					"GET",
+					agentUrl(scope.slug, "file", download ? { path, download: "1" } : { path }),
+					{ signal: deadline.signal },
+				);
+			} catch (error) {
+				release();
+				return sendAgentError(reply, error);
+			} finally {
+				deadline.clear();
+			}
+			if (!response.ok) {
+				release();
+				return relayFailure(reply, response);
+			}
 			if (!response.body) {
-				return sendError(reply, 503, "AGENT_UNAVAILABLE", "The file was empty.");
+				release();
+				return sendError(
+					reply,
+					503,
+					"AGENT_UNAVAILABLE",
+					"The workspace agent sent no response body.",
+				);
 			}
 
 			const etag = response.headers.get("etag");
@@ -161,8 +226,11 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 				// escaped here rather than anywhere near a shell.
 				reply.header("content-disposition", contentDisposition(basename(path)));
 			}
-			reply.type(response.headers.get("content-type") ?? "application/octet-stream");
-			return reply.send(Readable.fromWeb(response.body as never));
+			reply.type(pinnedType(response.headers.get("content-type")));
+			const stream = Readable.fromWeb(response.body as never);
+			stream.on("close", release);
+			stream.on("error", release);
+			return reply.send(stream);
 		});
 
 		// PUT file -- a conditional write, streamed through (SPEC.md §13.5). It
@@ -175,50 +243,80 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 				done(null, payload);
 			});
 
-			write.put(
-				"/workspaces/:id/projects/:pid/file",
-				// Uploads are the largest body this route accepts; the agent
-				// applies the smaller editor cap itself (SPEC.md §11.2, §13.5).
-				{ bodyLimit: MAX_UPLOAD_BYTES },
-				async (request, reply) => {
-					const scope = await scoped(request, reply);
-					if (!scope) return;
-					const path = queryPath(request, reply, { allowRoot: false });
-					if (path === null) return;
+			write.put("/workspaces/:id/projects/:pid/file", async (request, reply) => {
+				const scope = await scoped(request, reply);
+				if (!scope) return;
+				const path = queryPath(request, reply, { allowRoot: false });
+				if (path === null) return;
 
-					const headers: Record<string, string> = {};
-					for (const name of ["if-match", "if-none-match", "content-type"]) {
-						const value = request.headers[name];
-						if (typeof value === "string") headers[name] = value;
-					}
+				const headers: Record<string, string> = {};
+				for (const name of ["if-match", "if-none-match", "content-type"]) {
+					const value = request.headers[name];
+					if (typeof value === "string") headers[name] = value;
+				}
 
-					const body = request.body as Readable | undefined;
-					const response = await scope.agent.fetchRaw(
+				// The control plane counts the bytes itself, so the cap holds
+				// whatever the agent does with the stream (SPEC.md §11.2).
+				const deadline = headersDeadline();
+				let sent = 0;
+				let overCap = false;
+				const counter = new Transform({
+					transform(chunk: Buffer, _encoding, done) {
+						sent += chunk.length;
+						if (sent > MAX_UPLOAD_BYTES) {
+							overCap = true;
+							deadline.abort();
+							done();
+							return;
+						}
+						done(null, chunk);
+					},
+				});
+
+				let response: Response;
+				try {
+					response = await scope.agent.fetchRaw(
 						"PUT",
 						agentUrl(scope.slug, "file", { path }),
 						{
 							headers,
-							body: body
-								? (Readable.toWeb(body) as ReadableStream<Uint8Array>)
-								: Buffer.alloc(0),
+							body: Readable.toWeb(
+								request.raw.pipe(counter),
+							) as ReadableStream<Uint8Array>,
+							signal: deadline.signal,
 						},
 					);
-					if (!response.ok) return relayFailure(reply, response);
+				} catch (error) {
+					if (overCap) return tooLarge(reply);
+					return sendAgentError(reply, error);
+				} finally {
+					deadline.clear();
+				}
+				if (overCap) return tooLarge(reply);
+				if (!response.ok) return relayFailure(reply, response);
 
-					const parsed = WriteFileResponse.safeParse(await readAgentJson(response));
-					if (!parsed.success) {
-						return sendError(
-							reply,
-							503,
-							"AGENT_UNAVAILABLE",
-							"The workspace agent did not confirm the write.",
-						);
-					}
-					reply.header("etag", parsed.data.etag);
-					return parsed.data;
-				},
-			);
+				const parsed = WriteFileResponse.safeParse(await readJson(response));
+				if (!parsed.success) {
+					return sendError(
+						reply,
+						503,
+						"AGENT_UNAVAILABLE",
+						"The workspace agent did not confirm the write.",
+					);
+				}
+				reply.header("etag", parsed.data.etag);
+				return parsed.data;
+			});
 		});
+
+		function tooLarge(reply: FastifyReply) {
+			return sendError(
+				reply,
+				413,
+				"FILE_TOO_LARGE",
+				"That file is larger than the upload limit.",
+			);
+		}
 
 		instance.delete("/workspaces/:id/projects/:pid/file", async (request, reply) => {
 			const scope = await scoped(request, reply);
@@ -226,12 +324,19 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 			const path = queryPath(request, reply, { allowRoot: false });
 			if (path === null) return;
 
-			const response = await scope.agent.fetchRaw(
-				"DELETE",
-				agentUrl(scope.slug, "file", { path }),
-				{ signal: AbortSignal.timeout(AGENT_TIMEOUT_MS) },
-			);
+			let response: Response;
+			try {
+				response = await scope.agent.fetchRaw(
+					"DELETE",
+					agentUrl(scope.slug, "file", { path }),
+					{ signal: AbortSignal.timeout(AGENT_TIMEOUT_MS) },
+				);
+			} catch (error) {
+				return sendAgentError(reply, error);
+			}
 			if (!response.ok) return relayFailure(reply, response);
+			// Nothing here reads the body, so give the connection back.
+			await response.body?.cancel();
 			return reply.status(204).send();
 		});
 
@@ -243,16 +348,18 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 				return sendError(reply, 400, "VALIDATION_FAILED", "that path is not valid");
 			}
 
-			const response = await scope.agent.fetchRaw(
-				"POST",
-				agentUrl(scope.slug, "mkdir"),
-				{
+			let response: Response;
+			try {
+				response = await scope.agent.fetchRaw("POST", agentUrl(scope.slug, "mkdir"), {
 					headers: { "content-type": "application/json" },
 					body: Buffer.from(JSON.stringify(body.data)),
 					signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
-				},
-			);
+				});
+			} catch (error) {
+				return sendAgentError(reply, error);
+			}
 			if (!response.ok) return relayFailure(reply, response);
+			await response.body?.cancel();
 			return reply.status(201).send({ ok: true });
 		});
 
@@ -264,16 +371,18 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 				return sendError(reply, 400, "VALIDATION_FAILED", "that path is not valid");
 			}
 
-			const response = await scope.agent.fetchRaw(
-				"POST",
-				agentUrl(scope.slug, "move"),
-				{
+			let response: Response;
+			try {
+				response = await scope.agent.fetchRaw("POST", agentUrl(scope.slug, "move"), {
 					headers: { "content-type": "application/json" },
 					body: Buffer.from(JSON.stringify(body.data)),
 					signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
-				},
-			);
+				});
+			} catch (error) {
+				return sendAgentError(reply, error);
+			}
 			if (!response.ok) return relayFailure(reply, response);
+			await response.body?.cancel();
 			return reply.status(204).send();
 		});
 	});

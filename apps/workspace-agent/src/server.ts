@@ -7,6 +7,7 @@ import {
 	AgentDuplicateProjectRequest,
 	type AgentErrorCode,
 	AgentRenameProjectRequest,
+	contentDisposition,
 	MAX_TERMINALS_PER_WORKSPACE,
 	MkdirRequest,
 	MoveRequest,
@@ -565,26 +566,6 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	});
 
 	return app;
-}
-
-/**
- * A download header for a name the student chose. Control characters would
- * let a file name inject a header line, so they are dropped, the quoted form
- * is plain ASCII, and the real name follows RFC 5987 encoded as UTF-8.
- */
-function contentDisposition(name: string): string {
-	const stripped = Array.from(name)
-		.filter((char) => {
-			const code = char.codePointAt(0) ?? 0;
-			return code >= 0x20 && code !== 0x7f;
-		})
-		.join("");
-	const ascii = stripped.replace(/[^\u0020-\u007e]/g, "?").replace(/["\\]/g, "");
-	const encoded = encodeURIComponent(stripped).replace(
-		/['()*]/g,
-		(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
-	);
-	return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
 /** Strip the quotes an HTTP entity tag is usually sent with. */
