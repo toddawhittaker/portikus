@@ -59,3 +59,11 @@ if (!Element.prototype.hasPointerCapture) {
 if (!Element.prototype.scrollIntoView) {
 	Element.prototype.scrollIntoView = () => {};
 }
+
+// jsdom has no canvas, and xterm.js measures fonts through one. Returning null
+// makes it fall back instead of printing a "Not implemented" warning.
+HTMLCanvasElement.prototype.getContext = (() =>
+	null) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+
+// jsdom has no layout, so TanStack Router's scroll restoration has nothing to do.
+window.scrollTo = (() => {}) as unknown as typeof window.scrollTo;
