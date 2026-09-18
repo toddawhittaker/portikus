@@ -104,3 +104,88 @@ export function canOpenInNewTab(url: string): boolean {
 	if (host.endsWith(".localhost")) return false;
 	return true;
 }
+
+/**
+ * How many rows one wrapped URL may span before the search gives up. A
+ * 200-character URL in an 80-column pane takes three; the cap keeps a screen
+ * full of long lines from being joined into one string on every hover.
+ */
+const MAX_WRAPPED_ROWS = 20;
+
+/** URLs as a terminal prints them: no spaces, no quotes, no angle brackets. */
+const URL_IN_TEXT = /https?:\/\/[^\s"'`<>]+/g;
+
+/** Punctuation that ends a sentence rather than the URL inside it. */
+const TRAILING_PUNCTUATION = /[.,;:!?)\]}'"]+$/;
+
+/** A link over a range of terminal cells, in xterm.js coordinates. */
+export interface WrappedLink {
+	text: string;
+	range: {
+		start: { x: number; y: number };
+		end: { x: number; y: number };
+	};
+}
+
+/**
+ * URLs on the given row that the terminal wrapped across rows (SPEC.md §14.9).
+ *
+ * tmux repaints a wrapped line as separate rows without the marker that says
+ * they belong together, so xterm.js sees two fragments and underlines neither.
+ * A row that fills the whole width is taken to continue on the next one, which
+ * is how the rows got there in the first place, and the joined text is
+ * searched for URLs. Only links that really do span more than one row are
+ * returned; single-row URLs are left to the web-links addon.
+ *
+ * `row` returns a row's text with trailing blanks removed, or null when there
+ * is no such row. Rows are numbered from 1, as xterm.js numbers them.
+ */
+export function wrappedUrlsOnRow(
+	lineNumber: number,
+	row: (y: number) => string | null,
+	cols: number,
+): WrappedLink[] {
+	if (cols <= 0) return [];
+	const isFull = (y: number): boolean => (row(y)?.length ?? 0) >= cols;
+
+	// Walk back to the first row of the wrapped line, then forward over it.
+	let first = lineNumber;
+	while (first > 1 && isFull(first - 1) && lineNumber - first < MAX_WRAPPED_ROWS) {
+		first -= 1;
+	}
+	const rows: { y: number; start: number; length: number }[] = [];
+	let text = "";
+	for (let y = first; y - first < MAX_WRAPPED_ROWS; y += 1) {
+		const line = row(y);
+		if (line === null) break;
+		rows.push({ y, start: text.length, length: line.length });
+		text += line;
+		if (!isFull(y)) break;
+	}
+	if (rows.length < 2) return [];
+
+	/** The cell an offset into the joined text sits in. */
+	const cellAt = (offset: number): { x: number; y: number } => {
+		const place =
+			rows.find((r) => offset >= r.start && offset < r.start + r.length) ??
+			rows[rows.length - 1];
+		if (!place) return { x: 1, y: lineNumber };
+		return { x: offset - place.start + 1, y: place.y };
+	};
+
+	const links: WrappedLink[] = [];
+	const pattern = new RegExp(URL_IN_TEXT.source, "g");
+	let found = pattern.exec(text);
+	while (found !== null) {
+		const url = found[0].replace(TRAILING_PUNCTUATION, "");
+		const start = cellAt(found.index);
+		const end = cellAt(found.index + url.length - 1);
+		// A URL that fits on one row is the web-links addon's job, and one that
+		// does not reach this row is another row's link.
+		if (end.y > start.y && lineNumber >= start.y && lineNumber <= end.y) {
+			links.push({ text: url, range: { start, end } });
+		}
+		found = pattern.exec(text);
+	}
+	return links;
+}
