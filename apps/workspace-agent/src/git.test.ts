@@ -257,16 +257,18 @@ test("ahead and behind are reported against an upstream", async () => {
 	await writeFile(join(project, "a.txt"), "one\n");
 	await commitAll(project, "first");
 	const bare = join(homeDir, "remote.git");
-	await git(["init", "--bare", bare], homeDir);
+	// The bare repo needs main as its HEAD too, or a clone of it lands on the
+	// host git's default branch instead and pushes there.
+	await git(["init", "--bare", "--initial-branch=main", bare], homeDir);
 	await git(["remote", "add", "origin", bare], project);
 	await git(["push", "-u", "origin", "main"], project);
 
 	// A second clone moves the remote forward, so the project is behind.
 	const other = join(homeDir, "clone");
-	await git(["clone", bare, other], homeDir);
+	await git(["clone", "--branch", "main", bare, other], homeDir);
 	await writeFile(join(other, "b.txt"), "remote\n");
 	await commitAll(other, "remote side");
-	await git(["push"], other);
+	await git(["push", "origin", "main"], other);
 
 	// And a local commit puts it ahead as well.
 	await writeFile(join(project, "c.txt"), "local\n");
