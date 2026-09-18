@@ -153,6 +153,48 @@ rejected option gets proposed again by a different agent six weeks later, and
 someone reconstructs the argument from memory. With it, the orchestrator answers
 in one line and moves on.
 
+### Writing them with AI help, and reading them yourself
+
+None of this means you sit down to a blank page alone. AI is good at exactly
+this kind of writing, and using it here is sensible. The owner puts it plainly:
+"AI can be used to create the vision from a brainstorming session. AI can
+convert the vision into the specification with priorities. And AI can be used to
+help pick the best tech stack."
+
+In practice that is three steps.
+
+**A brainstorming conversation becomes the vision.** Talk through what you want,
+who it is for, and what annoys you about the alternatives. Then ask for it back
+as a draft vision document, organized under the headings above. The conversation
+does the thinking; the document holds it still.
+
+**The vision becomes the specification, with priorities.** Ask the AI to expand
+the vision into numbered requirements, and to mark each one with a priority.
+**P0** means must-have: without it there is no first usable version at all.
+**P1** means should-have: the product works without it, but not well. **P2** and
+below mean nice-to-have: wanted, not scheduled. The priorities are what let you
+cut scope later without arguing, because the argument was already had.
+
+**The AI proposes and compares the technology choices.** Ask for the options,
+the trade-offs, and a recommendation, then record the choice and the rejected
+alternatives with reasons.
+
+Then comes the part that cannot be delegated. The owner is explicit: "the vision
+and the specification in particular absolutely need to be read line-by-line by a
+human." Every line. Not skimmed, not spot-checked. These two documents are what
+every agent will act on for the life of the project, and a sentence you did not
+mean is a sentence that gets built.
+
+You do not need to be technical to do this. Where a passage is jargon, ask: what
+does this paragraph mean in plain English? Keep asking until you understand it,
+then fix the wording so the next reader does not have to ask. The owner's rule:
+"if it's jargon to a non-technical person, use the AI to explain parts of it
+more clearly in plain English." A line you cannot explain to someone else is a
+line you have not yet approved.
+
+Your sign-off on those two documents is the first gate in the whole process, and
+the cheapest one. Everything afterwards is more expensive to correct.
+
 ### How the three documents settle arguments
 
 The rule is simple and worth stating out loud in your own project: the vision
@@ -189,20 +231,45 @@ understanding of what you actually want.
 
 ## 3. Roles
 
-### The owner: decides what is true, and approves the result
+### The owner: product owner, not programmer
 
-You own intent and you own the final approval. You decide what the product
-should do and what a user should experience. You settle arguments between agents
-when the written requirements do not settle them. And you are the only one who
+Say the role plainly, because it is easy to feel apologetic about it. You are
+the **product owner**. You are not a programmer, and you do not have to become
+one. You do not need to read code, and you do not need to review a proposed
+change line by line. Those jobs belong to the reviewing agents and to the
+automated checks, and sections 7 and 9 are about making them good enough to
+carry that weight.
+
+What you own is intent and approval. You decide what the product should do and
+what a user should experience. You settle arguments between agents when the
+written requirements do not settle them. You read the vision and the
+specification line by line, as section 2 says. And you are the only one who
 approves a finished batch of work into the main line of the project.
 
 In practice you answer with short authorizations — "go", "make it so", "merge
 it" — and you expect that until you say one of those words, a question you asked
 gets answered, not acted on.
 
+**And then you use the product.** This is the part of the job nothing else
+replaces. You may not be technical enough to review a proposed code change, but
+you are certainly technical enough to say: spin it up so I can drive it, give me
+a link, and tell me what I can test right now from the latest work. That request
+should be routine after every batch. Make it easy to answer — a running copy and
+a link — because the whole method depends on it.
+
+Hands-on use is the main source of real fixes. In one project, an entire batch
+of about two dozen corrections came out of the owner spending an hour using the
+product and writing down everything that felt wrong: a control in the wrong
+place, a message that alarmed without explaining, a shortcut that did not work
+the way it does everywhere else, a list that sorted in an order nobody expects.
+Not one of those was found by an automated check or by either reviewing agent,
+and there was nothing wrong with the checks. They were simply not the kind of
+problem a machine notices. The owner's summary of where those fixes came from:
+"Absolutely human."
+
 You also do the few things the safety system will not let an agent do on its
 own: opening a service to the outside network, deleting many things at once, and
-using the finished product in a browser like a real user.
+driving the finished product in a browser like a real user.
 
 ### The orchestrator: the conversation you are in
 
@@ -612,9 +679,9 @@ could have had fixed turns your work into my to-do list."
 
 **A question is a question.** "'Should we use X?' is not 'migrate to X.' 'What
 would it take to add Y?' is not 'add Y.' When in doubt, assume it's a question.
-Answer first; act when I say go." He uses this constantly, and usually says so
-outright: "Don't change anything, but let me know your thoughts," or "Don't do
-that right now, but tell me what that would entail."
+Answer first; act when I say go." The owner uses this constantly, and usually
+says so outright: "Don't change anything, but let me know your thoughts," or
+"Don't do that right now, but tell me what that would entail."
 
 **Build only what was asked.** No settings, no layers of abstraction, and no
 extension points for needs nobody has today. "If a future need is real, say so
@@ -764,6 +831,12 @@ solves, what it will never do, and the handful of principles that will settle
 arguments nobody has had yet. Then write the requirements out in numbered
 sections.
 
+**Read the vision and the specification line by line yourself.** Let AI draft
+them from a brainstorming conversation and let it sort the requirements into
+must-have, should-have and nice-to-have. Then read every line. Where it is
+jargon, ask for it in plain English until you understand it, and fix the
+wording. Your sign-off on those two documents is the first and cheapest gate.
+
 **Write the requirements down before you write the instruction.** A numbered
 specification is what lets a cheap agent do good work, lets two agents settle an
 argument with evidence, and lets a reviewer tell over-engineering from a genuine
@@ -795,6 +868,11 @@ actually worth it.
 state. Confirm the thing is really gone. This is not about dishonesty; it is the
 difference between believing a command succeeded and having watched it succeed.
 
+**Drive the product yourself after every batch, and write down what feels
+wrong.** Ask for a running copy and a link, and ask what is testable right now.
+An hour of real use finds things no automated check is looking for, and that
+list is where most of your real fixes will come from.
+
 **Nothing is done until a person has used it.** Every automated gate passed on
 the false conflict warning, and sixty seconds of real typing found it. Deploy to
 something real, use it the way your users will, and treat what you find as
@@ -811,9 +889,9 @@ not written into the next instruction will be learned again, at full price.
 
 This guide grew out of building one real product over several months, entirely
 by directing AI agents. One person owned the intent, wrote the requirements,
-ruled on disputes, and approved every release. He did not write the code. The
-arrangement produced a working, deployed product used by real people, along with
-a great many of the mistakes recorded above. The specific product does not
+ruled on disputes, and approved every release. That person did not write the
+code. The arrangement produced a working, deployed product used by real people,
+along with a great many of the mistakes recorded above. The specific product does not
 matter; the method transfers.
 
 ---
@@ -869,6 +947,13 @@ can be ruled out later with evidence rather than instinct.
 **Orchestrator** — The single conversation the owner has, which plans, delegates
 to other agents, verifies their work, and reports in plain language. It does not
 write the software itself.
+
+**Priority (P0, P1, P2)** — A label on each requirement. P0 is must-have,
+without which there is no usable first version; P1 is should-have; P2 and below
+are nice-to-have, wanted but not scheduled.
+
+**Product owner** — The person who decides what the product is for and approves
+the result. Owns intent, not implementation, and is not required to read code.
 
 **Pull request** — A formal proposal to merge one branch into another, showing
 what changed and collecting automated checks and comments before approval.
