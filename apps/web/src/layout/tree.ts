@@ -5,6 +5,7 @@
  * about splitting, collapsing and reconciling can be tested on its own.
  */
 import {
+	documentTabId,
 	MAX_LAYOUT_TABS,
 	MAX_SPLIT_DEPTH,
 	type ProjectLayout,
@@ -18,15 +19,16 @@ export function emptyLayout(): ProjectLayout {
 	return { tabs: [] };
 }
 
-/** Every terminal id in the subtree, in visual order. */
-export function leafIds(node: SplitNode): string[] {
+/** Every terminal id in the subtree, in visual order. File and diff leaves have none. */
+export function terminalIds(node: SplitNode): string[] {
 	if (node.type === "leaf") return [node.terminalId];
-	return node.children.flatMap(leafIds);
+	if (node.type !== "split") return [];
+	return node.children.flatMap(terminalIds);
 }
 
 /** Every terminal id in the layout, in tab order. */
 export function layoutTerminalIds(layout: ProjectLayout): string[] {
-	return layout.tabs.flatMap((tab) => leafIds(tab.root));
+	return layout.tabs.flatMap((tab) => terminalIds(tab.root));
 }
 
 function round2(value: number): number {
@@ -79,6 +81,8 @@ function splitNode(
 			children: [node, { type: "leaf", terminalId: newTerminalId }],
 		};
 	}
+	// Only terminals split (SPEC.md §8.3), so a file or diff leaf is left alone.
+	if (node.type !== "split") return null;
 	const index = node.children.findIndex(
 		(child) => child.type === "leaf" && child.terminalId === terminalId,
 	);
@@ -126,6 +130,7 @@ function removeFromNode(
 	if (node.type === "leaf") {
 		return node.terminalId === terminalId ? null : "unchanged";
 	}
+	if (node.type !== "split") return "unchanged";
 	for (let i = 0; i < node.children.length; i++) {
 		const child = node.children[i];
 		if (child === undefined) continue;
@@ -177,6 +182,7 @@ export function replaceLeaf(
 				? { type: "leaf", terminalId: newTerminalId }
 				: node;
 		}
+		if (node.type !== "split") return node;
 		return { ...node, children: node.children.map(walk) };
 	}
 	return { tabs: layout.tabs.map((tab) => ({ ...tab, root: walk(tab.root) })) };
@@ -251,6 +257,14 @@ export function reconcile(
 	const placed = new Set(layoutTerminalIds(next));
 	for (const id of terminalIds) {
 		if (placed.has(id) || ended.has(id)) continue;
+		if (next.tabs.length >= MAX_LAYOUT_TABS) {
+			// A terminal is a process and a document tab is not, so the oldest
+			// file or diff tab gives up its place. With none to close the
+			// terminal stays unplaced; it can be opened again later.
+			const oldest = next.tabs.find((tab) => documentTabId(tab.root) !== null);
+			if (!oldest) continue;
+			next = closeTab(next, oldest.id);
+		}
 		next = addTab(next, id, id);
 		placed.add(id);
 	}
@@ -272,6 +286,7 @@ function swapLeaves(layout: ProjectLayout, a: string, b: string): ProjectLayout 
 			if (node.terminalId === b) return { type: "leaf", terminalId: a };
 			return node;
 		}
+		if (node.type !== "split") return node;
 		return { ...node, children: node.children.map(walk) };
 	}
 	return { tabs: layout.tabs.map((tab) => ({ ...tab, root: walk(tab.root) })) };
@@ -295,6 +310,7 @@ function insertBeside(
 			children: before ? [moved, node] : [node, moved],
 		};
 	}
+	if (node.type !== "split") return null;
 	const index = node.children.findIndex(
 		(child) => child.type === "leaf" && child.terminalId === targetId,
 	);
@@ -333,7 +349,7 @@ export function moveLeaf(
 	const present = new Set(layoutTerminalIds(layout));
 	if (!present.has(terminalId) || !present.has(targetTerminalId)) return layout;
 	const target = layout.tabs.find(
-		(tab) => tab.id === tabId && leafIds(tab.root).includes(targetTerminalId),
+		(tab) => tab.id === tabId && terminalIds(tab.root).includes(targetTerminalId),
 	);
 	if (!target) return layout;
 
@@ -387,4 +403,41 @@ export function moveLeafToNewTab(
 		root: { type: "leaf", terminalId },
 	});
 	return { tabs: next };
+}
+
+/**
+ * Open `path` as a tab of its own (SPEC.md §8.3). A path already open in
+ * this kind is not opened twice; the caller activates the tab it gets back.
+ */
+function openDocument(
+	layout: ProjectLayout,
+	kind: "file" | "diff",
+	path: string,
+): { layout: ProjectLayout; tabId: string } | null {
+	const node: SplitNode = { type: kind, path };
+	const tabId = `${kind}:${path}`;
+	if (layout.tabs.some((tab) => tab.id === tabId)) return { layout, tabId };
+	// No room for another tab: the caller tells the student to close one.
+	if (layout.tabs.length >= MAX_LAYOUT_TABS) return null;
+	return { layout: { tabs: [...layout.tabs, { id: tabId, root: node }] }, tabId };
+}
+
+export function openFile(
+	layout: ProjectLayout,
+	path: string,
+): { layout: ProjectLayout; tabId: string } | null {
+	return openDocument(layout, "file", path);
+}
+
+export function openDiff(
+	layout: ProjectLayout,
+	path: string,
+): { layout: ProjectLayout; tabId: string } | null {
+	return openDocument(layout, "diff", path);
+}
+
+/** Drop one whole tab. Terminal tabs are closed by closing their terminals. */
+export function closeTab(layout: ProjectLayout, tabId: string): ProjectLayout {
+	if (!layout.tabs.some((tab) => tab.id === tabId)) return layout;
+	return { tabs: layout.tabs.filter((tab) => tab.id !== tabId) };
 }

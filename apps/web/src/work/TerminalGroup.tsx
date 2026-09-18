@@ -8,6 +8,8 @@ import { PaneHandle } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
+import { DiffLeaf } from "./DiffLeaf.js";
+import { FileLeaf } from "./FileLeaf.js";
 import { TerminalLeaf } from "./TerminalLeaf.js";
 
 export interface TerminalGroupProps {
@@ -64,6 +66,8 @@ export function TerminalGroup(props: TerminalGroupProps) {
 				/>
 			);
 		}
+		if (node.type === "file") return <FileLeaf key={node.path} path={node.path} />;
+		if (node.type === "diff") return <DiffLeaf key={node.path} path={node.path} />;
 		const orientation = node.direction === "row" ? "horizontal" : "vertical";
 		const ids = node.children.map((_, index) => panelId(path, index));
 		const defaultLayout = Object.fromEntries(

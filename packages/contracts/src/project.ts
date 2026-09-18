@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ProjectPath } from "./files.js";
 import { TerminalId } from "./terminal.js";
 
 /**
@@ -231,6 +232,8 @@ export type DuplicateProjectRequest = z.infer<typeof DuplicateProjectRequest>;
  */
 export type SplitNode =
 	| { type: "leaf"; terminalId: string }
+	| { type: "file"; path: string }
+	| { type: "diff"; path: string }
 	| {
 			type: "split";
 			direction: "row" | "column";
@@ -241,6 +244,8 @@ export type SplitNode =
 export const SplitNode: z.ZodType<SplitNode> = z.lazy(() =>
 	z.union([
 		z.object({ type: z.literal("leaf"), terminalId: TerminalId }).strict(),
+		z.object({ type: z.literal("file"), path: ProjectPath }).strict(),
+		z.object({ type: z.literal("diff"), path: ProjectPath }).strict(),
 		z
 			.object({
 				type: z.literal("split"),
@@ -264,12 +269,34 @@ export const MAX_SPLIT_DEPTH = 8;
 
 /** The deepest path from this node to a leaf, counting this node. */
 export function splitDepth(node: SplitNode): number {
-	if (node.type === "leaf") return 1;
+	if (node.type !== "split") return 1;
 	let deepest = 0;
 	for (const child of node.children) {
 		deepest = Math.max(deepest, splitDepth(child));
 	}
 	return deepest + 1;
+}
+
+/**
+ * True when a file or diff node sits anywhere below the root of a tab. Only
+ * terminals split (SPEC.md §8.3), so a file or diff is always a whole tab.
+ */
+function hasNestedDocument(node: SplitNode): boolean {
+	if (node.type !== "split") return false;
+	return node.children.some(
+		(child) =>
+			child.type === "file" || child.type === "diff" || hasNestedDocument(child),
+	);
+}
+
+/**
+ * The dedupe key of a tab whose root is a file or diff, or null for a tab of
+ * terminals. The browser uses the same string as the tab id.
+ */
+export function documentTabId(node: SplitNode): string | null {
+	if (node.type === "file") return `file:${node.path}`;
+	if (node.type === "diff") return `diff:${node.path}`;
+	return null;
 }
 
 /**
@@ -281,13 +308,16 @@ export const ProjectLayout = z.object({
 	tabs: z
 		.array(
 			z.object({
-				id: z.string().min(1).max(64),
+				// Long enough for a file or diff tab id, which is a kind prefix
+				// and a project path.
+				id: z.string().min(1).max(1_100),
 				root: SplitNode,
 			}),
 		)
 		.max(MAX_LAYOUT_TABS)
 		.superRefine((tabs, ctx) => {
 			const seen = new Set<string>();
+			const documents = new Set<string>();
 			tabs.forEach((tab, index) => {
 				// Two tabs with one id render on top of each other in the browser.
 				if (seen.has(tab.id)) {
@@ -304,6 +334,42 @@ export const ProjectLayout = z.object({
 						path: [index, "root"],
 						message: `a split may be at most ${MAX_SPLIT_DEPTH} levels deep`,
 					});
+				}
+				if (hasNestedDocument(tab.root)) {
+					ctx.addIssue({
+						code: "custom",
+						path: [index, "root"],
+						message: "only terminals may be split",
+					});
+				}
+				const document = documentTabId(tab.root);
+				if (document === null) {
+					// A terminal tab id is a terminal id or a made-up name.
+					if (tab.id.length > 64) {
+						ctx.addIssue({
+							code: "custom",
+							path: [index, "id"],
+							message: "a terminal tab id may be at most 64 characters",
+						});
+					}
+				} else {
+					// A document tab is found by its id, so it must match its path.
+					if (tab.id !== document) {
+						ctx.addIssue({
+							code: "custom",
+							path: [index, "id"],
+							message: `a file or diff tab id must be "${document}"`,
+						});
+					}
+					// One tab per path per kind; two would edit the same file twice.
+					if (documents.has(document)) {
+						ctx.addIssue({
+							code: "custom",
+							path: [index, "root"],
+							message: "a path may only be open once as a file and once as a diff",
+						});
+					}
+					documents.add(document);
 				}
 			});
 		}),
