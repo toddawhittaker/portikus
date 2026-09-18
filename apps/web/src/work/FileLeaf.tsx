@@ -16,6 +16,7 @@ import {
 	useFile,
 	useSaveFile,
 } from "../files/queries.js";
+import { useEditorViewState } from "../layout/store.js";
 import { DiffLeaf } from "./DiffLeaf.js";
 
 // Monaco is large, so it is its own chunk and is only fetched when a file tab
@@ -101,6 +102,9 @@ export function FileLeaf({
 	// session; until they arrive the editor uses the defaults.
 	const settingsQuery = useEditorSettings();
 	const settings = settingsQuery.data ?? EDITOR_SETTINGS_DEFAULTS;
+	// Where the cursor and scroll were when this file was last on screen, so
+	// leaving the workspace and coming back puts them back (issue #161).
+	const viewState = useEditorViewState(path);
 	const file = useFile(workspaceId, projectId, path);
 	const save = useSaveFile(workspaceId, projectId, path);
 
@@ -432,6 +436,8 @@ export function FileLeaf({
 					wordWrap={settings.wordWrap ? "on" : "off"}
 					revealLine={reveal?.line}
 					revealNonce={reveal?.nonce}
+					viewState={viewState.initial}
+					onViewState={viewState.save}
 				/>
 			</Suspense>
 		);
