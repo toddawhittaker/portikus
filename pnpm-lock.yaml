@@ -287,6 +287,9 @@ importers:
       '@xterm/xterm':
         specifier: 6.0.0
         version: 6.0.0
+      lexical:
+        specifier: 0.48.0
+        version: 0.48.0(typescript@7.0.2)
       monaco-editor:
         specifier: 0.56.0
         version: 0.56.0

@@ -6,7 +6,10 @@
  *
  * Raw HTML is not processed (`suppressHtmlProcessing`), so a tag a coding
  * agent wrote stays text instead of becoming markup in the control-plane
- * origin (SPEC.md §24.2), the same promise the read-only preview made.
+ * origin (SPEC.md §24.2), the same promise the read-only preview made. It is
+ * shown as its own source text instead, by the visitor in
+ * `verbatimMarkdown.ts`; without one, MDXEditor throws on the first HTML node
+ * and the rest of the file never appears.
  */
 import {
 	BlockTypeSelect,
@@ -19,6 +22,7 @@ import {
 	InsertCodeBlock,
 	InsertTable,
 	InsertThematicBreak,
+	imagePlugin,
 	ListsToggle,
 	linkDialogPlugin,
 	linkPlugin,
@@ -35,6 +39,7 @@ import {
 } from "@mdxeditor/editor";
 import { type Ref, useEffect, useRef } from "react";
 import { debounce, endWithNewline, hasChanged } from "./markdownSync.js";
+import { verbatimPlugin } from "./verbatimMarkdown.js";
 import "@mdxeditor/editor/style.css";
 import "./markdown.css";
 import "./rich-markdown.css";
@@ -56,6 +61,8 @@ export const TO_MARKDOWN = {
 } as const;
 
 export const PLUGINS = [
+	// First, so its visitors outrank the image plugin's raw-HTML visitor.
+	verbatimPlugin(),
 	headingsPlugin(),
 	listsPlugin(),
 	quotePlugin(),
@@ -64,6 +71,10 @@ export const PLUGINS = [
 	tablePlugin(),
 	thematicBreakPlugin(),
 	frontmatterPlugin(),
+	// Markdown images (`![alt](src)`) are rendered; nothing may be dragged,
+	// pasted or uploaded in, and an unsafe address never reaches this plugin
+	// because the verbatim visitor claims it first.
+	imagePlugin({ disableImageResize: true, disableImageSettingsButton: true }),
 	codeBlockPlugin({ defaultCodeBlockLanguage: "" }),
 	markdownShortcutPlugin(),
 	toolbarPlugin({
@@ -95,6 +106,12 @@ export interface RichMarkdownEditorProps {
 	/** The scrolling element, so the split view can follow the code side. */
 	scrollRef?: Ref<HTMLDivElement>;
 	onScroll?: () => void;
+	/**
+	 * Called when MDXEditor cannot read the file. While it is in that state it
+	 * shows only part of the file and drops every keystroke, so the tab must
+	 * move the student to the code view.
+	 */
+	onUnsupported?: () => void;
 }
 
 export function RichMarkdownEditor({
@@ -102,6 +119,7 @@ export function RichMarkdownEditor({
 	onChange,
 	scrollRef,
 	onScroll,
+	onUnsupported,
 }: RichMarkdownEditorProps) {
 	const editor = useRef<MDXEditorMethods | null>(null);
 	// The last text this editor produced or was given: the loop guard.
@@ -110,6 +128,10 @@ export function RichMarkdownEditor({
 	// through a ref rather than being rebuilt and losing its pending call.
 	const report = useRef(onChange);
 	report.current = onChange;
+	// MDXEditor subscribes to `onError` once, at mount, so it too is read
+	// through a ref rather than captured.
+	const unsupported = useRef(onUnsupported);
+	unsupported.current = onUnsupported;
 
 	const push = useRef(
 		debounce<string>((value) => {
@@ -158,6 +180,9 @@ export function RichMarkdownEditor({
 				plugins={PLUGINS}
 				toMarkdownOptions={TO_MARKDOWN}
 				suppressHtmlProcessing
+				onError={() => {
+					unsupported.current?.();
+				}}
 				contentEditableClassName="pk-rich-markdown-body pk-markdown"
 				onChange={(markdown, initialNormalize) => {
 					const next = endWithNewline(markdown);

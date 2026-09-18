@@ -140,6 +140,11 @@ export function FileLeaf({
 	// Markdown opens in the rich view; the choice belongs to this tab and is
 	// not saved.
 	const [mode, setMode] = useState<MarkdownMode>("rich");
+	// True once the rich editor has told us it cannot read this file. In that
+	// state it shows only part of the file and drops keystrokes, so the tab
+	// moves to the code view and stays there (ADR 0017).
+	const [richUnsupported, setRichUnsupported] = useState(false);
+	const shownMode: MarkdownMode = richUnsupported ? "code" : mode;
 	// The split view keeps both sides at the same relative position (issue
 	// #154). The flag stops the scroll each side causes in the other from
 	// being sent straight back.
@@ -519,6 +524,7 @@ export function FileLeaf({
 					onChange={onChange}
 					scrollRef={richScroll}
 					onScroll={followRich}
+					onUnsupported={() => setRichUnsupported(true)}
 				/>
 			</Suspense>
 		);
@@ -536,25 +542,25 @@ export function FileLeaf({
 					id="md-code-pane"
 					minSize="20%"
 					className="pk-split-panel"
-					hidden={mode === "rich"}
+					hidden={shownMode === "rich"}
 				>
 					{editor}
 				</Panel>
 				<PaneHandle
 					orientation="vertical"
 					label="Resize rich view"
-					style={mode === "split" ? undefined : { display: "none" }}
+					style={shownMode === "split" ? undefined : { display: "none" }}
 				/>
 				<Panel
 					id="md-rich-pane"
 					minSize="20%"
 					className="pk-split-panel"
-					hidden={mode === "code"}
+					hidden={shownMode === "code"}
 				>
 					{/* In code view the rich editor is unmounted rather than
 					    hidden: it holds no state the code side does not, and
 					    reloading it on every keystroke would cost for nothing. */}
-					{mode === "code" ? null : rich}
+					{shownMode === "code" ? null : rich}
 				</Panel>
 			</Group>
 		);
@@ -620,7 +626,8 @@ export function FileLeaf({
 								<button
 									key={choice.mode}
 									type="button"
-									aria-pressed={mode === choice.mode}
+									aria-pressed={shownMode === choice.mode}
+									disabled={richUnsupported && choice.mode !== "code"}
 									onClick={() => setMode(choice.mode)}
 									data-testid={`markdown-mode-${choice.mode}`}
 								>
@@ -639,6 +646,11 @@ export function FileLeaf({
 						</span>
 					) : null}
 				</div>
+				{richUnsupported ? (
+					<div className="pk-file-banner" role="status" data-testid="rich-unsupported">
+						This file has Markdown the rich view cannot show; editing in Code view.
+					</div>
+				) : null}
 				{conflict !== null ? (
 					<div className="pk-file-conflict" role="alert" data-testid="file-conflict">
 						<span>

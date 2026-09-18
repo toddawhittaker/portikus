@@ -69,3 +69,22 @@
 .pk-rich-markdown-body:focus-visible {
 	outline: none;
 }
+
+/* Markdown the rich view will not render - raw HTML, and an image whose
+   address we refuse to load - is shown as its own source text, in the
+   monospace face so it reads as source and not as prose (ADR 0017). */
+.pk-rich-markdown-body .pk-verbatim {
+	font-family: var(--font-mono);
+	font-size: 0.9em;
+	white-space: pre-wrap;
+	padding: 0 0.25em;
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
+}
+
+/* An image the rich view does render is kept inside the column. */
+.pk-rich-markdown-body img {
+	max-width: 100%;
+	height: auto;
+}
