@@ -99,6 +99,52 @@ function toTerminal(row: {
 	};
 }
 
+/** A default terminal name, which is a number we are free to reassign. */
+const DEFAULT_NAME = /^Terminal (\d+)$/;
+
+/**
+ * Pick the name for a new terminal in one project (SPEC.md §9.6, §9.7).
+ * A terminal created where an ended terminal used to be takes that terminal's
+ * chosen name back; otherwise the name is the lowest "Terminal N" no live
+ * terminal of the project is using, so a second project also starts at 1.
+ */
+export function chooseTerminalName(
+	rows: Array<{
+		name: string;
+		project_id: string | null;
+		ended_at: Date | null;
+		position: number;
+		created_at: Date;
+	}>,
+	projectId: string | null,
+): string {
+	const inProject = rows.filter((row) => row.project_id === projectId);
+	const live = inProject.filter((row) => row.ended_at === null);
+	const liveNames = new Set(live.map((row) => row.name));
+
+	const [reusable] = inProject
+		.filter(
+			(row) =>
+				row.ended_at !== null &&
+				!liveNames.has(row.name) &&
+				!DEFAULT_NAME.test(row.name),
+		)
+		.sort(
+			(a, b) =>
+				a.position - b.position || a.created_at.getTime() - b.created_at.getTime(),
+		);
+	if (reusable) return reusable.name;
+
+	const taken = new Set<number>();
+	for (const row of live) {
+		const match = DEFAULT_NAME.exec(row.name);
+		if (match) taken.add(Number(match[1]));
+	}
+	let number = 1;
+	while (taken.has(number)) number += 1;
+	return `Terminal ${number}`;
+}
+
 function listTerminalRows(db: Kysely<Database>, workspaceId: string) {
 	return db
 		.selectFrom("terminals")
@@ -216,6 +262,8 @@ export function registerTerminalRoutes(
 
 		const position = rows.reduce((max, row) => Math.max(max, row.position + 1), 0);
 		const id = crypto.randomUUID();
+		const name =
+			body.data.name ?? chooseTerminalName(rows, project ? project.id : null);
 		const cwd = body.data.cwd ?? project?.path ?? DEFAULT_CWD;
 
 		const created = await db
@@ -223,7 +271,7 @@ export function registerTerminalRoutes(
 			.values({
 				id,
 				workspace_id: params.data.id,
-				name: body.data.name ?? `Terminal ${position + 1}`,
+				name,
 				cwd,
 				position,
 				project_id: project ? project.id : null,
