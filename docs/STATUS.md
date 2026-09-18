@@ -401,9 +401,10 @@ Changes list shows the diff inside that file's own tab rather than a
 separate diff tab, with a toggle back to the editor, and a real on-disk
 change during editing opens as a Monaco conflict diff offering keep-mine,
 take-disk, and keep-editing (#160, #158). The selected tab, the editor
-cursor, selection, scroll position, and per-file zoom now survive leaving
-the workspace route and returning; they live in this browser's
-`localStorage` and are never sent to the server (§7.5) (#161).
+cursor, selection, and scroll position now survive leaving the workspace
+route and returning; they live in this browser's `localStorage` and are
+never sent to the server (§7.5) (#161). Zoom is kept in memory for the
+session only and resets on reload (#162).
 
 **Markdown.** The three Markdown viewer defects from pilot feedback are
 fixed (§13.4): rendered lists show their markers again, split view keeps
