@@ -23,7 +23,15 @@ export default defineConfig({
 		baseURL: WEB_URL,
 		trace: "on-first-retry",
 	},
-	projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+	projects: [
+		// Runs first and stops the suite if the servers belong to another run.
+		{ name: "setup", testMatch: /environment\.setup\.ts$/ },
+		{
+			name: "chromium",
+			use: { ...devices["Desktop Chrome"] },
+			dependencies: ["setup"],
+		},
+	],
 	webServer: [
 		{
 			// Stands in for the workspace agent, which normally runs inside a
