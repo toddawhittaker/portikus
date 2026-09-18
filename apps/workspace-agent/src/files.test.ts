@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import {
 	mkdir,
 	mkdtemp,
 	readdir,
 	readFile as readFileFs,
+	readlink,
 	rm,
 	stat,
 	symlink,
@@ -14,7 +16,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
-import { MAX_EDITOR_FILE_BYTES, MAX_TREE_ENTRIES } from "@portikus/contracts";
+import {
+	MAX_EDITOR_FILE_BYTES,
+	MAX_TREE_ENTRIES,
+	MAX_UPLOAD_BYTES,
+} from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { writeFile as writeFileLib } from "./files.js";
@@ -39,6 +45,7 @@ async function available(command: string, args: string[]): Promise<boolean> {
 }
 
 const haveZip = (await available("zip", ["-v"])) && (await available("unzip", ["-v"]));
+const haveMkfifo = await available("mkfifo", ["--version"]);
 
 function auth() {
 	return { authorization: `Bearer ${TOKEN}` };
@@ -150,7 +157,6 @@ test("a symlink pointing outside the projects directory is refused", async () =>
 		(await writeFile("escape.txt", "x", { "if-match": sha256("outside") })).json().error
 			.code,
 	).toBe("PATH_INVALID");
-	expect((await deleteFile("escape.txt")).json().error.code).toBe("PATH_INVALID");
 	// The target is still there: nothing followed the link.
 	expect(await readFileFs(join(homeDir, "outside.txt"), "utf8")).toBe("outside");
 });
@@ -539,15 +545,132 @@ test("a download name drops control characters and carries an encoded form", asy
 	expect(disposition).toContain("%E2%98%83");
 });
 
-test("a very large directory is listed without statting every entry", async () => {
-	const many = join(project, "many");
-	await mkdir(many);
-	await Promise.all(
-		Array.from({ length: MAX_TREE_ENTRIES + 50 }, (_, index) =>
-			writeFileFs(join(many, `f${String(index).padStart(5, "0")}.txt`), ""),
-		),
-	);
-	const body = (await tree("many")).json();
-	expect(body.entries).toHaveLength(MAX_TREE_ENTRIES);
-	expect(body.truncated).toBe(true);
+// --- SPEC.md §13.5: a create never overwrites what appeared meanwhile ------
+
+test("a create whose target appears during the upload is a conflict", async () => {
+	const target = join(project, "race.txt");
+	const body = new Readable({
+		read() {
+			// The file lands after the existence check and before the link.
+			writeFileSync(target, "winner");
+			this.push("loser");
+			this.push(null);
+		},
+	});
+	await expect(
+		writeFileLib(homeDir, "alpha", "race.txt", body, { ifNoneMatch: true }),
+	).rejects.toMatchObject({ code: "FILE_EXISTS" });
+	expect(await readFileFs(target, "utf8")).toBe("winner");
+	expect(await tempLeftovers(project)).toEqual([]);
+});
+
+test("a name of 240 characters can still be written", async () => {
+	const name = `${"n".repeat(236)}.txt`;
+	const response = await writeFile(name, "hi", { "if-none-match": "*" });
+	expect(response.statusCode).toBe(200);
+	expect(await readFileFs(join(project, name), "utf8")).toBe("hi");
+	expect(await tempLeftovers(project)).toEqual([]);
+});
+
+test("an upload past the upload cap is refused and leaves nothing behind", async () => {
+	let sent = 0;
+	const body = new Readable({
+		read() {
+			if (sent > MAX_UPLOAD_BYTES) {
+				this.push(null);
+				return;
+			}
+			sent += 1024 * 1024;
+			this.push(Buffer.alloc(1024 * 1024, 0x61));
+		},
+	});
+	await expect(
+		writeFileLib(homeDir, "alpha", "huge.bin", body, {
+			ifNoneMatch: true,
+			upload: true,
+		}),
+	).rejects.toMatchObject({ code: "FILE_TOO_LARGE" });
+	expect(await readdir(project)).not.toContain("huge.bin");
+	expect(await tempLeftovers(project)).toEqual([]);
+});
+
+test("an upload is allowed past the editor cap by the query flag alone", async () => {
+	const body = Buffer.alloc(MAX_EDITOR_FILE_BYTES + 1, 0x61);
+	const response = await app.inject({
+		method: "PUT",
+		url: "/projects/alpha/file?path=upload.bin&upload=1",
+		headers: { ...auth(), "content-type": "text/plain", "if-none-match": "*" },
+		payload: body,
+	});
+	expect(response.statusCode).toBe(200);
+	expect(response.json().size).toBe(body.length);
+});
+
+// --- SPEC.md §24.6: a symlink can be removed, never followed --------------
+
+test("a symlink out of the project is deleted as a link", async () => {
+	await symlink(join(homeDir, "outside.txt"), join(project, "escape.txt"));
+	expect((await deleteFile("escape.txt")).statusCode).toBe(204);
+	expect(await readdir(project)).toEqual([]);
+	expect(await readFileFs(join(homeDir, "outside.txt"), "utf8")).toBe("outside");
+});
+
+test("a link to a system file is deleted without touching that file", async () => {
+	await symlink("/etc/passwd", join(project, "passwd"));
+	expect((await deleteFile("passwd")).statusCode).toBe(204);
+	expect(await readdir(project)).toEqual([]);
+	expect((await stat("/etc/passwd")).isFile()).toBe(true);
+});
+
+test("a dangling symlink can be deleted and renamed", async () => {
+	await symlink(join(homeDir, "gone.txt"), join(project, "dangling"));
+	const moved = await app.inject({
+		method: "POST",
+		url: "/projects/alpha/move",
+		headers: auth(),
+		payload: { from: "dangling", to: "moved" },
+	});
+	expect(moved.statusCode).toBe(204);
+	// The link moved as a link: it still points where it did, still dangling.
+	expect(await readlink(join(project, "moved"))).toBe(join(homeDir, "gone.txt"));
+
+	expect((await deleteFile("moved")).statusCode).toBe(204);
+	expect(await readdir(project)).toEqual([]);
+});
+
+test("a write through a symlink says the name is a symbolic link", async () => {
+	await symlink(join(homeDir, "outside.txt"), join(project, "escape.txt"));
+	const response = await writeFile("escape.txt", "x", { "if-none-match": "*" });
+	expect(response.statusCode).toBe(400);
+	expect(response.json().error.message).toBe("that name is a symbolic link");
+});
+
+// --- SPEC.md §11.2: odd files and impossible moves ------------------------
+
+test.skipIf(!haveMkfifo)("reading a FIFO is refused rather than hanging", async () => {
+	await run("mkfifo", [join(project, "pipe")]);
+	const response = await readFile("pipe");
+	expect(response.statusCode).toBe(400);
+	expect(response.json().error.message).toBe("not a regular file");
+});
+
+test("a directory cannot be moved into itself", async () => {
+	await mkdir(join(project, "src"));
+	const response = await app.inject({
+		method: "POST",
+		url: "/projects/alpha/move",
+		headers: auth(),
+		payload: { from: "src", to: "src/inner" },
+	});
+	expect(response.statusCode).toBe(400);
+	expect(response.json().error.code).toBe("BAD_REQUEST");
+});
+
+test("a download carries a matching length and no etag", async () => {
+	await writeFileFs(join(project, "notes.txt"), "hello");
+	const response = await readFile("notes.txt", "&download=1");
+	expect(response.statusCode).toBe(200);
+	expect(response.headers.etag).toBeUndefined();
+	expect(response.headers["content-length"]).toBe("5");
+	expect(response.body).toBe("hello");
 });

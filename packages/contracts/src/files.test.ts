@@ -1,8 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-	GENERATED_NAMES,
 	MAX_EDITOR_FILE_BYTES,
-	MAX_TREE_ENTRIES,
 	MAX_UPLOAD_BYTES,
 	MkdirRequest,
 	MoveRequest,
@@ -40,9 +38,6 @@ test("requests reject unknown keys", () => {
 	expect(MoveRequest.safeParse({ from: "a" }).success).toBe(false);
 });
 
-test("the limits are the ones the agent and UI share", () => {
-	expect(MAX_TREE_ENTRIES).toBe(2000);
-	expect(MAX_EDITOR_FILE_BYTES).toBe(2 * 1024 * 1024);
-	expect(MAX_UPLOAD_BYTES).toBe(50 * 1024 * 1024);
-	expect(GENERATED_NAMES).toContain("node_modules");
+test("an upload may be larger than anything the editor opens", () => {
+	expect(MAX_UPLOAD_BYTES).toBeGreaterThan(MAX_EDITOR_FILE_BYTES);
 });

@@ -8,7 +8,6 @@ import {
 	type AgentErrorCode,
 	AgentRenameProjectRequest,
 	MAX_TERMINALS_PER_WORKSPACE,
-	MAX_UPLOAD_BYTES,
 	MkdirRequest,
 	MoveRequest,
 	SetLogLevelRequest,
@@ -93,14 +92,23 @@ const IdParam = z.object({ terminalId: TerminalId });
 const PathQuery = z.object({
 	path: z.string().max(1024).optional(),
 	download: z.string().optional(),
+	upload: z.string().optional(),
 });
 
-function queryPath(request: FastifyRequest): { path: string; download: boolean } {
+function queryPath(request: FastifyRequest): {
+	path: string;
+	download: boolean;
+	upload: boolean;
+} {
 	const parsed = PathQuery.safeParse(request.query ?? {});
 	if (!parsed.success) {
 		throw new AgentFailure("PATH_INVALID", "invalid path");
 	}
-	return { path: parsed.data.path ?? "", download: parsed.data.download === "1" };
+	return {
+		path: parsed.data.path ?? "",
+		download: parsed.data.download === "1",
+		upload: parsed.data.upload === "1",
+	};
 }
 
 const AttachQuery = z.object({
@@ -122,8 +130,8 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// the instance would leave this process's own debug lines silent (ADR 0012).
 	const rootLogger = options.logger ?? silentLogger();
 	const app = Fastify({
-		// Fastify's default body limit stands for every route; only the file
-		// write route raises it, so a huge JSON body is refused early.
+		// Fastify's default body limit stands for every route. The file write
+		// route reads the raw stream and caps it itself (SPEC.md §11.2).
 		// Cast so the instance keeps Fastify's default logger type and
 		// callers can still hold it as a plain FastifyInstance.
 		loggerInstance: rootLogger as FastifyBaseLogger,
@@ -149,12 +157,6 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// A terminal input frame is small; refuse anything far past that before it
 	// is buffered (SPEC.md §9.7).
 	app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
-
-	// A file write carries a raw body of any type, so hand the route the
-	// stream rather than buffering or parsing it.
-	app.addContentTypeParser("*", (_request, payload, done) => {
-		done(null, payload);
-	});
 
 	// Every route, the upgrade included, needs the token (SPEC.md §23.5).
 	app.addHook("preHandler", tokenAuth(options.tokenPath));
@@ -388,7 +390,9 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			try {
 				const { path, download } = queryPath(request);
 				const file = await readFile(options.homeDir, slug, path, { download });
-				reply.header("etag", file.etag);
+				if (file.etag) {
+					reply.header("etag", file.etag);
+				}
 				reply.header("content-length", String(file.size));
 				if (download) {
 					reply.header("content-disposition", contentDisposition(basename(path)));
@@ -399,10 +403,11 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 		});
 
-		// The write route reads the raw request stream for every content type,
-		// so Fastify's JSON and text parsers are displaced here only; the other
-		// routes keep parsing their bodies. The upload limit applies to this
-		// route alone (SPEC.md 11.2).
+		// The write route reads the raw request stream for every content type, so
+		// the parsers that displace Fastify's JSON and text ones live in this
+		// scope alone; every other route keeps Fastify's defaults. The size cap is
+		// enforced while the body streams to disk, not by a route body limit,
+		// which a stream parser never consults (SPEC.md §11.2).
 		instance.register(async (writeScope) => {
 			const rawStream = (
 				_request: FastifyRequest,
@@ -411,31 +416,30 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			) => {
 				done(null, payload);
 			};
+			writeScope.addContentTypeParser("*", rawStream);
 			writeScope.addContentTypeParser("application/json", rawStream);
 			writeScope.addContentTypeParser("text/plain", rawStream);
 
-			writeScope.put(
-				"/projects/:slug/file",
-				{ bodyLimit: MAX_UPLOAD_BYTES },
-				async (request, reply) => {
-					const { slug } = request.params as { slug: string };
-					try {
-						const { path } = queryPath(request);
-						const ifMatch = request.headers["if-match"];
-						const ifNoneMatch = request.headers["if-none-match"];
-						const contentType = request.headers["content-type"] ?? "";
-						const result = await writeFile(options.homeDir, slug, path, request.raw, {
-							ifMatch: typeof ifMatch === "string" ? unquote(ifMatch) : undefined,
-							ifNoneMatch: ifNoneMatch === "*",
-							upload: contentType.startsWith("application/octet-stream"),
-						});
-						reply.header("etag", result.etag);
-						return reply.code(200).send(result);
-					} catch (error) {
-						return sendError(request, reply, error, "INTERNAL");
-					}
-				},
-			);
+			writeScope.put("/projects/:slug/file", async (request, reply) => {
+				const { slug } = request.params as { slug: string };
+				try {
+					const { path, upload } = queryPath(request);
+					const ifMatch = request.headers["if-match"];
+					const ifNoneMatch = request.headers["if-none-match"];
+					// ?upload=1 is the explicit signal. The octet-stream content type is
+					// still accepted as an alias for the clients that send it.
+					const contentType = request.headers["content-type"] ?? "";
+					const result = await writeFile(options.homeDir, slug, path, request.raw, {
+						ifMatch: typeof ifMatch === "string" ? unquote(ifMatch) : undefined,
+						ifNoneMatch: ifNoneMatch === "*",
+						upload: upload || contentType.startsWith("application/octet-stream"),
+					});
+					reply.header("etag", result.etag);
+					return reply.code(200).send(result);
+				} catch (error) {
+					return sendError(request, reply, error, "INTERNAL");
+				}
+			});
 		});
 
 		instance.delete("/projects/:slug/file", async (request, reply) => {
@@ -451,13 +455,11 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 
 		instance.post("/projects/:slug/mkdir", async (request, reply) => {
 			const { slug } = request.params as { slug: string };
-			const parsed = MkdirRequest.safeParse(request.body);
-			if (!parsed.success) {
-				return reply
-					.code(400)
-					.send({ error: { code: "PATH_INVALID", message: "invalid path" } });
-			}
 			try {
+				const parsed = MkdirRequest.safeParse(request.body);
+				if (!parsed.success) {
+					throw new AgentFailure("PATH_INVALID", "invalid path");
+				}
 				await mkdir(options.homeDir, slug, parsed.data.path);
 				return reply.code(201).send({ ok: true });
 			} catch (error) {
@@ -467,13 +469,11 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 
 		instance.post("/projects/:slug/move", async (request, reply) => {
 			const { slug } = request.params as { slug: string };
-			const parsed = MoveRequest.safeParse(request.body);
-			if (!parsed.success) {
-				return reply
-					.code(400)
-					.send({ error: { code: "PATH_INVALID", message: "invalid path" } });
-			}
 			try {
+				const parsed = MoveRequest.safeParse(request.body);
+				if (!parsed.success) {
+					throw new AgentFailure("PATH_INVALID", "invalid path");
+				}
 				await move(options.homeDir, slug, parsed.data.from, parsed.data.to);
 				return reply.code(204).send();
 			} catch (error) {

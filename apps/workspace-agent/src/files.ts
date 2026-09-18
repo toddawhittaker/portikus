@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream, type Dirent, constants as fsConstants } from "node:fs";
 import {
+	link,
 	lstat,
 	mkdir as mkdirFs,
 	open,
@@ -9,6 +10,7 @@ import {
 	rename,
 	rm,
 	stat,
+	unlink,
 } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { Readable } from "node:stream";
@@ -46,11 +48,11 @@ export class FileChanged extends AgentFailure {
 }
 
 export interface ResolvedPath {
-	/** The project's real directory. */
-	root: string;
 	/** The target, with its parent directories already resolved. */
 	path: string;
 	exists: boolean;
+	/** The final component is a symlink and was not followed. */
+	isSymlink: boolean;
 }
 
 function contains(root: string, path: string): boolean {
@@ -71,7 +73,8 @@ function errorCode(error: unknown): string | undefined {
  *
  * With refuseSymlink, a final component that is a symlink is refused even
  * when it dangles, because a write would otherwise create the link's target
- * outside the project.
+ * outside the project. With linkOk, a final symlink is returned as itself, so
+ * delete and move can act on the link rather than on what it points at.
  *
  * A hard link inside the project that points at a file outside it cannot be
  * detected by any path check. Confinement bounds the coding agent, not a
@@ -81,7 +84,7 @@ export async function resolveInProject(
 	homeDir: string,
 	slug: string,
 	relPath: string,
-	options: { mustExist: boolean; refuseSymlink?: boolean },
+	options: { mustExist: boolean; refuseSymlink?: boolean; linkOk?: boolean },
 ): Promise<ResolvedPath> {
 	const project = await resolveProject(slug, homeDir);
 	if (!project.exists) {
@@ -89,7 +92,7 @@ export async function resolveInProject(
 	}
 	const root = project.path;
 	if (relPath === "") {
-		return { root, path: root, exists: true };
+		return { path: root, exists: true, isSymlink: false };
 	}
 	if (!ProjectPath.safeParse(relPath).success) {
 		throw new AgentFailure("PATH_INVALID", "invalid path");
@@ -110,13 +113,18 @@ export async function resolveInProject(
 	}
 	const path = join(parent, basename(requested));
 
-	if (options.refuseSymlink) {
-		const link = await lstat(path).catch((error: unknown) => {
+	if (options.refuseSymlink || options.linkOk) {
+		const self = await lstat(path).catch((error: unknown) => {
 			if (errorCode(error) === "ENOENT") return null;
 			throw new AgentFailure("PATH_INVALID", "invalid path");
 		});
-		if (link?.isSymbolicLink()) {
-			throw new AgentFailure("PATH_INVALID", "path leaves the project");
+		if (self?.isSymbolicLink()) {
+			if (options.refuseSymlink) {
+				throw new AgentFailure("PATH_INVALID", "that name is a symbolic link");
+			}
+			// The link itself sits inside the project, so it can be removed or
+			// renamed without ever resolving where it points (SPEC.md §24.6).
+			return { path, exists: true, isSymlink: true };
 		}
 	}
 
@@ -125,7 +133,7 @@ export async function resolveInProject(
 		if (!contains(root, real)) {
 			throw new AgentFailure("PATH_INVALID", "path leaves the project");
 		}
-		return { root, path, exists: true };
+		return { path, exists: true, isSymlink: false };
 	} catch (error) {
 		if (error instanceof AgentFailure) throw error;
 		if (errorCode(error) !== "ENOENT") {
@@ -135,7 +143,7 @@ export async function resolveInProject(
 		if (options.mustExist) {
 			throw new AgentFailure("FILE_NOT_FOUND", "no such file or directory");
 		}
-		return { root, path, exists: false };
+		return { path, exists: false, isSymlink: false };
 	}
 }
 
@@ -149,6 +157,9 @@ function entryType(entry: {
 	if (entry.isFile()) return "file" as const;
 	return "other" as const;
 }
+
+/** One collator for every listing; building one per sort call is slow. */
+const NAME_ORDER = new Intl.Collator("en");
 
 /** List a directory: directories first, then everything else, alphabetical. */
 export async function listDir(
@@ -172,7 +183,7 @@ export async function listDir(
 		const aDir = a.isDirectory() ? 0 : 1;
 		const bDir = b.isDirectory() ? 0 : 1;
 		if (aDir !== bDir) return aDir - bDir;
-		return a.name.localeCompare(b.name);
+		return NAME_ORDER.compare(a.name, b.name);
 	});
 	const truncated = dirents.length > MAX_TREE_ENTRIES;
 	const entries: TreeEntry[] = [];
@@ -191,17 +202,14 @@ export async function listDir(
 }
 
 export interface ReadFileResult {
-	etag: string;
+	/** Absent for a download: a large file is not hashed twice. */
+	etag?: string;
 	contentType: string;
 	size: number;
 	/** Present unless the file was requested as a download. */
 	body?: Buffer;
 	/** Present only for a download, so any size can be sent. */
 	stream?: Readable;
-}
-
-function etagOf(content: Buffer): string {
-	return createHash("sha256").update(content).digest("hex");
 }
 
 async function hashFile(path: string): Promise<string> {
@@ -229,23 +237,29 @@ export async function readFile(
 	if (info.isDirectory()) {
 		throw new AgentFailure("BAD_REQUEST", "that path is a directory");
 	}
+	// A FIFO or a device node would block the read forever, so only ordinary
+	// files are served (SPEC.md §11.2).
+	if (!info.isFile()) {
+		throw new AgentFailure("BAD_REQUEST", "not a regular file");
+	}
 
 	if (options.download) {
+		// One handle for both the size and the bytes, so Content-Length cannot
+		// disagree with what the stream then sends.
 		const handle = await open(target.path, "r");
-		let contentType: string;
 		try {
-			const sample = Buffer.alloc(Math.min(SNIFF_BYTES, info.size));
+			const current = await handle.stat();
+			const sample = Buffer.alloc(Math.min(SNIFF_BYTES, current.size));
 			await handle.read(sample, 0, sample.length, 0);
-			contentType = sniffContentType(sample);
-		} finally {
-			await handle.close();
+			const stream = handle.createReadStream();
+			stream.on("close", () => {
+				void handle.close().catch(() => {});
+			});
+			return { contentType: sniffContentType(sample), size: current.size, stream };
+		} catch (error) {
+			await handle.close().catch(() => {});
+			throw error;
 		}
-		return {
-			etag: await hashFile(target.path),
-			contentType,
-			size: info.size,
-			stream: createReadStream(target.path),
-		};
 	}
 
 	if (info.size > MAX_EDITOR_FILE_BYTES) {
@@ -259,7 +273,7 @@ export async function readFile(
 		await handle.close();
 	}
 	return {
-		etag: etagOf(body),
+		etag: createHash("sha256").update(body).digest("hex"),
 		contentType: sniffContentType(body.subarray(0, SNIFF_BYTES)),
 		size: body.length,
 		body,
@@ -280,7 +294,7 @@ export interface WriteOptions {
  * a newer version on disk (SPEC.md §13.5).
  *
  * The body streams into a temporary file in the same directory and is renamed
- * over the target only once it has arrived whole. A failed save - over the
+ * linked or renamed over the target only once it has arrived whole. A failed save - over the
  * cap, a dropped connection, a stream error - must never lose the student's
  * file, so the target is never truncated before the body is known good
  * (SPEC.md §13.5). The temporary file is opened with O_EXCL and O_NOFOLLOW,
@@ -328,10 +342,7 @@ export async function writeFile(
 	const limit = options.upload ? MAX_UPLOAD_BYTES : MAX_EDITOR_FILE_BYTES;
 	const hash = createHash("sha256");
 	let size = 0;
-	const tmpPath = join(
-		dirname(target.path),
-		`.${basename(target.path)}.portikus-${randomBytes(6).toString("hex")}`,
-	);
+	const tmpPath = join(dirname(target.path), tempName(basename(target.path)));
 	// O_EXCL: a name nobody else holds. O_NOFOLLOW: the kernel refuses even if
 	// the name became a symlink since the check above (SPEC.md §24.6).
 	const handle = await open(
@@ -342,11 +353,13 @@ export async function writeFile(
 			fsConstants.O_NOFOLLOW,
 		0o644,
 	);
+	let streaming = false;
 	try {
 		if (mode !== undefined) {
 			// Keep executable bits and the like across the rename.
 			await handle.chmod(mode);
 		}
+		streaming = true;
 		await pipeline(
 			body,
 			async function* (source: AsyncIterable<Buffer>) {
@@ -361,22 +374,53 @@ export async function writeFile(
 			},
 			handle.createWriteStream(),
 		);
-		if (options.ifMatch !== undefined) {
+		if (options.ifNoneMatch) {
+			// link fails with EEXIST rather than replacing anything, so a file
+			// that appeared while the body was in flight survives. It also
+			// fails on a dangling symlink instead of following it
+			// (SPEC.md §13.5, §24.6).
+			try {
+				await link(tmpPath, target.path);
+			} catch (error) {
+				if (errorCode(error) === "EEXIST") {
+					throw new AgentFailure("FILE_EXISTS", "that file already exists");
+				}
+				throw error;
+			}
+			await unlink(tmpPath);
+		} else {
 			// Re-check just before the rename so a write that landed while the
 			// body was in flight is not lost (SPEC.md §13.5).
 			const current = await hashFile(target.path);
 			if (current !== options.ifMatch) {
 				throw new FileChanged(current);
 			}
+			await rename(tmpPath, target.path);
 		}
-		await rename(tmpPath, target.path);
 	} catch (error) {
+		// The write stream closes the handle itself; if it never started, this
+		// is the only thing that can close it.
+		if (!streaming) {
+			await handle.close().catch(() => {});
+		}
 		// Nothing touched the target, so leaving the temp file behind is the
 		// only damage a failure can do; remove it.
 		await rm(tmpPath, { force: true });
 		throw error;
 	}
 	return { etag: hash.digest("hex"), size };
+}
+
+/**
+ * The temporary file's name. The random suffix adds 22 bytes, so the basename
+ * is cut to 200 bytes first and a long name cannot overflow NAME_MAX.
+ */
+function tempName(base: string): string {
+	let short = base;
+	while (Buffer.byteLength(short) > 200) {
+		short = short.slice(0, -1);
+	}
+	return `.${short}.portikus-${randomBytes(6).toString("hex")}`;
 }
 
 /** Create a directory. Its parent must already exist (SPEC.md §11.2). */
@@ -392,7 +436,15 @@ export async function mkdir(
 	if (target.exists) {
 		throw new AgentFailure("FILE_EXISTS", "that name is already taken");
 	}
-	await mkdirFs(target.path);
+	try {
+		await mkdirFs(target.path);
+	} catch (error) {
+		// Something else may have taken the name since the check above.
+		if (errorCode(error) === "EEXIST") {
+			throw new AgentFailure("FILE_EXISTS", "that name is already taken");
+		}
+		throw error;
+	}
 }
 
 /** Move or rename inside one project; both ends are confined to it. */
@@ -402,7 +454,10 @@ export async function move(
 	from: string,
 	to: string,
 ): Promise<void> {
-	const source = await resolveInProject(homeDir, slug, from, { mustExist: true });
+	const source = await resolveInProject(homeDir, slug, from, {
+		mustExist: true,
+		linkOk: true,
+	});
 	const target = await resolveInProject(homeDir, slug, to, {
 		mustExist: false,
 		refuseSymlink: true,
@@ -410,7 +465,21 @@ export async function move(
 	if (target.exists) {
 		throw new AgentFailure("FILE_EXISTS", "that name is already taken");
 	}
-	await rename(source.path, target.path);
+	if (contains(source.path, target.path)) {
+		throw new AgentFailure("BAD_REQUEST", "a directory cannot be moved into itself");
+	}
+	try {
+		// rename acts on a final symlink itself, so a link is moved, not
+		// followed. The destination could still be taken in the microseconds
+		// after the check above; Node has no RENAME_NOREPLACE, so that race is
+		// left open and reported as a conflict when the kernel notices it.
+		await rename(source.path, target.path);
+	} catch (error) {
+		if (errorCode(error) === "EEXIST" || errorCode(error) === "ENOTEMPTY") {
+			throw new AgentFailure("FILE_EXISTS", "that name is already taken");
+		}
+		throw error;
+	}
 }
 
 /** Delete a file or directory. A final symlink is removed, never followed. */
@@ -422,7 +491,15 @@ export async function remove(
 	if (relPath === "") {
 		throw new AgentFailure("PATH_INVALID", "the project itself cannot be deleted here");
 	}
-	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: true });
+	const target = await resolveInProject(homeDir, slug, relPath, {
+		mustExist: true,
+		linkOk: true,
+	});
+	if (target.isSymlink) {
+		// The link is removed, never what it points at (SPEC.md §24.6).
+		await unlink(target.path);
+		return;
+	}
 	const info = await lstat(target.path);
 	if (info.isDirectory()) {
 		await rm(target.path, { recursive: true, force: true });
