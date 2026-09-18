@@ -181,10 +181,10 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-function renderLeaf(onClose = () => {}) {
+function renderLeaf(onClose = () => {}, path = PATH) {
 	renderWithQuery(
 		<FileLeaf
-			path={PATH}
+			path={path}
 			workspaceId={WORKSPACE}
 			projectId={PROJECT}
 			onClose={onClose}
@@ -429,4 +429,56 @@ test("a deleted file says so and can be closed", async () => {
 	expect(screen.queryByTestId(`file-status-${PATH}`)).toBeNull();
 	screen.getByTestId("file-close").click();
 	expect(onClose).toHaveBeenCalled();
+});
+
+const MD_PATH = "README.md";
+
+/** Open a Markdown tab and wait for both panels to be on the page. */
+async function renderMarkdownLeaf() {
+	seed = { text: "# Notes\n", etag: "etag-0" };
+	renderLeaf(() => {}, MD_PATH);
+	await screen.findByTestId(`editor-${MD_PATH}`);
+	await screen.findByTestId("markdown-preview");
+}
+
+test("a Markdown file opens in Preview with all three views offered", async () => {
+	await renderMarkdownLeaf();
+	expect(screen.getByTestId("markdown-mode-edit").textContent).toBe("Edit");
+	expect(screen.getByTestId("markdown-mode-preview").textContent).toBe("Preview");
+	expect(screen.getByTestId("markdown-mode-split").textContent).toBe("Split");
+	expect(screen.getByTestId("markdown-mode-preview").getAttribute("aria-pressed")).toBe(
+		"true",
+	);
+	expect(screen.getByTestId("md-preview-pane").hasAttribute("hidden")).toBe(false);
+	expect(screen.getByTestId("md-edit-pane").hasAttribute("hidden")).toBe(true);
+});
+
+test("Edit hides the preview instead of unmounting the editor", async () => {
+	await renderMarkdownLeaf();
+	act(() => screen.getByTestId("markdown-mode-edit").click());
+
+	expect(screen.getByTestId("md-preview-pane").hasAttribute("hidden")).toBe(true);
+	expect(screen.getByTestId("md-edit-pane").hasAttribute("hidden")).toBe(false);
+	expect(screen.getByTestId(`editor-${MD_PATH}`)).not.toBeNull();
+});
+
+test("switching views keeps the editor's model, so undo and cursor survive", async () => {
+	await renderMarkdownLeaf();
+	const model = state.model;
+	expect(model).not.toBeNull();
+
+	act(() => screen.getByTestId("markdown-mode-edit").click());
+	act(() => screen.getByTestId("markdown-mode-split").click());
+	act(() => screen.getByTestId("markdown-mode-preview").click());
+
+	// A disposed model would have lost the undo history with it.
+	expect(model?.disposed).toBe(false);
+	expect(state.model).toBe(model);
+});
+
+test("a file that is not Markdown offers no view buttons", async () => {
+	renderLeaf();
+	await screen.findByTestId(`editor-${PATH}`);
+	expect(screen.queryByTestId("markdown-mode-edit")).toBeNull();
+	expect(screen.queryByTestId("markdown-split")).toBeNull();
 });
