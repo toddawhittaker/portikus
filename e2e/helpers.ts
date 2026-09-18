@@ -281,6 +281,28 @@ export async function seedFile(
 	}
 }
 
+/**
+ * Open a project whose saved layout already has one file tab, with the file
+ * already on disk (SPEC.md §13.1).
+ */
+export async function openFileTab(
+	page: Page,
+	student: TestStudent,
+	name: string,
+	path: string,
+	content: string,
+): Promise<TestProject> {
+	const project = await createProject(student.workspaceId, { name });
+	await seedFile(student.workspaceId, project.slug, path, content);
+	await query("update projects set layout = $2 where id = $1", [
+		project.id,
+		JSON.stringify({ tabs: [{ id: `file:${path}`, root: { type: "file", path } }] }),
+	]);
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(page.getByTestId(`file-pane-${path}`)).toBeVisible({ timeout: 15_000 });
+	return project;
+}
+
 /** Read a seeded file back, to check what a write actually stored. */
 export async function readSeededFile(
 	workspaceId: string,

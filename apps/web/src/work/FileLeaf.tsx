@@ -3,8 +3,9 @@
  * (SPEC.md §8.3, §13.1, §13.3, §13.5). Local text is never thrown away
  * without the student clicking a button.
  */
-import { Button, EmptyState } from "@portikus/ui";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Button, EmptyState, PaneHandle } from "@portikus/ui";
+import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from "react";
+import { Group, Panel } from "react-resizable-panels";
 import { ApiError } from "../api/request.js";
 import {
 	FileConflictError,
@@ -20,8 +21,30 @@ const CodeEditor = lazy(() =>
 	import("../editor/CodeEditor.js").then((module) => ({ default: module.CodeEditor })),
 );
 
+// The Markdown renderer is its own chunk for the same reason.
+const MarkdownPreview = lazy(() =>
+	import("../editor/MarkdownPreview.js").then((module) => ({
+		default: module.MarkdownPreview,
+	})),
+);
+
 /** How long after the last keystroke the text is written (SPEC.md §13.5). */
 const AUTOSAVE_DELAY_MS = 750;
+
+/** Which of the three Markdown views this tab shows (SPEC.md §13.4). */
+type MarkdownMode = "edit" | "preview" | "split";
+
+const MARKDOWN_MODES: { mode: MarkdownMode; label: string }[] = [
+	{ mode: "edit", label: "Edit" },
+	{ mode: "preview", label: "Preview" },
+	{ mode: "split", label: "Split" },
+];
+
+/** True for the file names that open as Markdown. */
+function isMarkdownPath(path: string): boolean {
+	const lower = path.toLowerCase();
+	return lower.endsWith(".md") || lower.endsWith(".markdown");
+}
 
 type Status = "loading" | "saved" | "unsaved" | "saving" | "conflict" | "failed";
 
@@ -64,6 +87,12 @@ export function FileLeaf({
 	const [dirty, setDirty] = useState(false);
 	const [status, setStatus] = useState<Status>("loading");
 	const [conflictEtag, setConflictEtag] = useState<string | null>(null);
+	const markdown = isMarkdownPath(path);
+	// Markdown opens rendered; the choice belongs to this tab and is not saved.
+	const [mode, setMode] = useState<MarkdownMode>("preview");
+	// The preview may lag the keystrokes so typing stays smooth, but it is
+	// never a frame behind on the first render.
+	const previewText = useDeferredValue(text ?? "");
 	// The file was deleted on disk while it was open, so the next save has to
 	// create it rather than replace a version (SPEC.md §13.3).
 	const [deleted, setDeleted] = useState(false);
@@ -304,7 +333,7 @@ export function FileLeaf({
 		if (text === null || !revealReady) {
 			return <p className="pk-file-note">Loading…</p>;
 		}
-		return (
+		const editor = (
 			<Suspense fallback={<p className="pk-file-note">Loading editor…</p>}>
 				<CodeEditor
 					path={path}
@@ -316,6 +345,45 @@ export function FileLeaf({
 				/>
 			</Suspense>
 		);
+		if (!markdown) return editor;
+		const preview = (
+			<Suspense fallback={<p className="pk-file-note">Loading preview…</p>}>
+				<MarkdownPreview text={previewText} />
+			</Suspense>
+		);
+		// All three modes render the same tree and hide the panel they do not
+		// use, so Monaco keeps its undo history, cursor and scroll position
+		// when the student switches views (SPEC.md §13.4).
+		return (
+			<Group
+				orientation="horizontal"
+				className="pk-split pk-markdown-split"
+				// react-resizable-panels copies the id onto data-testid.
+				id="markdown-split"
+			>
+				<Panel
+					id="md-edit-pane"
+					minSize="20%"
+					className="pk-split-panel"
+					hidden={mode === "preview"}
+				>
+					{editor}
+				</Panel>
+				<PaneHandle
+					orientation="vertical"
+					label="Resize preview"
+					style={mode === "split" ? undefined : { display: "none" }}
+				/>
+				<Panel
+					id="md-preview-pane"
+					minSize="20%"
+					className="pk-split-panel"
+					hidden={mode === "edit"}
+				>
+					{preview}
+				</Panel>
+			</Group>
+		);
 	}
 
 	const note = banner();
@@ -324,6 +392,22 @@ export function FileLeaf({
 		<div className="pk-doc-leaf pk-file-leaf" data-testid={`file-pane-${path}`}>
 			<div className="pk-file-header">
 				<span className="pk-file-path">{path}</span>
+				{markdown ? (
+					<fieldset className="pk-md-modes">
+						<legend className="pk-visually-hidden">Markdown view</legend>
+						{MARKDOWN_MODES.map((choice) => (
+							<button
+								key={choice.mode}
+								type="button"
+								aria-pressed={mode === choice.mode}
+								onClick={() => setMode(choice.mode)}
+								data-testid={`markdown-mode-${choice.mode}`}
+							>
+								{choice.label}
+							</button>
+						))}
+					</fieldset>
+				) : null}
 				{showStatus ? (
 					<span
 						className="pk-file-status"

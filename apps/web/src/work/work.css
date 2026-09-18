@@ -56,6 +56,14 @@
 	min-width: 0;
 }
 
+/* Switching Markdown views hides a panel rather than unmounting it, so the
+   editor keeps its undo history. react-resizable-panels sets display: flex
+   inline on the panel, which only !important can beat. */
+.pk-markdown-split > [data-panel][hidden] {
+	/* biome-ignore lint/complexity/noImportantStyles: beats an inline style */
+	display: none !important;
+}
+
 .pk-term {
 	position: relative;
 	flex: 1;
@@ -315,4 +323,43 @@
 	color: var(--accent-text);
 	font-weight: 600;
 	text-decoration: underline;
+}
+
+/* The Edit | Preview | Split control on a Markdown tab (SPEC.md §13.4). */
+.pk-md-modes {
+	flex: none;
+	display: flex;
+	margin: 0 0 0 auto;
+	padding: 0;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.pk-md-modes button {
+	padding: 2px var(--space-2);
+	border: none;
+	border-left: 1px solid var(--line);
+	background: var(--surface);
+	color: var(--ink-muted);
+	font: inherit;
+	cursor: pointer;
+}
+
+.pk-md-modes button:first-child {
+	border-left: none;
+}
+
+.pk-md-modes button:hover {
+	background: var(--surface-hover);
+}
+
+.pk-md-modes button[aria-pressed="true"] {
+	background: var(--accent-soft);
+	color: var(--accent-text);
+}
+
+.pk-md-modes button:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: -2px;
 }
