@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Publish the pilot VM's Caddy ports (80, 443) from the host's LAN address.
-# Only the gateway ports are forwarded; workspaces stay unreachable (SPEC.md 23.4).
+# Publish the pilot VM's Caddy port from the host's LAN address.  The host
+# keeps 80 and 443 for another service, so the gateway lives on 8443.
+# Only that one port is forwarded; workspaces stay unreachable (SPEC.md 23.4).
 # Usage: publish-vm.sh <vm-ip> | publish-vm.sh --remove
 set -euo pipefail
 
 CHAIN=PORTIKUS_PUBLISH
+# The gateway port, on the host and inside the VM alike: Caddy serves it
+# there, so the URLs the API builds work from inside the VM too.
+PORT=8443
 UNIT=portikus-publish-vm.service
 UNIT_PATH="/etc/systemd/system/${UNIT}"
 STATE_DIR=/etc/portikus-host
@@ -95,23 +99,23 @@ main() {
   local lan_if
   lan_if=$(lan_field dev)
   [ -n "$lan_if" ] || fail "could not work out the LAN interface from the default route"
-  info "publishing ${vm_ip} ports 80 and 443 on interface ${lan_if}"
+  info "publishing ${vm_ip} port ${PORT} on interface ${lan_if}"
 
   reset_chain nat
-  sudo iptables -t nat -A "$CHAIN" -i "$lan_if" -p tcp -m multiport --dports 80,443 \
+  sudo iptables -t nat -A "$CHAIN" -i "$lan_if" -p tcp --dport "$PORT" \
     -j DNAT --to-destination "$vm_ip"
   reset_jump nat PREROUTING
 
   reset_chain filter
   sudo iptables -t filter -A "$CHAIN" -i "$lan_if" -d "$vm_ip" -p tcp \
-    -m multiport --dports 80,443 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
+    --dport "$PORT" -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
   sudo iptables -t filter -A "$CHAIN" -o "$lan_if" -s "$vm_ip" \
     -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
   # Ahead of libvirt's FORWARD rules, which reject new traffic into the NAT bridge.
   reset_jump filter FORWARD
 
   install_unit "$vm_ip" "$source"
-  ok "the VM answers on ports 80 and 443 at $(lan_field src)"
+  ok "the VM answers on port ${PORT} at $(lan_field src)"
 }
 
 main "$@"

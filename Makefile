@@ -80,6 +80,11 @@ HOST_IP ?= $(shell ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < N
 # VM's, because LAN browsers reach the VM through the host port forward.
 PORTIKUS_PUBLIC_HOST ?= portikus.$(HOST_IP).nip.io
 
+# The port browsers connect to. The host keeps 80 and 443 for another
+# service, so Caddy on the VM serves the site on 8443 and the host forwards
+# that port straight through.
+PORTIKUS_PUBLIC_PORT ?= 8443
+
 # Block until the VM answers SSH and cloud-init has finished, so Ansible does
 # not race the first-boot apt update. The known-hosts options are for the wait
 # only: a rebuilt VM has a new host key at the same address.
@@ -94,18 +99,20 @@ wait-vm: ## Wait for the platform VM to finish first boot
 # Ansible runs from infra/ansible, so a local package path has to be absolute.
 PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
 
-configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_MOCK_IDP=true turns on the pilot mock sign-in, PORTIKUS_OIDC_* points at a real identity provider)
+configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_MOCK_IDP=true turns on the pilot mock sign-in, PORTIKUS_OIDC_* points at a real identity provider)
 	cd infra/ansible && PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) \
 		PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) \
-		PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
+		PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
+		PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
 		PORTIKUS_OIDC_ISSUER=$(PORTIKUS_OIDC_ISSUER) PORTIKUS_OIDC_CLIENT_ID=$(PORTIKUS_OIDC_CLIENT_ID) \
 		PORTIKUS_OIDC_CLIENT_SECRET=$(PORTIKUS_OIDC_CLIENT_SECRET) \
 		PORTIKUS_OIDC_STUDENT_GROUP=$(PORTIKUS_OIDC_STUDENT_GROUP) \
 		PORTIKUS_OIDC_ADMIN_GROUP=$(PORTIKUS_OIDC_ADMIN_GROUP) ansible-playbook site.yml
 
-smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> if the site was configured with one; PORTIKUS_MOCK_IDP=true if the VM was configured with the mock sign-in, which the login checks need)
+smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_MOCK_IDP=true if the VM was configured with the mock sign-in, which the login checks need)
 	@test -n "$(VM_IP)" || { echo "smoke-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
+	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
+		PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
 		bash infra/tests/smoke-test.sh $(VM_IP)
 
 destroy-pilot: ## Destroy the platform VM (irreversible)
@@ -113,7 +120,7 @@ destroy-pilot: ## Destroy the platform VM (irreversible)
 
 rebuild-pilot: destroy-pilot infra-apply configure-vm publish-vm ## Destroy and recreate the platform VM
 
-publish-vm: ## Forward ports 80 and 443 from the host's LAN address to the VM (rerun after a rebuild)
+publish-vm: ## Forward port 8443 from the host's LAN address to the VM (rerun after a rebuild)
 	@test -n "$(VM_IP)" || { echo "publish-vm: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	bash infra/host/publish-vm.sh $(VM_IP)
 
