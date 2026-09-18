@@ -340,3 +340,103 @@ test.skipIf(skip)("the preview route answers 501 for now", async () => {
 	});
 	expect(preview.statusCode).toBe(501);
 });
+
+async function makeProject(name: string): Promise<string> {
+	const row = await testDb.db
+		.insertInto("projects")
+		.values({
+			workspace_id: workspaceId,
+			slug: name,
+			name,
+			path: `/home/student/projects/${name}`,
+			source: "new",
+		})
+		.returningAll()
+		.executeTakeFirstOrThrow();
+	return row.id;
+}
+
+/** Mark every terminal of the workspace ended, the way a stop leaves them (SPEC.md §9.7). */
+async function endAllTerminals(): Promise<void> {
+	await testDb.db
+		.updateTable("terminals")
+		.set({ ended_at: new Date().toISOString() })
+		.where("workspace_id", "=", workspaceId)
+		.execute();
+}
+
+test.skipIf(skip)(
+	"terminals created after a stop start at 1 again (SPEC.md §9.7)",
+	async () => {
+		const projectId = await makeProject("alpha");
+		expect((await create(alice, workspaceId, { projectId })).json().name).toBe(
+			"Terminal 1",
+		);
+		expect((await create(alice, workspaceId, { projectId })).json().name).toBe(
+			"Terminal 2",
+		);
+
+		await endAllTerminals();
+
+		expect((await create(alice, workspaceId, { projectId })).json().name).toBe(
+			"Terminal 1",
+		);
+		expect((await create(alice, workspaceId, { projectId })).json().name).toBe(
+			"Terminal 2",
+		);
+	},
+);
+
+test.skipIf(skip)("a second project numbers its terminals from 1", async () => {
+	const alpha = await makeProject("alpha");
+	const beta = await makeProject("beta");
+	await create(alice, workspaceId, { projectId: alpha });
+	await create(alice, workspaceId, { projectId: alpha });
+
+	const first = await create(alice, workspaceId, { projectId: beta });
+	expect(first.json().name).toBe("Terminal 1");
+});
+
+test.skipIf(skip)("a closed terminal frees its number", async () => {
+	const projectId = await makeProject("alpha");
+	const first = (await create(alice, workspaceId, { projectId })).json();
+	await create(alice, workspaceId, { projectId });
+
+	await app.inject({
+		method: "DELETE",
+		url: `/workspaces/${workspaceId}/terminals/${first.id}`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+	});
+
+	const replacement = await create(alice, workspaceId, { projectId });
+	expect(replacement.json().name).toBe("Terminal 1");
+});
+
+test.skipIf(skip)(
+	"a revived terminal keeps the name of the ended terminal it replaces",
+	async () => {
+		const projectId = await makeProject("alpha");
+		const build = (await create(alice, workspaceId, { projectId })).json();
+		await app.inject({
+			method: "PATCH",
+			url: `/workspaces/${workspaceId}/terminals/${build.id}`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { name: "build" },
+		});
+		await create(alice, workspaceId, { projectId });
+
+		await endAllTerminals();
+
+		// The chosen name comes back first; the default-named one is renumbered.
+		expect((await create(alice, workspaceId, { projectId })).json().name).toBe("build");
+		expect((await create(alice, workspaceId, { projectId })).json().name).toBe(
+			"Terminal 1",
+		);
+	},
+);
+
+test.skipIf(skip)("a chosen name still wins over the numbering", async () => {
+	const projectId = await makeProject("alpha");
+	const created = await create(alice, workspaceId, { projectId, name: "watch" });
+	expect(created.json().name).toBe("watch");
+});
