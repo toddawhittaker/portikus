@@ -71,6 +71,7 @@ const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	ATTACHMENT_LIMIT: 409,
 	INVALID_CWD: 400,
 	TMUX_FAILED: 500,
+	INTERNAL: 500,
 	PROJECT_EXISTS: 409,
 	PROJECT_NOT_FOUND: 404,
 	INVALID_SLUG: 400,
@@ -121,9 +122,8 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// the instance would leave this process's own debug lines silent (ADR 0012).
 	const rootLogger = options.logger ?? silentLogger();
 	const app = Fastify({
-		// Uploads are the largest body the agent accepts; the file routes
-		// enforce the real per-kind limits (SPEC.md §11.2).
-		bodyLimit: MAX_UPLOAD_BYTES,
+		// Fastify's default body limit stands for every route; only the file
+		// write route raises it, so a huge JSON body is refused early.
 		// Cast so the instance keeps Fastify's default logger type and
 		// callers can still hold it as a plain FastifyInstance.
 		loggerInstance: rootLogger as FastifyBaseLogger,
@@ -379,7 +379,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				const { path } = queryPath(request);
 				return await listDir(options.homeDir, slug, path);
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 		});
 
@@ -391,40 +391,51 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				reply.header("etag", file.etag);
 				reply.header("content-length", String(file.size));
 				if (download) {
-					reply.header(
-						"content-disposition",
-						`attachment; filename="${basename(path).replace(/["\\]/g, "")}"`,
-					);
+					reply.header("content-disposition", contentDisposition(basename(path)));
 				}
 				return reply.type(file.contentType).send(file.stream ?? file.body);
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 		});
 
-		instance.put("/projects/:slug/file", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			try {
-				const { path } = queryPath(request);
-				const ifMatch = request.headers["if-match"];
-				const ifNoneMatch = request.headers["if-none-match"];
-				const contentType = request.headers["content-type"] ?? "";
-				const result = await writeFile(
-					options.homeDir,
-					slug,
-					path,
-					request.body as Readable,
-					{
-						ifMatch: typeof ifMatch === "string" ? unquote(ifMatch) : undefined,
-						ifNoneMatch: ifNoneMatch === "*",
-						upload: contentType.startsWith("application/octet-stream"),
-					},
-				);
-				reply.header("etag", result.etag);
-				return reply.code(200).send(result);
-			} catch (error) {
-				return sendError(request, reply, error);
-			}
+		// The write route reads the raw request stream for every content type,
+		// so Fastify's JSON and text parsers are displaced here only; the other
+		// routes keep parsing their bodies. The upload limit applies to this
+		// route alone (SPEC.md 11.2).
+		instance.register(async (writeScope) => {
+			const rawStream = (
+				_request: FastifyRequest,
+				payload: Readable,
+				done: (error: Error | null, body?: Readable) => void,
+			) => {
+				done(null, payload);
+			};
+			writeScope.addContentTypeParser("application/json", rawStream);
+			writeScope.addContentTypeParser("text/plain", rawStream);
+
+			writeScope.put(
+				"/projects/:slug/file",
+				{ bodyLimit: MAX_UPLOAD_BYTES },
+				async (request, reply) => {
+					const { slug } = request.params as { slug: string };
+					try {
+						const { path } = queryPath(request);
+						const ifMatch = request.headers["if-match"];
+						const ifNoneMatch = request.headers["if-none-match"];
+						const contentType = request.headers["content-type"] ?? "";
+						const result = await writeFile(options.homeDir, slug, path, request.raw, {
+							ifMatch: typeof ifMatch === "string" ? unquote(ifMatch) : undefined,
+							ifNoneMatch: ifNoneMatch === "*",
+							upload: contentType.startsWith("application/octet-stream"),
+						});
+						reply.header("etag", result.etag);
+						return reply.code(200).send(result);
+					} catch (error) {
+						return sendError(request, reply, error, "INTERNAL");
+					}
+				},
+			);
 		});
 
 		instance.delete("/projects/:slug/file", async (request, reply) => {
@@ -434,7 +445,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				await remove(options.homeDir, slug, path);
 				return reply.code(204).send();
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 		});
 
@@ -450,7 +461,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				await mkdir(options.homeDir, slug, parsed.data.path);
 				return reply.code(201).send({ ok: true });
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 		});
 
@@ -466,7 +477,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				await move(options.homeDir, slug, parsed.data.from, parsed.data.to);
 				return reply.code(204).send();
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 		});
 
@@ -484,7 +495,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					child = await archiveDir(target.path);
 				}
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 			request.log.debug({ slug, operation: "archive" }, "project operation");
 			let stderr = "";
@@ -543,12 +554,41 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	return app;
 }
 
+/**
+ * A download header for a name the student chose. Control characters would
+ * let a file name inject a header line, so they are dropped, the quoted form
+ * is plain ASCII, and the real name follows RFC 5987 encoded as UTF-8.
+ */
+function contentDisposition(name: string): string {
+	const stripped = Array.from(name)
+		.filter((char) => {
+			const code = char.codePointAt(0) ?? 0;
+			return code >= 0x20 && code !== 0x7f;
+		})
+		.join("");
+	const ascii = stripped.replace(/[^\u0020-\u007e]/g, "?").replace(/["\\]/g, "");
+	const encoded = encodeURIComponent(stripped).replace(
+		/['()*]/g,
+		(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+	);
+	return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
 /** Strip the quotes an HTTP entity tag is usually sent with. */
 function unquote(value: string): string {
 	return value.replace(/^W\//, "").replace(/^"|"$/g, "");
 }
 
-function sendError(request: FastifyRequest, reply: FastifyReply, error: unknown) {
+/**
+ * Send a failure. An unexpected error from a file route is INTERNAL rather
+ * than TMUX_FAILED, which belongs to the terminal paths (SPEC.md §27).
+ */
+function sendError(
+	request: FastifyRequest,
+	reply: FastifyReply,
+	error: unknown,
+	fallback: AgentErrorCode = "TMUX_FAILED",
+) {
 	if (error instanceof FileChanged) {
 		reply.header("etag", error.etag);
 	}
@@ -565,6 +605,6 @@ function sendError(request: FastifyRequest, reply: FastifyReply, error: unknown)
 		"agent request failed",
 	);
 	return reply.code(500).send({
-		error: { code: "TMUX_FAILED", message: "internal error" },
+		error: { code: fallback, message: "internal error" },
 	});
 }

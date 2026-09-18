@@ -6,15 +6,18 @@ import {
 	readdir,
 	readFile as readFileFs,
 	rm,
+	stat,
 	symlink,
 	writeFile as writeFileFs,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { promisify } from "node:util";
 import { MAX_EDITOR_FILE_BYTES, MAX_TREE_ENTRIES } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { writeFile as writeFileLib } from "./files.js";
 import { buildServer } from "./server.js";
 
 const run = promisify(execFile);
@@ -219,7 +222,7 @@ test("a file past the editor limit is refused unless it is a download", async ()
 	expect(download.statusCode).toBe(200);
 	expect(download.rawPayload.length).toBe(big.length);
 	expect(download.headers["content-disposition"]).toBe(
-		'attachment; filename="big.txt"',
+		"attachment; filename=\"big.txt\"; filename*=UTF-8''big.txt",
 	);
 });
 
@@ -423,4 +426,128 @@ test("an archive of a path that escapes is refused", async () => {
 	});
 	expect(response.statusCode).toBe(400);
 	expect(response.json().error.code).toBe("PATH_INVALID");
+});
+
+// --- SPEC.md §24.6: writes never follow a final symlink -------------------
+
+async function tempLeftovers(dir: string): Promise<string[]> {
+	return (await readdir(dir)).filter((name) => name.includes(".portikus-"));
+}
+
+test("a create through a dangling symlink cannot write outside the project", async () => {
+	await symlink(join(homeDir, "gone.txt"), join(project, "evil.txt"));
+	const response = await writeFile("evil.txt", "pwned", { "if-none-match": "*" });
+	expect(response.statusCode).toBe(400);
+	expect(response.json().error.code).toBe("PATH_INVALID");
+	await expect(readFileFs(join(homeDir, "gone.txt"), "utf8")).rejects.toThrow();
+	expect(await tempLeftovers(project)).toEqual([]);
+});
+
+test("an over-cap write through a symlink leaves the outside file alone", async () => {
+	await symlink(join(homeDir, "outside.txt"), join(project, "evil.txt"));
+	const body = Buffer.alloc(MAX_EDITOR_FILE_BYTES + 1, 0x61);
+	const response = await writeFile("evil.txt", body, { "if-none-match": "*" });
+	expect(response.statusCode).toBe(400);
+	expect(await readFileFs(join(homeDir, "outside.txt"), "utf8")).toBe("outside");
+	expect(await tempLeftovers(project)).toEqual([]);
+});
+
+// --- SPEC.md §13.5: a failed save never loses the file --------------------
+
+test("an over-cap write leaves the existing file intact", async () => {
+	await writeFileFs(join(project, "notes.txt"), "keep me");
+	const body = Buffer.alloc(3 * 1024 * 1024, 0x61);
+	const response = await writeFile("notes.txt", body, {
+		"if-match": sha256("keep me"),
+	});
+	expect(response.statusCode).toBe(413);
+	expect(response.json().error.code).toBe("FILE_TOO_LARGE");
+	expect(await readFileFs(join(project, "notes.txt"), "utf8")).toBe("keep me");
+	expect(await tempLeftovers(project)).toEqual([]);
+});
+
+test("a body stream that fails mid-write leaves the existing file intact", async () => {
+	await writeFileFs(join(project, "notes.txt"), "keep me");
+	const failing = new Readable({
+		read() {
+			this.push("part");
+			this.destroy(new Error("the client went away"));
+		},
+	});
+	await expect(
+		writeFileLib(homeDir, "alpha", "notes.txt", failing, {
+			ifMatch: sha256("keep me"),
+		}),
+	).rejects.toThrow();
+	expect(await readFileFs(join(project, "notes.txt"), "utf8")).toBe("keep me");
+	expect(await tempLeftovers(project)).toEqual([]);
+});
+
+test("a write keeps the existing file's mode", async () => {
+	const script = join(project, "run.sh");
+	await writeFileFs(script, "old", { mode: 0o755 });
+	const response = await writeFile("run.sh", "new", { "if-match": sha256("old") });
+	expect(response.statusCode).toBe(200);
+	expect((await stat(script)).mode & 0o777).toBe(0o755);
+});
+
+// --- Content types and body limits ----------------------------------------
+
+test("a JSON content type is written as raw bytes", async () => {
+	const payload = '{"emoji":"héllo ☃"}';
+	const response = await writeFile("data.json", payload, {
+		"content-type": "application/json",
+		"if-none-match": "*",
+	});
+	expect(response.statusCode).toBe(200);
+	expect(response.json().size).toBe(Buffer.byteLength(payload));
+	expect(await readFileFs(join(project, "data.json"), "utf8")).toBe(payload);
+});
+
+test("a text/plain charset content type is written as raw bytes", async () => {
+	const payload = "naïve ☃ snowman";
+	const response = await writeFile("note.txt", payload, {
+		"content-type": "text/plain; charset=utf-8",
+		"if-none-match": "*",
+	});
+	expect(response.statusCode).toBe(200);
+	expect(response.json().size).toBe(Buffer.byteLength(payload));
+	expect(await readFileFs(join(project, "note.txt"), "utf8")).toBe(payload);
+});
+
+test("a huge JSON body to mkdir is refused by the body limit", async () => {
+	const response = await app.inject({
+		method: "POST",
+		url: "/projects/alpha/mkdir",
+		headers: { ...auth(), "content-type": "application/json" },
+		payload: JSON.stringify({ path: "a".repeat(3 * 1024 * 1024) }),
+	});
+	expect(response.statusCode).toBe(413);
+});
+
+// --- Download names and listing -------------------------------------------
+
+test("a download name drops control characters and carries an encoded form", async () => {
+	const name = "bad\r\nname ☃.txt";
+	await writeFileFs(join(project, name), "hi");
+	const response = await readFile(name, "&download=1");
+	expect(response.statusCode).toBe(200);
+	const disposition = response.headers["content-disposition"] as string;
+	expect(disposition).not.toMatch(/[\r\n]/);
+	expect(disposition).toContain('filename="badname ?.txt"');
+	expect(disposition).toContain("filename*=UTF-8''bad");
+	expect(disposition).toContain("%E2%98%83");
+});
+
+test("a very large directory is listed without statting every entry", async () => {
+	const many = join(project, "many");
+	await mkdir(many);
+	await Promise.all(
+		Array.from({ length: MAX_TREE_ENTRIES + 50 }, (_, index) =>
+			writeFileFs(join(many, `f${String(index).padStart(5, "0")}.txt`), ""),
+		),
+	);
+	const body = (await tree("many")).json();
+	expect(body.entries).toHaveLength(MAX_TREE_ENTRIES);
+	expect(body.truncated).toBe(true);
 });

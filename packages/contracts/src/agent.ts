@@ -96,6 +96,7 @@ export const AgentErrorCode = z.enum([
 	"ATTACHMENT_LIMIT",
 	"INVALID_CWD",
 	"TMUX_FAILED",
+	"INTERNAL",
 	"PROJECT_EXISTS",
 	"PROJECT_NOT_FOUND",
 	"INVALID_SLUG",

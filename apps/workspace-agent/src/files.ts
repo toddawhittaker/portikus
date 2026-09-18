@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { createReadStream, type Dirent, constants as fsConstants } from "node:fs";
 import {
 	lstat,
 	mkdir as mkdirFs,
@@ -68,12 +68,20 @@ function errorCode(error: unknown): string | undefined {
  * and refuse anything that could leave the project directory, including a
  * symlink in the path or as the final component (SPEC.md §11.1, §24.6).
  * An empty path means the project directory itself.
+ *
+ * With refuseSymlink, a final component that is a symlink is refused even
+ * when it dangles, because a write would otherwise create the link's target
+ * outside the project.
+ *
+ * A hard link inside the project that points at a file outside it cannot be
+ * detected by any path check. Confinement bounds the coding agent, not a
+ * student with a shell in their own workspace (SPEC.md §24.6).
  */
 export async function resolveInProject(
 	homeDir: string,
 	slug: string,
 	relPath: string,
-	options: { mustExist: boolean },
+	options: { mustExist: boolean; refuseSymlink?: boolean },
 ): Promise<ResolvedPath> {
 	const project = await resolveProject(slug, homeDir);
 	if (!project.exists) {
@@ -101,6 +109,16 @@ export async function resolveInProject(
 		throw new AgentFailure("PATH_INVALID", "path leaves the project");
 	}
 	const path = join(parent, basename(requested));
+
+	if (options.refuseSymlink) {
+		const link = await lstat(path).catch((error: unknown) => {
+			if (errorCode(error) === "ENOENT") return null;
+			throw new AgentFailure("PATH_INVALID", "invalid path");
+		});
+		if (link?.isSymbolicLink()) {
+			throw new AgentFailure("PATH_INVALID", "path leaves the project");
+		}
+	}
 
 	try {
 		const real = await realpath(path);
@@ -139,38 +157,37 @@ export async function listDir(
 	relPath: string,
 ): Promise<TreeResponse> {
 	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: true });
-	let names: string[];
+	let dirents: Dirent[];
 	try {
-		names = await readdir(target.path);
+		// withFileTypes gives the kind without a stat call, so a huge
+		// directory is sorted and cut down before anything is stat'ed.
+		dirents = await readdir(target.path, { withFileTypes: true });
 	} catch (error) {
 		if (errorCode(error) === "ENOTDIR") {
 			throw new AgentFailure("NOT_A_DIRECTORY", "not a directory");
 		}
 		throw error;
 	}
+	dirents.sort((a, b) => {
+		const aDir = a.isDirectory() ? 0 : 1;
+		const bDir = b.isDirectory() ? 0 : 1;
+		if (aDir !== bDir) return aDir - bDir;
+		return a.name.localeCompare(b.name);
+	});
+	const truncated = dirents.length > MAX_TREE_ENTRIES;
 	const entries: TreeEntry[] = [];
-	for (const name of names) {
+	for (const dirent of dirents.slice(0, MAX_TREE_ENTRIES)) {
 		// lstat, so a symlink reports itself rather than what it points at.
-		const info = await lstat(join(target.path, name)).catch(() => null);
+		const info = await lstat(join(target.path, dirent.name)).catch(() => null);
 		if (!info) continue;
 		entries.push({
-			name,
+			name: dirent.name,
 			type: entryType(info),
 			size: info.size,
 			mtimeMs: info.mtimeMs,
 		});
 	}
-	entries.sort((a, b) => {
-		const aDir = a.type === "dir" ? 0 : 1;
-		const bDir = b.type === "dir" ? 0 : 1;
-		if (aDir !== bDir) return aDir - bDir;
-		return a.name.localeCompare(b.name);
-	});
-	const truncated = entries.length > MAX_TREE_ENTRIES;
-	return {
-		entries: truncated ? entries.slice(0, MAX_TREE_ENTRIES) : entries,
-		truncated,
-	};
+	return { entries, truncated };
 }
 
 export interface ReadFileResult {
@@ -260,8 +277,14 @@ export interface WriteOptions {
 
 /**
  * Write a file with a conditional guard, so a stale browser cannot overwrite
- * a newer version on disk (SPEC.md §13.5). Writes in place, because the
- * terminal and coding agents watch the same inode.
+ * a newer version on disk (SPEC.md §13.5).
+ *
+ * The body streams into a temporary file in the same directory and is renamed
+ * over the target only once it has arrived whole. A failed save - over the
+ * cap, a dropped connection, a stream error - must never lose the student's
+ * file, so the target is never truncated before the body is known good
+ * (SPEC.md §13.5). The temporary file is opened with O_EXCL and O_NOFOLLOW,
+ * so no symlink can redirect the write outside the project (SPEC.md §24.6).
  */
 export async function writeFile(
 	homeDir: string,
@@ -277,8 +300,12 @@ export async function writeFile(
 			"a write needs exactly one of If-Match or If-None-Match",
 		);
 	}
-	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: false });
+	const target = await resolveInProject(homeDir, slug, relPath, {
+		mustExist: false,
+		refuseSymlink: true,
+	});
 
+	let mode: number | undefined;
 	if (options.ifNoneMatch) {
 		if (target.exists) {
 			throw new AgentFailure("FILE_EXISTS", "that file already exists");
@@ -291,6 +318,7 @@ export async function writeFile(
 		if (info.isDirectory()) {
 			throw new AgentFailure("BAD_REQUEST", "that path is a directory");
 		}
+		mode = info.mode & 0o7777;
 		const current = await hashFile(target.path);
 		if (current !== options.ifMatch) {
 			throw new FileChanged(current);
@@ -300,29 +328,52 @@ export async function writeFile(
 	const limit = options.upload ? MAX_UPLOAD_BYTES : MAX_EDITOR_FILE_BYTES;
 	const hash = createHash("sha256");
 	let size = 0;
-	let tooLarge = false;
-	const out = createWriteStream(target.path, { flags: "w" });
+	const tmpPath = join(
+		dirname(target.path),
+		`.${basename(target.path)}.portikus-${randomBytes(6).toString("hex")}`,
+	);
+	// O_EXCL: a name nobody else holds. O_NOFOLLOW: the kernel refuses even if
+	// the name became a symlink since the check above (SPEC.md §24.6).
+	const handle = await open(
+		tmpPath,
+		fsConstants.O_WRONLY |
+			fsConstants.O_CREAT |
+			fsConstants.O_EXCL |
+			fsConstants.O_NOFOLLOW,
+		0o644,
+	);
 	try {
+		if (mode !== undefined) {
+			// Keep executable bits and the like across the rename.
+			await handle.chmod(mode);
+		}
 		await pipeline(
 			body,
 			async function* (source: AsyncIterable<Buffer>) {
 				for await (const chunk of source) {
 					size += chunk.length;
 					if (size > limit) {
-						tooLarge = true;
 						throw new AgentFailure("FILE_TOO_LARGE", "that file is too large");
 					}
 					hash.update(chunk);
 					yield chunk;
 				}
 			},
-			out,
+			handle.createWriteStream(),
 		);
-	} catch (error) {
-		if (tooLarge) {
-			// The partial write is not what the student asked for; drop it.
-			await rm(target.path, { force: true });
+		if (options.ifMatch !== undefined) {
+			// Re-check just before the rename so a write that landed while the
+			// body was in flight is not lost (SPEC.md §13.5).
+			const current = await hashFile(target.path);
+			if (current !== options.ifMatch) {
+				throw new FileChanged(current);
+			}
 		}
+		await rename(tmpPath, target.path);
+	} catch (error) {
+		// Nothing touched the target, so leaving the temp file behind is the
+		// only damage a failure can do; remove it.
+		await rm(tmpPath, { force: true });
 		throw error;
 	}
 	return { etag: hash.digest("hex"), size };
@@ -334,7 +385,10 @@ export async function mkdir(
 	slug: string,
 	relPath: string,
 ): Promise<void> {
-	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: false });
+	const target = await resolveInProject(homeDir, slug, relPath, {
+		mustExist: false,
+		refuseSymlink: true,
+	});
 	if (target.exists) {
 		throw new AgentFailure("FILE_EXISTS", "that name is already taken");
 	}
@@ -349,7 +403,10 @@ export async function move(
 	to: string,
 ): Promise<void> {
 	const source = await resolveInProject(homeDir, slug, from, { mustExist: true });
-	const target = await resolveInProject(homeDir, slug, to, { mustExist: false });
+	const target = await resolveInProject(homeDir, slug, to, {
+		mustExist: false,
+		refuseSymlink: true,
+	});
 	if (target.exists) {
 		throw new AgentFailure("FILE_EXISTS", "that name is already taken");
 	}
