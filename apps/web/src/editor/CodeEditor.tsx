@@ -27,6 +27,8 @@ export interface CodeEditorProps {
 	version: string;
 	onChange: (text: string) => void;
 	onSave: () => void;
+	/** From the student's editor settings (issue #159). */
+	wordWrap?: "on" | "off";
 	/** Jump here when the editor opens, for "open at line" (SPEC.md §15.3). */
 	revealLine?: number;
 	/**
@@ -42,6 +44,7 @@ export function CodeEditor({
 	version,
 	onChange,
 	onSave,
+	wordWrap = "off",
 	revealLine,
 	revealNonce,
 }: CodeEditorProps) {
@@ -56,6 +59,10 @@ export function CodeEditor({
 	// zoom through a ref rather than being rebuilt on every step.
 	const zoomRef = useRef(zoom);
 	zoomRef.current = zoom;
+	// Same reason: the editor is created once, so it reads the newest wrap
+	// setting here and through the effect below.
+	const wrapRef = useRef(wordWrap);
+	wrapRef.current = wordWrap;
 	const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	const modelRef = useRef<Monaco.editor.ITextModel | null>(null);
 	// True while an external refresh is being applied, so that edit is not
@@ -98,6 +105,7 @@ export function CodeEditor({
 				theme: currentThemeName(),
 				renderLineHighlight: "line",
 				fontSize: fontSizeFor(zoomRef.current),
+				wordWrap: wrapRef.current,
 			});
 			// Editor-only zoom by keyboard (SPEC.md §13.1). Monaco swallows these
 			// keys, so the browser's own zoom does not also fire.
@@ -171,6 +179,11 @@ export function CodeEditor({
 	useEffect(() => {
 		editorRef.current?.updateOptions({ fontSize: fontSizeFor(zoom) });
 	}, [zoom]);
+
+	// Word wrap comes from the student's settings (issue #159, SPEC.md §13.1).
+	useEffect(() => {
+		editorRef.current?.updateOptions({ wordWrap });
+	}, [wordWrap]);
 
 	// Ctrl + wheel zooms the editor only. preventDefault stops the browser from
 	// zooming the whole page, so the listener cannot be passive (SPEC.md §13.1).

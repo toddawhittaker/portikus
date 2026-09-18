@@ -40,6 +40,8 @@ export default defineConfig({
 		proxy: {
 			"/health": api,
 			"/auth": api,
+			// The signed-in user's own editor settings (issue #159).
+			"/me": api,
 			// /admin is the administration screen in the bundle; /admin/*
 			// is its data. Only the document navigation stays in the browser.
 			"/admin": {
