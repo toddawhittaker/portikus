@@ -105,6 +105,14 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 				setModel: (sides: { original: FakeModel; modified: FakeModel }) => {
 					diffState.models = sides;
 				},
+				// The Markdown split scrolls the working-copy side by line
+				// (issue #229); nothing scrolls in jsdom, so it only answers.
+				getModifiedEditor: () => ({
+					onDidScrollChange: () => {},
+					getVisibleRanges: () => [],
+					getTopForLineNumber: () => 0,
+					setScrollTop: () => {},
+				}),
 				saveViewState: () => null,
 				restoreViewState: () => {},
 				dispose: () => {},
@@ -127,12 +135,14 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 						};
 					},
 					// Nothing scrolls in jsdom, so the scroll hooks the split
-					// view uses (issue #154) only have to exist and answer.
+					// view uses (issue #229) only have to exist and answer.
 					onDidScrollChange: () => {},
 					onDidLayoutChange: () => {},
 					getScrollTop: () => 0,
 					getScrollHeight: () => 0,
 					setScrollTop: () => {},
+					getVisibleRanges: () => [],
+					getTopForLineNumber: () => 0,
 					// jsdom has no layout, so the fake editor claims a size.
 					getLayoutInfo: () => ({ width: 800, height: 600 }),
 					saveViewState: () => ({ line: position }),

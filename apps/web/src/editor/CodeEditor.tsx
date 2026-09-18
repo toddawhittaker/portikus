@@ -13,7 +13,6 @@ import {
 	languageForFile,
 	watchTheme,
 } from "./monaco.js";
-import { scrollRatio, scrollTopForRatio } from "./scrollSync.js";
 import { DEFAULT_ZOOM, fontSizeFor, stepZoom } from "./zoom.js";
 import "./editor.css";
 
@@ -52,17 +51,17 @@ export interface CodeEditorProps {
 	/** Hand the newest view state back, so it survives leaving the route. */
 	onViewState?: (viewState: unknown) => void;
 	/**
-	 * Reports where the editor is in its own scroll range, from 0 to 1, so the
-	 * Markdown split view can put the preview in the same place (issue #154).
+	 * Reports the first line the editor is showing, so the Markdown split view
+	 * can put the same line at the top of the other side (issue #229).
 	 */
-	onScrollRatio?: (ratio: number) => void;
-	/** Lets the tab scroll this editor to a relative position. */
+	onTopLine?: (line: number) => void;
+	/** Lets the tab scroll this editor to a line. */
 	ref?: Ref<CodeEditorHandle>;
 }
 
 export interface CodeEditorHandle {
-	/** Scroll to a relative position, from 0 at the top to 1 at the end. */
-	setScrollRatio: (ratio: number) => void;
+	/** Scroll so this source line is the first one showing. */
+	setTopLine: (line: number) => void;
 }
 
 export function CodeEditor({
@@ -77,7 +76,7 @@ export function CodeEditor({
 	revealNonce,
 	viewState,
 	onViewState,
-	onScrollRatio,
+	onTopLine,
 	ref,
 }: CodeEditorProps) {
 	const host = useRef<HTMLDivElement | null>(null);
@@ -115,7 +114,7 @@ export function CodeEditor({
 		onSave,
 		revealLine,
 		onViewState,
-		onScrollRatio,
+		onTopLine,
 	});
 	latest.current = {
 		value,
@@ -124,20 +123,14 @@ export function CodeEditor({
 		onSave,
 		revealLine,
 		onViewState,
-		onScrollRatio,
+		onTopLine,
 	};
 
 	useImperativeHandle(ref, () => ({
-		setScrollRatio(ratio: number) {
+		setTopLine(line: number) {
 			const editor = editorRef.current;
 			if (!editor) return;
-			editor.setScrollTop(
-				scrollTopForRatio(
-					ratio,
-					editor.getScrollHeight(),
-					editor.getLayoutInfo().height,
-				),
-			);
+			editor.setScrollTop(editor.getTopForLineNumber(Math.max(1, Math.round(line))));
 		},
 	}));
 
@@ -246,15 +239,9 @@ export function CodeEditor({
 			editor.onDidScrollChange(() => {
 				report();
 				if (!restored) return;
-				const toPreview = latest.current.onScrollRatio;
-				if (!toPreview) return;
-				toPreview(
-					scrollRatio(
-						editor.getScrollTop(),
-						editor.getScrollHeight(),
-						editor.getLayoutInfo().height,
-					),
-				);
+				const follow = latest.current.onTopLine;
+				if (!follow) return;
+				follow(topLine(editor));
 			});
 		});
 		return () => {
@@ -372,4 +359,11 @@ export function CodeEditor({
 function firstLineOf(text: string): string {
 	const end = text.indexOf("\n");
 	return (end < 0 ? text : text.slice(0, end)).slice(0, 200);
+}
+
+/** The first line the editor is showing, whole lines only. */
+function topLine(editor: Monaco.editor.IStandaloneCodeEditor): number {
+	const visible = editor.getVisibleRanges()[0];
+	if (visible) return visible.startLineNumber;
+	return 1;
 }

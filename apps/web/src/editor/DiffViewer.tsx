@@ -4,7 +4,7 @@
  * what the two sides hold.
  */
 import type * as Monaco from "monaco-editor";
-import { useEffect, useRef } from "react";
+import { type Ref, useEffect, useImperativeHandle, useRef } from "react";
 import {
 	baseEditorOptions,
 	currentThemeName,
@@ -35,6 +35,18 @@ export interface DiffViewerProps {
 	onChange?: (value: string) => void;
 	/** The test id of the host element; the conflict view sets its own. */
 	testId?: string;
+	/**
+	 * Reports the first line the working-copy side is showing, so a Markdown
+	 * tab can keep its raw text on the same line (issue #229).
+	 */
+	onTopLine?: (line: number) => void;
+	/** Lets the tab scroll the working-copy side to a line. */
+	ref?: Ref<DiffEditorHandle>;
+}
+
+export interface DiffEditorHandle {
+	/** Scroll the working-copy side so this line is the first one showing. */
+	setTopLine: (line: number) => void;
 }
 
 export function DiffViewer({
@@ -45,6 +57,8 @@ export function DiffViewer({
 	editable = false,
 	onChange,
 	testId,
+	onTopLine,
+	ref,
 }: DiffViewerProps) {
 	const host = useRef<HTMLDivElement | null>(null);
 	const editorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -57,8 +71,8 @@ export function DiffViewer({
 
 	// The editor is created once, so it reads the newest text through a ref
 	// rather than being torn down on every render.
-	const latest = useRef({ original, modified, version });
-	latest.current = { original, modified, version };
+	const latest = useRef({ original, modified, version, onTopLine });
+	latest.current = { original, modified, version, onTopLine };
 	// The callback can change on every render; the listener reads it here.
 	const change = useRef(onChange);
 	change.current = onChange;
@@ -91,6 +105,9 @@ export function DiffViewer({
 					change.current?.(models.modified.getValue());
 				});
 			}
+			editor.getModifiedEditor().onDidScrollChange(() => {
+				latest.current.onTopLine?.(topLine(editor.getModifiedEditor()));
+			});
 			editorRef.current = editor;
 			modelsRef.current = models;
 			applied.current = latest.current.version;
@@ -123,6 +140,16 @@ export function DiffViewer({
 		if (view) editor.restoreViewState(view);
 	}, [original, modified, version]);
 
+	useImperativeHandle(ref, () => ({
+		setTopLine(line: number) {
+			const modified = editorRef.current?.getModifiedEditor();
+			if (!modified) return;
+			modified.setScrollTop(
+				modified.getTopForLineNumber(Math.max(1, Math.round(line))),
+			);
+		},
+	}));
+
 	// The theme follows the page's choice; one watcher serves every editor.
 	useEffect(() => {
 		watchTheme();
@@ -135,4 +162,9 @@ export function DiffViewer({
 			ref={host}
 		/>
 	);
+}
+
+/** The first line an editor is showing, whole lines only. */
+function topLine(editor: Monaco.editor.ICodeEditor): number {
+	return editor.getVisibleRanges()[0]?.startLineNumber ?? 1;
 }

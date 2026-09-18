@@ -45,6 +45,14 @@ vi.mock("monaco-editor/editor/editor.api.js", () => ({
 			setModel: (models: { original: FakeModel; modified: FakeModel }) => {
 				editorState.models = models;
 			},
+			// The Markdown split scrolls the working-copy side by line (issue
+			// #229); nothing scrolls in jsdom, so this only has to answer.
+			getModifiedEditor: () => ({
+				onDidScrollChange: () => {},
+				getVisibleRanges: () => [],
+				getTopForLineNumber: () => 0,
+				setScrollTop: () => {},
+			}),
 			saveViewState: () => {
 				editorState.calls.push("save");
 				return { scroll: 1 };

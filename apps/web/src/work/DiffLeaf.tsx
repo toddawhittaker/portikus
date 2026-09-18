@@ -5,7 +5,8 @@
  * between this view and the editor (issue #160).
  */
 import { EmptyState } from "@portikus/ui";
-import { lazy, type ReactNode, Suspense, useEffect } from "react";
+import { lazy, type ReactNode, type Ref, Suspense, useEffect } from "react";
+import type { DiffEditorHandle } from "../editor/DiffViewer.js";
 import { DIFF_KIND, LETTER, WORD } from "../files/gitStatus.js";
 import { fileDownloadUrl } from "../files/queries.js";
 import { useGitDiff } from "../files/useGitDiff.js";
@@ -31,6 +32,10 @@ export interface DiffLeafProps {
 	visible?: boolean;
 	/** The tab's own controls, drawn in this view's header. */
 	toolbar?: ReactNode;
+	/** Reports the first line the working-copy side is showing (issue #229). */
+	onTopLine?: (line: number) => void;
+	/** Lets a Markdown tab scroll the working-copy side to a line. */
+	editorRef?: Ref<DiffEditorHandle>;
 }
 
 export function DiffLeaf({
@@ -39,6 +44,8 @@ export function DiffLeaf({
 	projectId,
 	visible = true,
 	toolbar,
+	onTopLine,
+	editorRef,
 }: DiffLeafProps) {
 	const diff = useGitDiff(workspaceId, projectId, path);
 
@@ -117,6 +124,8 @@ export function DiffLeaf({
 					// Every answer from the server is a new version, so a refresh
 					// replaces the text and a re-render does not.
 					version={String(diff.dataUpdatedAt)}
+					onTopLine={onTopLine}
+					ref={editorRef}
 				/>
 			</Suspense>
 		);

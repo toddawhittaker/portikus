@@ -424,9 +424,16 @@ store for this session only and is never saved (§8.3) (#223).
 
 **Markdown.** The three Markdown viewer defects from pilot feedback are
 fixed (§13.4): rendered lists show their markers again, split view keeps
-the editor and preview at the same relative position as either side
-scrolls, and the code side's scrollbar is now drawn in a visible colour on
-both editor themes (#154).
+the two sides scrolled together, and the code side's scrollbar is now
+drawn in a visible colour on both editor themes (#154).
+
+The two sides now follow each other by source line rather than by how far
+down each one is: the first line showing on the left is the first line
+showing on the right, in the preview and with Diff turned on alike, and
+scrolling either side moves the other (§13.4) (#229). The preview marks
+every block it renders with the line it came from, counting the front
+matter it hides, and the diff is matched line for line because its
+working-copy side holds the same text as the editor.
 
 The rich view's own failures — a file that stopped at the first raw HTML
 node, and the keystrokes that were dropped after it — went away with the
