@@ -261,6 +261,40 @@ export async function seedProjectDir(
 	}
 }
 
+/**
+ * Seed one file inside a seeded project directory, the way a shell or a
+ * coding agent would create it. Missing parent directories are created.
+ */
+export async function seedFile(
+	workspaceId: string,
+	slug: string,
+	path: string,
+	content: string,
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/files`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, path: `${slug}/${path}`, content }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused to seed ${path}: ${response.status}`);
+	}
+}
+
+/** Read a seeded file back, to check what a write actually stored. */
+export async function readSeededFile(
+	workspaceId: string,
+	slug: string,
+	path: string,
+): Promise<string> {
+	const query = new URLSearchParams({ key: workspaceId, path: `${slug}/${path}` });
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/files?${query}`);
+	if (!response.ok) {
+		throw new Error(`the fake agent has no ${path}: ${response.status}`);
+	}
+	return ((await response.json()) as { content: string }).content;
+}
+
 /** Remove a directory from the fake agent, as deleting it in a shell would. */
 export async function removeProjectDir(
 	workspaceId: string,

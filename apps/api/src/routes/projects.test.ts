@@ -470,7 +470,7 @@ test.skipIf(skip)("download streams a zip named after the slug", async () => {
 	expect(downloaded.statusCode).toBe(200);
 	expect(downloaded.headers["content-type"]).toBe("application/zip");
 	expect(downloaded.headers["content-disposition"]).toBe(
-		'attachment; filename="report.zip"',
+		`attachment; filename="report.zip"; filename*=UTF-8''report.zip`,
 	);
 	// "PK" is the zip magic number.
 	expect(downloaded.rawPayload.subarray(0, 2).toString()).toBe("PK");
