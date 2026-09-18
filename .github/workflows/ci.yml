@@ -176,3 +176,6 @@ jobs:
       - name: Smoke test cleanup scope
         if: steps.detect.outputs.shell == 'true'
         run: bash infra/tests/cleanup-scope-test.sh
+      - name: Clipboard shim
+        if: steps.detect.outputs.shell == 'true'
+        run: bash infra/tests/clipboard-shim-test.sh
