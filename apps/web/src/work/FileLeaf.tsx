@@ -9,7 +9,8 @@ import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from "r
 import { Group, Panel } from "react-resizable-panels";
 import { ApiError } from "../api/request.js";
 import type { CodeEditorHandle } from "../editor/CodeEditor.js";
-import { scrollRatio, scrollTopForRatio } from "../editor/scrollSync.js";
+import type { DiffEditorHandle } from "../editor/DiffViewer.js";
+import { lineForTop, readBlocks, topForLine } from "../editor/scrollSync.js";
 import { useEditorSettings } from "../editor/settingsQueries.js";
 import {
 	FileConflictError,
@@ -47,11 +48,11 @@ type View = "edit" | "diff";
 const HIDDEN = { display: "none" } as const;
 
 /**
- * How close two positions have to be to count as the same place. A side that
- * is put where it already is reports a scroll of its own; this is how that
- * echo is told from a student's own small scroll (issue #218).
+ * How many pixels apart two preview positions can be and still count as the
+ * same place. A side that is put where it already is reports a scroll of its
+ * own; this is how that echo is told from a student's own scroll (issue #229).
  */
-const SAME_PLACE = 0.001;
+const SAME_PLACE = 1;
 
 /** True for the file names that open as Markdown. */
 function isMarkdownPath(path: string): boolean {
@@ -135,13 +136,15 @@ export function FileLeaf({
 	// Which view this tab shows. It belongs to this browser and is not saved.
 	const [view, setView] = useState<View>("edit");
 	const markdown = isMarkdownPath(path);
-	// The two sides of the Markdown split keep the same relative position
-	// (issue #154, #218). Each side remembers the position it last put the
-	// other one at, so it can recognise that side's answering scroll event.
+	// The two sides of the Markdown split keep the same top line (issue #229).
+	// Each side remembers the place it last put the other one at, so it can
+	// recognise that side's answering scroll event and not send it back.
 	const editorScroll = useRef<CodeEditorHandle | null>(null);
 	const previewScroll = useRef<HTMLDivElement | null>(null);
-	const sentToPreview = useRef<number | null>(null);
-	const sentToEditor = useRef<number | null>(null);
+	const diffScroll = useRef<DiffEditorHandle | null>(null);
+	const sentPreviewTop = useRef<number | null>(null);
+	const sentEditorLine = useRef<number | null>(null);
+	const sentDiffLine = useRef<number | null>(null);
 	// The preview may lag the keystrokes so typing stays smooth, but it is
 	// never a frame behind on the first render.
 	const previewText = useDeferredValue(text ?? "");
@@ -408,33 +411,56 @@ export function FileLeaf({
 	// while the editor is empty there is nothing to have saved.
 	const showStatus = text !== null && !viewer;
 
-	// The two sides of the Markdown split follow each other by relative
-	// position: how far down its own scrollable range each side is (issue
-	// #154, #218; SPEC.md §13.4). Putting one side in its place makes that
-	// side report a scroll, which must not be sent straight back, so each
-	// side ignores exactly the position it was just asked for.
-	function followEditor(ratio: number) {
-		const node = previewScroll.current;
-		if (!node) return;
-		if (sentToEditor.current !== null && near(ratio, sentToEditor.current)) {
-			// The editor is only reporting the move the preview asked for.
-			sentToEditor.current = null;
+	// The two sides of the Markdown split follow each other by source line:
+	// the first line showing on the left is the first line showing on the
+	// right, in the preview and in the diff alike (SPEC.md §13.4, issue #229).
+	// The preview is matched through the data-line attribute its blocks carry.
+	// Putting one side in its place makes that side report a scroll, which
+	// must not be sent straight back, so each side ignores exactly the place
+	// it was just asked for.
+	function followEditor(line: number) {
+		if (sentEditorLine.current === line) {
+			// The editor is only reporting the move the other side asked for.
+			sentEditorLine.current = null;
 			return;
 		}
-		sentToPreview.current = ratio;
-		node.scrollTop = scrollTopForRatio(ratio, node.scrollHeight, node.clientHeight);
+		sentEditorLine.current = null;
+		if (inDiff) {
+			sentDiffLine.current = line;
+			diffScroll.current?.setTopLine(line);
+			return;
+		}
+		const node = previewScroll.current;
+		if (!node) return;
+		node.scrollTop = topForLine(readBlocks(node), line);
+		// The browser clamps the offset, so remember where it actually landed.
+		sentPreviewTop.current = node.scrollTop;
 	}
 
 	function followPreview() {
 		const node = previewScroll.current;
 		if (!node) return;
-		const ratio = scrollRatio(node.scrollTop, node.scrollHeight, node.clientHeight);
-		if (sentToPreview.current !== null && near(ratio, sentToPreview.current)) {
-			sentToPreview.current = null;
+		if (
+			sentPreviewTop.current !== null &&
+			Math.abs(node.scrollTop - sentPreviewTop.current) < SAME_PLACE
+		) {
+			sentPreviewTop.current = null;
 			return;
 		}
-		sentToEditor.current = ratio;
-		editorScroll.current?.setScrollRatio(ratio);
+		sentPreviewTop.current = null;
+		const line = lineForTop(readBlocks(node), node.scrollTop);
+		sentEditorLine.current = line;
+		editorScroll.current?.setTopLine(line);
+	}
+
+	function followDiff(line: number) {
+		if (sentDiffLine.current === line) {
+			sentDiffLine.current = null;
+			return;
+		}
+		sentDiffLine.current = null;
+		sentEditorLine.current = line;
+		editorScroll.current?.setTopLine(line);
 	}
 
 	function banner() {
@@ -513,7 +539,7 @@ export function FileLeaf({
 					viewState={viewState.initial}
 					onViewState={viewState.save}
 					ref={markdown ? editorScroll : undefined}
-					onScrollRatio={markdown && !inDiff ? followEditor : undefined}
+					onTopLine={markdown ? followEditor : undefined}
 				/>
 			</Suspense>
 		);
@@ -548,6 +574,8 @@ export function FileLeaf({
 							workspaceId={workspaceId}
 							projectId={projectId}
 							visible={visible}
+							onTopLine={followDiff}
+							editorRef={diffScroll}
 						/>
 					) : (
 						preview
@@ -689,11 +717,6 @@ export function FileLeaf({
 			) : null}
 		</>
 	);
-}
-
-/** True when two relative positions are the same place on screen. */
-function near(one: number, other: number): boolean {
-	return Math.abs(one - other) < SAME_PLACE;
 }
 
 /** A byte count a student can read. */

@@ -122,3 +122,28 @@ test("frontmatter after a byte order mark still does not render as Markdown", ()
 	expect(container.querySelector("h1")).toBeNull();
 	expect(screen.getByText("Body text.")).toBeTruthy();
 });
+
+test("every rendered block carries the source line it came from", () => {
+	const { container } = render(
+		<MarkdownPreview text={"# Title\n\nA paragraph.\n\n- one\n- two\n"} />,
+	);
+	expect(container.querySelector("h1")?.getAttribute("data-line")).toBe("1");
+	expect(container.querySelector("p")?.getAttribute("data-line")).toBe("3");
+	const items = [...container.querySelectorAll("li")].map((item) =>
+		item.getAttribute("data-line"),
+	);
+	expect(items).toEqual(["5", "6"]);
+});
+
+test("source lines count the frontmatter the preview cut off", () => {
+	const { container } = render(
+		<MarkdownPreview text={"---\ntitle: Notes\n---\n\n# Title\n\nBody.\n"} />,
+	);
+	// The heading is on line 5 of the file, not line 1 of the body.
+	expect(container.querySelector("h1")?.getAttribute("data-line")).toBe("5");
+	expect(container.querySelector("p")?.getAttribute("data-line")).toBe("7");
+	// The frontmatter block itself stands for the top of the file.
+	expect(screen.getByTestId("markdown-frontmatter").getAttribute("data-line")).toBe(
+		"1",
+	);
+});
