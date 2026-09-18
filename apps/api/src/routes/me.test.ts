@@ -167,6 +167,7 @@ test.skipIf(skip)(
 					theme: "dark",
 				}),
 			})
+			.where("oidc_subject", "=", "alice")
 			.execute();
 
 		const read = await app.inject({
