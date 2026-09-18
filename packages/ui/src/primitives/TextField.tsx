@@ -11,6 +11,8 @@ export const CONTROL_CLASS =
 export interface TextFieldProps
 	extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "id"> {
 	id: string;
+	/** Forwarded to the input, for focusing or selecting it. */
+	ref?: React.Ref<HTMLInputElement>;
 	label: React.ReactNode;
 	hint?: React.ReactNode;
 	error?: React.ReactNode;
