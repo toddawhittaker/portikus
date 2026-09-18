@@ -7,6 +7,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import { MAX_EVENT_SOCKETS_PER_WORKSPACE } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -181,6 +182,8 @@ beforeEach(async () => {
 	await testDb.truncate();
 	agent.projects.clear();
 	agent.eventLimit = false;
+	agent.watchFailures.clear();
+	agent.eventCloses.length = 0;
 	app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
 	await app.listen({ port: 0, host: "127.0.0.1" });
 	alice = new CookieJar();
@@ -209,6 +212,7 @@ test.skipIf(skip)("a frame from the browser is not forwarded", async () => {
 	const socket = await openEvents(workspaceId, projectId, alice);
 	expect(JSON.parse(await socket.next())).toEqual(READY);
 
+	const before = agent.eventsReceived;
 	socket.ws.send(JSON.stringify({ type: "input", data: "rm -rf /" }));
 	// Nothing comes back, and the socket stays open.
 	const quiet = await Promise.race([
@@ -217,8 +221,70 @@ test.skipIf(skip)("a frame from the browser is not forwarded", async () => {
 	]);
 	expect(quiet).toBe("quiet");
 	expect(socket.ws.readyState).toBe(WebSocket.OPEN);
+	// The agent never saw the frame at all (SPEC.md §24.1).
+	expect(agent.eventsReceived).toBe(before);
 
 	await socket.close();
+});
+
+test.skipIf(skip)("an oversized agent frame closes the pipe", async () => {
+	const socket = await openEvents(workspaceId, projectId, alice);
+	expect(JSON.parse(await socket.next())).toEqual(READY);
+
+	// Past the 1 MiB cap the control plane puts on the agent socket, so the
+	// upstream socket fails and the browser is told the watcher failed.
+	expect(agent.pushOversizedEvent("", slug)).toBe(1);
+	const closed = await socket.closed;
+	expect(closed.code).toBe(1011);
+	expect(closed.reason).toBe("agent unavailable");
+});
+
+test.skipIf(skip)("the ninth events socket on a workspace is refused", async () => {
+	const open: Frames[] = [];
+	for (let i = 0; i < MAX_EVENT_SOCKETS_PER_WORKSPACE; i += 1) {
+		const socket = await openEvents(workspaceId, projectId, alice);
+		expect(JSON.parse(await socket.next())).toEqual(READY);
+		open.push(socket);
+	}
+
+	const extra = await openEvents(workspaceId, projectId, alice);
+	const closed = await extra.closed;
+	expect(closed.code).toBe(1008);
+	expect(closed.reason).toBe("too many watchers");
+
+	for (const socket of open) await socket.close();
+
+	// The cap is a live count, so a socket opens again once one is given back.
+	const again = await openEvents(workspaceId, projectId, alice);
+	expect(JSON.parse(await again.next())).toEqual(READY);
+	await again.close();
+});
+
+test.skipIf(skip)(
+	"a failed watcher reaches the browser as a fixed reason",
+	async () => {
+		agent.watchFailures.add(`/${slug}`);
+		const socket = await openEvents(workspaceId, projectId, alice);
+		// The agent's error frame comes through first, then the mapped close.
+		expect(JSON.parse(await socket.next())).toEqual({
+			type: "error",
+			code: "WATCH_FAILED",
+		});
+		const closed = await socket.closed;
+		expect(closed.code).toBe(1011);
+		expect(closed.reason).toBe("watcher failed");
+	},
+);
+
+test.skipIf(skip)("the browser's close reason never reaches the agent", async () => {
+	const socket = await openEvents(workspaceId, projectId, alice);
+	expect(JSON.parse(await socket.next())).toEqual(READY);
+
+	const before = agent.eventCloses.length;
+	socket.ws.close(4000, "secret-browser-bytes");
+	await expect.poll(() => agent.eventCloses.length).toBeGreaterThan(before);
+	const seen = agent.eventCloses[before];
+	expect(seen?.reason).toBe("browser closed");
 });
 
 test.skipIf(skip)("another student cannot open the socket", async () => {
@@ -251,7 +317,14 @@ test.skipIf(skip)("the agent's close code reaches the browser", async () => {
 	// The directory is gone, so the agent closes with 4404 (SPEC.md §11.4).
 	agent.projects.delete(slug);
 	const socket = await openEvents(workspaceId, projectId, alice);
-	expect((await socket.closed).code).toBe(4404);
+	// The error frame comes first, then a reason the control plane owns.
+	expect(JSON.parse(await socket.next())).toEqual({
+		type: "error",
+		code: "PROJECT_NOT_FOUND",
+	});
+	const closed = await socket.closed;
+	expect(closed.code).toBe(4404);
+	expect(closed.reason).toBe("project not found");
 });
 
 test.skipIf(skip)("the agent's socket cap reaches the browser", async () => {
@@ -259,7 +332,8 @@ test.skipIf(skip)("the agent's socket cap reaches the browser", async () => {
 	const socket = await openEvents(workspaceId, projectId, alice);
 	const closed = await socket.closed;
 	expect(closed.code).toBe(1008);
-	expect(closed.reason).toBe("EVENT_SOCKET_LIMIT");
+	// The agent's own bytes never reach the browser (SPEC.md §24.1).
+	expect(closed.reason).toBe("too many watchers");
 });
 
 test.skipIf(skip)("the agent socket closes when the browser does", async () => {
@@ -274,10 +348,10 @@ test.skipIf(skip)("the agent socket closes when the browser does", async () => {
 test.skipIf(skip)("a revoked session closes the socket with 4401", async () => {
 	// Only intervals are faked, so the sockets and the database keep real IO.
 	vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setInterval"] });
+	const fresh = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
+	const previous = app;
 	try {
-		const fresh = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
 		await fresh.listen({ port: 0, host: "127.0.0.1" });
-		const previous = app;
 		app = fresh;
 
 		const socket = await openEvents(workspaceId, projectId, alice);
@@ -287,10 +361,11 @@ test.skipIf(skip)("a revoked session closes the socket with 4401", async () => {
 		// Revocation takes effect within a second (SPEC.md §5.3).
 		vi.advanceTimersByTime(1500);
 		expect((await socket.closed).code).toBe(4401);
-
-		await fresh.close();
-		app = previous;
 	} finally {
+		// The shared server must come back even when an expectation fails,
+		// or the teardown closes the wrong one.
+		app = previous;
+		await fresh.close();
 		vi.useRealTimers();
 	}
 });

@@ -240,6 +240,40 @@ test.skipIf(skip)("a stopped workspace answers 409 on all three", async () => {
 	}
 });
 
+test.skipIf(skip)(
+	"a git command that takes most of the agent's budget still answers",
+	async () => {
+		// The agent allows GIT_TIMEOUT_MS per command, so the control plane must
+		// wait at least that long rather than giving up at its own 5 s.
+		const slowSlug = "slow-essay";
+		const slowId = await makeProject(workspaceId, slowSlug);
+		agent.projects.set(slowSlug, { isGitRepo: true });
+		agent.git.set(`/${slowSlug}`, {
+			status: STATUS,
+			diffs: { "README.md": DIFF },
+		});
+
+		const status = await get(alice, workspaceId, slowId, "git/status");
+		expect(status.statusCode).toBe(200);
+		expect(status.json()).toEqual({ ...STATUS, ignored: [] });
+
+		const diff = await get(alice, workspaceId, slowId, "git/diff", "?path=README.md");
+		expect(diff.statusCode).toBe(200);
+		expect(diff.json()).toEqual(DIFF);
+	},
+	30_000,
+);
+
+test.skipIf(skip)("an answer the contract rejects is a 503", async () => {
+	// The agent sent something that is not a GitStatus at all.
+	agent.git.set(`/${slug}`, {
+		status: { repo: "yes" } as unknown as GitStatus,
+	});
+	const response = await get(alice, workspaceId, projectId, "git/status");
+	expect(response.statusCode).toBe(503);
+	expect(response.json().code).toBe("AGENT_UNAVAILABLE");
+});
+
 test.skipIf(skip)("a cancelled search cancels it at the agent too", async () => {
 	const before = agent.searchAborted;
 	const address = app.server.address() as AddressInfo;

@@ -23,3 +23,10 @@ export const MAX_FS_EVENT_PATHS = 200;
 
 /** The most event sockets one agent serves at once (SPEC.md §11.4). */
 export const MAX_EVENT_SOCKETS = 32;
+
+/**
+ * The most event sockets one workspace may have open through the control
+ * plane at once (SPEC.md §11.4, §24.1). The agent has its own, larger cap;
+ * this one keeps a single workspace from using all of it.
+ */
+export const MAX_EVENT_SOCKETS_PER_WORKSPACE = 8;

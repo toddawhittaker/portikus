@@ -10,12 +10,7 @@ import {
 	WriteFileResponse,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import {
-	AGENT_TIMEOUT_MS,
-	type AgentClient,
-	readAgentError,
-	readJson,
-} from "../agent-client.js";
+import { AGENT_TIMEOUT_MS, readAgentError, readJson } from "../agent-client.js";
 import type { ServerDeps } from "../server.js";
 import {
 	claimLongOperation,
@@ -24,12 +19,6 @@ import {
 	sendAgentError,
 	sendError,
 } from "./project-scope.js";
-
-/** What a route needs once the caller has been shown to own the project. */
-interface FileScope {
-	agent: AgentClient;
-	slug: string;
-}
 
 /**
  * A budget for the agent's response headers alone. Once headers are back the
@@ -104,17 +93,6 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 	const { db, config } = deps;
 
 	app.register(async (instance) => {
-		/**
-		 * Resolve the workspace, the project and the agent, or answer and return
-		 * null. This is the single ownership gate for every route below.
-		 */
-		async function scoped(
-			request: FastifyRequest,
-			reply: FastifyReply,
-		): Promise<(FileScope & { workspaceId: string }) | null> {
-			return scopedProject(db, config, request, reply);
-		}
-
 		/** Turn an unsuccessful agent response into the browser's error. */
 		async function relayFailure(reply: FastifyReply, response: Response) {
 			const error = await readAgentError(response);
@@ -127,7 +105,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 
 		// GET tree -- one directory listing, straight from the agent.
 		instance.get("/workspaces/:id/projects/:pid/tree", async (request, reply) => {
-			const scope = await scoped(request, reply);
+			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
 			const path = queryPath(request, reply, { allowRoot: true });
 			if (path === null) return;
@@ -157,7 +135,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 
 		// GET file -- streamed, so a download of any size never sits in memory.
 		instance.get("/workspaces/:id/projects/:pid/file", async (request, reply) => {
-			const scope = await scoped(request, reply);
+			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
 			const path = queryPath(request, reply, { allowRoot: false });
 			if (path === null) return;
@@ -228,7 +206,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 			});
 
 			write.put("/workspaces/:id/projects/:pid/file", async (request, reply) => {
-				const scope = await scoped(request, reply);
+				const scope = await scopedProject(db, config, request, reply);
 				if (!scope) return;
 				const path = queryPath(request, reply, { allowRoot: false });
 				if (path === null) return;
@@ -303,7 +281,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 		}
 
 		instance.delete("/workspaces/:id/projects/:pid/file", async (request, reply) => {
-			const scope = await scoped(request, reply);
+			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
 			const path = queryPath(request, reply, { allowRoot: false });
 			if (path === null) return;
@@ -325,7 +303,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 		});
 
 		instance.post("/workspaces/:id/projects/:pid/mkdir", async (request, reply) => {
-			const scope = await scoped(request, reply);
+			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
 			const body = MkdirRequest.safeParse(request.body ?? {});
 			if (!body.success) {
@@ -348,7 +326,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 		});
 
 		instance.post("/workspaces/:id/projects/:pid/move", async (request, reply) => {
-			const scope = await scoped(request, reply);
+			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
 			const body = MoveRequest.safeParse(request.body ?? {});
 			if (!body.success) {

@@ -1,5 +1,6 @@
 import type { WebSocket } from "@fastify/websocket";
 import { loadSession } from "@portikus/auth";
+import { MAX_EVENT_SOCKETS_PER_WORKSPACE } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
@@ -15,6 +16,50 @@ const SESSION_CHECK_INTERVAL_MS = 1000;
 
 /** How long the agent socket may take to answer the upgrade. */
 const AGENT_HANDSHAKE_TIMEOUT_MS = 5000;
+
+/**
+ * The largest frame the control plane accepts from a workspace agent. The
+ * agent's own batches are far smaller, so anything past this is a fault or an
+ * attempt to make the control plane buffer without limit (SPEC.md §24.1).
+ */
+const MAX_AGENT_FRAME_BYTES = 1024 * 1024;
+
+/**
+ * Event sockets open per workspace, counted here rather than trusted to the
+ * agent: the agent port is inside the workspace, where student code runs
+ * (SPEC.md §24.1). This is per API process; the pilot runs one (ADR 0010).
+ */
+const openEventSockets = new Map<string, number>();
+
+/**
+ * Take one of the workspace's event socket slots, or false when they are all
+ * in use.
+ */
+function takeEventSocket(workspaceId: string): boolean {
+	const open = openEventSockets.get(workspaceId) ?? 0;
+	if (open >= MAX_EVENT_SOCKETS_PER_WORKSPACE) return false;
+	openEventSockets.set(workspaceId, open + 1);
+	return true;
+}
+
+/** Give a slot back. */
+function releaseEventSocket(workspaceId: string): void {
+	const open = (openEventSockets.get(workspaceId) ?? 1) - 1;
+	if (open <= 0) openEventSockets.delete(workspaceId);
+	else openEventSockets.set(workspaceId, open);
+}
+
+/**
+ * The reason the browser is given for an agent close. The agent's own bytes
+ * are never relayed: only these fixed strings, which the control plane owns
+ * (SPEC.md §24.1).
+ */
+function browserCloseReason(code: number): string {
+	if (code === 4404) return "project not found";
+	if (code === 1008) return "too many watchers";
+	if (code === 1011) return "watcher failed";
+	return "agent closed";
+}
 
 declare module "fastify" {
 	interface FastifyRequest {
@@ -56,7 +101,14 @@ export function registerProjectEventsSocket(
 			socket.pause();
 			const scope = request.projectScope;
 			if (!scope) {
-				socket.close(1011, "agent unavailable");
+				// The guard above always sets the scope, so getting here is a
+				// bug in this file rather than anything the student did.
+				socket.close(1011, "watcher failed");
+				socket.resume();
+				return;
+			}
+			if (!takeEventSocket(scope.workspaceId)) {
+				socket.close(1008, "too many watchers");
 				socket.resume();
 				return;
 			}
@@ -69,7 +121,7 @@ export function registerProjectEventsSocket(
 					workspaceId: scope.workspaceId,
 					log: request.log,
 					sessionToken: request.sessionToken,
-				}),
+				}).finally(() => releaseEventSocket(scope.workspaceId)),
 			);
 			socket.resume();
 		},
@@ -99,6 +151,7 @@ async function pipeEvents(options: PipeOptions): Promise<void> {
 	const upstream = new WebSocketClient(agent.projectEventsUrl(slug), {
 		headers: { authorization: agent.authHeader() },
 		handshakeTimeout: AGENT_HANDSHAKE_TIMEOUT_MS,
+		maxPayload: MAX_AGENT_FRAME_BYTES,
 	});
 
 	let closed = false;
@@ -126,12 +179,14 @@ async function pipeEvents(options: PipeOptions): Promise<void> {
 		// Nothing the browser sends is forwarded; this socket is one-way.
 		socket.on("message", () => {});
 
-		socket.on("close", (code: number, reason: Buffer) => {
+		// The browser's own reason bytes are never sent on: the agent is told
+		// only that the browser went away (SPEC.md §24.1).
+		socket.on("close", (code: number) => {
 			if (
 				upstream.readyState === WebSocketClient.OPEN ||
 				upstream.readyState === WebSocketClient.CONNECTING
 			) {
-				upstream.close(safeCloseCode(code), reason.toString());
+				upstream.close(safeCloseCode(code), "browser closed");
 			}
 			finish();
 		});
@@ -144,12 +199,13 @@ async function pipeEvents(options: PipeOptions): Promise<void> {
 			backpressure.apply();
 		});
 
-		// The agent's close code carries the reason the browser needs: 4404 for
-		// a project that is gone, 1008 with EVENT_SOCKET_LIMIT when the agent
-		// already has all the event sockets it allows (SPEC.md §11.4).
-		upstream.on("close", (code: number, reason: Buffer) => {
+		// The agent's close code says what happened -- 4404 for a project that
+		// is gone, 1008 when the agent has all the event sockets it allows --
+		// and the browser gets our own words for it (SPEC.md §11.4, §24.1).
+		upstream.on("close", (code: number) => {
 			if (socket.readyState === socket.OPEN) {
-				socket.close(safeCloseCode(code), reason.toString());
+				const safe = safeCloseCode(code);
+				socket.close(safe, browserCloseReason(safe));
 			}
 			finish();
 		});
