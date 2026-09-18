@@ -37,6 +37,7 @@ const state: { model: FakeModel | null } = { model: null };
 const cursorLines: number[] = [];
 const revealedLines: number[] = [];
 
+vi.mock("../editor/features.js", () => ({ loadEditorFeatures: async () => {} }));
 vi.mock("monaco-editor/basic-languages/monaco.contribution.js", () => ({}));
 vi.mock("monaco-editor/language/json/monaco.contribution.js", () => ({
 	jsonDefaults: { setDiagnosticsOptions: () => {} },
@@ -45,6 +46,10 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 	const models = new Map<string, FakeModel>();
 	return {
 		Uri: { parse: (value: string) => ({ toString: () => value, value }) },
+		// The zoom shortcuts are registered with these; the numbers only have
+		// to combine without colliding.
+		KeyMod: { CtrlCmd: 1, Shift: 2 },
+		KeyCode: { Equal: 4, Minus: 8, Digit0: 16 },
 		languages: {
 			getLanguages: () => [{ id: "typescript", extensions: [".ts"] }],
 			json: { jsonDefaults: { setDiagnosticsOptions: () => {} } },
@@ -52,6 +57,7 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 		editor: {
 			defineTheme: () => {},
 			setTheme: () => {},
+			setModelLanguage: () => {},
 			getModel: (uri: { value: string }) => {
 				const held = models.get(uri.value);
 				return held && !held.disposed ? held : null;
@@ -75,6 +81,7 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 						revealedLines.push(line);
 					},
 					focus: () => {},
+					addCommand: () => {},
 					updateOptions: () => {},
 					dispose: () => {},
 				};
