@@ -230,19 +230,26 @@ export function resize(
 
 /**
  * Bring the layout back in line with the terminals the server knows about:
- * a terminal with no pane gets a tab of its own, and a pane whose terminal is
- * gone is removed. Ended terminals are still terminals, so their panes stay
- * (SPEC.md §6.8).
+ * a live terminal with no pane gets a tab of its own, and a pane whose
+ * terminal is gone is removed. Ended terminals are still terminals, so their
+ * panes stay (SPEC.md §6.8). An ended terminal with no pane is history in the
+ * listing (SPEC.md §9.7) - a revive swapped it out of the layout - so it is
+ * left alone rather than given a tab back.
  */
-export function reconcile(layout: ProjectLayout, terminalIds: string[]): ProjectLayout {
+export function reconcile(
+	layout: ProjectLayout,
+	terminalIds: string[],
+	endedIds: Iterable<string> = [],
+): ProjectLayout {
 	let next = layout;
 	const known = new Set(terminalIds);
+	const ended = new Set(endedIds);
 	for (const id of layoutTerminalIds(layout)) {
 		if (!known.has(id)) next = removeLeaf(next, id);
 	}
 	const placed = new Set(layoutTerminalIds(next));
 	for (const id of terminalIds) {
-		if (placed.has(id)) continue;
+		if (placed.has(id) || ended.has(id)) continue;
 		next = addTab(next, id, id);
 		placed.add(id);
 	}
