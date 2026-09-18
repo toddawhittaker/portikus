@@ -26,7 +26,6 @@ export function useProjects(workspaceId: string, state: ProjectState = "active")
 	return useQuery({
 		queryKey: projectKeys.list(workspaceId, state),
 		refetchInterval: 10_000,
-		refetchOnWindowFocus: true,
 		queryFn: async () =>
 			(await request(ProjectList, `${base(workspaceId)}?state=${state}`)).projects,
 	});

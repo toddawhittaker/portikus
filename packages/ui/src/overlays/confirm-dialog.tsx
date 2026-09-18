@@ -21,10 +21,6 @@ export interface ConfirmDialogProps {
 	inline?: boolean;
 	/** Test hook: set as `data-testid` on the dialog surface. */
 	testId?: string;
-	/** Test hook: set as `data-testid` on the typed confirmation field. */
-	inputTestId?: string;
-	/** Test hook: overrides `data-testid` on the danger button. */
-	confirmTestId?: string;
 	/** Preview only: start with this text already typed. */
 	typedValue?: string;
 }
@@ -44,8 +40,6 @@ export function ConfirmDialog({
 	pending,
 	inline,
 	testId,
-	inputTestId,
-	confirmTestId,
 	typedValue,
 }: ConfirmDialogProps): React.ReactElement {
 	const [typed, setTyped] = React.useState(typedValue ?? "");
@@ -106,7 +100,6 @@ export function ConfirmDialog({
 							<div className="mt-4">
 								<TextField
 									id={`${id}-typed`}
-									data-testid={inputTestId}
 									label={
 										<>
 											Type <span className="font-mono">{confirmText}</span> to confirm
@@ -129,7 +122,7 @@ export function ConfirmDialog({
 						</Button>
 					</RadixAlertDialog.Cancel>
 					<Button
-						data-testid={confirmTestId ?? "dialog-confirm"}
+						data-testid="dialog-confirm"
 						variant="danger"
 						disabled={!ready || pending}
 						loading={pending}

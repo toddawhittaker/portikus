@@ -219,5 +219,13 @@ would pass the split-depth or tab limits. The workspace dialog can now start,
 stop and restart the workspace (a confirmation first for stop and restart),
 and dialog rows wrap rather than scrolling sideways, so a 64-character image
 fingerprint no longer pushes the title and close button off screen; the
-fingerprint is shown shortened with the full value in its tooltip. Epic 7 (files, Monaco, search,
+fingerprint is shown shortened with the full value in its tooltip. A review of
+the epic branch also fixed a few things: a pane torn off to the tab strip now
+gets a tab id of its own rather than reusing the terminal id, which could give
+two tabs the same id, and the layout schema rejects a saved layout with
+duplicate tab ids; a newly created terminal is written into the cached list, so
+a list request already in flight cannot answer without it and take its pane
+away; and a split keys its children by terminal, so dropping a pane on another
+pane's centre swaps them without tearing down and reconnecting both terminals.
+Epic 7 (files, Monaco, search,
 and change review) is next.

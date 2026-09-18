@@ -263,7 +263,7 @@ export const MAX_LAYOUT_TABS = 16;
 export const MAX_SPLIT_DEPTH = 8;
 
 /** The deepest path from this node to a leaf, counting this node. */
-function splitDepth(node: SplitNode): number {
+export function splitDepth(node: SplitNode): number {
 	if (node.type === "leaf") return 1;
 	let deepest = 0;
 	for (const child of node.children) {
@@ -287,7 +287,17 @@ export const ProjectLayout = z.object({
 		)
 		.max(MAX_LAYOUT_TABS)
 		.superRefine((tabs, ctx) => {
+			const seen = new Set<string>();
 			tabs.forEach((tab, index) => {
+				// Two tabs with one id render on top of each other in the browser.
+				if (seen.has(tab.id)) {
+					ctx.addIssue({
+						code: "custom",
+						path: [index, "id"],
+						message: "tab ids must be unique",
+					});
+				}
+				seen.add(tab.id);
 				if (splitDepth(tab.root) > MAX_SPLIT_DEPTH) {
 					ctx.addIssue({
 						code: "custom",

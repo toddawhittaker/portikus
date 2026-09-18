@@ -2389,9 +2389,11 @@ Includes:
   tab, with a drop zone drawn while dragging;
 - a terminal revived after a grace-period stop draws its prompt correctly;
 - the workspace dialog can start, stop and restart the workspace, and its
-  rows wrap instead of scrolling sideways.
+  rows wrap instead of scrolling sideways;
 - a project can be deleted for good from its menu, behind a confirmation that
   requires typing the project's slug;
+- initializing Git in a project writes a default `.gitignore` when the
+  project has none;
 - the workspace image ships with the apt package lists in place and with
   `command-not-found` installed, so `sudo apt install <package>` works in a
   fresh workspace without `apt update` first, and typing a command that is
@@ -2399,8 +2401,9 @@ Includes:
 
 Acceptance:
 
-- each item above has a Playwright case, and the smoke test passes with no
-  failures on the pilot after the epic is deployed;
+- every user-visible item above has a Playwright case, the default
+  `.gitignore` is covered by workspace-agent unit tests, and the smoke test
+  passes with no failures on the pilot after the epic is deployed;
 - no terminal keystroke is lost between socket open and the first prompt;
 - a drag that would exceed the split depth limit leaves the layout as it
   was.

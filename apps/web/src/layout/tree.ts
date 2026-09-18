@@ -9,6 +9,7 @@ import {
 	MAX_SPLIT_DEPTH,
 	type ProjectLayout,
 	type SplitNode,
+	splitDepth,
 } from "@portikus/contracts";
 
 export type SplitDirection = "row" | "column";
@@ -259,16 +260,8 @@ export function reconcile(
 /** Which half-edge of a pane a drag landed on; centre means swap the two. */
 export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
 
-/** The deepest path from this node to a leaf, counting this node. */
-function depth(node: SplitNode): number {
-	if (node.type === "leaf") return 1;
-	let deepest = 0;
-	for (const child of node.children) deepest = Math.max(deepest, depth(child));
-	return deepest + 1;
-}
-
 function withinDepth(layout: ProjectLayout): boolean {
-	return layout.tabs.every((tab) => depth(tab.root) <= MAX_SPLIT_DEPTH);
+	return layout.tabs.every((tab) => splitDepth(tab.root) <= MAX_SPLIT_DEPTH);
 }
 
 /** Exchange the places of two leaves, wherever in the layout they sit. */
@@ -370,13 +363,16 @@ export function moveLeaf(
 
 /**
  * Drag one pane out to the tab strip (SPEC.md §8.3): it leaves its tab and
- * becomes a tab of its own at `index`. A tab left empty disappears, and a
- * move that would push past `MAX_LAYOUT_TABS` is refused.
+ * becomes a tab of its own at `index`, under the `tabId` the caller supplies.
+ * The id comes from the caller because the terminal id is already in use as
+ * the name of the tab this pane is leaving. A tab left empty disappears, and
+ * a move that would push past `MAX_LAYOUT_TABS` is refused.
  */
 export function moveLeafToNewTab(
 	layout: ProjectLayout,
 	terminalId: string,
 	index: number,
+	tabId: string,
 ): ProjectLayout {
 	if (!layoutTerminalIds(layout).includes(terminalId)) return layout;
 	// A pane that is already its whole tab only moves that tab along the strip.
@@ -387,7 +383,7 @@ export function moveLeafToNewTab(
 	if (!alone && tabs.length + 1 > MAX_LAYOUT_TABS) return layout;
 	const next = [...tabs];
 	next.splice(Math.min(Math.max(index, 0), next.length), 0, {
-		id: terminalId,
+		id: tabId,
 		root: { type: "leaf", terminalId },
 	});
 	return { tabs: next };
