@@ -1,3 +1,5 @@
+import { basename } from "node:path";
+import type { Readable } from "node:stream";
 import websocket, { type WebSocket } from "@fastify/websocket";
 import {
 	AgentCreateProjectRequest,
@@ -6,6 +8,9 @@ import {
 	type AgentErrorCode,
 	AgentRenameProjectRequest,
 	MAX_TERMINALS_PER_WORKSPACE,
+	MAX_UPLOAD_BYTES,
+	MkdirRequest,
+	MoveRequest,
 	SetLogLevelRequest,
 	TerminalId,
 } from "@portikus/contracts";
@@ -26,7 +31,18 @@ import Fastify, {
 import { z } from "zod";
 import { tokenAuth } from "./auth.js";
 import {
+	FileChanged,
+	listDir,
+	mkdir,
+	move,
+	readFile,
+	remove,
+	resolveInProject,
+	writeFile,
+} from "./files.js";
+import {
 	type ArchiveProcess,
+	archiveDir,
 	archiveProject,
 	createProject,
 	deleteProject,
@@ -60,9 +76,31 @@ const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	INVALID_SLUG: 400,
 	INVALID_URL: 400,
 	GIT_FAILED: 500,
+	PATH_INVALID: 400,
+	FILE_NOT_FOUND: 404,
+	FILE_EXISTS: 409,
+	FILE_CHANGED: 412,
+	FILE_TOO_LARGE: 413,
+	NOT_A_DIRECTORY: 400,
+	SEARCH_FAILED: 500,
+	WATCH_FAILED: 500,
 };
 
 const IdParam = z.object({ terminalId: TerminalId });
+
+/** File routes carry the project-relative path in the query; "" is the root. */
+const PathQuery = z.object({
+	path: z.string().max(1024).optional(),
+	download: z.string().optional(),
+});
+
+function queryPath(request: FastifyRequest): { path: string; download: boolean } {
+	const parsed = PathQuery.safeParse(request.query ?? {});
+	if (!parsed.success) {
+		throw new AgentFailure("PATH_INVALID", "invalid path");
+	}
+	return { path: parsed.data.path ?? "", download: parsed.data.download === "1" };
+}
 
 const AttachQuery = z.object({
 	cols: z.coerce.number().int().min(1).max(1000).optional(),
@@ -83,6 +121,9 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// the instance would leave this process's own debug lines silent (ADR 0012).
 	const rootLogger = options.logger ?? silentLogger();
 	const app = Fastify({
+		// Uploads are the largest body the agent accepts; the file routes
+		// enforce the real per-kind limits (SPEC.md §11.2).
+		bodyLimit: MAX_UPLOAD_BYTES,
 		// Cast so the instance keeps Fastify's default logger type and
 		// callers can still hold it as a plain FastifyInstance.
 		loggerInstance: rootLogger as FastifyBaseLogger,
@@ -108,6 +149,12 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// A terminal input frame is small; refuse anything far past that before it
 	// is buffered (SPEC.md §9.7).
 	app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
+
+	// A file write carries a raw body of any type, so hand the route the
+	// stream rather than buffering or parsing it.
+	app.addContentTypeParser("*", (_request, payload, done) => {
+		done(null, payload);
+	});
 
 	// Every route, the upgrade included, needs the token (SPEC.md §23.5).
 	app.addHook("preHandler", tokenAuth(options.tokenPath));
@@ -324,11 +371,118 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 		});
 
+		// The file routes. Paths are logged at debug only and file contents
+		// never (STACK.md §15, ADR 0012).
+		instance.get("/projects/:slug/tree", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			try {
+				const { path } = queryPath(request);
+				return await listDir(options.homeDir, slug, path);
+			} catch (error) {
+				return sendError(request, reply, error);
+			}
+		});
+
+		instance.get("/projects/:slug/file", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			try {
+				const { path, download } = queryPath(request);
+				const file = await readFile(options.homeDir, slug, path, { download });
+				reply.header("etag", file.etag);
+				reply.header("content-length", String(file.size));
+				if (download) {
+					reply.header(
+						"content-disposition",
+						`attachment; filename="${basename(path).replace(/["\\]/g, "")}"`,
+					);
+				}
+				return reply.type(file.contentType).send(file.stream ?? file.body);
+			} catch (error) {
+				return sendError(request, reply, error);
+			}
+		});
+
+		instance.put("/projects/:slug/file", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			try {
+				const { path } = queryPath(request);
+				const ifMatch = request.headers["if-match"];
+				const ifNoneMatch = request.headers["if-none-match"];
+				const contentType = request.headers["content-type"] ?? "";
+				const result = await writeFile(
+					options.homeDir,
+					slug,
+					path,
+					request.body as Readable,
+					{
+						ifMatch: typeof ifMatch === "string" ? unquote(ifMatch) : undefined,
+						ifNoneMatch: ifNoneMatch === "*",
+						upload: contentType.startsWith("application/octet-stream"),
+					},
+				);
+				reply.header("etag", result.etag);
+				return reply.code(200).send(result);
+			} catch (error) {
+				return sendError(request, reply, error);
+			}
+		});
+
+		instance.delete("/projects/:slug/file", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			try {
+				const { path } = queryPath(request);
+				await remove(options.homeDir, slug, path);
+				return reply.code(204).send();
+			} catch (error) {
+				return sendError(request, reply, error);
+			}
+		});
+
+		instance.post("/projects/:slug/mkdir", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			const parsed = MkdirRequest.safeParse(request.body);
+			if (!parsed.success) {
+				return reply
+					.code(400)
+					.send({ error: { code: "PATH_INVALID", message: "invalid path" } });
+			}
+			try {
+				await mkdir(options.homeDir, slug, parsed.data.path);
+				return reply.code(201).send({ ok: true });
+			} catch (error) {
+				return sendError(request, reply, error);
+			}
+		});
+
+		instance.post("/projects/:slug/move", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			const parsed = MoveRequest.safeParse(request.body);
+			if (!parsed.success) {
+				return reply
+					.code(400)
+					.send({ error: { code: "PATH_INVALID", message: "invalid path" } });
+			}
+			try {
+				await move(options.homeDir, slug, parsed.data.from, parsed.data.to);
+				return reply.code(204).send();
+			} catch (error) {
+				return sendError(request, reply, error);
+			}
+		});
+
 		instance.get("/projects/:slug/archive", async (request, reply) => {
 			const { slug } = request.params as { slug: string };
 			let child: ArchiveProcess;
 			try {
-				child = await archiveProject(slug, options.homeDir);
+				const { path } = queryPath(request);
+				if (path === "") {
+					child = await archiveProject(slug, options.homeDir);
+				} else {
+					const target = await resolveInProject(options.homeDir, slug, path, {
+						mustExist: true,
+					});
+					child = await archiveDir(target.path);
+				}
 			} catch (error) {
 				return sendError(request, reply, error);
 			}
@@ -389,7 +543,15 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	return app;
 }
 
+/** Strip the quotes an HTTP entity tag is usually sent with. */
+function unquote(value: string): string {
+	return value.replace(/^W\//, "").replace(/^"|"$/g, "");
+}
+
 function sendError(request: FastifyRequest, reply: FastifyReply, error: unknown) {
+	if (error instanceof FileChanged) {
+		reply.header("etag", error.etag);
+	}
 	if (error instanceof AgentFailure) {
 		return reply
 			.code(ERROR_STATUS[error.code])

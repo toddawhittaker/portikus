@@ -1,0 +1,48 @@
+import { describe, expect, test } from "vitest";
+import {
+	GENERATED_NAMES,
+	MAX_EDITOR_FILE_BYTES,
+	MAX_TREE_ENTRIES,
+	MAX_UPLOAD_BYTES,
+	MkdirRequest,
+	MoveRequest,
+	ProjectPath,
+} from "./files.js";
+
+describe("ProjectPath", () => {
+	test("accepts ordinary project-relative paths", () => {
+		for (const path of ["notes.txt", "src/main.ts", "a/b/c.txt", ".env", "..hidden"]) {
+			expect(ProjectPath.safeParse(path).success).toBe(true);
+		}
+	});
+
+	test("refuses anything that could leave the project (SPEC.md §24.6)", () => {
+		for (const path of [
+			"",
+			"/etc/passwd",
+			"../beta",
+			"a/../../b",
+			"./a",
+			"a/./b",
+			"a\\b",
+			"a\0b",
+			"x".repeat(1025),
+		]) {
+			expect(ProjectPath.safeParse(path).success).toBe(false);
+		}
+	});
+});
+
+test("requests reject unknown keys", () => {
+	expect(MkdirRequest.safeParse({ path: "src" }).success).toBe(true);
+	expect(MkdirRequest.safeParse({ path: "src", extra: 1 }).success).toBe(false);
+	expect(MoveRequest.safeParse({ from: "a", to: "b" }).success).toBe(true);
+	expect(MoveRequest.safeParse({ from: "a" }).success).toBe(false);
+});
+
+test("the limits are the ones the agent and UI share", () => {
+	expect(MAX_TREE_ENTRIES).toBe(2000);
+	expect(MAX_EDITOR_FILE_BYTES).toBe(2 * 1024 * 1024);
+	expect(MAX_UPLOAD_BYTES).toBe(50 * 1024 * 1024);
+	expect(GENERATED_NAMES).toContain("node_modules");
+});

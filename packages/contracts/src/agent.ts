@@ -101,6 +101,14 @@ export const AgentErrorCode = z.enum([
 	"INVALID_SLUG",
 	"INVALID_URL",
 	"GIT_FAILED",
+	"PATH_INVALID",
+	"FILE_NOT_FOUND",
+	"FILE_EXISTS",
+	"FILE_CHANGED",
+	"FILE_TOO_LARGE",
+	"NOT_A_DIRECTORY",
+	"SEARCH_FAILED",
+	"WATCH_FAILED",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 
