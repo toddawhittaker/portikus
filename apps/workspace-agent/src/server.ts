@@ -29,6 +29,7 @@ import Fastify, {
 } from "fastify";
 import { z } from "zod";
 import { tokenAuth } from "./auth.js";
+import { eventsRoute } from "./events-route.js";
 import {
 	FileChanged,
 	listDir,
@@ -84,6 +85,7 @@ const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	NOT_A_DIRECTORY: 400,
 	SEARCH_FAILED: 500,
 	WATCH_FAILED: 500,
+	EVENT_SOCKET_LIMIT: 409,
 };
 
 const IdParam = z.object({ terminalId: TerminalId });
@@ -122,6 +124,8 @@ export interface ServerOptions {
 	tmuxSocketName?: string;
 	/** The process logger. Tests default to one that writes nothing. */
 	logger?: Logger;
+	/** Overrides the cap on concurrent event sockets. For tests. */
+	maxEventSockets?: number;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -529,6 +533,11 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				}
 			});
 			return reply.type("application/zip").send(child.stdout);
+		});
+
+		instance.register(eventsRoute, {
+			homeDir: options.homeDir,
+			maxSockets: options.maxEventSockets,
 		});
 
 		instance.get(
