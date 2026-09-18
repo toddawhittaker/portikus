@@ -1429,6 +1429,17 @@ files:
   content: |-
     student ALL=(ALL) NOPASSWD:ALL
 
+# Coding-agent settings for every student login shell.  The CLIs are
+# installed system-wide at pinned versions, so the student cannot write the
+# npm prefix; Claude Code's updater would fail on every launch.  Versions
+# move with image rebuilds instead (SPEC.md 10, issue #127).
+- path: /etc/profile.d/portikus-agents.sh
+  generator: dump
+  mode: "0644"
+  content: |-
+    # Claude Code self-update is disabled: the image owns the version.
+    export DISABLE_AUTOUPDATER=1
+
 # Docker daemon configuration (overlay2 storage driver)
 - path: /etc/docker/daemon.json
   generator: dump

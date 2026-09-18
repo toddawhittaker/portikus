@@ -213,6 +213,11 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "node --version"                        ws_student "node --version"
   check "python3 --version"                     ws_student "python3 --version"
 
+  # 17a. The image turns off the Claude Code self-updater, which cannot
+  # write the system-wide npm prefix (SPEC.md 10, issue #127).
+  check_output "Claude Code auto-update off in a login shell" \
+    "DISABLE_AUTOUPDATER=1" ws_student 'env | grep DISABLE_AUTOUPDATER'
+
   # 17b. The image ships populated apt lists, so a student can install a
   # package, and be told about a missing one, without running apt update.
   apt_list_count() {
