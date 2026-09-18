@@ -44,15 +44,25 @@ docker rm -f portikus-test-pg
 CI sets `TEST_DATABASE_URL` automatically via a `postgres:17` service
 container, so database tests always run there.
 
-When more than one agent or session runs the tests at the same time, give each
-one its own database instead of sharing `portikus_test`. The tests truncate the
-tables they use, so two runs against one database fail in ways that look like
-real bugs. Create a private database in the same container and point that run
-at it:
+The database `TEST_DATABASE_URL` names is not the one the tests use. Each test
+file creates a database of its own on that same server, migrates it, and drops
+it when the file finishes, so the files run in parallel and truncating tables
+in one cannot disturb another. The name is the database from the URL plus the
+process id of the run and a short hash of the test file path, for example
+`portikus_test_p31337_1a2b3c4d`. The process id keeps two runs on one machine
+apart, so several agents or sessions can share one `TEST_DATABASE_URL` without
+tripping over each other.
+
+Each file's connection pool is capped at four connections, because a whole run
+holds a pool per database test file at once and PostgreSQL allows 100
+connections by default.
+
+If a run is killed part-way through, its databases are left behind. Drop them
+by hand:
 
 ```sh
-docker exec portikus-test-pg psql -U postgres -c 'create database portikus_test_files'
-export TEST_DATABASE_URL=postgres://postgres:portikus@127.0.0.1:55432/portikus_test_files
+docker exec portikus-test-pg psql -U postgres -tAc \
+  "select datname from pg_database where datname ~ '_p[0-9]+_[0-9a-f]{8}$'"
 ```
 
 The Playwright run has the same problem for a different reason: its ports are
