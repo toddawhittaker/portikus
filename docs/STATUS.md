@@ -184,5 +184,9 @@ running; and a workspace owner who holds the agent token can set their own
 agent's level, which stays until the setting next changes or the workspace
 restarts. From pane dragging, there is no keyboard equivalent: a pane is
 rearranged with a pointer only, and a drop is refused silently when it
-would pass the split-depth or tab limits. Epic 7 (files, Monaco, search,
+would pass the split-depth or tab limits. The workspace dialog can now start,
+stop and restart the workspace (a confirmation first for stop and restart),
+and dialog rows wrap rather than scrolling sideways, so a 64-character image
+fingerprint no longer pushes the title and close button off screen; the
+fingerprint is shown shortened with the full value in its tooltip. Epic 7 (files, Monaco, search,
 and change review) is next.

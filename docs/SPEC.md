@@ -2391,7 +2391,9 @@ Includes:
 - a terminal pane can be dragged onto another pane's edge to reflow the
   split, onto its centre to swap, or onto the tab bar to become its own
   tab, with a drop zone drawn while dragging;
-- a terminal revived after a grace-period stop draws its prompt correctly.
+- a terminal revived after a grace-period stop draws its prompt correctly;
+- the workspace dialog can start, stop and restart the workspace, and its
+  rows wrap instead of scrolling sideways.
 
 Acceptance:
 
