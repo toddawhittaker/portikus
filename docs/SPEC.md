@@ -2570,7 +2570,12 @@ Includes:
 - each Ansible role in the platform playbook carries its own name as a
   tag, so one role can be converged alone (infra);
 - a generic, plain-English guide to how Portikus is built with AI agents
-  (`docs/HOW-WE-WORK.md`).
+  (`docs/HOW-WE-WORK.md`);
+- code-review fixes over the epic head: conflict-side edits survive Keep
+  editing, reopening a file leaves diff view, per-project Monaco models,
+  nested-path delete, stored-settings read strips unknown keys,
+  self-cleaning test databases, one CI change-detection job, shim
+  selection argument.
 
 Issue #129 (Codex agent configuration) stays open for Epic 9. Issue #124
 was closed by #164.
