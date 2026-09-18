@@ -47,6 +47,56 @@ test.describe("file editor", () => {
 			.toContain("// hello");
 	});
 
+	test("typing on and on never claims the file changed on disk", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openFileTab(
+			page,
+			student,
+			"No false conflict",
+			PATH,
+			CONTENT,
+		);
+		await expect(lines(page)).toContainText("const answer = 42;", {
+			timeout: 60_000,
+		});
+
+		// Hold each save's answer back for a moment. The file has already
+		// changed on disk by then, so the project events socket reports the
+		// editor's own write before the write's answer arrives, which is what
+		// made the pilot show a conflict (issue #157).
+		await page.route(/\/file\?path=/, async (route) => {
+			if (route.request().method() !== "PUT") {
+				await route.continue();
+				return;
+			}
+			// The write reaches the server at once; only its answer is late.
+			const response = await route.fetch();
+			await new Promise((resolve) => setTimeout(resolve, 1500));
+			await route.fulfill({ response });
+		});
+
+		// Keep typing through several autosaves. None of them is an outside
+		// change, so the conflict prompt must never appear.
+		await lines(page).click();
+		await page.keyboard.press("End");
+		for (const word of [" // one", " two", " three", " four"]) {
+			await page.keyboard.type(word);
+			await page.waitForTimeout(3000);
+			await expect(page.getByTestId("file-conflict")).toHaveCount(0);
+		}
+
+		await expect(status(page)).toHaveText("Saved", { timeout: 15_000 });
+		await expect(page.getByTestId("file-conflict")).toHaveCount(0);
+		await expect
+			.poll(async () => readSeededFile(student.workspaceId, project.slug, PATH), {
+				timeout: 15_000,
+			})
+			.toContain("// one two three four");
+	});
+
 	test("a change on disk refreshes an editor with no local edits", async ({
 		page,
 		context,

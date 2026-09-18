@@ -104,6 +104,11 @@ export function FileLeaf({
 	// Every version this tab has already seen, so a refetch that was in flight
 	// during a save cannot put the older text back.
 	const known = useRef(new Set<string>());
+	// The last few bodies this tab wrote. A write of its own makes the file
+	// change on disk, which the project events socket reports, and that read
+	// can come back before the write's own answer does. Without this the
+	// editor would see its own text as someone else's edit (issue #157).
+	const sent = useRef<string[]>([]);
 
 	// A file can be opened at a line again while its tab is already there, so
 	// the pending line is taken every time the store gets a new one, not only
@@ -156,6 +161,9 @@ export function FileLeaf({
 	);
 
 	async function write(body: string, against: string | null) {
+		// Three is enough to cover the reads that were already on their way
+		// when this write went out.
+		sent.current = [...sent.current.slice(-2), body];
 		writing.current = true;
 		setStatus("saving");
 		setSaveError(null);
@@ -233,6 +241,14 @@ export function FileLeaf({
 	useEffect(() => {
 		if (!data || data.binary || data.tooLarge) return;
 		if (known.current.has(data.etag)) return;
+		if (sent.current.includes(data.text)) {
+			// This is the editor's own text coming back, not an outside edit.
+			known.current.add(data.etag);
+			// While a write is in flight its answer carries the etag to save
+			// against next; this read may already be one version behind.
+			if (!writing.current) setEtag(data.etag);
+			if (text !== null && dirty) return;
+		}
 		if (text !== null && dirty) {
 			setConflictEtag(data.etag);
 			setStatus("conflict");

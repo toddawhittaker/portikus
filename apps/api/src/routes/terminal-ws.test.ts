@@ -439,7 +439,11 @@ test.skipIf(skip)(
 			}
 
 			expect(await closed).toBe(1009);
-			expect(await countConnections()).toBe(0);
+			// The close frame can reach the browser before the server has
+			// finished clearing its presence row, so wait for that to land.
+			await expect
+				.poll(async () => await countConnections(), { timeout: 5000 })
+				.toBe(0);
 		} finally {
 			client.terminate();
 			for (const finish of upgrades) finish();
