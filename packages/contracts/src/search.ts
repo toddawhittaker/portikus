@@ -27,9 +27,25 @@ export const SearchResponse = z.object({
 });
 export type SearchResponse = z.infer<typeof SearchResponse>;
 
+/** True for a C0 control character or DEL. */
+function isControlCharacter(character: string): boolean {
+	const code = character.codePointAt(0) ?? 0;
+	return code < 0x20 || code === 0x7f;
+}
+
 /** Query string for `GET /projects/:slug/search` (SPEC.md §11.5). */
 export const SearchQuery = z.object({
-	q: z.string().min(1).max(512),
-	hidden: z.coerce.boolean().default(false),
+	q: z
+		.string()
+		.min(1)
+		.max(512)
+		// A control character in the query is a client mistake, not a server fault.
+		.refine((value) => ![...value].some(isControlCharacter), {
+			message: "query contains a control character",
+		}),
+	hidden: z
+		.enum(["true", "false"])
+		.default("false")
+		.transform((value) => value === "true"),
 });
 export type SearchQuery = z.infer<typeof SearchQuery>;

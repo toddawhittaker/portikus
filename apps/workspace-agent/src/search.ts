@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { relative } from "node:path";
+import { isAbsolute, relative } from "node:path";
 import {
 	MAX_SEARCH_MATCHES,
 	SEARCH_TIMEOUT_MS,
@@ -15,6 +15,12 @@ export interface SearchOptions {
 	/** Test seam: receives the ripgrep child as soon as it is spawned. */
 	onChild?: (child: ChildProcess) => void;
 }
+
+/** The longest slice of any line we return; --max-columns does nothing in JSON mode. */
+const MAX_LINE_CHARS = 300;
+
+/** How much line text one search may take from ripgrep before it gives up. */
+const MAX_TEXT_BYTES = 1024 * 1024;
 
 /** One line of a ripgrep `--json` stream, as much of it as we read. */
 interface RgLine {
@@ -64,7 +70,11 @@ export async function searchProject(
 	}
 	args.push("--", query, project.path);
 
-	const child = spawn("rg", args, { stdio: ["ignore", "pipe", "pipe"] });
+	const child = spawn("rg", args, {
+		stdio: ["ignore", "pipe", "pipe"],
+		// An rg config file could otherwise inject flags such as --pre.
+		env: { ...process.env, RIPGREP_CONFIG_PATH: "" },
+	});
 	options.onChild?.(child);
 
 	const matches: SearchMatch[] = [];
@@ -88,6 +98,8 @@ export async function searchProject(
 	// A context line before a match belongs to that match; one after belongs
 	// to the match we last saw. With -C1 there is at most one of each.
 	let pendingBefore: { line: number; text: string } | undefined;
+	// Counted before slicing, because that is the text ripgrep made us handle.
+	let textBytes = 0;
 
 	const handle = (raw: string) => {
 		let message: RgLine;
@@ -100,7 +112,14 @@ export async function searchProject(
 		if (!data || data.line_number === undefined) {
 			return;
 		}
-		const text = stripNewline(data.lines?.text ?? "");
+		const fullText = stripNewline(data.lines?.text ?? "");
+		textBytes += Buffer.byteLength(fullText, "utf8");
+		if (textBytes > MAX_TEXT_BYTES) {
+			truncated = true;
+			stop();
+			return;
+		}
+		const text = fullText.slice(0, MAX_LINE_CHARS);
 		if (message.type === "context") {
 			const last = matches.at(-1);
 			if (last && data.line_number === last.line + 1 && last.after.length === 0) {
@@ -113,13 +132,29 @@ export async function searchProject(
 		if (message.type !== "match") {
 			return;
 		}
+		// rg reports a path that is not valid UTF-8 as bytes only; without a
+		// text path there is nothing safe to return.
+		const pathText = data.path?.text;
+		if (pathText === undefined) {
+			pendingBefore = undefined;
+			return;
+		}
+		const relativePath = relative(project.path, pathText);
+		if (
+			relativePath === "" ||
+			isAbsolute(relativePath) ||
+			relativePath.startsWith("..")
+		) {
+			pendingBefore = undefined;
+			return;
+		}
 		const before =
 			pendingBefore && pendingBefore.line === data.line_number - 1
 				? [pendingBefore.text]
 				: [];
 		pendingBefore = undefined;
 		matches.push({
-			path: relative(project.path, data.path?.text ?? ""),
+			path: relativePath,
 			line: data.line_number,
 			column: (data.submatches?.[0]?.start ?? 0) + 1,
 			text,

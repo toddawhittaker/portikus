@@ -1,14 +1,7 @@
-import { type AgentErrorCode, SearchQuery } from "@portikus/contracts";
+import { SearchQuery } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
+import { sendError } from "./errors.js";
 import { searchProject } from "./search.js";
-import { AgentFailure } from "./tmux.js";
-
-/** The only failures a search can produce (SPEC.md §27). */
-const SEARCH_ERROR_STATUS: Partial<Record<AgentErrorCode, number>> = {
-	INVALID_SLUG: 400,
-	PROJECT_NOT_FOUND: 404,
-	SEARCH_FAILED: 500,
-};
 
 export interface SearchRouteOptions {
 	homeDir: string;
@@ -37,19 +30,8 @@ export function registerSearchRoutes(
 				signal: controller.signal,
 			});
 		} catch (error) {
-			if (error instanceof AgentFailure) {
-				return reply
-					.code(SEARCH_ERROR_STATUS[error.code] ?? 500)
-					.send({ error: { code: error.code, message: error.message } });
-			}
 			// The query and the matches never reach the log (STACK.md §15).
-			request.log.error(
-				{ slug, error: error instanceof Error ? error.message : String(error) },
-				"search failed",
-			);
-			return reply
-				.code(500)
-				.send({ error: { code: "SEARCH_FAILED", message: "internal error" } });
+			return sendError(request, reply, error);
 		}
 	});
 }

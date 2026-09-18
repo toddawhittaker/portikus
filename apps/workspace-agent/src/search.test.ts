@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -49,6 +49,36 @@ beforeAll(async () => {
 	for (let file = 0; file < 11; file += 1) {
 		await writeFile(join(projectDir, "bulk", `f${file}.txt`), `${bulk}\n`);
 	}
+
+	// One very long line: --max-columns does nothing in --json mode.
+	const wide = `${"x".repeat(200_000)}wideterm`;
+	const oneWide = join(homeDir, "projects", "wide-one");
+	await mkdir(oneWide, { recursive: true });
+	await writeFile(join(oneWide, "wide.txt"), `${wide}\n`);
+	const manyWide = join(homeDir, "projects", "wide-many");
+	await mkdir(manyWide, { recursive: true });
+	for (let file = 0; file < 12; file += 1) {
+		await writeFile(join(manyWide, `w${file}.txt`), `${wide}\n`);
+	}
+
+	// A file whose name is not valid UTF-8; ripgrep reports its path as bytes.
+	const badName = join(homeDir, "projects", "bad-name");
+	await mkdir(badName, { recursive: true });
+	await writeFile(
+		Buffer.concat([
+			Buffer.from(`${badName}/`),
+			Buffer.from("bad\xff\xfename.txt", "latin1"),
+		]),
+		"needle\n",
+	);
+
+	// A symlinked directory pointing outside the project.
+	const outside = join(homeDir, "outside");
+	await mkdir(outside, { recursive: true });
+	await writeFile(join(outside, "leak.txt"), "needle\n");
+	const linked = join(homeDir, "projects", "linked");
+	await mkdir(linked, { recursive: true });
+	await symlink(outside, join(linked, "escape"));
 
 	app = buildServer({ tokenPath, homeDir });
 	await app.ready();
@@ -155,4 +185,83 @@ test("the route reports an unknown project", async () => {
 	});
 	expect(response.statusCode).toBe(404);
 	expect(response.json()).toMatchObject({ error: { code: "PROJECT_NOT_FOUND" } });
+});
+
+test.skipIf(!haveRg)(
+	"a very long matching line comes back cut to 300 characters",
+	async () => {
+		const result = await searchProject(homeDir, "wide-one", "wideterm", {
+			hidden: false,
+		});
+		expect(result.matches).toHaveLength(1);
+		expect(result.matches[0]?.text).toHaveLength(300);
+		expect(result.truncated).toBe(false);
+	},
+);
+
+test.skipIf(!haveRg)(
+	"too much line text stops the search and reports truncation",
+	async () => {
+		const result = await searchProject(homeDir, "wide-many", "wideterm", {
+			hidden: false,
+		});
+		expect(result.truncated).toBe(true);
+		expect(result.matches.length).toBeLessThan(12);
+		for (const match of result.matches) {
+			expect(match.text.length).toBeLessThanOrEqual(300);
+		}
+	},
+);
+
+test.skipIf(!haveRg)("a file whose name is not valid UTF-8 is skipped", async () => {
+	const result = await searchProject(homeDir, "bad-name", "needle", {
+		hidden: false,
+	});
+	for (const match of result.matches) {
+		expect(match.path.startsWith("..")).toBe(false);
+		expect(match.path.startsWith("/")).toBe(false);
+	}
+});
+
+test.skipIf(!haveRg)("a symlink out of the project is not followed", async () => {
+	const result = await searchProject(homeDir, "linked", "needle", { hidden: false });
+	expect(result.matches).toEqual([]);
+});
+
+test.skipIf(!haveRg)("hidden=false leaves ignored files hidden", async () => {
+	const response = await app.inject({
+		method: "GET",
+		url: "/projects/demo/search?q=a.b(&hidden=false",
+		headers: { authorization: `Bearer ${TOKEN}` },
+	});
+	expect(response.statusCode).toBe(200);
+	const body = response.json() as { matches: { path: string }[] };
+	expect(body.matches.map((match) => match.path)).toEqual(["main.txt"]);
+});
+
+test("the route rejects a hidden flag that is not true or false", async () => {
+	const response = await app.inject({
+		method: "GET",
+		url: "/projects/demo/search?q=x&hidden=1",
+		headers: { authorization: `Bearer ${TOKEN}` },
+	});
+	expect(response.statusCode).toBe(400);
+});
+
+test("the route rejects a query holding a control character", async () => {
+	const response = await app.inject({
+		method: "GET",
+		url: "/projects/demo/search?q=%00bad",
+		headers: { authorization: `Bearer ${TOKEN}` },
+	});
+	expect(response.statusCode).toBe(400);
+	expect(response.json()).toMatchObject({ error: { code: "BAD_REQUEST" } });
+});
+
+test("the route needs the bearer token", async () => {
+	const response = await app.inject({
+		method: "GET",
+		url: "/projects/demo/search?q=x",
+	});
+	expect(response.statusCode).toBe(401);
 });
