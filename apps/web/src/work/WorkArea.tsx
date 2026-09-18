@@ -110,19 +110,29 @@ export function WorkArea({
 		}
 	}, [terminals]);
 
-	async function openTerminalTab() {
+	// Place the new terminal before the list is refetched, so no reconcile ever
+	// sees a terminal that has no pane yet and gives it a tab of its own.
+	async function createAndPlace(place: (created: Terminal) => void) {
 		const created = await newTerminal();
-		if (created) store.getState().addTab(created.id);
+		if (!created) return;
+		place(created);
+		terminals.refetch();
+	}
+
+	async function openTerminalTab() {
+		await createAndPlace((created) => store.getState().addTab(created.id));
 	}
 
 	async function split(terminalId: string, direction: SplitDirection) {
-		const created = await newTerminal();
-		if (created) store.getState().splitLeaf(terminalId, direction, created.id);
+		await createAndPlace((created) =>
+			store.getState().splitLeaf(terminalId, direction, created.id),
+		);
 	}
 
 	async function replace(terminalId: string) {
-		const created = await newTerminal();
-		if (created) store.getState().replaceLeaf(terminalId, created.id);
+		await createAndPlace((created) =>
+			store.getState().replaceLeaf(terminalId, created.id),
+		);
 	}
 
 	/**

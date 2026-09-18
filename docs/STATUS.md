@@ -150,7 +150,10 @@ and 9.7): `reconcile` no longer gives a tab back to an ended terminal that
 has no pane, since those rows are listing history rather than panes, and the
 store drops any pane a terminal already has before placing it, so a list
 refetch that arrives mid-revive cannot leave the same terminal in two places.
-One consequence: a terminal that ends within about a second of being opened,
+Creating a terminal no longer refetches the terminal list by itself either:
+the caller places the new terminal and then asks for the refetch, so no
+reconcile ever sees a terminal that has no pane yet and no half-placed layout
+can be saved. One consequence: a terminal that ends within about a second of being opened,
 before its pane reaches the saved layout, is not restored as a tab on reload
 and stays only in the ended list.
 
