@@ -2388,8 +2388,14 @@ Includes:
   split, onto its centre to swap, or onto the tab bar to become its own
   tab, with a drop zone drawn while dragging;
 - a terminal revived after a grace-period stop draws its prompt correctly;
+- the workspace dialog can start, stop and restart the workspace, and its
+  rows wrap instead of scrolling sideways.
 - a project can be deleted for good from its menu, behind a confirmation that
-  requires typing the project's slug.
+  requires typing the project's slug;
+- the workspace image ships with the apt package lists in place and with
+  `command-not-found` installed, so `sudo apt install <package>` works in a
+  fresh workspace without `apt update` first, and typing a command that is
+  not installed prints the package that provides it.
 
 Acceptance:
 
