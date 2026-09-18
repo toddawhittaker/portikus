@@ -369,72 +369,71 @@ export function FileTreePane({
 			onDragEnd={onDragEnd}
 			onDragCancel={() => setDropDir(null)}
 		>
-			<aside className="pk-pane pk-pane--right" aria-label="Files">
-				<div className="pk-pane-head">
-					<h2 className="pk-pane-title">Files</h2>
-					<MenuRoot>
-						<MenuTrigger asChild>
-							<IconButton
-								icon="plus"
-								label="New file or folder"
-								size="sm"
-								data-testid="files-new"
-							/>
-						</MenuTrigger>
-						<Menu label="New file or folder">
-							<MenuItem icon="file" onSelect={() => api.newIn("", "file")}>
-								<span data-testid="files-new-file">New file…</span>
-							</MenuItem>
-							<MenuItem icon="folder" onSelect={() => api.newIn("", "dir")}>
-								<span data-testid="files-new-folder">New folder…</span>
-							</MenuItem>
-						</Menu>
-					</MenuRoot>
-					<IconButton
-						icon="search"
-						label="Find in files"
-						size="sm"
-						data-testid="search-open"
-						onClick={onSearch}
-					/>
-					<MenuRoot>
-						<MenuTrigger asChild>
-							<IconButton
-								icon="more"
-								label="More file actions"
-								size="sm"
-								data-testid="files-more"
-							/>
-						</MenuTrigger>
-						<Menu label="More file actions">
-							<div className="px-2 py-1.5" data-testid="files-show-hidden">
-								<Checkbox
-									label="Show hidden and generated files"
-									description="node_modules, .git and dist are hidden"
-									checked={showHidden}
-									onChange={() => toggleShowHidden(project.id)}
+			<TreeContext.Provider value={api}>
+				<aside className="pk-pane pk-pane--right" aria-label="Files">
+					<div className="pk-pane-head">
+						<h2 className="pk-pane-title">Files</h2>
+						<MenuRoot>
+							<MenuTrigger asChild>
+								<IconButton
+									icon="plus"
+									label="New file or folder"
+									size="sm"
+									data-testid="files-new"
 								/>
-							</div>
-							<MenuSeparator />
-							<MenuItem onSelect={() => api.pickUpload("")}>
-								<span data-testid="files-upload">Upload files…</span>
-							</MenuItem>
-							<MenuItem>
-								<a
-									href={directoryDownloadUrl(workspaceId, project.id, "")}
-									download={`${project.slug}.zip`}
-									data-testid="files-download-project"
-								>
-									Download project
-								</a>
-							</MenuItem>
-						</Menu>
-					</MenuRoot>
-				</div>
+							</MenuTrigger>
+							<Menu label="New file or folder">
+								<CreateMenuItems dir="" testIdPrefix="files" />
+							</Menu>
+						</MenuRoot>
+						<IconButton
+							icon="search"
+							label="Find in files"
+							size="sm"
+							data-testid="search-open"
+							onClick={onSearch}
+						/>
+						<MenuRoot>
+							<MenuTrigger asChild>
+								<IconButton
+									icon="more"
+									label="More file actions"
+									size="sm"
+									data-testid="files-more"
+								/>
+							</MenuTrigger>
+							<Menu label="More file actions">
+								{/* The same create actions as a row's menu, on the project
+							    root, so a project with no files still has them. */}
+								<CreateMenuItems dir="" testIdPrefix="files-more" />
+								<MenuSeparator />
+								<div className="px-2 py-1.5" data-testid="files-show-hidden">
+									<Checkbox
+										label="Show hidden and generated files"
+										description="node_modules, .git and dist are hidden"
+										checked={showHidden}
+										onChange={() => toggleShowHidden(project.id)}
+									/>
+								</div>
+								<MenuSeparator />
+								<MenuItem onSelect={() => api.pickUpload("")}>
+									<span data-testid="files-upload">Upload files…</span>
+								</MenuItem>
+								<MenuItem>
+									<a
+										href={directoryDownloadUrl(workspaceId, project.id, "")}
+										download={`${project.slug}.zip`}
+										data-testid="files-download-project"
+									>
+										Download project
+									</a>
+								</MenuItem>
+							</Menu>
+						</MenuRoot>
+					</div>
 
-				<RootDropZone slug={project.slug} />
+					<RootDropZone slug={project.slug} />
 
-				<TreeContext.Provider value={api}>
 					{/* Desktop drag-and-drop upload (SPEC.md §11.2). */}
 					{/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, not a control */}
 					<div
@@ -475,100 +474,112 @@ export function FileTreePane({
 								Everything here is hidden. Turn on Show hidden files to see it.
 							</EmptyState>
 						) : empty ? (
-							<EmptyState icon="file" title="No files yet">
+							<EmptyState
+								icon="file"
+								title="No files yet"
+								actions={
+									<Button
+										size="sm"
+										data-testid="files-empty-new-file"
+										onClick={() => api.newIn("", "file")}
+									>
+										New file
+									</Button>
+								}
+							>
 								Create a file, upload one, or use a terminal.
 							</EmptyState>
 						) : (
 							<TreeRoot slug={project.slug} />
 						)}
 					</div>
-				</TreeContext.Provider>
 
-				{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
-				<ChangesList
-					projectId={project.id}
-					status={gitStatus.data}
-					error={gitStatus.isError}
-				/>
+					{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
+					<ChangesList
+						projectId={project.id}
+						status={gitStatus.data}
+						error={gitStatus.isError}
+					/>
 
-				{/* One hidden input serves every upload action. */}
-				<input
-					ref={uploadInput}
-					type="file"
-					multiple
-					className="hidden"
-					data-testid="files-upload-input"
-					onChange={(event) => {
-						const files = event.target.files;
-						if (files && files.length > 0) uploadInto(uploadDir.current, files);
-						event.target.value = "";
-					}}
-				/>
-
-				{dialog.kind === "new" && (
-					<NameDialog
-						title={dialog.type === "file" ? "New file" : "New folder"}
-						description={
-							dialog.dir === "" ? "In the project root." : `In ${dialog.dir}.`
-						}
-						label="Name"
-						confirmLabel="Create"
-						pending={mutations.pending}
-						onClose={() => setDialog({ kind: "none" })}
-						onSubmit={(name) => {
-							const path = joinPath(dialog.dir, name);
-							const run =
-								dialog.type === "file"
-									? mutations.createFile.mutateAsync(path)
-									: mutations.createDirectory.mutateAsync(path);
-							void run
-								.then(() => {
-									if (dialog.dir !== "") api.setOpen(dialog.dir, true);
-									setDialog({ kind: "none" });
-								})
-								.catch(fail);
+					{/* One hidden input serves every upload action. */}
+					<input
+						ref={uploadInput}
+						type="file"
+						multiple
+						className="hidden"
+						data-testid="files-upload-input"
+						onChange={(event) => {
+							const files = event.target.files;
+							if (files && files.length > 0) uploadInto(uploadDir.current, files);
+							event.target.value = "";
 						}}
 					/>
-				)}
-				{dialog.kind === "rename" && (
-					<NameDialog
-						title={`Rename ${displayName(dialog.node.name)}`}
-						label="New name"
-						confirmLabel="Rename"
-						initial={dialog.node.name}
-						pending={mutations.pending}
-						onClose={() => setDialog({ kind: "none" })}
-						onSubmit={(name) => {
-							const from = dialog.node.path;
-							const to = joinPath(parentOf(from), name);
-							void mutations.move
-								.mutateAsync({ from, to })
-								.then(() => {
-									afterMove(from, to);
-									setDialog({ kind: "none" });
-								})
-								.catch(fail);
-						}}
-					/>
-				)}
-				{dialog.kind === "delete" && (
-					<DeleteFileConfirm
-						node={dialog.node}
-						pending={mutations.pending}
-						onClose={() => setDialog({ kind: "none" })}
-						onConfirm={() => {
-							const path = dialog.node.path;
-							void mutations.remove
-								.mutateAsync(path)
-								.then(() => {
-									afterRemove(path);
-									setDialog({ kind: "none" });
-								})
-								.catch(fail);
-						}}
-					/>
-				)}
-			</aside>
+
+					{dialog.kind === "new" && (
+						<NameDialog
+							title={dialog.type === "file" ? "New file" : "New folder"}
+							description={
+								dialog.dir === "" ? "In the project root." : `In ${dialog.dir}.`
+							}
+							label="Name"
+							confirmLabel="Create"
+							pending={mutations.pending}
+							onClose={() => setDialog({ kind: "none" })}
+							onSubmit={(name) => {
+								const path = joinPath(dialog.dir, name);
+								const run =
+									dialog.type === "file"
+										? mutations.createFile.mutateAsync(path)
+										: mutations.createDirectory.mutateAsync(path);
+								void run
+									.then(() => {
+										if (dialog.dir !== "") api.setOpen(dialog.dir, true);
+										setDialog({ kind: "none" });
+									})
+									.catch(fail);
+							}}
+						/>
+					)}
+					{dialog.kind === "rename" && (
+						<NameDialog
+							title={`Rename ${displayName(dialog.node.name)}`}
+							label="New name"
+							confirmLabel="Rename"
+							initial={dialog.node.name}
+							pending={mutations.pending}
+							onClose={() => setDialog({ kind: "none" })}
+							onSubmit={(name) => {
+								const from = dialog.node.path;
+								const to = joinPath(parentOf(from), name);
+								void mutations.move
+									.mutateAsync({ from, to })
+									.then(() => {
+										afterMove(from, to);
+										setDialog({ kind: "none" });
+									})
+									.catch(fail);
+							}}
+						/>
+					)}
+					{dialog.kind === "delete" && (
+						<DeleteFileConfirm
+							node={dialog.node}
+							pending={mutations.pending}
+							onClose={() => setDialog({ kind: "none" })}
+							onConfirm={() => {
+								const path = dialog.node.path;
+								void mutations.remove
+									.mutateAsync(path)
+									.then(() => {
+										afterRemove(path);
+										setDialog({ kind: "none" });
+									})
+									.catch(fail);
+							}}
+						/>
+					)}
+				</aside>
+			</TreeContext.Provider>
 		</DndContext>
 	);
 }
@@ -831,6 +842,27 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	);
 }
 
+/** New file and New folder, for the project root or for a directory. */
+function CreateMenuItems({
+	dir,
+	testIdPrefix,
+}: {
+	dir: string;
+	testIdPrefix: string;
+}): ReactNode {
+	const api = useTreeApi();
+	return (
+		<>
+			<MenuItem icon="file" onSelect={() => api.newIn(dir, "file")}>
+				<span data-testid={`${testIdPrefix}-new-file`}>New file…</span>
+			</MenuItem>
+			<MenuItem icon="folder" onSelect={() => api.newIn(dir, "dir")}>
+				<span data-testid={`${testIdPrefix}-new-folder`}>New folder…</span>
+			</MenuItem>
+		</>
+	);
+}
+
 /** The same actions on the right-click menu and on the row's ⋯ button. */
 function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 	const api = useTreeApi();
@@ -839,12 +871,7 @@ function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 
 	return (
 		<>
-			<MenuItem icon="file" onSelect={() => api.newIn(dir, "file")}>
-				<span data-testid="row-new-file">New file…</span>
-			</MenuItem>
-			<MenuItem icon="folder" onSelect={() => api.newIn(dir, "dir")}>
-				<span data-testid="row-new-folder">New folder…</span>
-			</MenuItem>
+			<CreateMenuItems dir={dir} testIdPrefix="row" />
 			<MenuSeparator />
 			<MenuItem onSelect={() => api.rename(node)}>
 				<span data-testid="row-rename">Rename…</span>

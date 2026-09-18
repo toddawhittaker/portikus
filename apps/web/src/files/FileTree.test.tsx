@@ -230,6 +230,61 @@ describe("the file tree", () => {
 		expect(await screen.findByText("README.md")).toBeDefined();
 	});
 
+	/** SPEC.md §11.2: the create actions are reachable with no files there. */
+	it("creates a file in the project root from the header's more menu", async () => {
+		const calls: { url: string; init?: RequestInit }[] = [];
+		stubFetch((url, init) => {
+			calls.push({ url, init });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path="))
+				return json(200, { entries: [], truncated: false });
+			return json(200, { path: "notes.txt", size: 0, mtimeMs: 0, etag: "1" });
+		});
+		renderPane();
+		expect(await screen.findByText("No files yet")).toBeDefined();
+
+		fireEvent.keyDown(screen.getByTestId("files-more"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("files-more-new-file"));
+
+		expect(await screen.findByText("In the project root.")).toBeDefined();
+		fireEvent.change(screen.getByTestId("field-file-name"), {
+			target: { value: "notes.txt" },
+		});
+		fireEvent.click(screen.getByTestId("dialog-confirm"));
+
+		await waitFor(() =>
+			expect(
+				calls.some(
+					(call) =>
+						call.init?.method === "PUT" && call.url.includes("file?path=notes.txt"),
+				),
+			).toBe(true),
+		);
+	});
+
+	/** SPEC.md §11.2: a new folder too, from the same menu. */
+	it("offers New folder in the header's more menu", async () => {
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("files-more"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("files-more-new-folder"));
+
+		expect(await screen.findByText("New folder")).toBeDefined();
+		expect(screen.getByText("In the project root.")).toBeDefined();
+	});
+
+	/** An empty project offers the first file on the pane itself. */
+	it("offers New file on the empty state", async () => {
+		stubFetch((url) => {
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			return json(200, { entries: [], truncated: false });
+		});
+		renderPane();
+
+		fireEvent.click(await screen.findByTestId("files-empty-new-file"));
+
+		expect(await screen.findByText("In the project root.")).toBeDefined();
+	});
+
 	it("offers a download link for each file", async () => {
 		renderPane();
 		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {

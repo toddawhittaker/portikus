@@ -367,9 +367,20 @@ test("a git timeout is an error, not a missing HEAD side", async () => {
 	await writeFile(join(project, "a.txt"), "one\n");
 	await commitAll(project, "first");
 
-	await expect(showFromHead(project, "a.txt", { timeoutMs: 1 })).rejects.toThrow(
-		"git timed out",
-	);
+	// A stand-in git that never returns, so the timeout always wins. The agent
+	// spawns "git" by name, so a shim earlier on PATH takes its place.
+	const shimDir = await mkdtemp(join(tmpdir(), "portikus-shim-"));
+	await writeFile(join(shimDir, "git"), "#!/bin/sh\nexec sleep 30\n", { mode: 0o755 });
+	const realPath = process.env.PATH;
+	process.env.PATH = `${shimDir}:${realPath ?? ""}`;
+	try {
+		await expect(showFromHead(project, "a.txt", { timeoutMs: 50 })).rejects.toThrow(
+			"git timed out",
+		);
+	} finally {
+		process.env.PATH = realPath;
+		await rm(shimDir, { recursive: true, force: true });
+	}
 });
 
 test("an unmerged entry carries the conflict flag", async () => {

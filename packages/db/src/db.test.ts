@@ -443,6 +443,19 @@ describe("database migrations and schema", () => {
 		expect(row.disconnected_at).toBeInstanceOf(Date);
 	});
 
+	test.skipIf(!hasTestDb())(
+		"a new user starts with empty editor settings",
+		async () => {
+			const userId = await insertTestUser(t.db);
+			const row = await t.db
+				.selectFrom("users")
+				.select("editor_settings")
+				.where("id", "=", userId)
+				.executeTakeFirstOrThrow();
+			expect(row.editor_settings).toEqual({});
+		},
+	);
+
 	test.skipIf(!hasTestDb())("migrations roll back and reapply", async () => {
 		const { Migrator } = await import("kysely/migration");
 		const { migrations } = await import("./migrations/index.js");
@@ -468,6 +481,8 @@ describe("database migrations and schema", () => {
 				expect(down5.error).toBeUndefined();
 				const down6 = await migrator.migrateDown();
 				expect(down6.error).toBeUndefined();
+				const down7 = await migrator.migrateDown();
+				expect(down7.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -477,6 +492,7 @@ describe("database migrations and schema", () => {
 					"0004_projects",
 					"0005_settings",
 					"0006_log_level",
+					"0007_editor_settings",
 				]);
 				throw rollback;
 			}),
