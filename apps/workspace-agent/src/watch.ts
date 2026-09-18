@@ -13,7 +13,9 @@ import { AgentFailure } from "./tmux.js";
 export type FsListener = (event: FsEvent) => void;
 
 /** Names skipped outright; `.git` is handled separately (SPEC.md §11.4). */
-const SKIPPED = new Set(GENERATED_NAMES.filter((name) => name !== ".git"));
+const SKIPPED: ReadonlySet<string> = new Set<string>(
+	GENERATED_NAMES.filter((name) => name !== ".git"),
+);
 
 /** How long a watcher may take to become ready before we give up. */
 const READY_TIMEOUT_MS = 10_000;
