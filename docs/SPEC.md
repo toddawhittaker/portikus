@@ -888,6 +888,33 @@ The implementation should use `ripgrep` or an equivalent fast workspace-local se
 
 Search must operate on the actual project files and update naturally as agents or tools modify them.
 
+### 11.6 File API and storage
+
+All file work happens in the workspace agent, behind the per-workspace bearer
+token of §23.5 and the confinement rule of §11.1 (ADR 0013). The agent exposes
+a directory listing, read, write, delete, make-directory and move under
+`/projects/:slug`, and the control plane relays each one to the workspace
+owner only, under the authorization rules of §5.2; an administrator asking for
+a student's file gets a 404.
+
+Writes are conditional. A file's version is a hash of its content, carried as
+an ETag; a write must present exactly one of `If-Match` with the version the
+client last read, to overwrite, or `If-None-Match: *`, to create. A version
+that no longer matches is refused with 412 and the current version, and the
+client resolves the conflict (§13.5). A write must not be applied in place: it
+lands whole or not at all.
+
+The agent enforces fixed limits: a file the editor opens or saves is at most
+2 MiB, an upload at most 50 MiB, and one directory listing returns at most
+2,000 entries and says when it was truncated. A larger file uses the download
+path of §11.2 rather than the editor (§13.2).
+
+The confinement rule is the one §7.6 already states for projects: the agent
+resolves the requested path with realpath and refuses unless the result lies
+inside the resolved `~/projects/<slug>`. For a path that does not exist yet the
+parent is resolved instead. Files are opened so that the kernel itself refuses
+to follow a final symbolic link (§24.6).
+
 ## 12. Git integration
 
 ### 12.1 Git status
@@ -2451,10 +2478,13 @@ Acceptance:
 - branch, remote preservation, and conflict state are understandable;
 - the Changes surface reflects the current working tree;
 - selecting a changed text file opens the correct diff against `HEAD`;
-- session review shows changes since the agent began even when the repository was already dirty;
 - autosave cannot silently overwrite a newer external version;
 - new, deleted, renamed, and binary changes produce defined behavior;
 - oversized diffs fail gracefully rather than degrading browser responsiveness.
+
+Session change review (§12.7) is built in Epic 9, with the launchers that
+create the baseline; its acceptance line moved there.
+
 
 ### Epic 8 — Verification, running services, and authenticated preview
 **Estimate:** 5–7 engineer-days
@@ -2505,6 +2535,7 @@ Includes:
 Acceptance:
 
 - both agents can operate in the selected project;
+- session review shows changes since the agent began even when the repository was already dirty (§12.7, moved here from Epic 7);
 - credentials do not appear in platform logs.
 
 ### Epic 10 — Recovery, quotas, and reset workflows

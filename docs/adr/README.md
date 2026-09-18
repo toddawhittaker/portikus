@@ -41,3 +41,6 @@ has four sections:
 | [0010](0010-project-operations-in-the-agent.md) | Project operations run in the workspace agent |
 | [0011](0011-runtime-settings-in-postgres.md) | Runtime settings live in Postgres |
 | [0012](0012-structured-logging.md) | Structured logging with pino and a runtime log level |
+| [0013](0013-file-api-in-the-workspace-agent.md) | The file API lives in the workspace agent, with conditional writes |
+| [0014](0014-filesystem-events-over-a-per-project-websocket.md) | Filesystem events over a per-project WebSocket |
+| [0015](0015-editor-stack.md) | Editor stack: bundled Monaco and react-markdown |

@@ -9,8 +9,9 @@ summarizes them so a reader knows where to look.
 
 `docs/STATUS.md` records what each epic and task has delivered and the
 gaps each one left. Epics 0 through 6 plus the live grace period and
-structured logging have landed; Epic 7 (files, Monaco, search, and change
-review) is next.
+structured logging have landed. Epic 7 (files, Monaco, search, and change
+review) is finished on its epic branch and waiting to be merged; it is not
+yet deployed to the pilot VM.
 
 ## Planned architecture
 
