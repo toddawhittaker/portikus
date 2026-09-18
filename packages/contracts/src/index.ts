@@ -17,6 +17,7 @@ export * from "./auth.js";
 export * from "./controller.js";
 export * from "./events.js";
 export * from "./files.js";
+export * from "./git.js";
 export * from "./project.js";
 export * from "./search.js";
 export * from "./settings.js";
