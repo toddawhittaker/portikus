@@ -4,8 +4,10 @@
  * never becomes a request.
  */
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { nameError } from "./paths.js";
+
+const FIELD_ID = "field-file-name";
 
 export interface NameDialogProps {
 	title: string;
@@ -31,6 +33,18 @@ export function NameDialog({
 	const [name, setName] = useState(initial);
 	const [touched, setTouched] = useState(false);
 	const error = nameError(name);
+	// The dialog focuses itself when it opens, which lands after the input's
+	// own autoFocus; taking focus back on the next frame wins the race, so the
+	// student can type the name straight away (issue #186).
+	useEffect(() => {
+		const frame = requestAnimationFrame(() => {
+			const input = document.getElementById(FIELD_ID);
+			if (!(input instanceof HTMLInputElement)) return;
+			input.focus();
+			input.select();
+		});
+		return () => cancelAnimationFrame(frame);
+	}, []);
 
 	function submit() {
 		setTouched(true);
@@ -69,7 +83,7 @@ export function NameDialog({
 					}}
 				>
 					<TextField
-						id="field-file-name"
+						id={FIELD_ID}
 						data-testid="field-file-name"
 						label={label}
 						value={name}

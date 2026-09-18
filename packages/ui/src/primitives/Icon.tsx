@@ -19,6 +19,49 @@ const PATHS = {
 		"M15.2 8.8l3.2-3.2",
 	],
 	file: ["M6 3h8l4 4v14H6z", "M14 3v4h4"],
+	"file-code": [
+		"M6 3h8l4 4v14H6z",
+		"M14 3v4h4",
+		"M10.5 12.5 8.5 15l2 2.5",
+		"M13.5 12.5 15.5 15l-2 2.5",
+	],
+	"file-web": ["M6 3h8l4 4v14H6z", "M14 3v4h4", "C12 15 3", "M9 15h6", "E12 15 1.3 3"],
+	"file-data": [
+		"M6 3h8l4 4v14H6z",
+		"M14 3v4h4",
+		"E12 13 3.5 1.5",
+		"M8.5 13v4c0 .8 1.6 1.5 3.5 1.5s3.5-.7 3.5-1.5v-4",
+	],
+	"file-markdown": [
+		"M6 3h8l4 4v14H6z",
+		"M14 3v4h4",
+		"M8 17.5v-5l2 2.2 2-2.2v5",
+		"M15.5 12.5v5",
+		"M14 16l1.5 1.5L17 16",
+	],
+	"file-image": [
+		"M6 3h8l4 4v14H6z",
+		"M14 3v4h4",
+		"C10 13.5 1.2",
+		"M7 19l3.5-3.5 2.5 2.5 2-2 3 3",
+	],
+	"file-archive": [
+		"M6 3h8l4 4v14H6z",
+		"M14 3v4h4",
+		"M11 4h1",
+		"M11 7h1",
+		"M11 10h1",
+		"R10 13 3 4 1",
+	],
+	"file-config": [
+		"M6 3h8l4 4v14H6z",
+		"M14 3v4h4",
+		"C12 15 2",
+		"M12 11v1.3",
+		"M12 17.7V19",
+		"M8.5 15h1.3",
+		"M14.2 15h1.3",
+	],
 	folder: [
 		"M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z",
 	],
@@ -140,6 +183,7 @@ export function Icon({
 				className,
 			)}
 			viewBox="0 0 24 24"
+			data-icon={name}
 			aria-hidden={label ? undefined : true}
 			role={label ? "img" : undefined}
 			aria-label={label}
