@@ -40,6 +40,10 @@
 	handle /admin* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
+	# The signed-in user's own editor settings (issue #159).
+	handle /me/* {
+		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+	}
 	handle /health {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}

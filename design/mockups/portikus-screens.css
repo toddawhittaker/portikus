@@ -78,7 +78,7 @@ a.pk-namemark { color: var(--ink); text-decoration: none; }
 
 /* FileTree (ARIA tree, roving tabindex) */
 .pk-tree { list-style: none; margin: 0; padding: 0; }
-.pk-tree-row { display: flex; align-items: center; gap: var(--space-1\.5); height: var(--pk-row); padding-right: var(--space-2); border-radius: var(--radius-sm); font-size: 13px; color: var(--ink); cursor: default; outline: none; }
+.pk-tree-row { display: flex; align-items: center; gap: var(--space-1\.5); height: var(--pk-tree-row); padding-right: var(--space-2); border-radius: var(--radius-sm); font-size: 13px; color: var(--ink); cursor: default; outline: none; }
 .pk-tree-row:hover { background: var(--surface-hover); }
 .pk-tree-row[aria-selected="true"] { background: var(--surface-selected); }
 .pk-tree-row:focus-visible { outline: var(--ring-width) solid var(--focus); outline-offset: var(--ring-offset-inset); }

@@ -4,6 +4,7 @@
  * by a fake, so these tests are about the states, not about rendering text.
  */
 
+import { EDITOR_SETTINGS_DEFAULTS, type EditorSettings } from "@portikus/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
@@ -39,7 +40,12 @@ class FakeModel {
 	disposed = false;
 }
 
-const state: { model: FakeModel | null } = { model: null };
+const state: {
+	model: FakeModel | null;
+	/** The options the editor was created with, and every later change. */
+	created: Record<string, unknown> | null;
+	updates: Record<string, unknown>[];
+} = { model: null, created: null, updates: [] };
 /** The two sides of the conflict diff, once it has been created. */
 const diffState: { models: { original: FakeModel; modified: FakeModel } | null } = {
 	models: null,
@@ -91,8 +97,12 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 				restoreViewState: () => {},
 				dispose: () => {},
 			}),
-			create: (_host: HTMLElement, options: { model: FakeModel }) => {
+			create: (
+				_host: HTMLElement,
+				options: { model: FakeModel } & Record<string, unknown>,
+			) => {
 				state.model = options.model;
+				state.created = options;
 				return {
 					onDidChangeModelContent: (listener: () => void) => {
 						options.model.listeners.push(listener);
@@ -105,7 +115,9 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 					},
 					focus: () => {},
 					addCommand: () => {},
-					updateOptions: () => {},
+					updateOptions: (options: Record<string, unknown>) => {
+						state.updates.push(options);
+					},
 					dispose: () => {},
 				};
 			},
@@ -157,6 +169,8 @@ interface Write {
 }
 
 const requests: Write[] = [];
+/** What GET /me/settings answers in this test (issue #159). */
+let settings: EditorSettings;
 let seed: Seed;
 /** When set, every PUT waits for this to be resolved before it answers. */
 let gate: { promise: Promise<void>; open: () => void } | null = null;
@@ -173,8 +187,16 @@ function holdWrites() {
 function stubServer() {
 	vi.stubGlobal(
 		"fetch",
-		vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const method = init?.method ?? "GET";
+			// The tab reads the student's editor settings (issue #159). These
+			// tests use a one second delay, so a debounce is quick to wait for.
+			if (String(input) === "/me/settings") {
+				return new Response(JSON.stringify(settings), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}
 			if (method === "GET") {
 				if (seed.status && seed.status !== 200) {
 					return new Response(
@@ -227,8 +249,11 @@ beforeEach(() => {
 	cursorLines.length = 0;
 	revealedLines.length = 0;
 	state.model = null;
+	state.created = null;
+	state.updates.length = 0;
 	diffState.models = null;
 	gate = null;
+	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSaveDelaySeconds: 1 };
 	seed = { text: "hello", etag: "etag-0" };
 	stubServer();
 });
@@ -739,4 +764,77 @@ test("a tab opened for editing shows the editor until Diff is clicked", async ()
 
 	fireEvent.click(screen.getByTestId(`file-view-diff-${PATH}`));
 	expect(await screen.findByTestId(`diff-pane-${PATH}`)).not.toBeNull();
+});
+
+test("auto-save off writes nothing until Ctrl+S (issue #159)", async () => {
+	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSave: false, autoSaveDelaySeconds: 1 };
+	renderLeaf();
+	const host = await findEditor();
+	type("typed by hand");
+
+	// Well past the delay: with auto-save off there is no timer at all.
+	await new Promise((resolve) => setTimeout(resolve, 1500));
+	expect(requests).toHaveLength(0);
+	expect(status().textContent).toBe("Unsaved");
+
+	const event = new KeyboardEvent("keydown", {
+		key: "s",
+		ctrlKey: true,
+		bubbles: true,
+		cancelable: true,
+	});
+	host.dispatchEvent(event);
+	// The browser's own save dialog must not open (SPEC.md §13.5).
+	expect(event.defaultPrevented).toBe(true);
+	await waitFor(() => expect(requests).toHaveLength(1), { timeout: 3000 });
+	expect(requests[0]).toMatchObject({ ifMatch: "etag-0", body: "typed by hand" });
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
+});
+
+test("Cmd+S saves too, for a Mac keyboard (issue #159)", async () => {
+	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSave: false, autoSaveDelaySeconds: 1 };
+	renderLeaf();
+	const host = await findEditor();
+	type("typed on a mac");
+	host.dispatchEvent(
+		new KeyboardEvent("keydown", {
+			key: "s",
+			metaKey: true,
+			bubbles: true,
+			cancelable: true,
+		}),
+	);
+	await waitFor(() => expect(requests).toHaveLength(1), { timeout: 3000 });
+	expect(requests[0]?.body).toBe("typed on a mac");
+});
+
+test("the auto-save delay comes from the settings (issue #159)", async () => {
+	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSaveDelaySeconds: 3 };
+	renderLeaf();
+	await findEditor();
+	type("slow save");
+
+	// A one second delay would already have written it.
+	await new Promise((resolve) => setTimeout(resolve, 1500));
+	expect(requests).toHaveLength(0);
+	await waitFor(() => expect(requests).toHaveLength(1), { timeout: 5000 });
+	expect(requests[0]?.body).toBe("slow save");
+}, 12_000);
+
+test("word wrap off is what Monaco is created with (issue #159)", async () => {
+	renderLeaf();
+	await findEditor();
+	expect(state.created?.wordWrap).toBe("off");
+});
+
+test("word wrap on reaches Monaco (issue #159)", async () => {
+	settings = { ...EDITOR_SETTINGS_DEFAULTS, wordWrap: true, autoSaveDelaySeconds: 1 };
+	renderLeaf();
+	await findEditor();
+	await waitFor(() =>
+		expect(
+			state.created?.wordWrap === "on" ||
+				state.updates.some((options) => options.wordWrap === "on"),
+		).toBe(true),
+	);
 });

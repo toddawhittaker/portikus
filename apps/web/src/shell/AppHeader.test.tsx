@@ -60,6 +60,24 @@ test("the appearance items set data-theme and remember the choice", () => {
 	expect(localStorage.getItem("pk-theme")).toBe("system");
 });
 
+test("the account menu opens the editor settings dialog (issue #159)", async () => {
+	stubFetch(() =>
+		json(200, { autoSave: true, autoSaveDelaySeconds: 5, wordWrap: false }),
+	);
+	renderHeader();
+	openAccountMenu();
+
+	fireEvent.click(screen.getByRole("menuitem", { name: "Editor settings" }));
+
+	const dialog = await screen.findByTestId("dialog-editor-settings");
+	expect(dialog.textContent).toContain("Word wrap");
+	await waitFor(() =>
+		expect(
+			(screen.getByTestId("editor-settings-delay") as HTMLInputElement).value,
+		).toBe("5"),
+	);
+});
+
 test("signing out posts a form to the API", () => {
 	renderHeader();
 	openAccountMenu();

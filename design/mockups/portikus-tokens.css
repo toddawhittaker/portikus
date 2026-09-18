@@ -46,11 +46,13 @@
   --size-rail: 48px;
   --density-comfortable-control: 36px;
   --density-comfortable-row: 32px;
+  --density-comfortable-tree-row: 24px;
   --density-comfortable-tab: 36px;
   --density-comfortable-pad: 12px;
   --density-comfortable-font: 14px;
   --density-compact-control: 28px;
   --density-compact-row: 28px;
+  --density-compact-tree-row: 22px;
   --density-compact-tab: 30px;
   --density-compact-pad: 8px;
   --density-compact-font: 13px;
