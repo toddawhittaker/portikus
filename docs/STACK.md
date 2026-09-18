@@ -245,15 +245,32 @@ Use Monaco Diff Editor for file diffs.
 
 Do not attempt to reproduce the complete VS Code extension system.
 
-### Markdown rendering
+### Markdown editing and rendering
 
-Use **react-markdown** with **remark-gfm** and **remark-frontmatter** for the
-rendered preview of SPEC.md section 13.4. It builds React elements directly
-rather than producing an HTML string, and raw HTML is off unless `rehype-raw`
-is added, which it is not. Markdown in a project may have been written by a
-coding agent, so it is untrusted content; not rendering HTML at all is a
-smaller promise to keep than sanitizing it correctly. Front matter is split
-off and shown as a collapsed block. ADR 0015.
+Use **MDXEditor** (`@mdxeditor/editor`, pinned at 4.2.5) for the rich Markdown
+view of SPEC.md section 13.4. A Markdown tab holds one buffer of Markdown
+text that autosave, Ctrl+S, the conflict view and the diff view all work on,
+so the editor behind the rich view has to keep that text as the truth.
+MDXEditor is Markdown-native: it is Lexical-based, parses Markdown into its
+document model, and serializes Markdown back out, so no HTML round trip can
+rewrite the student's file. Its toolbar covers undo, bold, italic, inline
+code, block type including headings and quotes, bullet and numbered lists,
+links, code blocks, tables and horizontal rules.
+
+Raw HTML processing is switched off (`suppressHtmlProcessing`), keeping the
+promise that a tag a coding agent wrote never becomes markup in the
+control-plane origin; not rendering HTML at all is a smaller promise to keep
+than sanitizing it correctly. Link URLs are limited to a protocol allowlist
+by Lexical. It is loaded lazily, the same way Monaco is, so a student who
+only opens code files never downloads it.
+
+Rejected: TipTap, because HTML is its document model and would need a
+Markdown serializer this app would own and maintain; Milkdown, Markdown-native
+too but a larger plugin surface to assemble and keep working across upgrades
+for the same toolbar; and a toolbar over Monaco that inserts Markdown syntax,
+cheapest in dependencies but not what students asked for, since they want to
+see the formatting, not type the marks. ADR 0017, which supersedes the
+Markdown-rendering half of ADR 0015; Monaco remains ADR 0015's editor.
 
 ### Terminal
 
@@ -1542,7 +1559,7 @@ Zustand
 Tailwind
 Radix-style accessible primitives
 Monaco
-react-markdown
+MDXEditor
 xterm.js
 
 Fastify
