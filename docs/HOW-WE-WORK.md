@@ -363,8 +363,8 @@ review pass, one approval, one deployment. A genuine showstopper — something
 that makes the product unusable — skips the queue and gets its own branch
 immediately.
 
-The owner is equally clear about what he does not want in between. Offered a
-pull request whose only purpose was to write down a note, he said: "We have a
+The owner is equally clear about what they do not want in between. Offered a
+pull request whose only purpose was to write down a note, they said: "We have a
 backlog of features. This seems like a small fix. I don't want to open a new
 pull request just to create a notes file and merge it. Seems odd."
 
@@ -375,13 +375,13 @@ code editor, a search feature, and a way to review changes. It ran overnight and
 is typical in shape.
 
 It began in planning mode, with no changes allowed. The owner asked for a plan,
-named the one thing he cared most about, and said how to gather the information:
+named the one thing they cared most about, and said how to gather the information:
 "Use the explorer agent to read the files you need to plan the epic." The
 orchestrator sent scouts to map the existing code, turned their reports into a
 plan built from waves of non-overlapping work, and brought the open questions
 back for a ruling. The owner ruled on each one.
 
-Then he left, with explicit temporary authority: "After authorizing the plan,
+Then they left, with explicit temporary authority: "After authorizing the plan,
 you will cut the branch and I will go away from the keyboard. I expect you to do
 your best to work through all the issues, fixing bugs and landing work, so that
 when I come back in the morning it will be ready for me to test."
@@ -400,7 +400,7 @@ and stop. The owner approved it, an infrastructure agent deployed it, and the
 automated smoke test on the live machine passed every check.
 
 The owner then used the deployed product as a user would, found twelve problems
-in under an hour, and filed them for the next fix batch. One he marked a
+in under an hour, and filed them for the next fix batch. One they marked a
 showstopper. That last sentence is the important one: every automated gate had
 passed.
 
@@ -516,8 +516,8 @@ should mention how long the checks took.
 
 **Accept some contention rather than serializing everything.** Heavy jobs
 running alongside test suites once starved the owner's own machine. Offered the
-choice, he said: "No, it's okay. I'll live with the contention." The rule: warn
-him when a heavy job starts, so a slow machine is not mistaken for a bug.
+choice, they said: "No, it's okay. I'll live with the contention." The rule: warn
+them when a heavy job starts, so a slow machine is not mistaken for a bug.
 
 ---
 
@@ -592,9 +592,9 @@ before we merge."
 
 ---
 
-## 8. The owner's working rules, in his words
+## 8. The owner's working rules, in their words
 
-These come from the owner's standing instructions and from what he has said
+These come from the owner's standing instructions and from what they have said
 during sessions. They are short because they are meant to be remembered.
 
 **Done means done.** "Not half done. Not done except for the part I decided to
@@ -628,18 +628,18 @@ adding anything new, and say out loud why if you add one.
 
 **Recommend, do not survey.** "Recommend the simplest thing that solves the
 problem actually in front of you, and say which option you would pick rather
-than listing them all." He also expects to be argued with, and he changes his
-mind: he has asked to be challenged and has reversed decisions when given a real
+than listing them all." They also expect to be argued with, and they change their
+mind: they have asked to be challenged and has reversed decisions when given a real
 argument.
 
-**Approval is his gate.** Task pull requests inside an epic can land
+**Approval is the owner's gate.** Task pull requests inside an epic can land
 automatically once their checks are green. The one pull request that reaches the
-main line is his. He grants authority beyond that explicitly and temporarily —
+main line is theirs. They grant authority beyond that explicitly and temporarily —
 "I'm going away from the keyboard, so do your best to resolve issues on your
 own. You have my authority to merge all pull requests for the remainder of this
 session" — and it does not carry over to the next session.
 
-**How he corrects drift.** He does not soften it, and he asks for the cause
+**How the owner corrects drift.** They do not soften it, and they ask for the cause
 rather than an apology. "It seems like you were stuck. Plus, you, the expensive
 orchestrator, are doing too much work that should be delegated to a cheaper
 subagent. What is going on?" "Is the infrastructure agent stuck? It's been
@@ -692,7 +692,7 @@ browser-running agents run one at a time or accept a rerun.
 
 **An automated test destroyed live work.** A smoke test aimed at the live
 deployment cleaned up after itself by deleting everything belonging to its test
-users. The owner happened to be signed in as one of them, and his running work
+users. The owner happened to be signed in as one of them, and their running work
 and its storage were destroyed. The test was fixed to delete only what that run
 created, but the rule stands independently: never run a destructive test against
 a machine someone is using, and ask before running one against a live deployment
@@ -721,7 +721,7 @@ any change of state with the tool that owns that state.
 **The false conflict warning.** In one epic the editor warned "this file changed
 on disk while you were editing it" the moment anyone typed, and again after
 every automatic save, when nothing but the editor itself had touched the file.
-The owner found it within a minute of real use and added what he wanted instead:
+The owner found it within a minute of real use and added what they wanted instead:
 if something really does change the file, show the two versions side by side. It
 became a showstopper and jumped the queue. The lesson is about the limits of
 every other gate: all tests passed, both reviewers were clean, and the bug was
