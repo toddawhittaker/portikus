@@ -21,6 +21,8 @@ section, never here.
 - `docs/STACK.md`: technology choices and why. Section 2 is the repo
   layout, section 13 testing, section 15 observability, section 31 the
   Make targets, section 34 the stack summary, section 35 what was rejected.
+- `docs/HOW-WE-WORK.md`: how the product owner and the agents build this,
+  with the lessons behind the rules below. Course source material.
 - `docs/WORKFLOW.md`: local development, branching, pull requests, CI,
   secret scanning, and the pre-commit hook.
 - `docs/DESIGN.md`: the visual design, mirrored under `design/`.

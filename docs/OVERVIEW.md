@@ -8,10 +8,9 @@ summarizes them so a reader knows where to look.
 ## Current state
 
 `docs/STATUS.md` records what each epic and task has delivered and the
-gaps each one left. Epics 0 through 6 plus the live grace period and
-structured logging have landed. Epic 7 (files, Monaco, search, and change
-review) is finished on its epic branch and waiting to be merged; it is not
-yet deployed to the pilot VM.
+gaps each one left. Epics 0 through 7 plus the live grace period and
+structured logging have landed and run on the pilot VM (Epic 7 as release
+0.1.163). Epic 7.1, the pilot fix batch, is in progress on its epic branch.
 
 ## Planned architecture
 
