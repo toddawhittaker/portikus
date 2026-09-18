@@ -63,6 +63,42 @@ had passed; the shared automated check then failed on exactly that. The owner's
 response set a permanent rule: run the checks yourself before you believe the
 report. The orchestrator now verifies an agent's claim before repeating it.
 
+### The iron triangle, revisited
+
+Project managers have long described a trade-off called the **iron triangle**:
+time, cost, and scope, with quality in the middle. The old rule is that you may
+pick two of fast, cheap, and big, and that if you push on all three at once it
+is quality that gives way. Working with agents changes the shape of that
+bargain. In the owner's words: "The project management iron triangle (time,
+cost, scope, with quality in the center) can be largely mitigated by AI.
+Especially time."
+
+Time falls first. Work that one person would do in sequence is split across
+many agents that run at the same time, and a wave of work can run overnight
+while nobody is at the keyboard.
+
+Cost falls next, but only if it is managed deliberately. That is what the
+habits in section 6, "Saving money and time", are for: send the cheapest agent
+that can do the job, give each agent a small self-contained brief instead of a
+whole conversation, run independent work in parallel, and protect the context
+and the cache as described just below. The owner again: "All this token budget
+stuff reduces cost substantially, allowing the scope to grow."
+
+So the money saved on cost is spent on scope. The product can be bigger than
+one person could otherwise afford.
+
+Quality, in this arrangement, is not held by the triangle at all. It is held by
+ordinary software engineering discipline, described in section 7, "The gates
+that replace line-by-line human reading": tests written before the code when
+the behaviour can be stated, unit tests and end-to-end tests on every change, a
+coverage floor nobody may lower to make a run pass, a security review and a
+code review by separate agents, and a human who drives the product and decides
+what it is for. As the owner puts it, "The software engineering discipline
+(reviewers, TDD, security, e2e tests, unit tests, etc.) in the agent section is
+what manages quality." Take that discipline away and the old triangle returns
+immediately, because nothing is left to notice that the fast, cheap, large
+result is wrong.
+
 ---
 
 ## 2. Start with the vision and the specification
@@ -581,6 +617,66 @@ minute step to seconds. Installing a minimal browser instead of a full one cut
 another. Any step over a minute is a candidate to cache or remove, and reports
 should mention how long the checks took.
 
+### Protect the context
+
+A conversation with a model has a **context window**: its working memory, the
+whole of what it can see at once, measured in **tokens** (roughly three
+quarters of a word each). Everything said, read, and written in a session fills
+that window. Three other terms matter here. A **memory file** is a note the
+orchestrator writes to disk so that a later session can recall a fact or a
+preference. **Compaction** is the tool summarising the conversation in place to
+make room when the window fills. **Prompt caching** is the provider keeping the
+recent conversation warm so that the next turn does not pay to read it all
+again; the cache expires after a period of inactivity.
+
+**Watch the size of the conversation, and reset on purpose.** At roughly 256
+thousand tokens, write the memories that matter — decisions taken, the plan of
+record, lessons learned — and start a fresh session. Do this even though the
+model can technically hold far more. Quality drifts well before the hard limit.
+The owner: "We vigorously protect context and need to reset at about the 256k
+token threshold by saving memories and starting a new session. The orchestrator
+and subagents, even though they may have a 1M token context window, tend to
+drift into confusion at that threshold."
+
+**Know what the drift looks like.** A long session starts repeating work it has
+already finished, forgets a decision it made an hour earlier, or contradicts a
+ruling it gave itself. None of these arrive as an error message; they look like
+ordinary confident work until someone checks. Treat any of them as a signal to
+save memories and begin again.
+
+**Prefer memory plus a new session over compaction.** A summary written in
+place is lossy and unreviewable, and it keeps the same tired conversation
+going. Deliberately chosen notes plus a clean start is the better trade. In the
+owner's words: "Compacting conversations is a poor substitute for managing
+context with memory and new sessions."
+
+**Keep a session warm rather than idle.** Resuming a conversation after its
+cache has expired makes the provider re-read the whole thing at full price. The
+owner: "Caching of tokens must be vigorously protected, too, so resuming a
+session after the cache expires is expensive for usage budgets." If a long
+break is coming, it is cheaper to save memories and end the session than to
+come back to a cold one.
+
+**Keep the standing instructions file short.** Most tools of this kind read a
+**standing instructions file** at the start of every session and hand the same
+file to every agent they launch — the project's house rules, always present.
+Because it is attached to every single call, every line in it is paid for
+thousands of times over. So it holds only process rules and pointers to the
+documents that carry the substance: how work is delegated, tested, reviewed and
+merged, and where to read the vision, the requirements, and the status. It never
+describes what the code does; that belongs in the documents it points at, cited
+by file and section. One project holds the file under 150 lines by rule. The
+owner: "Part of managing tokens as well is keeping [the standing instructions
+file] deliberately short and process-oriented only, with pointers to where other
+documentation files are, because it is injected into every subagent's
+instructions."
+
+**Give subagents small, self-contained briefs.** An agent sent a tight brief —
+the requirement sections, the files, the starting point, the definition of done
+— keeps its own context short and finishes before drift can set in. The
+orchestrator then reads the agent's report, not its transcript. That is what
+keeps the expensive conversation small enough to stay sharp.
+
 **Accept some contention rather than serializing everything.** Heavy jobs
 running alongside test suites once starved the owner's own machine. Offered the
 choice, they said: "No, it's okay. I'll live with the contention." The rule: warn
@@ -878,6 +974,16 @@ the false conflict warning, and sixty seconds of real typing found it. Deploy to
 something real, use it the way your users will, and treat what you find as
 information about your gates as much as about your code.
 
+**Protect the context.** Watch how large the conversation has grown, and at
+around 256 thousand tokens write down the decisions and lessons that matter and
+start a fresh session rather than letting the tool summarise in place. Keep a
+session warm rather than idle, because resuming a cold one pays to read the
+whole conversation again.
+
+**Keep the standing instructions file short.** It is attached to every call to
+every agent, so it should carry process rules and pointers only, never a
+description of the code.
+
 **Write down every lesson where an agent will read it.** A lesson learned and
 not written into the next instruction will be learned again, at full price.
 
@@ -912,6 +1018,14 @@ without disturbing the main line.
 **Commit** — One saved snapshot of changes, with a message explaining what
 changed and why.
 
+**Compaction** — The tool summarising a long conversation in place to make room
+in the context window. Cheaper than starting over, but lossy; this guide
+prefers written memories and a fresh session.
+
+**Context window** — The working memory of a conversation: everything the model
+can see at once, measured in tokens. Quality drifts before the window is
+technically full.
+
 **Continuous integration (CI)** — The automated system that runs every check on
 every proposed change and reports pass or fail.
 
@@ -932,6 +1046,10 @@ changing, usually because of timing or a shared resource.
 
 **Gate** — A point where work stops until a condition is met, such as all checks
 passing or the owner approving.
+
+**Iron triangle** — The old project management rule that time, cost, and scope
+are traded against one another, with quality in the middle: you may pick two of
+fast, cheap, and big, and pushing all three costs you quality.
 
 **Merge** — To fold one branch's changes into another, accepting them.
 
@@ -955,6 +1073,10 @@ are nice-to-have, wanted but not scheduled.
 **Product owner** — The person who decides what the product is for and approves
 the result. Owns intent, not implementation, and is not required to read code.
 
+**Prompt caching** — The provider keeping a recent conversation warm so the
+next turn does not pay to read it all again. The cache expires after a period of
+inactivity, which makes resuming a long-idle session expensive.
+
 **Pull request** — A formal proposal to merge one branch into another, showing
 what changed and collecting automated checks and comments before approval.
 
@@ -975,6 +1097,10 @@ organized into numbered sections so instructions can point at exact ones.
 
 **Squash** — To compress all the commits on a branch into one commit when
 merging, keeping the shared history readable.
+
+**Standing instructions file** — The file the tool reads at the start of every
+session and attaches to every agent it launches. Because it is paid for on every
+call, it holds only process rules and pointers to the documents with the detail.
 
 **Test** — An automated check that some behaviour is correct.
 
