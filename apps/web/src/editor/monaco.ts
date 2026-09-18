@@ -26,6 +26,21 @@ const environment: Monaco.Environment = {
 (self as unknown as { MonacoEnvironment: Monaco.Environment }).MonacoEnvironment =
 	environment;
 
+/** The language id whose extension or file name matches this path. */
+export function languageForPath(monaco: typeof Monaco, path: string): string {
+	const name = path.split("/").pop() ?? path;
+	const dot = name.lastIndexOf(".");
+	const extension = dot > 0 ? name.slice(dot) : "";
+	for (const language of monaco.languages.getLanguages()) {
+		if (language.filenames?.includes(name)) return language.id;
+	}
+	if (extension === "") return "plaintext";
+	for (const language of monaco.languages.getLanguages()) {
+		if (language.extensions?.includes(extension)) return language.id;
+	}
+	return "plaintext";
+}
+
 export const LIGHT_THEME = "portikus-light";
 export const DARK_THEME = "portikus-dark";
 

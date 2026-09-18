@@ -44,6 +44,8 @@ const NO_WRITE_ETAG =
 export const fileKeys = {
 	file: (workspaceId: string, projectId: string, path: string) =>
 		["file", workspaceId, projectId, path] as const,
+	diff: (workspaceId: string, projectId: string, path: string) =>
+		["git-diff", workspaceId, projectId, path] as const,
 };
 
 /** The URL of one file, for reading and writing. */
