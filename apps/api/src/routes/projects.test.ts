@@ -757,3 +757,38 @@ test.skipIf(skip)("a running workspace with no agent token answers 503", async (
 	expect(created.json().code).toBe("AGENT_UNAVAILABLE");
 	expect(created.json().message).toBe("The workspace agent is not reachable.");
 });
+
+test.skipIf(skip)("delete waits for another long operation to finish", async () => {
+	const project = (
+		await createProject(alice, workspaceId, { name: "doomed", source: "new" })
+	).json();
+
+	const clone = createProject(alice, workspaceId, {
+		name: "slow clone",
+		source: "clone",
+		url: "https://example.com/slow.git",
+	});
+	// Let the clone reach the agent and take the slot before the delete arrives.
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	const refused = await deleteProject(alice, workspaceId, project.id, "doomed");
+
+	expect(refused.statusCode).toBe(409);
+	expect(refused.json().code).toBe("OPERATION_IN_PROGRESS");
+	expect(refused.json().message).toBe(
+		"Another project operation is already running on this workspace.",
+	);
+	expect(agent.projects.has("doomed")).toBe(true);
+	expect((await clone).statusCode).toBe(201);
+
+	// The slot is released, so the delete goes through.
+	const deleted = await deleteProject(alice, workspaceId, project.id, "doomed");
+	expect(deleted.statusCode).toBe(204);
+	expect(agent.projects.has("doomed")).toBe(false);
+
+	// The delete released its own slot too, so the next one is not refused.
+	const second = (
+		await createProject(alice, workspaceId, { name: "also doomed", source: "new" })
+	).json();
+	const again = await deleteProject(alice, workspaceId, second.id, "also-doomed");
+	expect(again.statusCode).toBe(204);
+});
