@@ -9,6 +9,11 @@
  */
 export async function loadEditorFeatures(): Promise<void> {
 	await Promise.all([
+		// The icon font the widgets draw their buttons with. Only
+		// editor.main.js pulls this in, and we deliberately do not load that,
+		// so without it the find widget's buttons render as empty boxes
+		// (issue #219).
+		import("monaco-editor/features/codicon/register.js"),
 		import("monaco-editor/features/find/register.js"),
 		import("monaco-editor/editor/contrib/folding/browser/folding.js"),
 		import("monaco-editor/editor/contrib/bracketMatching/browser/bracketMatching.js"),
