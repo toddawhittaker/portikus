@@ -70,6 +70,7 @@ It does the work itself only for a one-line lookup or edit. Agents live in
 | security-reviewer | Read-only review against SPEC.md section 24 trust boundaries. |
 | code-reviewer | Read-only review for correctness, then YAGNI/KISS/DRY/SOLID quality. |
 | infra | Anything under `infra/`: OpenTofu, Ansible, cloud-init, Incus, images. |
+| merger | Landing a list of task PRs into an epic branch: CI wait, update, squash-merge, flake reruns; escalates conflicts and real failures. Cheap. |
 
 Orchestration rules:
 
@@ -93,6 +94,9 @@ Orchestration rules:
   reasoning, high for intensive debugging. Time-box debugging agents.
 - Never `git add -A`; stage paths explicitly, above all under `infra/`.
 - Delete local branches and agent worktrees after a merge.
+- Hand the merge queue to merger, not to a shell loop in the main
+  session; it reruns flakes and escalates only conflicts and real
+  failures.
 
 ## Testing rules
 
