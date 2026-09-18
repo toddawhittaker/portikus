@@ -4,6 +4,7 @@
  */
 import { ConfirmDialog, ConfirmDialogRoot } from "@portikus/ui";
 import type { FileNode } from "./FileTree.js";
+import { displayName } from "./paths.js";
 
 export function DeleteFileConfirm({
 	node,
@@ -20,11 +21,11 @@ export function DeleteFileConfirm({
 		<ConfirmDialogRoot open onOpenChange={(open) => !open && onClose()}>
 			<ConfirmDialog
 				testId="dialog-delete-file"
-				title={`Delete ${node.name}`}
+				title={`Delete ${displayName(node.name)}`}
 				description={
 					node.isDir
-						? `${node.path} and everything inside it is removed. This cannot be undone.`
-						: `${node.path} is removed. This cannot be undone.`
+						? `${displayName(node.path)} and everything inside it is removed. This cannot be undone.`
+						: `${displayName(node.path)} is removed. This cannot be undone.`
 				}
 				confirmLabel="Delete"
 				pending={pending}

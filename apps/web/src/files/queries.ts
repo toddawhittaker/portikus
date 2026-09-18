@@ -4,17 +4,20 @@
  * refetches only the directory it happened in.
  */
 import { TreeResponse, WriteFileResponse } from "@portikus/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	type UseMutationResult,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { z } from "zod";
 import { request } from "../api/request.js";
-import { parentOf } from "./paths.js";
+import { isDescendant, parentOf } from "./paths.js";
 
 const base = (workspaceId: string, projectId: string) =>
 	`/workspaces/${workspaceId}/projects/${projectId}`;
 
 export const fileKeys = {
-	all: (workspaceId: string, projectId: string) =>
-		["files", workspaceId, projectId] as const,
 	tree: (workspaceId: string, projectId: string, dir: string) =>
 		["files", workspaceId, projectId, dir] as const,
 };
@@ -46,39 +49,38 @@ export function directoryDownloadUrl(
 }
 
 /**
- * One directory listing. `enabled` is false until the directory is open, so
- * a closed directory costs nothing.
+ * One directory listing, fetched while the directory is mounted.
  *
- * Polling and the refetch on focus are an interim stand-in for the live
- * filesystem events of SPEC.md §11.4, which arrive with the events task.
+ * The ten-second poll is an interim stand-in for the live filesystem events
+ * of SPEC.md §11.4: the agent already publishes them on its socket, but the
+ * API relay and the browser consumer arrive with a later task.
  */
-export function useTree(
-	workspaceId: string,
-	projectId: string,
-	dir: string,
-	enabled = true,
-) {
+export function useTree(workspaceId: string, projectId: string, dir: string) {
 	return useQuery({
 		queryKey: fileKeys.tree(workspaceId, projectId, dir),
-		enabled,
-		refetchOnWindowFocus: true,
 		refetchInterval: 10_000,
 		queryFn: () => request(TreeResponse, treeUrl(workspaceId, projectId, dir)),
 	});
 }
 
 export interface FileMutations {
-	createFile: (path: string) => Promise<unknown>;
-	createDirectory: (path: string) => Promise<unknown>;
-	move: (from: string, to: string) => Promise<unknown>;
-	remove: (path: string) => Promise<unknown>;
-	upload: (path: string, file: File) => Promise<unknown>;
+	createFile: UseMutationResult<WriteFileResponse, Error, string>;
+	createDirectory: UseMutationResult<unknown, Error, string>;
+	move: UseMutationResult<undefined, Error, { from: string; to: string }>;
+	remove: UseMutationResult<undefined, Error, string>;
+	upload: UseMutationResult<
+		WriteFileResponse,
+		Error,
+		{ path: string; file: File; replace?: boolean }
+	>;
 	pending: boolean;
 }
 
 /**
  * Every change the tree can make. Each one refetches the directory it
- * touched; a move refetches both ends.
+ * touched; a move refetches both ends. A directory that is gone, or that
+ * moved, takes its cached listings with it, so nothing stale is left to
+ * draw if it comes back.
  */
 export function useFileMutations(
 	workspaceId: string,
@@ -95,13 +97,32 @@ export function useFileMutations(
 		}
 	}
 
+	/** Forget the listing for `dir` and for every directory inside it. */
+	function forgetSubtree(dir: string) {
+		client.removeQueries({
+			predicate: (query) => {
+				const key = query.queryKey;
+				if (key[0] !== "files" || key[1] !== workspaceId || key[2] !== projectId) {
+					return false;
+				}
+				const cached = key[3];
+				return (
+					typeof cached === "string" && (cached === dir || isDescendant(cached, dir))
+				);
+			},
+		});
+	}
+
 	// A create must not overwrite what is already there, so it is conditional
 	// on the file not existing (SPEC.md §13.5).
 	const createFile = useMutation({
 		mutationFn: (path: string) =>
 			request(WriteFileResponse, url(path), {
 				method: "PUT",
-				headers: { "if-none-match": "*", "content-type": "application/octet-stream" },
+				headers: {
+					"if-none-match": "*",
+					"content-type": "application/octet-stream",
+				},
 				body: new Blob([]),
 			}),
 		onSuccess: (_data, path) => invalidate(parentOf(path)),
@@ -124,24 +145,38 @@ export function useFileMutations(
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ from, to }),
 			}),
-		onSuccess: (_data, { from, to }) => invalidate(parentOf(from), parentOf(to)),
+		onSuccess: (_data, { from, to }) => {
+			forgetSubtree(from);
+			invalidate(parentOf(from), parentOf(to));
+		},
 	});
 
 	const remove = useMutation({
 		mutationFn: (path: string) =>
 			request(z.undefined(), url(path), { method: "DELETE" }),
-		onSuccess: (_data, path) => invalidate(parentOf(path)),
+		onSuccess: (_data, path) => {
+			forgetSubtree(path);
+			invalidate(parentOf(path));
+		},
 	});
 
 	// An upload never silently replaces a file: the agent requires a condition
 	// on every write, and "must not exist" is the safe one here. A clash comes
-	// back as 409 and the tree says the name is taken (SPEC.md §11.2, §13.5).
+	// back as 409 and the tree offers to replace instead (SPEC.md §11.2, §13.5).
 	const upload = useMutation({
-		mutationFn: ({ path, file }: { path: string; file: File }) =>
+		mutationFn: ({
+			path,
+			file,
+			replace,
+		}: {
+			path: string;
+			file: File;
+			replace?: boolean;
+		}) =>
 			request(WriteFileResponse, url(path), {
 				method: "PUT",
 				headers: {
-					"if-none-match": "*",
+					...(replace ? { "if-match": "*" } : { "if-none-match": "*" }),
 					"content-type": "application/octet-stream",
 				},
 				body: file,
@@ -150,11 +185,11 @@ export function useFileMutations(
 	});
 
 	return {
-		createFile: (path) => createFile.mutateAsync(path),
-		createDirectory: (path) => createDirectory.mutateAsync(path),
-		move: (from, to) => move.mutateAsync({ from, to }),
-		remove: (path) => remove.mutateAsync(path),
-		upload: (path, file) => upload.mutateAsync({ path, file }),
+		createFile,
+		createDirectory,
+		move,
+		remove,
+		upload,
 		pending:
 			createFile.isPending ||
 			createDirectory.isPending ||

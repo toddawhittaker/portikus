@@ -5,6 +5,7 @@
  * that reopens twenty directories on load helps nobody.
  */
 import { create } from "zustand";
+import { prunePaths, rewritePaths } from "./paths.js";
 
 interface ProjectView {
 	expanded: string[];
@@ -18,6 +19,10 @@ interface FileViewState {
 	toggleExpanded: (projectId: string, path: string) => void;
 	setExpanded: (projectId: string, path: string, expanded: boolean) => void;
 	toggleShowHidden: (projectId: string) => void;
+	/** A deleted directory closes, and so does everything inside it. */
+	pruneExpanded: (projectId: string, path: string) => void;
+	/** A moved directory keeps its open state under its new path. */
+	rewriteExpanded: (projectId: string, from: string, to: string) => void;
 }
 
 export const useFileViewStore = create<FileViewState>()((set) => ({
@@ -64,6 +69,28 @@ export const useFileViewStore = create<FileViewState>()((set) => ({
 				byProject: {
 					...state.byProject,
 					[projectId]: { ...view, showHidden: !view.showHidden },
+				},
+			};
+		}),
+
+	pruneExpanded: (projectId, path) =>
+		set((state) => {
+			const view = state.byProject[projectId] ?? EMPTY;
+			return {
+				byProject: {
+					...state.byProject,
+					[projectId]: { ...view, expanded: prunePaths(view.expanded, path) },
+				},
+			};
+		}),
+
+	rewriteExpanded: (projectId, from, to) =>
+		set((state) => {
+			const view = state.byProject[projectId] ?? EMPTY;
+			return {
+				byProject: {
+					...state.byProject,
+					[projectId]: { ...view, expanded: rewritePaths(view.expanded, from, to) },
 				},
 			};
 		}),

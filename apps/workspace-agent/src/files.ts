@@ -281,7 +281,11 @@ export async function readFile(
 }
 
 export interface WriteOptions {
-	/** The etag the caller last saw; the write fails if the file moved on. */
+	/**
+	 * The etag the caller last saw; the write fails if the file moved on.
+	 * "*" is the HTTP wildcard: any existing file will do, which is what a
+	 * deliberate replace asks for (RFC 9110, SPEC.md §11.2).
+	 */
 	ifMatch?: string;
 	/** The file must not exist yet. */
 	ifNoneMatch?: boolean;
@@ -333,9 +337,11 @@ export async function writeFile(
 			throw new AgentFailure("BAD_REQUEST", "that path is a directory");
 		}
 		mode = info.mode & 0o7777;
-		const current = await hashFile(target.path);
-		if (current !== options.ifMatch) {
-			throw new FileChanged(current);
+		if (options.ifMatch !== "*") {
+			const current = await hashFile(target.path);
+			if (current !== options.ifMatch) {
+				throw new FileChanged(current);
+			}
 		}
 	}
 
@@ -393,13 +399,16 @@ export async function writeFile(
 				throw error;
 			}
 			await unlink(tmpPath);
-		} else {
+		} else if (options.ifMatch !== "*") {
 			// Re-check just before the rename so a write that landed while the
 			// body was in flight is not lost (SPEC.md §13.5).
 			const current = await hashFile(target.path);
 			if (current !== options.ifMatch) {
 				throw new FileChanged(current);
 			}
+			await rename(tmpPath, target.path);
+		} else {
+			// "*" is the HTTP wildcard: any existing version will do.
 			await rename(tmpPath, target.path);
 		}
 	} catch (error) {

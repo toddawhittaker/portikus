@@ -2,11 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
 	baseName,
 	canMoveInto,
+	displayName,
 	isDescendant,
 	isHiddenName,
 	joinPath,
+	moveForDrop,
 	nameError,
 	parentOf,
+	prunePaths,
+	reseedFocus,
+	rewritePaths,
+	tabIdsUnder,
 	visibleEntries,
 } from "./paths.js";
 
@@ -96,5 +102,83 @@ describe("the drop guard", () => {
 		expect(canMoveInto("src/app.ts", "tests")).toBe(true);
 		expect(canMoveInto("src/app.ts", "")).toBe(true);
 		expect(canMoveInto("src", "tests")).toBe(true);
+	});
+});
+
+/** SPEC.md §11.2: a deleted or moved directory takes its subtree with it. */
+describe("keeping the open directories honest", () => {
+	it("prunes a removed directory and everything under it", () => {
+		expect(prunePaths(["src", "src/lib", "src/lib/deep", "tests"], "src")).toEqual([
+			"tests",
+		]);
+	});
+
+	it("rewrites a moved directory and everything under it", () => {
+		expect(rewritePaths(["src", "src/lib", "tests"], "src", "app/src")).toEqual([
+			"app/src",
+			"app/src/lib",
+			"tests",
+		]);
+	});
+});
+
+describe("the focused row", () => {
+	it("keeps a row that is still on screen", () => {
+		expect(reseedFocus("src/app.ts", ["src", "src/app.ts"])).toBe("src/app.ts");
+	});
+
+	it("falls back to the first row when the focused one is gone", () => {
+		expect(reseedFocus("gone.txt", ["src", "README.md"])).toBe("src");
+	});
+
+	it("has nothing to focus in an empty tree", () => {
+		expect(reseedFocus("gone.txt", [])).toBeNull();
+	});
+});
+
+describe("the tabs under a path", () => {
+	it("matches the file itself and anything inside a directory", () => {
+		const tabs = ["file:src/app.ts", "diff:src/app.ts", "file:src2/a.ts", "terminal-1"];
+		expect(tabIdsUnder(tabs, "src")).toEqual(["file:src/app.ts", "diff:src/app.ts"]);
+		expect(tabIdsUnder(tabs, "src/app.ts")).toEqual([
+			"file:src/app.ts",
+			"diff:src/app.ts",
+		]);
+		expect(tabIdsUnder(tabs, "other")).toEqual([]);
+	});
+});
+
+/** SPEC.md §24.6: a name must not be able to draw itself as something else. */
+describe("displayName", () => {
+	const bell = String.fromCharCode(0x07);
+	const rightToLeftOverride = String.fromCharCode(0x202e);
+	const isolate = String.fromCharCode(0x2066);
+
+	it("strips control and bidirectional characters", () => {
+		expect(displayName(`a${rightToLeftOverride}b${bell}c${isolate}d`)).toBe("abcd");
+		expect(displayName("report.pdf")).toBe("report.pdf");
+	});
+});
+
+/** SPEC.md §11.2: a drop asks for the move the student drew. */
+describe("moveForDrop", () => {
+	it("moves the dragged file into the directory under it", () => {
+		expect(moveForDrop("row:src/app.ts", "dir:tests")).toEqual({
+			from: "src/app.ts",
+			to: "tests/app.ts",
+		});
+	});
+
+	it("moves a file back out to the project root", () => {
+		expect(moveForDrop("row:src/app.ts", "dir:")).toEqual({
+			from: "src/app.ts",
+			to: "app.ts",
+		});
+	});
+
+	it("asks for nothing on a drop that changes nothing", () => {
+		expect(moveForDrop("row:src/app.ts", "dir:src")).toBeNull();
+		expect(moveForDrop("row:src", "dir:src/lib")).toBeNull();
+		expect(moveForDrop("row:src", null)).toBeNull();
 	});
 });

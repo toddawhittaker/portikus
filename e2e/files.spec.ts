@@ -178,4 +178,75 @@ test.describe("file tree", () => {
 		).toBeVisible();
 		await expect(page.getByTestId("tab-file:README.md")).toHaveCount(0);
 	});
+
+	test("dragging a file onto the project root moves it there", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openProject(page, student.workspaceId, "Dragging");
+
+		await row(page, "src").click();
+		await expect(row(page, "src/app.ts")).toBeVisible();
+
+		// The pointer sensor needs a few pixels of movement before it starts.
+		const source = await row(page, "src/app.ts").boundingBox();
+		const target = await page.getByTestId("file-tree-root-drop").boundingBox();
+		if (!source || !target) throw new Error("the drag needs both boxes");
+		await page.mouse.move(source.x + 20, source.y + source.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(source.x + 30, source.y + source.height / 2, { steps: 5 });
+		await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, {
+			steps: 10,
+		});
+		await page.mouse.up();
+
+		await expect(row(page, "app.ts")).toBeVisible();
+		await expect(row(page, "src/app.ts")).toHaveCount(0);
+		expect(await readSeededFile(student.workspaceId, project.slug, "app.ts")).toBe(
+			"export const a = 1;\n",
+		);
+	});
+
+	test("an upload onto an existing name says so and offers to replace", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openProject(page, student.workspaceId, "Clashing");
+
+		await page.getByTestId("files-upload-input").setInputFiles({
+			name: "README.md",
+			mimeType: "text/plain",
+			buffer: Buffer.from("# replaced\n"),
+		});
+
+		await expect(
+			page.getByText("Something with that name already exists here"),
+		).toBeVisible();
+		expect(await readSeededFile(student.workspaceId, project.slug, "README.md")).toBe(
+			"# hello\n",
+		);
+
+		await page.getByTestId("upload-replace").click();
+
+		await expect
+			.poll(async () => readSeededFile(student.workspaceId, project.slug, "README.md"))
+			.toBe("# replaced\n");
+	});
+
+	test("deleting a directory says what goes with it", async ({ page, context }) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Deleting");
+
+		await page.getByTestId("file-menu-src").click();
+		await page.getByTestId("row-delete").click();
+
+		await expect(page.getByTestId("dialog-delete-file")).toContainText(
+			"src and everything inside it is removed. This cannot be undone.",
+		);
+
+		await page.getByTestId("dialog-confirm").click();
+		await expect(row(page, "src")).toHaveCount(0);
+	});
 });

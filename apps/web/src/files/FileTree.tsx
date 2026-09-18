@@ -4,8 +4,9 @@
  * the student asks for them, and offers create, rename, move, delete,
  * upload and download.
  *
- * Live updates from the workspace agent (SPEC.md §11.4) are a later task;
- * until then each open directory refetches on focus and every ten seconds.
+ * Live updates from the workspace agent (SPEC.md §11.4) are a later task:
+ * the agent publishes filesystem events already, but the API relay and the
+ * browser consumer do not exist yet, so each open directory polls.
  */
 import {
 	DndContext,
@@ -23,6 +24,7 @@ import {
 	type TreeEntry,
 } from "@portikus/contracts";
 import {
+	Button,
 	Checkbox,
 	ContextMenu,
 	ContextMenuTrigger,
@@ -39,19 +41,32 @@ import {
 import {
 	createContext,
 	type ReactNode,
+	useCallback,
 	useContext,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
-import { fileErrorToast, tooLargeToast } from "./errors.js";
+import { fileErrorToast, isFileExists, tooLargeToast } from "./errors.js";
 import "./files.css";
 import { NameDialog } from "./NameDialog.js";
-import { baseName, canMoveInto, joinPath, parentOf, visibleEntries } from "./paths.js";
+import {
+	baseName,
+	displayName,
+	joinPath,
+	moveForDrop,
+	nameError,
+	parentOf,
+	reseedFocus,
+	tabIdsUnder,
+	visibleEntries,
+} from "./paths.js";
 import {
 	directoryDownloadUrl,
+	type FileMutations,
 	fileDownloadUrl,
 	useFileMutations,
 	useTree,
@@ -64,6 +79,9 @@ export interface FileNode {
 	name: string;
 	isDir: boolean;
 }
+
+/** How many uploads are in flight at once, so a big drop stays polite. */
+const UPLOAD_CONCURRENCY = 4;
 
 interface TreeApi {
 	workspaceId: string;
@@ -79,7 +97,7 @@ interface TreeApi {
 	uploadInto: (dir: string, files: FileList | File[]) => void;
 	pickUpload: (dir: string) => void;
 	focusedPath: string | null;
-	setFocusedPath: (path: string) => void;
+	setFocusedPath: (path: string | null) => void;
 	dropDir: string | null;
 }
 
@@ -91,18 +109,23 @@ function useTreeApi(): TreeApi {
 	return api;
 }
 
-/** Directories first, then files, each in name order. */
-function order(entries: TreeEntry[]): TreeEntry[] {
-	return [...entries].sort((a, b) => {
-		const aDir = a.type === "dir";
-		const bDir = b.type === "dir";
-		if (aDir !== bDir) return aDir ? -1 : 1;
-		return a.name.localeCompare(b.name);
-	});
-}
-
 /** The droppable id of a directory; the project root is the empty path. */
 const dropId = (dir: string) => `dir:${dir}`;
+
+/** Run `job` over `items`, never more than `limit` of them at once. */
+async function runWithLimit<T>(
+	items: readonly T[],
+	limit: number,
+	job: (item: T) => Promise<void>,
+): Promise<void> {
+	const queue = [...items];
+	const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+		for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+			await job(next);
+		}
+	});
+	await Promise.all(workers);
+}
 
 export function FileTreePane({
 	workspaceId,
@@ -118,6 +141,8 @@ export function FileTreePane({
 	const toggleExpanded = useFileViewStore((state) => state.toggleExpanded);
 	const setExpandedIn = useFileViewStore((state) => state.setExpanded);
 	const toggleShowHidden = useFileViewStore((state) => state.toggleShowHidden);
+	const pruneExpanded = useFileViewStore((state) => state.pruneExpanded);
+	const rewriteExpanded = useFileViewStore((state) => state.rewriteExpanded);
 	const layoutStore = useLayoutStore(project.id);
 	const openFileTab = useLayout(layoutStore, (state) => state.openFile);
 	const root = useTree(workspaceId, project.id, "");
@@ -132,33 +157,113 @@ export function FileTreePane({
 	>({ kind: "none" });
 	const uploadInput = useRef<HTMLInputElement | null>(null);
 	const uploadDir = useRef<string>("");
+	// The mutations object is new on every render, so the handlers read it
+	// through a ref and stay stable themselves.
+	const mutationsRef = useRef<FileMutations>(mutations);
+	mutationsRef.current = mutations;
 
 	const sensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
 	);
 
-	function fail(error: unknown) {
-		toast.show(fileErrorToast(error));
-	}
+	const fail = useCallback(
+		(error: unknown) => {
+			toast.show(fileErrorToast(error));
+		},
+		[toast],
+	);
 
-	function uploadInto(dir: string, files: FileList | File[]) {
-		for (const file of Array.from(files)) {
-			if (file.size > MAX_UPLOAD_BYTES) {
-				toast.show(tooLargeToast());
-				continue;
+	/** A file that is gone, or that moved, takes its tabs with it. */
+	const closeTabsUnder = useCallback(
+		(path: string) => {
+			const state = layoutStore.getState();
+			const ids = tabIdsUnder(
+				state.layout.tabs.map((tab) => tab.id),
+				path,
+			);
+			for (const id of ids) state.closeTab(id);
+		},
+		[layoutStore],
+	);
+
+	const afterRemove = useCallback(
+		(path: string) => {
+			pruneExpanded(project.id, path);
+			closeTabsUnder(path);
+		},
+		[closeTabsUnder, project.id, pruneExpanded],
+	);
+
+	const afterMove = useCallback(
+		(from: string, to: string) => {
+			rewriteExpanded(project.id, from, to);
+			closeTabsUnder(from);
+		},
+		[closeTabsUnder, project.id, rewriteExpanded],
+	);
+
+	const uploadOne: (dir: string, file: File, replace: boolean) => Promise<void> =
+		useCallback(
+			async (dir: string, file: File, replace: boolean): Promise<void> => {
+				try {
+					await mutationsRef.current.upload.mutateAsync({
+						path: joinPath(dir, file.name),
+						file,
+						replace,
+					});
+				} catch (error) {
+					// A clash is the one failure with an obvious next step.
+					if (!replace && isFileExists(error)) {
+						toast.show({
+							...fileErrorToast(error),
+							actions: (
+								<Button
+									size="sm"
+									variant="secondary"
+									data-testid="upload-replace"
+									onClick={() => void uploadOne(dir, file, true)}
+								>
+									Replace
+								</Button>
+							),
+						});
+						return;
+					}
+					fail(error);
+				}
+			},
+			[fail, toast],
+		);
+
+	const uploadInto = useCallback(
+		(dir: string, files: FileList | File[]) => {
+			const accepted: File[] = [];
+			for (const file of Array.from(files)) {
+				// The browser hands over the name the disk had; check it here too.
+				const bad = nameError(file.name);
+				if (bad) {
+					toast.show({
+						tone: "danger",
+						title: `${displayName(file.name)} cannot be uploaded`,
+						children: bad,
+					});
+					continue;
+				}
+				if (file.size > MAX_UPLOAD_BYTES) {
+					toast.show(tooLargeToast());
+					continue;
+				}
+				accepted.push(file);
 			}
-			void mutations.upload(joinPath(dir, file.name), file).catch(fail);
-		}
-	}
+			void runWithLimit(accepted, UPLOAD_CONCURRENCY, (file) =>
+				uploadOne(dir, file, false),
+			);
+		},
+		[toast, uploadOne],
+	);
 
-	const api: TreeApi = {
-		workspaceId,
-		projectId: project.id,
-		showHidden,
-		expanded,
-		toggle: (path) => toggleExpanded(project.id, path),
-		setOpen: (path, open) => setExpandedIn(project.id, path, open),
-		openFile: (node) => {
+	const openFile = useCallback(
+		(node: FileNode) => {
 			if (!openFileTab(node.path)) {
 				toast.show({
 					tone: "warning",
@@ -166,27 +271,59 @@ export function FileTreePane({
 				});
 			}
 		},
-		newIn: (dir, kind) => setDialog({ kind: "new", dir, type: kind }),
-		rename: (node) => setDialog({ kind: "rename", node }),
-		remove: (node) => setDialog({ kind: "delete", node }),
-		uploadInto,
-		pickUpload: (dir) => {
-			uploadDir.current = dir;
-			uploadInput.current?.click();
-		},
-		focusedPath,
-		setFocusedPath,
-		dropDir,
-	};
+		[openFileTab, toast],
+	);
+
+	const pickUpload = useCallback((dir: string) => {
+		uploadDir.current = dir;
+		uploadInput.current?.click();
+	}, []);
+
+	const api = useMemo<TreeApi>(
+		() => ({
+			workspaceId,
+			projectId: project.id,
+			showHidden,
+			expanded,
+			toggle: (path) => toggleExpanded(project.id, path),
+			setOpen: (path, open) => setExpandedIn(project.id, path, open),
+			openFile,
+			newIn: (dir, kind) => setDialog({ kind: "new", dir, type: kind }),
+			rename: (node) => setDialog({ kind: "rename", node }),
+			remove: (node) => setDialog({ kind: "delete", node }),
+			uploadInto,
+			pickUpload,
+			focusedPath,
+			setFocusedPath,
+			dropDir,
+		}),
+		[
+			workspaceId,
+			project.id,
+			showHidden,
+			expanded,
+			toggleExpanded,
+			setExpandedIn,
+			openFile,
+			uploadInto,
+			pickUpload,
+			focusedPath,
+			dropDir,
+		],
+	);
 
 	function onDragEnd(event: DragEndEvent) {
 		setDropDir(null);
-		const from = String(event.active.id).replace(/^row:/, "");
-		const overId = event.over ? String(event.over.id) : null;
-		if (overId === null || !overId.startsWith("dir:")) return;
-		const dir = overId.slice("dir:".length);
-		if (!canMoveInto(from, dir)) return;
-		void mutations.move(from, joinPath(dir, baseName(from))).catch(fail);
+		const move = moveForDrop(
+			String(event.active.id),
+			event.over ? String(event.over.id) : null,
+		);
+		if (!move) return;
+		const { from, to } = move;
+		void mutations.move
+			.mutateAsync({ from, to })
+			.then(() => afterMove(from, to))
+			.catch(fail);
 	}
 
 	/** Which directory a desktop drag is over, from the row under the pointer. */
@@ -196,83 +333,78 @@ export function FileTreePane({
 		return element?.getAttribute("data-drop-dir") ?? "";
 	}
 
-	const rootDrop = useDroppable({ id: dropId("") });
 	const entries = root.data ? visibleEntries(root.data.entries, showHidden) : [];
 	const empty = root.isSuccess && entries.length === 0;
+	const allHidden = empty && (root.data?.entries.length ?? 0) > 0;
 
 	return (
-		<aside className="pk-pane pk-pane--right" aria-label="Files">
-			<div className="pk-pane-head">
-				<h2 className="pk-pane-title">Files</h2>
-				<MenuRoot>
-					<MenuTrigger asChild>
-						<IconButton
-							icon="plus"
-							label="New file or folder"
-							size="sm"
-							data-testid="files-new"
-						/>
-					</MenuTrigger>
-					<Menu label="New file or folder">
-						<MenuItem icon="file" onSelect={() => api.newIn("", "file")}>
-							<span data-testid="files-new-file">New file…</span>
-						</MenuItem>
-						<MenuItem icon="folder" onSelect={() => api.newIn("", "dir")}>
-							<span data-testid="files-new-folder">New folder…</span>
-						</MenuItem>
-					</Menu>
-				</MenuRoot>
-				{/* Project-wide search is a later task (SPEC.md §11.5). */}
-				<IconButton icon="search" label="Find in files" size="sm" disabled />
-				<MenuRoot>
-					<MenuTrigger asChild>
-						<IconButton
-							icon="more"
-							label="More file actions"
-							size="sm"
-							data-testid="files-more"
-						/>
-					</MenuTrigger>
-					<Menu label="More file actions">
-						<div className="px-2 py-1.5" data-testid="files-show-hidden">
-							<Checkbox
-								label="Show hidden and generated files"
-								description="node_modules, .git and dist are hidden"
-								checked={showHidden}
-								onChange={() => toggleShowHidden(project.id)}
+		// The context wraps the header too, so a file can be dragged back to
+		// the project root (SPEC.md §11.2).
+		<DndContext
+			sensors={sensors}
+			onDragEnd={onDragEnd}
+			onDragCancel={() => setDropDir(null)}
+		>
+			<aside className="pk-pane pk-pane--right" aria-label="Files">
+				<div className="pk-pane-head">
+					<h2 className="pk-pane-title">Files</h2>
+					<MenuRoot>
+						<MenuTrigger asChild>
+							<IconButton
+								icon="plus"
+								label="New file or folder"
+								size="sm"
+								data-testid="files-new"
 							/>
-						</div>
-						<MenuSeparator />
-						<MenuItem onSelect={() => api.pickUpload("")}>
-							<span data-testid="files-upload">Upload files…</span>
-						</MenuItem>
-						<MenuItem>
-							<a
-								href={directoryDownloadUrl(workspaceId, project.id, "")}
-								download={`${project.slug}.zip`}
-								data-testid="files-download-project"
-							>
-								Download project
-							</a>
-						</MenuItem>
-					</Menu>
-				</MenuRoot>
-			</div>
+						</MenuTrigger>
+						<Menu label="New file or folder">
+							<MenuItem icon="file" onSelect={() => api.newIn("", "file")}>
+								<span data-testid="files-new-file">New file…</span>
+							</MenuItem>
+							<MenuItem icon="folder" onSelect={() => api.newIn("", "dir")}>
+								<span data-testid="files-new-folder">New folder…</span>
+							</MenuItem>
+						</Menu>
+					</MenuRoot>
+					{/* Project-wide search is a later task (SPEC.md §11.5). */}
+					<IconButton icon="search" label="Find in files" size="sm" disabled />
+					<MenuRoot>
+						<MenuTrigger asChild>
+							<IconButton
+								icon="more"
+								label="More file actions"
+								size="sm"
+								data-testid="files-more"
+							/>
+						</MenuTrigger>
+						<Menu label="More file actions">
+							<div className="px-2 py-1.5" data-testid="files-show-hidden">
+								<Checkbox
+									label="Show hidden and generated files"
+									description="node_modules, .git and dist are hidden"
+									checked={showHidden}
+									onChange={() => toggleShowHidden(project.id)}
+								/>
+							</div>
+							<MenuSeparator />
+							<MenuItem onSelect={() => api.pickUpload("")}>
+								<span data-testid="files-upload">Upload files…</span>
+							</MenuItem>
+							<MenuItem>
+								<a
+									href={directoryDownloadUrl(workspaceId, project.id, "")}
+									download={`${project.slug}.zip`}
+									data-testid="files-download-project"
+								>
+									Download project
+								</a>
+							</MenuItem>
+						</Menu>
+					</MenuRoot>
+				</div>
 
-			<div
-				className="pk-pane-sub"
-				ref={rootDrop.setNodeRef}
-				data-drop-dir=""
-				data-drop-over={rootDrop.isOver ? "true" : undefined}
-			>
-				~/projects/{project.slug}
-			</div>
+				<RootDropZone slug={project.slug} />
 
-			<DndContext
-				sensors={sensors}
-				onDragEnd={onDragEnd}
-				onDragCancel={() => setDropDir(null)}
-			>
 				<TreeContext.Provider value={api}>
 					{/* Desktop drag-and-drop upload (SPEC.md §11.2). */}
 					{/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, not a control */}
@@ -293,7 +425,27 @@ export function FileTreePane({
 							uploadInto(dir, event.dataTransfer.files);
 						}}
 					>
-						{empty ? (
+						{root.isError ? (
+							<EmptyState
+								icon="alert"
+								title="The files could not be listed"
+								actions={
+									<Button
+										size="sm"
+										data-testid="file-tree-retry"
+										onClick={() => void root.refetch()}
+									>
+										Retry
+									</Button>
+								}
+							>
+								The workspace did not answer. Try again in a moment.
+							</EmptyState>
+						) : allHidden ? (
+							<EmptyState icon="file" title="Nothing to show">
+								Everything here is hidden. Turn on Show hidden files to see it.
+							</EmptyState>
+						) : empty ? (
 							<EmptyState icon="file" title="No files yet">
 								Create a file, upload one, or use a terminal.
 							</EmptyState>
@@ -302,76 +454,102 @@ export function FileTreePane({
 						)}
 					</div>
 				</TreeContext.Provider>
-			</DndContext>
 
-			{/* One hidden input serves every upload action. */}
-			<input
-				ref={uploadInput}
-				type="file"
-				multiple
-				className="hidden"
-				data-testid="files-upload-input"
-				onChange={(event) => {
-					const files = event.target.files;
-					if (files && files.length > 0) uploadInto(uploadDir.current, files);
-					event.target.value = "";
-				}}
-			/>
+				{/* One hidden input serves every upload action. */}
+				<input
+					ref={uploadInput}
+					type="file"
+					multiple
+					className="hidden"
+					data-testid="files-upload-input"
+					onChange={(event) => {
+						const files = event.target.files;
+						if (files && files.length > 0) uploadInto(uploadDir.current, files);
+						event.target.value = "";
+					}}
+				/>
 
-			{dialog.kind === "new" && (
-				<NameDialog
-					title={dialog.type === "file" ? "New file" : "New folder"}
-					description={dialog.dir === "" ? "In the project root." : `In ${dialog.dir}.`}
-					label="Name"
-					confirmLabel="Create"
-					pending={mutations.pending}
-					onClose={() => setDialog({ kind: "none" })}
-					onSubmit={(name) => {
-						const path = joinPath(dialog.dir, name);
-						const run =
-							dialog.type === "file"
-								? mutations.createFile(path)
-								: mutations.createDirectory(path);
-						void run
-							.then(() => {
-								if (dialog.dir !== "") api.setOpen(dialog.dir, true);
-								setDialog({ kind: "none" });
-							})
-							.catch(fail);
-					}}
-				/>
-			)}
-			{dialog.kind === "rename" && (
-				<NameDialog
-					title={`Rename ${dialog.node.name}`}
-					label="New name"
-					confirmLabel="Rename"
-					initial={dialog.node.name}
-					pending={mutations.pending}
-					onClose={() => setDialog({ kind: "none" })}
-					onSubmit={(name) => {
-						const to = joinPath(parentOf(dialog.node.path), name);
-						void mutations
-							.move(dialog.node.path, to)
-							.then(() => setDialog({ kind: "none" }))
-							.catch(fail);
-					}}
-				/>
-			)}
-			{dialog.kind === "delete" && (
-				<DeleteFileConfirm
-					node={dialog.node}
-					pending={mutations.pending}
-					onClose={() => setDialog({ kind: "none" })}
-					onConfirm={() => {
-						void mutations
-							.remove(dialog.node.path)
-							.then(() => setDialog({ kind: "none" }))
-							.catch(fail);
-					}}
-				/>
-			)}
-		</aside>
+				{dialog.kind === "new" && (
+					<NameDialog
+						title={dialog.type === "file" ? "New file" : "New folder"}
+						description={
+							dialog.dir === "" ? "In the project root." : `In ${dialog.dir}.`
+						}
+						label="Name"
+						confirmLabel="Create"
+						pending={mutations.pending}
+						onClose={() => setDialog({ kind: "none" })}
+						onSubmit={(name) => {
+							const path = joinPath(dialog.dir, name);
+							const run =
+								dialog.type === "file"
+									? mutations.createFile.mutateAsync(path)
+									: mutations.createDirectory.mutateAsync(path);
+							void run
+								.then(() => {
+									if (dialog.dir !== "") api.setOpen(dialog.dir, true);
+									setDialog({ kind: "none" });
+								})
+								.catch(fail);
+						}}
+					/>
+				)}
+				{dialog.kind === "rename" && (
+					<NameDialog
+						title={`Rename ${displayName(dialog.node.name)}`}
+						label="New name"
+						confirmLabel="Rename"
+						initial={dialog.node.name}
+						pending={mutations.pending}
+						onClose={() => setDialog({ kind: "none" })}
+						onSubmit={(name) => {
+							const from = dialog.node.path;
+							const to = joinPath(parentOf(from), name);
+							void mutations.move
+								.mutateAsync({ from, to })
+								.then(() => {
+									afterMove(from, to);
+									setDialog({ kind: "none" });
+								})
+								.catch(fail);
+						}}
+					/>
+				)}
+				{dialog.kind === "delete" && (
+					<DeleteFileConfirm
+						node={dialog.node}
+						pending={mutations.pending}
+						onClose={() => setDialog({ kind: "none" })}
+						onConfirm={() => {
+							const path = dialog.node.path;
+							void mutations.remove
+								.mutateAsync(path)
+								.then(() => {
+									afterRemove(path);
+									setDialog({ kind: "none" });
+								})
+								.catch(fail);
+						}}
+					/>
+				)}
+			</aside>
+		</DndContext>
+	);
+}
+
+/** The path line under the header, and the drop target for the project root. */
+function RootDropZone({ slug }: { slug: string }) {
+	const drop = useDroppable({ id: dropId("") });
+	return (
+		<div
+			className="pk-pane-sub"
+			ref={drop.setNodeRef}
+			data-drop-dir=""
+			data-testid="file-tree-root-drop"
+			data-drop-over={drop.isOver ? "true" : undefined}
+		>
+			~/projects/{slug}
+		</div>
 	);
 }
 
@@ -381,11 +559,20 @@ function TreeRoot({ slug }: { slug: string }) {
 	const ref = useRef<HTMLDivElement | null>(null);
 
 	/** The rows on screen, in the order they are drawn. */
-	function rows(): HTMLElement[] {
-		return Array.from(
-			ref.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? [],
-		);
-	}
+	const rows = useCallback(
+		(): HTMLElement[] =>
+			Array.from(ref.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? []),
+		[],
+	);
+
+	// A focused row can vanish: it was deleted, moved, or its parent closed.
+	// Checked after every render, because rows also arrive with a fetch.
+	const { focusedPath, setFocusedPath } = api;
+	useEffect(() => {
+		const rendered = rows().map((row) => row.getAttribute("data-path") ?? "");
+		const next = reseedFocus(focusedPath, rendered);
+		if (next !== focusedPath) setFocusedPath(next);
+	});
 
 	function focusRow(element: HTMLElement | undefined) {
 		if (!element) return;
@@ -465,17 +652,8 @@ function TreeRoot({ slug }: { slug: string }) {
 function Directory({ dir, level }: { dir: string; level: number }) {
 	const api = useTreeApi();
 	const query = useTree(api.workspaceId, api.projectId, dir);
-	const entries = query.data
-		? order(visibleEntries(query.data.entries, api.showHidden))
-		: [];
-
-	// The first row is the one the Tab key reaches, until a row is focused.
-	const first = level === 1 ? entries[0] : undefined;
-	const setFocusedPath = api.setFocusedPath;
-	const focusedPath = api.focusedPath;
-	useEffect(() => {
-		if (focusedPath === null && first) setFocusedPath(joinPath(dir, first.name));
-	}, [focusedPath, first, dir, setFocusedPath]);
+	// Both agents return directories first, then files, each in name order.
+	const entries = query.data ? visibleEntries(query.data.entries, api.showHidden) : [];
 
 	return (
 		<>
@@ -497,6 +675,8 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	const isDir = entry.type === "dir";
 	const node: FileNode = { path, name: entry.name, isDir };
 	const open = isDir && api.expanded.includes(path);
+	// A name is drawn without the characters that could disguise it.
+	const shown = displayName(entry.name);
 
 	const drag = useDraggable({ id: `row:${path}` });
 	// dnd-kit offers a button role and a tab stop; the row outside is the
@@ -561,10 +741,10 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 								name={isDir ? (open ? "folder-open" : "folder") : "file"}
 								size="md"
 							/>
-							<span className="pk-tree-name">{entry.name}</span>
+							<span className="pk-tree-name">{shown}</span>
 						</span>
 					</ContextMenuTrigger>
-					<Menu label={`Actions for ${entry.name}`}>
+					<Menu label={`Actions for ${shown}`}>
 						<RowMenuItems node={node} />
 					</Menu>
 				</ContextMenu>
@@ -572,14 +752,14 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 					<MenuTrigger asChild>
 						<IconButton
 							icon="more"
-							label={`Actions for ${entry.name}`}
+							label={`Actions for ${shown}`}
 							size="sm"
 							className="pk-tree-actions"
 							data-testid={`file-menu-${path}`}
 							onClick={(event) => event.stopPropagation()}
 						/>
 					</MenuTrigger>
-					<Menu label={`Actions for ${entry.name}`}>
+					<Menu label={`Actions for ${shown}`}>
 						<RowMenuItems node={node} />
 					</Menu>
 				</MenuRoot>

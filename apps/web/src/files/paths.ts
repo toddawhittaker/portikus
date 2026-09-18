@@ -76,3 +76,75 @@ export function canMoveInto(from: string, toDir: string): boolean {
 	if (isDescendant(toDir, from)) return false;
 	return parentOf(from) !== toDir;
 }
+
+/**
+ * The move a finished drag asks for, or null when it asks for nothing. The
+ * dragged row carries a `row:` id and the directory under it a `dir:` id.
+ */
+export function moveForDrop(
+	activeId: string,
+	overId: string | null,
+): { from: string; to: string } | null {
+	if (!activeId.startsWith("row:")) return null;
+	if (overId === null || !overId.startsWith("dir:")) return null;
+	const from = activeId.slice("row:".length);
+	const dir = overId.slice("dir:".length);
+	if (!canMoveInto(from, dir)) return null;
+	return { from, to: joinPath(dir, baseName(from)) };
+}
+
+/** Drop `removed` and everything under it from a list of paths. */
+export function prunePaths(paths: readonly string[], removed: string): string[] {
+	return paths.filter((path) => path !== removed && !isDescendant(path, removed));
+}
+
+/** Rewrite `from` and everything under it to sit under `to` instead. */
+export function rewritePaths(
+	paths: readonly string[],
+	from: string,
+	to: string,
+): string[] {
+	return paths.map((path) => {
+		if (path === from) return to;
+		if (isDescendant(path, from)) return to + path.slice(from.length);
+		return path;
+	});
+}
+
+/**
+ * The focused row after a render: keep it when it is still on screen, and
+ * otherwise fall back to the first row, so the keyboard always has a place
+ * to start from.
+ */
+export function reseedFocus(
+	focused: string | null,
+	rendered: readonly string[],
+): string | null {
+	if (focused !== null && rendered.includes(focused)) return focused;
+	return rendered[0] ?? null;
+}
+
+/** The ids of the tabs showing `path` itself or anything inside it. */
+export function tabIdsUnder(tabIds: readonly string[], path: string): string[] {
+	return tabIds.filter((id) => {
+		const cut = id.indexOf(":");
+		if (cut === -1) return false;
+		const kind = id.slice(0, cut);
+		if (kind !== "file" && kind !== "diff") return false;
+		const tabPath = id.slice(cut + 1);
+		return tabPath === path || isDescendant(tabPath, path);
+	});
+}
+
+/**
+ * Control characters and the bidirectional marks let a name draw itself as
+ * something it is not, so they never reach the screen (SPEC.md §24.6). The
+ * bytes on disk are untouched.
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: removing them is the point
+const UNSAFE_DISPLAY = /[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+/** A name as it is safe to draw. */
+export function displayName(name: string): string {
+	return name.replace(UNSAFE_DISPLAY, "");
+}

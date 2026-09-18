@@ -44,7 +44,8 @@ function renderPane(store = createLayoutStore()) {
 beforeEach(() => {
 	// The view store outlives a test, so each one starts from a closed tree.
 	useFileViewStore.setState({ byProject: {} });
-	stubFetch((url) => {
+	stubFetch((url, init) => {
+		if (init?.method === "DELETE") return json(204, null);
 		if (url.includes("/tree?path=src")) return json(200, SRC);
 		if (url.includes("/tree?path=")) return json(200, ROOT);
 		throw new Error(`unexpected request: ${url}`);
@@ -142,6 +143,53 @@ describe("the file tree", () => {
 		expect((await screen.findByTestId("file-tree-truncated")).textContent).toBe(
 			"Showing the first 2000 entries",
 		);
+	});
+
+	/** SPEC.md §11.2: a deleted file leaves no tab behind. */
+	it("closes the tab of a file it deletes", async () => {
+		const store = renderPane();
+		fireEvent.click(await screen.findByText("src"));
+		fireEvent.click(await screen.findByText("app.ts"));
+		await waitFor(() =>
+			expect(store.getState().layout.tabs.map((tab) => tab.id)).toEqual([
+				"file:src/app.ts",
+			]),
+		);
+
+		fireEvent.keyDown(screen.getByTestId("file-menu-src"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("row-delete"));
+		fireEvent.click(await screen.findByTestId("dialog-confirm"));
+
+		await waitFor(() => expect(store.getState().layout.tabs).toEqual([]));
+		// The deleted directory is closed again, so nothing stale is drawn.
+		expect(useFileViewStore.getState().byProject[PROJECT.id]?.expanded).toEqual([]);
+	});
+
+	/** SPEC.md §11.3: a project whose files are all hidden says so. */
+	it("says when everything in the project is hidden", async () => {
+		stubFetch(() => json(200, { entries: [entry(".env")], truncated: false }));
+		renderPane();
+
+		expect(
+			await screen.findByText(
+				"Everything here is hidden. Turn on Show hidden files to see it.",
+			),
+		).toBeDefined();
+	});
+
+	it("offers a retry when the root listing fails", async () => {
+		let calls = 0;
+		stubFetch(() => {
+			calls += 1;
+			return calls === 1
+				? json(503, { error: { code: "AGENT_UNAVAILABLE", message: "no" } })
+				: json(200, ROOT);
+		});
+		renderPane();
+
+		fireEvent.click(await screen.findByTestId("file-tree-retry"));
+
+		expect(await screen.findByText("README.md")).toBeDefined();
 	});
 
 	it("offers a download link for each file", async () => {

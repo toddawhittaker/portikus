@@ -11,7 +11,10 @@ export function FilesPane({
 	project: Project | undefined;
 }) {
 	if (project && !project.missing) {
-		return <FileTreePane workspaceId={workspaceId} project={project} />;
+		// Keyed by project, so nothing (focus above all) carries across a switch.
+		return (
+			<FileTreePane key={project.id} workspaceId={workspaceId} project={project} />
+		);
 	}
 	return (
 		<aside className="pk-pane pk-pane--right" aria-label="Files">
