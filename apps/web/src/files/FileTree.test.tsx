@@ -143,6 +143,8 @@ describe("the file tree", () => {
 		expect(
 			await screen.findByText("Too many tabs are open. Close one to open another."),
 		).toBeDefined();
+		// One click must refuse once, not once per handler on the row.
+		expect(document.querySelectorAll(".pk-toast")).toHaveLength(1);
 	});
 
 	/** SPEC.md §11.2: the tree is usable from the keyboard alone. */

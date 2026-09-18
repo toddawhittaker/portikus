@@ -8,6 +8,15 @@ import {
 } from "@playwright/test";
 import pg from "pg";
 
+/**
+ * The visible toast carrying this text. Radix Toast also renders a hidden
+ * copy of the same words for screen readers during the first second after
+ * it appears, so a bare text locator matches twice and fails strict mode.
+ */
+export function toast(page: Page, text: string): Locator {
+	return page.locator(".pk-toast").filter({ hasText: text });
+}
+
 /** The mock identity provider's users (packages/auth testing). */
 export type MockUser = "alice" | "bob" | "carol" | "dave";
 
