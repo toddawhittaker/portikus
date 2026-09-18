@@ -128,7 +128,7 @@ export class AgentClient {
 	 * to send headers; once bytes are flowing there is no further cap, because
 	 * archiving a large project legitimately takes a while.
 	 */
-	async downloadProject(slug: string): Promise<Response> {
+	async downloadProject(slug: string, relPath = ""): Promise<Response> {
 		const controller = new AbortController();
 		const headersTimer = setTimeout(
 			() => controller.abort(),
@@ -137,7 +137,8 @@ export class AgentClient {
 		let response: Response;
 		try {
 			response = await fetch(
-				`http://${this.address}:${this.port}/projects/${slug}/archive`,
+				`http://${this.address}:${this.port}/projects/${slug}/archive` +
+					(relPath === "" ? "" : `?path=${encodeURIComponent(relPath)}`),
 				{
 					method: "GET",
 					headers: { authorization: this.authHeader() },
@@ -160,6 +161,38 @@ export class AgentClient {
 			);
 		}
 		return response;
+	}
+
+	/**
+	 * A raw call to the agent, with both bodies left as streams. File reads,
+	 * writes and archives can be far larger than the JSON cap, so nothing here
+	 * is buffered; the caller decides what to do with the response
+	 * (SPEC.md §5.2, §11.2).
+	 */
+	async fetchRaw(
+		method: string,
+		path: string,
+		options: {
+			headers?: Record<string, string>;
+			body?: Buffer | ReadableStream<Uint8Array>;
+			signal?: AbortSignal;
+		} = {},
+	): Promise<Response> {
+		try {
+			return await fetch(`http://${this.address}:${this.port}${path}`, {
+				method,
+				headers: { authorization: this.authHeader(), ...options.headers },
+				body: options.body,
+				...(options.signal ? { signal: options.signal } : {}),
+				// Required by undici whenever the request body is a stream.
+				duplex: "half",
+			} as RequestInit);
+		} catch {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent could not be reached",
+			);
+		}
 	}
 
 	private async call(
@@ -230,6 +263,23 @@ async function readJson(response: Response): Promise<unknown> {
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * The failure an unsuccessful agent response stands for, read from its error
+ * body. The body is small, so it goes through the same capped reader.
+ */
+export async function readAgentError(response: Response): Promise<AgentCallError> {
+	const parsed = AgentErrorBody.safeParse(await readJson(response));
+	return new AgentCallError(
+		parsed.success ? parsed.data.error.code : "AGENT_UNAVAILABLE",
+		parsed.success ? parsed.data.error.message : "The workspace agent failed",
+	);
+}
+
+/** Read a small JSON body from the agent, under the same cap as every call. */
+export async function readAgentJson(response: Response): Promise<unknown> {
+	return readJson(response);
 }
 
 /** Build a client for a workspace row, or null when it has no agent yet. */
