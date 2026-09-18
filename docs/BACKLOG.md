@@ -200,3 +200,29 @@ user also gets a plain login, and a test harness that plays the LMS. One
 to two weeks; a post-pilot epic candidate.
 
 **Source.** Todd, 2026-09-17.
+
+## Student processes in their own cgroup, with a kill-all action
+
+**What.** Run the student's shells and programs in a cgroup separate from
+the workspace agent, with a task ceiling below the container's process
+limit, and give the terminal pane a "Stop all my processes" action.
+
+**Why.** Today the agent runs as `student` and every shell is a child of
+its tmux sessions, so a fork bomb or a runaway build exhausts the same
+process and memory budget the agent needs. The terminal goes dead and the
+only recovery is stopping and starting the whole workspace from the
+header, which loses running programs. With the agent guaranteed headroom,
+a student can recover from the UI in seconds. SPEC.md 19.1 asks for a
+"configurable defensive ceiling"; the container-level `limits.processes`
+is the first half, this is the second.
+
+**What it would take.** The agent starts each tmux server through
+`systemd-run --user --slice=student-work.slice` (or a scope) with
+`TasksMax=` set from configuration; the image gains the slice unit; the
+agent gets a route that kills every process in that slice and the pane
+menu calls it with a confirmation; a smoke-test check that a fork bomb in
+a workspace leaves the agent's `/health` answering. Half a day to a day.
+Belongs with the Epic 10 reset workflows.
+
+**Source.** Todd, 2026-09-17, asking whether a student can recover from a
+fork bomb on their own.
