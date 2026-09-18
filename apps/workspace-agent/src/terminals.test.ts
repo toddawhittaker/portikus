@@ -179,24 +179,21 @@ test.skipIf(!haveTmux)(
 );
 
 test.skipIf(!haveTmux)("early input is flushed after the queue timeout", async () => {
-	vi.useFakeTimers();
-	try {
-		const { pty, socket, registry, id } = await attachFake();
+	// Real time rather than a frozen clock: the queue's timer is created
+	// inside `attach`, which also awaits tmux, and a clock taken over part way
+	// through that would only sometimes hold the timer it is meant to drive.
+	const { pty, socket, registry, id } = await attachFake();
 
-		socket.input("silent");
-		expect(pty.writes).toEqual([]);
+	socket.input("silent");
+	expect(pty.writes).toEqual([]);
 
-		vi.advanceTimersByTime(499);
-		expect(pty.writes).toEqual([]);
+	await new Promise((resolve) => setTimeout(resolve, 200));
+	expect(pty.writes).toEqual([]);
 
-		vi.advanceTimersByTime(1);
-		expect(pty.writes).toEqual(["silent"]);
+	await vi.waitFor(() => expect(pty.writes).toEqual(["silent"]), { timeout: 2000 });
 
-		registry.closeAll(id, 1000, "done");
-		await killSession(id, SOCKET_NAME);
-	} finally {
-		vi.useRealTimers();
-	}
+	registry.closeAll(id, 1000, "done");
+	await killSession(id, SOCKET_NAME);
 });
 
 test.skipIf(!haveTmux)(
@@ -224,21 +221,18 @@ test.skipIf(!haveTmux)(
 );
 
 test.skipIf(!haveTmux)("closing the socket drops the queue and its timer", async () => {
-	vi.useFakeTimers();
-	try {
-		const { pty, socket, id } = await attachFake();
+	const { pty, socket, id } = await attachFake();
 
-		socket.input("gone");
-		socket.close();
+	socket.input("gone");
+	socket.close();
 
-		vi.advanceTimersByTime(5000);
-		expect(pty.writes).toEqual([]);
-		expect(pty.killed).toBe(true);
+	// Well past the queue timeout: nothing was ever written, and the attach
+	// process was killed.
+	await new Promise((resolve) => setTimeout(resolve, 700));
+	expect(pty.writes).toEqual([]);
+	expect(pty.killed).toBe(true);
 
-		await killSession(id, SOCKET_NAME);
-	} finally {
-		vi.useRealTimers();
-	}
+	await killSession(id, SOCKET_NAME);
 });
 
 test.skipIf(!haveTmux)(
@@ -313,6 +307,9 @@ test.skipIf(!haveTmux)(
 		const pending = await startAttach();
 		const big = "x".repeat(48 * 1024);
 		pending.socket.input("first");
+		pending.socket.input(big);
+		// Three more that do not fit: one log line between them, not three.
+		pending.socket.input(big);
 		pending.socket.input(big);
 		pending.socket.input(big);
 		await pending.attached;

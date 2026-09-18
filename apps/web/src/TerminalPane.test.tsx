@@ -1,7 +1,7 @@
 import type { Terminal } from "@portikus/contracts";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { TerminalPane } from "./TerminalPane";
+import { SCROLLBACK_LINES, TerminalPane } from "./TerminalPane";
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 
@@ -175,4 +175,66 @@ test("a cwd frame is reported to the owner of the pane", async () => {
 		sockets[0]?.onmessage?.({ data: JSON.stringify({ type: "cwd" }) });
 	});
 	expect(onCwd).toHaveBeenCalledTimes(1);
+});
+
+/** Send one wheel event over the terminal and say whether it was cancelled. */
+function wheelOver(pane: HTMLElement, deltaY: number): boolean {
+	const target = pane.querySelector(".xterm-screen") ?? pane;
+	const wheel = new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true });
+	act(() => {
+		target.dispatchEvent(wheel);
+	});
+	return wheel.defaultPrevented;
+}
+
+/** The input frames this pane's socket has sent. */
+function inputs(): string[] {
+	return (sockets[0]?.sent ?? [])
+		.map((frame) => JSON.parse(frame) as { type: string; data?: string })
+		.filter((frame) => frame.type === "input")
+		.map((frame) => frame.data ?? "");
+}
+
+test("the wheel scrolls the terminal's own output at a shell prompt", async () => {
+	// The scrollback is what the wheel moves through, and nothing the pane
+	// installs may cancel the event before xterm.js sees it (SPEC.md §9.1).
+	expect(SCROLLBACK_LINES).toBeGreaterThanOrEqual(5_000);
+
+	const { view } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const pane = view.getByTestId(`terminal-pane-${terminal.id}`);
+
+	expect(wheelOver(pane, -300)).toBe(false);
+	expect(inputs()).toEqual([]);
+});
+
+test("the wheel becomes arrow keys while a full-screen program has the terminal", async () => {
+	const { view } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const pane = view.getByTestId(`terminal-pane-${terminal.id}`);
+
+	act(() => {
+		sockets[0]?.onmessage?.({
+			data: JSON.stringify({ type: "screen", alternate: true }),
+		});
+	});
+
+	// Up the wheel, up the cursor, and xterm.js never sees the event.
+	expect(wheelOver(pane, -300)).toBe(true);
+	const up = inputs().join("");
+	expect(up).toContain("\u001b[A");
+	expect(up).not.toContain("\u001b[B");
+
+	expect(wheelOver(pane, 300)).toBe(true);
+	expect(inputs().join("")).toContain("\u001b[B");
+
+	// And when the program lets the screen go, the wheel scrolls again.
+	act(() => {
+		sockets[0]?.onmessage?.({
+			data: JSON.stringify({ type: "screen", alternate: false }),
+		});
+	});
+	const before = inputs().length;
+	expect(wheelOver(pane, -300)).toBe(false);
+	expect(inputs()).toHaveLength(before);
 });

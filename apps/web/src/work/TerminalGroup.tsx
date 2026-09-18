@@ -85,7 +85,9 @@ export function TerminalGroup(props: TerminalGroupProps) {
 				}}
 			>
 				{node.children.map((child, index) => (
-					<Fragment key={ids[index]}>
+					// Keyed by the terminal, not the position, so swapping two panes
+					// moves them instead of remounting both terminals.
+					<Fragment key={child.type === "leaf" ? child.terminalId : ids[index]}>
 						{index > 0 ? (
 							<PaneHandle
 								orientation={orientation === "horizontal" ? "vertical" : "horizontal"}

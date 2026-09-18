@@ -260,8 +260,16 @@ export function registerProjectRoutes(
 		// Discovery). Archiving does not remove the row, so an archived slug is
 		// never re-added; that also means an archived listing discovers nothing.
 		if (directories && query.data.state === "active") {
+			// The pane polls every ten seconds, so read first and write only when
+			// a directory is genuinely new (rows of any state count as known).
+			const known = await db
+				.selectFrom("projects")
+				.select("slug")
+				.where("workspace_id", "=", scope.workspaceId)
+				.execute();
+			const knownSlugs = new Set(known.map((row) => row.slug));
 			const discovered = [...directories]
-				.filter(([, isGitRepo]) => isGitRepo)
+				.filter(([slug, isGitRepo]) => isGitRepo && !knownSlugs.has(slug))
 				.map(([slug]) => ({
 					workspace_id: scope.workspaceId,
 					slug,
@@ -270,8 +278,8 @@ export function registerProjectRoutes(
 					source: "discovered",
 				}));
 			if (discovered.length > 0) {
-				// One statement, so two listings at once cannot collide on the
-				// workspace and slug unique constraint.
+				// One statement, and it still ignores conflicts, so two listings at
+				// once cannot collide on the workspace and slug unique constraint.
 				await db
 					.insertInto("projects")
 					.values(discovered)
@@ -533,8 +541,29 @@ export function registerProjectRoutes(
 		const agent = requireAgent(scope, reply);
 		if (!agent) return;
 
-		// A terminal sitting in the directory that is about to go must end
+		// Removing a tree can take a while, and a copy running at the same time
+		// would read directories this is deleting.
+		if (!claimLongOperation(scope.workspaceId, reply)) return;
+		try {
+			return await deleteProjectTree(request, reply, scope, row, agent, user.id);
+		} finally {
+			longOperations.delete(scope.workspaceId);
+		}
+	});
+
+	/** The slow half of the delete, so the slot is released on every exit. */
+	async function deleteProjectTree(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		scope: Scope,
+		row: ProjectRow,
+		agent: AgentClient,
+		userId: string,
+	): Promise<void> {
+		// A terminal created in the directory that is about to go must end
 		// first, or its shell keeps a deleted working directory (SPEC.md §9.3).
+		// `terminals.cwd` is only the directory it started in, so one that
+		// moved in or out of the project by `cd` is not matched.
 		const open = await db
 			.selectFrom("terminals")
 			.selectAll()
@@ -573,7 +602,7 @@ export function registerProjectRoutes(
 			await trx
 				.insertInto("audit_events")
 				.values({
-					actor: `user:${user.id}`,
+					actor: `user:${userId}`,
 					target: row.id,
 					action: "project.deleted",
 					result: "ok",
@@ -590,8 +619,8 @@ export function registerProjectRoutes(
 			{ workspaceId: scope.workspaceId, projectId: row.id, slug: row.slug },
 			"project deleted",
 		);
-		return reply.status(204).send();
-	});
+		reply.status(204).send();
+	}
 
 	// POST /workspaces/:id/projects/:pid/duplicate (SPEC.md §7.3).
 	app.post("/workspaces/:id/projects/:pid/duplicate", async (request, reply) => {

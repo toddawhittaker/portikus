@@ -71,6 +71,7 @@ export function TerminalLeaf({
 	const [renaming, setRenaming] = useState(false);
 	const [draft, setDraft] = useState(terminal.name);
 	const field = useRef<HTMLInputElement | null>(null);
+	const mountId = useRef(crypto.randomUUID());
 	// The menu returns focus to its trigger as it closes, so the field waits
 	// for that to happen and only commits on a blur once it really had focus.
 	const armed = useRef(false);
@@ -113,6 +114,9 @@ export function TerminalLeaf({
 			className={`pk-term ${focused ? "is-focused" : ""} ${drag.isDragging ? "is-dragged" : ""}`}
 			aria-label={`Terminal: ${title}`}
 			data-testid={`terminal-leaf-${terminal.id}`}
+			// Changes only when this pane is mounted again, which a test reads
+			// to tell a move apart from a teardown and reconnect.
+			data-mount-id={mountId.current}
 			onFocusCapture={() => onFocus(terminal.id)}
 			onMouseDown={() => onFocus(terminal.id)}
 		>

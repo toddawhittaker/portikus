@@ -6,8 +6,8 @@ import {
 import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/events";
 import type { FastifyBaseLogger } from "fastify";
 import { type IPty, spawn } from "node-pty";
-import { type CwdWatch, watchCwd } from "./cwd.js";
-import { AgentFailure, attachArgs, hasSession } from "./tmux.js";
+import { type PaneWatcher, watchPanes } from "./cwd.js";
+import { AgentFailure, attachArgs, captureHistory, hasSession } from "./tmux.js";
 
 /** Pause the PTY once this much output is waiting on the socket (SPEC.md §9.7). */
 const HIGH_WATER_BYTES = 1024 * 1024;
@@ -38,8 +38,6 @@ interface Attachment {
 	/** Null only while the slot is reserved and the PTY is starting. */
 	pty: IPty | null;
 	drainTimer: NodeJS.Timeout | null;
-	/** Polls tmux for this terminal's directory (SPEC.md §9.3). */
-	cwdWatch: CwdWatch | null;
 	/** Input held until tmux is ready; null once the queue has been flushed. */
 	pendingInput: string[] | null;
 	pendingBytes: number;
@@ -48,6 +46,8 @@ interface Attachment {
 	pendingResize: { cols: number; rows: number } | null;
 	/** Set when the socket closes, including before the PTY exists. */
 	closed: boolean;
+	/** The full early-input queue has already been logged for this socket. */
+	warnedQueueFull: boolean;
 }
 
 export interface AttachOptions {
@@ -73,6 +73,8 @@ export class TerminalRegistry {
 		private readonly socketName?: string,
 		/** Overridden by tests so they can drive a fake PTY. */
 		private readonly spawnPty: typeof spawn = spawn,
+		/** One pane poll for the whole agent (SPEC.md §9.1, §9.3). */
+		private readonly panes: PaneWatcher = watchPanes(socketName),
 	) {}
 
 	/** How many browsers are attached to one terminal. */
@@ -99,16 +101,16 @@ export class TerminalRegistry {
 			socket,
 			pty: null,
 			drainTimer: null,
-			cwdWatch: null,
 			pendingInput: [],
 			pendingBytes: 0,
 			pendingTimer: null,
 			pendingResize: null,
 			closed: false,
+			warnedQueueFull: false,
 		};
 		existing.add(attachment);
 		this.attachments.set(id, existing);
-		attachment.cwdWatch = watchCwd(id, socket, this.socketName);
+		this.panes.add(id, socket);
 
 		// Listen before the first await: the browser sends its size straight
 		// after the socket opens, and a frame dropped here leaves the PTY at
@@ -137,10 +139,22 @@ export class TerminalRegistry {
 		// The browser gave up while we were checking; never start a shell for it.
 		if (attachment.closed) return;
 
+		// One size for both: the blank lines after the history have to be as
+		// tall as the screen tmux is about to repaint over them, or the
+		// repaint erases the newest history. The browser's first resize can
+		// arrive before the PTY exists, and it wins when it does.
+		const cols = attachment.pendingResize?.cols ?? options.cols ?? DEFAULT_COLS;
+		const rows = attachment.pendingResize?.rows ?? options.rows ?? DEFAULT_ROWS;
+		await this.sendHistory(id, socket, rows);
+
+		// Check again: the capture is another await, and a PTY started for an
+		// attachment that has already been forgotten would never be killed.
+		if (attachment.closed) return;
+
 		const pty = this.spawnPty("tmux", attachArgs(id, this.socketName), {
 			name: "xterm-256color",
-			cols: attachment.pendingResize?.cols ?? options.cols ?? DEFAULT_COLS,
-			rows: attachment.pendingResize?.rows ?? options.rows ?? DEFAULT_ROWS,
+			cols,
+			rows,
 			cwd: this.homeDir,
 			env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
 		});
@@ -177,6 +191,9 @@ export class TerminalRegistry {
 			attachment.socket.close(code, reason);
 		}
 		this.attachments.delete(id);
+		// The terminal is going away, so it leaves the poll whether or not each
+		// socket's close handler has run yet.
+		this.panes.drop(id);
 	}
 
 	/** Tear down every attachment on shutdown. */
@@ -184,6 +201,39 @@ export class TerminalRegistry {
 		for (const id of [...this.attachments.keys()]) {
 			this.closeAll(id, 1001, "agent shutting down");
 		}
+		this.panes.stop();
+	}
+
+	/**
+	 * Give a new attachment the lines that scrolled off the terminal's screen
+	 * before it arrived, so a reload does not start with a bare prompt
+	 * (SPEC.md §9.1). This runs before the PTY exists, so nothing tmux draws
+	 * can land in the middle of it.
+	 *
+	 * The blank lines at the end push the history into the browser's
+	 * scrollback, out of the way of the screen tmux is about to repaint over
+	 * it; without them the repaint would erase the last screenful of history.
+	 */
+	private async sendHistory(
+		id: string,
+		socket: WebSocket,
+		rows: number,
+	): Promise<void> {
+		let history: string;
+		try {
+			history = await captureHistory(id, this.socketName);
+		} catch (error) {
+			// A terminal with no history to show is worth no more than a log line.
+			this.log.warn(
+				{ terminalId: id, error: error instanceof Error ? error.message : error },
+				"could not capture terminal history",
+			);
+			return;
+		}
+		if (history === "" || socket.readyState !== socket.OPEN) return;
+		socket.send(Buffer.from(history + "\r\n".repeat(rows), "utf8"), {
+			binary: true,
+		});
 	}
 
 	/** Write any input that arrived before tmux was ready, in order. */
@@ -200,8 +250,7 @@ export class TerminalRegistry {
 	}
 
 	private forget(id: string, attachment: Attachment): void {
-		attachment.cwdWatch?.stop();
-		attachment.cwdWatch = null;
+		this.panes.remove(id, attachment.socket);
 		if (attachment.pendingTimer) {
 			clearTimeout(attachment.pendingTimer);
 			attachment.pendingTimer = null;
@@ -259,6 +308,10 @@ export class TerminalRegistry {
 			if (attachment.pendingInput) {
 				const size = Buffer.byteLength(message.data.data, "utf8");
 				if (attachment.pendingBytes + size > INPUT_QUEUE_MAX_BYTES) {
+					// One line per attachment, not one per frame: a browser that
+					// keeps typing would otherwise fill the journal.
+					if (attachment.warnedQueueFull) return;
+					attachment.warnedQueueFull = true;
 					this.log.warn(
 						{
 							terminalId: attachment.terminalId,

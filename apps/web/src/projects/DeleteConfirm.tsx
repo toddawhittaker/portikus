@@ -24,8 +24,6 @@ export function DeleteConfirm({
 		<ConfirmDialogRoot open onOpenChange={(open) => !open && onClose()}>
 			<ConfirmDialog
 				testId="dialog-delete-project"
-				inputTestId="delete-confirm-input"
-				confirmTestId="delete-confirm-button"
 				title={`Delete ${project.name}`}
 				description={
 					<>
