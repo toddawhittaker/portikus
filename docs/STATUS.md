@@ -239,6 +239,6 @@ two tabs the same id, and the layout schema rejects a saved layout with
 duplicate tab ids; a newly created terminal is written into the cached list, so
 a list request already in flight cannot answer without it and take its pane
 away; and a split keys its children by terminal, so dropping a pane on another
-pane's centre swaps them without tearing down and reconnecting both terminals.
+pane's centre swaps them without tearing down and reconnecting both terminals. The infrastructure smoke test now records every workspace, Incus instance and user row it creates and deletes only those, and lists any workspace that already exists, leaves it alone, and skips the lifecycle checks entirely rather than adopting or shortening the grace period around somebody else's workspace; `infra/tests/cleanup-scope-test.sh` proves that with a stubbed SSH command and runs in `make infra-check`.
 Epic 7 (files, Monaco, search,
 and change review) is next.

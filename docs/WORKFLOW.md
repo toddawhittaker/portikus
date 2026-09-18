@@ -95,6 +95,19 @@ Environment variables are validated by `loadConfig` in `packages/config`. A
 missing or invalid variable fails at startup with a message naming it, so
 add new variables to that schema and to `.env.example` together.
 
+### Infrastructure smoke test
+
+`make smoke-test` runs `infra/tests/smoke-test.sh` against the platform VM
+(STACK.md section 13, "Infrastructure smoke tests"). It creates its own
+workspace through the API and deletes only the workspaces, Incus instances
+and user rows it created; anything that already exists is listed and left
+alone, and the lifecycle checks are skipped altogether when the VM already
+holds any workspace. Even so, do not run it against a VM someone is using: it
+stops and starts workspaces and, on a VM with none, it shortens the
+platform-wide disconnect grace period for the length of the run. Set `PORTIKUS_PUBLIC_HOST` to the
+name Caddy serves on that VM; without it the HTTPS checks fall back to
+`portikus.<vm-ip>.nip.io` and the script prints a warning.
+
 ## Branches
 
 - `main` is always releasable. It changes only through a pull request.
