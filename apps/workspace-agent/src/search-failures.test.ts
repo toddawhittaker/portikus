@@ -98,14 +98,30 @@ test("stderr noise and unparsable lines do not break the results", async () => {
 
 test("a search that runs too long returns what it found, marked truncated", async () => {
 	// exec, so that killing the child really ends the sleep.
-	await useFakeRg([matchStream(), "exec sleep 60"].join("\n"));
+	await useFakeRg([matchStream(), "exec sleep 600"].join("\n"));
 	// Only setTimeout is faked, so the child's real output still arrives.
 	vi.useFakeTimers({ toFake: ["setTimeout"] });
 	const result = await searchProject(homeDir, "demo", "needle", {
 		hidden: false,
 		onChild: (child) => {
-			// Time out as soon as the first results are on the wire.
-			child.stdout?.once("data", () => vi.advanceTimersByTime(SEARCH_TIMEOUT_MS));
+			// Time out only once a whole match line has arrived, so the kill
+			// can never beat the match the search is expected to keep. This
+			// listener runs before the search's own, so the timer is advanced
+			// from setImmediate, after the search has handled the same chunk.
+			let seen = "";
+			let fired = false;
+			child.stdout?.on("data", (chunk: Buffer | string) => {
+				if (fired) {
+					return;
+				}
+				seen += chunk.toString();
+				const complete = seen.slice(0, seen.lastIndexOf("\n") + 1);
+				if (!complete.includes('"type":"match"')) {
+					return;
+				}
+				fired = true;
+				setImmediate(() => vi.advanceTimersByTime(SEARCH_TIMEOUT_MS));
+			});
 		},
 	});
 	expect(result.truncated).toBe(true);
