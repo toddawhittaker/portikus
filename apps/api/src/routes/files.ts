@@ -12,13 +12,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { AGENT_TIMEOUT_MS, readAgentError, readJson } from "../agent-client.js";
 import type { ServerDeps } from "../server.js";
-import {
-	claimLongOperation,
-	releaseLongOperation,
-	scopedProject,
-	sendAgentError,
-	sendError,
-} from "./project-scope.js";
+import { agentUrl, scopedProject, sendAgentError, sendError } from "./project-scope.js";
 
 /**
  * A budget for the agent's response headers alone. Once headers are back the
@@ -75,12 +69,6 @@ function queryPath(
 		return null;
 	}
 	return parsed.data;
-}
-
-/** The agent path for one file route of one project. */
-function agentUrl(slug: string, route: string, query: Record<string, string> = {}) {
-	const search = new URLSearchParams(query).toString();
-	return `/projects/${encodeURIComponent(slug)}/${route}${search ? `?${search}` : ""}`;
 }
 
 /**
@@ -141,16 +129,8 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 			if (path === null) return;
 			const download = (request.query as { download?: string }).download === "1";
 
-			// A download streams for as long as the file takes, so it shares the
-			// one long-operation slot with the zip download.
-			if (download && !claimLongOperation(scope.workspaceId, reply)) return;
-			let held = download;
-			const release = () => {
-				if (!held) return;
-				held = false;
-				releaseLongOperation(scope.workspaceId);
-			};
-
+			// One file streams straight through and races with nothing, so it
+			// takes no long-operation slot; the zip download still does.
 			const deadline = headersDeadline();
 			let response: Response;
 			try {
@@ -160,17 +140,14 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 					{ signal: deadline.signal },
 				);
 			} catch (error) {
-				release();
 				return sendAgentError(reply, error);
 			} finally {
 				deadline.clear();
 			}
 			if (!response.ok) {
-				release();
 				return relayFailure(reply, response);
 			}
 			if (!response.body) {
-				release();
 				return sendError(
 					reply,
 					503,
@@ -189,10 +166,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 				reply.header("content-disposition", contentDisposition(basename(path)));
 			}
 			reply.type(pinnedType(response.headers.get("content-type")));
-			const stream = Readable.fromWeb(response.body as never);
-			stream.on("close", release);
-			stream.on("error", release);
-			return reply.send(stream);
+			return reply.send(Readable.fromWeb(response.body as never));
 		});
 
 		// PUT file -- a conditional write, streamed through (SPEC.md §13.5). It

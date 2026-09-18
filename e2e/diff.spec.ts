@@ -80,7 +80,7 @@ test.describe("diff tab", () => {
 			[PATH]: diff({ status: "A", before: null, after: "brand new\n" }),
 		});
 
-		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("A");
+		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("?");
 		await expect(page.getByTestId("diff-note")).toHaveText("New file (not in HEAD)");
 		await expect(page.getByTestId(`diff-editor-${PATH}`)).toContainText("brand new", {
 			timeout: 60_000,
@@ -125,7 +125,7 @@ test.describe("diff tab", () => {
 			[PATH]: diff({ status: "U", after: "<<<<<<< HEAD\nmine\n=======\ntheirs\n" }),
 		});
 
-		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("U");
+		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("!");
 		await expect(page.getByTestId("diff-note")).toHaveText(
 			"Unresolved merge conflict; the working-tree side shows the conflict markers",
 		);

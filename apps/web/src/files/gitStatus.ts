@@ -5,7 +5,7 @@
  * line of the status bar. Everything here is pure, so the rules can be
  * tested without a browser.
  */
-import type { GitEntry, GitStatus } from "@portikus/contracts";
+import type { GitDiff, GitEntry, GitStatus } from "@portikus/contracts";
 import { parentOf } from "./paths.js";
 
 /**
@@ -43,18 +43,19 @@ function kindForCode(code: string): GitDecorationKind {
 	}
 }
 
-const LETTER: Record<GitDecorationKind, string> = {
+export const LETTER: Record<GitDecorationKind, string> = {
 	added: "A",
 	modified: "M",
 	deleted: "D",
 	renamed: "R",
-	// Git's own letter for an unmerged path, and the one the Changes list uses
-	// for an untracked file too; the style, not the letter, tells them apart.
-	untracked: "U",
+	// Git's own porcelain marks: "?" for a path it does not track and "!" for
+	// one it cannot merge. The tree, the Changes list and a diff header all
+	// read this table, so one path never wears two letters.
+	untracked: "?",
 	conflict: "!",
 };
 
-const WORD: Record<GitDecorationKind, string> = {
+export const WORD: Record<GitDecorationKind, string> = {
 	added: "Added",
 	modified: "Modified",
 	deleted: "Deleted",
@@ -225,3 +226,17 @@ export function gitBar(status: GitStatus | undefined): GitBar | null {
 	}
 	return { text: parts.join(" • "), conflicts: status.conflicts, repo: true };
 }
+
+/**
+ * The decoration behind a diff's one-letter status, so a diff header is drawn
+ * from the same table as the tree and the Changes list (SPEC.md §12.6). The
+ * diff route reports "A" for anything that is not in HEAD, which for a student
+ * is a new file, so it reads as untracked here.
+ */
+export const DIFF_KIND: Record<GitDiff["status"], GitDecorationKind> = {
+	M: "modified",
+	A: "untracked",
+	D: "deleted",
+	R: "renamed",
+	U: "conflict",
+};

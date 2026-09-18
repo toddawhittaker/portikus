@@ -9,11 +9,7 @@ import { request } from "../api/request.js";
 import { fileKeys } from "./queries.js";
 import { useShowHidden } from "./store.js";
 
-export function gitStatusUrl(
-	workspaceId: string,
-	projectId: string,
-	hidden: boolean,
-): string {
+function gitStatusUrl(workspaceId: string, projectId: string, hidden: boolean): string {
 	return `/workspaces/${workspaceId}/projects/${projectId}/git/status?hidden=${hidden}`;
 }
 

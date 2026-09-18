@@ -17,6 +17,16 @@ export function projectPath(slug: string): string {
 
 export type ProjectRow = Selectable<Database["projects"]>;
 
+/** The agent path for one route of one project. */
+export function agentUrl(
+	slug: string,
+	route: string,
+	query: Record<string, string> = {},
+) {
+	const search = new URLSearchParams(query).toString();
+	return `/projects/${encodeURIComponent(slug)}/${route}${search ? `?${search}` : ""}`;
+}
+
 const WorkspaceParam = z.object({ id: z.string().uuid() });
 const ProjectParam = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 

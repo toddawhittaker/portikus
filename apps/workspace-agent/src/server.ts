@@ -62,6 +62,7 @@ import {
 	killSession,
 	listSessions,
 } from "./tmux.js";
+import type { ProjectWatchers } from "./watch.js";
 
 const IdParam = z.object({ terminalId: TerminalId });
 
@@ -101,6 +102,8 @@ export interface ServerOptions {
 	logger?: Logger;
 	/** Overrides the cap on concurrent event sockets. For tests. */
 	maxEventSockets?: number;
+	/** Overrides the project watchers, so a test can break one. For tests. */
+	watchers?: ProjectWatchers;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -511,10 +514,11 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			return reply.type("application/zip").send(child.stdout);
 		});
 
-		registerGitRoutes(instance, { homeDir: options.homeDir }, sendError);
+		registerGitRoutes(instance, { homeDir: options.homeDir });
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,
 			maxSockets: options.maxEventSockets,
+			watchers: options.watchers,
 		});
 
 		instance.get(

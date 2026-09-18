@@ -10,7 +10,11 @@ import type { FastifyBaseLogger } from "fastify";
 import { resolveProject } from "./projects.js";
 import { AgentFailure } from "./tmux.js";
 
-export type FsListener = (event: FsEvent) => void;
+/**
+ * A subscriber. `null` means the watcher has failed and will send nothing
+ * more, so the caller must tell its own client (SPEC.md §11.4).
+ */
+export type FsListener = (event: FsEvent | null) => void;
 
 /** Names skipped outright; `.git` is handled separately (SPEC.md §11.4). */
 const SKIPPED: ReadonlySet<string> = new Set<string>(
@@ -220,14 +224,16 @@ export class ProjectWatchers {
 				{ error: error instanceof Error ? error.message : String(error) },
 				"project watcher error",
 			);
-			this.emit(entry, { type: "fs", paths: [], git: true, truncated: true });
+			// Subscribers hear the failure itself, not a last catch-all frame:
+			// this watcher is going away and they have to reconnect.
+			this.emit(entry, null);
 		}
 		// Drop the broken watcher so the next subscriber builds a fresh one.
 		entry.listeners.clear();
 		this.close(entry);
 	}
 
-	private emit(entry: Entry, event: FsEvent): void {
+	private emit(entry: Entry, event: FsEvent | null): void {
 		for (const listener of [...entry.listeners]) {
 			try {
 				listener(event);

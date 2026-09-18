@@ -664,10 +664,10 @@ test.skipIf(skip)("an agent's HTML content type is never relayed", async () => {
 });
 
 test.skipIf(skip)(
-	"a second download while one is streaming is refused",
+	"two downloads of the same file can stream at once",
 	async () => {
-		// Headers come back, then the body hangs, so the first download holds
-		// the workspace's one long-operation slot.
+		// Headers come back, then the body hangs. A single file takes no
+		// long-operation slot, so a second download is not made to wait.
 		const stalled = await startStub((_request, response) => {
 			response.writeHead(200, { "content-type": "text/plain" });
 			response.write("start");
@@ -682,11 +682,9 @@ test.skipIf(skip)(
 			const second = await fetch(fileUrl, {
 				headers: { cookie: alice.cookieHeader() },
 			});
-			expect(second.status).toBe(409);
-			expect(((await second.json()) as { code: string }).code).toBe(
-				"OPERATION_IN_PROGRESS",
-			);
+			expect(second.status).toBe(200);
 			await first.body?.cancel();
+			await second.body?.cancel();
 		} finally {
 			await other.close();
 			stalled.closeAllConnections();

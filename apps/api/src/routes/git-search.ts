@@ -17,7 +17,7 @@ import {
 	readJson,
 } from "../agent-client.js";
 import type { ServerDeps } from "../server.js";
-import { scopedProject, sendAgentError, sendError } from "./project-scope.js";
+import { agentUrl, scopedProject, sendAgentError, sendError } from "./project-scope.js";
 
 /**
  * How long the agent has to answer, route by route. Each budget is the
@@ -29,12 +29,6 @@ const SEARCH_BUDGET_MS = SEARCH_TIMEOUT_MS + AGENT_TIMEOUT_MS;
 const STATUS_BUDGET_MS = GIT_TIMEOUT_MS + AGENT_TIMEOUT_MS;
 /** A diff runs two git commands, one for each side. */
 const DIFF_BUDGET_MS = GIT_TIMEOUT_MS * 2 + AGENT_TIMEOUT_MS;
-
-/** The agent path for one route of one project. */
-function agentUrl(slug: string, route: string, query: Record<string, string>) {
-	const search = new URLSearchParams(query).toString();
-	return `/projects/${encodeURIComponent(slug)}/${route}?${search}`;
-}
 
 /**
  * Call the agent and relay its JSON, checked against the contract. One shape

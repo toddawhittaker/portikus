@@ -1,16 +1,11 @@
 import { GitStatusQuery, ProjectPath } from "@portikus/contracts";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { sendError } from "./errors.js";
 import { gitDiff, gitStatus } from "./git.js";
 import { AgentFailure } from "./tmux.js";
 
 const DiffQuery = z.object({ path: ProjectPath });
-
-type SendError = (
-	request: FastifyRequest,
-	reply: FastifyReply,
-	error: unknown,
-) => unknown;
 
 /**
  * The read-only Git routes (SPEC.md §12.1, §12.6, §12.8). Paths are logged at
@@ -19,7 +14,6 @@ type SendError = (
 export function registerGitRoutes(
 	instance: FastifyInstance,
 	options: { homeDir: string },
-	sendError: SendError,
 ): void {
 	instance.get("/projects/:slug/git/status", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
@@ -33,7 +27,7 @@ export function registerGitRoutes(
 				log: request.log,
 			});
 		} catch (error) {
-			return sendError(request, reply, error);
+			return sendError(request, reply, error, "INTERNAL");
 		}
 	});
 
@@ -48,7 +42,7 @@ export function registerGitRoutes(
 				log: request.log,
 			});
 		} catch (error) {
-			return sendError(request, reply, error);
+			return sendError(request, reply, error, "INTERNAL");
 		}
 	});
 }

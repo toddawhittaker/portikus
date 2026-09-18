@@ -1,5 +1,6 @@
 import type { Workspace } from "@portikus/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { wsUrl } from "./api/ws.js";
 
 const HEARTBEAT_MS = 15_000;
 const RECONNECT_MS = 3_000;
@@ -8,7 +9,7 @@ const MAX_RECONNECT_MS = 60_000;
 const SESSION_ENDED_CODE = 4401;
 
 function socketUrl(workspaceId: string): string {
-	return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/workspaces/${workspaceId}/ws`;
+	return wsUrl(`/workspaces/${workspaceId}/ws`);
 }
 
 export interface WorkspaceSocket {
