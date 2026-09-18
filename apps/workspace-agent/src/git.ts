@@ -237,7 +237,7 @@ export function parsePorcelainV2(text: string): GitStatus {
 /** The project directory, or a failure if the project is missing. */
 async function projectDir(homeDir: string, slug: string): Promise<string> {
 	const target = await resolveInProject(homeDir, slug, "", { mustExist: true });
-	return target.root;
+	return target.path;
 }
 
 /**
@@ -399,8 +399,8 @@ export async function gitDiff(
 	relPath: string,
 	options: { log?: GitDebugLog } = {},
 ): Promise<GitDiff> {
+	const dir = await projectDir(homeDir, slug);
 	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: false });
-	const dir = target.root;
 
 	// A directory is not a diffable file on either side: git would happily
 	// show a tree listing as if it were the file's content.
