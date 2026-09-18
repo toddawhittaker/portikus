@@ -24,6 +24,9 @@ const { TerminalRegistry } = await import("./terminals.js");
 
 const ID = "00000000-0000-4000-8000-000000000001";
 
+/** Matches FIRST_POLL_MS in cwd.ts: how long before the first pane poll. */
+const FIRST_POLL_MS = 250;
+
 /** Just enough of a WebSocket for the registry to talk to. */
 class FakeSocket {
 	bufferedAmount = 0;
@@ -118,6 +121,9 @@ test("no pty is spawned when the socket closes while the history is captured", a
 });
 
 test("one pane poll serves every attachment of every terminal", async () => {
+	// tmux is mocked here, so nothing awaits a real process and the poll can be
+	// driven by fake timers instead of by sleeping.
+	vi.useFakeTimers();
 	captureHistory.mockResolvedValue("");
 	const registry = buildRegistry();
 
@@ -128,14 +134,13 @@ test("one pane poll serves every attachment of every terminal", async () => {
 	expect(registry.countAttachments(ID)).toBe(3);
 
 	// Three browsers looking at one pane ask tmux once, not three times.
-	await vi.waitFor(() => expect(listPanes).toHaveBeenCalled());
+	await vi.advanceTimersByTimeAsync(FIRST_POLL_MS);
+	expect(listPanes).toHaveBeenCalled();
 	expect(listPanes.mock.calls.length).toBeLessThanOrEqual(2);
 
 	// Every attachment hears the answer.
 	for (const socket of sockets) {
-		await vi.waitFor(() =>
-			expect(socket.frames()).toContainEqual({ type: "cwd", path: "/home/student" }),
-		);
+		expect(socket.frames()).toContainEqual({ type: "cwd", path: "/home/student" });
 		expect(socket.frames()).toContainEqual({ type: "screen", alternate: false });
 	}
 
@@ -149,20 +154,22 @@ test("one pane poll serves every attachment of every terminal", async () => {
 	for (const socket of [...sockets, latecomer]) socket.close();
 	expect(registry.countAttachments(ID)).toBe(0);
 	const afterClosing = listPanes.mock.calls.length;
-	await new Promise((resolve) => setTimeout(resolve, 900));
+	await vi.advanceTimersByTimeAsync(900);
 	expect(listPanes.mock.calls.length).toBe(afterClosing);
 });
 
 test("the pane poll speeds up while a full-screen program holds a terminal", async () => {
+	vi.useFakeTimers();
 	captureHistory.mockResolvedValue("");
 	const registry = buildRegistry();
 	const socket = new FakeSocket();
 	await registry.attach(ID, socket as unknown as WebSocket, { cols: 80, rows: 24 });
 
 	// Idle: one poll every 500 ms.
-	await vi.waitFor(() => expect(listPanes).toHaveBeenCalled());
+	await vi.advanceTimersByTimeAsync(FIRST_POLL_MS);
+	expect(listPanes).toHaveBeenCalled();
 	const idleStart = listPanes.mock.calls.length;
-	await new Promise((resolve) => setTimeout(resolve, 1000));
+	await vi.advanceTimersByTimeAsync(1000);
 	const idlePolls = listPanes.mock.calls.length - idleStart;
 
 	// Busy: twice as often, so the wheel goes back to scrolling promptly when
@@ -170,9 +177,9 @@ test("the pane poll speeds up while a full-screen program holds a terminal", asy
 	listPanes.mockImplementation(
 		async () => new Map([[ID, { path: "/home/student", alternate: true }]]),
 	);
-	await new Promise((resolve) => setTimeout(resolve, 1000));
+	await vi.advanceTimersByTimeAsync(1000);
 	const busyStart = listPanes.mock.calls.length;
-	await new Promise((resolve) => setTimeout(resolve, 1000));
+	await vi.advanceTimersByTimeAsync(1000);
 	const busyPolls = listPanes.mock.calls.length - busyStart;
 
 	expect(busyPolls).toBeGreaterThan(idlePolls);
