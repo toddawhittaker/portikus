@@ -37,6 +37,7 @@ import {
 	renameProject,
 	STDERR_LIMIT,
 } from "./projects.js";
+import { registerSearchRoutes } from "./search-routes.js";
 import { TerminalRegistry } from "./terminals.js";
 import {
 	AgentFailure,
@@ -60,6 +61,7 @@ const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	INVALID_SLUG: 400,
 	INVALID_URL: 400,
 	GIT_FAILED: 500,
+	SEARCH_FAILED: 500,
 };
 
 const IdParam = z.object({ terminalId: TerminalId });
@@ -323,6 +325,8 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				return sendError(request, reply, error);
 			}
 		});
+
+		registerSearchRoutes(instance, { homeDir: options.homeDir });
 
 		instance.get("/projects/:slug/archive", async (request, reply) => {
 			const { slug } = request.params as { slug: string };

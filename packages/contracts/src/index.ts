@@ -16,6 +16,7 @@ export * from "./agent.js";
 export * from "./auth.js";
 export * from "./controller.js";
 export * from "./project.js";
+export * from "./search.js";
 export * from "./settings.js";
 export * from "./terminal.js";
 export * from "./workspace.js";
