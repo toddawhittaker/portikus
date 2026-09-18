@@ -174,7 +174,9 @@ test.describe("file tree", () => {
 		await row(page, "README.md").click();
 
 		await expect(
-			page.getByText("Too many tabs are open. Close one to open another."),
+			page.getByText("Too many tabs are open. Close one to open another.", {
+				exact: true,
+			}),
 		).toBeVisible();
 		await expect(page.getByTestId("tab-file:README.md")).toHaveCount(0);
 	});

@@ -130,9 +130,12 @@ async function runWithLimit<T>(
 export function FileTreePane({
 	workspaceId,
 	project,
+	onSearch,
 }: {
 	workspaceId: string;
 	project: Project;
+	/** Swap this pane for find in files (SPEC.md 11.5). */
+	onSearch: () => void;
 }) {
 	const toast = useToast();
 	const mutations = useFileMutations(workspaceId, project.id);
@@ -366,8 +369,13 @@ export function FileTreePane({
 							</MenuItem>
 						</Menu>
 					</MenuRoot>
-					{/* Project-wide search is a later task (SPEC.md §11.5). */}
-					<IconButton icon="search" label="Find in files" size="sm" disabled />
+					<IconButton
+						icon="search"
+						label="Find in files"
+						size="sm"
+						data-testid="search-open"
+						onClick={onSearch}
+					/>
 					<MenuRoot>
 						<MenuTrigger asChild>
 							<IconButton

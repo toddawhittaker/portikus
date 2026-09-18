@@ -22,6 +22,11 @@ export interface CodeEditorProps {
 	onSave: () => void;
 	/** Jump here when the editor opens, for "open at line" (SPEC.md §15.3). */
 	revealLine?: number;
+	/**
+	 * Changes every time the same tab is asked to jump again, so reopening a
+	 * file at a line it is already showing still moves the cursor there.
+	 */
+	revealNonce?: number;
 }
 
 /** The language id whose extension or file name matches this path. */
@@ -46,6 +51,7 @@ export function CodeEditor({
 	onChange,
 	onSave,
 	revealLine,
+	revealNonce,
 }: CodeEditorProps) {
 	const host = useRef<HTMLDivElement | null>(null);
 	const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -60,6 +66,17 @@ export function CodeEditor({
 	// through refs rather than being torn down on every render.
 	const latest = useRef({ value, version, onChange, onSave, revealLine });
 	latest.current = { value, version, onChange, onSave, revealLine };
+
+	// A later request to jump, once the editor is already up. The one that
+	// arrives before Monaco has loaded is handled where the editor is created.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: one jump per request
+	useEffect(() => {
+		const editor = editorRef.current;
+		if (!editor || revealLine === undefined) return;
+		editor.setPosition({ lineNumber: revealLine, column: 1 });
+		editor.revealLineInCenter(revealLine);
+		editor.focus();
+	}, [revealNonce]);
 
 	useEffect(() => {
 		let disposed = false;

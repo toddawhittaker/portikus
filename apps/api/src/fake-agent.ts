@@ -272,6 +272,10 @@ export async function startFakeAgent(
 	// Git, search and events answers are seeded per workspace key and slug.
 	const gitAnswers = new Map<string, FakeGitAnswer>();
 	const searchAnswers = new Map<string, SearchMatch[]>();
+	// Whether a seeded answer claims it was cut short, and the query string of
+	// the last search asked for, so a browser test can check what it sent.
+	const searchTruncated = new Map<string, boolean>();
+	const lastSearches = new Map<string, { q: string; hidden: boolean }>();
 	const eventSockets = new Map<string, Set<WebSocket>>();
 	const watchFailures = new Set<string>();
 	const eventCloses: Array<{ code: number; reason: string }> = [];
@@ -799,8 +803,10 @@ export async function startFakeAgent(
 				return;
 			}
 		}
-		const matches = searchAnswers.get(answerKey(keyOf(request), slug)) ?? [];
-		return { matches, truncated: false };
+		const key = answerKey(keyOf(request), slug);
+		lastSearches.set(key, { q: query.data.q, hidden: query.data.hidden });
+		const matches = searchAnswers.get(key) ?? [];
+		return { matches, truncated: searchTruncated.get(key) ?? false };
 	});
 
 	app.get(
@@ -879,12 +885,25 @@ export async function startFakeAgent(
 	});
 
 	app.post("/__test/search", async (request, reply) => {
-		const body = request.body as { key?: string; slug: string; matches: SearchMatch[] };
-		searchAnswers.set(answerKey(body.key ?? "", body.slug), body.matches);
+		const body = request.body as {
+			key?: string;
+			slug: string;
+			matches: SearchMatch[];
+			truncated?: boolean;
+		};
+		const key = answerKey(body.key ?? "", body.slug);
+		searchAnswers.set(key, body.matches);
+		searchTruncated.set(key, body.truncated ?? false);
 		return reply.status(204).send();
 	});
 
 	app.get("/__test/search/aborted", async () => ({ aborted: state.searchAborted }));
+
+	// What the last search of one project actually asked for.
+	app.get("/__test/search/last", async (request) => {
+		const query = request.query as { key?: string; slug: string };
+		return lastSearches.get(answerKey(query.key ?? "", query.slug)) ?? null;
+	});
 
 	app.post("/__test/events", async (request, reply) => {
 		const body = request.body as {

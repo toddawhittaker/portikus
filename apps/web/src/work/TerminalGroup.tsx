@@ -31,6 +31,8 @@ export interface TerminalGroupProps {
 	onLeave: () => void;
 	/** Close this whole tab: a file tab offers it when the file is gone. */
 	onCloseTab: () => void;
+	/** The line this tab was last asked to open at, or undefined for none. */
+	pendingLine: number | undefined;
 	/** Read and forget the line a file tab was opened at. */
 	consumePendingLine: () => number | undefined;
 	/** The pane a drag is hovering, and the zone it would drop into. */
@@ -79,6 +81,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					projectId={props.projectId}
 					visible={visible}
 					onClose={props.onCloseTab}
+					pendingLine={props.pendingLine}
 					consumePendingLine={props.consumePendingLine}
 				/>
 			);

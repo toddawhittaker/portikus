@@ -332,15 +332,7 @@ test.skipIf(skip)("renaming a terminal that does not exist is 404", async () => 
 	expect(renamed.json().code).toBe("TERMINAL_NOT_FOUND");
 });
 
-test.skipIf(skip)("the files and preview routes answer 501 for now", async () => {
-	const files = await app.inject({
-		method: "GET",
-		url: `/workspaces/${workspaceId}/files?path=src/auth.ts&line=73`,
-		headers: { cookie: alice.cookieHeader() },
-	});
-	expect(files.statusCode).toBe(501);
-	expect(files.json().code).toBe("NOT_IMPLEMENTED");
-
+test.skipIf(skip)("the preview route answers 501 for now", async () => {
 	const preview = await app.inject({
 		method: "GET",
 		url: `/workspaces/${workspaceId}/preview/3000/`,

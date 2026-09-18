@@ -74,3 +74,25 @@ test("a 401 from a data request ends the session", async () => {
 	await waitFor(() => expect(router.state.location.pathname).toBe("/session-ended"));
 	expect(screen.getByTestId("page-session-ended")).toBeDefined();
 });
+
+test("the files route hands over to the project screen with the file to open", async () => {
+	// SPEC.md §14.9: a `path:line` link from a terminal lands in the editor.
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, USER);
+		if (url.endsWith("/templates")) return json(200, { templates: [] });
+		if (url.includes("/projects")) return json(200, { projects: [project()] });
+		throw new Error(`unexpected request: ${url}`);
+	});
+	vi.stubGlobal("WebSocket", FakeWebSocket);
+
+	const { router } = renderApp(
+		`/workspaces/${WORKSPACE.id}/projects/${project().id}/files?path=src/app.ts&line=3`,
+	);
+
+	await waitFor(() =>
+		expect(router.state.location.pathname).toBe(
+			`/workspaces/${WORKSPACE.id}/projects/${project().id}`,
+		),
+	);
+	expect(router.state.location.search).toEqual({ open: "src/app.ts", line: 3 });
+});
