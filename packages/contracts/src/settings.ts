@@ -77,3 +77,32 @@ export const UpdateAdminUserSettingsRequest = z
 export type UpdateAdminUserSettingsRequest = z.infer<
 	typeof UpdateAdminUserSettingsRequest
 >;
+
+/**
+ * One user's editor preferences (issue #159). Every field has a default, so a
+ * user who has never changed anything still gets a complete object.
+ */
+export const EditorSettings = z.object({
+	autoSave: z.boolean(),
+	autoSaveDelaySeconds: z.number().int().min(1).max(60),
+	wordWrap: z.boolean(),
+});
+export type EditorSettings = z.infer<typeof EditorSettings>;
+
+/** The values a user gets before they change anything. */
+export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
+	autoSave: true,
+	autoSaveDelaySeconds: 5,
+	wordWrap: false,
+};
+
+/**
+ * Request body for `PUT /me/settings`. Every field is optional and is merged
+ * into the stored settings; a request that changes nothing is rejected.
+ */
+export const UpdateEditorSettingsRequest = EditorSettings.partial()
+	.strict()
+	.refine((body) => Object.values(body).some((value) => value !== undefined), {
+		message: "At least one setting must be given",
+	});
+export type UpdateEditorSettingsRequest = z.infer<typeof UpdateEditorSettingsRequest>;

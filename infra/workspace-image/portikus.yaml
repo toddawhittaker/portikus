@@ -1440,6 +1440,79 @@ files:
     # Claude Code self-update is disabled: the image owns the version.
     export DISABLE_AUTOUPDATER=1
 
+# Clipboard bridge for programs that expect X11 or macOS clipboard tools.
+# A workspace has no display, so the shim turns a copy into an OSC 52
+# escape that tmux passes through to the browser terminal (issue #125).
+- path: /usr/local/bin/xclip
+  generator: dump
+  mode: "0755"
+  content: |-
+    #!/bin/sh
+    # A workspace has no X display, so a clipboard write is forwarded to the
+    # browser terminal as an OSC 52 escape sequence instead (issue #125).
+    set -eu
+
+    max_bytes=1048576
+    name=${0##*/}
+    file=
+
+    # xsel with no flags reads the selection; xclip and pbcopy write it.
+    if [ "$name" = xsel ]; then
+      mode='paste'
+    else
+      mode='copy'
+    fi
+
+    for arg in "$@"; do
+      case "$arg" in
+        -version|--version)
+          echo "portikus clipboard shim"
+          exit 0
+          ;;
+        -h|-help|--help)
+          echo "usage: $name [options] [file] - Portikus OSC 52 clipboard shim"
+          exit 0
+          ;;
+        -o|-out|-output|--output)
+          mode='paste'
+          ;;
+        -i|-in|--input|-a|--append)
+          mode='copy'
+          ;;
+        -c|--clear|-d|--delete)
+          # Only xsel means "clear" or "delete" here; xclip's -d is the display.
+          if [ "$name" = xsel ]; then
+            mode='paste'
+          fi
+          ;;
+        -*)
+          : # every other flag is accepted and ignored
+          ;;
+        *)
+          if [ -z "$file" ] && [ -f "$arg" ] && [ -r "$arg" ]; then
+            file=$arg
+          fi
+          ;;
+      esac
+    done
+
+    # The clipboard cannot be read from here, so report it as empty.
+    if [ "$mode" = paste ]; then
+      exit 0
+    fi
+
+    if [ -n "$file" ]; then
+      encoded=$(head -c "$max_bytes" -- "$file" | base64 | tr -d '\n')
+    else
+      encoded=$(head -c "$max_bytes" | base64 | tr -d '\n')
+    fi
+
+    # The escape belongs on the terminal, not in a pipeline the caller reads.
+    if ( printf '\033]52;c;%s\a' "$encoded" >/dev/tty ) 2>/dev/null; then
+      exit 0
+    fi
+    printf '\033]52;c;%s\a' "$encoded"
+
 # Docker daemon configuration (overlay2 storage driver)
 - path: /etc/docker/daemon.json
   generator: dump
@@ -1729,6 +1802,9 @@ actions:
 
     systemctl enable portikus-workspace-agent.service
     systemctl enable portikus-home-init.service
+
+    ln -sf xclip /usr/local/bin/xsel
+    ln -sf xclip /usr/local/bin/pbcopy
 
 # Write image version file.
 # build-on-vm.sh must export PORTIKUS_IMAGE_VERSION before invoking

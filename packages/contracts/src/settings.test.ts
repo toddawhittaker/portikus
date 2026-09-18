@@ -2,9 +2,12 @@ import { expect, test } from "vitest";
 import {
 	AdminUser,
 	AdminUserList,
+	EDITOR_SETTINGS_DEFAULTS,
+	EditorSettings,
 	PlatformSettings,
 	SetLogLevelRequest,
 	UpdateAdminUserSettingsRequest,
+	UpdateEditorSettingsRequest,
 	UpdatePlatformSettingsRequest,
 } from "./index.js";
 
@@ -157,4 +160,40 @@ test("UpdateAdminUserSettingsRequest rejects bad values and unknown keys", () =>
 	expect(() =>
 		UpdateAdminUserSettingsRequest.parse({ shutdownGraceSeconds: 600, extra: 1 }),
 	).toThrow();
+});
+
+test("the editor settings defaults are a valid, complete set", () => {
+	expect(EditorSettings.parse(EDITOR_SETTINGS_DEFAULTS)).toEqual({
+		autoSave: true,
+		autoSaveDelaySeconds: 5,
+		wordWrap: false,
+	});
+});
+
+test("EditorSettings keeps the auto-save delay between 1 and 60 seconds", () => {
+	expect(
+		EditorSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, autoSaveDelaySeconds: 60 })
+			.autoSaveDelaySeconds,
+	).toBe(60);
+	for (const bad of [0, 61, 5.5, "5"]) {
+		expect(() =>
+			EditorSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, autoSaveDelaySeconds: bad }),
+		).toThrow();
+	}
+});
+
+test("EditorSettings requires every field", () => {
+	expect(() => EditorSettings.parse({ autoSave: true })).toThrow();
+});
+
+test("UpdateEditorSettingsRequest takes one field at a time", () => {
+	expect(UpdateEditorSettingsRequest.parse({ wordWrap: true })).toEqual({
+		wordWrap: true,
+	});
+});
+
+test("UpdateEditorSettingsRequest rejects an empty body and unknown keys", () => {
+	expect(() => UpdateEditorSettingsRequest.parse({})).toThrow();
+	expect(() => UpdateEditorSettingsRequest.parse({ theme: "dark" })).toThrow();
+	expect(() => UpdateEditorSettingsRequest.parse({ autoSave: "yes" })).toThrow();
 });
