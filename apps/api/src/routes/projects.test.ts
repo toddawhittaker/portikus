@@ -7,7 +7,7 @@ import {
 } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
@@ -791,4 +791,20 @@ test.skipIf(skip)("delete waits for another long operation to finish", async () 
 	).json();
 	const again = await deleteProject(alice, workspaceId, second.id, "also-doomed");
 	expect(again.statusCode).toBe(204);
+});
+
+test.skipIf(skip)("a listing with nothing new writes nothing", async () => {
+	agent.projects.set("already-here", { isGitRepo: true });
+	// The first listing adopts the directory; the second must not write again.
+	expect((await listProjects(alice, workspaceId)).statusCode).toBe(200);
+
+	const insertInto = vi.spyOn(testDb.db, "insertInto");
+	try {
+		const again = await listProjects(alice, workspaceId);
+		expect(again.statusCode).toBe(200);
+		expect(again.json().projects).toHaveLength(1);
+		expect(insertInto).not.toHaveBeenCalled();
+	} finally {
+		insertInto.mockRestore();
+	}
 });
