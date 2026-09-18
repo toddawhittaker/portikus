@@ -1114,7 +1114,9 @@ A Markdown tab is always a split: the raw Markdown in the code editor on
 the left, and on the right either the rendered preview or, when Diff is
 turned on, this file's diff against the last commit. The preview is
 read-only; the raw text is the only place a file is edited, and the two
-sides stay scrolled to the same relative place.
+sides stay on the same line: whichever source line is first on the left is
+the first one showing on the right, in the preview and in the diff alike,
+and scrolling either side moves the other.
 
 ### 13.5 Autosave and version-aware writes
 

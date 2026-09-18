@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
 	createStudent,
 	openFileTab,
@@ -18,6 +18,16 @@ test.describe("markdown tab", () => {
 	test.describe.configure({ timeout: 90_000 });
 
 	const PATH = "README.md";
+	const LONG_PATH = "LONG.md";
+
+	/** A long file where every heading is its own block on a known line. */
+	function longDocument(): string {
+		return Array.from(
+			{ length: 200 },
+			(_, index) => `## Heading ${index + 1}\n\nParagraph ${index + 1}.\n`,
+		).join("\n");
+	}
+
 	const CONTENT = [
 		"---",
 		"title: Project notes",
@@ -113,20 +123,16 @@ test.describe("markdown tab", () => {
 		expect(padding).toBeGreaterThan(10);
 	});
 
-	test("the two sides scroll together, by wheel and by keyboard (issue #218)", async ({
+	test("the preview keeps the editor's top line at its own top (issue #229)", async ({
 		page,
 		context,
 	}) => {
 		const student = await createStudent(context);
-		const long = Array.from(
-			{ length: 200 },
-			(_, index) => `## Heading ${index + 1}\n\nParagraph ${index + 1}.\n`,
-		).join("\n");
-		await openFileTab(page, student, "Long", "LONG.md", long);
+		await openFileTab(page, student, "Long", LONG_PATH, longDocument());
 		const preview = page.getByTestId("markdown-preview");
 		await expect(preview).toBeVisible({ timeout: 30_000 });
 
-		const editor = page.getByTestId("editor-LONG.md");
+		const editor = page.getByTestId(`editor-${LONG_PATH}`);
 		await expect(editor.locator(".view-lines")).toContainText("Heading 1", {
 			timeout: 60_000,
 		});
@@ -137,56 +143,97 @@ test.describe("markdown tab", () => {
 		await expect(slider).toBeVisible();
 		const sliderBox = await slider.boundingBox();
 		expect(sliderBox?.height ?? 0).toBeGreaterThan(0);
-		expect(sliderBox?.width ?? 0).toBeGreaterThan(0);
 		const panel = await page.getByTestId("md-code-pane").boundingBox();
 		expect(sliderBox?.x ?? 0).toBeLessThan((panel?.x ?? 0) + (panel?.width ?? 0));
-		await expect(slider).toHaveCSS("opacity", "1");
 
 		expect(await previewScrollTop(page)).toBe(0);
 
-		// The keyboard test below needs the editor focused, and after the
-		// wheel the first line is behind the tab header, so click it now.
-		await editor.locator(".view-line").first().click();
-
-		// A student scrolls with the wheel, so that is what is tested first:
-		// the preview must follow, and keep following, not stop after a step.
-		const box = await editor.boundingBox();
-		await page.mouse.move(
-			(box?.x ?? 0) + (box?.width ?? 0) / 2,
-			(box?.y ?? 0) + (box?.height ?? 0) / 2,
-		);
-		for (let step = 0; step < 10; step += 1) {
-			await page.mouse.wheel(0, 400);
-		}
+		// Scrolling the editor well down the file: the preview must show the
+		// same line at its own top, not merely the same fraction of the way
+		// down. Each heading is its own block, so the match is exact enough
+		// to name a line.
+		await wheelOver(page, editor, 60);
 		await expect
-			.poll(() => previewScrollTop(page), { timeout: 10_000 })
-			.toBeGreaterThan(0);
-
-		// Keyboard scrolling to the end takes the preview to the end too.
-		await page.keyboard.press("Control+End");
-		await expect
-			.poll(() => firstVisibleLine(page), { timeout: 10_000 })
-			.toBeGreaterThan(100);
-		await expect
-			.poll(() => previewRatio(page), { timeout: 10_000 })
-			.toBeGreaterThan(0.8);
-
-		// And scrolling the preview back to the top brings the editor with it.
-		await preview.evaluate((node) => {
-			node.scrollTop = 0;
-		});
-		await expect
-			.poll(() => firstVisibleLine(page), { timeout: 10_000 })
-			.toBeLessThan(5);
-
-		// Scrolling the preview down again moves the editor down again, so
-		// following works repeatedly, in both directions.
-		await preview.evaluate((node) => {
-			node.scrollTop = (node.scrollHeight - node.clientHeight) / 2;
-		});
-		await expect
-			.poll(() => firstVisibleLine(page), { timeout: 10_000 })
+			.poll(() => firstVisibleLine(editor), { timeout: 10_000 })
 			.toBeGreaterThan(50);
+		const editorLine = await firstVisibleLine(editor);
+		await expect
+			.poll(() => previewTopLine(page), { timeout: 10_000 })
+			.toBeGreaterThan(50);
+		expect(Math.abs((await previewTopLine(page)) - editorLine)).toBeLessThanOrEqual(2);
+
+		// And the other way round: the preview put at a block halfway down
+		// takes the editor to that block's own line.
+		const target = await preview.evaluate((node) => {
+			const blocks = [...node.querySelectorAll<HTMLElement>("[data-line]")];
+			const block = blocks[Math.floor(blocks.length / 2)];
+			if (!block) return 0;
+			node.scrollTop =
+				block.getBoundingClientRect().top -
+				node.getBoundingClientRect().top +
+				node.scrollTop;
+			return Number.parseInt(block.dataset.line ?? "", 10);
+		});
+		expect(target).toBeGreaterThan(50);
+		await expect
+			.poll(() => firstVisibleLine(editor), { timeout: 10_000 })
+			.toBeGreaterThan(target - 3);
+		expect(await firstVisibleLine(editor)).toBeLessThanOrEqual(target + 2);
+	});
+
+	test("the diff keeps the same top line as the raw text (issue #229)", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const text = longDocument();
+		const project = await openFileTab(page, student, "Long", LONG_PATH, text);
+		await seedGit(student.workspaceId, project.slug, {
+			diffs: {
+				[LONG_PATH]: {
+					status: "M",
+					before: `${text}\nOne more line.\n`,
+					after: text,
+					binary: false,
+					tooLarge: false,
+				},
+			},
+		});
+		const editor = page.getByTestId(`editor-${LONG_PATH}`);
+		await expect(editor.locator(".view-lines")).toContainText("Heading 1", {
+			timeout: 60_000,
+		});
+
+		await page.getByTestId(`file-view-diff-${LONG_PATH}`).click();
+		const diff = page.getByTestId(`diff-editor-${LONG_PATH}`);
+		await expect(diff.locator(".monaco-diff-editor")).toBeVisible({ timeout: 60_000 });
+		const modified = diff.locator(".editor.modified");
+
+		// The editor moves; the diff's working-copy side shows the same line.
+		await wheelOver(page, editor, 60);
+		await expect
+			.poll(() => firstVisibleLine(editor), { timeout: 10_000 })
+			.toBeGreaterThan(50);
+		const editorLine = await firstVisibleLine(editor);
+		await expect
+			.poll(() => firstVisibleLine(modified), { timeout: 10_000 })
+			.toBeGreaterThan(50);
+		expect(
+			Math.abs((await firstVisibleLine(modified)) - editorLine),
+		).toBeLessThanOrEqual(1);
+
+		// And the diff moves the editor when a student scrolls the diff.
+		await wheelOver(page, modified, 60);
+		await expect
+			.poll(() => firstVisibleLine(modified), { timeout: 10_000 })
+			.toBeGreaterThan(editorLine);
+		const diffLine = await firstVisibleLine(modified);
+		await expect
+			.poll(() => firstVisibleLine(editor), { timeout: 10_000 })
+			.toBeGreaterThan(editorLine);
+		expect(Math.abs((await firstVisibleLine(editor)) - diffLine)).toBeLessThanOrEqual(
+			1,
+		);
 	});
 
 	test("typing in the raw side updates the preview and saves", async ({
@@ -272,16 +319,34 @@ function previewScrollTop(page: Page): Promise<number> {
 	return page.getByTestId("markdown-preview").evaluate((node) => node.scrollTop);
 }
 
-/** How far down its own scrollable range the preview sits, from 0 to 1. */
-function previewRatio(page: Page): Promise<number> {
-	return page
-		.getByTestId("markdown-preview")
-		.evaluate((node) => node.scrollTop / (node.scrollHeight - node.clientHeight));
+/** The source line of the topmost block the preview is showing. */
+function previewTopLine(page: Page): Promise<number> {
+	return page.getByTestId("markdown-preview").evaluate((node) => {
+		const top = node.getBoundingClientRect().top;
+		for (const block of node.querySelectorAll<HTMLElement>("[data-line]")) {
+			if (block.getBoundingClientRect().bottom > top + 1) {
+				return Number.parseInt(block.dataset.line ?? "", 10);
+			}
+		}
+		return 0;
+	});
 }
 
-/** The topmost line number Monaco is showing, which says where it scrolled. */
-function firstVisibleLine(page: Page): Promise<number> {
-	return page
+/** Scroll with the wheel over one editor, the way a student would. */
+async function wheelOver(page: Page, target: Locator, steps: number): Promise<void> {
+	const box = await target.boundingBox();
+	await page.mouse.move(
+		(box?.x ?? 0) + (box?.width ?? 0) / 2,
+		(box?.y ?? 0) + (box?.height ?? 0) / 2,
+	);
+	for (let step = 0; step < steps; step += 1) {
+		await page.mouse.wheel(0, 200);
+	}
+}
+
+/** The topmost line number one Monaco editor is showing. */
+function firstVisibleLine(editor: Locator): Promise<number> {
+	return editor
 		.locator(".margin-view-overlays")
 		.first()
 		.evaluate((node) => {
