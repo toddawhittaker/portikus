@@ -89,7 +89,7 @@ first; the rest can be wireframes.
 | Terminal tabs | 6, 8 | xterm.js; multiple tabs; horizontal and vertical splits; rename; close; "ended session" state after a stop with a "new terminal" action. Launchers: `+ Terminal`, `+ Claude Code`, `+ Codex`, `+ File`, `+ Preview` (SPEC 10.2) |
 | Project navigation | 7 | Active projects, archived entry point, create (new, clone, template), rename, duplicate, download, archive. No permanent delete for students |
 | File tree | 8 | Create, rename, move, delete with confirmation, upload and drag-drop, download; generated folders hidden behind "Show hidden and generated files"; live updates from agents and other windows |
-| Editor and Markdown | 8 | Monaco; autosave states `Saving…`, `Saved`, `Conflict`; Markdown edit, preview, side-by-side |
+| Editor and Markdown | 8 | Monaco; autosave states `Saving…`, `Saved`, `Conflict`; Markdown Code, Rich and Split views, both sides editable |
 | Changes and diff | 9 | Status decorations; a project "Changes" list (`M src/app.ts`); Monaco diff; a compact status like `main • 3 changes • 2 commits ahead`; conflict state must look nothing like an ordinary change; "Review session changes" with the baseline label `Changes since Claude session started` |
 | Search | 8 | Project-wide, results as path, line, matching text, click to open at line |
 | Preview | 10 | Pick a port; embedded (sandboxed iframe) or open in a new tab; inactive copy: "Nothing is currently listening on port 3000. Start your application to reconnect this preview." No share link, ever |
