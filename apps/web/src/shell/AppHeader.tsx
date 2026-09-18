@@ -76,11 +76,6 @@ export function AppHeader({
 			)}
 			<span className="pk-appbar-spacer" />
 
-			{user.role === "administrator" && workspaceId ? (
-				<Link to="/admin" className="pk-wsbutton" data-testid="admin-link">
-					Administration
-				</Link>
-			) : null}
 			{workspaceId ? null : (
 				<Link to="/" className="pk-wsbutton" data-testid="back-to-workspace">
 					Back to your workspace
@@ -146,6 +141,22 @@ export function AppHeader({
 							<span data-testid={`appearance-${option.value}`}>{option.label}</span>
 						</MenuItem>
 					))}
+					{user.role === "administrator" && workspaceId ? (
+						<>
+							<MenuSeparator />
+							{/* A new tab, so this tab keeps its sockets open and the
+							    disconnect grace timer never starts (SPEC.md §6.4). */}
+							<MenuItem
+								icon="external"
+								href="/admin"
+								target="_blank"
+								rel="noopener"
+								testId="admin-link"
+							>
+								Administration
+							</MenuItem>
+						</>
+					) : null}
 					<MenuSeparator />
 					<MenuItem
 						icon="sign-out"
