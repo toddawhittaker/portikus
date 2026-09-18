@@ -94,3 +94,32 @@ test("the dialog fits a narrow window, fingerprint and all", async ({
 		`${"b".repeat(12)}…`,
 	);
 });
+
+test("closing the dialog on a stopped workspace shows a Start button, not a spinner", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await page.goto(workspacePath(student.workspaceId));
+	await page.getByTestId("workspace-status").click();
+	await expect(page.getByTestId("dialog-workspace-status")).toBeVisible();
+
+	await query(
+		"update workspaces set state = 'stopped', desired_state = 'stopped', updated_at = now() where id = $1",
+		[student.workspaceId],
+	);
+	await expect(page.getByTestId("workspace-start")).toBeEnabled({ timeout: 15_000 });
+
+	// Clicking outside the dialog closes it; what is behind must not pretend
+	// the workspace is starting (issue #230).
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("dialog-workspace-status")).toHaveCount(0);
+	await expect(
+		page.getByRole("heading", { name: "Your workspace is stopped" }),
+	).toBeVisible();
+
+	await page.getByTestId("workspace-resume").click();
+	await expect
+		.poll(() => desiredState(student.workspaceId), { timeout: 15_000 })
+		.toBe("running");
+});

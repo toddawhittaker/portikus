@@ -422,6 +422,15 @@ closed tab was the leftmost one; closing a tab that is not selected
 leaves the selection alone. The selection history lives in the layout
 store for this session only and is never saved (§8.3) (#223).
 
+**Workspace lifecycle.** A workspace the student stopped by hand no
+longer shows an endless "Starting your workspace" progress card. The
+starting screen has a stopped state: it says the workspace is stopped and
+offers a Start workspace button that sends the same request as the Start
+button in the workspace dialog. Before this, closing the dialog after a
+stop revealed the progress card, which looked like a resume that hung for
+ever, and the only way out was to reopen the dialog and press Start
+(SPEC.md §6.2, §6.3) (#230).
+
 **Markdown.** The three Markdown viewer defects from pilot feedback are
 fixed (§13.4): rendered lists show their markers again, split view keeps
 the editor and preview at the same relative position as either side
