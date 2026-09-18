@@ -107,3 +107,64 @@ test("an active tab change is never saved", async () => {
 function isPut(call: [string, RequestInit?]): boolean {
 	return call[1]?.method === "PUT";
 }
+
+test("the selected tab and the editor view states are kept in this browser", async () => {
+	vi.useFakeTimers();
+	stubFetch(noContent);
+	localStorage.clear();
+	const store = createLayoutStore();
+	render(<Harness store={store} />);
+	await act(async () => {
+		await Promise.resolve();
+	});
+	act(() => {
+		store.getState().openFile("src/app.ts");
+		store.getState().openFile("src/other.ts");
+		store.getState().setViewState("src/app.ts", { line: 42 });
+		store.getState().setViewState("src/gone.ts", { line: 7 });
+	});
+	act(() => {
+		vi.advanceTimersByTime(400);
+	});
+	const saved = JSON.parse(
+		localStorage.getItem(`portikus.layout.${PROJECT}`) ?? "null",
+	);
+	expect(saved.activeTabId).toBe("file:src/other.ts");
+	// Only the tabs that are open are worth remembering.
+	expect(saved.viewStates).toEqual({ "src/app.ts": { line: 42 } });
+});
+
+test("the selected tab and the view states come back on the next mount", async () => {
+	stubFetch(
+		() =>
+			({
+				status: 200,
+				ok: true,
+				json: async () => ({
+					tabs: [
+						{
+							id: "a",
+							root: {
+								type: "leaf",
+								terminalId: "44444444-4444-4444-8444-444444444444",
+							},
+						},
+						{ id: "file:src/app.ts", root: { type: "file", path: "src/app.ts" } },
+					],
+				}),
+			}) as Response,
+	);
+	localStorage.setItem(
+		`portikus.layout.${PROJECT}`,
+		JSON.stringify({
+			activeTabId: "file:src/app.ts",
+			viewStates: { "src/app.ts": { line: 42 } },
+		}),
+	);
+	const store = createLayoutStore();
+	render(<Harness store={store} />);
+	await waitFor(() => expect(store.getState().layout.tabs).toHaveLength(2));
+	expect(store.getState().activeTabId).toBe("file:src/app.ts");
+	expect(store.getState().viewStates).toEqual({ "src/app.ts": { line: 42 } });
+	localStorage.clear();
+});

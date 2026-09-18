@@ -76,6 +76,7 @@ import {
 	reseedFocus,
 	tabIdsUnder,
 	visibleEntries,
+	withoutNested,
 } from "./paths.js";
 import {
 	directoryDownloadUrl,
@@ -122,6 +123,8 @@ interface TreeApi {
 	pickUpload: (dir: string) => void;
 	focusedPath: string | null;
 	setFocusedPath: (path: string | null) => void;
+	/** The row elements on screen, in the order they are drawn. */
+	rowElements: () => HTMLElement[];
 	/** The rows on screen, in the order they are drawn. */
 	visibleNodes: () => FileNode[];
 	/** The selected rows (SPEC.md §11.2). */
@@ -254,10 +257,18 @@ export function FileTreePane({
 		[closeTabsUnder, project.id, rewriteExpanded],
 	);
 
-	/** The rows on screen, read back from the tree in the order they are drawn. */
+	/** The row elements, read back from the tree in the order they are drawn. */
+	const rowElements = useCallback(
+		(): HTMLElement[] =>
+			Array.from(
+				treeElement.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? [],
+			),
+		[],
+	);
+
+	/** The rows on screen, as nodes. */
 	const visibleNodes = useCallback((): FileNode[] => {
-		const rows = treeElement.current?.querySelectorAll<HTMLElement>("[role=treeitem]");
-		return Array.from(rows ?? []).map((row) => {
+		return rowElements().map((row) => {
 			const path = row.getAttribute("data-path") ?? "";
 			return {
 				path,
@@ -265,7 +276,7 @@ export function FileTreePane({
 				isDir: row.getAttribute("data-kind") === "dir",
 			};
 		});
-	}, []);
+	}, [rowElements]);
 
 	const clickRow = useCallback(
 		(path: string, modifiers: ClickModifiers) => {
@@ -282,12 +293,15 @@ export function FileTreePane({
 		(node: FileNode): FileNode[] => {
 			const nodes = visibleNodes();
 			const order = nodes.map((item) => item.path);
-			const paths = actionTargets(pruneSelection(selection, order), node.path);
-			if (paths.length <= 1) return [node];
-			const byPath = new Map(nodes.map((item) => [item.path, item]));
-			return orderedSelection({ paths, anchor: null }, order).map(
-				(path) => byPath.get(path) ?? { path, name: baseName(path), isDir: false },
+			// A row inside a selected folder is already covered by that folder.
+			const paths = withoutNested(
+				actionTargets(pruneSelection(selection, order), node.path),
 			);
+			const byPath = new Map(nodes.map((item) => [item.path, item]));
+			const resolve = (path: string): FileNode =>
+				byPath.get(path) ?? { path, name: baseName(path), isDir: false };
+			if (paths.length <= 1) return [paths[0] === undefined ? node : resolve(paths[0])];
+			return orderedSelection({ paths, anchor: null }, order).map(resolve);
 		},
 		[selection, visibleNodes],
 	);
@@ -402,6 +416,7 @@ export function FileTreePane({
 			pickUpload,
 			focusedPath,
 			setFocusedPath,
+			rowElements,
 			visibleNodes,
 			selection,
 			clickRow,
@@ -425,6 +440,7 @@ export function FileTreePane({
 			uploadInto,
 			pickUpload,
 			focusedPath,
+			rowElements,
 			visibleNodes,
 			selection,
 			clickRow,
@@ -519,14 +535,13 @@ export function FileTreePane({
 								<MenuItem onSelect={() => api.pickUpload("")}>
 									<span data-testid="files-upload">Upload files…</span>
 								</MenuItem>
-								<MenuItem>
-									<a
-										href={directoryDownloadUrl(workspaceId, project.id, "")}
-										download={`${project.slug}.zip`}
-										data-testid="files-download-project"
-									>
-										Download project
-									</a>
+								{/* A link, so the browser streams the download to disk. */}
+								<MenuItem
+									href={directoryDownloadUrl(workspaceId, project.id, "")}
+									download={`${project.slug}.zip`}
+									testId="files-download-project"
+								>
+									Download project
 								</MenuItem>
 							</Menu>
 						</MenuRoot>
@@ -738,12 +753,8 @@ function TreeRoot({ slug }: { slug: string }) {
 		return () => treeRef(null);
 	}, [treeRef]);
 
-	/** The rows on screen, in the order they are drawn. */
-	const rows = useCallback(
-		(): HTMLElement[] =>
-			Array.from(ref.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? []),
-		[],
-	);
+	// The pane owns the one query for the rows on screen.
+	const rows = api.rowElements;
 
 	// A focused row can vanish: it was deleted, moved, or its parent closed.
 	// Checked after every render, because rows also arrive with a fetch.
@@ -1042,19 +1053,17 @@ function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 					</span>
 				</MenuItem>
 			) : (
-				<MenuItem>
-					{/* A plain link, so the browser streams the download to disk. */}
-					<a
-						href={
-							node.isDir
-								? directoryDownloadUrl(api.workspaceId, api.projectId, node.path)
-								: fileDownloadUrl(api.workspaceId, api.projectId, node.path)
-						}
-						download={node.isDir ? `${node.name}.zip` : node.name}
-						data-testid={`row-download-${node.path}`}
-					>
-						Download
-					</a>
+				/* A link, so the browser streams the download to disk. */
+				<MenuItem
+					href={
+						node.isDir
+							? directoryDownloadUrl(api.workspaceId, api.projectId, node.path)
+							: fileDownloadUrl(api.workspaceId, api.projectId, node.path)
+					}
+					download={node.isDir ? `${node.name}.zip` : node.name}
+					testId={`row-download-${node.path}`}
+				>
+					Download
 				</MenuItem>
 			)}
 			{/* The picker belongs to the pane, because the menu closes on select. */}

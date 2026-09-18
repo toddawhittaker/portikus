@@ -83,6 +83,7 @@ export function WorkArea({
 	const focusedTerminalId = useLayout(store, (state) => state.focusedTerminalId);
 	const pendingLine = useLayout(store, (state) => state.pendingLine);
 	const pendingDiff = useLayout(store, (state) => state.pendingDiff);
+	const pendingEdit = useLayout(store, (state) => state.pendingEdit);
 	const loaded = useLayoutPersistence(workspaceId, projectId, store, onSessionEnded);
 	const terminals = useTerminals(workspaceId, projectId, true, onSessionEnded);
 	const [closingTabId, setClosingTabId] = useState<string | null>(null);
@@ -417,6 +418,8 @@ export function WorkArea({
 							consumePendingLine={() => store.getState().consumePendingLine(tab.id)}
 							pendingDiff={pendingDiff[tab.id]}
 							consumePendingDiff={() => store.getState().consumePendingDiff(tab.id)}
+							pendingEdit={pendingEdit[tab.id]}
+							consumePendingEdit={() => store.getState().consumePendingEdit(tab.id)}
 							dropTarget={
 								dragTarget?.kind === "pane" && dragTarget.tabId === tab.id
 									? { terminalId: dragTarget.terminalId, edge: dragTarget.edge }

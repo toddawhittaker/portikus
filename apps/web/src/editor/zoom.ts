@@ -1,7 +1,9 @@
 /**
  * Editor-only zoom (SPEC.md §13.1). The zoom is a percentage of the base font
- * size, held per open editor for this session only; nothing is persisted and
- * the browser's own zoom is left alone.
+ * size, held per open file for this session only; nothing is persisted and
+ * the browser's own zoom is left alone. The value for each file lives in the
+ * layout store, beside the cursor and scroll position (layout/store.ts,
+ * issue #162); this module only holds the arithmetic.
  */
 
 /** The font size at 100%, matching baseEditorOptions in monaco.ts. */

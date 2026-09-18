@@ -260,5 +260,15 @@ test.describe("diff tab", () => {
 		await expect(page.getByTestId(`file-pane-${PATH}`)).toBeVisible();
 		await expect(page.getByTestId(`diff-pane-${PATH}`)).toHaveCount(0);
 		await expect(workTabs(page)).toHaveCount(1);
+
+		// Opening the file from the tree also takes a tab that is showing its
+		// diff back to the editor, rather than leaving the diff up.
+		await page.getByTestId(`change-row-${PATH}`).click();
+		await expect(page.getByTestId(`diff-pane-${PATH}`)).toBeVisible();
+		await page.getByTestId("file-row-src").click();
+		await page.getByTestId(`file-row-${PATH}`).click();
+		await expect(page.getByTestId(`file-pane-${PATH}`)).toBeVisible();
+		await expect(page.getByTestId(`diff-pane-${PATH}`)).toHaveCount(0);
+		await expect(workTabs(page)).toHaveCount(1);
 	});
 });

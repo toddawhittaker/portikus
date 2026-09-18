@@ -1,7 +1,13 @@
 import type { Terminal } from "@portikus/contracts";
+import { ToastProvider } from "@portikus/ui";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { decodeOsc52, SCROLLBACK_LINES, TerminalPane } from "./TerminalPane";
+import {
+	decodeOsc52,
+	MAX_CLIPBOARD_BYTES,
+	SCROLLBACK_LINES,
+	TerminalPane,
+} from "./TerminalPane";
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 
@@ -76,23 +82,34 @@ function stubBrowserApis() {
 	);
 }
 
-function renderPane(onExited = vi.fn(), onCwd = vi.fn()) {
+function renderPane(onExited = vi.fn(), onCwd = vi.fn(), visible = true) {
 	stubBrowserApis();
 	vi.stubGlobal("WebSocket", FakeWebSocket);
 	const view = render(
-		<TerminalPane
-			workspaceId={WORKSPACE}
-			projectId={PROJECT}
-			terminal={terminal}
-			visible={true}
-			onExited={onExited}
-			onSessionEnded={vi.fn()}
-			onCwd={onCwd}
-			onFocus={vi.fn()}
-			onLeave={vi.fn()}
-		/>,
+		<ToastProvider>
+			<TerminalPane
+				workspaceId={WORKSPACE}
+				projectId={PROJECT}
+				terminal={terminal}
+				visible={visible}
+				onExited={onExited}
+				onSessionEnded={vi.fn()}
+				onCwd={onCwd}
+				onFocus={vi.fn()}
+				onLeave={vi.fn()}
+			/>
+		</ToastProvider>,
 	);
 	return { view, onExited, onCwd };
+}
+
+/** Put the keyboard in the pane, the way clicking it does. */
+function focusPane(view: ReturnType<typeof render>) {
+	const surface = view.container.querySelector(".pk-terminal-surface");
+	if (!surface) throw new Error("no terminal surface");
+	act(() => {
+		surface.dispatchEvent(new Event("focusin", { bubbles: true }));
+	});
 }
 
 test("the pane opens a socket for its terminal and reports it as connected", async () => {
@@ -257,11 +274,12 @@ function osc52(payload: string): ArrayBuffer {
 	return bytes.buffer;
 }
 
-test("an OSC 52 copy from a program in the pane reaches the system clipboard", async () => {
+test("an OSC 52 copy from the focused pane reaches the clipboard and says so", async () => {
 	const writeText = vi.fn(async () => undefined);
 	stubClipboard({ writeText });
-	renderPane();
+	const { view } = renderPane();
 	await waitFor(() => expect(sockets).toHaveLength(1));
+	focusPane(view);
 
 	const url = "https://accounts.example.com/oauth?code=abc123";
 	act(() => {
@@ -269,6 +287,67 @@ test("an OSC 52 copy from a program in the pane reaches the system clipboard", a
 	});
 
 	await waitFor(() => expect(writeText).toHaveBeenCalledWith(url));
+	// The student is told, so a clipboard change is never silent (SPEC.md §24.2).
+	await waitFor(() =>
+		expect(
+			view.getByText(`Copied to your clipboard by a program in ${terminal.name}`),
+		).toBeTruthy(),
+	);
+});
+
+test("an OSC 52 copy from a pane that does not have focus is refused", async () => {
+	const writeText = vi.fn(async () => undefined);
+	stubClipboard({ writeText });
+	renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+
+	// Nobody is typing here, so nobody asked for a copy (SPEC.md §24.2).
+	act(() => {
+		sockets[0]?.onmessage?.({ data: osc52(`c;${btoa("stolen")}`) });
+	});
+
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	expect(writeText).not.toHaveBeenCalled();
+});
+
+test("an OSC 52 copy from a hidden pane is refused even with focus", async () => {
+	const writeText = vi.fn(async () => undefined);
+	stubClipboard({ writeText });
+	const { view } = renderPane(vi.fn(), vi.fn(), false);
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	focusPane(view);
+
+	act(() => {
+		sockets[0]?.onmessage?.({ data: osc52(`c;${btoa("stolen")}`) });
+	});
+
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	expect(writeText).not.toHaveBeenCalled();
+});
+
+test("an OSC 52 payload larger than the cap is dropped", async () => {
+	const writeText = vi.fn(async () => undefined);
+	stubClipboard({ writeText });
+	const { view } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	focusPane(view);
+
+	const huge = "a".repeat(MAX_CLIPBOARD_BYTES + 1);
+	act(() => {
+		sockets[0]?.onmessage?.({ data: osc52(`c;${btoa(huge)}`) });
+	});
+
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	expect(writeText).not.toHaveBeenCalled();
+	// The workspace's own shim allows a megabyte, so the student has to be
+	// told why the paste is going to be empty.
+	await waitFor(() =>
+		expect(
+			view.getByText(
+				`A program in ${terminal.name} tried to copy more than 100 KB; nothing was copied.`,
+			),
+		).toBeTruthy(),
+	);
 });
 
 test("an OSC 52 read request is ignored rather than handing over the clipboard", async () => {

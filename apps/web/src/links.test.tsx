@@ -146,3 +146,38 @@ test("a full stop after a wrapped URL is not part of it", () => {
 	const row = paneOf(`${LONG_URL}.`, 80);
 	expect(wrappedUrlsOnRow(1, row, 80)[0]?.text).toBe(LONG_URL);
 });
+
+test.each([
+	["a username", "https://github.com@evil.example/login"],
+	["a username and password", "https://user:pass@evil.example/login"],
+	["an empty password", "https://user:@evil.example/"],
+])("a URL carrying %s does not open in a new tab", (_name, url) => {
+	expect(canOpenInNewTab(url)).toBe(false);
+});
+
+test.each([
+	["another loopback address", "http://127.0.0.2:8080/"],
+	["a short loopback form", "http://127.1/"],
+	["an IPv4-mapped loopback", "http://[::ffff:127.0.0.1]/"],
+	["a 10/8 private address", "http://10.0.0.5:8443/"],
+	["a 172.16/12 private address", "http://172.20.1.1/"],
+	["a 192.168/16 private address", "http://192.168.1.1/"],
+	["a link-local address", "http://169.254.169.254/latest/meta-data/"],
+	["a carrier-grade NAT address", "http://100.64.0.1/"],
+	["the top of the carrier-grade NAT range", "http://100.127.255.255/"],
+	["a unique local IPv6 address", "http://[fd00::1]/"],
+	["an IPv6 link-local address", "http://[fe80::1]/"],
+])("%s does not open in a new tab", (_name, url) => {
+	expect(canOpenInNewTab(url)).toBe(false);
+});
+
+test.each([
+	["a public host", "https://example.invalid/docs"],
+	["a public IPv4 address", "http://93.184.216.34/"],
+	["a host that only starts like a private range", "https://172.32.0.1/"],
+	["an address just below carrier-grade NAT", "http://100.63.255.255/"],
+	["an address just above carrier-grade NAT", "http://100.128.0.1/"],
+	["a public IPv6 address", "http://[2001:db8::1]/"],
+])("%s still opens in a new tab", (_name, url) => {
+	expect(canOpenInNewTab(url)).toBe(true);
+});

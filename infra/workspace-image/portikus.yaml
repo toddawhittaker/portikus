@@ -1456,14 +1456,32 @@ files:
     name=${0##*/}
     file=
 
-    # xsel with no flags reads the selection; xclip and pbcopy write it.
+    # xsel with no flags follows stdin (decided below); xclip and pbcopy write.
     if [ "$name" = xsel ]; then
       mode='paste'
     else
       mode='copy'
     fi
+    explicit=
 
-    for arg in "$@"; do
+    while [ "$#" -gt 0 ]; do
+      arg=$1
+
+      # xclip's -t (target), -l (loops) and -d (display) each take a value
+      # that must not be read as a file to copy, and xclip accepts any
+      # unambiguous abbreviation.  xsel's -d means delete, so it is left
+      # to the case below.
+      if [ "$name" = xclip ] && [ "$#" -gt 1 ]; then
+        case "$arg" in
+          -t|-ta|-tar|-targ|-targe|-target|\
+          -l|-lo|-loo|-loop|-loops|\
+          -d|-di|-dis|-disp|-displ|-displa|-display)
+            shift 2
+            continue
+            ;;
+        esac
+      fi
+
       case "$arg" in
         -version|--version)
           echo "portikus clipboard shim"
@@ -1475,14 +1493,30 @@ files:
           ;;
         -o|-out|-output|--output)
           mode='paste'
+          explicit=1
           ;;
         -i|-in|--input|-a|--append)
           mode='copy'
+          explicit=1
           ;;
         -c|--clear|-d|--delete)
           # Only xsel means "clear" or "delete" here; xclip's -d is the display.
           if [ "$name" = xsel ]; then
             mode='paste'
+            explicit=1
+          fi
+          ;;
+        -se|-sel|-sele|-selec|-select|-selecti|-selectio|-selection|--selection)
+          # xclip accepts any unambiguous abbreviation, and the selection name
+          # that follows is a value, not a file to copy.
+          if [ "$#" -gt 1 ]; then
+            shift
+          fi
+          ;;
+        -t|--selectionTimeout|-l|--logfile)
+          # The only xsel options that take a value.
+          if [ "$name" = xsel ] && [ "$#" -gt 1 ]; then
+            shift
           fi
           ;;
         -*)
@@ -1494,7 +1528,14 @@ files:
           fi
           ;;
       esac
+      shift
     done
+
+    # Real xsel with no input or output flag copies when stdin is a pipe or a
+    # file and reads the selection when stdin is a terminal.
+    if [ "$name" = xsel ] && [ -z "$explicit" ] && [ ! -t 0 ]; then
+      mode='copy'
+    fi
 
     # The clipboard cannot be read from here, so report it as empty.
     if [ "$mode" = paste ]; then

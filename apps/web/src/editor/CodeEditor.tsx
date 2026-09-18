@@ -4,7 +4,8 @@
  * the saving.
  */
 import type * as Monaco from "monaco-editor";
-import { useEffect, useRef, useState } from "react";
+import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { useEditorZoom } from "../layout/store.js";
 import {
 	baseEditorOptions,
 	currentThemeName,
@@ -12,12 +13,19 @@ import {
 	languageForFile,
 	watchTheme,
 } from "./monaco.js";
+import { scrollRatio, scrollTopForRatio } from "./scrollSync.js";
 import { DEFAULT_ZOOM, fontSizeFor, stepZoom } from "./zoom.js";
 import "./editor.css";
 
 export interface CodeEditorProps {
-	/** The project-relative path; it names the model and picks the language. */
+	/** The project-relative path; it picks the language and names the model. */
 	path: string;
+	/**
+	 * The project the file belongs to. Monaco models are global to the page,
+	 * so the project is part of the model name: two projects' README.md must
+	 * not share one model while a project switch is in flight.
+	 */
+	projectId: string;
 	value: string;
 	/**
 	 * Which version of the file `value` is. The editor only replaces its text
@@ -36,10 +44,30 @@ export interface CodeEditorProps {
 	 * file at a line it is already showing still moves the cursor there.
 	 */
 	revealNonce?: number;
+	/**
+	 * Monaco's saved view state for this file: cursor, selections and scroll.
+	 * It is put back once the model holds the real text (issue #161).
+	 */
+	viewState?: unknown;
+	/** Hand the newest view state back, so it survives leaving the route. */
+	onViewState?: (viewState: unknown) => void;
+	/**
+	 * Reports where the editor is in its own scroll range, from 0 to 1, so the
+	 * Markdown split view can put the preview in the same place (issue #154).
+	 */
+	onScrollRatio?: (ratio: number) => void;
+	/** Lets the tab scroll this editor to a relative position. */
+	ref?: Ref<CodeEditorHandle>;
+}
+
+export interface CodeEditorHandle {
+	/** Scroll to a relative position, from 0 at the top to 1 at the end. */
+	setScrollRatio: (ratio: number) => void;
 }
 
 export function CodeEditor({
 	path,
+	projectId,
 	value,
 	version,
 	onChange,
@@ -47,18 +75,25 @@ export function CodeEditor({
 	wordWrap = "off",
 	revealLine,
 	revealNonce,
+	viewState,
+	onViewState,
+	onScrollRatio,
+	ref,
 }: CodeEditorProps) {
 	const host = useRef<HTMLDivElement | null>(null);
 	// The whole tab: Monaco above, the zoom bar below.
 	const container = useRef<HTMLDivElement | null>(null);
-	// Zoom is per open editor and lasts for this session only (SPEC.md §13.1).
-	const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+	// Zoom is per open file and lasts for this session only (SPEC.md §13.1).
+	// The layout store holds it, beside the cursor and scroll position.
+	const [zoom, setZoom] = useEditorZoom(path);
 	// Shown on the bar under the editor, so the guessed language is visible.
 	const [language, setLanguage] = useState("plaintext");
 	// The editor and the wheel handler are set up once, so they read the newest
 	// zoom through a ref rather than being rebuilt on every step.
 	const zoomRef = useRef(zoom);
 	zoomRef.current = zoom;
+	const setZoomRef = useRef(setZoom);
+	setZoomRef.current = setZoom;
 	// Same reason: the editor is created once, so it reads the newest wrap
 	// setting here and through the effect below.
 	const wrapRef = useRef(wordWrap);
@@ -73,8 +108,38 @@ export function CodeEditor({
 
 	// The editor is created once, so it reads the newest callbacks and text
 	// through refs rather than being torn down on every render.
-	const latest = useRef({ value, version, onChange, onSave, revealLine });
-	latest.current = { value, version, onChange, onSave, revealLine };
+	const latest = useRef({
+		value,
+		version,
+		onChange,
+		onSave,
+		revealLine,
+		onViewState,
+		onScrollRatio,
+	});
+	latest.current = {
+		value,
+		version,
+		onChange,
+		onSave,
+		revealLine,
+		onViewState,
+		onScrollRatio,
+	};
+
+	useImperativeHandle(ref, () => ({
+		setScrollRatio(ratio: number) {
+			const editor = editorRef.current;
+			if (!editor) return;
+			editor.setScrollTop(
+				scrollTopForRatio(
+					ratio,
+					editor.getScrollHeight(),
+					editor.getLayoutInfo().height,
+				),
+			);
+		},
+	}));
 
 	// A later request to jump, once the editor is already up. The one that
 	// arrives before Monaco has loaded is handled where the editor is created.
@@ -87,11 +152,12 @@ export function CodeEditor({
 		editor.focus();
 	}, [revealNonce]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: useEditorViewState reads viewState once per tab, so it never changes here
 	useEffect(() => {
 		let disposed = false;
 		void getMonaco().then((monaco) => {
 			if (disposed || !host.current) return;
-			const uri = monaco.Uri.parse(`pk:/${path}`);
+			const uri = monaco.Uri.parse(`pk:/${projectId}/${path}`);
 			const model =
 				monaco.editor.getModel(uri) ??
 				monaco.editor.createModel(
@@ -111,13 +177,13 @@ export function CodeEditor({
 			// keys, so the browser's own zoom does not also fire.
 			const mod = monaco.KeyMod.CtrlCmd;
 			editor.addCommand(mod | monaco.KeyMod.Shift | monaco.KeyCode.Equal, () => {
-				setZoom((current) => stepZoom(current, 1));
+				setZoomRef.current(stepZoom(zoomRef.current, 1));
 			});
 			editor.addCommand(mod | monaco.KeyMod.Shift | monaco.KeyCode.Minus, () => {
-				setZoom((current) => stepZoom(current, -1));
+				setZoomRef.current(stepZoom(zoomRef.current, -1));
 			});
 			editor.addCommand(mod | monaco.KeyCode.Digit0, () => {
-				setZoom(DEFAULT_ZOOM);
+				setZoomRef.current(DEFAULT_ZOOM);
 			});
 			editorRef.current = editor;
 			modelRef.current = model;
@@ -143,11 +209,53 @@ export function CodeEditor({
 				if (applying.current) return;
 				latest.current.onChange(model.getValue());
 			});
+			// Put the cursor and scroll back now that the model holds the real
+			// text (issue #161). A tab in the background has no height yet, and
+			// Monaco clamps a scroll it cannot show, so this waits for a layout
+			// with a height rather than restoring into nothing.
+			// useEditorViewState reads this once when the tab mounts, so a save
+			// while the tab is open cannot make the editor jump.
+			const saved = viewState;
+			let restored = saved === undefined || saved === null;
+			function restore() {
+				if (restored || editor.getLayoutInfo().height <= 0) return;
+				restored = true;
+				editor.restoreViewState(saved as Monaco.editor.ICodeEditorViewState);
+			}
+			restore();
+			editor.onDidLayoutChange(restore);
+			// An explicit "open at line" wins over the remembered position.
 			const line = latest.current.revealLine;
 			if (line !== undefined) {
+				restored = true;
 				editor.setPosition({ lineNumber: line, column: 1 });
 				editor.revealLineInCenter(line);
 			}
+			// Every move and scroll goes straight into the layout store, which
+			// is cheap; writing it to this browser's storage is what the layout
+			// hook debounces (persist.ts, issue #161).
+			function report() {
+				if (!restored) return;
+				latest.current.onViewState?.(editor.saveViewState());
+			}
+			editor.onDidChangeCursorPosition(report);
+			// One scroll listener does both jobs: remember the position and let
+			// the split view follow it (issue #154). It is attached after the
+			// restore above so the remembered position is put back first, rather
+			// than the two pulling against each other while the tab is opening.
+			editor.onDidScrollChange(() => {
+				report();
+				if (!restored) return;
+				const toPreview = latest.current.onScrollRatio;
+				if (!toPreview) return;
+				toPreview(
+					scrollRatio(
+						editor.getScrollTop(),
+						editor.getScrollHeight(),
+						editor.getLayoutInfo().height,
+					),
+				);
+			});
 		});
 		return () => {
 			disposed = true;
@@ -156,7 +264,7 @@ export function CodeEditor({
 			editorRef.current = null;
 			modelRef.current = null;
 		};
-	}, [path]);
+	}, [path, projectId]);
 
 	// A refreshed file replaces the text through an edit operation, so the
 	// cursor and the scroll position survive (SPEC.md §13.3).
@@ -194,7 +302,7 @@ export function CodeEditor({
 			if (!(event.ctrlKey || event.metaKey)) return;
 			event.preventDefault();
 			if (event.deltaY === 0) return;
-			setZoom(stepZoom(zoomRef.current, event.deltaY < 0 ? 1 : -1));
+			setZoomRef.current(stepZoom(zoomRef.current, event.deltaY < 0 ? 1 : -1));
 		}
 		node.addEventListener("wheel", onWheel, { passive: false });
 		return () => node.removeEventListener("wheel", onWheel);

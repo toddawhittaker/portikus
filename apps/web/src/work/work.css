@@ -331,7 +331,7 @@
 	text-decoration: underline;
 }
 
-/* The Edit | Preview | Split control on a Markdown tab (SPEC.md §13.4), and
+/* The Code | Rich | Split control on a Markdown tab (SPEC.md §13.4), and
    the Edit | Diff control on every file tab (issue #160). */
 .pk-md-modes {
 	flex: none;

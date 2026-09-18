@@ -10,6 +10,11 @@ import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react
 import { useState } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { FileContent } from "../files/queries.js";
+import {
+	createLayoutStore,
+	type LayoutStore,
+	LayoutStoreContext,
+} from "../layout/store.js";
 import { renderWithQuery } from "../test-utils.js";
 import { FileLeaf } from "./FileLeaf.js";
 
@@ -45,7 +50,9 @@ const state: {
 	/** The options the editor was created with, and every later change. */
 	created: Record<string, unknown> | null;
 	updates: Record<string, unknown>[];
-} = { model: null, created: null, updates: [] };
+	/** The names the editor gave its models, newest last. */
+	uris: string[];
+} = { model: null, created: null, updates: [], uris: [] };
 /** The two sides of the conflict diff, once it has been created. */
 const diffState: { models: { original: FakeModel; modified: FakeModel } | null } = {
 	models: null,
@@ -53,6 +60,10 @@ const diffState: { models: { original: FakeModel; modified: FakeModel } | null }
 /** Where the editor was told to put the cursor, and what it scrolled to. */
 const cursorLines: number[] = [];
 const revealedLines: number[] = [];
+/** The view states the editor was asked to put back (issue #161). */
+const restoredViewStates: unknown[] = [];
+/** Reports a cursor move the way Monaco would. */
+let moveCursor: (() => void) | null = null;
 
 vi.mock("../editor/features.js", () => ({ loadEditorFeatures: async () => {} }));
 vi.mock("monaco-editor/basic-languages/monaco.contribution.js", () => ({}));
@@ -85,6 +96,7 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 				// models are nobody else's to find.
 				if (uri) {
 					models.set(uri.value, model);
+					state.uris.push(uri.value);
 					state.model = model;
 				}
 				return model;
@@ -103,9 +115,29 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 			) => {
 				state.model = options.model;
 				state.created = options;
+				let position = 1;
 				return {
 					onDidChangeModelContent: (listener: () => void) => {
 						options.model.listeners.push(listener);
+					},
+					onDidChangeCursorPosition: (listener: () => void) => {
+						moveCursor = () => {
+							position += 1;
+							listener();
+						};
+					},
+					// Nothing scrolls in jsdom, so the scroll hooks the split
+					// view uses (issue #154) only have to exist and answer.
+					onDidScrollChange: () => {},
+					onDidLayoutChange: () => {},
+					getScrollTop: () => 0,
+					getScrollHeight: () => 0,
+					setScrollTop: () => {},
+					// jsdom has no layout, so the fake editor claims a size.
+					getLayoutInfo: () => ({ width: 800, height: 600 }),
+					saveViewState: () => ({ line: position }),
+					restoreViewState: (viewState: unknown) => {
+						restoredViewStates.push(viewState);
 					},
 					setPosition: (position: { lineNumber: number }) => {
 						cursorLines.push(position.lineNumber);
@@ -251,8 +283,11 @@ beforeEach(() => {
 	state.model = null;
 	state.created = null;
 	state.updates.length = 0;
+	state.uris.length = 0;
 	diffState.models = null;
 	gate = null;
+	restoredViewStates.length = 0;
+	moveCursor = null;
 	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSaveDelaySeconds: 1 };
 	seed = { text: "hello", etag: "etag-0" };
 	stubServer();
@@ -270,6 +305,20 @@ function renderLeaf(onClose = () => {}, path = PATH) {
 			projectId={PROJECT}
 			onClose={onClose}
 		/>,
+	);
+}
+
+/** The same tab, but inside a layout store that can remember its cursor. */
+function renderLeafWithStore(store: LayoutStore, path = PATH) {
+	return renderWithQuery(
+		<LayoutStoreContext.Provider value={store}>
+			<FileLeaf
+				path={path}
+				workspaceId={WORKSPACE}
+				projectId={PROJECT}
+				onClose={() => {}}
+			/>
+		</LayoutStoreContext.Provider>,
 	);
 }
 
@@ -586,27 +635,28 @@ async function renderMarkdownLeaf() {
 	seed = { text: "# Notes\n", etag: "etag-0" };
 	renderLeaf(() => {}, MD_PATH);
 	await findEditor(MD_PATH);
-	await screen.findByTestId("markdown-preview");
+	await screen.findByTestId("markdown-rich");
 }
 
-test("a Markdown file opens in Preview with all three views offered", async () => {
+test("a Markdown file opens in the rich view with all three views offered", async () => {
 	await renderMarkdownLeaf();
-	expect(screen.getByTestId("markdown-mode-edit").textContent).toBe("Edit");
-	expect(screen.getByTestId("markdown-mode-preview").textContent).toBe("Preview");
+	expect(screen.getByTestId("markdown-mode-code").textContent).toBe("Code");
+	expect(screen.getByTestId("markdown-mode-rich").textContent).toBe("Rich");
 	expect(screen.getByTestId("markdown-mode-split").textContent).toBe("Split");
-	expect(screen.getByTestId("markdown-mode-preview").getAttribute("aria-pressed")).toBe(
+	expect(screen.getByTestId("markdown-mode-rich").getAttribute("aria-pressed")).toBe(
 		"true",
 	);
-	expect(screen.getByTestId("md-preview-pane").hasAttribute("hidden")).toBe(false);
-	expect(screen.getByTestId("md-edit-pane").hasAttribute("hidden")).toBe(true);
+	expect(screen.getByTestId("md-rich-pane").hasAttribute("hidden")).toBe(false);
+	expect(screen.getByTestId("md-code-pane").hasAttribute("hidden")).toBe(true);
 });
 
-test("Edit hides the preview instead of unmounting the editor", async () => {
+test("Code hides the rich view instead of unmounting the editor", async () => {
 	await renderMarkdownLeaf();
-	act(() => screen.getByTestId("markdown-mode-edit").click());
+	act(() => screen.getByTestId("markdown-mode-code").click());
 
-	expect(screen.getByTestId("md-preview-pane").hasAttribute("hidden")).toBe(true);
-	expect(screen.getByTestId("md-edit-pane").hasAttribute("hidden")).toBe(false);
+	expect(screen.getByTestId("md-rich-pane").hasAttribute("hidden")).toBe(true);
+	expect(screen.queryByTestId("markdown-rich")).toBeNull();
+	expect(screen.getByTestId("md-code-pane").hasAttribute("hidden")).toBe(false);
 	expect(screen.getByTestId(`editor-${MD_PATH}`)).not.toBeNull();
 });
 
@@ -615,9 +665,9 @@ test("switching views keeps the editor's model, so undo and cursor survive", asy
 	const model = state.model;
 	expect(model).not.toBeNull();
 
-	act(() => screen.getByTestId("markdown-mode-edit").click());
+	act(() => screen.getByTestId("markdown-mode-code").click());
 	act(() => screen.getByTestId("markdown-mode-split").click());
-	act(() => screen.getByTestId("markdown-mode-preview").click());
+	act(() => screen.getByTestId("markdown-mode-rich").click());
 
 	// A disposed model would have lost the undo history with it.
 	expect(model?.disposed).toBe(false);
@@ -627,7 +677,7 @@ test("switching views keeps the editor's model, so undo and cursor survive", asy
 test("a file that is not Markdown offers no view buttons", async () => {
 	renderLeaf();
 	await findEditor();
-	expect(screen.queryByTestId("markdown-mode-edit")).toBeNull();
+	expect(screen.queryByTestId("markdown-mode-code")).toBeNull();
 	expect(screen.queryByTestId("markdown-split")).toBeNull();
 });
 
@@ -720,6 +770,59 @@ test("Keep editing puts the conflict diff away and brings it back", async () => 
 
 	fireEvent.click(screen.getByTestId("keep-editing"));
 	expect(await screen.findByTestId(`conflict-editor-${PATH}`)).not.toBeNull();
+});
+
+test("Keep editing carries the conflict edits into the editor (issue #158)", async () => {
+	renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
+	await screen.findByTestId(`conflict-editor-${PATH}`);
+
+	typeInConflict("mine, merged by hand");
+	fireEvent.click(screen.getByTestId("keep-editing"));
+
+	// The editor below the diff has to hold what was typed in the diff, or
+	// the next keystroke would write the older text back over it.
+	await waitFor(() => expect(state.model?.getValue()).toBe("mine, merged by hand"));
+});
+
+test("the model is named after the project as well as the file (issue #160)", async () => {
+	renderLeaf();
+	await findEditor();
+	// Two projects can hold a README.md; one model must not serve both.
+	expect(state.uris.at(-1)).toBe(`pk:/${PROJECT}/${PATH}`);
+});
+
+test("opening a file again brings a tab in diff view back to the editor", async () => {
+	function Reopen() {
+		const [opened, setOpened] = useState(0);
+		return (
+			<>
+				<button type="button" data-testid="reopen" onClick={() => setOpened(1)}>
+					Open the file again
+				</button>
+				<FileLeaf
+					path={PATH}
+					workspaceId={WORKSPACE}
+					projectId={PROJECT}
+					onClose={() => {}}
+					pendingDiff={1}
+					consumePendingDiff={() => opened === 0}
+					pendingEdit={opened}
+					consumePendingEdit={() => opened === 1}
+				/>
+			</>
+		);
+	}
+	renderWithQuery(<Reopen />);
+	expect(await screen.findByTestId(`diff-pane-${PATH}`)).not.toBeNull();
+
+	fireEvent.click(screen.getByTestId("reopen"));
+
+	await waitFor(() => expect(screen.queryByTestId(`diff-pane-${PATH}`)).toBeNull());
+	expect(screen.getByTestId(`file-pane-${PATH}`).style.display).toBe("");
 });
 
 test("Take disk closes the conflict diff", async () => {
@@ -837,4 +940,63 @@ test("word wrap on reaches Monaco (issue #159)", async () => {
 				state.updates.some((options) => options.wordWrap === "on"),
 		).toBe(true),
 	);
+});
+
+test("a remembered cursor is put back when the tab opens again (issue #161)", async () => {
+	const store = createLayoutStore();
+	store.getState().openFile(PATH);
+	store.getState().setViewState(PATH, { line: 42 });
+	renderLeafWithStore(store);
+	await findEditor();
+	// Only once the model holds the real text, so Monaco has lines to scroll to.
+	await waitFor(() => expect(restoredViewStates).toEqual([{ line: 42 }]));
+	expect(state.model?.getValue()).toBe("hello");
+});
+
+test("moving the cursor is remembered for the next mount (issue #161)", async () => {
+	const store = createLayoutStore();
+	store.getState().openFile(PATH);
+	renderLeafWithStore(store);
+	await findEditor();
+	act(() => moveCursor?.());
+	await waitFor(() => expect(store.getState().viewStates[PATH]).toEqual({ line: 2 }));
+	// The store has it at once, so leaving the route cannot race the save.
+	act(() => moveCursor?.());
+	expect(store.getState().viewStates[PATH]).toEqual({ line: 3 });
+	act(() => cleanup());
+	expect(store.getState().viewStates[PATH]).toEqual({ line: 3 });
+});
+
+test("Markdown the rich view cannot read falls back to the code view (ADR 0017)", async () => {
+	// A reference-style link: MDXEditor's importer cannot read it, and while
+	// it is in that state the rich view shows only part of the file and drops
+	// every keystroke. The tab must not leave a student there.
+	seed = {
+		text: "See [the docs][d].\n\n[d]: https://example.invalid/\n\nAfter.\n",
+		etag: "etag-0",
+	};
+	renderLeaf(() => {}, "README.md");
+	const notice = await screen.findByTestId("rich-unsupported");
+	expect(notice.textContent).toContain("editing in Code view");
+	// The code view is the one on screen, and the other two are not offered.
+	expect(screen.getByTestId("markdown-mode-code").getAttribute("aria-pressed")).toBe(
+		"true",
+	);
+	expect(screen.getByTestId("markdown-mode-rich").hasAttribute("disabled")).toBe(true);
+	expect(screen.getByTestId("markdown-mode-split").hasAttribute("disabled")).toBe(true);
+	// Monaco holds the whole file, so no keystroke is lost.
+	await findEditor("README.md");
+	expect(state.model?.getValue()).toContain("After.");
+});
+
+test("Markdown with a badge and an HTML comment stays in the rich view", async () => {
+	seed = {
+		text: "# Project\n\n![build](https://img.example/b.svg)\n\n<!-- a note -->\n\nHow to run it.\n",
+		etag: "etag-0",
+	};
+	renderLeaf(() => {}, "README.md");
+	const rich = await screen.findByTestId("markdown-rich");
+	await waitFor(() => expect(rich.textContent).toContain("How to run it."));
+	expect(rich.textContent).toContain("<!-- a note -->");
+	expect(screen.queryByTestId("rich-unsupported")).toBeNull();
 });

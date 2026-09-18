@@ -8,6 +8,8 @@ import { Button, EmptyState, PaneHandle } from "@portikus/ui";
 import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import { ApiError } from "../api/request.js";
+import type { CodeEditorHandle } from "../editor/CodeEditor.js";
+import { scrollRatio, scrollTopForRatio } from "../editor/scrollSync.js";
 import { useEditorSettings } from "../editor/settingsQueries.js";
 import {
 	FileConflictError,
@@ -16,6 +18,7 @@ import {
 	useFile,
 	useSaveFile,
 } from "../files/queries.js";
+import { useEditorViewState } from "../layout/store.js";
 import { DiffLeaf } from "./DiffLeaf.js";
 
 // Monaco is large, so it is its own chunk and is only fetched when a file tab
@@ -24,10 +27,11 @@ const CodeEditor = lazy(() =>
 	import("../editor/CodeEditor.js").then((module) => ({ default: module.CodeEditor })),
 );
 
-// The Markdown renderer is its own chunk for the same reason.
-const MarkdownPreview = lazy(() =>
-	import("../editor/MarkdownPreview.js").then((module) => ({
-		default: module.MarkdownPreview,
+// The rich Markdown editor is its own chunk for the same reason: a student
+// who only ever opens code files never downloads it (ADR 0017).
+const RichMarkdownEditor = lazy(() =>
+	import("../editor/RichMarkdownEditor.js").then((module) => ({
+		default: module.RichMarkdownEditor,
 	})),
 );
 
@@ -43,11 +47,11 @@ type View = "edit" | "diff";
 const HIDDEN = { display: "none" } as const;
 
 /** Which of the three Markdown views this tab shows (SPEC.md §13.4). */
-type MarkdownMode = "edit" | "preview" | "split";
+type MarkdownMode = "code" | "rich" | "split";
 
 const MARKDOWN_MODES: { mode: MarkdownMode; label: string }[] = [
-	{ mode: "edit", label: "Edit" },
-	{ mode: "preview", label: "Preview" },
+	{ mode: "code", label: "Code" },
+	{ mode: "rich", label: "Rich" },
 	{ mode: "split", label: "Split" },
 ];
 
@@ -82,6 +86,10 @@ export interface FileLeafProps {
 	pendingDiff?: number;
 	/** Take that request from the layout store, so it is acted on once. */
 	consumePendingDiff?: () => boolean;
+	/** Counts the times this tab was asked to show the editor again. */
+	pendingEdit?: number;
+	/** Take that request from the layout store, so it is acted on once. */
+	consumePendingEdit?: () => boolean;
 	/** False while this tab is in the background. */
 	visible?: boolean;
 }
@@ -95,12 +103,17 @@ export function FileLeaf({
 	consumePendingLine,
 	pendingDiff,
 	consumePendingDiff,
+	pendingEdit,
+	consumePendingEdit,
 	visible = true,
 }: FileLeafProps) {
 	// The student's own editor settings (issue #159). They load once per
 	// session; until they arrive the editor uses the defaults.
 	const settingsQuery = useEditorSettings();
 	const settings = settingsQuery.data ?? EDITOR_SETTINGS_DEFAULTS;
+	// Where the cursor and scroll were when this file was last on screen, so
+	// leaving the workspace and coming back puts them back (issue #161).
+	const viewState = useEditorViewState(path);
 	const file = useFile(workspaceId, projectId, path);
 	const save = useSaveFile(workspaceId, projectId, path);
 
@@ -116,14 +129,31 @@ export function FileLeaf({
 	// A conflict opens as a diff; the student can put it aside and carry on
 	// typing, and the banner brings the diff back (issue #158).
 	const [showConflict, setShowConflict] = useState(false);
+	// Counts the edits made on the conflict side. The editor below only takes
+	// new text when its version changes, and typing in the conflict diff does
+	// not change the etag, so without this counter "Keep editing" would come
+	// back to an editor still holding the text from before those keystrokes.
+	const [conflictEdits, setConflictEdits] = useState(0);
 	// Which view this tab shows. It belongs to this browser and is not saved.
 	const [view, setView] = useState<View>("edit");
 	const markdown = isMarkdownPath(path);
-	// Markdown opens rendered; the choice belongs to this tab and is not saved.
-	const [mode, setMode] = useState<MarkdownMode>("preview");
-	// The preview may lag the keystrokes so typing stays smooth, but it is
+	// Markdown opens in the rich view; the choice belongs to this tab and is
+	// not saved.
+	const [mode, setMode] = useState<MarkdownMode>("rich");
+	// True once the rich editor has told us it cannot read this file. In that
+	// state it shows only part of the file and drops keystrokes, so the tab
+	// moves to the code view and stays there (ADR 0017).
+	const [richUnsupported, setRichUnsupported] = useState(false);
+	const shownMode: MarkdownMode = richUnsupported ? "code" : mode;
+	// The split view keeps both sides at the same relative position (issue
+	// #154). The flag stops the scroll each side causes in the other from
+	// being sent straight back.
+	const editorScroll = useRef<CodeEditorHandle | null>(null);
+	const richScroll = useRef<HTMLDivElement | null>(null);
+	const syncing = useRef(false);
+	// The rich view may lag the keystrokes so typing stays smooth, but it is
 	// never a frame behind on the first render.
-	const previewText = useDeferredValue(text ?? "");
+	const richText = useDeferredValue(text ?? "");
 	// The file was deleted on disk while it was open, so the next save has to
 	// create it rather than replace a version (SPEC.md §13.3).
 	const [deleted, setDeleted] = useState(false);
@@ -165,6 +195,15 @@ export function FileLeaf({
 	useEffect(() => {
 		if (consumeDiff.current?.()) setView("diff");
 	}, [pendingDiff]);
+
+	// Opening the file again from the tree or a terminal link takes a tab that
+	// was left in diff view back to the editor.
+	const consumeEdit = useRef(consumePendingEdit);
+	consumeEdit.current = consumePendingEdit;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: pendingEdit is the trigger
+	useEffect(() => {
+		if (consumeEdit.current?.()) setView("edit");
+	}, [pendingEdit]);
 
 	// The save reads the newest text and etag, not the ones captured when the
 	// timer was set.
@@ -284,6 +323,12 @@ export function FileLeaf({
 		if (settingsRef.current.autoSave) scheduleSave();
 	}
 
+	/** A keystroke on the student's side of the conflict diff (issue #158). */
+	function onConflictChange(next: string) {
+		setConflictEdits((count) => count + 1);
+		onChange(next);
+	}
+
 	function saveNow() {
 		if (!dirty || conflict !== null) return;
 		const current = latest.current;
@@ -360,6 +405,34 @@ export function FileLeaf({
 	// while the editor is empty there is nothing to have saved.
 	const showStatus = text !== null && !viewer;
 
+	// The two sides of the Markdown split view follow each other by relative
+	// position: how far down its own scrollable range each side is (issue
+	// #154, SPEC.md §13.4). Scrolling one side scrolls the other, which fires
+	// that side's own scroll event, so the flag drops the echo.
+	function followEditor(ratio: number) {
+		const node = richScroll.current;
+		if (mode !== "split" || !node || syncing.current) return;
+		syncing.current = true;
+		node.scrollTop = scrollTopForRatio(ratio, node.scrollHeight, node.clientHeight);
+		releaseSync();
+	}
+
+	function followRich() {
+		const node = richScroll.current;
+		if (mode !== "split" || !node || syncing.current) return;
+		syncing.current = true;
+		editorScroll.current?.setScrollRatio(
+			scrollRatio(node.scrollTop, node.scrollHeight, node.clientHeight),
+		);
+		releaseSync();
+	}
+
+	function releaseSync() {
+		requestAnimationFrame(() => {
+			syncing.current = false;
+		});
+	}
+
 	function banner() {
 		if (text === null) return null;
 		if (gone) {
@@ -425,20 +498,34 @@ export function FileLeaf({
 			<Suspense fallback={<p className="pk-file-note">Loading editor…</p>}>
 				<CodeEditor
 					path={path}
+					projectId={projectId}
 					value={text}
-					version={etag}
+					version={`${etag}:${conflictEdits}`}
 					onChange={onChange}
 					onSave={saveNow}
 					wordWrap={settings.wordWrap ? "on" : "off"}
 					revealLine={reveal?.line}
 					revealNonce={reveal?.nonce}
+					viewState={viewState.initial}
+					onViewState={viewState.save}
+					ref={markdown ? editorScroll : undefined}
+					onScrollRatio={markdown ? followEditor : undefined}
 				/>
 			</Suspense>
 		);
 		if (!markdown) return editor;
-		const preview = (
-			<Suspense fallback={<p className="pk-file-note">Loading preview…</p>}>
-				<MarkdownPreview text={previewText} />
+		// Both sides edit the same buffer, so an edit in the rich view goes
+		// through the same dirty state, autosave and Ctrl+S as a code edit
+		// (issue #155).
+		const rich = (
+			<Suspense fallback={<p className="pk-file-note">Loading rich editor…</p>}>
+				<RichMarkdownEditor
+					text={richText}
+					onChange={onChange}
+					scrollRef={richScroll}
+					onScroll={followRich}
+					onUnsupported={() => setRichUnsupported(true)}
+				/>
 			</Suspense>
 		);
 		// All three modes render the same tree and hide the panel they do not
@@ -452,25 +539,28 @@ export function FileLeaf({
 				id="markdown-split"
 			>
 				<Panel
-					id="md-edit-pane"
+					id="md-code-pane"
 					minSize="20%"
 					className="pk-split-panel"
-					hidden={mode === "preview"}
+					hidden={shownMode === "rich"}
 				>
 					{editor}
 				</Panel>
 				<PaneHandle
 					orientation="vertical"
-					label="Resize preview"
-					style={mode === "split" ? undefined : { display: "none" }}
+					label="Resize rich view"
+					style={shownMode === "split" ? undefined : { display: "none" }}
 				/>
 				<Panel
-					id="md-preview-pane"
+					id="md-rich-pane"
 					minSize="20%"
 					className="pk-split-panel"
-					hidden={mode === "edit"}
+					hidden={shownMode === "code"}
 				>
-					{preview}
+					{/* In code view the rich editor is unmounted rather than
+					    hidden: it holds no state the code side does not, and
+					    reloading it on every keystroke would cost for nothing. */}
+					{shownMode === "code" ? null : rich}
 				</Panel>
 			</Group>
 		);
@@ -490,7 +580,7 @@ export function FileLeaf({
 					modified={text}
 					version={conflict.etag}
 					editable
-					onChange={onChange}
+					onChange={onConflictChange}
 					testId={`conflict-editor-${path}`}
 				/>
 			</Suspense>
@@ -536,7 +626,8 @@ export function FileLeaf({
 								<button
 									key={choice.mode}
 									type="button"
-									aria-pressed={mode === choice.mode}
+									aria-pressed={shownMode === choice.mode}
+									disabled={richUnsupported && choice.mode !== "code"}
 									onClick={() => setMode(choice.mode)}
 									data-testid={`markdown-mode-${choice.mode}`}
 								>
@@ -555,6 +646,11 @@ export function FileLeaf({
 						</span>
 					) : null}
 				</div>
+				{richUnsupported ? (
+					<div className="pk-file-banner" role="status" data-testid="rich-unsupported">
+						This file has Markdown the rich view cannot show; editing in Code view.
+					</div>
+				) : null}
 				{conflict !== null ? (
 					<div className="pk-file-conflict" role="alert" data-testid="file-conflict">
 						<span>

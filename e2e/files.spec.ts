@@ -192,6 +192,9 @@ test.describe("file tree", () => {
 
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(page.getByTestId("file-tree")).toBeVisible({ timeout: 15_000 });
+		// The saved layout arrives after the tree; clicking before it lands
+		// would open the file instead of refusing it.
+		await expect(page.getByTestId("tab-file:full-15.txt")).toBeVisible();
 
 		await row(page, "README.md").click();
 
@@ -363,5 +366,30 @@ test.describe("file tree", () => {
 
 		await page.getByTestId("dialog-confirm").click();
 		await expect(row(page, "src")).toHaveCount(0);
+	});
+
+	/** A folder takes its children, so selecting both must not error. */
+	test("deleting a folder and a file inside it deletes once, without an error", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Nested");
+
+		await row(page, "src").click();
+		await expect(row(page, "src/app.ts")).toBeVisible();
+		await row(page, "src/app.ts").click({ modifiers: ["Control"] });
+		await expect(row(page, "src/app.ts")).toHaveAttribute("data-selected", "true");
+
+		await page.getByTestId("file-menu-src").click();
+		await page.getByTestId("row-delete").click();
+
+		const dialog = page.getByTestId("dialog-delete-file");
+		await expect(dialog).toContainText("Delete src");
+		await page.getByTestId("dialog-confirm").click();
+
+		await expect(row(page, "src")).toHaveCount(0);
+		await expect(page.locator(".pk-toast")).toHaveCount(0);
+		await expect(row(page, "README.md")).toBeVisible();
 	});
 });

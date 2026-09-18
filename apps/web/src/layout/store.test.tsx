@@ -222,3 +222,83 @@ test("opening a file is refused when the tab strip is full", () => {
 	expect(layout.getState().activeTabId).toBe(`t${MAX_LAYOUT_TABS - 1}`);
 	expect(layout.getState().pendingLine).toEqual({});
 });
+
+test("opening a file for editing asks its tab for the editor", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts", { diff: true });
+	// Opening the file again from the tree or a terminal link must take the
+	// tab out of diff view, so the diff request is replaced by an edit one.
+	layout.getState().openFile("src/app.ts");
+	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(false);
+	expect(layout.getState().consumePendingEdit("file:src/app.ts")).toBe(true);
+	expect(layout.getState().consumePendingEdit("file:src/app.ts")).toBe(false);
+});
+
+test("asking for the diff cancels an edit request that was waiting", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	layout.getState().openFile("src/app.ts", { diff: true });
+	expect(layout.getState().consumePendingEdit("file:src/app.ts")).toBe(false);
+	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
+});
+
+test("closing a file tab forgets the editor request it was waiting for", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	layout.getState().closeTab("file:src/app.ts");
+	expect(layout.getState().pendingEdit).toEqual({});
+});
+
+test("a file's zoom is kept for the session and dropped with the tab", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	layout.getState().setZoom("src/app.ts", 130);
+	expect(layout.getState().zooms).toEqual({ "src/app.ts": 130 });
+	layout.getState().closeTab("file:src/app.ts");
+	expect(layout.getState().zooms).toEqual({});
+});
+
+test("a file tab's view state is kept and dropped with the tab", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	layout.getState().setViewState("src/app.ts", { line: 42 });
+	expect(layout.getState().viewStates).toEqual({ "src/app.ts": { line: 42 } });
+	layout.getState().closeTab("file:src/app.ts");
+	expect(layout.getState().viewStates).toEqual({});
+});
+
+test("closing a terminal tab leaves the file view states alone", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	layout.getState().setViewState("src/app.ts", { line: 42 });
+	layout.getState().addTab("a");
+	layout.getState().closeTab("a");
+	expect(layout.getState().viewStates).toEqual({ "src/app.ts": { line: 42 } });
+});
+
+test("what this browser remembered is put back, and the saved layout keeps it", () => {
+	const layout = store();
+	layout.getState().restoreLocal({
+		activeTabId: "file:src/app.ts",
+		viewStates: { "src/app.ts": { line: 42 } },
+	});
+	expect(layout.getState().activeTabId).toBe("file:src/app.ts");
+	// The saved layout arrives afterwards and must not move the student.
+	layout.getState().load({
+		tabs: [
+			{ id: "a", root: { type: "leaf", terminalId: "a" } },
+			{ id: "file:src/app.ts", root: { type: "file", path: "src/app.ts" } },
+		],
+	});
+	expect(layout.getState().activeTabId).toBe("file:src/app.ts");
+	expect(layout.getState().viewStates).toEqual({ "src/app.ts": { line: 42 } });
+});
+
+test("a remembered tab that is no longer in the layout falls back to the first", () => {
+	const layout = store();
+	layout.getState().restoreLocal({ activeTabId: "file:src/gone.ts", viewStates: {} });
+	layout
+		.getState()
+		.load({ tabs: [{ id: "a", root: { type: "leaf", terminalId: "a" } }] });
+	expect(layout.getState().activeTabId).toBe("a");
+});

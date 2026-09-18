@@ -286,8 +286,16 @@ test.describe("terminal clipboard", () => {
 		const encoded = Buffer.from(url, "utf8").toString("base64");
 		const esc = String.fromCharCode(27);
 		const bell = String.fromCharCode(7);
+		// Only the pane the student is working in may copy (SPEC.md §24.2).
+		await page
+			.locator(`[data-testid=terminal-pane-${terminalId}] .xterm-screen`)
+			.click();
 		await printLine(terminalId, `${esc}]52;c;${encoded}${bell}`);
 
 		await expect.poll(() => readClipboard(page), { timeout: 15_000 }).toBe(url);
+		// And the student is told the clipboard changed under them.
+		await expect(
+			page.getByText(/Copied to your clipboard by a program in/).first(),
+		).toBeVisible({ timeout: 15_000 });
 	});
 });

@@ -93,6 +93,17 @@ export function moveForDrop(
 	return { from, to: joinPath(dir, baseName(from)) };
 }
 
+/**
+ * Keep only the outermost paths: anything inside another path in the list is
+ * already covered by it, so asking for it again would delete a file twice and
+ * fail the second time.
+ */
+export function withoutNested(paths: readonly string[]): string[] {
+	return paths.filter(
+		(path) => !paths.some((other) => other !== path && isDescendant(path, other)),
+	);
+}
+
 /** Drop `removed` and everything under it from a list of paths. */
 export function prunePaths(paths: readonly string[], removed: string): string[] {
 	return paths.filter((path) => path !== removed && !isDescendant(path, removed));

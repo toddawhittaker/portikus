@@ -75,6 +75,8 @@ export interface MenuItemProps {
 	href?: string;
 	target?: string;
 	rel?: string;
+	/** The file name a link item saves to, for a download link. */
+	download?: string;
 	testId?: string;
 	children?: React.ReactNode;
 }
@@ -88,6 +90,7 @@ export function MenuItem({
 	href,
 	target,
 	rel,
+	download,
 	testId,
 	children,
 }: MenuItemProps): React.ReactElement {
@@ -119,6 +122,7 @@ export function MenuItem({
 					href={href}
 					target={target}
 					rel={rel}
+					download={download}
 					className={itemClass(danger)}
 					data-testid={testId}
 				>
