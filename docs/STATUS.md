@@ -239,5 +239,131 @@ duplicate tab ids; a newly created terminal is written into the cached list, so
 a list request already in flight cannot answer without it and take its pane
 away; and a split keys its children by terminal, so dropping a pane on another
 pane's centre swaps them without tearing down and reconnecting both terminals. The infrastructure smoke test now records every workspace, Incus instance and user row it creates and deletes only those, and lists any workspace that already exists, leaves it alone, and skips the lifecycle checks entirely rather than adopting or shortening the grace period around somebody else's workspace; `infra/tests/cleanup-scope-test.sh` proves that with a stubbed SSH command and runs in `make infra-check`.
-Epic 7 (files, Monaco, search,
-and change review) is next.
+## Epic 7 — Files, Monaco, search, Git status, and change review
+
+Epic 7 (ADRs 0013, 0014 and 0015) is on the `epic/7-files` branch and has
+not been merged to `main`. The pilot VM was not deployed from it.
+
+The workspace agent gained file primitives (SPEC.md sections 11.1, 11.2,
+13.5 and 24.6). Every path is resolved with `realpath` and refused unless
+the result is inside `~/projects/<slug>`, so a symbolic link, a `..`
+segment or an encoded separator cannot reach the rest of the filesystem. A
+read streams the file out and carries an ETag, which is the SHA-256 hash of
+the content rather than a timestamp, so two writes in the same millisecond
+still differ. A write is conditional and must carry exactly one of
+`If-Match: <etag>` to overwrite or `If-None-Match: *` to create; a stale
+ETag is a 412 with the current one attached. The body streams into a
+temporary file in the same directory, opened with `O_EXCL` and `O_NOFOLLOW`
+so the kernel itself refuses a planted link, and only a whole, hashed body
+reaches the target. An overwrite finishes with `rename`, so a failed save
+never leaves a truncated file; a create finishes with `link`, which fails
+rather than replacing a file that appeared while the upload was in flight.
+The fixed caps are 2,000 entries per directory listing, 2 MiB for a file
+the editor opens or saves, and 50 MiB for an upload.
+
+Git status and diff are next, and both are read-only (SPEC.md sections
+12.1, 12.6 and 12.8). The agent runs the real `git` command line and never
+keeps a model of its own. Each command gets a ten-second budget and a byte
+cap on its output, and runs in its own process group, so a timeout kills
+any credential or filter helper git started as well as git itself. Status
+returns the branch or detached state, the upstream, how far ahead and
+behind, the number of unresolved conflicts, and one entry per changed path
+with its staged and working-tree letters, the earlier path when git
+detected a rename, and ignored paths only when the browser asks for hidden
+files. Diff compares the `HEAD` version with the working tree and covers
+the cases section 12.6 names: modified, added, deleted, renamed, binary and
+too large, with each side capped at 1 MiB.
+
+Project search runs ripgrep with a fixed argument list and no shell (SPEC.md
+section 11.5). It returns at most 500 matches, skips any file over 1 MiB,
+carries one line of context on each side, and reports a 1-based character
+column rather than ripgrep's byte offset, so clicking a result on a line
+with accented text lands in the right place. A search that runs past ten
+seconds is stopped.
+
+Filesystem events go over a per-project WebSocket at
+`/projects/:slug/events` (SPEC.md section 11.4). One chokidar watcher per
+project root is shared by every subscriber. It does not follow symbolic
+links and skips the generated and dependency directories of section 11.3.
+Changes are batched for 150 milliseconds and sent as one frame of at most
+200 paths; past that the frame says `truncated` and the browser refetches
+the tree instead. Anything under `.git/` is folded into a single `git`
+flag rather than listed, which is what tells the browser to refetch Git
+status. A `ready` frame is sent once the first scan has finished, so the
+browser knows when its listing is live. One agent serves at most 32 event
+sockets.
+
+The control plane relays all of it under the authorization rules of SPEC.md
+section 5.2 and for the workspace owner only; an administrator asking for a
+student's file gets a 404, as with terminals. The file routes stream in both
+directions rather than buffering, pin the content type of anything they
+return so an HTML file cannot execute on the control-plane origin, and
+apply their own byte cap, so a workspace agent cannot make the control
+plane hold an unbounded body. The Git, search and events routes are a thin
+relay on top: one browser socket is one agent socket, closes carry fixed
+reasons the browser can act on rather than a passed-through message, and a
+single workspace may hold at most 8 event sockets at once, below the
+agent's 32.
+
+In the browser, the tabbed work area now holds file and diff tabs beside
+terminal tabs (SPEC.md section 8.3). A document tab is a single leaf and is
+not split. The reconcile that keeps the saved layout honest evicts the
+oldest document tab when the 16-tab cap is reached, so opening a file
+always works and never closes a terminal.
+
+The file tree does the CRUD of section 11.2: create, rename, move, delete,
+upload and download. Uploads run four at a time; when a name already
+exists the student is offered Replace, which repeats the write with
+`If-Match: *`. Files and directories move by dragging, including onto the
+project root. One toggle shows hidden and generated files, and every
+failure is a plain-English toast rather than a status code.
+
+The editor is Monaco 0.56.0 bundled with the app (no CDN), loading only
+`editor.api`, the Monarch highlighters and the JSON language service; the
+TypeScript and CSS services are left out, because their diagnostics do not
+know the project's configuration and would mislead a student. Text is
+autosaved 750 milliseconds after the last keystroke, with one save in
+flight at a time and a keepalive flush when a tab unmounts, so closing a
+tab does not lose the last edit. A conflicting write brings up a bar with
+Keep mine and Take theirs, and a file deleted on disk while open shows a
+banner rather than silently saving it back.
+
+Markdown tabs open in Preview by default and offer Edit, Preview and Split
+(SPEC.md section 13.4). Front matter is split off and shown as a collapsed
+block rather than as body text. Rendering is react-markdown with GitHub
+flavoured Markdown, with raw HTML deliberately not enabled.
+
+Git state is visible in three places (SPEC.md sections 12.1 and 12.8): a
+decoration on each tree row, a compact status bar reading
+`main • 3 changes • 2 commits ahead`, and a project Changes list whose
+entries open the matching diff. All three are driven by the events socket,
+so a change made by a coding agent or the Git command line shows up without
+polling and without a reload. A diff tab shows the Monaco diff editor, with
+its own presentation per status: added, deleted, renamed, binary and
+oversized each say what they are instead of rendering an empty pane.
+
+The search panel cancels a superseded search, and its results open a file
+through a `?open=&line=` route, which also closes the Epic 5 gap where a
+file link from a terminal answered 501.
+
+Known gaps. Session change review is deferred to Epic 9: the baseline is
+created when an agent session is launched, so the acceptance line about
+reviewing changes since the session began moves to Epic 9 (SPEC.md section
+29). The watcher does not push events for changes inside hidden or
+generated directories, so turning hidden files on shows a listing that then
+goes stale until the next refetch. Hard links inside a project to a file
+outside it defeat confinement, because a path check cannot see them;
+confinement bounds the coding agent, not a student who already has a shell
+in the container. The destination race on `mkdir` and `move` is left open,
+because Node has no `RENAME_NOREPLACE`. The events socket does not register
+presence, so watching a project does not by itself keep a workspace alive.
+A detached `HEAD` shows no short object id, because the contract does not
+carry one. Untracked and unmerged paths share the letter `U` and are told
+apart by colour, icon and the `data-git` attribute. A project that is not a
+Git repository diffs every file as "added". The agent has no cap on
+concurrent searches. `fake-agent.ts` ships inside the Debian package as
+dead code. Relative image paths in Markdown are not resolved, so an image
+in a repository does not render. Code blocks inside Markdown have no syntax
+highlighting. The test database name and the Playwright ports are shared,
+so two local test runs at once collide (`docs/WORKFLOW.md`). Two CI flakes
+were seen during the epic and are still being isolated.

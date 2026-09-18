@@ -226,3 +226,227 @@ Belongs with the Epic 10 reset workflows.
 
 **Source.** Todd, 2026-09-17, asking whether a student can recover from a
 fork bomb on their own.
+
+## Regular-expression and case options for search
+
+**What.** Toggles in the search panel for a regular expression, case
+sensitivity and whole-word matching.
+
+**Why.** Search is literal and case-insensitive today, which is the right
+default but makes some searches impossible.
+
+**What it would take.** Three flags in the search query contract, mapped to
+the ripgrep flags the agent already builds, and three controls in the panel.
+Half a day with tests.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## File and diff panes inside terminal splits
+
+**What.** Let a file or diff tab be dragged into a split beside a terminal,
+so a student can read code next to the shell that is building it.
+
+**Why.** A document tab is a single leaf today, so the only side-by-side
+view is the browser's own window splitting.
+
+**What it would take.** Drop the single-leaf restriction in
+`apps/web/src/layout/tree.ts`, decide what the split-depth and tab caps mean
+for mixed trees, and extend the saved layout schema. Two days, mostly
+testing the layout rules.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## Watcher coverage of hidden and generated directories
+
+**What.** Push filesystem events for changes inside hidden and generated
+directories while the student has hidden files turned on.
+
+**Why.** The watcher skips those directories, so with hidden files shown the
+tree goes stale until the next refetch.
+
+**What it would take.** A second, narrower watcher started only while a
+browser asks for hidden files, so the everyday case keeps its small watch
+set. A day, including the watch-count cost.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## Raise `fs.inotify.max_user_watches` in the workspace image
+
+**What.** A sysctl in the workspace image that raises the per-user inotify
+watch limit.
+
+**Why.** One chokidar watcher per open project uses one inotify watch per
+directory. The Debian default is generous, but a pilot repository with a
+very large tree could exhaust it, and the failure shows up as a tree that
+stops updating rather than an error.
+
+**What it would take.** A sysctl drop-in in the image build plus a check in
+the smoke test. Half a day, and only worth doing if the pilot hits it.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## Configurable upload size cap
+
+**What.** Make the 50 MiB upload limit a setting instead of a constant.
+
+**Why.** The limit is a fixed number in the contracts package today, so
+changing it means a release. A course with large data files may need a
+different number.
+
+**What it would take.** A row in the `settings` table, read by the API and
+passed to the agent, with the browser showing the current limit in its
+message. Half a day.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## Markdown relative images through the file route
+
+**What.** Render an image a Markdown file refers to by a relative path.
+
+**Why.** A README that shows a screenshot from the repository renders a
+broken image today, because the browser resolves the path against the app's
+origin rather than the project.
+
+**What it would take.** Rewrite relative image sources in the preview to the
+existing file download route for that project, and refuse anything that is
+not a relative path. Half a day.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## Compare against a recovery point or another ref
+
+**What.** Diff the working tree against a recovery point (SPEC.md section
+12.6, P1) and later against any Git commit or ref (P2).
+
+**Why.** The spec names both as the next steps after the `HEAD` comparison,
+and a recovery point is the comparison a student wants after an agent has
+changed a lot at once.
+
+**What it would take.** The recovery-point comparison needs Epic 10's
+archives first, plus a way to read one file out of an archive without
+unpacking it. The ref comparison is a parameter on the existing agent diff
+route and a picker in the UI. Two days for the first, half a day for the
+second.
+
+**Source.** `docs/SPEC.md` section 12.6.
+
+## Retarget an open tab when its file moves
+
+**What.** When a file is renamed or moved, the tab that has it open follows
+it instead of showing a deleted-file banner.
+
+**Why.** Renaming a file from the tree, or an agent moving it, leaves the
+open tab pointing at a path that no longer exists.
+
+**What it would take.** Match the move against open tabs, in the tree for a
+UI rename and against the events batch otherwise, and rewrite the tab's
+path. Half a day; the agent case is a guess, since the events stream reports
+a delete and a create rather than a move.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## Prompt before a rename replaces an existing file
+
+**What.** Renaming or moving onto an existing name asks before replacing it.
+
+**Why.** The agent refuses the move today and the browser shows an error, so
+the student has to delete the other file first.
+
+**What it would take.** A confirmation in the tree and a replace flag on the
+move route, which the agent only honours for a file, never a directory. Half
+a day.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## Directories with more than 2,000 entries
+
+**What.** Show the rest of a directory that was truncated at the listing cap.
+
+**Why.** A listing stops at 2,000 entries and says it was truncated, which is
+honest but leaves the remaining files unreachable from the tree.
+
+**What it would take.** A continuation token on the listing route and a "show
+more" row in the tree. A day. Paging the whole tree would be more work than
+the case deserves.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## Cap on concurrent searches in the agent
+
+**What.** A limit on how many ripgrep processes the agent runs at once.
+
+**Why.** Each search is bounded in time and output, but nothing bounds how
+many run together, so several browser windows typing at once can load the
+container.
+
+**What it would take.** A small queue in the agent's search route that
+refuses or waits past the limit, and a message in the panel. Half a day.
+
+**Source.** Security review of Epic 7.
+
+## Write rate limit per workspace in the API
+
+**What.** A ceiling on file writes per workspace per minute in the control
+plane.
+
+**Why.** Autosave writes on a debounce, and nothing stops a stuck client or
+a script from writing continuously through the API.
+
+**What it would take.** A counter per workspace in the file routes, shared
+with the rate-limiting work already in this backlog. Half a day.
+
+**Source.** Security review of Epic 7.
+
+## Keep `fake-agent.ts` out of the deployed build
+
+**What.** Exclude the test fake agent from the Debian package.
+
+**Why.** It ships today as dead code in the published package. It is not
+reachable, but a test double does not belong on a production machine.
+
+**What it would take.** Move it under a test directory the build excludes,
+or exclude the file in the package's file list, and assert its absence in
+the package test. An hour.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## Short object id for a detached HEAD
+
+**What.** Show the short commit id when the repository is on a detached
+`HEAD`.
+
+**Why.** The status bar says "detached" with nothing after it, so a student
+cannot tell which commit they are on without the command line.
+
+**What it would take.** One more field in the Git status contract, filled
+from the status output the agent already parses, and a change to the status
+bar. An hour.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## Syntax highlighting in Markdown code blocks
+
+**What.** Highlight fenced code blocks in the Markdown preview.
+
+**Why.** Code in a README renders as plain text, which is the one place
+students read example code most often.
+
+**What it would take.** A remark or rehype highlighting plugin, or reusing
+Monaco's own tokenizer so the bundle gains nothing new. Half a day, and the
+second option is worth trying first.
+
+**Source.** `docs/STATUS.md`, Epic 7.
+
+## One filesystem watcher shared by the terminal and events pipes
+
+**What.** A single watcher per project feeding both the events socket and
+whatever the terminal side needs, instead of a watcher per purpose.
+
+**Why.** Epic 9's session change review will want the same events, and a
+second watcher doubles the inotify cost for the same information.
+
+**What it would take.** Make the agent's watcher registry the one source of
+filesystem events and have every consumer subscribe to it. Half a day, best
+done as part of Epic 9 rather than on its own.
+
+**Source.** Epic 7 review, 2026-09-18.
