@@ -19,21 +19,29 @@ export interface LayoutState {
 	 * a one-off request from this browser, so it is never saved.
 	 */
 	pendingLine: Record<string, number>;
+	/**
+	 * Which file tabs have been asked to show their diff, by tab id, counted
+	 * so that asking twice is two requests. Local to this browser, like the
+	 * pending line, and never saved.
+	 */
+	pendingDiff: Record<string, number>;
 	dirty: boolean;
 	/** Replace the whole layout with what the server had saved. */
 	load: (layout: ProjectLayout) => void;
 	addTab: (terminalId: string) => void;
 	/**
-	 * Open a file tab, or activate the one already open for this path. False
-	 * when there is no room for another tab, so the caller can say so.
+	 * Open a file tab, or activate the one already open for this path. With
+	 * `diff` the tab is asked to show its diff rather than the editor
+	 * (issue #160). False when there is no room for another tab, so the
+	 * caller can say so.
 	 */
-	openFile: (path: string, line?: number) => boolean;
-	/** Open a diff tab, or activate the one already open. False when full. */
-	openDiff: (path: string) => boolean;
+	openFile: (path: string, options?: { line?: number; diff?: boolean }) => boolean;
 	/** Close one whole tab. Terminal tabs close by closing their terminals. */
 	closeTab: (tabId: string) => void;
 	/** Read and forget the line a file tab was asked to jump to. */
 	consumePendingLine: (tabId: string) => number | undefined;
+	/** Read and forget whether a file tab was asked to show its diff. */
+	consumePendingDiff: (tabId: string) => boolean;
 	splitLeaf: (
 		terminalId: string,
 		direction: tree.SplitDirection,
@@ -97,14 +105,25 @@ export function createLayoutStore() {
 			activeTabId: null,
 			focusedTerminalId: null,
 			pendingLine: {},
+			pendingDiff: {},
 			dirty: false,
 
-			load: (layout) =>
-				set((state) => ({
-					layout,
-					activeTabId: pickActive(layout, state.activeTabId),
-					dirty: false,
-				})),
+			load: (saved) =>
+				set((state) => {
+					// A layout saved before diffs became a view of the file tab
+					// still has diff tabs; they become file tabs showing a diff.
+					const { layout, diffTabIds } = tree.migrateDiffTabs(saved);
+					const pendingDiff = { ...state.pendingDiff };
+					for (const tabId of diffTabIds) {
+						pendingDiff[tabId] = (pendingDiff[tabId] ?? 0) + 1;
+					}
+					return {
+						layout,
+						activeTabId: pickActive(layout, state.activeTabId),
+						pendingDiff,
+						dirty: layout !== saved,
+					};
+				}),
 
 			addTab: (terminalId) => {
 				// A tab is named after the terminal it was opened for.
@@ -115,30 +134,24 @@ export function createLayoutStore() {
 				}));
 			},
 
-			openFile: (path, line) => {
+			openFile: (path, options) => {
 				const state = get();
 				const opened = tree.openFile(state.layout, path);
 				if (!opened) return false;
+				const line = options?.line;
 				const pendingLine = { ...state.pendingLine };
 				// Always write the key, so a stale line from an earlier open goes.
 				if (line === undefined) delete pendingLine[opened.tabId];
 				else pendingLine[opened.tabId] = line;
+				const pendingDiff = { ...state.pendingDiff };
+				if (options?.diff) {
+					pendingDiff[opened.tabId] = (pendingDiff[opened.tabId] ?? 0) + 1;
+				}
 				set({
 					layout: opened.layout,
 					activeTabId: opened.tabId,
 					pendingLine,
-					dirty: state.dirty || opened.layout !== state.layout,
-				});
-				return true;
-			},
-
-			openDiff: (path) => {
-				const state = get();
-				const opened = tree.openDiff(state.layout, path);
-				if (!opened) return false;
-				set({
-					layout: opened.layout,
-					activeTabId: opened.tabId,
+					pendingDiff,
 					dirty: state.dirty || opened.layout !== state.layout,
 				});
 				return true;
@@ -147,8 +160,9 @@ export function createLayoutStore() {
 			closeTab: (tabId) => {
 				change((layout) => tree.closeTab(layout, tabId));
 				set((state) => {
-					const { [tabId]: _gone, ...rest } = state.pendingLine;
-					return { pendingLine: rest };
+					const { [tabId]: _line, ...pendingLine } = state.pendingLine;
+					const { [tabId]: _diff, ...pendingDiff } = state.pendingDiff;
+					return { pendingLine, pendingDiff };
 				});
 			},
 
@@ -161,6 +175,17 @@ export function createLayoutStore() {
 					});
 				}
 				return line;
+			},
+
+			consumePendingDiff: (tabId) => {
+				const asked = get().pendingDiff[tabId] !== undefined;
+				if (asked) {
+					set((state) => {
+						const { [tabId]: _gone, ...rest } = state.pendingDiff;
+						return { pendingDiff: rest };
+					});
+				}
+				return asked;
 			},
 
 			splitLeaf: (terminalId, direction, newTerminalId) =>

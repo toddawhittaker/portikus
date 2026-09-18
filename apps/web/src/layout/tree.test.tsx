@@ -10,11 +10,11 @@ import {
 	emptyLayout,
 	evenSizes,
 	layoutTerminalIds,
+	migrateDiffTabs,
 	moveLeaf,
 	moveLeafToNewTab,
 	moveTab,
 	normaliseSizes,
-	openDiff,
 	openFile,
 	reconcile,
 	removeLeaf,
@@ -395,14 +395,40 @@ test("opening a file makes one tab and opening it again reuses that tab", () => 
 	expect(again.tabId).toBe(first.tabId);
 });
 
-test("the same path opens once as a file and once as a diff", () => {
-	const file = must(openFile(emptyLayout(), "src/app.ts"));
-	const diff = must(openDiff(file.layout, "src/app.ts"));
-	expect(diff.tabId).toBe("diff:src/app.ts");
-	expect(diff.layout.tabs.map((tab) => tab.id)).toEqual([
-		"file:src/app.ts",
-		"diff:src/app.ts",
+test("a saved diff tab becomes the file's own tab", () => {
+	const saved = {
+		tabs: [
+			{ id: "diff:src/app.ts", root: { type: "diff" as const, path: "src/app.ts" } },
+			{ id: "diff:src/old.ts", root: { type: "diff" as const, path: "src/old.ts" } },
+		],
+	};
+	const migrated = migrateDiffTabs(saved);
+	expect(migrated.layout.tabs).toEqual([
+		{ id: "file:src/app.ts", root: { type: "file", path: "src/app.ts" } },
+		{ id: "file:src/old.ts", root: { type: "file", path: "src/old.ts" } },
 	]);
+	// Both tabs were diffs, so both open showing their diff.
+	expect(migrated.diffTabIds).toEqual(["file:src/app.ts", "file:src/old.ts"]);
+});
+
+test("a saved layout with both a file tab and a diff tab keeps one tab", () => {
+	const file = must(openFile(emptyLayout(), "src/app.ts"));
+	const saved = {
+		tabs: [
+			...file.layout.tabs,
+			{ id: "diff:src/app.ts", root: { type: "diff" as const, path: "src/app.ts" } },
+		],
+	};
+	const migrated = migrateDiffTabs(saved);
+	expect(migrated.layout.tabs.map((tab) => tab.id)).toEqual(["file:src/app.ts"]);
+	expect(migrated.diffTabIds).toEqual(["file:src/app.ts"]);
+});
+
+test("a layout with no diff tabs is left exactly as it was", () => {
+	const layout = must(openFile(emptyLayout(), "src/app.ts")).layout;
+	const migrated = migrateDiffTabs(layout);
+	expect(migrated.layout).toBe(layout);
+	expect(migrated.diffTabIds).toEqual([]);
 });
 
 test("a file leaf holds no terminal id and closeTab drops the whole tab", () => {
@@ -434,7 +460,6 @@ test("opening a document is refused when the tab strip is full", () => {
 	let layout = emptyLayout();
 	for (let i = 0; i < MAX_LAYOUT_TABS; i++) layout = addTab(layout, `t${i}`, `t${i}`);
 	expect(openFile(layout, "src/app.ts")).toBeNull();
-	expect(openDiff(layout, "src/app.ts")).toBeNull();
 	// A path already open still comes back, full strip or not.
 	const full = must(openFile(removeLeaf(layout, "t0"), "src/app.ts")).layout;
 	expect(must(openFile(full, "src/app.ts")).layout).toBe(full);

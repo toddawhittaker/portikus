@@ -104,12 +104,17 @@ test.describe("git status in the workspace", () => {
 		);
 	});
 
-	test("choosing a change opens its diff tab", async ({ page, context }) => {
+	test("choosing a change opens that file's tab, showing its diff", async ({
+		page,
+		context,
+	}) => {
 		const student = await createStudent(context);
 		await openProject(page, student.workspaceId, "Open diff");
 
 		await page.getByTestId("change-row-README.md").click();
-		await expect(page.getByTestId("tab-diff:README.md")).toBeVisible();
+		// A diff is a view of the file's own tab, not a tab of its own (#160).
+		await expect(page.getByTestId("tab-file:README.md")).toBeVisible();
+		await expect(page.getByTestId("tab-diff:README.md")).toHaveCount(0);
 	});
 
 	test("a project with no repository says so and offers nothing else", async ({

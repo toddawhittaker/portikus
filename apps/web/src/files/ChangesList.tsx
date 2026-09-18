@@ -21,14 +21,16 @@ export function ChangesList({
 	const [open, setOpen] = useState(true);
 	const toast = useToast();
 	const layoutStore = useLayoutStore(projectId);
-	const openDiff = useLayout(layoutStore, (state) => state.openDiff);
+	const openFile = useLayout(layoutStore, (state) => state.openFile);
 	const rows = changeRows(status);
 	const notARepo = status !== undefined && !status.repo;
 	// Until the first status arrives nothing is known, so nothing is claimed.
 	const unknown = status === undefined;
 
 	function show(row: ChangeRow) {
-		if (!openDiff(row.path)) {
+		// The diff is a view of the file's own tab, so a file already open is
+		// switched to its diff rather than opened a second time (issue #160).
+		if (!openFile(row.path, { diff: true })) {
 			toast.show({
 				tone: "warning",
 				title: "Too many tabs are open. Close one to open another.",

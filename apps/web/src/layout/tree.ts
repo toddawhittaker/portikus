@@ -406,34 +406,53 @@ export function moveLeafToNewTab(
 }
 
 /**
- * Open `path` as a tab of its own (SPEC.md §8.3). A path already open in
- * this kind is not opened twice; the caller activates the tab it gets back.
+ * Open `path` as a tab of its own (SPEC.md §8.3). A path already open is not
+ * opened twice; the caller activates the tab it gets back. A diff is a view
+ * of this tab, not a tab of its own (issue #160).
  */
-function openDocument(
-	layout: ProjectLayout,
-	kind: "file" | "diff",
-	path: string,
-): { layout: ProjectLayout; tabId: string } | null {
-	const node: SplitNode = { type: kind, path };
-	const tabId = `${kind}:${path}`;
-	if (layout.tabs.some((tab) => tab.id === tabId)) return { layout, tabId };
-	// No room for another tab: the caller tells the student to close one.
-	if (layout.tabs.length >= MAX_LAYOUT_TABS) return null;
-	return { layout: { tabs: [...layout.tabs, { id: tabId, root: node }] }, tabId };
-}
-
 export function openFile(
 	layout: ProjectLayout,
 	path: string,
 ): { layout: ProjectLayout; tabId: string } | null {
-	return openDocument(layout, "file", path);
+	const tabId = fileTabId(path);
+	if (layout.tabs.some((tab) => tab.id === tabId)) return { layout, tabId };
+	// No room for another tab: the caller tells the student to close one.
+	if (layout.tabs.length >= MAX_LAYOUT_TABS) return null;
+	const node: SplitNode = { type: "file", path };
+	return { layout: { tabs: [...layout.tabs, { id: tabId, root: node }] }, tabId };
 }
 
-export function openDiff(
-	layout: ProjectLayout,
-	path: string,
-): { layout: ProjectLayout; tabId: string } | null {
-	return openDocument(layout, "diff", path);
+/** The id of the one tab that shows `path`. */
+export function fileTabId(path: string): string {
+	return `file:${path}`;
+}
+
+/**
+ * Turn the diff tabs of a layout saved by an older version into file tabs,
+ * so one path has one tab. The ids of the tabs that were diffs come back as
+ * well, because those tabs should open showing their diff.
+ */
+export function migrateDiffTabs(layout: ProjectLayout): {
+	layout: ProjectLayout;
+	diffTabIds: string[];
+} {
+	if (!layout.tabs.some((tab) => tab.root.type === "diff")) {
+		return { layout, diffTabIds: [] };
+	}
+	const tabs: ProjectLayout["tabs"] = [];
+	const diffTabIds: string[] = [];
+	for (const tab of layout.tabs) {
+		if (tab.root.type !== "diff") {
+			if (!tabs.some((kept) => kept.id === tab.id)) tabs.push(tab);
+			continue;
+		}
+		const id = fileTabId(tab.root.path);
+		diffTabIds.push(id);
+		// The same path may already have a file tab; it keeps its place.
+		if (tabs.some((kept) => kept.id === id)) continue;
+		tabs.push({ id, root: { type: "file", path: tab.root.path } });
+	}
+	return { layout: { tabs }, diffTabIds };
 }
 
 /** Drop one whole tab. Terminal tabs are closed by closing their terminals. */
