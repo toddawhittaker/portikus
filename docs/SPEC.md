@@ -1141,6 +1141,12 @@ An explicit keyboard save command such as `Ctrl/Cmd+S` may force an immediate sa
 
 ## 14. Application preview and port proxying
 
+`docs/BROWSER-HANDLING.md` is the detailed design for this section, for
+section 24.7, and for how a command-line tool in the workspace opens a
+browser (the URL broker and the remote-browser fallback). It refines
+what follows; where it is more specific, it controls. Epic 8 builds
+its Part I, Epic 9 its Part II.
+
 ### 14.1 Goals
 
 A user must be able to run a service inside the workspace and view it from the browser without configuring SSH tunnels or local proxy software.
@@ -1171,9 +1177,11 @@ previews under the same registrable domain:
 
 ```text
 portikus.example.edu
-<workspace-label>.portikus.example.edu
-<workspace-label>-3000.portikus.example.edu
+<workspace-label>-3000.preview.portikus.example.edu
 ```
+
+The workspace label is the one Epic 8 derives from the login username;
+`docs/BROWSER-HANDLING.md` section 8 gives the exact host format.
 
 In that arrangement two hosts count as the same site, which weakens two
 browser protections: the SameSite cookie rule no longer stops a preview
@@ -2615,6 +2623,11 @@ was closed by #164.
 ### Epic 8 — Verification, running services, and authenticated preview
 **Estimate:** 5–7 engineer-days
 
+Design: `docs/BROWSER-HANDLING.md`, Part I (preview hosts, grants,
+bootstrap tickets, the Caddy authorization subrequest, the agent's
+loopback forward for services bound to 127.0.0.1, the multi-port
+bridge) and its phases A and B.
+
 Includes:
 
 - configurable project checks/test commands;
@@ -2647,6 +2660,11 @@ Acceptance:
 
 ### Epic 9 — Coding-agent launchers and credentials
 **Estimate:** 2–3 engineer-days
+
+Design: `docs/BROWSER-HANDLING.md`, Part II (the `portikus-open` URL
+broker, the authentication order, provider adapters) and its phase C.
+A server-side browser for loopback OAuth callbacks is not planned; the
+idea is in `docs/BACKLOG.md`.
 
 Includes:
 

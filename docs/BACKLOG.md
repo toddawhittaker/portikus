@@ -562,3 +562,49 @@ to the renderer, the way the file tree already builds download links.
 About half a day, including tests for a nested-folder Markdown file.
 
 **Source.** `docs/STATUS.md`, Epic 7.1.
+
+## Remote browser for loopback OAuth callbacks
+
+**What.** A browser that Portikus runs on the server, sharing only the
+workspace's network namespace, so that a command-line tool whose OAuth
+login must call back to `127.0.0.1:<port>` inside the workspace can
+finish. The student would drive it from a Browser tab in the center
+pane; frames and input would travel over the Chrome DevTools Protocol
+(Xpra as the fallback if that is not usable enough).
+
+**Why.** Opening such a login in the student's own browser cannot work,
+because `localhost` there means the student's computer, and the redirect
+URL is registered with the provider and cannot be rewritten
+(`docs/BROWSER-HANDLING.md` section 20). Today no supported tool needs
+it: Codex has device-code login, Claude Code accepts its code pasted back
+into the terminal, and Epic 9 adds institutional credential injection.
+It becomes wanted only if a required tool ships with no out-of-band path.
+
+**What it would take** (a spike first, then roughly a week if it passes):
+
+1. A spike proving Chromium can share the workspace's network namespace
+   while keeping its own mount, PID, and user namespaces, an ephemeral
+   profile the student cannot read, and a control channel over a pipe
+   or protected Unix socket that no workspace process can reach. If
+   Incus cannot do this without broader privilege, stop and write an ADR.
+2. Measuring typing and pointer latency, frame rate on real login pages,
+   HiDPI, paste, popups, MFA and CAPTCHA pages, and CPU and memory per
+   session. The feature is accepted only if login pages are comfortably
+   usable; this is a gate, not a foregone conclusion.
+3. Lifecycle: one session per user, started only on the student's
+   choice, a visible notice that the page runs on institution-managed
+   infrastructure, idle warning at three minutes and termination at five,
+   termination with the workspace or the Portikus session, profile
+   deleted afterwards, and no screenshots, form data, cookies, or full
+   URLs in logs. Password saving, sync, extensions, downloads, and device
+   permissions off. Read-only address bar. No access to other workspaces
+   or platform management endpoints.
+4. Acceptance: a fake local OAuth provider's loopback callback completes
+   through it; the workspace cannot discover the control channel or read
+   the profile; passkey-only flows fail with a clear pointer to a device
+   or external flow.
+
+**Where it came from.** Cut from `docs/BROWSER-HANDLING.md` on
+2026-09-19, when the remote browser was judged the most expensive and
+security-sensitive piece in that design and unneeded by either P0 agent.
+
