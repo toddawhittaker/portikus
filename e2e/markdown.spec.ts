@@ -238,61 +238,6 @@ test.describe("markdown tab", () => {
 		expect(row.startsWith("word0 ")).toBe(false);
 	});
 
-	test("the diff keeps the same top line as the raw text (issue #229)", async ({
-		page,
-		context,
-	}) => {
-		const student = await createStudent(context);
-		const text = longDocument();
-		const project = await openFileTab(page, student, "Long", LONG_PATH, text);
-		await seedGit(student.workspaceId, project.slug, {
-			diffs: {
-				[LONG_PATH]: {
-					status: "M",
-					before: `${text}\nOne more line.\n`,
-					after: text,
-					binary: false,
-					tooLarge: false,
-				},
-			},
-		});
-		const editor = page.getByTestId(`editor-${LONG_PATH}`);
-		await expect(editor.locator(".view-lines")).toContainText("Heading 1", {
-			timeout: 60_000,
-		});
-
-		await page.getByTestId(`file-view-diff-${LONG_PATH}`).click();
-		const diff = page.getByTestId(`diff-editor-${LONG_PATH}`);
-		await expect(diff.locator(".monaco-diff-editor")).toBeVisible({ timeout: 60_000 });
-		const modified = diff.locator(".editor.modified");
-
-		// The editor moves; the diff's working-copy side shows the same line.
-		await wheelOver(page, editor, 60);
-		await expect
-			.poll(() => firstVisibleLine(editor), { timeout: 10_000 })
-			.toBeGreaterThan(50);
-		const editorLine = await firstVisibleLine(editor);
-		await expect
-			.poll(() => firstVisibleLine(modified), { timeout: 10_000 })
-			.toBeGreaterThan(50);
-		expect(
-			Math.abs((await firstVisibleLine(modified)) - editorLine),
-		).toBeLessThanOrEqual(1);
-
-		// And the diff moves the editor when a student scrolls the diff.
-		await wheelOver(page, modified, 60);
-		await expect
-			.poll(() => firstVisibleLine(modified), { timeout: 10_000 })
-			.toBeGreaterThan(editorLine);
-		const diffLine = await firstVisibleLine(modified);
-		await expect
-			.poll(() => firstVisibleLine(editor), { timeout: 10_000 })
-			.toBeGreaterThan(editorLine);
-		expect(Math.abs((await firstVisibleLine(editor)) - diffLine)).toBeLessThanOrEqual(
-			1,
-		);
-	});
-
 	test("the diff pane is side by side with one gutter and one scrollbar", async ({
 		page,
 		context,
@@ -316,11 +261,6 @@ test.describe("markdown tab", () => {
 			.getByTestId(`diff-editor-${LONG_PATH}`)
 			.locator(".monaco-diff-editor");
 		await expect(diff).toBeVisible({ timeout: 60_000 });
-		// The right pane of the split is narrower than Monaco's 900px
-		// breakpoint, where it would otherwise switch to the inline layout
-		// with two line-number columns and an overview ruler.
-		const width = await diff.evaluate((node) => node.getBoundingClientRect().width);
-		expect(width).toBeLessThan(900);
 		await expect(diff).toHaveClass(/side-by-side/);
 		await expect(diff.locator(".editor.original .margin")).toHaveCount(1);
 		await expect(diff.locator(".editor.modified .margin")).toHaveCount(1);
@@ -355,7 +295,7 @@ test.describe("markdown tab", () => {
 			.toContain("## Ports and hosts");
 	});
 
-	test("Diff swaps the preview for this file's diff, and back (issue #218)", async ({
+	test("Diff replaces the whole Markdown tab, and back (issue #218)", async ({
 		page,
 		context,
 	}) => {
@@ -381,26 +321,19 @@ test.describe("markdown tab", () => {
 		await expect(page.getByTestId("markdown-preview")).toBeVisible({
 			timeout: 30_000,
 		});
+		await expect(page.getByTestId("markdown-split")).toBeVisible();
 
 		await page.getByTestId(`file-view-diff-${PATH}`).click();
 		const diff = page.getByTestId(`diff-editor-${PATH}`);
 		await expect(diff.locator(".monaco-diff-editor")).toBeVisible({ timeout: 60_000 });
 		await expect(diff).toContainText("Second line.");
-		// The preview is gone; the editable raw text is still there.
-		await expect(page.getByTestId("markdown-preview")).toHaveCount(0);
-		await expect(page.getByTestId(`editor-${PATH}`)).toBeVisible();
-
-		// The raw side still edits the file while the diff is up.
-		const lines = page.getByTestId(`editor-${PATH}`).locator(".view-lines");
-		await lines.getByText("Second line.").click();
-		await page.keyboard.press("End");
-		await page.keyboard.type(" Third.");
-		await expect(page.getByTestId(`file-status-${PATH}`)).toHaveText("Saved", {
-			timeout: 15_000,
-		});
+		// The split is gone: the diff has the tab to itself.
+		await expect(page.getByTestId("markdown-split")).toBeHidden();
+		await expect(page.getByTestId("markdown-preview")).toBeHidden();
 
 		await page.getByTestId(`file-view-diff-${PATH}`).click();
 		await expect(page.getByTestId(`diff-pane-${PATH}`)).toHaveCount(0);
+		await expect(page.getByTestId("markdown-split")).toBeVisible();
 		await expect(page.getByTestId("markdown-preview")).toBeVisible();
 	});
 });

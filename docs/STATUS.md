@@ -374,9 +374,11 @@ Epic 7.1 is a batch of fixes and small features from the first hands-on
 use of the pilot after Epic 7, gathered on 2026-09-18 and landed as
 individual pull requests into the epic branch.
 
-**Editor.** A Markdown tab is always a split: Monaco holds the raw
-Markdown on the left, and the right pane shows a read-only rendered
-preview, or this file's diff when the one Diff button is on. There are no
+**Editor.** A Markdown tab is a split while it is being edited: Monaco
+holds the raw Markdown on the left and a read-only rendered preview on the
+right. Its one Diff button replaces the whole split with this file's
+side-by-side diff, as on every other file tab, and turning the button off
+brings the split back. There are no
 Code, Rich, and Split buttons and no rich-text toolbar any more. The rich
 MDXEditor view that landed earlier in this epic (#155) was taken out
 again after use: a second editing surface over one buffer brought its own
@@ -438,11 +440,9 @@ drawn in a visible colour on both editor themes (#154).
 
 The two sides now follow each other by source line rather than by how far
 down each one is: the first line showing on the left is the first line
-showing on the right, in the preview and with Diff turned on alike, and
-scrolling either side moves the other (§13.4) (#229). The preview marks
-every block it renders with the line it came from, counting the front
-matter it hides, and the diff is matched line for line because its
-working-copy side holds the same text as the editor.
+showing on the right, and scrolling either side moves the other (§13.4)
+(#229). The preview marks every block it renders with the line it came
+from, counting the front matter it hides.
 
 The rich view's own failures — a file that stopped at the first raw HTML
 node, and the keystrokes that were dropped after it — went away with the

@@ -678,7 +678,7 @@ test("the Markdown preview is read-only", async () => {
 	expect(preview.querySelector("[contenteditable]")).toBeNull();
 });
 
-test("a Markdown tab has one Diff button, which swaps the preview for the diff", async () => {
+test("a Markdown tab has one Diff button, which replaces the whole split", async () => {
 	await renderMarkdownLeaf();
 	expect(screen.queryByTestId(`file-view-edit-${MD_PATH}`)).toBeNull();
 	const button = screen.getByTestId(`file-view-diff-${MD_PATH}`);
@@ -686,10 +686,9 @@ test("a Markdown tab has one Diff button, which swaps the preview for the diff",
 
 	fireEvent.click(button);
 	expect(await screen.findByTestId(`diff-pane-${MD_PATH}`)).not.toBeNull();
-	// The raw text stays on screen and editable beside the diff.
-	expect(screen.getByTestId(`file-pane-${MD_PATH}`).style.display).toBe("");
-	expect(screen.getByTestId(`editor-${MD_PATH}`)).not.toBeNull();
-	expect(screen.queryByTestId("markdown-preview")).toBeNull();
+	// The diff has the tab to itself; the split is hidden, not unmounted,
+	// so the editor keeps its undo history (issue #218).
+	expect(screen.getByTestId(`file-pane-${MD_PATH}`).style.display).toBe("none");
 	expect(
 		screen.getByTestId(`file-view-diff-${MD_PATH}`).getAttribute("aria-pressed"),
 	).toBe("true");
