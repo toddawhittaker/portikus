@@ -3,6 +3,7 @@
  * (SPEC.md §24.2), so raw HTML must come out as text and an unsafe link
  * scheme must not survive.
  */
+import { readFileSync } from "node:fs";
 import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { MarkdownPreview } from "./MarkdownPreview.js";
@@ -84,6 +85,34 @@ test("an empty frontmatter block shows no Front matter block", () => {
 	expect(screen.getByText("Body text.")).toBeTruthy();
 });
 
+test("bullet lists, nested lists and task lists render as real lists", () => {
+	const { container } = render(
+		<MarkdownPreview text={"- one\n- two\n  - nested\n- [ ] todo\n- [x] done\n"} />,
+	);
+	const list = container.querySelector("ul");
+	expect(list).not.toBeNull();
+	expect(list?.querySelectorAll(":scope > li").length).toBe(4);
+	expect(list?.querySelector("li ul li")?.textContent).toBe("nested");
+	const boxes = container.querySelectorAll('input[type="checkbox"]');
+	expect(boxes.length).toBe(2);
+	expect((boxes[1] as HTMLInputElement).checked).toBe(true);
+});
+
+test("an ordered list keeps its own starting number", () => {
+	const { container } = render(<MarkdownPreview text={"5. five\n6. six\n"} />);
+	const list = container.querySelector("ol");
+	expect(list?.getAttribute("start")).toBe("5");
+	expect(list?.querySelectorAll("li").length).toBe(2);
+});
+
+test("the stylesheet puts back the markers the page reset takes away", () => {
+	// jsdom does not apply the imported stylesheet, so the rules the browser
+	// needs are checked here and their effect in e2e/markdown.spec.ts.
+	const css = readFileSync("apps/web/src/editor/markdown.css", "utf8");
+	expect(css).toContain(".pk-markdown ul {\n\tlist-style-type: disc;");
+	expect(css).toContain(".pk-markdown ol {\n\tlist-style-type: decimal;");
+});
+
 test("frontmatter after a byte order mark still does not render as Markdown", () => {
 	// splitFrontmatter does not match the leading BOM, so remark-frontmatter is
 	// what keeps the block out of the body here.
@@ -92,4 +121,29 @@ test("frontmatter after a byte order mark still does not render as Markdown", ()
 	);
 	expect(container.querySelector("h1")).toBeNull();
 	expect(screen.getByText("Body text.")).toBeTruthy();
+});
+
+test("every rendered block carries the source line it came from", () => {
+	const { container } = render(
+		<MarkdownPreview text={"# Title\n\nA paragraph.\n\n- one\n- two\n"} />,
+	);
+	expect(container.querySelector("h1")?.getAttribute("data-line")).toBe("1");
+	expect(container.querySelector("p")?.getAttribute("data-line")).toBe("3");
+	const items = [...container.querySelectorAll("li")].map((item) =>
+		item.getAttribute("data-line"),
+	);
+	expect(items).toEqual(["5", "6"]);
+});
+
+test("source lines count the frontmatter the preview cut off", () => {
+	const { container } = render(
+		<MarkdownPreview text={"---\ntitle: Notes\n---\n\n# Title\n\nBody.\n"} />,
+	);
+	// The heading is on line 5 of the file, not line 1 of the body.
+	expect(container.querySelector("h1")?.getAttribute("data-line")).toBe("5");
+	expect(container.querySelector("p")?.getAttribute("data-line")).toBe("7");
+	// The frontmatter block itself stands for the top of the file.
+	expect(screen.getByTestId("markdown-frontmatter").getAttribute("data-line")).toBe(
+		"1",
+	);
 });

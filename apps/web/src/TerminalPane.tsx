@@ -1,4 +1,5 @@
 import type { Terminal as TerminalMeta } from "@portikus/contracts";
+import { useToast } from "@portikus/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -13,6 +14,7 @@ import {
 	fileRouteFor,
 	previewRouteFor,
 	type TerminalLink,
+	wrappedUrlsOnRow,
 } from "./links.js";
 import { decodeTerminalFrame } from "./terminalFrames.js";
 import { currentPlatform, decide } from "./work/terminalClipboard.js";
@@ -75,9 +77,31 @@ function socketUrl(
 	);
 }
 
+/**
+ * The most a program in a terminal may put on the system clipboard in one
+ * OSC 52 request. Terminal output is untrusted, so a payload larger than this
+ * is dropped rather than truncated (SPEC.md §24.2).
+ */
+export const MAX_CLIPBOARD_BYTES = 100 * 1024;
+
 /** Firefox and older browsers may not expose clipboard reading at all. */
 function canReadClipboard(): boolean {
 	return typeof navigator.clipboard?.readText === "function";
+}
+
+/**
+ * The text an OSC 52 copy request carries. The payload is base64, and the
+ * bytes inside it are UTF-8, so a URL with an accented character survives.
+ * Anything that is not valid base64 is treated as an empty copy.
+ */
+export function decodeOsc52(encoded: string): string {
+	try {
+		const binary = atob(encoded);
+		const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+		return new TextDecoder().decode(bytes);
+	} catch {
+		return "";
+	}
 }
 
 /** Copy to the system clipboard, ignoring a browser that refuses. */
@@ -114,6 +138,7 @@ export function TerminalPane({
 	// Exposed on the pane element so tests can wait for the socket to be open.
 	const [connected, setConnected] = useState(false);
 	const navigate = useNavigate();
+	const toast = useToast();
 
 	// Callbacks the long-lived effect reads through a ref, so that a new
 	// render does not tear down the terminal and its socket.
@@ -124,8 +149,23 @@ export function TerminalPane({
 		onFocus,
 		onLeave,
 		navigate,
+		toast,
+		terminalName: terminal.name,
 	});
-	handlers.current = { onExited, onSessionEnded, onCwd, onFocus, onLeave, navigate };
+	handlers.current = {
+		onExited,
+		onSessionEnded,
+		onCwd,
+		onFocus,
+		onLeave,
+		navigate,
+		toast,
+		terminalName: terminal.name,
+	};
+
+	// The long-lived effect reads visibility through a ref, for the same reason.
+	const visibleRef = useRef(visible);
+	visibleRef.current = visible;
 
 	const terminalId = terminal.id;
 
@@ -146,6 +186,18 @@ export function TerminalPane({
 			});
 		}
 
+		// True while the keyboard is in this pane; a copy nobody asked for is not
+		// allowed to reach the system clipboard (SPEC.md §24.2).
+		let focused = false;
+		const onFocusIn = () => {
+			focused = true;
+		};
+		const onFocusOut = () => {
+			focused = false;
+		};
+		container.addEventListener("focusin", onFocusIn);
+		container.addEventListener("focusout", onFocusOut);
+
 		const term = new Xterm({
 			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 			fontSize: 13,
@@ -153,22 +205,66 @@ export function TerminalPane({
 			convertEol: false,
 			scrollback: SCROLLBACK_LINES,
 		});
+		function openUrl(uri: string) {
+			const preview = previewRouteFor(uri, workspaceId, projectId);
+			if (preview) {
+				go(preview);
+				return;
+			}
+			// Any other URL leaves the app in a new tab, unless it points at
+			// the student's own machine or uses a scheme we do not open.
+			if (canOpenInNewTab(uri)) {
+				window.open(uri, "_blank", "noopener,noreferrer");
+			}
+		}
+
 		const fitAddon = new FitAddon();
 		term.loadAddon(fitAddon);
-		term.loadAddon(
-			new WebLinksAddon((_event, uri) => {
-				const preview = previewRouteFor(uri, workspaceId, projectId);
-				if (preview) {
-					go(preview);
-					return;
-				}
-				// Any other URL leaves the app in a new tab, unless it points at
-				// the student's own machine or uses a scheme we do not open.
-				if (canOpenInNewTab(uri)) {
-					window.open(uri, "_blank", "noopener,noreferrer");
-				}
-			}),
-		);
+		// Registered before the web-links addon: where two providers offer a
+		// link over the same cells, xterm.js keeps the one registered first, and
+		// a URL that wrapped should be one link rather than the fragment the
+		// addon finds on this row (SPEC.md §14.9).
+		term.registerLinkProvider({
+			provideLinks(lineNumber, callback) {
+				const links = wrappedUrlsOnRow(
+					lineNumber,
+					(y) => term.buffer.active.getLine(y - 1)?.translateToString(true) ?? null,
+					term.cols,
+				).map((link) => ({
+					range: link.range,
+					text: link.text,
+					activate: () => openUrl(link.text),
+				}));
+				callback(links.length > 0 ? links : undefined);
+			},
+		});
+		term.loadAddon(new WebLinksAddon((_event, uri) => openUrl(uri)));
+		// A program in the pane copies by emitting OSC 52, which tmux passes
+		// through (SPEC.md §9, §10). A read request ("?") is ignored: nothing in
+		// the workspace needs to be handed the student's clipboard.
+		term.parser.registerOscHandler(52, (data) => {
+			const encoded = data.split(";")[1];
+			if (encoded === undefined || encoded === "?") return true;
+			// Only the pane the student is actually working in may copy, and only
+			// a payload small enough to be a real copy (SPEC.md §24.2).
+			if (!visibleRef.current || !focused) return true;
+			const text = decodeOsc52(encoded);
+			if (text === "") return true;
+			// The workspace's own shim allows more than this, so a student can
+			// ask for a copy that is refused here. Say so rather than letting
+			// the paste come back empty for no visible reason.
+			if (new TextEncoder().encode(text).length > MAX_CLIPBOARD_BYTES) {
+				handlers.current.toast.show({
+					title: `A program in ${handlers.current.terminalName} tried to copy more than 100 KB; nothing was copied.`,
+				});
+				return true;
+			}
+			void writeClipboard(text);
+			handlers.current.toast.show({
+				title: `Copied to your clipboard by a program in ${handlers.current.terminalName}`,
+			});
+			return true;
+		});
 		term.open(container);
 		xterm.current = term;
 		fit.current = fitAddon;
@@ -445,6 +541,8 @@ export function TerminalPane({
 			observer.disconnect();
 			container.removeEventListener("wheel", onWheel, { capture: true });
 			container.removeEventListener("contextmenu", onContextMenu);
+			container.removeEventListener("focusin", onFocusIn);
+			container.removeEventListener("focusout", onFocusOut);
 			container.removeEventListener("pointerdown", onPointerDown);
 			selection.dispose();
 			input.dispose();

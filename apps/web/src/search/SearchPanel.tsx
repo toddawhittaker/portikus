@@ -50,7 +50,7 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 
 	/** Open one match in the work area, at its line (SPEC.md §11.5). */
 	function open(path: string, line: number) {
-		if (store?.getState().openFile(path, line)) return;
+		if (store?.getState().openFile(path, { line })) return;
 		toast.show(tooManyTabsToast());
 	}
 

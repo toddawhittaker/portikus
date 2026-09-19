@@ -4,19 +4,28 @@
  * the saving.
  */
 import type * as Monaco from "monaco-editor";
-import { useEffect, useRef } from "react";
+import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { useEditorZoom } from "../layout/store.js";
 import {
 	baseEditorOptions,
 	currentThemeName,
 	getMonaco,
-	languageForPath,
+	languageForFile,
 	watchTheme,
 } from "./monaco.js";
+import { editorScrollTop, editorTopLine } from "./scrollSync.js";
+import { DEFAULT_ZOOM, fontSizeFor, stepZoom } from "./zoom.js";
 import "./editor.css";
 
 export interface CodeEditorProps {
-	/** The project-relative path; it names the model and picks the language. */
+	/** The project-relative path; it picks the language and names the model. */
 	path: string;
+	/**
+	 * The project the file belongs to. Monaco models are global to the page,
+	 * so the project is part of the model name: two projects' README.md must
+	 * not share one model while a project switch is in flight.
+	 */
+	projectId: string;
 	value: string;
 	/**
 	 * Which version of the file `value` is. The editor only replaces its text
@@ -26,6 +35,8 @@ export interface CodeEditorProps {
 	version: string;
 	onChange: (text: string) => void;
 	onSave: () => void;
+	/** From the student's editor settings (issue #159). */
+	wordWrap?: "on" | "off";
 	/** Jump here when the editor opens, for "open at line" (SPEC.md §15.3). */
 	revealLine?: number;
 	/**
@@ -33,18 +44,60 @@ export interface CodeEditorProps {
 	 * file at a line it is already showing still moves the cursor there.
 	 */
 	revealNonce?: number;
+	/**
+	 * Monaco's saved view state for this file: cursor, selections and scroll.
+	 * It is put back once the model holds the real text (issue #161).
+	 */
+	viewState?: unknown;
+	/** Hand the newest view state back, so it survives leaving the route. */
+	onViewState?: (viewState: unknown) => void;
+	/**
+	 * Reports the first line the editor is showing, so the Markdown split view
+	 * can put the same line at the top of the other side (issue #229).
+	 */
+	onTopLine?: (line: number) => void;
+	/** Lets the tab scroll this editor to a line. */
+	ref?: Ref<CodeEditorHandle>;
+}
+
+export interface CodeEditorHandle {
+	/** Scroll so this source line is the first one showing. */
+	setTopLine: (line: number) => void;
 }
 
 export function CodeEditor({
 	path,
+	projectId,
 	value,
 	version,
 	onChange,
 	onSave,
+	wordWrap = "off",
 	revealLine,
 	revealNonce,
+	viewState,
+	onViewState,
+	onTopLine,
+	ref,
 }: CodeEditorProps) {
 	const host = useRef<HTMLDivElement | null>(null);
+	// The whole tab: Monaco above, the zoom bar below.
+	const container = useRef<HTMLDivElement | null>(null);
+	// Zoom is per open file and lasts for this session only (SPEC.md §13.1).
+	// The layout store holds it, beside the cursor and scroll position.
+	const [zoom, setZoom] = useEditorZoom(path);
+	// Shown on the bar under the editor, so the guessed language is visible.
+	const [language, setLanguage] = useState("plaintext");
+	// The editor and the wheel handler are set up once, so they read the newest
+	// zoom through a ref rather than being rebuilt on every step.
+	const zoomRef = useRef(zoom);
+	zoomRef.current = zoom;
+	const setZoomRef = useRef(setZoom);
+	setZoomRef.current = setZoom;
+	// Same reason: the editor is created once, so it reads the newest wrap
+	// setting here and through the effect below.
+	const wrapRef = useRef(wordWrap);
+	wrapRef.current = wordWrap;
 	const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	const modelRef = useRef<Monaco.editor.ITextModel | null>(null);
 	// True while an external refresh is being applied, so that edit is not
@@ -55,8 +108,32 @@ export function CodeEditor({
 
 	// The editor is created once, so it reads the newest callbacks and text
 	// through refs rather than being torn down on every render.
-	const latest = useRef({ value, version, onChange, onSave, revealLine });
-	latest.current = { value, version, onChange, onSave, revealLine };
+	const latest = useRef({
+		value,
+		version,
+		onChange,
+		onSave,
+		revealLine,
+		onViewState,
+		onTopLine,
+	});
+	latest.current = {
+		value,
+		version,
+		onChange,
+		onSave,
+		revealLine,
+		onViewState,
+		onTopLine,
+	};
+
+	useImperativeHandle(ref, () => ({
+		setTopLine(line: number) {
+			const editor = editorRef.current;
+			if (!editor) return;
+			editor.setScrollTop(editorScrollTop(editor, line));
+		},
+	}));
 
 	// A later request to jump, once the editor is already up. The one that
 	// arrives before Monaco has loaded is handled where the editor is created.
@@ -69,16 +146,17 @@ export function CodeEditor({
 		editor.focus();
 	}, [revealNonce]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: useEditorViewState reads viewState once per tab, so it never changes here
 	useEffect(() => {
 		let disposed = false;
 		void getMonaco().then((monaco) => {
 			if (disposed || !host.current) return;
-			const uri = monaco.Uri.parse(`pk:/${path}`);
+			const uri = monaco.Uri.parse(`pk:/${projectId}/${path}`);
 			const model =
 				monaco.editor.getModel(uri) ??
 				monaco.editor.createModel(
 					latest.current.value,
-					languageForPath(monaco, path),
+					languageForFile(monaco, path, firstLineOf(latest.current.value)),
 					uri,
 				);
 			const editor = monaco.editor.create(host.current, {
@@ -86,6 +164,20 @@ export function CodeEditor({
 				model,
 				theme: currentThemeName(),
 				renderLineHighlight: "line",
+				fontSize: fontSizeFor(zoomRef.current),
+				wordWrap: wrapRef.current,
+			});
+			// Editor-only zoom by keyboard (SPEC.md §13.1). Monaco swallows these
+			// keys, so the browser's own zoom does not also fire.
+			const mod = monaco.KeyMod.CtrlCmd;
+			editor.addCommand(mod | monaco.KeyMod.Shift | monaco.KeyCode.Equal, () => {
+				setZoomRef.current(stepZoom(zoomRef.current, 1));
+			});
+			editor.addCommand(mod | monaco.KeyMod.Shift | monaco.KeyCode.Minus, () => {
+				setZoomRef.current(stepZoom(zoomRef.current, -1));
+			});
+			editor.addCommand(mod | monaco.KeyCode.Digit0, () => {
+				setZoomRef.current(DEFAULT_ZOOM);
 			});
 			editorRef.current = editor;
 			modelRef.current = model;
@@ -101,16 +193,57 @@ export function CodeEditor({
 					applying.current = false;
 				}
 			}
+			// The first line may only be known now, so the guessed language is
+			// settled once the model holds the real text (SPEC.md §13.2).
+			const settled = languageForFile(monaco, path, firstLineOf(model.getValue()));
+			monaco.editor.setModelLanguage(model, settled);
+			setLanguage(settled);
 			applied.current = latest.current.version;
 			editor.onDidChangeModelContent(() => {
 				if (applying.current) return;
 				latest.current.onChange(model.getValue());
 			});
+			// Put the cursor and scroll back now that the model holds the real
+			// text (issue #161). A tab in the background has no height yet, and
+			// Monaco clamps a scroll it cannot show, so this waits for a layout
+			// with a height rather than restoring into nothing.
+			// useEditorViewState reads this once when the tab mounts, so a save
+			// while the tab is open cannot make the editor jump.
+			const saved = viewState;
+			let restored = saved === undefined || saved === null;
+			function restore() {
+				if (restored || editor.getLayoutInfo().height <= 0) return;
+				restored = true;
+				editor.restoreViewState(saved as Monaco.editor.ICodeEditorViewState);
+			}
+			restore();
+			editor.onDidLayoutChange(restore);
+			// An explicit "open at line" wins over the remembered position.
 			const line = latest.current.revealLine;
 			if (line !== undefined) {
+				restored = true;
 				editor.setPosition({ lineNumber: line, column: 1 });
 				editor.revealLineInCenter(line);
 			}
+			// Every move and scroll goes straight into the layout store, which
+			// is cheap; writing it to this browser's storage is what the layout
+			// hook debounces (persist.ts, issue #161).
+			function report() {
+				if (!restored) return;
+				latest.current.onViewState?.(editor.saveViewState());
+			}
+			editor.onDidChangeCursorPosition(report);
+			// One scroll listener does both jobs: remember the position and let
+			// the split view follow it (issue #154). It is attached after the
+			// restore above so the remembered position is put back first, rather
+			// than the two pulling against each other while the tab is opening.
+			editor.onDidScrollChange(() => {
+				report();
+				if (!restored) return;
+				const follow = latest.current.onTopLine;
+				if (!follow) return;
+				follow(editorTopLine(editor));
+			});
 		});
 		return () => {
 			disposed = true;
@@ -119,7 +252,7 @@ export function CodeEditor({
 			editorRef.current = null;
 			modelRef.current = null;
 		};
-	}, [path]);
+	}, [path, projectId]);
 
 	// A refreshed file replaces the text through an edit operation, so the
 	// cursor and the scroll position survive (SPEC.md §13.3).
@@ -139,11 +272,35 @@ export function CodeEditor({
 		}
 	}, [value, version]);
 
+	useEffect(() => {
+		editorRef.current?.updateOptions({ fontSize: fontSizeFor(zoom) });
+	}, [zoom]);
+
+	// Word wrap comes from the student's settings (issue #159, SPEC.md §13.1).
+	useEffect(() => {
+		editorRef.current?.updateOptions({ wordWrap });
+	}, [wordWrap]);
+
+	// Ctrl + wheel zooms the editor only. preventDefault stops the browser from
+	// zooming the whole page, so the listener cannot be passive (SPEC.md §13.1).
+	useEffect(() => {
+		const node = host.current;
+		if (!node) return;
+		function onWheel(event: WheelEvent) {
+			if (!(event.ctrlKey || event.metaKey)) return;
+			event.preventDefault();
+			if (event.deltaY === 0) return;
+			setZoomRef.current(stepZoom(zoomRef.current, event.deltaY < 0 ? 1 : -1));
+		}
+		node.addEventListener("wheel", onWheel, { passive: false });
+		return () => node.removeEventListener("wheel", onWheel);
+	}, []);
+
 	// Ctrl/Cmd+S saves now instead of opening the browser's save dialog
 	// (SPEC.md §13.5). It is a listener rather than a JSX handler because the
 	// keys arrive on Monaco's own elements inside this host.
 	useEffect(() => {
-		const node = host.current;
+		const node = container.current;
 		if (!node) return;
 		function onKeyDown(event: KeyboardEvent) {
 			if (event.key.toLowerCase() !== "s") return;
@@ -161,5 +318,46 @@ export function CodeEditor({
 		watchTheme();
 	}, []);
 
-	return <div className="pk-editor" data-testid={`editor-${path}`} ref={host} />;
+	return (
+		<div className="pk-editor" data-testid={`editor-${path}`} ref={container}>
+			<div className="pk-editor-host" ref={host} />
+			<div className="pk-editor-bar">
+				<span className="pk-editor-language" data-testid={`editor-language-${path}`}>
+					{language}
+				</span>
+				<button
+					type="button"
+					className="pk-zoom-button"
+					aria-label="Zoom out"
+					onClick={() => setZoom(stepZoom(zoom, -1))}
+				>
+					&minus;
+				</button>
+				<span className="pk-zoom-value" data-testid={`editor-zoom-${path}`}>
+					{zoom}%
+				</span>
+				<button
+					type="button"
+					className="pk-zoom-button"
+					aria-label="Zoom in"
+					onClick={() => setZoom(stepZoom(zoom, 1))}
+				>
+					+
+				</button>
+				<button
+					type="button"
+					className="pk-zoom-reset"
+					onClick={() => setZoom(DEFAULT_ZOOM)}
+				>
+					Reset
+				</button>
+			</div>
+		</div>
+	);
+}
+
+/** The first line of a file, for guessing its language. */
+function firstLineOf(text: string): string {
+	const end = text.indexOf("\n");
+	return (end < 0 ? text : text.slice(0, end)).slice(0, 200);
 }

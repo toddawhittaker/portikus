@@ -1,11 +1,13 @@
 import type { Workspace } from "@portikus/contracts";
-import { Icon, Skeleton } from "@portikus/ui";
+import { Button, Icon, Skeleton, useToast } from "@portikus/ui";
+import { useWorkspaceAction } from "./api/workspace.js";
 
 export type StartingPhase =
 	| "connecting"
 	| "starting"
 	| "restoring"
 	| "stopping"
+	| "stopped"
 	| "error";
 
 const STEPS = ["connecting", "starting", "restoring"] as const;
@@ -32,6 +34,10 @@ const COPY: Record<StartingPhase, [string, string]> = {
 		"Stopping your workspace",
 		"Your files are saved. The workspace will start again when you come back.",
 	],
+	stopped: [
+		"Your workspace is stopped",
+		"Nothing is running. Your files are saved on your workspace storage; start the workspace again when you are ready.",
+	],
 	error: [
 		"Your workspace could not be started",
 		"Portikus could not start the machine behind this window. Nothing you did caused this.",
@@ -43,6 +49,10 @@ export function startingPhase(workspace: Workspace | null): StartingPhase {
 	if (!workspace) return "connecting";
 	if (workspace.state === "error") return "error";
 	if (workspace.state === "stopping") return "stopping";
+	// Stopped and not asked to run again: nothing is happening, so do not
+	// show a progress spinner that would never finish (SPEC.md §6.3).
+	if (workspace.state === "stopped" && workspace.desiredState === "stopped")
+		return "stopped";
 	if (workspace.state === "running") return "restoring";
 	return "starting";
 }
@@ -51,7 +61,13 @@ export function startingPhase(workspace: Workspace | null): StartingPhase {
  * The center of the shell while the workspace is not running yet
  * (SPEC.md §6.3): what is happening, in order, and nothing to click.
  */
-export function WorkspaceStarting({ workspace }: { workspace: Workspace | null }) {
+export function WorkspaceStarting({
+	workspaceId,
+	workspace,
+}: {
+	workspaceId: string;
+	workspace: Workspace | null;
+}) {
 	const phase = startingPhase(workspace);
 	const [heading, sub] = COPY[phase];
 	const at = STEPS.indexOf(phase as (typeof STEPS)[number]);
@@ -101,6 +117,7 @@ export function WorkspaceStarting({ workspace }: { workspace: Workspace | null }
 							})}
 						</ol>
 					)}
+					{phase === "stopped" && <StartAgain workspaceId={workspaceId} />}
 					{phase === "error" && workspace?.errorMessage && (
 						<>
 							<hr className="pk-divider" />
@@ -115,5 +132,37 @@ export function WorkspaceStarting({ workspace }: { workspace: Workspace | null }
 				</section>
 			</div>
 		</>
+	);
+}
+
+/**
+ * The way back from a workspace the student stopped by hand. It asks for the
+ * same desired-state change as the Start button in the workspace dialog, and
+ * the presence socket reports the workspace running (SPEC.md §6.2, §6.3).
+ */
+function StartAgain({ workspaceId }: { workspaceId: string }) {
+	const action = useWorkspaceAction(workspaceId);
+	const toast = useToast();
+
+	return (
+		<div className="flex">
+			<Button
+				variant="primary"
+				disabled={action.isPending}
+				data-testid="workspace-resume"
+				onClick={() =>
+					action.mutate("start", {
+						onError: (error) =>
+							toast.show({
+								tone: "danger",
+								title: "The workspace did not start",
+								children: error instanceof Error ? error.message : undefined,
+							}),
+					})
+				}
+			>
+				Start workspace
+			</Button>
+		</div>
 	);
 }

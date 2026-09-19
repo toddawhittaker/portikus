@@ -4,10 +4,12 @@ import {
 	createStudent,
 	newTerminal,
 	query,
+	seedFile,
 	seedGit,
 	type TestProject,
 	type TestStudent,
 	workspacePath,
+	workTabs,
 } from "./helpers";
 
 /**
@@ -164,8 +166,8 @@ test.describe("diff tab", () => {
 
 		await expect(page.getByText("This diff is too large to show here")).toBeVisible();
 		await expect(page.getByTestId(`diff-download-${PATH}`)).toBeVisible();
-		// Open file turns the diff tab's path into a file tab.
-		await page.getByTestId(`diff-open-${PATH}`).click();
+		// Edit turns the same tab back into the editor.
+		await page.getByTestId(`file-view-edit-${PATH}`).click();
 		await expect(page.getByTestId(`file-pane-${PATH}`)).toBeVisible({
 			timeout: 30_000,
 		});
@@ -205,7 +207,68 @@ test.describe("diff tab", () => {
 			diffs: { [PATH]: diff({ after: "const answer = 44; // while away\n" }) },
 		});
 
-		await page.getByTestId(`tab-diff:${PATH}`).click();
+		await page.getByTestId(`tab-file:${PATH}`).click();
 		await expect(editor).toContainText("// while away", { timeout: 20_000 });
+	});
+
+	test("clicking an open file in the Changes list uses its own tab", async ({
+		page,
+		context,
+	}) => {
+		// Issue #160: the diff is a view of the file's tab, so the same file
+		// never appears twice in the strip.
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "One tab" });
+		await seedFile(student.workspaceId, project.slug, PATH, "const answer = 42;\n");
+		await seedGit(student.workspaceId, project.slug, {
+			status: {
+				repo: true,
+				branch: "main",
+				detached: false,
+				upstream: "origin/main",
+				ahead: 0,
+				behind: 0,
+				conflicts: 0,
+				entries: [{ path: PATH, x: ".", y: "M", unmerged: false }],
+				ignored: [],
+				truncated: false,
+			},
+			diffs: { [PATH]: diff() },
+		});
+		await query("update projects set layout = $2 where id = $1", [
+			project.id,
+			JSON.stringify({
+				tabs: [{ id: `file:${PATH}`, root: { type: "file", path: PATH } }],
+			}),
+		]);
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByTestId(`file-pane-${PATH}`)).toBeVisible({
+			timeout: 15_000,
+		});
+
+		await page.getByTestId(`change-row-${PATH}`).click();
+
+		// One tab, showing the diff.
+		await expect(workTabs(page)).toHaveCount(1);
+		await expect(page.getByTestId(`diff-pane-${PATH}`)).toBeVisible({
+			timeout: 15_000,
+		});
+		await expect(page.getByTestId(`file-pane-${PATH}`)).toBeHidden();
+
+		// And the toggle goes back to the editor, still in the one tab.
+		await page.getByTestId(`file-view-edit-${PATH}`).click();
+		await expect(page.getByTestId(`file-pane-${PATH}`)).toBeVisible();
+		await expect(page.getByTestId(`diff-pane-${PATH}`)).toHaveCount(0);
+		await expect(workTabs(page)).toHaveCount(1);
+
+		// Opening the file from the tree also takes a tab that is showing its
+		// diff back to the editor, rather than leaving the diff up.
+		await page.getByTestId(`change-row-${PATH}`).click();
+		await expect(page.getByTestId(`diff-pane-${PATH}`)).toBeVisible();
+		await page.getByTestId("file-row-src").click();
+		await page.getByTestId(`file-row-${PATH}`).click();
+		await expect(page.getByTestId(`file-pane-${PATH}`)).toBeVisible();
+		await expect(page.getByTestId(`diff-pane-${PATH}`)).toHaveCount(0);
+		await expect(workTabs(page)).toHaveCount(1);
 	});
 });

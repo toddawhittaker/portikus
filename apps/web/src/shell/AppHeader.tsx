@@ -21,6 +21,8 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useWorkspaceAction } from "../api/workspace.js";
+import { clearLocalLayouts } from "../layout/local.js";
+import { EditorSettingsDialog } from "../settings/EditorSettingsDialog.js";
 import type { MeUser } from "../useMe.js";
 import { type ThemePreference, useThemePreference } from "./theme.js";
 
@@ -57,6 +59,7 @@ export function AppHeader({
 	project: Project | undefined;
 }) {
 	const [statusOpen, setStatusOpen] = useState(false);
+	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [preference, setPreference] = useThemePreference();
 	const signOutForm = useRef<HTMLFormElement>(null);
 
@@ -76,11 +79,6 @@ export function AppHeader({
 			)}
 			<span className="pk-appbar-spacer" />
 
-			{user.role === "administrator" && workspaceId ? (
-				<Link to="/admin" className="pk-wsbutton" data-testid="admin-link">
-					Administration
-				</Link>
-			) : null}
 			{workspaceId ? null : (
 				<Link to="/" className="pk-wsbutton" data-testid="back-to-workspace">
 					Back to your workspace
@@ -146,10 +144,34 @@ export function AppHeader({
 							<span data-testid={`appearance-${option.value}`}>{option.label}</span>
 						</MenuItem>
 					))}
+					{user.role === "administrator" && workspaceId ? (
+						<>
+							<MenuSeparator />
+							{/* A new tab, so this tab keeps its sockets open and the
+							    disconnect grace timer never starts (SPEC.md §6.4). */}
+							<MenuItem
+								icon="external"
+								href="/admin"
+								target="_blank"
+								rel="noopener"
+								testId="admin-link"
+							>
+								Administration
+							</MenuItem>
+						</>
+					) : null}
+					<MenuSeparator />
+					<MenuItem onSelect={() => setSettingsOpen(true)}>
+						<span data-testid="editor-settings">Editor settings</span>
+					</MenuItem>
 					<MenuSeparator />
 					<MenuItem
 						icon="sign-out"
-						onSelect={() => signOutForm.current?.requestSubmit()}
+						onSelect={() => {
+							// The next person at this browser starts clean (SPEC.md §24.2).
+							clearLocalLayouts();
+							signOutForm.current?.requestSubmit();
+						}}
 					>
 						<span data-testid="signout">Sign out</span>
 					</MenuItem>
@@ -157,6 +179,10 @@ export function AppHeader({
 			</MenuRoot>
 			{/* A real form post, so the session cookie is cleared by the server. */}
 			<form ref={signOutForm} method="post" action="/auth/logout" className="hidden" />
+
+			{settingsOpen ? (
+				<EditorSettingsDialog onClose={() => setSettingsOpen(false)} />
+			) : null}
 
 			<DialogRoot open={statusOpen} onOpenChange={setStatusOpen}>
 				{statusOpen && (

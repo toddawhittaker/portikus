@@ -6,12 +6,21 @@ import { createRoot } from "react-dom/client";
 import { createQueryClient } from "./api/queryClient.js";
 import "./app.css";
 import { router } from "./router.js";
+import {
+	clearStaleChunkFlag,
+	installStaleChunkReload,
+} from "./shell/reloadOnStaleChunk.js";
 import { applyThemePreference, readThemePreference } from "./shell/theme.js";
 
 const container = document.getElementById("root");
 if (!container) {
 	throw new Error("missing #root element");
 }
+
+// A tab left open across a deploy reloads once when it asks for a chunk
+// the new build no longer ships (see reloadOnStaleChunk.ts).
+installStaleChunkReload();
+window.addEventListener("load", () => clearStaleChunkFlag());
 
 // Before the first paint, so a remembered dark theme does not flash light.
 applyThemePreference(readThemePreference());

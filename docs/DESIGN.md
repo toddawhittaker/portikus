@@ -89,7 +89,7 @@ first; the rest can be wireframes.
 | Terminal tabs | 6, 8 | xterm.js; multiple tabs; horizontal and vertical splits; rename; close; "ended session" state after a stop with a "new terminal" action. Launchers: `+ Terminal`, `+ Claude Code`, `+ Codex`, `+ File`, `+ Preview` (SPEC 10.2) |
 | Project navigation | 7 | Active projects, archived entry point, create (new, clone, template), rename, duplicate, download, archive. No permanent delete for students |
 | File tree | 8 | Create, rename, move, delete with confirmation, upload and drag-drop, download; generated folders hidden behind "Show hidden and generated files"; live updates from agents and other windows |
-| Editor and Markdown | 8 | Monaco; autosave states `Saving…`, `Saved`, `Conflict`; Markdown edit, preview, side-by-side |
+| Editor and Markdown | 8 | Monaco; autosave states `Saving…`, `Saved`, `Conflict`; Markdown Code, Rich and Split views, both sides editable |
 | Changes and diff | 9 | Status decorations; a project "Changes" list (`M src/app.ts`); Monaco diff; a compact status like `main • 3 changes • 2 commits ahead`; conflict state must look nothing like an ordinary change; "Review session changes" with the baseline label `Changes since Claude session started` |
 | Search | 8 | Project-wide, results as path, line, matching text, click to open at line |
 | Preview | 10 | Pick a port; embedded (sandboxed iframe) or open in a new tab; inactive copy: "Nothing is currently listening on port 3000. Start your application to reconnect this preview." No share link, ever |
@@ -220,3 +220,33 @@ a sibling. That is fewer moving parts than the Radix primitive for no loss, so
 (SPEC 8.1), so the shell sets a minimum width and scrolls below it rather than
 collapsing. The `Shell1024` mockup stands as the design for whenever narrow
 displays are taken up.
+
+## 10. Which Monaco features are on
+
+Pilot feedback asked for the stock editor rather than a stripped-down one
+(SPEC 13.1, 13.2). These are on for both the file editor and the diff viewer:
+
+| Feature | Keys | Why |
+|---|---|---|
+| Find and replace | Ctrl+F, Ctrl+H, F3 and Shift+F3, Enter | Monaco handles the keys itself, so the browser's own find never opens |
+| Minimap | — | The overview students expect from an editor |
+| Code folding | Click the gutter arrow, Ctrl+Shift+[ and Ctrl+Shift+] | Long files stay navigable |
+| Bracket pair colouring and bracket match | — | Reading aid, no configuration |
+| Command palette | F1 | Reaches every editor action without more shortcuts |
+| Multiple cursors | Ctrl+D, Alt+click | Standard editing, nothing Portikus binds |
+
+These stay off: the TypeScript, CSS and HTML language services, because their
+diagnostics do not know the project's configuration (SPEC 13.2), and Monaco's
+own Ctrl+wheel zoom, because Portikus zooms one editor at a time instead.
+
+**Editor zoom is per editor and per session.** Ctrl with the mouse wheel over
+the editor, Ctrl+Shift+Plus and Ctrl+Shift+Minus step it by ten percentage
+points, Ctrl+0 returns to 100%, and a thin bar under the editor shows the
+percentage with minus, plus and Reset. It changes the editor font only, never
+the browser's page zoom, and nothing is saved: every file opens at 100%.
+
+**Language is guessed from the first line when the name says nothing.** A file
+such as `.git/hooks/pre-applypatch.sample` is highlighted as shell because of
+its `#!/bin/sh` line. The table covers shebangs for sh, bash, zsh, Python,
+Node, Perl and Ruby, an XML or HTML opening, a JSON object or array, and the
+file names `Makefile` and `Dockerfile`. Nothing recognised means plain text.

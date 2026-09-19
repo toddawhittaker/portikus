@@ -84,6 +84,37 @@ test.describe("projects", () => {
 		await expect(page.getByRole("menuitem", { name: "Initialize Git" })).toHaveCount(0);
 	});
 
+	test("a name that would clash warns before Create is pressed", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await createProject(student.workspaceId, { name: "Todo API" });
+		await page.goto(workspacePath(student.workspaceId));
+		await expect(page.getByTestId("empty-projects")).toHaveCount(0);
+
+		await startCreate(page, "New project");
+		// Matching is by slug, so a different capitalisation still clashes.
+		await page.getByTestId("field-name").fill("todo api");
+		await expect(page.getByTestId("name-clash")).toHaveText(
+			"A project called todo-api already exists",
+		);
+		await expect(page.getByTestId("dialog-confirm")).toBeDisabled();
+
+		await page.getByTestId("field-name").fill("Todo API 2");
+		await expect(page.getByTestId("name-clash")).toHaveCount(0);
+		await expect(page.getByTestId("dialog-confirm")).toBeEnabled();
+		await page.getByTestId("dialog-confirm").click();
+
+		const ids = await waitForProjectIds(student.workspaceId, 2);
+		expect(ids.length).toBe(2);
+		const [created] = await query<{ slug: string }>(
+			"select slug from projects where workspace_id = $1 and slug = $2",
+			[student.workspaceId, "todo-api-2"],
+		);
+		expect(created?.slug).toBe("todo-api-2");
+	});
+
 	test("a project made without Git offers Initialize Git, and it works", async ({
 		page,
 		context,
@@ -128,6 +159,27 @@ test.describe("projects", () => {
 		if (!projectId) throw new Error("no project row was created");
 		await expect(page.getByTestId(`project-item-${projectId}`)).toContainText(
 			"Cloned Work",
+		);
+	});
+
+	test("pasting a clone URL fills the name and slug", async ({ page, context }) => {
+		const student = await createStudent(context);
+		await page.goto(workspacePath(student.workspaceId));
+
+		await startCreate(page, "Clone repository");
+		await page.getByTestId("field-url").fill("https://github.com/user/todo-api");
+
+		await expect(page.getByTestId("field-name")).toHaveValue("todo-api");
+		await expect(page.getByTestId("slug-preview")).toHaveText("~/projects/todo-api");
+
+		// The known hosts get the .git suffix added before the request is sent.
+		const request = page.waitForRequest(
+			(candidate) =>
+				candidate.method() === "POST" && candidate.url().endsWith("/projects"),
+		);
+		await page.getByTestId("dialog-confirm").click();
+		expect(JSON.parse((await request).postData() ?? "{}").url).toBe(
+			"https://github.com/user/todo-api.git",
 		);
 	});
 
@@ -417,5 +469,46 @@ test.describe("projects", () => {
 
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(page.getByTestId("project-list")).toHaveCount(0);
+	});
+
+	test("the three-dots menu stays visible when the pane is dragged narrow", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, {
+			name: "A Very Long Project Name That Will Not Fit In A Narrow Pane",
+		});
+		await page.goto(workspacePath(student.workspaceId, project.id));
+
+		const menu = page.getByTestId(`project-menu-${project.id}`);
+		await expect(menu).toBeVisible();
+
+		// Drag the handle as far left as it goes; the pane stops at its minSize.
+		const handle = page.getByRole("separator", { name: "Resize project list" });
+		const grip = await handle.boundingBox();
+		if (!grip) throw new Error("the project pane handle has no box");
+		await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(0, grip.y + grip.height / 2, { steps: 10 });
+		await page.mouse.up();
+
+		const pane = page.getByRole("navigation", { name: "Projects" });
+		const paneBox = await pane.boundingBox();
+		const menuBox = await menu.boundingBox();
+		if (!paneBox || !menuBox) throw new Error("the pane or its menu has no box");
+		expect(menuBox.width).toBeGreaterThan(0);
+		expect(menuBox.x).toBeGreaterThanOrEqual(paneBox.x);
+		expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(
+			paneBox.x + paneBox.width + 1,
+		);
+
+		// The head's "New project" button stays reachable too.
+		const newBox = await page.getByTestId("new-project").boundingBox();
+		if (!newBox) throw new Error("the new project button has no box");
+		expect(newBox.x + newBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width + 1);
+
+		await menu.click();
+		await expect(page.getByRole("menuitem", { name: "Rename" })).toBeVisible();
 	});
 });

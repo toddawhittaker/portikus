@@ -450,3 +450,115 @@ filesystem events and have every consumer subscribe to it. Half a day, best
 done as part of Epic 9 rather than on its own.
 
 **Source.** Epic 7 review, 2026-09-18.
+
+## One merged zip for a multi-file download
+
+**What.** Selecting several files or folders in the files pane and getting
+back one zip, instead of one download per selected row.
+
+**Why.** Epic 7.1's multi-row selection (#182–#186) can select many rows at
+once, but the download route only ever takes a single path, so a large
+selection opens one download per row, which the browser throttles and a
+student has to save one at a time.
+
+**What it would take.** A workspace-agent endpoint that takes a list of
+paths and streams one zip back, plus a control-plane route that relays it
+under the same authorization and byte caps as the existing download route.
+About a day, including the path-confinement checks each path needs on its
+own.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.
+
+## Source-line scroll mapping in the Markdown split view
+
+**What.** Scroll the preview to the line that corresponds to where the
+student is editing, instead of keeping the two sides at the same relative
+scroll position.
+
+**Why.** Epic 7.1 (#154) fixed split view drifting apart, by syncing the
+two sides' relative scroll position, but a long document with short and
+tall sections still leaves the preview a little off from the exact line
+being edited.
+
+**What it would take.** A source-map from Markdown source lines to
+rendered DOM nodes, built while parsing, and using it instead of the
+relative-position sync on both sides. Half a day; worth doing once a pilot
+student notices the drift on a long document.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.
+
+## Codex agent configuration, including its update-check setting
+
+**What.** The same kind of environment and configuration control Epic 7.1
+gave Claude Code's self-updater (`DISABLE_AUTOUPDATER=1` in
+`/etc/profile.d/portikus-agents.sh`, #127), extended to Codex and folded
+into whatever general agent-configuration story Epic 9 builds.
+
+**Why.** Codex has no equivalent environment variable; its update check is
+a config file setting (`check_for_update_on_startup` in
+`/etc/codex/config.toml`), which is one small piece of a larger question
+about how the platform configures every coding agent it ships, better
+answered once rather than agent by agent.
+
+**What it would take.** Part of Epic 9's agent configuration work; no
+separate estimate. Issue #129 stays open for it.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.
+
+## Per-run e2e ports and database
+
+**What.** Give each Playwright run its own set of ports and its own
+database, instead of the fixed ports and one shared `TEST_DATABASE_URL`
+several agents' local runs use today.
+
+**Why.** Epic 7.1 added a setup check that stops a run cleanly when the
+API under test reads a different database than the test helpers write to,
+which is what several agents running the suite on this host at once used
+to trip over. The check catches the collision instead of preventing it;
+two agents still cannot run the full suite on this host at the same time.
+
+**What it would take.** Pick each run's web, API, and worker ports from a
+free range instead of a fixed list, and give each run's Playwright
+workers a database name derived from the run's process id, the way the
+unit test suite already does for database test files. About half a day.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.
+
+## Reference-style Markdown links and images in the Rich view
+
+**What.** Support reference-style links and images, written as
+`[text][id]` with the address given elsewhere in the file, in the rich
+Markdown view instead of sending the tab to Code view whenever one
+appears.
+
+**Why.** The importer that turns Markdown into the rich view's document
+model has a handler for inline links and images but not the
+reference-style form, so a file that uses it looks unreadable in the one
+view most students will use.
+
+**What it would take.** A visitor for the reference-style link and image
+nodes, mirroring the one already written for inline links and images,
+plus a definition-node visitor that keeps the referenced address in the
+document model without rendering it as its own line. About a day,
+including tests.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.
+
+## Relative Markdown image paths resolve against the workspace, not the app origin
+
+**What.** A relative image path in a Markdown file (for example
+`![diagram](./diagram.png)`) should resolve against that file's location
+in the project, the way a browser resolves a relative link on a normal
+page, instead of against the web app's own origin.
+
+**Why.** The rich Markdown view now renders images from an allowlisted
+address, but a relative path is handed to the browser unchanged, so it
+resolves against `https://<app host>/...` rather than the file's own
+folder, and the image shows as broken.
+
+**What it would take.** Rewrite a relative image address to the
+workspace's file-read route for that project and path before handing it
+to the renderer, the way the file tree already builds download links.
+About half a day, including tests for a nested-folder Markdown file.
+
+**Source.** `docs/STATUS.md`, Epic 7.1.

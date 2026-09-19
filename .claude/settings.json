@@ -1,4 +1,18 @@
 {
   "model": "claude-fable-5-1",
-  "effortLevel": "low"
+  "effortLevel": "low",
+  "permissions": {
+    "allow": [
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr update-branch:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run rerun:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh issue view:*)"
+    ]
+  }
 }

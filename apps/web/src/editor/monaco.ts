@@ -15,6 +15,9 @@ import type * as Monaco from "monaco-editor";
 // in this build.
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import JsonWorker from "monaco-editor/language/json/json.worker.js?worker";
+import { loadEditorFeatures } from "./features.js";
+import { detectLanguage } from "./language.js";
+import { BASE_FONT_SIZE } from "./zoom.js";
 
 const environment: Monaco.Environment = {
 	// JSON is the one language service kept, because JSON files are named in
@@ -42,6 +45,26 @@ export function languageForPath(monaco: typeof Monaco, path: string): string {
 }
 
 /**
+ * The language for a file, falling back to what its first line says when the
+ * name and extension give nothing away (SPEC.md §13.2). A shell hook called
+ * pre-applypatch.sample is highlighted as shell, not as plain text.
+ */
+export function languageForFile(
+	monaco: typeof Monaco,
+	path: string,
+	firstLine: string,
+): string {
+	const byName = languageForPath(monaco, path);
+	if (byName !== "plaintext") return byName;
+	const name = path.split("/").pop() ?? path;
+	const guess = detectLanguage(name, firstLine);
+	if (guess === null) return "plaintext";
+	// Only ids Monaco actually knows; the table names a few it may not load.
+	const known = monaco.languages.getLanguages().some((l) => l.id === guess);
+	return known ? guess : "plaintext";
+}
+
+/**
  * The options every Portikus editor shares, so the file editor and the diff
  * editor cannot drift apart. Each editor adds its own theme and anything
  * particular to it.
@@ -49,8 +72,16 @@ export function languageForPath(monaco: typeof Monaco, path: string): string {
 export const baseEditorOptions: Monaco.editor.IEditorOptions = {
 	automaticLayout: true,
 	fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-	fontSize: 13,
-	minimap: { enabled: false },
+	fontSize: BASE_FONT_SIZE,
+	// The stock Monaco reading aids are on (SPEC.md §13.2, DESIGN.md "The
+	// editor"): minimap, folding, bracket pair colouring and bracket match.
+	minimap: { enabled: true },
+	folding: true,
+	bracketPairColorization: { enabled: true },
+	matchBrackets: "always",
+	// Portikus does its own Ctrl+wheel zoom per editor, so Monaco's global one
+	// stays off (CodeEditor.tsx).
+	mouseWheelZoom: false,
 	scrollBeyondLastLine: false,
 };
 
@@ -73,7 +104,11 @@ function defineThemes(monaco: typeof Monaco): void {
 			"editorIndentGuide.background1": "#dcd7cc",
 			"editorWidget.background": "#fdfcfa",
 			"editorWidget.border": "#dcd7cc",
-			"scrollbarSlider.background": "#dcd7cc80",
+			// The split view's code side needs a scrollbar a student can see
+			// against a pale background (issue #154).
+			"scrollbarSlider.background": "#c1b9a8cc",
+			"scrollbarSlider.hoverBackground": "#a89f8ce6",
+			"scrollbarSlider.activeBackground": "#8d8472",
 		},
 	});
 	monaco.editor.defineTheme(DARK_THEME, {
@@ -91,7 +126,9 @@ function defineThemes(monaco: typeof Monaco): void {
 			"editorIndentGuide.background1": "#35322d",
 			"editorWidget.background": "#211f1c",
 			"editorWidget.border": "#35322d",
-			"scrollbarSlider.background": "#35322d80",
+			"scrollbarSlider.background": "#4b473fcc",
+			"scrollbarSlider.hoverBackground": "#615c52e6",
+			"scrollbarSlider.activeBackground": "#7a7466",
 		},
 	});
 }
@@ -104,6 +141,7 @@ export function getMonaco(): Promise<typeof Monaco> {
 		const monaco = (await import(
 			"monaco-editor/editor/editor.api.js"
 		)) as unknown as typeof Monaco;
+		await loadEditorFeatures();
 		// Highlighting for the languages students write. JSON is the one
 		// language with a service rather than a highlighter, because SPEC.md
 		// §13.2 names it; it only checks JSON syntax and asks for no schemas.

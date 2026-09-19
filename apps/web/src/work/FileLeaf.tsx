@@ -3,10 +3,14 @@
  * (SPEC.md §8.3, §13.1, §13.3, §13.5). Local text is never thrown away
  * without the student clicking a button.
  */
+import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { Button, EmptyState, PaneHandle } from "@portikus/ui";
 import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import { ApiError } from "../api/request.js";
+import type { CodeEditorHandle } from "../editor/CodeEditor.js";
+import { lineForTop, readBlocks, topForLine } from "../editor/scrollSync.js";
+import { useEditorSettings } from "../editor/settingsQueries.js";
 import {
 	FileConflictError,
 	fileDownloadUrl,
@@ -14,6 +18,8 @@ import {
 	useFile,
 	useSaveFile,
 } from "../files/queries.js";
+import { useEditorViewState } from "../layout/store.js";
+import { DiffLeaf } from "./DiffLeaf.js";
 
 // Monaco is large, so it is its own chunk and is only fetched when a file tab
 // is actually opened (STACK.md §3).
@@ -21,24 +27,33 @@ const CodeEditor = lazy(() =>
 	import("../editor/CodeEditor.js").then((module) => ({ default: module.CodeEditor })),
 );
 
-// The Markdown renderer is its own chunk for the same reason.
+// The Markdown preview is its own chunk for the same reason: a student who
+// only ever opens code files never downloads it.
 const MarkdownPreview = lazy(() =>
 	import("../editor/MarkdownPreview.js").then((module) => ({
 		default: module.MarkdownPreview,
 	})),
 );
 
-/** How long after the last keystroke the text is written (SPEC.md §13.5). */
-const AUTOSAVE_DELAY_MS = 750;
+// The conflict view is the same Monaco diff editor the Changes view uses.
+const DiffViewer = lazy(() =>
+	import("../editor/DiffViewer.js").then((module) => ({ default: module.DiffViewer })),
+);
 
-/** Which of the three Markdown views this tab shows (SPEC.md §13.4). */
-type MarkdownMode = "edit" | "preview" | "split";
+/** The editor, or this file's changes against the last commit (issue #160). */
+type View = "edit" | "diff";
 
-const MARKDOWN_MODES: { mode: MarkdownMode; label: string }[] = [
-	{ mode: "edit", label: "Edit" },
-	{ mode: "preview", label: "Preview" },
-	{ mode: "split", label: "Split" },
-];
+/** The tab is hidden, not unmounted, so the editor keeps its undo history. */
+const HIDDEN = { display: "none" } as const;
+
+/**
+ * How many pixels apart two preview positions can be and still count as the
+ * same place. A side that is put where it already is reports a scroll of its
+ * own; this is how that echo is told from a student's own scroll (issue #229).
+ */
+const SAME_PLACE = 1;
+/** Lines closer together than this are the same place; lines are fractional. */
+const SAME_LINE = 0.01;
 
 /** True for the file names that open as Markdown. */
 function isMarkdownPath(path: string): boolean {
@@ -67,6 +82,16 @@ export interface FileLeafProps {
 	pendingLine?: number;
 	/** Take that line from the layout store, so it is acted on only once. */
 	consumePendingLine?: () => number | undefined;
+	/** Counts the times this tab was asked to show its diff (issue #160). */
+	pendingDiff?: number;
+	/** Take that request from the layout store, so it is acted on once. */
+	consumePendingDiff?: () => boolean;
+	/** Counts the times this tab was asked to show the editor again. */
+	pendingEdit?: number;
+	/** Take that request from the layout store, so it is acted on once. */
+	consumePendingEdit?: () => boolean;
+	/** False while this tab is in the background. */
+	visible?: boolean;
 }
 
 export function FileLeaf({
@@ -76,7 +101,19 @@ export function FileLeaf({
 	onClose,
 	pendingLine,
 	consumePendingLine,
+	pendingDiff,
+	consumePendingDiff,
+	pendingEdit,
+	consumePendingEdit,
+	visible = true,
 }: FileLeafProps) {
+	// The student's own editor settings (issue #159). They load once per
+	// session; until they arrive the editor uses the defaults.
+	const settingsQuery = useEditorSettings();
+	const settings = settingsQuery.data ?? EDITOR_SETTINGS_DEFAULTS;
+	// Where the cursor and scroll were when this file was last on screen, so
+	// leaving the workspace and coming back puts them back (issue #161).
+	const viewState = useEditorViewState(path);
 	const file = useFile(workspaceId, projectId, path);
 	const save = useSaveFile(workspaceId, projectId, path);
 
@@ -86,10 +123,27 @@ export function FileLeaf({
 	const [etag, setEtag] = useState("");
 	const [dirty, setDirty] = useState(false);
 	const [status, setStatus] = useState<Status>("loading");
-	const [conflictEtag, setConflictEtag] = useState<string | null>(null);
+	// The version on disk that this tab's text no longer follows from, and
+	// what that version says. Null when there is nothing to resolve.
+	const [conflict, setConflict] = useState<{ etag: string; text: string } | null>(null);
+	// A conflict opens as a diff; the student can put it aside and carry on
+	// typing, and the banner brings the diff back (issue #158).
+	const [showConflict, setShowConflict] = useState(false);
+	// Counts the edits made on the conflict side. The editor below only takes
+	// new text when its version changes, and typing in the conflict diff does
+	// not change the etag, so without this counter "Keep editing" would come
+	// back to an editor still holding the text from before those keystrokes.
+	const [conflictEdits, setConflictEdits] = useState(0);
+	// Which view this tab shows. It belongs to this browser and is not saved.
+	const [view, setView] = useState<View>("edit");
 	const markdown = isMarkdownPath(path);
-	// Markdown opens rendered; the choice belongs to this tab and is not saved.
-	const [mode, setMode] = useState<MarkdownMode>("preview");
+	// The two sides of the Markdown split keep the same top line (issue #229).
+	// Each side remembers the place it last put the other one at, so it can
+	// recognise that side's answering scroll event and not send it back.
+	const editorScroll = useRef<CodeEditorHandle | null>(null);
+	const previewScroll = useRef<HTMLDivElement | null>(null);
+	const sentPreviewTop = useRef<number | null>(null);
+	const sentEditorLine = useRef<number | null>(null);
 	// The preview may lag the keystrokes so typing stays smooth, but it is
 	// never a frame behind on the first render.
 	const previewText = useDeferredValue(text ?? "");
@@ -104,6 +158,11 @@ export function FileLeaf({
 	// Every version this tab has already seen, so a refetch that was in flight
 	// during a save cannot put the older text back.
 	const known = useRef(new Set<string>());
+	// The last few bodies this tab wrote. A write of its own makes the file
+	// change on disk, which the project events socket reports, and that read
+	// can come back before the write's own answer does. Without this the
+	// editor would see its own text as someone else's edit (issue #157).
+	const sent = useRef<string[]>([]);
 
 	// A file can be opened at a line again while its tab is already there, so
 	// the pending line is taken every time the store gets a new one, not only
@@ -121,10 +180,33 @@ export function FileLeaf({
 		setRevealReady(true);
 	}, [pendingLine]);
 
+	// Clicking a file in the Changes list puts its tab in diff view, whether
+	// the tab was already open or not, so one path never has two tabs.
+	const consumeDiff = useRef(consumePendingDiff);
+	consumeDiff.current = consumePendingDiff;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: pendingDiff is the trigger
+	useEffect(() => {
+		if (consumeDiff.current?.()) setView("diff");
+	}, [pendingDiff]);
+
+	// Opening the file again from the tree or a terminal link takes a tab that
+	// was left in diff view back to the editor.
+	const consumeEdit = useRef(consumePendingEdit);
+	consumeEdit.current = consumePendingEdit;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: pendingEdit is the trigger
+	useEffect(() => {
+		if (consumeEdit.current?.()) setView("edit");
+	}, [pendingEdit]);
+
 	// The save reads the newest text and etag, not the ones captured when the
 	// timer was set.
 	const latest = useRef({ text, etag, deleted });
 	latest.current = { text, etag, deleted };
+
+	// The pending timer reads the newest settings, so a change takes effect on
+	// the next keystroke rather than on the next reload.
+	const settingsRef = useRef(settings);
+	settingsRef.current = settings;
 
 	function cancelTimer() {
 		if (timer.current !== null) clearTimeout(timer.current);
@@ -155,7 +237,10 @@ export function FileLeaf({
 		[],
 	);
 
-	async function write(body: string, against: string | null) {
+	async function write(body: string, against: string | null, retried = false) {
+		// Three is enough to cover the reads that were already on their way
+		// when this write went out.
+		sent.current = [...sent.current.slice(-2), body];
 		writing.current = true;
 		setStatus("saving");
 		setSaveError(null);
@@ -164,7 +249,7 @@ export function FileLeaf({
 			known.current.add(result.etag);
 			setEtag(result.etag);
 			setDeleted(false);
-			setConflictEtag(null);
+			setConflict(null);
 			// The student may have typed while that write was in the air. Only
 			// what was actually sent is saved; anything newer is still unsaved.
 			if (latest.current.text === body) {
@@ -173,11 +258,35 @@ export function FileLeaf({
 			} else {
 				setDirty(true);
 				setStatus("unsaved");
-				scheduleSave();
+				// With auto-save off the student asked for this save, so the
+				// keystrokes that arrived during it go out at once rather than
+				// waiting for another Ctrl+S.
+				scheduleSave(settingsRef.current.autoSave ? undefined : 0);
 			}
 		} catch (error) {
 			if (error instanceof FileConflictError) {
-				setConflictEtag(error.etag);
+				// The refusal carries the version on disk but not its text, and
+				// the conflict view needs both sides.
+				const fresh = await file.refetch();
+				const disk = fresh.data;
+				const readable = disk !== undefined && !disk.binary && !disk.tooLarge;
+				// The file on disk may hold a version this tab itself wrote or
+				// loaded. Then nobody else has touched it, the refusal came from an
+				// etag that had gone stale here, and a conflict would be a lie. Save
+				// again against the version the server just gave, once (issue #157).
+				if (
+					!retried &&
+					readable &&
+					(known.current.has(disk.etag) || sent.current.includes(disk.text))
+				) {
+					await write(body, disk.etag, true);
+					return;
+				}
+				setConflict({
+					etag: readable ? disk.etag : error.etag,
+					text: readable ? disk.text : "",
+				});
+				setShowConflict(true);
 				setStatus("conflict");
 				return;
 			}
@@ -188,20 +297,24 @@ export function FileLeaf({
 		}
 	}
 
-	function scheduleSave() {
+	/**
+	 * Write the newest text after `delayMs`. The default is the student's
+	 * auto-save delay; a Ctrl+S that has more to write passes zero.
+	 */
+	function scheduleSave(delayMs = settingsRef.current.autoSaveDelaySeconds * 1000) {
 		cancelTimer();
 		timer.current = setTimeout(() => {
 			timer.current = null;
 			// One write at a time: a second would carry the etag the first is
 			// about to replace. Wait another debounce instead.
 			if (writing.current) {
-				scheduleSave();
+				scheduleSave(delayMs);
 				return;
 			}
 			const current = latest.current;
 			if (current.text === null) return;
 			void write(current.text, current.deleted ? null : current.etag);
-		}, AUTOSAVE_DELAY_MS);
+		}, delayMs);
 	}
 
 	function onChange(next: string) {
@@ -209,17 +322,25 @@ export function FileLeaf({
 		setDirty(true);
 		// An unresolved conflict waits for the student; autosaving would only
 		// produce another 412 (SPEC.md §13.3).
-		if (conflictEtag !== null) return;
+		if (conflict !== null) return;
 		setStatus("unsaved");
-		scheduleSave();
+		// With auto-save off the text waits for Ctrl+S (SPEC.md §13.5).
+		if (settingsRef.current.autoSave) scheduleSave();
+	}
+
+	/** A keystroke on the student's side of the conflict diff (issue #158). */
+	function onConflictChange(next: string) {
+		setConflictEdits((count) => count + 1);
+		onChange(next);
 	}
 
 	function saveNow() {
-		if (!dirty || conflictEtag !== null) return;
+		if (!dirty || conflict !== null) return;
 		const current = latest.current;
 		if (current.text === null) return;
 		if (writing.current) {
-			scheduleSave();
+			// A write is already in the air; this one follows it at once.
+			scheduleSave(0);
 			return;
 		}
 		cancelTimer();
@@ -233,8 +354,17 @@ export function FileLeaf({
 	useEffect(() => {
 		if (!data || data.binary || data.tooLarge) return;
 		if (known.current.has(data.etag)) return;
+		if (sent.current.includes(data.text)) {
+			// This is the editor's own text coming back, not an outside edit.
+			known.current.add(data.etag);
+			// While a write is in flight its answer carries the etag to save
+			// against next; this read may already be one version behind.
+			if (!writing.current) setEtag(data.etag);
+			if (text !== null && dirty) return;
+		}
 		if (text !== null && dirty) {
-			setConflictEtag(data.etag);
+			setConflict({ etag: data.etag, text: data.text });
+			setShowConflict(true);
 			setStatus("conflict");
 			return;
 		}
@@ -262,21 +392,63 @@ export function FileLeaf({
 		setEtag(fresh.data.etag);
 		setDirty(false);
 		setDeleted(false);
-		setConflictEtag(null);
+		setConflict(null);
+		setShowConflict(false);
 		setStatus("saved");
 	}
 
 	function keepMine() {
 		cancelTimer();
 		const current = latest.current;
-		if (current.text === null || conflictEtag === null) return;
-		void write(current.text, conflictEtag);
+		if (current.text === null || conflict === null) return;
+		setShowConflict(false);
+		void write(current.text, conflict.etag);
 	}
 
 	const viewer = data?.tooLarge === true || data?.binary === true;
 	// The pill says nothing useful about a file that cannot be edited, and
 	// while the editor is empty there is nothing to have saved.
 	const showStatus = text !== null && !viewer;
+
+	// The two sides of the Markdown split follow each other by source line:
+	// the first line showing on the left is the first line showing on the
+	// right (SPEC.md §13.4, issue #229).
+	// The preview is matched through the data-line attribute its blocks carry.
+	// Putting one side in its place makes that side report a scroll, which
+	// must not be sent straight back, so each side ignores exactly the place
+	// it was just asked for.
+	function followEditor(line: number) {
+		if (
+			sentEditorLine.current !== null &&
+			Math.abs(sentEditorLine.current - line) < SAME_LINE
+		) {
+			// The editor is only reporting the move the other side asked for.
+			sentEditorLine.current = null;
+			return;
+		}
+		sentEditorLine.current = null;
+		const node = previewScroll.current;
+		if (!node) return;
+		node.scrollTop = topForLine(readBlocks(node), line);
+		// The browser clamps the offset, so remember where it actually landed.
+		sentPreviewTop.current = node.scrollTop;
+	}
+
+	function followPreview() {
+		const node = previewScroll.current;
+		if (!node) return;
+		if (
+			sentPreviewTop.current !== null &&
+			Math.abs(node.scrollTop - sentPreviewTop.current) < SAME_PLACE
+		) {
+			sentPreviewTop.current = null;
+			return;
+		}
+		sentPreviewTop.current = null;
+		const line = lineForTop(readBlocks(node), node.scrollTop);
+		sentEditorLine.current = line;
+		editorScroll.current?.setTopLine(line);
+	}
 
 	function banner() {
 		if (text === null) return null;
@@ -343,24 +515,34 @@ export function FileLeaf({
 			<Suspense fallback={<p className="pk-file-note">Loading editor…</p>}>
 				<CodeEditor
 					path={path}
+					projectId={projectId}
 					value={text}
-					version={etag}
+					version={`${etag}:${conflictEdits}`}
 					onChange={onChange}
 					onSave={saveNow}
+					wordWrap={settings.wordWrap ? "on" : "off"}
 					revealLine={reveal?.line}
 					revealNonce={reveal?.nonce}
+					viewState={viewState.initial}
+					onViewState={viewState.save}
+					ref={markdown ? editorScroll : undefined}
+					onTopLine={markdown ? followEditor : undefined}
 				/>
 			</Suspense>
 		);
 		if (!markdown) return editor;
+		// A Markdown tab is always a split: the raw text on the left, and on
+		// the right either the rendered file or its diff (SPEC.md §13.4,
+		// issue #218). The preview is read-only; every edit happens in Monaco.
 		const preview = (
 			<Suspense fallback={<p className="pk-file-note">Loading preview…</p>}>
-				<MarkdownPreview text={previewText} />
+				<MarkdownPreview
+					text={previewText}
+					scrollRef={previewScroll}
+					onScroll={followPreview}
+				/>
 			</Suspense>
 		);
-		// All three modes render the same tree and hide the panel they do not
-		// use, so Monaco keeps its undo history, cursor and scroll position
-		// when the student switches views (SPEC.md §13.4).
 		return (
 			<Group
 				orientation="horizontal"
@@ -368,25 +550,11 @@ export function FileLeaf({
 				// react-resizable-panels copies the id onto data-testid.
 				id="markdown-split"
 			>
-				<Panel
-					id="md-edit-pane"
-					minSize="20%"
-					className="pk-split-panel"
-					hidden={mode === "preview"}
-				>
+				<Panel id="md-code-pane" minSize="20%" className="pk-split-panel">
 					{editor}
 				</Panel>
-				<PaneHandle
-					orientation="vertical"
-					label="Resize preview"
-					style={mode === "split" ? undefined : { display: "none" }}
-				/>
-				<Panel
-					id="md-preview-pane"
-					minSize="20%"
-					className="pk-split-panel"
-					hidden={mode === "edit"}
-				>
+				<PaneHandle orientation="vertical" label="Resize preview" />
+				<Panel id="md-preview-pane" minSize="20%" className="pk-split-panel">
 					{preview}
 				</Panel>
 			</Group>
@@ -394,63 +562,134 @@ export function FileLeaf({
 	}
 
 	const note = banner();
+	// The diff replaces the whole tab on every file, Markdown included
+	// (SPEC.md §13.4, issue #218).
+	const inDiff = view === "diff";
+	// The version on disk on the left, the student's own text on the right and
+	// still editable (issue #158). The editor below is hidden rather than
+	// unmounted, so it keeps its undo history while the diff is up.
+	const conflictDiff =
+		conflict !== null && showConflict && text !== null ? (
+			<Suspense fallback={<p className="pk-file-note">Loading diff…</p>}>
+				<DiffViewer
+					path={path}
+					original={conflict.text}
+					modified={text}
+					version={conflict.etag}
+					editable
+					onChange={onConflictChange}
+					testId={`conflict-editor-${path}`}
+				/>
+			</Suspense>
+		) : null;
+	// A Markdown tab has one Diff button that turns the diff on and off;
+	// every other tab swaps between the editor and the diff, so it needs both.
+	const toggle = markdown ? (
+		<fieldset className="pk-md-modes pk-view-modes">
+			<legend className="pk-visually-hidden">File view</legend>
+			<button
+				type="button"
+				aria-pressed={inDiff}
+				onClick={() => setView(inDiff ? "edit" : "diff")}
+				data-testid={`file-view-diff-${path}`}
+			>
+				Diff
+			</button>
+		</fieldset>
+	) : (
+		<fieldset className="pk-md-modes pk-view-modes">
+			<legend className="pk-visually-hidden">File view</legend>
+			<button
+				type="button"
+				aria-pressed={!inDiff}
+				onClick={() => setView("edit")}
+				data-testid={`file-view-edit-${path}`}
+			>
+				Edit
+			</button>
+			<button
+				type="button"
+				aria-pressed={inDiff}
+				onClick={() => setView("diff")}
+				data-testid={`file-view-diff-${path}`}
+			>
+				Diff
+			</button>
+		</fieldset>
+	);
 
 	return (
-		<div className="pk-doc-leaf pk-file-leaf" data-testid={`file-pane-${path}`}>
-			<div className="pk-file-header">
-				<span className="pk-file-path">{path}</span>
-				{markdown ? (
-					<fieldset className="pk-md-modes">
-						<legend className="pk-visually-hidden">Markdown view</legend>
-						{MARKDOWN_MODES.map((choice) => (
-							<button
-								key={choice.mode}
-								type="button"
-								aria-pressed={mode === choice.mode}
-								onClick={() => setMode(choice.mode)}
-								data-testid={`markdown-mode-${choice.mode}`}
-							>
-								{choice.label}
-							</button>
-						))}
-					</fieldset>
+		<>
+			<div
+				className="pk-doc-leaf pk-file-leaf"
+				data-testid={`file-pane-${path}`}
+				style={inDiff ? HIDDEN : undefined}
+			>
+				<div className="pk-file-header">
+					<span className="pk-file-path">{path}</span>
+					{/* Only the view on screen draws the toggle, so the controls
+					    are never there twice. */}
+					{inDiff ? null : toggle}
+					{showStatus ? (
+						<span
+							className="pk-file-status"
+							data-testid={`file-status-${path}`}
+							data-status={status}
+						>
+							{STATUS_LABEL[status]}
+						</span>
+					) : null}
+				</div>
+				{conflict !== null ? (
+					<div className="pk-file-conflict" role="alert" data-testid="file-conflict">
+						<span>
+							This file changed on disk while you were editing it. The version on disk
+							is on the left and yours is on the right; you can edit yours and save
+							later.
+						</span>
+						<Button
+							size="sm"
+							variant="primary"
+							onClick={keepMine}
+							data-testid="keep-mine"
+						>
+							Keep mine
+						</Button>
+						<Button size="sm" onClick={() => void takeTheirs()} data-testid="take-disk">
+							Take disk
+						</Button>
+						<Button
+							size="sm"
+							onClick={() => setShowConflict((shown) => !shown)}
+							data-testid="keep-editing"
+						>
+							{showConflict ? "Keep editing" : "Show differences"}
+						</Button>
+					</div>
 				) : null}
-				{showStatus ? (
-					<span
-						className="pk-file-status"
-						data-testid={`file-status-${path}`}
-						data-status={status}
-					>
-						{STATUS_LABEL[status]}
-					</span>
+				{note !== null ? (
+					<div className="pk-file-banner" role="status" data-testid="file-banner">
+						{note}
+					</div>
 				) : null}
+				{conflictDiff}
+				<div
+					className="pk-file-body"
+					style={conflictDiff !== null ? HIDDEN : undefined}
+				>
+					{body()}
+				</div>
 			</div>
-			{conflictEtag !== null ? (
-				<div className="pk-file-conflict" role="alert" data-testid="file-conflict">
-					<span>
-						This file changed on disk while you were editing it. Keep your version or
-						take the one on disk.
-					</span>
-					<Button
-						size="sm"
-						variant="primary"
-						onClick={keepMine}
-						data-testid="keep-mine"
-					>
-						Keep mine
-					</Button>
-					<Button size="sm" onClick={() => void takeTheirs()} data-testid="take-theirs">
-						Take theirs
-					</Button>
-				</div>
+			{inDiff ? (
+				<DiffLeaf
+					path={path}
+					workspaceId={workspaceId}
+					projectId={projectId}
+					visible={visible}
+					toolbar={toggle}
+				/>
 			) : null}
-			{note !== null ? (
-				<div className="pk-file-banner" role="status" data-testid="file-banner">
-					{note}
-				</div>
-			) : null}
-			{body()}
-		</div>
+		</>
 	);
 }
 

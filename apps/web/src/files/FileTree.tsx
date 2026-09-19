@@ -58,6 +58,7 @@ import {
 } from "./errors.js";
 import "./files.css";
 import { ChangesList } from "./ChangesList.js";
+import { fileIconName } from "./fileIcon.js";
 import {
 	decorations as buildDecorations,
 	type GitDecorations,
@@ -75,6 +76,7 @@ import {
 	reseedFocus,
 	tabIdsUnder,
 	visibleEntries,
+	withoutNested,
 } from "./paths.js";
 import {
 	directoryDownloadUrl,
@@ -83,6 +85,15 @@ import {
 	useFileMutations,
 	useTree,
 } from "./queries.js";
+import {
+	actionTargets,
+	type ClickModifiers,
+	EMPTY_SELECTION,
+	orderedSelection,
+	pruneSelection,
+	type Selection,
+	selectionAfterClick,
+} from "./selection.js";
 import { useExpanded, useFileViewStore, useShowHidden } from "./store.js";
 import { useGitStatus } from "./useGitStatus.js";
 import { useProjectEvents } from "./useProjectEvents.js";
@@ -112,7 +123,21 @@ interface TreeApi {
 	pickUpload: (dir: string) => void;
 	focusedPath: string | null;
 	setFocusedPath: (path: string | null) => void;
+	/** The row elements on screen, in the order they are drawn. */
+	rowElements: () => HTMLElement[];
+	/** The rows on screen, in the order they are drawn. */
+	visibleNodes: () => FileNode[];
+	/** The selected rows (SPEC.md §11.2). */
+	selection: Selection;
+	clickRow: (path: string, modifiers: ClickModifiers) => void;
+	/** The rows an action on `path` applies to: the selection, or that row. */
+	targetsFor: (node: FileNode) => FileNode[];
+	download: (nodes: readonly FileNode[]) => void;
+	/** The element holding the rows, so the drawn order can be read back. */
+	treeRef: (element: HTMLElement | null) => void;
 	dropDir: string | null;
+	/** A desktop file drag is over the pane (SPEC.md §11.2, issue #183). */
+	uploadDrag: boolean;
 	/** Git decorations for the rows (SPEC.md §12.1). */
 	git: GitDecorations;
 }
@@ -176,12 +201,19 @@ export function FileTreePane({
 
 	const [focusedPath, setFocusedPath] = useState<string | null>(null);
 	const [dropDir, setDropDir] = useState<string | null>(null);
+	const [uploadDrag, setUploadDrag] = useState(false);
+	// How many pane elements the upload drag is currently inside. Moving onto a
+	// child row fires a leave for the element behind it, so counting is the only
+	// way to tell "moved within the pane" from "left the pane" (issue #220).
+	const uploadDepth = useRef(0);
+	const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
 	const [dialog, setDialog] = useState<
 		| { kind: "none" }
 		| { kind: "new"; dir: string; type: "file" | "dir" }
 		| { kind: "rename"; node: FileNode }
-		| { kind: "delete"; node: FileNode }
+		| { kind: "delete"; nodes: FileNode[] }
 	>({ kind: "none" });
+	const treeElement = useRef<HTMLElement | null>(null);
 	const uploadInput = useRef<HTMLInputElement | null>(null);
 	const uploadDir = useRef<string>("");
 	// The mutations object is new on every render, so the handlers read it
@@ -227,6 +259,77 @@ export function FileTreePane({
 			closeTabsUnder(from);
 		},
 		[closeTabsUnder, project.id, rewriteExpanded],
+	);
+
+	/** The row elements, read back from the tree in the order they are drawn. */
+	const rowElements = useCallback(
+		(): HTMLElement[] =>
+			Array.from(
+				treeElement.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? [],
+			),
+		[],
+	);
+
+	/** The rows on screen, as nodes. */
+	const visibleNodes = useCallback((): FileNode[] => {
+		return rowElements().map((row) => {
+			const path = row.getAttribute("data-path") ?? "";
+			return {
+				path,
+				name: baseName(path),
+				isDir: row.getAttribute("data-kind") === "dir",
+			};
+		});
+	}, [rowElements]);
+
+	const clickRow = useCallback(
+		(path: string, modifiers: ClickModifiers) => {
+			const order = visibleNodes().map((node) => node.path);
+			setSelection((current) =>
+				selectionAfterClick(pruneSelection(current, order), path, modifiers, order),
+			);
+		},
+		[visibleNodes],
+	);
+
+	/** What an action on one row applies to: the selection, or just that row. */
+	const targetsFor = useCallback(
+		(node: FileNode): FileNode[] => {
+			const nodes = visibleNodes();
+			const order = nodes.map((item) => item.path);
+			// A row inside a selected folder is already covered by that folder.
+			const paths = withoutNested(
+				actionTargets(pruneSelection(selection, order), node.path),
+			);
+			const byPath = new Map(nodes.map((item) => [item.path, item]));
+			const resolve = (path: string): FileNode =>
+				byPath.get(path) ?? { path, name: baseName(path), isDir: false };
+			if (paths.length <= 1) return [paths[0] === undefined ? node : resolve(paths[0])];
+			return orderedSelection({ paths, anchor: null }, order).map(resolve);
+		},
+		[selection, visibleNodes],
+	);
+
+	/**
+	 * Download a selection. The download endpoint takes one path, so several
+	 * rows become one zip each, a moment apart so the browser keeps them all.
+	 */
+	const download = useCallback(
+		(nodes: readonly FileNode[]) => {
+			nodes.forEach((node, index) => {
+				setTimeout(() => {
+					const link = document.createElement("a");
+					link.href = node.isDir
+						? directoryDownloadUrl(workspaceId, project.id, node.path)
+						: fileDownloadUrl(workspaceId, project.id, node.path);
+					link.download = node.isDir ? `${node.name}.zip` : node.name;
+					document.body.append(link);
+					link.click();
+					link.remove();
+				}, index * 150);
+			});
+		},
+		[project.id, workspaceId],
 	);
 
 	const uploadOne: (dir: string, file: File, replace: boolean) => Promise<void> =
@@ -312,12 +415,22 @@ export function FileTreePane({
 			openFile,
 			newIn: (dir, kind) => setDialog({ kind: "new", dir, type: kind }),
 			rename: (node) => setDialog({ kind: "rename", node }),
-			remove: (node) => setDialog({ kind: "delete", node }),
+			remove: (node) => setDialog({ kind: "delete", nodes: targetsFor(node) }),
 			uploadInto,
 			pickUpload,
 			focusedPath,
 			setFocusedPath,
+			rowElements,
+			visibleNodes,
+			selection,
+			clickRow,
+			targetsFor,
+			download,
+			treeRef: (element) => {
+				treeElement.current = element;
+			},
 			dropDir,
+			uploadDrag,
 			git,
 		}),
 		[
@@ -331,7 +444,14 @@ export function FileTreePane({
 			uploadInto,
 			pickUpload,
 			focusedPath,
+			rowElements,
+			visibleNodes,
+			selection,
+			clickRow,
+			targetsFor,
+			download,
 			dropDir,
+			uploadDrag,
 			git,
 		],
 	);
@@ -369,91 +489,116 @@ export function FileTreePane({
 			onDragEnd={onDragEnd}
 			onDragCancel={() => setDropDir(null)}
 		>
-			<aside className="pk-pane pk-pane--right" aria-label="Files">
-				<div className="pk-pane-head">
-					<h2 className="pk-pane-title">Files</h2>
-					<MenuRoot>
-						<MenuTrigger asChild>
-							<IconButton
-								icon="plus"
-								label="New file or folder"
-								size="sm"
-								data-testid="files-new"
-							/>
-						</MenuTrigger>
-						<Menu label="New file or folder">
-							<MenuItem icon="file" onSelect={() => api.newIn("", "file")}>
-								<span data-testid="files-new-file">New file…</span>
-							</MenuItem>
-							<MenuItem icon="folder" onSelect={() => api.newIn("", "dir")}>
-								<span data-testid="files-new-folder">New folder…</span>
-							</MenuItem>
-						</Menu>
-					</MenuRoot>
-					<IconButton
-						icon="search"
-						label="Find in files"
-						size="sm"
-						data-testid="search-open"
-						onClick={onSearch}
-					/>
-					<MenuRoot>
-						<MenuTrigger asChild>
-							<IconButton
-								icon="more"
-								label="More file actions"
-								size="sm"
-								data-testid="files-more"
-							/>
-						</MenuTrigger>
-						<Menu label="More file actions">
-							<div className="px-2 py-1.5" data-testid="files-show-hidden">
-								<Checkbox
-									label="Show hidden and generated files"
-									description="node_modules, .git and dist are hidden"
-									checked={showHidden}
-									onChange={() => toggleShowHidden(project.id)}
+			<TreeContext.Provider value={api}>
+				<aside className="pk-pane pk-pane--right" aria-label="Files">
+					<div className="pk-pane-head">
+						<h2 className="pk-pane-title">Files</h2>
+						<MenuRoot>
+							<MenuTrigger asChild>
+								<IconButton
+									icon="plus"
+									label="New file or folder"
+									size="sm"
+									data-testid="files-new"
 								/>
-							</div>
-							<MenuSeparator />
-							<MenuItem onSelect={() => api.pickUpload("")}>
-								<span data-testid="files-upload">Upload files…</span>
-							</MenuItem>
-							<MenuItem>
-								<a
+							</MenuTrigger>
+							<Menu label="New file or folder">
+								<CreateMenuItems dir="" testIdPrefix="files" />
+							</Menu>
+						</MenuRoot>
+						<IconButton
+							icon="search"
+							label="Find in files"
+							size="sm"
+							data-testid="search-open"
+							onClick={onSearch}
+						/>
+						<MenuRoot>
+							<MenuTrigger asChild>
+								<IconButton
+									icon="more"
+									label="More file actions"
+									size="sm"
+									data-testid="files-more"
+								/>
+							</MenuTrigger>
+							<Menu label="More file actions">
+								{/* The same create actions as a row's menu, on the project
+							    root, so a project with no files still has them. */}
+								<CreateMenuItems dir="" testIdPrefix="files-more" />
+								<MenuSeparator />
+								<div className="px-2 py-1.5" data-testid="files-show-hidden">
+									<Checkbox
+										label="Show hidden and generated files"
+										description="node_modules, .git and dist are hidden"
+										checked={showHidden}
+										onChange={() => toggleShowHidden(project.id)}
+									/>
+								</div>
+								<MenuSeparator />
+								<MenuItem onSelect={() => api.pickUpload("")}>
+									<span data-testid="files-upload">Upload files…</span>
+								</MenuItem>
+								{/* A link, so the browser streams the download to disk. */}
+								<MenuItem
 									href={directoryDownloadUrl(workspaceId, project.id, "")}
 									download={`${project.slug}.zip`}
-									data-testid="files-download-project"
+									testId="files-download-project"
 								>
 									Download project
-								</a>
-							</MenuItem>
-						</Menu>
-					</MenuRoot>
-				</div>
+								</MenuItem>
+							</Menu>
+						</MenuRoot>
+					</div>
 
-				<RootDropZone slug={project.slug} />
+					<RootDropZone slug={project.slug} />
 
-				<TreeContext.Provider value={api}>
 					{/* Desktop drag-and-drop upload (SPEC.md §11.2). */}
 					{/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, not a control */}
 					<div
-						className="pk-pane-body"
+						className={`pk-pane-body${
+							uploadDrag && (dropDir === "" || dropDir === null)
+								? " is-upload-root"
+								: ""
+						}`}
+						data-upload-root={
+							uploadDrag && (dropDir === "" || dropDir === null) ? "true" : undefined
+						}
 						data-testid="file-tree-body"
 						onDragOver={(event) => {
 							if (!event.dataTransfer.types.includes("Files")) return;
 							event.preventDefault();
+							setUploadDrag(true);
 							setDropDir(dirUnder(event.target));
 						}}
-						onDragLeave={() => setDropDir(null)}
+						onDragEnter={(event) => {
+							if (!event.dataTransfer.types.includes("Files")) return;
+							uploadDepth.current += 1;
+							setUploadDrag(true);
+							setDropDir(dirUnder(event.target));
+						}}
+						onDragLeave={() => {
+							if (uploadDepth.current === 0) return;
+							uploadDepth.current -= 1;
+							if (uploadDepth.current > 0) return;
+							setDropDir(null);
+							setUploadDrag(false);
+						}}
 						onDrop={(event) => {
 							if (!event.dataTransfer.files.length) return;
 							event.preventDefault();
 							const dir = dirUnder(event.target);
+							uploadDepth.current = 0;
 							setDropDir(null);
+							setUploadDrag(false);
 							uploadInto(dir, event.dataTransfer.files);
 						}}
 					>
+						{uploadDrag && (dropDir === "" || dropDir === null) ? (
+							<p className="pk-upload-hint" data-testid="file-tree-root-hint">
+								Drop to upload to {project.name}
+							</p>
+						) : null}
 						{root.isError ? (
 							<EmptyState
 								icon="alert"
@@ -475,100 +620,118 @@ export function FileTreePane({
 								Everything here is hidden. Turn on Show hidden files to see it.
 							</EmptyState>
 						) : empty ? (
-							<EmptyState icon="file" title="No files yet">
+							<EmptyState
+								icon="file"
+								title="No files yet"
+								actions={
+									<Button
+										size="sm"
+										data-testid="files-empty-new-file"
+										onClick={() => api.newIn("", "file")}
+									>
+										New file
+									</Button>
+								}
+							>
 								Create a file, upload one, or use a terminal.
 							</EmptyState>
 						) : (
 							<TreeRoot slug={project.slug} />
 						)}
 					</div>
-				</TreeContext.Provider>
 
-				{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
-				<ChangesList
-					projectId={project.id}
-					status={gitStatus.data}
-					error={gitStatus.isError}
-				/>
+					{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
+					<ChangesList
+						projectId={project.id}
+						status={gitStatus.data}
+						error={gitStatus.isError}
+					/>
 
-				{/* One hidden input serves every upload action. */}
-				<input
-					ref={uploadInput}
-					type="file"
-					multiple
-					className="hidden"
-					data-testid="files-upload-input"
-					onChange={(event) => {
-						const files = event.target.files;
-						if (files && files.length > 0) uploadInto(uploadDir.current, files);
-						event.target.value = "";
-					}}
-				/>
-
-				{dialog.kind === "new" && (
-					<NameDialog
-						title={dialog.type === "file" ? "New file" : "New folder"}
-						description={
-							dialog.dir === "" ? "In the project root." : `In ${dialog.dir}.`
-						}
-						label="Name"
-						confirmLabel="Create"
-						pending={mutations.pending}
-						onClose={() => setDialog({ kind: "none" })}
-						onSubmit={(name) => {
-							const path = joinPath(dialog.dir, name);
-							const run =
-								dialog.type === "file"
-									? mutations.createFile.mutateAsync(path)
-									: mutations.createDirectory.mutateAsync(path);
-							void run
-								.then(() => {
-									if (dialog.dir !== "") api.setOpen(dialog.dir, true);
-									setDialog({ kind: "none" });
-								})
-								.catch(fail);
+					{/* One hidden input serves every upload action. */}
+					<input
+						ref={uploadInput}
+						type="file"
+						multiple
+						className="hidden"
+						data-testid="files-upload-input"
+						onChange={(event) => {
+							const files = event.target.files;
+							if (files && files.length > 0) uploadInto(uploadDir.current, files);
+							event.target.value = "";
 						}}
 					/>
-				)}
-				{dialog.kind === "rename" && (
-					<NameDialog
-						title={`Rename ${displayName(dialog.node.name)}`}
-						label="New name"
-						confirmLabel="Rename"
-						initial={dialog.node.name}
-						pending={mutations.pending}
-						onClose={() => setDialog({ kind: "none" })}
-						onSubmit={(name) => {
-							const from = dialog.node.path;
-							const to = joinPath(parentOf(from), name);
-							void mutations.move
-								.mutateAsync({ from, to })
-								.then(() => {
-									afterMove(from, to);
-									setDialog({ kind: "none" });
-								})
-								.catch(fail);
-						}}
-					/>
-				)}
-				{dialog.kind === "delete" && (
-					<DeleteFileConfirm
-						node={dialog.node}
-						pending={mutations.pending}
-						onClose={() => setDialog({ kind: "none" })}
-						onConfirm={() => {
-							const path = dialog.node.path;
-							void mutations.remove
-								.mutateAsync(path)
-								.then(() => {
-									afterRemove(path);
-									setDialog({ kind: "none" });
-								})
-								.catch(fail);
-						}}
-					/>
-				)}
-			</aside>
+
+					{dialog.kind === "new" && (
+						<NameDialog
+							title={dialog.type === "file" ? "New file" : "New folder"}
+							description={
+								dialog.dir === "" ? "In the project root." : `In ${dialog.dir}.`
+							}
+							label="Name"
+							confirmLabel="Create"
+							pending={mutations.pending}
+							onClose={() => setDialog({ kind: "none" })}
+							onSubmit={(name) => {
+								const path = joinPath(dialog.dir, name);
+								const run =
+									dialog.type === "file"
+										? mutations.createFile.mutateAsync(path)
+										: mutations.createDirectory.mutateAsync(path);
+								void run
+									.then(() => {
+										if (dialog.dir !== "") api.setOpen(dialog.dir, true);
+										setDialog({ kind: "none" });
+									})
+									.catch(fail);
+							}}
+						/>
+					)}
+					{dialog.kind === "rename" && (
+						<NameDialog
+							title={`Rename ${displayName(dialog.node.name)}`}
+							label="New name"
+							confirmLabel="Rename"
+							initial={dialog.node.name}
+							pending={mutations.pending}
+							onClose={() => setDialog({ kind: "none" })}
+							onSubmit={(name) => {
+								const from = dialog.node.path;
+								const to = joinPath(parentOf(from), name);
+								void mutations.move
+									.mutateAsync({ from, to })
+									.then(() => {
+										afterMove(from, to);
+										setDialog({ kind: "none" });
+									})
+									.catch(fail);
+							}}
+						/>
+					)}
+					{dialog.kind === "delete" && (
+						<DeleteFileConfirm
+							nodes={dialog.nodes}
+							pending={mutations.pending}
+							onClose={() => setDialog({ kind: "none" })}
+							onConfirm={() => {
+								const paths = dialog.nodes.map((node) => node.path);
+								// One at a time, so a failure stops the rest and is reported once.
+								void (async () => {
+									try {
+										for (const path of paths) {
+											await mutations.remove.mutateAsync(path);
+											afterRemove(path);
+										}
+										setSelection(EMPTY_SELECTION);
+										setDialog({ kind: "none" });
+									} catch (error) {
+										fail(error);
+									}
+								})();
+							}}
+						/>
+					)}
+				</aside>
+			</TreeContext.Provider>
 		</DndContext>
 	);
 }
@@ -593,13 +756,14 @@ function RootDropZone({ slug }: { slug: string }) {
 function TreeRoot({ slug }: { slug: string }) {
 	const api = useTreeApi();
 	const ref = useRef<HTMLDivElement | null>(null);
+	const { treeRef } = api;
+	useEffect(() => {
+		treeRef(ref.current);
+		return () => treeRef(null);
+	}, [treeRef]);
 
-	/** The rows on screen, in the order they are drawn. */
-	const rows = useCallback(
-		(): HTMLElement[] =>
-			Array.from(ref.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? []),
-		[],
-	);
+	// The pane owns the one query for the rows on screen.
+	const rows = api.rowElements;
 
 	// A focused row can vanish: it was deleted, moved, or its parent closed.
 	// Checked after every render, because rows also arrive with a fetch.
@@ -664,6 +828,11 @@ function TreeRoot({ slug }: { slug: string }) {
 				if (isDir) api.toggle(path);
 				else api.openFile({ path, name: baseName(path), isDir: false });
 				break;
+			case "Delete":
+				// Delete acts on the selection when the focused row is part of it.
+				event.preventDefault();
+				api.remove({ path, name: baseName(path), isDir });
+				break;
 			default:
 				break;
 		}
@@ -720,6 +889,7 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	const ignored = api.git.repo && isIgnored(path, api.git.ignored);
 	const title = decoration ? `${shown} — ${decoration.title}` : undefined;
 
+	const selected = api.selection.paths.includes(path);
 	const drag = useDraggable({ id: `row:${path}` });
 	// dnd-kit offers a button role and a tab stop; the row outside is the
 	// treeitem and the only thing the keyboard should reach.
@@ -739,7 +909,10 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 			role="treeitem"
 			aria-level={level}
 			aria-expanded={isDir ? open : undefined}
-			aria-selected={api.focusedPath === path}
+			aria-selected={
+				selected || (api.selection.paths.length === 0 && api.focusedPath === path)
+			}
+			data-selected={selected ? "true" : undefined}
 			tabIndex={api.focusedPath === path ? 0 : -1}
 			data-path={path}
 			data-kind={isDir ? "dir" : "file"}
@@ -755,6 +928,16 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 						? event.target.closest("[role=treeitem]")
 						: null;
 				if (row !== event.currentTarget) return;
+				const modifiers = {
+					toggle: event.ctrlKey || event.metaKey,
+					range: event.shiftKey,
+				};
+				api.clickRow(path, modifiers);
+				// Holding a modifier is about the selection, not about opening.
+				if (modifiers.toggle || modifiers.range) {
+					api.setFocusedPath(path);
+					return;
+				}
 				activate();
 			}}
 		>
@@ -783,7 +966,9 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 								) : null}
 							</span>
 							<Icon
-								name={isDir ? (open ? "folder-open" : "folder") : "file"}
+								name={
+									isDir ? (open ? "folder-open" : "folder") : fileIconName(entry.name)
+								}
 								size="md"
 							/>
 							<span className="pk-tree-name">{shown}</span>
@@ -831,45 +1016,74 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	);
 }
 
+/** New file and New folder, for the project root or for a directory. */
+function CreateMenuItems({
+	dir,
+	testIdPrefix,
+}: {
+	dir: string;
+	testIdPrefix: string;
+}): ReactNode {
+	const api = useTreeApi();
+	return (
+		<>
+			<MenuItem icon="file" onSelect={() => api.newIn(dir, "file")}>
+				<span data-testid={`${testIdPrefix}-new-file`}>New file…</span>
+			</MenuItem>
+			<MenuItem icon="folder" onSelect={() => api.newIn(dir, "dir")}>
+				<span data-testid={`${testIdPrefix}-new-folder`}>New folder…</span>
+			</MenuItem>
+		</>
+	);
+}
+
 /** The same actions on the right-click menu and on the row's ⋯ button. */
 function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 	const api = useTreeApi();
 	// A new file or folder goes inside a directory, or beside a file.
 	const dir = node.isDir ? node.path : parentOf(node.path);
+	// A menu opened on a selected row acts on the whole selection (issue #182).
+	const targets = api.targetsFor(node);
+	const many = targets.length > 1;
 
 	return (
 		<>
-			<MenuItem icon="file" onSelect={() => api.newIn(dir, "file")}>
-				<span data-testid="row-new-file">New file…</span>
-			</MenuItem>
-			<MenuItem icon="folder" onSelect={() => api.newIn(dir, "dir")}>
-				<span data-testid="row-new-folder">New folder…</span>
-			</MenuItem>
+			<CreateMenuItems dir={dir} testIdPrefix="row" />
 			<MenuSeparator />
-			<MenuItem onSelect={() => api.rename(node)}>
-				<span data-testid="row-rename">Rename…</span>
-			</MenuItem>
-			<MenuItem>
-				{/* A plain link, so the browser streams the download to disk. */}
-				<a
+			{many ? null : (
+				<MenuItem onSelect={() => api.rename(node)}>
+					<span data-testid="row-rename">Rename…</span>
+				</MenuItem>
+			)}
+			{many ? (
+				<MenuItem onSelect={() => api.download(targets)}>
+					<span data-testid="row-download-selection">
+						Download {targets.length} items
+					</span>
+				</MenuItem>
+			) : (
+				/* A link, so the browser streams the download to disk. */
+				<MenuItem
 					href={
 						node.isDir
 							? directoryDownloadUrl(api.workspaceId, api.projectId, node.path)
 							: fileDownloadUrl(api.workspaceId, api.projectId, node.path)
 					}
 					download={node.isDir ? `${node.name}.zip` : node.name}
-					data-testid={`row-download-${node.path}`}
+					testId={`row-download-${node.path}`}
 				>
 					Download
-				</a>
-			</MenuItem>
+				</MenuItem>
+			)}
 			{/* The picker belongs to the pane, because the menu closes on select. */}
 			<MenuItem onSelect={() => api.pickUpload(dir)}>
 				<span data-testid="row-upload">Upload files…</span>
 			</MenuItem>
 			<MenuSeparator />
 			<MenuItem danger onSelect={() => api.remove(node)}>
-				<span data-testid="row-delete">Delete…</span>
+				<span data-testid="row-delete">
+					{many ? `Delete ${targets.length} items…` : "Delete…"}
+				</span>
 			</MenuItem>
 		</>
 	);

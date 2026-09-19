@@ -44,16 +44,28 @@ docker rm -f portikus-test-pg
 CI sets `TEST_DATABASE_URL` automatically via a `postgres:17` service
 container, so database tests always run there.
 
-When more than one agent or session runs the tests at the same time, give each
-one its own database instead of sharing `portikus_test`. The tests truncate the
-tables they use, so two runs against one database fail in ways that look like
-real bugs. Create a private database in the same container and point that run
-at it:
+The database `TEST_DATABASE_URL` names is not the one the tests use. Each test
+file creates a database of its own on that same server, migrates it, and drops
+it when the file finishes, so the files run in parallel and truncating tables
+in one cannot disturb another. The name is the database from the URL plus the
+process id of the run and a short hash of the test file path, for example
+`portikus_test_p31337_1a2b3c4d`. The process id keeps two runs on one machine
+apart, so several agents or sessions can share one `TEST_DATABASE_URL` without
+tripping over each other.
 
-```sh
-docker exec portikus-test-pg psql -U postgres -c 'create database portikus_test_files'
-export TEST_DATABASE_URL=postgres://postgres:portikus@127.0.0.1:55432/portikus_test_files
-```
+Each file's connection pool is capped at four connections, because a whole run
+holds a pool per database test file at once and PostgreSQL allows 100
+connections by default.
+
+If a run is killed part-way through, it never gets to drop its databases. The
+next run cleans them up: before a test file creates its own database, it drops
+every database on the server whose name starts with the base name plus a
+host identifier and `_p`, and whose process id no longer belongs to a
+running process. The host identifier limits the sweep to this machine's own
+databases, because a process id only means something within the host (or
+PID namespace) that assigned it, and several machines can share one
+PostgreSQL server. Databases of a run still in progress are left alone, so
+parallel runs on the same machine stay safe.
 
 The Playwright run has the same problem for a different reason: its ports are
 fixed, so two `pnpm test:e2e` runs on one machine fight over the API and web
@@ -121,8 +133,9 @@ alone, and the lifecycle checks are skipped altogether when the VM already
 holds any workspace. Even so, do not run it against a VM someone is using: it
 stops and starts workspaces and, on a VM with none, it shortens the
 platform-wide disconnect grace period for the length of the run. Set `PORTIKUS_PUBLIC_HOST` to the
-name Caddy serves on that VM; without it the HTTPS checks fall back to
-`portikus.<vm-ip>.nip.io` and the script prints a warning.
+name Caddy serves on that VM, and `PORTIKUS_PUBLIC_PORT` to the port it
+serves on (8443 on the pilot); without the name the HTTPS checks fall back
+to `portikus.<vm-ip>.nip.io` and the script prints a warning.
 
 ## Branches
 
@@ -133,9 +146,11 @@ name Caddy serves on that VM; without it the HTTPS checks fall back to
   only through a pull request.
 - Work happens on short-lived task branches cut from the epic branch, named
   `<epic-slug>/<task>`. A task branch is merged into its epic by pull
-  request, squash merge.
-- When an epic's acceptance criteria are met, the epic branch is merged into
-  `main` by pull request, merge commit, so the epic's history is kept.
+  request, squash merge. Once its CI is green, the merger agent lands it
+  and deletes the branch; no person reviews a task pull request.
+- When an epic's acceptance criteria are met and its epic-level review is
+  done (see "Pull requests" below), the epic branch is merged into `main`
+  by pull request, merge commit, so the epic's history is kept.
 - To sync changes from `main` into an epic branch, create a short-lived
   branch from the epic, merge `main` into it, and open a pull request back
   into the epic branch. The branch ruleset requires a PR for every push to
@@ -148,9 +163,30 @@ Every pull request cites the SPEC.md and STACK.md sections it serves and
 says how it was verified. The template asks for both. CI must be green.
 A pull request branch must be up to date with its base before it is merged;
 `gh pr update-branch <number>` does that.
-Anything touching auth, the preview gateway, the workspace agent, file APIs,
-Incus, or nested Docker is reviewed by the security-reviewer agent before
-merge.
+
+There are two kinds of pull request, merged by different people at
+different times:
+
+- A task pull request, from a task branch into its epic branch, is merged
+  by the merger agent as soon as its CI is green. No one reviews it by
+  hand; review happens once, later, over the whole epic.
+- An epic pull request, from an epic branch into `main`, is opened only
+  after every task pull request for that epic has landed, security-reviewer
+  (when the epic touches auth, the preview gateway, the workspace agent,
+  file APIs, Incus, or nested Docker) and code-reviewer have run over the
+  epic branch's head, every finding they required has been fixed or
+  explicitly deferred, and the full local battery (`make check` plus
+  Playwright against a fresh database) is green. Only the user merges an
+  epic pull request into `main`.
+
+The merger agent reruns a task pull request's CI up to twice when a failure
+looks like a flake, a test unrelated to the change failing on a
+timing-shaped error that also passed on an earlier run. A failure that
+touches the changed files, or repeats after a rerun, is escalated to the
+orchestrator rather than retried again; the merger agent never edits code
+to make a check pass. `.claude/settings.json` grants agents permission to
+run `gh pr merge` and read-only `gh` calls, which is what lets merger land
+task pull requests without asking each time.
 
 ## CI
 
@@ -174,6 +210,33 @@ Each job detects whether its inputs exist and skips cleanly otherwise, so
 the pipeline is green on a repo with no code and starts enforcing as code
 lands. Do not remove the detection steps; remove the skip once a check is
 expected to always run.
+
+A `changes` job runs once, before the app, e2e, and infra jobs, and does
+nothing but check out full history and detect what changed. It lists the
+files changed in the pull request (against the base branch) or the push
+(against the commit before it, or every tracked file on a brand new
+branch), and exposes two job outputs: `app`, true when any changed path
+falls outside `docs/`, `design/`, `screenshots/`, `.claude/`, and
+root-level `*.md` files; and `infra`, true when any changed path is under
+`infra/`, under `scripts/` or `packaging/`, is any other `*.sh` file, or is
+the workflow file itself (a path under `scripts/` or `packaging/`, or any
+shell script, sets both outputs, since those are exercised by both the
+application build and the infrastructure shellcheck step). The app, e2e,
+and infra jobs declare `needs: changes` and read these two outputs instead
+of running their own copy of the detection script. The heavy steps in each
+job (the installs, typecheck, lint, `test:coverage`, build, package build,
+Playwright, and the OpenTofu, Ansible, and shellcheck steps) only run when
+both the existing "does this input exist" detection and the matching
+`needs.changes.outputs.*` value are true. A pull request that only touches
+documentation, such as this paragraph, still gets four green checks (Secret
+scan, Application checks, Browser end-to-end tests, Infrastructure checks),
+because path filters on the workflow trigger are not an option: GitHub never
+reports a status for a job a path filter skipped, and the branch protection
+rules that require these checks would then block the merge forever. Running
+the jobs but skipping their heavy steps keeps the checks reporting while
+cutting the runtime on a docs-only change. Only the `changes` job needs
+full history for the diff; the app, e2e, and infra jobs go back to a
+shallow checkout since they only need the working tree.
 
 `.github/workflows/release.yml` publishes a release when an `epic/` or
 `task/` branch merges into `main`, or when the workflow is run by hand from `main` for a

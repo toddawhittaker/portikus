@@ -50,7 +50,7 @@ Use `text-display` once per standalone page, `text-title` for page and dialog ti
 
 Spacing is a 4px scale named to match Tailwind's default steps (`space-3` is 12px, `p-3` in Tailwind). Pane gutters are `space-5` at comfortable density; dialogs pad `space-6`; standalone pages pad `space-10` and sit `space-16` from the top.
 
-Density is set with `data-density` on a container. Students get `comfortable` (36px controls, 32px rows, 36px tabs, 14px text). Administrators get `compact` (28px controls and rows, 30px tabs, 13px text). Components read `--pk-control`, `--pk-row`, `--pk-tab`, `--pk-pad` and `--pk-font`, which `bundle.css` maps from the `density-*` tokens, so a component never branches on role. The P2 roles (instructor, developer, support) choose a density rather than getting new components.
+Density is set with `data-density` on a container. Students get `comfortable` (36px controls, 32px rows, 24px file tree rows, 36px tabs, 14px text). Administrators get `compact` (28px controls and rows, 22px file tree rows, 30px tabs, 13px text). Components read `--pk-control`, `--pk-row`, `--pk-tree-row`, `--pk-tab`, `--pk-pad` and `--pk-font`, which `bundle.css` maps from the `density-*` tokens, so a component never branches on role. The P2 roles (instructor, developer, support) choose a density rather than getting new components.
 
 The application shell is three panes: project list on the left, tabbed work area in the centre, file tree on the right, separated by 1px `line` with a PaneHandle. At 1440 wide the side panes default to about 240px and 280px. At 1024 wide they collapse to a `size-rail` (48px) icon rail and open as overlays.
 

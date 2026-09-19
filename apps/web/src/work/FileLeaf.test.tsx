@@ -3,9 +3,18 @@
  * the viewer flow (SPEC.md §13.2, §13.3, §13.5). Monaco itself is replaced
  * by a fake, so these tests are about the states, not about rendering text.
  */
+
+import { EDITOR_SETTINGS_DEFAULTS, type EditorSettings } from "@portikus/contracts";
+import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type { FileContent } from "../files/queries.js";
+import {
+	createLayoutStore,
+	type LayoutStore,
+	LayoutStoreContext,
+} from "../layout/store.js";
 import { renderWithQuery } from "../test-utils.js";
 import { FileLeaf } from "./FileLeaf.js";
 
@@ -15,6 +24,10 @@ class FakeModel {
 	constructor(public value: string) {}
 	getValue() {
 		return this.value;
+	}
+	/** The conflict diff listens for the student's keystrokes this way. */
+	onDidChangeContent(listener: () => void) {
+		this.listeners.push(listener);
 	}
 	getFullModelRange() {
 		return { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 };
@@ -32,11 +45,27 @@ class FakeModel {
 	disposed = false;
 }
 
-const state: { model: FakeModel | null } = { model: null };
+const state: {
+	model: FakeModel | null;
+	/** The options the editor was created with, and every later change. */
+	created: Record<string, unknown> | null;
+	updates: Record<string, unknown>[];
+	/** The names the editor gave its models, newest last. */
+	uris: string[];
+} = { model: null, created: null, updates: [], uris: [] };
+/** The two sides of the conflict diff, once it has been created. */
+const diffState: { models: { original: FakeModel; modified: FakeModel } | null } = {
+	models: null,
+};
 /** Where the editor was told to put the cursor, and what it scrolled to. */
 const cursorLines: number[] = [];
 const revealedLines: number[] = [];
+/** The view states the editor was asked to put back (issue #161). */
+const restoredViewStates: unknown[] = [];
+/** Reports a cursor move the way Monaco would. */
+let moveCursor: (() => void) | null = null;
 
+vi.mock("../editor/features.js", () => ({ loadEditorFeatures: async () => {} }));
 vi.mock("monaco-editor/basic-languages/monaco.contribution.js", () => ({}));
 vi.mock("monaco-editor/language/json/monaco.contribution.js", () => ({
 	jsonDefaults: { setDiagnosticsOptions: () => {} },
@@ -45,6 +74,10 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 	const models = new Map<string, FakeModel>();
 	return {
 		Uri: { parse: (value: string) => ({ toString: () => value, value }) },
+		// The zoom shortcuts are registered with these; the numbers only have
+		// to combine without colliding.
+		KeyMod: { CtrlCmd: 1, Shift: 2 },
+		KeyCode: { Equal: 4, Minus: 8, Digit0: 16 },
 		languages: {
 			getLanguages: () => [{ id: "typescript", extensions: [".ts"] }],
 			json: { jsonDefaults: { setDiagnosticsOptions: () => {} } },
@@ -52,21 +85,69 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 		editor: {
 			defineTheme: () => {},
 			setTheme: () => {},
+			setModelLanguage: () => {},
 			getModel: (uri: { value: string }) => {
 				const held = models.get(uri.value);
 				return held && !held.disposed ? held : null;
 			},
-			createModel: (value: string, _language: string, uri: { value: string }) => {
+			createModel: (value: string, _language: string, uri?: { value: string }) => {
 				const model = new FakeModel(value);
-				models.set(uri.value, model);
-				state.model = model;
+				// Only the file editor names its models; the diff editor's two
+				// models are nobody else's to find.
+				if (uri) {
+					models.set(uri.value, model);
+					state.uris.push(uri.value);
+					state.model = model;
+				}
 				return model;
 			},
-			create: (_host: HTMLElement, options: { model: FakeModel }) => {
+			createDiffEditor: () => ({
+				setModel: (sides: { original: FakeModel; modified: FakeModel }) => {
+					diffState.models = sides;
+				},
+				// The Markdown split scrolls the working-copy side by line
+				// (issue #229); nothing scrolls in jsdom, so it only answers.
+				getModifiedEditor: () => ({
+					onDidScrollChange: () => {},
+					getVisibleRanges: () => [],
+					getTopForLineNumber: () => 0,
+					setScrollTop: () => {},
+				}),
+				saveViewState: () => null,
+				restoreViewState: () => {},
+				dispose: () => {},
+			}),
+			create: (
+				_host: HTMLElement,
+				options: { model: FakeModel } & Record<string, unknown>,
+			) => {
 				state.model = options.model;
+				state.created = options;
+				let position = 1;
 				return {
 					onDidChangeModelContent: (listener: () => void) => {
 						options.model.listeners.push(listener);
+					},
+					onDidChangeCursorPosition: (listener: () => void) => {
+						moveCursor = () => {
+							position += 1;
+							listener();
+						};
+					},
+					// Nothing scrolls in jsdom, so the scroll hooks the split
+					// view uses (issue #229) only have to exist and answer.
+					onDidScrollChange: () => {},
+					onDidLayoutChange: () => {},
+					getScrollTop: () => 0,
+					getScrollHeight: () => 0,
+					setScrollTop: () => {},
+					getVisibleRanges: () => [],
+					getTopForLineNumber: () => 0,
+					// jsdom has no layout, so the fake editor claims a size.
+					getLayoutInfo: () => ({ width: 800, height: 600 }),
+					saveViewState: () => ({ line: position }),
+					restoreViewState: (viewState: unknown) => {
+						restoredViewStates.push(viewState);
 					},
 					setPosition: (position: { lineNumber: number }) => {
 						cursorLines.push(position.lineNumber);
@@ -75,7 +156,10 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 						revealedLines.push(line);
 					},
 					focus: () => {},
-					updateOptions: () => {},
+					addCommand: () => {},
+					updateOptions: (options: Record<string, unknown>) => {
+						state.updates.push(options);
+					},
 					dispose: () => {},
 				};
 			},
@@ -87,6 +171,16 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 function type(text: string) {
 	const model = state.model;
 	if (!model) throw new Error("the editor was never created");
+	act(() => {
+		model.value = text;
+		for (const listener of model.listeners) listener();
+	});
+}
+
+/** Type on the right-hand side of the conflict diff. */
+function typeInConflict(text: string) {
+	const model = diffState.models?.modified;
+	if (!model) throw new Error("the conflict diff was never created");
 	act(() => {
 		model.value = text;
 		for (const listener of model.listeners) listener();
@@ -117,7 +211,11 @@ interface Write {
 }
 
 const requests: Write[] = [];
+/** What GET /me/settings answers in this test (issue #159). */
+let settings: EditorSettings;
 let seed: Seed;
+/** Refuse this many writes with a 412 although the file on disk is unchanged. */
+let refuseWrites = 0;
 /** When set, every PUT waits for this to be resolved before it answers. */
 let gate: { promise: Promise<void>; open: () => void } | null = null;
 
@@ -133,8 +231,16 @@ function holdWrites() {
 function stubServer() {
 	vi.stubGlobal(
 		"fetch",
-		vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const method = init?.method ?? "GET";
+			// The tab reads the student's editor settings (issue #159). These
+			// tests use a one second delay, so a debounce is quick to wait for.
+			if (String(input) === "/me/settings") {
+				return new Response(JSON.stringify(settings), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}
 			if (method === "GET") {
 				if (seed.status && seed.status !== 200) {
 					return new Response(
@@ -158,21 +264,35 @@ function stubServer() {
 				body,
 				keepalive: init?.keepalive === true,
 			});
-			if (gate) await gate.promise;
-			const creating = headers.get("if-none-match") === "*";
-			if (!creating && headers.get("if-match") !== seed.etag) {
+			// A refusal although nothing on disk has moved: what a rewritten
+			// etag between the browser and the agent produces (issue #157).
+			if (refuseWrites > 0) {
+				refuseWrites -= 1;
+				if (gate) await gate.promise;
 				return new Response(
 					JSON.stringify({ error: { code: "FILE_CHANGED", message: "changed" } }),
 					{ status: 412, headers: { etag: seed.etag } },
 				);
 			}
+			const creating = headers.get("if-none-match") === "*";
+			if (!creating && headers.get("if-match") !== seed.etag) {
+				if (gate) await gate.promise;
+				return new Response(
+					JSON.stringify({ error: { code: "FILE_CHANGED", message: "changed" } }),
+					{ status: 412, headers: { etag: seed.etag } },
+				);
+			}
+			// The disk changes as soon as the write arrives; only the answer is
+			// held back, the way a slow response really behaves.
 			seed = { ...seed, status: 200, text: body, etag: `etag-${requests.length}` };
 			const payload = seed.noWriteEtag
 				? { size: body.length }
 				: { etag: seed.etag, size: body.length };
+			const savedEtag = seed.etag;
+			if (gate) await gate.promise;
 			return new Response(JSON.stringify(payload), {
 				status: 200,
-				headers: { "content-type": "application/json", etag: seed.etag },
+				headers: { "content-type": "application/json", etag: savedEtag },
 			});
 		}),
 	);
@@ -183,7 +303,15 @@ beforeEach(() => {
 	cursorLines.length = 0;
 	revealedLines.length = 0;
 	state.model = null;
+	state.created = null;
+	state.updates.length = 0;
+	state.uris.length = 0;
+	diffState.models = null;
 	gate = null;
+	refuseWrites = 0;
+	restoredViewStates.length = 0;
+	moveCursor = null;
+	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSaveDelaySeconds: 1 };
 	seed = { text: "hello", etag: "etag-0" };
 	stubServer();
 });
@@ -203,6 +331,20 @@ function renderLeaf(onClose = () => {}, path = PATH) {
 	);
 }
 
+/** The same tab, but inside a layout store that can remember its cursor. */
+function renderLeafWithStore(store: LayoutStore, path = PATH) {
+	return renderWithQuery(
+		<LayoutStoreContext.Provider value={store}>
+			<FileLeaf
+				path={path}
+				workspaceId={WORKSPACE}
+				projectId={PROJECT}
+				onClose={() => {}}
+			/>
+		</LayoutStoreContext.Provider>,
+	);
+}
+
 /**
  * Monaco loads after the first render, so the host element appears before
  * the model exists. Waiting for the element alone raced on a busy machine.
@@ -211,6 +353,20 @@ async function findEditor(path = PATH): Promise<HTMLElement> {
 	const host = await screen.findByTestId(`editor-${path}`);
 	await waitFor(() => expect(state.model).not.toBeNull());
 	return host;
+}
+
+/** Let a refetch the socket asked for land and be rendered. */
+async function settle(client: QueryClient) {
+	await waitFor(
+		() =>
+			expect(
+				(client.getQueryData(["file", WORKSPACE, PROJECT, PATH]) as FileContent).etag,
+			).not.toBe("etag-0"),
+		{ timeout: 8000 },
+	);
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	});
 }
 
 function status() {
@@ -292,6 +448,49 @@ test("only one save is in flight at a time, so no false conflict", async () => {
 	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
 });
 
+test("a refetch of the editor's own write is not a conflict (issue #157)", async () => {
+	const release = holdWrites();
+	const client = renderLeaf();
+	await findEditor();
+	type("hello world");
+	await waitFor(() => expect(requests).toHaveLength(1), { timeout: 3000 });
+
+	// The project events socket sees the editor's own write and refetches the
+	// file before the write's own response has come back.
+	void client.invalidateQueries();
+	await settle(client);
+	expect(screen.queryByTestId("file-conflict")).toBeNull();
+
+	await release();
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
+	expect(screen.queryByTestId("file-conflict")).toBeNull();
+});
+
+test("a refetch after a finished save is not a conflict either", async () => {
+	const client = renderLeaf();
+	await findEditor();
+	type("hello world");
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
+	type("hello world again");
+	void client.invalidateQueries();
+	await settle(client);
+
+	expect(screen.queryByTestId("file-conflict")).toBeNull();
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
+	expect(requests.at(-1)?.body).toBe("hello world again");
+});
+
+test("someone else's text on disk while there are local edits is a conflict", async () => {
+	const client = renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	void client.invalidateQueries();
+
+	await screen.findByTestId("file-conflict", undefined, { timeout: 8000 });
+	expect(state.model?.getValue()).toBe("mine");
+});
+
 test("unmounting mid-debounce flushes the pending write", async () => {
 	renderLeaf();
 	await findEditor();
@@ -338,14 +537,14 @@ test("an unresolved conflict does not autosave", async () => {
 	expect(status().textContent).toBe("Conflict");
 });
 
-test("Take theirs replaces the local text with the file on disk", async () => {
+test("Take disk replaces the local text with the file on disk", async () => {
 	renderLeaf();
 	await findEditor();
 	type("mine");
 	seed = { text: "theirs", etag: "etag-other" };
 	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
 
-	screen.getByTestId("take-theirs").click();
+	screen.getByTestId("take-disk").click();
 	await waitFor(() => expect(state.model?.getValue()).toBe("theirs"));
 	expect(screen.queryByTestId("file-conflict")).toBeNull();
 	expect(status().textContent).toBe("Saved");
@@ -454,7 +653,7 @@ test("a deleted file says so and can be closed", async () => {
 
 const MD_PATH = "README.md";
 
-/** Open a Markdown tab and wait for both panels to be on the page. */
+/** Open a Markdown tab and wait for both panes to be on the page. */
 async function renderMarkdownLeaf() {
 	seed = { text: "# Notes\n", etag: "etag-0" };
 	renderLeaf(() => {}, MD_PATH);
@@ -462,46 +661,65 @@ async function renderMarkdownLeaf() {
 	await screen.findByTestId("markdown-preview");
 }
 
-test("a Markdown file opens in Preview with all three views offered", async () => {
+test("a Markdown file opens as a split of the raw text and the preview", async () => {
 	await renderMarkdownLeaf();
-	expect(screen.getByTestId("markdown-mode-edit").textContent).toBe("Edit");
-	expect(screen.getByTestId("markdown-mode-preview").textContent).toBe("Preview");
-	expect(screen.getByTestId("markdown-mode-split").textContent).toBe("Split");
-	expect(screen.getByTestId("markdown-mode-preview").getAttribute("aria-pressed")).toBe(
-		"true",
-	);
-	expect(screen.getByTestId("md-preview-pane").hasAttribute("hidden")).toBe(false);
-	expect(screen.getByTestId("md-edit-pane").hasAttribute("hidden")).toBe(true);
+	expect(screen.getByTestId("md-code-pane")).not.toBeNull();
+	expect(screen.getByTestId("md-preview-pane")).not.toBeNull();
+	// No view buttons are left: the split is the only layout (issue #218).
+	expect(screen.queryByTestId("markdown-mode-code")).toBeNull();
+	expect(screen.queryByTestId("markdown-mode-rich")).toBeNull();
+	expect(screen.queryByTestId("markdown-mode-split")).toBeNull();
 });
 
-test("Edit hides the preview instead of unmounting the editor", async () => {
+test("the Markdown preview is read-only", async () => {
 	await renderMarkdownLeaf();
-	act(() => screen.getByTestId("markdown-mode-edit").click());
-
-	expect(screen.getByTestId("md-preview-pane").hasAttribute("hidden")).toBe(true);
-	expect(screen.getByTestId("md-edit-pane").hasAttribute("hidden")).toBe(false);
-	expect(screen.getByTestId(`editor-${MD_PATH}`)).not.toBeNull();
+	const preview = screen.getByTestId("markdown-preview");
+	expect(preview.getAttribute("contenteditable")).toBeNull();
+	expect(preview.querySelector("[contenteditable]")).toBeNull();
 });
 
-test("switching views keeps the editor's model, so undo and cursor survive", async () => {
+test("a Markdown tab has one Diff button, which replaces the whole split", async () => {
+	await renderMarkdownLeaf();
+	expect(screen.queryByTestId(`file-view-edit-${MD_PATH}`)).toBeNull();
+	const button = screen.getByTestId(`file-view-diff-${MD_PATH}`);
+	expect(button.getAttribute("aria-pressed")).toBe("false");
+
+	fireEvent.click(button);
+	expect(await screen.findByTestId(`diff-pane-${MD_PATH}`)).not.toBeNull();
+	// The diff has the tab to itself; the split is hidden, not unmounted,
+	// so the editor keeps its undo history (issue #218).
+	expect(screen.getByTestId(`file-pane-${MD_PATH}`).style.display).toBe("none");
+	expect(
+		screen.getByTestId(`file-view-diff-${MD_PATH}`).getAttribute("aria-pressed"),
+	).toBe("true");
+
+	// The same button turns the diff off again.
+	fireEvent.click(screen.getByTestId(`file-view-diff-${MD_PATH}`));
+	expect(screen.queryByTestId(`diff-pane-${MD_PATH}`)).toBeNull();
+	expect(await screen.findByTestId("markdown-preview")).not.toBeNull();
+});
+
+test("showing and hiding the diff keeps the editor's model, so undo survives", async () => {
 	await renderMarkdownLeaf();
 	const model = state.model;
 	expect(model).not.toBeNull();
 
-	act(() => screen.getByTestId("markdown-mode-edit").click());
-	act(() => screen.getByTestId("markdown-mode-split").click());
-	act(() => screen.getByTestId("markdown-mode-preview").click());
+	fireEvent.click(screen.getByTestId(`file-view-diff-${MD_PATH}`));
+	await screen.findByTestId(`diff-pane-${MD_PATH}`);
+	fireEvent.click(screen.getByTestId(`file-view-diff-${MD_PATH}`));
 
 	// A disposed model would have lost the undo history with it.
 	expect(model?.disposed).toBe(false);
 	expect(state.model).toBe(model);
 });
 
-test("a file that is not Markdown offers no view buttons", async () => {
+test("a file that is not Markdown is one editor, with Edit and Diff", async () => {
 	renderLeaf();
 	await findEditor();
-	expect(screen.queryByTestId("markdown-mode-edit")).toBeNull();
 	expect(screen.queryByTestId("markdown-split")).toBeNull();
+	expect(screen.queryByTestId("markdown-preview")).toBeNull();
+	expect(screen.getByTestId(`file-view-edit-${PATH}`)).not.toBeNull();
+	expect(screen.getByTestId(`file-view-diff-${PATH}`)).not.toBeNull();
 });
 
 /** Asking for a line while the tab is already open, as a search result does. */
@@ -538,4 +756,293 @@ test("a file already open jumps to a line it is asked for again", async () => {
 
 	await waitFor(() => expect(cursorLines).toContain(9));
 	expect(revealedLines).toContain(9);
+});
+
+test("a real change on disk opens a diff of the two versions (issue #158)", async () => {
+	renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
+
+	await screen.findByTestId(`conflict-editor-${PATH}`);
+	// The version on disk is on the left and the student's is on the right.
+	expect(diffState.models?.original.getValue()).toBe("theirs");
+	expect(diffState.models?.modified.getValue()).toBe("mine");
+	// There is no keep-or-take prompt without a diff to read behind it.
+	expect(screen.getByTestId("keep-mine")).not.toBeNull();
+});
+
+test("editing the conflict diff keeps the text and saves it with Keep mine", async () => {
+	renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
+	await screen.findByTestId(`conflict-editor-${PATH}`);
+
+	const sent = requests.length;
+	typeInConflict("mine, merged by hand");
+	// Nothing is written while the conflict is unresolved (SPEC.md §13.3).
+	await new Promise((resolve) => setTimeout(resolve, 1200));
+	expect(requests).toHaveLength(sent);
+
+	screen.getByTestId("keep-mine").click();
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
+	expect(requests.at(-1)).toMatchObject({
+		ifMatch: "etag-other",
+		body: "mine, merged by hand",
+	});
+});
+
+test("Keep editing puts the conflict diff away and brings it back", async () => {
+	renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
+	await screen.findByTestId(`conflict-editor-${PATH}`);
+
+	fireEvent.click(screen.getByTestId("keep-editing"));
+	expect(screen.queryByTestId(`conflict-editor-${PATH}`)).toBeNull();
+	// The editor and the student's text are still there, and so is the offer.
+	expect(state.model?.getValue()).toBe("mine");
+	expect(screen.getByTestId("file-conflict")).not.toBeNull();
+
+	fireEvent.click(screen.getByTestId("keep-editing"));
+	expect(await screen.findByTestId(`conflict-editor-${PATH}`)).not.toBeNull();
+});
+
+test("Keep editing carries the conflict edits into the editor (issue #158)", async () => {
+	renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
+	await screen.findByTestId(`conflict-editor-${PATH}`);
+
+	typeInConflict("mine, merged by hand");
+	fireEvent.click(screen.getByTestId("keep-editing"));
+
+	// The editor below the diff has to hold what was typed in the diff, or
+	// the next keystroke would write the older text back over it.
+	await waitFor(() => expect(state.model?.getValue()).toBe("mine, merged by hand"));
+});
+
+test("the model is named after the project as well as the file (issue #160)", async () => {
+	renderLeaf();
+	await findEditor();
+	// Two projects can hold a README.md; one model must not serve both.
+	expect(state.uris.at(-1)).toBe(`pk:/${PROJECT}/${PATH}`);
+});
+
+test("opening a file again brings a tab in diff view back to the editor", async () => {
+	function Reopen() {
+		const [opened, setOpened] = useState(0);
+		return (
+			<>
+				<button type="button" data-testid="reopen" onClick={() => setOpened(1)}>
+					Open the file again
+				</button>
+				<FileLeaf
+					path={PATH}
+					workspaceId={WORKSPACE}
+					projectId={PROJECT}
+					onClose={() => {}}
+					pendingDiff={1}
+					consumePendingDiff={() => opened === 0}
+					pendingEdit={opened}
+					consumePendingEdit={() => opened === 1}
+				/>
+			</>
+		);
+	}
+	renderWithQuery(<Reopen />);
+	expect(await screen.findByTestId(`diff-pane-${PATH}`)).not.toBeNull();
+
+	fireEvent.click(screen.getByTestId("reopen"));
+
+	await waitFor(() => expect(screen.queryByTestId(`diff-pane-${PATH}`)).toBeNull());
+	expect(screen.getByTestId(`file-pane-${PATH}`).style.display).toBe("");
+});
+
+test("Take disk closes the conflict diff", async () => {
+	renderLeaf();
+	await findEditor();
+	type("mine");
+	seed = { text: "theirs", etag: "etag-other" };
+	await screen.findByTestId("file-conflict", undefined, { timeout: 3000 });
+	await screen.findByTestId(`conflict-editor-${PATH}`);
+
+	fireEvent.click(screen.getByTestId("take-disk"));
+	await waitFor(() => expect(state.model?.getValue()).toBe("theirs"));
+	expect(screen.queryByTestId(`conflict-editor-${PATH}`)).toBeNull();
+	expect(screen.queryByTestId("file-conflict")).toBeNull();
+});
+
+test("a tab asked for its diff shows it, and the toggle goes back (issue #160)", async () => {
+	renderWithQuery(
+		<FileLeaf
+			path={PATH}
+			workspaceId={WORKSPACE}
+			projectId={PROJECT}
+			onClose={() => {}}
+			pendingDiff={1}
+			consumePendingDiff={() => true}
+		/>,
+	);
+
+	// The diff view of this tab, not a second tab.
+	expect(await screen.findByTestId(`diff-pane-${PATH}`)).not.toBeNull();
+	expect(screen.getByTestId(`file-pane-${PATH}`).style.display).toBe("none");
+
+	fireEvent.click(screen.getAllByTestId(`file-view-edit-${PATH}`)[0] as HTMLElement);
+	expect(screen.queryByTestId(`diff-pane-${PATH}`)).toBeNull();
+	expect(screen.getByTestId(`file-pane-${PATH}`).style.display).toBe("");
+});
+
+test("a tab opened for editing shows the editor until Diff is clicked", async () => {
+	renderLeaf();
+	await findEditor();
+	expect(screen.queryByTestId(`diff-pane-${PATH}`)).toBeNull();
+
+	fireEvent.click(screen.getByTestId(`file-view-diff-${PATH}`));
+	expect(await screen.findByTestId(`diff-pane-${PATH}`)).not.toBeNull();
+});
+
+test("auto-save off writes nothing until Ctrl+S (issue #159)", async () => {
+	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSave: false, autoSaveDelaySeconds: 1 };
+	renderLeaf();
+	const host = await findEditor();
+	type("typed by hand");
+
+	// Well past the delay: with auto-save off there is no timer at all.
+	await new Promise((resolve) => setTimeout(resolve, 1500));
+	expect(requests).toHaveLength(0);
+	expect(status().textContent).toBe("Unsaved");
+
+	const event = new KeyboardEvent("keydown", {
+		key: "s",
+		ctrlKey: true,
+		bubbles: true,
+		cancelable: true,
+	});
+	host.dispatchEvent(event);
+	// The browser's own save dialog must not open (SPEC.md §13.5).
+	expect(event.defaultPrevented).toBe(true);
+	await waitFor(() => expect(requests).toHaveLength(1), { timeout: 3000 });
+	expect(requests[0]).toMatchObject({ ifMatch: "etag-0", body: "typed by hand" });
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
+});
+
+test("Cmd+S saves too, for a Mac keyboard (issue #159)", async () => {
+	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSave: false, autoSaveDelaySeconds: 1 };
+	renderLeaf();
+	const host = await findEditor();
+	type("typed on a mac");
+	host.dispatchEvent(
+		new KeyboardEvent("keydown", {
+			key: "s",
+			metaKey: true,
+			bubbles: true,
+			cancelable: true,
+		}),
+	);
+	await waitFor(() => expect(requests).toHaveLength(1), { timeout: 3000 });
+	expect(requests[0]?.body).toBe("typed on a mac");
+});
+
+test("the auto-save delay comes from the settings (issue #159)", async () => {
+	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSaveDelaySeconds: 3 };
+	renderLeaf();
+	await findEditor();
+	type("slow save");
+
+	// A one second delay would already have written it.
+	await new Promise((resolve) => setTimeout(resolve, 1500));
+	expect(requests).toHaveLength(0);
+	await waitFor(() => expect(requests).toHaveLength(1), { timeout: 5000 });
+	expect(requests[0]?.body).toBe("slow save");
+}, 12_000);
+
+test("word wrap off is what Monaco is created with (issue #159)", async () => {
+	renderLeaf();
+	await findEditor();
+	expect(state.created?.wordWrap).toBe("off");
+});
+
+test("word wrap on reaches Monaco (issue #159)", async () => {
+	settings = { ...EDITOR_SETTINGS_DEFAULTS, wordWrap: true, autoSaveDelaySeconds: 1 };
+	renderLeaf();
+	await findEditor();
+	await waitFor(() =>
+		expect(
+			state.created?.wordWrap === "on" ||
+				state.updates.some((options) => options.wordWrap === "on"),
+		).toBe(true),
+	);
+});
+
+test("a remembered cursor is put back when the tab opens again (issue #161)", async () => {
+	const store = createLayoutStore();
+	store.getState().openFile(PATH);
+	store.getState().setViewState(PATH, { line: 42 });
+	renderLeafWithStore(store);
+	await findEditor();
+	// Only once the model holds the real text, so Monaco has lines to scroll to.
+	await waitFor(() => expect(restoredViewStates).toEqual([{ line: 42 }]));
+	expect(state.model?.getValue()).toBe("hello");
+});
+
+test("moving the cursor is remembered for the next mount (issue #161)", async () => {
+	const store = createLayoutStore();
+	store.getState().openFile(PATH);
+	renderLeafWithStore(store);
+	await findEditor();
+	act(() => moveCursor?.());
+	await waitFor(() => expect(store.getState().viewStates[PATH]).toEqual({ line: 2 }));
+	// The store has it at once, so leaving the route cannot race the save.
+	act(() => moveCursor?.());
+	expect(store.getState().viewStates[PATH]).toEqual({ line: 3 });
+	act(() => cleanup());
+	expect(store.getState().viewStates[PATH]).toEqual({ line: 3 });
+});
+
+test("the Markdown preview shows the whole file, HTML included (issue #213)", async () => {
+	seed = {
+		text: "# Project\n\n![build](https://img.example/b.svg)\n\n<!-- a note -->\n\nHow to run it.\n",
+		etag: "etag-0",
+	};
+	renderLeaf(() => {}, "README.md");
+	const preview = await screen.findByTestId("markdown-preview");
+	await waitFor(() => expect(preview.textContent).toContain("How to run it."));
+	// Raw HTML is text in the preview, never markup the browser builds.
+	expect(preview.textContent).toContain("<!-- a note -->");
+	expect(preview.querySelector("img")?.getAttribute("alt")).toBe("build");
+	// The raw text is beside it, in Monaco.
+	await findEditor("README.md");
+	expect(state.model?.getValue()).toContain("How to run it.");
+});
+
+test("a save refused while the file on disk is still ours saves again (issue #157)", async () => {
+	renderLeaf();
+	await findEditor();
+	// The write comes back 412 although the file on disk is the very version
+	// this tab loaded, so there is nothing to resolve and no conflict to show.
+	refuseWrites = 1;
+	type("hello world");
+	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 4000 });
+	expect(screen.queryByTestId("file-conflict")).toBeNull();
+	expect(requests).toHaveLength(2);
+	expect(requests[1]).toMatchObject({ ifMatch: "etag-0", body: "hello world" });
+	expect(seed.text).toBe("hello world");
+});
+
+test("a save refused twice over is a real conflict (issue #157)", async () => {
+	renderLeaf();
+	await findEditor();
+	refuseWrites = 2;
+	type("hello world");
+	await screen.findByTestId("file-conflict", undefined, { timeout: 4000 });
+	expect(status().textContent).toBe("Conflict");
 });

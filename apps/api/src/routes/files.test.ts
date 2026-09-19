@@ -171,6 +171,11 @@ test.skipIf(skip)("the owner reads a tree and a file with its etag", async () =>
 	expect(file.statusCode).toBe(200);
 	expect(file.body).toBe("# lab\n");
 	expect(file.headers.etag).toBe(await etagOf("# lab\n"));
+	// The editor saves conditionally on that etag, so no proxy in front of the
+	// API may rewrite it: Caddy's gzip compression appends "-gzip" to an etag
+	// it compresses, and the next save would then be refused as a conflict
+	// nobody caused (issue #157, SPEC.md §13.5).
+	expect(file.headers["cache-control"]).toBe("no-transform");
 	expect(file.headers["content-type"]).toBe("text/plain; charset=utf-8");
 	expect(file.headers["content-length"]).toBe("6");
 });
@@ -268,6 +273,8 @@ test.skipIf(skip)(
 		expect(created.statusCode).toBe(200);
 		expect(created.json()).toEqual({ etag: await etagOf("first\n"), size: 6 });
 		expect(created.headers.etag).toBe(await etagOf("first\n"));
+		// The next save is conditional on this etag too (issue #157).
+		expect(created.headers["cache-control"]).toBe("no-transform");
 		expect(agent.files.get("lab/notes.md")).toEqual({
 			type: "file",
 			content: Buffer.from("first\n"),

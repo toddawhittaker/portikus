@@ -158,6 +158,12 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 
 			const etag = response.headers.get("etag");
 			if (etag) reply.header("etag", etag);
+			// The editor saves conditionally on this etag, so nothing between
+			// here and the browser may rewrite it. Caddy's gzip compression
+			// otherwise appends "-gzip" to the etag, the next save sends that
+			// back as If-Match, and the agent refuses a save nobody conflicted
+			// with (issue #157, SPEC.md §13.5).
+			reply.header("cache-control", "no-transform");
 			const length = response.headers.get("content-length");
 			if (length) reply.header("content-length", length);
 			if (download) {
@@ -241,6 +247,8 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 					);
 				}
 				reply.header("etag", parsed.data.etag);
+				// The next save is conditional on this etag too (issue #157).
+				reply.header("cache-control", "no-transform");
 				return parsed.data;
 			});
 		});

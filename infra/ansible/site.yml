@@ -86,7 +86,15 @@
     portikus_public_host: >-
       {{ lookup('env', 'PORTIKUS_PUBLIC_HOST')
          | default('portikus.' ~ ansible_host ~ '.nip.io', true) }}
-    portikus_public_url: "https://{{ portikus_public_host }}"
+    # The port the browser connects to.  It is not always 443: on the pilot
+    # host another service owns 443, so the host forwards 8443 instead, and
+    # the port has to appear in every URL the API builds (redirect URI,
+    # allowed origin, mock provider issuer).
+    portikus_public_port: >-
+      {{ lookup('env', 'PORTIKUS_PUBLIC_PORT') | default('443', true) }}
+    portikus_public_url: >-
+      https://{{ portikus_public_host }}{{ '' if portikus_public_port | int == 443
+                                            else ':' ~ portikus_public_port }}
     # Caddy signing key from Cloudsmith, verified 2026-09-16.
     caddy_gpg_checksum: "783dfee04b19e851a928cd87b34710213ebbe7628f98d9f34595ab83be578c00"
     # Caddy's internal certificate authority root, written on first start.
@@ -111,15 +119,28 @@
           the development default, or portikus-api will refuse to start.
       when: not portikus_mock_idp
 
+  # Each role carries its own name as a tag, so a single part of the VM
+  # can be converged on its own with --tags <role>.
   roles:
-    - base
-    - firewall
-    - lvm
-    - incus
-    - incus_network
-    - portikus_workspace_profile
-    - image_builder
-    - postgresql
-    - node
-    - caddy
-    - portikus
+    - role: base
+      tags: base
+    - role: firewall
+      tags: firewall
+    - role: lvm
+      tags: lvm
+    - role: incus
+      tags: incus
+    - role: incus_network
+      tags: incus_network
+    - role: portikus_workspace_profile
+      tags: portikus_workspace_profile
+    - role: image_builder
+      tags: image_builder
+    - role: postgresql
+      tags: postgresql
+    - role: node
+      tags: node
+    - role: caddy
+      tags: caddy
+    - role: portikus
+      tags: portikus

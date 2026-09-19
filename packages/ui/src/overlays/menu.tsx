@@ -71,6 +71,13 @@ export interface MenuItemProps {
 	danger?: boolean;
 	disabled?: boolean;
 	onSelect?: () => void;
+	/** When set, the item is a link rather than a button. */
+	href?: string;
+	target?: string;
+	rel?: string;
+	/** The file name a link item saves to, for a download link. */
+	download?: string;
+	testId?: string;
 	children?: React.ReactNode;
 }
 
@@ -80,16 +87,16 @@ export function MenuItem({
 	danger,
 	disabled,
 	onSelect,
+	href,
+	target,
+	rel,
+	download,
+	testId,
 	children,
 }: MenuItemProps): React.ReactElement {
 	const P = parts(React.useContext(MenuKindContext));
-	return (
-		<P.Item
-			className={`pk-menu-item ${danger ? "pk-menu-item--danger" : ""}`}
-			disabled={disabled}
-			aria-keyshortcuts={shortcut ? keyShortcuts(shortcut) : undefined}
-			onSelect={onSelect}
-		>
+	const inner = (
+		<>
 			{icon ? <Icon name={icon} size="sm" /> : null}
 			<span className="pk-menu-item-label flex-1">{children}</span>
 			{shortcut ? (
@@ -97,8 +104,37 @@ export function MenuItem({
 					<ShortcutHint className="pk-menu-item-shortcut" keys={shortcut} plain />
 				</span>
 			) : null}
+		</>
+	);
+	return (
+		<P.Item
+			asChild={href !== undefined}
+			className={href === undefined ? itemClass(danger) : undefined}
+			disabled={disabled}
+			aria-keyshortcuts={shortcut ? keyShortcuts(shortcut) : undefined}
+			onSelect={onSelect}
+			data-testid={href === undefined ? testId : undefined}
+		>
+			{href === undefined ? (
+				inner
+			) : (
+				<a
+					href={href}
+					target={target}
+					rel={rel}
+					download={download}
+					className={itemClass(danger)}
+					data-testid={testId}
+				>
+					{inner}
+				</a>
+			)}
 		</P.Item>
 	);
+}
+
+function itemClass(danger: boolean | undefined): string {
+	return `pk-menu-item ${danger ? "pk-menu-item--danger" : ""}`;
 }
 
 /** The aria-keyshortcuts spelling of a shortcut ("Control+Alt+T"). */

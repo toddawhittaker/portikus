@@ -5,6 +5,7 @@ import {
 	query,
 	readSeededFile,
 	seedFile,
+	seedGit,
 	type TestProject,
 	toast,
 	workspacePath,
@@ -36,7 +37,8 @@ test.describe("file tree", () => {
 		return page.getByTestId(`file-row-${path}`);
 	}
 
-	test("hides generated and dotted names until Show hidden is on", async ({
+	/** Issue #221: hidden and generated names are on by default (SPEC.md §11.3). */
+	test("shows generated and dotted names until Show hidden is turned off", async ({
 		page,
 		context,
 	}) => {
@@ -45,16 +47,48 @@ test.describe("file tree", () => {
 
 		await expect(row(page, "src")).toBeVisible();
 		await expect(row(page, "README.md")).toBeVisible();
-		await expect(row(page, ".env")).toHaveCount(0);
-		await expect(row(page, "node_modules")).toHaveCount(0);
+		await expect(row(page, ".env")).toBeVisible();
+		await expect(row(page, "node_modules")).toBeVisible();
 
 		await page.getByTestId("files-more").click();
 		await page.getByText("Show hidden and generated files").click();
 		await page.keyboard.press("Escape");
 
 		// Hiding is only a view filter (SPEC.md §11.3).
-		await expect(row(page, ".env")).toBeVisible();
-		await expect(row(page, "node_modules")).toBeVisible();
+		await expect(row(page, ".env")).toHaveCount(0);
+		await expect(row(page, "node_modules")).toHaveCount(0);
+	});
+
+	/** Issue #221: an untracked name is italic and dimmer (SPEC.md §12.1). */
+	test("draws an untracked file's name in italic", async ({ page, context }) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Untracked" });
+		await seedFile(student.workspaceId, project.slug, "README.md", "# hello\n");
+		await seedFile(student.workspaceId, project.slug, "new.ts", "x\n");
+		await seedGit(student.workspaceId, project.slug, {
+			status: {
+				repo: true,
+				branch: "main",
+				detached: false,
+				upstream: "origin/main",
+				ahead: 0,
+				behind: 0,
+				conflicts: 0,
+				entries: [{ path: "new.ts", x: "?", y: "?", unmerged: false }],
+				ignored: [],
+				truncated: false,
+			},
+		});
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByTestId("file-tree")).toBeVisible({ timeout: 15_000 });
+
+		await expect(row(page, "new.ts")).toHaveAttribute("data-git", "untracked");
+		const untracked = row(page, "new.ts").locator(".pk-tree-name");
+		const tracked = row(page, "README.md").locator(".pk-tree-name");
+		await expect(untracked).toHaveCSS("font-style", "italic");
+		await expect(tracked).toHaveCSS("font-style", "normal");
+		const dim = await untracked.evaluate((el) => getComputedStyle(el).opacity);
+		expect(Number(dim)).toBeLessThan(1);
 	});
 
 	test("expanding a directory and clicking a file opens a file tab", async ({
@@ -121,6 +155,27 @@ test.describe("file tree", () => {
 		await expect(row(page, "docs")).toBeVisible();
 	});
 
+	/** SPEC.md §11.2: an empty project can still get its first file. */
+	test("creating the first file in an empty project from the header menu", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Empty" });
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByText("No files yet")).toBeVisible({ timeout: 15_000 });
+
+		await page.getByTestId("files-more").click();
+		await page.getByTestId("files-more-new-file").click();
+		await page.getByTestId("field-file-name").fill("first.txt");
+		await page.getByTestId("dialog-confirm").click();
+
+		await expect(row(page, "first.txt")).toBeVisible();
+		expect(await readSeededFile(student.workspaceId, project.slug, "first.txt")).toBe(
+			"",
+		);
+	});
+
 	test("uploading a file puts it in the tree with its contents", async ({
 		page,
 		context,
@@ -171,6 +226,9 @@ test.describe("file tree", () => {
 
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(page.getByTestId("file-tree")).toBeVisible({ timeout: 15_000 });
+		// The saved layout arrives after the tree; clicking before it lands
+		// would open the file instead of refusing it.
+		await expect(page.getByTestId("tab-file:full-15.txt")).toBeVisible();
 
 		await row(page, "README.md").click();
 
@@ -237,6 +295,106 @@ test.describe("file tree", () => {
 			.toBe("# replaced\n");
 	});
 
+	/** SPEC.md §11.2, issue #182: several rows at once. */
+	test("Shift-click selects a run of files and deletes them together", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openProject(page, student.workspaceId, "Selecting");
+		await seedFile(student.workspaceId, project.slug, "a.txt", "a\n");
+		await seedFile(student.workspaceId, project.slug, "b.txt", "b\n");
+		await seedFile(student.workspaceId, project.slug, "c.txt", "c\n");
+		await expect(row(page, "c.txt")).toBeVisible({ timeout: 15_000 });
+
+		await row(page, "a.txt").click();
+		await row(page, "c.txt").click({ modifiers: ["Shift"] });
+
+		for (const name of ["a.txt", "b.txt", "c.txt"]) {
+			await expect(row(page, name)).toHaveAttribute("data-selected", "true");
+		}
+
+		await page.getByTestId("file-menu-b.txt").click();
+		await page.getByTestId("row-delete").click();
+
+		const dialog = page.getByTestId("dialog-delete-file");
+		await expect(dialog).toContainText("Delete 3 items");
+		await expect(dialog).toContainText("a.txt, b.txt, c.txt");
+		await page.getByTestId("dialog-confirm").click();
+
+		for (const name of ["a.txt", "b.txt", "c.txt"]) {
+			await expect(row(page, name)).toHaveCount(0);
+		}
+		// The rest of the project is untouched.
+		await expect(row(page, "README.md")).toBeVisible();
+	});
+
+	/** Issue #185: the icon says what kind of file the row holds. */
+	test("a markdown file and a TypeScript file get different icons", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Icons");
+		await row(page, "src").click();
+		await expect(row(page, "src/app.ts")).toBeVisible();
+
+		await expect(
+			row(page, "README.md").locator("[data-icon^=file]").first(),
+		).toHaveAttribute("data-icon", "file-markdown");
+		await expect(
+			row(page, "src/app.ts").locator("[data-icon^=file]").first(),
+		).toHaveAttribute("data-icon", "file-code");
+	});
+
+	/** Issue #183: an upload dragged over the pane says where it will land. */
+	test("dragging a file over the pane highlights the project root", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Dropping");
+
+		const body = page.getByTestId("file-tree-body");
+		await expect(body).not.toHaveAttribute("data-upload-root", "true");
+
+		const transfer = await page.evaluateHandle(() => {
+			const data = new DataTransfer();
+			data.items.add(new File(["hello"], "dropped.txt", { type: "text/plain" }));
+			return data;
+		});
+		await body.dispatchEvent("dragenter", { dataTransfer: transfer });
+
+		await expect(body).toHaveAttribute("data-upload-root", "true");
+		await expect(page.getByTestId("file-tree-root-hint")).toContainText(
+			"Drop to upload to Dropping",
+		);
+
+		// Issue #220: crossing a top-level file row must not drop the target.
+		const file = row(page, "README.md");
+		await file.dispatchEvent("dragenter", { dataTransfer: transfer });
+		await file.dispatchEvent("dragover", { dataTransfer: transfer });
+		await body.dispatchEvent("dragleave", { dataTransfer: transfer });
+		await expect(body).toHaveAttribute("data-upload-root", "true");
+		await expect(page.getByTestId("file-tree-root-hint")).toBeVisible();
+	});
+
+	/** Issue #186: the name field is ready to type into. */
+	test("the New file dialog takes typing straight away", async ({ page, context }) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Typing");
+
+		await page.getByTestId("files-new").click();
+		await page.getByTestId("files-new-file").click();
+		await expect(page.getByTestId("field-file-name")).toBeFocused();
+
+		await page.keyboard.type("straight.txt");
+		await expect(page.getByTestId("field-file-name")).toHaveValue("straight.txt");
+
+		await page.getByTestId("dialog-confirm").click();
+		await expect(row(page, "straight.txt")).toBeVisible();
+	});
+
 	test("deleting a directory says what goes with it", async ({ page, context }) => {
 		const student = await createStudent(context);
 		await openProject(page, student.workspaceId, "Deleting");
@@ -250,5 +408,30 @@ test.describe("file tree", () => {
 
 		await page.getByTestId("dialog-confirm").click();
 		await expect(row(page, "src")).toHaveCount(0);
+	});
+
+	/** A folder takes its children, so selecting both must not error. */
+	test("deleting a folder and a file inside it deletes once, without an error", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Nested");
+
+		await row(page, "src").click();
+		await expect(row(page, "src/app.ts")).toBeVisible();
+		await row(page, "src/app.ts").click({ modifiers: ["Control"] });
+		await expect(row(page, "src/app.ts")).toHaveAttribute("data-selected", "true");
+
+		await page.getByTestId("file-menu-src").click();
+		await page.getByTestId("row-delete").click();
+
+		const dialog = page.getByTestId("dialog-delete-file");
+		await expect(dialog).toContainText("Delete src");
+		await page.getByTestId("dialog-confirm").click();
+
+		await expect(row(page, "src")).toHaveCount(0);
+		await expect(page.locator(".pk-toast")).toHaveCount(0);
+		await expect(row(page, "README.md")).toBeVisible();
 	});
 });

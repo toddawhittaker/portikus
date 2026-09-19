@@ -89,9 +89,6 @@ export default defineConfig({
 				test: {
 					name: "node",
 					environment: "node",
-					// DB test files share one database and truncate between
-					// tests, so they must not run in parallel.
-					fileParallelism: false,
 					include: [
 						"packages/*/src/**/*.test.ts",
 						"apps/api/src/**/*.test.ts",

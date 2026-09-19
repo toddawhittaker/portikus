@@ -1,12 +1,15 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, query } from "./helpers";
+import { loginAs, query, toast } from "./helpers";
 
 /**
  * The administration page: the live disconnect grace period and the
  * per-user override (SPEC.md §6.4, §20.1). Carol is the mock provider's
  * administrator; alice and bob are students.
  *
- * These tests share one settings row, so they run one after another.
+ * These tests share the one row in the settings table, so they run one after
+ * another. For the same reason `--repeat-each` needs `--workers=1` here:
+ * Playwright puts each repeat in its own group, and two groups running at
+ * once overwrite each other's settings.
  */
 test.describe.configure({ mode: "serial" });
 
@@ -63,7 +66,7 @@ test.describe("administration", () => {
 		).toBeVisible();
 		await page.getByTestId("grace-save").click();
 
-		await expect(page.getByText("Grace period saved", { exact: true })).toBeVisible();
+		await expect(toast(page, "Grace period saved")).toBeVisible();
 
 		await page.reload();
 		await expect(page.getByTestId("grace-input")).toHaveValue("0");
@@ -71,7 +74,7 @@ test.describe("administration", () => {
 		// Put it back through the page itself, so the saved value is checked twice.
 		await page.getByTestId("grace-input").fill("600");
 		await page.getByTestId("grace-save").click();
-		await expect(page.getByText("Grace period saved", { exact: true })).toBeVisible();
+		await expect(toast(page, "Grace period saved")).toBeVisible();
 		await page.reload();
 		await expect(page.getByTestId("grace-input")).toHaveValue("600");
 		await expect(page.getByText("10 minutes").first()).toBeVisible();
@@ -126,7 +129,7 @@ test.describe("administration", () => {
 		await select.selectOption("debug");
 		await page.getByTestId("log-level-save").click();
 
-		await expect(page.getByText("Log level saved", { exact: true })).toBeVisible();
+		await expect(toast(page, "Log level saved")).toBeVisible();
 		await expect.poll(savedLogLevel).toBe("debug");
 
 		await page.reload();
@@ -134,7 +137,7 @@ test.describe("administration", () => {
 
 		await page.getByTestId("log-level-select").selectOption("default");
 		await page.getByTestId("log-level-save").click();
-		await expect(page.getByText("Log level saved", { exact: true })).toBeVisible();
+		await expect(toast(page, "Log level saved")).toBeVisible();
 		await expect.poll(savedLogLevel).toBe(null);
 
 		await page.reload();
@@ -152,14 +155,24 @@ test.describe("administration", () => {
 
 	test("only an administrator sees the Administration link", async ({ page }) => {
 		await loginAs(page, "carol");
-		await expect(page.getByTestId("admin-link")).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 
+		await page.getByTestId("me").click();
+		const link = page.getByTestId("admin-link");
+		await expect(link).toBeVisible();
+		await expect(link).toHaveAttribute("href", "/admin");
+		// A new tab keeps this tab's sockets open, so the grace timer never starts.
+		await expect(link).toHaveAttribute("target", "_blank");
+		await expect(link).toHaveAttribute("rel", "noopener");
+
+		await page.keyboard.press("Escape");
 		await page.getByTestId("me").click();
 		await page.getByTestId("signout").click();
 		await expect(page.getByTestId("signin")).toBeVisible();
 
 		await loginAs(page, "alice");
 		await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+		await page.getByTestId("me").click();
 		await expect(page.getByTestId("admin-link")).toHaveCount(0);
 	});
 });

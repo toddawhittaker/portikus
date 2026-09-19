@@ -56,14 +56,6 @@
 	min-width: 0;
 }
 
-/* Switching Markdown views hides a panel rather than unmounting it, so the
-   editor keeps its undo history. react-resizable-panels sets display: flex
-   inline on the panel, which only !important can beat. */
-.pk-markdown-split > [data-panel][hidden] {
-	/* biome-ignore lint/complexity/noImportantStyles: beats an inline style */
-	display: none !important;
-}
-
 .pk-term {
 	position: relative;
 	flex: 1;
@@ -256,6 +248,12 @@
 	justify-content: flex-start;
 }
 
+/* The tab's body. It is a box only so the conflict diff can hide it without
+   unmounting the editor (issue #158); otherwise it is not there at all. */
+.pk-file-body {
+	display: contents;
+}
+
 .pk-file-header {
 	flex: none;
 	display: flex;
@@ -325,7 +323,8 @@
 	text-decoration: underline;
 }
 
-/* The Edit | Preview | Split control on a Markdown tab (SPEC.md §13.4). */
+/* The Diff control on a Markdown tab (SPEC.md §13.4, issue #218), and the
+   Edit | Diff control on every other file tab (issue #160). */
 .pk-md-modes {
 	flex: none;
 	display: flex;

@@ -245,15 +245,29 @@ Use Monaco Diff Editor for file diffs.
 
 Do not attempt to reproduce the complete VS Code extension system.
 
-### Markdown rendering
+### Markdown editing and rendering
 
-Use **react-markdown** with **remark-gfm** and **remark-frontmatter** for the
-rendered preview of SPEC.md section 13.4. It builds React elements directly
-rather than producing an HTML string, and raw HTML is off unless `rehype-raw`
-is added, which it is not. Markdown in a project may have been written by a
-coding agent, so it is untrusted content; not rendering HTML at all is a
-smaller promise to keep than sanitizing it correctly. Front matter is split
-off and shown as a collapsed block. ADR 0015.
+Use **react-markdown** (pinned at 10.1.0) with **remark-gfm** for tables,
+task lists and strikethrough, and **remark-frontmatter** so a metadata block
+at the top of a file never renders as Markdown. A Markdown tab is always a
+split: Monaco holds the raw Markdown on the left and this renders a read-only
+preview on the right (SPEC.md section 13.4). The file itself is the only
+truth, so no editor can rewrite it in a different Markdown dialect.
+
+Raw HTML in the file is rendered as text, never as markup: react-markdown
+without `rehype-raw` does that by itself, which keeps the promise that a tag
+a coding agent wrote never becomes markup in the control-plane origin. Link
+and image addresses go through react-markdown's own URL check, so a
+`javascript:` address loses its href. The preview is loaded lazily, the way
+Monaco is.
+
+Rejected: a rich what-you-see Markdown editor (MDXEditor, TipTap, Milkdown).
+Portikus shipped the MDXEditor version in Epic 7.1 and took it out again in
+the same epic (issue #218): it added a second editing surface over the same
+buffer, its own Markdown dialect on the way out, and failure modes of its own
+for constructs it could not parse, and the students who tried it wanted the
+raw text beside a preview instead. ADR 0015 covers Monaco; ADR 0017 described
+the MDXEditor step and no longer describes what ships.
 
 ### Terminal
 

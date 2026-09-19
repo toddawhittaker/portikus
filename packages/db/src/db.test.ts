@@ -1,5 +1,13 @@
+import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { createTestDb, hasTestDb, insertTestUser, type TestDb } from "./testing.js";
+import {
+	basePrefix,
+	createTestDb,
+	hasTestDb,
+	hostId,
+	insertTestUser,
+	type TestDb,
+} from "./testing.js";
 
 if (!hasTestDb()) {
 	console.log(
@@ -443,6 +451,19 @@ describe("database migrations and schema", () => {
 		expect(row.disconnected_at).toBeInstanceOf(Date);
 	});
 
+	test.skipIf(!hasTestDb())(
+		"a new user starts with empty editor settings",
+		async () => {
+			const userId = await insertTestUser(t.db);
+			const row = await t.db
+				.selectFrom("users")
+				.select("editor_settings")
+				.where("id", "=", userId)
+				.executeTakeFirstOrThrow();
+			expect(row.editor_settings).toEqual({});
+		},
+	);
+
 	test.skipIf(!hasTestDb())("migrations roll back and reapply", async () => {
 		const { Migrator } = await import("kysely/migration");
 		const { migrations } = await import("./migrations/index.js");
@@ -468,6 +489,8 @@ describe("database migrations and schema", () => {
 				expect(down5.error).toBeUndefined();
 				const down6 = await migrator.migrateDown();
 				expect(down6.error).toBeUndefined();
+				const down7 = await migrator.migrateDown();
+				expect(down7.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -477,9 +500,49 @@ describe("database migrations and schema", () => {
 					"0004_projects",
 					"0005_settings",
 					"0006_log_level",
+					"0007_editor_settings",
 				]);
 				throw rollback;
 			}),
 		).rejects.toBe(rollback);
 	});
+});
+
+describe("orphaned test database sweep", () => {
+	test.skipIf(!hasTestDb())(
+		"drops this host's dead orphans but leaves another host's alone",
+		async () => {
+			const sharedUrl = process.env.TEST_DATABASE_URL as string;
+			const base = basePrefix(new URL(sharedUrl));
+			// A dead pid: 999999 does not belong to a running process.
+			const otherHostDb = `${base}_hffff_p999999_deadbeef`;
+			const thisHostDb = `${base}_h${hostId()}_p999999_deadbeef`;
+
+			const client = new pg.Client({ connectionString: sharedUrl });
+			await client.connect();
+			try {
+				await client.query(`DROP DATABASE IF EXISTS "${otherHostDb}" WITH (FORCE)`);
+				await client.query(`CREATE DATABASE "${otherHostDb}"`);
+				await client.query(`DROP DATABASE IF EXISTS "${thisHostDb}" WITH (FORCE)`);
+				await client.query(`CREATE DATABASE "${thisHostDb}"`);
+
+				// Creating a database runs the sweep as a side effect.
+				const swept = await createTestDb();
+				await swept.close();
+
+				const { rows } = await client.query<{ datname: string }>(
+					"SELECT datname FROM pg_database WHERE datname = $1 OR datname = $2",
+					[otherHostDb, thisHostDb],
+				);
+				const names = rows.map((r) => r.datname);
+				expect(names).toContain(otherHostDb);
+				expect(names).not.toContain(thisHostDb);
+			} finally {
+				await client
+					.query(`DROP DATABASE IF EXISTS "${otherHostDb}" WITH (FORCE)`)
+					.catch(() => {});
+				await client.end();
+			}
+		},
+	);
 });

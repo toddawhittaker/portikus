@@ -26,9 +26,26 @@ export interface DiffViewerProps {
 	 * its text when this changes, so a re-render cannot undo a live refresh.
 	 */
 	version: string;
+	/**
+	 * Let the student type on the working-copy side. Used by the conflict
+	 * view, where the right side is their own unsaved text (issue #158).
+	 */
+	editable?: boolean;
+	/** Every keystroke on the working-copy side, when it is editable. */
+	onChange?: (value: string) => void;
+	/** The test id of the host element; the conflict view sets its own. */
+	testId?: string;
 }
 
-export function DiffViewer({ path, original, modified, version }: DiffViewerProps) {
+export function DiffViewer({
+	path,
+	original,
+	modified,
+	version,
+	editable = false,
+	onChange,
+	testId,
+}: DiffViewerProps) {
 	const host = useRef<HTMLDivElement | null>(null);
 	const editorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
 	const modelsRef = useRef<{
@@ -42,6 +59,12 @@ export function DiffViewer({ path, original, modified, version }: DiffViewerProp
 	// rather than being torn down on every render.
 	const latest = useRef({ original, modified, version });
 	latest.current = { original, modified, version };
+	// The callback can change on every render; the listener reads it here.
+	const change = useRef(onChange);
+	change.current = onChange;
+	// Whether the editor was built editable. No tab changes its mind while it
+	// is open, so this is read once, when the editor is created.
+	const editableRef = useRef(editable);
 
 	useEffect(() => {
 		let disposed = false;
@@ -55,14 +78,26 @@ export function DiffViewer({ path, original, modified, version }: DiffViewerProp
 			const editor = monaco.editor.createDiffEditor(host.current, {
 				...baseEditorOptions,
 				theme: currentThemeName(),
-				// Both sides are a view of what is on disk, never an edit surface
-				// (SPEC.md §12.6): staging and committing are the student's own
-				// Git commands.
-				readOnly: true,
+				// A plain diff is a view of what is on disk, never an edit
+				// surface (SPEC.md §12.6). The conflict view is the one place
+				// the working-copy side is the student's own unsaved text.
+				readOnly: !editableRef.current,
 				originalEditable: false,
+				// Monaco falls back to its inline layout below 900px. That
+				// layout prints two line-number columns and adds an overview
+				// ruler next to the scrollbar, so the pane looked doubled.
+				// Stay side by side at every width; the change marks
+				// in the gutter and the minimap still show where the edits are.
 				renderSideBySide: true,
+				useInlineViewWhenSpaceIsLimited: false,
+				renderOverviewRuler: false,
 			});
 			editor.setModel(models);
+			if (editableRef.current) {
+				models.modified.onDidChangeContent(() => {
+					change.current?.(models.modified.getValue());
+				});
+			}
 			editorRef.current = editor;
 			modelsRef.current = models;
 			applied.current = latest.current.version;
@@ -100,5 +135,11 @@ export function DiffViewer({ path, original, modified, version }: DiffViewerProp
 		watchTheme();
 	}, []);
 
-	return <div className="pk-editor" data-testid={`diff-editor-${path}`} ref={host} />;
+	return (
+		<div
+			className="pk-editor"
+			data-testid={testId ?? `diff-editor-${path}`}
+			ref={host}
+		/>
+	);
 }

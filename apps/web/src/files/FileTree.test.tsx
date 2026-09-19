@@ -80,20 +80,20 @@ afterEach(() => {
 });
 
 describe("the file tree", () => {
-	/** SPEC.md §11.3. */
-	it("hides generated and dotted names until Show hidden is on", async () => {
+	/** SPEC.md §11.3, issue #221: hidden and generated names are shown by default. */
+	it("shows generated and dotted names until Show hidden is turned off", async () => {
 		renderPane();
 
 		expect(await screen.findByText("README.md")).toBeDefined();
 		expect(screen.getByText("src")).toBeDefined();
-		expect(screen.queryByText(".env")).toBeNull();
-		expect(screen.queryByText("node_modules")).toBeNull();
+		expect(screen.getByText(".env")).toBeDefined();
+		expect(screen.getByText("node_modules")).toBeDefined();
 
 		fireEvent.keyDown(screen.getByTestId("files-more"), { key: "Enter" });
 		fireEvent.click(await screen.findByText("Show hidden and generated files"));
 
-		expect(await screen.findByText(".env")).toBeDefined();
-		expect(screen.getByText("node_modules")).toBeDefined();
+		await waitFor(() => expect(screen.queryByText(".env")).toBeNull());
+		expect(screen.queryByText("node_modules")).toBeNull();
 	});
 
 	/** SPEC.md §11.2: a directory is fetched when it is expanded. */
@@ -205,8 +205,15 @@ describe("the file tree", () => {
 
 	/** SPEC.md §11.3: a project whose files are all hidden says so. */
 	it("says when everything in the project is hidden", async () => {
-		stubFetch(() => json(200, { entries: [entry(".env")], truncated: false }));
+		stubFetch((url) =>
+			url.includes("/git/status")
+				? json(200, NO_CHANGES)
+				: json(200, { entries: [entry(".env")], truncated: false }),
+		);
 		renderPane();
+		// Hidden files are on by default, so the test turns them off first.
+		fireEvent.keyDown(await screen.findByTestId("files-more"), { key: "Enter" });
+		fireEvent.click(await screen.findByText("Show hidden and generated files"));
 
 		expect(
 			await screen.findByText(
@@ -228,6 +235,237 @@ describe("the file tree", () => {
 		fireEvent.click(await screen.findByTestId("file-tree-retry"));
 
 		expect(await screen.findByText("README.md")).toBeDefined();
+	});
+
+	/** SPEC.md §11.2: the create actions are reachable with no files there. */
+	it("creates a file in the project root from the header's more menu", async () => {
+		const calls: { url: string; init?: RequestInit }[] = [];
+		stubFetch((url, init) => {
+			calls.push({ url, init });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path="))
+				return json(200, { entries: [], truncated: false });
+			return json(200, { path: "notes.txt", size: 0, mtimeMs: 0, etag: "1" });
+		});
+		renderPane();
+		expect(await screen.findByText("No files yet")).toBeDefined();
+
+		fireEvent.keyDown(screen.getByTestId("files-more"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("files-more-new-file"));
+
+		expect(await screen.findByText("In the project root.")).toBeDefined();
+		fireEvent.change(screen.getByTestId("field-file-name"), {
+			target: { value: "notes.txt" },
+		});
+		fireEvent.click(screen.getByTestId("dialog-confirm"));
+
+		await waitFor(() =>
+			expect(
+				calls.some(
+					(call) =>
+						call.init?.method === "PUT" && call.url.includes("file?path=notes.txt"),
+				),
+			).toBe(true),
+		);
+	});
+
+	/** SPEC.md §11.2: a new folder too, from the same menu. */
+	it("offers New folder in the header's more menu", async () => {
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("files-more"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("files-more-new-folder"));
+
+		expect(await screen.findByText("New folder")).toBeDefined();
+		expect(screen.getByText("In the project root.")).toBeDefined();
+	});
+
+	/** An empty project offers the first file on the pane itself. */
+	it("offers New file on the empty state", async () => {
+		stubFetch((url) => {
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			return json(200, { entries: [], truncated: false });
+		});
+		renderPane();
+
+		fireEvent.click(await screen.findByTestId("files-empty-new-file"));
+
+		expect(await screen.findByText("In the project root.")).toBeDefined();
+	});
+
+	/** Issue #185: the icon says what kind of file the row holds. */
+	it("draws a different icon for a markdown file and a TypeScript file", async () => {
+		renderPane();
+		fireEvent.click(await screen.findByText("src"));
+		await screen.findByText("app.ts");
+
+		const md = screen
+			.getByTestId("file-row-README.md")
+			.querySelector("[data-icon^=file]");
+		const ts = screen
+			.getByTestId("file-row-src/app.ts")
+			.querySelector("[data-icon^=file]");
+		expect(md?.getAttribute("data-icon")).toBe("file-markdown");
+		expect(ts?.getAttribute("data-icon")).toBe("file-code");
+	});
+
+	/** SPEC.md §11.2, issue #182: Ctrl-click selects more than one row. */
+	it("deletes every selected row after one confirmation", async () => {
+		const deleted: string[] = [];
+		stubFetch((url, init) => {
+			if (init?.method === "DELETE") {
+				deleted.push(url);
+				return json(204, null);
+			}
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=src")) return json(200, SRC);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+
+		fireEvent.click(await screen.findByText("README.md"));
+		fireEvent.click(screen.getByText("src"), { ctrlKey: true });
+		await waitFor(() =>
+			expect(screen.getByTestId("file-row-src").getAttribute("data-selected")).toBe(
+				"true",
+			),
+		);
+
+		fireEvent.keyDown(screen.getByTestId("file-menu-README.md"), { key: "Enter" });
+		fireEvent.click(await screen.findByText("Delete 2 items…"));
+
+		const dialog = await screen.findByTestId("dialog-delete-file");
+		expect(dialog.textContent).toContain("Delete 2 items");
+		// The names are listed in the order the rows are drawn.
+		expect(dialog.textContent).toContain("src, README.md");
+		fireEvent.click(screen.getByTestId("dialog-confirm"));
+
+		await waitFor(() => expect(deleted).toHaveLength(2));
+		expect(deleted.some((url) => url.includes("path=README.md"))).toBe(true);
+		expect(deleted.some((url) => url.includes("path=src"))).toBe(true);
+	});
+
+	/** SPEC.md §11.2: the folder takes its children, so they are not asked for. */
+	it("deletes a folder once when a file inside it is selected too", async () => {
+		const deleted: string[] = [];
+		stubFetch((url, init) => {
+			if (init?.method === "DELETE") {
+				deleted.push(url);
+				return json(204, null);
+			}
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=src")) return json(200, SRC);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+
+		// Open src so its child has a row, then select both the folder and it.
+		fireEvent.click(await screen.findByText("src"));
+		fireEvent.click(await screen.findByText("app.ts"), { ctrlKey: true });
+		await waitFor(() =>
+			expect(
+				screen.getByTestId("file-row-src/app.ts").getAttribute("data-selected"),
+			).toBe("true"),
+		);
+
+		fireEvent.keyDown(screen.getByTestId("file-menu-src"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("row-delete"));
+
+		const dialog = await screen.findByTestId("dialog-delete-file");
+		expect(dialog.textContent).toContain("Delete src");
+		fireEvent.click(screen.getByTestId("dialog-confirm"));
+
+		await waitFor(() => expect(deleted).toHaveLength(1));
+		expect(deleted[0]).toContain("path=src");
+	});
+
+	/** A Ctrl-click changes the selection without opening the file. */
+	it("does not open a file that is Ctrl-clicked", async () => {
+		const store = renderPane();
+		fireEvent.click(await screen.findByText("README.md"), { ctrlKey: true });
+
+		await waitFor(() =>
+			expect(
+				screen.getByTestId("file-row-README.md").getAttribute("data-selected"),
+			).toBe("true"),
+		);
+		expect(store.getState().layout.tabs).toEqual([]);
+	});
+
+	/** Issue #183: dragging an upload over the pane shows where it will land. */
+	it("highlights the whole pane while a file is dragged over the root", async () => {
+		renderPane();
+		const body = await screen.findByTestId("file-tree-body");
+		expect(body.getAttribute("data-upload-root")).toBeNull();
+
+		fireEvent.dragEnter(body, { dataTransfer: { types: ["Files"] } });
+
+		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBe("true"));
+		expect(screen.getByTestId("file-tree-root-hint").textContent).toContain(
+			"Drop to upload to",
+		);
+
+		fireEvent.dragLeave(body);
+		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBeNull());
+	});
+
+	/** Issue #220: the root drop target must not flicker over a top-level row. */
+	it("keeps the root drop target while the drag crosses a top-level file", async () => {
+		renderPane();
+		const body = await screen.findByTestId("file-tree-body");
+		const row = await screen.findByTestId("file-row-README.md");
+
+		fireEvent.dragEnter(body, { dataTransfer: { types: ["Files"] } });
+		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBe("true"));
+
+		// Entering the row and leaving it again, both inside the pane.
+		fireEvent.dragEnter(row, { dataTransfer: { types: ["Files"] } });
+		fireEvent.dragOver(row, { dataTransfer: { types: ["Files"] } });
+		fireEvent.dragLeave(body);
+
+		expect(body.getAttribute("data-upload-root")).toBe("true");
+		expect(screen.getByTestId("file-tree-root-hint")).toBeDefined();
+
+		// Leaving the pane altogether still clears it.
+		fireEvent.dragLeave(body);
+		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBeNull());
+	});
+
+	/** Issue #221: an untracked file is marked so the CSS can dim it. */
+	it("marks an untracked file's row as untracked", async () => {
+		gitStatus = {
+			...NO_CHANGES,
+			entries: [{ path: "README.md", x: "?", y: "?", unmerged: false }],
+		};
+		renderPane();
+
+		const row = await screen.findByTestId("file-row-README.md");
+		await waitFor(() => expect(row.getAttribute("data-git")).toBe("untracked"));
+	});
+
+	/** Issue #186: the name field is ready to type into. */
+	it("focuses the name field when the New file dialog opens", async () => {
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("files-more"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("files-more-new-file"));
+
+		const field = await screen.findByTestId("field-file-name");
+		await waitFor(() => expect(document.activeElement).toBe(field));
+	});
+
+	/** The rename dialog opens with the old name selected, ready to replace. */
+	it("focuses and selects the name in the rename dialog", async () => {
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {
+			key: "Enter",
+		});
+		fireEvent.click(await screen.findByTestId("row-rename"));
+
+		const field = (await screen.findByTestId("field-file-name")) as HTMLInputElement;
+		await waitFor(() => expect(document.activeElement).toBe(field));
+		expect(field.selectionStart).toBe(0);
+		expect(field.selectionEnd).toBe("README.md".length);
 	});
 
 	it("offers a download link for each file", async () => {

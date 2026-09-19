@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, expect, test } from "vitest";
-import { AgentCallError, AgentClient } from "./agent-client.js";
+import { afterEach, expect, test, vi } from "vitest";
+import { AGENT_TIMEOUT_MS, AgentCallError, AgentClient } from "./agent-client.js";
 
 /**
  * The agent lives inside the student's container, so the API must survive a
@@ -12,9 +12,27 @@ import { AgentCallError, AgentClient } from "./agent-client.js";
 let server: Server | undefined;
 
 afterEach(async () => {
+	vi.useRealTimers();
+	vi.restoreAllMocks();
 	if (server) await new Promise<void>((resolve) => server?.close(() => resolve()));
 	server = undefined;
 });
+
+/**
+ * Records the budget in milliseconds each call asks `AbortSignal.timeout` for.
+ * That budget is a native timer which fake timers cannot move, so the tests
+ * below check the number the client asked for and use fake timers only for the
+ * upstream server's own delay.
+ */
+function recordBudgets(): number[] {
+	const budgets: number[] = [];
+	const real = AbortSignal.timeout.bind(AbortSignal);
+	vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+		budgets.push(ms);
+		return real(ms);
+	});
+	return budgets;
+}
 
 async function startUpstream(
 	handler: Parameters<typeof createServer>[1],
@@ -95,35 +113,58 @@ test("a download whose headers never arrive gives up", async () => {
 	});
 	const client = new AgentClient("127.0.0.1", port, "token");
 
-	const started = Date.now();
-	const error = await client.downloadProject("alpha").catch((caught) => caught);
+	// The header budget is an ordinary setTimeout, so fake timers can move it.
+	vi.useFakeTimers();
+	const pending = client.downloadProject("alpha").catch((caught) => caught);
+	await vi.advanceTimersByTimeAsync(5000);
+	vi.useRealTimers();
+	const error = await pending;
 	expect(error).toBeInstanceOf(AgentCallError);
 	expect((error as AgentCallError).code).toBe("AGENT_UNAVAILABLE");
-	expect(Date.now() - started).toBeLessThan(15_000);
 }, 20_000);
 
 test("duplicate gets the long budget, not the ordinary five seconds", async () => {
+	const budgets = recordBudgets();
+	let requestArrived: () => void = () => undefined;
+	const arrived = new Promise<void>((resolve) => {
+		requestArrived = resolve;
+	});
 	const port = await startUpstream((_request, response) => {
 		// Longer than AGENT_TIMEOUT_MS, shorter than the clone-sized budget.
 		setTimeout(() => {
 			response.writeHead(204);
 			response.end();
 		}, 6000);
+		requestArrived();
 	});
 	const client = new AgentClient("127.0.0.1", port, "token");
 
-	await expect(client.duplicateProject("alpha", "beta")).resolves.toBeUndefined();
+	vi.useFakeTimers();
+	const pending = client.duplicateProject("alpha", "beta");
+	// Wait for the upstream handler to register its delay, then move it past
+	// the ordinary budget instead of waiting six real seconds for it.
+	await arrived;
+	await vi.advanceTimersByTimeAsync(6000);
+	vi.useRealTimers();
+	await expect(pending).resolves.toBeUndefined();
+	// It only survives a six-second reply because it asked for the
+	// clone-sized budget rather than the ordinary five seconds.
+	expect(budgets).toEqual([5 * 60 * 1000]);
 }, 20_000);
 
 test("an ordinary call still gives up after five seconds", async () => {
+	const budgets = recordBudgets();
 	const port = await startUpstream(() => {
 		// Never answer.
 	});
 	const client = new AgentClient("127.0.0.1", port, "token");
 
+	// Left on real time: this budget is a native AbortSignal.timeout that fake
+	// timers cannot move, and the five seconds are the point of the test.
 	const error = await client.renameProject("alpha", "beta").catch((caught) => caught);
 	expect(error).toBeInstanceOf(AgentCallError);
 	expect((error as AgentCallError).code).toBe("AGENT_UNAVAILABLE");
+	expect(budgets).toEqual([AGENT_TIMEOUT_MS]);
 }, 20_000);
 
 test("a download that streams slowly after its headers is not cut off", async () => {
@@ -134,7 +175,11 @@ test("a download that streams slowly after its headers is not cut off", async ()
 	});
 	const client = new AgentClient("127.0.0.1", port, "token");
 
+	vi.useFakeTimers();
 	const upstream = await client.downloadProject("alpha");
+	// Far past the header budget: once bytes are flowing there is no cap.
+	await vi.advanceTimersByTimeAsync(60_000);
+	vi.useRealTimers();
 	expect(await upstream.text()).toBe("firstsecond");
 }, 20_000);
 

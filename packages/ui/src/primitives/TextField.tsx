@@ -11,9 +11,17 @@ export const CONTROL_CLASS =
 export interface TextFieldProps
 	extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "id"> {
 	id: string;
+	/** Forwarded to the input, for focusing or selecting it. */
+	ref?: React.Ref<HTMLInputElement>;
 	label: React.ReactNode;
 	hint?: React.ReactNode;
 	error?: React.ReactNode;
+	/**
+	 * A problem the field can still recover from, such as a name already in
+	 * use. Shown in the warning colour; the field is not marked invalid, it
+	 * just points at the warning line.
+	 */
+	warning?: React.ReactNode;
 	/** Use for folder names, URLs, ports and typed confirmations. */
 	mono?: boolean;
 }
@@ -23,12 +31,17 @@ export function TextField({
 	label,
 	hint,
 	error,
+	warning,
 	mono,
 	className,
 	...rest
 }: TextFieldProps): React.ReactElement {
 	const describedBy =
-		[hint ? `${id}-hint` : null, error ? `${id}-err` : null]
+		[
+			hint ? `${id}-hint` : null,
+			error ? `${id}-err` : null,
+			!error && warning ? `${id}-warn` : null,
+		]
 			.filter(Boolean)
 			.join(" ") || undefined;
 	return (
@@ -43,9 +56,10 @@ export function TextField({
 				className={cx(
 					"pk-input",
 					CONTROL_CLASS,
-					"placeholder:text-ink-faint disabled:border-line disabled:bg-surface-sunken disabled:text-ink-faint aria-[invalid=true]:border-status-error",
+					"placeholder:text-ink-faint disabled:border-line disabled:bg-surface-sunken disabled:text-ink-faint aria-[invalid=true]:border-status-error data-[warning=true]:border-status-warning",
 					mono && "font-mono [font-variant-ligatures:none]",
 				)}
+				data-warning={!error && warning ? true : undefined}
 				aria-invalid={error ? true : undefined}
 				aria-describedby={describedBy}
 			/>
@@ -56,6 +70,15 @@ export function TextField({
 				>
 					<Icon name="alert" size="sm" />
 					{error}
+				</p>
+			) : null}
+			{!error && warning ? (
+				<p
+					className="pk-warning m-0 flex items-center gap-1 text-[12px] leading-4 text-status-warning"
+					id={`${id}-warn`}
+				>
+					<Icon name="alert" size="sm" />
+					{warning}
 				</p>
 			) : null}
 			{hint ? (
