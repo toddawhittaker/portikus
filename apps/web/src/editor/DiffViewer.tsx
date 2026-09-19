@@ -98,7 +98,15 @@ export function DiffViewer({
 				// the working-copy side is the student's own unsaved text.
 				readOnly: !editableRef.current,
 				originalEditable: false,
+				// Monaco falls back to its inline layout below 900px, which the
+				// right pane of a Markdown split always is. That layout prints
+				// two line-number columns and adds an overview ruler next to
+				// the scrollbar, so the pane looked doubled. Stay side by side
+				// at every width and keep the one scrollbar; the change marks
+				// in the gutter and the minimap still show where the edits are.
 				renderSideBySide: true,
+				useInlineViewWhenSpaceIsLimited: false,
+				renderOverviewRuler: false,
 			});
 			editor.setModel(models);
 			if (editableRef.current) {

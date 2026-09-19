@@ -293,6 +293,40 @@ test.describe("markdown tab", () => {
 		);
 	});
 
+	test("the diff pane is side by side with one gutter and one scrollbar", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const text = longDocument();
+		const project = await openFileTab(page, student, "Long", LONG_PATH, text);
+		await seedGit(student.workspaceId, project.slug, {
+			diffs: {
+				[LONG_PATH]: {
+					status: "M",
+					before: `${text}\nOne more line.\n`,
+					after: text,
+					binary: false,
+					tooLarge: false,
+				},
+			},
+		});
+		await page.getByTestId(`file-view-diff-${LONG_PATH}`).click();
+		const diff = page
+			.getByTestId(`diff-editor-${LONG_PATH}`)
+			.locator(".monaco-diff-editor");
+		await expect(diff).toBeVisible({ timeout: 60_000 });
+		// The right pane of the split is narrower than Monaco's 900px
+		// breakpoint, where it would otherwise switch to the inline layout
+		// with two line-number columns and an overview ruler.
+		const width = await diff.evaluate((node) => node.getBoundingClientRect().width);
+		expect(width).toBeLessThan(900);
+		await expect(diff).toHaveClass(/side-by-side/);
+		await expect(diff.locator(".editor.original .margin")).toHaveCount(1);
+		await expect(diff.locator(".editor.modified .margin")).toHaveCount(1);
+		await expect(diff.locator(".diffOverview")).toHaveCount(0);
+	});
+
 	test("typing in the raw side updates the preview and saves", async ({
 		page,
 		context,
