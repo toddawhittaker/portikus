@@ -9,7 +9,6 @@ import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from "r
 import { Group, Panel } from "react-resizable-panels";
 import { ApiError } from "../api/request.js";
 import type { CodeEditorHandle } from "../editor/CodeEditor.js";
-import type { DiffEditorHandle } from "../editor/DiffViewer.js";
 import { lineForTop, readBlocks, topForLine } from "../editor/scrollSync.js";
 import { useEditorSettings } from "../editor/settingsQueries.js";
 import {
@@ -143,10 +142,8 @@ export function FileLeaf({
 	// recognise that side's answering scroll event and not send it back.
 	const editorScroll = useRef<CodeEditorHandle | null>(null);
 	const previewScroll = useRef<HTMLDivElement | null>(null);
-	const diffScroll = useRef<DiffEditorHandle | null>(null);
 	const sentPreviewTop = useRef<number | null>(null);
 	const sentEditorLine = useRef<number | null>(null);
-	const sentDiffLine = useRef<number | null>(null);
 	// The preview may lag the keystrokes so typing stays smooth, but it is
 	// never a frame behind on the first render.
 	const previewText = useDeferredValue(text ?? "");
@@ -415,7 +412,7 @@ export function FileLeaf({
 
 	// The two sides of the Markdown split follow each other by source line:
 	// the first line showing on the left is the first line showing on the
-	// right, in the preview and in the diff alike (SPEC.md §13.4, issue #229).
+	// right (SPEC.md §13.4, issue #229).
 	// The preview is matched through the data-line attribute its blocks carry.
 	// Putting one side in its place makes that side report a scroll, which
 	// must not be sent straight back, so each side ignores exactly the place
@@ -430,11 +427,6 @@ export function FileLeaf({
 			return;
 		}
 		sentEditorLine.current = null;
-		if (inDiff) {
-			sentDiffLine.current = line;
-			diffScroll.current?.setTopLine(line);
-			return;
-		}
 		const node = previewScroll.current;
 		if (!node) return;
 		node.scrollTop = topForLine(readBlocks(node), line);
@@ -454,19 +446,6 @@ export function FileLeaf({
 		}
 		sentPreviewTop.current = null;
 		const line = lineForTop(readBlocks(node), node.scrollTop);
-		sentEditorLine.current = line;
-		editorScroll.current?.setTopLine(line);
-	}
-
-	function followDiff(line: number) {
-		if (
-			sentDiffLine.current !== null &&
-			Math.abs(sentDiffLine.current - line) < SAME_LINE
-		) {
-			sentDiffLine.current = null;
-			return;
-		}
-		sentDiffLine.current = null;
 		sentEditorLine.current = line;
 		editorScroll.current?.setTopLine(line);
 	}
@@ -576,28 +555,16 @@ export function FileLeaf({
 				</Panel>
 				<PaneHandle orientation="vertical" label="Resize preview" />
 				<Panel id="md-preview-pane" minSize="20%" className="pk-split-panel">
-					{inDiff ? (
-						<DiffLeaf
-							path={path}
-							workspaceId={workspaceId}
-							projectId={projectId}
-							visible={visible}
-							onTopLine={followDiff}
-							editorRef={diffScroll}
-						/>
-					) : (
-						preview
-					)}
+					{preview}
 				</Panel>
 			</Group>
 		);
 	}
 
 	const note = banner();
-	// A Markdown tab shows its diff in the right pane, so only other tabs
-	// hide the editor and put a diff tab in its place (issue #218).
+	// The diff replaces the whole tab on every file, Markdown included
+	// (SPEC.md §13.4, issue #218).
 	const inDiff = view === "diff";
-	const diffInstead = inDiff && !markdown;
 	// The version on disk on the left, the student's own text on the right and
 	// still editable (issue #158). The editor below is hidden rather than
 	// unmounted, so it keeps its undo history while the diff is up.
@@ -615,9 +582,8 @@ export function FileLeaf({
 				/>
 			</Suspense>
 		) : null;
-	// A Markdown tab has one button, because its diff replaces the preview
-	// rather than the whole tab (issue #218). Every other tab still swaps
-	// between the editor and the diff, so it needs both.
+	// A Markdown tab has one Diff button that turns the diff on and off;
+	// every other tab swaps between the editor and the diff, so it needs both.
 	const toggle = markdown ? (
 		<fieldset className="pk-md-modes pk-view-modes">
 			<legend className="pk-visually-hidden">File view</legend>
@@ -657,13 +623,13 @@ export function FileLeaf({
 			<div
 				className="pk-doc-leaf pk-file-leaf"
 				data-testid={`file-pane-${path}`}
-				style={diffInstead ? HIDDEN : undefined}
+				style={inDiff ? HIDDEN : undefined}
 			>
 				<div className="pk-file-header">
 					<span className="pk-file-path">{path}</span>
 					{/* Only the view on screen draws the toggle, so the controls
 					    are never there twice. */}
-					{diffInstead ? null : toggle}
+					{inDiff ? null : toggle}
 					{showStatus ? (
 						<span
 							className="pk-file-status"
@@ -714,7 +680,7 @@ export function FileLeaf({
 					{body()}
 				</div>
 			</div>
-			{diffInstead ? (
+			{inDiff ? (
 				<DiffLeaf
 					path={path}
 					workspaceId={workspaceId}

@@ -1112,13 +1112,17 @@ Markdown files must support:
 - a rendered preview of the same file;
 - both at once, side by side.
 
-A Markdown tab is always a split: the raw Markdown in the code editor on
-the left, and on the right either the rendered preview or, when Diff is
-turned on, this file's diff against the last commit. The preview is
-read-only; the raw text is the only place a file is edited, and the two
-sides stay on the same line: whichever source line is first on the left is
-the first one showing on the right, in the preview and in the diff alike,
-and scrolling either side moves the other.
+A Markdown tab is a split while it is being edited: the raw Markdown in
+the code editor on the left and the rendered preview on the right. The
+preview is read-only; the raw text is the only place a file is edited, and
+the two sides stay on the same line: whichever source line is first on the
+left is the first one showing on the right, and scrolling either side
+moves the other.
+
+The tab's one Diff button replaces the whole split with this file's
+side-by-side diff against the last commit, the same way the Diff button
+works on every other file tab. Turning it off brings the split with the
+preview back.
 
 ### 13.5 Autosave and version-aware writes
 
@@ -2571,9 +2575,9 @@ Includes:
   between the two sides of split view by relative position, and a visible
   scrollbar on the code side (§13.4) (#154);
 - a Markdown tab is always a split: the raw Markdown in Monaco on the
-  left, a read-only rendered preview on the right, one Diff button that
-  puts this file's diff in the right pane instead of the preview, and the
-  two sides scrolled together (§13.4) (#155, #218);
+  left, a read-only rendered preview on the right, the two sides scrolled
+  together, and one Diff button that replaces the whole split with this
+  file's side-by-side diff (§13.4) (#155, #218);
 - an oversized OSC 52 copy warns, and 100.64.0.0/10 counts as private
   (§24.2);
 - security follow-up: OSC 52 clipboard writes gated on a visible, focused
