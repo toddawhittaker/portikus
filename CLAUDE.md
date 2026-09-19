@@ -26,6 +26,8 @@ section, never here.
 - `docs/WORKFLOW.md`: local development, branching, pull requests, CI,
   secret scanning, and the pre-commit hook.
 - `docs/DESIGN.md`: the visual design, mirrored under `design/`.
+- `docs/BROWSER-HANDLING.md`: application preview, the URL broker for
+  CLI browser requests, and the remote-browser fallback (Epics 8 and 9).
 - `docs/adr/`: decision records. Add one for any choice a later reader
   would ask "why" about.
 
