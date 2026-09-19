@@ -12,6 +12,7 @@ import {
 	languageForPath,
 	watchTheme,
 } from "./monaco.js";
+import { editorScrollTop, editorTopLine } from "./scrollSync.js";
 import "./editor.css";
 
 export interface DiffViewerProps {
@@ -106,7 +107,7 @@ export function DiffViewer({
 				});
 			}
 			editor.getModifiedEditor().onDidScrollChange(() => {
-				latest.current.onTopLine?.(topLine(editor.getModifiedEditor()));
+				latest.current.onTopLine?.(editorTopLine(editor.getModifiedEditor()));
 			});
 			editorRef.current = editor;
 			modelsRef.current = models;
@@ -144,9 +145,7 @@ export function DiffViewer({
 		setTopLine(line: number) {
 			const modified = editorRef.current?.getModifiedEditor();
 			if (!modified) return;
-			modified.setScrollTop(
-				modified.getTopForLineNumber(Math.max(1, Math.round(line))),
-			);
+			modified.setScrollTop(editorScrollTop(modified, line));
 		},
 	}));
 
@@ -162,9 +161,4 @@ export function DiffViewer({
 			ref={host}
 		/>
 	);
-}
-
-/** The first line an editor is showing, whole lines only. */
-function topLine(editor: Monaco.editor.ICodeEditor): number {
-	return editor.getVisibleRanges()[0]?.startLineNumber ?? 1;
 }

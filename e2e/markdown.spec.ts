@@ -181,6 +181,63 @@ test.describe("markdown tab", () => {
 		expect(await firstVisibleLine(editor)).toBeLessThanOrEqual(target + 2);
 	});
 
+	test("a wrapped paragraph scrolls both sides a fraction of a line", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		// One paragraph of several hundred words on a single source line. With
+		// word wrap on it fills the editor many times over, so a whole-line
+		// sync would hold the other side still and then jump (SPEC.md §13.4).
+		const paragraph = Array.from({ length: 600 }, (_, index) => `word${index}`).join(
+			" ",
+		);
+		const text = `# Title\n\n${paragraph}\n\n## After\n\nThe end.\n`;
+		await openFileTab(page, student, "Wrapped", LONG_PATH, text);
+		const preview = page.getByTestId("markdown-preview");
+		await expect(preview).toBeVisible({ timeout: 30_000 });
+
+		const editor = page.getByTestId(`editor-${LONG_PATH}`);
+		await expect(editor.locator(".view-lines")).toContainText("Title", {
+			timeout: 60_000,
+		});
+
+		await page.getByTestId("me").click();
+		await page.getByRole("menuitem", { name: "Editor settings" }).click();
+		await expect(page.getByTestId("dialog-editor-settings")).toBeVisible();
+		await page.locator(".pk-setting-wordwrap").click();
+		await page.getByTestId("editor-settings-save").click();
+		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
+		// Wrapping draws the one paragraph line as many rows.
+		await expect
+			.poll(() => editor.locator(".view-line").count(), { timeout: 15_000 })
+			.toBeGreaterThan(8);
+
+		// A small scroll of the editor, staying inside the paragraph, still
+		// moves the preview.
+		const previewWas = await previewScrollTop(page);
+		await wheelOver(page, editor, 3);
+		await expect
+			.poll(() => previewScrollTop(page), { timeout: 10_000 })
+			.toBeGreaterThan(previewWas);
+
+		// And the other way round: scrolling the preview a little leaves the
+		// editor part-way down the paragraph rather than snapped to its start.
+		// The row at the top is still one of line 3's wrapped rows but not its
+		// first, so the editor sits strictly between where line 3 begins and
+		// where line 4 does.
+		const rowWas = await topRowText(editor);
+		await preview.evaluate((node) => {
+			node.scrollTop += 60;
+		});
+		await expect.poll(() => topRowText(editor), { timeout: 10_000 }).not.toBe(rowWas);
+		// Only line 3 holds the "wordN" text, and the row at the top is not
+		// the one that line starts with.
+		const row = await topRowText(editor);
+		expect(row).toContain("word");
+		expect(row.startsWith("word0 ")).toBe(false);
+	});
+
 	test("the diff keeps the same top line as the raw text (issue #229)", async ({
 		page,
 		context,
@@ -354,5 +411,23 @@ function firstVisibleLine(editor: Locator): Promise<number> {
 				.map((line) => Number.parseInt(line.textContent ?? "", 10))
 				.filter((value) => Number.isFinite(value));
 			return numbers.length > 0 ? Math.min(...numbers) : 0;
+		});
+}
+
+/** The text of the topmost row one Monaco editor is drawing. */
+function topRowText(editor: Locator): Promise<string> {
+	return editor
+		.locator(".view-lines")
+		.first()
+		.evaluate((node) => {
+			const top = node.getBoundingClientRect().top;
+			let best: { distance: number; text: string } | null = null;
+			for (const row of node.querySelectorAll<HTMLElement>(".view-line")) {
+				const distance = Math.abs(row.getBoundingClientRect().top - top);
+				if (!best || distance < best.distance) {
+					best = { distance, text: row.textContent ?? "" };
+				}
+			}
+			return best?.text ?? "";
 		});
 }

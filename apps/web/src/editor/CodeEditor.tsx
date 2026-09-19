@@ -13,6 +13,7 @@ import {
 	languageForFile,
 	watchTheme,
 } from "./monaco.js";
+import { editorScrollTop, editorTopLine } from "./scrollSync.js";
 import { DEFAULT_ZOOM, fontSizeFor, stepZoom } from "./zoom.js";
 import "./editor.css";
 
@@ -130,7 +131,7 @@ export function CodeEditor({
 		setTopLine(line: number) {
 			const editor = editorRef.current;
 			if (!editor) return;
-			editor.setScrollTop(editor.getTopForLineNumber(Math.max(1, Math.round(line))));
+			editor.setScrollTop(editorScrollTop(editor, line));
 		},
 	}));
 
@@ -241,7 +242,7 @@ export function CodeEditor({
 				if (!restored) return;
 				const follow = latest.current.onTopLine;
 				if (!follow) return;
-				follow(topLine(editor));
+				follow(editorTopLine(editor));
 			});
 		});
 		return () => {
@@ -359,11 +360,4 @@ export function CodeEditor({
 function firstLineOf(text: string): string {
 	const end = text.indexOf("\n");
 	return (end < 0 ? text : text.slice(0, end)).slice(0, 200);
-}
-
-/** The first line the editor is showing, whole lines only. */
-function topLine(editor: Monaco.editor.IStandaloneCodeEditor): number {
-	const visible = editor.getVisibleRanges()[0];
-	if (visible) return visible.startLineNumber;
-	return 1;
 }

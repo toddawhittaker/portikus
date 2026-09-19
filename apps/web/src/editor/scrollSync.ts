@@ -6,7 +6,12 @@
  * The preview is matched through the `data-line` attribute the renderer puts
  * on every block it draws, so a long code block cannot drift away from the
  * heading it belongs to the way a plain ratio did.
+ *
+ * Lines here are fractional: 12.5 means half a line further down than line 12.
+ * With word wrap on, one source line can fill the whole viewport, so whole
+ * lines would leave one side standing still and then jumping.
  */
+import type * as Monaco from "monaco-editor";
 
 /** One rendered block: the source line it came from and where it sits. */
 export interface Block {
@@ -34,8 +39,8 @@ export function topForLine(blocks: Block[], line: number): number {
 
 /**
  * The source line at the top of the preview, given where it is scrolled to.
- * The inverse of `topForLine`, rounded to a whole line because that is what
- * the editor can be scrolled to.
+ * The inverse of `topForLine`. The answer is fractional, so a scroll inside
+ * one long paragraph still moves the editor.
  */
 export function lineForTop(blocks: Block[], scrollTop: number): number {
 	if (blocks.length === 0) return 1;
@@ -45,7 +50,7 @@ export function lineForTop(blocks: Block[], scrollTop: number): number {
 	const next = blocks[index + 1];
 	if (!next || next.top <= block.top) return block.line;
 	const fraction = (scrollTop - block.top) / (next.top - block.top);
-	return Math.round(block.line + fraction * (next.line - block.line));
+	return block.line + fraction * (next.line - block.line);
 }
 
 /** The last block the test holds for; blocks are in document order. */
@@ -73,4 +78,38 @@ export function readBlocks(container: HTMLElement): Block[] {
 		blocks.push({ line, top });
 	}
 	return blocks;
+}
+
+/**
+ * The first line a Monaco editor is showing, as a fraction of a source line.
+ */
+export function editorTopLine(editor: Monaco.editor.ICodeEditor): number {
+	const visible = editor.getVisibleRanges()[0];
+	if (!visible) return 1;
+	const first = visible.startLineNumber;
+	const above = editor.getTopForLineNumber(first);
+	const below = bottomOfLine(editor, first);
+	if (below <= above) return first;
+	const fraction = (editor.getScrollTop() - above) / (below - above);
+	return first + Math.min(Math.max(fraction, 0), 0.999999);
+}
+
+/** Where a Monaco editor must be scrolled to put a fractional line at the top. */
+export function editorScrollTop(
+	editor: Monaco.editor.ICodeEditor,
+	line: number,
+): number {
+	const lines = editor.getModel()?.getLineCount() ?? 1;
+	const whole = Math.min(Math.max(Math.floor(line), 1), lines);
+	const above = editor.getTopForLineNumber(whole);
+	const below = bottomOfLine(editor, whole);
+	const fraction = Math.min(Math.max(line - whole, 0), 1);
+	return above + fraction * Math.max(below - above, 0);
+}
+
+/** The offset of the line after this one, or this line's bottom at the end. */
+function bottomOfLine(editor: Monaco.editor.ICodeEditor, line: number): number {
+	const lines = editor.getModel()?.getLineCount() ?? line;
+	if (line >= lines) return editor.getBottomForLineNumber(line);
+	return editor.getTopForLineNumber(line + 1);
 }

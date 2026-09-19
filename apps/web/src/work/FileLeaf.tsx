@@ -53,6 +53,8 @@ const HIDDEN = { display: "none" } as const;
  * own; this is how that echo is told from a student's own scroll (issue #229).
  */
 const SAME_PLACE = 1;
+/** Lines closer together than this are the same place; lines are fractional. */
+const SAME_LINE = 0.01;
 
 /** True for the file names that open as Markdown. */
 function isMarkdownPath(path: string): boolean {
@@ -419,7 +421,10 @@ export function FileLeaf({
 	// must not be sent straight back, so each side ignores exactly the place
 	// it was just asked for.
 	function followEditor(line: number) {
-		if (sentEditorLine.current === line) {
+		if (
+			sentEditorLine.current !== null &&
+			Math.abs(sentEditorLine.current - line) < SAME_LINE
+		) {
 			// The editor is only reporting the move the other side asked for.
 			sentEditorLine.current = null;
 			return;
@@ -454,7 +459,10 @@ export function FileLeaf({
 	}
 
 	function followDiff(line: number) {
-		if (sentDiffLine.current === line) {
+		if (
+			sentDiffLine.current !== null &&
+			Math.abs(sentDiffLine.current - line) < SAME_LINE
+		) {
 			sentDiffLine.current = null;
 			return;
 		}
