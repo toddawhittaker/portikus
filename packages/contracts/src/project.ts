@@ -31,6 +31,22 @@ export function slugify(name: string): string {
 	return slug;
 }
 
+/**
+ * The display name of a project discovered on disk, or of one whose folder
+ * the student renamed in a shell (issue #269). Words are split on hyphens
+ * and underscores and capitalised, so `project-name` reads `Project Name`.
+ * A directory name with nothing to capitalise is used as it stands.
+ */
+export function displayNameFromDirectory(directory: string): string {
+	const words = directory.split(/[-_]+/).filter((word) => word !== "");
+	const name = words
+		.map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+		.join(" ")
+		.slice(0, MAX_PROJECT_NAME_LENGTH)
+		.trim();
+	return name === "" ? directory : name;
+}
+
 /** Active or archived (SPEC.md §7.4). */
 export const ProjectState = z.enum(["active", "archived"]);
 export type ProjectState = z.infer<typeof ProjectState>;

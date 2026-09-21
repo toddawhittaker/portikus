@@ -166,7 +166,8 @@ test("the editor settings defaults are a valid, complete set", () => {
 	expect(EditorSettings.parse(EDITOR_SETTINGS_DEFAULTS)).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
-		wordWrap: false,
+		// Issue #270: wrap is on unless the student turns it off.
+		wordWrap: true,
 		terminalTheme: "dark",
 	});
 });
