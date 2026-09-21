@@ -292,11 +292,18 @@ export function registerPreviewRoutes(
 	 * (BROWSER-HANDLING.md §16.4).
 	 *
 	 * The answer is the same with or without a valid preview cookie: 200 with
-	 * `Clear-Site-Data`, which drops the origin's cookies and its storage,
-	 * service worker registrations included. A caller with no session can
-	 * therefore do no more than clear its own browser's data for this one
-	 * origin; the server-side session is revoked only when a real cookie came
-	 * with the request.
+	 * `Clear-Site-Data: "storage"`, which drops the origin's storage and its
+	 * service worker registrations. A caller with no session can therefore do
+	 * no more than clear its own browser's data for this one origin; the
+	 * server-side session is revoked only when a real cookie came with the
+	 * request.
+	 *
+	 * "cookies" must never be added to that list. Browsers apply the cookies
+	 * directive to the whole registrable domain, not just this origin, and in
+	 * a same-site deployment the preview hosts and the Portikus host share
+	 * that domain — so it would delete the student's `__Host-portikus-session`
+	 * cookie and sign them out of Portikus. The preview cookie this origin
+	 * does own is expired by the Set-Cookie below instead.
 	 *
 	 * Portikus calls this from its own page rather than from inside the
 	 * preview frame, because an application's service worker can answer a
@@ -314,7 +321,7 @@ export function registerPreviewRoutes(
 		}
 		return reply
 			.clearCookie(cookieName, { path: "/", secure, sameSite: "strict" })
-			.header("clear-site-data", '"cookies", "storage"')
+			.header("clear-site-data", '"storage"')
 			.header("content-type", "text/html; charset=utf-8")
 			.header("cache-control", "no-store")
 			.header("referrer-policy", "no-referrer")

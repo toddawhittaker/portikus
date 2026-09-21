@@ -567,7 +567,7 @@ test.describe("the preview in a real browser", () => {
 		// clears the origin's cookies, storage and worker registrations.
 		const reset = seen.reserved.filter((one) => one.path === "/__portikus/reset");
 		expect(reset).toHaveLength(1);
-		expect(reset[0]?.clearSiteData).toBe('"cookies", "storage"');
+		expect(reset[0]?.clearSiteData).toBe('"storage"');
 		await app.close();
 	});
 
@@ -597,7 +597,7 @@ test.describe("the preview in a real browser", () => {
 		// service-worker test for why the clearing itself is not visible here.
 		const reset = seen.reserved.filter((one) => one.path === "/__portikus/reset");
 		expect(reset).toHaveLength(1);
-		expect(reset[0]?.clearSiteData).toBe('"cookies", "storage"');
+		expect(reset[0]?.clearSiteData).toBe('"storage"');
 		await app.close();
 	});
 

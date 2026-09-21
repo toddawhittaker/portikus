@@ -723,7 +723,7 @@ test.skipIf(skip)("the reset page clears the cookie and stored data", async () =
 		},
 	});
 	expect(response.statusCode).toBe(200);
-	expect(response.headers["clear-site-data"]).toBe('"cookies", "storage"');
+	expect(response.headers["clear-site-data"]).toBe('"storage"');
 	expect(String(response.headers["set-cookie"])).toContain(`${COOKIE}=`);
 	expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(401);
 });
@@ -740,7 +740,7 @@ test.skipIf(skip)(
 			headers: { "x-forwarded-host": previewHostFor(5173) },
 		});
 		expect(response.statusCode).toBe(200);
-		expect(response.headers["clear-site-data"]).toBe('"cookies", "storage"');
+		expect(response.headers["clear-site-data"]).toBe('"storage"');
 		expect(String(response.headers["set-cookie"])).toContain(`${COOKIE}=`);
 		expect(response.headers["cache-control"]).toBe("no-store");
 		expect(response.headers["referrer-policy"]).toBe("no-referrer");
