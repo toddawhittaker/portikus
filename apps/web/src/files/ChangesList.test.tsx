@@ -77,6 +77,26 @@ test("clicking a changed file opens its one tab, showing the diff", () => {
 	expect(store.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
 });
 
+test("the row whose file is the tab on show is marked selected (issue #274)", () => {
+	const store = show({
+		...EMPTY,
+		entries: [
+			{ path: "src/app.ts", x: ".", y: "M", unmerged: false },
+			{ path: "src/other.ts", x: ".", y: "M", unmerged: false },
+		],
+	});
+
+	fireEvent.click(screen.getByTestId("change-row-src/app.ts"));
+
+	expect(store.getState().activeTabId).toBe("file:src/app.ts");
+	expect(
+		screen.getByTestId("change-row-src/app.ts").getAttribute("data-selected"),
+	).toBe("true");
+	expect(
+		screen.getByTestId("change-row-src/other.ts").getAttribute("data-selected"),
+	).toBeNull();
+});
+
 test("clicking a changed file that is not open opens one tab in diff view", () => {
 	const store = show({
 		...EMPTY,

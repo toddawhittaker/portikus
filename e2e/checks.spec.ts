@@ -171,4 +171,61 @@ test.describe("checks", () => {
 			timeout: 15_000,
 		});
 	});
+
+	/** Issue #274: one neutral selection tone, never the green of a passed check. */
+	test("the selected check is picked out in a neutral tone", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openChecks(page, student.workspaceId, "Selecting", CHECKS);
+		await expect(page.getByTestId("checks-list")).toBeVisible();
+
+		await page.getByTestId("check-item-lint").getByText("npm run lint false").click();
+
+		const selected = await rowBackground(page, "lint");
+		const other = await rowBackground(page, "tests");
+		expect(selected).not.toBe(other);
+		// A warm neutral: red is never below green, so the row cannot read green.
+		const [red, green, blue] = channels(selected);
+		expect(red).toBeGreaterThanOrEqual(green);
+		expect(green).toBeGreaterThanOrEqual(blue);
+	});
+
+	/** Issue #274: a long command must not push the Run button out of the pane. */
+	test("a 120-character command leaves the Run button inside the pane", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const command = `docker run --rm -p 8080:80 --name bar-project ${"x".repeat(74)}`;
+		expect(command).toHaveLength(120);
+		await openChecks(page, student.workspaceId, "Overflowing", {
+			checks: [{ id: "tests", name: "Tests", command }],
+		});
+
+		const button = page.getByTestId("check-run-tests");
+		await expect(button).toBeVisible();
+		const buttonBox = await button.boundingBox();
+		const paneBox = await page.getByTestId("checks-list").boundingBox();
+		if (!buttonBox || !paneBox) throw new Error("no box");
+		expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(
+			paneBox.x + paneBox.width + 1,
+		);
+		expect(buttonBox.x).toBeGreaterThanOrEqual(paneBox.x - 1);
+	});
 });
+
+/** The computed background of one check's row. */
+async function rowBackground(page: Page, checkId: string): Promise<string> {
+	return await page
+		.getByTestId(`check-item-${checkId}`)
+		.locator(".pk-check-row")
+		.evaluate((element) => getComputedStyle(element).backgroundColor);
+}
+
+/** The red, green and blue of a computed `rgb(...)` colour. */
+function channels(colour: string): [number, number, number] {
+	const parts = colour.match(/\d+/g) ?? [];
+	return [Number(parts[0]), Number(parts[1]), Number(parts[2])];
+}

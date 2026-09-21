@@ -89,7 +89,7 @@ export function ChecksPane({
 						Add a command such as <code>npm test</code> and run it here.
 					</EmptyState>
 				) : (
-					<ul className="pk-list" data-testid="checks-list">
+					<ul className="pk-list pk-check-list" data-testid="checks-list">
 						{definitions.map((check) => {
 							const state = runs.get(check.id)?.state ?? "idle";
 							const badge = BADGE[state];
@@ -100,30 +100,36 @@ export function ChecksPane({
 									className={`pk-check-item${shown === check.id ? " is-current" : ""}`}
 									data-testid={`check-item-${check.id}`}
 								>
-									<div className="flex items-center">
+									<div className="pk-check-row">
 										<button
 											type="button"
-											className="pk-check-row"
+											className="pk-check-face"
 											onClick={() => setSelected(check.id)}
 										>
 											<span className="pk-check-text">
-												<span className="pk-check-name">{check.name}</span>
-												<span className="pk-check-command">{check.command}</span>
-											</span>
-											<span data-testid={`check-state-${check.id}`}>
-												<StateBadge state={badge.state} label={badge.label} />
+												<span className="pk-check-name" title={check.name}>
+													{check.name}
+												</span>
+												<span className="pk-check-command" title={check.command}>
+													{check.command}
+												</span>
 											</span>
 										</button>
-										<Button
-											variant="secondary"
+										<span
+											className="pk-check-badge"
+											data-testid={`check-state-${check.id}`}
+										>
+											<StateBadge state={badge.state} label={badge.label} />
+										</span>
+										<IconButton
+											icon={running ? "stop" : "play"}
+											label={`${running ? "Stop" : "Run"} ${check.name}`}
 											size="sm"
 											data-testid={`check-${running ? "stop" : "run"}-${check.id}`}
 											onClick={() =>
 												running ? stop.mutate(check.id) : start(check.id)
 											}
-										>
-											{running ? "Stop" : "Run"}
-										</Button>
+										/>
 									</div>
 								</li>
 							);
