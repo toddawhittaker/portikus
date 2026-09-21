@@ -367,7 +367,7 @@ type ListeningService = {
 
 ### 11.2 What the forward is not
 
-The forward is not a relay to other hosts, other containers, or other ports, and it does not carry traffic in the other direction. A student process cannot ask for one; only the control plane can.
+The forward is not a relay to other hosts, other containers, or other ports, and it does not carry traffic in the other direction. A student process cannot ask the control plane for one; only the control plane's registry decides what the gateway may reach. (The agent runs as the student and its token is readable by that user, so a student can open a forward on their own container's interface directly; it reaches only the platform VM and grants nothing the student does not already have. Recorded as a residual in STATUS.md.)
 
 ## 12. Preview UI behavior
 

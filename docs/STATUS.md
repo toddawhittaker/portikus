@@ -865,6 +865,18 @@ deployment.
 - A client-side minimum port of 1024 is still in the terminal link
   handler and in the web app's preview route, even though the launcher
   and the Running pane now take the port policy from the API.
+- The workspace agent runs as the student, inside the student's own
+  container, and its bearer token sits in a file that user can read, so a
+  student can call the agent's own API directly, including its loopback
+  forward routes. This grants nothing the student does not already have:
+  the agent has no authority outside the container, never calls the
+  control plane, and the control plane trusts none of its claims for
+  authorization (the registry stamps the workspace id, computes the deny
+  state, and takes the upstream from the workspace row). A forward the
+  student opens this way is reachable only from the platform VM. The
+  design's sentence that a student process cannot ask for a forward is
+  therefore true of the control plane's registry, not of the agent's
+  socket; BROWSER-HANDLING.md section 11.2 now says so. Accepted.
 - The pilot's `api.env` had `PREVIEW_SUFFIX` added by hand so the edge
   could be walked; the Ansible template carries the key, so the next full
   deployment sets it properly.
