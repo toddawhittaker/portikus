@@ -137,6 +137,69 @@ name Caddy serves on that VM, and `PORTIKUS_PUBLIC_PORT` to the port it
 serves on (8443 on the pilot); without the name the HTTPS checks fall back
 to `portikus.<vm-ip>.nip.io` and the script prints a warning.
 
+### Using the pilot from the host that runs it
+
+Two things have to be set up on the machine you browse from. Both are
+per-VM: redo them after `make rebuild-pilot`.
+
+First, publish the VM:
+
+```sh
+make publish-vm
+```
+
+That forwards port 8443 on the host's LAN address to the VM for traffic
+arriving from the LAN and for connections the host itself makes. The local
+half matters because every preview hostname
+(`ws-<id>-<port>.preview.portikus.<lan-ip>.nip.io`) resolves through nip.io
+to the LAN address, and there can be one per port. With the forward in
+place, nothing needs adding to `/etc/hosts`, for the site or for any
+preview name. If you added hosts lines before, remove them; a line pointing
+the site name straight at the VM address works for the site but does
+nothing for preview names.
+
+Second, trust the certificate authority the VM's Caddy created for itself.
+An embedded preview is an iframe, and an iframe cannot show a certificate
+warning, so without this every Preview tab fails silently with the
+browser's "site might be temporarily down" page, even though opening the
+same address in a top-level tab only shows an interstitial you can click
+through. `make publish-vm` prints these commands with the VM address filled
+in:
+
+```sh
+ssh deploy@<vm-ip> sudo cat /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt \
+  > /tmp/portikus-caddy-root.crt
+certutil -d sql:$HOME/.pki/nssdb -D -n portikus-caddy-root 2>/dev/null
+certutil -d sql:$HOME/.pki/nssdb -A -t C,, -n portikus-caddy-root \
+  -i /tmp/portikus-caddy-root.crt
+```
+
+That is the Chromium trust store on Linux; `certutil` comes from the
+`libnss3-tools` package. The delete on the middle line removes an earlier
+copy, so the three lines are safe to repeat. Restart the browser
+afterwards. Firefox keeps its own store: Settings, Privacy & Security, View
+Certificates, Authorities, Import, and tick "Trust this CA to identify
+websites".
+
+Rebuilding the VM makes a new authority, so the old root stops matching and
+previews break again until you reimport. The same certificate is also
+copied to `/etc/portikus/caddy-root.crt` on the VM, which is what the smoke
+test uses.
+
+To check both steps from the host, with no hosts entries:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' \
+  https://portikus.<lan-ip>.nip.io:8443/            # 200
+curl -s -o /dev/null -w '%{http_code}\n' \
+  https://ws-<id>-<port>.preview.portikus.<lan-ip>.nip.io:8443/   # 401
+```
+
+A 401 from a preview name is the right answer: the request reached the
+gateway, which turned it away because the curl call carries no session. A
+connection error instead means the forward is missing, and a certificate
+error means the root is not imported.
+
 ## Branches
 
 - `main` is always releasable. It changes only through a pull request.
