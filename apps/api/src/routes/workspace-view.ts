@@ -16,6 +16,7 @@ export function toWorkspace(
 	return {
 		id: row.id as string,
 		ownerUserId: row.owner_user_id as string,
+		label: row.label as string,
 		state: row.state as Workspace["state"],
 		desiredState: row.desired_state as Workspace["desiredState"],
 		incusInstanceName: (row.incus_instance_name as string) ?? null,

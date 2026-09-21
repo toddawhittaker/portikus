@@ -107,12 +107,15 @@ export async function createStudent(
 	const workspaceId = crypto.randomUUID();
 	await query(
 		`insert into workspaces
-		   (id, owner_user_id, incus_instance_name, state, desired_state,
+		   (id, owner_user_id, label, incus_instance_name, state, desired_state,
 		    agent_address, agent_token)
-		 values ($1, $2, $3, $4, 'running', '127.0.0.1', $5)`,
+		 values ($1, $2, $3, $4, $5, 'running', '127.0.0.1', $6)`,
 		[
 			workspaceId,
 			user.id,
+			// Labels are unique, so each test workspace gets the fallback form
+			// the API would give a user with no username (SPEC.md Epic 8).
+			`ws-${workspaceId.replace(/-/g, "").slice(0, 8)}`,
 			`ws-${workspaceId.replace(/-/g, "").slice(0, 24)}`,
 			options.state ?? "running",
 			`${FAKE_AGENT_TOKEN}:${workspaceId}`,

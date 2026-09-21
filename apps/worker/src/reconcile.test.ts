@@ -11,6 +11,12 @@ import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
 import { doStop, type ReconcileConfig, reconcile } from "./reconcile.js";
 
+/** Workspace labels are unique, so each test row needs its own. */
+let labelCounter = 0;
+function testLabel(): string {
+	return `ws-test-${++labelCounter}`;
+}
+
 const skip = !hasTestDb();
 
 let tdb: TestDb;
@@ -67,6 +73,7 @@ async function insertWorkspace(
 	overrides: Record<string, unknown> = {},
 ): Promise<string> {
 	const defaults = {
+		label: testLabel(),
 		owner_user_id: await insertTestUser(tdb.db),
 		incus_instance_name: `ws-${Math.random().toString(36).slice(2, 14)}`,
 		state: "stopped",
@@ -659,6 +666,7 @@ async function runningWorkspace(
 	const id = await insertWorkspace({
 		state: "running",
 		desired_state: "running",
+		label: testLabel(),
 		owner_user_id: ownerId,
 	});
 	return { id, ownerId };

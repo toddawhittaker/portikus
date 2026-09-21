@@ -5,6 +5,12 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "./fake-agent.js";
 import { startLogLevelSync } from "./log-level.js";
 
+/** Workspace labels are unique, so each test row needs its own. */
+let labelCounter = 0;
+function testLabel(): string {
+	return `ws-test-${++labelCounter}`;
+}
+
 /**
  * The API follows `settings.log_level` and relays it to each running
  * workspace's agent (ADR 0012, SPEC.md §25.6).
@@ -46,6 +52,7 @@ async function makeWorkspace(state: string): Promise<string> {
 	const row = await testDb.db
 		.insertInto("workspaces")
 		.values({
+			label: testLabel(),
 			owner_user_id: await makeOwner(),
 			state,
 			agent_address: "127.0.0.1",

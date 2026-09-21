@@ -624,7 +624,7 @@ be dragged back to the top level (issue #237, SPEC.md section 11.2).
 in a shell keeps its row, its id, its open tabs, and its layout. The
 marker is the directory's inode, which the agent reports with each listing
 and the control plane stores on the project row (migration
-`0008_project_directory_id`). Before discovery, each listing records the
+`0009_project_directory_id`). Before discovery, each listing records the
 identity of every directory a row names, then moves a row whose directory
 is gone to the directory carrying its identity. A copy or a restore from a
 recovery archive has a different inode and is honestly a new project

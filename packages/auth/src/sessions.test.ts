@@ -20,6 +20,7 @@ const identity: OidcIdentity = {
 	subject: "alice",
 	email: "alice@example.edu",
 	displayName: "Alice Student",
+	preferredUsername: "alice",
 };
 
 describe("users and sessions", () => {

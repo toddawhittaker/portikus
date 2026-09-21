@@ -15,7 +15,7 @@ export interface WorkspaceProvider {
 	): Promise<CreateInstanceResponse>;
 	start(
 		name: string,
-		opts: { timeoutSeconds: number; agentToken: string },
+		opts: { timeoutSeconds: number; agentToken: string; hostname: string },
 	): Promise<StartInstanceResponse>;
 	stop(name: string, opts: { timeoutSeconds: number }): Promise<StopInstanceResponse>;
 	list(): Promise<InstanceStatus[]>;
@@ -24,6 +24,9 @@ export interface WorkspaceProvider {
 
 /** Where the workspace agent reads its bearer token (ADR 0009). */
 const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
+
+/** A lowercase DNS label; anything else must never reach the container. */
+const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
 /**
  * How long the agent has to answer /health once the instance is running. This
@@ -129,9 +132,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	async start(
 		name: string,
-		opts: { timeoutSeconds: number; agentToken: string },
+		opts: { timeoutSeconds: number; agentToken: string; hostname: string },
 	): Promise<StartInstanceResponse> {
 		validateName(name);
+		if (!HOSTNAME_PATTERN.test(opts.hostname) || opts.hostname.length > 40) {
+			throw new IncusError("INVALID_NAME", `invalid hostname: ${opts.hostname}`);
+		}
 
 		const signal = AbortSignal.timeout(opts.timeoutSeconds * 1000);
 
@@ -146,6 +152,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		const deadline = Date.now() + opts.timeoutSeconds * 1000;
 		const ipv4 = await this.waitForAddress(name, deadline, signal);
 
+		await this.setHostname(name, opts.hostname, signal, opts.timeoutSeconds);
+
 		await this.client.pushFile(
 			name,
 			AGENT_TOKEN_PATH,
@@ -157,6 +165,42 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		await this.waitForAgent(ipv4, opts.agentToken);
 
 		return { ipv4 };
+	}
+
+	/**
+	 * Name the container after the workspace label so the shell prompt reads
+	 * `student@<label>` (SPEC.md Epic 8).
+	 *
+	 * Incus has no instance setting for the hostname, so this writes
+	 * `/etc/hostname` for the next boot and runs `hostname` for the current
+	 * one. It runs on every start, so an old container picks the label up.
+	 */
+	private async setHostname(
+		name: string,
+		hostname: string,
+		signal: AbortSignal,
+		timeoutSeconds: number,
+	): Promise<void> {
+		await this.client.pushFile(
+			name,
+			"/etc/hostname",
+			`${hostname}\n`,
+			{ uid: 0, gid: 0, mode: "0644" },
+			signal,
+		);
+
+		await this.client.request(
+			"POST",
+			`/1.0/instances/${enc(name)}/exec`,
+			{
+				command: ["hostname", hostname],
+				"wait-for-websocket": false,
+				"record-output": false,
+				interactive: false,
+			},
+			signal,
+			timeoutSeconds,
+		);
 	}
 
 	private async waitForAddress(
