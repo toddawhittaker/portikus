@@ -230,10 +230,28 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
  * A small application with the browser behaviors the spec names: stored
  * state, a cookie, a form, a popup, and an optional service worker.
  */
+/**
+ * Every test application still listening. A test that fails part way through
+ * never reaches its own close, and a listener left behind resets the next
+ * connection made to it, which fills the run with ECONNRESET noise. The
+ * `finally` in the hook below closes whatever is left, whatever happened.
+ */
+const openApps = new Set<() => Promise<void>>();
+
+test.afterEach(async () => {
+	try {
+		for (const close of [...openApps]) await close();
+	} finally {
+		openApps.clear();
+	}
+});
+
 function startApp(
 	title: string,
 	/** Sent as `X-Frame-Options` on every answer, for the refused-framing path. */
 	frameOptions?: string,
+	/** Answer every request the way Vite refuses a host it does not allow. */
+	blockHost?: boolean,
 ): Promise<{ port: number; close: () => Promise<void> }> {
 	const page = (body: string) =>
 		`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>` +
@@ -241,6 +259,8 @@ function startApp(
 
 	const home = page(`
 		<h1 id="title">${title}</h1>
+		<a id="link" href="/second">Second page</a>
+		<button id="push" type="button">Push a route</button>
 		<p id="state">pending</p>
 		<p id="cookie">pending</p>
 		<form id="form" method="POST" action="/form">
@@ -257,6 +277,16 @@ function startApp(
 			document.cookie = "app-cookie=chocolate; path=/";
 			const cookie = document.cookie === "" ? "none" : document.cookie;
 			document.getElementById("cookie").textContent = "cookie:" + cookie;
+			// A single-page route change, which leaves an entry in the joint
+			// history without loading the frame again (issue #271).
+			document.getElementById("push").addEventListener("click", () => {
+				history.pushState({}, "", "/pushed");
+				document.getElementById("title").textContent = "pushed route";
+			});
+			window.addEventListener("popstate", () => {
+				document.getElementById("title").textContent =
+					location.pathname === "/pushed" ? "pushed route" : "${title}";
+			});
 			document.getElementById("popup").addEventListener("click", () => {
 				window.open("/opened", "_blank");
 			});
@@ -283,6 +313,24 @@ function startApp(
 	const server = createServer((request, response) => {
 		const url = new URL(request.url ?? "/", "http://app.invalid");
 		if (frameOptions) response.setHeader("x-frame-options", frameOptions);
+		if (blockHost) {
+			// Word for word what Vite answers for a host it does not allow.
+			const host = request.headers.host ?? "";
+			response.writeHead(403, { "content-type": "text/html; charset=utf-8" });
+			response.end(
+				`Blocked request. This host ("${host}") is not allowed.\n` +
+					`To allow this host, add "${host}" to \`server.allowedHosts\` in ` +
+					"vite.config.js.",
+			);
+			return;
+		}
+		if (url.pathname === "/second") {
+			response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+			response.end(
+				page('<h1 id="title">second page</h1><a id="home" href="/">Home</a>'),
+			);
+			return;
+		}
 		if (url.pathname === "/sw.js") {
 			response.writeHead(200, {
 				"content-type": "text/javascript",
@@ -315,14 +363,14 @@ function startApp(
 	return new Promise((resolve) => {
 		server.listen(0, "127.0.0.1", () => {
 			const { port } = server.address() as AddressInfo;
-			resolve({
-				port,
-				close: () =>
-					new Promise<void>((done) => {
-						server.closeAllConnections();
-						server.close(() => done());
-					}),
-			});
+			const close = () =>
+				new Promise<void>((done) => {
+					openApps.delete(close);
+					server.closeAllConnections();
+					server.close(() => done());
+				});
+			openApps.add(close);
+			resolve({ port, close });
 		});
 	});
 }
@@ -332,8 +380,9 @@ async function startPreview(
 	workspaceId: string,
 	title: string,
 	frameOptions?: string,
+	blockHost?: boolean,
 ): Promise<{ port: number; close: () => Promise<void>; stop: () => Promise<void> }> {
-	const app = await startApp(title, frameOptions);
+	const app = await startApp(title, frameOptions, blockHost);
 	await seedListening(workspaceId, [{ port: app.port }]);
 	return {
 		port: app.port,
@@ -350,13 +399,15 @@ async function openPreviewTab(
 	page: Page,
 	workspaceId: string,
 	port: number,
+	/** What the tab must end up showing; the frame unless a state replaces it. */
+	expected = "preview-frame",
 ): Promise<void> {
 	const project = await createProject(workspaceId, { name: "preview-browser" });
 	await page.goto(workspacePath(workspaceId, project.id));
 	await expect(page.getByTestId("work-tabs")).toBeVisible({ timeout: 15_000 });
 	await page.getByTestId("right-pane-tab-running").click();
 	await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
-	await expect(page.getByTestId("preview-frame")).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByTestId(expected)).toBeVisible({ timeout: 20_000 });
 }
 
 function appHeading(page: Page) {
@@ -706,6 +757,46 @@ test.describe("the preview in a real browser", () => {
 		await app.close();
 	});
 
+	test("Open in new tab from a Running row opens exactly one tab", async ({
+		page,
+		context,
+	}) => {
+		// The Running row uses the same single-tab pattern as the Preview tab
+		// (issues #261, #272), so one click must leave exactly one new page.
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Row tab");
+		const project = await createProject(student.workspaceId, { name: "row-new-tab" });
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await page.getByTestId("right-pane-tab-running").click();
+		await expect(page.getByTestId(`running-row-${app.port}`)).toBeVisible({
+			timeout: 20_000,
+		});
+
+		const before = context.pages();
+		await page.getByTestId(`running-new-tab-${app.port}`).click();
+		let opened: Page | undefined;
+		await expect
+			.poll(
+				() => {
+					opened = context.pages().find((one) => {
+						try {
+							return new URL(one.url()).hostname.endsWith(PREVIEW_SUFFIX);
+						} catch {
+							return false;
+						}
+					});
+					return opened !== undefined;
+				},
+				{ timeout: 20_000 },
+			)
+			.toBe(true);
+		if (!opened) throw new Error("no tab opened on the preview origin");
+		await expect(opened.locator("#title")).toHaveText("Row tab", { timeout: 20_000 });
+		expect(context.pages().filter((one) => !before.includes(one))).toHaveLength(1);
+		await app.close();
+	});
+
 	test("Open in new tab lands on the preview origin, not the Portikus one", async ({
 		page,
 		context,
@@ -761,5 +852,252 @@ test.describe("the preview in a real browser", () => {
 		await page.goto(`${origin}/`);
 		await expect(page.locator("h1")).toHaveText("Preview session ended");
 		await app.close();
+	});
+
+	/**
+	 * A development server that refuses the preview host is explained, with
+	 * the exact line to paste (issue #262).
+	 */
+	test("a dev server refusing the preview host is explained", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Blocked", undefined, true);
+		await openPreviewTab(page, student.workspaceId, app.port, "preview-refused");
+
+		// The real suffix of this deployment, with the workspace label gone.
+		await expect(page.getByTestId("preview-refused-line")).toHaveText(
+			`server: { allowedHosts: ["${PREVIEW_SUFFIX}"] }`,
+		);
+		const host = (await page.getByTestId("preview-host").textContent()) ?? "";
+		await expect(page.getByTestId("preview-refused")).toContainText(
+			host.split(":")[0] ?? "",
+		);
+		// Not the "cannot be embedded" notice: this application can be framed.
+		await expect(page.getByTestId("preview-blocked")).toHaveCount(0);
+		await expect(page.getByTestId("preview-refused-copy")).toBeVisible();
+		await expect(page.getByTestId("preview-retry")).toBeVisible();
+		await app.close();
+	});
+
+	/**
+	 * Back and Forward step the joint history, including across a `pushState`
+	 * route change, and never move the Portikus page (issue #271).
+	 */
+	test("Back and Forward step the preview's history", async ({ page, context }) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "History");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await expect(appHeading(page)).toHaveText("History", { timeout: 20_000 });
+		const portikusUrl = page.url();
+
+		const frame = () => page.frameLocator("[data-testid=preview-frame]");
+		// Two navigations forward first, so stepping back stays on pages the
+		// application served. The entry the frame started on is the bootstrap
+		// URL, whose ticket is single-use; in a real deployment the browser
+		// sees the bootstrap redirect and keeps "/" instead, but this file
+		// stands in for Caddy and follows that redirect itself.
+		await frame().locator("#link").click();
+		await expect(appHeading(page)).toHaveText("second page");
+		await frame().locator("#home").click();
+		await expect(appHeading(page)).toHaveText("History");
+
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("second page");
+		expect(page.url()).toBe(portikusUrl);
+
+		await page.getByTestId("preview-forward").click();
+		await expect(appHeading(page)).toHaveText("History");
+
+		// A single-page route change is an entry too.
+		await frame().locator("#push").click();
+		await expect(appHeading(page)).toHaveText("pushed route");
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("History");
+
+		// Whatever the history did, the Portikus page stayed where it was.
+		expect(page.url()).toBe(portikusUrl);
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await app.close();
+	});
+
+	/**
+	 * Back on a preview the student has not navigated must do nothing at all.
+	 * It used to step the joint history and try to undo the step 300 ms later,
+	 * which unloaded the whole workspace (issue #283).
+	 */
+	test("Back on a fresh preview leaves Portikus where it was", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Fresh");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await expect(appHeading(page)).toHaveText("Fresh", { timeout: 20_000 });
+		const portikusUrl = page.url();
+
+		await page.getByTestId("preview-back").click();
+		await page.getByTestId("preview-back").click();
+		await page.getByTestId("preview-back").click();
+
+		// The Portikus page is still the one that is loaded, with its tabs and
+		// its preview still there.
+		expect(page.url()).toBe(portikusUrl);
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await expect(page.getByTestId("preview-frame")).toBeVisible();
+		await expect(appHeading(page)).toHaveText("Fresh");
+		// And the button says why nothing happened.
+		await expect(page.getByTestId("preview-back")).toHaveAttribute(
+			"title",
+			"Nothing to go back to",
+		);
+		await app.close();
+	});
+
+	/**
+	 * One press of Back per entry the frame made, and not one more (issue
+	 * #283). The list of history entries does not get shorter when the
+	 * browser steps back through it, so counting entries is not enough: the
+	 * guard has to count the steps it has taken, or Back keeps going and
+	 * walks into the Portikus page's own entries. The workspace page here is
+	 * reached by a real page load, as it is after the sign-in redirect, so
+	 * far enough back is another document and the workspace is gone.
+	 */
+	test("Back stops at the frame's first page, not at Portikus", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Steps");
+		// A second project, made before the page loads so it is in the list.
+		const other = await createProject(student.workspaceId, { name: "other" });
+		// A real navigation first, so the entry before the workspace document
+		// belongs to another document.
+		await page.goto("/");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await expect(appHeading(page)).toHaveText("Steps", { timeout: 20_000 });
+		const portikusUrl = page.url();
+
+		// Three navigations inside the frame, so three entries. The page the
+		// frame started on is the bootstrap URL, whose ticket is single-use,
+		// so it is the entry the student must not be able to go past twice.
+		const frame = () => page.frameLocator("[data-testid=preview-frame]");
+		await frame().locator("#link").click();
+		await expect(appHeading(page)).toHaveText("second page");
+		await frame().locator("#home").click();
+		await expect(appHeading(page)).toHaveText("Steps");
+		await frame().locator("#link").click();
+		await expect(appHeading(page)).toHaveText("second page");
+
+		// One press, one entry.
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("Steps");
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("second page");
+
+		// The third press uses the last entry the frame made. The fourth has
+		// nothing left and says so, instead of stepping into Portikus's own
+		// entries as it did while the guard counted entries rather than steps.
+		await page.getByTestId("preview-back").click();
+		await page.getByTestId("preview-back").click();
+		await expect(page.getByTestId("preview-back")).toHaveAttribute(
+			"title",
+			"Nothing to go back to",
+			{ timeout: 10_000 },
+		);
+
+		// The Portikus document is untouched: same URL, same workspace.
+		expect(page.url()).toBe(portikusUrl);
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await expect(page.getByTestId("preview-frame")).toBeVisible();
+
+		// The anchor entry carries the router's own state, so the router can
+		// still navigate after a Back.
+		await page.getByTestId(`project-item-${other.id}`).click();
+		await expect(page).toHaveURL(workspacePath(student.workspaceId, other.id));
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await app.close();
+	});
+
+	/**
+	 * The same counting, for a single-page application that changes route
+	 * with `pushState` and never loads a page (issue #283). Two route changes
+	 * are two presses of Back, and the third is refused.
+	 */
+	test("two in-frame route changes are two presses of Back", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Routes");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await expect(appHeading(page)).toHaveText("Routes", { timeout: 20_000 });
+		const portikusUrl = page.url();
+
+		// Two route changes, and no page load at all: every entry here belongs
+		// to the one document the frame already had.
+		const frame = () => page.frameLocator("[data-testid=preview-frame]");
+		await frame().locator("#push").click();
+		await expect(appHeading(page)).toHaveText("pushed route");
+		await frame().locator("#push").click();
+		await expect(appHeading(page)).toHaveText("pushed route");
+
+		// Two entries, so two presses: the first steps between the two route
+		// changes, the second returns to the page the frame started on.
+		await page.getByTestId("preview-back").click();
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("Routes");
+
+		// The third press has nothing of the frame's left, and must not reach
+		// for the Portikus page's own entries.
+		await page.getByTestId("preview-back").click();
+		await expect(page.getByTestId("preview-back")).toHaveAttribute(
+			"title",
+			"Nothing to go back to",
+			{ timeout: 10_000 },
+		);
+		await expect(appHeading(page)).toHaveText("Routes");
+		expect(page.url()).toBe(portikusUrl);
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await expect(page.getByTestId("preview-frame")).toBeVisible();
+		await app.close();
+	});
+
+	/**
+	 * The states are a compact stack in the middle of the pane, not a column
+	 * stretched from top to bottom (issue #275).
+	 */
+	test("an inactive preview is one compact stack in the middle", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Layout");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await app.stop();
+
+		const retry = page.getByTestId("preview-retry");
+		await expect(retry).toBeVisible({ timeout: 20_000 });
+		const button = await retry.boundingBox();
+		const pane = await page.getByTestId(`preview-pane-${app.port}`).boundingBox();
+		const heading = await page
+			.getByTestId("preview-inactive")
+			.locator("xpath=../..")
+			.locator("h3")
+			.boundingBox();
+		if (!button || !pane || !heading) throw new Error("the preview pane has no box");
+
+		// A stretched button fills the pane; a normal one is a line high.
+		expect(button.height).toBeLessThan(40);
+		const middle = heading.y + heading.height / 2;
+		expect(middle).toBeGreaterThan(pane.y + pane.height / 3);
+		expect(middle).toBeLessThan(pane.y + (pane.height * 2) / 3);
 	});
 });

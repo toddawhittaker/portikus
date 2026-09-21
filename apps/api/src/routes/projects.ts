@@ -6,6 +6,7 @@ import {
 	contentDisposition,
 	DeleteProjectRequest,
 	DuplicateProjectRequest,
+	displayNameFromDirectory,
 	type Project,
 	ProjectLayout,
 	type ProjectList,
@@ -168,9 +169,10 @@ async function relocateMovedProjects(
 
 /**
  * Point a project row at a directory that has a new name, and bring its
- * terminals' working directories along (SPEC.md §7.1, "Rename"). A project
- * still called after its old folder is renamed too, because that name was
- * never chosen by the student; a name the student typed is left alone.
+ * terminals' working directories along (SPEC.md §7.1, "Rename"). The display
+ * name follows the new folder, because the folder is the project (issue
+ * #269): renaming the folder is how a student renames the project from a
+ * shell, so the pane must not keep showing the old title.
  */
 async function moveProjectRow(
 	db: Kysely<Database>,
@@ -179,7 +181,7 @@ async function moveProjectRow(
 ): Promise<void> {
 	const oldPath = row.path;
 	const newPath = projectPath(slug);
-	const name = row.name === row.slug ? slug : row.name;
+	const name = displayNameFromDirectory(slug);
 	await db.transaction().execute(async (trx) => {
 		await trx
 			.updateTable("projects")
@@ -285,7 +287,9 @@ export function registerProjectRoutes(
 				.map(([slug, dir]) => ({
 					workspace_id: scope.workspaceId,
 					slug,
-					name: slug,
+					// The folder name, read as a title, so a discovered project and
+					// one whose folder was renamed are named the same way (#269).
+					name: displayNameFromDirectory(slug),
 					path: projectPath(slug),
 					source: "discovered",
 					directory_id: dir.directoryId,

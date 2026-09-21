@@ -13,10 +13,12 @@ import { useListening } from "../running/services.js";
 import {
 	clearPreviewOriginData,
 	type Grant,
+	openPreviewInNewTab,
 	probeEmbeddable,
 	requestGrant,
 	resetPreviewData,
 } from "./grants.js";
+import { attachPreviewHistory, type PreviewHistory } from "./history.js";
 import "./preview.css";
 
 /**
@@ -52,7 +54,63 @@ type State =
 	 * for a refused navigation too.
 	 */
 	| { status: "blocked"; grant: Grant; probed: boolean }
+	/**
+	 * The application answered, but its development server refuses the
+	 * preview host and says which setting would allow it (issue #262).
+	 */
+	| {
+			status: "host-refused";
+			grant: Grant;
+			refusedHost: string;
+			server: RefusedServer;
+	  }
 	| { status: "error"; message: string };
+
+/** The development servers whose refusal the control plane recognises. */
+type RefusedServer = "vite" | "webpack-dev-server";
+
+/** What each server calls the setting, and where it lives. */
+const ALLOWED_HOSTS_SETTING: Record<
+	RefusedServer,
+	{ name: string; file: string; line: (suffix: string) => string }
+> = {
+	vite: {
+		name: "Vite",
+		file: "vite.config.js",
+		line: (suffix) => `server: { allowedHosts: ["${suffix}"] }`,
+	},
+	"webpack-dev-server": {
+		name: "webpack-dev-server",
+		file: "webpack.config.js",
+		line: (suffix) => `devServer: { allowedHosts: ["${suffix}"] }`,
+	},
+};
+
+/** The grant a state is showing, if it has one. */
+function grantOf(state: State): Grant | null {
+	switch (state.status) {
+		case "available":
+		case "blocked":
+		case "host-refused":
+			return state.grant;
+		default:
+			return null;
+	}
+}
+
+/**
+ * The preview suffix as an allow-list entry: the refused host without its
+ * workspace label, so one line covers every port and every project.
+ */
+function suffixOf(refusedHost: string): string {
+	const dot = refusedHost.indexOf(".");
+	return dot === -1 ? refusedHost : refusedHost.slice(dot);
+}
+
+/** The one line that lets this server accept every preview host. */
+function allowedHostsLine(server: RefusedServer, refusedHost: string): string {
+	return ALLOWED_HOSTS_SETTING[server].line(suffixOf(refusedHost));
+}
 
 export interface PreviewLeafProps {
 	workspaceId: string;
@@ -76,6 +134,29 @@ export function PreviewLeaf({
 	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
 	const frame = useRef<HTMLIFrameElement | null>(null);
 	const statusRef = useRef<State["status"]>("connecting");
+	const history = useRef<PreviewHistory | null>(null);
+	/** Shown on Back once a press found nothing to go back to (issue #283). */
+	const [backHint, setBackHint] = useState<string | undefined>(undefined);
+
+	// The anchor entry that keeps Back away from the Portikus document goes in
+	// as soon as the tab exists (BROWSER-HANDLING.md §12). The guard itself
+	// belongs to the document, not to this tab, so closing the tab lets go of
+	// nothing but the reference.
+	useEffect(() => {
+		history.current = attachPreviewHistory(`${workspaceId}:${port}`, window);
+		return () => {
+			history.current = null;
+		};
+	}, [workspaceId, port]);
+
+	function goBack() {
+		setBackHint(history.current?.back() ? undefined : "Nothing to go back to");
+	}
+
+	function goForward() {
+		setBackHint(undefined);
+		history.current?.forward();
+	}
 
 	/** Whether the API says something is listening on this port. */
 	const isListening = listening.services.some((service) => service.port === port);
@@ -99,13 +180,28 @@ export function PreviewLeaf({
 			// An application that did not answer may simply be starting up, so
 			// only a real refusal short-circuits the timeout.
 			if (verdict.embeddable || verdict.reason === "unreachable") return;
+			// A development server that refuses the preview host is a
+			// different problem, with a setting the student can fix.
+			const refused =
+				verdict.reason === "host-refused" &&
+				verdict.refusedHost &&
+				verdict.refusedServer
+					? { host: verdict.refusedHost, server: verdict.refusedServer }
+					: null;
 			// The grant this probe was made for must still be the one on
 			// screen; a later connect replaced it otherwise.
-			setState((current) =>
-				current.status === "available" && current.grant === grant
-					? { status: "blocked", grant, probed: true }
-					: current,
-			);
+			setState((current) => {
+				if (current.status !== "available" || current.grant !== grant) return current;
+				if (refused) {
+					return {
+						status: "host-refused",
+						grant,
+						refusedHost: refused.host,
+						server: refused.server,
+					};
+				}
+				return { status: "blocked", grant, probed: true };
+			});
 		} catch (error) {
 			// A refused port is about the port, not about the student, so it
 			// keeps the API's sentence instead of the sign-in wording.
@@ -141,7 +237,9 @@ export function PreviewLeaf({
 	useEffect(() => {
 		if (!listening.loaded) return;
 		const showing =
-			statusRef.current === "available" || statusRef.current === "blocked";
+			statusRef.current === "available" ||
+			statusRef.current === "blocked" ||
+			statusRef.current === "host-refused";
 		if (isListening) {
 			// An open preview is already pointed at this port; re-granting here
 			// would reload the application for nothing.
@@ -174,6 +272,7 @@ export function PreviewLeaf({
 	}, [state, loadedUrl]);
 
 	function onFrameLoad() {
+		setBackHint(undefined);
 		if (state.status !== "available" && state.status !== "blocked") return;
 		setLoadedUrl(state.grant.bootstrapUrl);
 		// A slow application that finally loaded was not refusing to be
@@ -200,27 +299,29 @@ export function PreviewLeaf({
 	 * `opener` on the handle cuts the back-reference instead.
 	 */
 	async function openInNewTab() {
-		const opened = window.open("about:blank", "_blank");
-		if (opened) opened.opener = null;
+		if (await openPreviewInNewTab(workspaceId, port)) return;
+		toast.show({
+			tone: "danger",
+			title: "That preview could not be opened",
+			children: "Check that your application is still running, then try again.",
+		});
+	}
+
+	/** Copy the allow-list line, so the student can paste it into the config. */
+	async function copyAllowedHosts() {
+		if (state.status !== "host-refused") return;
 		try {
-			const grant = await requestGrant(workspaceId, port, "top-level");
-			if (opened) opened.location.replace(grant.bootstrapUrl);
-			else window.open(grant.bootstrapUrl, "_blank", "noopener,noreferrer");
+			await navigator.clipboard.writeText(
+				allowedHostsLine(state.server, state.refusedHost),
+			);
+			toast.show({ tone: "neutral", title: "Setting copied" });
 		} catch {
-			opened?.close();
-			toast.show({
-				tone: "danger",
-				title: "That preview could not be opened",
-				children: "Check that your application is still running, then try again.",
-			});
+			toast.show({ tone: "danger", title: "That setting could not be copied" });
 		}
 	}
 
 	async function copyUrl() {
-		const origin =
-			state.status === "available" || state.status === "blocked"
-				? state.grant.previewOrigin
-				: null;
+		const origin = grantOf(state)?.previewOrigin ?? null;
 		if (!origin) return;
 		try {
 			await navigator.clipboard.writeText(origin);
@@ -240,10 +341,7 @@ export function PreviewLeaf({
 	 * holds, then take a fresh grant and re-bootstrap the frame.
 	 */
 	async function resetData() {
-		const origin =
-			state.status === "available" || state.status === "blocked"
-				? state.grant.previewOrigin
-				: null;
+		const origin = grantOf(state)?.previewOrigin ?? null;
 		try {
 			await resetPreviewData(workspaceId);
 			if (origin) await clearPreviewOriginData(origin);
@@ -255,10 +353,8 @@ export function PreviewLeaf({
 		void connect();
 	}
 
-	const host =
-		state.status === "available" || state.status === "blocked"
-			? new URL(state.grant.previewOrigin).host
-			: `port ${port}`;
+	const showingGrant = grantOf(state);
+	const host = showingGrant ? new URL(showingGrant.previewOrigin).host : `port ${port}`;
 
 	return (
 		<div
@@ -271,6 +367,26 @@ export function PreviewLeaf({
 				<span className="pk-preview-host" data-testid="preview-host" title={host}>
 					{host}
 				</span>
+				{/* Always enabled: the frame is cross-origin, so whether it has
+				    somewhere to go back to cannot be read (issue #271). A press
+				    with nothing behind it does nothing and says so. */}
+				<button
+					type="button"
+					className="pk-preview-action"
+					data-testid="preview-back"
+					title={backHint}
+					onClick={goBack}
+				>
+					Back
+				</button>
+				<button
+					type="button"
+					className="pk-preview-action"
+					data-testid="preview-forward"
+					onClick={goForward}
+				>
+					Forward
+				</button>
 				<IconButton
 					icon="restart"
 					label="Reload preview"
@@ -327,84 +443,137 @@ export function PreviewLeaf({
 			</div>
 
 			<div className="pk-preview-body">
+				{/* Every state but the frame itself is one compact stack, centred
+				    in the pane rather than spread down it (issue #275). */}
 				{state.status === "connecting" ? (
-					<p className="pk-preview-note" data-testid="preview-connecting">
-						Connecting to port {port}…
-					</p>
+					<div className="pk-preview-state">
+						<p className="pk-preview-note" data-testid="preview-connecting">
+							Connecting to port {port}…
+						</p>
+					</div>
 				) : null}
 
 				{state.status === "inactive" ? (
-					<EmptyState
-						icon="preview"
-						title={`Nothing is running on port ${port}`}
-						actions={
-							<button
-								type="button"
-								className="pk-preview-action"
-								data-testid="preview-retry"
-								onClick={() => void connect()}
-							>
-								Retry
-							</button>
-						}
-					>
-						<span data-testid="preview-inactive">
-							Nothing is currently listening on port {port}. Start your application to
-							reconnect this preview.
-						</span>
-					</EmptyState>
+					<div className="pk-preview-state">
+						<EmptyState
+							icon="preview"
+							title={`Nothing is running on port ${port}`}
+							actions={
+								<button
+									type="button"
+									className="pk-preview-action"
+									data-testid="preview-retry"
+									onClick={() => void connect()}
+								>
+									Retry
+								</button>
+							}
+						>
+							<span data-testid="preview-inactive">
+								Nothing is currently listening on port {port}. Start your application to
+								reconnect this preview.
+							</span>
+						</EmptyState>
+					</div>
 				) : null}
 
 				{state.status === "unauthorized" ? (
-					<EmptyState icon="lock" title="You cannot preview this workspace">
-						<span data-testid="preview-unauthorized">
-							Ask your instructor if you think you should have access.
-						</span>
-					</EmptyState>
+					<div className="pk-preview-state">
+						<EmptyState icon="lock" title="You cannot preview this workspace">
+							<span data-testid="preview-unauthorized">
+								Ask your instructor if you think you should have access.
+							</span>
+						</EmptyState>
+					</div>
 				) : null}
 
 				{state.status === "error" ? (
-					<EmptyState
-						icon="alert"
-						title="That preview did not open"
-						actions={
-							<button
-								type="button"
-								className="pk-preview-action"
-								data-testid="preview-retry"
-								onClick={() => void connect()}
-							>
-								Try again
-							</button>
-						}
-					>
-						<span data-testid="preview-error">{state.message}</span>
-					</EmptyState>
+					<div className="pk-preview-state">
+						<EmptyState
+							icon="alert"
+							title="That preview did not open"
+							actions={
+								<button
+									type="button"
+									className="pk-preview-action"
+									data-testid="preview-retry"
+									onClick={() => void connect()}
+								>
+									Try again
+								</button>
+							}
+						>
+							<span data-testid="preview-error">{state.message}</span>
+						</EmptyState>
+					</div>
+				) : null}
+
+				{/* The development server answered, but it refuses the preview
+				    host. The student can allow it in one line (issue #262). */}
+				{state.status === "host-refused" ? (
+					<div className="pk-preview-state">
+						<EmptyState
+							icon="alert"
+							title="Your dev server is refusing the preview host"
+							actions={
+								<>
+									<button
+										type="button"
+										className="pk-preview-action"
+										data-testid="preview-refused-copy"
+										onClick={() => void copyAllowedHosts()}
+									>
+										Copy
+									</button>
+									<button
+										type="button"
+										className="pk-preview-action"
+										data-testid="preview-retry"
+										onClick={() => void connect()}
+									>
+										Retry
+									</button>
+								</>
+							}
+						>
+							<span data-testid="preview-refused">
+								{ALLOWED_HOSTS_SETTING[state.server].name} turned away{" "}
+								{state.refusedHost} because that host is not in its allow-list. Add this
+								line to {ALLOWED_HOSTS_SETTING[state.server].file}, restart the server,
+								then retry.
+							</span>
+							<code className="pk-preview-config" data-testid="preview-refused-line">
+								{allowedHostsLine(state.server, state.refusedHost)}
+							</code>
+						</EmptyState>
+					</div>
 				) : null}
 
 				{/* An overlay, not a replacement: the frame underneath keeps the
 				    load it started, so a slow application can still arrive. */}
 				{state.status === "blocked" ? (
 					<div className="pk-preview-overlay">
-						<EmptyState
-							icon="alert"
-							title="This application cannot be embedded"
-							actions={
-								<button
-									type="button"
-									className="pk-preview-action"
-									data-testid="preview-blocked-new-tab"
-									onClick={() => void openInNewTab()}
-								>
-									Open in new tab
-								</button>
-							}
-						>
-							<span data-testid="preview-blocked">
-								Your application asks browsers not to show it inside another page. Open
-								it in a new tab instead.
-							</span>
-						</EmptyState>
+						<div className="pk-preview-state">
+							<EmptyState
+								icon="alert"
+								title="This application cannot be embedded"
+								actions={
+									<button
+										type="button"
+										className="pk-preview-action"
+										data-testid="preview-blocked-new-tab"
+										onClick={() => void openInNewTab()}
+									>
+										Open in new tab
+									</button>
+								}
+							>
+								<span data-testid="preview-blocked">
+									Your application asks browsers not to show it inside another page.
+									Open it in a new tab instead.
+								</span>
+							</EmptyState>
+						</div>
 					</div>
 				) : null}
 

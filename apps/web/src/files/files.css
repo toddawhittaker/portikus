@@ -22,8 +22,10 @@
 .pk-tree-row:hover {
 	background: var(--surface-hover);
 }
+/* Selection is the neutral row tone shared by every right-pane list, and the
+   whole row carries it, actions included (issue #274). */
 .pk-tree-item[aria-selected="true"] > .pk-tree-row {
-	background: var(--surface-selected);
+	background: var(--surface-row-selected);
 }
 .pk-tree-item:focus-visible > .pk-tree-row {
 	outline: var(--ring-width) solid var(--focus);
@@ -221,6 +223,14 @@
 }
 .pk-changes-row:hover {
 	background: var(--surface-hover);
+}
+/* The same neutral selection as the tree and the Checks pane (issue #274). */
+.pk-changes-row.is-current {
+	background: var(--surface-row-selected);
+}
+.pk-changes-row:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
 }
 .pk-changes-path {
 	flex: 1;

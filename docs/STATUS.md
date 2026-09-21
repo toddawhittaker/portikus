@@ -930,3 +930,216 @@ anywhere in the workspace (issue #241, SPEC.md section 11.5).
 Known gaps. The design mirror under `design/system/components/bundle.css`
 still shows the old label-sized tab rule; it is generated from the Claude
 Design artifact and was left for a design pull rather than hand-edited.
+
+## Epic 8.1 — pilot fix batch after the Epic 8 drive
+
+Seventeen issues raised while driving the pilot on 2026-09-21, gathered on
+the `epic/8-1-pilot-fixes` branch. They are small, separate fixes rather
+than a new subsystem, so this section is grouped by the surface each one
+touches.
+
+**The Preview tab.** A development server that refuses the preview host
+is now explained rather than shown as its own error page. The framing
+probe asks the application as the preview host, using `node:http` because
+`fetch` ignores a `host` header, and on a 403 it matches the first four
+kilobytes of the body against the refusal sentences Vite and
+webpack-dev-server use. The verdict becomes a `host-refused` reason
+carrying the refused host and the name of the server that refused it, and
+the tab shows a Portikus-owned state with the exact `allowedHosts` line
+for the real preview suffix, a Copy button and a Retry. Next.js is not in
+the table, because it has no equivalent 403 to match and nothing was
+invented for it (issue #262, PR #281). The toolbar gained Back and
+Forward. The frame is cross-origin, so its history cannot be read; the
+tab pushes one anchor entry of its own when it opens and then tracks
+where it is relative to that anchor, counting the steps it has taken.
+Back is allowed only while the frame has an entry ahead of that count,
+because the list of history entries does not get shorter when the browser
+steps back through it. The anchor keeps the router's own state and is
+pushed again whenever the Portikus route changes, so switching project
+with a Preview tab open does not make Back rewind the workspace. The
+anchor and the `popstate` listener belong to the document rather than to
+a tab: closing every Preview tab lets go of neither, so Back presses made
+with no preview open are still seen and the counts stay honest (issue
+#271, PRs #281, #292 and #295). The inactive, unauthorized, error and
+connecting states, and the blocked-from-embedding overlay, are now one
+compact stack centred in the pane, with the button at its natural size (issue #275, PR
+#281).
+
+**The Running pane.** The workspace agent now decides, for each listening
+port, whether it belongs to the student or to the system, and reports it
+as `system` on the listening contract. A listener is the system's when
+its owning process id is the agent's own, or when the socket's uid is
+below 1000, which covers systemd-resolved, sshd and dnsmasq; a port
+published by an inner Docker container is the student's even though
+`docker-proxy` holds the socket as root. The pane hides system rows
+behind a "Show system services" checkbox, off by default and remembered
+in `localStorage`. Nothing about preview authorization or the port deny
+list changed (issue #265, PR #282). Each previewable row has Open
+preview, an Open in new tab icon and Stop. Open in new tab uses the
+single-tab pattern from issue #261, which now lives once in
+`apps/web/src/preview/grants.ts`. The "Preview" chip is gone; only the
+Docker chip remains, and a row that cannot be previewed says why
+("reserved port" or "system service") in place of the preview actions
+(issue #272, PR #282). Stop is
+`POST /workspaces/:id/listening/:port/stop`, which passes a stop request
+to the agent behind the owner gate. The agent sends SIGTERM, then SIGKILL
+after three seconds, and runs `docker stop` for a container row instead
+of signalling the process. It refuses a system listener with 403, an
+unlisted port with 404, and a process that survives SIGKILL with 409. The
+route comes out of the same per-user, per-minute preview budget, and a
+second stop for a workspace while one is still running gets a 409 with
+the code `STOP_IN_PROGRESS`. The browser confirms first, naming the
+command and the port; the row disappears on the next scan, and a Preview
+tab on that port shows its inactive state on its own (issue #273, PRs
+#282 and #292).
+
+**Right-pane selection and the Checks pane.** Every list in the right
+pane — the files tree, Checks, Changes and Running — now marks its
+selected row with one token, `--surface-row-selected`: a small tonal
+shift of the pane, darker in light mode and lighter in dark mode, and a
+warm neutral rather than green, which stays reserved for the passed badge
+and for Git added. The background sits on the row container, so the
+action column is inside the highlight, and keyboard focus keeps its own
+ring. The Changes list has a selection at all for the first time: the row
+whose file is the tab on show. In the Checks pane, Run and Stop are icon
+buttons with a play triangle and a square, and a long command truncates
+on one line with the full text in a tooltip instead of pushing the button
+out of the pane. The token is mirrored into `design/system/tokens.json`,
+`design/system/README.md` and `design/mockups/portikus-tokens.css`
+(issue #274, PRs #280 and #292).
+
+**Terminals.** Clicking "New terminal here" in a pane whose session ended
+now makes the replacement terminal the focused one, so the student's
+first keystrokes land in the new shell (issue #264, PR #285). Every one
+of the sixteen ANSI colours in the light palette clears a 4.5:1 contrast
+ratio against the light background; bright green and bright yellow were
+darkened to get there, in both `packages/ui/src/theme.css` and the xterm
+palette in `TerminalPane.tsx`, and a unit test checks all sixteen.
+Programs that pick their own theme, Claude Code among them, are told
+which ground they are on two ways: the agent sets `COLORFGBG` in each new
+terminal's environment through `tmux new-session -e`, and xterm.js 6
+already answers the OSC 11 background query by itself, which a test now
+pins (issue #267, PR #285). The colour scheme belongs to one terminal,
+not to the browser or the whole workspace: each pane's three-dots menu
+offers the other scheme, and the choice is stored on the terminals row
+(migration `0010_terminal_theme`) and carried in the terminal contract,
+so it survives a reload and looks the same in every browser. The per-user
+setting from issue #239 is the scheme a new terminal starts in (issue
+#268, PR #285). The pane's own chrome, its title bar and scrollbar,
+follows that terminal's scheme too: each pane carries
+`data-terminal-theme`, the two terminal colour blocks in `theme.css`
+match any element rather than only `:root`, and the page theme no longer
+nudges `--terminal-bg` (issue #286, PR #290).
+
+**Projects and defaults.** When the listing follows a project row to a
+directory the student renamed with `mv`, the row's display name is now
+read from the new folder name: the words between hyphens and underscores,
+each capitalised, so `project-name` reads `Project Name`. Discovery names
+a newly found directory the same way, and a row whose directory did not
+move keeps its name (issue #269, PR #278). Editor word wrap now defaults
+to on. Per-user settings store only what the student changed and merge
+over the defaults, so a student who never touched it gets wrapping at
+once and one who turned it off keeps it off (issue #270, PR #278).
+
+**Timezone and Settings.** Containers ran in UTC, so a student's shell,
+logs and Git commits disagreed with the clock on the wall. A workspace
+now runs in America/New_York unless the student picks another zone in
+their settings. The zone is checked against the zone names this Node
+build knows, in the contract, in the API, and again in the controller
+before it reaches a command. At every start the controller writes
+`/etc/timezone`, links `/etc/localtime`, and exports `TZ` from the same
+`/etc/profile.d/portikus.sh` the preview suffix uses, and the worker
+reads the owner's setting into the start request. A new terminal carries
+the zone to `tmux new-session -e`, so a change applies without a restart;
+a shell already running keeps the zone it started with, and programs in
+inner Docker containers keep their own. A smoke-test check reads the zone
+in a fresh terminal on the VM (issue #287, PR #289). The account menu
+entry and its dialog are now called "Settings" rather than "Editor
+settings", and the fields sit under three headings in one scrolling
+column: Editor (auto-save, its delay, word wrap), Terminal (the scheme a
+new terminal starts in) and Workspace (the timezone). There are no tabs
+at this size; the section list is where later settings go, and
+administration settings stay on the admin screen. Every test id is
+unchanged (issue #288, PR #289).
+
+**The workspace environment.** The workspace controller writes
+`/etc/profile.d/portikus.sh` into the container on every start, owned by
+root with mode 0644, exporting `PORTIKUS_PREVIEW=true` and
+`PORTIKUS_PREVIEW_HOST_SUFFIX=<suffix>`. tmux starts each pane's shell as
+a login shell, so every terminal reads the file and no agent change was
+needed, and the values hold no credential. The suffix reaches the
+controller as a required field on the start request, filled by the worker
+from its own `PREVIEW_SUFFIX` setting, which Ansible now writes into
+`worker.env` next to the API's copy. Both the contract and the provider
+check the value is a lowercase DNS name, so nothing shell-special can
+land in the profile (issue #263, PR #279).
+
+**Publishing the pilot VM from its host.** `infra/host/publish-vm.sh`
+installs a third nat chain, `PORTIKUS_PUBLISH_LOCAL`, on the output hook,
+so connections the host itself makes to its own LAN address on port 8443
+reach the VM. The existing prerouting rule only matches traffic arriving
+on the LAN interface, so every preview hostname needed its own
+`/etc/hosts` line, one per port; now none are needed. The script also
+prints the `certutil` commands that import the VM Caddy's internal root
+into a browser trust store, because an embedded preview is an iframe and
+cannot show a certificate warning. It reads the host's LAN address from
+the `src` field of the default route and falls back to the first global
+IPv4 address on that route's interface, which some VPN and bonded setups
+need. `docs/WORKFLOW.md` gained a section, "Using the pilot from the host
+that runs it" (issue #276, PRs #277 and #291).
+
+Pilot verification: (to be filled)
+
+**Decisions.**
+
+- A terminal's colour scheme belongs to that one terminal and is stored
+  with it, while the per-user setting is only the scheme a new terminal
+  starts in. A shell already running keeps the `COLORFGBG` and the `TZ`
+  it was started with, and the settings dialog and the pane menu say so.
+- The Preview tab's Back is allowed only while the frame has an entry
+  ahead of where the tab knows it is: an anchor entry pushed when the tab
+  opens, plus a count of the steps taken back from it. Counting entries
+  alone was tried first and is not enough, because stepping back does not
+  shorten the list. Testing `history.state` for a sentinel was tried too
+  and does not work either:
+  Chromium leaves the top document's state untouched when a subframe
+  navigates, so the state still reads as the anchor after the frame has
+  moved on and every Back would be refused.
+- The server is the one list of timezones. The zone is validated against
+  the names this Node build knows, in the contract, the API and the
+  controller, rather than against a list kept in the browser.
+- Stop acts only on a listener the student owns. A system listener is
+  refused with 403, and the pane offers no other signal, no restart and
+  no resource controls.
+- A listener is the system's when its owning process id is the agent's
+  own or the socket's uid is below 1000, with one exception: a port
+  published by an inner Docker container is the student's, even though
+  `docker-proxy` holds the socket as root.
+
+**Known gaps and residuals.**
+
+- Discovery and the kill are separate steps, so a process id learned in
+  one scan could in principle be recycled before the signal is sent.
+  Accepted: the signal is sent by the agent, which runs as the student
+  inside that student's own container and process namespace, so the worst
+  case is that the student signals another of their own processes.
+- A child a stopped process forked can outlive its parent and keep the
+  port. The agent signals the process it saw holding the socket, and then
+  rescans: when something is still listening on that port after the parent
+  has gone, the answer is 409 rather than a success the student would find
+  untrue.
+- The timezone is applied by linking `/etc/localtime` to a zone file in
+  the image. A zone the image's tzdata does not carry fails the start
+  rather than falling back.
+- The refused-host detection knows only Vite's exact refusal sentence and
+  webpack-dev-server's. Another server that refuses an unknown host in
+  its own words is reported as an ordinary error, and the student sees no
+  `allowedHosts` line to paste.
+- The Claude Design artifacts outside the repository do not yet carry the
+  `--surface-row-selected` token. The mirrors under `design/` do; the
+  artifacts need the same edit the next time they are pulled.
+- The `certutil` hint `publish-vm.sh` prints trusts the pilot's Caddy
+  root for every site in that browser profile, and that root's private
+  key lives on the VM that runs student workspaces. The hint and
+  `infra/README.md` say to use a throwaway browser profile for the pilot
+  rather than an everyday one.

@@ -44,12 +44,55 @@ let homeDir: string;
 beforeAll(async () => {
 	if (!haveTmux) return;
 	homeDir = await mkdtemp(join(tmpdir(), "portikus-options-"));
-	await createSession(ID, homeDir, homeDir, SOCKET_NAME);
+	await createSession(ID, homeDir, homeDir, "dark", "Europe/Berlin", SOCKET_NAME);
 });
 
 afterAll(async () => {
 	if (!haveTmux) return;
 	await run("tmux", ["-L", SOCKET_NAME, "kill-server"]).catch(() => undefined);
+});
+
+/** One variable in a session's environment, as tmux reports it. */
+async function sessionEnvironment(session: string, name: string): Promise<string> {
+	const { stdout } = await run("tmux", [
+		"-L",
+		SOCKET_NAME,
+		"show-environment",
+		"-t",
+		session,
+		name,
+	]);
+	return stdout.trim();
+}
+
+/**
+ * Issue #267: a program that picks its own theme by auto-detection, Claude
+ * Code among them, reads COLORFGBG. A dark terminal is light text on dark,
+ * a light one the other way round.
+ */
+test.skipIf(!haveTmux)("a dark terminal says so through COLORFGBG", async () => {
+	expect(await sessionEnvironment(`pk-${ID}`, "COLORFGBG")).toBe("COLORFGBG=15;0");
+});
+
+test.skipIf(!haveTmux)("a light terminal says so through COLORFGBG", async () => {
+	const lightId = "00000000-0000-4000-8000-000000009002";
+	await createSession(
+		lightId,
+		homeDir,
+		homeDir,
+		"light",
+		"America/New_York",
+		SOCKET_NAME,
+	);
+	expect(await sessionEnvironment(`pk-${lightId}`, "COLORFGBG")).toBe("COLORFGBG=0;15");
+});
+
+/**
+ * Issue #287: a terminal opened after the student changed the setting runs in
+ * the new zone at once, without waiting for a workspace restart.
+ */
+test.skipIf(!haveTmux)("the terminal carries the owner's zone as TZ", async () => {
+	expect(await sessionEnvironment(`pk-${ID}`, "TZ")).toBe("TZ=Europe/Berlin");
 });
 
 test.skipIf(!haveTmux)(

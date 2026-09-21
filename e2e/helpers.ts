@@ -458,6 +458,9 @@ export async function seedListening(
 		addresses?: string[];
 		protocolHint?: "http" | "https" | "unknown";
 		previewReachability?: "reachable" | "forwarded" | "unknown";
+		system?: boolean;
+		process?: { pid?: number; command?: string };
+		container?: { id?: string; name?: string };
 	}[],
 ): Promise<void> {
 	const response = await fetch(`${FAKE_AGENT_URL}/__test/listening`, {

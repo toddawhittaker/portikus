@@ -375,7 +375,7 @@ The center pane must provide a Preview tab with:
 
 - current preview URL or workspace/port label;
 - reload;
-- back/forward where the iframe history model permits it;
+- back/forward where the iframe history model permits it. The frame is cross-origin, so its own history cannot be read; the tab pushes one anchor entry of its own when it opens and steps the browser tab's joint history only while that history has grown past the anchor, which is what a frame navigation does, so Back can never walk off the front of the preview and unload the Portikus page;
 - open in separate tab;
 - copy preview URL, with a warning that the URL still requires authorization;
 - viewport size controls useful for responsive testing;
@@ -401,7 +401,7 @@ If the student application sends `X-Frame-Options` or a CSP `frame-ancestors` di
 
 The Portikus page cannot detect that refusal for itself: Chromium fires the frame's `load` event even for a navigation it refused, and a parent may not read a cross-origin frame's response headers. So the control plane asks on the student's behalf. `GET /workspaces/{id}/preview/embeddable?port=N` sends one `HEAD /` to the application (falling back to `GET /` with the body discarded if HEAD is refused, with a three-second timeout) and answers `{ embeddable, reason? }`, where `reason` is `x-frame-options`, `frame-ancestors` or `unreachable`. `DENY` and `SAMEORIGIN` both count as refusals, because the preview host is never the Portikus origin, and a `frame-ancestors` list counts as a refusal unless it names the Portikus origin or `*`. A refusal puts the tab straight into the blocked state with **Open in new tab**; an unreachable application keeps the eight-second load timeout, which remains the fallback.
 
-This is the one place where the control plane speaks HTTP to a student application. The address probed comes from the workspace row and the listening registry, exactly as `/preview/authorize` takes it, never from anything the request carries, so the caller chooses a workspace and a port and never a host: server-side request forgery is not possible here. Only the two framing headers are read, and no part of the application's body is read or returned.
+This is the one place where the control plane speaks HTTP to a student application. The address probed comes from the workspace row and the listening registry, exactly as `/preview/authorize` takes it, never from anything the request carries, so the caller chooses a workspace and a port and never a host: server-side request forgery is not possible here. Only the two framing headers are read, with one exception: when the application answers 403, the probe reads up to four kilobytes of the body and stops, matching it against the fixed sentences Vite and webpack-dev-server print for a host they do not allow. This is how a refused preview host is told apart from an ordinary error, and it adds a third reason, `host-refused`. Nothing of the body itself leaves the probe: the answer carries only which server matched and the host that was refused, and no application content is returned, stored or logged.
 
 Reserved edge paths beginning with `/__portikus/` must be handled before proxying and must never reach the student application. They include at least bootstrap, health/error rendering, cross-port routing, and reset-preview-data functions. That precedence holds at the edge, but a service worker the application registered at the root of the preview origin can answer a navigation the frame makes before the request leaves the browser. Reset preview data is therefore driven from the Portikus page, which no such worker controls, rather than by navigating the frame.
 
@@ -459,6 +459,11 @@ PORTIKUS_PORT_BRIDGE_PREFIX=/__portikus/ports
 ```
 
 Do not inject long-lived credentials into these values.
+
+Two of these are provided today: the workspace controller writes
+`/etc/profile.d/portikus.sh` into the container on every start, so every
+login shell exports `PORTIKUS_PREVIEW=true` and
+`PORTIKUS_PREVIEW_HOST_SUFFIX=<suffix>` (issue #263).
 
 ## 15. Terminal URL detection
 

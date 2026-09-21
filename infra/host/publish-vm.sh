@@ -6,6 +6,9 @@
 set -euo pipefail
 
 CHAIN=PORTIKUS_PUBLISH
+# Traffic the host itself generates never passes the prerouting hook, so the
+# local forward needs its own chain on the output hook.
+LOCAL_CHAIN=PORTIKUS_PUBLISH_LOCAL
 # The gateway port, on the host and inside the VM alike: Caddy serves it
 # there, so the URLs the API builds work from inside the VM too.
 PORT=8443
@@ -14,6 +17,7 @@ UNIT_PATH="/etc/systemd/system/${UNIT}"
 STATE_DIR=/etc/portikus-host
 STATE_FILE="${STATE_DIR}/vm-ip"
 INSTALLED=/usr/local/sbin/portikus-publish-vm
+CADDY_ROOT=/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
 
 info() { printf '\033[1;34m[info]\033[0m  %s\n' "$1"; }
 ok()   { printf '\033[1;32m[ok]\033[0m    %s\n' "$1"; }
@@ -25,29 +29,36 @@ lan_field() {
     | awk -v key="$1" '{for (i = 1; i < NF; i++) if ($i == key) { print $(i + 1); exit }}'
 }
 
+# First global address on an interface, for routes that carry no src.
+lan_addr() {
+  ip -4 -o addr show dev "$1" scope global 2>/dev/null \
+    | awk 'NR == 1 {split($4, a, "/"); print a[1]}'
+}
+
 # Remove every copy of the jump, then add one, so reruns cannot stack rules.
 reset_jump() {
-  local table=$1 parent=$2
-  while sudo iptables -t "$table" -D "$parent" -j "$CHAIN" 2>/dev/null; do :; done
-  sudo iptables -t "$table" -I "$parent" 1 -j "$CHAIN"
+  local table=$1 parent=$2 chain=$3
+  while sudo iptables -t "$table" -D "$parent" -j "$chain" 2>/dev/null; do :; done
+  sudo iptables -t "$table" -I "$parent" 1 -j "$chain"
 }
 
 reset_chain() {
-  local table=$1
-  sudo iptables -t "$table" -N "$CHAIN" 2>/dev/null || true
-  sudo iptables -t "$table" -F "$CHAIN"
+  local table=$1 chain=$2
+  sudo iptables -t "$table" -N "$chain" 2>/dev/null || true
+  sudo iptables -t "$table" -F "$chain"
 }
 
 drop_chain() {
-  local table=$1 parent=$2
-  while sudo iptables -t "$table" -D "$parent" -j "$CHAIN" 2>/dev/null; do :; done
-  sudo iptables -t "$table" -F "$CHAIN" 2>/dev/null || true
-  sudo iptables -t "$table" -X "$CHAIN" 2>/dev/null || true
+  local table=$1 parent=$2 chain=$3
+  while sudo iptables -t "$table" -D "$parent" -j "$chain" 2>/dev/null; do :; done
+  sudo iptables -t "$table" -F "$chain" 2>/dev/null || true
+  sudo iptables -t "$table" -X "$chain" 2>/dev/null || true
 }
 
 remove_all() {
-  drop_chain nat PREROUTING
-  drop_chain filter FORWARD
+  drop_chain nat PREROUTING "$CHAIN"
+  drop_chain nat OUTPUT "$LOCAL_CHAIN"
+  drop_chain filter FORWARD "$CHAIN"
   if [ -f "$UNIT_PATH" ]; then
     sudo systemctl disable --now "$UNIT" >/dev/null 2>&1 || true
     sudo rm -f "$UNIT_PATH"
@@ -83,6 +94,19 @@ EOF
   ok "installed ${UNIT} so the rules come back after a reboot"
 }
 
+# An embedded preview cannot show a certificate warning, so the browser has to
+# trust Caddy's internal root before any Preview tab works.
+cert_hint() {
+  local vm_ip=$1
+  info "trust the VM's certificate authority in the browser (repeat after a VM rebuild):"
+  cat <<EOF
+    ssh deploy@${vm_ip} sudo cat ${CADDY_ROOT} > /tmp/portikus-caddy-root.crt
+    certutil -d sql:\$HOME/.pki/nssdb -D -n portikus-caddy-root 2>/dev/null
+    certutil -d sql:\$HOME/.pki/nssdb -A -t C,, -n portikus-caddy-root -i /tmp/portikus-caddy-root.crt
+EOF
+  info "that trusts the pilot's authority for every site in that browser profile, and its private key lives on the VM that runs student workspaces, so use a throwaway browser profile for the pilot rather than your everyday one"
+}
+
 main() {
   local source
   source=$(readlink -f "$0")
@@ -96,26 +120,39 @@ main() {
   [ -n "$vm_ip" ] || fail "usage: $(basename "$0") <vm-ip> | --remove"
   [[ $vm_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "not an IPv4 address: ${vm_ip}"
 
-  local lan_if
+  local lan_if lan_ip
   lan_if=$(lan_field dev)
   [ -n "$lan_if" ] || fail "could not work out the LAN interface from the default route"
+  lan_ip=$(lan_field src)
+  # Some VPN and bonded setups leave no src on the default route.
+  [ -n "$lan_ip" ] || lan_ip=$(lan_addr "$lan_if")
+  [ -n "$lan_ip" ] || fail "could not work out the LAN address from the default route or from ${lan_if}"
   info "publishing ${vm_ip} port ${PORT} on interface ${lan_if}"
 
-  reset_chain nat
+  reset_chain nat "$CHAIN"
   sudo iptables -t nat -A "$CHAIN" -i "$lan_if" -p tcp --dport "$PORT" \
     -j DNAT --to-destination "$vm_ip"
-  reset_jump nat PREROUTING
+  reset_jump nat PREROUTING "$CHAIN"
 
-  reset_chain filter
+  # The same forward for connections the host itself makes, so preview names
+  # that resolve through nip.io to the LAN address work here with no
+  # /etc/hosts lines.
+  reset_chain nat "$LOCAL_CHAIN"
+  sudo iptables -t nat -A "$LOCAL_CHAIN" -d "$lan_ip" -p tcp --dport "$PORT" \
+    -j DNAT --to-destination "$vm_ip"
+  reset_jump nat OUTPUT "$LOCAL_CHAIN"
+
+  reset_chain filter "$CHAIN"
   sudo iptables -t filter -A "$CHAIN" -i "$lan_if" -d "$vm_ip" -p tcp \
     --dport "$PORT" -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
   sudo iptables -t filter -A "$CHAIN" -o "$lan_if" -s "$vm_ip" \
     -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
   # Ahead of libvirt's FORWARD rules, which reject new traffic into the NAT bridge.
-  reset_jump filter FORWARD
+  reset_jump filter FORWARD "$CHAIN"
 
   install_unit "$vm_ip" "$source"
-  ok "the VM answers on port ${PORT} at $(lan_field src)"
+  ok "the VM answers on port ${PORT} at ${lan_ip}, from the LAN and from this host"
+  cert_hint "$vm_ip"
 }
 
 main "$@"

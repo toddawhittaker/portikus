@@ -52,6 +52,9 @@
 	--surface-sunken: #eeebe4;
 	--surface-hover: #e6e2d9;
 	--surface-selected: #d9e8e5;
+	/* The picked-out row in a right-pane list: a tonal shift of the pane, and
+	   never green, which belongs to the passed badge and Git added. */
+	--surface-row-selected: #e0dbd0;
 	--surface-inverse: #2a2723;
 	--surface-inverse-hover: #3d3933;
 	--line: #dcd7cc;
@@ -91,32 +94,6 @@
 	--git-modified: #855b00;
 	--git-deleted: #a4342a;
 	--git-conflict: #8a3ea0;
-
-	/* Terminal colours do not follow the page theme. A terminal is dark unless
-	   the student asks for a light one (issue #239, data-terminal-theme). */
-	--terminal-bg: #11100e;
-	--terminal-fg: #e4dfd4;
-	--terminal-muted: #9a9386;
-	--terminal-cursor: #e8c37a;
-	--terminal-selection: #3a4a48;
-	/* Hairline between terminal panes, on terminal-bg. Proposed in Epic 6. */
-	--terminal-line: #2a2824;
-	--ansi-black: #11100e;
-	--ansi-bright-black: #5f5a51;
-	--ansi-red: #e07a6e;
-	--ansi-bright-red: #f09a8f;
-	--ansi-green: #8fc28a;
-	--ansi-bright-green: #a9d6a4;
-	--ansi-yellow: #e0bb6c;
-	--ansi-bright-yellow: #ecd08e;
-	--ansi-blue: #86a7d9;
-	--ansi-bright-blue: #a6c0e6;
-	--ansi-magenta: #c49ad0;
-	--ansi-bright-magenta: #d6b5df;
-	--ansi-cyan: #79c1b8;
-	--ansi-bright-cyan: #9ad3cb;
-	--ansi-white: #cfc9bd;
-	--ansi-bright-white: #f2eee6;
 
 	/* Spacing: 4px scale, names match Tailwind's numeric steps. */
 	--space-0: 0px;
@@ -191,6 +168,7 @@
 	--surface-sunken: #121110;
 	--surface-hover: #2b2925;
 	--surface-selected: #1c3533;
+	--surface-row-selected: #3a3730;
 	--surface-inverse: #ece8df;
 	--surface-inverse-hover: #d3cec3;
 	--line: #35322d;
@@ -228,7 +206,6 @@
 	--git-modified: #e3b85c;
 	--git-deleted: #f0998f;
 	--git-conflict: #d39fe8;
-	--terminal-bg: #0c0b0a;
 	--shadow-sm: 0 1px 2px #00000066;
 	--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #35322d;
 	--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #35322d;
@@ -242,6 +219,7 @@
 		--surface-sunken: #121110;
 		--surface-hover: #2b2925;
 		--surface-selected: #1c3533;
+		--surface-row-selected: #3a3730;
 		--surface-inverse: #ece8df;
 		--surface-inverse-hover: #d3cec3;
 		--line: #35322d;
@@ -279,7 +257,6 @@
 		--git-modified: #e3b85c;
 		--git-deleted: #f0998f;
 		--git-conflict: #d39fe8;
-		--terminal-bg: #0c0b0a;
 		--shadow-sm: 0 1px 2px #00000066;
 		--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #35322d;
 		--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #35322d;
@@ -287,12 +264,43 @@
 }
 
 /*
- * A light terminal (issue #239). Set data-terminal-theme="light" on <html>
- * and every terminal ground and its ANSI palette move to a light scheme. It
- * is deliberately independent of the page theme: a student in a bright room
- * may want a light terminal on a dark page, or the other way round.
+ * Terminal colours (issues #239, #286). Both schemes are written for any
+ * element, not just <html>, because each terminal pane carries its own
+ * data-terminal-theme: that way the pane's title bar and scrollbar take the
+ * colours of the terminal inside it rather than the per-user default on the
+ * document. The per-user setting still sets the attribute on <html>, which is
+ * what a new terminal starts from. Terminal colours are deliberately
+ * independent of the page theme: a student in a bright room may want a light
+ * terminal on a dark page, or the other way round.
  */
-:root[data-terminal-theme="light"] {
+:root,
+[data-terminal-theme="dark"] {
+	--terminal-bg: #11100e;
+	--terminal-fg: #e4dfd4;
+	--terminal-muted: #9a9386;
+	--terminal-cursor: #e8c37a;
+	--terminal-selection: #3a4a48;
+	/* Hairline between terminal panes, on terminal-bg. Proposed in Epic 6. */
+	--terminal-line: #2a2824;
+	--ansi-black: #11100e;
+	--ansi-bright-black: #5f5a51;
+	--ansi-red: #e07a6e;
+	--ansi-bright-red: #f09a8f;
+	--ansi-green: #8fc28a;
+	--ansi-bright-green: #a9d6a4;
+	--ansi-yellow: #e0bb6c;
+	--ansi-bright-yellow: #ecd08e;
+	--ansi-blue: #86a7d9;
+	--ansi-bright-blue: #a6c0e6;
+	--ansi-magenta: #c49ad0;
+	--ansi-bright-magenta: #d6b5df;
+	--ansi-cyan: #79c1b8;
+	--ansi-bright-cyan: #9ad3cb;
+	--ansi-white: #cfc9bd;
+	--ansi-bright-white: #f2eee6;
+}
+
+[data-terminal-theme="light"] {
 	--terminal-bg: #fdfcfa;
 	--terminal-fg: #23211d;
 	--terminal-muted: #5a554c;
@@ -372,6 +380,7 @@
 	--color-surface-sunken: var(--surface-sunken);
 	--color-surface-hover: var(--surface-hover);
 	--color-surface-selected: var(--surface-selected);
+	--color-surface-row-selected: var(--surface-row-selected);
 	--color-surface-inverse: var(--surface-inverse);
 	--color-surface-inverse-hover: var(--surface-inverse-hover);
 	--color-line: var(--line);

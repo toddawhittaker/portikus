@@ -32,6 +32,7 @@ const terminal: Terminal = {
 	projectId: "33333333-3333-4333-8333-333333333333",
 	createdAt: "2026-01-01T00:00:00.000Z",
 	endedAt: null,
+	theme: "dark",
 };
 
 function renderLeaf(
@@ -42,6 +43,7 @@ function renderLeaf(
 		onFocus: vi.fn(),
 		onSplit: vi.fn(),
 		onRename: vi.fn(),
+		onSetTheme: vi.fn(),
 		onClose: vi.fn(),
 		onExited: vi.fn(),
 		onReplace: vi.fn(),
@@ -59,6 +61,7 @@ function renderLeaf(
 			onFocus={props.onFocus}
 			onSplit={props.onSplit}
 			onRename={props.onRename}
+			onSetTheme={props.onSetTheme}
 			onClose={props.onClose}
 			onExited={props.onExited}
 			onReplace={props.onReplace}
@@ -131,4 +134,45 @@ test("the bar follows the directory the agent reports", () => {
 	expect(screen.getByText("zsh · ~/projects/todo-api")).toBeTruthy();
 	fireEvent.click(screen.getByTestId(`terminal-pane-${terminal.id}`));
 	expect(screen.getByText("zsh · ~/projects/todo-api/src")).toBeTruthy();
+});
+
+/** Issue #268: the pane menu is where one terminal changes its colours. */
+test("the actions menu offers the other colour scheme for this terminal", () => {
+	const props = renderLeaf();
+	fireEvent.pointerDown(screen.getByTestId(`terminal-actions-${terminal.id}`), {
+		button: 0,
+		ctrlKey: false,
+	});
+	const toggle = screen.getByTestId("terminal-theme-toggle");
+	// A dark terminal offers light, and the tooltip warns about running programs.
+	expect(toggle.textContent).toBe("Light terminal");
+	expect(toggle.getAttribute("title")).toContain("already running");
+	fireEvent.click(toggle);
+	expect(props.onSetTheme).toHaveBeenCalledWith(terminal.id, "light");
+});
+
+test("a light terminal offers dark", () => {
+	const props = renderLeaf({ theme: "light" });
+	fireEvent.pointerDown(screen.getByTestId(`terminal-actions-${terminal.id}`), {
+		button: 0,
+		ctrlKey: false,
+	});
+	const toggle = screen.getByTestId("terminal-theme-toggle");
+	expect(toggle.textContent).toBe("Dark terminal");
+	fireEvent.click(toggle);
+	expect(props.onSetTheme).toHaveBeenCalledWith(terminal.id, "dark");
+});
+
+/**
+ * Issue #286: the pane carries its own colour scheme, so the --terminal-*
+ * tokens that colour the title bar and the scrollbar come from this pane
+ * rather than from the per-user default on the document.
+ */
+test("the pane carries the terminal's own colour scheme", () => {
+	const paneId = `terminal-leaf-${terminal.id}`;
+	renderLeaf();
+	expect(screen.getByTestId(paneId).getAttribute("data-terminal-theme")).toBe("dark");
+	cleanup();
+	renderLeaf({ theme: "light" });
+	expect(screen.getByTestId(paneId).getAttribute("data-terminal-theme")).toBe("light");
 });

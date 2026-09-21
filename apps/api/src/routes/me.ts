@@ -2,6 +2,9 @@ import { requireUser } from "@portikus/auth";
 import {
 	EDITOR_SETTINGS_DEFAULTS,
 	EditorSettings,
+	isSystemTimezone,
+	type MeSettings,
+	systemTimezones,
 	UpdateEditorSettingsRequest,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
@@ -12,13 +15,30 @@ import { sendError } from "./project-scope.js";
 const StoredEditorSettings = EditorSettings.partial();
 
 /**
+ * The zone list this build knows, built once. It is the same list for every
+ * request, and working it out per request costs a few hundred strings.
+ */
+const TIMEZONES: string[] = [...systemTimezones()];
+
+/**
  * Fill in the defaults for anything the user has not set, and ignore anything
  * stored that is no longer a setting we know (issue #159).
+ *
+ * The zone is parsed on its own, because it is the one field that can stop
+ * being valid while it sits in the database: a name this build no longer
+ * knows reads back as the default (issue #287). Parsed with the rest, it
+ * would take every other setting down with it and the student's auto-save,
+ * word wrap and terminal colours would silently go back to the defaults.
  */
-function toEditorSettings(stored: unknown): EditorSettings {
+export function toEditorSettings(stored: unknown): EditorSettings {
 	// Not strict: unknown keys are stripped, the known ones are kept.
 	const parsed = StoredEditorSettings.safeParse(stored ?? {});
-	return { ...EDITOR_SETTINGS_DEFAULTS, ...(parsed.success ? parsed.data : {}) };
+	const { timezone, ...rest } = parsed.success ? parsed.data : {};
+	return {
+		...EDITOR_SETTINGS_DEFAULTS,
+		...rest,
+		...(isSystemTimezone(timezone) ? { timezone } : {}),
+	};
 }
 
 /**
@@ -34,7 +54,12 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 			.select("editor_settings")
 			.where("id", "=", user.id)
 			.executeTakeFirst();
-		const body: EditorSettings = toEditorSettings(row?.editor_settings);
+		// The zone list travels with the settings so the dialog can only offer
+		// names PUT will accept (issue #287).
+		const body: MeSettings = {
+			...toEditorSettings(row?.editor_settings),
+			timezones: TIMEZONES,
+		};
 		return body;
 	});
 
@@ -70,7 +95,11 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 			.returning("editor_settings")
 			.executeTakeFirstOrThrow();
 
-		const out: EditorSettings = toEditorSettings(updated.editor_settings);
+		// Same shape as GET, so the browser's cached copy keeps the zone list.
+		const out: MeSettings = {
+			...toEditorSettings(updated.editor_settings),
+			timezones: TIMEZONES,
+		};
 		return out;
 	});
 }

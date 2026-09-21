@@ -196,6 +196,159 @@ test("an ended terminal offers a new one in its place", async ({ page, context }
 	await expect(page.getByRole("tab", { name: "Terminal 1" })).toBeVisible();
 });
 
+/**
+ * Issue #264: the button the student clicked went away with the ended pane,
+ * so the keyboard has to land in the new terminal without another click.
+ */
+test("New terminal here leaves the keyboard in the new terminal", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	const [projectId] = await projectIds(student.workspaceId);
+	if (!projectId) throw new Error("the project row was not created");
+	await waitForSavedLeaf(projectId, terminalId);
+
+	await endTerminal(terminalId);
+	await page.reload();
+	await expect(page.getByTestId("new-terminal-here")).toBeVisible({ timeout: 15_000 });
+	await page.getByTestId("new-terminal-here").click();
+
+	const ids = await terminalIds(student.workspaceId);
+	const newId = ids.find((id) => id !== terminalId);
+	if (!newId) throw new Error("the replacement terminal row was not created");
+	await expectConnected(page, newId);
+
+	// No click into the pane: type straight away and the shell must see it.
+	const rows = rowsOf(page, newId);
+	await expect
+		.poll(
+			async () => {
+				const seen = (await rows.textContent()) ?? "";
+				if (seen.includes("straight-in")) return seen;
+				await page.keyboard.insertText("straight-in");
+				await page.keyboard.press("Enter");
+				await page.waitForTimeout(500);
+				return (await rows.textContent()) ?? "";
+			},
+			{ timeout: 20_000, intervals: [200, 500, 1000, 2000] },
+		)
+		.toContain("straight-in");
+});
+
+/**
+ * The background colour a terminal pane is actually painting. xterm.js puts
+ * the theme background on its scrollable element.
+ */
+async function paneBackground(page: Page, terminalId: string): Promise<string> {
+	return await page
+		.locator(`[data-testid=terminal-pane-${terminalId}] .xterm-scrollable-element`)
+		.evaluate((element) => getComputedStyle(element).backgroundColor);
+}
+
+/**
+ * Issue #268: the colour scheme belongs to one terminal, is chosen from that
+ * pane's menu, and survives a reload because it is stored on the row.
+ */
+test("one terminal can be light while another stays dark", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const firstId = await openWithTerminal(page, student.workspaceId);
+	await newTerminal(page);
+	await expect(page.getByRole("tab", { name: "Terminal 2" })).toBeVisible();
+	const ids = await terminalIds(student.workspaceId);
+	const secondId = ids.find((id) => id !== firstId);
+	if (!secondId) throw new Error("the second terminal row was not created");
+	await expectConnected(page, secondId);
+
+	// Both start dark, which is the default the per-user setting carries.
+	const dark = await paneBackground(page, secondId);
+
+	await page.getByTestId(`terminal-actions-${secondId}`).click();
+	await expect(page.getByTestId("terminal-theme-toggle")).toHaveText("Light terminal");
+	await page.getByTestId("terminal-theme-toggle").click();
+
+	await expect
+		.poll(async () => await paneBackground(page, secondId), { timeout: 10_000 })
+		.not.toBe(dark);
+	const light = await paneBackground(page, secondId);
+
+	// The choice is on the row, so a reload finds one of each.
+	await page.reload();
+	await expect(page.getByRole("tab", { name: "Terminal 1" })).toBeVisible({
+		timeout: 15_000,
+	});
+	await expectConnected(page, firstId);
+	await expectConnected(page, secondId);
+	await expect
+		.poll(async () => await paneBackground(page, secondId), { timeout: 10_000 })
+		.toBe(light);
+	expect(await paneBackground(page, firstId)).toBe(dark);
+
+	// The menu of the light one now offers dark.
+	await page.getByTestId(`terminal-actions-${secondId}`).click();
+	await expect(page.getByTestId("terminal-theme-toggle")).toHaveText("Dark terminal");
+});
+
+/** The colour the pane's chrome, including its title bar, is painted on. */
+async function paneChromeBackground(page: Page, terminalId: string): Promise<string> {
+	return await page
+		.locator(`[data-testid=terminal-leaf-${terminalId}]`)
+		.evaluate((element) => getComputedStyle(element).backgroundColor);
+}
+
+/**
+ * Issue #286: the chrome around a terminal takes its colours from that
+ * terminal, not from the per-user default. Two panes side by side, one light
+ * and one dark: the light one carries the light theme and paints its chrome
+ * in the light background.
+ */
+test("a light terminal beside a dark one has a light title bar", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const firstId = await openWithTerminal(page, student.workspaceId);
+
+	await page.getByTestId(`terminal-actions-${firstId}`).click();
+	await page.getByTestId("split-right").click();
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId)).length, {
+			timeout: 15_000,
+		})
+		.toBe(2);
+	const secondId = (await terminalIds(student.workspaceId)).find(
+		(id) => id !== firstId,
+	);
+	if (!secondId) throw new Error("the split did not create a second terminal");
+	await expectConnected(page, secondId);
+
+	// Both start dark, from the per-user default.
+	const darkChrome = await paneChromeBackground(page, firstId);
+	await expect(page.getByTestId(`terminal-leaf-${secondId}`)).toHaveAttribute(
+		"data-terminal-theme",
+		"dark",
+	);
+
+	await page.getByTestId(`terminal-actions-${secondId}`).click();
+	await page.getByTestId("terminal-theme-toggle").click();
+
+	// The pane carries the light theme, and paints its chrome in the light
+	// background from theme.css. The dark pane beside it is untouched.
+	await expect(page.getByTestId(`terminal-leaf-${secondId}`)).toHaveAttribute(
+		"data-terminal-theme",
+		"light",
+	);
+	await expect
+		.poll(async () => await paneChromeBackground(page, secondId), { timeout: 10_000 })
+		.toBe("rgb(253, 252, 250)");
+	expect(await paneChromeBackground(page, firstId)).toBe(darkChrome);
+});
+
 test("a revived terminal keeps the name it was given", async ({ page, context }) => {
 	const student = await createStudent(context);
 	const terminalId = await openWithTerminal(page, student.workspaceId);

@@ -2,23 +2,26 @@
  * Listening-port discovery (SPEC.md §14.7, §18.2, BROWSER-HANDLING.md §11.1,
  * §17): /proc parsing, inode-to-process mapping, and change detection.
  */
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import {
 	decodeHexAddress,
+	isSystemListener,
 	ListeningMonitor,
 	parseDockerPs,
 	parseProcNetTcp,
 	readSocketOwners,
+	StopFailure,
 } from "./listening.js";
 
 const HEADER =
 	"  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode";
 
-function row(local: string, state: string, inode: string): string {
-	return `   0: ${local} 00000000:0000 ${state} 00000000:00000000 00:00000000 00000000  1000        0 ${inode} 1 0000000000000000 100 0 0 10 0`;
+function row(local: string, state: string, inode: string, uid = 1000): string {
+	return `   0: ${local} 00000000:0000 ${state} 00000000:00000000 00:00000000 00000000  ${uid}        0 ${inode} 1 0000000000000000 100 0 0 10 0`;
 }
 
 // --- hex address decoding ---
@@ -50,14 +53,16 @@ test("keeps only LISTEN rows and decodes their address and port", () => {
 		row("0100007F:C350", "01", "34569"),
 	].join("\n");
 	expect(parseProcNetTcp(text)).toEqual([
-		{ address: "127.0.0.1", port: 5000, inode: "34567" },
-		{ address: "0.0.0.0", port: 8080, inode: "34568" },
+		{ address: "127.0.0.1", port: 5000, inode: "34567", uid: 1000 },
+		{ address: "0.0.0.0", port: 8080, inode: "34568", uid: 1000 },
 	]);
 });
 
 test("parses IPv6 listeners", () => {
 	const text = [HEADER, row(`${"0".repeat(32)}:1F90`, "0A", "9001")].join("\n");
-	expect(parseProcNetTcp(text)).toEqual([{ address: "::", port: 8080, inode: "9001" }]);
+	expect(parseProcNetTcp(text)).toEqual([
+		{ address: "::", port: 8080, inode: "9001", uid: 1000 },
+	]);
 });
 
 test("skips short, blank, and malformed rows without throwing", () => {
@@ -313,4 +318,280 @@ test("the loopback target prefers IPv4 when the port has both", async () => {
 	await monitor.refresh();
 	expect(monitor.loopbackTarget(5000)).toBe("127.0.0.1");
 	expect(monitor.loopbackTarget(9999)).toBeNull();
+});
+
+// --- system listeners (SPEC.md 18.2, issue #265) ---
+
+test("the uid of the socket owner is read from the row", () => {
+	const text = [HEADER, row("00000000:1F90", "0A", "1", 0)].join("\n");
+	expect(parseProcNetTcp(text)[0]?.uid).toBe(0);
+});
+
+test("a root-owned or system-uid listener is a system service", () => {
+	expect(isSystemListener({ uids: [0], hasContainer: false, selfPid: 9 })).toBe(true);
+	expect(isSystemListener({ uids: [101], hasContainer: false, selfPid: 9 })).toBe(true);
+});
+
+test("the agent's own listener is a system service whatever its uid", () => {
+	// The agent runs as the student, so only the pid identifies it.
+	expect(
+		isSystemListener({ ownerPid: 9, uids: [1000], hasContainer: false, selfPid: 9 }),
+	).toBe(true);
+});
+
+test("a student's own listener is not a system service", () => {
+	expect(
+		isSystemListener({ ownerPid: 42, uids: [1000], hasContainer: false, selfPid: 9 }),
+	).toBe(false);
+});
+
+/**
+ * Issue #265: a port is hidden only when nothing listening on it is the
+ * student's. A dev server bound on both IPv4 and IPv6 can show one row owned
+ * by a system account beside the student's own; hiding that port would hide
+ * the student's work.
+ */
+test("a port with one student listener among system ones is the student's", () => {
+	expect(
+		isSystemListener({
+			ownerPid: 42,
+			uids: [0, 1000],
+			hasContainer: false,
+			selfPid: 9,
+		}),
+	).toBe(false);
+	expect(
+		isSystemListener({
+			ownerPid: 42,
+			uids: [1000, 101],
+			hasContainer: false,
+			selfPid: 9,
+		}),
+	).toBe(false);
+	// Every row a system account's: still hidden.
+	expect(
+		isSystemListener({ ownerPid: 42, uids: [0, 101], hasContainer: false, selfPid: 9 }),
+	).toBe(true);
+	// A uid we could not read is not evidence that the port is the system's.
+	expect(isSystemListener({ uids: [-1], hasContainer: false, selfPid: 9 })).toBe(false);
+	expect(isSystemListener({ uids: [], hasContainer: false, selfPid: 9 })).toBe(false);
+});
+
+test("a port published by a container is the student's, not the system's", () => {
+	// docker-proxy holds the socket as root, but the service is the student's.
+	expect(isSystemListener({ uids: [0], hasContainer: true, selfPid: 9 })).toBe(false);
+});
+
+test("the monitor flags systemd-resolved and its own port as system", async () => {
+	await writeProcNet(
+		[
+			HEADER,
+			row("00000000:14EB", "0A", "1", 0),
+			row("00000000:1CE8", "0A", "2", 1000),
+			row("00000000:1435", "0A", "3", 1000),
+		].join("\n"),
+	);
+	await fakeProcess(77, "portikus-agent", [2]);
+	await fakeProcess(88, "node", [3]);
+	const services = await monitorFor({ selfPid: 77 }).refresh();
+	const flags = Object.fromEntries(
+		services.map((service) => [service.port, service.system]),
+	);
+	expect(flags).toEqual({ 5355: true, 7400: true, 5173: false });
+});
+
+// --- stopping a listener (SPEC.md 18.2, issue #273) ---
+
+/** Drop every listening row, the way the kernel does when a process exits. */
+function clearProcNet(): void {
+	writeFileSync(join(procRoot, "net", "tcp"), HEADER);
+	writeFileSync(join(procRoot, "net", "tcp6"), HEADER);
+}
+
+/** The error `process.kill` raises, with the errno the kernel gave. */
+function killError(code: "ESRCH" | "EPERM"): NodeJS.ErrnoException {
+	const error: NodeJS.ErrnoException = new Error(`kill ${code}`);
+	error.code = code;
+	return error;
+}
+
+test("stopping a student listener sends SIGTERM and stops there", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const signals: [number, string][] = [];
+	let alive = true;
+	const monitor = monitorFor({
+		kill: (pid, signal) => {
+			if (Number(signal) === 0) {
+				if (!alive) throw killError("ESRCH");
+				return;
+			}
+			signals.push([pid, String(signal)]);
+			alive = false;
+			// The socket goes with the process.
+			clearProcNet();
+		},
+		graceMs: 1000,
+	});
+	await monitor.stopListener(5173);
+	expect(signals).toEqual([[88, "SIGTERM"]]);
+});
+
+test("a process that ignores SIGTERM is killed after the grace period", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const signals: string[] = [];
+	let alive = true;
+	const monitor = monitorFor({
+		kill: (_pid, signal) => {
+			if (Number(signal) === 0) {
+				if (!alive) throw killError("ESRCH");
+				return;
+			}
+			signals.push(String(signal));
+			if (signal === "SIGKILL") {
+				alive = false;
+				clearProcNet();
+			}
+		},
+		graceMs: 100,
+	});
+	await monitor.stopListener(5173);
+	expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+});
+
+/**
+ * Issue #273: a pid can die while the port stays open, because a parent that
+ * forked the server inherited the listening socket. Saying "stopped" there
+ * would be a lie: the student would see the service still running.
+ */
+test("a port still listening after the pid died is not a success", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	let alive = true;
+	const monitor = monitorFor({
+		kill: (_pid, signal) => {
+			if (Number(signal) === 0) {
+				if (!alive) throw killError("ESRCH");
+				return;
+			}
+			// The process goes; the proc table keeps the port.
+			alive = false;
+		},
+		graceMs: 1000,
+	});
+	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
+		status: 409,
+		code: "STOP_FAILED",
+	});
+});
+
+/**
+ * Issue #273: only ESRCH means the process is gone. EPERM means we were not
+ * allowed to signal it, which is a refusal, not a stop.
+ */
+test("a SIGTERM refused with EPERM is a conflict, not a success", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({
+		kill: () => {
+			throw killError("EPERM");
+		},
+		graceMs: 100,
+	});
+	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
+		status: 409,
+		code: "STOP_FAILED",
+	});
+});
+
+test("a liveness check refused with EPERM is a conflict, not a success", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({
+		kill: (_pid, signal) => {
+			// The signal lands, but we may not ask whether it worked.
+			if (Number(signal) === 0) throw killError("EPERM");
+		},
+		graceMs: 100,
+	});
+	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
+		status: 409,
+		code: "STOP_FAILED",
+	});
+});
+
+/** A pid already gone is fine, as long as the port went with it. */
+test("a pid that is already gone stops cleanly when the port is free", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({
+		kill: () => {
+			clearProcNet();
+			throw killError("ESRCH");
+		},
+		graceMs: 100,
+	});
+	await expect(monitor.stopListener(5173)).resolves.toBeUndefined();
+});
+
+/**
+ * Issue #273: after SIGKILL the port is the test, not the pid. A killed
+ * process whose parent has not reaped it is a zombie, and a zombie still
+ * answers signal 0, so asking whether the pid exists would refuse a stop
+ * that worked.
+ */
+test("a zombie left behind by SIGKILL still counts as stopped", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({
+		kill: (_pid, signal) => {
+			// Nothing ever exits here: signal 0 keeps saying the pid is there.
+			if (signal === "SIGKILL") clearProcNet();
+		},
+		graceMs: 50,
+	});
+	await expect(monitor.stopListener(5173)).resolves.toBeUndefined();
+});
+
+test("a process that survives SIGKILL is reported as a conflict", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({ kill: () => {}, graceMs: 50 });
+	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
+		status: 409,
+		code: "STOP_FAILED",
+	});
+});
+
+test("a root-owned listener is refused", async () => {
+	await writeProcNet([HEADER, row("00000000:14EB", "0A", "1", 0)].join("\n"));
+	const monitor = monitorFor({
+		kill: () => {
+			throw new Error("the stop must never reach a system process");
+		},
+	});
+	await expect(monitor.stopListener(5355)).rejects.toBeInstanceOf(StopFailure);
+	await expect(monitor.stopListener(5355)).rejects.toMatchObject({ status: 403 });
+});
+
+test("a port nothing is listening on is not found", async () => {
+	await writeProcNet(HEADER);
+	await expect(monitorFor().stopListener(5173)).rejects.toMatchObject({ status: 404 });
+});
+
+test("a container row is stopped with docker stop, not a signal", async () => {
+	await writeProcNet([HEADER, row("00000000:1538", "0A", "1", 0)].join("\n"));
+	const stopped: string[] = [];
+	const monitor = monitorFor({
+		docker: async () => [{ id: "abc123", name: "pg", ports: [5432] }],
+		dockerStop: async (container) => {
+			stopped.push(container);
+		},
+		kill: () => {
+			throw new Error("a container must not be signalled");
+		},
+	});
+	await monitor.stopListener(5432);
+	expect(stopped).toEqual(["abc123"]);
 });

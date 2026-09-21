@@ -9,6 +9,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ListeningContext } from "../running/services.js";
 import { json, stubFetch } from "../test-utils.js";
+import { resetPreviewHistory } from "./history.js";
 import { PreviewLeaf } from "./PreviewLeaf.js";
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
@@ -28,6 +29,7 @@ function service(port: number): ListeningService {
 		protocolHint: "http",
 		process: { pid: 1, command: "node" },
 		previewReachability: "reachable",
+		system: false,
 		observedAt: "2026-01-01T00:00:00.000Z",
 	};
 }
@@ -59,8 +61,31 @@ function show(options: {
 
 afterEach(() => {
 	cleanup();
+	resetPreviewHistory();
 	vi.unstubAllGlobals();
 });
+
+/**
+ * A stand-in for the browser tab's history, so a test can say whether the
+ * frame has an entry of its own beyond the anchor (issue #283).
+ */
+function stubHistory() {
+	const back = vi.fn();
+	const forward = vi.fn();
+	let length = 1;
+	vi.stubGlobal("history", {
+		get length() {
+			return length;
+		},
+		state: null,
+		back,
+		forward,
+		pushState: () => {
+			length += 1;
+		},
+	});
+	return { back, forward, frameNavigates: () => (length += 1) };
+}
 
 beforeEach(() => {
 	vi.useRealTimers();
@@ -191,6 +216,99 @@ test("an application that refuses framing is offered in a new tab at once", asyn
 		expect(screen.getByTestId("preview-pane-5173").dataset.state).toBe("blocked"),
 	);
 	expect(screen.getByTestId("preview-blocked")).toBeTruthy();
+});
+
+test("a dev server refusing the preview host gets the line to paste", async () => {
+	// The control plane recognised Vite's blocked-host answer (issue #262).
+	stubFetch((url) =>
+		url.includes("/preview/embeddable")
+			? json(200, {
+					embeddable: false,
+					reason: "host-refused",
+					refusedHost: "alice-5173.preview.portikus.example.edu",
+					refusedServer: "vite",
+				})
+			: json(200, GRANT),
+	);
+	const writeText = vi.fn(async () => {});
+	vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+	show({});
+
+	const line = await screen.findByTestId("preview-refused-line");
+	// The suffix is the real one, with the workspace label dropped so the
+	// line covers every port and project.
+	expect(line.textContent).toBe(
+		'server: { allowedHosts: [".preview.portikus.example.edu"] }',
+	);
+	expect(screen.getByTestId("preview-refused").textContent).toContain(
+		"alice-5173.preview.portikus.example.edu",
+	);
+	expect(screen.getByTestId("preview-pane-5173").dataset.state).toBe("host-refused");
+	// The student is not told the application cannot be embedded: it can.
+	expect(screen.queryByTestId("preview-blocked")).toBeNull();
+
+	fireEvent.click(screen.getByTestId("preview-refused-copy"));
+	await waitFor(() =>
+		expect(writeText).toHaveBeenCalledWith(
+			'server: { allowedHosts: [".preview.portikus.example.edu"] }',
+		),
+	);
+	expect(screen.getByTestId("preview-retry")).toBeTruthy();
+});
+
+test("webpack-dev-server gets its own setting", async () => {
+	stubFetch((url) =>
+		url.includes("/preview/embeddable")
+			? json(200, {
+					embeddable: false,
+					reason: "host-refused",
+					refusedHost: "alice-8080.preview.portikus.example.edu",
+					refusedServer: "webpack-dev-server",
+				})
+			: json(200, GRANT),
+	);
+	show({});
+	const line = await screen.findByTestId("preview-refused-line");
+	expect(line.textContent).toBe(
+		'devServer: { allowedHosts: [".preview.portikus.example.edu"] }',
+	);
+});
+
+/**
+ * Back must never take the Portikus document away, so a press with nothing
+ * behind the anchor does nothing at all (issue #283).
+ */
+test("Back on a fresh preview does nothing and explains itself", async () => {
+	stubFetch(() => json(200, GRANT));
+	const tab = stubHistory();
+	show({});
+	await screen.findByTestId("preview-frame");
+
+	const backButton = screen.getByTestId("preview-back") as HTMLButtonElement;
+	expect(backButton.disabled).toBe(false);
+	fireEvent.click(backButton);
+	expect(tab.back).not.toHaveBeenCalled();
+	await waitFor(() =>
+		expect(backButton.getAttribute("title")).toBe("Nothing to go back to"),
+	);
+});
+
+test("Back steps once the frame has an entry of its own, and Forward always does", async () => {
+	stubFetch(() => json(200, GRANT));
+	const tab = stubHistory();
+	show({});
+	await screen.findByTestId("preview-frame");
+	tab.frameNavigates();
+
+	const backButton = screen.getByTestId("preview-back") as HTMLButtonElement;
+	const forwardButton = screen.getByTestId("preview-forward") as HTMLButtonElement;
+	expect(forwardButton.disabled).toBe(false);
+
+	fireEvent.click(backButton);
+	fireEvent.click(forwardButton);
+	expect(tab.back).toHaveBeenCalledTimes(1);
+	expect(tab.forward).toHaveBeenCalledTimes(1);
+	expect(backButton.getAttribute("title")).toBe(null);
 });
 
 test("an application the probe could not reach keeps the timeout", async () => {

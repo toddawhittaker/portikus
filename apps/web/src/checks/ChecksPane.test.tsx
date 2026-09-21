@@ -190,3 +190,44 @@ test("a broken checks file is reported without stopping the pane", async () => {
 	);
 	expect(screen.getByText("No checks configured")).toBeTruthy();
 });
+
+test("Run and Stop are icon buttons that name their check (issue #274)", async () => {
+	stubBrowserApis();
+	stubChecks({
+		checks: CHECKS,
+		error: null,
+		runs: [
+			{
+				id: "run-1",
+				checkId: "tests",
+				state: "running",
+				startedAt: "2026-01-01T00:00:00.000Z",
+			},
+		],
+	});
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	await waitFor(() => expect(screen.getByTestId("check-stop-tests")).toBeTruthy());
+	expect(screen.getByTestId("check-stop-tests").getAttribute("aria-label")).toBe(
+		"Stop Tests",
+	);
+	expect(screen.getByTestId("check-run-lint").getAttribute("aria-label")).toBe(
+		"Run Lint",
+	);
+	// An icon, not a word: the button holds no text.
+	expect(screen.getByTestId("check-run-lint").textContent).toBe("");
+});
+
+test("a long command keeps the whole of it in a tooltip (issue #274)", async () => {
+	stubBrowserApis();
+	const long = `docker run --rm -p 8080:80 --name bar-project ${"x".repeat(80)}`;
+	stubChecks({
+		checks: [{ id: "tests", name: "Tests", command: long }],
+		error: null,
+		runs: [],
+	});
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	await waitFor(() => expect(screen.getByTestId("checks-list")).toBeTruthy());
+	expect(screen.getByText(long).getAttribute("title")).toBe(long);
+});

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Timezone } from "./settings.js";
 
 /**
  * Validated Incus instance name (SPEC.md §6, §18.3; STACK.md §5, §9).
@@ -55,6 +56,19 @@ export const StartInstanceRequest = z.object({
 			"Must be a lowercase DNS label with no leading or trailing hyphen",
 		)
 		.max(40),
+	// The preview host suffix, pushed into the container on every start so
+	// shells and dev servers can name the preview host (issue #263,
+	// BROWSER-HANDLING.md section 14). Never carries a credential.
+	previewHostSuffix: z
+		.string()
+		.regex(
+			/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/,
+			"Must be a lowercase DNS name",
+		)
+		.max(253),
+	// The owner's timezone, set on the container at every start so shells,
+	// logs, and Git commits read in the student's own clock (issue #287).
+	timezone: Timezone,
 });
 export type StartInstanceRequest = z.infer<typeof StartInstanceRequest>;
 

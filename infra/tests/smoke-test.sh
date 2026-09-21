@@ -992,6 +992,49 @@ TERMPROBE
       check "terminal socket carries input and output" \
         term_probe "$term_id" "echo ${mark_a}\"${mark_b}\"" "$mark" - 30000
 
+      # Every login shell reads /etc/profile.d/portikus.sh, which the
+      # controller writes at start, so a terminal knows the preview suffix
+      # (issue #263).  The typed command holds only the variable name, so the
+      # suffix can only appear once the shell has expanded it.
+      # shellcheck disable=SC2016  # the shell inside the workspace expands it
+      check "terminal shell knows the preview host suffix" \
+        term_probe "$term_id" 'echo $PORTIKUS_PREVIEW_HOST_SUFFIX' \
+        "$PREVIEW_SUFFIX" - 30000
+
+      # The workspace runs in the deployment's default zone unless the
+      # student picked another (issue #287). The typed command holds only
+      # the variable name, so the zone can only appear once the shell has
+      # expanded it.
+      # shellcheck disable=SC2016  # the shell inside the workspace expands it
+      check "terminal shell runs in the default timezone" \
+        term_probe "$term_id" 'echo $TZ' "America/New_York" - 30000
+
+      # A student who changes the zone gets it in the next terminal they
+      # open, without restarting the workspace: the agent puts TZ in the new
+      # tmux session's environment (issue #287).  The abbreviation is worked
+      # out on the VM so the check does not hard-code daylight saving.
+      chosen_zone="America/Los_Angeles"
+      chosen_abbrev=$(ssh_cmd "TZ=${chosen_zone} date +%Z")
+      # The answer carries the whole list of zone names as well as the
+      # settings, and that list always holds the chosen zone, so the check
+      # looks for the settings field rather than the bare name.
+      set_zone() {
+        vm_get alice "${API}/me/settings" \
+          "-X PUT -H 'Origin: ${API}' -H 'Content-Type: application/json' \
+            -d '{\"timezone\":\"${chosen_zone}\"}'" \
+          | grep -q "\"timezone\":\"${chosen_zone}\""
+      }
+      check "a student can change the workspace timezone" set_zone
+
+      zone_term_id=$(new_terminal | json_field id)
+      if [ -z "$zone_term_id" ]; then
+        printf '\033[1;31mFAIL\033[0m  POST /terminals for the zone check returned no id\n'
+        fail=$((fail + 1))
+      else
+        check "a terminal opened after the change runs in the chosen zone" \
+          term_probe "$zone_term_id" "date +%Z" "$chosen_abbrev" - 30000
+      fi
+
       # Reattaching inside the grace period redraws the same tmux screen,
       # so the marker written a moment ago is still on it (SPEC.md 9.2).
       check "reattached terminal shows the earlier output" \

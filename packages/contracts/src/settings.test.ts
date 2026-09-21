@@ -2,10 +2,13 @@ import { expect, test } from "vitest";
 import {
 	AdminUser,
 	AdminUserList,
+	DEFAULT_TIMEZONE,
 	EDITOR_SETTINGS_DEFAULTS,
 	EditorSettings,
+	MeSettings,
 	PlatformSettings,
 	SetLogLevelRequest,
+	systemTimezones,
 	UpdateAdminUserSettingsRequest,
 	UpdateEditorSettingsRequest,
 	UpdatePlatformSettingsRequest,
@@ -166,8 +169,10 @@ test("the editor settings defaults are a valid, complete set", () => {
 	expect(EditorSettings.parse(EDITOR_SETTINGS_DEFAULTS)).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
-		wordWrap: false,
+		// Issue #270: wrap is on unless the student turns it off.
+		wordWrap: true,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
 	});
 });
 
@@ -196,6 +201,47 @@ test("EditorSettings keeps the auto-save delay between 1 and 60 seconds", () => 
 
 test("EditorSettings requires every field", () => {
 	expect(() => EditorSettings.parse({ autoSave: true })).toThrow();
+});
+
+/**
+ * Issue #287: the workspace runs in a zone the student may change. Only a
+ * write is checked against the zone list, because a browser reading this
+ * schema back knows a different set of names.
+ */
+test("a zone is only checked when one is written", () => {
+	expect(EDITOR_SETTINGS_DEFAULTS.timezone).toBe(DEFAULT_TIMEZONE);
+	expect(UpdateEditorSettingsRequest.parse({ timezone: "Europe/Berlin" })).toEqual({
+		timezone: "Europe/Berlin",
+	});
+	for (const bad of ["Mars/Olympus", "", "America/New_York; rm -rf /", 5]) {
+		expect(() => UpdateEditorSettingsRequest.parse({ timezone: bad })).toThrow();
+	}
+	// Reading is lenient, so a zone this build dropped still comes back.
+	expect(
+		EditorSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, timezone: "Mars/Olympus" })
+			.timezone,
+	).toBe("Mars/Olympus");
+});
+
+/** Issue #287: the browser is given the server's list, not asked for its own. */
+test("MeSettings carries the zone list beside the settings", () => {
+	const zones = [...systemTimezones()];
+	expect(MeSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, timezones: zones })).toEqual({
+		...EDITOR_SETTINGS_DEFAULTS,
+		timezones: zones,
+	});
+	expect(() => MeSettings.parse(EDITOR_SETTINGS_DEFAULTS)).toThrow();
+});
+
+/**
+ * Issue #287: the zone name reaches a command inside the container, so
+ * nothing on this list may carry a shell metacharacter.
+ */
+test("the zone list holds the default and no shell metacharacters", () => {
+	expect(systemTimezones()).toContain(DEFAULT_TIMEZONE);
+	for (const zone of systemTimezones()) {
+		expect(zone).toMatch(/^[A-Za-z0-9_+\-/]+$/);
+	}
 });
 
 test("UpdateEditorSettingsRequest takes one field at a time", () => {

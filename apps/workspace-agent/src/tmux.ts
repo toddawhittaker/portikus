@@ -2,7 +2,11 @@ import { execFile } from "node:child_process";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { promisify } from "node:util";
-import { type AgentErrorCode, TerminalId } from "@portikus/contracts";
+import {
+	type AgentErrorCode,
+	TerminalId,
+	type TerminalTheme,
+} from "@portikus/contracts";
 
 const run = promisify(execFile);
 
@@ -242,12 +246,34 @@ export async function createSession(
 	id: string,
 	cwd: string,
 	homeDir: string,
+	theme: TerminalTheme,
+	timezone: string,
 	socketName?: string,
 ): Promise<TmuxSession> {
 	const name = sessionName(id);
 	const real = await resolveCwd(cwd, homeDir);
 	await tmux(
-		[...serverOptionArgs(), "new-session", "-d", "-s", name, "-c", real],
+		[
+			...serverOptionArgs(),
+			"new-session",
+			"-d",
+			"-s",
+			name,
+			"-c",
+			real,
+			// Programs that pick a theme by auto-detection, Claude Code among
+			// them, read COLORFGBG (issue #267). The value is the foreground
+			// and background as ANSI colour numbers, so a light terminal is
+			// dark text on light. A shell already running keeps what it
+			// started with; only a new terminal gets the new value.
+			"-e",
+			`COLORFGBG=${theme === "light" ? "0;15" : "15;0"}`,
+			// The shell runs in the owner's zone (issue #287). A terminal
+			// opened after the setting changed gets it without a restart; one
+			// already running keeps the zone it started with.
+			"-e",
+			`TZ=${timezone}`,
+		],
 		socketName,
 	);
 	// `latest` sizes the session to the most recent client, so a second

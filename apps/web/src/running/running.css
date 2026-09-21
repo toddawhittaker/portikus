@@ -1,0 +1,79 @@
+/*
+ * The Running pane, and the rows it shares with the + Preview launcher
+ * (SPEC.md §18.2, issues #265, #272, #273, #274).
+ *
+ * One listening port is one row: the port, the command, an optional kind,
+ * then the actions. The markup lives in RunningPane.tsx and PreviewPicker.tsx
+ * and the whole look lives here, so there is one place to read and no rule
+ * fighting another for the last word.
+ */
+.pk-portrow {
+	display: grid;
+	grid-template-columns: 4.5rem 1fr auto auto;
+	align-items: center;
+	gap: var(--space-2);
+	width: 100%;
+	padding: 4px 6px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: inherit;
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+}
+.pk-portrow:hover {
+	background: var(--surface-hover);
+}
+.pk-portrow.is-current {
+	background: var(--surface-row-selected);
+}
+.pk-portrow:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
+/*
+ * The text cells shrink and truncate, so a long command cannot push the
+ * actions out of the pane. The actions cell is left out rather than having
+ * the truncation undone afterwards: a clipped actions cell overlapped its
+ * own buttons and a click landed on the cell instead of on Stop.
+ */
+.pk-portrow > span:not(.pk-portrow-actions) {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pk-portrow-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-1);
+	white-space: nowrap;
+}
+.pk-portrow button {
+	white-space: nowrap;
+}
+
+.pk-portrow-port {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.pk-portrow-kind {
+	font-size: 11px;
+	color: var(--ink-muted);
+}
+
+/* The "Show system services" checkbox under the last row (issue #265). */
+.pk-running-toggle {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-top: var(--space-1);
+	padding: 4px 6px;
+	border-top: 1px solid var(--line);
+	color: var(--ink-muted);
+	font-size: 11px;
+	cursor: pointer;
+}

@@ -46,7 +46,24 @@ const COOKIE_NAME = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/;
 
 const IdParams = z.object({ id: z.string().uuid() });
 const TicketQuery = z.object({ t: z.string().min(1).max(200) });
-const PortQuery = z.object({ port: z.coerce.number().int().min(1).max(65535) });
+/** A port, wherever it arrives: in the path for one route, in the query for
+ * another, and the same range either way. */
+const PortInput = z.object({ port: z.coerce.number().int().min(1).max(65535) });
+
+/** The status each agent refusal to stop a listener becomes (issue #273). */
+function stopStatusFor(code: string): number {
+	if (code === "LISTENER_NOT_FOUND") return 404;
+	if (code === "LISTENER_IS_SYSTEM") return 403;
+	if (code === "STOP_FAILED") return 409;
+	return 502;
+}
+
+function stopMessageFor(code: string): string {
+	if (code === "LISTENER_NOT_FOUND") return "Nothing is listening on that port";
+	if (code === "LISTENER_IS_SYSTEM") return "That service belongs to the system";
+	if (code === "STOP_FAILED") return "That service did not stop";
+	return "The workspace did not answer";
+}
 
 /**
  * How many preview requests one student may make in a minute, counting
@@ -117,10 +134,18 @@ export function registerPreviewRoutes(
 		{ port: number; answer: Promise<EmbeddableVerdict> }
 	>();
 
+	/**
+	 * The workspaces with a stop already running. Stopping asks the agent to
+	 * kill a process, so a second ask for the same workspace before the first
+	 * answers could kill whatever took the port next (issue #273).
+	 */
+	const stopping = new Set<string>();
+
 	async function probeOnce(
 		workspaceId: string,
 		port: number,
 		upstream: string,
+		host: string,
 	): Promise<EmbeddableVerdict> {
 		const running = probes.get(workspaceId);
 		if (running) {
@@ -130,9 +155,9 @@ export function registerPreviewRoutes(
 				(): EmbeddableVerdict => ({ embeddable: false, reason: "unreachable" }),
 			);
 			if (running.port === port) return earlier;
-			return probeOnce(workspaceId, port, upstream);
+			return probeOnce(workspaceId, port, upstream, host);
 		}
-		const answer = probeEmbeddable(upstream, config.PUBLIC_URL).finally(() => {
+		const answer = probeEmbeddable(upstream, config.PUBLIC_URL, host).finally(() => {
 			if (probes.get(workspaceId)?.answer === answer) probes.delete(workspaceId);
 		});
 		probes.set(workspaceId, { port, answer });
@@ -174,6 +199,70 @@ export function registerPreviewRoutes(
 				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
 		}
 		return reply.send({ services: servicesOf(params.data.id) });
+	});
+
+	/**
+	 * Stop what holds a port inside the workspace (SPEC.md §18.2, issue #273).
+	 * Only the owner may ask; the agent decides whether the listener is the
+	 * student's to stop, and its refusal is passed on unchanged.
+	 */
+	app.post("/workspaces/:id/listening/:port/stop", async (request, reply) => {
+		const user = requireUser(request);
+		const params = IdParams.safeParse(request.params);
+		const port = PortInput.safeParse(request.params);
+		if (!params.success || !port.success) {
+			return reply
+				.status(400)
+				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id or port" });
+		}
+		const workspace = await previewWorkspace(params.data.id, user.id);
+		if (!workspace) {
+			return reply
+				.status(404)
+				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+		}
+		if (workspace.state !== "running") {
+			return reply.status(409).send({
+				code: "WORKSPACE_NOT_RUNNING",
+				message: "The workspace is not running",
+			});
+		}
+		// Stopping makes the control plane work on the student's behalf, just
+		// as a grant or a probe does, so it comes out of the same budget.
+		if (overPreviewLimit(user.id)) {
+			request.log.warn(
+				{ workspaceId: params.data.id },
+				"stop listener rate limit reached",
+			);
+			return reply.status(429).send({
+				code: "PREVIEW_RATE_LIMITED",
+				message: "Too many previews were opened just now. Wait a moment.",
+			});
+		}
+		if (stopping.has(params.data.id)) {
+			return reply.status(409).send({
+				code: "STOP_IN_PROGRESS",
+				message: "A service in this workspace is already being stopped",
+			});
+		}
+		stopping.add(params.data.id);
+		try {
+			await registry.stopListener(params.data.id, port.data.port);
+		} catch (error) {
+			if (error instanceof AgentCallError) {
+				return reply.status(stopStatusFor(error.code)).send({
+					code: error.code,
+					message: stopMessageFor(error.code),
+				});
+			}
+			request.log.error({ err: error }, "stop listener failed");
+			return reply
+				.status(502)
+				.send({ code: "AGENT_UNAVAILABLE", message: "The workspace did not answer" });
+		} finally {
+			stopping.delete(params.data.id);
+		}
+		return reply.send({ port: port.data.port, stopped: true });
 	});
 
 	app.post("/workspaces/:id/preview-grants", async (request, reply) => {
@@ -282,7 +371,7 @@ export function registerPreviewRoutes(
 	app.get("/workspaces/:id/preview/embeddable", async (request, reply) => {
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
-		const query = PortQuery.safeParse(request.query);
+		const query = PortInput.safeParse(request.query);
 		if (!params.success || !query.success) {
 			return reply
 				.status(400)
@@ -328,7 +417,14 @@ export function registerPreviewRoutes(
 			return reply.header("cache-control", "no-store").send(unreachable);
 		}
 
-		const verdict = await probeOnce(params.data.id, port, `${address}:${port}`);
+		// Asked as the preview host, because a development server that checks
+		// `Host` refuses only the name the student's browser would use.
+		const verdict = await probeOnce(
+			params.data.id,
+			port,
+			`${address}:${port}`,
+			previewHost(workspace.label, port, config.PREVIEW_SUFFIX),
+		);
 		return reply.header("cache-control", "no-store").send(verdict);
 	});
 

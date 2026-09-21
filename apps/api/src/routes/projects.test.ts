@@ -199,7 +199,8 @@ test.skipIf(skip)(
 		const first = projects[0] as Record<string, unknown>;
 		expect(projects.map((p) => p.slug)).toEqual(["found"]);
 		expect(first.source).toBe("discovered");
-		expect(first.name).toBe("found");
+		// The folder name read as a title (issue #269).
+		expect(first.name).toBe("Found");
 		expect(first.isGitRepo).toBe(true);
 
 		// The directory goes away: the row stays, marked missing.
@@ -233,6 +234,25 @@ test.skipIf(skip)("a project renamed in the shell follows its directory", async 
 	expect(after.slug).toBe("todo-service");
 	expect(after.path).toBe("/home/student/projects/todo-service");
 	expect(after.missing).toBe(false);
+	// The title follows the folder, because the folder is the project (#269).
+	expect(after.name).toBe("Todo Service");
+});
+
+/** Issue #269: a row that did not move keeps the name the student chose. */
+test.skipIf(skip)("a project that did not move keeps its name", async () => {
+	const created = await createProject(alice, workspaceId, {
+		name: "Kept Name",
+		source: "new",
+	});
+	expect(created.statusCode).toBe(201);
+	agent.projects.set("kept-name", { isGitRepo: true, directoryId: "7101" });
+
+	await listProjects(alice, workspaceId);
+	const listed = await listProjects(alice, workspaceId);
+	const project = (listed.json().projects as Array<Record<string, unknown>>).find(
+		(row) => row.slug === "kept-name",
+	);
+	expect(project?.name).toBe("Kept Name");
 });
 
 test.skipIf(skip)(

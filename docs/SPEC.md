@@ -521,8 +521,10 @@ workspace; otherwise it is refused with 409.
 Discovery and missing projects. The listing takes a `state` query of `active`
 or `archived` and defaults to active. When the workspace is running, the
 control plane asks the agent what is on disk and reconciles: a directory that
-is a Git repository and has no row gets one, with `source = discovered` and the
-slug as its name; a row whose directory is gone is returned with `missing:
+is a Git repository and has no row gets one, with `source = discovered` and a
+name read from the directory: the words between hyphens and underscores,
+each capitalised, so `project-name` reads `Project Name`; a row whose
+directory is gone is returned with `missing:
 true` and may only be archived. A directory that is not a Git repository is
 ignored. Discovery never resurrects an archived slug, because that slug already
 has a row. When the workspace is not running, rows are returned with the Git
@@ -534,8 +536,10 @@ listing and the control plane stores it on the project row. Before discovery,
 each listing does two things: it records the identity of any directory a row
 already names, and it moves a row whose directory is gone to whichever
 directory now carries that row's identity. So a project a student renames with
-`mv` in a shell keeps its id, its name, its open tabs, and its layout, and its
-terminals' recorded working directories move with it. A copy, or a restore from
+`mv` in a shell keeps its id, its open tabs, and its layout, and its
+terminals' recorded working directories move with it. Its display name is read
+from the new directory name the same way discovery reads one, because the
+folder is the project: renaming the folder renames the project. A copy, or a restore from
 a recovery archive, has a different identity and is honestly a new project. A
 directory whose identity belongs to no row is discovered under the existing
 rule: only if it is a Git repository.
@@ -1163,14 +1167,19 @@ The editor must:
 
 An explicit keyboard save command such as `Ctrl/Cmd+S` may force an immediate save, but students should not need to remember to save manually for normal operation.
 
-Per-user preferences. Autosave on or off, the autosave delay, word wrap, and
-the terminal colour scheme are settings of the signed-in user, not of the
-browser. They are stored on the server, read and written through
-`GET` and `PUT /me/settings`, and changed in the account menu, so they follow
-the student to any browser they sign in from. The terminal colour scheme is
-dark or light, and it is deliberately independent of the page appearance: a
-student in a bright room may want a light terminal on a dark page, or the
-other way round.
+Per-user preferences. Autosave on or off, the autosave delay, word wrap, the
+terminal colour scheme, and the workspace timezone are settings of the
+signed-in user, not of the browser. They are stored on the server, read and
+written through `GET` and `PUT /me/settings`, and changed in the account menu,
+so they follow the student to any browser they sign in from. Word wrap
+defaults to on. The terminal colour scheme is dark or light, and it is
+deliberately independent of the page appearance: a student in a bright room
+may want a light terminal on a dark page, or the other way round. Each
+terminal carries its own colour scheme, chosen from that pane's menu and
+stored with the terminal; the per-user value is the scheme a new terminal
+starts in. The workspace timezone is an IANA zone name, `America/New_York` by
+default; it is applied to the container at every start and to each new
+terminal, so a change reaches a shell that has not been opened yet.
 
 ## 14. Application preview and port proxying
 

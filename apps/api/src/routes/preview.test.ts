@@ -44,6 +44,8 @@ async function seedListening(
 		port: number;
 		addresses?: string[];
 		previewReachability?: "reachable" | "forwarded" | "unknown";
+		system?: boolean;
+		process?: { pid?: number; command?: string };
 	}[],
 ): Promise<void> {
 	const response = await fetch(`http://127.0.0.1:${agent.port}/__test/listening`, {
@@ -275,6 +277,101 @@ test.skipIf(skip)(
 		expect(byPort.get(5173)).toBe("reachable");
 	},
 );
+
+// ── Stopping a listener (SPEC.md 18.2, issue #273) ──
+
+/** Wait until the API reports exactly these ports for the workspace. */
+async function untilPorts(ports: number[]): Promise<void> {
+	await until(async () => {
+		const seen = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/listening`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		const found = seen.json().services.map((one: { port: number }) => one.port);
+		return JSON.stringify(found.sort()) === JSON.stringify([...ports].sort());
+	});
+}
+
+async function stop(jar: CookieJar, id: string, port: number) {
+	return app.inject({
+		method: "POST",
+		url: `/workspaces/${id}/listening/${port}/stop`,
+		headers: csrfHeaders(jar, PUBLIC_URL),
+	});
+}
+
+test.skipIf(skip)("the owner can stop a listener and the row goes away", async () => {
+	await seedListening([{ port: 5173, process: { pid: 4242, command: "node" } }]);
+	await untilPorts([5173]);
+	const response = await stop(alice, workspaceId, 5173);
+	expect(response.statusCode).toBe(200);
+	expect(response.json()).toEqual({ port: 5173, stopped: true });
+	await untilPorts([]);
+});
+
+test.skipIf(skip)("another user cannot stop a listener", async () => {
+	await seedListening([{ port: 5173 }]);
+	await untilPorts([5173]);
+	const response = await stop(bob, workspaceId, 5173);
+	expect(response.statusCode).toBe(404);
+	// The listener is untouched.
+	await untilPorts([5173]);
+});
+
+test.skipIf(skip)("a system listener is refused", async () => {
+	await seedListening([{ port: 5355, system: true }, { port: 5173 }]);
+	await untilPorts([5355, 5173]);
+	const response = await stop(alice, workspaceId, 5355);
+	expect(response.statusCode).toBe(403);
+	expect(response.json().code).toBe("LISTENER_IS_SYSTEM");
+});
+
+/**
+ * Stopping makes the control plane work for the student, so it shares the
+ * grant and probe budget rather than being free (issue #283).
+ */
+test.skipIf(skip)(
+	"stops come out of the same per-minute budget as grants and probes",
+	async () => {
+		await seedListening([{ port: 5173 }]);
+		await untilPorts([5173]);
+		for (let made = 0; made < 30; made += 1) {
+			expect((await grant(alice, workspaceId, 5173)).statusCode).toBe(201);
+		}
+		const refused = await stop(alice, workspaceId, 5173);
+		expect(refused.statusCode).toBe(429);
+		expect(refused.json().code).toBe("PREVIEW_RATE_LIMITED");
+		// The listener is untouched, and another student's budget is their own.
+		await untilPorts([5173]);
+	},
+	20_000,
+);
+
+/** One stop at a time per workspace (issue #283). */
+test.skipIf(skip)("a second stop while one is running is refused", async () => {
+	await seedListening([{ port: 5173 }, { port: 5174 }]);
+	await untilPorts([5173, 5174]);
+	const [first, second] = await Promise.all([
+		stop(alice, workspaceId, 5173),
+		stop(alice, workspaceId, 5174),
+	]);
+	const codes = [first.statusCode, second.statusCode].sort();
+	expect(codes).toEqual([200, 409]);
+	const refused = first.statusCode === 409 ? first : second;
+	expect(refused.json().code).toBe("STOP_IN_PROGRESS");
+	// Once the first has answered, stopping works again.
+	const again = await stop(alice, workspaceId, refused === first ? 5173 : 5174);
+	expect(again.statusCode).toBe(200);
+});
+
+test.skipIf(skip)("stopping a port nothing is listening on is a 404", async () => {
+	await seedListening([{ port: 5173 }]);
+	await untilPorts([5173]);
+	const response = await stop(alice, workspaceId, 4321);
+	expect(response.statusCode).toBe(404);
+	expect(response.json().code).toBe("LISTENER_NOT_FOUND");
+});
 
 test.skipIf(skip)(
 	"another user cannot read a workspace's listening ports",

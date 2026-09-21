@@ -2,6 +2,7 @@ import {
 	type CreateInstanceResponse,
 	InstanceName,
 	type InstanceStatus,
+	isSystemTimezone,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
 } from "@portikus/contracts";
@@ -15,7 +16,13 @@ export interface WorkspaceProvider {
 	): Promise<CreateInstanceResponse>;
 	start(
 		name: string,
-		opts: { timeoutSeconds: number; agentToken: string; hostname: string },
+		opts: {
+			timeoutSeconds: number;
+			agentToken: string;
+			hostname: string;
+			previewHostSuffix: string;
+			timezone: string;
+		},
 	): Promise<StartInstanceResponse>;
 	stop(name: string, opts: { timeoutSeconds: number }): Promise<StopInstanceResponse>;
 	list(): Promise<InstanceStatus[]>;
@@ -27,6 +34,17 @@ const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
 
 /** A lowercase DNS label; anything else must never reach the container. */
 const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
+/** A lowercase DNS name, checked again here as defence in depth. */
+const DNS_NAME_PATTERN =
+	/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
+
+/**
+ * Shell profile read by every login shell in the container, so a terminal,
+ * a template, and a coding agent all see where previews are published
+ * (issue #263, BROWSER-HANDLING.md section 14). It never holds a secret.
+ */
+const PROFILE_PATH = "/etc/profile.d/portikus.sh";
 
 /**
  * How long the agent has to answer /health once the instance is running. This
@@ -44,6 +62,15 @@ function validateName(name: string): void {
 
 function enc(name: string): string {
 	return encodeURIComponent(name);
+}
+
+/**
+ * The exit status of a finished exec operation, or null when Incus did not
+ * report one. Incus puts it in the operation's own metadata as `return`.
+ */
+function execExitStatus(result: unknown): number | null {
+	const meta = (result as { metadata?: { return?: unknown } } | undefined)?.metadata;
+	return typeof meta?.return === "number" ? meta.return : null;
 }
 
 export class IncusWorkspaceProvider implements WorkspaceProvider {
@@ -132,11 +159,31 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	async start(
 		name: string,
-		opts: { timeoutSeconds: number; agentToken: string; hostname: string },
+		opts: {
+			timeoutSeconds: number;
+			agentToken: string;
+			hostname: string;
+			previewHostSuffix: string;
+			timezone: string;
+		},
 	): Promise<StartInstanceResponse> {
 		validateName(name);
 		if (!HOSTNAME_PATTERN.test(opts.hostname) || opts.hostname.length > 40) {
 			throw new IncusError("INVALID_NAME", `invalid hostname: ${opts.hostname}`);
+		}
+		if (
+			!DNS_NAME_PATTERN.test(opts.previewHostSuffix) ||
+			opts.previewHostSuffix.length > 253
+		) {
+			throw new IncusError(
+				"INVALID_NAME",
+				`invalid preview host suffix: ${opts.previewHostSuffix}`,
+			);
+		}
+		// The zone name ends up in a path in a command inside the container, so
+		// it has to be one of the names this build knows (issue #287).
+		if (!isSystemTimezone(opts.timezone)) {
+			throw new IncusError("INVALID_NAME", `invalid timezone: ${opts.timezone}`);
 		}
 
 		const signal = AbortSignal.timeout(opts.timeoutSeconds * 1000);
@@ -153,6 +200,22 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		const ipv4 = await this.waitForAddress(name, deadline, signal);
 
 		await this.setHostname(name, opts.hostname, signal, opts.timeoutSeconds);
+
+		await this.setTimezone(name, opts.timezone, signal, opts.timeoutSeconds);
+
+		await this.client.pushFile(
+			name,
+			PROFILE_PATH,
+			// TZ is a default, not an override: tmux sets the session's current
+			// zone and a login shell sources this file afterwards, so a student
+			// who changes their timezone must not get the start-time zone back
+			// (issue #287). The zone was validated against the system list.
+			`export PORTIKUS_PREVIEW=true\n` +
+				`export PORTIKUS_PREVIEW_HOST_SUFFIX=${opts.previewHostSuffix}\n` +
+				`export TZ="\${TZ:-${opts.timezone}}"\n`,
+			{ uid: 0, gid: 0, mode: "0644" },
+			signal,
+		);
 
 		await this.client.pushFile(
 			name,
@@ -201,6 +264,55 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			signal,
 			timeoutSeconds,
 		);
+	}
+
+	/**
+	 * Run the container in the owner's timezone (issue #287), so timestamps in
+	 * a shell, in logs, and on Git commits match the clock on the wall.
+	 *
+	 * `/etc/timezone` is what the Debian tools read and `/etc/localtime` is
+	 * what the C library reads, so both are set. The zone name was checked
+	 * against the known list before this point, so it is safe in a command.
+	 * This runs on every start, so a change takes effect at the next start.
+	 */
+	private async setTimezone(
+		name: string,
+		timezone: string,
+		signal: AbortSignal,
+		timeoutSeconds: number,
+	): Promise<void> {
+		await this.client.pushFile(
+			name,
+			"/etc/timezone",
+			`${timezone}\n`,
+			{ uid: 0, gid: 0, mode: "0644" },
+			signal,
+		);
+
+		const result = await this.client.request(
+			"POST",
+			`/1.0/instances/${enc(name)}/exec`,
+			{
+				command: ["ln", "-sfn", `/usr/share/zoneinfo/${timezone}`, "/etc/localtime"],
+				"wait-for-websocket": false,
+				"record-output": false,
+				interactive: false,
+			},
+			signal,
+			timeoutSeconds,
+		);
+
+		// A missing zone file in the image makes `ln` fail, and the container
+		// would then run in the wrong zone with nothing said (issue #287).
+		const status = execExitStatus(result);
+		if (status !== null && status !== 0) {
+			throw new IncusError(
+				"OPERATION_FAILED",
+				`could not set the timezone to ${timezone}: ` +
+					`/usr/share/zoneinfo/${timezone} is missing from the image ` +
+					`(ln exited ${status})`,
+			);
+		}
 	}
 
 	private async waitForAddress(

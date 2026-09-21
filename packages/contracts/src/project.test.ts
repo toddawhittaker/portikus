@@ -3,6 +3,8 @@ import {
 	CloneUrl,
 	CreateProjectRequest,
 	DuplicateProjectRequest,
+	displayNameFromDirectory,
+	MAX_PROJECT_NAME_LENGTH,
 	MAX_SPLIT_DEPTH,
 	Project,
 	ProjectLayout,
@@ -431,4 +433,23 @@ test("ProjectLayout caps how deep a split tree may nest", () => {
 		ProjectLayout.safeParse({ tabs: [{ id: "t", root: nest(MAX_SPLIT_DEPTH + 1) }] })
 			.success,
 	).toBe(false);
+});
+
+/** Issue #269: a folder name becomes the project's display name. */
+test("displayNameFromDirectory capitalises the words of a directory name", () => {
+	expect(displayNameFromDirectory("project-name")).toBe("Project Name");
+	expect(displayNameFromDirectory("my_site2")).toBe("My Site2");
+	expect(displayNameFromDirectory("todo")).toBe("Todo");
+	expect(displayNameFromDirectory("cs101-lab_3")).toBe("Cs101 Lab 3");
+	expect(displayNameFromDirectory("-leading--and_trailing_")).toBe(
+		"Leading And Trailing",
+	);
+	expect(displayNameFromDirectory("myProject")).toBe("MyProject");
+});
+
+test("displayNameFromDirectory falls back to the directory name and fits the field", () => {
+	expect(displayNameFromDirectory("-")).toBe("-");
+	expect(displayNameFromDirectory("")).toBe("");
+	const long = displayNameFromDirectory(`${"a".repeat(62)}-b`);
+	expect(long.length).toBeLessThanOrEqual(MAX_PROJECT_NAME_LENGTH);
 });

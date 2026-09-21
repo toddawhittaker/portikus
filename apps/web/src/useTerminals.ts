@@ -4,7 +4,7 @@
  * §9.7). The server decides the working directory from the project
  * (SPEC.md §9.4), so nothing here sends a cwd.
  */
-import { Terminal, TerminalList } from "@portikus/contracts";
+import { Terminal, TerminalList, type TerminalTheme } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { z } from "zod";
@@ -21,6 +21,8 @@ export interface Terminals {
 	error: string | null;
 	create: (init?: { name?: string }) => Promise<Terminal>;
 	rename: (terminalId: string, name: string) => Promise<void>;
+	/** Switch one terminal between the light and dark scheme (issue #268). */
+	setTheme: (terminalId: string, theme: TerminalTheme) => Promise<void>;
 	close: (terminalId: string) => Promise<void>;
 	refetch: () => void;
 }
@@ -86,6 +88,28 @@ export function useTerminals(
 		onSuccess: invalidate,
 	});
 
+	const setTheme = useMutation({
+		mutationFn: ({ terminalId, theme }: { terminalId: string; theme: TerminalTheme }) =>
+			request(Terminal, `${url}/${terminalId}`, {
+				method: "PATCH",
+				headers: JSON_HEADERS,
+				body: JSON.stringify({ theme }),
+			}),
+		// The pane repaints from the cached row, so write it back at once
+		// rather than waiting for the next list answer.
+		onSuccess: (terminal) => {
+			queryClient.setQueryData<TerminalList>(key, (current) =>
+				current
+					? {
+							terminals: current.terminals.map((item) =>
+								item.id === terminal.id ? terminal : item,
+							),
+						}
+					: current,
+			);
+		},
+	});
+
 	const close = useMutation({
 		mutationFn: (terminalId: string) =>
 			request(z.unknown(), `${url}/${terminalId}`, {
@@ -95,7 +119,13 @@ export function useTerminals(
 	});
 
 	// Any 401 means the session is gone, whichever call saw it first.
-	const failure = query.error ?? create.error ?? rename.error ?? close.error ?? null;
+	const failure =
+		query.error ??
+		create.error ??
+		rename.error ??
+		setTheme.error ??
+		close.error ??
+		null;
 	useEffect(() => {
 		if (failure instanceof SessionEndedError) onSessionEnded();
 	}, [failure, onSessionEnded]);
@@ -110,6 +140,9 @@ export function useTerminals(
 		create: (init) => create.mutateAsync(init),
 		rename: async (terminalId, name) => {
 			await rename.mutateAsync({ terminalId, name });
+		},
+		setTheme: async (terminalId, theme) => {
+			await setTheme.mutateAsync({ terminalId, theme });
 		},
 		close: async (terminalId) => {
 			await close.mutateAsync(terminalId);

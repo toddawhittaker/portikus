@@ -39,7 +39,21 @@ export interface ProcListener {
 	address: string;
 	port: number;
 	inode: string;
+	/** The account the socket belongs to; 0 is root. */
+	uid: number;
 }
+
+/**
+ * The lowest uid Debian gives a human account. Anything below it belongs to
+ * the system: systemd-resolved, sshd and dnsmasq all sit there (SPEC.md §18.2).
+ */
+export const FIRST_HUMAN_UID = 1000;
+
+/** How long a process has to exit after SIGTERM before it is killed. */
+export const STOP_GRACE_MS = 3000;
+
+/** How long `docker stop` may take. */
+export const DOCKER_STOP_TIMEOUT_MS = 15_000;
 
 /** The process a socket inode belongs to. */
 export interface SocketOwner {
@@ -124,9 +138,43 @@ export function parseProcNetTcp(text: string): ProcListener[] {
 		}
 		const port = Number.parseInt(hexPort, 16);
 		if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
-		listeners.push({ address, port, inode: fields[9] ?? "" });
+		const uid = Number.parseInt(fields[7] ?? "", 10);
+		listeners.push({
+			address,
+			port,
+			inode: fields[9] ?? "",
+			uid: Number.isInteger(uid) ? uid : -1,
+		});
 	}
 	return listeners;
+}
+
+/**
+ * Whether a listener is the platform's own or a system account's rather than
+ * the student's (SPEC.md §18.2, issue #265).
+ *
+ * The agent itself is the process doing the scan, so a listener whose owning
+ * pid is our own pid is the agent, whatever port it was configured with. The
+ * uid rule catches systemd-resolved, sshd and dnsmasq. A port published by an
+ * inner Docker container is the student's work even though `docker-proxy`
+ * holds it as root, so a container attribution wins.
+ *
+ * A port can have several rows, one per address family. It is hidden only
+ * when every one of them belongs to a system account: one row that is the
+ * student's makes the port the student's, because hiding it would hide their
+ * own work (issue #265).
+ */
+export function isSystemListener(input: {
+	ownerPid?: number;
+	uids: number[];
+	hasContainer: boolean;
+	selfPid?: number;
+}): boolean {
+	if (input.hasContainer) return false;
+	const selfPid = input.selfPid ?? process.pid;
+	if (input.ownerPid !== undefined && input.ownerPid === selfPid) return true;
+	if (input.uids.length === 0) return false;
+	return input.uids.every((uid) => uid >= 0 && uid < FIRST_HUMAN_UID);
 }
 
 /**
@@ -184,6 +232,21 @@ async function readComm(procRoot: string, pid: string): Promise<string | undefin
 	} catch {
 		return undefined;
 	}
+}
+
+/** Stop an inner Docker container by id or name. */
+export async function dockerStopContainer(container: string): Promise<void> {
+	await new Promise<void>((resolve, reject) => {
+		execFile(
+			"docker",
+			["stop", container],
+			{ timeout: DOCKER_STOP_TIMEOUT_MS, encoding: "utf8" },
+			(error) => {
+				if (error) reject(error);
+				else resolve();
+			},
+		);
+	});
 }
 
 /** Ask Docker which containers are running and what ports they publish. */
@@ -256,11 +319,40 @@ export interface ListeningMonitorOptions {
 	forwardedPorts?: () => ReadonlySet<number>;
 	/** How Docker is queried. `null` turns the lookup off. */
 	docker?: DockerLookup | null;
+	/** The agent's own pid. Tests override it; production never needs to. */
+	selfPid?: number;
+	/** How a process is signalled. Tests override it. */
+	kill?: (pid: number, signal: NodeJS.Signals) => void;
+	/** How a container is stopped. Tests override it. */
+	dockerStop?: (container: string) => Promise<void>;
 	intervalMs?: number;
+	/** How long a process has after SIGTERM. Tests shorten it. */
+	graceMs?: number;
 	logger?: FastifyBaseLogger;
 }
 
 type Listener = (services: AgentListeningService[]) => void;
+
+/** Why a stop request was refused, with the status the route should send. */
+export class StopFailure extends Error {
+	readonly status: number;
+	readonly code: string;
+
+	constructor(status: number, code: string, message: string) {
+		super(message);
+		this.status = status;
+		this.code = code;
+	}
+}
+
+/**
+ * Whether a failed signal means the process is gone. Only ESRCH does. EPERM
+ * means the kernel refused us, which tells us nothing about whether the
+ * process stopped, so it must never read as success (issue #273).
+ */
+function isGone(error: unknown): boolean {
+	return (error as NodeJS.ErrnoException | undefined)?.code === "ESRCH";
+}
 
 /** Everything about a service except when it was observed. */
 function fingerprint(services: AgentListeningService[]): string {
@@ -278,6 +370,10 @@ export class ListeningMonitor {
 	private readonly docker: DockerLookup | null;
 	private readonly intervalMs: number;
 	private readonly logger: FastifyBaseLogger | undefined;
+	private readonly selfPid: number;
+	private readonly kill: (pid: number, signal: NodeJS.Signals) => void;
+	private readonly dockerStop: (container: string) => Promise<void>;
+	private readonly graceMs: number;
 	private readonly listeners = new Set<Listener>();
 	private services: AgentListeningService[] = [];
 	private print = fingerprint([]);
@@ -294,6 +390,10 @@ export class ListeningMonitor {
 		this.docker = options.docker === undefined ? dockerPs : options.docker;
 		this.intervalMs = options.intervalMs ?? SCAN_INTERVAL_MS;
 		this.logger = options.logger;
+		this.selfPid = options.selfPid ?? process.pid;
+		this.kill = options.kill ?? ((pid, signal) => process.kill(pid, signal));
+		this.dockerStop = options.dockerStop ?? dockerStopContainer;
+		this.graceMs = options.graceMs ?? STOP_GRACE_MS;
 	}
 
 	start(): void {
@@ -353,6 +453,117 @@ export class ListeningMonitor {
 		return service?.addresses.some(isLoopback) ?? false;
 	}
 
+	/**
+	 * Stop whatever is listening on a port (SPEC.md §18.2, issue #273).
+	 *
+	 * A container row is stopped with `docker stop`, because the process
+	 * inside it is not what keeps the service alive. Otherwise the owning
+	 * process gets SIGTERM and, if it is still there after the grace period,
+	 * SIGKILL. The agent runs as the student, so this needs no new privilege.
+	 */
+	async stopListener(port: number): Promise<void> {
+		await this.refresh();
+		const service = this.services.find((entry) => entry.port === port);
+		if (!service)
+			throw new StopFailure(
+				404,
+				"LISTENER_NOT_FOUND",
+				"nothing is listening on that port",
+			);
+		if (service.system) {
+			throw new StopFailure(
+				403,
+				"LISTENER_IS_SYSTEM",
+				"that service belongs to the system",
+			);
+		}
+		const container = service.container?.id ?? service.container?.name;
+		if (container) {
+			try {
+				await this.dockerStop(container);
+			} catch {
+				throw new StopFailure(409, "STOP_FAILED", "the container did not stop");
+			}
+			return;
+		}
+		const pid = service.process?.pid;
+		if (pid === undefined) {
+			throw new StopFailure(
+				409,
+				"STOP_FAILED",
+				"the owning process could not be identified",
+			);
+		}
+		if (this.signal(pid, "SIGTERM") && !(await this.waitForExit(pid))) {
+			if (this.signal(pid, "SIGKILL")) {
+				// SIGKILL cannot be caught, so the process is on its way out.
+				// Whether it has finished going is not worth asking: a zombie
+				// its parent has not reaped still answers signal 0 and would
+				// turn a stop that worked into a 409. The port is the answer
+				// the student cares about, and the one check below reads it.
+				await new Promise((resolve) => setTimeout(resolve, 200));
+			}
+		}
+		await this.confirmPortFree(port);
+	}
+
+	/**
+	 * Send a signal. False when the process was already gone; a refusal we
+	 * cannot read as "gone" ends the stop, because carrying on would report
+	 * a stop that never happened.
+	 */
+	private signal(pid: number, signal: NodeJS.Signals): boolean {
+		try {
+			this.kill(pid, signal);
+			return true;
+		} catch (error) {
+			if (isGone(error)) return false;
+			throw new StopFailure(409, "STOP_FAILED", "the process could not be signalled");
+		}
+	}
+
+	/** Wait out the grace period. True when the process went away in time. */
+	private async waitForExit(pid: number): Promise<boolean> {
+		const deadline = Date.now() + this.graceMs;
+		while (Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			if (!this.alive(pid)) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * The owning process is gone, but the port may not be: a parent that
+	 * forked the server inherited the listening socket and holds it open. One
+	 * more scan tells the student the truth rather than a comforting success
+	 * (issue #273).
+	 */
+	private async confirmPortFree(port: number): Promise<void> {
+		await this.refresh();
+		if (this.services.some((entry) => entry.port === port)) {
+			throw new StopFailure(
+				409,
+				"STOP_FAILED",
+				"the process stopped but something is still listening on that port",
+			);
+		}
+	}
+
+	/**
+	 * True while the pid still exists. Signal 0 only checks. A refusal we
+	 * cannot read as "gone" ends the stop, because carrying on would report
+	 * a stop that never happened.
+	 */
+	private alive(pid: number): boolean {
+		try {
+			this.kill(pid, 0 as unknown as NodeJS.Signals);
+			return true;
+		} catch (error) {
+			if (isGone(error)) return false;
+			throw new StopFailure(409, "STOP_FAILED", "the process could not be signalled");
+		}
+	}
+
 	/** One scan. Subscribers hear about it only if the set changed. */
 	async refresh(): Promise<AgentListeningService[]> {
 		let services: AgentListeningService[];
@@ -404,6 +615,12 @@ export class ListeningMonitor {
 				...(owner ? { process: { pid: owner.pid, command: owner.command } } : {}),
 				...(container ? { container: { id: container.id, name: container.name } } : {}),
 				previewReachability: this.reachability(addresses, forwarded.has(port)),
+				system: isSystemListener({
+					...(owner ? { ownerPid: owner.pid } : {}),
+					uids: listeners.map((entry) => entry.uid),
+					hasContainer: container !== undefined,
+					selfPid: this.selfPid,
+				}),
 				observedAt,
 			});
 		}

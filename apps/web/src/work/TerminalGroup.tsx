@@ -3,7 +3,7 @@
  * react-resizable-panels group with a PaneHandle between siblings; the sizes
  * come from the saved layout and go back to it when the user drags a handle.
  */
-import type { SplitNode, Terminal } from "@portikus/contracts";
+import type { SplitNode, Terminal, TerminalTheme } from "@portikus/contracts";
 import { PaneHandle } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { Group, Panel } from "react-resizable-panels";
@@ -23,6 +23,8 @@ export interface TerminalGroupProps {
 	onFocus: (terminalId: string) => void;
 	onSplit: (terminalId: string, direction: SplitDirection) => void;
 	onRename: (terminalId: string, name: string) => void;
+	/** Switch one terminal between the light and dark scheme (issue #268). */
+	onSetTheme: (terminalId: string, theme: TerminalTheme) => void;
 	onClose: (terminalId: string) => void;
 	onExited: (terminalId: string) => void;
 	onReplace: (terminalId: string) => void;
@@ -73,6 +75,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					onFocus={props.onFocus}
 					onSplit={props.onSplit}
 					onRename={props.onRename}
+					onSetTheme={props.onSetTheme}
 					onClose={props.onClose}
 					onExited={props.onExited}
 					onReplace={props.onReplace}

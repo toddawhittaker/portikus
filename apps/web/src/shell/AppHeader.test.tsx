@@ -67,7 +67,7 @@ test("the account menu opens the editor settings dialog (issue #159)", async () 
 	renderHeader();
 	openAccountMenu();
 
-	fireEvent.click(screen.getByRole("menuitem", { name: "Editor settings" }));
+	fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
 
 	const dialog = await screen.findByTestId("dialog-editor-settings");
 	expect(dialog.textContent).toContain("Word wrap");

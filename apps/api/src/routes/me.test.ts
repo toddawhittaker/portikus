@@ -5,6 +5,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import { systemTimezones, UpdateEditorSettingsRequest } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -66,8 +67,10 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 	expect(res.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
-		wordWrap: false,
+		wordWrap: true,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 });
 
@@ -75,21 +78,25 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 	const jar = new CookieJar();
 	await loginAs(app, "alice", jar);
 
-	const first = await put(jar, { wordWrap: true });
+	const first = await put(jar, { wordWrap: false });
 	expect(first.statusCode).toBe(200);
 	expect(first.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
-		wordWrap: true,
+		wordWrap: false,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 
 	const second = await put(jar, { autoSaveDelaySeconds: 30 });
 	expect(second.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 30,
-		wordWrap: true,
+		wordWrap: false,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 
 	const read = await app.inject({
@@ -100,8 +107,10 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 	expect(read.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 30,
-		wordWrap: true,
+		wordWrap: false,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 });
 
@@ -115,11 +124,62 @@ test.skipIf(skip)("bad values and unknown keys are refused", async () => {
 		{ autoSave: "yes" },
 		{ theme: "dark" },
 		{},
+		// Issue #287: only a name on the zone list is taken.
+		{ timezone: "Mars/Olympus" },
+		{ timezone: "America/New_York; id" },
+		{ timezone: "" },
 	]) {
 		const res = await put(jar, body);
 		expect(res.statusCode).toBe(400);
 		expect(res.json().code).toBe("VALIDATION_FAILED");
 	}
+});
+
+/** Issue #287: a zone the student chooses is stored and read back. */
+test.skipIf(skip)("a known zone is accepted and kept", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	const res = await put(jar, { timezone: "Europe/Berlin" });
+	expect(res.statusCode).toBe(200);
+	expect(res.json().timezone).toBe("Europe/Berlin");
+
+	const read = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: jar.cookieHeader() },
+	});
+	expect(read.json().timezone).toBe("Europe/Berlin");
+});
+
+/**
+ * Issue #287: the dialog builds its zone select from the list GET hands it,
+ * so every name on that list has to be one PUT accepts. The browser's own
+ * zone list is not consulted anywhere.
+ */
+test.skipIf(skip)("the zone list GET hands over is the list PUT accepts", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	const read = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: jar.cookieHeader() },
+	});
+	const offered: string[] = read.json().timezones;
+	expect(offered.length).toBeGreaterThan(100);
+	expect(offered).toContain("America/New_York");
+
+	for (const zone of offered) {
+		expect(UpdateEditorSettingsRequest.safeParse({ timezone: zone }).success).toBe(
+			true,
+		);
+	}
+
+	// And one of them all the way through the route.
+	const last = offered.at(-1);
+	if (last === undefined) throw new Error("the zone list was empty");
+	expect((await put(jar, { timezone: last })).statusCode).toBe(200);
 });
 
 test.skipIf(skip)("one user's settings never reach another user", async () => {
@@ -128,7 +188,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 	const bob = new CookieJar();
 	await loginAs(app, "bob", bob);
 
-	await put(alice, { wordWrap: true, autoSaveDelaySeconds: 42 });
+	await put(alice, { wordWrap: false, autoSaveDelaySeconds: 42 });
 
 	const bobRead = await app.inject({
 		method: "GET",
@@ -138,8 +198,10 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 	expect(bobRead.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
-		wordWrap: false,
+		wordWrap: true,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 
 	// Bob's own change must not touch Alice's row.
@@ -152,8 +214,10 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 	expect(aliceRead.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 42,
-		wordWrap: true,
+		wordWrap: false,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 });
 
@@ -171,6 +235,7 @@ test.skipIf(skip)(
 					autoSaveDelaySeconds: 20,
 					wordWrap: true,
 					terminalTheme: "dark",
+					timezone: "America/New_York",
 					theme: "dark",
 				}),
 			})
@@ -187,6 +252,8 @@ test.skipIf(skip)(
 			autoSaveDelaySeconds: 20,
 			wordWrap: true,
 			terminalTheme: "dark",
+			timezone: "America/New_York",
+			timezones: [...systemTimezones()],
 		});
 
 		// A later change must not write the defaults over the other stored values.
@@ -196,6 +263,47 @@ test.skipIf(skip)(
 			autoSaveDelaySeconds: 20,
 			wordWrap: false,
 			terminalTheme: "dark",
+			timezone: "America/New_York",
+			timezones: [...systemTimezones()],
 		});
 	},
 );
+
+/**
+ * Issue #287: a zone name this build no longer knows falls back to the
+ * default on its own and takes nothing else with it. Parsed as one object,
+ * an unknown zone threw away the student's auto-save, word wrap and terminal
+ * colours as well.
+ */
+test.skipIf(skip)("an unknown stored zone loses only the zone", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	await testDb.db
+		.updateTable("users")
+		.set({
+			editor_settings: JSON.stringify({
+				autoSave: false,
+				autoSaveDelaySeconds: 20,
+				wordWrap: false,
+				terminalTheme: "light",
+				timezone: "Mars/Olympus",
+			}),
+		})
+		.where("oidc_subject", "=", "alice")
+		.execute();
+
+	const read = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: jar.cookieHeader() },
+	});
+	expect(read.json()).toEqual({
+		autoSave: false,
+		autoSaveDelaySeconds: 20,
+		wordWrap: false,
+		terminalTheme: "light",
+		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
+	});
+});
