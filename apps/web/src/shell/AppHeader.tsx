@@ -6,7 +6,6 @@ import {
 	Dialog,
 	DialogRoot,
 	Icon,
-	IconButton,
 	Menu,
 	MenuItem,
 	MenuLabel,
@@ -109,15 +108,6 @@ export function AppHeader({
 						/>
 					)}
 				</button>
-			) : null}
-
-			{workspaceId ? (
-				<IconButton
-					icon="search"
-					label="Search arrives in Epic 7"
-					shortcut={["Mod", "Shift", "F"]}
-					disabled
-				/>
 			) : null}
 
 			<MenuRoot>

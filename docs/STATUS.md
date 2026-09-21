@@ -608,3 +608,49 @@ than fixing blind. Relative image paths in the Markdown
 preview resolve against the app origin and show as broken images. Parallel local
 end-to-end runs still collide on fixed ports and one shared database;
 per-run e2e ports and database are tracked in `docs/BACKLOG.md`.
+
+## Epic 8 pilot fixes (issues #237 to #241)
+
+A batch of small fixes from hands-on use of the pilot after Epic 7.1,
+gathered on 2026-09-19 and landed into the Epic 8 branch.
+
+**Files pane.** Dragging a row now puts a small copy of it, with its icon
+and name, under the pointer, so it is clear what is being moved. The
+empty area below the last row is a second drop target for the project
+root, next to the path line under the header, so a file in a subfolder can
+be dragged back to the top level (issue #237, SPEC.md section 11.2).
+
+**Renamed projects.** A project whose folder a student renames with `mv`
+in a shell keeps its row, its id, its open tabs, and its layout. The
+marker is the directory's inode, which the agent reports with each listing
+and the control plane stores on the project row (migration
+`0009_project_directory_id`). Before discovery, each listing records the
+identity of every directory a row names, then moves a row whose directory
+is gone to the directory carrying its identity. A copy or a restore from a
+recovery archive has a different inode and is honestly a new project
+(issue #238, SPEC.md section 7.1).
+
+**Terminal colours.** Terminals can be light as well as dark. The choice
+is a per-user setting alongside the editor settings, saved through the
+existing `/me/settings` route with no migration, and it applies to open
+terminals without a reload. It is deliberately separate from the page
+appearance, because a bright room may call for a light terminal on a dark
+page (issue #239, SPEC.md section 13.5).
+
+**Tab strip.** Centre-pane tabs follow the Chrome model: equal width up to
+220 pixels, labels that fade out at the right edge, shrinking together to
+a floor where only the kind icon and the close control are left, and
+sideways scrolling past that floor, with the selected tab scrolled into
+view. The close control is on every tab at every width, and an unsaved
+file shows a dot in its place that turns back into the close control on
+hover. `MAX_LAYOUT_TABS` and the "Too many tabs are open" toast are gone;
+the saved layout is still bounded by the request body limit and by the
+length and shape checks on each tab (issue #240, SPEC.md section 8.3).
+
+**Header.** The disabled search icon that promised search "in Epic 7" is
+gone. Search lives in the files pane and Ctrl+Shift+F still opens it from
+anywhere in the workspace (issue #241, SPEC.md section 11.5).
+
+Known gaps. The design mirror under `design/system/components/bundle.css`
+still shows the old label-sized tab rule; it is generated from the Claude
+Design artifact and was left for a design pull rather than hand-edited.

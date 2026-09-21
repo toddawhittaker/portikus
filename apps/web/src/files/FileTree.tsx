@@ -11,6 +11,8 @@
 import {
 	DndContext,
 	type DragEndEvent,
+	DragOverlay,
+	type DragStartEvent,
 	PointerSensor,
 	useDraggable,
 	useDroppable,
@@ -50,12 +52,7 @@ import {
 } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
-import {
-	fileErrorToast,
-	isFileExists,
-	tooLargeToast,
-	tooManyTabsToast,
-} from "./errors.js";
+import { fileErrorToast, isFileExists, tooLargeToast } from "./errors.js";
 import "./files.css";
 import { ChangesList } from "./ChangesList.js";
 import { fileIconName } from "./fileIcon.js";
@@ -153,6 +150,13 @@ function useTreeApi(): TreeApi {
 /** The droppable id of a directory; the project root is the empty path. */
 const dropId = (dir: string) => `dir:${dir}`;
 
+/**
+ * The empty area below the tree is a second way into the project root
+ * (issue #237). It is its own element rather than the pane body, so it never
+ * overlaps a row and the pointer can only be over one of the two.
+ */
+const ROOT_SPACE_DROP_ID = "root-space";
+
 /** Run `job` over `items`, never more than `limit` of them at once. */
 async function runWithLimit<T>(
 	items: readonly T[],
@@ -224,6 +228,9 @@ export function FileTreePane({
 	const sensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
 	);
+	// What the pointer is carrying, so the drag has something visible to show
+	// (issue #237). dnd-kit draws it in a DragOverlay at the pointer.
+	const [dragged, setDragged] = useState<{ path: string; isDir: boolean } | null>(null);
 
 	const fail = useCallback(
 		(error: unknown) => {
@@ -394,9 +401,9 @@ export function FileTreePane({
 
 	const openFile = useCallback(
 		(node: FileNode) => {
-			if (!openFileTab(node.path)) toast.show(tooManyTabsToast());
+			openFileTab(node.path);
 		},
-		[openFileTab, toast],
+		[openFileTab],
 	);
 
 	const pickUpload = useCallback((dir: string) => {
@@ -456,11 +463,23 @@ export function FileTreePane({
 		],
 	);
 
+	function onDragStart(event: DragStartEvent) {
+		const id = String(event.active.id);
+		if (!id.startsWith("row:")) return;
+		setDragged({
+			path: id.slice("row:".length),
+			isDir: event.active.data.current?.isDir === true,
+		});
+	}
+
 	function onDragEnd(event: DragEndEvent) {
 		setDropDir(null);
+		setDragged(null);
+		const over = event.over ? String(event.over.id) : null;
 		const move = moveForDrop(
 			String(event.active.id),
-			event.over ? String(event.over.id) : null,
+			// The empty space below the tree means the project root.
+			over === ROOT_SPACE_DROP_ID ? dropId("") : over,
 		);
 		if (!move) return;
 		const { from, to } = move;
@@ -486,8 +505,12 @@ export function FileTreePane({
 		// the project root (SPEC.md §11.2).
 		<DndContext
 			sensors={sensors}
+			onDragStart={onDragStart}
 			onDragEnd={onDragEnd}
-			onDragCancel={() => setDropDir(null)}
+			onDragCancel={() => {
+				setDropDir(null);
+				setDragged(null);
+			}}
 		>
 			<TreeContext.Provider value={api}>
 				<aside className="pk-pane pk-pane--right" aria-label="Files">
@@ -636,7 +659,10 @@ export function FileTreePane({
 								Create a file, upload one, or use a terminal.
 							</EmptyState>
 						) : (
-							<TreeRoot slug={project.slug} />
+							<>
+								<TreeRoot slug={project.slug} />
+								<RootSpaceDropZone name={project.name} />
+							</>
 						)}
 					</div>
 
@@ -732,7 +758,40 @@ export function FileTreePane({
 					)}
 				</aside>
 			</TreeContext.Provider>
+			{/* The row stays where it is; a small copy of it follows the
+			    pointer, so it is clear what is being dragged (issue #237). */}
+			<DragOverlay dropAnimation={null}>
+				{dragged ? (
+					<div className="pk-tree-drag" data-testid="file-drag-overlay">
+						<Icon
+							name={dragged.isDir ? "folder" : fileIconName(baseName(dragged.path))}
+							size="sm"
+						/>
+						<span>{displayName(baseName(dragged.path))}</span>
+					</div>
+				) : null}
+			</DragOverlay>
 		</DndContext>
+	);
+}
+
+/**
+ * The empty area below the last row. Dropping a file here moves it to the
+ * project root, which is otherwise only reachable through the path line
+ * (issue #237, SPEC.md §11.2).
+ */
+function RootSpaceDropZone({ name }: { name: string }) {
+	const drop = useDroppable({ id: ROOT_SPACE_DROP_ID });
+	return (
+		<div
+			className={`pk-tree-space${drop.isOver ? " is-drop-target" : ""}`}
+			ref={drop.setNodeRef}
+			data-drop-dir=""
+			data-testid="file-tree-space-drop"
+			data-drop-over={drop.isOver ? "true" : undefined}
+		>
+			{drop.isOver ? <span>Move to {name}</span> : null}
+		</div>
 	);
 }
 
@@ -890,7 +949,7 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	const title = decoration ? `${shown} — ${decoration.title}` : undefined;
 
 	const selected = api.selection.paths.includes(path);
-	const drag = useDraggable({ id: `row:${path}` });
+	const drag = useDraggable({ id: `row:${path}`, data: { isDir } });
 	// dnd-kit offers a button role and a tab stop; the row outside is the
 	// treeitem and the only thing the keyboard should reach.
 	const { role: _role, tabIndex: _tabIndex, ...dragAttributes } = drag.attributes;

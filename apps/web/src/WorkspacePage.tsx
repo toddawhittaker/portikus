@@ -1,6 +1,7 @@
 import { PaneHandle, Skeleton } from "@portikus/ui";
 import { Navigate, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
+import { useTerminalThemeAttribute } from "./editor/settingsQueries.js";
 import { LayoutStoreContext, useLayoutStore } from "./layout/store.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
@@ -41,6 +42,9 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	// The work area and the file tree share one layout store, so a file
 	// opened in the tree becomes a tab in the work area (SPEC.md §8.3, §8.4).
 	const layoutStore = useLayoutStore(projectId ?? "none");
+	// The student's terminal colour scheme, applied to the whole shell
+	// (issue #239).
+	useTerminalThemeAttribute();
 
 	return (
 		<LayoutStoreContext.Provider value={projectId ? layoutStore : null}>

@@ -47,6 +47,13 @@ export type AgentCreateTerminalRequest = z.infer<typeof AgentCreateTerminalReque
 export const AgentProject = z.object({
 	slug: ProjectSlug,
 	isGitRepo: z.boolean(),
+	/**
+	 * A stable identity for the directory itself: its inode number, as a
+	 * decimal string. `mv` keeps it, so a project renamed in the shell can be
+	 * reconnected to its old row rather than becoming a new one (issue #238).
+	 * Optional because an older agent does not report it.
+	 */
+	directoryId: z.string().min(1).max(32).optional(),
 });
 export type AgentProject = z.infer<typeof AgentProject>;
 

@@ -1,5 +1,10 @@
-import { EditorSettings, type UpdateEditorSettingsRequest } from "@portikus/contracts";
+import {
+	EDITOR_SETTINGS_DEFAULTS,
+	EditorSettings,
+	type UpdateEditorSettingsRequest,
+} from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { request } from "../api/request.js";
 
 export const editorSettingsKey = ["me", "settings"] as const;
@@ -26,4 +31,17 @@ export function useUpdateEditorSettings() {
 			client.setQueryData(editorSettingsKey, settings);
 		},
 	});
+}
+
+/**
+ * Keeps `data-terminal-theme` on <html> in step with the student's choice
+ * (issue #239). theme.css does the rest, both for the terminal itself and for
+ * the chrome around it that uses the `--terminal-*` tokens.
+ */
+export function useTerminalThemeAttribute(): void {
+	const settings = useEditorSettings();
+	const theme = settings.data?.terminalTheme ?? EDITOR_SETTINGS_DEFAULTS.terminalTheme;
+	useEffect(() => {
+		document.documentElement.setAttribute("data-terminal-theme", theme);
+	}, [theme]);
 }

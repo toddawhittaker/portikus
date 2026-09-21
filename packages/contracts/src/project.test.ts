@@ -3,7 +3,6 @@ import {
 	CloneUrl,
 	CreateProjectRequest,
 	DuplicateProjectRequest,
-	MAX_LAYOUT_TABS,
 	MAX_SPLIT_DEPTH,
 	Project,
 	ProjectLayout,
@@ -314,7 +313,7 @@ test("ProjectLayout holds tabs of split trees", () => {
 	).toBe(false);
 });
 
-test("ProjectLayout caps the number of tabs", () => {
+test("ProjectLayout does not cap the number of tabs (issue #240)", () => {
 	function tabs(count: number) {
 		return {
 			tabs: Array.from({ length: count }, (_, index) => ({
@@ -323,8 +322,8 @@ test("ProjectLayout caps the number of tabs", () => {
 			})),
 		};
 	}
-	expect(ProjectLayout.safeParse(tabs(MAX_LAYOUT_TABS)).success).toBe(true);
-	expect(ProjectLayout.safeParse(tabs(MAX_LAYOUT_TABS + 1)).success).toBe(false);
+	expect(ProjectLayout.safeParse(tabs(17)).success).toBe(true);
+	expect(ProjectLayout.safeParse(tabs(200)).success).toBe(true);
 });
 
 test("ProjectLayout caps the length of a terminal tab id", () => {

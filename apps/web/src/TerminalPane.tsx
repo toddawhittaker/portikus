@@ -1,4 +1,8 @@
-import type { Terminal as TerminalMeta } from "@portikus/contracts";
+import {
+	EDITOR_SETTINGS_DEFAULTS,
+	type Terminal as TerminalMeta,
+	type TerminalTheme,
+} from "@portikus/contracts";
 import { useToast } from "@portikus/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { FitAddon } from "@xterm/addon-fit";
@@ -8,6 +12,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { useEffect, useRef, useState } from "react";
 import { wsUrl } from "./api/ws.js";
+import { useEditorSettings } from "./editor/settingsQueries.js";
 import {
 	canOpenInNewTab,
 	FILE_LINE_PATTERN,
@@ -37,18 +42,56 @@ const FATAL_CLOSE_CODES = new Set([1008, 1009, 1011]);
  */
 export const SCROLLBACK_LINES = 5_000;
 
-const THEME = {
+/**
+ * The two terminal colour schemes (issue #239). They match the
+ * `--terminal-*` and `--ansi-*` tokens in packages/ui/src/theme.css, which
+ * colour the chrome around the terminal; xterm.js needs the values directly.
+ * The scrollbar thumb is the terminal's muted foreground, quiet until the
+ * pointer is on it: xterm.js would otherwise derive it from the text colour,
+ * which is far too loud.
+ */
+const DARK_THEME = {
 	background: "#11100e",
 	foreground: "#e4dfd4",
 	cursor: "#e8c37a",
 	selectionBackground: "#3a4a48",
-	// The scrollbar thumb: the terminal's muted foreground, quiet until the
-	// pointer is on it. xterm.js would otherwise derive it from the text
-	// colour, which is far too loud.
 	scrollbarSliderBackground: "#9a938666",
 	scrollbarSliderHoverBackground: "#9a9386b3",
 	scrollbarSliderActiveBackground: "#9a9386cc",
 };
+
+const LIGHT_THEME = {
+	background: "#fdfcfa",
+	foreground: "#23211d",
+	cursor: "#8a5a00",
+	selectionBackground: "#d9e8e5",
+	scrollbarSliderBackground: "#5a554c40",
+	scrollbarSliderHoverBackground: "#5a554c80",
+	scrollbarSliderActiveBackground: "#5a554ca6",
+	// The default ANSI palette is written for a dark ground, so a light
+	// terminal needs its own or half the colours are unreadable.
+	black: "#23211d",
+	brightBlack: "#5a554c",
+	red: "#a4342a",
+	brightRed: "#c14437",
+	green: "#2e6e34",
+	brightGreen: "#3c8743",
+	yellow: "#855b00",
+	brightYellow: "#a27100",
+	blue: "#3f5a8c",
+	brightBlue: "#4f70ab",
+	magenta: "#8a3ea0",
+	brightMagenta: "#a44fbd",
+	cyan: "#24605c",
+	brightCyan: "#2c7a74",
+	white: "#6e685d",
+	brightWhite: "#23211d",
+};
+
+/** The xterm theme for one of the two schemes (contracts/settings.ts). */
+export function terminalTheme(theme: TerminalTheme): Record<string, string> {
+	return theme === "light" ? LIGHT_THEME : DARK_THEME;
+}
 
 export interface TerminalPaneProps {
 	workspaceId: string;
@@ -167,6 +210,18 @@ export function TerminalPane({
 	const visibleRef = useRef(visible);
 	visibleRef.current = visible;
 
+	// The student's terminal colour scheme (issue #239). It arrives after the
+	// first render and can change while the terminal is open, so the theme is
+	// set on the live instance rather than only at construction.
+	const settings = useEditorSettings();
+	const scheme: TerminalTheme =
+		settings.data?.terminalTheme ?? EDITOR_SETTINGS_DEFAULTS.terminalTheme;
+	const schemeRef = useRef(scheme);
+	schemeRef.current = scheme;
+	useEffect(() => {
+		if (xterm.current) xterm.current.options.theme = terminalTheme(scheme);
+	}, [scheme]);
+
 	const terminalId = terminal.id;
 
 	useEffect(() => {
@@ -201,7 +256,7 @@ export function TerminalPane({
 		const term = new Xterm({
 			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 			fontSize: 13,
-			theme: THEME,
+			theme: terminalTheme(schemeRef.current),
 			convertEol: false,
 			scrollback: SCROLLBACK_LINES,
 		});

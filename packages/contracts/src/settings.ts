@@ -79,13 +79,21 @@ export type UpdateAdminUserSettingsRequest = z.infer<
 >;
 
 /**
- * One user's editor preferences (issue #159). Every field has a default, so a
- * user who has never changed anything still gets a complete object.
+ * One user's editor and terminal preferences (issues #159 and #239). Every
+ * field has a default, so a user who has never changed anything still gets a
+ * complete object.
  */
+export const TERMINAL_THEMES = ["dark", "light"] as const;
+
+/** The colour scheme a student's terminals use (issue #239). */
+export const TerminalTheme = z.enum(TERMINAL_THEMES);
+export type TerminalTheme = z.infer<typeof TerminalTheme>;
+
 export const EditorSettings = z.object({
 	autoSave: z.boolean(),
 	autoSaveDelaySeconds: z.number().int().min(1).max(60),
 	wordWrap: z.boolean(),
+	terminalTheme: TerminalTheme,
 });
 export type EditorSettings = z.infer<typeof EditorSettings>;
 
@@ -94,6 +102,7 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
 	autoSave: true,
 	autoSaveDelaySeconds: 5,
 	wordWrap: false,
+	terminalTheme: "dark",
 };
 
 /**

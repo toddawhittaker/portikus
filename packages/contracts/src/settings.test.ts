@@ -167,7 +167,19 @@ test("the editor settings defaults are a valid, complete set", () => {
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
 		wordWrap: false,
+		terminalTheme: "dark",
 	});
+});
+
+/** Issue #239: the terminal is dark unless the student asks for light. */
+test("EditorSettings takes only the two terminal themes", () => {
+	expect(
+		EditorSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, terminalTheme: "light" })
+			.terminalTheme,
+	).toBe("light");
+	expect(() =>
+		EditorSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, terminalTheme: "solarized" }),
+	).toThrow();
 });
 
 test("EditorSettings keeps the auto-save delay between 1 and 60 seconds", () => {

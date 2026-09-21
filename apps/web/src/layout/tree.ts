@@ -5,8 +5,6 @@
  * about splitting, collapsing and reconciling can be tested on its own.
  */
 import {
-	documentTabId,
-	MAX_LAYOUT_TABS,
 	MAX_SPLIT_DEPTH,
 	type ProjectLayout,
 	type SplitNode,
@@ -257,14 +255,6 @@ export function reconcile(
 	const placed = new Set(layoutTerminalIds(next));
 	for (const id of terminalIds) {
 		if (placed.has(id) || ended.has(id)) continue;
-		if (next.tabs.length >= MAX_LAYOUT_TABS) {
-			// A terminal is a process and a document tab is not, so the oldest
-			// file or diff tab gives up its place. With none to close the
-			// terminal stays unplaced; it can be opened again later.
-			const oldest = next.tabs.find((tab) => documentTabId(tab.root) !== null);
-			if (!oldest) continue;
-			next = closeTab(next, oldest.id);
-		}
 		next = addTab(next, id, id);
 		placed.add(id);
 	}
@@ -381,8 +371,7 @@ export function moveLeaf(
  * Drag one pane out to the tab strip (SPEC.md §8.3): it leaves its tab and
  * becomes a tab of its own at `index`, under the `tabId` the caller supplies.
  * The id comes from the caller because the terminal id is already in use as
- * the name of the tab this pane is leaving. A tab left empty disappears, and
- * a move that would push past `MAX_LAYOUT_TABS` is refused.
+ * the name of the tab this pane is leaving. A tab left empty disappears.
  */
 export function moveLeafToNewTab(
 	layout: ProjectLayout,
@@ -391,12 +380,7 @@ export function moveLeafToNewTab(
 	tabId: string,
 ): ProjectLayout {
 	if (!layoutTerminalIds(layout).includes(terminalId)) return layout;
-	// A pane that is already its whole tab only moves that tab along the strip.
-	const alone = layout.tabs.some(
-		(tab) => tab.root.type === "leaf" && tab.root.terminalId === terminalId,
-	);
 	const tabs = removeLeaf(layout, terminalId).tabs;
-	if (!alone && tabs.length + 1 > MAX_LAYOUT_TABS) return layout;
 	const next = [...tabs];
 	next.splice(Math.min(Math.max(index, 0), next.length), 0, {
 		id: tabId,
@@ -413,11 +397,9 @@ export function moveLeafToNewTab(
 export function openFile(
 	layout: ProjectLayout,
 	path: string,
-): { layout: ProjectLayout; tabId: string } | null {
+): { layout: ProjectLayout; tabId: string } {
 	const tabId = fileTabId(path);
 	if (layout.tabs.some((tab) => tab.id === tabId)) return { layout, tabId };
-	// No room for another tab: the caller tells the student to close one.
-	if (layout.tabs.length >= MAX_LAYOUT_TABS) return null;
 	const node: SplitNode = { type: "file", path };
 	return { layout: { tabs: [...layout.tabs, { id: tabId, root: node }] }, tabId };
 }

@@ -37,7 +37,12 @@ function checkbox(name: RegExp) {
 }
 
 test("it shows the settings the server holds", async () => {
-	stubSettings({ autoSave: false, autoSaveDelaySeconds: 12, wordWrap: true });
+	stubSettings({
+		autoSave: false,
+		autoSaveDelaySeconds: 12,
+		wordWrap: true,
+		terminalTheme: "light",
+	});
 	renderWithQuery(<EditorSettingsDialog onClose={() => {}} />);
 
 	await waitFor(() =>
@@ -47,6 +52,7 @@ test("it shows the settings the server holds", async () => {
 	);
 	expect((checkbox(/Auto-save/) as HTMLInputElement).checked).toBe(false);
 	expect((checkbox(/Word wrap/) as HTMLInputElement).checked).toBe(true);
+	expect(screen.getByLabelText("Terminal colours").textContent).toContain("Light");
 });
 
 test("saving sends every setting and closes the dialog", async () => {
@@ -70,6 +76,7 @@ test("saving sends every setting and closes the dialog", async () => {
 		autoSave: true,
 		autoSaveDelaySeconds: 8,
 		wordWrap: true,
+		terminalTheme: "dark",
 	});
 	await waitFor(() => expect(onClose).toHaveBeenCalled());
 });
@@ -108,4 +115,28 @@ test("a delay outside 1 to 60 seconds is refused before anything is sent", async
 	expect(screen.getByText(/between 1 and 60/)).not.toBeNull();
 	fireEvent.click(screen.getByTestId("editor-settings-save"));
 	expect(writes).toHaveLength(0);
+});
+
+/**
+ * Issue #239: the dialog shows the stored terminal theme and sends it back
+ * with everything else. The Radix select cannot be opened in jsdom, so
+ * actually choosing a different theme is covered in e2e/editor.spec.ts.
+ */
+test("the stored terminal theme is shown and sent back", async () => {
+	const writes = stubSettings({
+		autoSave: true,
+		autoSaveDelaySeconds: 5,
+		wordWrap: false,
+		terminalTheme: "light",
+	});
+	renderWithQuery(<EditorSettingsDialog onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByLabelText("Terminal colours").textContent).toContain("Light"),
+	);
+
+	fireEvent.click(checkbox(/Word wrap/));
+	fireEvent.click(screen.getByTestId("editor-settings-save"));
+
+	await waitFor(() => expect(writes).toHaveLength(1));
+	expect(writes[0]?.body).toMatchObject({ terminalTheme: "light", wordWrap: true });
 });
