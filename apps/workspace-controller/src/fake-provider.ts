@@ -16,6 +16,7 @@ interface FakeInstance {
 	agentToken: string | null;
 	hostname: string | null;
 	previewHostSuffix: string | null;
+	timezone: string | null;
 	imageFingerprint: string;
 	quota: { homeGiB: number; dockerGiB: number };
 }
@@ -69,6 +70,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			agentToken: null,
 			hostname: null,
 			previewHostSuffix: null,
+			timezone: null,
 			imageFingerprint: "abc123",
 			quota: sizes,
 		};
@@ -83,6 +85,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			agentToken: string;
 			hostname: string;
 			previewHostSuffix: string;
+			timezone: string;
 		},
 	): Promise<StartInstanceResponse> {
 		this.validate(name);
@@ -98,6 +101,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 		inst.agentToken = opts.agentToken;
 		inst.hostname = opts.hostname;
 		inst.previewHostSuffix = opts.previewHostSuffix;
+		inst.timezone = opts.timezone;
 		return { ipv4: "10.0.0.2" };
 	}
 

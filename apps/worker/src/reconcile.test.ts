@@ -142,9 +142,32 @@ test.skipIf(skip)("connect -> sweep -> start called -> running", async () => {
 	const startCall = fake.calls.find((c) => c.method === "start");
 	expect(startCall?.args[1]).toMatchObject({
 		previewHostSuffix: "preview.portikus.example.edu",
+		timezone: "America/New_York",
 	});
 	const audits = await getAudits(id);
 	expect(audits.some((a) => a.action === "workspace.start")).toBe(true);
+});
+
+/** Issue #287: the container starts in the zone its owner chose. */
+test.skipIf(skip)("the start request carries the owner's timezone", async () => {
+	const ownerId = await insertTestUser(tdb.db);
+	await tdb.db
+		.updateTable("users")
+		.set({ editor_settings: JSON.stringify({ timezone: "Europe/Berlin" }) })
+		.where("id", "=", ownerId)
+		.execute();
+	const id = await insertWorkspace({
+		owner_user_id: ownerId,
+		state: "stopped",
+		desired_state: "running",
+	});
+	await insertConnection(id);
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+
+	const startCall = fake.calls.find((c) => c.method === "start");
+	expect(startCall?.args[1]).toMatchObject({ timezone: "Europe/Berlin" });
 });
 
 test.skipIf(skip)("disconnect -> sweep -> deadline set, still running", async () => {

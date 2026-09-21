@@ -192,6 +192,26 @@ test.skipIf(skip)("a terminal starts in the user's scheme and can change", async
 	}
 });
 
+/**
+ * Issue #287: a new terminal is told the owner's zone, so a shell opened
+ * after the setting changed runs in it without a workspace restart.
+ */
+test.skipIf(skip)("a new terminal carries the user's timezone", async () => {
+	const first = await create(alice, workspaceId);
+	expect(agent.terminals.get(first.json().id)?.timezone).toBe("America/New_York");
+
+	const saved = await app.inject({
+		method: "PUT",
+		url: "/me/settings",
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: { timezone: "Europe/Berlin" },
+	});
+	expect(saved.statusCode).toBe(200);
+
+	const second = await create(alice, workspaceId);
+	expect(agent.terminals.get(second.json().id)?.timezone).toBe("Europe/Berlin");
+});
+
 test.skipIf(skip)("an administrator is refused on every terminal route", async () => {
 	const created = await create(alice, workspaceId);
 	const terminalId = created.json().id;

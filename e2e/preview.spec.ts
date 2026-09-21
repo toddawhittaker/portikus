@@ -217,7 +217,6 @@ test.describe("application preview", () => {
 		await expect(page.getByTestId(`running-row-${port}`)).toBeVisible({
 			timeout: 20_000,
 		});
-		await expect(page.getByTestId(`running-row-${port}`)).toContainText("Preview");
 
 		await page.getByTestId(`running-open-${port}`).click();
 		await expect(page.getByTestId("preview-host")).toContainText(
@@ -228,6 +227,59 @@ test.describe("application preview", () => {
 		// fetched through the authorization subrequest.
 		await expect(appHeading(page)).toHaveText("Todo API", { timeout: 20_000 });
 		expect(counts.app).toBeGreaterThan(0);
+	});
+
+	test("a system listener is hidden until the toggle is on", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await seedListening(student.workspaceId, [
+			{ port: 5173, process: { pid: 4242, command: "node" } },
+			{ port: 5355, system: true, process: { pid: 7, command: "systemd-resolve" } },
+		]);
+		await openProject(page, student.workspaceId);
+		await page.getByTestId("right-pane-tab-running").click();
+		await expect(page.getByTestId("running-row-5173")).toBeVisible({ timeout: 20_000 });
+		await expect(page.getByTestId("running-row-5355")).toHaveCount(0);
+
+		await page.getByTestId("running-system-toggle").locator("input").check();
+		await expect(page.getByTestId("running-row-5355")).toBeVisible();
+		await expect(page.getByTestId("running-reason-5355")).toHaveText("system service");
+		await expect(page.getByTestId("running-stop-5355")).toHaveCount(0);
+
+		// The choice is remembered per browser (issue #265).
+		await page.reload();
+		await page.getByTestId("right-pane-tab-running").click();
+		await expect(page.getByTestId("running-row-5355")).toBeVisible({ timeout: 20_000 });
+	});
+
+	test("Stop ends a listener and its preview tab goes inactive", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(page);
+		const port = await startPreviewApp(student.workspaceId, "Stoppable");
+		await openProject(page, student.workspaceId);
+		await page.getByTestId("right-pane-tab-running").click();
+		await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
+		await expect(appHeading(page)).toHaveText("Stoppable", { timeout: 20_000 });
+
+		await page.getByTestId("right-pane-tab-running").click();
+		await page.getByTestId(`running-stop-${port}`).click();
+		await expect(page.getByTestId("dialog-stop-listener")).toContainText(
+			`Stop node on port ${port}?`,
+		);
+		await page.getByTestId("dialog-confirm").click();
+
+		await expect(page.getByTestId(`running-row-${port}`)).toHaveCount(0, {
+			timeout: 20_000,
+		});
+		await expect(page.getByTestId("preview-inactive")).toContainText(
+			`Nothing is currently listening on port ${port}`,
+			{ timeout: 20_000 },
+		);
 	});
 
 	test("an empty workspace says nothing is running yet", async ({ page, context }) => {

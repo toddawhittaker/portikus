@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CloneUrl, ProjectSlug } from "./project.js";
-import { TerminalTheme } from "./settings.js";
+import { TerminalTheme, Timezone } from "./settings.js";
 import { TerminalId } from "./terminal.js";
 
 /**
@@ -43,6 +43,12 @@ export const AgentCreateTerminalRequest = z
 		 * such as Claude Code, picks a matching theme.
 		 */
 		theme: TerminalTheme,
+		/**
+		 * The owner's timezone (issue #287). The agent sets TZ in the shell's
+		 * environment, so a terminal opened after the setting changed reads the
+		 * new zone without waiting for a workspace restart.
+		 */
+		timezone: Timezone,
 	})
 	.strict();
 export type AgentCreateTerminalRequest = z.infer<typeof AgentCreateTerminalRequest>;
@@ -128,6 +134,9 @@ export const AgentErrorCode = z.enum([
 	"CHECK_NOT_FOUND",
 	"CHECK_RUNNING",
 	"CHECK_NOT_RUNNING",
+	"LISTENER_NOT_FOUND",
+	"LISTENER_IS_SYSTEM",
+	"STOP_FAILED",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 

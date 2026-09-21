@@ -2,10 +2,12 @@ import { expect, test } from "vitest";
 import {
 	AdminUser,
 	AdminUserList,
+	DEFAULT_TIMEZONE,
 	EDITOR_SETTINGS_DEFAULTS,
 	EditorSettings,
 	PlatformSettings,
 	SetLogLevelRequest,
+	TIMEZONES,
 	UpdateAdminUserSettingsRequest,
 	UpdateEditorSettingsRequest,
 	UpdatePlatformSettingsRequest,
@@ -169,6 +171,7 @@ test("the editor settings defaults are a valid, complete set", () => {
 		// Issue #270: wrap is on unless the student turns it off.
 		wordWrap: true,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
 	});
 });
 
@@ -197,6 +200,31 @@ test("EditorSettings keeps the auto-save delay between 1 and 60 seconds", () => 
 
 test("EditorSettings requires every field", () => {
 	expect(() => EditorSettings.parse({ autoSave: true })).toThrow();
+});
+
+/** Issue #287: the workspace runs in a zone the student may change. */
+test("EditorSettings takes only IANA zone names", () => {
+	expect(EDITOR_SETTINGS_DEFAULTS.timezone).toBe(DEFAULT_TIMEZONE);
+	expect(
+		EditorSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, timezone: "Europe/Berlin" })
+			.timezone,
+	).toBe("Europe/Berlin");
+	for (const bad of ["Mars/Olympus", "", "America/New_York; rm -rf /", 5]) {
+		expect(() =>
+			EditorSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, timezone: bad }),
+		).toThrow();
+	}
+});
+
+/**
+ * Issue #287: the zone name reaches a command inside the container, so
+ * nothing on this list may carry a shell metacharacter.
+ */
+test("the zone list holds the default and no shell metacharacters", () => {
+	expect(TIMEZONES).toContain(DEFAULT_TIMEZONE);
+	for (const zone of TIMEZONES) {
+		expect(zone).toMatch(/^[A-Za-z0-9_+\-/]+$/);
+	}
 });
 
 test("UpdateEditorSettingsRequest takes one field at a time", () => {

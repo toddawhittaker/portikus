@@ -1001,6 +1001,14 @@ TERMPROBE
         term_probe "$term_id" 'echo $PORTIKUS_PREVIEW_HOST_SUFFIX' \
         "$PREVIEW_SUFFIX" - 30000
 
+      # The workspace runs in the deployment's default zone unless the
+      # student picked another (issue #287). The typed command holds only
+      # the variable name, so the zone can only appear once the shell has
+      # expanded it.
+      # shellcheck disable=SC2016  # the shell inside the workspace expands it
+      check "terminal shell runs in the default timezone" \
+        term_probe "$term_id" 'echo $TZ' "America/New_York" - 30000
+
       # Reattaching inside the grace period redraws the same tmux screen,
       # so the marker written a moment ago is still on it (SPEC.md 9.2).
       check "reattached terminal shows the earlier output" \

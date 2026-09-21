@@ -25,8 +25,13 @@ test("AgentTerminalList round-trips", () => {
 	expect(AgentTerminalList.parse(input)).toEqual(input);
 });
 
-test("AgentCreateTerminalRequest requires an id, a cwd and a theme", () => {
-	const input = { id: terminalId, cwd: "/home/student", theme: "light" };
+test("AgentCreateTerminalRequest requires an id, a cwd, a theme and a zone", () => {
+	const input = {
+		id: terminalId,
+		cwd: "/home/student",
+		theme: "light",
+		timezone: "Europe/Berlin",
+	};
 	expect(AgentCreateTerminalRequest.parse(input)).toEqual(input);
 	expect(AgentCreateTerminalRequest.safeParse({ cwd: "/home/student" }).success).toBe(
 		false,
@@ -34,6 +39,15 @@ test("AgentCreateTerminalRequest requires an id, a cwd and a theme", () => {
 	// The theme decides COLORFGBG in the shell (issue #267), so it is required.
 	expect(
 		AgentCreateTerminalRequest.safeParse({ id: terminalId, cwd: "/home/student" })
+			.success,
+	).toBe(false);
+	// The zone becomes TZ in the shell (issue #287), so it is required and
+	// only a known zone name is taken.
+	expect(
+		AgentCreateTerminalRequest.safeParse({ ...input, timezone: undefined }).success,
+	).toBe(false);
+	expect(
+		AgentCreateTerminalRequest.safeParse({ ...input, timezone: "Mars/Olympus" })
 			.success,
 	).toBe(false);
 	expect(
@@ -56,11 +70,13 @@ test("StartInstanceRequest requires a 64-character hex agent token", () => {
 			agentToken: token,
 			hostname: "tw7",
 			previewHostSuffix: "preview.portikus.school.edu",
+			timezone: "America/New_York",
 		}),
 	).toEqual({
 		agentToken: token,
 		hostname: "tw7",
 		previewHostSuffix: "preview.portikus.school.edu",
+		timezone: "America/New_York",
 		timeoutSeconds: 60,
 	});
 	expect(StartInstanceRequest.safeParse({}).success).toBe(false);
@@ -127,8 +143,27 @@ test("AgentError accepts the project error codes", () => {
 	}
 });
 
+test("StartInstanceRequest requires a known timezone", () => {
+	const base = {
+		agentToken: "a".repeat(64),
+		hostname: "tw7",
+		previewHostSuffix: "preview.portikus.school.edu",
+	};
+	expect(StartInstanceRequest.safeParse(base).success).toBe(false);
+	expect(
+		StartInstanceRequest.safeParse({ ...base, timezone: "Mars/Olympus" }).success,
+	).toBe(false);
+	expect(
+		StartInstanceRequest.safeParse({ ...base, timezone: "Europe/Berlin" }).success,
+	).toBe(true);
+});
+
 test("StartInstanceRequest requires a DNS-name preview host suffix", () => {
-	const base = { agentToken: "a".repeat(64), hostname: "tw7" };
+	const base = {
+		agentToken: "a".repeat(64),
+		hostname: "tw7",
+		timezone: "America/New_York",
+	};
 	// Missing, uppercase, and shell-metacharacter suffixes are all refused.
 	expect(StartInstanceRequest.safeParse(base).success).toBe(false);
 	expect(

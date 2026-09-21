@@ -47,6 +47,22 @@ const COOKIE_NAME = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/;
 const IdParams = z.object({ id: z.string().uuid() });
 const TicketQuery = z.object({ t: z.string().min(1).max(200) });
 const PortQuery = z.object({ port: z.coerce.number().int().min(1).max(65535) });
+const PortParam = PortQuery;
+
+/** The status each agent refusal to stop a listener becomes (issue #273). */
+function stopStatusFor(code: string): number {
+	if (code === "LISTENER_NOT_FOUND") return 404;
+	if (code === "LISTENER_IS_SYSTEM") return 403;
+	if (code === "STOP_FAILED") return 409;
+	return 502;
+}
+
+function stopMessageFor(code: string): string {
+	if (code === "LISTENER_NOT_FOUND") return "Nothing is listening on that port";
+	if (code === "LISTENER_IS_SYSTEM") return "That service belongs to the system";
+	if (code === "STOP_FAILED") return "That service did not stop";
+	return "The workspace did not answer";
+}
 
 /**
  * How many preview requests one student may make in a minute, counting
@@ -175,6 +191,49 @@ export function registerPreviewRoutes(
 				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
 		}
 		return reply.send({ services: servicesOf(params.data.id) });
+	});
+
+	/**
+	 * Stop what holds a port inside the workspace (SPEC.md §18.2, issue #273).
+	 * Only the owner may ask; the agent decides whether the listener is the
+	 * student's to stop, and its refusal is passed on unchanged.
+	 */
+	app.post("/workspaces/:id/listening/:port/stop", async (request, reply) => {
+		const user = requireUser(request);
+		const params = IdParams.safeParse(request.params);
+		const port = PortParam.safeParse(request.params);
+		if (!params.success || !port.success) {
+			return reply
+				.status(400)
+				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id or port" });
+		}
+		const workspace = await previewWorkspace(params.data.id, user.id);
+		if (!workspace) {
+			return reply
+				.status(404)
+				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+		}
+		if (workspace.state !== "running") {
+			return reply.status(409).send({
+				code: "WORKSPACE_NOT_RUNNING",
+				message: "The workspace is not running",
+			});
+		}
+		try {
+			await registry.stopListener(params.data.id, port.data.port);
+		} catch (error) {
+			if (error instanceof AgentCallError) {
+				return reply.status(stopStatusFor(error.code)).send({
+					code: error.code,
+					message: stopMessageFor(error.code),
+				});
+			}
+			request.log.error({ err: error }, "stop listener failed");
+			return reply
+				.status(502)
+				.send({ code: "AGENT_UNAVAILABLE", message: "The workspace did not answer" });
+		}
+		return reply.send({ port: port.data.port, stopped: true });
 	});
 
 	app.post("/workspaces/:id/preview-grants", async (request, reply) => {

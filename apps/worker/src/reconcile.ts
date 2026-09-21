@@ -1,10 +1,17 @@
 import { randomBytes } from "node:crypto";
-import type { ControllerErrorCode } from "@portikus/contracts";
+import {
+	type ControllerErrorCode,
+	DEFAULT_TIMEZONE,
+	TIMEZONES,
+} from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Logger, silentLogger } from "@portikus/observability";
 import { type ExpressionBuilder, type Kysely, sql } from "kysely";
 import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
+
+/** The zone names this build knows, so a stored one can be checked (issue #287). */
+const KNOWN_TIMEZONES = new Set(TIMEZONES);
 
 /** Config values the reconciler reads. */
 export interface ReconcileConfig {
@@ -612,6 +619,27 @@ export async function reconcile(
 }
 
 /**
+ * The zone the workspace's owner chose (issue #287). Anything missing or no
+ * longer a known zone name reads as the platform default, so a start is
+ * never held up by a stored value.
+ */
+async function ownerTimezone(
+	db: Kysely<Database>,
+	workspaceId: string,
+): Promise<string> {
+	const row = await db
+		.selectFrom("workspaces")
+		.innerJoin("users", "users.id", "workspaces.owner_user_id")
+		.select("users.editor_settings")
+		.where("workspaces.id", "=", workspaceId)
+		.executeTakeFirst();
+	const stored = row?.editor_settings?.timezone;
+	return typeof stored === "string" && KNOWN_TIMEZONES.has(stored)
+		? stored
+		: DEFAULT_TIMEZONE;
+}
+
+/**
  * Move a workspace from `fromState` into starting and start it. Returns
  * the number of state transitions made. Shared by the stopped->running
  * path and the retry-after-error path (SPEC.md §6.3).
@@ -654,6 +682,7 @@ async function startWorkspace(
 			agentToken,
 			hostname: ws.label,
 			previewHostSuffix: config.PREVIEW_SUFFIX,
+			timezone: await ownerTimezone(db, ws.id),
 		});
 		const updated = await casUpdate(
 			db,

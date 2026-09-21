@@ -92,7 +92,7 @@ export function FilesPane({
 				) : null}
 				{pane === "running" ? (
 					<aside className="pk-pane pk-pane--right" aria-label="Running">
-						<RunningSurface projectId={project.id} />
+						<RunningSurface workspaceId={workspaceId} projectId={project.id} />
 					</aside>
 				) : null}
 			</div>
@@ -106,7 +106,7 @@ export function FilesPane({
 			<Tabs pane={pane === "checks" ? "files" : pane} show={show} />
 			{pane === "running" ? (
 				<aside className="pk-pane pk-pane--right" aria-label="Running">
-					<RunningSurface projectId={undefined} />
+					<RunningSurface workspaceId={workspaceId} projectId={undefined} />
 				</aside>
 			) : (
 				<aside className="pk-pane pk-pane--right" aria-label="Files">
@@ -171,19 +171,31 @@ function Switcher({
  * The Running surface, wired to the layout of the open project so that Open
  * preview lands as a tab and a saved preview with no listener is marked.
  */
-function RunningSurface({ projectId }: { projectId: string | undefined }) {
+function RunningSurface({
+	workspaceId,
+	projectId,
+}: {
+	workspaceId: string;
+	projectId: string | undefined;
+}) {
 	const store = useLayoutStore(projectId ?? "none");
 	const layout = useLayout(store, (state) => state.layout);
 	const previewPorts = layout.tabs
 		.map((tab) => (tab.root.type === "preview" ? tab.root.port : null))
 		.filter((port): port is number => port !== null);
+	const activeTabId = useLayout(store, (state) => state.activeTabId);
+	const activeTab = layout.tabs.find((tab) => tab.id === activeTabId);
+	const activePort =
+		activeTab && activeTab.root.type === "preview" ? activeTab.root.port : null;
 	return (
 		<>
 			<div className="pk-pane-head">
 				<h2 className="pk-pane-title">Running</h2>
 			</div>
 			<RunningPane
+				workspaceId={workspaceId}
 				previewPorts={projectId ? previewPorts : []}
+				activePort={projectId ? activePort : null}
 				onOpenPreview={(port) => {
 					if (projectId) store.getState().openPreview(port);
 				}}

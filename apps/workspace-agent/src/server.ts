@@ -253,6 +253,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					parsed.data.cwd,
 					options.homeDir,
 					parsed.data.theme,
+					parsed.data.timezone,
 					options.tmuxSocketName,
 				);
 				request.log.debug(
