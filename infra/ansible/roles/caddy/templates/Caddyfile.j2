@@ -6,20 +6,25 @@
 # The plain preview path and the multi-port bridge (BROWSER-HANDLING 14)
 # run the same steps, so the steps live here once and are imported twice.
 
-# Strip forged headers, ask the API, then take the preview session cookie
-# out of the request.  Everything a student application must not see is
-# removed here, so the two callers cannot forget one.
-(portikus_preview_authorize) {
-	# The upstream may only ever come from the authorization response, so a
-	# client copy of the header is deleted before the subrequest runs.  The
-	# forwarded-for family goes for the same reason: Caddy sets trusted
-	# values itself.
+# Everything the client said about who it is, thrown away.  The upstream
+# may only ever come from the authorization response, so a client copy of
+# that header goes too.  Every route on the preview host imports this
+# first, including the two that only talk to the API: the API reads
+# X-Forwarded-Host to decide which preview host a request is for.
+(portikus_forget_forwarded) {
 	request_header -X-Portikus-Upstream
 	request_header -X-Forwarded-For
 	request_header -X-Forwarded-Proto
 	request_header -X-Forwarded-Host
 	request_header -X-Forwarded-Method
 	request_header -X-Forwarded-Uri
+}
+
+# Strip forged headers, ask the API, then take the preview session cookie
+# out of the request.  Everything a student application must not see is
+# removed here, so the two callers cannot forget one.
+(portikus_preview_authorize) {
+	import portikus_forget_forwarded
 
 	# Every request and every WebSocket upgrade is authorized
 	# (BROWSER-HANDLING 10).  Caddy's own proxy fills in the trusted
@@ -52,7 +57,12 @@
 	# state and must not reach the student application.  The pair is cut out
 	# of the Cookie header, any cookie the application set for itself stays,
 	# and a header left holding nothing is deleted rather than sent empty.
-	request_header Cookie "\s*(__Host-)?portikus-preview=[^;]*;?" ""
+	# The name has to start the header or follow a separator, so a cookie of
+	# the application's own whose name merely ends in ours is left alone.
+	# One separator goes with the pair; a separator stranded at either end
+	# is tidied up afterwards.
+	request_header Cookie "(^|;\s*)(__Host-)?portikus-preview=[^;]*" ""
+	request_header Cookie "^\s*;\s*" ""
 	request_header Cookie ";\s*$" ""
 	request_header @portikus_empty_cookie -Cookie
 }
@@ -73,9 +83,10 @@
 		# A cookie scoped to localhost or to a bare IP address is thrown away
 		# by the browser on the preview origin.  Dropping the attribute makes
 		# the cookie host-only on the preview origin instead, which is what
-		# the application meant.  Only those two shapes are touched; a real
-		# domain is left alone.
-		header_down Set-Cookie "(?i);\s*domain=(localhost|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)" ""
+		# the application meant.  Only those two shapes are touched: the name
+		# has to run to the end of the attribute, so Domain=localhost.evil.example
+		# is a real domain and is left as it is.
+		header_down Set-Cookie "(?i);\s*domain=(localhost|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\s*(;|$)" "${2}"
 
 		# A redirect the application sends to its own address is the one URL
 		# rewrite allowed (BROWSER-HANDLING 13).  Every 3xx is inspected; the
@@ -216,24 +227,32 @@ https://*.{{ portikus_preview_suffix }}:{{ portikus_public_port }} {
 	# Reserved edge paths.  They are answered before any proxying and never
 	# reach the student application (BROWSER-HANDLING 12).
 	handle /__portikus/bootstrap {
-		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+		route {
+			import portikus_forget_forwarded
+			reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+		}
 	}
 	handle /__portikus/reset {
-		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+		route {
+			import portikus_forget_forwarded
+			reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+		}
 	}
 	# The same-origin bridge to a second port in the same workspace
 	# (BROWSER-HANDLING 14).  The reserved prefix is still on the URI when
 	# the API is asked, so the API reads the wanted port out of
 	# X-Forwarded-Uri and answers with that port's upstream; the prefix is
-	# stripped before the request reaches the application.  A port that is
-	# not a number never gets that far.
+	# stripped before the request reaches the application.  Caddy accepts
+	# only the shape the API's own parser accepts: a port with no leading
+	# zero, followed by a slash.  Anything else is a 404 here rather than a
+	# refusal there, so the two never disagree about what a bridge path is.
 	handle /__portikus/ports/* {
 		route {
-			@portikus_bad_bridge not path_regexp ^/__portikus/ports/[0-9]+(/|$)
+			@portikus_bad_bridge not path_regexp ^/__portikus/ports/[1-9][0-9]*/
 			respond @portikus_bad_bridge 404
 
 			import portikus_preview_authorize
-			uri path_regexp ^/__portikus/ports/[0-9]+/? /
+			uri path_regexp ^/__portikus/ports/[1-9][0-9]*/ /
 			import portikus_preview_proxy "/__portikus/ports/{portikus_upstream_port}"
 		}
 	}

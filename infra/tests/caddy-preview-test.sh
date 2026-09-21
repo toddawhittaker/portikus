@@ -75,7 +75,7 @@ ansible localhost -c local -m ansible.builtin.template \
 # at the top of the file count as preview: only the preview host imports
 # them, which an assertion on the application block below checks.
 awk -v out="${work}" '
-  /^\(portikus_preview/ { block = out "/preview" ; inblock = 1 }
+  /^\(portikus_/ { block = out "/preview" ; inblock = 1 }
   /^https:\/\/\*\./ { block = out "/preview" ; inblock = 1 }
   /^https:\/\/[^*]/ { block = out "/app"     ; inblock = 1 }
   inblock { print > block }
@@ -138,6 +138,17 @@ for h in For Proto Host Method Uri; do
     "^[[:space:]]+request_header -X-Forwarded-${h}\$" "${preview}"
 done
 
+# The API decides which preview host a request is for from X-Forwarded-Host,
+# so the two routes that only talk to the API must throw the client's copy
+# away as well.  Each of the three routes imports the same snippet.
+has "the forwarded headers are forgotten in one place" \
+  '^\(portikus_forget_forwarded\) \{$' "${preview}"
+if [ "$(grep -c 'import portikus_forget_forwarded' "${preview}")" = "3" ]; then
+  ok "bootstrap, reset and the application path all forget them"
+else
+  no "bootstrap, reset and the application path all forget them"
+fi
+
 has "every request is authorized by the API" \
   "forward_auth 127\.0\.0\.1:${API_PORT} \{" "${preview}"
 has "the authorization subrequest asks /preview/authorize" '^[[:space:]]+uri /preview/authorize$' "${preview}"
@@ -157,7 +168,11 @@ echo ""
 echo "--- The preview session cookie never reaches the application (16.2) ---"
 
 has "the preview cookie pair is cut out of the Cookie header" \
-  'request_header Cookie ".s\*\(__Host-\)\?portikus-preview=\[\^;\]\*;\?" ""' "${preview}"
+  'request_header Cookie "\(\^\|;.s\*\)\(__Host-\)\?portikus-preview=\[\^;\]\*" ""' "${preview}"
+has "the cookie name must start the header or follow a separator" \
+  'request_header Cookie "\(\^\|;' "${preview}"
+has "a leading separator left behind is cleaned up" \
+  'request_header Cookie "\^.s\*;.s\*" ""' "${preview}"
 has "a trailing separator left behind is cleaned up" \
   'request_header Cookie ";.s\*\$" ""' "${preview}"
 has "a Cookie header left with nothing in it is deleted" \
@@ -182,10 +197,15 @@ echo "--- The same-origin multi-port bridge (14) ---"
 
 has "the bridge prefix has a route of its own" \
   'handle /__portikus/ports/\* \{' "${preview}"
-has "a bridge path without a numeric port is a 404" \
+has "a bridge path the API would refuse is a 404 here first" \
   'respond @portikus_bad_bridge 404' "${preview}"
+# Caddy has to accept exactly the shape the API's parser accepts: a port
+# with no leading zero, followed by a slash.  A leading zero or a missing
+# slash is a 404 at the edge rather than a refusal from the API.
+has "only a port with no leading zero, followed by a slash, is a bridge path" \
+  'not path_regexp \^/__portikus/ports/\[1-9\]\[0-9\]\*/$' "${preview}"
 has "the bridge strips its prefix before the application sees the request" \
-  'uri path_regexp \^/__portikus/ports/\[0-9\]\+/\? /' "${preview}"
+  'uri path_regexp \^/__portikus/ports/\[1-9\]\[0-9\]\*/ /' "${preview}"
 has "the bridge runs the same authorization step" \
   'import portikus_preview_authorize' "${preview}"
 has "a rewritten redirect on the bridge keeps the bridge prefix" \
@@ -220,6 +240,10 @@ has "the rewrite points at the preview origin and keeps path and query" \
   'Location "https://\{http.request.hostport\}\{args\[0\]\}\{portikus_redirect_tail\}"' "${preview}"
 has "a cookie scoped to localhost or a bare address loses its Domain" \
   'header_down Set-Cookie "\(\?i\);.s\*domain=\(localhost' "${preview}"
+# Without the attribute boundary, Domain=localhost.evil.example would be
+# cut in half and the cookie corrupted.
+has "the Domain must end where the attribute ends" \
+  'header_down Set-Cookie .*\\s\*\(;\|\$\)" "\$\{2\}"' "${preview}"
 
 lacks "no blanket rewrite of the Location header" 'header_down Location' "${preview}"
 lacks "no response body is rewritten" '(^|[[:space:]])replace([[:space:]]|$)' "${preview}"
