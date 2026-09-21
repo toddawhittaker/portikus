@@ -117,6 +117,10 @@ export function TerminalLeaf({
 			className={`pk-term ${focused ? "is-focused" : ""} ${drag.isDragging ? "is-dragged" : ""}`}
 			aria-label={`Terminal: ${title}`}
 			data-testid={`terminal-leaf-${terminal.id}`}
+			// The pane's own --terminal-* tokens, so the title bar and the
+			// scrollbar follow this terminal rather than the per-user default
+			// on the document (issue #286).
+			data-terminal-theme={terminal.theme}
 			// Changes only when this pane is mounted again, which a test reads
 			// to tell a move apart from a teardown and reconnect.
 			data-mount-id={mountId.current}

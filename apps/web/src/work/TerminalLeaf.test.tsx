@@ -162,3 +162,17 @@ test("a light terminal offers dark", () => {
 	fireEvent.click(toggle);
 	expect(props.onSetTheme).toHaveBeenCalledWith(terminal.id, "dark");
 });
+
+/**
+ * Issue #286: the pane carries its own colour scheme, so the --terminal-*
+ * tokens that colour the title bar and the scrollbar come from this pane
+ * rather than from the per-user default on the document.
+ */
+test("the pane carries the terminal's own colour scheme", () => {
+	const paneId = `terminal-leaf-${terminal.id}`;
+	renderLeaf();
+	expect(screen.getByTestId(paneId).getAttribute("data-terminal-theme")).toBe("dark");
+	cleanup();
+	renderLeaf({ theme: "light" });
+	expect(screen.getByTestId(paneId).getAttribute("data-terminal-theme")).toBe("light");
+});
