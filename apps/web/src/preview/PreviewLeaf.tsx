@@ -18,7 +18,7 @@ import {
 	requestGrant,
 	resetPreviewData,
 } from "./grants.js";
-import { stepJointHistory } from "./history.js";
+import { attachPreviewHistory, type PreviewHistory } from "./history.js";
 import "./preview.css";
 
 /**
@@ -134,6 +134,29 @@ export function PreviewLeaf({
 	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
 	const frame = useRef<HTMLIFrameElement | null>(null);
 	const statusRef = useRef<State["status"]>("connecting");
+	const history = useRef<PreviewHistory | null>(null);
+	/** Shown on Back once a press found nothing to go back to (issue #283). */
+	const [backHint, setBackHint] = useState<string | undefined>(undefined);
+
+	// The anchor entry that keeps Back away from the Portikus document goes in
+	// as soon as the tab exists (BROWSER-HANDLING.md §12).
+	useEffect(() => {
+		const held = attachPreviewHistory(`${workspaceId}:${port}`, window);
+		history.current = held;
+		return () => {
+			history.current = null;
+			held.release();
+		};
+	}, [workspaceId, port]);
+
+	function goBack() {
+		setBackHint(history.current?.back() ? undefined : "Nothing to go back to");
+	}
+
+	function goForward() {
+		setBackHint(undefined);
+		history.current?.forward();
+	}
 
 	/** Whether the API says something is listening on this port. */
 	const isListening = listening.services.some((service) => service.port === port);
@@ -249,6 +272,7 @@ export function PreviewLeaf({
 	}, [state, loadedUrl]);
 
 	function onFrameLoad() {
+		setBackHint(undefined);
 		if (state.status !== "available" && state.status !== "blocked") return;
 		setLoadedUrl(state.grant.bootstrapUrl);
 		// A slow application that finally loaded was not refusing to be
@@ -344,12 +368,14 @@ export function PreviewLeaf({
 					{host}
 				</span>
 				{/* Always enabled: the frame is cross-origin, so whether it has
-				    somewhere to go back to cannot be read (issue #271). */}
+				    somewhere to go back to cannot be read (issue #271). A press
+				    with nothing behind it does nothing and says so. */}
 				<button
 					type="button"
 					className="pk-preview-action"
 					data-testid="preview-back"
-					onClick={() => void stepJointHistory("back", window)}
+					title={backHint}
+					onClick={goBack}
 				>
 					Back
 				</button>
@@ -357,7 +383,7 @@ export function PreviewLeaf({
 					type="button"
 					className="pk-preview-action"
 					data-testid="preview-forward"
-					onClick={() => void stepJointHistory("forward", window)}
+					onClick={goForward}
 				>
 					Forward
 				</button>

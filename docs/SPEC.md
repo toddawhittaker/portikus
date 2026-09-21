@@ -1167,14 +1167,19 @@ The editor must:
 
 An explicit keyboard save command such as `Ctrl/Cmd+S` may force an immediate save, but students should not need to remember to save manually for normal operation.
 
-Per-user preferences. Autosave on or off, the autosave delay, word wrap, and
-the terminal colour scheme are settings of the signed-in user, not of the
-browser. They are stored on the server, read and written through
-`GET` and `PUT /me/settings`, and changed in the account menu, so they follow
-the student to any browser they sign in from. The terminal colour scheme is
-dark or light, and it is deliberately independent of the page appearance: a
-student in a bright room may want a light terminal on a dark page, or the
-other way round.
+Per-user preferences. Autosave on or off, the autosave delay, word wrap, the
+terminal colour scheme, and the workspace timezone are settings of the
+signed-in user, not of the browser. They are stored on the server, read and
+written through `GET` and `PUT /me/settings`, and changed in the account menu,
+so they follow the student to any browser they sign in from. Word wrap
+defaults to on. The terminal colour scheme is dark or light, and it is
+deliberately independent of the page appearance: a student in a bright room
+may want a light terminal on a dark page, or the other way round. Each
+terminal carries its own colour scheme, chosen from that pane's menu and
+stored with the terminal; the per-user value is the scheme a new terminal
+starts in. The workspace timezone is an IANA zone name, `America/New_York` by
+default; it is applied to the container at every start and to each new
+terminal, so a change reaches a shell that has not been opened yet.
 
 ## 14. Application preview and port proxying
 

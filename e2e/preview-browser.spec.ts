@@ -230,6 +230,22 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
  * A small application with the browser behaviors the spec names: stored
  * state, a cookie, a form, a popup, and an optional service worker.
  */
+/**
+ * Every test application still listening. A test that fails part way through
+ * never reaches its own close, and a listener left behind resets the next
+ * connection made to it, which fills the run with ECONNRESET noise. The
+ * `finally` in the hook below closes whatever is left, whatever happened.
+ */
+const openApps = new Set<() => Promise<void>>();
+
+test.afterEach(async () => {
+	try {
+		for (const close of [...openApps]) await close();
+	} finally {
+		openApps.clear();
+	}
+});
+
 function startApp(
 	title: string,
 	/** Sent as `X-Frame-Options` on every answer, for the refused-framing path. */
@@ -347,14 +363,14 @@ function startApp(
 	return new Promise((resolve) => {
 		server.listen(0, "127.0.0.1", () => {
 			const { port } = server.address() as AddressInfo;
-			resolve({
-				port,
-				close: () =>
-					new Promise<void>((done) => {
-						server.closeAllConnections();
-						server.close(() => done());
-					}),
-			});
+			const close = () =>
+				new Promise<void>((done) => {
+					openApps.delete(close);
+					server.closeAllConnections();
+					server.close(() => done());
+				});
+			openApps.add(close);
+			resolve({ port, close });
 		});
 	});
 }
@@ -905,6 +921,40 @@ test.describe("the preview in a real browser", () => {
 		// Whatever the history did, the Portikus page stayed where it was.
 		expect(page.url()).toBe(portikusUrl);
 		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await app.close();
+	});
+
+	/**
+	 * Back on a preview the student has not navigated must do nothing at all.
+	 * It used to step the joint history and try to undo the step 300 ms later,
+	 * which unloaded the whole workspace (issue #283).
+	 */
+	test("Back on a fresh preview leaves Portikus where it was", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Fresh");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await expect(appHeading(page)).toHaveText("Fresh", { timeout: 20_000 });
+		const portikusUrl = page.url();
+
+		await page.getByTestId("preview-back").click();
+		await page.getByTestId("preview-back").click();
+		await page.getByTestId("preview-back").click();
+
+		// The Portikus page is still the one that is loaded, with its tabs and
+		// its preview still there.
+		expect(page.url()).toBe(portikusUrl);
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await expect(page.getByTestId("preview-frame")).toBeVisible();
+		await expect(appHeading(page)).toHaveText("Fresh");
+		// And the button says why nothing happened.
+		await expect(page.getByTestId("preview-back")).toHaveAttribute(
+			"title",
+			"Nothing to go back to",
+		);
 		await app.close();
 	});
 

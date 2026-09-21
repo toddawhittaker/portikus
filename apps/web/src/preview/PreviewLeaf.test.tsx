@@ -9,6 +9,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ListeningContext } from "../running/services.js";
 import { json, stubFetch } from "../test-utils.js";
+import { resetPreviewHistory } from "./history.js";
 import { PreviewLeaf } from "./PreviewLeaf.js";
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
@@ -60,8 +61,31 @@ function show(options: {
 
 afterEach(() => {
 	cleanup();
+	resetPreviewHistory();
 	vi.unstubAllGlobals();
 });
+
+/**
+ * A stand-in for the browser tab's history, so a test can say whether the
+ * frame has an entry of its own beyond the anchor (issue #283).
+ */
+function stubHistory() {
+	const back = vi.fn();
+	const forward = vi.fn();
+	let length = 1;
+	vi.stubGlobal("history", {
+		get length() {
+			return length;
+		},
+		state: null,
+		back,
+		forward,
+		pushState: () => {
+			length += 1;
+		},
+	});
+	return { back, forward, frameNavigates: () => (length += 1) };
+}
 
 beforeEach(() => {
 	vi.useRealTimers();
@@ -250,23 +274,41 @@ test("webpack-dev-server gets its own setting", async () => {
 	);
 });
 
-test("Back and Forward step the joint history and are always enabled", async () => {
+/**
+ * Back must never take the Portikus document away, so a press with nothing
+ * behind the anchor does nothing at all (issue #283).
+ */
+test("Back on a fresh preview does nothing and explains itself", async () => {
 	stubFetch(() => json(200, GRANT));
-	const back = vi.fn();
-	const forward = vi.fn();
-	vi.stubGlobal("history", { ...window.history, back, forward });
+	const tab = stubHistory();
 	show({});
 	await screen.findByTestId("preview-frame");
 
 	const backButton = screen.getByTestId("preview-back") as HTMLButtonElement;
-	const forwardButton = screen.getByTestId("preview-forward") as HTMLButtonElement;
 	expect(backButton.disabled).toBe(false);
+	fireEvent.click(backButton);
+	expect(tab.back).not.toHaveBeenCalled();
+	await waitFor(() =>
+		expect(backButton.getAttribute("title")).toBe("Nothing to go back to"),
+	);
+});
+
+test("Back steps once the frame has an entry of its own, and Forward always does", async () => {
+	stubFetch(() => json(200, GRANT));
+	const tab = stubHistory();
+	show({});
+	await screen.findByTestId("preview-frame");
+	tab.frameNavigates();
+
+	const backButton = screen.getByTestId("preview-back") as HTMLButtonElement;
+	const forwardButton = screen.getByTestId("preview-forward") as HTMLButtonElement;
 	expect(forwardButton.disabled).toBe(false);
 
 	fireEvent.click(backButton);
 	fireEvent.click(forwardButton);
-	expect(back).toHaveBeenCalledTimes(1);
-	expect(forward).toHaveBeenCalledTimes(1);
+	expect(tab.back).toHaveBeenCalledTimes(1);
+	expect(tab.forward).toHaveBeenCalledTimes(1);
+	expect(backButton.getAttribute("title")).toBe(null);
 });
 
 test("an application the probe could not reach keeps the timeout", async () => {
