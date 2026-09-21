@@ -268,3 +268,42 @@ test.skipIf(skip)(
 		});
 	},
 );
+
+/**
+ * Issue #287: a zone name this build no longer knows falls back to the
+ * default on its own and takes nothing else with it. Parsed as one object,
+ * an unknown zone threw away the student's auto-save, word wrap and terminal
+ * colours as well.
+ */
+test.skipIf(skip)("an unknown stored zone loses only the zone", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	await testDb.db
+		.updateTable("users")
+		.set({
+			editor_settings: JSON.stringify({
+				autoSave: false,
+				autoSaveDelaySeconds: 20,
+				wordWrap: false,
+				terminalTheme: "light",
+				timezone: "Mars/Olympus",
+			}),
+		})
+		.where("oidc_subject", "=", "alice")
+		.execute();
+
+	const read = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: jar.cookieHeader() },
+	});
+	expect(read.json()).toEqual({
+		autoSave: false,
+		autoSaveDelaySeconds: 20,
+		wordWrap: false,
+		terminalTheme: "light",
+		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
+	});
+});

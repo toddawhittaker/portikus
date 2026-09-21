@@ -950,11 +950,15 @@ for the real preview suffix, a Copy button and a Retry. Next.js is not in
 the table, because it has no equivalent 403 to match and nothing was
 invented for it (issue #262, PR #281). The toolbar gained Back and
 Forward. The frame is cross-origin, so its history cannot be read; the
-tab pushes one anchor entry of its own when it opens and steps the
-browser tab's joint history only while the history list has grown past
-that anchor, which is exactly what a frame navigation does (issue #271,
-PRs #281 and #292). The inactive, unauthorized, error and connecting
-states, and the blocked-from-embedding overlay, are now one compact stack
+tab pushes one anchor entry of its own when it opens and then tracks
+where it is relative to that anchor, counting the steps it has taken.
+Back is allowed only while the frame has an entry ahead of that count,
+because the list of history entries does not get shorter when the browser
+steps back through it. The anchor keeps the router's own state and is
+pushed again whenever the Portikus route changes, so switching project
+with a Preview tab open does not make Back rewind the workspace (issue
+#271, PRs #281, #292 and #295). The inactive, unauthorized, error and
+connecting states, and the blocked-from-embedding overlay, are now one compact stack
 centred in the pane, with the button at its natural size (issue #275, PR
 #281).
 
@@ -1089,9 +1093,12 @@ Pilot verification: (to be filled)
   with it, while the per-user setting is only the scheme a new terminal
   starts in. A shell already running keeps the `COLORFGBG` and the `TZ`
   it was started with, and the settings dialog and the pane menu say so.
-- The Preview tab's Back is allowed only while the browser's history list
-  has grown past an anchor entry the tab pushes when it opens. Testing
-  `history.state` for a sentinel was tried first and does not work:
+- The Preview tab's Back is allowed only while the frame has an entry
+  ahead of where the tab knows it is: an anchor entry pushed when the tab
+  opens, plus a count of the steps taken back from it. Counting entries
+  alone was tried first and is not enough, because stepping back does not
+  shorten the list. Testing `history.state` for a sentinel was tried too
+  and does not work either:
   Chromium leaves the top document's state untouched when a subframe
   navigates, so the state still reads as the anchor after the frame has
   moved on and every Back would be refused.
@@ -1114,8 +1121,10 @@ Pilot verification: (to be filled)
   inside that student's own container and process namespace, so the worst
   case is that the student signals another of their own processes.
 - A child a stopped process forked can outlive its parent and keep the
-  port. The agent signals the process it saw holding the socket, so the
-  port is still listening after SIGKILL and the answer is 409.
+  port. The agent signals the process it saw holding the socket, and then
+  rescans: when something is still listening on that port after the parent
+  has gone, the answer is 409 rather than a success the student would find
+  untrue.
 - The timezone is applied by linking `/etc/localtime` to a zone file in
   the image. A zone the image's tzdata does not carry fails the start
   rather than falling back.

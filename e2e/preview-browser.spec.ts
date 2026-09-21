@@ -959,6 +959,72 @@ test.describe("the preview in a real browser", () => {
 	});
 
 	/**
+	 * One press of Back per entry the frame made, and not one more (issue
+	 * #283). The list of history entries does not get shorter when the
+	 * browser steps back through it, so counting entries is not enough: the
+	 * guard has to count the steps it has taken, or Back keeps going and
+	 * walks into the Portikus page's own entries. The workspace page here is
+	 * reached by a real page load, as it is after the sign-in redirect, so
+	 * far enough back is another document and the workspace is gone.
+	 */
+	test("Back stops at the frame's first page, not at Portikus", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Steps");
+		// A second project, made before the page loads so it is in the list.
+		const other = await createProject(student.workspaceId, { name: "other" });
+		// A real navigation first, so the entry before the workspace document
+		// belongs to another document.
+		await page.goto("/");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await expect(appHeading(page)).toHaveText("Steps", { timeout: 20_000 });
+		const portikusUrl = page.url();
+
+		// Three navigations inside the frame, so three entries. The page the
+		// frame started on is the bootstrap URL, whose ticket is single-use,
+		// so it is the entry the student must not be able to go past twice.
+		const frame = () => page.frameLocator("[data-testid=preview-frame]");
+		await frame().locator("#link").click();
+		await expect(appHeading(page)).toHaveText("second page");
+		await frame().locator("#home").click();
+		await expect(appHeading(page)).toHaveText("Steps");
+		await frame().locator("#link").click();
+		await expect(appHeading(page)).toHaveText("second page");
+
+		// One press, one entry.
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("Steps");
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("second page");
+
+		// The third press uses the last entry the frame made. The fourth has
+		// nothing left and says so, instead of stepping into Portikus's own
+		// entries as it did while the guard counted entries rather than steps.
+		await page.getByTestId("preview-back").click();
+		await page.getByTestId("preview-back").click();
+		await expect(page.getByTestId("preview-back")).toHaveAttribute(
+			"title",
+			"Nothing to go back to",
+			{ timeout: 10_000 },
+		);
+
+		// The Portikus document is untouched: same URL, same workspace.
+		expect(page.url()).toBe(portikusUrl);
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await expect(page.getByTestId("preview-frame")).toBeVisible();
+
+		// The anchor entry carries the router's own state, so the router can
+		// still navigate after a Back.
+		await page.getByTestId(`project-item-${other.id}`).click();
+		await expect(page).toHaveURL(workspacePath(student.workspaceId, other.id));
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await app.close();
+	});
+
+	/**
 	 * The states are a compact stack in the middle of the pane, not a column
 	 * stretched from top to bottom (issue #275).
 	 */

@@ -104,7 +104,7 @@ export function systemTimezones(): readonly string[] {
 let systemTimezoneSet: Set<string> | null = null;
 
 /** Whether a value is one of the zone names this build knows. */
-export function isSystemTimezone(value: unknown): boolean {
+export function isSystemTimezone(value: unknown): value is string {
 	systemTimezoneSet ??= new Set(systemTimezones());
 	return typeof value === "string" && systemTimezoneSet.has(value);
 }

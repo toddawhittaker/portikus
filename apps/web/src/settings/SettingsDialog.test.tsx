@@ -213,9 +213,11 @@ test("the stored timezone is shown and sent back", async () => {
 test("the zone select offers exactly the zones the server sent", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	// The select takes no choice until the server's list is there, so waiting
+	// for the zone to show is not enough: wait for it to be usable.
 	await waitFor(() =>
-		expect(screen.getByLabelText("Workspace timezone").textContent).toContain(
-			"America/New York",
+		expect(screen.getByLabelText("Workspace timezone").hasAttribute("disabled")).toBe(
+			false,
 		),
 	);
 
@@ -232,4 +234,37 @@ test("the zone select offers exactly the zones the server sent", async () => {
 		"Tokyo",
 		"UTC",
 	]);
+});
+
+/**
+ * While the zone list is still on its way the setting is shown, not left
+ * out: an empty space where a setting belongs reads as a fault. It takes no
+ * choice until the list it would have to choose from is there.
+ */
+test("the zone select waits with the current zone, not with nothing", async () => {
+	// A request that never answers: the dialog stays in its loading state.
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(() => new Promise<Response>(() => {})),
+	);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+
+	const select = await screen.findByLabelText("Workspace timezone");
+	expect(select.textContent).toContain("America/New York");
+	expect(select.hasAttribute("disabled")).toBe(true);
+});
+
+/** A zone list that does not arrive at all says so in one line. */
+test("a failed settings request explains why the zone cannot be changed", async () => {
+	stubFetch(() => json(500, { code: "INTERNAL", message: "no" }));
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+
+	await waitFor(() =>
+		expect(screen.getByTestId("editor-settings-zones-error").textContent).toContain(
+			"could not be loaded",
+		),
+	);
+	expect(screen.getByLabelText("Workspace timezone").hasAttribute("disabled")).toBe(
+		true,
+	);
 });

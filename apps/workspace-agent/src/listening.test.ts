@@ -535,6 +535,25 @@ test("a pid that is already gone stops cleanly when the port is free", async () 
 	await expect(monitor.stopListener(5173)).resolves.toBeUndefined();
 });
 
+/**
+ * Issue #273: after SIGKILL the port is the test, not the pid. A killed
+ * process whose parent has not reaped it is a zombie, and a zombie still
+ * answers signal 0, so asking whether the pid exists would refuse a stop
+ * that worked.
+ */
+test("a zombie left behind by SIGKILL still counts as stopped", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({
+		kill: (_pid, signal) => {
+			// Nothing ever exits here: signal 0 keeps saying the pid is there.
+			if (signal === "SIGKILL") clearProcNet();
+		},
+		graceMs: 50,
+	});
+	await expect(monitor.stopListener(5173)).resolves.toBeUndefined();
+});
+
 test("a process that survives SIGKILL is reported as a conflict", async () => {
 	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
 	await fakeProcess(88, "node", [3]);

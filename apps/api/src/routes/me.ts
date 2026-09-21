@@ -2,31 +2,43 @@ import { requireUser } from "@portikus/auth";
 import {
 	EDITOR_SETTINGS_DEFAULTS,
 	EditorSettings,
+	isSystemTimezone,
 	type MeSettings,
 	systemTimezones,
-	Timezone,
 	UpdateEditorSettingsRequest,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import type { ServerDeps } from "../server.js";
 import { sendError } from "./project-scope.js";
 
+/** Stored settings as we read them back: every field optional (issue #159). */
+const StoredEditorSettings = EditorSettings.partial();
+
 /**
- * Stored settings as we read them back: every field optional (issue #159).
- * The zone is checked against the server's list here too, so a name this
- * build no longer knows reads back as the default rather than as a choice the
- * dialog cannot offer (issue #287).
+ * The zone list this build knows, built once. It is the same list for every
+ * request, and working it out per request costs a few hundred strings.
  */
-const StoredEditorSettings = EditorSettings.extend({ timezone: Timezone }).partial();
+const TIMEZONES: string[] = [...systemTimezones()];
 
 /**
  * Fill in the defaults for anything the user has not set, and ignore anything
  * stored that is no longer a setting we know (issue #159).
+ *
+ * The zone is parsed on its own, because it is the one field that can stop
+ * being valid while it sits in the database: a name this build no longer
+ * knows reads back as the default (issue #287). Parsed with the rest, it
+ * would take every other setting down with it and the student's auto-save,
+ * word wrap and terminal colours would silently go back to the defaults.
  */
 export function toEditorSettings(stored: unknown): EditorSettings {
 	// Not strict: unknown keys are stripped, the known ones are kept.
 	const parsed = StoredEditorSettings.safeParse(stored ?? {});
-	return { ...EDITOR_SETTINGS_DEFAULTS, ...(parsed.success ? parsed.data : {}) };
+	const { timezone, ...rest } = parsed.success ? parsed.data : {};
+	return {
+		...EDITOR_SETTINGS_DEFAULTS,
+		...rest,
+		...(isSystemTimezone(timezone) ? { timezone } : {}),
+	};
 }
 
 /**
@@ -46,7 +58,7 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 		// names PUT will accept (issue #287).
 		const body: MeSettings = {
 			...toEditorSettings(row?.editor_settings),
-			timezones: [...systemTimezones()],
+			timezones: TIMEZONES,
 		};
 		return body;
 	});
@@ -86,7 +98,7 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 		// Same shape as GET, so the browser's cached copy keeps the zone list.
 		const out: MeSettings = {
 			...toEditorSettings(updated.editor_settings),
-			timezones: [...systemTimezones()],
+			timezones: TIMEZONES,
 		};
 		return out;
 	});
