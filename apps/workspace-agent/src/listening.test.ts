@@ -400,6 +400,34 @@ test("the monitor flags systemd-resolved and its own port as system", async () =
 	expect(flags).toEqual({ 5355: true, 7400: true, 5173: false });
 });
 
+test("a port the agent forwards stays the student's, and the owner is theirs", async () => {
+	// The student's server on loopback, plus the agent's own forward on the
+	// workspace interface at the same port, plus the agent's API port alone
+	// (issue #299, BROWSER-HANDLING.md 11.1).
+	await writeProcNet(
+		[
+			HEADER,
+			// The agent's forward comes first, as /proc may well list it.
+			row("0500000A:104D", "0A", "11", 1000),
+			row("0100007F:104D", "0A", "10", 1000),
+			row("00000000:1CE8", "0A", "12", 1000),
+		].join("\n"),
+	);
+	await fakeProcess(4242, "node", [10]);
+	await fakeProcess(77, "portikus-agent", [11, 12]);
+	const services = await monitorFor({
+		selfPid: 77,
+		forwardedPorts: () => new Set([4173]),
+	}).refresh();
+	const forwarded = services.find((service) => service.port === 4173);
+	expect(forwarded).toMatchObject({
+		system: false,
+		process: { pid: 4242, command: "node" },
+	});
+	// The agent's own API port is still hidden.
+	expect(services.find((service) => service.port === 7400)?.system).toBe(true);
+});
+
 // --- stopping a listener (SPEC.md 18.2, issue #273) ---
 
 /** Drop every listening row, the way the kernel does when a process exits. */
