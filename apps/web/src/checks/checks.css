@@ -1,0 +1,132 @@
+/*
+ * The Checks pane (SPEC.md §18.1, DESIGN.md row "Checks"): a list of the
+ * configured commands above a read-only, terminal-styled output panel.
+ */
+
+/*
+ * The right pane once a project is open: the Files / Checks switch above
+ * whichever pane is showing. The pane inside keeps its own scrolling, so it
+ * gives up its fixed height and takes what is left.
+ */
+.pk-right-pane {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+	border-left: 1px solid var(--line);
+}
+.pk-right-pane > .pk-pane--right {
+	flex: 1;
+	height: auto;
+	border-left: 0;
+}
+
+/* The Files / Checks switch at the top of the right pane. */
+.pk-pane-tabs {
+	flex: none;
+	display: flex;
+	gap: var(--space-0\.5);
+	padding: var(--space-1\.5) var(--space-2) 0;
+	border-bottom: 1px solid var(--line);
+}
+.pk-pane-tab {
+	border: 0;
+	border-bottom: 2px solid transparent;
+	background: transparent;
+	color: var(--ink-muted);
+	font: inherit;
+	font-size: 13px;
+	line-height: 18px;
+	padding: var(--space-1) var(--space-2);
+	cursor: pointer;
+}
+.pk-pane-tab:hover {
+	color: var(--ink);
+}
+.pk-pane-tab[aria-selected="true"] {
+	color: var(--ink);
+	border-bottom-color: var(--accent);
+}
+
+/* One check: name and badge on the first line, command under it. */
+.pk-check-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	width: 100%;
+	min-width: 0;
+	padding: var(--space-2);
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+.pk-check-row:hover {
+	background: var(--surface-hover);
+}
+.pk-check-item.is-current .pk-check-row {
+	background: var(--surface-selected);
+}
+.pk-check-text {
+	flex: 1;
+	min-width: 0;
+}
+.pk-check-name {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 14px;
+	line-height: 20px;
+}
+.pk-check-command {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--ink-muted);
+}
+
+/* The output panel below the list. xterm.js sizes itself to this box. */
+.pk-check-panel {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	height: 45%;
+	border-top: 1px solid var(--line);
+	background: var(--terminal-bg);
+}
+.pk-check-panel-head {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+	color: var(--ink-muted);
+	font-size: 12px;
+	line-height: 16px;
+}
+.pk-check-screen {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	padding: var(--space-2) var(--space-3);
+}
+
+/* One row of the edit dialog: name, command, and remove. */
+.pk-check-edit-row {
+	display: grid;
+	grid-template-columns: 1fr 1.6fr auto;
+	gap: var(--space-2);
+	align-items: end;
+	margin-bottom: var(--space-3);
+}
