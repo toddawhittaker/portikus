@@ -301,6 +301,7 @@ const apiProdBase = {
 	OIDC_ISSUER_URL: "https://idp.example.edu",
 	OIDC_CLIENT_SECRET: "c".repeat(48),
 	SESSION_COOKIE_SECRET: "d".repeat(48),
+	PREVIEW_SUFFIX: "preview.portikus.example.edu",
 };
 
 function expectConfigError(env: Record<string, string>, field: string): void {
@@ -434,4 +435,122 @@ test("AGENT_PORT defaults to 7400 for the API and the controller", () => {
 			.AGENT_PORT,
 	).toBe(7400);
 	expect(loadConfig(ControllerConfigSchema, {}).AGENT_PORT).toBe(7400);
+});
+
+// --- preview settings (BROWSER-HANDLING.md sections 8, 23) ---
+
+const DB = { DATABASE_URL: "postgres://localhost/portikus" };
+
+/** The environment a production API needs before the preview keys are added. */
+const PROD = {
+	...DB,
+	NODE_ENV: "production",
+	PUBLIC_URL: "https://portikus.school.edu",
+	OIDC_ISSUER_URL: "https://idp.school.edu",
+	OIDC_CLIENT_SECRET: "x".repeat(40),
+	SESSION_COOKIE_SECRET: "y".repeat(40),
+};
+
+function issuesFor(env: Record<string, string>): readonly string[] {
+	try {
+		loadConfig(ApiConfigSchema, env);
+		expect.unreachable("loadConfig should have thrown");
+	} catch (error) {
+		expect(error).toBeInstanceOf(ConfigError);
+		return (error as ConfigError).issues;
+	}
+	return [];
+}
+
+test("the preview settings have development defaults", () => {
+	const config = loadConfig(ApiConfigSchema, DB);
+	expect(config.PREVIEW_SUFFIX).toBe("preview.localhost");
+	expect(config.PREVIEW_PORT_MIN).toBe(1024);
+	expect(config.PREVIEW_PORT_MAX).toBe(65535);
+	expect(config.PREVIEW_TICKET_TTL_SECONDS).toBe(30);
+});
+
+test("the denied preview ports always include the workspace agent port", () => {
+	expect(loadConfig(ApiConfigSchema, DB).previewDeniedPorts).toEqual([
+		22, 2375, 2376, 5432, 7400,
+	]);
+	expect(
+		loadConfig(ApiConfigSchema, {
+			...DB,
+			PREVIEW_DENIED_PORTS: "9000, 9001",
+			AGENT_PORT: "7500",
+		}).previewDeniedPorts,
+	).toEqual([7500, 9000, 9001]);
+});
+
+test("a denied port list that is not a port list is a config error", () => {
+	expect(issuesFor({ ...DB, PREVIEW_DENIED_PORTS: "22,http" })[0]).toContain(
+		"PREVIEW_DENIED_PORTS",
+	);
+	expect(issuesFor({ ...DB, PREVIEW_DENIED_PORTS: "70000" })[0]).toContain(
+		"PREVIEW_DENIED_PORTS",
+	);
+});
+
+test("production requires an explicit preview suffix", () => {
+	expect(issuesFor(PROD)[0]).toContain("PREVIEW_SUFFIX");
+	expect(
+		loadConfig(ApiConfigSchema, {
+			...PROD,
+			PREVIEW_SUFFIX: "preview.portikus.school.edu",
+		}).PREVIEW_SUFFIX,
+	).toBe("preview.portikus.school.edu");
+});
+
+test("a malformed preview suffix is a config error", () => {
+	for (const suffix of [
+		"preview",
+		"https://preview.school.edu",
+		"preview.school.edu.",
+		"preview.school.edu:8443",
+		"-preview.school.edu",
+		"preview..school.edu",
+		"Preview.School.Edu",
+		"preview.school.edu/x",
+	]) {
+		expect(issuesFor({ ...DB, PREVIEW_SUFFIX: suffix })[0]).toContain("PREVIEW_SUFFIX");
+	}
+});
+
+test("the preview suffix must not cover the application host", () => {
+	// Identical hosts share a browser origin, which the design forbids.
+	expect(
+		issuesFor({
+			...DB,
+			PUBLIC_URL: "https://preview.school.edu",
+			PREVIEW_SUFFIX: "preview.school.edu",
+		})[0],
+	).toContain("PREVIEW_SUFFIX");
+
+	// Wildcard routing under the suffix would otherwise accept the app host.
+	expect(
+		issuesFor({
+			...DB,
+			PUBLIC_URL: "https://portikus.preview.school.edu",
+			PREVIEW_SUFFIX: "preview.school.edu",
+		})[0],
+	).toContain("PREVIEW_SUFFIX");
+
+	// A sibling host under the same parent is fine.
+	expect(
+		loadConfig(ApiConfigSchema, {
+			...DB,
+			PUBLIC_URL: "https://portikus.school.edu",
+			PREVIEW_SUFFIX: "preview.portikus.school.edu",
+		}).PREVIEW_SUFFIX,
+	).toBe("preview.portikus.school.edu");
+});
+
+test("the preview port range must be ordered and within 65535", () => {
+	expect(
+		issuesFor({ ...DB, PREVIEW_PORT_MIN: "9000", PREVIEW_PORT_MAX: "8000" })[0],
+	).toContain("PREVIEW_PORT_MIN");
+	expect(issuesFor({ ...DB, PREVIEW_PORT_MAX: "70000" })[0]).toContain(
+		"PREVIEW_PORT_MAX",
+	);
 });

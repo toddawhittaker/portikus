@@ -46,6 +46,15 @@ export const StartInstanceRequest = z.object({
 	// Per-workspace agent token, pushed into the container as a file so the
 	// API can authenticate to the agent (SPEC.md §23.5).
 	agentToken: z.string().regex(/^[0-9a-f]{64}$/, "Must be 64 hex characters"),
+	// The workspace label, set as the container hostname at every start so
+	// the shell prompt reads `student@<label>` (SPEC.md Epic 8).
+	hostname: z
+		.string()
+		.regex(
+			/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
+			"Must be a lowercase DNS label with no leading or trailing hyphen",
+		)
+		.max(40),
 });
 export type StartInstanceRequest = z.infer<typeof StartInstanceRequest>;
 

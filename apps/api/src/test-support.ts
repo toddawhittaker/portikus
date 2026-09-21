@@ -35,6 +35,12 @@ export function testConfig(
 		SESSION_TTL_SECONDS: 43200,
 		PROJECT_TEMPLATES: "",
 		projectTemplates: [],
+		PREVIEW_SUFFIX: "preview.localhost",
+		PREVIEW_PORT_MIN: 1024,
+		PREVIEW_PORT_MAX: 65535,
+		PREVIEW_DENIED_PORTS: "22,2375,2376,5432",
+		PREVIEW_TICKET_TTL_SECONDS: 30,
+		previewDeniedPorts: [22, 2375, 2376, 5432, 7400],
 		...overrides,
 	};
 }

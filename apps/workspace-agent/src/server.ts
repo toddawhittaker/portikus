@@ -40,7 +40,14 @@ import {
 	resolveInProject,
 	writeFile,
 } from "./files.js";
+import { Forwards } from "./forwards.js";
 import { registerGitRoutes } from "./git-routes.js";
+import {
+	ListeningMonitor,
+	type ListeningMonitorOptions,
+	workspaceInterfaceAddress,
+} from "./listening.js";
+import { listeningRoutes } from "./listening-route.js";
 import {
 	type ArchiveProcess,
 	archiveDir,
@@ -105,6 +112,8 @@ export interface ServerOptions {
 	maxEventSockets?: number;
 	/** Overrides the project watchers, so a test can break one. For tests. */
 	watchers?: ProjectWatchers;
+	/** Overrides where ports are discovered and how. For tests. */
+	listening?: ListeningMonitorOptions;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -135,6 +144,32 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// close code before that plugin drops the sockets.
 	app.addHook("preClose", async () => {
 		registry.closeEverything();
+	});
+
+	// Port discovery and loopback forwards know about each other: discovery
+	// reports a forwarded port as "forwarded", and a forward closes once its
+	// loopback listener is gone (BROWSER-HANDLING.md §11.1).
+	const monitor = new ListeningMonitor({
+		...options.listening,
+		logger: app.log,
+		forwardedPorts: () => forwards.ports(),
+	});
+	const forwards = new Forwards({
+		interfaceAddress:
+			options.listening?.interfaceAddress === undefined
+				? workspaceInterfaceAddress()
+				: options.listening.interfaceAddress,
+		monitor,
+		logger: app.log,
+	});
+	monitor.subscribe(() => {
+		forwards.reconcile();
+	});
+	monitor.start();
+
+	app.addHook("preClose", async () => {
+		monitor.stop();
+		forwards.closeEverything();
 	});
 
 	// A terminal input frame is small; refuse anything far past that before it
@@ -517,6 +552,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 
 		registerGitRoutes(instance, { homeDir: options.homeDir });
 		instance.register(checksRoute, { homeDir: options.homeDir });
+		instance.register(listeningRoutes, { monitor, forwards });
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,
 			maxSockets: options.maxEventSockets,
