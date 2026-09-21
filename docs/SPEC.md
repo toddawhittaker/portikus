@@ -1205,6 +1205,11 @@ portikus.example.edu
 *.portikus-preview.net
 ```
 
+ADR 0018 defers that separate registrable domain until a later task tests
+it across the supported browsers, so the first deployments use the
+same-registrable-domain arrangement below with the protections listed
+under it.
+
 Many institutions cannot issue a second domain, so a deployment may put
 previews under the same registrable domain:
 
@@ -2439,8 +2444,8 @@ Acceptance:
 Notes on scope. Linkification in Epic 5 is detection and routing only: a
 file/line reference navigates to `/workspaces/:id/files?path=…&line=N` and a
 localhost URL navigates to `/workspaces/:id/preview/PORT/`. Both routes
-answer 501 until the files UI lands in Epic 7 and the preview gateway in
-Epic 8, so the two link acceptance criteria above are proven in those epics
+answered 501 until the files UI landed in Epic 7 and the preview gateway in
+Epic 8, so the two link acceptance criteria above were proven in those epics
 rather than here. Terminal splits and pane reordering (§9.3) move to Epic 6,
 where the three-pane shell and its layout library arrive. The transport
 decisions are recorded in ADR 0009.
@@ -2669,8 +2674,9 @@ Includes:
 - compact Running surface;
 - process/container identity for relevant services where safely available;
 - per-workspace preview routing;
-- separate preview origin, with the same-domain protections of section
-  14.3 when a deployment has one domain;
+- a preview origin of its own for every preview, built as the
+  same-registrable-domain arrangement of section 14.3 with the protections
+  listed there; the separate registrable domain is deferred (ADR 0018);
 - a per-workspace host label derived once, at workspace creation, from the
   identity provider's `preferred_username` (lowercased, reduced to a DNS
   label, stored on the workspace row, with a fallback when the claim is
