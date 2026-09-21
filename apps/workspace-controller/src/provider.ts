@@ -64,6 +64,15 @@ function enc(name: string): string {
 	return encodeURIComponent(name);
 }
 
+/**
+ * The exit status of a finished exec operation, or null when Incus did not
+ * report one. Incus puts it in the operation's own metadata as `return`.
+ */
+function execExitStatus(result: unknown): number | null {
+	const meta = (result as { metadata?: { return?: unknown } } | undefined)?.metadata;
+	return typeof meta?.return === "number" ? meta.return : null;
+}
+
 export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly client: IncusClient;
 	private readonly pool: string;
@@ -274,7 +283,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			signal,
 		);
 
-		await this.client.request(
+		const result = await this.client.request(
 			"POST",
 			`/1.0/instances/${enc(name)}/exec`,
 			{
@@ -286,6 +295,18 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			signal,
 			timeoutSeconds,
 		);
+
+		// A missing zone file in the image makes `ln` fail, and the container
+		// would then run in the wrong zone with nothing said (issue #287).
+		const status = execExitStatus(result);
+		if (status !== null && status !== 0) {
+			throw new IncusError(
+				"OPERATION_FAILED",
+				`could not set the timezone to ${timezone}: ` +
+					`/usr/share/zoneinfo/${timezone} is missing from the image ` +
+					`(ln exited ${status})`,
+			);
+		}
 	}
 
 	private async waitForAddress(

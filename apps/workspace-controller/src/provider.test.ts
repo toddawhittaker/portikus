@@ -265,6 +265,47 @@ test("start pushes the agent token, then waits for agent health", async () => {
 	expect(agentRequests).toBeGreaterThan(before);
 });
 
+/**
+ * Issue #287: the zone is set by linking a file from the image. If the image
+ * has no such file the link fails, and the container would come up in the
+ * wrong zone with nothing said. The start must fail instead.
+ */
+test("start fails when the image has no file for the chosen zone", async () => {
+	handler = async (req, res) => {
+		await readBody(req);
+		if (req.url?.includes("/operations/exec-1/wait")) {
+			respond(res, 200, sync({ metadata: { return: 1 } }));
+		} else if (req.url?.includes("/exec")) {
+			// Incus runs an exec as an operation and reports the exit status.
+			respond(res, 202, {
+				type: "async",
+				status: "Operation created",
+				status_code: 100,
+				operation: "/1.0/operations/exec-1",
+			});
+		} else if (req.url?.includes("/files")) {
+			respond(res, 200, sync({}));
+		} else if (req.method === "GET" && req.url?.includes("/state")) {
+			respond(res, 200, sync(runningWithAddress("127.0.0.1")));
+		} else {
+			respond(res, 200, sync({}));
+		}
+	};
+
+	await expect(
+		provider.start("ws-test", {
+			timeoutSeconds: 10,
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7",
+			previewHostSuffix: "preview.portikus.example.edu",
+			timezone: "America/New_York",
+		}),
+	).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+		message: expect.stringContaining("America/New_York"),
+	});
+});
+
 test("start refuses a hostname that is not a DNS label", async () => {
 	handler = async (req, res) => {
 		await readBody(req);
