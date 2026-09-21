@@ -1,7 +1,12 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, expect, test } from "vitest";
-import { probeEmbeddable, verdictFromHeaders } from "./embeddable.js";
+import {
+	hostRefusalFrom,
+	MAX_REFUSAL_BODY_BYTES,
+	probeEmbeddable,
+	verdictFromHeaders,
+} from "./embeddable.js";
 
 const PORTIKUS = "https://portikus.example.edu";
 
@@ -99,10 +104,15 @@ async function listen(
 	handler: (
 		method: string,
 		url: string,
+		host: string,
 	) => { status: number; headers: Record<string, string>; body?: string },
 ): Promise<string> {
 	server = createServer((request, response) => {
-		const answer = handler(request.method ?? "GET", request.url ?? "/");
+		const answer = handler(
+			request.method ?? "GET",
+			request.url ?? "/",
+			request.headers.host ?? "",
+		);
 		response.writeHead(answer.status, answer.headers);
 		response.end(answer.body ?? "");
 	});
@@ -212,4 +222,65 @@ test("an application that cannot be reached is reported as unreachable", async (
 		embeddable: false,
 		reason: "unreachable",
 	});
+});
+
+// ── A development server that refuses the preview host (issue #262) ──
+
+const REFUSED_HOST = "alice-5173.preview.portikus.example.edu";
+
+const VITE_BODY =
+	`Blocked request. This host ("${REFUSED_HOST}") is not allowed.\n` +
+	`To allow this host, add "${REFUSED_HOST}" to \`server.allowedHosts\` in ` +
+	"vite.config.js.";
+
+test.each([
+	[403, VITE_BODY, "vite"],
+	[403, "Invalid Host header", "webpack-dev-server"],
+	[403, "Invalid Host/Origin header", "webpack-dev-server"],
+	// The message only counts when the server refused the request.
+	[200, VITE_BODY, null],
+	// An ordinary forbidden page is not a refused host.
+	[403, "<h1>Forbidden</h1>", null],
+	[403, "you may not read this file", null],
+])("host refusal from %i %s", (status, body, server) => {
+	expect(hostRefusalFrom(status, body)).toBe(server);
+});
+
+test("a dev server refusing the preview host is reported with the host", async () => {
+	const hosts: string[] = [];
+	const upstream = await listen((_method, _url, host) => {
+		hosts.push(host);
+		return { status: 403, headers: { "content-type": "text/html" }, body: VITE_BODY };
+	});
+	await expect(probeEmbeddable(upstream, PORTIKUS, REFUSED_HOST)).resolves.toEqual({
+		embeddable: false,
+		reason: "host-refused",
+		refusedHost: REFUSED_HOST,
+		refusedServer: "vite",
+	});
+	// The application must have been asked as the preview host, or a server
+	// that only refuses unknown hosts would have answered normally.
+	expect(hosts).toEqual([REFUSED_HOST, REFUSED_HOST]);
+});
+
+test("a plain 403 that is not about the host stays an ordinary verdict", async () => {
+	const upstream = await listen(() => ({
+		status: 403,
+		headers: { "x-frame-options": "DENY" },
+		body: "the student's secret page",
+	}));
+	const verdict = await probeEmbeddable(upstream, PORTIKUS, REFUSED_HOST);
+	expect(verdict).toEqual({ embeddable: false, reason: "x-frame-options" });
+	expect(JSON.stringify(verdict)).not.toContain("secret");
+});
+
+test("only the first bytes of a refusing answer are read", async () => {
+	const upstream = await listen(() => ({
+		status: 403,
+		headers: { "content-type": "text/html" },
+		// The message sits past the cap, so it is not seen.
+		body: `${"x".repeat(MAX_REFUSAL_BODY_BYTES + 100)}${VITE_BODY}`,
+	}));
+	const verdict = await probeEmbeddable(upstream, PORTIKUS, REFUSED_HOST);
+	expect(verdict.reason).not.toBe("host-refused");
 });
