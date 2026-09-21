@@ -208,20 +208,32 @@ test("start pushes the agent token, then waits for agent health", async () => {
 		timeoutSeconds: 10,
 		agentToken: AGENT_TOKEN,
 		hostname: "tw7",
+		previewHostSuffix: "preview.portikus.example.edu",
 	});
 
 	expect(result.ipv4).toBe("127.0.0.1");
 	expect(pollCount).toBeGreaterThanOrEqual(3);
-	// The hostname lands first, then the agent token.
-	expect(pushes).toHaveLength(2);
+	// The hostname lands first, then the shell profile, then the agent token.
+	expect(pushes).toHaveLength(3);
 	const hostnamePush = pushes[0];
-	const push = pushes[1];
-	if (!hostnamePush || !push) {
-		throw new Error("expected two file pushes");
+	const profilePush = pushes[1];
+	const push = pushes[2];
+	if (!hostnamePush || !profilePush || !push) {
+		throw new Error("expected three file pushes");
 	}
 	expect(hostnamePush.url).toContain("path=%2Fetc%2Fhostname");
 	expect(hostnamePush.body).toBe("tw7\n");
 	expect(hostnamePush.headers["x-incus-uid"]).toBe("0");
+	// Every login shell reads this, so a terminal sees the preview suffix
+	// (issue #263). It is owned by root, world readable, and has no secret.
+	expect(profilePush.url).toContain("path=%2Fetc%2Fprofile.d%2Fportikus.sh");
+	expect(profilePush.body).toBe(
+		"export PORTIKUS_PREVIEW=true\nexport PORTIKUS_PREVIEW_HOST_SUFFIX=preview.portikus.example.edu\n",
+	);
+	expect(profilePush.headers["x-incus-uid"]).toBe("0");
+	expect(profilePush.headers["x-incus-gid"]).toBe("0");
+	expect(profilePush.headers["x-incus-mode"]).toBe("0644");
+	expect(profilePush.body).not.toContain(AGENT_TOKEN);
 	expect(push.url).toContain("path=%2Fetc%2Fportikus%2Fagent.token");
 	expect(push.headers["x-incus-uid"]).toBe("1000");
 	expect(push.headers["x-incus-mode"]).toBe("0600");
@@ -242,6 +254,7 @@ test("start refuses a hostname that is not a DNS label", async () => {
 			timeoutSeconds: 10,
 			agentToken: AGENT_TOKEN,
 			hostname: "tw7; rm -rf /",
+			previewHostSuffix: "preview.portikus.example.edu",
 		}),
 	).rejects.toMatchObject({ code: "INVALID_NAME" });
 });
@@ -272,6 +285,7 @@ test(
 				timeoutSeconds: 120,
 				agentToken: AGENT_TOKEN,
 				hostname: "tw7",
+				previewHostSuffix: "preview.portikus.example.edu",
 			}),
 		).rejects.toMatchObject({ code: "TIMEOUT" });
 		const elapsed = Date.now() - started;
@@ -298,6 +312,7 @@ test("start with no IP by deadline throws TIMEOUT", async () => {
 			timeoutSeconds: 1,
 			agentToken: AGENT_TOKEN,
 			hostname: "tw7",
+			previewHostSuffix: "preview.portikus.example.edu",
 		}),
 	).rejects.toMatchObject({
 		code: "TIMEOUT",
@@ -418,4 +433,20 @@ test("list maps statuses correctly", async () => {
 		{ name: "ws-b", status: "Stopped", ipv4: null },
 		{ name: "ws-c", status: "Other", ipv4: null },
 	]);
+});
+
+test("start refuses a preview host suffix that is not a DNS name", async () => {
+	handler = async (req, res) => {
+		await readBody(req);
+		respond(res, 200, sync({}));
+	};
+
+	await expect(
+		provider.start("ws-test", {
+			timeoutSeconds: 10,
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7",
+			previewHostSuffix: "preview.example.edu\nexport EVIL=1",
+		}),
+	).rejects.toMatchObject({ code: "INVALID_NAME" });
 });
