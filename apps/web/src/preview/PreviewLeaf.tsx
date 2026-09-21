@@ -65,7 +65,13 @@ export function PreviewLeaf({
 			const grant = await requestGrant(workspaceId, port, "embedded");
 			setState({ status: "available", grant });
 		} catch (error) {
-			if (error instanceof ApiError && error.status === 403) {
+			// A refused port is about the port, not about the student, so it
+			// keeps the API's sentence instead of the sign-in wording.
+			if (
+				error instanceof ApiError &&
+				error.status === 403 &&
+				error.code !== "PREVIEW_PORT_NOT_ALLOWED"
+			) {
 				setState({ status: "unauthorized" });
 				return;
 			}

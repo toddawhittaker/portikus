@@ -151,6 +151,20 @@ test("a grant the gateway could not open shows its message", async () => {
 	);
 });
 
+test("a port policy refuses keeps the sentence about the port", async () => {
+	stubFetch(() =>
+		json(403, {
+			code: "PREVIEW_PORT_NOT_ALLOWED",
+			message: "Port 5432 cannot be previewed",
+		}),
+	);
+	show({});
+	expect((await screen.findByTestId("preview-error")).textContent).toBe(
+		"Port 5432 cannot be previewed",
+	);
+	expect(screen.queryByTestId("preview-unauthorized")).toBeNull();
+});
+
 test("a server failure falls back to a plain sentence", async () => {
 	stubFetch(() => json(500, { code: "INTERNAL", message: "boom" }));
 	show({});

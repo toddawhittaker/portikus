@@ -40,8 +40,13 @@ export function useListeningQuery(
 	const query = useQuery({
 		queryKey: ["listening", workspaceId],
 		enabled,
-		queryFn: () =>
-			request(z.array(ListeningService), `/workspaces/${workspaceId}/listening`),
+		queryFn: async () =>
+			(
+				await request(
+					z.object({ services: z.array(ListeningService) }),
+					`/workspaces/${workspaceId}/listening`,
+				)
+			).services,
 	});
 	return query.data;
 }

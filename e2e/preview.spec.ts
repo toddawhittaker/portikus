@@ -1,124 +1,243 @@
 import { expect, type Page, test } from "@playwright/test";
-import { createProject, createStudent, query, toast, workspacePath } from "./helpers";
+import {
+	createProject,
+	createStudent,
+	query,
+	seedListening,
+	startPreviewApp,
+	toast,
+	workspacePath,
+} from "./helpers";
 
 /**
- * The Preview tab, the Running surface and the preview route a terminal
- * link lands on (SPEC.md §14.6, §14.8, §18.2, BROWSER-HANDLING.md §12, §15).
+ * The Preview tab, the Running surface and the preview route a terminal link
+ * lands on (SPEC.md §14.6, §14.8, §18.2, BROWSER-HANDLING.md §12, §15).
  *
- * The control plane's preview routes and the preview host itself are
- * answered by the browser's own network interception, so these tests cover
- * the browser behaviour whichever way the gateway is deployed.
+ * These tests drive the real control plane: ports are seeded through the fake
+ * workspace agent, so the API's listening registry pushes them to the browser
+ * over the workspace WebSocket, and grants come from the real
+ * `POST /workspaces/:id/preview-grants`.
+ *
+ * One hop is stubbed, and only because it does not exist in the development
+ * environment: Caddy. A preview host such as
+ * `ws-1234abcd-5173.preview.localhost:5173` has no DNS entry and no TLS
+ * certificate here, so `previewGateway` intercepts the browser's requests to
+ * that host and does what Caddy would do (ADR 0018, BROWSER-HANDLING.md §10):
+ *
+ *   - `/__portikus/*` goes to the API, which consumes the bootstrap ticket,
+ *     mints the preview-host session cookie and redirects to `/`;
+ *   - every other path is authorized by the API's `/preview/authorize`
+ *     subrequest and then proxied to the upstream that answer names, which is
+ *     the little application the fake agent is really running.
+ *
+ * The bootstrap redirect is followed inside the gateway rather than handed to
+ * the browser: Chromium follows a redirect from an intercepted response
+ * without consulting the route again, and that redirected request would then
+ * need the TLS this environment has no certificate for. The browser still
+ * receives the preview cookie, so its own later requests to the preview host
+ * go through the authorization subrequest as they would in production.
+ *
+ * Nothing about the grant, the ticket, the preview session, the port policy
+ * or the upstream lookup is faked: all of that is the API under test.
  */
 
-const PREVIEW_ORIGIN = "http://preview.test";
-const BOOTSTRAP = `${PREVIEW_ORIGIN}/__portikus/bootstrap?t=ticket`;
+/** Where the API listens in the end-to-end environment. */
+const API_ORIGIN = "http://127.0.0.1:3000";
 
-interface Listener {
-	port: number;
-	command?: string;
-	docker?: boolean;
-	reachability?: "reachable" | "forwarded" | "denied" | "unknown";
+/** The preview suffix the end-to-end API is configured with. */
+const PREVIEW_SUFFIX = ".preview.localhost";
+
+/**
+ * The response headers worth passing on. Hop-by-hop headers such as
+ * `connection` must never be replayed into a fulfilled response.
+ */
+const PASSED_HEADERS = [
+	"content-type",
+	"cache-control",
+	"referrer-policy",
+	"clear-site-data",
+	"x-frame-options",
+	"content-security-policy",
+];
+
+function headersOf(response: Response): Record<string, string> {
+	const headers: Record<string, string> = {};
+	for (const name of PASSED_HEADERS) {
+		const value = response.headers.get(name);
+		if (value !== null) headers[name] = value;
+	}
+	return headers;
 }
 
-function listeningBody(workspaceId: string, listeners: Listener[]) {
-	return listeners.map((listener) => ({
-		workspaceId,
-		port: listener.port,
-		addresses: ["0.0.0.0"],
-		protocolHint: "http",
-		process: { pid: 42, command: listener.command ?? "node" },
-		...(listener.docker
-			? { container: { id: "abc123", name: listener.command ?? "postgres" } }
-			: {}),
-		previewReachability: listener.reachability ?? "reachable",
-		observedAt: new Date().toISOString(),
-	}));
+/** The `name=value` part of each Set-Cookie line, for the next hop. */
+function cookiePairs(response: Response): string {
+	return response.headers
+		.getSetCookie()
+		.map((line) => line.split(";")[0] ?? "")
+		.filter(Boolean)
+		.join("; ");
 }
 
 /**
- * Answer the preview routes and serve a tiny application on the preview
- * host, so the frame has something real to load.
+ * Stand in for Caddy for the browser's requests to preview hosts. Returns a
+ * count of the requests that reached the student application, which is how a
+ * test says the application itself was really fetched.
  */
-async function stubPreview(
-	page: Page,
-	workspaceId: string,
-	listeners: Listener[],
-	options: { grantStatus?: number; grantBody?: unknown } = {},
-): Promise<{ grants: number }> {
-	const counters = { grants: 0 };
-	await page.route(`**/workspaces/${workspaceId}/listening`, (route) =>
-		route.fulfill({
-			status: 200,
-			contentType: "application/json",
-			body: JSON.stringify(listeningBody(workspaceId, listeners)),
-		}),
-	);
-	await page.route(`**/workspaces/${workspaceId}/preview-grants`, (route) => {
-		counters.grants += 1;
-		const status = options.grantStatus ?? 200;
-		const body =
-			options.grantBody ??
-			(status === 200
-				? {
-						previewOrigin: PREVIEW_ORIGIN,
-						bootstrapUrl: BOOTSTRAP,
-						expiresAt: new Date(Date.now() + 30_000).toISOString(),
-					}
-				: { code: "FORBIDDEN", message: "You cannot preview this workspace." });
-		return route.fulfill({
-			status,
-			contentType: "application/json",
-			body: JSON.stringify(body),
+async function previewGateway(page: Page): Promise<{ app: number }> {
+	const counts = { app: 0 };
+
+	/** Authorize one request and proxy it to the upstream the API names. */
+	async function proxy(
+		host: string,
+		path: string,
+		cookie: string,
+	): Promise<{ status: number; headers: Record<string, string>; body: Buffer }> {
+		const forwarded = {
+			"x-forwarded-host": host,
+			"x-forwarded-proto": "https",
+			cookie,
+		};
+		const authorized = await fetch(`${API_ORIGIN}/preview/authorize`, {
+			headers: forwarded,
+			redirect: "manual",
 		});
-	});
-	await page.route(`${PREVIEW_ORIGIN}/**`, (route) =>
-		route.fulfill({
-			status: 200,
-			contentType: "text/html",
-			body: "<html><body><h1 id=app>Hello from the workspace</h1></body></html>",
-		}),
+		if (!authorized.ok) {
+			return {
+				status: authorized.status,
+				headers: headersOf(authorized),
+				body: Buffer.from(await authorized.arrayBuffer()),
+			};
+		}
+		const upstream = authorized.headers.get("x-portikus-upstream");
+		if (!upstream) throw new Error("the authorization answer named no upstream");
+		counts.app += 1;
+		const proxied = await fetch(`http://${upstream}${path}`, {
+			headers: { host },
+			redirect: "manual",
+		});
+		return {
+			status: proxied.status,
+			headers: headersOf(proxied),
+			body: Buffer.from(await proxied.arrayBuffer()),
+		};
+	}
+
+	await page.route(
+		(url) => url.hostname.endsWith(PREVIEW_SUFFIX),
+		async (route) => {
+			const request = route.request();
+			const url = new URL(request.url());
+			const host = url.host;
+			const cookie = (await request.headerValue("cookie")) ?? "";
+			const path = `${url.pathname}${url.search}`;
+
+			// Reserved paths never reach the student application
+			// (BROWSER-HANDLING.md §12).
+			if (url.pathname.startsWith("/__portikus/")) {
+				const answer = await fetch(`${API_ORIGIN}${path}`, {
+					headers: {
+						"x-forwarded-host": host,
+						"x-forwarded-proto": "https",
+						cookie,
+					},
+					redirect: "manual",
+				});
+				const headers = headersOf(answer);
+				const setCookie = answer.headers.getSetCookie();
+				if (setCookie.length > 0) headers["set-cookie"] = setCookie.join("\n");
+
+				// Anything but the bootstrap redirect is a Portikus page, passed
+				// straight through.
+				const location = answer.headers.get("location");
+				if (answer.status !== 303 || location === null) {
+					return route.fulfill({
+						status: answer.status,
+						headers,
+						body: Buffer.from(await answer.arrayBuffer()),
+					});
+				}
+
+				const app = await proxy(
+					host,
+					location,
+					[cookie, cookiePairs(answer)].filter(Boolean).join("; "),
+				);
+				return route.fulfill({
+					status: app.status,
+					headers: { ...app.headers, ...headers },
+					body: app.body,
+				});
+			}
+
+			const app = await proxy(host, path, cookie);
+			return route.fulfill({
+				status: app.status,
+				headers: app.headers,
+				body: app.body,
+			});
+		},
 	);
-	return counters;
+
+	return counts;
 }
 
-async function openProject(page: Page, workspaceId: string) {
-	const project = await createProject(workspaceId, { name: "todo-api" });
+async function openProject(page: Page, workspaceId: string, name = "todo-api") {
+	const project = await createProject(workspaceId, { name });
 	await page.goto(workspacePath(workspaceId, project.id));
 	await expect(page.getByTestId("work-tabs")).toBeVisible({ timeout: 15_000 });
 	return project;
 }
 
+/** Give a project a saved layout with one preview tab already open. */
+async function savePreviewTab(projectId: string, port: number): Promise<void> {
+	await query("update projects set layout = $2 where id = $1", [
+		projectId,
+		JSON.stringify({
+			tabs: [{ id: `preview:${port}`, root: { type: "preview", port } }],
+		}),
+	]);
+}
+
+/** The heading of the application the fake agent runs for a preview test. */
+function appHeading(page: Page) {
+	return page.frameLocator("[data-testid=preview-frame]").locator("h1");
+}
+
 test.describe("application preview", () => {
-	test("the Running surface lists ports and opens a preview", async ({
+	test("the Running surface lists a listening port and opens its preview", async ({
 		page,
 		context,
 	}) => {
 		const student = await createStudent(context);
-		await stubPreview(page, student.workspaceId, [
-			{ port: 5173, command: "node" },
-			{ port: 5432, command: "postgres", docker: true },
-		]);
+		const counts = await previewGateway(page);
+		const port = await startPreviewApp(student.workspaceId, "Todo API");
 		await openProject(page, student.workspaceId);
 
 		await page.getByTestId("right-pane-tab-running").click();
-		await expect(page.getByTestId("running-row-5173")).toContainText("node");
-		await expect(page.getByTestId("running-row-5432")).toContainText("Docker");
+		await expect(page.getByTestId(`running-row-${port}`)).toBeVisible({
+			timeout: 20_000,
+		});
+		await expect(page.getByTestId(`running-row-${port}`)).toContainText("Preview");
 
-		await page.getByTestId("running-open-5173").click();
-		const frame = page.getByTestId("preview-frame");
-		await expect(frame).toHaveAttribute("src", BOOTSTRAP);
-		await expect(page.getByTestId("preview-host")).toHaveText("preview.test");
-		await expect(
-			page.frameLocator("[data-testid=preview-frame]").locator("#app"),
-		).toHaveText("Hello from the workspace");
+		await page.getByTestId(`running-open-${port}`).click();
+		await expect(page.getByTestId("preview-host")).toContainText(
+			`-${port}.preview.localhost`,
+			{ timeout: 20_000 },
+		);
+		// The frame shows the application the fake agent is really running,
+		// fetched through the authorization subrequest.
+		await expect(appHeading(page)).toHaveText("Todo API", { timeout: 20_000 });
+		expect(counts.app).toBeGreaterThan(0);
 	});
 
 	test("an empty workspace says nothing is running yet", async ({ page, context }) => {
 		const student = await createStudent(context);
-		await stubPreview(page, student.workspaceId, []);
+		await seedListening(student.workspaceId, []);
 		await openProject(page, student.workspaceId);
 		await page.getByTestId("right-pane-tab-running").click();
-		await expect(page.getByText("Nothing is running yet")).toBeVisible();
+		await expect(page.getByText("Nothing is running yet")).toBeVisible({
+			timeout: 20_000,
+		});
 	});
 
 	test("the + Preview launcher opens a port the student names", async ({
@@ -126,20 +245,23 @@ test.describe("application preview", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		await stubPreview(page, student.workspaceId, [{ port: 4321 }]);
+		await previewGateway(page);
+		const port = await startPreviewApp(student.workspaceId);
 		await openProject(page, student.workspaceId);
 
 		await page.getByTestId("launcher").click();
 		await page.getByTestId("launcher-preview").click();
-		await page.getByLabel("Port").fill("4321");
+		await page.getByLabel("Port").fill(String(port));
 		await page.getByTestId("preview-open-port").click();
-		await expect(page.getByTestId("preview-frame")).toHaveAttribute("src", BOOTSTRAP);
-		await expect(page.getByTestId("tab-preview:4321")).toBeVisible();
+		await expect(page.getByTestId(`tab-preview:${port}`)).toBeVisible();
+		await expect(appHeading(page)).toHaveText("Portikus test app", {
+			timeout: 20_000,
+		});
 	});
 
 	test("the launcher refuses a reserved port", async ({ page, context }) => {
 		const student = await createStudent(context);
-		await stubPreview(page, student.workspaceId, []);
+		await seedListening(student.workspaceId, []);
 		await openProject(page, student.workspaceId);
 		await page.getByTestId("launcher").click();
 		await page.getByTestId("launcher-preview").click();
@@ -153,30 +275,43 @@ test.describe("application preview", () => {
 		await expect(page.getByTestId("preview-frame")).toHaveCount(0);
 	});
 
-	test("a saved preview with nothing listening explains itself and retries", async ({
+	test("a port policy denies is listed but offers no preview", async ({
 		page,
 		context,
 	}) => {
 		const student = await createStudent(context);
-		const counters = await stubPreview(page, student.workspaceId, []);
+		// 5432 is in PREVIEW_DENIED_PORTS, so the control plane marks it denied.
+		await seedListening(student.workspaceId, [{ port: 5432 }]);
+		await openProject(page, student.workspaceId);
+		await page.getByTestId("right-pane-tab-running").click();
+		await expect(page.getByTestId("running-row-5432")).toBeVisible({
+			timeout: 20_000,
+		});
+		await expect(page.getByTestId("running-open-5432")).toHaveCount(0);
+	});
+
+	test("a saved preview reconnects when the application starts again", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(page);
+		const port = await startPreviewApp(student.workspaceId, "Back again");
+		// As far as the workspace is concerned, the application is not running.
+		await seedListening(student.workspaceId, []);
 		const project = await createProject(student.workspaceId, { name: "saved" });
-		await query("update projects set layout = $2 where id = $1", [
-			project.id,
-			JSON.stringify({
-				tabs: [{ id: "preview:5173", root: { type: "preview", port: 5173 } }],
-			}),
-		]);
+		await savePreviewTab(project.id, port);
+
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(page.getByTestId("preview-inactive")).toHaveText(
-			"Nothing is currently listening on port 5173. Start your application to reconnect this preview.",
-			{ timeout: 15_000 },
+			`Nothing is currently listening on port ${port}. Start your application to reconnect this preview.`,
+			{ timeout: 20_000 },
 		);
-		expect(counters.grants).toBe(0);
 
-		// Retry asks for a grant even while discovery says nothing is there,
-		// because the student may know better than the last scan.
-		await page.getByTestId("preview-retry").click();
-		await expect(page.getByTestId("preview-frame")).toHaveAttribute("src", BOOTSTRAP);
+		// The agent reports the port again, and the tab reconnects on its own
+		// (SPEC.md §14.8).
+		await seedListening(student.workspaceId, [{ port }]);
+		await expect(appHeading(page)).toHaveText("Back again", { timeout: 20_000 });
 	});
 
 	test("the Running surface marks a saved preview that is no longer running", async ({
@@ -184,33 +319,31 @@ test.describe("application preview", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		await stubPreview(page, student.workspaceId, [{ port: 3000 }]);
+		await seedListening(student.workspaceId, [{ port: 3000 }]);
 		const project = await createProject(student.workspaceId, { name: "stale" });
-		await query("update projects set layout = $2 where id = $1", [
-			project.id,
-			JSON.stringify({
-				tabs: [{ id: "preview:5173", root: { type: "preview", port: 5173 } }],
-			}),
-		]);
+		await savePreviewTab(project.id, 5173);
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await page.getByTestId("right-pane-tab-running").click();
 		await expect(page.getByTestId("running-stale-5173")).toContainText("not running", {
-			timeout: 15_000,
+			timeout: 20_000,
 		});
 	});
 
-	test("a refused grant says the student may not preview this workspace", async ({
+	test("a preview of a port policy denies explains itself", async ({
 		page,
 		context,
 	}) => {
 		const student = await createStudent(context);
-		await stubPreview(page, student.workspaceId, [{ port: 5173 }], {
-			grantStatus: 403,
-		});
-		await openProject(page, student.workspaceId);
-		await page.getByTestId("right-pane-tab-running").click();
-		await page.getByTestId("running-open-5173").click();
-		await expect(page.getByTestId("preview-unauthorized")).toBeVisible();
+		// A tab saved for a port policy refuses: the agent says it is listening,
+		// and the grant route turns it down (BROWSER-HANDLING.md §9.1).
+		await seedListening(student.workspaceId, [{ port: 5432 }]);
+		const project = await createProject(student.workspaceId, { name: "denied" });
+		await savePreviewTab(project.id, 5432);
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByTestId("preview-error")).toHaveText(
+			"Port 5432 cannot be previewed",
+			{ timeout: 20_000 },
+		);
 	});
 
 	test("the preview route a terminal link uses opens a preview tab", async ({
@@ -218,13 +351,19 @@ test.describe("application preview", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		await stubPreview(page, student.workspaceId, [{ port: 5173 }]);
+		await previewGateway(page);
+		const port = await startPreviewApp(student.workspaceId);
 		const project = await createProject(student.workspaceId, { name: "linked" });
-		// Where a click on `http://localhost:5173` in a terminal lands
+		// Where a click on `http://localhost:<port>` in a terminal lands
 		// (SPEC.md §14.9); the parser itself is covered by unit tests.
-		await page.goto(`${workspacePath(student.workspaceId, project.id)}/preview/5173`);
-		await expect(page.getByTestId("preview-frame")).toHaveAttribute("src", BOOTSTRAP, {
-			timeout: 15_000,
+		await page.goto(
+			`${workspacePath(student.workspaceId, project.id)}/preview/${port}`,
+		);
+		await expect(page.getByTestId(`tab-preview:${port}`)).toBeVisible({
+			timeout: 20_000,
+		});
+		await expect(appHeading(page)).toHaveText("Portikus test app", {
+			timeout: 20_000,
 		});
 	});
 
@@ -233,10 +372,11 @@ test.describe("application preview", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		await stubPreview(page, student.workspaceId, [{ port: 5173 }]);
+		await previewGateway(page);
+		const port = await startPreviewApp(student.workspaceId);
 		const project = await openProject(page, student.workspaceId);
 		await page.getByTestId("right-pane-tab-running").click();
-		await page.getByTestId("running-open-5173").click();
+		await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
 		await expect(page.getByTestId("preview-frame")).toBeVisible();
 		await expect
 			.poll(
@@ -247,13 +387,13 @@ test.describe("application preview", () => {
 					);
 					return JSON.stringify(rows[0]?.layout ?? null);
 				},
-				{ timeout: 15_000 },
+				{ timeout: 20_000 },
 			)
-			.toContain('"preview:5173"');
+			.toContain(`"preview:${port}"`);
 
 		await page.reload();
-		await expect(page.getByTestId("tab-preview:5173")).toBeVisible({
-			timeout: 15_000,
+		await expect(page.getByTestId(`tab-preview:${port}`)).toBeVisible({
+			timeout: 20_000,
 		});
 	});
 
@@ -262,10 +402,11 @@ test.describe("application preview", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		await stubPreview(page, student.workspaceId, [{ port: 5173 }]);
+		await previewGateway(page);
+		const port = await startPreviewApp(student.workspaceId);
 		await openProject(page, student.workspaceId);
 		await page.getByTestId("right-pane-tab-running").click();
-		await page.getByTestId("running-open-5173").click();
+		await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
 		const frame = page.getByTestId("preview-frame");
 		await expect(frame).toHaveAttribute(
 			"sandbox",
@@ -283,16 +424,38 @@ test.describe("application preview", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		await stubPreview(page, student.workspaceId, [{ port: 5173 }]);
+		await previewGateway(page);
+		const port = await startPreviewApp(student.workspaceId);
 		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 		await openProject(page, student.workspaceId);
 		await page.getByTestId("right-pane-tab-running").click();
-		await page.getByTestId("running-open-5173").click();
+		await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
+		await expect(page.getByTestId("preview-host")).toContainText(".preview.localhost", {
+			timeout: 20_000,
+		});
 		await page.getByTestId("preview-copy").click();
 		await expect(
 			toast(page, "This link only works while you are signed in."),
 		).toBeVisible();
 		const copied = await page.evaluate(() => navigator.clipboard.readText());
-		expect(copied).toBe(PREVIEW_ORIGIN);
+		expect(copied).toContain(`-${port}.preview.localhost`);
+	});
+
+	test("resetting preview data revokes the session and reconnects", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(page);
+		const port = await startPreviewApp(student.workspaceId, "Reset me");
+		await openProject(page, student.workspaceId);
+		await page.getByTestId("right-pane-tab-running").click();
+		await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
+		await expect(appHeading(page)).toHaveText("Reset me", { timeout: 20_000 });
+
+		await page.getByTestId("preview-reset").click();
+		await expect(toast(page, "Preview data reset")).toBeVisible();
+		// A fresh grant and a fresh preview session put the application back.
+		await expect(appHeading(page)).toHaveText("Reset me", { timeout: 20_000 });
 	});
 });
