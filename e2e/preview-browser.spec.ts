@@ -959,6 +959,57 @@ test.describe("the preview in a real browser", () => {
 	});
 
 	/**
+	 * One press of Back per entry the frame made, and not one more (issue
+	 * #283). The list of history entries does not get shorter when the
+	 * browser steps back through it, so counting entries is not enough: the
+	 * guard has to count the steps it has taken. The workspace page here is
+	 * reached by a real page load, as it is after the sign-in redirect, so a
+	 * step too far would load another document and take the workspace with
+	 * it.
+	 */
+	test("Back stops at the frame's first page, not at Portikus", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Steps");
+		// A second project, made before the page loads so it is in the list.
+		const other = await createProject(student.workspaceId, { name: "other" });
+		// A real navigation first, so the entry before the workspace document
+		// belongs to another document.
+		await page.goto("/");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await expect(appHeading(page)).toHaveText("Steps", { timeout: 20_000 });
+		const portikusUrl = page.url();
+
+		await page.frameLocator("[data-testid=preview-frame]").locator("#link").click();
+		await expect(appHeading(page)).toHaveText("second page");
+
+		// One entry, so one step. The second press must do nothing at all.
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("Steps");
+		await page.getByTestId("preview-back").click();
+		await expect(page.getByTestId("preview-back")).toHaveAttribute(
+			"title",
+			"Nothing to go back to",
+		);
+		await expect(appHeading(page)).toHaveText("Steps");
+
+		// The Portikus document is untouched: same URL, same workspace.
+		expect(page.url()).toBe(portikusUrl);
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await expect(page.getByTestId("preview-frame")).toBeVisible();
+
+		// The anchor entry carries the router's own state, so the router can
+		// still navigate after a Back.
+		await page.getByTestId(`project-item-${other.id}`).click();
+		await expect(page).toHaveURL(workspacePath(student.workspaceId, other.id));
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await app.close();
+	});
+
+	/**
 	 * The states are a compact stack in the middle of the pane, not a column
 	 * stretched from top to bottom (issue #275).
 	 */

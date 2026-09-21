@@ -12,12 +12,15 @@ import {
 
 afterEach(() => resetPreviewHistory());
 
-const PORTIKUS = "https://portikus.example.edu/workspaces/1";
+const ORIGIN = "https://portikus.example.edu";
+const PORTIKUS = `${ORIGIN}/workspaces/1`;
 
 /**
  * A stand-in for one browser tab's joint history. Entries hold the state the
  * top document sees; an entry a subframe made copies the state of the entry
- * before it, which is what Chromium does.
+ * before it, which is what Chromium does. Entry 0 is the Portikus document
+ * itself, and the fake throws if a step would go past it, because in the
+ * browser that step loads another document and the workspace is gone.
  */
 function fakeWindow() {
 	const entries: { href: string; state: unknown }[] = [{ href: PORTIKUS, state: null }];
@@ -29,33 +32,41 @@ function fakeWindow() {
 	}
 
 	const win: HistoryWindow = {
-		location: { href: PORTIKUS },
+		location: { href: PORTIKUS, pathname: new URL(PORTIKUS).pathname },
 		history: {
 			get length() {
 				return entries.length;
 			},
+			get state() {
+				return entries[at]?.state ?? null;
+			},
 			back: () => {
 				if (at === 0) throw new Error("the Portikus document was unloaded");
 				at -= 1;
-				win.location.href = entries[at]?.href ?? "";
+				setHref(entries[at]?.href ?? "");
 				fire();
 			},
 			forward: () => {
 				if (at >= entries.length - 1) return;
 				at += 1;
-				win.location.href = entries[at]?.href ?? "";
+				setHref(entries[at]?.href ?? "");
 				fire();
 			},
 			pushState: (state, _unused, url) => {
 				entries.length = at + 1;
 				entries.push({ href: url, state });
 				at += 1;
-				win.location.href = url;
+				setHref(url);
 			},
 		},
 		addEventListener: (_type, listener) => listeners.add(listener),
 		removeEventListener: (_type, listener) => listeners.delete(listener),
 	};
+
+	function setHref(url: string): void {
+		win.location.href = url;
+		win.location.pathname = url === "" ? "" : new URL(url).pathname;
+	}
 
 	/** What the frame does: a new joint entry that keeps the top state. */
 	function frameNavigates() {
@@ -64,7 +75,12 @@ function fakeWindow() {
 		at += 1;
 	}
 
-	return { win, frameNavigates, position: () => at, entries };
+	/** What the Portikus router does when the student opens another project. */
+	function routeChanges(path: string, state: unknown) {
+		win.history.pushState(state, "", `${ORIGIN}${path}`);
+	}
+
+	return { win, frameNavigates, routeChanges, position: () => at, entries };
 }
 
 test("a sentinel is recognised and nothing else is", () => {
@@ -80,6 +96,19 @@ test("mounting pushes one anchor entry at the same URL", () => {
 	expect(tab.entries).toHaveLength(2);
 	expect(tab.entries[1]?.state).toEqual({ pkPreviewSentinel: "tab-1" });
 	expect(tab.win.location.href).toBe(PORTIKUS);
+});
+
+test("the anchor keeps the state the router put on the entry", () => {
+	const tab = fakeWindow();
+	// TanStack Router keeps its index and key in history.state; an anchor
+	// that threw them away would break its navigation.
+	tab.routeChanges("/workspaces/1/projects/a", { index: 3, key: "abc" });
+	attachPreviewHistory("tab-1", tab.win);
+	expect(tab.win.history.state).toEqual({
+		index: 3,
+		key: "abc",
+		pkPreviewSentinel: "tab-1",
+	});
 });
 
 test("Back on a fresh preview refuses instead of stepping", () => {
@@ -110,29 +139,32 @@ test("the state still reads as the anchor after the frame moves", () => {
 	expect(isSentinel(tab.entries[tab.position()]?.state)).toBe(true);
 });
 
-test("stepping off the anchor re-anchors and Back then refuses", () => {
+test("a second Back after one frame entry refuses", () => {
 	const tab = fakeWindow();
 	const history = attachPreviewHistory("tab-1", tab.win);
 	tab.frameNavigates();
 	expect(history.back()).toBe(true);
-	// One step too many: this lands on the Portikus document's own entry and
-	// the popstate listener puts the anchor back.
-	expect(history.back()).toBe(true);
-	expect(tab.win.location.href).toBe(PORTIKUS);
+	// The list did not get shorter when we stepped, so only the count of
+	// steps taken says we are back on the anchor with nowhere left to go.
+	expect(tab.position()).toBe(1);
 	expect(history.canGoBack()).toBe(false);
 	expect(history.back()).toBe(false);
+	expect(tab.position()).toBe(1);
+	expect(tab.win.location.href).toBe(PORTIKUS);
 });
 
 test("Back can never reach the entry before the Portikus page", () => {
 	const tab = fakeWindow();
 	const history = attachPreviewHistory("tab-1", tab.win);
 	tab.frameNavigates();
+	tab.frameNavigates();
 	// The fake throws if a step would unload the document.
 	for (let press = 0; press < 20; press += 1) history.back();
 	expect(tab.win.location.href).toBe(PORTIKUS);
+	expect(tab.position()).toBe(1);
 });
 
-test("Forward is passed straight through", () => {
+test("Forward is passed through and gives Back somewhere to go again", () => {
 	const tab = fakeWindow();
 	const history = attachPreviewHistory("tab-1", tab.win);
 	tab.frameNavigates();
@@ -140,6 +172,36 @@ test("Forward is passed straight through", () => {
 	const before = tab.position();
 	history.forward();
 	expect(tab.position()).toBe(before + 1);
+	expect(history.canGoBack()).toBe(true);
+});
+
+test("a Portikus route change re-anchors, so Back does not rewind it", () => {
+	const tab = fakeWindow();
+	const history = attachPreviewHistory("tab-1", tab.win);
+	// The student switches project while the Preview tab is open. Those are
+	// the router's entries, not the frame's, and Back must leave them alone.
+	tab.routeChanges("/workspaces/1/projects/a", { index: 1, key: "a" });
+	tab.routeChanges("/workspaces/1/projects/b", { index: 2, key: "b" });
+	expect(history.canGoBack()).toBe(false);
+	expect(history.back()).toBe(false);
+	// The frame's first entry after the switch is what Back may take.
+	tab.frameNavigates();
+	expect(history.back()).toBe(true);
+	expect(history.canGoBack()).toBe(false);
+});
+
+test("stepping off the anchor re-anchors and Back then refuses", () => {
+	const tab = fakeWindow();
+	const history = attachPreviewHistory("tab-1", tab.win);
+	tab.frameNavigates();
+	// The browser's own Back button, which the guard cannot refuse: two
+	// presses land before the anchor and the popstate listener puts it back.
+	tab.win.history.back();
+	tab.win.history.back();
+	expect(tab.win.location.href).toBe(PORTIKUS);
+	expect(isSentinel(tab.win.history.state)).toBe(true);
+	expect(history.canGoBack()).toBe(false);
+	expect(history.back()).toBe(false);
 });
 
 test("a second Preview tab shares the one anchor", () => {
@@ -153,4 +215,12 @@ test("a second Preview tab shares the one anchor", () => {
 	tab.frameNavigates();
 	expect(second.canGoBack()).toBe(true);
 	second.release();
+});
+
+test("opening and closing Preview tabs does not pile up history entries", () => {
+	const tab = fakeWindow();
+	for (let cycle = 0; cycle < 5; cycle += 1) {
+		attachPreviewHistory(`tab-${cycle}`, tab.win).release();
+	}
+	expect(tab.entries).toHaveLength(2);
 });
