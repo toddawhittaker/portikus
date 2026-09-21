@@ -219,6 +219,17 @@ export function registerPreviewRoutes(
 		const grant = await consumeGrant(db, query.data.t, host);
 		if (!grant) return page(reply, 403, refusedPage());
 
+		// A ticket is good only where it was meant to be opened: one asked for
+		// the preview frame may not be turned into a top-level page, and one
+		// asked for a tab may not be framed (BROWSER-HANDLING.md §9.1). An
+		// older browser sends no Sec-Fetch-Dest at all, and is accepted: the
+		// header is a tightening, never the only thing holding the door.
+		const dest = request.headers["sec-fetch-dest"];
+		if (typeof dest === "string" && dest !== "") {
+			const wanted = grant.presentation === "embedded" ? "iframe" : "document";
+			if (dest !== wanted) return page(reply, 403, refusedPage());
+		}
+
 		const token = await createPreviewSession(db, {
 			userId: grant.user_id,
 			sessionId: grant.session_id,

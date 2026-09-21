@@ -63,12 +63,13 @@ async function grant(
 	id: string,
 	port: number,
 	extra: Record<string, string> = {},
+	presentation: "embedded" | "top-level" = "embedded",
 ) {
 	return app.inject({
 		method: "POST",
 		url: `/workspaces/${id}/preview-grants`,
 		headers: { ...csrfHeaders(jar, PUBLIC_URL), ...extra },
-		payload: { port, presentation: "embedded" },
+		payload: { port, presentation },
 	});
 }
 
@@ -77,11 +78,15 @@ function ticketOf(bootstrapUrl: string): string {
 	return new URL(bootstrapUrl).searchParams.get("t") ?? "";
 }
 
-async function bootstrap(host: string, ticket: string) {
+async function bootstrap(
+	host: string,
+	ticket: string,
+	extra: Record<string, string> = {},
+) {
 	return app.inject({
 		method: "GET",
 		url: `/__portikus/bootstrap?t=${encodeURIComponent(ticket)}`,
-		headers: { "x-forwarded-host": host },
+		headers: { "x-forwarded-host": host, ...extra },
 	});
 }
 
@@ -414,6 +419,59 @@ test.skipIf(skip)("a ticket presented on another host is refused", async () => {
 	expect((await bootstrap("127.0.0.1", ticket)).statusCode).toBe(403);
 	// And the ticket is still good on the host it was issued for.
 	expect((await bootstrap(previewHostFor(5173), ticket)).statusCode).toBe(303);
+});
+
+test.skipIf(skip)("a ticket is only good where it was meant to open", async () => {
+	// A ticket for the preview frame, opened as a top-level page.
+	const framed = await grant(alice, workspaceId, 5173);
+	const refusedTop = await bootstrap(
+		previewHostFor(5173),
+		ticketOf(framed.json().bootstrapUrl),
+		{ "sec-fetch-dest": "document" },
+	);
+	expect(refusedTop.statusCode).toBe(403);
+	expect(refusedTop.headers["set-cookie"]).toBeUndefined();
+
+	// A ticket for a tab, opened inside a frame.
+	const tab = await grant(alice, workspaceId, 5173, {}, "top-level");
+	const refusedFrame = await bootstrap(
+		previewHostFor(5173),
+		ticketOf(tab.json().bootstrapUrl),
+		{ "sec-fetch-dest": "iframe" },
+	);
+	expect(refusedFrame.statusCode).toBe(403);
+	expect(refusedFrame.headers["set-cookie"]).toBeUndefined();
+
+	expect(
+		await testDb.db.selectFrom("preview_sessions").selectAll().execute(),
+	).toHaveLength(0);
+});
+
+test.skipIf(skip)("a ticket opened the way it asked for is accepted", async () => {
+	const framed = await grant(alice, workspaceId, 5173);
+	expect(
+		(
+			await bootstrap(previewHostFor(5173), ticketOf(framed.json().bootstrapUrl), {
+				"sec-fetch-dest": "iframe",
+			})
+		).statusCode,
+	).toBe(303);
+
+	const tab = await grant(alice, workspaceId, 5173, {}, "top-level");
+	expect(
+		(
+			await bootstrap(previewHostFor(5173), ticketOf(tab.json().bootstrapUrl), {
+				"sec-fetch-dest": "document",
+			})
+		).statusCode,
+	).toBe(303);
+
+	// A browser that sends no Sec-Fetch-Dest is still let in.
+	const quiet = await grant(alice, workspaceId, 5173);
+	expect(
+		(await bootstrap(previewHostFor(5173), ticketOf(quiet.json().bootstrapUrl)))
+			.statusCode,
+	).toBe(303);
 });
 
 test.skipIf(skip)("an unknown ticket is refused", async () => {
