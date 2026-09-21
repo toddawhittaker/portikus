@@ -26,6 +26,8 @@ export interface SelectProps {
 	hint?: React.ReactNode;
 	/** Render the list open; used by previews and tests. */
 	open?: boolean;
+	/** Show the value but take no choice, while the options are still coming. */
+	disabled?: boolean;
 	onValueChange?: (v: string) => void;
 }
 
@@ -49,6 +51,7 @@ export function Select({
 	placeholder,
 	hint,
 	open,
+	disabled,
 	onValueChange,
 }: SelectProps): React.ReactElement {
 	return (
@@ -59,6 +62,7 @@ export function Select({
 			<RadixSelect.Root
 				value={value}
 				open={open || undefined}
+				disabled={disabled}
 				onValueChange={onValueChange}
 			>
 				<RadixSelect.Trigger
@@ -66,6 +70,7 @@ export function Select({
 					aria-labelledby={`${id}-l ${id}`}
 					className={cx(
 						"pk-select flex cursor-pointer items-center justify-between gap-2 text-left",
+						disabled ? "cursor-default opacity-60" : "",
 						CONTROL_CLASS,
 					)}
 				>

@@ -160,20 +160,33 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						/>
 					</Section>
 					<Section title="Workspace">
-						{/* Waits for the server's zone list, so the select is built once
-						    with the stored zone already among its options. */}
-						{zones.length > 0 ? (
-							<Select
-								id="workspace-timezone"
-								label="Workspace timezone"
-								hint="The clock your terminals, logs, and Git commits use. A new terminal takes it at once; a shell already running keeps the zone it started with until the workspace restarts. Programs you run in Docker containers keep their own clock."
-								options={[currentZoneOption(timezone)]}
-								groups={timezoneGroups(zones, timezone)}
-								value={timezone}
-								onValueChange={(value) =>
-									setDraft((current) => ({ ...current, timezone: value }))
-								}
-							/>
+						{/* Until the server's zone list arrives the select shows the zone
+						    in use and takes no choice, rather than not being there at
+						    all: an empty space where a setting belongs reads as a fault. */}
+						<Select
+							key={zones.length === 0 ? "waiting" : "loaded"}
+							// The select reads its options once, so the arrival of the
+							// server's list builds it again rather than leaving it showing
+							// the placeholder.
+							id="workspace-timezone"
+							label="Workspace timezone"
+							hint="The clock your terminals, logs, and Git commits use. A new terminal takes it at once; a shell already running keeps the zone it started with until the workspace restarts. Programs you run in Docker containers keep their own clock."
+							options={[currentZoneOption(timezone)]}
+							groups={timezoneGroups(zones, timezone)}
+							value={timezone}
+							disabled={zones.length === 0}
+							onValueChange={(value) =>
+								setDraft((current) => ({ ...current, timezone: value }))
+							}
+						/>
+						{settings.isError ? (
+							<p
+								className="pk-text-body text-status-error"
+								data-testid="editor-settings-zones-error"
+							>
+								The list of timezones could not be loaded, so the zone cannot be changed
+								here yet.
+							</p>
 						) : null}
 					</Section>
 					<button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
