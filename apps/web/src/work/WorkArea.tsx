@@ -160,9 +160,13 @@ export function WorkArea({
 	}
 
 	async function replace(terminalId: string) {
-		await createAndPlace((created) =>
-			store.getState().replaceLeaf(terminalId, created.id),
-		);
+		await createAndPlace((created) => {
+			store.getState().replaceLeaf(terminalId, created.id);
+			// The button the student clicked is gone with the ended pane, so
+			// the keyboard would land on nothing. Make the new terminal the
+			// focused one and its pane takes the keyboard (issue #264).
+			store.getState().setFocused(created.id);
+		});
 	}
 
 	/**
@@ -433,6 +437,7 @@ export function WorkArea({
 							onFocus={(id) => store.getState().setFocused(id)}
 							onSplit={(id, direction) => void split(id, direction)}
 							onRename={(id, name) => void terminals.rename(id, name)}
+							onSetTheme={(id, theme) => void terminals.setTheme(id, theme)}
 							onClose={closeTerminal}
 							onExited={closeTerminal}
 							onReplace={(id) => void replace(id)}

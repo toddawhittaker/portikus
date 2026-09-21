@@ -246,6 +246,42 @@ describe("database migrations and schema", () => {
 		expect(row.created_at).toBeInstanceOf(Date);
 	});
 
+	// --- migration 0010: the terminal's own colour scheme (issue #268) ---
+
+	test.skipIf(!hasTestDb())(
+		"a terminal is dark unless the row says light",
+		async () => {
+			const ws = await t.db
+				.insertInto("workspaces")
+				.values({
+					label: testLabel(),
+					owner_user_id: await insertTestUser(t.db),
+					state: "running",
+				})
+				.returning("id")
+				.executeTakeFirstOrThrow();
+
+			const fallback = await t.db
+				.insertInto("terminals")
+				.values({ workspace_id: ws.id, name: "shell", cwd: "/home/student" })
+				.returning("theme")
+				.executeTakeFirstOrThrow();
+			expect(fallback.theme).toBe("dark");
+
+			const chosen = await t.db
+				.insertInto("terminals")
+				.values({
+					workspace_id: ws.id,
+					name: "bright",
+					cwd: "/home/student",
+					theme: "light",
+				})
+				.returning("theme")
+				.executeTakeFirstOrThrow();
+			expect(chosen.theme).toBe("light");
+		},
+	);
+
 	test.skipIf(!hasTestDb())(
 		"deleting a workspace cascades to its terminals",
 		async () => {
@@ -536,6 +572,8 @@ describe("database migrations and schema", () => {
 				expect(down8.error).toBeUndefined();
 				const down9 = await migrator.migrateDown();
 				expect(down9.error).toBeUndefined();
+				const down10 = await migrator.migrateDown();
+				expect(down10.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -548,6 +586,7 @@ describe("database migrations and schema", () => {
 					"0007_editor_settings",
 					"0008_preview",
 					"0009_project_directory_id",
+					"0010_terminal_theme",
 				]);
 				throw rollback;
 			}),

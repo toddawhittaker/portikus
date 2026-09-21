@@ -25,12 +25,17 @@ test("AgentTerminalList round-trips", () => {
 	expect(AgentTerminalList.parse(input)).toEqual(input);
 });
 
-test("AgentCreateTerminalRequest requires an id and a cwd", () => {
-	const input = { id: terminalId, cwd: "/home/student" };
+test("AgentCreateTerminalRequest requires an id, a cwd and a theme", () => {
+	const input = { id: terminalId, cwd: "/home/student", theme: "light" };
 	expect(AgentCreateTerminalRequest.parse(input)).toEqual(input);
 	expect(AgentCreateTerminalRequest.safeParse({ cwd: "/home/student" }).success).toBe(
 		false,
 	);
+	// The theme decides COLORFGBG in the shell (issue #267), so it is required.
+	expect(
+		AgentCreateTerminalRequest.safeParse({ id: terminalId, cwd: "/home/student" })
+			.success,
+	).toBe(false);
 	expect(
 		AgentCreateTerminalRequest.safeParse({ ...input, name: "shell" }).success,
 	).toBe(false);

@@ -4,8 +4,8 @@ import type { ColumnType, Generated } from "kysely";
  * Kysely Database interface for the Portikus control plane.
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
- * 0007_editor_settings, 0008_preview, and 0009_project_directory_id
- * (SPEC section 26, STACK section 6).
+ * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
+ * 0010_terminal_theme (SPEC section 26, STACK section 6).
  */
 export interface Database {
 	users: UsersTable;
@@ -78,6 +78,8 @@ export interface TerminalsTable {
 	cwd: string;
 	position: Generated<number>;
 	project_id: string | null;
+	/** This terminal's own colour scheme, "dark" or "light" (issue #268). */
+	theme: Generated<string>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	ended_at: ColumnType<Date | null, string | null, string | null>;
 }
