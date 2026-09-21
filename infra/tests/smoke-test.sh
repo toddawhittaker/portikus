@@ -1015,11 +1015,14 @@ TERMPROBE
       # out on the VM so the check does not hard-code daylight saving.
       chosen_zone="America/Los_Angeles"
       chosen_abbrev=$(ssh_cmd "TZ=${chosen_zone} date +%Z")
+      # The answer carries the whole list of zone names as well as the
+      # settings, and that list always holds the chosen zone, so the check
+      # looks for the settings field rather than the bare name.
       set_zone() {
         vm_get alice "${API}/me/settings" \
           "-X PUT -H 'Origin: ${API}' -H 'Content-Type: application/json' \
             -d '{\"timezone\":\"${chosen_zone}\"}'" \
-          | grep -q "${chosen_zone}"
+          | grep -q "\"timezone\":\"${chosen_zone}\""
       }
       check "a student can change the workspace timezone" set_zone
 
