@@ -229,6 +229,35 @@ test.describe("application preview", () => {
 		expect(counts.app).toBeGreaterThan(0);
 	});
 
+	test("a previewed loopback port stays in the Running pane", async ({
+		page,
+		context,
+	}) => {
+		// The agent's own forward must not make the port look like a system
+		// service and hide the student's server (issue #299).
+		const student = await createStudent(context);
+		await seedListening(student.workspaceId, [
+			{
+				port: 4173,
+				addresses: ["127.0.0.1"],
+				previewReachability: "unknown",
+				process: { pid: 4242, command: "node" },
+			},
+		]);
+		await openProject(page, student.workspaceId);
+		await page.getByTestId("right-pane-tab-running").click();
+		await page.getByTestId("running-open-4173").click({ timeout: 20_000 });
+		await expect(page.getByTestId("preview-host")).toContainText(
+			"-4173.preview.localhost",
+			{ timeout: 20_000 },
+		);
+
+		await page.getByTestId("right-pane-tab-running").click();
+		await expect(page.getByTestId("running-row-4173")).toBeVisible();
+		await expect(page.getByTestId("running-open-4173")).toBeVisible();
+		await expect(page.getByTestId("running-stop-4173")).toBeVisible();
+	});
+
 	test("a system listener is hidden until the toggle is on", async ({
 		page,
 		context,

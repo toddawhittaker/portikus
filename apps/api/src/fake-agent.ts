@@ -153,6 +153,9 @@ export function oneFileZip(name: string, contents: string): Buffer {
 	return Buffer.concat([local, nameBytes, data, central, nameBytes, end]);
 }
 
+/** The workspace interface address a loopback forward listens on. */
+const FORWARD_ADDRESS = "10.0.0.2";
+
 /** The status the real agent answers each file error with (its ERROR_STATUS). */
 const FILE_ERROR_STATUS: Record<string, number> = {
 	BAD_REQUEST: 400,
@@ -351,15 +354,26 @@ export async function startFakeAgent(
 		}
 	}
 
-	/** Mirror the real agent: an open forward makes a loopback port reachable. */
+	/**
+	 * Mirror the real agent: an open forward makes a loopback port reachable
+	 * and adds the agent's own listener on the workspace interface. The port
+	 * stays the student's, owned by their process (issue #299).
+	 */
 	function markForwarded(key: string, port: number, open: boolean): void {
 		listening.set(
 			key,
-			listeningFor(key).map((service) =>
-				service.port === port
-					? { ...service, previewReachability: open ? "forwarded" : "unknown" }
-					: service,
-			),
+			listeningFor(key).map((service) => {
+				if (service.port !== port) return service;
+				const addresses = service.addresses.filter(
+					(address) => address !== FORWARD_ADDRESS,
+				);
+				return {
+					...service,
+					addresses: open ? [...addresses, FORWARD_ADDRESS] : addresses,
+					previewReachability: open ? ("forwarded" as const) : ("unknown" as const),
+					system: false,
+				};
+			}),
 		);
 		pushListening(key);
 	}
@@ -1468,7 +1482,7 @@ export async function startFakeAgent(
 	app.get("/forwards", async (request) => ({
 		forwards: [...(forwards.get(keyOf(request)) ?? new Set<number>())].map((port) => ({
 			port,
-			address: "10.0.0.2",
+			address: FORWARD_ADDRESS,
 			state: "open" as const,
 		})),
 	}));
@@ -1491,7 +1505,7 @@ export async function startFakeAgent(
 		open.add(port);
 		forwards.set(key, open);
 		markForwarded(key, port, true);
-		return { port, address: "10.0.0.2", state: "open" };
+		return { port, address: FORWARD_ADDRESS, state: "open" };
 	});
 
 	app.delete("/forwards/:port", async (request, reply) => {

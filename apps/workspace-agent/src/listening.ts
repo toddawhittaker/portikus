@@ -159,6 +159,11 @@ export function parseProcNetTcp(text: string): ProcListener[] {
  * inner Docker container is the student's work even though `docker-proxy`
  * holds it as root, so a container attribution wins.
  *
+ * The agent also opens a loopback forward on the student's own port to serve
+ * a preview (BROWSER-HANDLING.md §11.1), which makes the agent one holder of
+ * that port. A forward is never the service, so a forwarded port is judged by
+ * the other rows alone (issue #299).
+ *
  * A port can have several rows, one per address family. It is hidden only
  * when every one of them belongs to a system account: one row that is the
  * student's makes the port the student's, because hiding it would hide their
@@ -169,10 +174,17 @@ export function isSystemListener(input: {
 	uids: number[];
 	hasContainer: boolean;
 	selfPid?: number;
+	isForwarded?: boolean;
 }): boolean {
 	if (input.hasContainer) return false;
 	const selfPid = input.selfPid ?? process.pid;
-	if (input.ownerPid !== undefined && input.ownerPid === selfPid) return true;
+	if (
+		!input.isForwarded &&
+		input.ownerPid !== undefined &&
+		input.ownerPid === selfPid
+	) {
+		return true;
+	}
 	if (input.uids.length === 0) return false;
 	return input.uids.every((uid) => uid >= 0 && uid < FIRST_HUMAN_UID);
 }
@@ -604,9 +616,12 @@ export class ListeningMonitor {
 		const services: AgentListeningService[] = [];
 		for (const [port, listeners] of byPort) {
 			const addresses = [...new Set(listeners.map((entry) => entry.address))].sort();
-			const owner = listeners
+			const found = listeners
 				.map((entry) => owners.get(entry.inode))
-				.find((found) => found !== undefined);
+				.filter((entry) => entry !== undefined);
+			// The agent's own forward is never the service: if another process
+			// holds this port too, that one is the owner (issue #299).
+			const owner = found.find((entry) => entry.pid !== this.selfPid) ?? found[0];
 			const container = containers.find((entry) => entry.ports.includes(port));
 			services.push({
 				port,
@@ -620,6 +635,7 @@ export class ListeningMonitor {
 					uids: listeners.map((entry) => entry.uid),
 					hasContainer: container !== undefined,
 					selfPid: this.selfPid,
+					isForwarded: forwarded.has(port),
 				}),
 				observedAt,
 			});
