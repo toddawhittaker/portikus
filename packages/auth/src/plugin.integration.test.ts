@@ -61,6 +61,7 @@ describe.skipIf(!hasTestDb())("authPlugin", () => {
 				subject: `user-${role}`,
 				email: null,
 				displayName: "Test User",
+				preferredUsername: `user-${role}`,
 			},
 			role,
 		);

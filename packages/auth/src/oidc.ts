@@ -121,11 +121,9 @@ export function createOidcClient(opts: AuthOptions): OidcClient {
 				throw new OidcError("the identity provider returned no subject");
 			}
 			const email = pickString(claims, "email");
+			const preferredUsername = pickString(claims, "preferred_username");
 			const displayName =
-				pickString(claims, "name") ??
-				pickString(claims, "preferred_username") ??
-				email ??
-				subject;
+				pickString(claims, "name") ?? preferredUsername ?? email ?? subject;
 
 			return {
 				identity: {
@@ -133,6 +131,7 @@ export function createOidcClient(opts: AuthOptions): OidcClient {
 					subject,
 					email,
 					displayName,
+					preferredUsername,
 				},
 				claims,
 			};

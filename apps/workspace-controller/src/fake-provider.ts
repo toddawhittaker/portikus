@@ -14,6 +14,7 @@ interface FakeInstance {
 	status: "Running" | "Stopped";
 	ipv4: string | null;
 	agentToken: string | null;
+	hostname: string | null;
 	imageFingerprint: string;
 	quota: { homeGiB: number; dockerGiB: number };
 }
@@ -65,6 +66,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			status: "Stopped",
 			ipv4: null,
 			agentToken: null,
+			hostname: null,
 			imageFingerprint: "abc123",
 			quota: sizes,
 		};
@@ -74,7 +76,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 
 	async start(
 		name: string,
-		opts: { timeoutSeconds: number; agentToken: string },
+		opts: { timeoutSeconds: number; agentToken: string; hostname: string },
 	): Promise<StartInstanceResponse> {
 		this.validate(name);
 		this.checkError();
@@ -87,6 +89,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 		// The real provider pushes this token and waits for agent health;
 		// the fake records it and treats the agent as already healthy.
 		inst.agentToken = opts.agentToken;
+		inst.hostname = opts.hostname;
 		return { ipv4: "10.0.0.2" };
 	}
 

@@ -207,15 +207,21 @@ test("start pushes the agent token, then waits for agent health", async () => {
 	const result = await provider.start("ws-test", {
 		timeoutSeconds: 10,
 		agentToken: AGENT_TOKEN,
+		hostname: "tw7",
 	});
 
 	expect(result.ipv4).toBe("127.0.0.1");
 	expect(pollCount).toBeGreaterThanOrEqual(3);
-	expect(pushes).toHaveLength(1);
-	const push = pushes[0];
-	if (!push) {
-		throw new Error("expected one file push");
+	// The hostname lands first, then the agent token.
+	expect(pushes).toHaveLength(2);
+	const hostnamePush = pushes[0];
+	const push = pushes[1];
+	if (!hostnamePush || !push) {
+		throw new Error("expected two file pushes");
 	}
+	expect(hostnamePush.url).toContain("path=%2Fetc%2Fhostname");
+	expect(hostnamePush.body).toBe("tw7\n");
+	expect(hostnamePush.headers["x-incus-uid"]).toBe("0");
 	expect(push.url).toContain("path=%2Fetc%2Fportikus%2Fagent.token");
 	expect(push.headers["x-incus-uid"]).toBe("1000");
 	expect(push.headers["x-incus-mode"]).toBe("0600");
@@ -223,6 +229,21 @@ test("start pushes the agent token, then waits for agent health", async () => {
 	// The token file lands before the first health request.
 	expect(agentRequestsAtPush).toBe(before);
 	expect(agentRequests).toBeGreaterThan(before);
+});
+
+test("start refuses a hostname that is not a DNS label", async () => {
+	handler = async (req, res) => {
+		await readBody(req);
+		respond(res, 200, sync({}));
+	};
+
+	await expect(
+		provider.start("ws-test", {
+			timeoutSeconds: 10,
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7; rm -rf /",
+		}),
+	).rejects.toMatchObject({ code: "INVALID_NAME" });
 });
 
 test(
@@ -247,7 +268,11 @@ test(
 		// A generous start timeout: the health wait must still give up on its
 		// own budget, so one broken agent cannot block the worker's start loop.
 		await expect(
-			provider.start("ws-test", { timeoutSeconds: 120, agentToken: AGENT_TOKEN }),
+			provider.start("ws-test", {
+				timeoutSeconds: 120,
+				agentToken: AGENT_TOKEN,
+				hostname: "tw7",
+			}),
 		).rejects.toMatchObject({ code: "TIMEOUT" });
 		const elapsed = Date.now() - started;
 		expect(elapsed).toBeGreaterThanOrEqual(AGENT_HEALTH_TIMEOUT_MS - 1000);
@@ -269,7 +294,11 @@ test("start with no IP by deadline throws TIMEOUT", async () => {
 	};
 
 	await expect(
-		provider.start("ws-test", { timeoutSeconds: 1, agentToken: AGENT_TOKEN }),
+		provider.start("ws-test", {
+			timeoutSeconds: 1,
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7",
+		}),
 	).rejects.toMatchObject({
 		code: "TIMEOUT",
 	});

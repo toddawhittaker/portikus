@@ -320,7 +320,7 @@ export async function reconcile(
 	// 3b: stopped with desired running (or restarting) -> start.
 	const toStart = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name"])
+		.select(["id", "incus_instance_name", "label"])
 		.where("state", "=", "stopped")
 		.where("desired_state", "in", ["running", "restarting"])
 		.execute();
@@ -386,7 +386,7 @@ export async function reconcile(
 	const retryCutoff = new Date(now.getTime() - ERROR_RETRY_SECONDS * 1000);
 	const errorRetryStart = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name"])
+		.select(["id", "incus_instance_name", "label"])
 		.where("state", "=", "error")
 		.where("desired_state", "in", ["running", "restarting"])
 		.where("updated_at", "<", retryCutoff)
@@ -619,7 +619,7 @@ async function startWorkspace(
 	db: Kysely<Database>,
 	controller: ControllerClient,
 	config: ReconcileConfig,
-	ws: { id: string; incus_instance_name: string | null },
+	ws: { id: string; incus_instance_name: string | null; label: string },
 	fromState: string,
 	now: Date,
 ): Promise<number> {
@@ -651,6 +651,7 @@ async function startWorkspace(
 		const result = await controller.start(ws.incus_instance_name, {
 			timeoutSeconds: config.START_TIMEOUT_SECONDS,
 			agentToken,
+			hostname: ws.label,
 		});
 		const updated = await casUpdate(
 			db,
