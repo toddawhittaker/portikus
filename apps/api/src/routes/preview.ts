@@ -12,7 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AgentCallError } from "../agent-client.js";
 import { createBridgeForwards, parseBridgeUri } from "../preview/bridge.js";
-import { probeEmbeddable } from "../preview/embeddable.js";
+import { type EmbeddableVerdict, probeEmbeddable } from "../preview/embeddable.js";
 import {
 	inactiveServicePage,
 	refusedPage,
@@ -47,13 +47,15 @@ const TicketQuery = z.object({ t: z.string().min(1).max(200) });
 const PortQuery = z.object({ port: z.coerce.number().int().min(1).max(65535) });
 
 /**
- * How many bootstrap tickets one student may ask for in a minute. Opening a
- * preview, reloading it and switching ports are all well under this; a page
- * asking in a loop is not. Counted in this process, which the pilot runs one
- * of (ADR 0010).
+ * How many preview requests one student may make in a minute, counting
+ * bootstrap tickets and framing probes together. Both make the control plane
+ * work on the student's behalf — a probe holds an outbound socket for up to
+ * three seconds — so they share one budget. Opening a preview, reloading it
+ * and switching ports are all well under this; a page asking in a loop is
+ * not. Counted in this process, which the pilot runs one of (ADR 0010).
  */
-const GRANTS_PER_WINDOW = 30;
-const GRANT_WINDOW_MS = 60_000;
+const PREVIEW_REQUESTS_PER_WINDOW = 30;
+const PREVIEW_WINDOW_MS = 60_000;
 
 /** The socket's own peer address, which no header can influence. */
 function fromLoopback(request: FastifyRequest): boolean {
@@ -84,22 +86,55 @@ export function registerPreviewRoutes(
 	const secure = config.PUBLIC_URL.startsWith("https:");
 	const bridge = createBridgeForwards({ registry, logger });
 
-	/** When each user's recent grants were asked for, newest last. */
-	const grantTimes = new Map<string, number[]>();
+	/** When each user's recent grants and probes were asked for, newest last. */
+	const requestTimes = new Map<string, number[]>();
 
-	/** Record this grant request, and say whether it is over the limit. */
-	function overGrantLimit(userId: string): boolean {
+	/** Record this preview request, and say whether it is over the limit. */
+	function overPreviewLimit(userId: string): boolean {
 		const now = Date.now();
-		const recent = (grantTimes.get(userId) ?? []).filter(
-			(at) => now - at < GRANT_WINDOW_MS,
+		const recent = (requestTimes.get(userId) ?? []).filter(
+			(at) => now - at < PREVIEW_WINDOW_MS,
 		);
-		if (recent.length >= GRANTS_PER_WINDOW) {
-			grantTimes.set(userId, recent);
+		if (recent.length >= PREVIEW_REQUESTS_PER_WINDOW) {
+			requestTimes.set(userId, recent);
 			return true;
 		}
 		recent.push(now);
-		grantTimes.set(userId, recent);
+		requestTimes.set(userId, recent);
 		return false;
+	}
+
+	/**
+	 * The framing probe running for a workspace, if any. One at a time per
+	 * workspace, so a page cannot make the control plane hold a pile of
+	 * outbound sockets open: a second call for the same port waits on the
+	 * first and takes its answer, and one for another port waits its turn.
+	 */
+	const probes = new Map<
+		string,
+		{ port: number; answer: Promise<EmbeddableVerdict> }
+	>();
+
+	async function probeOnce(
+		workspaceId: string,
+		port: number,
+		upstream: string,
+	): Promise<EmbeddableVerdict> {
+		const running = probes.get(workspaceId);
+		if (running) {
+			// The catch is only so a failed probe does not reject this waiter
+			// too; probeEmbeddable answers rather than throwing.
+			const earlier = await running.answer.catch(
+				(): EmbeddableVerdict => ({ embeddable: false, reason: "unreachable" }),
+			);
+			if (running.port === port) return earlier;
+			return probeOnce(workspaceId, port, upstream);
+		}
+		const answer = probeEmbeddable(upstream, config.PUBLIC_URL).finally(() => {
+			if (probes.get(workspaceId)?.answer === answer) probes.delete(workspaceId);
+		});
+		probes.set(workspaceId, { port, answer });
+		return answer;
 	}
 
 	/** What the workspace agent reports, plus the policy verdict. */
@@ -157,7 +192,7 @@ export function registerPreviewRoutes(
 				message: `Port ${body.data.port} cannot be previewed`,
 			});
 		}
-		if (overGrantLimit(user.id)) {
+		if (overPreviewLimit(user.id)) {
 			request.log.warn(
 				{ workspaceId: params.data.id },
 				"preview grant rate limit reached",
@@ -253,6 +288,16 @@ export function registerPreviewRoutes(
 				message: `Port ${port} cannot be previewed`,
 			});
 		}
+		if (overPreviewLimit(user.id)) {
+			request.log.warn(
+				{ workspaceId: params.data.id },
+				"preview probe rate limit reached",
+			);
+			return reply.status(429).send({
+				code: "PREVIEW_RATE_LIMITED",
+				message: "Too many previews were opened just now. Wait a moment.",
+			});
+		}
 
 		const unreachable: PreviewEmbeddableResponse = {
 			embeddable: false,
@@ -270,7 +315,7 @@ export function registerPreviewRoutes(
 			return reply.header("cache-control", "no-store").send(unreachable);
 		}
 
-		const verdict = await probeEmbeddable(`${address}:${port}`, config.PUBLIC_URL);
+		const verdict = await probeOnce(params.data.id, port, `${address}:${port}`);
 		return reply.header("cache-control", "no-store").send(verdict);
 	});
 

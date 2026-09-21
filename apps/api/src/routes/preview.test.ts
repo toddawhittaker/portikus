@@ -679,11 +679,16 @@ test.skipIf(skip)("a preview session of one user never serves another", async ()
 // ── The framing probe (BROWSER-HANDLING.md §12) ──
 
 /** Start a real application inside the fake agent and wait for the registry. */
-async function startApp(frameOptions?: string): Promise<number> {
+async function startApp(frameOptions?: string, delayMs = 0): Promise<number> {
 	const created = await fetch(`http://127.0.0.1:${agent.port}/__test/app`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ key: workspaceId, title: "Framing", frameOptions }),
+		body: JSON.stringify({
+			key: workspaceId,
+			title: "Framing",
+			frameOptions,
+			delayMs,
+		}),
 	});
 	expect(created.status).toBe(201);
 	const { port } = (await created.json()) as { port: number };
@@ -770,6 +775,64 @@ test.skipIf(skip)("one student cannot probe another's workspace", async () => {
 	const response = await embeddable(5173, bobs.id);
 	expect(response.statusCode).toBe(404);
 });
+
+test.skipIf(skip)(
+	"grants and probes share one per-minute budget",
+	async () => {
+		// The probe does real work on the student's behalf — it holds an
+		// outbound socket for up to three seconds — so it is counted with the
+		// grants rather than being free. Each test builds a fresh server, so
+		// the window starts empty here.
+		// 5174 is not in the registry, so each probe answers at once.
+		for (let made = 0; made < 30; made += 1) {
+			expect((await embeddable(5174)).statusCode).toBe(200);
+		}
+		const probe = await embeddable(5174);
+		expect(probe.statusCode).toBe(429);
+		expect(probe.json().code).toBe("PREVIEW_RATE_LIMITED");
+		// The grant route shares the same spent budget.
+		expect((await grant(alice, workspaceId, 5173)).statusCode).toBe(429);
+		// Another student's budget is their own.
+		const bobs = await bobsWorkspace();
+		expect((await embeddable(5174, bobs.id, bob)).statusCode).toBe(200);
+	},
+	20_000,
+);
+
+test.skipIf(skip)(
+	"two probes of the same port at once ask the application once",
+	async () => {
+		const port = await startApp(undefined, 300);
+		agent.appHits.set(port, 0);
+		const [first, second] = await Promise.all([embeddable(port), embeddable(port)]);
+		expect(first.statusCode).toBe(200);
+		expect(second.statusCode).toBe(200);
+		expect(first.json()).toEqual({ embeddable: true });
+		expect(second.json()).toEqual(first.json());
+		expect(agent.appHits.get(port)).toBe(1);
+	},
+	20_000,
+);
+
+test.skipIf(skip)(
+	"two probes of different ports at once are answered one at a time",
+	async () => {
+		const open = await startApp(undefined, 300);
+		const refusing = await startApp("DENY", 300);
+		agent.appHits.set(open, 0);
+		agent.appHits.set(refusing, 0);
+		const [first, second] = await Promise.all([embeddable(open), embeddable(refusing)]);
+		// Each port gets its own answer; neither reuses the other's.
+		expect(first.json()).toEqual({ embeddable: true });
+		expect(second.json()).toEqual({
+			embeddable: false,
+			reason: "x-frame-options",
+		});
+		expect(agent.appHits.get(open)).toBe(1);
+		expect(agent.appHits.get(refusing)).toBe(1);
+	},
+	20_000,
+);
 
 test.skipIf(skip)("the probe needs a session", async () => {
 	const response = await app.inject({

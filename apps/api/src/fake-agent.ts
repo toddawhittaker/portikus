@@ -31,6 +31,8 @@ import { WebSocketServer } from "ws";
 export interface FakeAgent {
 	port: number;
 	token: string;
+	/** How many HTTP requests each test application has answered, by port. */
+	appHits: Map<number, number>;
 	terminals: Map<string, { cwd: string }>;
 	/** Frames the fake received on an attach socket, in order. */
 	received: string[];
@@ -326,6 +328,7 @@ export async function startFakeAgent(
 	const listeningSockets = new Map<string, Set<WebSocket>>();
 	const forwards = new Map<string, Set<number>>();
 	const testApps: Server[] = [];
+	const appHits = new Map<number, number>();
 
 	function listeningFor(key: string): AgentListeningService[] {
 		return listening.get(key) ?? [];
@@ -362,16 +365,26 @@ export async function startFakeAgent(
 	}
 
 	/** A real HTTP and WebSocket application, on a port of its own. */
-	async function startTestApp(title: string, frameOptions?: string): Promise<number> {
+	async function startTestApp(
+		title: string,
+		frameOptions?: string,
+		delayMs = 0,
+	): Promise<number> {
+		let ownPort = 0;
 		const server = createServer((_req, res) => {
+			appHits.set(ownPort, (appHits.get(ownPort) ?? 0) + 1);
 			const headers: Record<string, string> = {
 				"content-type": "text/html; charset=utf-8",
 			};
 			// An application that refuses framing, so a test can drive the
 			// "cannot be embedded" path (BROWSER-HANDLING.md §12).
 			if (frameOptions) headers["x-frame-options"] = frameOptions;
-			res.writeHead(200, headers);
-			res.end(`<!doctype html><title>${title}</title><h1>${title}</h1>`);
+			const answer = () => {
+				res.writeHead(200, headers);
+				res.end(`<!doctype html><title>${title}</title><h1>${title}</h1>`);
+			};
+			if (delayMs > 0) setTimeout(answer, delayMs).unref?.();
+			else answer();
 		});
 		const sockets = new WebSocketServer({ server });
 		sockets.on("connection", (socket) => {
@@ -382,7 +395,8 @@ export async function startFakeAgent(
 		await new Promise<void>((resolve) => {
 			server.listen(0, "127.0.0.1", () => resolve());
 		});
-		return (server.address() as AddressInfo).port;
+		ownPort = (server.address() as AddressInfo).port;
+		return ownPort;
 	}
 	const logLevels: (string | null)[] = [];
 
@@ -1477,10 +1491,11 @@ export async function startFakeAgent(
 			key?: string;
 			title?: string;
 			frameOptions?: string;
+			delayMs?: number;
 		};
 		const key = body.key ?? "";
 		const title = body.title ?? "Portikus test app";
-		const port = await startTestApp(title, body.frameOptions);
+		const port = await startTestApp(title, body.frameOptions, body.delayMs ?? 0);
 		const current = listeningFor(key).filter((one) => one.port !== port);
 		listening.set(key, [
 			...current,
@@ -1502,6 +1517,7 @@ export async function startFakeAgent(
 	return {
 		port: address.port,
 		token,
+		appHits,
 		terminals,
 		received,
 		projects,
