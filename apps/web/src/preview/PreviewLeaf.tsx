@@ -13,6 +13,7 @@ import { useListening } from "../running/services.js";
 import {
 	clearPreviewOriginData,
 	type Grant,
+	probeEmbeddable,
 	requestGrant,
 	resetPreviewData,
 } from "./grants.js";
@@ -20,11 +21,11 @@ import "./preview.css";
 
 /**
  * How long the frame has to report that it loaded before the tab assumes
- * the application refused to be embedded. The browser gives no event for an
- * `X-Frame-Options` or `frame-ancestors` refusal, so a frame that never
- * loads while the port is listening is the only signal there is. Because a
- * very slow application (a first `next dev` compile) can be guessed wrong,
- * the frame stays mounted behind the notice and a late load clears it.
+ * the application refused to be embedded. This is the fallback: the control
+ * plane's framing probe is what normally catches a refusal, and this catches
+ * a frame that goes nowhere for some other reason. Because a very slow
+ * application (a first `next dev` compile) can be guessed wrong, the frame
+ * stays mounted behind the notice and a late load clears it.
  */
 const LOAD_TIMEOUT_MS = 8_000;
 
@@ -45,7 +46,12 @@ type State =
 	| { status: "available"; grant: Grant }
 	| { status: "inactive" }
 	| { status: "unauthorized" }
-	| { status: "blocked"; grant: Grant }
+	/**
+	 * `probed` is true when the control plane asked the application and it
+	 * refused framing. A load event must not clear that: the browser fires one
+	 * for a refused navigation too.
+	 */
+	| { status: "blocked"; grant: Grant; probed: boolean }
 	| { status: "error"; message: string };
 
 export interface PreviewLeafProps {
@@ -69,16 +75,39 @@ export function PreviewLeaf({
 	/** The bootstrap URL of the frame that has reported a load, if any. */
 	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
 	const frame = useRef<HTMLIFrameElement | null>(null);
+	/** Counts connect attempts, so a late probe cannot speak for an old one. */
+	const attemptRef = useRef(0);
 	const statusRef = useRef<State["status"]>("connecting");
 
 	/** Whether the API says something is listening on this port. */
 	const isListening = listening.services.some((service) => service.port === port);
 
 	const connect = useCallback(async () => {
+		const attempt = ++attemptRef.current;
 		setState({ status: "connecting" });
 		try {
 			const grant = await requestGrant(workspaceId, port, "embedded");
 			setState({ status: "available", grant });
+			// Ask whether the application allows framing. The browser gives the
+			// parent page no way to see a refusal for itself: Chromium fires the
+			// frame's load event even for a navigation it refused, which is why
+			// the timeout below cannot be the only signal.
+			let verdict: Awaited<ReturnType<typeof probeEmbeddable>>;
+			try {
+				verdict = await probeEmbeddable(workspaceId, port);
+			} catch {
+				// A failed probe is not a refusal; the timeout still applies.
+				return;
+			}
+			// An application that did not answer may simply be starting up, so
+			// only a real refusal short-circuits the timeout.
+			if (verdict.embeddable || verdict.reason === "unreachable") return;
+			if (attempt !== attemptRef.current) return;
+			setState((current) =>
+				current.status === "available" && current.grant === grant
+					? { status: "blocked", grant, probed: true }
+					: current,
+			);
 		} catch (error) {
 			// A refused port is about the port, not about the student, so it
 			// keeps the API's sentence instead of the sign-in wording.
@@ -141,7 +170,7 @@ export function PreviewLeaf({
 		const grant = state.grant;
 		if (loadedUrl === grant.bootstrapUrl) return;
 		const timer = setTimeout(() => {
-			setState({ status: "blocked", grant });
+			setState({ status: "blocked", grant, probed: false });
 		}, LOAD_TIMEOUT_MS);
 		return () => clearTimeout(timer);
 	}, [state, loadedUrl]);
@@ -150,14 +179,16 @@ export function PreviewLeaf({
 		if (state.status !== "available" && state.status !== "blocked") return;
 		setLoadedUrl(state.grant.bootstrapUrl);
 		// A slow application that finally loaded was not refusing to be
-		// embedded after all.
-		if (state.status === "blocked")
+		// embedded after all. An application the control plane asked directly
+		// is another matter: the browser fires this event for the refused
+		// navigation as well, so that verdict stands.
+		if (state.status === "blocked" && !state.probed)
 			setState({ status: "available", grant: state.grant });
 	}
 
 	function onFrameError() {
 		if (state.status === "available") {
-			setState({ status: "blocked", grant: state.grant });
+			setState({ status: "blocked", grant: state.grant, probed: false });
 		}
 	}
 

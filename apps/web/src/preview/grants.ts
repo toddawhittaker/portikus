@@ -5,7 +5,7 @@
  * preview host, mints a single-use bootstrap ticket, and hands back both.
  * Everything a Preview tab loads comes from one of those two values.
  */
-import { PreviewGrantResponse } from "@portikus/contracts";
+import { PreviewEmbeddableResponse, PreviewGrantResponse } from "@portikus/contracts";
 import { z } from "zod";
 import { request } from "../api/request.js";
 
@@ -23,6 +23,25 @@ export async function requestGrant(
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ port, presentation }),
 	});
+}
+
+/**
+ * Ask the control plane whether the application on this port allows being
+ * framed (BROWSER-HANDLING.md §12).
+ *
+ * The page cannot work this out itself: Chromium fires the frame's `load`
+ * event even for a navigation it refused, and a parent may not read the
+ * frame's response headers. So the API asks the application once and reports
+ * only the verdict.
+ */
+export async function probeEmbeddable(
+	workspaceId: string,
+	port: number,
+): Promise<PreviewEmbeddableResponse> {
+	return request(
+		PreviewEmbeddableResponse,
+		`/workspaces/${workspaceId}/preview/embeddable?port=${port}`,
+	);
 }
 
 /** Revoke this workspace's preview sessions (BROWSER-HANDLING.md §9.2). */

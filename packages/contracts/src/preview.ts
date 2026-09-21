@@ -29,6 +29,19 @@ export const PreviewGrantResponse = z.object({
 });
 export type PreviewGrantResponse = z.infer<typeof PreviewGrantResponse>;
 
+/**
+ * Response body for `GET /workspaces/{id}/preview/embeddable`
+ * (BROWSER-HANDLING.md §12). The control plane asks the student's
+ * application once whether it allows being framed, because a parent page
+ * cannot see that answer for itself: the browser fires the frame's load
+ * event even for a navigation it refused.
+ */
+export const PreviewEmbeddableResponse = z.object({
+	embeddable: z.boolean(),
+	reason: z.enum(["x-frame-options", "frame-ancestors", "unreachable"]).optional(),
+});
+export type PreviewEmbeddableResponse = z.infer<typeof PreviewEmbeddableResponse>;
+
 /** Longest a single DNS label may be. */
 const MAX_LABEL_LENGTH = 63;
 

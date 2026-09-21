@@ -171,6 +171,60 @@ test("a server failure falls back to a plain sentence", async () => {
 	expect((await screen.findByTestId("preview-error")).textContent).toBe("boom");
 });
 
+test("an application that refuses framing is offered in a new tab at once", async () => {
+	// Chromium fires the frame's load event even for a navigation it refused,
+	// so the eight-second guess never fires. The control plane's probe is what
+	// tells the tab (BROWSER-HANDLING.md §12).
+	stubFetch((url) =>
+		url.includes("/preview/embeddable")
+			? json(200, { embeddable: false, reason: "x-frame-options" })
+			: json(200, GRANT),
+	);
+	show({});
+	const frame = await screen.findByTestId("preview-frame");
+	expect(await screen.findByTestId("preview-blocked")).toBeTruthy();
+	expect(screen.getByTestId("preview-blocked-new-tab")).toBeTruthy();
+
+	// The refused navigation's load event must not clear the notice.
+	fireEvent.load(frame);
+	await waitFor(() =>
+		expect(screen.getByTestId("preview-pane-5173").dataset.state).toBe("blocked"),
+	);
+	expect(screen.getByTestId("preview-blocked")).toBeTruthy();
+});
+
+test("an application the probe could not reach keeps the timeout", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	stubFetch((url) =>
+		url.includes("/preview/embeddable")
+			? json(200, { embeddable: false, reason: "unreachable" })
+			: json(200, GRANT),
+	);
+	show({});
+	const frame = await screen.findByTestId("preview-frame");
+	// An application still starting up is not a refusal; a load clears it.
+	fireEvent.load(frame);
+	await vi.advanceTimersByTimeAsync(9_000);
+	expect(screen.queryByTestId("preview-blocked")).toBeNull();
+	expect(screen.getByTestId("preview-pane-5173").dataset.state).toBe("available");
+	vi.useRealTimers();
+});
+
+test("an application the probe allows is shown in the frame", async () => {
+	stubFetch((url) =>
+		url.includes("/preview/embeddable")
+			? json(200, { embeddable: true })
+			: json(200, GRANT),
+	);
+	show({});
+	const frame = await screen.findByTestId("preview-frame");
+	fireEvent.load(frame);
+	await waitFor(() =>
+		expect(screen.getByTestId("preview-pane-5173").dataset.state).toBe("available"),
+	);
+	expect(screen.queryByTestId("preview-blocked")).toBeNull();
+});
+
 test("a frame that never loads offers to open the preview in a new tab", async () => {
 	vi.useFakeTimers({ shouldAdvanceTime: true });
 	stubFetch(() => json(200, GRANT));

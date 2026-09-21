@@ -362,9 +362,15 @@ export async function startFakeAgent(
 	}
 
 	/** A real HTTP and WebSocket application, on a port of its own. */
-	async function startTestApp(title: string): Promise<number> {
+	async function startTestApp(title: string, frameOptions?: string): Promise<number> {
 		const server = createServer((_req, res) => {
-			res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+			const headers: Record<string, string> = {
+				"content-type": "text/html; charset=utf-8",
+			};
+			// An application that refuses framing, so a test can drive the
+			// "cannot be embedded" path (BROWSER-HANDLING.md §12).
+			if (frameOptions) headers["x-frame-options"] = frameOptions;
+			res.writeHead(200, headers);
 			res.end(`<!doctype html><title>${title}</title><h1>${title}</h1>`);
 		});
 		const sockets = new WebSocketServer({ server });
@@ -1467,10 +1473,14 @@ export async function startFakeAgent(
 	 * as listening, so an end-to-end test can drive a real preview.
 	 */
 	app.post("/__test/app", async (request, reply) => {
-		const body = (request.body ?? {}) as { key?: string; title?: string };
+		const body = (request.body ?? {}) as {
+			key?: string;
+			title?: string;
+			frameOptions?: string;
+		};
 		const key = body.key ?? "";
 		const title = body.title ?? "Portikus test app";
-		const port = await startTestApp(title);
+		const port = await startTestApp(title, body.frameOptions);
 		const current = listeningFor(key).filter((one) => one.port !== port);
 		listening.set(key, [
 			...current,

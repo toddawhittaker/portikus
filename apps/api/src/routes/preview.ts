@@ -2,6 +2,7 @@ import { requireUser } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import {
 	type ListeningService,
+	type PreviewEmbeddableResponse,
 	PreviewGrantRequest,
 	type PreviewGrantResponse,
 	parsePreviewHost,
@@ -11,6 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AgentCallError } from "../agent-client.js";
 import { createBridgeForwards, parseBridgeUri } from "../preview/bridge.js";
+import { probeEmbeddable } from "../preview/embeddable.js";
 import {
 	inactiveServicePage,
 	refusedPage,
@@ -42,6 +44,7 @@ export function previewCookieName(config: ApiConfig): string {
 
 const IdParams = z.object({ id: z.string().uuid() });
 const TicketQuery = z.object({ t: z.string().min(1).max(200) });
+const PortQuery = z.object({ port: z.coerce.number().int().min(1).max(65535) });
 
 /**
  * How many bootstrap tickets one student may ask for in a minute. Opening a
@@ -216,6 +219,59 @@ export function registerPreviewRoutes(
 			.header("referrer-policy", "no-referrer")
 			.status(201)
 			.send(payload);
+	});
+
+	/**
+	 * Whether the application on this port allows being framed
+	 * (BROWSER-HANDLING.md §12). A GET with no side effect, so no CSRF token
+	 * is needed; the session and workspace ownership are still checked.
+	 *
+	 * The address probed comes from the workspace row and the listening
+	 * registry, exactly as `/preview/authorize` takes it, never from the
+	 * request — see apps/api/src/preview/embeddable.ts for why that makes
+	 * server-side request forgery impossible here.
+	 */
+	app.get("/workspaces/:id/preview/embeddable", async (request, reply) => {
+		const user = requireUser(request);
+		const params = IdParams.safeParse(request.params);
+		const query = PortQuery.safeParse(request.query);
+		if (!params.success || !query.success) {
+			return reply
+				.status(400)
+				.send({ code: "VALIDATION_FAILED", message: "invalid workspace or port" });
+		}
+		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		if (!workspace) {
+			return reply
+				.status(404)
+				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+		}
+		const port = query.data.port;
+		if (!portAllowed(config, port)) {
+			return reply.status(403).send({
+				code: "PREVIEW_PORT_NOT_ALLOWED",
+				message: `Port ${port} cannot be previewed`,
+			});
+		}
+
+		const unreachable: PreviewEmbeddableResponse = {
+			embeddable: false,
+			reason: "unreachable",
+		};
+		const address = workspace.agent_address as string | null;
+		const service = registry.service(params.data.id, port);
+		if (
+			workspace.state !== "running" ||
+			!address ||
+			!service ||
+			(service.previewReachability !== "reachable" &&
+				service.previewReachability !== "forwarded")
+		) {
+			return reply.header("cache-control", "no-store").send(unreachable);
+		}
+
+		const verdict = await probeEmbeddable(`${address}:${port}`, config.PUBLIC_URL);
+		return reply.header("cache-control", "no-store").send(verdict);
 	});
 
 	app.post("/workspaces/:id/preview/reset", async (request, reply) => {

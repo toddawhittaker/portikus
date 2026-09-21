@@ -479,11 +479,13 @@ export async function seedListening(
 export async function startPreviewApp(
 	workspaceId: string,
 	title = "Portikus test app",
+	/** Sent as `X-Frame-Options` by the app, for the refused-framing path. */
+	frameOptions?: string,
 ): Promise<number> {
 	const response = await fetch(`${FAKE_AGENT_URL}/__test/app`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ key: workspaceId, title }),
+		body: JSON.stringify({ key: workspaceId, title, frameOptions }),
 	});
 	if (!response.ok) {
 		throw new Error(`the fake agent refused to start an app: ${response.status}`);
