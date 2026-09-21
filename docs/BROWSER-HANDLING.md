@@ -399,7 +399,7 @@ The exact sandbox and Permissions Policy must be compatibility-tested. Do not ad
 
 If the student application sends `X-Frame-Options` or a CSP `frame-ancestors` directive that blocks embedding, Portikus must preserve the application's policy and offer **Open in new tab**. It must not silently strip security headers in the default mode.
 
-Reserved edge paths beginning with `/__portikus/` must be handled before proxying and must never reach the student application. They include at least bootstrap, health/error rendering, cross-port routing, and reset-preview-data functions.
+Reserved edge paths beginning with `/__portikus/` must be handled before proxying and must never reach the student application. They include at least bootstrap, health/error rendering, cross-port routing, and reset-preview-data functions. That precedence holds at the edge, but a service worker the application registered at the root of the preview origin can answer a navigation the frame makes before the request leaves the browser. Reset preview data is therefore driven from the Portikus page, which no such worker controls, rather than by navigating the frame.
 
 ## 13. Header and URL behavior
 
@@ -512,7 +512,9 @@ The preview gateway may target only registered workspace services. It must not r
 
 ### 16.4 Service workers and stored state
 
-Service workers are scoped to the preview origin. Edge-owned `/__portikus/` paths must take precedence over the upstream, even if a service worker exists. Provide a reset action whose edge response uses `Clear-Site-Data` where supported and rotates or deletes the preview session as appropriate.
+Service workers are scoped to the preview origin. Edge-owned `/__portikus/` paths must take precedence over the upstream, even if a service worker exists. A worker whose scope covers the origin can still answer requests made by pages it controls, the preview frame among them, so Portikus must not rely on a frame navigation to reach a reserved path.
+
+Reset preview data therefore runs in three steps from the Portikus page: revoke the workspace's preview sessions through the control plane, then fetch `/__portikus/reset` on the preview origin from the Portikus document — which the worker does not control, so the request reaches the edge and its `Clear-Site-Data: "cookies", "storage"` answer clears cookies, storage and service worker registrations for that origin — then take a fresh grant and bootstrap the frame again. The reset response is the same whether or not a preview cookie came with the request, so an unauthenticated caller can at most clear its own browser's data for that one origin.
 
 ### 16.5 Logging
 

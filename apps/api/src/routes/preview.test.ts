@@ -665,6 +665,38 @@ test.skipIf(skip)("the reset page clears the cookie and stored data", async () =
 	expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(401);
 });
 
+test.skipIf(skip)(
+	"the reset page clears browser data even with no preview cookie",
+	async () => {
+		// An unauthenticated caller gets the same answer, so the most it can do
+		// is clear its own browser's data for this origin
+		// (BROWSER-HANDLING.md §16.4).
+		const response = await app.inject({
+			method: "GET",
+			url: "/__portikus/reset",
+			headers: { "x-forwarded-host": previewHostFor(5173) },
+		});
+		expect(response.statusCode).toBe(200);
+		expect(response.headers["clear-site-data"]).toBe('"cookies", "storage"');
+		expect(String(response.headers["set-cookie"])).toContain(`${COOKIE}=`);
+		expect(response.headers["cache-control"]).toBe("no-store");
+		expect(response.headers["referrer-policy"]).toBe("no-referrer");
+	},
+);
+
+test.skipIf(skip)(
+	"a reset with no cookie leaves another browser's session alone",
+	async () => {
+		const token = await openPreview(5173);
+		await app.inject({
+			method: "GET",
+			url: "/__portikus/reset",
+			headers: { "x-forwarded-host": previewHostFor(5173) },
+		});
+		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(200);
+	},
+);
+
 // ── Lifecycle (BROWSER-HANDLING.md §9.2) ──
 
 test.skipIf(skip)("a workspace leaving running revokes its previews", async () => {
