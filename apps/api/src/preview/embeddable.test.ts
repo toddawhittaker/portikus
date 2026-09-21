@@ -9,6 +9,8 @@ import {
 } from "./embeddable.js";
 
 const PORTIKUS = "https://portikus.example.edu";
+/** The public name the student's browser would use for the preview. */
+const PREVIEW_HOST = "alice-5173.preview.portikus.example.edu";
 
 function headers(pairs: Record<string, string>): Headers {
 	return new Headers(pairs);
@@ -132,7 +134,7 @@ test("the probe reads the framing headers of a live application", async () => {
 		seen.push(method);
 		return { status: 200, headers: { "x-frame-options": "DENY" } };
 	});
-	await expect(probeEmbeddable(upstream, PORTIKUS)).resolves.toEqual({
+	await expect(probeEmbeddable(upstream, PORTIKUS, PREVIEW_HOST)).resolves.toEqual({
 		embeddable: false,
 		reason: "x-frame-options",
 	});
@@ -151,7 +153,7 @@ test("an application that refuses HEAD is asked with GET instead", async () => {
 			body: "secret source code",
 		};
 	});
-	await expect(probeEmbeddable(upstream, PORTIKUS)).resolves.toEqual({
+	await expect(probeEmbeddable(upstream, PORTIKUS, PREVIEW_HOST)).resolves.toEqual({
 		embeddable: false,
 		reason: "frame-ancestors",
 	});
@@ -164,7 +166,7 @@ test("the probe never returns any of the application's content", async () => {
 		headers: { "content-type": "text/html" },
 		body: "<h1>the student's page</h1>",
 	}));
-	const verdict = await probeEmbeddable(upstream, PORTIKUS);
+	const verdict = await probeEmbeddable(upstream, PORTIKUS, PREVIEW_HOST);
 	expect(verdict).toEqual({ embeddable: true });
 	expect(JSON.stringify(verdict)).not.toContain("student");
 });
@@ -182,7 +184,7 @@ test.each([400, 403, 404, 500, 503])(
 				body: "the student's page",
 			};
 		});
-		await expect(probeEmbeddable(upstream, PORTIKUS)).resolves.toEqual({
+		await expect(probeEmbeddable(upstream, PORTIKUS, PREVIEW_HOST)).resolves.toEqual({
 			embeddable: false,
 			reason: "x-frame-options",
 		});
@@ -205,7 +207,9 @@ test("both attempts together take no longer than the probe budget", async () => 
 	const { port } = slow.address() as AddressInfo;
 	const started = Date.now();
 	try {
-		await expect(probeEmbeddable(`127.0.0.1:${port}`, PORTIKUS)).resolves.toEqual({
+		await expect(
+			probeEmbeddable(`127.0.0.1:${port}`, PORTIKUS, PREVIEW_HOST),
+		).resolves.toEqual({
 			embeddable: false,
 			reason: "unreachable",
 		});
@@ -218,15 +222,17 @@ test("both attempts together take no longer than the probe budget", async () => 
 
 test("an application that cannot be reached is reported as unreachable", async () => {
 	// Port 1 on loopback has nothing listening.
-	await expect(probeEmbeddable("127.0.0.1:1", PORTIKUS)).resolves.toEqual({
-		embeddable: false,
-		reason: "unreachable",
-	});
+	await expect(probeEmbeddable("127.0.0.1:1", PORTIKUS, PREVIEW_HOST)).resolves.toEqual(
+		{
+			embeddable: false,
+			reason: "unreachable",
+		},
+	);
 });
 
 // ── A development server that refuses the preview host (issue #262) ──
 
-const REFUSED_HOST = "alice-5173.preview.portikus.example.edu";
+const REFUSED_HOST = PREVIEW_HOST;
 
 const VITE_BODY =
 	`Blocked request. This host ("${REFUSED_HOST}") is not allowed.\n` +
@@ -283,4 +289,68 @@ test("only the first bytes of a refusing answer are read", async () => {
 	}));
 	const verdict = await probeEmbeddable(upstream, PORTIKUS, REFUSED_HOST);
 	expect(verdict.reason).not.toBe("host-refused");
+});
+
+test("a body past the cap is cut off and the connection dropped", async () => {
+	// The application answers 403 and then streams for ever. The probe must
+	// take the first few kilobytes, drop the socket and answer, rather than
+	// reading the student's page into this process.
+	let closed = false;
+	let written = 0;
+	const endless = createServer((request, response) => {
+		if (request.method === "HEAD") {
+			response.writeHead(405);
+			response.end();
+			return;
+		}
+		response.writeHead(403, { "content-type": "text/html" });
+		response.on("close", () => {
+			closed = true;
+		});
+		const pump = setInterval(() => {
+			if (response.writableEnded || closed) {
+				clearInterval(pump);
+				return;
+			}
+			written += 1_024;
+			response.write("y".repeat(1_024));
+		}, 1);
+		pump.unref?.();
+	});
+	await new Promise<void>((resolve) => endless.listen(0, "127.0.0.1", resolve));
+	const { port } = endless.address() as AddressInfo;
+	try {
+		const verdict = await probeEmbeddable(`127.0.0.1:${port}`, PORTIKUS, PREVIEW_HOST);
+		// Nothing in the stream refuses the host, so it is an ordinary verdict.
+		expect(verdict).toEqual({ embeddable: true });
+		// The socket goes a tick later, so give it one.
+		for (let waited = 0; waited < 100 && !closed; waited += 1) {
+			await new Promise((tick) => setTimeout(tick, 10));
+		}
+		expect(closed).toBe(true);
+		// A probe that read to the end would still be running; this one stopped
+		// not far past the cap.
+		expect(written).toBeLessThan(MAX_REFUSAL_BODY_BYTES * 10);
+	} finally {
+		endless.closeAllConnections();
+		await new Promise((resolve) => endless.close(resolve));
+	}
+});
+
+test("a refusal that starts inside the cap is still recognised", async () => {
+	const upstream = await listen(() => ({
+		status: 403,
+		headers: { "content-type": "text/html" },
+		body: `${VITE_BODY}${"z".repeat(MAX_REFUSAL_BODY_BYTES * 4)}`,
+	}));
+	await expect(
+		probeEmbeddable(upstream, PORTIKUS, REFUSED_HOST),
+	).resolves.toMatchObject({ reason: "host-refused", refusedServer: "vite" });
+});
+
+test("a page that merely mentions server.allowedHosts is not a refusal", () => {
+	// A tutorial, an error trace or the student's own notes may say the words.
+	expect(
+		hostRefusalFrom(403, "See `server.allowedHosts` in the Vite guide for more."),
+	).toBe(null);
 });

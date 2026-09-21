@@ -47,7 +47,9 @@ const COOKIE_NAME = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/;
 const IdParams = z.object({ id: z.string().uuid() });
 const TicketQuery = z.object({ t: z.string().min(1).max(200) });
 const PortQuery = z.object({ port: z.coerce.number().int().min(1).max(65535) });
-const PortParam = PortQuery;
+const PortParams = z.object({
+	port: z.coerce.number().int().min(1).max(65535),
+});
 
 /** The status each agent refusal to stop a listener becomes (issue #273). */
 function stopStatusFor(code: string): number {
@@ -133,6 +135,13 @@ export function registerPreviewRoutes(
 		{ port: number; answer: Promise<EmbeddableVerdict> }
 	>();
 
+	/**
+	 * The workspaces with a stop already running. Stopping asks the agent to
+	 * kill a process, so a second ask for the same workspace before the first
+	 * answers could kill whatever took the port next (issue #273).
+	 */
+	const stopping = new Set<string>();
+
 	async function probeOnce(
 		workspaceId: string,
 		port: number,
@@ -201,7 +210,7 @@ export function registerPreviewRoutes(
 	app.post("/workspaces/:id/listening/:port/stop", async (request, reply) => {
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
-		const port = PortParam.safeParse(request.params);
+		const port = PortParams.safeParse(request.params);
 		if (!params.success || !port.success) {
 			return reply
 				.status(400)
@@ -219,6 +228,25 @@ export function registerPreviewRoutes(
 				message: "The workspace is not running",
 			});
 		}
+		// Stopping makes the control plane work on the student's behalf, just
+		// as a grant or a probe does, so it comes out of the same budget.
+		if (overPreviewLimit(user.id)) {
+			request.log.warn(
+				{ workspaceId: params.data.id },
+				"stop listener rate limit reached",
+			);
+			return reply.status(429).send({
+				code: "PREVIEW_RATE_LIMITED",
+				message: "Too many previews were opened just now. Wait a moment.",
+			});
+		}
+		if (stopping.has(params.data.id)) {
+			return reply.status(409).send({
+				code: "STOP_IN_PROGRESS",
+				message: "A service in this workspace is already being stopped",
+			});
+		}
+		stopping.add(params.data.id);
 		try {
 			await registry.stopListener(params.data.id, port.data.port);
 		} catch (error) {
@@ -232,6 +260,8 @@ export function registerPreviewRoutes(
 			return reply
 				.status(502)
 				.send({ code: "AGENT_UNAVAILABLE", message: "The workspace did not answer" });
+		} finally {
+			stopping.delete(params.data.id);
 		}
 		return reply.send({ port: port.data.port, stopped: true });
 	});

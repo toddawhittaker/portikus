@@ -109,7 +109,8 @@
 	text-align: center;
 }
 
-/* The + Preview launcher popover and the Running pane rows. */
+/* The + Preview launcher popover. Its rows are the Running pane's rows, and
+   they are styled in apps/web/src/running/running.css. */
 
 .pk-portlist {
 	display: flex;
@@ -117,35 +118,6 @@
 	gap: 2px;
 	min-width: 260px;
 	padding: var(--space-2);
-}
-
-.pk-portrow {
-	display: grid;
-	grid-template-columns: 4.5rem 1fr auto auto;
-	align-items: center;
-	gap: var(--space-2);
-	width: 100%;
-	padding: 4px 6px;
-	border: 0;
-	border-radius: var(--radius-sm);
-	background: transparent;
-	color: inherit;
-	font-size: 13px;
-	text-align: left;
-	cursor: pointer;
-}
-
-.pk-portrow:hover {
-	background: var(--surface-sunken);
-}
-
-.pk-portrow-port {
-	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.pk-portrow-kind {
-	font-size: 11px;
-	color: var(--ink-muted);
 }
 
 .pk-portform {
