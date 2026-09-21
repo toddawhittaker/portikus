@@ -131,6 +131,24 @@
   when: "'Allow control plane to reach the workspace agent' not in incus_network_existing_ingress_descriptions"
   changed_when: true
 
+# The preview gateway dials the student's own application inside the
+# workspace (BROWSER-HANDLING 10 and 16.3).  The source is again the bridge
+# gateway, so only the VM may open these ports and one workspace still
+# cannot reach another.  The range is the preview range packages/config
+# allows by default; which port is actually proxied is decided per request
+# by the API, not here.
+- name: Add ACL rule allowing the preview gateway to reach application ports
+  ansible.builtin.command:
+    cmd: >-
+      incus network acl rule add {{ incus_network_name }}-acl ingress
+      action=allow
+      protocol=tcp
+      source={{ incus_network_cidr | ansible.utils.ipaddr('address') }}/32
+      destination_port={{ portikus_preview_port_min }}-{{ portikus_preview_port_max }}
+      description="Allow the preview gateway to reach application ports"
+  when: "'Allow the preview gateway to reach application ports' not in incus_network_existing_ingress_descriptions"
+  changed_when: true
+
 # Attach ACL to the workspace network (only when config differs)
 - name: Get current network ACL setting
   ansible.builtin.command:

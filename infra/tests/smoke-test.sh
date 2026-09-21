@@ -1046,6 +1046,23 @@ TERMPROBE
           ws_exec "! curl -s --max-time 5 -o /dev/null http://${agent_ip}:7400/health"
       fi
 
+      # The preview gateway has to open the student's own application port,
+      # and only the VM may do it (BROWSER-HANDLING 10 and 16.3). A throwaway
+      # listener on a port nothing else uses proves both halves.
+      if [ -n "$agent_ip" ]; then
+        echo ""
+        echo "Checking application-port reachability..."
+        ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- su -l student -c 'setsid nohup python3 -m http.server 8111 --bind 0.0.0.0 >/dev/null 2>&1 < /dev/null &'" >/dev/null 2>&1 || true
+        sleep 2
+        check_output "the VM can reach an application port in the workspace" "200" \
+          ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://${agent_ip}:8111/"
+        if [ -n "${WS_NAME:-}" ]; then
+          check "another workspace cannot reach that port" \
+            ws_exec "! curl -s --max-time 5 -o /dev/null http://${agent_ip}:8111/"
+        fi
+        ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- pkill -f 'http.server 8111'" >/dev/null 2>&1 || true
+      fi
+
       check "workspace page serves the web bundle to a browser" workspace_page_is_bundle
       check "terminal list under the same prefix is still JSON" terminal_list_is_json
 
