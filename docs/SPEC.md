@@ -1151,6 +1151,15 @@ The editor must:
 
 An explicit keyboard save command such as `Ctrl/Cmd+S` may force an immediate save, but students should not need to remember to save manually for normal operation.
 
+Per-user preferences. Autosave on or off, the autosave delay, word wrap, and
+the terminal colour scheme are settings of the signed-in user, not of the
+browser. They are stored on the server, read and written through
+`GET` and `PUT /me/settings`, and changed in the account menu, so they follow
+the student to any browser they sign in from. The terminal colour scheme is
+dark or light, and it is deliberately independent of the page appearance: a
+student in a bright room may want a light terminal on a dark page, or the
+other way round.
+
 ## 14. Application preview and port proxying
 
 `docs/BROWSER-HANDLING.md` is the detailed design for this section, for
