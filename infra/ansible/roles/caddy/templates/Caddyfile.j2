@@ -71,3 +71,93 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 		file_server
 	}
 }
+
+# ── Student application preview (BROWSER-HANDLING 7.1, 8, 10, 13) ────
+# One wildcard virtual host serves every preview origin
+# <workspace-label>-<port>.{{ portikus_preview_suffix }}.  Caddy matches the
+# most specific site address, so the application host above is never served
+# by this block; site.yml asserts the two can never overlap.
+https://*.{{ portikus_preview_suffix }}:{{ portikus_public_port }} {
+	tls internal
+
+	# Preview responses belong to the student's application, so Portikus
+	# adds no policy headers of its own here.  In particular there is no
+	# frame-ancestors directive: the Preview tab embeds these pages
+	# (BROWSER-HANDLING 12).  Only Caddy's own banner is removed.
+	header {
+		-Server
+	}
+
+	# BROWSER-HANDLING 16.5: preview access logs must carry no query string
+	# (the bootstrap ticket travels in one) and no cookies.
+	log {
+		output stderr
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "\?.*" ""
+				request>headers>Cookie delete
+				request>headers>Referer delete
+				request>headers>Authorization delete
+			}
+		}
+	}
+
+	# Reserved edge paths.  They are answered before any proxying and never
+	# reach the student application (BROWSER-HANDLING 12).
+	handle /__portikus/bootstrap {
+		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+	}
+	handle /__portikus/reset {
+		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+	}
+	# Nothing else under the reserved prefix exists.  Answering here keeps
+	# the API out of the path entirely.
+	handle /__portikus/* {
+		respond 404
+	}
+
+	# Everything else is student application traffic.  `route` is used
+	# instead of bare directives so the three steps run in exactly this
+	# order: strip forged headers, ask the API, then proxy.
+	handle {
+		route {
+			# The upstream may only ever come from the authorization
+			# response, so a client copy of the header is deleted before the
+			# subrequest runs.  The forwarded-for family goes for the same
+			# reason: Caddy sets trusted values itself.
+			request_header -X-Portikus-Upstream
+			request_header -X-Forwarded-For
+			request_header -X-Forwarded-Proto
+			request_header -X-Forwarded-Host
+			request_header -X-Forwarded-Method
+			request_header -X-Forwarded-Uri
+
+			# Every request and every WebSocket upgrade is authorized
+			# (BROWSER-HANDLING 10).  Caddy's own proxy fills in the trusted
+			# X-Forwarded-Host, -Proto and -For, so the API sees the preview
+			# host it must check, alongside the preview cookie and the
+			# X-Forwarded-Method and -Uri that forward_auth adds.  The answer
+			# carries the internal upstream in X-Portikus-Upstream (ADR 0018).
+			# A non-2xx answer goes back to the browser unchanged, body and
+			# status, so the API owns the explanation page.
+			forward_auth 127.0.0.1:{{ portikus_api_port }} {
+				uri /preview/authorize
+				copy_headers X-Portikus-Upstream
+				# The subrequest is a plain GET.  Without these two lines an
+				# upgrade request would ask the API for a WebSocket it never
+				# opens, and the authorization would hang.
+				header_up -Connection
+				header_up -Upgrade
+			}
+
+			# The upstream placeholder reads the header forward_auth has just
+			# copied off the authorization response, never client text.  The
+			# header itself is dropped on the way out so the student
+			# application never sees the internal address.
+			reverse_proxy {http.request.header.X-Portikus-Upstream} {
+				header_up -X-Portikus-Upstream
+			}
+		}
+	}
+}
