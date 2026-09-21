@@ -6,9 +6,9 @@
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
 import {
+	isDocker,
 	isPreviewable,
 	serviceCommand,
-	serviceKind,
 	useListening,
 } from "../running/services.js";
 import "./preview.css";
@@ -74,7 +74,9 @@ export function PreviewPicker({
 							>
 								<span className="pk-portrow-port">{service.port}</span>
 								<span>{serviceCommand(service)}</span>
-								<span className="pk-portrow-kind">{serviceKind(service)}</span>
+								<span className="pk-portrow-kind">
+									{isDocker(service) ? "Docker" : ""}
+								</span>
 							</button>
 						))
 					)}
