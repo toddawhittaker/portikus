@@ -43,6 +43,15 @@ export function previewCookieName(config: ApiConfig): string {
 const IdParams = z.object({ id: z.string().uuid() });
 const TicketQuery = z.object({ t: z.string().min(1).max(200) });
 
+/**
+ * How many bootstrap tickets one student may ask for in a minute. Opening a
+ * preview, reloading it and switching ports are all well under this; a page
+ * asking in a loop is not. Counted in this process, which the pilot runs one
+ * of (ADR 0010).
+ */
+const GRANTS_PER_WINDOW = 30;
+const GRANT_WINDOW_MS = 60_000;
+
 /** The socket's own peer address, which no header can influence. */
 function fromLoopback(request: FastifyRequest): boolean {
 	const address = request.raw.socket.remoteAddress ?? "";
@@ -71,6 +80,24 @@ export function registerPreviewRoutes(
 	const cookieName = previewCookieName(config);
 	const secure = config.PUBLIC_URL.startsWith("https:");
 	const bridge = createBridgeForwards({ registry, logger });
+
+	/** When each user's recent grants were asked for, newest last. */
+	const grantTimes = new Map<string, number[]>();
+
+	/** Record this grant request, and say whether it is over the limit. */
+	function overGrantLimit(userId: string): boolean {
+		const now = Date.now();
+		const recent = (grantTimes.get(userId) ?? []).filter(
+			(at) => now - at < GRANT_WINDOW_MS,
+		);
+		if (recent.length >= GRANTS_PER_WINDOW) {
+			grantTimes.set(userId, recent);
+			return true;
+		}
+		recent.push(now);
+		grantTimes.set(userId, recent);
+		return false;
+	}
 
 	/** What the workspace agent reports, plus the policy verdict. */
 	function servicesOf(workspaceId: string): ListeningService[] {
@@ -125,6 +152,16 @@ export function registerPreviewRoutes(
 			return reply.status(403).send({
 				code: "PREVIEW_PORT_NOT_ALLOWED",
 				message: `Port ${body.data.port} cannot be previewed`,
+			});
+		}
+		if (overGrantLimit(user.id)) {
+			request.log.warn(
+				{ workspaceId: params.data.id },
+				"preview grant rate limit reached",
+			);
+			return reply.status(429).send({
+				code: "PREVIEW_RATE_LIMITED",
+				message: "Too many previews were opened just now. Wait a moment.",
 			});
 		}
 

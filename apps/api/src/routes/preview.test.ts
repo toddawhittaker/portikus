@@ -120,15 +120,43 @@ async function authorize(
 }
 
 /** The whole happy path: a grant, its bootstrap, and the cookie it set. */
-async function openPreview(port: number): Promise<string> {
-	const created = await grant(alice, workspaceId, port);
+async function openPreview(
+	port: number,
+	jar: CookieJar = alice,
+	id: string = workspaceId,
+	name?: string,
+): Promise<string> {
+	const created = await grant(jar, id, port);
 	expect(created.statusCode).toBe(201);
 	const done = await bootstrap(
-		previewHostFor(port),
+		previewHostFor(port, name),
 		ticketOf(created.json().bootstrapUrl),
 	);
 	expect(done.statusCode).toBe(303);
 	return previewCookie(done);
+}
+
+/** A second running workspace, Bob's, with the fake agent behind it. */
+async function bobsWorkspace(): Promise<{ id: string; label: string }> {
+	const id = (
+		await app.inject({
+			method: "POST",
+			url: "/workspaces",
+			headers: csrfHeaders(bob, PUBLIC_URL),
+		})
+	).json().id;
+	const row = await testDb.db
+		.updateTable("workspaces")
+		.set({
+			state: "running",
+			agent_address: "127.0.0.1",
+			agent_token: `${AGENT_TOKEN}:${id}`,
+			updated_at: new Date().toISOString(),
+		})
+		.where("id", "=", id)
+		.returning("label")
+		.executeTakeFirstOrThrow();
+	return { id, label: row.label };
 }
 
 beforeAll(async () => {
@@ -307,6 +335,63 @@ test.skipIf(skip)("a grant names the preview host the server computed", async ()
 	expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
 	expect(response.headers["cache-control"]).toBe("no-store");
 });
+
+test.skipIf(skip)("a student cannot ask for grants without end", async () => {
+	for (let asked = 0; asked < 30; asked += 1) {
+		expect((await grant(alice, workspaceId, 5173)).statusCode).toBe(201);
+	}
+	const refused = await grant(alice, workspaceId, 5173);
+	expect(refused.statusCode).toBe(429);
+	expect(refused.json().code).toBe("PREVIEW_RATE_LIMITED");
+
+	// The limit is the student's own; it does not spill onto anyone else.
+	const bobs = await bobsWorkspace();
+	expect((await grant(bob, bobs.id, 5173)).statusCode).toBe(201);
+});
+
+test.skipIf(skip)(
+	"asking for a grant clears preview sessions nobody can use",
+	async () => {
+		const bobs = await bobsWorkspace();
+		await fetch(`http://127.0.0.1:${agent.port}/__test/listening`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ key: bobs.id, services: [{ port: 5173 }] }),
+		});
+		const live = await openPreview(5173, bob, bobs.id, bobs.label);
+
+		// One of Alice's was revoked two days ago; the other is still open but
+		// her main session has run out.
+		const revoked = await openPreview(5173);
+		await testDb.db
+			.updateTable("preview_sessions")
+			.set({ revoked_at: new Date(Date.now() - 2 * 86_400_000).toISOString() })
+			.where("token_hash", "=", hashToken(revoked))
+			.execute();
+		const orphan = await openPreview(5173);
+		const aliceId = (
+			await testDb.db
+				.selectFrom("preview_sessions")
+				.select("user_id")
+				.where("token_hash", "=", hashToken(orphan))
+				.executeTakeFirstOrThrow()
+		).user_id;
+		await testDb.db
+			.updateTable("sessions")
+			.set({ expires_at: new Date(Date.now() - 1000).toISOString() })
+			.where("user_id", "=", aliceId)
+			.execute();
+
+		expect((await grant(bob, bobs.id, 5173)).statusCode).toBe(201);
+
+		const hashes = (
+			await testDb.db.selectFrom("preview_sessions").select("token_hash").execute()
+		).map((row) => row.token_hash);
+		expect(hashes).not.toContain(hashToken(revoked));
+		expect(hashes).not.toContain(hashToken(orphan));
+		expect(hashes).toContain(hashToken(live));
+	},
+);
 
 test.skipIf(skip)("a denied or out-of-range port gets no grant", async () => {
 	expect((await grant(alice, workspaceId, 22)).statusCode).toBe(403);
@@ -931,6 +1016,32 @@ test.skipIf(skip)("a loopback-only bridge port gets a forward", async () => {
 	expect(response.statusCode).toBe(200);
 	expect(response.headers["x-portikus-upstream"]).toBe("127.0.0.1:3000");
 	expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([3000]);
+});
+
+test.skipIf(skip)("a workspace may not hold open forwards without end", async () => {
+	const ports = [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009];
+	await seedListening([
+		{ port: 5173 },
+		...ports.map((port) => ({ port, previewReachability: "unknown" as const })),
+	]);
+	await listeningPorts(ports.length + 1);
+	const token = await openPreview(5173);
+
+	for (const port of ports.slice(0, 8)) {
+		expect((await bridge(token, `/__portikus/ports/${port}/api`)).statusCode).toBe(200);
+	}
+	expect([...(agent.forwards.get(workspaceId) ?? [])]).toHaveLength(8);
+
+	// The ninth is refused, and the student is told rather than proxied.
+	const refused = await bridge(token, "/__portikus/ports/3009/api");
+	expect(refused.statusCode).toBe(503);
+	expect(refused.headers["x-portikus-upstream"]).toBeUndefined();
+
+	// A grant for that port is refused the same way.
+	const denied = await grant(alice, workspaceId, 3009);
+	expect(denied.statusCode).toBe(409);
+	expect(denied.json().code).toBe("PREVIEW_FORWARD_FAILED");
+	expect([...(agent.forwards.get(workspaceId) ?? [])]).toHaveLength(8);
 });
 
 test.skipIf(skip)("a bridge forward closes when the port stops listening", async () => {
