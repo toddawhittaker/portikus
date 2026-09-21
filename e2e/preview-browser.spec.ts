@@ -962,10 +962,10 @@ test.describe("the preview in a real browser", () => {
 	 * One press of Back per entry the frame made, and not one more (issue
 	 * #283). The list of history entries does not get shorter when the
 	 * browser steps back through it, so counting entries is not enough: the
-	 * guard has to count the steps it has taken. The workspace page here is
-	 * reached by a real page load, as it is after the sign-in redirect, so a
-	 * step too far would load another document and take the workspace with
-	 * it.
+	 * guard has to count the steps it has taken, or Back keeps going and
+	 * walks into the Portikus page's own entries. The workspace page here is
+	 * reached by a real page load, as it is after the sign-in redirect, so
+	 * far enough back is another document and the workspace is gone.
 	 */
 	test("Back stops at the frame's first page, not at Portikus", async ({
 		page,
@@ -983,18 +983,33 @@ test.describe("the preview in a real browser", () => {
 		await expect(appHeading(page)).toHaveText("Steps", { timeout: 20_000 });
 		const portikusUrl = page.url();
 
-		await page.frameLocator("[data-testid=preview-frame]").locator("#link").click();
+		// Three navigations inside the frame, so three entries. The page the
+		// frame started on is the bootstrap URL, whose ticket is single-use,
+		// so it is the entry the student must not be able to go past twice.
+		const frame = () => page.frameLocator("[data-testid=preview-frame]");
+		await frame().locator("#link").click();
+		await expect(appHeading(page)).toHaveText("second page");
+		await frame().locator("#home").click();
+		await expect(appHeading(page)).toHaveText("Steps");
+		await frame().locator("#link").click();
 		await expect(appHeading(page)).toHaveText("second page");
 
-		// One entry, so one step. The second press must do nothing at all.
+		// One press, one entry.
 		await page.getByTestId("preview-back").click();
 		await expect(appHeading(page)).toHaveText("Steps");
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("second page");
+
+		// The third press uses the last entry the frame made. The fourth has
+		// nothing left and says so, instead of stepping into Portikus's own
+		// entries as it did while the guard counted entries rather than steps.
+		await page.getByTestId("preview-back").click();
 		await page.getByTestId("preview-back").click();
 		await expect(page.getByTestId("preview-back")).toHaveAttribute(
 			"title",
 			"Nothing to go back to",
+			{ timeout: 10_000 },
 		);
-		await expect(appHeading(page)).toHaveText("Steps");
 
 		// The Portikus document is untouched: same URL, same workspace.
 		expect(page.url()).toBe(portikusUrl);
