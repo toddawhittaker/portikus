@@ -8,17 +8,19 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import {
 	decodeHexAddress,
+	isSystemListener,
 	ListeningMonitor,
 	parseDockerPs,
 	parseProcNetTcp,
 	readSocketOwners,
+	StopFailure,
 } from "./listening.js";
 
 const HEADER =
 	"  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode";
 
-function row(local: string, state: string, inode: string): string {
-	return `   0: ${local} 00000000:0000 ${state} 00000000:00000000 00:00000000 00000000  1000        0 ${inode} 1 0000000000000000 100 0 0 10 0`;
+function row(local: string, state: string, inode: string, uid = 1000): string {
+	return `   0: ${local} 00000000:0000 ${state} 00000000:00000000 00:00000000 00000000  ${uid}        0 ${inode} 1 0000000000000000 100 0 0 10 0`;
 }
 
 // --- hex address decoding ---
@@ -50,14 +52,16 @@ test("keeps only LISTEN rows and decodes their address and port", () => {
 		row("0100007F:C350", "01", "34569"),
 	].join("\n");
 	expect(parseProcNetTcp(text)).toEqual([
-		{ address: "127.0.0.1", port: 5000, inode: "34567" },
-		{ address: "0.0.0.0", port: 8080, inode: "34568" },
+		{ address: "127.0.0.1", port: 5000, inode: "34567", uid: 1000 },
+		{ address: "0.0.0.0", port: 8080, inode: "34568", uid: 1000 },
 	]);
 });
 
 test("parses IPv6 listeners", () => {
 	const text = [HEADER, row(`${"0".repeat(32)}:1F90`, "0A", "9001")].join("\n");
-	expect(parseProcNetTcp(text)).toEqual([{ address: "::", port: 8080, inode: "9001" }]);
+	expect(parseProcNetTcp(text)).toEqual([
+		{ address: "::", port: 8080, inode: "9001", uid: 1000 },
+	]);
 });
 
 test("skips short, blank, and malformed rows without throwing", () => {
@@ -313,4 +317,136 @@ test("the loopback target prefers IPv4 when the port has both", async () => {
 	await monitor.refresh();
 	expect(monitor.loopbackTarget(5000)).toBe("127.0.0.1");
 	expect(monitor.loopbackTarget(9999)).toBeNull();
+});
+
+// --- system listeners (SPEC.md 18.2, issue #265) ---
+
+test("the uid of the socket owner is read from the row", () => {
+	const text = [HEADER, row("00000000:1F90", "0A", "1", 0)].join("\n");
+	expect(parseProcNetTcp(text)[0]?.uid).toBe(0);
+});
+
+test("a root-owned or system-uid listener is a system service", () => {
+	expect(isSystemListener({ uids: [0], hasContainer: false, selfPid: 9 })).toBe(true);
+	expect(isSystemListener({ uids: [101], hasContainer: false, selfPid: 9 })).toBe(true);
+});
+
+test("the agent's own listener is a system service whatever its uid", () => {
+	// The agent runs as the student, so only the pid identifies it.
+	expect(
+		isSystemListener({ ownerPid: 9, uids: [1000], hasContainer: false, selfPid: 9 }),
+	).toBe(true);
+});
+
+test("a student's own listener is not a system service", () => {
+	expect(
+		isSystemListener({ ownerPid: 42, uids: [1000], hasContainer: false, selfPid: 9 }),
+	).toBe(false);
+});
+
+test("a port published by a container is the student's, not the system's", () => {
+	// docker-proxy holds the socket as root, but the service is the student's.
+	expect(isSystemListener({ uids: [0], hasContainer: true, selfPid: 9 })).toBe(false);
+});
+
+test("the monitor flags systemd-resolved and its own port as system", async () => {
+	await writeProcNet(
+		[
+			HEADER,
+			row("00000000:14EB", "0A", "1", 0),
+			row("00000000:1CE8", "0A", "2", 1000),
+			row("00000000:1435", "0A", "3", 1000),
+		].join("\n"),
+	);
+	await fakeProcess(77, "portikus-agent", [2]);
+	await fakeProcess(88, "node", [3]);
+	const services = await monitorFor({ selfPid: 77 }).refresh();
+	const flags = Object.fromEntries(
+		services.map((service) => [service.port, service.system]),
+	);
+	expect(flags).toEqual({ 5355: true, 7400: true, 5173: false });
+});
+
+// --- stopping a listener (SPEC.md 18.2, issue #273) ---
+
+test("stopping a student listener sends SIGTERM and stops there", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const signals: [number, string][] = [];
+	let alive = true;
+	const monitor = monitorFor({
+		kill: (pid, signal) => {
+			if (Number(signal) === 0) {
+				if (!alive) throw new Error("no such process");
+				return;
+			}
+			signals.push([pid, String(signal)]);
+			alive = false;
+		},
+		graceMs: 1000,
+	});
+	await monitor.stopListener(5173);
+	expect(signals).toEqual([[88, "SIGTERM"]]);
+});
+
+test("a process that ignores SIGTERM is killed after the grace period", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const signals: string[] = [];
+	let alive = true;
+	const monitor = monitorFor({
+		kill: (_pid, signal) => {
+			if (Number(signal) === 0) {
+				if (!alive) throw new Error("no such process");
+				return;
+			}
+			signals.push(String(signal));
+			if (signal === "SIGKILL") alive = false;
+		},
+		graceMs: 100,
+	});
+	await monitor.stopListener(5173);
+	expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+});
+
+test("a process that survives SIGKILL is reported as a conflict", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({ kill: () => {}, graceMs: 50 });
+	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
+		status: 409,
+		code: "STOP_FAILED",
+	});
+});
+
+test("a root-owned listener is refused", async () => {
+	await writeProcNet([HEADER, row("00000000:14EB", "0A", "1", 0)].join("\n"));
+	const monitor = monitorFor({
+		kill: () => {
+			throw new Error("the stop must never reach a system process");
+		},
+	});
+	await expect(monitor.stopListener(5355)).rejects.toBeInstanceOf(StopFailure);
+	await expect(monitor.stopListener(5355)).rejects.toMatchObject({ status: 403 });
+});
+
+test("a port nothing is listening on is not found", async () => {
+	await writeProcNet(HEADER);
+	await expect(monitorFor().stopListener(5173)).rejects.toMatchObject({ status: 404 });
+});
+
+test("a container row is stopped with docker stop, not a signal", async () => {
+	await writeProcNet([HEADER, row("00000000:1538", "0A", "1", 0)].join("\n"));
+	const stopped: string[] = [];
+	const monitor = monitorFor({
+		docker: async () => [{ id: "abc123", name: "pg", ports: [5432] }],
+		dockerStop: async (container) => {
+			stopped.push(container);
+		},
+		kill: () => {
+			throw new Error("a container must not be signalled");
+		},
+	});
+	await monitor.stopListener(5432);
+	expect(stopped).toEqual(["abc123"]);
 });

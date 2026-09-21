@@ -25,3 +25,31 @@
 .pk-pane-body .pk-portrow > button {
 	white-space: nowrap;
 }
+
+/*
+ * The actions cell (issues #272, #273). It must not inherit the command
+ * column's truncation: a clipped cell overlapped its own buttons, so a click
+ * landed on the cell instead of Stop.
+ */
+.pk-pane-body .pk-portrow > .pk-portrow-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-1);
+	min-width: 0;
+	overflow: visible;
+	white-space: nowrap;
+}
+
+/* The "Show system services" checkbox under the last row (issue #265). */
+.pk-running-toggle {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-top: var(--space-1);
+	padding: 4px 6px;
+	border-top: 1px solid var(--line);
+	color: var(--ink-muted);
+	font-size: 11px;
+	cursor: pointer;
+}

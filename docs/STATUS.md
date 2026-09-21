@@ -968,3 +968,38 @@ Known gaps. The chrome around a pane, its title bar and its scrollbar,
 still follows the per-user terminal setting rather than that one
 terminal's choice, because those colours come from the `--terminal-*`
 tokens on the document root. The terminal surface itself is correct.
+
+## Epic 8.1 pilot fixes — the Running pane (issues #265, #272, #273)
+
+**System listeners.** The workspace agent now marks each listening port as
+the student's or the system's and reports it as `system` on the listening
+contract. A listener is the system's when its owning process id is the
+agent's own, or when the socket's uid is below 1000, which covers
+systemd-resolved, sshd and dnsmasq. A port published by an inner Docker
+container is the student's, even though `docker-proxy` holds the socket as
+root. The Running pane hides system rows behind a "Show system services"
+checkbox, off by default and remembered in `localStorage`. Nothing about
+preview authorization or the port deny list changed (issue #265, SPEC.md
+section 18.2).
+
+**Row actions.** Each previewable row has Open preview, an Open in new tab
+icon, and Stop. Open in new tab uses the same single-tab pattern as the
+Preview tab: the blank tab is opened inside the click and then pointed at
+the bootstrap URL. That code now lives once, in
+`apps/web/src/preview/grants.ts`. The "Preview" chip is gone; only the
+Docker chip remains, and a row that cannot be previewed says why
+("reserved port" or "system service") in place of the preview actions
+(issue #272, SPEC.md section 18.2).
+
+**Stop.** `POST /workspaces/:id/listening/:port/stop` proxies the agent's
+`POST /listening/:port/stop` behind the owner gate. The agent sends
+SIGTERM, then SIGKILL after three seconds, and runs `docker stop` for a
+container row instead of signalling the process. It refuses a system
+listener with 403, an unlisted port with 404, and a process that survives
+SIGKILL with 409. The browser confirms first, naming the command and the
+port. The row disappears on the next scan, and a Preview tab on that port
+shows its inactive state on its own (issue #273, SPEC.md section 18.2).
+
+Known gaps. The Running pane borrows the preview stylesheet's classes for
+the new toggle row and the actions cell; the pane's own stylesheet under
+`apps/web/src/running/` is another task's work.

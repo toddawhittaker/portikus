@@ -65,7 +65,45 @@ export function serviceCommand(service: ListeningService): string {
 	return service.container?.name ?? service.process?.command ?? "unknown";
 }
 
-/** "Docker" when the port belongs to inner Docker, else "Preview". */
-export function serviceKind(service: ListeningService): "Docker" | "Preview" {
-	return service.container ? "Docker" : "Preview";
+/** True when the port belongs to an inner Docker container (SPEC.md §18.2). */
+export function isDocker(service: ListeningService): boolean {
+	return service.container !== undefined;
+}
+
+/**
+ * Why a row offers no actions, or null when it does (issues #265, #272).
+ * A reserved port is one the preview policy refuses; a system service is one
+ * the agent attributes to the platform or a system account.
+ */
+export function serviceReason(service: ListeningService): string | null {
+	if (service.system) return "system service";
+	if (service.previewReachability === "denied") return "reserved port";
+	return null;
+}
+
+/** Ask the workspace to stop what holds a port (SPEC.md §18.2, issue #273). */
+export async function stopListener(workspaceId: string, port: number): Promise<void> {
+	await request(z.unknown(), `/workspaces/${workspaceId}/listening/${port}/stop`, {
+		method: "POST",
+	});
+}
+
+/** Where the "Show system services" choice is remembered (issue #265). */
+const SHOW_SYSTEM_KEY = "pk-running-show-system";
+
+export function readShowSystem(): boolean {
+	try {
+		return localStorage.getItem(SHOW_SYSTEM_KEY) === "true";
+	} catch {
+		// Some browsers refuse storage; the default is to hide them.
+		return false;
+	}
+}
+
+export function writeShowSystem(show: boolean): void {
+	try {
+		localStorage.setItem(SHOW_SYSTEM_KEY, show ? "true" : "false");
+	} catch {
+		// Nothing to remember is not worth telling the student about.
+	}
 }

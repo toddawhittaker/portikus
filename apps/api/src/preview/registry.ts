@@ -8,7 +8,7 @@ import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import WebSocketClient, { type RawData } from "ws";
-import { type AgentClient, agentClientFor } from "../agent-client.js";
+import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
 import { portAllowed } from "./policy.js";
 import { revokeWorkspacePreviewSessions } from "./store.js";
 
@@ -77,6 +77,11 @@ export interface ListeningRegistry {
 	ensureReachable(workspaceId: string, port: number): Promise<void>;
 	/** Close a loopback forward this workspace no longer needs. */
 	closeForward(workspaceId: string, port: number): Promise<void>;
+	/**
+	 * Stop what holds a port inside the workspace (SPEC.md 18.2). Throws the
+	 * agent's own error, so the route can turn its code into a status.
+	 */
+	stopListener(workspaceId: string, port: number): Promise<void>;
 	/** Start polling. Safe to call twice. */
 	start(): void;
 	/** Stop polling and drop every agent socket. */
@@ -317,6 +322,17 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 			const entry = entries.get(workspaceId);
 			if (!entry) return;
 			await entry.client.closeForward(port);
+		},
+
+		async stopListener(workspaceId, port) {
+			const entry = entries.get(workspaceId);
+			if (!entry) {
+				throw new AgentCallError(
+					"AGENT_UNAVAILABLE",
+					"The workspace agent could not be reached",
+				);
+			}
+			await entry.client.stopListener(port);
 		},
 
 		start() {

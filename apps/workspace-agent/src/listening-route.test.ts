@@ -142,6 +142,25 @@ test("a forward opens, lists, and closes", async () => {
 	expect(gone.statusCode).toBe(404);
 });
 
+test("stopping a port nothing is listening on is a 404", async () => {
+	const response = await app.inject({
+		method: "POST",
+		url: "/listening/4321/stop",
+		headers: auth(),
+	});
+	expect(response.statusCode).toBe(404);
+	expect(response.json().error.code).toBe("LISTENER_NOT_FOUND");
+});
+
+test("a stop request without a valid port is refused", async () => {
+	const response = await app.inject({
+		method: "POST",
+		url: "/listening/nope/stop",
+		headers: auth(),
+	});
+	expect(response.statusCode).toBe(400);
+});
+
 test("a port nothing is listening on cannot be forwarded", async () => {
 	const response = await app.inject({
 		method: "POST",

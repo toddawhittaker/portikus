@@ -44,6 +44,31 @@ export async function probeEmbeddable(
 	);
 }
 
+/**
+ * Open a preview in a new browser tab (issue #261, issue #272).
+ *
+ * The blank tab is opened from inside the click, because a browser blocks a
+ * window opened after an await. It is then pointed at the bootstrap URL, so
+ * one click leaves exactly one tab. Returns false when the grant failed and
+ * the caller should say so.
+ */
+export async function openPreviewInNewTab(
+	workspaceId: string,
+	port: number,
+): Promise<boolean> {
+	const opened = window.open("about:blank", "_blank");
+	if (opened) opened.opener = null;
+	try {
+		const grant = await requestGrant(workspaceId, port, "top-level");
+		if (opened) opened.location.replace(grant.bootstrapUrl);
+		else window.open(grant.bootstrapUrl, "_blank", "noopener,noreferrer");
+		return true;
+	} catch {
+		opened?.close();
+		return false;
+	}
+}
+
 /** Revoke this workspace's preview sessions (BROWSER-HANDLING.md §9.2). */
 export async function resetPreviewData(workspaceId: string): Promise<void> {
 	await request(z.unknown(), `/workspaces/${workspaceId}/preview/reset`, {
