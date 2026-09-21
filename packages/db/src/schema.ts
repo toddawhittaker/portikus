@@ -3,8 +3,8 @@ import type { ColumnType, Generated } from "kysely";
 /**
  * Kysely Database interface for the Portikus control plane.
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
- * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level, and
- * 0007_editor_settings
+ * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
+ * 0007_editor_settings, and 0008_preview
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -16,6 +16,8 @@ export interface Database {
 	projects: ProjectsTable;
 	settings: SettingsTable;
 	audit_events: AuditEventsTable;
+	preview_grants: PreviewGrantsTable;
+	preview_sessions: PreviewSessionsTable;
 }
 
 export interface UsersTable {
@@ -25,6 +27,8 @@ export interface UsersTable {
 	email: string | null;
 	display_name: string;
 	role: string;
+	/** The `preferred_username` claim; the workspace label comes from it. */
+	preferred_username: string | null;
 	disabled_at: ColumnType<Date | null, string | null, string | null>;
 	/** Per-user grace period override; null means use the global setting. */
 	shutdown_grace_seconds: number | null;
@@ -45,6 +49,8 @@ export interface SessionsTable {
 export interface WorkspacesTable {
 	id: Generated<string>;
 	owner_user_id: string;
+	/** DNS label naming the container hostname and preview hosts (Epic 8). */
+	label: string;
 	incus_instance_name: string | null;
 	state: string;
 	desired_state: Generated<string>;
@@ -113,4 +119,30 @@ export interface AuditEventsTable {
 	at: ColumnType<Date, string | undefined, never>;
 	result: string;
 	metadata: ColumnType<Record<string, unknown> | null, string | null, string | null>;
+}
+
+export interface PreviewGrantsTable {
+	id: Generated<string>;
+	user_id: string;
+	workspace_id: string;
+	port: number;
+	preview_host: string;
+	presentation: string;
+	ticket_hash: string;
+	expires_at: ColumnType<Date, string, string>;
+	consumed_at: ColumnType<Date | null, string | null, string | null>;
+	created_at: ColumnType<Date, string | undefined, never>;
+}
+
+export interface PreviewSessionsTable {
+	id: Generated<string>;
+	token_hash: string;
+	user_id: string;
+	session_id: string;
+	workspace_id: string;
+	port: number;
+	preview_host: string;
+	partitioned: Generated<boolean>;
+	created_at: ColumnType<Date, string | undefined, never>;
+	revoked_at: ColumnType<Date | null, string | null, string | null>;
 }

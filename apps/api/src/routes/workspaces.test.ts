@@ -210,3 +210,45 @@ test.skipIf(skip)("the removed connection routes are gone", async () => {
 	const res = await post(`/workspaces/${id}/connections`, alice);
 	expect(res.statusCode).toBe(404);
 });
+
+// --- workspace label (SPEC.md Epic 8, BROWSER-HANDLING.md section 8) ---
+
+test.skipIf(skip)("a new workspace is labelled after the login username", async () => {
+	const created = await post("/workspaces", alice);
+	expect(created.json().label).toBe("alice");
+
+	const row = await testDb.db
+		.selectFrom("workspaces")
+		.select("label")
+		.where("id", "=", created.json().id)
+		.executeTakeFirstOrThrow();
+	expect(row.label).toBe("alice");
+});
+
+test.skipIf(skip)("a label collision gets a numbered suffix", async () => {
+	await post("/workspaces", alice);
+
+	// Bob's provider hands back a username that reduces to the same label.
+	const bob = new CookieJar();
+	await loginAs(app, "bob", bob);
+	await testDb.db
+		.updateTable("users")
+		.set({ preferred_username: "alice" })
+		.where("oidc_subject", "=", "bob")
+		.execute();
+
+	expect((await post("/workspaces", bob)).json().label).toBe("alice-2");
+});
+
+test.skipIf(skip)(
+	"a workspace gets the fallback label when the claim is missing",
+	async () => {
+		await testDb.db
+			.updateTable("users")
+			.set({ preferred_username: null })
+			.where("oidc_subject", "=", "alice")
+			.execute();
+
+		expect((await post("/workspaces", alice)).json().label).toMatch(/^ws-[0-9a-f]{8}$/);
+	},
+);

@@ -3,13 +3,23 @@ import {
 	type ApiError,
 	CreateWorkspaceRequest,
 	type DesiredState,
+	deriveWorkspaceLabel,
 } from "@portikus/contracts";
+import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { Insertable } from "kysely";
 import { z } from "zod";
 import type { ServerDeps } from "../server.js";
 import { countActive, findOwnedWorkspace, toWorkspace } from "./workspace-view.js";
 
 const UuidParam = z.object({ id: z.string().uuid() });
+
+/** Eight random hex characters for the fallback workspace label. */
+function randomHex8(): string {
+	return Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) =>
+		b.toString(16).padStart(2, "0"),
+	).join("");
+}
 
 function sendError(
 	reply: FastifyReply,
@@ -54,21 +64,30 @@ export function registerWorkspaceRoutes(
 		const hexPrefix = id.replace(/-/g, "").slice(0, 24);
 		const incusInstanceName = `ws-${hexPrefix}`;
 
+		// The label is derived once, at creation, from the login username
+		// (SPEC.md Epic 8; BROWSER-HANDLING.md section 8).
+		const owner = await db
+			.selectFrom("users")
+			.select("preferred_username")
+			.where("id", "=", ownerUserId)
+			.executeTakeFirst();
+		const baseLabel = deriveWorkspaceLabel(
+			owner?.preferred_username ?? null,
+			randomHex8(),
+		);
+
 		try {
-			await db
-				.insertInto("workspaces")
-				.values({
-					id,
-					owner_user_id: ownerUserId,
-					incus_instance_name: incusInstanceName,
-					state: "provisioning",
-					desired_state: "stopped",
-					quota_config: JSON.stringify({
-						homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
-						dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
-					}),
-				})
-				.execute();
+			await insertWithLabel(db, baseLabel, {
+				id,
+				owner_user_id: ownerUserId,
+				incus_instance_name: incusInstanceName,
+				state: "provisioning",
+				desired_state: "stopped",
+				quota_config: JSON.stringify({
+					homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
+					dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+				}),
+			});
 		} catch (err: unknown) {
 			// Unique violation race: another request created it first.
 			if (isUniqueViolation(err)) {
@@ -178,6 +197,42 @@ export function registerWorkspaceRoutes(
 
 		reply.status(202).send({ ok: true });
 	}
+}
+
+/** How many `-2`, `-3`, ... suffixes to try before giving up on a label. */
+const MAX_LABEL_ATTEMPTS = 20;
+
+/** Postgres names the unique index over `workspaces.label`. */
+const LABEL_INDEX = "idx_workspaces_label";
+
+/**
+ * Insert the workspace, appending `-2`, `-3`, ... when two students derive
+ * the same label from their usernames (SPEC.md Epic 8).
+ */
+async function insertWithLabel(
+	db: ServerDeps["db"],
+	baseLabel: string,
+	values: Omit<Insertable<Database["workspaces"]>, "label">,
+): Promise<void> {
+	for (let attempt = 1; attempt <= MAX_LABEL_ATTEMPTS; attempt++) {
+		const label = attempt === 1 ? baseLabel : `${baseLabel}-${attempt}`;
+		try {
+			await db
+				.insertInto("workspaces")
+				.values({ ...values, label })
+				.execute();
+			return;
+		} catch (err: unknown) {
+			if (!isUniqueViolationOn(err, LABEL_INDEX)) throw err;
+		}
+	}
+	throw new Error(`could not find a free workspace label starting from ${baseLabel}`);
+}
+
+function isUniqueViolationOn(err: unknown, constraint: string): boolean {
+	return (
+		isUniqueViolation(err) && (err as { constraint?: string }).constraint === constraint
+	);
 }
 
 function isUniqueViolation(err: unknown): boolean {

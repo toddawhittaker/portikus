@@ -20,6 +20,7 @@ import {
 const sampleWorkspace = {
 	id: "550e8400-e29b-41d4-a716-446655440000",
 	ownerUserId: "550e8400-e29b-41d4-a716-446655440111",
+	label: "tw7",
 	state: "running" as const,
 	desiredState: "running" as const,
 	incusInstanceName: "ws-abc123",
@@ -57,6 +58,7 @@ test("Workspace round-trips a complete response", () => {
 	const input = {
 		id: "550e8400-e29b-41d4-a716-446655440000",
 		ownerUserId: "550e8400-e29b-41d4-a716-446655440111",
+		label: "tw7",
 		state: "running" as const,
 		desiredState: "running" as const,
 		incusInstanceName: "ws-abc123",

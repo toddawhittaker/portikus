@@ -46,8 +46,9 @@ test("AgentError round-trips and rejects an unknown code", () => {
 
 test("StartInstanceRequest requires a 64-character hex agent token", () => {
 	const token = "a".repeat(64);
-	expect(StartInstanceRequest.parse({ agentToken: token })).toEqual({
+	expect(StartInstanceRequest.parse({ agentToken: token, hostname: "tw7" })).toEqual({
 		agentToken: token,
+		hostname: "tw7",
 		timeoutSeconds: 60,
 	});
 	expect(StartInstanceRequest.safeParse({}).success).toBe(false);

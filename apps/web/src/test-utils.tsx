@@ -21,6 +21,7 @@ export const USER = {
 export const WORKSPACE = {
 	id: "22222222-2222-4222-8222-222222222222",
 	ownerUserId: USER.id,
+	label: "tw7",
 	state: "running" as const,
 	desiredState: "running" as const,
 	incusInstanceName: "ws-alice",

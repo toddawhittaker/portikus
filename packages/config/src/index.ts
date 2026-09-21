@@ -57,6 +57,32 @@ function productionHttpsMessage(field: string): string {
 	return `${field} must use https in production`;
 }
 
+/** The development preview suffix; production must set its own. */
+const DEV_PREVIEW_SUFFIX = "preview.localhost";
+
+/**
+ * A valid, fully lowercase DNS name of at least two labels, each 1-63
+ * characters, with no leading or trailing hyphen (BROWSER-HANDLING.md §23).
+ */
+const DNS_NAME =
+	/^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+/** Parse a comma-separated port list, rejecting anything that is not a port. */
+function parsePorts(value: string): number[] {
+	const ports: number[] = [];
+	for (const part of value.split(",")) {
+		const text = part.trim();
+		if (text === "") continue;
+		if (!/^[1-9][0-9]{0,4}$/.test(text)) {
+			throw new Error(`"${text}" is not a port number`);
+		}
+		const port = Number(text);
+		if (port > 65535) throw new Error(`"${text}" is not a port number`);
+		ports.push(port);
+	}
+	return ports;
+}
+
 /**
  * Environment contract for the API process (STACK.md §5, §9).
  */
@@ -78,6 +104,24 @@ export const ApiConfigSchema = BaseConfig.extend({
 	AGENT_PORT: positiveInt.default(7400),
 	/** `name=url,name=url` (SPEC.md §7.2); parsed once in the transform below. */
 	PROJECT_TEMPLATES: z.string().default(""),
+	/**
+	 * DNS suffix every preview host sits under, as
+	 * `<workspace-label>-<port>.<suffix>` (BROWSER-HANDLING.md §8, §23).
+	 * Production must set its own; the default is for development only.
+	 */
+	PREVIEW_SUFFIX: z.string().min(1).default(DEV_PREVIEW_SUFFIX),
+	/** Lowest port a preview may target (BROWSER-HANDLING.md §8, §23). */
+	PREVIEW_PORT_MIN: positiveInt.default(1024),
+	/** Highest port a preview may target (BROWSER-HANDLING.md §8, §23). */
+	PREVIEW_PORT_MAX: positiveInt.default(65535),
+	/**
+	 * Comma-separated ports a preview may never reach, even when something
+	 * is listening: SSH, the Docker API, and PostgreSQL by default. The
+	 * workspace agent's own port is always added (BROWSER-HANDLING.md §8).
+	 */
+	PREVIEW_DENIED_PORTS: z.string().default("22,2375,2376,5432"),
+	/** How long a single-use bootstrap ticket lives (BROWSER-HANDLING.md §9.1). */
+	PREVIEW_TICKET_TTL_SECONDS: positiveInt.default(30),
 })
 	.refine(requireProductionHttps("PUBLIC_URL"), {
 		message: productionHttpsMessage("PUBLIC_URL"),
@@ -95,15 +139,55 @@ export const ApiConfigSchema = BaseConfig.extend({
 		message: productionSecretMessage("SESSION_COOKIE_SECRET"),
 		path: ["SESSION_COOKIE_SECRET"],
 	})
+	.refine(
+		(config) =>
+			config.NODE_ENV !== "production" || config.PREVIEW_SUFFIX !== DEV_PREVIEW_SUFFIX,
+		{
+			message: "PREVIEW_SUFFIX must be set in production",
+			path: ["PREVIEW_SUFFIX"],
+		},
+	)
+	.refine((config) => DNS_NAME.test(config.PREVIEW_SUFFIX), {
+		message:
+			"PREVIEW_SUFFIX must be a lowercase DNS name of at least two labels, " +
+			"with no scheme, port, or trailing dot",
+		path: ["PREVIEW_SUFFIX"],
+	})
+	// A preview must never share the application's host, and wildcard
+	// routing under the suffix must never cover it (BROWSER-HANDLING.md §23).
+	.refine(
+		(config) => {
+			let appHost: string;
+			try {
+				appHost = new URL(config.PUBLIC_URL).hostname.toLowerCase();
+			} catch {
+				return true;
+			}
+			const suffix = config.PREVIEW_SUFFIX.toLowerCase();
+			return appHost !== suffix && !appHost.endsWith(`.${suffix}`);
+		},
+		{
+			message:
+				"PREVIEW_SUFFIX must not equal or contain the PUBLIC_URL host: " +
+				"previews must be a separate browser origin",
+			path: ["PREVIEW_SUFFIX"],
+		},
+	)
+	.refine((config) => config.PREVIEW_PORT_MIN <= config.PREVIEW_PORT_MAX, {
+		message: "PREVIEW_PORT_MIN must not be greater than PREVIEW_PORT_MAX",
+		path: ["PREVIEW_PORT_MIN"],
+	})
+	.refine((config) => config.PREVIEW_PORT_MAX <= 65535, {
+		message: "PREVIEW_PORT_MAX must not be greater than 65535",
+		path: ["PREVIEW_PORT_MAX"],
+	})
 	// A typo must stop the API at startup, not when a student opens the
 	// create dialog, so the list is parsed here and reported like any other
 	// bad environment variable.
 	.transform((config, ctx) => {
+		let projectTemplates: ReturnType<typeof parseProjectTemplates>;
 		try {
-			return {
-				...config,
-				projectTemplates: parseProjectTemplates(config.PROJECT_TEMPLATES),
-			};
+			projectTemplates = parseProjectTemplates(config.PROJECT_TEMPLATES);
 		} catch (error) {
 			ctx.addIssue({
 				code: "custom",
@@ -112,6 +196,27 @@ export const ApiConfigSchema = BaseConfig.extend({
 			});
 			return z.NEVER;
 		}
+
+		let denied: number[];
+		try {
+			denied = parsePorts(config.PREVIEW_DENIED_PORTS);
+		} catch (error) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["PREVIEW_DENIED_PORTS"],
+				message: error instanceof Error ? error.message : String(error),
+			});
+			return z.NEVER;
+		}
+
+		return {
+			...config,
+			projectTemplates,
+			// The agent port is never a student's to reach, whatever the list says.
+			previewDeniedPorts: [...new Set([...denied, config.AGENT_PORT])].sort(
+				(a, b) => a - b,
+			),
+		};
 	});
 export type ApiConfig = z.infer<typeof ApiConfigSchema>;
 
