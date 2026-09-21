@@ -666,22 +666,6 @@ days.
 
 **Source.** `docs/STATUS.md`, Epic 8 decisions.
 
-## `PORTIKUS_PREVIEW_*` environment hints for project templates
-
-**What.** Set environment variables in each terminal that tell a
-development server what its public preview origin will be, as
-`docs/BROWSER-HANDLING.md` section 14 describes.
-
-**Why.** Frameworks such as Vite check the `Host` header and need to be
-told the external origin before hot module reloading works smoothly.
-Today a student edits the framework's configuration by hand.
-
-**What it would take.** Compute the values when a terminal starts, pass
-them through the agent's terminal spawn, and document the one-line
-configuration each supported framework needs. About a day.
-
-**Source.** `docs/BROWSER-HANDLING.md` section 14; left out of PR #251.
-
 ## Move the last client-side port minimum into server policy
 
 **What.** Remove the 1024 minimum still hard-coded in the terminal link
