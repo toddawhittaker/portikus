@@ -100,6 +100,8 @@ export interface TerminalPaneProps {
 	onSessionEnded: () => void;
 	/** The agent reported the terminal's current directory (SPEC.md §9.3). */
 	onCwd: (path: string) => void;
+	/** True when this pane is the one the work area calls focused. */
+	focused: boolean;
 	/** The user clicked or typed in this pane. */
 	onFocus: (terminalId: string) => void;
 	/** Alt+Shift+Q: move focus out of the terminal to the tab strip. */
@@ -164,6 +166,7 @@ export function TerminalPane({
 	projectId,
 	terminal,
 	visible,
+	focused,
 	onExited,
 	onSessionEnded,
 	onCwd,
@@ -206,6 +209,12 @@ export function TerminalPane({
 	// The long-lived effect reads visibility through a ref, for the same reason.
 	const visibleRef = useRef(visible);
 	visibleRef.current = visible;
+
+	// A pane that is born focused takes the keyboard, so "New terminal here"
+	// in an ended pane leaves the student typing in the new shell rather than
+	// nowhere (issue #264).
+	const focusedRef = useRef(focused);
+	focusedRef.current = focused;
 
 	// This terminal's own colour scheme (issue #268). It can change while the
 	// terminal is open, so the theme is set on the live instance rather than
@@ -330,6 +339,7 @@ export function TerminalPane({
 		xterm.current = term;
 		fit.current = fitAddon;
 		fitAddon.fit();
+		if (focusedRef.current && visibleRef.current) term.focus();
 
 		// `src/auth.ts:73` and friends open the file at that line.
 		term.registerLinkProvider({

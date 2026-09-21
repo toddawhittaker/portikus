@@ -197,6 +197,48 @@ test("an ended terminal offers a new one in its place", async ({ page, context }
 });
 
 /**
+ * Issue #264: the button the student clicked went away with the ended pane,
+ * so the keyboard has to land in the new terminal without another click.
+ */
+test("New terminal here leaves the keyboard in the new terminal", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	const [projectId] = await projectIds(student.workspaceId);
+	if (!projectId) throw new Error("the project row was not created");
+	await waitForSavedLeaf(projectId, terminalId);
+
+	await endTerminal(terminalId);
+	await page.reload();
+	await expect(page.getByTestId("new-terminal-here")).toBeVisible({ timeout: 15_000 });
+	await page.getByTestId("new-terminal-here").click();
+
+	const ids = await terminalIds(student.workspaceId);
+	const newId = ids.find((id) => id !== terminalId);
+	if (!newId) throw new Error("the replacement terminal row was not created");
+	await expectConnected(page, newId);
+
+	// No click into the pane: type straight away and the shell must see it.
+	const rows = rowsOf(page, newId);
+	await expect
+		.poll(
+			async () => {
+				const seen = (await rows.textContent()) ?? "";
+				if (seen.includes("straight-in")) return seen;
+				await page.keyboard.insertText("straight-in");
+				await page.keyboard.press("Enter");
+				await page.waitForTimeout(500);
+				return (await rows.textContent()) ?? "";
+			},
+			{ timeout: 20_000, intervals: [200, 500, 1000, 2000] },
+		)
+		.toContain("straight-in");
+});
+
+/**
  * The background colour a terminal pane is actually painting. xterm.js puts
  * the theme background on its scrollable element.
  */

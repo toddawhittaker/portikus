@@ -91,6 +91,7 @@ function renderPane(
 	onCwd = vi.fn(),
 	visible = true,
 	overrides: Partial<Terminal> = {},
+	focused = false,
 ) {
 	stubBrowserApis();
 	vi.stubGlobal("WebSocket", FakeWebSocket);
@@ -102,6 +103,7 @@ function renderPane(
 					projectId={PROJECT}
 					terminal={{ ...terminal, ...overrides }}
 					visible={visible}
+					focused={focused}
 					onExited={onExited}
 					onSessionEnded={vi.fn()}
 					onCwd={onCwd}
@@ -508,4 +510,23 @@ test("a dark terminal reports the dark background instead", async () => {
 		});
 	});
 	await waitFor(() => expect(sentInput()).toContain("]11;rgb:11"));
+});
+
+/**
+ * Issue #264: a pane that is born focused takes the keyboard, so the first
+ * keystroke after "New terminal here" reaches the new shell.
+ */
+test("a pane created focused takes the keyboard", async () => {
+	const { view } = renderPane(vi.fn(), vi.fn(), true, {}, true);
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const textarea = view.container.querySelector("textarea.xterm-helper-textarea");
+	expect(textarea).not.toBeNull();
+	expect(document.activeElement).toBe(textarea);
+});
+
+test("a pane created unfocused leaves the keyboard alone", async () => {
+	const { view } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const textarea = view.container.querySelector("textarea.xterm-helper-textarea");
+	expect(document.activeElement).not.toBe(textarea);
 });
