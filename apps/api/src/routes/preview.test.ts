@@ -966,6 +966,35 @@ test.skipIf(skip)("a bridge forward closes when the port stops listening", async
 	await until(() => (agent.forwards.get(workspaceId)?.size ?? 0) === 0);
 });
 
+test.skipIf(skip)(
+	"a bridge forward stays open while another session is using it",
+	async () => {
+		await seedListening([
+			{ port: 5173 },
+			{ port: 3000, previewReachability: "unknown" },
+		]);
+		await listeningPorts(2);
+		const first = await openPreview(5173);
+		const second = await openPreview(5173);
+		expect((await bridge(first, "/__portikus/ports/3000/api")).statusCode).toBe(200);
+		expect((await bridge(second, "/__portikus/ports/3000/api")).statusCode).toBe(200);
+		expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([3000]);
+
+		// The first session ends; the second is still bridging that port.
+		const reset = await app.inject({
+			method: "GET",
+			url: "/__portikus/reset",
+			headers: {
+				"x-forwarded-host": previewHostFor(5173),
+				cookie: `${COOKIE}=${first}`,
+			},
+		});
+		expect(reset.statusCode).toBe(200);
+		expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([3000]);
+		expect((await bridge(second, "/__portikus/ports/3000/api")).statusCode).toBe(200);
+	},
+);
+
 test.skipIf(skip)("a bridge forward closes when the preview session ends", async () => {
 	await seedListening([{ port: 5173 }, { port: 3000, previewReachability: "unknown" }]);
 	await listeningPorts(2);

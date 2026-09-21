@@ -104,13 +104,18 @@ export function createBridgeForwards(deps: {
 		async ensure(workspaceId, sessionId, port) {
 			const before = registry.service(workspaceId, port);
 			await registry.ensureReachable(workspaceId, port);
+			const key = keyOf(workspaceId, port);
+			const entry = tracked.get(key);
+			if (entry) {
+				// A forward the bridge already opened: this session is using it
+				// too, so it must outlive whichever session ends first.
+				entry.sessions.add(sessionId);
+				return;
+			}
 			// A service already reachable needed no forward, so the bridge owns
 			// nothing to close for it.
 			if (before?.previewReachability !== "unknown") return;
-			const key = keyOf(workspaceId, port);
-			const entry = tracked.get(key) ?? { workspaceId, port, sessions: new Set() };
-			entry.sessions.add(sessionId);
-			tracked.set(key, entry);
+			tracked.set(key, { workspaceId, port, sessions: new Set([sessionId]) });
 			watch(workspaceId);
 		},
 

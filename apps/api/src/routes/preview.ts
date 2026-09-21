@@ -335,12 +335,17 @@ export function registerPreviewRoutes(
 		if (!service || service.previewReachability === "denied") {
 			return page(reply, 503, inactiveServicePage(port));
 		}
-		if (service.previewReachability === "unknown") {
-			// A loopback-only bridge port needs the agent's forward first. The
-			// session's own port got one when its grant was issued.
-			if (target.kind !== "port") {
+		if (target.kind !== "port") {
+			// The session's own port got its forward when the grant was issued.
+			if (service.previewReachability === "unknown") {
 				return page(reply, 503, inactiveServicePage(port));
 			}
+		} else {
+			// Every bridge request goes through the bridge, even when the port
+			// is already reachable: that is how a second session using a
+			// forward the bridge opened gets counted, so the forward outlives
+			// whichever session ends first. A port that needs no forward costs
+			// nothing here.
 			try {
 				await bridge.ensure(session.workspace_id, session.id, port);
 			} catch (error) {
