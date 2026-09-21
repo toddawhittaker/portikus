@@ -91,7 +91,7 @@ function renderPane(
 	onCwd = vi.fn(),
 	visible = true,
 	overrides: Partial<Terminal> = {},
-	focused = false,
+	focusOnMount = false,
 ) {
 	stubBrowserApis();
 	vi.stubGlobal("WebSocket", FakeWebSocket);
@@ -103,7 +103,7 @@ function renderPane(
 					projectId={PROJECT}
 					terminal={{ ...terminal, ...overrides }}
 					visible={visible}
-					focused={focused}
+					focusOnMount={focusOnMount}
 					onExited={onExited}
 					onSessionEnded={vi.fn()}
 					onCwd={onCwd}

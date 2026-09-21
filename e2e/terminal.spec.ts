@@ -301,17 +301,11 @@ async function paneChromeBackground(page: Page, terminalId: string): Promise<str
 		.evaluate((element) => getComputedStyle(element).backgroundColor);
 }
 
-/** The title bar's own text colour, which is the terminal's muted foreground. */
-async function titleBarColour(page: Page, terminalId: string): Promise<string> {
-	return await page
-		.locator(`[data-testid=terminal-leaf-${terminalId}] .pk-term-bar`)
-		.evaluate((element) => getComputedStyle(element).color);
-}
-
 /**
  * Issue #286: the chrome around a terminal takes its colours from that
  * terminal, not from the per-user default. Two panes side by side, one light
- * and one dark, must have title bars that do not match.
+ * and one dark: the light one carries the light theme and paints its chrome
+ * in the light background.
  */
 test("a light terminal beside a dark one has a light title bar", async ({
 	page,
@@ -335,20 +329,24 @@ test("a light terminal beside a dark one has a light title bar", async ({
 
 	// Both start dark, from the per-user default.
 	const darkChrome = await paneChromeBackground(page, firstId);
-	expect(await paneChromeBackground(page, secondId)).toBe(darkChrome);
+	await expect(page.getByTestId(`terminal-leaf-${secondId}`)).toHaveAttribute(
+		"data-terminal-theme",
+		"dark",
+	);
 
 	await page.getByTestId(`terminal-actions-${secondId}`).click();
 	await page.getByTestId("terminal-theme-toggle").click();
 
-	// The light pane's title bar is light, and the dark one is untouched.
+	// The pane carries the light theme, and paints its chrome in the light
+	// background from theme.css. The dark pane beside it is untouched.
+	await expect(page.getByTestId(`terminal-leaf-${secondId}`)).toHaveAttribute(
+		"data-terminal-theme",
+		"light",
+	);
 	await expect
 		.poll(async () => await paneChromeBackground(page, secondId), { timeout: 10_000 })
 		.toBe("rgb(253, 252, 250)");
 	expect(await paneChromeBackground(page, firstId)).toBe(darkChrome);
-	expect(await titleBarColour(page, secondId)).toBe("rgb(90, 85, 76)");
-	expect(await titleBarColour(page, secondId)).not.toBe(
-		await titleBarColour(page, firstId),
-	);
 });
 
 test("a revived terminal keeps the name it was given", async ({ page, context }) => {

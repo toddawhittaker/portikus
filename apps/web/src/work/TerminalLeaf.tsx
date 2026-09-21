@@ -223,7 +223,7 @@ export function TerminalLeaf({
 					projectId={projectId}
 					terminal={terminal}
 					visible={visible}
-					focused={focused}
+					focusOnMount={focused}
 					onExited={onExited}
 					onSessionEnded={onSessionEnded}
 					onCwd={setLiveCwd}
