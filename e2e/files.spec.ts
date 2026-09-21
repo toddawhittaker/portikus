@@ -476,4 +476,29 @@ test.describe("file tree", () => {
 		await expect(page.locator(".pk-toast")).toHaveCount(0);
 		await expect(row(page, "README.md")).toBeVisible();
 	});
+
+	/** Issue #274: the tree's selection is the same neutral tone, never green. */
+	test("the selected file row is picked out in a neutral tone", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Selection tone");
+		await expect(row(page, "README.md")).toBeVisible({ timeout: 15_000 });
+
+		await row(page, "README.md").click();
+		await expect(row(page, "README.md")).toHaveAttribute("data-selected", "true");
+
+		const face = (path: string) => row(page, path).locator(".pk-tree-row");
+		const selected = await face("README.md").evaluate(
+			(element) => getComputedStyle(element).backgroundColor,
+		);
+		const other = await face("src").evaluate(
+			(element) => getComputedStyle(element).backgroundColor,
+		);
+		expect(selected).not.toBe(other);
+		const [red, green, blue] = (selected.match(/\d+/g) ?? []).map(Number);
+		expect(red).toBeGreaterThanOrEqual(green);
+		expect(green).toBeGreaterThanOrEqual(blue);
+	});
 });

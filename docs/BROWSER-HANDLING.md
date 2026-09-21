@@ -460,6 +460,11 @@ PORTIKUS_PORT_BRIDGE_PREFIX=/__portikus/ports
 
 Do not inject long-lived credentials into these values.
 
+Two of these are provided today: the workspace controller writes
+`/etc/profile.d/portikus.sh` into the container on every start, so every
+login shell exports `PORTIKUS_PREVIEW=true` and
+`PORTIKUS_PREVIEW_HOST_SUFFIX=<suffix>` (issue #263).
+
 ## 15. Terminal URL detection
 
 The terminal linkifier must recognize URLs whose host is exactly:

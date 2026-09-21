@@ -554,3 +554,23 @@ test("the preview port range must be ordered and within 65535", () => {
 		"PREVIEW_PORT_MAX",
 	);
 });
+
+test("the worker config carries the preview suffix and checks its shape", () => {
+	// The worker hands this to the controller, which writes it into every
+	// workspace (issue #263).
+	expect(
+		loadConfig(WorkerConfigSchema, { DATABASE_URL: "postgres://x" }).PREVIEW_SUFFIX,
+	).toBe("preview.localhost");
+	expect(
+		loadConfig(WorkerConfigSchema, {
+			DATABASE_URL: "postgres://x",
+			PREVIEW_SUFFIX: "preview.portikus.school.edu",
+		}).PREVIEW_SUFFIX,
+	).toBe("preview.portikus.school.edu");
+	expect(() =>
+		loadConfig(WorkerConfigSchema, {
+			DATABASE_URL: "postgres://x",
+			PREVIEW_SUFFIX: "https://preview.school.edu",
+		}),
+	).toThrow(/PREVIEW_SUFFIX/);
+});

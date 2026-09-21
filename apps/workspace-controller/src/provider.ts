@@ -15,7 +15,12 @@ export interface WorkspaceProvider {
 	): Promise<CreateInstanceResponse>;
 	start(
 		name: string,
-		opts: { timeoutSeconds: number; agentToken: string; hostname: string },
+		opts: {
+			timeoutSeconds: number;
+			agentToken: string;
+			hostname: string;
+			previewHostSuffix: string;
+		},
 	): Promise<StartInstanceResponse>;
 	stop(name: string, opts: { timeoutSeconds: number }): Promise<StopInstanceResponse>;
 	list(): Promise<InstanceStatus[]>;
@@ -27,6 +32,17 @@ const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
 
 /** A lowercase DNS label; anything else must never reach the container. */
 const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
+/** A lowercase DNS name, checked again here as defence in depth. */
+const DNS_NAME_PATTERN =
+	/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
+
+/**
+ * Shell profile read by every login shell in the container, so a terminal,
+ * a template, and a coding agent all see where previews are published
+ * (issue #263, BROWSER-HANDLING.md section 14). It never holds a secret.
+ */
+const PROFILE_PATH = "/etc/profile.d/portikus.sh";
 
 /**
  * How long the agent has to answer /health once the instance is running. This
@@ -132,11 +148,25 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	async start(
 		name: string,
-		opts: { timeoutSeconds: number; agentToken: string; hostname: string },
+		opts: {
+			timeoutSeconds: number;
+			agentToken: string;
+			hostname: string;
+			previewHostSuffix: string;
+		},
 	): Promise<StartInstanceResponse> {
 		validateName(name);
 		if (!HOSTNAME_PATTERN.test(opts.hostname) || opts.hostname.length > 40) {
 			throw new IncusError("INVALID_NAME", `invalid hostname: ${opts.hostname}`);
+		}
+		if (
+			!DNS_NAME_PATTERN.test(opts.previewHostSuffix) ||
+			opts.previewHostSuffix.length > 253
+		) {
+			throw new IncusError(
+				"INVALID_NAME",
+				`invalid preview host suffix: ${opts.previewHostSuffix}`,
+			);
 		}
 
 		const signal = AbortSignal.timeout(opts.timeoutSeconds * 1000);
@@ -153,6 +183,14 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		const ipv4 = await this.waitForAddress(name, deadline, signal);
 
 		await this.setHostname(name, opts.hostname, signal, opts.timeoutSeconds);
+
+		await this.client.pushFile(
+			name,
+			PROFILE_PATH,
+			`export PORTIKUS_PREVIEW=true\nexport PORTIKUS_PREVIEW_HOST_SUFFIX=${opts.previewHostSuffix}\n`,
+			{ uid: 0, gid: 0, mode: "0644" },
+			signal,
+		);
 
 		await this.client.pushFile(
 			name,

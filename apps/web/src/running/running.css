@@ -1,0 +1,27 @@
+/*
+ * The Running pane's rows (SPEC.md §18.2, issue #274). The markup and its
+ * class names live in preview.css; these rules only bring the rows into the
+ * one selection style the right-pane lists share, and stop a long command
+ * from pushing the action out of the pane. The selectors carry one extra
+ * class so they win over preview.css whichever order the two are loaded in.
+ */
+.pk-pane-body .pk-portrow:hover {
+	background: var(--surface-hover);
+}
+.pk-pane-body .pk-portrow.is-current {
+	background: var(--surface-row-selected);
+}
+.pk-pane-body .pk-portrow:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+/* The command column shrinks and truncates; the action column does not. */
+.pk-pane-body .pk-portrow > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pk-pane-body .pk-portrow > button {
+	white-space: nowrap;
+}

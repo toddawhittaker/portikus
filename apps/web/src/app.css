@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@portikus/ui/theme.css";
+@import "./running/running.css";
 
 /*
  * Screen-level patterns from design/mockups/portikus-screens.css: the shell
