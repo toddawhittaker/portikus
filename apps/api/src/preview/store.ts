@@ -36,6 +36,7 @@ export async function createGrant(
 		.deleteFrom("preview_grants")
 		.where("expires_at", "<", sql<Date>`now()`)
 		.execute();
+	await sweepDeadPreviewSessions(db);
 
 	const ticket = newToken();
 	const expiresAt = new Date(Date.now() + input.ttlSeconds * 1000);
@@ -53,6 +54,32 @@ export async function createGrant(
 		})
 		.execute();
 	return { ticket, expiresAt };
+}
+
+/**
+ * Drop preview sessions nobody can use again: revoked more than a day ago, or
+ * living with a main session that has gone or run out. Kept a day so that a
+ * question about a preview that was just closed can still be answered. Runs
+ * with the grant sweep, because the same route is the only writer here.
+ */
+export async function sweepDeadPreviewSessions(db: Kysely<Database>): Promise<void> {
+	await db
+		.deleteFrom("preview_sessions")
+		.where((eb) =>
+			eb.or([
+				eb("revoked_at", "<", sql<Date>`now() - interval '1 day'`),
+				eb.not(
+					eb.exists(
+						eb
+							.selectFrom("sessions")
+							.select("sessions.id")
+							.whereRef("sessions.id", "=", "preview_sessions.session_id")
+							.where("sessions.expires_at", ">", sql<Date>`now()`),
+					),
+				),
+			]),
+		)
+		.execute();
 }
 
 export interface ConsumedGrant {

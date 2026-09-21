@@ -45,6 +45,13 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("presentation", "text", (col) =>
 			col.notNull().check(sql`presentation IN ('embedded','top-level')`),
 		)
+		// A ticket is presented on the preview host, where the main Portikus
+		// session cookie is never sent. The preview session it creates must
+		// still live with that main session (BROWSER-HANDLING.md 9.2), so the
+		// grant carries the main session id from the moment it is issued.
+		.addColumn("session_id", "text", (col) =>
+			col.notNull().references("sessions.id").onDelete("cascade"),
+		)
 		.addColumn("ticket_hash", "text", (col) => col.notNull())
 		.addColumn("expires_at", "timestamptz", (col) => col.notNull())
 		.addColumn("consumed_at", "timestamptz")
@@ -85,7 +92,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		)
 		.addColumn("port", "integer", (col) => col.notNull())
 		.addColumn("preview_host", "text", (col) => col.notNull())
-		.addColumn("partitioned", "boolean", (col) => col.notNull().defaultTo(false))
 		.addColumn("created_at", "timestamptz", (col) =>
 			col.notNull().defaultTo(sql`now()`),
 		)

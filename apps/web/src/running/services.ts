@@ -11,7 +11,6 @@ import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext } from "react";
 import { z } from "zod";
 import { request } from "../api/request.js";
-import { MIN_PREVIEW_PORT } from "../preview/grants.js";
 
 export interface Listening {
 	services: ListeningService[];
@@ -51,9 +50,14 @@ export function useListeningQuery(
 	return query.data;
 }
 
-/** Whether a port may be previewed at all (SPEC.md §14.7, §18.2). */
+/**
+ * Whether a port may be previewed at all (SPEC.md §14.7, §18.2).
+ *
+ * The API applies the port policy and reports the result as
+ * `previewReachability`, so this is the one place that decides it.
+ */
 export function isPreviewable(service: ListeningService): boolean {
-	return service.previewReachability !== "denied" && service.port >= MIN_PREVIEW_PORT;
+	return service.previewReachability !== "denied";
 }
 
 /** How the Running surface names what is using a port (SPEC.md §18.2). */

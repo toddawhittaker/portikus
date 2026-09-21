@@ -399,8 +399,11 @@ test.skipIf(skip)("a ticket is refused on the wrong host, port and label", async
 	expect((await bootstrap(app, `${label}-5173.evil.example`, ticket)).statusCode).toBe(
 		403,
 	);
-	// None of that consumed it.
-	expect((await bootstrap(app, previewHostFor(5173), ticket)).statusCode).toBe(303);
+	// None of that consumed it, and the port Caddy leaves on the host does
+	// not change which preview host this is.
+	expect(
+		(await bootstrap(app, `${previewHostFor(5173)}:8443`, ticket)).statusCode,
+	).toBe(303);
 });
 
 test.skipIf(skip)(

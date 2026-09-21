@@ -45,6 +45,15 @@ const ListQuery = z.object({ state: ProjectState.default("active") });
  */
 const MAX_DISCOVERED_PROJECTS = 200;
 
+/** PostgreSQL's unique-violation code, for a write two listings raced on. */
+function isUniqueViolation(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		(error as { code?: unknown }).code === "23505"
+	);
+}
+
 function toProject(
 	row: ProjectRow,
 	isGitRepo: boolean | null,
@@ -113,12 +122,20 @@ async function relocateMovedProjects(
 	for (const row of rows) {
 		const here = directories.get(row.slug);
 		if (!here?.directoryId || row.directory_id !== null) continue;
-		await db
-			.updateTable("projects")
-			.set({ directory_id: here.directoryId })
-			.where("id", "=", row.id)
-			.where("directory_id", "is", null)
-			.execute();
+		try {
+			await db
+				.updateTable("projects")
+				.set({ directory_id: here.directoryId })
+				.where("id", "=", row.id)
+				.where("directory_id", "is", null)
+				.execute();
+		} catch (error) {
+			// Another row of this workspace already holds that identity, which
+			// only one row may. Leaving this one blank is right: the listing
+			// must not fail over a directory the agent reported oddly.
+			if (!isUniqueViolation(error)) throw error;
+			continue;
+		}
 		row.directory_id = here.directoryId;
 	}
 
@@ -131,7 +148,15 @@ async function relocateMovedProjects(
 
 	const moved: { id: string; slug: string }[] = [];
 	for (const row of rows) {
-		if (directories.has(row.slug) || row.directory_id === null) continue;
+		if (row.directory_id === null) continue;
+		// A directory still under the row's slug only counts as the row's own
+		// when it carries the same identity. `mv foo bar` followed by a new
+		// repository at `foo` leaves a stranger there, and the row must follow
+		// its own directory to `bar` rather than adopt the newcomer.
+		const here = directories.get(row.slug);
+		if (here && (here.directoryId === null || here.directoryId === row.directory_id)) {
+			continue;
+		}
 		const slug = byDirectoryId.get(row.directory_id);
 		if (slug === undefined) continue;
 		byDirectoryId.delete(row.directory_id);
@@ -266,12 +291,13 @@ export function registerProjectRoutes(
 					directory_id: dir.directoryId,
 				}));
 			if (discovered.length > 0) {
-				// One statement, and it still ignores conflicts, so two listings at
-				// once cannot collide on the workspace and slug unique constraint.
+				// One statement, and it ignores every conflict, so neither a racing
+				// listing nor a directory whose identity some row already holds can
+				// turn a page load into a failure.
 				await db
 					.insertInto("projects")
 					.values(discovered)
-					.onConflict((oc) => oc.columns(["workspace_id", "slug"]).doNothing())
+					.onConflict((oc) => oc.doNothing())
 					.execute();
 			}
 		}

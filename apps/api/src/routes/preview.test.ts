@@ -63,12 +63,13 @@ async function grant(
 	id: string,
 	port: number,
 	extra: Record<string, string> = {},
+	presentation: "embedded" | "top-level" = "embedded",
 ) {
 	return app.inject({
 		method: "POST",
 		url: `/workspaces/${id}/preview-grants`,
 		headers: { ...csrfHeaders(jar, PUBLIC_URL), ...extra },
-		payload: { port, presentation: "embedded" },
+		payload: { port, presentation },
 	});
 }
 
@@ -77,11 +78,15 @@ function ticketOf(bootstrapUrl: string): string {
 	return new URL(bootstrapUrl).searchParams.get("t") ?? "";
 }
 
-async function bootstrap(host: string, ticket: string) {
+async function bootstrap(
+	host: string,
+	ticket: string,
+	extra: Record<string, string> = {},
+) {
 	return app.inject({
 		method: "GET",
 		url: `/__portikus/bootstrap?t=${encodeURIComponent(ticket)}`,
-		headers: { "x-forwarded-host": host },
+		headers: { "x-forwarded-host": host, ...extra },
 	});
 }
 
@@ -115,15 +120,43 @@ async function authorize(
 }
 
 /** The whole happy path: a grant, its bootstrap, and the cookie it set. */
-async function openPreview(port: number): Promise<string> {
-	const created = await grant(alice, workspaceId, port);
+async function openPreview(
+	port: number,
+	jar: CookieJar = alice,
+	id: string = workspaceId,
+	name?: string,
+): Promise<string> {
+	const created = await grant(jar, id, port);
 	expect(created.statusCode).toBe(201);
 	const done = await bootstrap(
-		previewHostFor(port),
+		previewHostFor(port, name),
 		ticketOf(created.json().bootstrapUrl),
 	);
 	expect(done.statusCode).toBe(303);
 	return previewCookie(done);
+}
+
+/** A second running workspace, Bob's, with the fake agent behind it. */
+async function bobsWorkspace(): Promise<{ id: string; label: string }> {
+	const id = (
+		await app.inject({
+			method: "POST",
+			url: "/workspaces",
+			headers: csrfHeaders(bob, PUBLIC_URL),
+		})
+	).json().id;
+	const row = await testDb.db
+		.updateTable("workspaces")
+		.set({
+			state: "running",
+			agent_address: "127.0.0.1",
+			agent_token: `${AGENT_TOKEN}:${id}`,
+			updated_at: new Date().toISOString(),
+		})
+		.where("id", "=", id)
+		.returning("label")
+		.executeTakeFirstOrThrow();
+	return { id, label: row.label };
 }
 
 beforeAll(async () => {
@@ -303,6 +336,63 @@ test.skipIf(skip)("a grant names the preview host the server computed", async ()
 	expect(response.headers["cache-control"]).toBe("no-store");
 });
 
+test.skipIf(skip)("a student cannot ask for grants without end", async () => {
+	for (let asked = 0; asked < 30; asked += 1) {
+		expect((await grant(alice, workspaceId, 5173)).statusCode).toBe(201);
+	}
+	const refused = await grant(alice, workspaceId, 5173);
+	expect(refused.statusCode).toBe(429);
+	expect(refused.json().code).toBe("PREVIEW_RATE_LIMITED");
+
+	// The limit is the student's own; it does not spill onto anyone else.
+	const bobs = await bobsWorkspace();
+	expect((await grant(bob, bobs.id, 5173)).statusCode).toBe(201);
+});
+
+test.skipIf(skip)(
+	"asking for a grant clears preview sessions nobody can use",
+	async () => {
+		const bobs = await bobsWorkspace();
+		await fetch(`http://127.0.0.1:${agent.port}/__test/listening`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ key: bobs.id, services: [{ port: 5173 }] }),
+		});
+		const live = await openPreview(5173, bob, bobs.id, bobs.label);
+
+		// One of Alice's was revoked two days ago; the other is still open but
+		// her main session has run out.
+		const revoked = await openPreview(5173);
+		await testDb.db
+			.updateTable("preview_sessions")
+			.set({ revoked_at: new Date(Date.now() - 2 * 86_400_000).toISOString() })
+			.where("token_hash", "=", hashToken(revoked))
+			.execute();
+		const orphan = await openPreview(5173);
+		const aliceId = (
+			await testDb.db
+				.selectFrom("preview_sessions")
+				.select("user_id")
+				.where("token_hash", "=", hashToken(orphan))
+				.executeTakeFirstOrThrow()
+		).user_id;
+		await testDb.db
+			.updateTable("sessions")
+			.set({ expires_at: new Date(Date.now() - 1000).toISOString() })
+			.where("user_id", "=", aliceId)
+			.execute();
+
+		expect((await grant(bob, bobs.id, 5173)).statusCode).toBe(201);
+
+		const hashes = (
+			await testDb.db.selectFrom("preview_sessions").select("token_hash").execute()
+		).map((row) => row.token_hash);
+		expect(hashes).not.toContain(hashToken(revoked));
+		expect(hashes).not.toContain(hashToken(orphan));
+		expect(hashes).toContain(hashToken(live));
+	},
+);
+
 test.skipIf(skip)("a denied or out-of-range port gets no grant", async () => {
 	expect((await grant(alice, workspaceId, 22)).statusCode).toBe(403);
 	expect((await grant(alice, workspaceId, 80)).statusCode).toBe(403);
@@ -383,37 +473,57 @@ test.skipIf(skip)("bootstrap sets a host-only cookie and redirects", async () =>
 	expect(response.body).not.toContain(ticketOf(created.json().bootstrapUrl));
 });
 
-test.skipIf(skip)("a ticket cannot be used twice", async () => {
-	const created = await grant(alice, workspaceId, 5173);
-	const ticket = ticketOf(created.json().bootstrapUrl);
-	expect((await bootstrap(previewHostFor(5173), ticket)).statusCode).toBe(303);
-	const replay = await bootstrap(previewHostFor(5173), ticket);
-	expect(replay.statusCode).toBe(403);
-	expect(replay.body).not.toContain(ticket);
-});
-
-test.skipIf(skip)("an expired ticket is refused", async () => {
-	const created = await grant(alice, workspaceId, 5173);
-	await testDb.db
-		.updateTable("preview_grants")
-		.set({ expires_at: new Date(Date.now() - 1000).toISOString() })
-		.execute();
-	const response = await bootstrap(
+test.skipIf(skip)("a ticket is only good where it was meant to open", async () => {
+	// A ticket for the preview frame, opened as a top-level page.
+	const framed = await grant(alice, workspaceId, 5173);
+	const refusedTop = await bootstrap(
 		previewHostFor(5173),
-		ticketOf(created.json().bootstrapUrl),
+		ticketOf(framed.json().bootstrapUrl),
+		{ "sec-fetch-dest": "document" },
 	);
-	expect(response.statusCode).toBe(403);
+	expect(refusedTop.statusCode).toBe(403);
+	expect(refusedTop.headers["set-cookie"]).toBeUndefined();
+
+	// A ticket for a tab, opened inside a frame.
+	const tab = await grant(alice, workspaceId, 5173, {}, "top-level");
+	const refusedFrame = await bootstrap(
+		previewHostFor(5173),
+		ticketOf(tab.json().bootstrapUrl),
+		{ "sec-fetch-dest": "iframe" },
+	);
+	expect(refusedFrame.statusCode).toBe(403);
+	expect(refusedFrame.headers["set-cookie"]).toBeUndefined();
+
+	expect(
+		await testDb.db.selectFrom("preview_sessions").selectAll().execute(),
+	).toHaveLength(0);
 });
 
-test.skipIf(skip)("a ticket presented on another host is refused", async () => {
-	const created = await grant(alice, workspaceId, 5173);
-	const ticket = ticketOf(created.json().bootstrapUrl);
-	expect((await bootstrap(previewHostFor(3000), ticket)).statusCode).toBe(403);
-	expect((await bootstrap(`someone-5173.${SUFFIX}`, ticket)).statusCode).toBe(403);
-	// The application host is not a preview host at all.
-	expect((await bootstrap("127.0.0.1", ticket)).statusCode).toBe(403);
-	// And the ticket is still good on the host it was issued for.
-	expect((await bootstrap(previewHostFor(5173), ticket)).statusCode).toBe(303);
+test.skipIf(skip)("a ticket opened the way it asked for is accepted", async () => {
+	const framed = await grant(alice, workspaceId, 5173);
+	expect(
+		(
+			await bootstrap(previewHostFor(5173), ticketOf(framed.json().bootstrapUrl), {
+				"sec-fetch-dest": "iframe",
+			})
+		).statusCode,
+	).toBe(303);
+
+	const tab = await grant(alice, workspaceId, 5173, {}, "top-level");
+	expect(
+		(
+			await bootstrap(previewHostFor(5173), ticketOf(tab.json().bootstrapUrl), {
+				"sec-fetch-dest": "document",
+			})
+		).statusCode,
+	).toBe(303);
+
+	// A browser that sends no Sec-Fetch-Dest is still let in.
+	const quiet = await grant(alice, workspaceId, 5173);
+	expect(
+		(await bootstrap(previewHostFor(5173), ticketOf(quiet.json().bootstrapUrl)))
+			.statusCode,
+	).toBe(303);
 });
 
 test.skipIf(skip)("an unknown ticket is refused", async () => {
@@ -422,17 +532,9 @@ test.skipIf(skip)("an unknown ticket is refused", async () => {
 	expect(response.headers["content-type"]).toContain("text/html");
 });
 
-test.skipIf(skip)("a host with a port still bootstraps", async () => {
-	const created = await grant(alice, workspaceId, 5173);
-	const response = await app.inject({
-		method: "GET",
-		url: `/__portikus/bootstrap?t=${ticketOf(created.json().bootstrapUrl)}`,
-		headers: { "x-forwarded-host": `${previewHostFor(5173)}:8443` },
-	});
-	expect(response.statusCode).toBe(303);
-});
-
 // ── Authorization (BROWSER-HANDLING.md §10, ADR 0018) ──
+// The refusal matrix a hostile request meets lives in threat-model.test.ts;
+// what a student sees when a preview is simply not there lives here.
 
 test.skipIf(skip)(
 	"an authorized request names the workspace's own upstream",
@@ -478,15 +580,6 @@ test.skipIf(skip)("a preview session dies with its main session", async () => {
 	expect(response.statusCode).toBe(401);
 });
 
-test.skipIf(skip)("an expired main session ends the preview too", async () => {
-	const token = await openPreview(5173);
-	await testDb.db
-		.updateTable("sessions")
-		.set({ expires_at: new Date(Date.now() - 1000).toISOString() })
-		.execute();
-	expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(401);
-});
-
 test.skipIf(skip)("a preview cookie is worthless on another host", async () => {
 	const token = await openPreview(5173);
 	// Another port of the same workspace, and another workspace's label.
@@ -512,13 +605,6 @@ test.skipIf(skip)("a workspace that changed hands stops authorizing", async () =
 		.where("id", "=", workspaceId)
 		.execute();
 	expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(403);
-});
-
-test.skipIf(skip)("a session on a denied port never authorizes", async () => {
-	const token = await openPreview(5173);
-	// Move the live session onto a denied port, the way a policy change would.
-	await testDb.db.updateTable("preview_sessions").set({ port: 22 }).execute();
-	expect((await authorize(token, previewHostFor(22))).statusCode).toBe(403);
 });
 
 test.skipIf(skip)("a stopped workspace explains itself", async () => {
@@ -553,29 +639,6 @@ test.skipIf(skip)("only loopback may ask for an authorization", async () => {
 	});
 	expect(response.statusCode).toBe(403);
 	expect(response.headers["x-portikus-upstream"]).toBeUndefined();
-});
-
-test.skipIf(skip)("no header can name the upstream (SPEC 24.7)", async () => {
-	const token = await openPreview(5173);
-	const response = await authorize(token, previewHostFor(5173), {
-		extra: {
-			"x-portikus-upstream": "169.254.169.254:80",
-			"x-forwarded-for": "169.254.169.254",
-			"x-forwarded-uri": "http://169.254.169.254/latest/meta-data",
-			host: "169.254.169.254",
-		},
-	});
-	expect(response.statusCode).toBe(200);
-	// The agent address from the workspace row, nothing from the request.
-	expect(response.headers["x-portikus-upstream"]).toBe("127.0.0.1:5173");
-
-	// And an upstream a request names for a workspace it has no session for
-	// is still refused outright.
-	const refused = await authorize(null, previewHostFor(5173), {
-		extra: { "x-portikus-upstream": "169.254.169.254:80" },
-	});
-	expect(refused.statusCode).toBe(401);
-	expect(refused.headers["x-portikus-upstream"]).toBeUndefined();
 });
 
 test.skipIf(skip)("a preview session of one user never serves another", async () => {
@@ -955,6 +1018,32 @@ test.skipIf(skip)("a loopback-only bridge port gets a forward", async () => {
 	expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([3000]);
 });
 
+test.skipIf(skip)("a workspace may not hold open forwards without end", async () => {
+	const ports = [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009];
+	await seedListening([
+		{ port: 5173 },
+		...ports.map((port) => ({ port, previewReachability: "unknown" as const })),
+	]);
+	await listeningPorts(ports.length + 1);
+	const token = await openPreview(5173);
+
+	for (const port of ports.slice(0, 8)) {
+		expect((await bridge(token, `/__portikus/ports/${port}/api`)).statusCode).toBe(200);
+	}
+	expect([...(agent.forwards.get(workspaceId) ?? [])]).toHaveLength(8);
+
+	// The ninth is refused, and the student is told rather than proxied.
+	const refused = await bridge(token, "/__portikus/ports/3009/api");
+	expect(refused.statusCode).toBe(503);
+	expect(refused.headers["x-portikus-upstream"]).toBeUndefined();
+
+	// A grant for that port is refused the same way.
+	const denied = await grant(alice, workspaceId, 3009);
+	expect(denied.statusCode).toBe(409);
+	expect(denied.json().code).toBe("PREVIEW_FORWARD_FAILED");
+	expect([...(agent.forwards.get(workspaceId) ?? [])]).toHaveLength(8);
+});
+
 test.skipIf(skip)("a bridge forward closes when the port stops listening", async () => {
 	await seedListening([{ port: 5173 }, { port: 3000, previewReachability: "unknown" }]);
 	await listeningPorts(2);
@@ -965,6 +1054,35 @@ test.skipIf(skip)("a bridge forward closes when the port stops listening", async
 	await seedListening([{ port: 5173 }]);
 	await until(() => (agent.forwards.get(workspaceId)?.size ?? 0) === 0);
 });
+
+test.skipIf(skip)(
+	"a bridge forward stays open while another session is using it",
+	async () => {
+		await seedListening([
+			{ port: 5173 },
+			{ port: 3000, previewReachability: "unknown" },
+		]);
+		await listeningPorts(2);
+		const first = await openPreview(5173);
+		const second = await openPreview(5173);
+		expect((await bridge(first, "/__portikus/ports/3000/api")).statusCode).toBe(200);
+		expect((await bridge(second, "/__portikus/ports/3000/api")).statusCode).toBe(200);
+		expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([3000]);
+
+		// The first session ends; the second is still bridging that port.
+		const reset = await app.inject({
+			method: "GET",
+			url: "/__portikus/reset",
+			headers: {
+				"x-forwarded-host": previewHostFor(5173),
+				cookie: `${COOKIE}=${first}`,
+			},
+		});
+		expect(reset.statusCode).toBe(200);
+		expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([3000]);
+		expect((await bridge(second, "/__portikus/ports/3000/api")).statusCode).toBe(200);
+	},
+);
 
 test.skipIf(skip)("a bridge forward closes when the preview session ends", async () => {
 	await seedListening([{ port: 5173 }, { port: 3000, previewReachability: "unknown" }]);

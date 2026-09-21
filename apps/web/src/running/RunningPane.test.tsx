@@ -72,12 +72,11 @@ test("Open preview opens the port it names", () => {
 	expect(onOpenPreview).toHaveBeenCalledWith(3000);
 });
 
-test.each([
-	["a reserved port", service({ port: 80 })],
-	["a port policy denies", service({ port: 3000, previewReachability: "denied" })],
-])("%s offers no preview", (_name, one) => {
-	show([one]);
-	expect(screen.queryByTestId(`running-open-${one.port}`)).toBeNull();
+test("a port policy denies offers no preview", () => {
+	// The API owns the port policy and reports it as previewReachability;
+	// the pane does not keep a copy of the rules.
+	show([service({ port: 3000, previewReachability: "denied" })]);
+	expect(screen.queryByTestId("running-open-3000")).toBeNull();
 });
 
 test("a saved preview whose port stopped is marked as not running", () => {

@@ -22,10 +22,19 @@ import "./preview.css";
  * How long the frame has to report that it loaded before the tab assumes
  * the application refused to be embedded. The browser gives no event for an
  * `X-Frame-Options` or `frame-ancestors` refusal, so a frame that never
- * loads while the port is listening is the only signal there is; a very slow
- * application can therefore be reported as blocked, and Reload puts it right.
+ * loads while the port is listening is the only signal there is. Because a
+ * very slow application (a first `next dev` compile) can be guessed wrong,
+ * the frame stays mounted behind the notice and a late load clears it.
  */
 const LOAD_TIMEOUT_MS = 8_000;
+
+/**
+ * How long a listening port may be missing from the list before an open
+ * preview gives up on it. The registry reports an empty list for up to two
+ * seconds after the API restarts, and that must not reload a running
+ * application (SPEC.md §14.8).
+ */
+const LISTENING_GRACE_MS = 3_000;
 
 /** The viewport widths the toolbar offers (BROWSER-HANDLING.md §12). */
 const WIDTHS = ["fit", "375", "768", "1024", "1440"] as const;
@@ -57,14 +66,15 @@ export function PreviewLeaf({
 	const listening = useListening();
 	const [state, setState] = useState<State>({ status: "connecting" });
 	const [width, setWidth] = useState<Width>("fit");
+	/** The bootstrap URL of the frame that has reported a load, if any. */
+	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
 	const frame = useRef<HTMLIFrameElement | null>(null);
-	const loadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const statusRef = useRef<State["status"]>("connecting");
 
 	/** Whether the API says something is listening on this port. */
 	const isListening = listening.services.some((service) => service.port === port);
 
 	const connect = useCallback(async () => {
-		if (loadTimer.current !== undefined) clearTimeout(loadTimer.current);
 		setState({ status: "connecting" });
 		try {
 			const grant = await requestGrant(workspaceId, port, "embedded");
@@ -90,6 +100,12 @@ export function PreviewLeaf({
 		}
 	}, [workspaceId, port]);
 
+	// The reconnect effect below reads the status without depending on it, so
+	// that a change in the listening list is the only thing that can run it.
+	useEffect(() => {
+		statusRef.current = state.status;
+	}, [state.status]);
+
 	// Ask for a grant when the tab opens, and again when the port starts
 	// listening after it was not (SPEC.md §14.8).
 	// Until the first list is in, the tab says it is connecting rather than
@@ -97,26 +113,46 @@ export function PreviewLeaf({
 	// stopped listening while the workspace was away (SPEC.md §14.8).
 	useEffect(() => {
 		if (!listening.loaded) return;
-		if (!isListening) {
+		const showing =
+			statusRef.current === "available" || statusRef.current === "blocked";
+		if (isListening) {
+			// An open preview is already pointed at this port; re-granting here
+			// would reload the application for nothing.
+			if (showing || statusRef.current === "unauthorized") return;
+			void connect();
+			return;
+		}
+		if (!showing) {
 			setState({ status: "inactive" });
 			return;
 		}
-		void connect();
+		const timer = setTimeout(
+			() => setState({ status: "inactive" }),
+			LISTENING_GRACE_MS,
+		);
+		return () => clearTimeout(timer);
 	}, [listening.loaded, isListening, connect]);
 
 	// A frame that never loads while the port is listening is taken to have
-	// been refused embedding; see LOAD_TIMEOUT_MS.
+	// been refused embedding; see LOAD_TIMEOUT_MS. The guess is not made twice
+	// for a frame that has already reported a load.
 	useEffect(() => {
 		if (state.status !== "available") return;
 		const grant = state.grant;
-		loadTimer.current = setTimeout(() => {
+		if (loadedUrl === grant.bootstrapUrl) return;
+		const timer = setTimeout(() => {
 			setState({ status: "blocked", grant });
 		}, LOAD_TIMEOUT_MS);
-		return () => clearTimeout(loadTimer.current);
-	}, [state]);
+		return () => clearTimeout(timer);
+	}, [state, loadedUrl]);
 
 	function onFrameLoad() {
-		if (loadTimer.current !== undefined) clearTimeout(loadTimer.current);
+		if (state.status !== "available" && state.status !== "blocked") return;
+		setLoadedUrl(state.grant.bootstrapUrl);
+		// A slow application that finally loaded was not refusing to be
+		// embedded after all.
+		if (state.status === "blocked")
+			setState({ status: "available", grant: state.grant });
 	}
 
 	function onFrameError() {
@@ -312,29 +348,33 @@ export function PreviewLeaf({
 					</EmptyState>
 				) : null}
 
+				{/* An overlay, not a replacement: the frame underneath keeps the
+				    load it started, so a slow application can still arrive. */}
 				{state.status === "blocked" ? (
-					<EmptyState
-						icon="alert"
-						title="This application cannot be embedded"
-						actions={
-							<button
-								type="button"
-								className="pk-preview-action"
-								data-testid="preview-blocked-new-tab"
-								onClick={() => void openInNewTab()}
-							>
-								Open in new tab
-							</button>
-						}
-					>
-						<span data-testid="preview-blocked">
-							Your application asks browsers not to show it inside another page. Open it
-							in a new tab instead.
-						</span>
-					</EmptyState>
+					<div className="pk-preview-overlay">
+						<EmptyState
+							icon="alert"
+							title="This application cannot be embedded"
+							actions={
+								<button
+									type="button"
+									className="pk-preview-action"
+									data-testid="preview-blocked-new-tab"
+									onClick={() => void openInNewTab()}
+								>
+									Open in new tab
+								</button>
+							}
+						>
+							<span data-testid="preview-blocked">
+								Your application asks browsers not to show it inside another page. Open
+								it in a new tab instead.
+							</span>
+						</EmptyState>
+					</div>
 				) : null}
 
-				{state.status === "available" ? (
+				{state.status === "available" || state.status === "blocked" ? (
 					<iframe
 						ref={frame}
 						key={state.grant.bootstrapUrl}

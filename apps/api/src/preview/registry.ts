@@ -1,5 +1,6 @@
 import type { ApiConfig } from "@portikus/config";
 import {
+	type AgentListeningService,
 	AgentListeningServicesChanged,
 	type ListeningService,
 } from "@portikus/contracts";
@@ -23,6 +24,14 @@ const RECONNECT_MAX_MS = 30_000;
  * inside the student's container, so its output is untrusted (SPEC.md §24.1).
  */
 const MAX_AGENT_FRAME_BYTES = 1024 * 1024;
+
+/**
+ * How many loopback forwards one workspace may have open at once, counting
+ * both the ones a grant opened and the ones the same-origin bridge did. A
+ * page inside a preview can ask the bridge for any allowed port, so without a
+ * cap its JavaScript could make the agent open hundreds (SPEC.md §24.7).
+ */
+const MAX_FORWARDS_PER_WORKSPACE = 8;
 
 /** How long the agent has to answer the upgrade. */
 const HANDSHAKE_TIMEOUT_MS = 5000;
@@ -97,13 +106,13 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 	 */
 	function stamp(
 		workspaceId: string,
-		services: { port: number; previewReachability: string }[],
+		services: AgentListeningService[],
 	): ListeningService[] {
 		return services.map((service) => ({
-			...(service as Omit<ListeningService, "workspaceId">),
+			...service,
 			workspaceId,
 			previewReachability: portAllowed(config, service.port)
-				? (service.previewReachability as ListeningService["previewReachability"])
+				? service.previewReachability
 				: "denied",
 		}));
 	}
@@ -183,7 +192,22 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		);
 	}
 
+	/** True while a poll is running, so two never overlap. */
+	let polling = false;
+
 	async function poll(): Promise<void> {
+		// A slow poll must not be joined by the next tick: two at once would
+		// each make an entry for the same workspace and orphan a socket.
+		if (polling) return;
+		polling = true;
+		try {
+			await pollOnce();
+		} finally {
+			polling = false;
+		}
+	}
+
+	async function pollOnce(): Promise<void> {
 		const rows = await db
 			.selectFrom("workspaces")
 			.select(["id", "state", "agent_address", "agent_token"])
@@ -248,6 +272,12 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				service?.previewReachability === "forwarded"
 			) {
 				return;
+			}
+			const open = entry.services.filter(
+				(one) => one.previewReachability === "forwarded",
+			).length;
+			if (open >= MAX_FORWARDS_PER_WORKSPACE) {
+				throw new Error("this workspace has too many loopback forwards open");
 			}
 			const forward = await entry.client.openForward(port);
 			// The agent's own report follows on the events socket; record the

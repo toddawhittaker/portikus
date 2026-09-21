@@ -34,15 +34,22 @@ afterEach(cleanup);
 test.each([
 	["", "Enter a port number."],
 	["abc", "Enter a port number."],
-	["80", "Ports below 1024 are reserved. Run your application on a higher port."],
-	["70000", "Ports go up to 65535."],
-	["65536", "Ports go up to 65535."],
+	["0", "Ports go from 1 to 65535."],
+	["70000", "Ports go from 1 to 65535."],
+	["65536", "Ports go from 1 to 65535."],
 ])("the port %s is refused", (text, message) => {
 	expect(portError(text)).toBe(message);
 });
 
 test("an ordinary development port is accepted", () => {
 	expect(portError("5173")).toBeNull();
+});
+
+test("a low port is left to the server's own policy", () => {
+	// PREVIEW_PORT_MIN, PREVIEW_PORT_MAX and PREVIEW_DENIED_PORTS live in the
+	// API. Copying them here would put two policies out of step, so the
+	// launcher opens the tab and the API's 403 sentence explains the refusal.
+	expect(portError("80")).toBeNull();
 });
 
 test("choosing a listening port opens it", () => {
@@ -52,14 +59,17 @@ test("choosing a listening port opens it", () => {
 	expect(onOpen).toHaveBeenCalledWith(5173);
 });
 
-test("a denied or reserved port is not offered", () => {
-	show(
-		[service({ port: 80 }), service({ port: 3000, previewReachability: "denied" })],
-		vi.fn(),
-	);
-	expect(screen.queryByTestId("preview-port-80")).toBeNull();
+test("a port the server marked denied is not offered", () => {
+	show([service({ port: 3000, previewReachability: "denied" })], vi.fn());
 	expect(screen.queryByTestId("preview-port-3000")).toBeNull();
 	expect(screen.getByText("Nothing is listening yet.")).toBeTruthy();
+});
+
+test("a low port the server did not deny is still offered", () => {
+	// Whether port 80 may be previewed is the API's call, and it says so in
+	// previewReachability. The launcher does not second-guess it.
+	show([service({ port: 80 })], vi.fn());
+	expect(screen.getByTestId("preview-port-80")).toBeTruthy();
 });
 
 test("a typed port opens when it is allowed", () => {
@@ -70,15 +80,19 @@ test("a typed port opens when it is allowed", () => {
 	expect(onOpen).toHaveBeenCalledWith(4200);
 });
 
-test("a typed port below 1024 explains itself instead of opening", () => {
+test("a typed port that is not a port number explains itself instead of opening", () => {
+	const onOpen = vi.fn();
+	show([], onOpen);
+	fireEvent.change(screen.getByLabelText("Port"), { target: { value: "0" } });
+	fireEvent.click(screen.getByTestId("preview-open-port"));
+	expect(onOpen).not.toHaveBeenCalled();
+	expect(screen.getByText("Ports go from 1 to 65535.")).toBeTruthy();
+});
+
+test("a typed port the server may refuse is still opened", () => {
 	const onOpen = vi.fn();
 	show([], onOpen);
 	fireEvent.change(screen.getByLabelText("Port"), { target: { value: "80" } });
 	fireEvent.click(screen.getByTestId("preview-open-port"));
-	expect(onOpen).not.toHaveBeenCalled();
-	expect(
-		screen.getByText(
-			"Ports below 1024 are reserved. Run your application on a higher port.",
-		),
-	).toBeTruthy();
+	expect(onOpen).toHaveBeenCalledWith(80);
 });
