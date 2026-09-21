@@ -68,6 +68,8 @@ interface Seen {
 	app: string[];
 	/** The preview session cookie the edge is holding for a host. */
 	session: (host: string) => string | undefined;
+	/** Every reserved `/__portikus/` request the edge answered, and how. */
+	reserved: { path: string; clearSiteData: string | null }[];
 }
 
 /** Stand in for Caddy for every page in one browser context. */
@@ -86,7 +88,12 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 	 * own cookie header is still what the Portikus-cookie test reads.
 	 */
 	const jar = new Map<string, string>();
-	const seen: Seen = { cookies: [], app: [], session: (host) => jar.get(host) };
+	const seen: Seen = {
+		cookies: [],
+		app: [],
+		session: (host) => jar.get(host),
+		reserved: [],
+	};
 
 	/** What the edge sends on: the browser's cookies plus the jar's. */
 	function withJar(host: string, browser: string): string {
@@ -174,6 +181,10 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 					redirect: "manual",
 				});
 				remember(host, answer);
+				seen.reserved.push({
+					path: url.pathname,
+					clearSiteData: answer.headers.get("clear-site-data"),
+				});
 				const headers = headersOf(answer);
 				const setCookie = answer.headers.getSetCookie();
 				if (setCookie.length > 0) headers["set-cookie"] = setCookie.join("\n");
@@ -511,31 +522,56 @@ test.describe("the preview in a real browser", () => {
 		await app.close();
 	});
 
-	test("a service worker cannot answer a reserved Portikus path", async ({
-		page,
-		context,
-	}) => {
+	/**
+	 * What this file can and cannot see of a reset.
+	 *
+	 * Chromium applies `Clear-Site-Data` to answers that come off the network,
+	 * but not to answers Playwright's request interception supplies. The
+	 * gateway here is interception, so the cleared cookies, storage and worker
+	 * registrations cannot be observed in this environment. What is observed
+	 * instead is everything Portikus is responsible for: that the reset
+	 * request leaves the Portikus page and reaches the edge rather than being
+	 * answered inside the frame, and that the edge answers it with the header
+	 * that does the clearing. That the API sends that header is pinned in
+	 * apps/api/src/routes/preview.test.ts.
+	 */
+	test("a service worker cannot answer the reset", async ({ page, context }) => {
 		const student = await createStudent(context);
-		await previewGateway(context);
+		const seen = await previewGateway(context);
 		const app = await startPreview(student.workspaceId, "Workers");
 		await openPreviewTab(page, student.workspaceId, app.port);
 		await expect(appHeading(page)).toHaveText("Workers", { timeout: 20_000 });
 
+		// This worker answers every request it is asked about, so if the reset
+		// went through the frame the worker would answer it instead of the edge.
 		const frame = page.frameLocator("[data-testid=preview-frame]");
 		await frame.locator("#register").click();
 		await expect(frame.locator("#worker")).toHaveText("worker ready", {
 			timeout: 20_000,
 		});
 
-		// The edge owns /__portikus/*, service worker or not
-		// (BROWSER-HANDLING.md §12, §16.4).
-		const origin = await previewOrigin(page);
-		await page.goto(`${origin}/__portikus/reset`);
-		await expect(page.locator("h1")).toHaveText("Preview data cleared");
+		const host = new URL(await previewOrigin(page)).host;
+		const before = seen.session(host);
+		expect(before).toBeTruthy();
+
+		// Reset is driven from the Portikus page, which the worker does not
+		// control, so the reset request goes to the network and the edge answers
+		// it (BROWSER-HANDLING.md §12, §16.4).
+		await page.getByTestId("preview-reset").click();
+		await expect(toast(page, "Preview data reset")).toBeVisible();
+		await expect.poll(() => seen.session(host), { timeout: 20_000 }).not.toBe(before);
+
+		// The reset request reached the edge. If Portikus had navigated the
+		// frame instead, this worker would have answered it and the gateway
+		// would never have been asked. The answer carries the header that
+		// clears the origin's cookies, storage and worker registrations.
+		const reset = seen.reserved.filter((one) => one.path === "/__portikus/reset");
+		expect(reset).toHaveLength(1);
+		expect(reset[0]?.clearSiteData).toBe('"cookies", "storage"');
 		await app.close();
 	});
 
-	test("resetting preview data starts a fresh session and clears storage", async ({
+	test("resetting preview data starts a fresh session and clears the origin", async ({
 		page,
 		context,
 	}) => {
@@ -556,9 +592,12 @@ test.describe("the preview in a real browser", () => {
 
 		// A reset is a new preview session, not the old one carried over.
 		await expect.poll(() => seen.session(host), { timeout: 20_000 }).not.toBe(before);
-		// And the stored state the preview had is gone (BROWSER-HANDLING.md
-		// §16.4, §25.1: reset clears supported stored state).
-		await expect(state).toHaveText("note:none", { timeout: 20_000 });
+		// And the edge was asked to clear the origin's stored state
+		// (BROWSER-HANDLING.md §16.4, §25.1). See the note above the
+		// service-worker test for why the clearing itself is not visible here.
+		const reset = seen.reserved.filter((one) => one.path === "/__portikus/reset");
+		expect(reset).toHaveLength(1);
+		expect(reset[0]?.clearSiteData).toBe('"cookies", "storage"');
 		await app.close();
 	});
 

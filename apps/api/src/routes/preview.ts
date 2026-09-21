@@ -239,6 +239,22 @@ export function registerPreviewRoutes(
 			.redirect("/", 303);
 	});
 
+	/**
+	 * Clear the browser data this preview origin holds
+	 * (BROWSER-HANDLING.md §16.4).
+	 *
+	 * The answer is the same with or without a valid preview cookie: 200 with
+	 * `Clear-Site-Data`, which drops the origin's cookies and its storage,
+	 * service worker registrations included. A caller with no session can
+	 * therefore do no more than clear its own browser's data for this one
+	 * origin; the server-side session is revoked only when a real cookie came
+	 * with the request.
+	 *
+	 * Portikus calls this from its own page rather than from inside the
+	 * preview frame, because an application's service worker can answer a
+	 * navigation made by the frame but not a request from a document it does
+	 * not control.
+	 */
 	app.get("/__portikus/reset", async (request, reply) => {
 		const token = request.cookies[cookieName];
 		if (token) {

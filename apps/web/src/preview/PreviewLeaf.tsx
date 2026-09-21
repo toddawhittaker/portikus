@@ -10,7 +10,12 @@ import { EmptyState, IconButton, useToast } from "@portikus/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/request.js";
 import { useListening } from "../running/services.js";
-import { type Grant, requestGrant, resetPreviewData } from "./grants.js";
+import {
+	clearPreviewOriginData,
+	type Grant,
+	requestGrant,
+	resetPreviewData,
+} from "./grants.js";
 import "./preview.css";
 
 /**
@@ -159,9 +164,19 @@ export function PreviewLeaf({
 		}
 	}
 
+	/**
+	 * Reset in three steps (BROWSER-HANDLING.md §16.4): revoke the workspace's
+	 * preview sessions, ask the preview origin to clear the browser data it
+	 * holds, then take a fresh grant and re-bootstrap the frame.
+	 */
 	async function resetData() {
+		const origin =
+			state.status === "available" || state.status === "blocked"
+				? state.grant.previewOrigin
+				: null;
 		try {
 			await resetPreviewData(workspaceId);
+			if (origin) await clearPreviewOriginData(origin);
 		} catch {
 			toast.show({ tone: "danger", title: "The preview data could not be reset" });
 			return;

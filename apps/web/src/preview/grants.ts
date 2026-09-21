@@ -31,3 +31,27 @@ export async function resetPreviewData(workspaceId: string): Promise<void> {
 		method: "POST",
 	});
 }
+
+/**
+ * Ask the preview origin to clear the browser data it holds
+ * (BROWSER-HANDLING.md §16.4).
+ *
+ * This runs from the Portikus page, not from inside the preview frame. An
+ * application may register a service worker whose scope covers the whole
+ * preview origin, and such a worker answers navigations made by pages it
+ * controls — so navigating the frame to a reserved path could be answered
+ * by the application instead of by the edge. This document is not a client
+ * of that worker, so the request goes to the network, reaches the edge, and
+ * comes back with the `Clear-Site-Data` header that drops the origin's
+ * cookies, storage and service worker registrations.
+ *
+ * The response is opaque (`no-cors`), which is fine: nothing is read from
+ * it. Only its headers matter, and the browser applies those itself.
+ */
+export async function clearPreviewOriginData(previewOrigin: string): Promise<void> {
+	await fetch(`${previewOrigin}/__portikus/reset`, {
+		mode: "no-cors",
+		credentials: "include",
+		cache: "no-store",
+	});
+}
