@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
+import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import websocket, { type WebSocket } from "@fastify/websocket";
 import {
+	type AgentListeningService,
+	CHECKS_FILE_PATH,
+	type CheckDefinition,
+	type CheckRun,
+	ChecksFile,
 	type GitDiff,
 	type GitStatus,
 	GitStatusQuery,
@@ -16,6 +22,7 @@ import Fastify, {
 	type FastifyReply,
 	type FastifyRequest,
 } from "fastify";
+import { WebSocketServer } from "ws";
 
 /**
  * A stand-in for the workspace agent, used by the API tests. It checks the
@@ -24,6 +31,8 @@ import Fastify, {
 export interface FakeAgent {
 	port: number;
 	token: string;
+	/** How many HTTP requests each test application has answered, by port. */
+	appHits: Map<number, number>;
 	terminals: Map<string, { cwd: string }>;
 	/** Frames the fake received on an attach socket, in order. */
 	received: string[];
@@ -36,7 +45,7 @@ export interface FakeAgent {
 	/** While true, `PUT /log-level` fails so a retry can be observed. */
 	failLogLevel: boolean;
 	/** Project directories the fake pretends to have under ~/projects. */
-	projects: Map<string, { isGitRepo: boolean }>;
+	projects: Map<string, FakeDirectory>;
 	/** Everything under those directories, keyed the same way as the listings. */
 	files: Map<string, FakeNode>;
 	/** Seeded Git answers, keyed by `<workspace key>/<slug>`. */
@@ -53,6 +62,12 @@ export interface FakeAgent {
 	readonly eventsReceived: number;
 	/** How each events socket was closed by the caller, in order. */
 	eventCloses: Array<{ code: number; reason: string }>;
+	/** What each workspace key is listening on, keyed by agent-token suffix. */
+	listening: Map<string, AgentListeningService[]>;
+	/** Ports with a loopback forward open, keyed the same way. */
+	forwards: Map<string, Set<number>>;
+	/** While true, `POST /forwards` fails so the grant route's 409 shows. */
+	failForward: boolean;
 	/** Push one frame to every events subscriber of a project. */
 	pushEvent: (key: string, slug: string, frame: unknown) => number;
 	/** Push one frame larger than the control plane's 1 MiB cap. */
@@ -202,6 +217,23 @@ function removeTree(tree: Map<string, FakeNode>, slug: string): void {
 }
 
 /** Move (or copy) a project's whole subtree onto a new slug. */
+/**
+ * One directory under `~/projects` as the fake holds it. `directoryId` stands
+ * in for the inode the real agent reports (issue #238): a rename keeps the
+ * same record, so the identity travels with the directory.
+ */
+interface FakeDirectory {
+	isGitRepo: boolean;
+	/** Absent when a test seeded the map directly and does not care. */
+	directoryId?: string;
+}
+
+let directoryIdCounter = 1000;
+function nextDirectoryId(): string {
+	directoryIdCounter += 1;
+	return String(directoryIdCounter);
+}
+
 function rekeyTree(
 	tree: Map<string, FakeNode>,
 	from: string,
@@ -233,13 +265,13 @@ export async function startFakeAgent(
 	const received: string[] = [];
 	// The same frames, with the terminal each arrived on.
 	const receivedByTerminal: { terminalId: string; text: string }[] = [];
-	const projects = new Map<string, { isGitRepo: boolean }>();
+	const projects = new Map<string, FakeDirectory>();
 	const files = new Map<string, FakeNode>();
 	const perKeyFiles = new Map<string, Map<string, FakeNode>>();
 	// One fake agent stands in for every workspace in an end-to-end run, so a
 	// token of the form "<token>:<key>" gets its own ~/projects listing and
 	// workspaces do not discover each other's directories.
-	const perKey = new Map<string, Map<string, { isGitRepo: boolean }>>();
+	const perKey = new Map<string, Map<string, FakeDirectory>>();
 	const app: FastifyInstance = Fastify({ logger: false, bodyLimit: MAX_UPLOAD_BYTES });
 	await app.register(websocket);
 
@@ -287,7 +319,85 @@ export async function startFakeAgent(
 		searchAborted: 0,
 		eventLimit: false,
 		eventsReceived: 0,
+		failForward: false,
 	};
+
+	// What each workspace key is listening on, who is watching it, and which
+	// ports have a loopback forward open (BROWSER-HANDLING.md §11.1).
+	const listening = new Map<string, AgentListeningService[]>();
+	const listeningSockets = new Map<string, Set<WebSocket>>();
+	const forwards = new Map<string, Set<number>>();
+	const testApps: Server[] = [];
+	const appHits = new Map<number, number>();
+
+	function listeningFor(key: string): AgentListeningService[] {
+		return listening.get(key) ?? [];
+	}
+
+	function sendListening(socket: WebSocket, services: AgentListeningService[]): void {
+		if (socket.readyState !== socket.OPEN) return;
+		socket.send(
+			JSON.stringify({
+				type: "workspace.listening-services.changed",
+				services,
+				observedAt: new Date().toISOString(),
+			}),
+		);
+	}
+
+	function pushListening(key: string): void {
+		for (const socket of listeningSockets.get(key) ?? []) {
+			sendListening(socket, listeningFor(key));
+		}
+	}
+
+	/** Mirror the real agent: an open forward makes a loopback port reachable. */
+	function markForwarded(key: string, port: number, open: boolean): void {
+		listening.set(
+			key,
+			listeningFor(key).map((service) =>
+				service.port === port
+					? { ...service, previewReachability: open ? "forwarded" : "unknown" }
+					: service,
+			),
+		);
+		pushListening(key);
+	}
+
+	/** A real HTTP and WebSocket application, on a port of its own. */
+	async function startTestApp(
+		title: string,
+		frameOptions?: string,
+		delayMs = 0,
+	): Promise<number> {
+		let ownPort = 0;
+		const server = createServer((_req, res) => {
+			appHits.set(ownPort, (appHits.get(ownPort) ?? 0) + 1);
+			const headers: Record<string, string> = {
+				"content-type": "text/html; charset=utf-8",
+			};
+			// An application that refuses framing, so a test can drive the
+			// "cannot be embedded" path (BROWSER-HANDLING.md §12).
+			if (frameOptions) headers["x-frame-options"] = frameOptions;
+			const answer = () => {
+				res.writeHead(200, headers);
+				res.end(`<!doctype html><title>${title}</title><h1>${title}</h1>`);
+			};
+			if (delayMs > 0) setTimeout(answer, delayMs).unref?.();
+			else answer();
+		});
+		const sockets = new WebSocketServer({ server });
+		sockets.on("connection", (socket) => {
+			socket.on("message", (data: Buffer) => socket.send(`echo:${data.toString()}`));
+			socket.send("hello");
+		});
+		testApps.push(server);
+		await new Promise<void>((resolve) => {
+			server.listen(0, "127.0.0.1", () => resolve());
+		});
+		ownPort = (server.address() as AddressInfo).port;
+		return ownPort;
+	}
 	const logLevels: (string | null)[] = [];
 
 	function projectNotFound(reply: FastifyReply) {
@@ -302,7 +412,7 @@ export async function startFakeAgent(
 	}
 
 	/** The ~/projects listing for a key; the bare token keeps the shared one. */
-	function dirsForKey(key: string): Map<string, { isGitRepo: boolean }> {
+	function dirsForKey(key: string): Map<string, FakeDirectory> {
 		if (key === "") return projects;
 		let dirs = perKey.get(key);
 		if (!dirs) {
@@ -325,7 +435,7 @@ export async function startFakeAgent(
 	}
 
 	/** The caller's ~/projects, from the suffix on its bearer token. */
-	function dirs(request: FastifyRequest): Map<string, { isGitRepo: boolean }> {
+	function dirs(request: FastifyRequest): Map<string, FakeDirectory> {
 		return dirsForKey(keyOf(request));
 	}
 
@@ -400,6 +510,7 @@ export async function startFakeAgent(
 
 	app.get("/projects", async (request) => ({
 		projects: [...dirs(request)].map(([slug, value]) => ({
+			directoryId: value.directoryId,
 			slug,
 			isGitRepo: value.isGitRepo,
 		})),
@@ -409,7 +520,11 @@ export async function startFakeAgent(
 		const slug = (request.params as { slug: string }).slug;
 		const project = dirs(request).get(slug);
 		if (!project) return projectNotFound(reply);
-		return { slug, isGitRepo: project.isGitRepo };
+		return {
+			slug,
+			isGitRepo: project.isGitRepo,
+			directoryId: project.directoryId,
+		};
 	});
 
 	app.post("/projects", async (request, reply) => {
@@ -436,7 +551,7 @@ export async function startFakeAgent(
 			await new Promise((resolve) => setTimeout(resolve, 300));
 		}
 		const isGitRepo = body.source === "new" ? body.gitInit : true;
-		here.set(body.slug, { isGitRepo });
+		here.set(body.slug, { isGitRepo, directoryId: nextDirectoryId() });
 		return reply.status(201).send({ slug: body.slug, isGitRepo });
 	});
 
@@ -475,7 +590,7 @@ export async function startFakeAgent(
 				.status(409)
 				.send({ error: { code: "PROJECT_EXISTS", message: "already exists" } });
 		}
-		here.set(to, { isGitRepo: project.isGitRepo });
+		here.set(to, { isGitRepo: project.isGitRepo, directoryId: nextDirectoryId() });
 		rekeyTree(fsOf(request), slug, to, { copy: true });
 		return reply.status(201).send({ slug: to, isGitRepo: project.isGitRepo });
 	});
@@ -813,6 +928,152 @@ export async function startFakeAgent(
 		return { matches, truncated: searchTruncated.get(key) ?? false };
 	});
 
+	// Project checks (SPEC.md §18.1). The definitions come from the fake
+	// filesystem, so a browser test seeds `.portikus/checks.json` the way a
+	// student would. A "run" prints its command and ends with 0 or 1; a
+	// command containing "sleep" stays running until it is stopped.
+	interface FakeCheckRun {
+		meta: CheckRun;
+		lines: string[];
+		sockets: Set<WebSocket>;
+		final: { type: "exit"; exitCode: number } | null;
+	}
+	const checkRuns = new Map<string, FakeCheckRun>();
+	let checkRunCounter = 0;
+
+	function checkRunKey(request: FastifyRequest, slug: string, id: string): string {
+		return `${keyOf(request)}\u0000${slug}\u0000${id}`;
+	}
+
+	/** The definitions of one project, with the same reporting as the agent. */
+	function readFakeChecks(
+		request: FastifyRequest,
+		slug: string,
+	): { checks: CheckDefinition[]; error: string | null } {
+		const node = nodeAt(request, slug, CHECKS_FILE_PATH);
+		if (node?.type !== "file") return { checks: [], error: null };
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(node.content.toString("utf8"));
+		} catch {
+			return { checks: [], error: `${CHECKS_FILE_PATH} is not valid JSON.` };
+		}
+		const validated = ChecksFile.safeParse(parsed);
+		if (!validated.success) {
+			return {
+				checks: [],
+				error: `${CHECKS_FILE_PATH} does not look like a list of checks.`,
+			};
+		}
+		return { checks: validated.data.checks, error: null };
+	}
+
+	function finishFakeRun(run: FakeCheckRun, exitCode: number): void {
+		run.meta.state = exitCode === 0 ? "passed" : "failed";
+		run.meta.exitCode = exitCode;
+		run.meta.endedAt = new Date().toISOString();
+		run.final = { type: "exit", exitCode };
+		for (const socket of run.sockets) {
+			if (socket.readyState !== socket.OPEN) continue;
+			socket.send(JSON.stringify(run.final));
+			socket.close(1000, "run finished");
+		}
+		run.sockets.clear();
+	}
+
+	app.get("/projects/:slug/checks", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		const file = readFakeChecks(request, slug);
+		const prefix = `${keyOf(request)}\u0000${slug}\u0000`;
+		const runs: CheckRun[] = [];
+		for (const [id, run] of checkRuns) {
+			if (id.startsWith(prefix)) runs.push(run.meta);
+		}
+		return { checks: file.checks, error: file.error, runs };
+	});
+
+	app.post("/projects/:slug/checks/:id/runs", async (request, reply) => {
+		const { slug, id } = request.params as { slug: string; id: string };
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		const check = readFakeChecks(request, slug).checks.find(
+			(candidate) => candidate.id === id,
+		);
+		if (!check) {
+			return reply
+				.status(404)
+				.send({ error: { code: "CHECK_NOT_FOUND", message: "no such check" } });
+		}
+		const runKey = checkRunKey(request, slug, id);
+		const existing = checkRuns.get(runKey);
+		if (existing && existing.meta.state === "running") {
+			return reply.status(409).send({
+				error: { code: "CHECK_RUNNING", message: "that check is already running" },
+			});
+		}
+		checkRunCounter += 1;
+		const run: FakeCheckRun = {
+			meta: {
+				id: `fake-${checkRunCounter}`,
+				checkId: id,
+				state: "running",
+				startedAt: new Date().toISOString(),
+			},
+			lines: [`$ ${check.command}`, `running ${check.name}`],
+			sockets: new Set<WebSocket>(),
+			final: null,
+		};
+		checkRuns.set(runKey, run);
+		if (!check.command.includes("sleep")) {
+			const failing = /(^|\s)(false|exit 1|fail)(\s|$)/.test(check.command);
+			run.lines.push(failing ? "1 test failed" : "all tests passed");
+			finishFakeRun(run, failing ? 1 : 0);
+		}
+		return reply.status(201).send(run.meta);
+	});
+
+	app.delete("/projects/:slug/checks/:id/runs/current", async (request, reply) => {
+		const { slug, id } = request.params as { slug: string; id: string };
+		const run = checkRuns.get(checkRunKey(request, slug, id));
+		if (run?.meta.state !== "running") {
+			return reply.status(404).send({
+				error: { code: "CHECK_NOT_RUNNING", message: "that check is not running" },
+			});
+		}
+		run.lines.push("stopped");
+		finishFakeRun(run, 130);
+		return reply.status(204).send();
+	});
+
+	app.get(
+		"/projects/:slug/checks/:id/runs/current",
+		{ websocket: true },
+		(socket: WebSocket, request: FastifyRequest) => {
+			const { slug, id } = request.params as { slug: string; id: string };
+			const run = checkRuns.get(checkRunKey(request, slug, id));
+			if (!run) {
+				socket.send(JSON.stringify({ type: "error", code: "CHECK_NOT_RUNNING" }));
+				socket.close(4404, "CHECK_NOT_RUNNING");
+				return;
+			}
+			for (const line of run.lines) {
+				socket.send(
+					JSON.stringify({
+						type: "output",
+						data: Buffer.from(`${line}\r\n`, "utf8").toString("base64"),
+					}),
+				);
+			}
+			if (run.final) {
+				socket.send(JSON.stringify(run.final));
+				socket.close(1000, "run finished");
+				return;
+			}
+			run.sockets.add(socket);
+			socket.on("close", () => run.sockets.delete(socket));
+		},
+	);
+
 	app.get(
 		"/projects/:slug/events",
 		{ websocket: true },
@@ -987,7 +1248,25 @@ export async function startFakeAgent(
 	// API. "key" picks the workspace listing the bearer token would have.
 	app.post("/__test/projects", async (request, reply) => {
 		const body = request.body as { slug: string; isGitRepo?: boolean; key?: string };
-		dirsForKey(body.key ?? "").set(body.slug, { isGitRepo: body.isGitRepo ?? true });
+		dirsForKey(body.key ?? "").set(body.slug, {
+			isGitRepo: body.isGitRepo ?? true,
+			directoryId: nextDirectoryId(),
+		});
+		return reply.status(204).send();
+	});
+
+	// Rename a directory the way `mv` in the shell does: the same directory
+	// under a new name, so its identity is unchanged (issue #238).
+	app.post("/__test/projects/:slug/move", async (request, reply) => {
+		const from = (request.params as { slug: string }).slug;
+		const to = (request.body as { to: string }).to;
+		const key = (request.query as { key?: string }).key ?? "";
+		const here = dirsForKey(key);
+		const directory = here.get(from);
+		if (!directory) return projectNotFound(reply);
+		here.delete(from);
+		here.set(to, directory);
+		rekeyTree(filesForKey(key), from, to, { copy: false });
 		return reply.status(204).send();
 	});
 
@@ -1117,12 +1396,128 @@ export async function startFakeAgent(
 		},
 	);
 
+	// ── Listening services and loopback forwards (BROWSER-HANDLING.md §11.1) ──
+
+	app.get("/listening", async (request) => ({
+		services: listeningFor(keyOf(request)),
+	}));
+
+	app.get(
+		"/listening/events",
+		{ websocket: true },
+		(socket: WebSocket, request: FastifyRequest) => {
+			const key = keyOf(request);
+			const peers = listeningSockets.get(key) ?? new Set<WebSocket>();
+			peers.add(socket);
+			listeningSockets.set(key, peers);
+			socket.on("close", () => peers.delete(socket));
+			// Like the real agent, the first frame is the whole list.
+			sendListening(socket, listeningFor(key));
+		},
+	);
+
+	app.get("/forwards", async (request) => ({
+		forwards: [...(forwards.get(keyOf(request)) ?? new Set<number>())].map((port) => ({
+			port,
+			address: "10.0.0.2",
+			state: "open" as const,
+		})),
+	}));
+
+	app.post("/forwards", async (request, reply) => {
+		const body = request.body as { port?: number };
+		const port = body?.port;
+		if (typeof port !== "number") {
+			return reply
+				.status(400)
+				.send({ error: { code: "BAD_REQUEST", message: "invalid port" } });
+		}
+		if (state.failForward) {
+			return reply
+				.status(409)
+				.send({ error: { code: "INTERNAL", message: "cannot bind" } });
+		}
+		const key = keyOf(request);
+		const open = forwards.get(key) ?? new Set<number>();
+		open.add(port);
+		forwards.set(key, open);
+		markForwarded(key, port, true);
+		return { port, address: "10.0.0.2", state: "open" };
+	});
+
+	app.delete("/forwards/:port", async (request, reply) => {
+		const port = Number.parseInt((request.params as { port: string }).port, 10);
+		const key = keyOf(request);
+		const open = forwards.get(key) ?? new Set<number>();
+		if (!open.delete(port)) {
+			return reply
+				.status(404)
+				.send({ error: { code: "INTERNAL", message: "no such forward" } });
+		}
+		markForwarded(key, port, false);
+		return reply.status(204).send();
+	});
+
+	/**
+	 * Seed what the workspace is listening on. The body is the whole list, so
+	 * a test can also clear it by sending an empty array.
+	 */
+	app.post("/__test/listening", async (request, reply) => {
+		const body = request.body as {
+			key?: string;
+			services?: Partial<AgentListeningService>[];
+		};
+		const key = body.key ?? "";
+		listening.set(
+			key,
+			(body.services ?? []).map((service) => ({
+				port: service.port ?? 0,
+				addresses: service.addresses ?? ["0.0.0.0"],
+				protocolHint: service.protocolHint ?? "http",
+				previewReachability: service.previewReachability ?? "reachable",
+				observedAt: new Date().toISOString(),
+			})),
+		);
+		pushListening(key);
+		return reply.status(204).send();
+	});
+
+	/**
+	 * Start a tiny HTTP and WebSocket application on a free port and report it
+	 * as listening, so an end-to-end test can drive a real preview.
+	 */
+	app.post("/__test/app", async (request, reply) => {
+		const body = (request.body ?? {}) as {
+			key?: string;
+			title?: string;
+			frameOptions?: string;
+			delayMs?: number;
+		};
+		const key = body.key ?? "";
+		const title = body.title ?? "Portikus test app";
+		const port = await startTestApp(title, body.frameOptions, body.delayMs ?? 0);
+		const current = listeningFor(key).filter((one) => one.port !== port);
+		listening.set(key, [
+			...current,
+			{
+				port,
+				addresses: ["0.0.0.0"],
+				protocolHint: "http",
+				previewReachability: "reachable",
+				observedAt: new Date().toISOString(),
+			},
+		]);
+		pushListening(key);
+		return reply.status(201).send({ port });
+	});
+
 	await app.listen({ port: options.port ?? 0, host: "127.0.0.1" });
 	const address = app.server.address() as AddressInfo;
 
 	return {
 		port: address.port,
 		token,
+		appHits,
 		terminals,
 		received,
 		projects,
@@ -1161,7 +1556,18 @@ export async function startFakeAgent(
 		set failCreateWith(code: string | null) {
 			state.failCreateWith = code;
 		},
+		listening,
+		forwards,
+		get failForward() {
+			return state.failForward;
+		},
+		set failForward(value: boolean) {
+			state.failForward = value;
+		},
 		close: async () => {
+			for (const server of testApps) {
+				await new Promise<void>((resolve) => server.close(() => resolve()));
+			}
 			for (const timer of pendingFsTimers.values()) clearTimeout(timer);
 			pendingFsTimers.clear();
 			pendingFsPaths.clear();

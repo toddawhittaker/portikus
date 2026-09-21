@@ -6,6 +6,7 @@ import {
 	readdir,
 	readFile,
 	readlink,
+	rename,
 	rm,
 	symlink,
 	writeFile,
@@ -80,12 +81,36 @@ test("listing reports git directories and skips everything else", async () => {
 		headers: auth(),
 	});
 	expect(response.statusCode).toBe(200);
-	expect(response.json()).toEqual({
-		projects: [
-			{ slug: "alpha", isGitRepo: true },
-			{ slug: "beta", isGitRepo: false },
-		],
-	});
+	const listed = response.json() as {
+		projects: { slug: string; isGitRepo: boolean; directoryId?: string }[];
+	};
+	expect(
+		listed.projects.map((p) => ({ slug: p.slug, isGitRepo: p.isGitRepo })),
+	).toEqual([
+		{ slug: "alpha", isGitRepo: true },
+		{ slug: "beta", isGitRepo: false },
+	]);
+	// Each directory reports its own identity, and no two share one (issue #238).
+	const ids = listed.projects.map((p) => p.directoryId);
+	expect(ids.every((id) => typeof id === "string" && id.length > 0)).toBe(true);
+	expect(new Set(ids).size).toBe(2);
+});
+
+/** Issue #238: a directory renamed with `mv` keeps its reported identity. */
+test("a renamed directory keeps the identity it reported before", async () => {
+	await mkdir(join(projectsRoot, "alpha", ".git"), { recursive: true });
+	const before = await app.inject({ method: "GET", url: "/projects", headers: auth() });
+	const was = (before.json() as { projects: { directoryId?: string }[] }).projects[0]
+		?.directoryId;
+
+	await rename(join(projectsRoot, "alpha"), join(projectsRoot, "omega"));
+
+	const after = await app.inject({ method: "GET", url: "/projects", headers: auth() });
+	const now = after.json() as {
+		projects: { slug: string; directoryId?: string }[];
+	};
+	expect(now.projects[0]?.slug).toBe("omega");
+	expect(now.projects[0]?.directoryId).toBe(was);
 });
 
 test("one project is fetched and a missing one is a 404", async () => {
@@ -95,7 +120,8 @@ test("one project is fetched and a missing one is a 404", async () => {
 		url: "/projects/alpha",
 		headers: auth(),
 	});
-	expect(found.json()).toEqual({ slug: "alpha", isGitRepo: true });
+	expect(found.json()).toMatchObject({ slug: "alpha", isGitRepo: true });
+	expect((found.json() as { directoryId?: string }).directoryId).toBeDefined();
 
 	const missing = await app.inject({
 		method: "GET",

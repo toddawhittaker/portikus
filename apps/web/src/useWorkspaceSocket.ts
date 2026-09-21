@@ -1,5 +1,6 @@
-import type { Workspace } from "@portikus/contracts";
+import { ListeningService, type Workspace } from "@portikus/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import { wsUrl } from "./api/ws.js";
 
 const HEARTBEAT_MS = 15_000;
@@ -15,6 +16,11 @@ function socketUrl(workspaceId: string): string {
 export interface WorkspaceSocket {
 	/** The last `workspace` message the server sent, or null before the first. */
 	workspace: Workspace | null;
+	/**
+	 * The ports listening inside the workspace as of the last
+	 * `listening-services` message, or null before the first (SPEC.md §18.2).
+	 */
+	listening: ListeningService[] | null;
 	/** Drop the socket and connect again now, without waiting for the backoff. */
 	reconnect: () => void;
 }
@@ -29,6 +35,7 @@ export function useWorkspaceSocket(
 	onSessionEnded: () => void,
 ): WorkspaceSocket {
 	const [workspace, setWorkspace] = useState<Workspace | null>(null);
+	const [listening, setListening] = useState<ListeningService[] | null>(null);
 	const [attempt, setAttempt] = useState(0);
 	const sessionEnded = useRef(onSessionEnded);
 	sessionEnded.current = onSessionEnded;
@@ -41,6 +48,7 @@ export function useWorkspaceSocket(
 	useEffect(() => {
 		if (!workspaceId) {
 			setWorkspace(null);
+			setListening(null);
 			return;
 		}
 
@@ -71,9 +79,16 @@ export function useWorkspaceSocket(
 					const message = JSON.parse(String(event.data)) as {
 						type?: string;
 						workspace?: Workspace;
+						services?: unknown;
 					};
 					if (message.type === "workspace" && message.workspace) {
 						setWorkspace(message.workspace);
+					}
+					if (message.type === "listening-services") {
+						// The frame is written by the API, but it is parsed all the
+						// same: the browser draws a port list straight from it.
+						const parsed = z.array(ListeningService).safeParse(message.services);
+						if (parsed.success) setListening(parsed.data);
 					}
 				} catch {
 					// Ignore anything that is not a message we understand.
@@ -120,5 +135,5 @@ export function useWorkspaceSocket(
 		};
 	}, [workspaceId, attempt]);
 
-	return { workspace, reconnect };
+	return { workspace, listening, reconnect };
 }

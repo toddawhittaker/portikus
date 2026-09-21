@@ -9,6 +9,12 @@ import {
 	type TestDb,
 } from "./testing.js";
 
+/** Workspace labels are unique, so each test row needs its own. */
+let labelCounter = 0;
+function testLabel(): string {
+	return `ws-test-${++labelCounter}`;
+}
+
 if (!hasTestDb()) {
 	console.log(
 		"TEST_DATABASE_URL is not set — skipping database tests. " +
@@ -42,6 +48,7 @@ describe("database migrations and schema", () => {
 		const row = await t.db
 			.insertInto("workspaces")
 			.values({
+				label: testLabel(),
 				owner_user_id: userId,
 				state: "provisioning",
 			})
@@ -59,13 +66,14 @@ describe("database migrations and schema", () => {
 		const userId = await insertTestUser(t.db);
 		await t.db
 			.insertInto("workspaces")
-			.values({ owner_user_id: userId, state: "provisioning" })
+			.values({ label: testLabel(), owner_user_id: userId, state: "provisioning" })
 			.execute();
 
 		await expect(
 			t.db
 				.insertInto("workspaces")
 				.values({
+					label: testLabel(),
 					owner_user_id: userId,
 					state: "provisioning",
 				})
@@ -79,6 +87,7 @@ describe("database migrations and schema", () => {
 			t.db
 				.insertInto("workspaces")
 				.values({
+					label: testLabel(),
 					owner_user_id: userId,
 					state: "flying",
 				})
@@ -89,7 +98,11 @@ describe("database migrations and schema", () => {
 	test.skipIf(!hasTestDb())("workspace_connections accepts a valid row", async () => {
 		const ws = await t.db
 			.insertInto("workspaces")
-			.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+			.values({
+				label: testLabel(),
+				owner_user_id: await insertTestUser(t.db),
+				state: "running",
+			})
 			.returning("id")
 			.executeTakeFirstOrThrow();
 
@@ -109,6 +122,7 @@ describe("database migrations and schema", () => {
 			const ws = await t.db
 				.insertInto("workspaces")
 				.values({
+					label: testLabel(),
 					owner_user_id: await insertTestUser(t.db),
 					state: "running",
 				})
@@ -195,6 +209,7 @@ describe("database migrations and schema", () => {
 		const err = await t.db
 			.insertInto("workspaces")
 			.values({
+				label: testLabel(),
 				owner_user_id: "00000000-0000-0000-0000-000000000000",
 				state: "provisioning",
 			})
@@ -207,7 +222,11 @@ describe("database migrations and schema", () => {
 	test.skipIf(!hasTestDb())("terminals table accepts a valid row", async () => {
 		const ws = await t.db
 			.insertInto("workspaces")
-			.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+			.values({
+				label: testLabel(),
+				owner_user_id: await insertTestUser(t.db),
+				state: "running",
+			})
 			.returning("id")
 			.executeTakeFirstOrThrow();
 
@@ -232,7 +251,11 @@ describe("database migrations and schema", () => {
 		async () => {
 			const ws = await t.db
 				.insertInto("workspaces")
-				.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+				.values({
+					label: testLabel(),
+					owner_user_id: await insertTestUser(t.db),
+					state: "running",
+				})
 				.returning("id")
 				.executeTakeFirstOrThrow();
 
@@ -258,6 +281,7 @@ describe("database migrations and schema", () => {
 			const row = await t.db
 				.insertInto("workspaces")
 				.values({
+					label: testLabel(),
 					owner_user_id: await insertTestUser(t.db),
 					state: "running",
 					agent_token: "a".repeat(64),
@@ -274,7 +298,11 @@ describe("database migrations and schema", () => {
 	test.skipIf(!hasTestDb())("projects table accepts a valid row", async () => {
 		const ws = await t.db
 			.insertInto("workspaces")
-			.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+			.values({
+				label: testLabel(),
+				owner_user_id: await insertTestUser(t.db),
+				state: "running",
+			})
 			.returning("id")
 			.executeTakeFirstOrThrow();
 
@@ -299,7 +327,11 @@ describe("database migrations and schema", () => {
 	test.skipIf(!hasTestDb())("projects rejects a bad state or source", async () => {
 		const ws = await t.db
 			.insertInto("workspaces")
-			.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+			.values({
+				label: testLabel(),
+				owner_user_id: await insertTestUser(t.db),
+				state: "running",
+			})
 			.returning("id")
 			.executeTakeFirstOrThrow();
 
@@ -329,7 +361,11 @@ describe("database migrations and schema", () => {
 		async () => {
 			const ws = await t.db
 				.insertInto("workspaces")
-				.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+				.values({
+					label: testLabel(),
+					owner_user_id: await insertTestUser(t.db),
+					state: "running",
+				})
 				.returning("id")
 				.executeTakeFirstOrThrow();
 
@@ -352,7 +388,11 @@ describe("database migrations and schema", () => {
 		async () => {
 			const ws = await t.db
 				.insertInto("workspaces")
-				.values({ owner_user_id: await insertTestUser(t.db), state: "running" })
+				.values({
+					label: testLabel(),
+					owner_user_id: await insertTestUser(t.db),
+					state: "running",
+				})
 				.returning("id")
 				.executeTakeFirstOrThrow();
 
@@ -442,6 +482,7 @@ describe("database migrations and schema", () => {
 		const row = await t.db
 			.insertInto("workspaces")
 			.values({
+				label: testLabel(),
 				owner_user_id: userId,
 				state: "running",
 				disconnected_at: new Date().toISOString(),
@@ -491,6 +532,10 @@ describe("database migrations and schema", () => {
 				expect(down6.error).toBeUndefined();
 				const down7 = await migrator.migrateDown();
 				expect(down7.error).toBeUndefined();
+				const down8 = await migrator.migrateDown();
+				expect(down8.error).toBeUndefined();
+				const down9 = await migrator.migrateDown();
+				expect(down9.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -501,11 +546,226 @@ describe("database migrations and schema", () => {
 					"0005_settings",
 					"0006_log_level",
 					"0007_editor_settings",
+					"0008_preview",
+					"0009_project_directory_id",
 				]);
 				throw rollback;
 			}),
 		).rejects.toBe(rollback);
 	});
+
+	// --- migration 0008: workspace label and preview tables ---
+	// SPEC.md Epic 8; BROWSER-HANDLING.md sections 8 and 17.
+
+	test.skipIf(!hasTestDb())("two workspaces cannot share a label", async () => {
+		await t.db
+			.insertInto("workspaces")
+			.values({
+				label: "tw7",
+				owner_user_id: await insertTestUser(t.db),
+				state: "provisioning",
+			})
+			.execute();
+
+		await expect(
+			t.db
+				.insertInto("workspaces")
+				.values({
+					label: "tw7",
+					owner_user_id: await insertTestUser(t.db),
+					state: "provisioning",
+				})
+				.execute(),
+		).rejects.toThrow(/unique|duplicate/i);
+	});
+
+	test.skipIf(!hasTestDb())("a workspace must have a label", async () => {
+		await expect(
+			t.db
+				.insertInto("workspaces")
+				.values({
+					owner_user_id: await insertTestUser(t.db),
+					state: "provisioning",
+					// biome-ignore lint/suspicious/noExplicitAny: deliberately invalid row
+				} as any)
+				.execute(),
+		).rejects.toThrow(/null/i);
+	});
+
+	test.skipIf(!hasTestDb())("the users table stores preferred_username", async () => {
+		const userId = await insertTestUser(t.db);
+		await t.db
+			.updateTable("users")
+			.set({ preferred_username: "tw7" })
+			.where("id", "=", userId)
+			.execute();
+
+		const row = await t.db
+			.selectFrom("users")
+			.select("preferred_username")
+			.where("id", "=", userId)
+			.executeTakeFirstOrThrow();
+		expect(row.preferred_username).toBe("tw7");
+	});
+
+	test.skipIf(!hasTestDb())("a preview grant round-trips", async () => {
+		const userId = await insertTestUser(t.db);
+		const ws = await t.db
+			.insertInto("workspaces")
+			.values({ label: "tw7", owner_user_id: userId, state: "running" })
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		await t.db
+			.insertInto("sessions")
+			.values({
+				id: "grant-session",
+				user_id: userId,
+				expires_at: new Date(Date.now() + 60_000).toISOString(),
+			})
+			.execute();
+
+		const grant = await t.db
+			.insertInto("preview_grants")
+			.values({
+				user_id: userId,
+				session_id: "grant-session",
+				workspace_id: ws.id,
+				port: 5173,
+				preview_host: "tw7-5173.preview.localhost",
+				presentation: "embedded",
+				ticket_hash: "a".repeat(64),
+				expires_at: new Date(Date.now() + 30_000).toISOString(),
+			})
+			.returningAll()
+			.executeTakeFirstOrThrow();
+
+		expect(grant.consumed_at).toBeNull();
+		expect(grant.port).toBe(5173);
+
+		await expect(
+			t.db
+				.insertInto("preview_grants")
+				.values({
+					user_id: userId,
+					session_id: "grant-session",
+					workspace_id: ws.id,
+					port: 3000,
+					preview_host: "tw7-3000.preview.localhost",
+					presentation: "top-level",
+					ticket_hash: "a".repeat(64),
+					expires_at: new Date().toISOString(),
+				})
+				.execute(),
+		).rejects.toThrow(/unique|duplicate/i);
+	});
+
+	test.skipIf(!hasTestDb())(
+		"a preview grant rejects an unknown presentation",
+		async () => {
+			const userId = await insertTestUser(t.db);
+			const ws = await t.db
+				.insertInto("workspaces")
+				.values({ label: "tw7", owner_user_id: userId, state: "running" })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			await t.db
+				.insertInto("sessions")
+				.values({
+					id: "grant-session",
+					user_id: userId,
+					expires_at: new Date(Date.now() + 60_000).toISOString(),
+				})
+				.execute();
+
+			await expect(
+				t.db
+					.insertInto("preview_grants")
+					.values({
+						user_id: userId,
+						session_id: "grant-session",
+						workspace_id: ws.id,
+						port: 5173,
+						preview_host: "tw7-5173.preview.localhost",
+						presentation: "popup",
+						ticket_hash: "b".repeat(64),
+						expires_at: new Date().toISOString(),
+					})
+					.execute(),
+			).rejects.toThrow(/check|violates/i);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"deleting the workspace removes its preview sessions",
+		async () => {
+			const userId = await insertTestUser(t.db);
+			const ws = await t.db
+				.insertInto("workspaces")
+				.values({ label: "tw7", owner_user_id: userId, state: "running" })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			await t.db
+				.insertInto("sessions")
+				.values({
+					id: "session-hash",
+					user_id: userId,
+					expires_at: new Date(Date.now() + 60_000).toISOString(),
+				})
+				.execute();
+			await t.db
+				.insertInto("preview_sessions")
+				.values({
+					token_hash: "c".repeat(64),
+					user_id: userId,
+					session_id: "session-hash",
+					workspace_id: ws.id,
+					port: 5173,
+					preview_host: "tw7-5173.preview.localhost",
+				})
+				.execute();
+
+			await t.db.deleteFrom("workspaces").where("id", "=", ws.id).execute();
+
+			const left = await t.db.selectFrom("preview_sessions").selectAll().execute();
+			expect(left).toHaveLength(0);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"ending the main session ends the preview session with it",
+		async () => {
+			const userId = await insertTestUser(t.db);
+			const ws = await t.db
+				.insertInto("workspaces")
+				.values({ label: "tw7", owner_user_id: userId, state: "running" })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			await t.db
+				.insertInto("sessions")
+				.values({
+					id: "session-hash",
+					user_id: userId,
+					expires_at: new Date(Date.now() + 60_000).toISOString(),
+				})
+				.execute();
+			await t.db
+				.insertInto("preview_sessions")
+				.values({
+					token_hash: "d".repeat(64),
+					user_id: userId,
+					session_id: "session-hash",
+					workspace_id: ws.id,
+					port: 5173,
+					preview_host: "tw7-5173.preview.localhost",
+				})
+				.execute();
+
+			await t.db.deleteFrom("sessions").where("id", "=", "session-hash").execute();
+
+			const left = await t.db.selectFrom("preview_sessions").selectAll().execute();
+			expect(left).toHaveLength(0);
+		},
+	);
 });
 
 describe("orphaned test database sweep", () => {

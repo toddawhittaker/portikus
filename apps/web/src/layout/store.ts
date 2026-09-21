@@ -52,6 +52,12 @@ export interface LayoutState {
 	 * server nor written to this browser's storage.
 	 */
 	tabHistory: string[];
+	/**
+	 * Which file tabs have edits that are not on disk, by tab id (issue #240).
+	 * The tab strip shows a dot instead of the close button for these. It is
+	 * what the editor is holding right now, so it is never saved anywhere.
+	 */
+	unsavedTabs: Record<string, boolean>;
 	dirty: boolean;
 	/** Replace the whole layout with what the server had saved. */
 	load: (layout: ProjectLayout) => void;
@@ -59,12 +65,18 @@ export interface LayoutState {
 	/**
 	 * Open a file tab, or activate the one already open for this path. With
 	 * `diff` the tab is asked to show its diff rather than the editor
-	 * (issue #160). False when there is no room for another tab, so the
-	 * caller can say so.
+	 * (issue #160). There is no limit on open tabs (issue #240).
 	 */
-	openFile: (path: string, options?: { line?: number; diff?: boolean }) => boolean;
+	openFile: (path: string, options?: { line?: number; diff?: boolean }) => void;
+	/**
+	 * Open a preview tab for one port, or activate the one already open for
+	 * it (SPEC.md §14.6). There is no limit on open tabs (issue #240).
+	 */
+	openPreview: (port: number) => void;
 	/** Close one whole tab. Terminal tabs close by closing their terminals. */
 	closeTab: (tabId: string) => void;
+	/** Record whether one file tab has unsaved edits (issue #240). */
+	setTabUnsaved: (tabId: string, unsaved: boolean) => void;
 	/** Read and forget the line a file tab was asked to jump to. */
 	consumePendingLine: (tabId: string) => number | undefined;
 	/** Read and forget whether a file tab was asked to show its diff. */
@@ -167,6 +179,7 @@ export function createLayoutStore() {
 			viewStates: {},
 			zooms: {},
 			tabHistory: [],
+			unsavedTabs: {},
 			dirty: false,
 
 			load: (saved) =>
@@ -202,7 +215,6 @@ export function createLayoutStore() {
 			openFile: (path, options) => {
 				const state = get();
 				const opened = tree.openFile(state.layout, path);
-				if (!opened) return false;
 				const line = options?.line;
 				const pendingLine = { ...state.pendingLine };
 				// Always write the key, so a stale line from an earlier open goes.
@@ -228,7 +240,17 @@ export function createLayoutStore() {
 					pendingEdit,
 					dirty: state.dirty || opened.layout !== state.layout,
 				});
-				return true;
+			},
+
+			openPreview: (port) => {
+				const state = get();
+				const opened = tree.openPreview(state.layout, port);
+				set({
+					layout: opened.layout,
+					activeTabId: opened.tabId,
+					tabHistory: remember(state.tabHistory, opened.tabId),
+					dirty: state.dirty || opened.layout !== state.layout,
+				});
 			},
 
 			closeTab: (tabId) => {
@@ -404,6 +426,15 @@ export function createLayoutStore() {
 						tabHistory: remember(history, activeTabId),
 						dirty: true,
 					};
+				}),
+
+			setTabUnsaved: (tabId, unsaved) =>
+				set((state) => {
+					if ((state.unsavedTabs[tabId] ?? false) === unsaved) return state;
+					const next = { ...state.unsavedTabs };
+					if (unsaved) next[tabId] = true;
+					else delete next[tabId];
+					return { unsavedTabs: next };
 				}),
 
 			clearDirty: () => set({ dirty: false }),

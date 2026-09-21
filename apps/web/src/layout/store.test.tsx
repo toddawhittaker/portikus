@@ -1,4 +1,3 @@
-import { MAX_LAYOUT_TABS } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import { createLayoutStore } from "./store";
 import { layoutTerminalIds, terminalIds } from "./tree";
@@ -211,16 +210,23 @@ test("closing a file tab forgets the line it was waiting to jump to", () => {
 	expect(layout.getState().pendingDiff).toEqual({});
 });
 
-test("opening a file is refused when the tab strip is full", () => {
+test("a full strip still opens another file; there is no cap (issue #240)", () => {
 	const layout = store();
-	for (let i = 0; i < MAX_LAYOUT_TABS; i++) layout.getState().addTab(`t${i}`);
-	const before = layout.getState().layout;
-	expect(layout.getState().openFile("src/app.ts", { line: 7 })).toBe(false);
-	expect(layout.getState().openFile("src/app.ts", { diff: true })).toBe(false);
-	// The layout and the active tab are left exactly as they were.
-	expect(layout.getState().layout).toBe(before);
-	expect(layout.getState().activeTabId).toBe(`t${MAX_LAYOUT_TABS - 1}`);
-	expect(layout.getState().pendingLine).toEqual({});
+	for (let i = 0; i < 16; i++) layout.getState().addTab(`t${i}`);
+	layout.getState().openFile("src/app.ts", { line: 7 });
+	expect(layout.getState().layout.tabs).toHaveLength(17);
+	expect(layout.getState().activeTabId).toBe("file:src/app.ts");
+	expect(layout.getState().pendingLine).toEqual({ "file:src/app.ts": 7 });
+});
+
+test("a file tab reports unsaved edits and forgets them again (issue #240)", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts");
+	expect(layout.getState().unsavedTabs).toEqual({});
+	layout.getState().setTabUnsaved("file:src/app.ts", true);
+	expect(layout.getState().unsavedTabs).toEqual({ "file:src/app.ts": true });
+	layout.getState().setTabUnsaved("file:src/app.ts", false);
+	expect(layout.getState().unsavedTabs).toEqual({});
 });
 
 test("opening a file for editing asks its tab for the editor", () => {

@@ -8,6 +8,8 @@ export interface OidcIdentity {
 	subject: string;
 	email: string | null;
 	displayName: string;
+	/** The `preferred_username` claim; the workspace label comes from it. */
+	preferredUsername: string | null;
 }
 
 /** The cookie holds the token; the database only ever sees this hash. */
@@ -32,6 +34,7 @@ export async function upsertUser(
 			oidc_subject: identity.subject,
 			email: identity.email,
 			display_name: identity.displayName,
+			preferred_username: identity.preferredUsername,
 			role,
 			last_login_at: now,
 			updated_at: now,
@@ -40,6 +43,7 @@ export async function upsertUser(
 			oc.columns(["oidc_issuer", "oidc_subject"]).doUpdateSet({
 				email: identity.email,
 				display_name: identity.displayName,
+				preferred_username: identity.preferredUsername,
 				role,
 				last_login_at: now,
 				updated_at: now,

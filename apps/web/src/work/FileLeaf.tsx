@@ -92,6 +92,8 @@ export interface FileLeafProps {
 	consumePendingEdit?: () => boolean;
 	/** False while this tab is in the background. */
 	visible?: boolean;
+	/** Tells the tab strip whether this file has unsaved edits (issue #240). */
+	onUnsavedChange?: (unsaved: boolean) => void;
 }
 
 export function FileLeaf({
@@ -106,6 +108,7 @@ export function FileLeaf({
 	pendingEdit,
 	consumePendingEdit,
 	visible = true,
+	onUnsavedChange,
 }: FileLeafProps) {
 	// The student's own editor settings (issue #159). They load once per
 	// session; until they arrive the editor uses the defaults.
@@ -123,6 +126,19 @@ export function FileLeaf({
 	const [etag, setEtag] = useState("");
 	const [dirty, setDirty] = useState(false);
 	const [status, setStatus] = useState<Status>("loading");
+
+	// The tab strip shows a dot instead of the close button while the file has
+	// edits that are not on disk (issue #240). Reported on unmount as clean, so
+	// a closed tab leaves nothing behind.
+	const reportUnsaved = useRef(onUnsavedChange);
+	reportUnsaved.current = onUnsavedChange;
+	const unsaved = status === "unsaved" || status === "saving";
+	useEffect(() => {
+		reportUnsaved.current?.(unsaved);
+	}, [unsaved]);
+	useEffect(() => {
+		return () => reportUnsaved.current?.(false);
+	}, []);
 	// The version on disk that this tab's text no longer follows from, and
 	// what that version says. Null when there is nothing to resolve.
 	const [conflict, setConflict] = useState<{ etag: string; text: string } | null>(null);

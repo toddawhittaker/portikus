@@ -367,7 +367,7 @@ type ListeningService = {
 
 ### 11.2 What the forward is not
 
-The forward is not a relay to other hosts, other containers, or other ports, and it does not carry traffic in the other direction. A student process cannot ask for one; only the control plane can.
+The forward is not a relay to other hosts, other containers, or other ports, and it does not carry traffic in the other direction. A student process cannot ask the control plane for one; only the control plane's registry decides what the gateway may reach. (The agent runs as the student and its token is readable by that user, so a student can open a forward on their own container's interface directly; it reaches only the platform VM and grants nothing the student does not already have. Recorded as a residual in STATUS.md.)
 
 ## 12. Preview UI behavior
 
@@ -399,7 +399,11 @@ The exact sandbox and Permissions Policy must be compatibility-tested. Do not ad
 
 If the student application sends `X-Frame-Options` or a CSP `frame-ancestors` directive that blocks embedding, Portikus must preserve the application's policy and offer **Open in new tab**. It must not silently strip security headers in the default mode.
 
-Reserved edge paths beginning with `/__portikus/` must be handled before proxying and must never reach the student application. They include at least bootstrap, health/error rendering, cross-port routing, and reset-preview-data functions.
+The Portikus page cannot detect that refusal for itself: Chromium fires the frame's `load` event even for a navigation it refused, and a parent may not read a cross-origin frame's response headers. So the control plane asks on the student's behalf. `GET /workspaces/{id}/preview/embeddable?port=N` sends one `HEAD /` to the application (falling back to `GET /` with the body discarded if HEAD is refused, with a three-second timeout) and answers `{ embeddable, reason? }`, where `reason` is `x-frame-options`, `frame-ancestors` or `unreachable`. `DENY` and `SAMEORIGIN` both count as refusals, because the preview host is never the Portikus origin, and a `frame-ancestors` list counts as a refusal unless it names the Portikus origin or `*`. A refusal puts the tab straight into the blocked state with **Open in new tab**; an unreachable application keeps the eight-second load timeout, which remains the fallback.
+
+This is the one place where the control plane speaks HTTP to a student application. The address probed comes from the workspace row and the listening registry, exactly as `/preview/authorize` takes it, never from anything the request carries, so the caller chooses a workspace and a port and never a host: server-side request forgery is not possible here. Only the two framing headers are read, and no part of the application's body is read or returned.
+
+Reserved edge paths beginning with `/__portikus/` must be handled before proxying and must never reach the student application. They include at least bootstrap, health/error rendering, cross-port routing, and reset-preview-data functions. That precedence holds at the edge, but a service worker the application registered at the root of the preview origin can answer a navigation the frame makes before the request leaves the browser. Reset preview data is therefore driven from the Portikus page, which no such worker controls, rather than by navigating the frame.
 
 ## 13. Header and URL behavior
 
@@ -512,7 +516,17 @@ The preview gateway may target only registered workspace services. It must not r
 
 ### 16.4 Service workers and stored state
 
-Service workers are scoped to the preview origin. Edge-owned `/__portikus/` paths must take precedence over the upstream, even if a service worker exists. Provide a reset action whose edge response uses `Clear-Site-Data` where supported and rotates or deletes the preview session as appropriate.
+Service workers are scoped to the preview origin. Edge-owned `/__portikus/` paths must take precedence over the upstream, even if a service worker exists. A worker whose scope covers the origin can still answer requests made by pages it controls, the preview frame among them, so Portikus must not rely on a frame navigation to reach a reserved path.
+
+Reset preview data therefore runs in three steps from the Portikus page: revoke the workspace's preview sessions through the control plane, then fetch `/__portikus/reset` on the preview origin from the Portikus document, then take a fresh grant and bootstrap the frame again. The worker does not control the Portikus document, so that fetch reaches the edge.
+
+What the reset answer clears, exactly:
+
+- `Clear-Site-Data: "storage"` drops the preview origin's local storage, session storage, IndexedDB, cache storage and service worker registrations.
+- A `Set-Cookie` expires the Portikus preview cookie for that origin.
+- One further `Set-Cookie` per cookie name the request carried expires that name with `Path=/`, `Max-Age=0`, and `Secure` where the site is https. The fetch is made with credentials, so in the same-site deployment it carries the preview origin's cookies; Caddy strips only the Portikus preview cookie before the API sees the request, so what is left is the student application's own cookies. A cookie the application set on a narrower path, or for a parent domain, is not cleared: nothing in the request says which it was.
+
+The `"cookies"` directive must never be sent: browsers apply it to the whole registrable domain, which in a same-site deployment the Portikus host shares with the preview hosts, so it would delete the student's Portikus session cookie and sign them out. The reset response is the same whether or not a preview cookie came with the request, so an unauthenticated caller can at most clear its own browser's data for that one origin.
 
 ### 16.5 Logging
 
@@ -538,6 +552,7 @@ type PreviewGrant = {
   port: number;
   previewHost: string;
   presentation: "embedded" | "top-level";
+  sessionId: string; // the main Portikus session the grant was issued in
   ticketHash: string;
   expiresAt: string;
   consumedAt?: string;
@@ -551,7 +566,6 @@ type PreviewSession = {
   workspaceId: string;
   port: number;
   previewHost: string;
-  partitioned: boolean;
   createdAt: string;
   revokedAt?: string;
 };

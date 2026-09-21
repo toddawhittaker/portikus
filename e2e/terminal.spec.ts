@@ -368,10 +368,14 @@ test("a localhost URL in the output opens the preview route", async ({
 	await clickTerminalText(page, "http://localhost:3000/x");
 
 	const [previewProject] = await projectIds(student.workspaceId);
+	// The preview route hands over to the project screen, which opens the
+	// Preview tab for that port (SPEC.md §14.6, §14.9).
 	await expect(page).toHaveURL(
-		`/workspaces/${student.workspaceId}/projects/${previewProject}/preview/3000`,
+		`/workspaces/${student.workspaceId}/projects/${previewProject}?preview=3000`,
 	);
-	await expect(page.getByRole("heading", { name: "Preview" })).toBeVisible();
+	await expect(page.getByTestId("tab-preview:3000")).toBeVisible({
+		timeout: 15_000,
+	});
 });
 
 test("the title bar follows cd", async ({ page, context }) => {
@@ -643,8 +647,12 @@ test("a URL wrapped over rows is one link on every row it covers", async ({
 	await clickTerminalText(page, marker);
 
 	const [previewProject] = await projectIds(student.workspaceId);
+	// The preview route hands over to the project screen, which opens the
+	// Preview tab for that port (SPEC.md §14.6, §14.9).
 	await expect(page).toHaveURL(
-		`/workspaces/${student.workspaceId}/projects/${previewProject}/preview/3000`,
+		`/workspaces/${student.workspaceId}/projects/${previewProject}?preview=3000`,
 	);
-	await expect(page.getByRole("heading", { name: "Preview" })).toBeVisible();
+	await expect(page.getByTestId("tab-preview:3000")).toBeVisible({
+		timeout: 15_000,
+	});
 });

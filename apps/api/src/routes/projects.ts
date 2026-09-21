@@ -45,6 +45,15 @@ const ListQuery = z.object({ state: ProjectState.default("active") });
  */
 const MAX_DISCOVERED_PROJECTS = 200;
 
+/** PostgreSQL's unique-violation code, for a write two listings raced on. */
+function isUniqueViolation(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		(error as { code?: unknown }).code === "23505"
+	);
+}
+
 function toProject(
 	row: ProjectRow,
 	isGitRepo: boolean | null,
@@ -80,6 +89,119 @@ function countPanes(node: SplitNode): number {
 	return node.children.reduce((total, child) => total + countPanes(child), 0);
 }
 
+/** One directory under `~/projects`, as the agent reported it. */
+interface AgentDirectory {
+	isGitRepo: boolean;
+	directoryId: string | null;
+}
+
+/**
+ * Follow projects whose directory was renamed in the shell (issue #238).
+ *
+ * The marker is the directory's inode, which `mv` keeps and which the agent
+ * reports as `directoryId`. It was chosen over the alternatives because it
+ * needs nothing written into the student's project, it works for a plain
+ * folder as well as a repository, and it cannot be confused between two
+ * clones of the same remote. A copy, or a restore from a recovery archive,
+ * gets a new inode and is honestly a new project.
+ *
+ * Two passes, both cheap and idempotent, run before discovery on every
+ * listing: first record the id of every directory a row already names, then
+ * move any row whose directory is gone to the directory carrying its id.
+ */
+async function relocateMovedProjects(
+	db: Kysely<Database>,
+	workspaceId: string,
+	directories: Map<string, AgentDirectory>,
+): Promise<{ id: string; slug: string }[]> {
+	const rows = await listRows(db, workspaceId).execute();
+
+	// Pass one: learn the id of each directory a row still names. Only a blank
+	// is filled in; a row that already carries a different id means two rows
+	// disagree about one directory, which pass two sorts out.
+	for (const row of rows) {
+		const here = directories.get(row.slug);
+		if (!here?.directoryId || row.directory_id !== null) continue;
+		try {
+			await db
+				.updateTable("projects")
+				.set({ directory_id: here.directoryId })
+				.where("id", "=", row.id)
+				.where("directory_id", "is", null)
+				.execute();
+		} catch (error) {
+			// Another row of this workspace already holds that identity, which
+			// only one row may. Leaving this one blank is right: the listing
+			// must not fail over a directory the agent reported oddly.
+			if (!isUniqueViolation(error)) throw error;
+			continue;
+		}
+		row.directory_id = here.directoryId;
+	}
+
+	// Pass two: a row whose directory is gone follows its id to the new slug.
+	const claimed = new Set(rows.map((row) => row.slug));
+	const byDirectoryId = new Map<string, string>();
+	for (const [slug, dir] of directories) {
+		if (dir.directoryId && !claimed.has(slug)) byDirectoryId.set(dir.directoryId, slug);
+	}
+
+	const moved: { id: string; slug: string }[] = [];
+	for (const row of rows) {
+		if (row.directory_id === null) continue;
+		// A directory still under the row's slug only counts as the row's own
+		// when it carries the same identity. `mv foo bar` followed by a new
+		// repository at `foo` leaves a stranger there, and the row must follow
+		// its own directory to `bar` rather than adopt the newcomer.
+		const here = directories.get(row.slug);
+		if (here && (here.directoryId === null || here.directoryId === row.directory_id)) {
+			continue;
+		}
+		const slug = byDirectoryId.get(row.directory_id);
+		if (slug === undefined) continue;
+		byDirectoryId.delete(row.directory_id);
+		await moveProjectRow(db, row, slug);
+		moved.push({ id: row.id, slug });
+	}
+	return moved;
+}
+
+/**
+ * Point a project row at a directory that has a new name, and bring its
+ * terminals' working directories along (SPEC.md §7.1, "Rename"). A project
+ * still called after its old folder is renamed too, because that name was
+ * never chosen by the student; a name the student typed is left alone.
+ */
+async function moveProjectRow(
+	db: Kysely<Database>,
+	row: ProjectRow,
+	slug: string,
+): Promise<void> {
+	const oldPath = row.path;
+	const newPath = projectPath(slug);
+	const name = row.name === row.slug ? slug : row.name;
+	await db.transaction().execute(async (trx) => {
+		await trx
+			.updateTable("projects")
+			.set({ slug, name, path: newPath })
+			.where("id", "=", row.id)
+			.execute();
+		const terminals = await trx
+			.selectFrom("terminals")
+			.selectAll()
+			.where("project_id", "=", row.id)
+			.execute();
+		for (const terminal of terminals) {
+			if (terminal.cwd !== oldPath && !terminal.cwd.startsWith(`${oldPath}/`)) continue;
+			await trx
+				.updateTable("terminals")
+				.set({ cwd: newPath + terminal.cwd.slice(oldPath.length) })
+				.where("id", "=", terminal.id)
+				.execute();
+		}
+	});
+}
+
 /**
  * Project management (SPEC.md §7, §26). The database row is the record; the
  * directory under `~/projects` belongs to the workspace agent, which the API
@@ -108,7 +230,7 @@ export function registerProjectRoutes(
 			return sendError(reply, 400, "VALIDATION_FAILED", query.error.message);
 		}
 
-		let directories: Map<string, boolean> | null = null;
+		let directories: Map<string, AgentDirectory> | null = null;
 		let truncated = false;
 		if (scope.agent) {
 			try {
@@ -122,10 +244,27 @@ export function registerProjectRoutes(
 					entries = entries.slice(0, MAX_DISCOVERED_PROJECTS);
 					truncated = true;
 				}
-				directories = new Map(entries.map((p) => [p.slug, p.isGitRepo]));
+				directories = new Map(
+					entries.map((p) => [
+						p.slug,
+						{ isGitRepo: p.isGitRepo, directoryId: p.directoryId ?? null },
+					]),
+				);
 			} catch {
 				// A workspace whose agent is down still has projects to show.
 				directories = null;
+			}
+		}
+
+		// A project the student renamed with `mv` follows its directory to the
+		// new slug, keeping its id, tabs and layout (issue #238).
+		if (directories && query.data.state === "active") {
+			const relocated = await relocateMovedProjects(db, scope.workspaceId, directories);
+			for (const move of relocated) {
+				request.log.info(
+					{ workspaceId: scope.workspaceId, projectId: move.id, to: move.slug },
+					"project followed its directory",
+				);
 			}
 		}
 
@@ -142,21 +281,23 @@ export function registerProjectRoutes(
 				.execute();
 			const knownSlugs = new Set(known.map((row) => row.slug));
 			const discovered = [...directories]
-				.filter(([slug, isGitRepo]) => isGitRepo && !knownSlugs.has(slug))
-				.map(([slug]) => ({
+				.filter(([slug, dir]) => dir.isGitRepo && !knownSlugs.has(slug))
+				.map(([slug, dir]) => ({
 					workspace_id: scope.workspaceId,
 					slug,
 					name: slug,
 					path: projectPath(slug),
 					source: "discovered",
+					directory_id: dir.directoryId,
 				}));
 			if (discovered.length > 0) {
-				// One statement, and it still ignores conflicts, so two listings at
-				// once cannot collide on the workspace and slug unique constraint.
+				// One statement, and it ignores every conflict, so neither a racing
+				// listing nor a directory whose identity some row already holds can
+				// turn a page load into a failure.
 				await db
 					.insertInto("projects")
 					.values(discovered)
-					.onConflict((oc) => oc.columns(["workspace_id", "slug"]).doNothing())
+					.onConflict((oc) => oc.doNothing())
 					.execute();
 			}
 		}
@@ -183,7 +324,7 @@ export function registerProjectRoutes(
 				directories
 					? toProject(
 							row,
-							directories.get(row.slug) ?? false,
+							directories.get(row.slug)?.isGitRepo ?? false,
 							!directories.has(row.slug),
 						)
 					: toProject(row, null, null),

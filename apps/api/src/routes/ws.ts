@@ -1,8 +1,9 @@
 import type { WebSocket } from "@fastify/websocket";
 import { loadSession } from "@portikus/auth";
-import type { Workspace } from "@portikus/contracts";
+import type { ListeningService, Workspace } from "@portikus/contracts";
 import { ClientMessage, type ServerMessage } from "@portikus/events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { ListeningRegistry } from "../preview/registry.js";
 import type { ServerDeps } from "../server.js";
 import {
 	createPendingWork,
@@ -44,7 +45,7 @@ function signatureOf(workspace: Workspace): string {
  */
 export function registerWorkspaceSocket(
 	app: FastifyInstance,
-	{ db, config, logger }: ServerDeps,
+	{ db, config, logger, registry }: ServerDeps & { registry: ListeningRegistry },
 ): void {
 	const watchers = new Map<string, Watcher>();
 
@@ -63,6 +64,13 @@ export function registerWorkspaceSocket(
 
 	function send(socket: WebSocket, workspace: Workspace): void {
 		const message: ServerMessage = { type: "workspace", workspace };
+		socket.send(JSON.stringify(message));
+	}
+
+	/** What is listening inside the workspace right now (BH §11.1). */
+	function sendListening(socket: WebSocket, services: ListeningService[]): void {
+		if (socket.readyState !== socket.OPEN) return;
+		const message: ServerMessage = { type: "listening-services", services };
 		socket.send(JSON.stringify(message));
 	}
 
@@ -151,6 +159,11 @@ export function registerWorkspaceSocket(
 
 			const workspace = await readWorkspace(workspaceId);
 			if (workspace) send(socket, workspace);
+			// The current list first, then every change while the socket lives.
+			sendListening(socket, registry.services(workspaceId));
+			const unsubscribe = registry.subscribe(workspaceId, (services) => {
+				sendListening(socket, services);
+			});
 
 			const subscriber: Subscriber = {
 				socket,
@@ -199,6 +212,7 @@ export function registerWorkspaceSocket(
 			}
 
 			async function onSocketClose(): Promise<void> {
+				unsubscribe();
 				leave(workspaceId, subscriber);
 				request.log.debug(
 					{ workspaceId, connectionId, userId: request.user?.id },

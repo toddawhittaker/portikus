@@ -1,13 +1,15 @@
 /**
- * The student's own editor settings (issue #159, SPEC.md §13.5): auto-save on
- * or off, how long after the last keystroke it writes, and word wrap. They are
- * kept on the server per user, so they follow the student between browsers.
+ * The student's own editor and terminal settings (issues #159 and #239,
+ * SPEC.md §13.5): auto-save on or off, how long after the last keystroke it
+ * writes, word wrap, and the terminal colour scheme. They are kept on the
+ * server per user, so they follow the student between browsers.
  */
 import {
 	EDITOR_SETTINGS_DEFAULTS,
+	type TerminalTheme,
 	type UpdateEditorSettingsRequest,
 } from "@portikus/contracts";
-import { Button, Checkbox, Dialog, DialogRoot, TextField } from "@portikus/ui";
+import { Button, Checkbox, Dialog, DialogRoot, Select, TextField } from "@portikus/ui";
 import { useState } from "react";
 import {
 	useEditorSettings,
@@ -17,6 +19,11 @@ import {
 /** The delay a student may ask for, in seconds (contracts/settings.ts). */
 const MIN_DELAY = 1;
 const MAX_DELAY = 60;
+
+const TERMINAL_THEME_OPTIONS = [
+	{ value: "dark", label: "Dark" },
+	{ value: "light", label: "Light" },
+];
 
 export function EditorSettingsDialog({ onClose }: { onClose: () => void }) {
 	const settings = useEditorSettings();
@@ -32,6 +39,7 @@ export function EditorSettingsDialog({ onClose }: { onClose: () => void }) {
 
 	const autoSave = draft.autoSave ?? current.autoSave;
 	const wordWrap = draft.wordWrap ?? current.wordWrap;
+	const terminalTheme = draft.terminalTheme ?? current.terminalTheme;
 	const delay =
 		delayText ?? String(draft.autoSaveDelaySeconds ?? current.autoSaveDelaySeconds);
 
@@ -47,6 +55,7 @@ export function EditorSettingsDialog({ onClose }: { onClose: () => void }) {
 			autoSave,
 			autoSaveDelaySeconds: parsedDelay,
 			wordWrap,
+			terminalTheme,
 		};
 		update.mutate(body, { onSuccess: onClose });
 	}
@@ -110,6 +119,19 @@ export function EditorSettingsDialog({ onClose }: { onClose: () => void }) {
 							setDraft((current) => ({ ...current, wordWrap: event.target.checked }))
 						}
 						className="pk-setting-wordwrap"
+					/>
+					<Select
+						id="terminal-theme"
+						label="Terminal colours"
+						hint="Some rooms and projectors read better with a light terminal."
+						options={TERMINAL_THEME_OPTIONS}
+						value={terminalTheme}
+						onValueChange={(value) =>
+							setDraft((current) => ({
+								...current,
+								terminalTheme: value as TerminalTheme,
+							}))
+						}
 					/>
 					<button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
 				</form>

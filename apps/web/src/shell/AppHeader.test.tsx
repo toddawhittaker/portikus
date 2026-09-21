@@ -177,3 +177,9 @@ test("a student gets no Administration link", () => {
 
 	expect(screen.queryByTestId("admin-link")).toBeNull();
 });
+
+test("the header has no search button; find in files lives in the files pane (issue #241)", () => {
+	renderHeader();
+
+	expect(screen.queryByRole("button", { name: /search/i })).toBeNull();
+});

@@ -14,10 +14,13 @@ export type HealthResponse = z.infer<typeof HealthResponse>;
 
 export * from "./agent.js";
 export * from "./auth.js";
+export * from "./checks.js";
 export * from "./controller.js";
 export * from "./events.js";
 export * from "./files.js";
 export * from "./git.js";
+export * from "./listening.js";
+export * from "./preview.js";
 export * from "./project.js";
 export * from "./search.js";
 export * from "./settings.js";

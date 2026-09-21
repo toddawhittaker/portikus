@@ -157,6 +157,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 				provider.start(params.name, {
 					timeoutSeconds: bodyResult.data.timeoutSeconds,
 					agentToken: bodyResult.data.agentToken,
+					hostname: bodyResult.data.hostname,
 				}),
 			);
 			request.log.info(

@@ -29,6 +29,8 @@ export type DesiredState = z.infer<typeof DesiredState>;
 export const Workspace = z.object({
 	id: z.string().uuid(),
 	ownerUserId: z.string().uuid(),
+	/** DNS label naming the container hostname and preview hosts (Epic 8). */
+	label: z.string().min(1),
 	state: WorkspaceState,
 	desiredState: DesiredState,
 	incusInstanceName: z.string().nullable(),
@@ -46,6 +48,49 @@ export const Workspace = z.object({
 	updatedAt: z.string().datetime(),
 });
 export type Workspace = z.infer<typeof Workspace>;
+
+/** Longest a workspace label may be (SPEC.md Epic 8). */
+export const MAX_WORKSPACE_LABEL_LENGTH = 40;
+
+/**
+ * Derive a workspace label from the identity provider's
+ * `preferred_username` (SPEC.md Epic 8, BROWSER-HANDLING.md §8).
+ *
+ * The label names the container hostname and every preview host, so it must
+ * be a valid DNS label: lowercase, only letters, digits, and single hyphens,
+ * no leading or trailing hyphen, and at most 40 characters. A label that
+ * would start with a digit gets a `u` in front, so `1234-5173.<suffix>` can
+ * never be read as a port where a name belongs.
+ *
+ * `fallbackHex` is 8 hex characters the caller generates; it is used when
+ * the claim is missing or reduces to nothing.
+ */
+export function deriveWorkspaceLabel(
+	preferredUsername: string | null | undefined,
+	fallbackHex: string,
+): string {
+	const fallback = `ws-${fallbackHex}`;
+
+	if (typeof preferredUsername !== "string") return fallback;
+
+	const reduced = preferredUsername
+		.toLowerCase()
+		.replace(/[^a-z0-9-]+/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, MAX_WORKSPACE_LABEL_LENGTH)
+		.replace(/-+$/g, "");
+
+	if (reduced.length === 0) return fallback;
+
+	// A label of digits only would be ambiguous with the port in a preview
+	// host, and a leading digit is not a conventional DNS label either.
+	const safe = /^[0-9]/.test(reduced)
+		? `u${reduced}`.slice(0, MAX_WORKSPACE_LABEL_LENGTH)
+		: reduced;
+
+	return safe.replace(/-+$/g, "");
+}
 
 /**
  * Request body for `POST /workspaces` (SPEC.md §6.2). The owner comes from
@@ -89,6 +134,14 @@ export const ApiErrorCode = z.enum([
 	"SEARCH_FAILED",
 	"WATCH_FAILED",
 	"AGENT_UNAVAILABLE",
+	// The preview routes (BROWSER-HANDLING.md §9.1).
+	"WORKSPACE_NOT_RUNNING",
+	"PREVIEW_PORT_NOT_ALLOWED",
+	"PREVIEW_FORWARD_FAILED",
+	"PREVIEW_RATE_LIMITED",
+	"CHECK_NOT_FOUND",
+	"CHECK_RUNNING",
+	"CHECK_NOT_RUNNING",
 	"OPERATION_IN_PROGRESS",
 	"NOT_IMPLEMENTED",
 	"INTERNAL",

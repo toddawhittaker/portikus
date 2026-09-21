@@ -1,8 +1,4 @@
-import {
-	MAX_LAYOUT_TABS,
-	type ProjectLayout,
-	type SplitNode,
-} from "@portikus/contracts";
+import type { ProjectLayout, SplitNode } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import {
 	addTab,
@@ -349,25 +345,6 @@ test("moveLeafToNewTab ignores a terminal that has no pane", () => {
 	expect(moveLeafToNewTab(layout, "zz", 0, "new1")).toBe(layout);
 });
 
-test("a new tab past the tab limit is refused", () => {
-	const tabs = Array.from({ length: 16 }, (_, index) => ({
-		id: `tab${index}`,
-		root: leaf(`t${index}`),
-	}));
-	// The first tab has two panes, so pulling one out would make a 17th tab.
-	const full: ProjectLayout = {
-		tabs: [
-			{
-				id: "tab0",
-				root: splitLeaf(oneTab(leaf("t0"), "tab0"), "t0", "row", "extra").tabs[0]
-					?.root as SplitNode,
-			},
-			...tabs.slice(1),
-		],
-	};
-	expect(moveLeafToNewTab(full, "extra", 0, "fresh")).toBe(full);
-});
-
 test("a pane dragged out of a tab named after it gets a fresh tab id", () => {
 	// Reconcile names each tab after its terminal, so tab "a" holds leaf "a".
 	let layout = addTab(emptyLayout(), "a", "a");
@@ -456,32 +433,32 @@ test("a file leaf cannot be split or moved", () => {
 	expect(moveLeaf(mixed, "file:src/app.ts", "a", "src/app.ts", "right")).toBe(mixed);
 });
 
-test("opening a document is refused when the tab strip is full", () => {
+test("a tab strip has no cap: a seventeenth tab opens (issue #240)", () => {
 	let layout = emptyLayout();
-	for (let i = 0; i < MAX_LAYOUT_TABS; i++) layout = addTab(layout, `t${i}`, `t${i}`);
-	expect(openFile(layout, "src/app.ts")).toBeNull();
-	// A path already open still comes back, full strip or not.
-	const full = must(openFile(removeLeaf(layout, "t0"), "src/app.ts")).layout;
-	expect(must(openFile(full, "src/app.ts")).layout).toBe(full);
+	for (let i = 0; i < 16; i++) layout = addTab(layout, `t${i}`, `t${i}`);
+	const opened = must(openFile(layout, "src/app.ts"));
+	expect(opened.layout.tabs).toHaveLength(17);
+	// A path already open still comes back rather than opening twice.
+	expect(must(openFile(opened.layout, "src/app.ts")).layout).toBe(opened.layout);
 });
 
-test("reconcile closes the oldest document tab to place a new terminal", () => {
+test("reconcile places every terminal, however many tabs are open (issue #240)", () => {
 	let layout = must(openFile(emptyLayout(), "src/a.ts")).layout;
 	layout = must(openFile(layout, "src/b.ts")).layout;
-	for (let i = 0; i < MAX_LAYOUT_TABS - 2; i++) {
-		layout = addTab(layout, `t${i}`, `t${i}`);
-	}
+	for (let i = 0; i < 16; i++) layout = addTab(layout, `t${i}`, `t${i}`);
 	const next = reconcile(layout, [...layoutTerminalIds(layout), "fresh"]);
-	expect(next.tabs).toHaveLength(MAX_LAYOUT_TABS);
-	expect(next.tabs.map((tab) => tab.id)).not.toContain("file:src/a.ts");
+	expect(next.tabs).toHaveLength(19);
+	// The document tabs stay: nothing has to give up its place any more.
+	expect(next.tabs.map((tab) => tab.id)).toContain("file:src/a.ts");
 	expect(next.tabs.map((tab) => tab.id)).toContain("file:src/b.ts");
 	expect(layoutTerminalIds(next)).toContain("fresh");
 });
 
-test("reconcile leaves a terminal unplaced when every full tab is a terminal", () => {
+test("a pane dragged out to the strip becomes a tab however full it is", () => {
 	let layout = emptyLayout();
-	for (let i = 0; i < MAX_LAYOUT_TABS; i++) layout = addTab(layout, `t${i}`, `t${i}`);
-	const next = reconcile(layout, [...layoutTerminalIds(layout), "fresh"]);
-	expect(next.tabs).toHaveLength(MAX_LAYOUT_TABS);
-	expect(layoutTerminalIds(next)).not.toContain("fresh");
+	for (let i = 0; i < 16; i++) layout = addTab(layout, `t${i}`, `t${i}`);
+	layout = splitLeaf(layout, "t0", "row", "extra");
+	const next = moveLeafToNewTab(layout, "extra", 0, "fresh");
+	expect(next.tabs).toHaveLength(17);
+	expect(next.tabs[0]?.id).toBe("fresh");
 });

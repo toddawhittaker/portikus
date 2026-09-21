@@ -119,9 +119,7 @@ test.skipIf(skip)(
 		expect(aliceFirst.workspace.id).toBe(alice.workspaceId);
 		expect(bobFirst.workspace.id).toBe(bob.workspaceId);
 
-		const aliceUpdate = aliceSocket.next() as Promise<{
-			workspace: { id: string; state: string };
-		}>;
+		const aliceUpdate = aliceSocket.nextOf("workspace");
 		await testDb.db
 			.updateTable("workspaces")
 			.set({ state: "running", updated_at: new Date().toISOString() })
@@ -133,9 +131,8 @@ test.skipIf(skip)(
 		expect(message.workspace.state).toBe("running");
 
 		// Bob's socket must still have seen nothing but his own workspace.
-		for (const seen of bobSocket.messages as Array<{
-			workspace: { id: string };
-		}>) {
+		for (const seen of bobSocket.messages) {
+			if (seen.type !== "workspace") continue;
 			expect(seen.workspace.id).toBe(bob.workspaceId);
 		}
 
