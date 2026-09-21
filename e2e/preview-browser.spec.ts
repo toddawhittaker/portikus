@@ -232,6 +232,8 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
  */
 function startApp(
 	title: string,
+	/** Sent as `X-Frame-Options` on every answer, for the refused-framing path. */
+	frameOptions?: string,
 ): Promise<{ port: number; close: () => Promise<void> }> {
 	const page = (body: string) =>
 		`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>` +
@@ -280,6 +282,7 @@ function startApp(
 
 	const server = createServer((request, response) => {
 		const url = new URL(request.url ?? "/", "http://app.invalid");
+		if (frameOptions) response.setHeader("x-frame-options", frameOptions);
 		if (url.pathname === "/sw.js") {
 			response.writeHead(200, {
 				"content-type": "text/javascript",
@@ -328,8 +331,9 @@ function startApp(
 async function startPreview(
 	workspaceId: string,
 	title: string,
+	frameOptions?: string,
 ): Promise<{ port: number; close: () => Promise<void>; stop: () => Promise<void> }> {
-	const app = await startApp(title);
+	const app = await startApp(title, frameOptions);
 	await seedListening(workspaceId, [{ port: app.port }]);
 	return {
 		port: app.port,
@@ -523,6 +527,57 @@ test.describe("the preview in a real browser", () => {
 	});
 
 	/**
+	 * An application that refuses framing must be offered in a new tab, and
+	 * quickly: Chromium fires the frame's load event for the refused
+	 * navigation, so without the control plane's probe the tab would sit blank
+	 * (BROWSER-HANDLING.md §12).
+	 */
+	test("an application that refuses framing is offered in a new tab", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Refuses", "DENY");
+		await openPreviewTab(page, student.workspaceId, app.port);
+
+		// Well inside the eight-second load timeout, so the probe is what
+		// reached this state and not the fallback.
+		await expect(page.getByTestId("preview-blocked")).toBeVisible({
+			timeout: 5_000,
+		});
+		await expect(page.getByTestId("preview-blocked-new-tab")).toBeVisible();
+
+		// The tab is opened with noopener, so it arrives as a new page in the
+		// context rather than as an opener's popup.
+		await page.getByTestId("preview-blocked-new-tab").click();
+		let opened: Page | undefined;
+		await expect
+			.poll(
+				() => {
+					opened = context.pages().find((one) => {
+						try {
+							return new URL(one.url()).hostname.endsWith(PREVIEW_SUFFIX);
+						} catch {
+							return false;
+						}
+					});
+					return opened !== undefined;
+				},
+				{ timeout: 20_000 },
+			)
+			.toBe(true);
+		if (!opened) throw new Error("no tab opened on the preview origin");
+		await expect(opened.locator("#title")).toHaveText("Refuses", { timeout: 20_000 });
+		await opened.close();
+
+		// The notice stays: the load event the refused navigation fired must
+		// not clear a verdict the control plane got from the application.
+		await expect(page.getByTestId("preview-blocked")).toBeVisible();
+		await app.close();
+	});
+
+	/**
 	 * What this file can and cannot see of a reset.
 	 *
 	 * Chromium applies `Clear-Site-Data` to answers that come off the network,
@@ -567,7 +622,7 @@ test.describe("the preview in a real browser", () => {
 		// clears the origin's cookies, storage and worker registrations.
 		const reset = seen.reserved.filter((one) => one.path === "/__portikus/reset");
 		expect(reset).toHaveLength(1);
-		expect(reset[0]?.clearSiteData).toBe('"cookies", "storage"');
+		expect(reset[0]?.clearSiteData).toBe('"storage"');
 		await app.close();
 	});
 
@@ -597,7 +652,7 @@ test.describe("the preview in a real browser", () => {
 		// service-worker test for why the clearing itself is not visible here.
 		const reset = seen.reserved.filter((one) => one.path === "/__portikus/reset");
 		expect(reset).toHaveLength(1);
-		expect(reset[0]?.clearSiteData).toBe('"cookies", "storage"');
+		expect(reset[0]?.clearSiteData).toBe('"storage"');
 		await app.close();
 	});
 

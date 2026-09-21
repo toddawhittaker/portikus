@@ -676,6 +676,109 @@ test.skipIf(skip)("a preview session of one user never serves another", async ()
 	expect(response.headers["x-portikus-upstream"]).toBeUndefined();
 });
 
+// ── The framing probe (BROWSER-HANDLING.md §12) ──
+
+/** Start a real application inside the fake agent and wait for the registry. */
+async function startApp(frameOptions?: string): Promise<number> {
+	const created = await fetch(`http://127.0.0.1:${agent.port}/__test/app`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, title: "Framing", frameOptions }),
+	});
+	expect(created.status).toBe(201);
+	const { port } = (await created.json()) as { port: number };
+	await until(async () => {
+		const seen = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/listening`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		return (seen.json().services as { port: number }[]).some(
+			(one) => one.port === port,
+		);
+	});
+	return port;
+}
+
+async function embeddable(
+	port: number,
+	id: string = workspaceId,
+	jar: CookieJar = alice,
+) {
+	return app.inject({
+		method: "GET",
+		url: `/workspaces/${id}/preview/embeddable?port=${port}`,
+		headers: { cookie: jar.cookieHeader() },
+	});
+}
+
+test.skipIf(skip)("an ordinary application is reported as embeddable", async () => {
+	const port = await startApp();
+	const response = await embeddable(port);
+	expect(response.statusCode).toBe(200);
+	expect(response.json()).toEqual({ embeddable: true });
+});
+
+test.skipIf(skip)(
+	"an application that refuses framing is reported as not embeddable",
+	async () => {
+		const port = await startApp("DENY");
+		const response = await embeddable(port);
+		expect(response.statusCode).toBe(200);
+		expect(response.json()).toEqual({
+			embeddable: false,
+			reason: "x-frame-options",
+		});
+	},
+);
+
+test.skipIf(skip)(
+	"the probe never returns anything the application served",
+	async () => {
+		const port = await startApp();
+		const response = await embeddable(port);
+		// The test app's page says "Framing"; only the verdict comes back.
+		expect(response.body).not.toContain("Framing");
+		expect(Object.keys(response.json())).toEqual(["embeddable"]);
+	},
+);
+
+test.skipIf(skip)(
+	"a port the registry does not vouch for is unreachable, not probed",
+	async () => {
+		// 5174 is not in the registry at all, so no upstream can be named.
+		const response = await embeddable(5174);
+		expect(response.statusCode).toBe(200);
+		expect(response.json()).toEqual({ embeddable: false, reason: "unreachable" });
+	},
+);
+
+test.skipIf(skip)("an application that does not answer is unreachable", async () => {
+	// 5173 is seeded as listening, but no server ever bound the port.
+	const response = await embeddable(5173);
+	expect(response.statusCode).toBe(200);
+	expect(response.json()).toEqual({ embeddable: false, reason: "unreachable" });
+});
+
+test.skipIf(skip)("the probe refuses a port policy does not allow", async () => {
+	const response = await embeddable(22);
+	expect(response.statusCode).toBe(403);
+});
+
+test.skipIf(skip)("one student cannot probe another's workspace", async () => {
+	const bobs = await bobsWorkspace();
+	const response = await embeddable(5173, bobs.id);
+	expect(response.statusCode).toBe(404);
+});
+
+test.skipIf(skip)("the probe needs a session", async () => {
+	const response = await app.inject({
+		method: "GET",
+		url: `/workspaces/${workspaceId}/preview/embeddable?port=5173`,
+	});
+	expect(response.statusCode).toBe(401);
+});
+
 // ── Reset (BROWSER-HANDLING.md §16.4) ──
 
 test.skipIf(skip)("resetting a workspace's previews revokes its sessions", async () => {
@@ -723,7 +826,7 @@ test.skipIf(skip)("the reset page clears the cookie and stored data", async () =
 		},
 	});
 	expect(response.statusCode).toBe(200);
-	expect(response.headers["clear-site-data"]).toBe('"cookies", "storage"');
+	expect(response.headers["clear-site-data"]).toBe('"storage"');
 	expect(String(response.headers["set-cookie"])).toContain(`${COOKIE}=`);
 	expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(401);
 });
@@ -740,7 +843,7 @@ test.skipIf(skip)(
 			headers: { "x-forwarded-host": previewHostFor(5173) },
 		});
 		expect(response.statusCode).toBe(200);
-		expect(response.headers["clear-site-data"]).toBe('"cookies", "storage"');
+		expect(response.headers["clear-site-data"]).toBe('"storage"');
 		expect(String(response.headers["set-cookie"])).toContain(`${COOKIE}=`);
 		expect(response.headers["cache-control"]).toBe("no-store");
 		expect(response.headers["referrer-policy"]).toBe("no-referrer");
