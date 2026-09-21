@@ -204,21 +204,34 @@ test("a viewport preset limits the width of the frame", async () => {
 	expect(screen.getByTestId("preview-frame").style.maxWidth).toBe("768px");
 });
 
-test("resetting preview data posts to the reset route and asks for a fresh grant", async () => {
+test("resetting preview data revokes, clears the origin, and re-grants", async () => {
+	// Three steps in order (BROWSER-HANDLING.md §16.4). The middle one goes to
+	// the preview origin from this page, because a service worker inside the
+	// frame could answer a navigation the frame made itself.
 	const seen: string[] = [];
-	stubFetch((url) => {
+	const modes: (string | undefined)[] = [];
+	stubFetch((url, init) => {
 		seen.push(url);
+		modes.push(init?.mode);
 		return url.endsWith("/preview/reset") ? json(204, null) : json(200, GRANT);
 	});
 	show({});
 	await screen.findByTestId("preview-frame");
+	const grantsBefore = seen.filter((url) => url.endsWith("/preview-grants")).length;
 	fireEvent.click(screen.getByTestId("preview-reset"));
-	await waitFor(() => expect(seen).toContain(`/workspaces/${WORKSPACE}/preview/reset`));
+
 	await waitFor(() =>
 		expect(
 			seen.filter((url) => url.endsWith("/preview-grants")).length,
-		).toBeGreaterThan(1),
+		).toBeGreaterThan(grantsBefore),
 	);
+	const revoke = seen.indexOf(`/workspaces/${WORKSPACE}/preview/reset`);
+	const clear = seen.indexOf(`${GRANT.previewOrigin}/__portikus/reset`);
+	const regrant = seen.map((url) => url.endsWith("/preview-grants")).lastIndexOf(true);
+	expect(revoke).toBeGreaterThanOrEqual(0);
+	expect(clear).toBeGreaterThan(revoke);
+	expect(regrant).toBeGreaterThan(clear);
+	expect(modes[clear]).toBe("no-cors");
 });
 
 test("open in a new tab asks for a top-level grant", async () => {
