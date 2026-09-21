@@ -55,6 +55,16 @@ export const StartInstanceRequest = z.object({
 			"Must be a lowercase DNS label with no leading or trailing hyphen",
 		)
 		.max(40),
+	// The preview host suffix, pushed into the container on every start so
+	// shells and dev servers can name the preview host (issue #263,
+	// BROWSER-HANDLING.md section 14). Never carries a credential.
+	previewHostSuffix: z
+		.string()
+		.regex(
+			/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/,
+			"Must be a lowercase DNS name",
+		)
+		.max(253),
 });
 export type StartInstanceRequest = z.infer<typeof StartInstanceRequest>;
 

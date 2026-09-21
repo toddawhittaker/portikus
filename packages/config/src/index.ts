@@ -240,10 +240,23 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	STATUS_REFRESH_SECONDS: positiveInt.default(15),
 	WORKSPACE_HOME_SIZE_GIB: positiveInt.default(25),
 	WORKSPACE_DOCKER_SIZE_GIB: positiveInt.default(20),
-}).refine(
-	requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),
-	productionSecretMessage("CONTROLLER_TOKEN"),
-);
+	/**
+	 * The preview suffix the worker hands to the controller, which writes it
+	 * into every workspace so shells and dev servers know the preview host
+	 * (issue #263). Must match the API's value.
+	 */
+	PREVIEW_SUFFIX: z.string().min(1).default(DEV_PREVIEW_SUFFIX),
+})
+	.refine(
+		requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),
+		productionSecretMessage("CONTROLLER_TOKEN"),
+	)
+	.refine((config) => DNS_NAME.test(config.PREVIEW_SUFFIX), {
+		message:
+			"PREVIEW_SUFFIX must be a lowercase DNS name of at least two labels, " +
+			"with no scheme, port, or trailing dot",
+		path: ["PREVIEW_SUFFIX"],
+	});
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
 
 /**
