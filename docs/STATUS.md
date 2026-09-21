@@ -609,6 +609,254 @@ preview resolve against the app origin and show as broken images. Parallel local
 end-to-end runs still collide on fixed ports and one shared database;
 per-run e2e ports and database are tracked in `docs/BACKLOG.md`.
 
+## Epic 8 — Verification, running services, and authenticated preview
+
+Epic 8 is on the `epic/8-preview` branch and has not been merged to
+`main`. It delivers phases A and B of `docs/BROWSER-HANDLING.md`: a
+student can see which services are listening inside their workspace, run
+the project's own checks, and open a running web application inside
+Portikus on a host that only they can reach. ADR 0018 settled the three
+decisions the design had left open before any code was written (#243).
+
+**Workspace label and container hostname.** Every workspace now has a
+label, derived once when the workspace is created from the identity
+provider's `preferred_username` claim: lowercased, cut down to letters,
+digits and hyphens, capped at 40 characters, prefixed with `u` if it
+would otherwise start with a digit, and made unique with `-2`, `-3` and
+so on. A missing claim gives `ws-<8 hex>`. The label names the preview
+hosts and is pushed into the container as its hostname at every start,
+through `/etc/hostname` and a `hostname` call, so the shell prompt reads
+`student@<label>` (SPEC.md section 29 Epic 8, section 7.1; migration
+`0008_preview`) (#245).
+
+**The preview data model and configuration.** The same migration adds the
+`preview_grants` and `preview_sessions` tables of BROWSER-HANDLING.md
+section 17, holding only SHA-256 hashes of tickets and tokens, with
+foreign keys that cascade, and migration `0009` adds the main session id
+to a grant so a preview session can be tied to the Portikus session that
+created it. Five configuration keys drive the policy: `PREVIEW_SUFFIX`,
+`PREVIEW_PORT_MIN`, `PREVIEW_PORT_MAX`, `PREVIEW_DENIED_PORTS` and
+`PREVIEW_TICKET_TTL_SECONDS`. The workspace agent's own port is always
+denied whatever the list says, and the API refuses to start in production
+when the suffix is missing, is not a valid lowercase DNS name, or covers
+the application host (#245).
+
+**Grants, bootstrap and authorization.** The browser asks
+`POST /workspaces/:id/preview-grants` for a grant and gets back a preview
+origin and a one-use bootstrap URL. Opening that URL on the preview host
+sets a host-only `__Host-portikus-preview` cookie with `SameSite=Strict`
+and redirects to `/`. From then on every request through the preview edge
+is decided by `GET /preview/authorize`, which Caddy calls as a
+`forward_auth` subrequest. That endpoint answers only when the calling
+socket's own peer address is loopback — the socket, not a forwarded
+header — and it builds the internal upstream solely from the workspace
+row and the port on the preview session, never from request text. The
+upstream travels back in the `X-Portikus-Upstream` response header, which
+Caddy copies onto the request; a client copy of that header is always
+deleted first, so only the API can choose where a request goes (SPEC.md
+sections 14 and 24.7; ADR 0018 decision 2) (#249).
+
+**Revocation and reset.** A preview session dies with the main Portikus
+session: signing out, the main session expiring, stopping the workspace,
+or an explicit `POST /workspaces/:id/preview/reset` all revoke it and
+close any forwards it opened. Reset preview data is driven from the
+Portikus page rather than from inside the preview frame, because an
+application may register a service worker at the root of its own preview
+origin and that worker answers in-frame navigations before they reach the
+network. The Portikus page instead revokes the sessions, fetches
+`/__portikus/reset` on the preview origin in `no-cors` mode so the edge
+answers with `Clear-Site-Data`, and then takes a fresh grant (#249,
+#252).
+
+**Listening discovery and loopback forwards.** The workspace agent reads
+`/proc/net/tcp` and `/proc/net/tcp6` once a second, keeps the listening
+sockets, and matches each one back to the process holding it through
+`/proc`. Ports published by inner Docker containers are matched with
+`docker ps`, cached for five seconds and given 500 milliseconds to
+answer, so a workspace without Docker still gets a list. The agent never
+probes a student's service: the protocol hint is a guess from well-known
+port numbers. A service bound only to loopback is reached through a
+forward — a listener on the container's own interface, on the same port
+number, that copies bytes to `127.0.0.1:<port>` in the same container and
+nowhere else. Only the agent's `/forwards` routes can open one, a forward
+closes itself when its loopback listener disappears, and a workspace may
+hold at most eight forwards open at once, counting the preview and bridge
+ones together (SPEC.md sections 14.7 and 18.2) (#244, #255).
+
+**The listening registry.** The control plane keeps one WebSocket per
+running workspace to the agent's listening events, decided by a
+two-second poll of the running workspaces that never runs two passes at
+once. It stamps the workspace id the agent does not know onto each entry
+and marks as `denied` any port the policy refuses, which is the control
+plane's word and never the agent's. The same list goes out to the browser
+on the existing workspace socket as a `listening-services` frame: the
+current list on connect, then every change (#249, #255).
+
+**The Caddy preview edge.** A second virtual host,
+`https://*.<preview suffix>`, serves every preview origin on the same
+public port with a wildcard certificate from Caddy's internal authority.
+On the pilot the suffix defaults to `preview.<public host>`, which nip.io
+resolves without any DNS record. Inside that block,
+`/__portikus/bootstrap` and `/__portikus/reset` go to the API, every
+other reserved `/__portikus/` path is a 404 from Caddy without an API
+call, and everything else strips the client's upstream and forwarding
+headers, runs the authorization subrequest, and proxies the answer. The
+preview session cookie is cut out of the Cookie header after
+authorization, so the student's application never sees it, and the header
+is deleted rather than sent empty. Two narrow compatibility rewrites are
+applied: a redirect whose `Location` names `localhost`, `127.0.0.1` or
+the workspace address on exactly the port this preview serves is
+rewritten to the preview origin, and a `Set-Cookie` with
+`Domain=localhost` or a bare IP address loses that attribute. Nothing
+else is rewritten — no bodies, no external redirects, no security headers
+removed. Preview access logs use Caddy's filter encoder to drop the query
+string and the `Cookie`, `Referer` and `Authorization` headers, which
+matters because a bootstrap ticket travels in a query string
+(BROWSER-HANDLING.md sections 10, 12, 13 and 16.5) (#246, #253).
+
+**The Preview tab and the Running pane.** A new centre-pane tab kind,
+`preview:<port>`, is saved in the project layout like a file tab and is
+never split. It points a sandboxed iframe at the bootstrap URL with
+exactly the sandbox, referrer policy and permissions policy of ADR 0018:
+scripts, same-origin, forms, modals, popups, downloads and pointer lock
+allowed; no top navigation; camera, microphone and geolocation denied.
+The toolbar offers reload, open in a new tab, copy URL, viewport widths,
+reset preview data, and a link to the Running surface. The Running
+surface is a third tab of the right pane beside Files and Checks, with
+one row per listening port, its command, whether it is Docker, and an
+Open preview action. A `+ Preview` launcher lists the listening ports and
+accepts a typed one. A URL printed in a terminal whose host is exactly
+`localhost`, `127.0.0.1` or `[::1]` opens a Preview tab for that port;
+`localhost.evil.example`, user-info tricks, other loopback addresses and
+non-HTTP schemes are all refused (SPEC.md sections 14.6 to 14.9 and 18.2)
+(#250, #254).
+
+**Checks.** A project's checks live in `.portikus/checks.json` inside the
+project, and a check runs in a dedicated read-only output panel rather
+than in a terminal tab. The agent reads and validates the file — a
+missing file is an empty list and a broken one is reported rather than
+thrown — and runs a check with `bash -lc` in the project directory
+through node-pty, one run of a check at a time. Output is kept in memory,
+capped at one mebibyte with the oldest bytes dropped, and the fifty most
+recent finished runs are remembered. The control plane brokers the three
+routes behind the same ownership gate as the file routes, and the output
+socket is one-way, so nothing a page sends can reach the agent through
+it. In the browser, the Checks pane shows each check's name, its real
+command and its state, with Run and Stop, an output panel below, and an
+Edit checks dialog that writes the file through the ordinary conditional
+file API (SPEC.md section 18.1) (#247, #255).
+
+**The multi-port bridge.** A request to `/__portikus/ports/<port>/…` on a
+preview host is authorized for that other port and proxied to it in the
+same workspace, so an application that calls its own API on a second port
+works without a second preview host. Caddy keeps the original path in
+`X-Forwarded-Uri` for the authorization call and strips the prefix before
+the application sees the request. The bridge port goes through exactly
+the same policy as any preview target and is always looked up in the
+preview session's own workspace, so it cannot reach another student's
+service. A bridge forward counts every session using it, so one session
+ending does not close a forward another still needs (#251, #253, #255).
+
+**Tests.** Beyond the unit and end-to-end tests each task carried, the
+epic added a threat-model suite that walks the refusal matrix of
+BROWSER-HANDLING.md section 26, a hostname fuzz test that throws four
+thousand generated hostile names at the preview host parser, a real
+browser matrix in `e2e/preview-browser.spec.ts` covering cookie
+isolation, storage, form posts, popups and the Portikus-owned explanation
+pages, and an infrastructure template test,
+`infra/tests/caddy-preview-test.sh`, which now makes 53 assertions about
+the rendered Caddyfile and is run by `make infra-check`. The browser
+tests found two real product bugs, both fixed in the epic rather than
+worked around (#252).
+
+**Rate limiting.** A student may ask for thirty preview grants a minute;
+past that the answer is 429 with a `PREVIEW_RATE_LIMITED` code the
+browser shows. Each new grant also sweeps preview sessions that were
+revoked more than a day ago or whose main session has gone (#255).
+
+**Pilot verification.** On 2026-09-21 the epic head (build 0.1.234) was
+deployed to the pilot VM and walked through BROWSER-HANDLING.md section 25.1
+as a signed-in student in Chromium. Passed: a Vite application on port 5173
+rendered in the embedded Preview tab with hot module reload working across
+an edit; a Python `http.server` bound to all interfaces on port 8000; a
+WebSocket application that stayed connected through the gateway; the
+same-origin bridge reaching a second and third port while refusing the
+agent port, a dead port, and malformed paths; Reset preview data clearing
+the application's cookie, local storage, and service worker; the preview
+session cookie stripped before the application saw the request; a second
+student's workspace unable to reach the first student's ports while the VM
+could; replayed, wrong-host, and cookie-less requests refused with
+Portikus-owned pages and no existence detail; logout ending the preview;
+the smoke test at 71 of 71. Two bugs found on the pilot were fixed in
+follow-up task pull requests before the epic merged: an application that
+refuses framing showed a blank pane instead of the Open in new tab offer,
+and the reset response's `Clear-Site-Data: "cookies"` directive cleared
+the whole registrable domain and signed the student out. One gap was
+fixed the same way: the loopback forward dialed only IPv4, while Vite's
+default bind is IPv6 loopback. One gap is deferred to the backlog: Vite
+refuses unknown hosts until its `server.allowedHosts` names the preview
+suffix, and nothing yet carries the suffix into the workspace for a
+template to use. The Incus workspace network access list needed one new
+ingress rule for the preview range, applied by hand on the pilot from the
+Ansible play and now part of the play. The pilot's API environment file
+still carries `PREVIEW_SUFFIX` added by hand until the next full
+deployment.
+
+**Decisions.**
+
+- ADR 0018, taken on 2026-09-21, settled three things: the preview is
+  built and tested for a same-site deployment only, with preview hosts
+  under `*.preview.<application host>` and a `__Host-` cookie; Caddy
+  learns a request's upstream from a trusted response header on the
+  authorization subrequest rather than from anything the client sends;
+  and the iframe ships with the design's baseline sandbox and permissions
+  policy.
+- Checks are defined in a file inside the project,
+  `.portikus/checks.json`, so they travel with the repository, and a
+  check runs in its own read-only output panel rather than in a terminal
+  tab, so the student cannot type into a running check.
+- Reset preview data is performed by the parent Portikus document rather
+  than by the preview frame, because a service worker registered at the
+  root of the preview origin can answer the frame's own navigations
+  before they reach the edge.
+- A check run lives only in the agent's memory. Nothing about it is
+  written to the database.
+- A project's identity is the inode of its directory, so a folder renamed
+  with `mv` keeps its row, its tabs and its layout.
+
+**Known gaps and residuals.**
+
+- The separate registrable preview domain with partitioned cookies is
+  unsupported. Only the same-site shape is built and tested (ADR 0018).
+- Whether a grant was made for an embedded or a top-level preview is
+  enforced only by the `Sec-Fetch-Dest` request header. A browser that
+  sends no such header is still accepted, so this narrows the door rather
+  than closing it.
+- Any website can make a student's browser clear that student's own
+  preview-origin data, by causing a request to `/__portikus/reset`. The
+  reset route answers the same way with or without a preview cookie. This
+  is accepted: the worst outcome is that one origin's storage in one
+  browser is cleared.
+- The saved layout is bounded per request, by Fastify's 1 MiB body limit
+  and the shape checks on each tab, but there is no total quota on how
+  much layout one user can store.
+- An application that refuses to be embedded gives the browser no event,
+  so the Preview tab guesses after eight seconds without a load. The
+  guess is now an overlay over a frame that stays mounted, and a late
+  load clears it, so a slow first compile recovers on its own.
+- The Running pane shows `unknown` for a process the agent could not
+  name, which happens when the `/proc` entries for it cannot be read.
+- A client-side minimum port of 1024 is still in the terminal link
+  handler and in the web app's preview route, even though the launcher
+  and the Running pane now take the port policy from the API.
+- The pilot's `api.env` had `PREVIEW_SUFFIX` added by hand so the edge
+  could be walked; the Ansible template carries the key, so the next full
+  deployment sets it properly.
+- Renaming a folder from `a` to `b` and then creating a new project at
+  `a` now keeps the two apart: the reconciliation compares the identity
+  of the directory sitting at the old name instead of only noticing that
+  something is there.
+
 ## Epic 8 pilot fixes (issues #237 to #241)
 
 A batch of small fixes from hands-on use of the pilot after Epic 7.1,

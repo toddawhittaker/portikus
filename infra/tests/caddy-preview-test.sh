@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests the preview virtual host in the Caddy role's template
-# (docs/BROWSER-HANDLING.md sections 7.1, 8, 10, 12, 13 and 16.5).
+# (docs/BROWSER-HANDLING.md sections 7.1, 8, 10, 12, 13, 14, 16.2 and 16.5).
 #
 # It renders infra/ansible/roles/caddy/templates/Caddyfile.j2 with the
 # pilot's variables and asserts the properties the preview edge depends on.
@@ -71,8 +71,11 @@ ansible localhost -c local -m ansible.builtin.template \
 }
 
 # Split the rendered file into the application block and the preview block,
-# so each set of assertions can only see its own virtual host.
+# so each set of assertions can only see its own virtual host.  The snippets
+# at the top of the file count as preview: only the preview host imports
+# them, which an assertion on the application block below checks.
 awk -v out="${work}" '
+  /^\(portikus_/ { block = out "/preview" ; inblock = 1 }
   /^https:\/\/\*\./ { block = out "/preview" ; inblock = 1 }
   /^https:\/\/[^*]/ { block = out "/app"     ; inblock = 1 }
   inblock { print > block }
@@ -135,6 +138,17 @@ for h in For Proto Host Method Uri; do
     "^[[:space:]]+request_header -X-Forwarded-${h}\$" "${preview}"
 done
 
+# The API decides which preview host a request is for from X-Forwarded-Host,
+# so the two routes that only talk to the API must throw the client's copy
+# away as well.  Each of the three routes imports the same snippet.
+has "the forwarded headers are forgotten in one place" \
+  '^\(portikus_forget_forwarded\) \{$' "${preview}"
+if [ "$(grep -c 'import portikus_forget_forwarded' "${preview}")" = "3" ]; then
+  ok "bootstrap, reset and the application path all forget them"
+else
+  no "bootstrap, reset and the application path all forget them"
+fi
+
 has "every request is authorized by the API" \
   "forward_auth 127\.0\.0\.1:${API_PORT} \{" "${preview}"
 has "the authorization subrequest asks /preview/authorize" '^[[:space:]]+uri /preview/authorize$' "${preview}"
@@ -151,11 +165,97 @@ has "preview access logs drop cookies" \
   'request>headers>Cookie delete' "${preview}"
 
 echo ""
+echo "--- The preview session cookie never reaches the application (16.2) ---"
+
+has "the preview cookie pair is cut out of the Cookie header" \
+  'request_header Cookie "\(\^\|;.s\*\)\(__Host-\)\?portikus-preview=\[\^;\]\*" ""' "${preview}"
+has "the cookie name must start the header or follow a separator" \
+  'request_header Cookie "\(\^\|;' "${preview}"
+has "a leading separator left behind is cleaned up" \
+  'request_header Cookie "\^.s\*;.s\*" ""' "${preview}"
+has "a trailing separator left behind is cleaned up" \
+  'request_header Cookie ";.s\*\$" ""' "${preview}"
+has "a Cookie header left with nothing in it is deleted" \
+  'request_header @portikus_empty_cookie -Cookie' "${preview}"
+has "the empty-Cookie matcher is defined on the preview host" \
+  '@portikus_empty_cookie header_regexp Cookie \^\$' "${preview}"
+
+# The cut has to happen after the authorization subrequest, which needs the
+# cookie, and before the proxy, which must never see it.
+authorize_line="$(grep -n 'forward_auth 127' "${preview}" | head -1 | cut -d: -f1)"
+cut_line="$(grep -n 'request_header Cookie' "${preview}" | head -1 | cut -d: -f1)"
+proxy_line="$(grep -n 'reverse_proxy {http.request.header.X-Portikus-Upstream}' "${preview}" | head -1 | cut -d: -f1)"
+if [ -n "${authorize_line}" ] && [ -n "${cut_line}" ] && [ -n "${proxy_line}" ] &&
+  [ "${authorize_line}" -lt "${cut_line}" ] && [ "${cut_line}" -lt "${proxy_line}" ]; then
+  ok "the cookie is cut after the authorization and before the proxy"
+else
+  no "the cookie is cut after the authorization and before the proxy"
+fi
+
+echo ""
+echo "--- The same-origin multi-port bridge (14) ---"
+
+has "the bridge prefix has a route of its own" \
+  'handle /__portikus/ports/\* \{' "${preview}"
+has "a bridge path the API would refuse is a 404 here first" \
+  'respond @portikus_bad_bridge 404' "${preview}"
+# Caddy has to accept exactly the shape the API's parser accepts: a port
+# with no leading zero, followed by a slash.  A leading zero or a missing
+# slash is a 404 at the edge rather than a refusal from the API.
+has "only a port with no leading zero, followed by a slash, is a bridge path" \
+  'not path_regexp \^/__portikus/ports/\[1-9\]\[0-9\]\*/$' "${preview}"
+has "the bridge strips its prefix before the application sees the request" \
+  'uri path_regexp \^/__portikus/ports/\[1-9\]\[0-9\]\*/ /' "${preview}"
+has "the bridge runs the same authorization step" \
+  'import portikus_preview_authorize' "${preview}"
+has "a rewritten redirect on the bridge keeps the bridge prefix" \
+  'import portikus_preview_proxy "/__portikus/ports/\{portikus_upstream_port\}"' "${preview}"
+
+# The API reads the wanted port out of X-Forwarded-Uri, so the prefix must
+# still be on the URI when the authorization subrequest runs.
+strip_line="$(grep -n 'uri path_regexp' "${preview}" | head -1 | cut -d: -f1)"
+bridge_auth_line="$(grep -n 'import portikus_preview_authorize' "${preview}" | head -1 | cut -d: -f1)"
+bridge_proxy_line="$(grep -n 'import portikus_preview_proxy' "${preview}" | head -1 | cut -d: -f1)"
+if [ -n "${strip_line}" ] && [ -n "${bridge_auth_line}" ] && [ -n "${bridge_proxy_line}" ] &&
+  [ "${bridge_auth_line}" -lt "${strip_line}" ] && [ "${strip_line}" -lt "${bridge_proxy_line}" ]; then
+  ok "the prefix is still on the URI when the API is asked"
+else
+  no "the prefix is still on the URI when the API is asked"
+fi
+
+echo ""
+echo "--- Compatibility rewrites, and nothing wider (13) ---"
+
+has "the workspace address and port are taken from the authorization answer" \
+  'map \{http.request.header.X-Portikus-Upstream\} \{portikus_upstream_host\} \{portikus_upstream_port\}' "${preview}"
+has "only redirect responses are inspected" \
+  '@portikus_redirect status 3xx' "${preview}"
+has "a redirect to the same port on localhost is rewritten" \
+  'portikus_redirect_origin\} == "localhost:" \+ \{portikus_upstream_port\}' "${preview}"
+has "a redirect to the same port on 127.0.0.1 is rewritten" \
+  'portikus_redirect_origin\} == "127.0.0.1:" \+ \{portikus_upstream_port\}' "${preview}"
+has "a redirect to the same port on the workspace address is rewritten" \
+  'portikus_redirect_origin\} == \{portikus_upstream_host\} \+ ":" \+ \{portikus_upstream_port\}' "${preview}"
+has "the rewrite points at the preview origin and keeps path and query" \
+  'Location "https://\{http.request.hostport\}\{args\[0\]\}\{portikus_redirect_tail\}"' "${preview}"
+has "a cookie scoped to localhost or a bare address loses its Domain" \
+  'header_down Set-Cookie "\(\?i\);.s\*domain=\(localhost' "${preview}"
+# Without the attribute boundary, Domain=localhost.evil.example would be
+# cut in half and the cookie corrupted.
+has "the Domain must end where the attribute ends" \
+  'header_down Set-Cookie .*\\s\*\(;\|\$\)" "\$\{2\}"' "${preview}"
+
+lacks "no blanket rewrite of the Location header" 'header_down Location' "${preview}"
+lacks "no response body is rewritten" '(^|[[:space:]])replace([[:space:]]|$)' "${preview}"
+lacks "no CORS header is added for the application" 'Access-Control-Allow' "${preview}"
+
+echo ""
 echo "--- Application virtual host is unchanged ---"
 
 has "the control plane still refuses to be framed" "frame-ancestors 'none'" "${app}"
 has "the control plane is still compressed" '^[[:space:]]+encode gzip$' "${app}"
 lacks "the control plane has no preview routes" '__portikus' "${app}"
+lacks "the control plane does not import the preview steps" 'import portikus_preview' "${app}"
 
 echo ""
 echo "--- The API is told which suffix Caddy serves ---"

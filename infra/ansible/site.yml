@@ -103,6 +103,11 @@
     portikus_preview_suffix: >-
       {{ lookup('env', 'PORTIKUS_PREVIEW_SUFFIX')
          | default('preview.' ~ portikus_public_host, true) }}
+    # The ports a preview may reach inside a workspace.  These match the
+    # defaults in packages/config, which is what decides per request whether
+    # a port may be previewed; the network ACL only has to be no narrower.
+    portikus_preview_port_min: 1024
+    portikus_preview_port_max: 65535
     # Caddy signing key from Cloudsmith, verified 2026-09-16.
     caddy_gpg_checksum: "783dfee04b19e851a928cd87b34710213ebbe7628f98d9f34595ab83be578c00"
     # Caddy's internal certificate authority root, written on first start.
