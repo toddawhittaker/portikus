@@ -251,3 +251,79 @@ test("open in a new tab asks for a top-level grant", async () => {
 	await waitFor(() => expect(opened.location.href).toBe(GRANT.bootstrapUrl));
 	expect(bodies.some((body) => body.includes('"presentation":"top-level"'))).toBe(true);
 });
+
+/** A tab wired to one listening list, for the re-render tests below. */
+function tab(services: ListeningService[]) {
+	return (
+		<ToastProvider>
+			<ListeningContext.Provider value={{ services, loaded: true }}>
+				<PreviewLeaf
+					workspaceId={WORKSPACE}
+					port={5173}
+					visible={true}
+					onShowRunning={() => {}}
+				/>
+			</ListeningContext.Provider>
+		</ToastProvider>
+	);
+}
+
+test("a slow application that loads after the blocked guess recovers", async () => {
+	// The eight-second guess is only a guess: a first `next dev` compile can
+	// take longer, so a late load has to put the tab right by itself.
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	stubFetch(() => json(200, GRANT));
+	show({});
+	const frame = await screen.findByTestId("preview-frame");
+	await vi.advanceTimersByTimeAsync(9_000);
+	await screen.findByTestId("preview-blocked");
+	// The frame is still there, so the load that was in flight still is too.
+	expect(screen.getByTestId("preview-frame")).toBe(frame);
+
+	fireEvent.load(frame);
+	await waitFor(() => expect(screen.queryByTestId("preview-blocked")).toBeNull());
+	expect(screen.getByTestId("preview-pane-5173").dataset.state).toBe("available");
+
+	// The guess does not come back for a frame that has already loaded.
+	await vi.advanceTimersByTimeAsync(9_000);
+	expect(screen.queryByTestId("preview-blocked")).toBeNull();
+	vi.useRealTimers();
+});
+
+test("a listening list that empties for a moment leaves a running preview alone", async () => {
+	// The registry reports an empty list for a second or two after an API
+	// restart. Tearing the frame down and minting a new grant would reload
+	// the student's application for no reason (SPEC.md §14.8).
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	let grants = 0;
+	stubFetch((url) => {
+		if (url.endsWith("/preview-grants")) grants += 1;
+		return json(200, GRANT);
+	});
+	const { rerender } = render(tab([service(5173)]));
+	const frame = await screen.findByTestId("preview-frame");
+	await waitFor(() => expect(grants).toBe(1));
+
+	rerender(tab([]));
+	await vi.advanceTimersByTimeAsync(1_000);
+	expect(screen.getByTestId("preview-frame")).toBe(frame);
+
+	rerender(tab([service(5173)]));
+	await vi.advanceTimersByTimeAsync(1_000);
+	expect(screen.getByTestId("preview-frame")).toBe(frame);
+	expect(grants).toBe(1);
+	vi.useRealTimers();
+});
+
+test("a port that stays quiet past the grace says nothing is listening", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	stubFetch(() => json(200, GRANT));
+	const { rerender } = render(tab([service(5173)]));
+	await screen.findByTestId("preview-frame");
+
+	rerender(tab([]));
+	await vi.advanceTimersByTimeAsync(5_000);
+	expect(await screen.findByTestId("preview-inactive")).toBeTruthy();
+	expect(screen.queryByTestId("preview-frame")).toBeNull();
+	vi.useRealTimers();
+});
