@@ -272,3 +272,37 @@ test("the output socket of a check that never ran closes with 4404", async () =>
 	});
 	expect(code).toBe(4404);
 });
+
+test("a long-lived agent forgets its oldest finished runs", () => {
+	const exits: Array<(status: { exitCode: number }) => void> = [];
+	const fakePty = {
+		onData: () => {},
+		onExit: (fn: (status: { exitCode: number }) => void) => {
+			exits.push(fn);
+		},
+		kill: () => {},
+	};
+	const runner = new CheckRunner(
+		quietLog,
+		(() => fakePty) as unknown as Parameters<typeof CheckRunner.prototype.start>[0] &
+			never,
+	);
+
+	// Sixty checks, each run once and each finishing straight away.
+	for (let index = 0; index < 60; index += 1) {
+		runner.start({
+			slug: SLUG,
+			check: { id: `check-${index}`, name: `Check ${index}`, command: "true" },
+			cwd: homeDir,
+		});
+		exits[index]?.({ exitCode: 0 });
+	}
+
+	const remembered = runner.runsFor(SLUG);
+	expect(remembered).toHaveLength(50);
+	// The oldest went, the newest stayed.
+	expect(runner.current(SLUG, "check-0")).toBeUndefined();
+	expect(runner.current(SLUG, "check-9")).toBeUndefined();
+	expect(runner.current(SLUG, "check-10")).toBeDefined();
+	expect(runner.current(SLUG, "check-59")).toBeDefined();
+});
