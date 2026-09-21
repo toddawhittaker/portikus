@@ -29,6 +29,12 @@ lan_field() {
     | awk -v key="$1" '{for (i = 1; i < NF; i++) if ($i == key) { print $(i + 1); exit }}'
 }
 
+# First global address on an interface, for routes that carry no src.
+lan_addr() {
+  ip -4 -o addr show dev "$1" scope global 2>/dev/null \
+    | awk 'NR == 1 {split($4, a, "/"); print a[1]}'
+}
+
 # Remove every copy of the jump, then add one, so reruns cannot stack rules.
 reset_jump() {
   local table=$1 parent=$2 chain=$3
@@ -98,6 +104,7 @@ cert_hint() {
     certutil -d sql:\$HOME/.pki/nssdb -D -n portikus-caddy-root 2>/dev/null
     certutil -d sql:\$HOME/.pki/nssdb -A -t C,, -n portikus-caddy-root -i /tmp/portikus-caddy-root.crt
 EOF
+  info "that trusts the pilot's authority for every site in that browser profile, and its private key lives on the VM that runs student workspaces, so use a throwaway browser profile for the pilot rather than your everyday one"
 }
 
 main() {
@@ -115,9 +122,11 @@ main() {
 
   local lan_if lan_ip
   lan_if=$(lan_field dev)
-  lan_ip=$(lan_field src)
   [ -n "$lan_if" ] || fail "could not work out the LAN interface from the default route"
-  [ -n "$lan_ip" ] || fail "could not work out the LAN address from the default route"
+  lan_ip=$(lan_field src)
+  # Some VPN and bonded setups leave no src on the default route.
+  [ -n "$lan_ip" ] || lan_ip=$(lan_addr "$lan_if")
+  [ -n "$lan_ip" ] || fail "could not work out the LAN address from the default route or from ${lan_if}"
   info "publishing ${vm_ip} port ${PORT} on interface ${lan_if}"
 
   reset_chain nat "$CHAIN"
