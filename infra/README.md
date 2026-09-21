@@ -283,6 +283,11 @@ Import, and tick "Trust this CA to identify websites". Chrome uses the
 system store, so `sudo cp` it into `/usr/local/share/ca-certificates/` with
 a `.crt` name and run `sudo update-ca-certificates`.
 
+Importing it makes that authority trusted for every site the browser
+visits, and its private key lives on the VM that runs student workspaces,
+so use a throwaway browser profile for the pilot rather than your everyday
+one.
+
 The certificate is generated on the VM, so destroying and recreating the
 VM produces a new one. Import the new copy after a rebuild and remove the
 old one.
