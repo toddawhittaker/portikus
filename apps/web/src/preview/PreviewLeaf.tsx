@@ -139,13 +139,13 @@ export function PreviewLeaf({
 	const [backHint, setBackHint] = useState<string | undefined>(undefined);
 
 	// The anchor entry that keeps Back away from the Portikus document goes in
-	// as soon as the tab exists (BROWSER-HANDLING.md §12).
+	// as soon as the tab exists (BROWSER-HANDLING.md §12). The guard itself
+	// belongs to the document, not to this tab, so closing the tab lets go of
+	// nothing but the reference.
 	useEffect(() => {
-		const held = attachPreviewHistory(`${workspaceId}:${port}`, window);
-		history.current = held;
+		history.current = attachPreviewHistory(`${workspaceId}:${port}`, window);
 		return () => {
 			history.current = null;
-			held.release();
 		};
 	}, [workspaceId, port]);
 

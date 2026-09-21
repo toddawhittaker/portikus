@@ -956,10 +956,13 @@ Back is allowed only while the frame has an entry ahead of that count,
 because the list of history entries does not get shorter when the browser
 steps back through it. The anchor keeps the router's own state and is
 pushed again whenever the Portikus route changes, so switching project
-with a Preview tab open does not make Back rewind the workspace (issue
+with a Preview tab open does not make Back rewind the workspace. The
+anchor and the `popstate` listener belong to the document rather than to
+a tab: closing every Preview tab lets go of neither, so Back presses made
+with no preview open are still seen and the counts stay honest (issue
 #271, PRs #281, #292 and #295). The inactive, unauthorized, error and
-connecting states, and the blocked-from-embedding overlay, are now one compact stack
-centred in the pane, with the button at its natural size (issue #275, PR
+connecting states, and the blocked-from-embedding overlay, are now one
+compact stack centred in the pane, with the button at its natural size (issue #275, PR
 #281).
 
 **The Running pane.** The workspace agent now decides, for each listening
