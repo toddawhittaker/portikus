@@ -28,7 +28,11 @@ function service(over: Partial<ListeningService>): ListeningService {
 
 function show(
 	services: ListeningService[],
-	options: { previewPorts?: number[]; onOpenPreview?: (port: number) => void } = {},
+	options: {
+		previewPorts?: number[];
+		activePort?: number | null;
+		onOpenPreview?: (port: number) => void;
+	} = {},
 ) {
 	render(
 		<ToastProvider>
@@ -36,6 +40,7 @@ function show(
 				<RunningPane
 					workspaceId={WORKSPACE}
 					previewPorts={options.previewPorts ?? []}
+					activePort={options.activePort ?? null}
 					onOpenPreview={options.onOpenPreview ?? (() => {})}
 				/>
 			</ListeningContext.Provider>
@@ -154,6 +159,19 @@ test("Stop asks first, naming the command and the port", async () => {
 	expect(String(stop.mock.calls[0]?.[0])).toContain(
 		`/workspaces/${WORKSPACE}/listening/5173/stop`,
 	);
+});
+
+test("the row of the Preview tab in view is marked current", () => {
+	show([service({ port: 3000 }), service({ port: 5173 })], { activePort: 5173 });
+	expect(screen.getByTestId("running-row-5173").className).toContain("is-current");
+	expect(screen.getByTestId("running-row-3000").className).not.toContain("is-current");
+});
+
+test("the command cell carries the full command as a tooltip", () => {
+	show([service({ port: 3000, process: { command: "node" } })]);
+	expect(
+		screen.getByTestId("running-row-3000").querySelector("[title='node']"),
+	).toBeTruthy();
 });
 
 test("a saved preview whose port stopped is marked as not running", () => {

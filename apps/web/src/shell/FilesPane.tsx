@@ -183,6 +183,10 @@ function RunningSurface({
 	const previewPorts = layout.tabs
 		.map((tab) => (tab.root.type === "preview" ? tab.root.port : null))
 		.filter((port): port is number => port !== null);
+	const activeTabId = useLayout(store, (state) => state.activeTabId);
+	const activeTab = layout.tabs.find((tab) => tab.id === activeTabId);
+	const activePort =
+		activeTab && activeTab.root.type === "preview" ? activeTab.root.port : null;
 	return (
 		<>
 			<div className="pk-pane-head">
@@ -191,6 +195,7 @@ function RunningSurface({
 			<RunningPane
 				workspaceId={workspaceId}
 				previewPorts={projectId ? previewPorts : []}
+				activePort={projectId ? activePort : null}
 				onOpenPreview={(port) => {
 					if (projectId) store.getState().openPreview(port);
 				}}

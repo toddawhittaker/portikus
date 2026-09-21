@@ -35,12 +35,15 @@ export interface RunningPaneProps {
 	workspaceId: string;
 	/** Ports that have a saved preview tab, so a stale one can be marked. */
 	previewPorts: number[];
+	/** The port of the Preview tab in view, so its row can be marked current. */
+	activePort: number | null;
 	onOpenPreview: (port: number) => void;
 }
 
 export function RunningPane({
 	workspaceId,
 	previewPorts,
+	activePort,
 	onOpenPreview,
 }: RunningPaneProps) {
 	const listening = useListening();
@@ -91,11 +94,14 @@ export function RunningPane({
 				return (
 					<div
 						key={service.port}
-						className="pk-portrow"
+						className={
+							service.port === activePort ? "pk-portrow is-current" : "pk-portrow"
+						}
 						data-testid={`running-row-${service.port}`}
 					>
 						<span className="pk-portrow-port">{service.port}</span>
-						<span>{serviceCommand(service)}</span>
+						{/* The column truncates, so the full command is the tooltip. */}
+						<span title={serviceCommand(service)}>{serviceCommand(service)}</span>
 						{isDocker(service) ? (
 							<span className="pk-portrow-kind">Docker</span>
 						) : (
