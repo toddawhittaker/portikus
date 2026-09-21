@@ -8,7 +8,6 @@ import { down as down0006, up as up0006 } from "./0006_log_level.js";
 import { down as down0007, up as up0007 } from "./0007_editor_settings.js";
 import { down as down0008, up as up0008 } from "./0008_preview.js";
 import { down as down0009, up as up0009 } from "./0009_project_directory_id.js";
-import { down as down0010, up as up0010 } from "./0010_preview_grant_session.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -24,5 +23,4 @@ export const migrations: Record<string, Migration> = {
 	"0007_editor_settings": { up: up0007, down: down0007 },
 	"0008_preview": { up: up0008, down: down0008 },
 	"0009_project_directory_id": { up: up0009, down: down0009 },
-	"0010_preview_grant_session": { up: up0010, down: down0010 },
 };

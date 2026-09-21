@@ -26,6 +26,13 @@ import { AgentFailure } from "./tmux.js";
 /** Close code for a socket asking about a run that does not exist. */
 const NOT_FOUND_CLOSE = 4404;
 
+/**
+ * How many runs one agent remembers. A run's output buffer is kept for
+ * replay, so a workspace with many projects and many checks must not grow
+ * without end; the oldest finished run goes first.
+ */
+const MAX_REMEMBERED_RUNS = 50;
+
 /** The size a check's PTY reports. Wide enough that test output is not wrapped. */
 const CHECK_COLS = 120;
 const CHECK_ROWS = 30;
@@ -108,7 +115,11 @@ export class CheckRunner {
 			watchers: new Set(),
 			final: null,
 		};
+		// Re-inserting puts this check at the newest end of the map, which is
+		// the order eviction walks.
+		this.runs.delete(id);
 		this.runs.set(id, run);
+		this.evictOldFinishedRuns();
 
 		let pty: IPty;
 		try {
@@ -199,6 +210,18 @@ export class CheckRunner {
 			} catch {
 				// Shutting down anyway.
 			}
+		}
+	}
+
+	/** Forget finished runs, oldest first, until the map is back in bounds. */
+	private evictOldFinishedRuns(): void {
+		while (this.runs.size > MAX_REMEMBERED_RUNS) {
+			const oldest = [...this.runs].find(
+				([, candidate]) => candidate.meta.state !== "running",
+			);
+			// Everything left is live, and a live run is never thrown away.
+			if (!oldest) return;
+			this.runs.delete(oldest[0]);
 		}
 	}
 

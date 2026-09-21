@@ -253,6 +253,77 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"a folder renamed and its old name reused keeps the two apart",
+	async () => {
+		agent.projects.set("foo", { isGitRepo: true, directoryId: "9101" });
+		const first = await listProjects(alice, workspaceId);
+		const original = first.json().projects[0] as Record<string, unknown>;
+
+		// `mv foo bar` and then a fresh repository at `foo`: the row must
+		// follow its own directory, not be transplanted onto the new one.
+		agent.projects.set("bar", { isGitRepo: true, directoryId: "9101" });
+		agent.projects.set("foo", { isGitRepo: true, directoryId: "9102" });
+
+		const listed = await listProjects(alice, workspaceId);
+		expect(listed.statusCode).toBe(200);
+		const projects = listed.json().projects as Array<Record<string, unknown>>;
+		const bar = projects.find((project) => project.slug === "bar");
+		const foo = projects.find((project) => project.slug === "foo");
+		expect(bar?.id).toBe(original.id);
+		expect(foo?.id).not.toBe(original.id);
+		expect(projects.map((project) => project.slug).sort()).toEqual(["bar", "foo"]);
+	},
+);
+
+test.skipIf(skip)(
+	"a second directory claiming an archived row's identity does not break listing",
+	async () => {
+		agent.projects.set("old-work", { isGitRepo: true, directoryId: "9201" });
+		const first = await listProjects(alice, workspaceId);
+		const project = first.json().projects[0] as Record<string, unknown>;
+		const archived = await app.inject({
+			method: "PATCH",
+			url: `/workspaces/${workspaceId}/projects/${project.id as string}`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { state: "archived" },
+		});
+		expect(archived.statusCode).toBe(200);
+
+		// A second directory reports the identity the archived row still holds.
+		// Discovery must not try to write a row that claims it as well.
+		agent.projects.set("clone-work", { isGitRepo: true, directoryId: "9201" });
+
+		const listed = await listProjects(alice, workspaceId);
+		expect(listed.statusCode).toBe(200);
+	},
+);
+
+test.skipIf(skip)(
+	"a directory claiming an identity another row holds does not break listing",
+	async () => {
+		agent.projects.set("taken", { isGitRepo: true, directoryId: "9301" });
+		await listProjects(alice, workspaceId);
+
+		// A project made here has no identity yet, and the directory it names
+		// reports one another row already holds. Recording it must not fail.
+		const created = await createProject(alice, workspaceId, {
+			name: "blank",
+			source: "new",
+		});
+		expect(created.statusCode).toBe(201);
+		agent.projects.set("blank", { isGitRepo: true, directoryId: "9301" });
+
+		const listed = await listProjects(alice, workspaceId);
+		expect(listed.statusCode).toBe(200);
+		expect(
+			(listed.json().projects as Array<Record<string, unknown>>)
+				.map((project) => project.slug)
+				.sort(),
+		).toEqual(["blank", "taken"]);
+	},
+);
+
+test.skipIf(skip)(
 	"a project whose directory is gone for good stays missing",
 	async () => {
 		agent.projects.set("gone", { isGitRepo: true, directoryId: "9001" });

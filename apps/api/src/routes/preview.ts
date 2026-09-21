@@ -43,6 +43,15 @@ export function previewCookieName(config: ApiConfig): string {
 const IdParams = z.object({ id: z.string().uuid() });
 const TicketQuery = z.object({ t: z.string().min(1).max(200) });
 
+/**
+ * How many bootstrap tickets one student may ask for in a minute. Opening a
+ * preview, reloading it and switching ports are all well under this; a page
+ * asking in a loop is not. Counted in this process, which the pilot runs one
+ * of (ADR 0010).
+ */
+const GRANTS_PER_WINDOW = 30;
+const GRANT_WINDOW_MS = 60_000;
+
 /** The socket's own peer address, which no header can influence. */
 function fromLoopback(request: FastifyRequest): boolean {
 	const address = request.raw.socket.remoteAddress ?? "";
@@ -71,6 +80,24 @@ export function registerPreviewRoutes(
 	const cookieName = previewCookieName(config);
 	const secure = config.PUBLIC_URL.startsWith("https:");
 	const bridge = createBridgeForwards({ registry, logger });
+
+	/** When each user's recent grants were asked for, newest last. */
+	const grantTimes = new Map<string, number[]>();
+
+	/** Record this grant request, and say whether it is over the limit. */
+	function overGrantLimit(userId: string): boolean {
+		const now = Date.now();
+		const recent = (grantTimes.get(userId) ?? []).filter(
+			(at) => now - at < GRANT_WINDOW_MS,
+		);
+		if (recent.length >= GRANTS_PER_WINDOW) {
+			grantTimes.set(userId, recent);
+			return true;
+		}
+		recent.push(now);
+		grantTimes.set(userId, recent);
+		return false;
+	}
 
 	/** What the workspace agent reports, plus the policy verdict. */
 	function servicesOf(workspaceId: string): ListeningService[] {
@@ -125,6 +152,16 @@ export function registerPreviewRoutes(
 			return reply.status(403).send({
 				code: "PREVIEW_PORT_NOT_ALLOWED",
 				message: `Port ${body.data.port} cannot be previewed`,
+			});
+		}
+		if (overGrantLimit(user.id)) {
+			request.log.warn(
+				{ workspaceId: params.data.id },
+				"preview grant rate limit reached",
+			);
+			return reply.status(429).send({
+				code: "PREVIEW_RATE_LIMITED",
+				message: "Too many previews were opened just now. Wait a moment.",
 			});
 		}
 
@@ -218,6 +255,17 @@ export function registerPreviewRoutes(
 
 		const grant = await consumeGrant(db, query.data.t, host);
 		if (!grant) return page(reply, 403, refusedPage());
+
+		// A ticket is good only where it was meant to be opened: one asked for
+		// the preview frame may not be turned into a top-level page, and one
+		// asked for a tab may not be framed (BROWSER-HANDLING.md §9.1). An
+		// older browser sends no Sec-Fetch-Dest at all, and is accepted: the
+		// header is a tightening, never the only thing holding the door.
+		const dest = request.headers["sec-fetch-dest"];
+		if (typeof dest === "string" && dest !== "") {
+			const wanted = grant.presentation === "embedded" ? "iframe" : "document";
+			if (dest !== wanted) return page(reply, 403, refusedPage());
+		}
 
 		const token = await createPreviewSession(db, {
 			userId: grant.user_id,
@@ -335,12 +383,17 @@ export function registerPreviewRoutes(
 		if (!service || service.previewReachability === "denied") {
 			return page(reply, 503, inactiveServicePage(port));
 		}
-		if (service.previewReachability === "unknown") {
-			// A loopback-only bridge port needs the agent's forward first. The
-			// session's own port got one when its grant was issued.
-			if (target.kind !== "port") {
+		if (target.kind !== "port") {
+			// The session's own port got its forward when the grant was issued.
+			if (service.previewReachability === "unknown") {
 				return page(reply, 503, inactiveServicePage(port));
 			}
+		} else {
+			// Every bridge request goes through the bridge, even when the port
+			// is already reachable: that is how a second session using a
+			// forward the bridge opened gets counted, so the forward outlives
+			// whichever session ends first. A port that needs no forward costs
+			// nothing here.
 			try {
 				await bridge.ensure(session.workspace_id, session.id, port);
 			} catch (error) {
