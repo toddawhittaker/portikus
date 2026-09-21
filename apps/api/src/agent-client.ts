@@ -30,6 +30,12 @@ export class AgentCallError extends Error {
 /** How long any one agent call may take before it is treated as unreachable. */
 export const AGENT_TIMEOUT_MS = 5000;
 
+/**
+ * Stopping waits three seconds for SIGTERM before SIGKILL, so the agent needs
+ * longer than the usual call (SPEC.md 18.2).
+ */
+export const STOP_TIMEOUT_MS = 20_000;
+
 /** Creating a project may clone a repository, which is slow. */
 const AGENT_CREATE_PROJECT_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -81,6 +87,11 @@ export class AgentClient {
 			LoopbackForwardRequest.parse({ port }),
 		);
 		return LoopbackForward.parse(payload);
+	}
+
+	/** Stop what holds a port inside the workspace (SPEC.md 18.2). */
+	async stopListener(port: number): Promise<void> {
+		await this.call("POST", `/listening/${port}/stop`, undefined, STOP_TIMEOUT_MS);
 	}
 
 	/**
