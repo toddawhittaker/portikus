@@ -95,6 +95,14 @@
     portikus_public_url: >-
       https://{{ portikus_public_host }}{{ '' if portikus_public_port | int == 443
                                             else ':' ~ portikus_public_port }}
+    # The DNS namespace student application previews live under
+    # (BROWSER-HANDLING 7.1).  A preview host is
+    # <workspace-label>-<port>.<suffix>, so on the pilot that is
+    # tw7-5173.preview.portikus.<ip>.nip.io, which nip.io resolves without
+    # any DNS record.  PORTIKUS_PREVIEW_SUFFIX overrides it.
+    portikus_preview_suffix: >-
+      {{ lookup('env', 'PORTIKUS_PREVIEW_SUFFIX')
+         | default('preview.' ~ portikus_public_host, true) }}
     # Caddy signing key from Cloudsmith, verified 2026-09-16.
     caddy_gpg_checksum: "783dfee04b19e851a928cd87b34710213ebbe7628f98d9f34595ab83be578c00"
     # Caddy's internal certificate authority root, written on first start.
@@ -118,6 +126,24 @@
           The client secret must be at least 32 characters and must not be
           the development default, or portikus-api will refuse to start.
       when: not portikus_mock_idp
+
+    # BROWSER-HANDLING 23: start-up must fail when the application and
+    # preview hosts are the same, or when the preview wildcard would also
+    # match the application host.  The second test strips the application
+    # host's first DNS label: if what is left is the preview suffix, then
+    # *.<suffix> covers the application host and student pages could be
+    # served on the trusted origin.
+    - name: Require a preview suffix that cannot serve the application host
+      ansible.builtin.assert:
+        that:
+          - portikus_preview_suffix | length > 0
+          - portikus_preview_suffix != portikus_public_host
+          - portikus_public_host.split('.', 1) | last != portikus_preview_suffix
+        fail_msg: >-
+          PORTIKUS_PREVIEW_SUFFIX ({{ portikus_preview_suffix }}) must be a
+          separate namespace from the application host
+          ({{ portikus_public_host }}), and the wildcard *.{{
+          portikus_preview_suffix }} must not match that host.
 
   # Each role carries its own name as a tag, so a single part of the VM
   # can be converged on its own with --tags <role>.
