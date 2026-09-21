@@ -46,10 +46,9 @@ const COOKIE_NAME = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/;
 
 const IdParams = z.object({ id: z.string().uuid() });
 const TicketQuery = z.object({ t: z.string().min(1).max(200) });
-const PortQuery = z.object({ port: z.coerce.number().int().min(1).max(65535) });
-const PortParams = z.object({
-	port: z.coerce.number().int().min(1).max(65535),
-});
+/** A port, wherever it arrives: in the path for one route, in the query for
+ * another, and the same range either way. */
+const PortInput = z.object({ port: z.coerce.number().int().min(1).max(65535) });
 
 /** The status each agent refusal to stop a listener becomes (issue #273). */
 function stopStatusFor(code: string): number {
@@ -210,7 +209,7 @@ export function registerPreviewRoutes(
 	app.post("/workspaces/:id/listening/:port/stop", async (request, reply) => {
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
-		const port = PortParams.safeParse(request.params);
+		const port = PortInput.safeParse(request.params);
 		if (!params.success || !port.success) {
 			return reply
 				.status(400)
@@ -372,7 +371,7 @@ export function registerPreviewRoutes(
 	app.get("/workspaces/:id/preview/embeddable", async (request, reply) => {
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
-		const query = PortQuery.safeParse(request.query);
+		const query = PortInput.safeParse(request.query);
 		if (!params.success || !query.success) {
 			return reply
 				.status(400)
