@@ -494,35 +494,42 @@ export class ListeningMonitor {
 				"the owning process could not be identified",
 			);
 		}
-		try {
-			this.kill(pid, "SIGTERM");
-		} catch (error) {
-			if (!isGone(error)) {
-				throw new StopFailure(409, "STOP_FAILED", "the process could not be signalled");
+		if (this.signal(pid, "SIGTERM") && !(await this.waitForExit(pid))) {
+			if (this.signal(pid, "SIGKILL")) {
+				// SIGKILL cannot be caught, so the process is on its way out.
+				// Whether it has finished going is not worth asking: a zombie
+				// its parent has not reaped still answers signal 0 and would
+				// turn a stop that worked into a 409. The port is the answer
+				// the student cares about, and the one check below reads it.
+				await new Promise((resolve) => setTimeout(resolve, 200));
 			}
-			// Already gone, but the port may not be.
-			return await this.confirmPortFree(port);
 		}
+		await this.confirmPortFree(port);
+	}
+
+	/**
+	 * Send a signal. False when the process was already gone; a refusal we
+	 * cannot read as "gone" ends the stop, because carrying on would report
+	 * a stop that never happened.
+	 */
+	private signal(pid: number, signal: NodeJS.Signals): boolean {
+		try {
+			this.kill(pid, signal);
+			return true;
+		} catch (error) {
+			if (isGone(error)) return false;
+			throw new StopFailure(409, "STOP_FAILED", "the process could not be signalled");
+		}
+	}
+
+	/** Wait out the grace period. True when the process went away in time. */
+	private async waitForExit(pid: number): Promise<boolean> {
 		const deadline = Date.now() + this.graceMs;
 		while (Date.now() < deadline) {
 			await new Promise((resolve) => setTimeout(resolve, 50));
-			if (!this.alive(pid)) return await this.confirmPortFree(port);
+			if (!this.alive(pid)) return true;
 		}
-		try {
-			this.kill(pid, "SIGKILL");
-		} catch (error) {
-			if (!isGone(error)) {
-				throw new StopFailure(409, "STOP_FAILED", "the process could not be signalled");
-			}
-			return await this.confirmPortFree(port);
-		}
-		// SIGKILL cannot be caught, but a process stuck in the kernel can
-		// still be there; say so rather than pretending it stopped.
-		await new Promise((resolve) => setTimeout(resolve, 200));
-		if (this.alive(pid)) {
-			throw new StopFailure(409, "STOP_FAILED", "the process did not stop");
-		}
-		return await this.confirmPortFree(port);
+		return false;
 	}
 
 	/**
