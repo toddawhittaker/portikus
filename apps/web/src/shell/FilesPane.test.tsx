@@ -63,3 +63,65 @@ test("the find-in-files shortcut opens the search when a project is open", async
 
 	await waitFor(() => expect(screen.getByTestId("search-panel")).toBeTruthy());
 });
+
+test("the right pane switches between Files and Checks", async () => {
+	// xterm.js needs both of these, and jsdom has neither.
+	vi.stubGlobal(
+		"matchMedia",
+		vi.fn(() => ({
+			matches: false,
+			media: "",
+			onchange: null,
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			dispatchEvent: () => false,
+		})),
+	);
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe() {}
+			unobserve() {}
+			disconnect() {}
+		},
+	);
+	vi.stubGlobal(
+		"WebSocket",
+		class {
+			static readonly OPEN = 1;
+			readyState = 1;
+			constructor(public url: string) {}
+			send() {}
+			close() {}
+		},
+	);
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			const body = url.includes("/checks")
+				? {
+						checks: [{ id: "tests", name: "Tests", command: "npm test" }],
+						error: null,
+						runs: [],
+					}
+				: { entries: [], truncated: false };
+			return new Response(JSON.stringify(body), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}),
+	);
+	renderWithQuery(<FilesPane workspaceId={WORKSPACE} project={project()} />);
+
+	await waitFor(() => expect(screen.getByTestId("file-tree-body")).toBeTruthy());
+
+	fireEvent.click(screen.getByTestId("right-pane-tab-checks"));
+	await waitFor(() => expect(screen.getByTestId("checks-list")).toBeTruthy());
+	expect(screen.queryByTestId("file-tree-body")).toBeNull();
+
+	fireEvent.click(screen.getByTestId("right-pane-tab-files"));
+	await waitFor(() => expect(screen.getByTestId("file-tree-body")).toBeTruthy());
+});

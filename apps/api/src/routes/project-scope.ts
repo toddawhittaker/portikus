@@ -61,6 +61,9 @@ export const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>>
 	FILE_TOO_LARGE: [413, "FILE_TOO_LARGE"],
 	NOT_A_DIRECTORY: [400, "NOT_A_DIRECTORY"],
 	BAD_REQUEST: [400, "VALIDATION_FAILED"],
+	CHECK_NOT_FOUND: [404, "CHECK_NOT_FOUND"],
+	CHECK_RUNNING: [409, "CHECK_RUNNING"],
+	CHECK_NOT_RUNNING: [404, "CHECK_NOT_RUNNING"],
 	// The agent answers these with a 500 of its own, so the control plane is
 	// reporting a failure upstream of it rather than one of its own.
 	SEARCH_FAILED: [502, "SEARCH_FAILED"],

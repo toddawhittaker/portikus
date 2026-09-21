@@ -36,7 +36,7 @@ import { useLayoutPersistence } from "../layout/persist.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { type DropEdge, type SplitDirection, terminalIds } from "../layout/tree.js";
 import { PreviewPicker } from "../preview/PreviewPicker.js";
-import { useRightPane } from "../shell/rightPane.js";
+import { useShowRightPane } from "../shell/rightPane.js";
 import { useTerminals } from "../useTerminals.js";
 import { dropZone, insertionIndex } from "./dropZone.js";
 import { TerminalGroup } from "./TerminalGroup.js";
@@ -93,7 +93,7 @@ export function WorkArea({
 	const terminals = useTerminals(workspaceId, projectId, true, onSessionEnded);
 	const [closingTabId, setClosingTabId] = useState<string | null>(null);
 	const [pickingPreview, setPickingPreview] = useState(false);
-	const right = useRightPane();
+	const showRightPane = useShowRightPane();
 	const [draggedPane, setDraggedPane] = useState<{
 		terminalId: string;
 		title: string;
@@ -443,7 +443,7 @@ export function WorkArea({
 							onReplace={(id) => void replace(id)}
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
 							onSessionEnded={onSessionEnded}
-							onShowRunning={() => right.show("running")}
+							onShowRunning={() => showRightPane("running")}
 							onLeave={leaveTerminal}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
 							pendingLine={pendingLine[tab.id]}

@@ -100,7 +100,7 @@ test.describe("application preview", () => {
 		]);
 		await openProject(page, student.workspaceId);
 
-		await page.getByTestId("right-pane-running").click();
+		await page.getByTestId("right-pane-tab-running").click();
 		await expect(page.getByTestId("running-row-5173")).toContainText("node");
 		await expect(page.getByTestId("running-row-5432")).toContainText("Docker");
 
@@ -117,7 +117,7 @@ test.describe("application preview", () => {
 		const student = await createStudent(context);
 		await stubPreview(page, student.workspaceId, []);
 		await openProject(page, student.workspaceId);
-		await page.getByTestId("right-pane-running").click();
+		await page.getByTestId("right-pane-tab-running").click();
 		await expect(page.getByText("Nothing is running yet")).toBeVisible();
 	});
 
@@ -193,7 +193,7 @@ test.describe("application preview", () => {
 			}),
 		]);
 		await page.goto(workspacePath(student.workspaceId, project.id));
-		await page.getByTestId("right-pane-running").click();
+		await page.getByTestId("right-pane-tab-running").click();
 		await expect(page.getByTestId("running-stale-5173")).toContainText("not running", {
 			timeout: 15_000,
 		});
@@ -208,7 +208,7 @@ test.describe("application preview", () => {
 			grantStatus: 403,
 		});
 		await openProject(page, student.workspaceId);
-		await page.getByTestId("right-pane-running").click();
+		await page.getByTestId("right-pane-tab-running").click();
 		await page.getByTestId("running-open-5173").click();
 		await expect(page.getByTestId("preview-unauthorized")).toBeVisible();
 	});
@@ -235,7 +235,7 @@ test.describe("application preview", () => {
 		const student = await createStudent(context);
 		await stubPreview(page, student.workspaceId, [{ port: 5173 }]);
 		const project = await openProject(page, student.workspaceId);
-		await page.getByTestId("right-pane-running").click();
+		await page.getByTestId("right-pane-tab-running").click();
 		await page.getByTestId("running-open-5173").click();
 		await expect(page.getByTestId("preview-frame")).toBeVisible();
 		await expect
@@ -264,7 +264,7 @@ test.describe("application preview", () => {
 		const student = await createStudent(context);
 		await stubPreview(page, student.workspaceId, [{ port: 5173 }]);
 		await openProject(page, student.workspaceId);
-		await page.getByTestId("right-pane-running").click();
+		await page.getByTestId("right-pane-tab-running").click();
 		await page.getByTestId("running-open-5173").click();
 		const frame = page.getByTestId("preview-frame");
 		await expect(frame).toHaveAttribute(
@@ -286,7 +286,7 @@ test.describe("application preview", () => {
 		await stubPreview(page, student.workspaceId, [{ port: 5173 }]);
 		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 		await openProject(page, student.workspaceId);
-		await page.getByTestId("right-pane-running").click();
+		await page.getByTestId("right-pane-tab-running").click();
 		await page.getByTestId("running-open-5173").click();
 		await page.getByTestId("preview-copy").click();
 		await expect(
