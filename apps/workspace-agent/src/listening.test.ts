@@ -286,3 +286,31 @@ test("an unreadable /proc leaves the last known list in place", async () => {
 	// Both files missing reads as empty, which is a real change to "nothing".
 	expect(await monitor.refresh()).toEqual([]);
 });
+
+test("a port listening on ::1 only is loopback-only, like 127.0.0.1", async () => {
+	await writeProcNet(
+		HEADER,
+		[HEADER, row("00000000000000000000000001000000:1388", "0A", "1")].join("\n"),
+	);
+	const monitor = monitorFor();
+	const services = await monitor.refresh();
+	expect(services[0]).toMatchObject({
+		port: 5000,
+		addresses: ["::1"],
+		previewReachability: "unknown",
+	});
+	expect(monitor.isLoopbackOnly(5000)).toBe(true);
+	expect(monitor.hasLoopbackListener(5000)).toBe(true);
+	expect(monitor.loopbackTarget(5000)).toBe("::1");
+});
+
+test("the loopback target prefers IPv4 when the port has both", async () => {
+	await writeProcNet(
+		[HEADER, row("0100007F:1388", "0A", "1")].join("\n"),
+		[HEADER, row("00000000000000000000000001000000:1388", "0A", "2")].join("\n"),
+	);
+	const monitor = monitorFor();
+	await monitor.refresh();
+	expect(monitor.loopbackTarget(5000)).toBe("127.0.0.1");
+	expect(monitor.loopbackTarget(9999)).toBeNull();
+});

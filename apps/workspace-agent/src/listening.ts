@@ -332,6 +332,21 @@ export class ListeningMonitor {
 		);
 	}
 
+	/**
+	 * The loopback address a forward for this port must dial: `127.0.0.1` when
+	 * an IPv4 loopback listener exists, otherwise `::1` when an IPv6 one does.
+	 * Vite and others bind `localhost`, which on many systems is `::1` alone.
+	 */
+	loopbackTarget(port: number): string | null {
+		const service = this.services.find((entry) => entry.port === port);
+		if (!service) return null;
+		if (service.addresses.some((address) => address.startsWith("127."))) {
+			return "127.0.0.1";
+		}
+		if (service.addresses.includes("::1")) return "::1";
+		return null;
+	}
+
 	/** True while something is still listening on loopback at this port. */
 	hasLoopbackListener(port: number): boolean {
 		const service = this.services.find((entry) => entry.port === port);
