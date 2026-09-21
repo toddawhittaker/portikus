@@ -631,7 +631,7 @@ async function ownerTimezone(
 		.where("workspaces.id", "=", workspaceId)
 		.executeTakeFirst();
 	const stored = row?.editor_settings?.timezone;
-	return isSystemTimezone(stored) ? (stored as string) : DEFAULT_TIMEZONE;
+	return isSystemTimezone(stored) ? stored : DEFAULT_TIMEZONE;
 }
 
 /**
