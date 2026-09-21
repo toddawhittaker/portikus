@@ -288,22 +288,55 @@ test("resetting preview data revokes, clears the origin, and re-grants", async (
 	expect(modes[clear]).toBe("no-cors");
 });
 
-test("open in a new tab asks for a top-level grant", async () => {
+/** A stand-in for the window a click opens, with the parts the tab uses. */
+function placeholder() {
+	return {
+		opener: {} as unknown,
+		location: { replace: vi.fn() },
+		close: vi.fn(),
+	};
+}
+
+test("open in a new tab asks for a top-level grant and opens exactly one tab", async () => {
 	const bodies: string[] = [];
 	stubFetch((_url, init) => {
 		bodies.push(String(init?.body ?? ""));
 		return json(200, GRANT);
 	});
-	const opened = { location: { href: "" }, close: vi.fn() };
-	vi.stubGlobal(
-		"open",
-		vi.fn(() => opened),
-	);
+	const opened = placeholder();
+	const open = vi.fn((_url?: string, _target?: string, _features?: string) => opened);
+	vi.stubGlobal("open", open);
 	show({});
 	await screen.findByTestId("preview-frame");
 	fireEvent.click(screen.getByTestId("preview-new-tab"));
-	await waitFor(() => expect(opened.location.href).toBe(GRANT.bootstrapUrl));
+	await waitFor(() =>
+		expect(opened.location.replace).toHaveBeenCalledWith(GRANT.bootstrapUrl),
+	);
 	expect(bodies.some((body) => body.includes('"presentation":"top-level"'))).toBe(true);
+	// One call only: a second open would leave the student with two tabs.
+	expect(open).toHaveBeenCalledTimes(1);
+	// Asking for `noopener` or `noreferrer` makes Chromium return null, which
+	// is what orphaned the placeholder; the back-reference is cut on the
+	// handle instead.
+	expect(open.mock.calls[0]?.[2]).toBeUndefined();
+	expect(opened.opener).toBeNull();
+	expect(opened.close).not.toHaveBeenCalled();
+});
+
+test("a failed grant closes the tab that was opened for it", async () => {
+	stubFetch((url) =>
+		String(url).endsWith("/preview-grants")
+			? json(500, { code: "INTERNAL", message: "no" })
+			: json(200, GRANT),
+	);
+	const opened = placeholder();
+	const open = vi.fn(() => opened);
+	vi.stubGlobal("open", open);
+	show({});
+	fireEvent.click(screen.getByTestId("preview-new-tab"));
+	await waitFor(() => expect(opened.close).toHaveBeenCalled());
+	expect(opened.location.replace).not.toHaveBeenCalled();
+	expect(open).toHaveBeenCalledTimes(1);
 });
 
 /** A tab wired to one listening list, for the re-render tests below. */

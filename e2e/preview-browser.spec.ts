@@ -716,8 +716,10 @@ test.describe("the preview in a real browser", () => {
 		await openPreviewTab(page, student.workspaceId, app.port);
 		await expect(appHeading(page)).toHaveText("Top level", { timeout: 20_000 });
 
-		// The tab is opened with noopener, so it arrives as a new page in the
-		// context rather than as an opener's popup.
+		// One click must produce exactly one new page. The blank placeholder the
+		// click opens is the page that navigates to the preview origin; a second
+		// window.open would leave the student with an extra about:blank tab.
+		const before = context.pages();
 		await page.getByTestId("preview-new-tab").click();
 		let tab: Page | undefined;
 		await expect
@@ -737,6 +739,8 @@ test.describe("the preview in a real browser", () => {
 			.toBe(true);
 		if (!tab) throw new Error("no tab opened on the preview origin");
 		await expect(tab.locator("#title")).toHaveText("Top level", { timeout: 20_000 });
+		const added = context.pages().filter((one) => !before.includes(one));
+		expect(added).toHaveLength(1);
 		await app.close();
 	});
 

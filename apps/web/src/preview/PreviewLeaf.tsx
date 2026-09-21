@@ -191,15 +191,20 @@ export function PreviewLeaf({
 	}
 
 	/**
-	 * Open the preview as a browser tab. The grant is asked for first and the
-	 * window opened from the same click, because a popup blocker only allows
-	 * a window a user gesture opened.
+	 * Open the preview as a browser tab. The blank tab is opened from the
+	 * click itself, because a popup blocker only allows a window a user
+	 * gesture opened, and the grant arrives too late for that. No window
+	 * feature is asked for: both `noopener` and `noreferrer` (which implies
+	 * `noopener`) make Chromium return null, which orphans the blank tab and
+	 * leaves the student with two tabs once the grant arrives. Clearing
+	 * `opener` on the handle cuts the back-reference instead.
 	 */
 	async function openInNewTab() {
-		const opened = window.open("", "_blank", "noopener,noreferrer");
+		const opened = window.open("about:blank", "_blank");
+		if (opened) opened.opener = null;
 		try {
 			const grant = await requestGrant(workspaceId, port, "top-level");
-			if (opened) opened.location.href = grant.bootstrapUrl;
+			if (opened) opened.location.replace(grant.bootstrapUrl);
 			else window.open(grant.bootstrapUrl, "_blank", "noopener,noreferrer");
 		} catch {
 			opened?.close();
