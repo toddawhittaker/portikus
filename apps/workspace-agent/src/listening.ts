@@ -345,6 +345,15 @@ export class StopFailure extends Error {
 	}
 }
 
+/**
+ * Whether a failed signal means the process is gone. Only ESRCH does. EPERM
+ * means the kernel refused us, which tells us nothing about whether the
+ * process stopped, so it must never read as success (issue #273).
+ */
+function isGone(error: unknown): boolean {
+	return (error as NodeJS.ErrnoException | undefined)?.code === "ESRCH";
+}
+
 /** Everything about a service except when it was observed. */
 function fingerprint(services: AgentListeningService[]): string {
 	return JSON.stringify(services.map(({ observedAt: _observedAt, ...rest }) => rest));
@@ -487,19 +496,25 @@ export class ListeningMonitor {
 		}
 		try {
 			this.kill(pid, "SIGTERM");
-		} catch {
-			// Already gone: that is the outcome the student asked for.
-			return;
+		} catch (error) {
+			if (!isGone(error)) {
+				throw new StopFailure(409, "STOP_FAILED", "the process could not be signalled");
+			}
+			// Already gone, but the port may not be.
+			return await this.confirmPortFree(port);
 		}
 		const deadline = Date.now() + this.graceMs;
 		while (Date.now() < deadline) {
 			await new Promise((resolve) => setTimeout(resolve, 50));
-			if (!this.alive(pid)) return;
+			if (!this.alive(pid)) return await this.confirmPortFree(port);
 		}
 		try {
 			this.kill(pid, "SIGKILL");
-		} catch {
-			return;
+		} catch (error) {
+			if (!isGone(error)) {
+				throw new StopFailure(409, "STOP_FAILED", "the process could not be signalled");
+			}
+			return await this.confirmPortFree(port);
 		}
 		// SIGKILL cannot be caught, but a process stuck in the kernel can
 		// still be there; say so rather than pretending it stopped.
@@ -507,15 +522,38 @@ export class ListeningMonitor {
 		if (this.alive(pid)) {
 			throw new StopFailure(409, "STOP_FAILED", "the process did not stop");
 		}
+		return await this.confirmPortFree(port);
 	}
 
-	/** True while the pid still exists. Signal 0 only checks. */
+	/**
+	 * The owning process is gone, but the port may not be: a parent that
+	 * forked the server inherited the listening socket and holds it open. One
+	 * more scan tells the student the truth rather than a comforting success
+	 * (issue #273).
+	 */
+	private async confirmPortFree(port: number): Promise<void> {
+		await this.refresh();
+		if (this.services.some((entry) => entry.port === port)) {
+			throw new StopFailure(
+				409,
+				"STOP_FAILED",
+				"the process stopped but something is still listening on that port",
+			);
+		}
+	}
+
+	/**
+	 * True while the pid still exists. Signal 0 only checks. A refusal we
+	 * cannot read as "gone" ends the stop, because carrying on would report
+	 * a stop that never happened.
+	 */
 	private alive(pid: number): boolean {
 		try {
 			this.kill(pid, 0 as unknown as NodeJS.Signals);
 			return true;
-		} catch {
-			return false;
+		} catch (error) {
+			if (isGone(error)) return false;
+			throw new StopFailure(409, "STOP_FAILED", "the process could not be signalled");
 		}
 	}
 

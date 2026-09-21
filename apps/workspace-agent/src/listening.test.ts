@@ -2,6 +2,7 @@
  * Listening-port discovery (SPEC.md §14.7, §18.2, BROWSER-HANDLING.md §11.1,
  * §17): /proc parsing, inode-to-process mapping, and change detection.
  */
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -401,6 +402,19 @@ test("the monitor flags systemd-resolved and its own port as system", async () =
 
 // --- stopping a listener (SPEC.md 18.2, issue #273) ---
 
+/** Drop every listening row, the way the kernel does when a process exits. */
+function clearProcNet(): void {
+	writeFileSync(join(procRoot, "net", "tcp"), HEADER);
+	writeFileSync(join(procRoot, "net", "tcp6"), HEADER);
+}
+
+/** The error `process.kill` raises, with the errno the kernel gave. */
+function killError(code: "ESRCH" | "EPERM"): NodeJS.ErrnoException {
+	const error: NodeJS.ErrnoException = new Error(`kill ${code}`);
+	error.code = code;
+	return error;
+}
+
 test("stopping a student listener sends SIGTERM and stops there", async () => {
 	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
 	await fakeProcess(88, "node", [3]);
@@ -409,11 +423,13 @@ test("stopping a student listener sends SIGTERM and stops there", async () => {
 	const monitor = monitorFor({
 		kill: (pid, signal) => {
 			if (Number(signal) === 0) {
-				if (!alive) throw new Error("no such process");
+				if (!alive) throw killError("ESRCH");
 				return;
 			}
 			signals.push([pid, String(signal)]);
 			alive = false;
+			// The socket goes with the process.
+			clearProcNet();
 		},
 		graceMs: 1000,
 	});
@@ -429,16 +445,94 @@ test("a process that ignores SIGTERM is killed after the grace period", async ()
 	const monitor = monitorFor({
 		kill: (_pid, signal) => {
 			if (Number(signal) === 0) {
-				if (!alive) throw new Error("no such process");
+				if (!alive) throw killError("ESRCH");
 				return;
 			}
 			signals.push(String(signal));
-			if (signal === "SIGKILL") alive = false;
+			if (signal === "SIGKILL") {
+				alive = false;
+				clearProcNet();
+			}
 		},
 		graceMs: 100,
 	});
 	await monitor.stopListener(5173);
 	expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+});
+
+/**
+ * Issue #273: a pid can die while the port stays open, because a parent that
+ * forked the server inherited the listening socket. Saying "stopped" there
+ * would be a lie: the student would see the service still running.
+ */
+test("a port still listening after the pid died is not a success", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	let alive = true;
+	const monitor = monitorFor({
+		kill: (_pid, signal) => {
+			if (Number(signal) === 0) {
+				if (!alive) throw killError("ESRCH");
+				return;
+			}
+			// The process goes; the proc table keeps the port.
+			alive = false;
+		},
+		graceMs: 1000,
+	});
+	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
+		status: 409,
+		code: "STOP_FAILED",
+	});
+});
+
+/**
+ * Issue #273: only ESRCH means the process is gone. EPERM means we were not
+ * allowed to signal it, which is a refusal, not a stop.
+ */
+test("a SIGTERM refused with EPERM is a conflict, not a success", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({
+		kill: () => {
+			throw killError("EPERM");
+		},
+		graceMs: 100,
+	});
+	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
+		status: 409,
+		code: "STOP_FAILED",
+	});
+});
+
+test("a liveness check refused with EPERM is a conflict, not a success", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({
+		kill: (_pid, signal) => {
+			// The signal lands, but we may not ask whether it worked.
+			if (Number(signal) === 0) throw killError("EPERM");
+		},
+		graceMs: 100,
+	});
+	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
+		status: 409,
+		code: "STOP_FAILED",
+	});
+});
+
+/** A pid already gone is fine, as long as the port went with it. */
+test("a pid that is already gone stops cleanly when the port is free", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({
+		kill: () => {
+			clearProcNet();
+			throw killError("ESRCH");
+		},
+		graceMs: 100,
+	});
+	await expect(monitor.stopListener(5173)).resolves.toBeUndefined();
 });
 
 test("a process that survives SIGKILL is reported as a conflict", async () => {
