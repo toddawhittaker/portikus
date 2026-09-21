@@ -9,10 +9,18 @@ export interface SelectOption {
 	label: string;
 }
 
+/** A named set of options, shown under its heading in the list. */
+export interface SelectGroup {
+	label: string;
+	options: SelectOption[];
+}
+
 export interface SelectProps {
 	id: string;
 	label: React.ReactNode;
 	options?: SelectOption[];
+	/** Options under headings. Shown after the ungrouped `options`. */
+	groups?: SelectGroup[];
 	value?: string;
 	placeholder?: string;
 	hint?: React.ReactNode;
@@ -21,10 +29,22 @@ export interface SelectProps {
 	onValueChange?: (v: string) => void;
 }
 
+function Option({ option }: { option: SelectOption }): React.ReactElement {
+	return (
+		<RadixSelect.Item
+			value={option.value}
+			className="pk-menu-item flex h-[var(--pk-row)] cursor-default select-none items-center gap-2 rounded-sm px-2 text-ink outline-none data-[highlighted]:bg-surface-hover"
+		>
+			<RadixSelect.ItemText>{option.label}</RadixSelect.ItemText>
+		</RadixSelect.Item>
+	);
+}
+
 export function Select({
 	id,
 	label,
 	options = [],
+	groups = [],
 	value,
 	placeholder,
 	hint,
@@ -64,15 +84,19 @@ export function Select({
 						sideOffset={4}
 						className="pk-menu min-w-[200px] rounded-md border border-line bg-surface-raised p-1 shadow-md"
 					>
-						<RadixSelect.Viewport>
+						<RadixSelect.Viewport className="max-h-[18rem] overflow-y-auto">
 							{options.map((option) => (
-								<RadixSelect.Item
-									key={option.value}
-									value={option.value}
-									className="pk-menu-item flex h-[var(--pk-row)] cursor-default select-none items-center gap-2 rounded-sm px-2 text-ink outline-none data-[highlighted]:bg-surface-hover"
-								>
-									<RadixSelect.ItemText>{option.label}</RadixSelect.ItemText>
-								</RadixSelect.Item>
+								<Option key={option.value} option={option} />
+							))}
+							{groups.map((group) => (
+								<RadixSelect.Group key={group.label}>
+									<RadixSelect.Label className="pk-text-caption px-2 py-1 text-ink-muted">
+										{group.label}
+									</RadixSelect.Label>
+									{group.options.map((option) => (
+										<Option key={option.value} option={option} />
+									))}
+								</RadixSelect.Group>
 							))}
 						</RadixSelect.Viewport>
 					</RadixSelect.Content>

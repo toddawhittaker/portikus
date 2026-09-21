@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Timezone } from "./settings.js";
 
 /**
  * Validated Incus instance name (SPEC.md §6, §18.3; STACK.md §5, §9).
@@ -65,6 +66,9 @@ export const StartInstanceRequest = z.object({
 			"Must be a lowercase DNS name",
 		)
 		.max(253),
+	// The owner's timezone, set on the container at every start so shells,
+	// logs, and Git commits read in the student's own clock (issue #287).
+	timezone: Timezone,
 });
 export type StartInstanceRequest = z.infer<typeof StartInstanceRequest>;
 

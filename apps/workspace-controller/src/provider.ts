@@ -4,6 +4,7 @@ import {
 	type InstanceStatus,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
+	TIMEZONES,
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
 import { type IncusClient, IncusError } from "./incus.js";
@@ -20,6 +21,7 @@ export interface WorkspaceProvider {
 			agentToken: string;
 			hostname: string;
 			previewHostSuffix: string;
+			timezone: string;
 		},
 	): Promise<StartInstanceResponse>;
 	stop(name: string, opts: { timeoutSeconds: number }): Promise<StopInstanceResponse>;
@@ -32,6 +34,9 @@ const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
 
 /** A lowercase DNS label; anything else must never reach the container. */
 const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
+/** The zone names this build knows, checked again here as defence in depth. */
+const KNOWN_TIMEZONES = new Set(TIMEZONES);
 
 /** A lowercase DNS name, checked again here as defence in depth. */
 const DNS_NAME_PATTERN =
@@ -153,6 +158,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			agentToken: string;
 			hostname: string;
 			previewHostSuffix: string;
+			timezone: string;
 		},
 	): Promise<StartInstanceResponse> {
 		validateName(name);
@@ -167,6 +173,11 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				"INVALID_NAME",
 				`invalid preview host suffix: ${opts.previewHostSuffix}`,
 			);
+		}
+		// The zone name ends up in a path in a command inside the container, so
+		// it has to be one of the names this build knows (issue #287).
+		if (!KNOWN_TIMEZONES.has(opts.timezone)) {
+			throw new IncusError("INVALID_NAME", `invalid timezone: ${opts.timezone}`);
 		}
 
 		const signal = AbortSignal.timeout(opts.timeoutSeconds * 1000);
@@ -184,10 +195,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 		await this.setHostname(name, opts.hostname, signal, opts.timeoutSeconds);
 
+		await this.setTimezone(name, opts.timezone, signal, opts.timeoutSeconds);
+
 		await this.client.pushFile(
 			name,
 			PROFILE_PATH,
-			`export PORTIKUS_PREVIEW=true\nexport PORTIKUS_PREVIEW_HOST_SUFFIX=${opts.previewHostSuffix}\n`,
+			`export PORTIKUS_PREVIEW=true\nexport PORTIKUS_PREVIEW_HOST_SUFFIX=${opts.previewHostSuffix}\nexport TZ=${opts.timezone}\n`,
 			{ uid: 0, gid: 0, mode: "0644" },
 			signal,
 		);
@@ -232,6 +245,43 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			`/1.0/instances/${enc(name)}/exec`,
 			{
 				command: ["hostname", hostname],
+				"wait-for-websocket": false,
+				"record-output": false,
+				interactive: false,
+			},
+			signal,
+			timeoutSeconds,
+		);
+	}
+
+	/**
+	 * Run the container in the owner's timezone (issue #287), so timestamps in
+	 * a shell, in logs, and on Git commits match the clock on the wall.
+	 *
+	 * `/etc/timezone` is what the Debian tools read and `/etc/localtime` is
+	 * what the C library reads, so both are set. The zone name was checked
+	 * against the known list before this point, so it is safe in a command.
+	 * This runs on every start, so a change takes effect at the next start.
+	 */
+	private async setTimezone(
+		name: string,
+		timezone: string,
+		signal: AbortSignal,
+		timeoutSeconds: number,
+	): Promise<void> {
+		await this.client.pushFile(
+			name,
+			"/etc/timezone",
+			`${timezone}\n`,
+			{ uid: 0, gid: 0, mode: "0644" },
+			signal,
+		);
+
+		await this.client.request(
+			"POST",
+			`/1.0/instances/${enc(name)}/exec`,
+			{
+				command: ["ln", "-sfn", `/usr/share/zoneinfo/${timezone}`, "/etc/localtime"],
 				"wait-for-websocket": false,
 				"record-output": false,
 				interactive: false,

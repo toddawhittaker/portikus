@@ -89,11 +89,31 @@ export const TERMINAL_THEMES = ["dark", "light"] as const;
 export const TerminalTheme = z.enum(TERMINAL_THEMES);
 export type TerminalTheme = z.infer<typeof TerminalTheme>;
 
+/**
+ * Every IANA zone name this Node build knows (issue #287). It is the whole
+ * list the student chooses from and the only list a zone name is accepted
+ * from, so a name that reaches a command inside the container is always one
+ * of these.
+ */
+export const TIMEZONES: readonly string[] = Intl.supportedValuesOf("timeZone");
+
+const TIMEZONE_SET = new Set(TIMEZONES);
+
+/** The zone a workspace runs in until the student picks another (issue #287). */
+export const DEFAULT_TIMEZONE = "America/New_York";
+
+export const Timezone = z.string().refine((value) => TIMEZONE_SET.has(value), {
+	message: "Must be an IANA time zone name such as America/New_York",
+});
+export type Timezone = z.infer<typeof Timezone>;
+
 export const EditorSettings = z.object({
 	autoSave: z.boolean(),
 	autoSaveDelaySeconds: z.number().int().min(1).max(60),
 	wordWrap: z.boolean(),
 	terminalTheme: TerminalTheme,
+	/** The IANA zone the student's workspace runs in (issue #287). */
+	timezone: Timezone,
 });
 export type EditorSettings = z.infer<typeof EditorSettings>;
 
@@ -103,6 +123,7 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
 	autoSaveDelaySeconds: 5,
 	wordWrap: true,
 	terminalTheme: "dark",
+	timezone: DEFAULT_TIMEZONE,
 };
 
 /**

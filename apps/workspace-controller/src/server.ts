@@ -159,6 +159,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 					agentToken: bodyResult.data.agentToken,
 					hostname: bodyResult.data.hostname,
 					previewHostSuffix: bodyResult.data.previewHostSuffix,
+					timezone: bodyResult.data.timezone,
 				}),
 			);
 			request.log.info(

@@ -183,9 +183,13 @@ test("start pushes the agent token, then waits for agent health", async () => {
 		body: string;
 	}> = [];
 	let agentRequestsAtPush = -1;
+	const execs: string[] = [];
 	handler = async (req, res) => {
 		const body = await readBody(req);
-		if (req.url?.includes("/files")) {
+		if (req.url?.includes("/exec")) {
+			execs.push(body);
+			respond(res, 200, sync({}));
+		} else if (req.url?.includes("/files")) {
 			pushes.push({ url: req.url, headers: req.headers, body });
 			agentRequestsAtPush = agentRequests;
 			respond(res, 200, sync({}));
@@ -209,26 +213,44 @@ test("start pushes the agent token, then waits for agent health", async () => {
 		agentToken: AGENT_TOKEN,
 		hostname: "tw7",
 		previewHostSuffix: "preview.portikus.example.edu",
+		timezone: "America/New_York",
 	});
 
 	expect(result.ipv4).toBe("127.0.0.1");
 	expect(pollCount).toBeGreaterThanOrEqual(3);
-	// The hostname lands first, then the shell profile, then the agent token.
-	expect(pushes).toHaveLength(3);
+	// The hostname lands first, then the timezone, then the shell profile,
+	// then the agent token.
+	expect(pushes).toHaveLength(4);
 	const hostnamePush = pushes[0];
-	const profilePush = pushes[1];
-	const push = pushes[2];
-	if (!hostnamePush || !profilePush || !push) {
-		throw new Error("expected three file pushes");
+	const timezonePush = pushes[1];
+	const profilePush = pushes[2];
+	const push = pushes[3];
+	if (!hostnamePush || !timezonePush || !profilePush || !push) {
+		throw new Error("expected four file pushes");
 	}
 	expect(hostnamePush.url).toContain("path=%2Fetc%2Fhostname");
 	expect(hostnamePush.body).toBe("tw7\n");
 	expect(hostnamePush.headers["x-incus-uid"]).toBe("0");
 	// Every login shell reads this, so a terminal sees the preview suffix
 	// (issue #263). It is owned by root, world readable, and has no secret.
+	// The container runs in the owner's zone from this start on (issue #287):
+	// /etc/timezone for the tools that read it, /etc/localtime for libc.
+	expect(timezonePush.url).toContain("path=%2Fetc%2Ftimezone");
+	expect(timezonePush.body).toBe("America/New_York\n");
+	expect(timezonePush.headers["x-incus-uid"]).toBe("0");
+	expect(timezonePush.headers["x-incus-mode"]).toBe("0644");
+	expect(execs.some((body) => body.includes("hostname"))).toBe(true);
+	const localtime = execs.find((body) => body.includes("localtime"));
+	if (!localtime) throw new Error("expected an exec linking /etc/localtime");
+	expect(JSON.parse(localtime).command).toEqual([
+		"ln",
+		"-sfn",
+		"/usr/share/zoneinfo/America/New_York",
+		"/etc/localtime",
+	]);
 	expect(profilePush.url).toContain("path=%2Fetc%2Fprofile.d%2Fportikus.sh");
 	expect(profilePush.body).toBe(
-		"export PORTIKUS_PREVIEW=true\nexport PORTIKUS_PREVIEW_HOST_SUFFIX=preview.portikus.example.edu\n",
+		"export PORTIKUS_PREVIEW=true\nexport PORTIKUS_PREVIEW_HOST_SUFFIX=preview.portikus.example.edu\nexport TZ=America/New_York\n",
 	);
 	expect(profilePush.headers["x-incus-uid"]).toBe("0");
 	expect(profilePush.headers["x-incus-gid"]).toBe("0");
@@ -255,6 +277,7 @@ test("start refuses a hostname that is not a DNS label", async () => {
 			agentToken: AGENT_TOKEN,
 			hostname: "tw7; rm -rf /",
 			previewHostSuffix: "preview.portikus.example.edu",
+			timezone: "America/New_York",
 		}),
 	).rejects.toMatchObject({ code: "INVALID_NAME" });
 });
@@ -286,6 +309,7 @@ test(
 				agentToken: AGENT_TOKEN,
 				hostname: "tw7",
 				previewHostSuffix: "preview.portikus.example.edu",
+				timezone: "America/New_York",
 			}),
 		).rejects.toMatchObject({ code: "TIMEOUT" });
 		const elapsed = Date.now() - started;
@@ -313,6 +337,7 @@ test("start with no IP by deadline throws TIMEOUT", async () => {
 			agentToken: AGENT_TOKEN,
 			hostname: "tw7",
 			previewHostSuffix: "preview.portikus.example.edu",
+			timezone: "America/New_York",
 		}),
 	).rejects.toMatchObject({
 		code: "TIMEOUT",
@@ -447,6 +472,30 @@ test("start refuses a preview host suffix that is not a DNS name", async () => {
 			agentToken: AGENT_TOKEN,
 			hostname: "tw7",
 			previewHostSuffix: "preview.example.edu\nexport EVIL=1",
+			timezone: "America/New_York",
 		}),
 	).rejects.toMatchObject({ code: "INVALID_NAME" });
+});
+
+/**
+ * Issue #287: the zone name becomes part of a path in a command inside the
+ * container, so only a name on the zone list may get that far.
+ */
+test("start refuses a timezone that is not a known zone", async () => {
+	handler = async (req, res) => {
+		await readBody(req);
+		respond(res, 200, sync({}));
+	};
+
+	for (const bad of ["Mars/Olympus", "../../etc/shadow", "America/New_York; id"]) {
+		await expect(
+			provider.start("ws-test", {
+				timeoutSeconds: 10,
+				agentToken: AGENT_TOKEN,
+				hostname: "tw7",
+				previewHostSuffix: "preview.portikus.example.edu",
+				timezone: bad,
+			}),
+		).rejects.toMatchObject({ code: "INVALID_NAME" });
+	}
 });

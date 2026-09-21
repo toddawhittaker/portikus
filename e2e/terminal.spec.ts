@@ -294,6 +294,63 @@ test("one terminal can be light while another stays dark", async ({
 	await expect(page.getByTestId("terminal-theme-toggle")).toHaveText("Dark terminal");
 });
 
+/** The colour the pane's chrome, including its title bar, is painted on. */
+async function paneChromeBackground(page: Page, terminalId: string): Promise<string> {
+	return await page
+		.locator(`[data-testid=terminal-leaf-${terminalId}]`)
+		.evaluate((element) => getComputedStyle(element).backgroundColor);
+}
+
+/** The title bar's own text colour, which is the terminal's muted foreground. */
+async function titleBarColour(page: Page, terminalId: string): Promise<string> {
+	return await page
+		.locator(`[data-testid=terminal-leaf-${terminalId}] .pk-term-bar`)
+		.evaluate((element) => getComputedStyle(element).color);
+}
+
+/**
+ * Issue #286: the chrome around a terminal takes its colours from that
+ * terminal, not from the per-user default. Two panes side by side, one light
+ * and one dark, must have title bars that do not match.
+ */
+test("a light terminal beside a dark one has a light title bar", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const firstId = await openWithTerminal(page, student.workspaceId);
+
+	await page.getByTestId(`terminal-actions-${firstId}`).click();
+	await page.getByTestId("split-right").click();
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId)).length, {
+			timeout: 15_000,
+		})
+		.toBe(2);
+	const secondId = (await terminalIds(student.workspaceId)).find(
+		(id) => id !== firstId,
+	);
+	if (!secondId) throw new Error("the split did not create a second terminal");
+	await expectConnected(page, secondId);
+
+	// Both start dark, from the per-user default.
+	const darkChrome = await paneChromeBackground(page, firstId);
+	expect(await paneChromeBackground(page, secondId)).toBe(darkChrome);
+
+	await page.getByTestId(`terminal-actions-${secondId}`).click();
+	await page.getByTestId("terminal-theme-toggle").click();
+
+	// The light pane's title bar is light, and the dark one is untouched.
+	await expect
+		.poll(async () => await paneChromeBackground(page, secondId), { timeout: 10_000 })
+		.toBe("rgb(253, 252, 250)");
+	expect(await paneChromeBackground(page, firstId)).toBe(darkChrome);
+	expect(await titleBarColour(page, secondId)).toBe("rgb(90, 85, 76)");
+	expect(await titleBarColour(page, secondId)).not.toBe(
+		await titleBarColour(page, firstId),
+	);
+});
+
 test("a revived terminal keeps the name it was given", async ({ page, context }) => {
 	const student = await createStudent(context);
 	const terminalId = await openWithTerminal(page, student.workspaceId);
