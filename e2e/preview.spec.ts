@@ -259,19 +259,23 @@ test.describe("application preview", () => {
 		});
 	});
 
-	test("the launcher refuses a reserved port", async ({ page, context }) => {
+	test("a reserved port the launcher opens is refused by the API", async ({
+		page,
+		context,
+	}) => {
+		// The port policy lives in the API (PREVIEW_PORT_MIN and friends), so
+		// the launcher opens the tab and the API's own sentence explains it.
 		const student = await createStudent(context);
-		await seedListening(student.workspaceId, []);
+		await seedListening(student.workspaceId, [{ port: 80 }]);
 		await openProject(page, student.workspaceId);
 		await page.getByTestId("launcher").click();
 		await page.getByTestId("launcher-preview").click();
 		await page.getByLabel("Port").fill("80");
 		await page.getByTestId("preview-open-port").click();
-		await expect(
-			page.getByText(
-				"Ports below 1024 are reserved. Run your application on a higher port.",
-			),
-		).toBeVisible();
+		await expect(page.getByTestId("preview-error")).toHaveText(
+			"Port 80 cannot be previewed",
+			{ timeout: 20_000 },
+		);
 		await expect(page.getByTestId("preview-frame")).toHaveCount(0);
 	});
 
