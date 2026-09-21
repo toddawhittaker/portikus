@@ -766,3 +766,190 @@ test.skipIf(skip)("only the hash of a ticket and a token is stored", async () =>
 	expect(storedToken.token_hash).toBe(hashToken(token));
 	expect(storedToken.token_hash).not.toBe(token);
 });
+
+// ── The same-origin port bridge (BROWSER-HANDLING.md §14, pattern 2) ──
+
+/** Authorize a request whose path asks the bridge for another port. */
+async function bridge(token: string, uri: string) {
+	return authorize(token, previewHostFor(5173), {
+		extra: { "x-forwarded-uri": uri },
+	});
+}
+
+/** Wait until the registry lists this many ports for the workspace. */
+async function listeningPorts(count: number): Promise<void> {
+	await until(async () => {
+		const seen = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/listening`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		return seen.json().services.length === count;
+	});
+}
+
+test.skipIf(skip)(
+	"the bridge authorizes another port of the same workspace",
+	async () => {
+		await seedListening([{ port: 5173 }, { port: 8000 }]);
+		await listeningPorts(2);
+		const token = await openPreview(5173);
+
+		const response = await bridge(token, "/__portikus/ports/8000/api/users?q=1");
+		expect(response.statusCode).toBe(200);
+		expect(response.headers["x-portikus-upstream"]).toBe("127.0.0.1:8000");
+	},
+);
+
+test.skipIf(skip)(
+	"a request without the prefix still serves the session's own port",
+	async () => {
+		await seedListening([{ port: 5173 }, { port: 8000 }]);
+		await listeningPorts(2);
+		const token = await openPreview(5173);
+
+		const response = await bridge(token, "/api/users");
+		expect(response.statusCode).toBe(200);
+		expect(response.headers["x-portikus-upstream"]).toBe("127.0.0.1:5173");
+	},
+);
+
+test.skipIf(skip)("the bridge refuses a denied port", async () => {
+	await seedListening([{ port: 5173 }, { port: 22 }]);
+	await listeningPorts(2);
+	const token = await openPreview(5173);
+
+	const response = await bridge(token, "/__portikus/ports/22/");
+	expect(response.statusCode).toBe(403);
+	expect(response.headers["x-portikus-upstream"]).toBeUndefined();
+});
+
+test.skipIf(skip)("the bridge explains a port with nothing listening", async () => {
+	const token = await openPreview(5173);
+	const response = await bridge(token, "/__portikus/ports/4000/api");
+	expect(response.statusCode).toBe(503);
+	expect(response.body).toContain("Nothing is currently listening on port 4000");
+	expect(response.headers["x-portikus-upstream"]).toBeUndefined();
+});
+
+test.skipIf(skip)("the bridge never reaches another workspace's port", async () => {
+	const bobWorkspace = (
+		await app.inject({
+			method: "POST",
+			url: "/workspaces",
+			headers: csrfHeaders(bob, PUBLIC_URL),
+		})
+	).json().id;
+	await testDb.db
+		.updateTable("workspaces")
+		.set({
+			state: "running",
+			agent_address: "127.0.0.1",
+			agent_token: `${AGENT_TOKEN}:${bobWorkspace}`,
+			updated_at: new Date().toISOString(),
+		})
+		.where("id", "=", bobWorkspace)
+		.execute();
+	await fetch(`http://127.0.0.1:${agent.port}/__test/listening`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: bobWorkspace, services: [{ port: 9000 }] }),
+	});
+	await until(async () => {
+		const seen = await app.inject({
+			method: "GET",
+			url: `/workspaces/${bobWorkspace}/listening`,
+			headers: { cookie: bob.cookieHeader() },
+		});
+		return seen.json().services.length === 1;
+	});
+
+	const token = await openPreview(5173);
+	const response = await bridge(token, "/__portikus/ports/9000/api");
+	expect(response.statusCode).toBe(503);
+	expect(response.headers["x-portikus-upstream"]).toBeUndefined();
+});
+
+test.skipIf(skip)("a malformed bridge path is refused", async () => {
+	await seedListening([{ port: 5173 }, { port: 8000 }]);
+	await listeningPorts(2);
+	const token = await openPreview(5173);
+
+	for (const uri of [
+		"/__portikus/ports/08000/api",
+		"/__portikus/ports/+8000/api",
+		"/__portikus/ports/-8000/api",
+		"/__portikus/ports/8000x/api",
+		"/__portikus/ports/8e3/api",
+		"/__portikus/ports/65536/api",
+		"/__portikus/ports/0/api",
+		"/__portikus/ports/8000",
+		"/__portikus/ports/",
+	]) {
+		const response = await bridge(token, uri);
+		expect({ uri, status: response.statusCode }).toEqual({ uri, status: 403 });
+		expect(response.headers["x-portikus-upstream"]).toBeUndefined();
+	}
+});
+
+test.skipIf(skip)(
+	"the bridge upstream still comes only from the workspace row (SPEC 24.7)",
+	async () => {
+		await seedListening([{ port: 5173 }, { port: 8000 }]);
+		await listeningPorts(2);
+		const token = await openPreview(5173);
+
+		const response = await authorize(token, previewHostFor(5173), {
+			extra: {
+				"x-forwarded-uri": "/__portikus/ports/8000/api",
+				"x-portikus-upstream": "169.254.169.254:80",
+				"x-forwarded-for": "169.254.169.254",
+				host: "169.254.169.254",
+			},
+		});
+		expect(response.statusCode).toBe(200);
+		expect(response.headers["x-portikus-upstream"]).toBe("127.0.0.1:8000");
+	},
+);
+
+test.skipIf(skip)("a loopback-only bridge port gets a forward", async () => {
+	await seedListening([{ port: 5173 }, { port: 3000, previewReachability: "unknown" }]);
+	await listeningPorts(2);
+	const token = await openPreview(5173);
+
+	const response = await bridge(token, "/__portikus/ports/3000/api");
+	expect(response.statusCode).toBe(200);
+	expect(response.headers["x-portikus-upstream"]).toBe("127.0.0.1:3000");
+	expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([3000]);
+});
+
+test.skipIf(skip)("a bridge forward closes when the port stops listening", async () => {
+	await seedListening([{ port: 5173 }, { port: 3000, previewReachability: "unknown" }]);
+	await listeningPorts(2);
+	const token = await openPreview(5173);
+	expect((await bridge(token, "/__portikus/ports/3000/api")).statusCode).toBe(200);
+	expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([3000]);
+
+	await seedListening([{ port: 5173 }]);
+	await until(() => (agent.forwards.get(workspaceId)?.size ?? 0) === 0);
+});
+
+test.skipIf(skip)("a bridge forward closes when the preview session ends", async () => {
+	await seedListening([{ port: 5173 }, { port: 3000, previewReachability: "unknown" }]);
+	await listeningPorts(2);
+	const token = await openPreview(5173);
+	expect((await bridge(token, "/__portikus/ports/3000/api")).statusCode).toBe(200);
+	expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([3000]);
+
+	const reset = await app.inject({
+		method: "GET",
+		url: "/__portikus/reset",
+		headers: {
+			"x-forwarded-host": previewHostFor(5173),
+			cookie: `${COOKIE}=${token}`,
+		},
+	});
+	expect(reset.statusCode).toBe(200);
+	expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([]);
+	expect((await bridge(token, "/__portikus/ports/3000/api")).statusCode).toBe(401);
+});
