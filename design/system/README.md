@@ -24,7 +24,7 @@ Never use exclamation marks, emoji, "Oops", "Whoops", or countdown urgency beyon
 
 Every colour is a semantic token with a light and a dark value. Set `data-theme="light"` or `data-theme="dark"` on the root; follow the operating system by default and let the person override it.
 
-Surfaces: `surface` is the page ground and the frame of the work area. `surface-sunken` is the side panes (project list, file tree), the tab strip and table headers. `surface-raised` is anything that sits on top: dialogs, menus, toasts, inputs, table bodies, the active tab. `surface-hover` and `surface-selected` are the only row states. `surface-inverse` fills the primary button.
+Surfaces: `surface` is the page ground and the frame of the work area. `surface-sunken` is the side panes (project list, file tree), the tab strip and table headers. `surface-raised` is anything that sits on top: dialogs, menus, toasts, inputs, table bodies, the active tab. `surface-hover` and `surface-selected` are the only row states, except in the right pane's lists (Files, Checks, Changes, Running), where the picked-out row uses the neutral `surface-row-selected` so selection never reads as green. `surface-inverse` fills the primary button.
 
 Text: `ink` for primary text, `ink-muted` for secondary text and pane headings, `ink-faint` for placeholders only. All three meet 4.5:1 on `surface`, `surface-raised` and `surface-sunken` in both themes; `ink` and `ink-muted` also meet it on `surface-hover` and `surface-selected`. Text on `surface-inverse` is `ink-inverse`; on an accent fill, `on-accent`; on a danger fill, `on-danger`. Never use literal white.
 
