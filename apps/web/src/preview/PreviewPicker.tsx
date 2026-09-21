@@ -11,17 +11,20 @@ import {
 	serviceKind,
 	useListening,
 } from "../running/services.js";
-import { MIN_PREVIEW_PORT } from "./grants.js";
 import "./preview.css";
 
-/** The complaint about a typed port, or null when it may be previewed. */
+/**
+ * The complaint about a typed port, or null when it is a port number at all.
+ *
+ * Which ports may be previewed is the API's policy (PREVIEW_PORT_MIN,
+ * PREVIEW_PORT_MAX and PREVIEW_DENIED_PORTS). Repeating it here would let
+ * the two drift apart, so the launcher only checks that the text is a port
+ * number and lets the grant route's 403 sentence explain any refusal.
+ */
 export function portError(text: string): string | null {
 	if (!/^\d{1,5}$/.test(text.trim())) return "Enter a port number.";
 	const port = Number(text.trim());
-	if (port > 65535) return "Ports go up to 65535.";
-	if (port < MIN_PREVIEW_PORT) {
-		return `Ports below ${MIN_PREVIEW_PORT} are reserved. Run your application on a higher port.`;
-	}
+	if (port < 1 || port > 65535) return "Ports go from 1 to 65535.";
 	return null;
 }
 
