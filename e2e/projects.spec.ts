@@ -480,8 +480,10 @@ test.describe("projects", () => {
 		await moveProjectDir(student.workspaceId, project.slug, "todo-service");
 
 		// The same project, under its new folder name, with its tab still open.
+		// The title is read from the folder, so it changes too (issue #269).
 		const item = page.getByTestId(`project-item-${project.id}`);
 		await expect(item).toContainText("todo-service", { timeout: 20_000 });
+		await expect(item).toContainText("Todo Service");
 		await expect(item).not.toContainText(/missing/i);
 		await expect(page.getByTestId("tab-file:app.ts")).toBeAttached();
 

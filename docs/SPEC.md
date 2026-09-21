@@ -521,8 +521,10 @@ workspace; otherwise it is refused with 409.
 Discovery and missing projects. The listing takes a `state` query of `active`
 or `archived` and defaults to active. When the workspace is running, the
 control plane asks the agent what is on disk and reconciles: a directory that
-is a Git repository and has no row gets one, with `source = discovered` and the
-slug as its name; a row whose directory is gone is returned with `missing:
+is a Git repository and has no row gets one, with `source = discovered` and a
+name read from the directory: the words between hyphens and underscores,
+each capitalised, so `project-name` reads `Project Name`; a row whose
+directory is gone is returned with `missing:
 true` and may only be archived. A directory that is not a Git repository is
 ignored. Discovery never resurrects an archived slug, because that slug already
 has a row. When the workspace is not running, rows are returned with the Git
@@ -534,8 +536,10 @@ listing and the control plane stores it on the project row. Before discovery,
 each listing does two things: it records the identity of any directory a row
 already names, and it moves a row whose directory is gone to whichever
 directory now carries that row's identity. So a project a student renames with
-`mv` in a shell keeps its id, its name, its open tabs, and its layout, and its
-terminals' recorded working directories move with it. A copy, or a restore from
+`mv` in a shell keeps its id, its open tabs, and its layout, and its
+terminals' recorded working directories move with it. Its display name is read
+from the new directory name the same way discovery reads one, because the
+folder is the project: renaming the folder renames the project. A copy, or a restore from
 a recovery archive, has a different identity and is honestly a new project. A
 directory whose identity belongs to no row is discovered under the existing
 rule: only if it is a Git repository.

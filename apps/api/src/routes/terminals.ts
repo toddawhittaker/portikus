@@ -4,9 +4,10 @@ import {
 	type ApiError,
 	CreateTerminalRequest,
 	MAX_TERMINALS_PER_WORKSPACE,
-	RenameTerminalRequest,
 	type Terminal,
 	type TerminalList,
+	TerminalTheme,
+	UpdateTerminalRequest,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type {
@@ -20,6 +21,7 @@ import WebSocketClient, { type RawData } from "ws";
 import { z } from "zod";
 import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
 import type { ServerDeps } from "../server.js";
+import { toEditorSettings } from "./me.js";
 import {
 	createPendingWork,
 	dropPresence,
@@ -84,6 +86,7 @@ function toTerminal(row: {
 	cwd: string;
 	position: number;
 	project_id: string | null;
+	theme: string;
 	created_at: Date;
 	ended_at: Date | null;
 }): Terminal {
@@ -96,6 +99,8 @@ function toTerminal(row: {
 		projectId: row.project_id,
 		createdAt: row.created_at.toISOString(),
 		endedAt: row.ended_at ? row.ended_at.toISOString() : null,
+		// A row written before migration 0010, or by hand, reads as dark.
+		theme: TerminalTheme.catch("dark").parse(row.theme),
 	};
 }
 
@@ -143,6 +148,22 @@ export function chooseTerminalName(
 	let number = 1;
 	while (taken.has(number)) number += 1;
 	return `Terminal ${number}`;
+}
+
+/**
+ * The colour scheme a new terminal of this user starts in (issue #268). It is
+ * the user's own setting; once the terminal exists its own row decides.
+ */
+async function userTerminalTheme(
+	db: Kysely<Database>,
+	userId: string,
+): Promise<TerminalTheme> {
+	const row = await db
+		.selectFrom("users")
+		.select("editor_settings")
+		.where("id", "=", userId)
+		.executeTakeFirst();
+	return toEditorSettings(row?.editor_settings).terminalTheme;
 }
 
 function listTerminalRows(db: Kysely<Database>, workspaceId: string) {
@@ -265,6 +286,9 @@ export function registerTerminalRoutes(
 		const name =
 			body.data.name ?? chooseTerminalName(rows, project ? project.id : null);
 		const cwd = body.data.cwd ?? project?.path ?? DEFAULT_CWD;
+		// A new terminal starts in the scheme the user chose in their settings
+		// unless the caller asked for one outright (issues #267, #268).
+		const theme = body.data.theme ?? (await userTerminalTheme(db, user.id));
 
 		const created = await db
 			.insertInto("terminals")
@@ -275,12 +299,13 @@ export function registerTerminalRoutes(
 				cwd,
 				position,
 				project_id: project ? project.id : null,
+				theme,
 			})
 			.returningAll()
 			.executeTakeFirstOrThrow();
 
 		try {
-			await agent.createTerminal({ id, cwd });
+			await agent.createTerminal({ id, cwd, theme });
 		} catch (error) {
 			// The row only means something if the agent has the tmux session.
 			await db.deleteFrom("terminals").where("id", "=", id).execute();
@@ -298,14 +323,16 @@ export function registerTerminalRoutes(
 		return reply.status(201).send(toTerminal(created));
 	});
 
-	// PATCH /workspaces/:id/terminals/:tid -- display name only (SPEC.md §9.6).
+	// PATCH /workspaces/:id/terminals/:tid -- display name, colour scheme, or
+	// both (SPEC.md §9.6, issue #268). A scheme change repaints the browser;
+	// the shell that is already running keeps the COLORFGBG it started with.
 	app.patch("/workspaces/:id/terminals/:tid", async (request, reply) => {
 		const user = requireUser(request);
 		const params = TerminalParam.safeParse(request.params);
 		if (!params.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
 		}
-		const body = RenameTerminalRequest.safeParse(request.body ?? {});
+		const body = UpdateTerminalRequest.safeParse(request.body ?? {});
 		if (!body.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
@@ -317,7 +344,10 @@ export function registerTerminalRoutes(
 
 		const updated = await db
 			.updateTable("terminals")
-			.set({ name: body.data.name })
+			.set({
+				...(body.data.name === undefined ? {} : { name: body.data.name }),
+				...(body.data.theme === undefined ? {} : { theme: body.data.theme }),
+			})
 			.where("id", "=", params.data.tid)
 			.where("workspace_id", "=", params.data.id)
 			.returningAll()

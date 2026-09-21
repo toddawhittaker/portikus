@@ -4,9 +4,9 @@ import {
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_INPUT_FRAME_BYTES,
 	MAX_TERMINALS_PER_WORKSPACE,
-	RenameTerminalRequest,
 	Terminal,
 	TerminalList,
+	UpdateTerminalRequest,
 } from "./index.js";
 
 const sampleTerminal = {
@@ -18,6 +18,7 @@ const sampleTerminal = {
 	projectId: null,
 	createdAt: "2026-01-01T00:00:00.000Z",
 	endedAt: null,
+	theme: "dark",
 };
 
 test("Terminal round-trips a complete record", () => {
@@ -64,12 +65,27 @@ test("CreateTerminalRequest accepts an empty body and rejects extras", () => {
 	expect(CreateTerminalRequest.safeParse({ workspaceId: "x" }).success).toBe(false);
 });
 
-test("RenameTerminalRequest requires a name and rejects extras", () => {
-	expect(RenameTerminalRequest.parse({ name: "tests" })).toEqual({ name: "tests" });
-	expect(RenameTerminalRequest.safeParse({}).success).toBe(false);
-	expect(RenameTerminalRequest.safeParse({ name: "a", cwd: "/tmp" }).success).toBe(
+test("UpdateTerminalRequest changes the name, the theme, or both", () => {
+	expect(UpdateTerminalRequest.parse({ name: "tests" })).toEqual({ name: "tests" });
+	expect(UpdateTerminalRequest.parse({ theme: "light" })).toEqual({ theme: "light" });
+	expect(UpdateTerminalRequest.parse({ name: "a", theme: "dark" })).toEqual({
+		name: "a",
+		theme: "dark",
+	});
+	// A request that changes nothing, an unknown scheme, and an extra field.
+	expect(UpdateTerminalRequest.safeParse({}).success).toBe(false);
+	expect(UpdateTerminalRequest.safeParse({ theme: "sepia" }).success).toBe(false);
+	expect(UpdateTerminalRequest.safeParse({ name: "a", cwd: "/tmp" }).success).toBe(
 		false,
 	);
+});
+
+// Issue #268: a terminal carries its own colour scheme.
+test("Terminal requires a theme and a new terminal may ask for one", () => {
+	const { theme: _theme, ...withoutTheme } = sampleTerminal;
+	expect(Terminal.safeParse(withoutTheme).success).toBe(false);
+	expect(CreateTerminalRequest.parse({ theme: "light" })).toEqual({ theme: "light" });
+	expect(CreateTerminalRequest.safeParse({ theme: "sepia" }).success).toBe(false);
 });
 
 test("TerminalList round-trips", () => {

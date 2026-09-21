@@ -123,7 +123,7 @@ export function EditorSettingsDialog({ onClose }: { onClose: () => void }) {
 					<Select
 						id="terminal-theme"
 						label="Terminal colours"
-						hint="Some rooms and projectors read better with a light terminal."
+						hint="What a new terminal starts with. Each terminal's three-dots menu can switch that one terminal, and a program already running keeps the colours it started with."
 						options={TERMINAL_THEME_OPTIONS}
 						value={terminalTheme}
 						onValueChange={(value) =>

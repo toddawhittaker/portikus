@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CloneUrl, ProjectSlug } from "./project.js";
+import { TerminalTheme } from "./settings.js";
 import { TerminalId } from "./terminal.js";
 
 /**
@@ -36,6 +37,12 @@ export const AgentCreateTerminalRequest = z
 	.object({
 		id: TerminalId,
 		cwd: z.string().min(1),
+		/**
+		 * The terminal's colour scheme (issue #267). The agent turns it into
+		 * COLORFGBG in the shell's environment so a program that auto-detects,
+		 * such as Claude Code, picks a matching theme.
+		 */
+		theme: TerminalTheme,
 	})
 	.strict();
 export type AgentCreateTerminalRequest = z.infer<typeof AgentCreateTerminalRequest>;

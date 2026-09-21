@@ -1,8 +1,4 @@
-import {
-	EDITOR_SETTINGS_DEFAULTS,
-	type Terminal as TerminalMeta,
-	type TerminalTheme,
-} from "@portikus/contracts";
+import type { Terminal as TerminalMeta, TerminalTheme } from "@portikus/contracts";
 import { useToast } from "@portikus/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { FitAddon } from "@xterm/addon-fit";
@@ -12,7 +8,6 @@ import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { useEffect, useRef, useState } from "react";
 import { wsUrl } from "./api/ws.js";
-import { useEditorSettings } from "./editor/settingsQueries.js";
 import {
 	canOpenInNewTab,
 	FILE_LINE_PATTERN,
@@ -77,9 +72,9 @@ const LIGHT_THEME = {
 	red: "#a4342a",
 	brightRed: "#c14437",
 	green: "#2e6e34",
-	brightGreen: "#3c8743",
+	brightGreen: "#35793b",
 	yellow: "#855b00",
-	brightYellow: "#a27100",
+	brightYellow: "#946800",
 	blue: "#3f5a8c",
 	brightBlue: "#4f70ab",
 	magenta: "#8a3ea0",
@@ -105,6 +100,8 @@ export interface TerminalPaneProps {
 	onSessionEnded: () => void;
 	/** The agent reported the terminal's current directory (SPEC.md §9.3). */
 	onCwd: (path: string) => void;
+	/** True when this pane is the one the work area calls focused. */
+	focused: boolean;
 	/** The user clicked or typed in this pane. */
 	onFocus: (terminalId: string) => void;
 	/** Alt+Shift+Q: move focus out of the terminal to the tab strip. */
@@ -169,6 +166,7 @@ export function TerminalPane({
 	projectId,
 	terminal,
 	visible,
+	focused,
 	onExited,
 	onSessionEnded,
 	onCwd,
@@ -212,12 +210,16 @@ export function TerminalPane({
 	const visibleRef = useRef(visible);
 	visibleRef.current = visible;
 
-	// The student's terminal colour scheme (issue #239). It arrives after the
-	// first render and can change while the terminal is open, so the theme is
-	// set on the live instance rather than only at construction.
-	const settings = useEditorSettings();
-	const scheme: TerminalTheme =
-		settings.data?.terminalTheme ?? EDITOR_SETTINGS_DEFAULTS.terminalTheme;
+	// A pane that is born focused takes the keyboard, so "New terminal here"
+	// in an ended pane leaves the student typing in the new shell rather than
+	// nowhere (issue #264).
+	const focusedRef = useRef(focused);
+	focusedRef.current = focused;
+
+	// This terminal's own colour scheme (issue #268). It can change while the
+	// terminal is open, so the theme is set on the live instance rather than
+	// only at construction.
+	const scheme: TerminalTheme = terminal.theme;
 	const schemeRef = useRef(scheme);
 	schemeRef.current = scheme;
 	useEffect(() => {
@@ -337,6 +339,7 @@ export function TerminalPane({
 		xterm.current = term;
 		fit.current = fitAddon;
 		fitAddon.fit();
+		if (focusedRef.current && visibleRef.current) term.focus();
 
 		// `src/auth.ts:73` and friends open the file at that line.
 		term.registerLinkProvider({

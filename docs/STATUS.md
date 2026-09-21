@@ -931,6 +931,44 @@ Known gaps. The design mirror under `design/system/components/bundle.css`
 still shows the old label-sized tab rule; it is generated from the Claude
 Design artifact and was left for a design pull rather than hand-edited.
 
+## Epic 8 pilot fixes, second batch (issues #264, #267, #268)
+
+More small fixes from driving the pilot on 2026-09-21, landed into the
+Epic 8.1 branch.
+
+**Focus after a revived terminal.** Clicking "New terminal here" in a pane
+whose session ended makes the replacement terminal the focused one, and a
+pane that is born focused takes the keyboard. The student types straight
+into the new shell instead of losing the first keystrokes (issue #264,
+SPEC.md section 10).
+
+**A readable light terminal.** Every one of the sixteen ANSI colours in
+the light palette now clears a 4.5:1 contrast ratio against the light
+background; bright green and bright yellow were darkened to get there, in
+both `packages/ui/src/theme.css` and the xterm palette in
+`TerminalPane.tsx`. A unit test checks all sixteen, so a future colour
+change cannot quietly make one unreadable. Programs that pick their own
+theme, Claude Code among them, are told which ground they are on two
+ways: the workspace agent sets `COLORFGBG` in each new terminal's
+environment (`0;15` for light, `15;0` for dark) through `tmux
+new-session -e`, and xterm.js 6 already answers the OSC 11 background
+query by itself, which a test now pins. A shell that is already running
+keeps the `COLORFGBG` it started with; the settings dialog and the pane
+menu both say so (issue #267, SPEC.md section 13.5).
+
+**A per-terminal light or dark switch.** The colour scheme belongs to one
+terminal, not to the browser or the whole workspace. Each pane's
+three-dots menu offers the other scheme, the choice is stored on the
+terminals row (migration `0010_terminal_theme`) and carried in the
+terminal contract, so it survives a reload and looks the same in every
+browser. The per-user setting from issue #239 stays as the scheme a new
+terminal starts in (issue #268, SPEC.md sections 10 and 13.5).
+
+Known gaps. The chrome around a pane, its title bar and its scrollbar,
+still follows the per-user terminal setting rather than that one
+terminal's choice, because those colours come from the `--terminal-*`
+tokens on the document root. The terminal surface itself is correct.
+
 ## Epic 8.1 pilot fixes — the Running pane (issues #265, #272, #273)
 
 **System listeners.** The workspace agent now marks each listening port as
