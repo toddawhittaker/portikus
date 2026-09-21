@@ -107,10 +107,14 @@ export function RunningPane({
 						) : (
 							<span />
 						)}
-						{/* running/*.css owns this cell's layout; it borrows pk-portrow-kind. */}
-						<span className="pk-portrow-kind">
+						<span className="pk-portrow-actions">
 							{reason !== null ? (
-								<span data-testid={`running-reason-${service.port}`}>{reason}</span>
+								<span
+									className="pk-portrow-kind"
+									data-testid={`running-reason-${service.port}`}
+								>
+									{reason}
+								</span>
 							) : null}
 							{isPreviewable(service) && !service.system ? (
 								<>
@@ -156,8 +160,7 @@ export function RunningPane({
 			))}
 
 			{systemCount > 0 || showSystem ? (
-				// running/*.css owns this row's own styling; it borrows pk-portrow.
-				<label className="pk-portrow" data-testid="running-system-toggle">
+				<label className="pk-running-toggle" data-testid="running-system-toggle">
 					<input
 						type="checkbox"
 						checked={showSystem}
@@ -166,9 +169,7 @@ export function RunningPane({
 							writeShowSystem(event.target.checked);
 						}}
 					/>
-					<span className="pk-portrow-kind">Show system services</span>
-					<span />
-					<span />
+					Show system services
 				</label>
 			) : null}
 
