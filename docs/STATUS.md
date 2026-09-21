@@ -774,7 +774,33 @@ past that the answer is 429 with a `PREVIEW_RATE_LIMITED` code the
 browser shows. Each new grant also sweeps preview sessions that were
 revoked more than a day ago or whose main session has gone (#255).
 
-Pilot verification: (to be filled from the acceptance walk-through)
+**Pilot verification.** On 2026-09-21 the epic head (build 0.1.234) was
+deployed to the pilot VM and walked through BROWSER-HANDLING.md section 25.1
+as a signed-in student in Chromium. Passed: a Vite application on port 5173
+rendered in the embedded Preview tab with hot module reload working across
+an edit; a Python `http.server` bound to all interfaces on port 8000; a
+WebSocket application that stayed connected through the gateway; the
+same-origin bridge reaching a second and third port while refusing the
+agent port, a dead port, and malformed paths; Reset preview data clearing
+the application's cookie, local storage, and service worker; the preview
+session cookie stripped before the application saw the request; a second
+student's workspace unable to reach the first student's ports while the VM
+could; replayed, wrong-host, and cookie-less requests refused with
+Portikus-owned pages and no existence detail; logout ending the preview;
+the smoke test at 71 of 71. Two bugs found on the pilot were fixed in
+follow-up task pull requests before the epic merged: an application that
+refuses framing showed a blank pane instead of the Open in new tab offer,
+and the reset response's `Clear-Site-Data: "cookies"` directive cleared
+the whole registrable domain and signed the student out. One gap was
+fixed the same way: the loopback forward dialed only IPv4, while Vite's
+default bind is IPv6 loopback. One gap is deferred to the backlog: Vite
+refuses unknown hosts until its `server.allowedHosts` names the preview
+suffix, and nothing yet carries the suffix into the workspace for a
+template to use. The Incus workspace network access list needed one new
+ingress rule for the preview range, applied by hand on the pilot from the
+Ansible play and now part of the play. The pilot's API environment file
+still carries `PREVIEW_SUFFIX` added by hand until the next full
+deployment.
 
 **Decisions.**
 
