@@ -393,3 +393,119 @@ test("the light terminal theme is light and has its own ANSI palette", () => {
 	expect(light.red).toBeDefined();
 	expect(dark.red).toBeUndefined();
 });
+
+/** The relative luminance of a #rrggbb colour, as WCAG 2 defines it. */
+function luminance(hex: string): number {
+	const channels = [1, 3, 5]
+		.map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255)
+		.map((value) =>
+			value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
+		);
+	return (
+		0.2126 * (channels[0] ?? 0) +
+		0.7152 * (channels[1] ?? 0) +
+		0.0722 * (channels[2] ?? 0)
+	);
+}
+
+/** The WCAG 2 contrast ratio between two colours, from 1 to 21. */
+function contrastRatio(first: string, second: string): number {
+	const a = luminance(first);
+	const b = luminance(second);
+	return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+/** Ordinary text has to clear WCAG AA against the ground it is drawn on. */
+const CONTRAST_FLOOR = 4.5;
+
+const ANSI_NAMES = [
+	"black",
+	"red",
+	"green",
+	"yellow",
+	"blue",
+	"magenta",
+	"cyan",
+	"white",
+	"brightBlack",
+	"brightRed",
+	"brightGreen",
+	"brightYellow",
+	"brightBlue",
+	"brightMagenta",
+	"brightCyan",
+	"brightWhite",
+];
+
+/**
+ * Issue #267: on the pilot, line numbers and hints from Claude Code were
+ * invisible on the light ground. Every one of the sixteen ANSI colours, and
+ * the ordinary foreground, must be readable against it.
+ */
+test("every light ANSI colour is readable on the light background", () => {
+	const light = terminalTheme("light");
+	expect(ANSI_NAMES).toHaveLength(16);
+	const background = light.background as string;
+	for (const name of ANSI_NAMES) {
+		const colour = light[name];
+		expect(colour, `${name} is missing from the light palette`).toBeDefined();
+		const ratio = contrastRatio(colour as string, background);
+		expect(
+			ratio,
+			`${name} (${colour}) is only ${ratio.toFixed(2)}:1 on the light background`,
+		).toBeGreaterThanOrEqual(CONTRAST_FLOOR);
+	}
+	expect(contrastRatio(light.foreground as string, background)).toBeGreaterThanOrEqual(
+		CONTRAST_FLOOR,
+	);
+});
+
+/** Output bytes a program in the pane wrote, as the socket delivers them. */
+function outputBytes(text: string): ArrayBuffer {
+	const bytes = new Uint8Array(text.length);
+	for (let at = 0; at < text.length; at += 1) bytes[at] = text.charCodeAt(at);
+	return bytes.buffer;
+}
+
+/** The input frames this pane's socket has sent. */
+function sentInput(): string {
+	return (sockets[0]?.sent ?? [])
+		.map((frame) => JSON.parse(frame) as { type: string; data?: string })
+		.filter((frame) => frame.type === "input")
+		.map((frame) => frame.data ?? "")
+		.join("");
+}
+
+/**
+ * Issues #267 and #268: xterm.js 6 answers the OSC 11 background query by
+ * itself, and the pane paints the scheme its own terminal row carries. So a
+ * program that asks is told the real background of that one terminal.
+ */
+test("a program asking for the background colour is told this terminal's", async () => {
+	renderPane(vi.fn(), vi.fn(), true, { theme: "light" });
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	act(() => {
+		sockets[0]?.onopen?.();
+	});
+	act(() => {
+		sockets[0]?.onmessage?.({
+			data: outputBytes(`${String.fromCharCode(27)}]11;?${String.fromCharCode(7)}`),
+		});
+	});
+	// The light ground is #fdfcfa, which xterm reports as an rgb: triple.
+	await waitFor(() => expect(sentInput()).toContain("]11;rgb:fd"));
+});
+
+test("a dark terminal reports the dark background instead", async () => {
+	renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	act(() => {
+		sockets[0]?.onopen?.();
+	});
+	act(() => {
+		sockets[0]?.onmessage?.({
+			data: outputBytes(`${String.fromCharCode(27)}]11;?${String.fromCharCode(7)}`),
+		});
+	});
+	await waitFor(() => expect(sentInput()).toContain("]11;rgb:11"));
+});
