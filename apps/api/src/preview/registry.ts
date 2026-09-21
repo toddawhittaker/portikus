@@ -1,5 +1,6 @@
 import type { ApiConfig } from "@portikus/config";
 import {
+	type AgentListeningService,
 	AgentListeningServicesChanged,
 	type ListeningService,
 } from "@portikus/contracts";
@@ -97,13 +98,13 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 	 */
 	function stamp(
 		workspaceId: string,
-		services: { port: number; previewReachability: string }[],
+		services: AgentListeningService[],
 	): ListeningService[] {
 		return services.map((service) => ({
-			...(service as Omit<ListeningService, "workspaceId">),
+			...service,
 			workspaceId,
 			previewReachability: portAllowed(config, service.port)
-				? (service.previewReachability as ListeningService["previewReachability"])
+				? service.previewReachability
 				: "denied",
 		}));
 	}
@@ -183,7 +184,22 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		);
 	}
 
+	/** True while a poll is running, so two never overlap. */
+	let polling = false;
+
 	async function poll(): Promise<void> {
+		// A slow poll must not be joined by the next tick: two at once would
+		// each make an entry for the same workspace and orphan a socket.
+		if (polling) return;
+		polling = true;
+		try {
+			await pollOnce();
+		} finally {
+			polling = false;
+		}
+	}
+
+	async function pollOnce(): Promise<void> {
 		const rows = await db
 			.selectFrom("workspaces")
 			.select(["id", "state", "agent_address", "agent_token"])
