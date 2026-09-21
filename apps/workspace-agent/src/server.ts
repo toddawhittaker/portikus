@@ -28,6 +28,7 @@ import Fastify, {
 } from "fastify";
 import { z } from "zod";
 import { tokenAuth } from "./auth.js";
+import { checksRoute } from "./checks-route.js";
 import { ERROR_STATUS, sendError } from "./errors.js";
 import { eventsRoute } from "./events-route.js";
 import {
@@ -550,6 +551,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		});
 
 		registerGitRoutes(instance, { homeDir: options.homeDir });
+		instance.register(checksRoute, { homeDir: options.homeDir });
 		instance.register(listeningRoutes, { monitor, forwards });
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,

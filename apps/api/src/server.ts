@@ -14,6 +14,7 @@ import { toAuthOptions } from "./auth-options.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerCheckRoutes } from "./routes/checks.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerGitSearchRoutes } from "./routes/git-search.js";
 import { registerMeRoutes } from "./routes/me.js";
@@ -145,6 +146,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerProjectRoutes(instance, deps);
 		registerFileRoutes(instance, deps);
 		registerGitSearchRoutes(instance, deps);
+		registerCheckRoutes(instance, deps);
 		registerProjectEventsSocket(instance, deps);
 		registerMeRoutes(instance, deps);
 		registerAdminRoutes(instance, deps);

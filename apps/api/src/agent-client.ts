@@ -91,6 +91,11 @@ export class AgentClient {
 		await this.call("DELETE", `/forwards/${port}`).catch(() => undefined);
 	}
 
+	/** The websocket URL one check run's output is piped from (SPEC.md §18.1). */
+	checkOutputUrl(slug: string, checkId: string): string {
+		return `ws://${this.address}:${this.port}/projects/${encodeURIComponent(slug)}/checks/${encodeURIComponent(checkId)}/runs/current`;
+	}
+
 	/** The Authorization header for the agent. Never log the result. */
 	authHeader(): string {
 		return `Bearer ${this.token}`;
