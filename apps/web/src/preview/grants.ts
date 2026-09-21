@@ -61,8 +61,12 @@ export async function resetPreviewData(workspaceId: string): Promise<void> {
  * controls — so navigating the frame to a reserved path could be answered
  * by the application instead of by the edge. This document is not a client
  * of that worker, so the request goes to the network, reaches the edge, and
- * comes back with the `Clear-Site-Data` header that drops the origin's
- * cookies, storage and service worker registrations.
+ * comes back with a `Clear-Site-Data` header that drops the origin's storage
+ * and service worker registrations, together with a `Set-Cookie` expiring
+ * every cookie the request carried. The cookies travel because the fetch
+ * sends credentials; `Clear-Site-Data: "cookies"` cannot be used, because a
+ * browser applies it to the whole registrable domain and would sign the
+ * student out of Portikus (BROWSER-HANDLING.md §16.4).
  *
  * The response is opaque (`no-cors`), which is fine: nothing is read from
  * it. Only its headers matter, and the browser applies those itself.

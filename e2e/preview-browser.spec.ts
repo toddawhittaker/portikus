@@ -619,7 +619,8 @@ test.describe("the preview in a real browser", () => {
 		// The reset request reached the edge. If Portikus had navigated the
 		// frame instead, this worker would have answered it and the gateway
 		// would never have been asked. The answer carries the header that
-		// clears the origin's cookies, storage and worker registrations.
+		// clears the origin's storage and worker registrations, and a
+		// Set-Cookie expiring every cookie the request carried.
 		const reset = seen.reserved.filter((one) => one.path === "/__portikus/reset");
 		expect(reset).toHaveLength(1);
 		expect(reset[0]?.clearSiteData).toBe('"storage"');

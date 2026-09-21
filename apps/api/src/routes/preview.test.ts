@@ -11,7 +11,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
-import { hashToken } from "../preview/store.js";
+import { createPreviewSession, hashToken } from "../preview/store.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
 const skip = !hasTestDb();
@@ -679,11 +679,16 @@ test.skipIf(skip)("a preview session of one user never serves another", async ()
 // ── The framing probe (BROWSER-HANDLING.md §12) ──
 
 /** Start a real application inside the fake agent and wait for the registry. */
-async function startApp(frameOptions?: string): Promise<number> {
+async function startApp(frameOptions?: string, delayMs = 0): Promise<number> {
 	const created = await fetch(`http://127.0.0.1:${agent.port}/__test/app`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ key: workspaceId, title: "Framing", frameOptions }),
+		body: JSON.stringify({
+			key: workspaceId,
+			title: "Framing",
+			frameOptions,
+			delayMs,
+		}),
 	});
 	expect(created.status).toBe(201);
 	const { port } = (await created.json()) as { port: number };
@@ -771,6 +776,64 @@ test.skipIf(skip)("one student cannot probe another's workspace", async () => {
 	expect(response.statusCode).toBe(404);
 });
 
+test.skipIf(skip)(
+	"grants and probes share one per-minute budget",
+	async () => {
+		// The probe does real work on the student's behalf — it holds an
+		// outbound socket for up to three seconds — so it is counted with the
+		// grants rather than being free. Each test builds a fresh server, so
+		// the window starts empty here.
+		// 5174 is not in the registry, so each probe answers at once.
+		for (let made = 0; made < 30; made += 1) {
+			expect((await embeddable(5174)).statusCode).toBe(200);
+		}
+		const probe = await embeddable(5174);
+		expect(probe.statusCode).toBe(429);
+		expect(probe.json().code).toBe("PREVIEW_RATE_LIMITED");
+		// The grant route shares the same spent budget.
+		expect((await grant(alice, workspaceId, 5173)).statusCode).toBe(429);
+		// Another student's budget is their own.
+		const bobs = await bobsWorkspace();
+		expect((await embeddable(5174, bobs.id, bob)).statusCode).toBe(200);
+	},
+	20_000,
+);
+
+test.skipIf(skip)(
+	"two probes of the same port at once ask the application once",
+	async () => {
+		const port = await startApp(undefined, 300);
+		agent.appHits.set(port, 0);
+		const [first, second] = await Promise.all([embeddable(port), embeddable(port)]);
+		expect(first.statusCode).toBe(200);
+		expect(second.statusCode).toBe(200);
+		expect(first.json()).toEqual({ embeddable: true });
+		expect(second.json()).toEqual(first.json());
+		expect(agent.appHits.get(port)).toBe(1);
+	},
+	20_000,
+);
+
+test.skipIf(skip)(
+	"two probes of different ports at once are answered one at a time",
+	async () => {
+		const open = await startApp(undefined, 300);
+		const refusing = await startApp("DENY", 300);
+		agent.appHits.set(open, 0);
+		agent.appHits.set(refusing, 0);
+		const [first, second] = await Promise.all([embeddable(open), embeddable(refusing)]);
+		// Each port gets its own answer; neither reuses the other's.
+		expect(first.json()).toEqual({ embeddable: true });
+		expect(second.json()).toEqual({
+			embeddable: false,
+			reason: "x-frame-options",
+		});
+		expect(agent.appHits.get(open)).toBe(1);
+		expect(agent.appHits.get(refusing)).toBe(1);
+	},
+	20_000,
+);
+
 test.skipIf(skip)("the probe needs a session", async () => {
 	const response = await app.inject({
 		method: "GET",
@@ -779,7 +842,81 @@ test.skipIf(skip)("the probe needs a session", async () => {
 	expect(response.statusCode).toBe(401);
 });
 
+test.skipIf(skip)(
+	"a student holds at most fifty live preview sessions",
+	async () => {
+		// Nothing else bounds how many previews one main session can open, so
+		// the oldest gives way rather than the table growing without limit.
+		// The sessions are made through the store so the grant rate limit,
+		// which is a separate guard, does not decide this test.
+		const first = await openPreview(5173);
+		const row = await testDb.db
+			.selectFrom("preview_sessions")
+			.select(["user_id", "session_id"])
+			.executeTakeFirstOrThrow();
+
+		const tokens = [first];
+		for (let opened = 0; opened < 51; opened += 1) {
+			tokens.push(
+				await createPreviewSession(testDb.db, {
+					userId: row.user_id,
+					sessionId: row.session_id,
+					workspaceId,
+					port: 5173,
+					previewHost: previewHostFor(5173),
+				}),
+			);
+		}
+
+		const live = await testDb.db
+			.selectFrom("preview_sessions")
+			.select("id")
+			.where("revoked_at", "is", null)
+			.execute();
+		expect(live.length).toBe(50);
+
+		// The oldest gave way; the newest still opens the preview.
+		expect(
+			(await authorize(tokens[0] as string, previewHostFor(5173))).statusCode,
+		).toBe(401);
+		expect(
+			(await authorize(tokens[51] as string, previewHostFor(5173))).statusCode,
+		).toBe(200);
+	},
+	30_000,
+);
+
 // ── Reset (BROWSER-HANDLING.md §16.4) ──
+
+test.skipIf(skip)(
+	"reset expires the application's own cookies as well as ours",
+	async () => {
+		const token = await openPreview(5173);
+		const response = await app.inject({
+			method: "GET",
+			url: "/__portikus/reset",
+			headers: {
+				"x-forwarded-host": previewHostFor(5173),
+				cookie: `${COOKIE}=${token}; session=abc; cart=42`,
+			},
+		});
+		expect(response.statusCode).toBe(200);
+		// Clear-Site-Data cannot clear cookies without signing the student out
+		// of Portikus, so each name that arrived is sent back expired.
+		expect(response.headers["clear-site-data"]).toBe('"storage"');
+		const names = (response.cookies as { name: string; value: string }[]).map(
+			(one) => one.name,
+		);
+		expect(names).toContain("session");
+		expect(names).toContain("cart");
+		expect(names).toContain(COOKIE);
+		for (const cookie of response.cookies as { value: string }[]) {
+			expect(cookie.value).toBe("");
+		}
+		const raw = response.headers["set-cookie"] as string[];
+		expect(raw.some((one) => one.startsWith("session=; Path=/; Max-Age=0"))).toBe(true);
+	},
+);
 
 test.skipIf(skip)("resetting a workspace's previews revokes its sessions", async () => {
 	const token = await openPreview(5173);

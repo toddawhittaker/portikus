@@ -632,9 +632,8 @@ through `/etc/hostname` and a `hostname` call, so the shell prompt reads
 **The preview data model and configuration.** The same migration adds the
 `preview_grants` and `preview_sessions` tables of BROWSER-HANDLING.md
 section 17, holding only SHA-256 hashes of tickets and tokens, with
-foreign keys that cascade, and migration `0009` adds the main session id
-to a grant so a preview session can be tied to the Portikus session that
-created it. Five configuration keys drive the policy: `PREVIEW_SUFFIX`,
+foreign keys that cascade, and carries the main session id on a grant so
+a preview session can be tied to the Portikus session that created it. Five configuration keys drive the policy: `PREVIEW_SUFFIX`,
 `PREVIEW_PORT_MIN`, `PREVIEW_PORT_MAX`, `PREVIEW_DENIED_PORTS` and
 `PREVIEW_TICKET_TTL_SECONDS`. The workspace agent's own port is always
 denied whatever the list says, and the API refuses to start in production
@@ -677,8 +676,10 @@ answer, so a workspace without Docker still gets a list. The agent never
 probes a student's service: the protocol hint is a guess from well-known
 port numbers. A service bound only to loopback is reached through a
 forward — a listener on the container's own interface, on the same port
-number, that copies bytes to `127.0.0.1:<port>` in the same container and
-nowhere else. Only the agent's `/forwards` routes can open one, a forward
+number, that copies bytes to that same port on loopback in the same
+container and nowhere else, dialling `127.0.0.1` or `::1` for each connection,
+whichever address the agent saw the service listening on, so an
+IPv6-only service is reached too. Only the agent's `/forwards` routes can open one, a forward
 closes itself when its loopback listener disappears, and a workspace may
 hold at most eight forwards open at once, counting the preview and bridge
 ones together (SPEC.md sections 14.7 and 18.2) (#244, #255).
@@ -737,8 +738,9 @@ than in a terminal tab. The agent reads and validates the file — a
 missing file is an empty list and a broken one is reported rather than
 thrown — and runs a check with `bash -lc` in the project directory
 through node-pty, one run of a check at a time. Output is kept in memory,
-capped at one mebibyte with the oldest bytes dropped, and the fifty most
-recent finished runs are remembered. The control plane brokers the three
+capped at one mebibyte with the oldest bytes dropped, and fifty runs are
+remembered whatever state they are in, with finished ones dropped before
+running ones when room is needed. The control plane brokers the three
 routes behind the same ownership gate as the file routes, and the output
 socket is one-way, so nothing a page sends can reach the agent through
 it. In the browser, the Checks pane shows each check's name, its real
@@ -769,9 +771,12 @@ the rendered Caddyfile and is run by `make infra-check`. The browser
 tests found two real product bugs, both fixed in the epic rather than
 worked around (#252).
 
-**Rate limiting.** A student may ask for thirty preview grants a minute;
-past that the answer is 429 with a `PREVIEW_RATE_LIMITED` code the
-browser shows. Each new grant also sweeps preview sessions that were
+**Rate limiting.** A student may make thirty preview requests a minute,
+counting bootstrap tickets and framing probes against one budget; past
+that the answer is 429 with a `PREVIEW_RATE_LIMITED` code the browser
+shows. A workspace also runs at most one framing probe at a time. A
+student holds at most fifty live preview sessions, the oldest giving way
+to a new one, and each new grant sweeps preview sessions that were
 revoked more than a day ago or whose main session has gone (#255).
 
 **Pilot verification.** On 2026-09-21 the epic head (build 0.1.234) was
@@ -787,13 +792,19 @@ session cookie stripped before the application saw the request; a second
 student's workspace unable to reach the first student's ports while the VM
 could; replayed, wrong-host, and cookie-less requests refused with
 Portikus-owned pages and no existence detail; logout ending the preview;
-the smoke test at 71 of 71. Two bugs found on the pilot were fixed in
-follow-up task pull requests before the epic merged: an application that
-refuses framing showed a blank pane instead of the Open in new tab offer,
-and the reset response's `Clear-Site-Data: "cookies"` directive cleared
-the whole registrable domain and signed the student out. One gap was
-fixed the same way: the loopback forward dialed only IPv4, while Vite's
-default bind is IPv6 loopback. One gap is deferred to the backlog: Vite
+the smoke test at 71 of 71. Two bugs found on the pilot are fixed on the epic
+branch, by #258 and by the confirmation-review pull request that follows
+it: an application that refuses framing showed a blank pane instead of
+the Open in new tab offer, and the reset response's
+`Clear-Site-Data: "cookies"` directive cleared the whole registrable
+domain and signed the student out. Fixing the first added the framing
+probe route `GET /workspaces/:id/preview/embeddable`, its contract, and
+the rate limit and one-at-a-time rule that keep it from being used to
+make the control plane hold outbound sockets open. Fixing the second
+changed what reset clears: the answer now expires each cookie name the
+request carried rather than asking the browser to clear the domain's
+cookies. One gap was fixed the same way: the loopback forward dialed only
+IPv4, while Vite's default bind is IPv6 loopback. One gap is deferred to the backlog: Vite
 refuses unknown hosts until its `server.allowedHosts` names the preview
 suffix, and nothing yet carries the suffix into the workspace for a
 template to use. The Incus workspace network access list needed one new
@@ -844,6 +855,11 @@ deployment.
   so the Preview tab guesses after eight seconds without a load. The
   guess is now an overlay over a frame that stays mounted, and a late
   load clears it, so a slow first compile recovers on its own.
+- The framing probe honours only exact origins in a `frame-ancestors`
+  source list. An application that names a wildcard host or a bare scheme,
+  such as `https:` or `https://*.example.edu`, is reported as not
+  embeddable even where it would in fact allow the Portikus page, so the
+  student is offered the new tab instead of the frame.
 - The Running pane shows `unknown` for a process the agent could not
   name, which happens when the `/proc` entries for it cannot be read.
 - A client-side minimum port of 1024 is still in the terminal link

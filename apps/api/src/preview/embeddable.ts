@@ -44,38 +44,44 @@ export function verdictFromHeaders(
 	headers: Headers,
 	portikusOrigin: string,
 ): EmbeddableVerdict {
+	// Several X-Frame-Options headers arrive joined with commas. Any part
+	// that refuses framing refuses it for the whole answer.
 	const xfo = headers.get("x-frame-options");
 	if (xfo) {
-		const value = xfo.trim().toLowerCase();
-		if (value === "deny" || value === "sameorigin") {
-			return { embeddable: false, reason: "x-frame-options" };
+		for (const part of xfo.split(",")) {
+			const value = part.trim().toLowerCase();
+			if (value === "deny" || value === "sameorigin") {
+				return { embeddable: false, reason: "x-frame-options" };
+			}
 		}
 	}
 
-	const ancestors = frameAncestors(headers.get("content-security-policy"));
-	if (ancestors !== null && !ancestorsAllow(ancestors, portikusOrigin)) {
-		return { embeddable: false, reason: "frame-ancestors" };
+	for (const sources of frameAncestors(headers.get("content-security-policy"))) {
+		if (!ancestorsAllow(sources, portikusOrigin)) {
+			return { embeddable: false, reason: "frame-ancestors" };
+		}
 	}
 
 	return { embeddable: true };
 }
 
 /**
- * The sources of the first `frame-ancestors` directive in a CSP header, or
- * null when the header has none. A header line may carry several policies
- * separated by semicolons, and several headers may be joined with commas;
- * every policy applies, so the first `frame-ancestors` found is enough to
- * make the application non-embeddable if it does not allow us.
+ * Every `frame-ancestors` source list a CSP header carries.
+ *
+ * One header line may hold several policies separated by semicolons, and
+ * several headers arrive joined with commas. A CSP source list never contains
+ * a comma, so splitting on both characters gives one directive per piece.
+ * Every policy applies at once, so every list found must allow us.
  */
-function frameAncestors(header: string | null): string[] | null {
-	if (!header) return null;
-	for (const policy of header.split(/[;,]/)) {
-		const parts = policy.trim().split(/\s+/).filter(Boolean);
-		const name = parts[0]?.toLowerCase();
-		if (name !== "frame-ancestors") continue;
-		return parts.slice(1).map((source) => source.toLowerCase());
+function frameAncestors(header: string | null): string[][] {
+	if (!header) return [];
+	const found: string[][] = [];
+	for (const directive of header.split(/[;,]/)) {
+		const parts = directive.trim().split(/\s+/).filter(Boolean);
+		if (parts[0]?.toLowerCase() !== "frame-ancestors") continue;
+		found.push(parts.slice(1).map((source) => source.toLowerCase()));
 	}
-	return null;
+	return found;
 }
 
 /** Whether a `frame-ancestors` source list lets `portikusOrigin` frame us. */
@@ -113,18 +119,15 @@ export async function probeEmbeddable(
 	portikusOrigin: string,
 ): Promise<EmbeddableVerdict> {
 	const url = `http://${upstream}/`;
+	// One budget for both attempts, so a slow application cannot hold the
+	// route for twice the timeout.
+	const signal = AbortSignal.timeout(PROBE_TIMEOUT_MS);
 	try {
-		let response = await fetch(url, {
-			method: "HEAD",
-			redirect: "manual",
-			signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-		});
-		if (response.status === 405 || response.status === 501) {
-			response = await fetch(url, {
-				method: "GET",
-				redirect: "manual",
-				signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-			});
+		let response = await fetch(url, { method: "HEAD", redirect: "manual", signal });
+		if (response.status >= 400) {
+			// An application that will not answer HEAD gets one GET instead.
+			await response.body?.cancel();
+			response = await fetch(url, { method: "GET", redirect: "manual", signal });
 		}
 		const verdict = verdictFromHeaders(response.headers, portikusOrigin);
 		// Never read the body: only the headers of this answer are used.

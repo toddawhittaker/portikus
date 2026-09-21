@@ -43,6 +43,12 @@ interface Entry {
 	timer: NodeJS.Timeout | null;
 	attempts: number;
 	services: ListeningService[];
+	/**
+	 * Forwards this workspace is opening right now, by port. They count
+	 * towards the cap from the moment the work starts, so calls that race
+	 * cannot all read the same "seven are open" and make eight more.
+	 */
+	opening: Map<number, Promise<void>>;
 	/** True once the entry has been dropped, so a late callback does nothing. */
 	closed: boolean;
 }
@@ -233,6 +239,7 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				timer: null,
 				attempts: 0,
 				services: [],
+				opening: new Map(),
 				closed: false,
 			};
 			entries.set(row.id, entry);
@@ -273,20 +280,37 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 			) {
 				return;
 			}
-			const open = entry.services.filter(
-				(one) => one.previewReachability === "forwarded",
-			).length;
-			if (open >= MAX_FORWARDS_PER_WORKSPACE) {
+			// A forward already being opened for this port is the same work.
+			const already = entry.opening.get(port);
+			if (already) return already;
+
+			const counted = new Set<number>(entry.opening.keys());
+			for (const one of entry.services) {
+				if (one.previewReachability === "forwarded") counted.add(one.port);
+			}
+			if (counted.size >= MAX_FORWARDS_PER_WORKSPACE) {
 				throw new Error("this workspace has too many loopback forwards open");
 			}
-			const forward = await entry.client.openForward(port);
-			// The agent's own report follows on the events socket; record the
-			// forward now so a grant issued in the same second is consistent.
-			entry.services = entry.services.map((one) =>
-				one.port === port && forward.state === "open"
-					? { ...one, previewReachability: "forwarded" }
-					: one,
-			);
+
+			const work = (async () => {
+				const forward = await entry.client.openForward(port);
+				// The agent's own report follows on the events socket; record the
+				// forward now so a grant issued in the same second is consistent.
+				entry.services = entry.services.map((one) =>
+					one.port === port && forward.state === "open"
+						? { ...one, previewReachability: "forwarded" }
+						: one,
+				);
+			})();
+			// Claim the slot before the first await hands control back, so a
+			// racing call sees this forward as already counted.
+			entry.opening.set(port, work);
+			try {
+				await work;
+			} finally {
+				// A failed forward gives its slot back.
+				entry.opening.delete(port);
+			}
 		},
 
 		async closeForward(workspaceId, port) {

@@ -12,7 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AgentCallError } from "../agent-client.js";
 import { createBridgeForwards, parseBridgeUri } from "../preview/bridge.js";
-import { probeEmbeddable } from "../preview/embeddable.js";
+import { type EmbeddableVerdict, probeEmbeddable } from "../preview/embeddable.js";
 import {
 	inactiveServicePage,
 	refusedPage,
@@ -33,7 +33,6 @@ import {
 	revokeWorkspacePreviewSessions,
 } from "../preview/store.js";
 import type { ServerDeps } from "../server.js";
-import { findWorkspaceOwnedBy } from "./workspace-view.js";
 
 /** The preview-host cookie, `__Host-` prefixed wherever the site is https. */
 export function previewCookieName(config: ApiConfig): string {
@@ -42,18 +41,23 @@ export function previewCookieName(config: ApiConfig): string {
 		: "portikus-preview";
 }
 
+/** RFC 6265 cookie-name characters, so nothing else reaches a header. */
+const COOKIE_NAME = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/;
+
 const IdParams = z.object({ id: z.string().uuid() });
 const TicketQuery = z.object({ t: z.string().min(1).max(200) });
 const PortQuery = z.object({ port: z.coerce.number().int().min(1).max(65535) });
 
 /**
- * How many bootstrap tickets one student may ask for in a minute. Opening a
- * preview, reloading it and switching ports are all well under this; a page
- * asking in a loop is not. Counted in this process, which the pilot runs one
- * of (ADR 0010).
+ * How many preview requests one student may make in a minute, counting
+ * bootstrap tickets and framing probes together. Both make the control plane
+ * work on the student's behalf — a probe holds an outbound socket for up to
+ * three seconds — so they share one budget. Opening a preview, reloading it
+ * and switching ports are all well under this; a page asking in a loop is
+ * not. Counted in this process, which the pilot runs one of (ADR 0010).
  */
-const GRANTS_PER_WINDOW = 30;
-const GRANT_WINDOW_MS = 60_000;
+const PREVIEW_REQUESTS_PER_WINDOW = 30;
+const PREVIEW_WINDOW_MS = 60_000;
 
 /** The socket's own peer address, which no header can influence. */
 function fromLoopback(request: FastifyRequest): boolean {
@@ -84,22 +88,70 @@ export function registerPreviewRoutes(
 	const secure = config.PUBLIC_URL.startsWith("https:");
 	const bridge = createBridgeForwards({ registry, logger });
 
-	/** When each user's recent grants were asked for, newest last. */
-	const grantTimes = new Map<string, number[]>();
+	/** When each user's recent grants and probes were asked for, newest last. */
+	const requestTimes = new Map<string, number[]>();
 
-	/** Record this grant request, and say whether it is over the limit. */
-	function overGrantLimit(userId: string): boolean {
+	/** Record this preview request, and say whether it is over the limit. */
+	function overPreviewLimit(userId: string): boolean {
 		const now = Date.now();
-		const recent = (grantTimes.get(userId) ?? []).filter(
-			(at) => now - at < GRANT_WINDOW_MS,
+		const recent = (requestTimes.get(userId) ?? []).filter(
+			(at) => now - at < PREVIEW_WINDOW_MS,
 		);
-		if (recent.length >= GRANTS_PER_WINDOW) {
-			grantTimes.set(userId, recent);
+		if (recent.length >= PREVIEW_REQUESTS_PER_WINDOW) {
+			requestTimes.set(userId, recent);
 			return true;
 		}
 		recent.push(now);
-		grantTimes.set(userId, recent);
+		requestTimes.set(userId, recent);
 		return false;
+	}
+
+	/**
+	 * The framing probe running for a workspace, if any. One at a time per
+	 * workspace, so a page cannot make the control plane hold a pile of
+	 * outbound sockets open: a second call for the same port waits on the
+	 * first and takes its answer, and one for another port waits its turn.
+	 */
+	const probes = new Map<
+		string,
+		{ port: number; answer: Promise<EmbeddableVerdict> }
+	>();
+
+	async function probeOnce(
+		workspaceId: string,
+		port: number,
+		upstream: string,
+	): Promise<EmbeddableVerdict> {
+		const running = probes.get(workspaceId);
+		if (running) {
+			// The catch is only so a failed probe does not reject this waiter
+			// too; probeEmbeddable answers rather than throwing.
+			const earlier = await running.answer.catch(
+				(): EmbeddableVerdict => ({ embeddable: false, reason: "unreachable" }),
+			);
+			if (running.port === port) return earlier;
+			return probeOnce(workspaceId, port, upstream);
+		}
+		const answer = probeEmbeddable(upstream, config.PUBLIC_URL).finally(() => {
+			if (probes.get(workspaceId)?.answer === answer) probes.delete(workspaceId);
+		});
+		probes.set(workspaceId, { port, answer });
+		return answer;
+	}
+
+	/**
+	 * The workspace fields the preview routes read, for its owner only. An
+	 * administrator may see that a workspace exists but never open a student's
+	 * preview (SPEC.md §24).
+	 */
+	async function previewWorkspace(id: string, userId: string) {
+		const row = await db
+			.selectFrom("workspaces")
+			.select(["id", "label", "state", "agent_address"])
+			.where("id", "=", id)
+			.where("owner_user_id", "=", userId)
+			.executeTakeFirst();
+		return row ?? null;
 	}
 
 	/** What the workspace agent reports, plus the policy verdict. */
@@ -115,7 +167,7 @@ export function registerPreviewRoutes(
 				.status(400)
 				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
 		}
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
 			return reply
 				.status(404)
@@ -139,7 +191,7 @@ export function registerPreviewRoutes(
 				.send({ code: "VALIDATION_FAILED", message: "invalid grant request" });
 		}
 
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
 			return reply
 				.status(404)
@@ -157,7 +209,7 @@ export function registerPreviewRoutes(
 				message: `Port ${body.data.port} cannot be previewed`,
 			});
 		}
-		if (overGrantLimit(user.id)) {
+		if (overPreviewLimit(user.id)) {
 			request.log.warn(
 				{ workspaceId: params.data.id },
 				"preview grant rate limit reached",
@@ -192,11 +244,7 @@ export function registerPreviewRoutes(
 			}
 		}
 
-		const host = previewHost(
-			workspace.label as string,
-			body.data.port,
-			config.PREVIEW_SUFFIX,
-		);
+		const host = previewHost(workspace.label, body.data.port, config.PREVIEW_SUFFIX);
 		const { ticket, expiresAt } = await createGrant(db, {
 			userId: user.id,
 			// The plugin gave us a live session, so the token is present.
@@ -240,7 +288,7 @@ export function registerPreviewRoutes(
 				.status(400)
 				.send({ code: "VALIDATION_FAILED", message: "invalid workspace or port" });
 		}
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
 			return reply
 				.status(404)
@@ -253,12 +301,22 @@ export function registerPreviewRoutes(
 				message: `Port ${port} cannot be previewed`,
 			});
 		}
+		if (overPreviewLimit(user.id)) {
+			request.log.warn(
+				{ workspaceId: params.data.id },
+				"preview probe rate limit reached",
+			);
+			return reply.status(429).send({
+				code: "PREVIEW_RATE_LIMITED",
+				message: "Too many previews were opened just now. Wait a moment.",
+			});
+		}
 
 		const unreachable: PreviewEmbeddableResponse = {
 			embeddable: false,
 			reason: "unreachable",
 		};
-		const address = workspace.agent_address as string | null;
+		const address = workspace.agent_address;
 		const service = registry.service(params.data.id, port);
 		if (
 			workspace.state !== "running" ||
@@ -270,7 +328,7 @@ export function registerPreviewRoutes(
 			return reply.header("cache-control", "no-store").send(unreachable);
 		}
 
-		const verdict = await probeEmbeddable(`${address}:${port}`, config.PUBLIC_URL);
+		const verdict = await probeOnce(params.data.id, port, `${address}:${port}`);
 		return reply.header("cache-control", "no-store").send(verdict);
 	});
 
@@ -282,7 +340,7 @@ export function registerPreviewRoutes(
 				.status(400)
 				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
 		}
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
 			return reply
 				.status(404)
@@ -358,8 +416,16 @@ export function registerPreviewRoutes(
 	 * directive to the whole registrable domain, not just this origin, and in
 	 * a same-site deployment the preview hosts and the Portikus host share
 	 * that domain — so it would delete the student's `__Host-portikus-session`
-	 * cookie and sign them out of Portikus. The preview cookie this origin
-	 * does own is expired by the Set-Cookie below instead.
+	 * cookie and sign them out of Portikus. The cookies this origin does own
+	 * are expired one by one instead: the fetch is made with credentials, so
+	 * the request carries the preview origin's cookies, and Caddy strips only
+	 * the Portikus preview cookie before the API sees it. Every name that
+	 * arrives is sent back expired, which clears the student application's
+	 * own cookies without touching the Portikus session.
+	 *
+	 * Only cookies the application set on the path `/` are cleared. One set on
+	 * a narrower path, or for a parent domain, survives; nothing the request
+	 * carries says which it was.
 	 *
 	 * Portikus calls this from its own page rather than from inside the
 	 * preview frame, because an application's service worker can answer a
@@ -374,6 +440,16 @@ export function registerPreviewRoutes(
 				await revokePreviewSession(db, session.id);
 				await bridge.closeForSession(session.id);
 			}
+		}
+		for (const name of Object.keys(request.cookies)) {
+			if (name === cookieName) continue;
+			// Anything that is not a cookie name is dropped rather than echoed
+			// into a response header.
+			if (!COOKIE_NAME.test(name)) continue;
+			reply.header(
+				"set-cookie",
+				`${name}=; Path=/; Max-Age=0${secure ? "; Secure" : ""}`,
+			);
 		}
 		return reply
 			.clearCookie(cookieName, { path: "/", secure, sameSite: "strict" })

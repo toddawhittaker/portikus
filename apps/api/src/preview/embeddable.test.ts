@@ -48,6 +48,39 @@ test.each([
 	}
 });
 
+test.each([
+	// Undici joins repeated headers with a comma; every policy applies.
+	["frame-ancestors https://portikus.example.edu, frame-ancestors 'none'", false],
+	["frame-ancestors 'none', frame-ancestors https://portikus.example.edu", false],
+	[
+		"frame-ancestors https://portikus.example.edu, frame-ancestors https://portikus.example.edu",
+		true,
+	],
+	["default-src 'self', frame-ancestors https://portikus.example.edu", true],
+	[
+		"frame-ancestors https://portikus.example.edu; report-uri /r, frame-ancestors 'self'",
+		false,
+	],
+])("every frame-ancestors directive must allow us: %s", (value, embeddable) => {
+	const verdict = verdictFromHeaders(
+		headers({ "content-security-policy": value }),
+		PORTIKUS,
+	);
+	expect(verdict.embeddable).toBe(embeddable);
+	if (!embeddable) expect(verdict.reason).toBe("frame-ancestors");
+});
+
+test.each([
+	["ALLOWALL, DENY", false],
+	["DENY, ALLOWALL", false],
+	["allowall, sameorigin", false],
+	["ALLOWALL, ALLOWALL", true],
+])("X-Frame-Options joined with commas: %s", (value, embeddable) => {
+	const verdict = verdictFromHeaders(headers({ "x-frame-options": value }), PORTIKUS);
+	expect(verdict.embeddable).toBe(embeddable);
+	if (!embeddable) expect(verdict.reason).toBe("x-frame-options");
+});
+
 test("a SAMEORIGIN application is refused even though it allows its own origin", () => {
 	// The preview runs on its own host, so the Portikus page is never the
 	// application's origin (BROWSER-HANDLING.md §12).
@@ -124,6 +157,53 @@ test("the probe never returns any of the application's content", async () => {
 	const verdict = await probeEmbeddable(upstream, PORTIKUS);
 	expect(verdict).toEqual({ embeddable: true });
 	expect(JSON.stringify(verdict)).not.toContain("student");
+});
+
+test.each([400, 403, 404, 500, 503])(
+	"a HEAD answered with %i is retried with GET",
+	async (status) => {
+		const seen: string[] = [];
+		const upstream = await listen((method) => {
+			seen.push(method);
+			if (method === "HEAD") return { status, headers: {} as Record<string, string> };
+			return {
+				status: 200,
+				headers: { "x-frame-options": "DENY" },
+				body: "the student's page",
+			};
+		});
+		await expect(probeEmbeddable(upstream, PORTIKUS)).resolves.toEqual({
+			embeddable: false,
+			reason: "x-frame-options",
+		});
+		expect(seen).toEqual(["HEAD", "GET"]);
+	},
+);
+
+test("both attempts together take no longer than the probe budget", async () => {
+	// The server answers HEAD with a 405 at once and then never answers the
+	// GET, so a per-attempt budget would take twice as long as one budget.
+	const slow = createServer((request, response) => {
+		if (request.method === "HEAD") {
+			response.writeHead(405);
+			response.end();
+			return;
+		}
+		// Never answered.
+	});
+	await new Promise<void>((resolve) => slow.listen(0, "127.0.0.1", resolve));
+	const { port } = slow.address() as AddressInfo;
+	const started = Date.now();
+	try {
+		await expect(probeEmbeddable(`127.0.0.1:${port}`, PORTIKUS)).resolves.toEqual({
+			embeddable: false,
+			reason: "unreachable",
+		});
+	} finally {
+		slow.closeAllConnections();
+		await new Promise((resolve) => slow.close(resolve));
+	}
+	expect(Date.now() - started).toBeLessThan(5_000);
 });
 
 test("an application that cannot be reached is reported as unreachable", async () => {

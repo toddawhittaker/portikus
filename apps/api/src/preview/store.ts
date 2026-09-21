@@ -128,6 +128,15 @@ export interface PreviewSessionInput {
 	previewHost: string;
 }
 
+/**
+ * How many live preview sessions one student may hold at once. A preview
+ * session already dies with the main Portikus session, but nothing bounded
+ * how many one main session could pile up, so a page opening previews in a
+ * loop could grow the table without limit. Fifty is far above real use: a
+ * student opens a handful of ports.
+ */
+export const MAX_PREVIEW_SESSIONS_PER_USER = 50;
+
 /** Start a preview session and return the clear-text cookie value. */
 export async function createPreviewSession(
 	db: Kysely<Database>,
@@ -145,7 +154,29 @@ export async function createPreviewSession(
 			preview_host: input.previewHost,
 		})
 		.execute();
+	await revokeOldestOverCap(db, input.userId);
 	return token;
+}
+
+/** Revoke this user's live preview sessions past the newest fifty. */
+async function revokeOldestOverCap(
+	db: Kysely<Database>,
+	userId: string,
+): Promise<void> {
+	await db
+		.updateTable("preview_sessions")
+		.set({ revoked_at: new Date().toISOString() })
+		.where("id", "in", (eb) =>
+			eb
+				.selectFrom("preview_sessions")
+				.select("id")
+				.where("user_id", "=", userId)
+				.where("revoked_at", "is", null)
+				.orderBy("created_at", "desc")
+				.orderBy("id", "desc")
+				.offset(MAX_PREVIEW_SESSIONS_PER_USER),
+		)
+		.execute();
 }
 
 export interface PreviewSessionRow {
