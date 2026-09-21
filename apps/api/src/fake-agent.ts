@@ -33,7 +33,7 @@ export interface FakeAgent {
 	token: string;
 	/** How many HTTP requests each test application has answered, by port. */
 	appHits: Map<number, number>;
-	terminals: Map<string, { cwd: string }>;
+	terminals: Map<string, { cwd: string; theme: string }>;
 	/** Frames the fake received on an attach socket, in order. */
 	received: string[];
 	/** Attach sockets currently open on the fake. */
@@ -255,7 +255,7 @@ export async function startFakeAgent(
 	token: string,
 	options: { port?: number } = {},
 ): Promise<FakeAgent> {
-	const terminals = new Map<string, { cwd: string }>();
+	const terminals = new Map<string, { cwd: string; theme: string }>();
 	// Every attachment of one terminal, so echoed output reaches them all,
 	// the way a real shared tmux session would.
 	const attached = new Map<string, Set<WebSocket>>();
@@ -493,8 +493,9 @@ export async function startFakeAgent(
 				.status(code === "INVALID_CWD" ? 400 : 500)
 				.send({ error: { code, message: "create refused" } });
 		}
-		const body = request.body as { id: string; cwd: string };
-		terminals.set(body.id, { cwd: body.cwd });
+		const body = request.body as { id: string; cwd: string; theme: string };
+		// The theme is kept so a test can check it reached here (issue #267).
+		terminals.set(body.id, { cwd: body.cwd, theme: body.theme });
 		return reply.status(201).send({ ok: true });
 	});
 

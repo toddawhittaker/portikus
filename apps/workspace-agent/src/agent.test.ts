@@ -174,7 +174,7 @@ test.skipIf(!haveTmux)("the upgrade is rejected without a valid token", async ()
 		method: "POST",
 		url: "/terminals",
 		headers: auth(),
-		payload: { id, cwd: homeDir },
+		payload: { id, cwd: homeDir, theme: "dark" },
 	});
 	expect(created.statusCode).toBe(201);
 
@@ -192,7 +192,7 @@ test.skipIf(!haveTmux)(
 			method: "POST",
 			url: "/terminals",
 			headers: auth(),
-			payload: { id, cwd: homeDir },
+			payload: { id, cwd: homeDir, theme: "dark" },
 		});
 		expect(created.statusCode).toBe(201);
 
@@ -255,7 +255,7 @@ test.skipIf(!haveTmux)("a working directory outside the home is refused", async 
 		method: "POST",
 		url: "/terminals",
 		headers: auth(),
-		payload: { id: makeId(), cwd: "/etc" },
+		payload: { id: makeId(), cwd: "/etc", theme: "dark" },
 	});
 	expect(outside.statusCode).toBe(400);
 	expect(outside.json().error.code).toBe("INVALID_CWD");
@@ -264,7 +264,7 @@ test.skipIf(!haveTmux)("a working directory outside the home is refused", async 
 		method: "POST",
 		url: "/terminals",
 		headers: auth(),
-		payload: { id: makeId(), cwd: "projects" },
+		payload: { id: makeId(), cwd: "projects", theme: "dark" },
 	});
 	expect(relative.statusCode).toBe(400);
 	expect(relative.json().error.code).toBe("INVALID_CWD");
@@ -281,7 +281,7 @@ test.skipIf(!haveTmux)(
 				method: "POST",
 				url: "/terminals",
 				headers: auth(),
-				payload: { id, cwd: homeDir },
+				payload: { id, cwd: homeDir, theme: "dark" },
 			});
 			expect(created.statusCode).toBe(201);
 		}
@@ -290,7 +290,7 @@ test.skipIf(!haveTmux)(
 			method: "POST",
 			url: "/terminals",
 			headers: auth(),
-			payload: { id: ids[0], cwd: homeDir },
+			payload: { id: ids[0], cwd: homeDir, theme: "dark" },
 		});
 		expect(duplicate.statusCode).toBe(409);
 		expect(duplicate.json().error.code).toBe("TERMINAL_EXISTS");
@@ -299,7 +299,7 @@ test.skipIf(!haveTmux)(
 			method: "POST",
 			url: "/terminals",
 			headers: auth(),
-			payload: { id: makeId(), cwd: homeDir },
+			payload: { id: makeId(), cwd: homeDir, theme: "dark" },
 		});
 		expect(ninth.statusCode).toBe(409);
 		expect(ninth.json().error.code).toBe("TERMINAL_LIMIT");
@@ -319,7 +319,7 @@ test.skipIf(!haveTmux)(
 			method: "POST",
 			url: "/terminals",
 			headers: auth(),
-			payload: { id, cwd: homeDir },
+			payload: { id, cwd: homeDir, theme: "dark" },
 		});
 
 		const sockets: Sock[] = [];
@@ -351,7 +351,7 @@ test.skipIf(!haveTmux)(
 			method: "POST",
 			url: "/terminals",
 			headers: auth(),
-			payload: { id, cwd: homeDir },
+			payload: { id, cwd: homeDir, theme: "dark" },
 		});
 
 		const socket = await openSocket(id);
@@ -373,7 +373,7 @@ test.skipIf(!haveTmux)(
 			method: "POST",
 			url: "/terminals",
 			headers: auth(),
-			payload: { id, cwd: homeDir },
+			payload: { id, cwd: homeDir, theme: "dark" },
 		});
 
 		const socket = await openSocket(id);
@@ -561,7 +561,7 @@ test.skipIf(!haveTmux)(
 			method: "POST",
 			url: "/terminals",
 			headers: auth(),
-			payload: { id, cwd: homeDir },
+			payload: { id, cwd: homeDir, theme: "dark" },
 		});
 		expect(created.statusCode).toBe(201);
 
@@ -614,7 +614,7 @@ test.skipIf(!haveTmux)(
 			method: "POST",
 			url: "/terminals",
 			headers: auth(),
-			payload: { id, cwd: homeDir },
+			payload: { id, cwd: homeDir, theme: "dark" },
 		});
 		expect(created.statusCode).toBe(201);
 
@@ -647,7 +647,7 @@ test.skipIf(!haveTmux)("input sent before the first output still runs", async ()
 		method: "POST",
 		url: "/terminals",
 		headers: auth(),
-		payload: { id, cwd: homeDir },
+		payload: { id, cwd: homeDir, theme: "dark" },
 	});
 	expect(created.statusCode).toBe(201);
 
@@ -669,7 +669,7 @@ test.skipIf(!haveTmux)(
 			method: "POST",
 			url: "/terminals",
 			headers: auth(),
-			payload: { id, cwd: homeDir },
+			payload: { id, cwd: homeDir, theme: "dark" },
 		});
 		expect(created.statusCode).toBe(201);
 
@@ -721,7 +721,7 @@ test.skipIf(!haveTmux)(
 			method: "POST",
 			url: "/terminals",
 			headers: auth(),
-			payload: { id, cwd: homeDir },
+			payload: { id, cwd: homeDir, theme: "dark" },
 		});
 		expect(created.statusCode).toBe(201);
 
@@ -763,7 +763,7 @@ test.skipIf(!haveTmux)("a new session keeps the whole scrollback", async () => {
 		method: "POST",
 		url: "/terminals",
 		headers: auth(),
-		payload: { id, cwd: homeDir },
+		payload: { id, cwd: homeDir, theme: "dark" },
 	});
 	expect(created.statusCode).toBe(201);
 

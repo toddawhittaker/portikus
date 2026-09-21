@@ -44,7 +44,7 @@ let homeDir: string;
 beforeAll(async () => {
 	if (!haveTmux) return;
 	homeDir = await mkdtemp(join(tmpdir(), "portikus-options-"));
-	await createSession(ID, homeDir, homeDir, SOCKET_NAME);
+	await createSession(ID, homeDir, homeDir, "dark", SOCKET_NAME);
 });
 
 afterAll(async () => {

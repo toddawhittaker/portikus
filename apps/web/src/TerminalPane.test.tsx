@@ -26,6 +26,7 @@ const terminal: Terminal = {
 	projectId: PROJECT,
 	createdAt: "2026-01-01T00:00:00.000Z",
 	endedAt: null,
+	theme: "dark",
 };
 
 const sockets: FakeWebSocket[] = [];
@@ -85,7 +86,12 @@ function stubBrowserApis() {
 	);
 }
 
-function renderPane(onExited = vi.fn(), onCwd = vi.fn(), visible = true) {
+function renderPane(
+	onExited = vi.fn(),
+	onCwd = vi.fn(),
+	visible = true,
+	overrides: Partial<Terminal> = {},
+) {
 	stubBrowserApis();
 	vi.stubGlobal("WebSocket", FakeWebSocket);
 	const view = render(
@@ -94,7 +100,7 @@ function renderPane(onExited = vi.fn(), onCwd = vi.fn(), visible = true) {
 				<TerminalPane
 					workspaceId={WORKSPACE}
 					projectId={PROJECT}
-					terminal={terminal}
+					terminal={{ ...terminal, ...overrides }}
 					visible={visible}
 					onExited={onExited}
 					onSessionEnded={vi.fn()}

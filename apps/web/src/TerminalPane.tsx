@@ -1,8 +1,4 @@
-import {
-	EDITOR_SETTINGS_DEFAULTS,
-	type Terminal as TerminalMeta,
-	type TerminalTheme,
-} from "@portikus/contracts";
+import type { Terminal as TerminalMeta, TerminalTheme } from "@portikus/contracts";
 import { useToast } from "@portikus/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { FitAddon } from "@xterm/addon-fit";
@@ -12,7 +8,6 @@ import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { useEffect, useRef, useState } from "react";
 import { wsUrl } from "./api/ws.js";
-import { useEditorSettings } from "./editor/settingsQueries.js";
 import {
 	canOpenInNewTab,
 	FILE_LINE_PATTERN,
@@ -212,12 +207,10 @@ export function TerminalPane({
 	const visibleRef = useRef(visible);
 	visibleRef.current = visible;
 
-	// The student's terminal colour scheme (issue #239). It arrives after the
-	// first render and can change while the terminal is open, so the theme is
-	// set on the live instance rather than only at construction.
-	const settings = useEditorSettings();
-	const scheme: TerminalTheme =
-		settings.data?.terminalTheme ?? EDITOR_SETTINGS_DEFAULTS.terminalTheme;
+	// This terminal's own colour scheme (issue #268). It can change while the
+	// terminal is open, so the theme is set on the live instance rather than
+	// only at construction.
+	const scheme: TerminalTheme = terminal.theme;
 	const schemeRef = useRef(scheme);
 	schemeRef.current = scheme;
 	useEffect(() => {

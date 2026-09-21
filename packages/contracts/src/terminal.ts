@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TerminalTheme } from "./settings.js";
 
 /** Maximum terminals a single workspace may have open (SPEC.md §9.3). */
 export const MAX_TERMINALS_PER_WORKSPACE = 8;
@@ -26,6 +27,8 @@ export const Terminal = z.object({
 	projectId: z.string().uuid().nullable(),
 	createdAt: z.string().datetime(),
 	endedAt: z.string().datetime().nullable(),
+	/** This terminal's own colour scheme (issue #268). */
+	theme: TerminalTheme,
 });
 export type Terminal = z.infer<typeof Terminal>;
 
@@ -39,20 +42,27 @@ export const CreateTerminalRequest = z
 		name: z.string().min(1).max(64).optional(),
 		cwd: z.string().min(1).optional(),
 		projectId: z.string().uuid().optional(),
+		/** Defaults to the user's terminal colour scheme (issue #268). */
+		theme: TerminalTheme.optional(),
 	})
 	.strict();
 export type CreateTerminalRequest = z.infer<typeof CreateTerminalRequest>;
 
 /**
  * Request body for `PATCH /workspaces/:id/terminals/:terminalId`
- * (SPEC.md §9.6).
+ * (SPEC.md §9.6). It changes the display name, the colour scheme, or both;
+ * a request that changes nothing is rejected.
  */
-export const RenameTerminalRequest = z
+export const UpdateTerminalRequest = z
 	.object({
-		name: z.string().min(1).max(64),
+		name: z.string().min(1).max(64).optional(),
+		theme: TerminalTheme.optional(),
 	})
-	.strict();
-export type RenameTerminalRequest = z.infer<typeof RenameTerminalRequest>;
+	.strict()
+	.refine((body) => body.name !== undefined || body.theme !== undefined, {
+		message: "At least one field must be given",
+	});
+export type UpdateTerminalRequest = z.infer<typeof UpdateTerminalRequest>;
 
 /** Response body for `GET /workspaces/:id/terminals` (SPEC.md §26). */
 export const TerminalList = z.object({

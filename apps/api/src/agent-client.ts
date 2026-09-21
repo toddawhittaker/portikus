@@ -11,6 +11,7 @@ import {
 	LoopbackForward,
 	LoopbackForwardRequest,
 	SetLogLevelRequest,
+	type TerminalTheme,
 } from "@portikus/contracts";
 
 /** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
@@ -101,7 +102,11 @@ export class AgentClient {
 		return `Bearer ${this.token}`;
 	}
 
-	async createTerminal(input: { id: string; cwd: string }): Promise<void> {
+	async createTerminal(input: {
+		id: string;
+		cwd: string;
+		theme: TerminalTheme;
+	}): Promise<void> {
 		await this.call("POST", "/terminals", AgentCreateTerminalRequest.parse(input));
 	}
 

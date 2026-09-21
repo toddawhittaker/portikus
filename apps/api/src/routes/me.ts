@@ -15,7 +15,7 @@ const StoredEditorSettings = EditorSettings.partial();
  * Fill in the defaults for anything the user has not set, and ignore anything
  * stored that is no longer a setting we know (issue #159).
  */
-function toEditorSettings(stored: unknown): EditorSettings {
+export function toEditorSettings(stored: unknown): EditorSettings {
 	// Not strict: unknown keys are stripped, the known ones are kept.
 	const parsed = StoredEditorSettings.safeParse(stored ?? {});
 	return { ...EDITOR_SETTINGS_DEFAULTS, ...(parsed.success ? parsed.data : {}) };

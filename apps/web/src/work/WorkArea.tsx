@@ -433,6 +433,7 @@ export function WorkArea({
 							onFocus={(id) => store.getState().setFocused(id)}
 							onSplit={(id, direction) => void split(id, direction)}
 							onRename={(id, name) => void terminals.rename(id, name)}
+							onSetTheme={(id, theme) => void terminals.setTheme(id, theme)}
 							onClose={closeTerminal}
 							onExited={closeTerminal}
 							onReplace={(id) => void replace(id)}

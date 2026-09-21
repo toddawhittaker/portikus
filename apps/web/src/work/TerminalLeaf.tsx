@@ -4,7 +4,7 @@
  * its place and offers a new one (SPEC.md §6.8).
  */
 import { useDraggable, useDroppable } from "@dnd-kit/core";
-import type { Terminal } from "@portikus/contracts";
+import type { Terminal, TerminalTheme } from "@portikus/contracts";
 import {
 	Button,
 	IconButton,
@@ -36,6 +36,8 @@ export interface TerminalLeafProps {
 	onFocus: (terminalId: string) => void;
 	onSplit: (terminalId: string, direction: SplitDirection) => void;
 	onRename: (terminalId: string, name: string) => void;
+	/** Switch this one terminal between the light and dark scheme (issue #268). */
+	onSetTheme: (terminalId: string, theme: TerminalTheme) => void;
 	onClose: (terminalId: string) => void;
 	onExited: (terminalId: string) => void;
 	onReplace: (terminalId: string) => void;
@@ -61,6 +63,7 @@ export function TerminalLeaf({
 	onFocus,
 	onSplit,
 	onRename,
+	onSetTheme,
 	onClose,
 	onExited,
 	onReplace,
@@ -177,6 +180,19 @@ export function TerminalLeaf({
 						>
 							<span data-testid="terminal-rename">Rename</span>
 						</MenuItem>
+						<MenuItem
+							onSelect={() =>
+								onSetTheme(terminal.id, terminal.theme === "light" ? "dark" : "light")
+							}
+						>
+							<span
+								data-testid="terminal-theme-toggle"
+								title="The colours change straight away. A program already running keeps the light or dark hint it started with, so restart it or use its own theme command."
+							>
+								{terminal.theme === "light" ? "Dark terminal" : "Light terminal"}
+							</span>
+						</MenuItem>
+						<MenuSeparator />
 						<MenuItem danger={true} onSelect={() => onClose(terminal.id)}>
 							<span data-testid="terminal-close">Close</span>
 						</MenuItem>

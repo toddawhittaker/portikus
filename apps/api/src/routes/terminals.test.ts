@@ -137,6 +137,61 @@ test.skipIf(skip)("create, list, rename, and delete a terminal", async () => {
 	expect(rows).toHaveLength(0);
 });
 
+/**
+ * Issues #267 and #268: a terminal carries its own colour scheme. It starts
+ * in whatever the user chose in their settings, the agent is told so it can
+ * set COLORFGBG, and the pane menu can change it afterwards.
+ */
+test.skipIf(skip)("a terminal starts in the user's scheme and can change", async () => {
+	const dark = await create(alice, workspaceId);
+	expect(dark.json().theme).toBe("dark");
+	expect(agent.terminals.get(dark.json().id)?.theme).toBe("dark");
+
+	// The user switches their default, and the next terminal starts light.
+	const saved = await app.inject({
+		method: "PUT",
+		url: "/me/settings",
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: { terminalTheme: "light" },
+	});
+	expect(saved.statusCode).toBe(200);
+	const light = await create(alice, workspaceId);
+	expect(light.json().theme).toBe("light");
+	expect(agent.terminals.get(light.json().id)?.theme).toBe("light");
+
+	// An outright request wins over the user's default.
+	const asked = await create(alice, workspaceId, { theme: "dark" });
+	expect(asked.json().theme).toBe("dark");
+
+	// The pane menu switches one terminal, and the row remembers it.
+	const switched = await app.inject({
+		method: "PATCH",
+		url: `/workspaces/${workspaceId}/terminals/${dark.json().id}`,
+		headers: csrfHeaders(alice, PUBLIC_URL),
+		payload: { theme: "light" },
+	});
+	expect(switched.statusCode).toBe(200);
+	expect(switched.json().theme).toBe("light");
+	expect(switched.json().name).toBe("Terminal 1");
+	const row = await testDb.db
+		.selectFrom("terminals")
+		.select("theme")
+		.where("id", "=", dark.json().id)
+		.executeTakeFirstOrThrow();
+	expect(row.theme).toBe("light");
+
+	// A request that changes nothing, and an unknown scheme, are refused.
+	for (const payload of [{}, { theme: "sepia" }]) {
+		const refused = await app.inject({
+			method: "PATCH",
+			url: `/workspaces/${workspaceId}/terminals/${dark.json().id}`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload,
+		});
+		expect(refused.statusCode).toBe(400);
+	}
+});
+
 test.skipIf(skip)("an administrator is refused on every terminal route", async () => {
 	const created = await create(alice, workspaceId);
 	const terminalId = created.json().id;
