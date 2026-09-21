@@ -236,7 +236,9 @@ function stubServer() {
 			// The tab reads the student's editor settings (issue #159). These
 			// tests use a one second delay, so a debounce is quick to wait for.
 			if (String(input) === "/me/settings") {
-				return new Response(JSON.stringify(settings), {
+				// The zone list travels with the settings (issue #287); this tab
+				// does not read it, but the reply has to be the real shape.
+				return new Response(JSON.stringify({ ...settings, timezones: [] }), {
 					status: 200,
 					headers: { "content-type": "application/json" },
 				});
