@@ -888,6 +888,36 @@ test.skipIf(skip)(
 
 // ── Reset (BROWSER-HANDLING.md §16.4) ──
 
+test.skipIf(skip)(
+	"reset expires the application's own cookies as well as ours",
+	async () => {
+		const token = await openPreview(5173);
+		const response = await app.inject({
+			method: "GET",
+			url: "/__portikus/reset",
+			headers: {
+				"x-forwarded-host": previewHostFor(5173),
+				cookie: `${COOKIE}=${token}; session=abc; cart=42`,
+			},
+		});
+		expect(response.statusCode).toBe(200);
+		// Clear-Site-Data cannot clear cookies without signing the student out
+		// of Portikus, so each name that arrived is sent back expired.
+		expect(response.headers["clear-site-data"]).toBe('"storage"');
+		const names = (response.cookies as { name: string; value: string }[]).map(
+			(one) => one.name,
+		);
+		expect(names).toContain("session");
+		expect(names).toContain("cart");
+		expect(names).toContain(COOKIE);
+		for (const cookie of response.cookies as { value: string }[]) {
+			expect(cookie.value).toBe("");
+		}
+		const raw = response.headers["set-cookie"] as string[];
+		expect(raw.some((one) => one.startsWith("session=; Path=/; Max-Age=0"))).toBe(true);
+	},
+);
+
 test.skipIf(skip)("resetting a workspace's previews revokes its sessions", async () => {
 	const token = await openPreview(5173);
 	const response = await app.inject({

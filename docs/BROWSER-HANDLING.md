@@ -518,7 +518,15 @@ The preview gateway may target only registered workspace services. It must not r
 
 Service workers are scoped to the preview origin. Edge-owned `/__portikus/` paths must take precedence over the upstream, even if a service worker exists. A worker whose scope covers the origin can still answer requests made by pages it controls, the preview frame among them, so Portikus must not rely on a frame navigation to reach a reserved path.
 
-Reset preview data therefore runs in three steps from the Portikus page: revoke the workspace's preview sessions through the control plane, then fetch `/__portikus/reset` on the preview origin from the Portikus document — which the worker does not control, so the request reaches the edge and its `Clear-Site-Data: "storage"` answer clears storage and service worker registrations for that origin, while the same answer expires the preview cookie with its own `Set-Cookie` — then take a fresh grant and bootstrap the frame again. The `"cookies"` directive must never be sent: browsers apply it to the whole registrable domain, which in a same-site deployment the Portikus host shares with the preview hosts, so it would delete the student's Portikus session cookie and sign them out. The reset response is the same whether or not a preview cookie came with the request, so an unauthenticated caller can at most clear its own browser's data for that one origin.
+Reset preview data therefore runs in three steps from the Portikus page: revoke the workspace's preview sessions through the control plane, then fetch `/__portikus/reset` on the preview origin from the Portikus document, then take a fresh grant and bootstrap the frame again. The worker does not control the Portikus document, so that fetch reaches the edge.
+
+What the reset answer clears, exactly:
+
+- `Clear-Site-Data: "storage"` drops the preview origin's local storage, session storage, IndexedDB, cache storage and service worker registrations.
+- A `Set-Cookie` expires the Portikus preview cookie for that origin.
+- One further `Set-Cookie` per cookie name the request carried expires that name with `Path=/`, `Max-Age=0`, and `Secure` where the site is https. The fetch is made with credentials, so in the same-site deployment it carries the preview origin's cookies; Caddy strips only the Portikus preview cookie before the API sees the request, so what is left is the student application's own cookies. A cookie the application set on a narrower path, or for a parent domain, is not cleared: nothing in the request says which it was.
+
+The `"cookies"` directive must never be sent: browsers apply it to the whole registrable domain, which in a same-site deployment the Portikus host shares with the preview hosts, so it would delete the student's Portikus session cookie and sign them out. The reset response is the same whether or not a preview cookie came with the request, so an unauthenticated caller can at most clear its own browser's data for that one origin.
 
 ### 16.5 Logging
 

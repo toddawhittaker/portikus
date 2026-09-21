@@ -42,6 +42,9 @@ export function previewCookieName(config: ApiConfig): string {
 		: "portikus-preview";
 }
 
+/** RFC 6265 cookie-name characters, so nothing else reaches a header. */
+const COOKIE_NAME = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/;
+
 const IdParams = z.object({ id: z.string().uuid() });
 const TicketQuery = z.object({ t: z.string().min(1).max(200) });
 const PortQuery = z.object({ port: z.coerce.number().int().min(1).max(65535) });
@@ -403,8 +406,16 @@ export function registerPreviewRoutes(
 	 * directive to the whole registrable domain, not just this origin, and in
 	 * a same-site deployment the preview hosts and the Portikus host share
 	 * that domain — so it would delete the student's `__Host-portikus-session`
-	 * cookie and sign them out of Portikus. The preview cookie this origin
-	 * does own is expired by the Set-Cookie below instead.
+	 * cookie and sign them out of Portikus. The cookies this origin does own
+	 * are expired one by one instead: the fetch is made with credentials, so
+	 * the request carries the preview origin's cookies, and Caddy strips only
+	 * the Portikus preview cookie before the API sees it. Every name that
+	 * arrives is sent back expired, which clears the student application's
+	 * own cookies without touching the Portikus session.
+	 *
+	 * Only cookies the application set on the path `/` are cleared. One set on
+	 * a narrower path, or for a parent domain, survives; nothing the request
+	 * carries says which it was.
 	 *
 	 * Portikus calls this from its own page rather than from inside the
 	 * preview frame, because an application's service worker can answer a
@@ -419,6 +430,16 @@ export function registerPreviewRoutes(
 				await revokePreviewSession(db, session.id);
 				await bridge.closeForSession(session.id);
 			}
+		}
+		for (const name of Object.keys(request.cookies)) {
+			if (name === cookieName) continue;
+			// Anything that is not a cookie name is dropped rather than echoed
+			// into a response header.
+			if (!COOKIE_NAME.test(name)) continue;
+			reply.header(
+				"set-cookie",
+				`${name}=; Path=/; Max-Age=0${secure ? "; Secure" : ""}`,
+			);
 		}
 		return reply
 			.clearCookie(cookieName, { path: "/", secure, sameSite: "strict" })
