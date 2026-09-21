@@ -43,6 +43,14 @@ test.describe("tab strip", () => {
 		return page.getByTestId(`tab-file:${path}`);
 	}
 
+	/**
+	 * The centre strip, by its own label. The files pane has a second tablist
+	 * of its own ("Files or checks"), so a bare role lookup is ambiguous.
+	 */
+	function strip(page: Page): Locator {
+		return page.getByRole("tablist", { name: /Open tabs/ });
+	}
+
 	async function widthOf(locator: Locator): Promise<number> {
 		const box = await locator.boundingBox();
 		if (!box) throw new Error("the tab has no box");
@@ -90,7 +98,7 @@ test.describe("tab strip", () => {
 		await expect(first.locator("svg").first()).toBeAttached();
 
 		// Past the floor the strip is a scroller.
-		const list = page.getByRole("tablist");
+		const list = strip(page);
 		const overflow = await list.evaluate(
 			(element) => element.scrollWidth - element.clientWidth,
 		);
@@ -100,7 +108,7 @@ test.describe("tab strip", () => {
 	test("selecting a tab scrolls it into view", async ({ page, context }) => {
 		const student = await createStudent(context);
 		await openWithTabs(page, student.workspaceId, "Scrolling", 40);
-		const list = page.getByRole("tablist");
+		const list = strip(page);
 		expect(await list.evaluate((element) => element.scrollLeft)).toBe(0);
 
 		// Opening the last file from the tree selects its tab, far off screen.
@@ -147,7 +155,7 @@ test.describe("tab strip", () => {
 	test("closing works in a scrolled strip", async ({ page, context }) => {
 		const student = await createStudent(context);
 		const projectId = await openWithTabs(page, student.workspaceId, "Closing", 40);
-		const list = page.getByRole("tablist");
+		const list = strip(page);
 		await list.evaluate((element) => {
 			element.scrollLeft = element.scrollWidth;
 		});
