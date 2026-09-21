@@ -121,6 +121,9 @@ export const AgentErrorCode = z.enum([
 	"CHECK_NOT_FOUND",
 	"CHECK_RUNNING",
 	"CHECK_NOT_RUNNING",
+	"LISTENER_NOT_FOUND",
+	"LISTENER_IS_SYSTEM",
+	"STOP_FAILED",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 

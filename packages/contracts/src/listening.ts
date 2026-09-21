@@ -25,6 +25,12 @@ export const ListeningService = z.object({
 		.object({ id: z.string().optional(), name: z.string().optional() })
 		.optional(),
 	previewReachability: z.enum(["reachable", "forwarded", "denied", "unknown"]),
+	/**
+	 * True when the listener belongs to the platform or to a system account
+	 * rather than to the student (SPEC.md §18.2). The Running pane hides these
+	 * by default; authorization does not look at this flag.
+	 */
+	system: z.boolean().default(false),
 	observedAt: z.string(),
 });
 export type ListeningService = z.infer<typeof ListeningService>;
@@ -52,6 +58,13 @@ export const AgentListeningServicesChanged = ListeningServicesChanged.omit({
 export type AgentListeningServicesChanged = z.infer<
 	typeof AgentListeningServicesChanged
 >;
+
+/** Body of `POST /listening/:port/stop` has no fields; this is its reply. */
+export const StopListenerResponse = z.object({
+	port: PortNumber,
+	stopped: z.literal(true),
+});
+export type StopListenerResponse = z.infer<typeof StopListenerResponse>;
 
 /** Body of `POST /forwards` on the agent (BROWSER-HANDLING.md §11.1). */
 export const LoopbackForwardRequest = z.object({ port: PortNumber });

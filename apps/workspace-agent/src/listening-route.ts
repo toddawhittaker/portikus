@@ -11,7 +11,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { ForwardFailure, type Forwards } from "./forwards.js";
-import type { ListeningMonitor } from "./listening.js";
+import { type ListeningMonitor, StopFailure } from "./listening.js";
 
 export interface ListeningRouteOptions {
 	monitor: ListeningMonitor;
@@ -38,6 +38,36 @@ export async function listeningRoutes(
 		// between changes still knows what is running.
 		send(socket, monitor.current());
 		await monitor.refresh();
+	});
+
+	/** Stop what holds a port (SPEC.md §18.2, issue #273). */
+	instance.post("/listening/:port/stop", async (request, reply) => {
+		const { port } = request.params as { port: string };
+		const parsed = PortNumber.safeParse(Number.parseInt(port, 10));
+		if (!parsed.success) {
+			return reply
+				.code(400)
+				.send({ error: { code: "BAD_REQUEST", message: "invalid port" } });
+		}
+		try {
+			await monitor.stopListener(parsed.data);
+		} catch (error) {
+			if (error instanceof StopFailure) {
+				return reply
+					.code(error.status)
+					.send({ error: { code: error.code, message: error.message } });
+			}
+			request.log.error(
+				{ error: error instanceof Error ? error.message : String(error) },
+				"stop listener failed",
+			);
+			return reply
+				.code(500)
+				.send({ error: { code: "INTERNAL", message: "internal error" } });
+		}
+		// The next scan drops the row; report what was asked and done.
+		await monitor.refresh();
+		return { port: parsed.data, stopped: true };
 	});
 
 	instance.get("/forwards", async () => ({ forwards: forwards.list() }));

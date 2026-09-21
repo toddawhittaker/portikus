@@ -1416,6 +1416,33 @@ export async function startFakeAgent(
 		},
 	);
 
+	/**
+	 * Stop a listener, like the real agent (issue #273): a system row is
+	 * refused, an unknown port is a 404, and anything else simply disappears
+	 * from the list, which is what discovery would report a second later.
+	 */
+	app.post("/listening/:port/stop", async (request, reply) => {
+		const port = Number.parseInt((request.params as { port: string }).port, 10);
+		const key = keyOf(request);
+		const service = listeningFor(key).find((one) => one.port === port);
+		if (!service) {
+			return reply.status(404).send({
+				error: { code: "LISTENER_NOT_FOUND", message: "nothing is listening" },
+			});
+		}
+		if (service.system) {
+			return reply.status(403).send({
+				error: { code: "LISTENER_IS_SYSTEM", message: "system service" },
+			});
+		}
+		listening.set(
+			key,
+			listeningFor(key).filter((one) => one.port !== port),
+		);
+		pushListening(key);
+		return { port, stopped: true };
+	});
+
 	app.get("/forwards", async (request) => ({
 		forwards: [...(forwards.get(keyOf(request)) ?? new Set<number>())].map((port) => ({
 			port,
@@ -1475,6 +1502,9 @@ export async function startFakeAgent(
 				addresses: service.addresses ?? ["0.0.0.0"],
 				protocolHint: service.protocolHint ?? "http",
 				previewReachability: service.previewReachability ?? "reachable",
+				system: service.system ?? false,
+				...(service.process ? { process: service.process } : {}),
+				...(service.container ? { container: service.container } : {}),
 				observedAt: new Date().toISOString(),
 			})),
 		);
@@ -1504,6 +1534,8 @@ export async function startFakeAgent(
 				addresses: ["0.0.0.0"],
 				protocolHint: "http",
 				previewReachability: "reachable",
+				system: false,
+				process: { pid: 4242, command: "node" },
 				observedAt: new Date().toISOString(),
 			},
 		]);

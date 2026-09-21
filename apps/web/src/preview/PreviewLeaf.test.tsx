@@ -28,6 +28,7 @@ function service(port: number): ListeningService {
 		protocolHint: "http",
 		process: { pid: 1, command: "node" },
 		previewReachability: "reachable",
+		system: false,
 		observedAt: "2026-01-01T00:00:00.000Z",
 	};
 }
