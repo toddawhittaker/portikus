@@ -41,9 +41,15 @@
  * entries that belongs to another page.
  *
  * One guard serves every Preview tab, because there is one history list per
- * browser tab, and it lives as long as the document: closing the last Preview
- * tab drops the `popstate` listener but keeps the anchor, so opening and
- * closing tabs does not add an entry each time.
+ * browser tab, and it lives as long as the document: the anchor and the
+ * `popstate` listener both stay when the last Preview tab closes. Opening and
+ * closing tabs therefore adds no entries, and Back presses made with no
+ * Preview open are still seen, which is what keeps the counts honest.
+ *
+ * One consequence worth knowing: the anchor is a copy of the router's current
+ * entry, state and all, so the router's own index appears twice in a row.
+ * A router-driven Back can land on the same index it was already on and look
+ * like it did nothing; the student's own Back button then takes the step.
  */
 
 /** The state we put on our own history entry, mixed into the router's. */
@@ -88,8 +94,6 @@ export interface PreviewHistory {
 	/** Step back, or do nothing and answer false when there is nowhere to go. */
 	back: () => boolean;
 	forward: () => void;
-	/** Let go; the listener goes when the last tab lets go, the anchor stays. */
-	release: () => void;
 }
 
 interface Guard {
@@ -103,9 +107,6 @@ interface Guard {
 	/** Steps back taken since the anchor and not yet undone. */
 	stepsBack: number;
 	onPopState: (event: { state: unknown }) => void;
-	/** How many Preview tabs are open; the listener is on while this is above 0. */
-	holders: number;
-	listening: boolean;
 }
 
 /** The one guard for this document. */
@@ -137,21 +138,14 @@ export function attachPreviewHistory(
 				if (isSentinel(event.state)) return;
 				anchor();
 			},
-			holders: 0,
-			listening: false,
 		};
 		guard = fresh;
+		win.addEventListener("popstate", fresh.onPopState);
 		anchor();
 	}
 	guard.tabId = tabId;
-	guard.holders += 1;
-	if (!guard.listening) {
-		win.addEventListener("popstate", guard.onPopState);
-		guard.listening = true;
-	}
 	syncAnchor();
 
-	let released = false;
 	return {
 		canGoBack: () => {
 			syncAnchor();
@@ -168,16 +162,6 @@ export function attachPreviewHistory(
 			syncAnchor();
 			if (guard && guard.stepsBack > 0) guard.stepsBack -= 1;
 			win.history.forward();
-		},
-		release: () => {
-			if (released || !guard) return;
-			released = true;
-			guard.holders -= 1;
-			if (guard.holders > 0) return;
-			// The anchor and its counts stay; only the listener goes, so an
-			// open and close cycle does not add a history entry each time.
-			guard.win.removeEventListener("popstate", guard.onPopState);
-			guard.listening = false;
 		},
 	};
 }
@@ -218,6 +202,6 @@ function canGoBack(): boolean {
 
 /** Drop the guard outright. Only a test needs this. */
 export function resetPreviewHistory(): void {
-	if (guard?.listening) guard.win.removeEventListener("popstate", guard.onPopState);
+	if (guard) guard.win.removeEventListener("popstate", guard.onPopState);
 	guard = null;
 }
