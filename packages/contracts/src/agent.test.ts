@@ -46,9 +46,16 @@ test("AgentError round-trips and rejects an unknown code", () => {
 
 test("StartInstanceRequest requires a 64-character hex agent token", () => {
 	const token = "a".repeat(64);
-	expect(StartInstanceRequest.parse({ agentToken: token, hostname: "tw7" })).toEqual({
+	expect(
+		StartInstanceRequest.parse({
+			agentToken: token,
+			hostname: "tw7",
+			previewHostSuffix: "preview.portikus.school.edu",
+		}),
+	).toEqual({
 		agentToken: token,
 		hostname: "tw7",
+		previewHostSuffix: "preview.portikus.school.edu",
 		timeoutSeconds: 60,
 	});
 	expect(StartInstanceRequest.safeParse({}).success).toBe(false);
@@ -113,4 +120,22 @@ test("AgentError accepts the project error codes", () => {
 	]) {
 		expect(AgentError.safeParse({ error: { code, message: "no" } }).success).toBe(true);
 	}
+});
+
+test("StartInstanceRequest requires a DNS-name preview host suffix", () => {
+	const base = { agentToken: "a".repeat(64), hostname: "tw7" };
+	// Missing, uppercase, and shell-metacharacter suffixes are all refused.
+	expect(StartInstanceRequest.safeParse(base).success).toBe(false);
+	expect(
+		StartInstanceRequest.safeParse({ ...base, previewHostSuffix: "Preview.School.Edu" })
+			.success,
+	).toBe(false);
+	expect(
+		StartInstanceRequest.safeParse({ ...base, previewHostSuffix: "a.b; rm -rf /" })
+			.success,
+	).toBe(false);
+	expect(
+		StartInstanceRequest.safeParse({ ...base, previewHostSuffix: "preview.localhost" })
+			.success,
+	).toBe(true);
 });

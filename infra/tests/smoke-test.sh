@@ -992,6 +992,15 @@ TERMPROBE
       check "terminal socket carries input and output" \
         term_probe "$term_id" "echo ${mark_a}\"${mark_b}\"" "$mark" - 30000
 
+      # Every login shell reads /etc/profile.d/portikus.sh, which the
+      # controller writes at start, so a terminal knows the preview suffix
+      # (issue #263).  The typed command holds only the variable name, so the
+      # suffix can only appear once the shell has expanded it.
+      # shellcheck disable=SC2016  # the shell inside the workspace expands it
+      check "terminal shell knows the preview host suffix" \
+        term_probe "$term_id" 'echo $PORTIKUS_PREVIEW_HOST_SUFFIX' \
+        "$PREVIEW_SUFFIX" - 30000
+
       # Reattaching inside the grace period redraws the same tmux screen,
       # so the marker written a moment ago is still on it (SPEC.md 9.2).
       check "reattached terminal shows the earlier output" \
