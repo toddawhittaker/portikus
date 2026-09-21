@@ -25,6 +25,14 @@ const RECONNECT_MAX_MS = 30_000;
  */
 const MAX_AGENT_FRAME_BYTES = 1024 * 1024;
 
+/**
+ * How many loopback forwards one workspace may have open at once, counting
+ * both the ones a grant opened and the ones the same-origin bridge did. A
+ * page inside a preview can ask the bridge for any allowed port, so without a
+ * cap its JavaScript could make the agent open hundreds (SPEC.md §24.7).
+ */
+const MAX_FORWARDS_PER_WORKSPACE = 8;
+
 /** How long the agent has to answer the upgrade. */
 const HANDSHAKE_TIMEOUT_MS = 5000;
 
@@ -264,6 +272,12 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				service?.previewReachability === "forwarded"
 			) {
 				return;
+			}
+			const open = entry.services.filter(
+				(one) => one.previewReachability === "forwarded",
+			).length;
+			if (open >= MAX_FORWARDS_PER_WORKSPACE) {
+				throw new Error("this workspace has too many loopback forwards open");
 			}
 			const forward = await entry.client.openForward(port);
 			// The agent's own report follows on the events socket; record the
