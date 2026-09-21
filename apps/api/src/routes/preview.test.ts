@@ -388,39 +388,6 @@ test.skipIf(skip)("bootstrap sets a host-only cookie and redirects", async () =>
 	expect(response.body).not.toContain(ticketOf(created.json().bootstrapUrl));
 });
 
-test.skipIf(skip)("a ticket cannot be used twice", async () => {
-	const created = await grant(alice, workspaceId, 5173);
-	const ticket = ticketOf(created.json().bootstrapUrl);
-	expect((await bootstrap(previewHostFor(5173), ticket)).statusCode).toBe(303);
-	const replay = await bootstrap(previewHostFor(5173), ticket);
-	expect(replay.statusCode).toBe(403);
-	expect(replay.body).not.toContain(ticket);
-});
-
-test.skipIf(skip)("an expired ticket is refused", async () => {
-	const created = await grant(alice, workspaceId, 5173);
-	await testDb.db
-		.updateTable("preview_grants")
-		.set({ expires_at: new Date(Date.now() - 1000).toISOString() })
-		.execute();
-	const response = await bootstrap(
-		previewHostFor(5173),
-		ticketOf(created.json().bootstrapUrl),
-	);
-	expect(response.statusCode).toBe(403);
-});
-
-test.skipIf(skip)("a ticket presented on another host is refused", async () => {
-	const created = await grant(alice, workspaceId, 5173);
-	const ticket = ticketOf(created.json().bootstrapUrl);
-	expect((await bootstrap(previewHostFor(3000), ticket)).statusCode).toBe(403);
-	expect((await bootstrap(`someone-5173.${SUFFIX}`, ticket)).statusCode).toBe(403);
-	// The application host is not a preview host at all.
-	expect((await bootstrap("127.0.0.1", ticket)).statusCode).toBe(403);
-	// And the ticket is still good on the host it was issued for.
-	expect((await bootstrap(previewHostFor(5173), ticket)).statusCode).toBe(303);
-});
-
 test.skipIf(skip)("a ticket is only good where it was meant to open", async () => {
 	// A ticket for the preview frame, opened as a top-level page.
 	const framed = await grant(alice, workspaceId, 5173);
@@ -480,17 +447,9 @@ test.skipIf(skip)("an unknown ticket is refused", async () => {
 	expect(response.headers["content-type"]).toContain("text/html");
 });
 
-test.skipIf(skip)("a host with a port still bootstraps", async () => {
-	const created = await grant(alice, workspaceId, 5173);
-	const response = await app.inject({
-		method: "GET",
-		url: `/__portikus/bootstrap?t=${ticketOf(created.json().bootstrapUrl)}`,
-		headers: { "x-forwarded-host": `${previewHostFor(5173)}:8443` },
-	});
-	expect(response.statusCode).toBe(303);
-});
-
 // ── Authorization (BROWSER-HANDLING.md §10, ADR 0018) ──
+// The refusal matrix a hostile request meets lives in threat-model.test.ts;
+// what a student sees when a preview is simply not there lives here.
 
 test.skipIf(skip)(
 	"an authorized request names the workspace's own upstream",
@@ -536,15 +495,6 @@ test.skipIf(skip)("a preview session dies with its main session", async () => {
 	expect(response.statusCode).toBe(401);
 });
 
-test.skipIf(skip)("an expired main session ends the preview too", async () => {
-	const token = await openPreview(5173);
-	await testDb.db
-		.updateTable("sessions")
-		.set({ expires_at: new Date(Date.now() - 1000).toISOString() })
-		.execute();
-	expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(401);
-});
-
 test.skipIf(skip)("a preview cookie is worthless on another host", async () => {
 	const token = await openPreview(5173);
 	// Another port of the same workspace, and another workspace's label.
@@ -570,13 +520,6 @@ test.skipIf(skip)("a workspace that changed hands stops authorizing", async () =
 		.where("id", "=", workspaceId)
 		.execute();
 	expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(403);
-});
-
-test.skipIf(skip)("a session on a denied port never authorizes", async () => {
-	const token = await openPreview(5173);
-	// Move the live session onto a denied port, the way a policy change would.
-	await testDb.db.updateTable("preview_sessions").set({ port: 22 }).execute();
-	expect((await authorize(token, previewHostFor(22))).statusCode).toBe(403);
 });
 
 test.skipIf(skip)("a stopped workspace explains itself", async () => {
@@ -611,29 +554,6 @@ test.skipIf(skip)("only loopback may ask for an authorization", async () => {
 	});
 	expect(response.statusCode).toBe(403);
 	expect(response.headers["x-portikus-upstream"]).toBeUndefined();
-});
-
-test.skipIf(skip)("no header can name the upstream (SPEC 24.7)", async () => {
-	const token = await openPreview(5173);
-	const response = await authorize(token, previewHostFor(5173), {
-		extra: {
-			"x-portikus-upstream": "169.254.169.254:80",
-			"x-forwarded-for": "169.254.169.254",
-			"x-forwarded-uri": "http://169.254.169.254/latest/meta-data",
-			host: "169.254.169.254",
-		},
-	});
-	expect(response.statusCode).toBe(200);
-	// The agent address from the workspace row, nothing from the request.
-	expect(response.headers["x-portikus-upstream"]).toBe("127.0.0.1:5173");
-
-	// And an upstream a request names for a workspace it has no session for
-	// is still refused outright.
-	const refused = await authorize(null, previewHostFor(5173), {
-		extra: { "x-portikus-upstream": "169.254.169.254:80" },
-	});
-	expect(refused.statusCode).toBe(401);
-	expect(refused.headers["x-portikus-upstream"]).toBeUndefined();
 });
 
 test.skipIf(skip)("a preview session of one user never serves another", async () => {
