@@ -75,15 +75,12 @@ export function PreviewLeaf({
 	/** The bootstrap URL of the frame that has reported a load, if any. */
 	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
 	const frame = useRef<HTMLIFrameElement | null>(null);
-	/** Counts connect attempts, so a late probe cannot speak for an old one. */
-	const attemptRef = useRef(0);
 	const statusRef = useRef<State["status"]>("connecting");
 
 	/** Whether the API says something is listening on this port. */
 	const isListening = listening.services.some((service) => service.port === port);
 
 	const connect = useCallback(async () => {
-		const attempt = ++attemptRef.current;
 		setState({ status: "connecting" });
 		try {
 			const grant = await requestGrant(workspaceId, port, "embedded");
@@ -102,7 +99,8 @@ export function PreviewLeaf({
 			// An application that did not answer may simply be starting up, so
 			// only a real refusal short-circuits the timeout.
 			if (verdict.embeddable || verdict.reason === "unreachable") return;
-			if (attempt !== attemptRef.current) return;
+			// The grant this probe was made for must still be the one on
+			// screen; a later connect replaced it otherwise.
 			setState((current) =>
 				current.status === "available" && current.grant === grant
 					? { status: "blocked", grant, probed: true }

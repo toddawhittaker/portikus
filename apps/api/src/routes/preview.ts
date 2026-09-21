@@ -33,7 +33,6 @@ import {
 	revokeWorkspacePreviewSessions,
 } from "../preview/store.js";
 import type { ServerDeps } from "../server.js";
-import { findWorkspaceOwnedBy } from "./workspace-view.js";
 
 /** The preview-host cookie, `__Host-` prefixed wherever the site is https. */
 export function previewCookieName(config: ApiConfig): string {
@@ -140,6 +139,21 @@ export function registerPreviewRoutes(
 		return answer;
 	}
 
+	/**
+	 * The workspace fields the preview routes read, for its owner only. An
+	 * administrator may see that a workspace exists but never open a student's
+	 * preview (SPEC.md §24).
+	 */
+	async function previewWorkspace(id: string, userId: string) {
+		const row = await db
+			.selectFrom("workspaces")
+			.select(["id", "label", "state", "agent_address"])
+			.where("id", "=", id)
+			.where("owner_user_id", "=", userId)
+			.executeTakeFirst();
+		return row ?? null;
+	}
+
 	/** What the workspace agent reports, plus the policy verdict. */
 	function servicesOf(workspaceId: string): ListeningService[] {
 		return registry.services(workspaceId);
@@ -153,7 +167,7 @@ export function registerPreviewRoutes(
 				.status(400)
 				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
 		}
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
 			return reply
 				.status(404)
@@ -177,7 +191,7 @@ export function registerPreviewRoutes(
 				.send({ code: "VALIDATION_FAILED", message: "invalid grant request" });
 		}
 
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
 			return reply
 				.status(404)
@@ -230,11 +244,7 @@ export function registerPreviewRoutes(
 			}
 		}
 
-		const host = previewHost(
-			workspace.label as string,
-			body.data.port,
-			config.PREVIEW_SUFFIX,
-		);
+		const host = previewHost(workspace.label, body.data.port, config.PREVIEW_SUFFIX);
 		const { ticket, expiresAt } = await createGrant(db, {
 			userId: user.id,
 			// The plugin gave us a live session, so the token is present.
@@ -278,7 +288,7 @@ export function registerPreviewRoutes(
 				.status(400)
 				.send({ code: "VALIDATION_FAILED", message: "invalid workspace or port" });
 		}
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
 			return reply
 				.status(404)
@@ -306,7 +316,7 @@ export function registerPreviewRoutes(
 			embeddable: false,
 			reason: "unreachable",
 		};
-		const address = workspace.agent_address as string | null;
+		const address = workspace.agent_address;
 		const service = registry.service(params.data.id, port);
 		if (
 			workspace.state !== "running" ||
@@ -330,7 +340,7 @@ export function registerPreviewRoutes(
 				.status(400)
 				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
 		}
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
 			return reply
 				.status(404)
