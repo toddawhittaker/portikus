@@ -234,6 +234,7 @@ export type SplitNode =
 	| { type: "leaf"; terminalId: string }
 	| { type: "file"; path: string }
 	| { type: "diff"; path: string }
+	| { type: "preview"; port: number }
 	| {
 			type: "split";
 			direction: "row" | "column";
@@ -246,6 +247,9 @@ export const SplitNode: z.ZodType<SplitNode> = z.lazy(() =>
 		z.object({ type: z.literal("leaf"), terminalId: TerminalId }).strict(),
 		z.object({ type: z.literal("file"), path: ProjectPath }).strict(),
 		z.object({ type: z.literal("diff"), path: ProjectPath }).strict(),
+		z
+			.object({ type: z.literal("preview"), port: z.number().int().min(1).max(65535) })
+			.strict(),
 		z
 			.object({
 				type: z.literal("split"),
@@ -275,24 +279,28 @@ export function splitDepth(node: SplitNode): number {
 }
 
 /**
- * True when a file or diff node sits anywhere below the root of a tab. Only
- * terminals split (SPEC.md §8.3), so a file or diff is always a whole tab.
+ * True when a file, diff or preview node sits anywhere below the root of a
+ * tab. Only terminals split (SPEC.md §8.3), so those are always whole tabs.
  */
 function hasNestedDocument(node: SplitNode): boolean {
 	if (node.type !== "split") return false;
 	return node.children.some(
 		(child) =>
-			child.type === "file" || child.type === "diff" || hasNestedDocument(child),
+			child.type === "file" ||
+			child.type === "diff" ||
+			child.type === "preview" ||
+			hasNestedDocument(child),
 	);
 }
 
 /**
- * The dedupe key of a tab whose root is a file or diff, or null for a tab of
- * terminals. The browser uses the same string as the tab id.
+ * The dedupe key of a tab whose root is a file, diff or preview, or null for
+ * a tab of terminals. The browser uses the same string as the tab id.
  */
 export function documentTabId(node: SplitNode): string | null {
 	if (node.type === "file") return `file:${node.path}`;
 	if (node.type === "diff") return `diff:${node.path}`;
+	if (node.type === "preview") return `preview:${node.port}`;
 	return null;
 }
 
@@ -357,7 +365,7 @@ export const ProjectLayout = z.object({
 						ctx.addIssue({
 							code: "custom",
 							path: [index, "id"],
-							message: `a file or diff tab id must be "${document}"`,
+							message: `a document tab id must be "${document}"`,
 						});
 					}
 					// One tab per path per kind; two would edit the same file twice.
@@ -365,7 +373,7 @@ export const ProjectLayout = z.object({
 						ctx.addIssue({
 							code: "custom",
 							path: [index, "root"],
-							message: "a path may only be open once as a file and once as a diff",
+							message: "a path or port may only be open once per tab kind",
 						});
 					}
 					documents.add(document);

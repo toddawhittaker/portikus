@@ -33,6 +33,8 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { useLayoutPersistence } from "../layout/persist.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { type DropEdge, type SplitDirection, terminalIds } from "../layout/tree.js";
+import { PreviewPicker } from "../preview/PreviewPicker.js";
+import { useShowRightPane } from "../shell/rightPane.js";
 import { useTerminals } from "../useTerminals.js";
 import { dropZone, insertionIndex } from "./dropZone.js";
 import { TerminalGroup } from "./TerminalGroup.js";
@@ -63,6 +65,8 @@ export interface WorkAreaProps {
 	/** A file the URL asked to open, and the line to jump to (SPEC.md §14.9). */
 	openPath?: string;
 	openLine?: number;
+	/** A port the URL asked to preview (SPEC.md §14.6, §14.9). */
+	openPreviewPort?: number;
 	onSessionEnded: () => void;
 }
 
@@ -72,6 +76,7 @@ export function WorkArea({
 	projectPath,
 	openPath,
 	openLine,
+	openPreviewPort,
 	onSessionEnded,
 }: WorkAreaProps) {
 	const store = useLayoutStore(projectId);
@@ -85,6 +90,8 @@ export function WorkArea({
 	const loaded = useLayoutPersistence(workspaceId, projectId, store, onSessionEnded);
 	const terminals = useTerminals(workspaceId, projectId, true, onSessionEnded);
 	const [closingTabId, setClosingTabId] = useState<string | null>(null);
+	const [pickingPreview, setPickingPreview] = useState(false);
+	const showRightPane = useShowRightPane();
 	const [draggedPane, setDraggedPane] = useState<{
 		terminalId: string;
 		title: string;
@@ -117,6 +124,13 @@ export function WorkArea({
 		if (!loaded || !openPath) return;
 		store.getState().openFile(openPath, { line: openLine });
 	}, [loaded, openPath, openLine, store]);
+
+	// A preview the URL named opens once the saved layout is in, for the same
+	// reason a file does.
+	useEffect(() => {
+		if (!loaded || openPreviewPort === undefined) return;
+		store.getState().openPreview(openPreviewPort);
+	}, [loaded, openPreviewPort, store]);
 
 	const newTerminal = useCallback(async (): Promise<Terminal | null> => {
 		try {
@@ -162,8 +176,13 @@ export function WorkArea({
 	function closeTab(tabId: string) {
 		const tab = layout.tabs.find((item) => item.id === tabId);
 		if (!tab) return;
-		// A file or diff tab holds no process, so closing it is just the tab.
-		if (tab.root.type === "file" || tab.root.type === "diff") {
+		// A file, diff or preview tab holds no process, so closing it is just
+		// the tab.
+		if (
+			tab.root.type === "file" ||
+			tab.root.type === "diff" ||
+			tab.root.type === "preview"
+		) {
 			store.getState().closeTab(tabId);
 			setClosingTabId(null);
 			return;
@@ -207,6 +226,16 @@ export function WorkArea({
 	}
 
 	const items: TabItem[] = layout.tabs.map((tab) => {
+		if (tab.root.type === "preview") {
+			const port = tab.root.port;
+			return {
+				id: tab.id,
+				kind: "preview" as const,
+				label: `Preview ${port}`,
+				title: `Preview of port ${port}`,
+				testId: `tab-${tab.id}`,
+			};
+		}
 		if (tab.root.type === "file" || tab.root.type === "diff") {
 			const path = tab.root.path;
 			return {
@@ -362,8 +391,8 @@ export function WorkArea({
 										<MenuItem icon="file" disabled={true}>
 											File — Epic 7
 										</MenuItem>
-										<MenuItem icon="preview" disabled={true}>
-											Preview — Epic 8
+										<MenuItem icon="preview" onSelect={() => setPickingPreview(true)}>
+											<span data-testid="launcher-preview">Preview</span>
 										</MenuItem>
 									</Menu>
 								</MenuRoot>
@@ -409,6 +438,7 @@ export function WorkArea({
 							onReplace={(id) => void replace(id)}
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
 							onSessionEnded={onSessionEnded}
+							onShowRunning={() => showRightPane("running")}
 							onLeave={leaveTerminal}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
 							pendingLine={pendingLine[tab.id]}
@@ -428,6 +458,16 @@ export function WorkArea({
 						/>
 					))
 				)}
+
+				{pickingPreview ? (
+					<PreviewPicker
+						onClose={() => setPickingPreview(false)}
+						onOpen={(port) => {
+							setPickingPreview(false);
+							store.getState().openPreview(port);
+						}}
+					/>
+				) : null}
 
 				<ConfirmDialogRoot
 					open={closingTab !== undefined}

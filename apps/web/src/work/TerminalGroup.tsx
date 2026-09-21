@@ -8,6 +8,7 @@ import { PaneHandle } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
+import { PreviewLeaf } from "../preview/PreviewLeaf.js";
 import { FileLeaf } from "./FileLeaf.js";
 import { TerminalLeaf } from "./TerminalLeaf.js";
 
@@ -42,6 +43,8 @@ export interface TerminalGroupProps {
 	pendingEdit: number | undefined;
 	/** Read and forget whether a file tab was asked to show the editor. */
 	consumePendingEdit: () => boolean;
+	/** Bring the Running surface into view (BROWSER-HANDLING.md §12). */
+	onShowRunning: () => void;
 	/** A file tab reporting whether its edits are on disk (issue #240). */
 	onUnsavedChange?: (unsaved: boolean) => void;
 	/** The pane a drag is hovering, and the zone it would drop into. */
@@ -100,6 +103,17 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					pendingEdit={props.pendingEdit}
 					consumePendingEdit={props.consumePendingEdit}
 					onUnsavedChange={props.onUnsavedChange}
+				/>
+			);
+		}
+		if (node.type === "preview") {
+			return (
+				<PreviewLeaf
+					key={node.port}
+					workspaceId={props.workspaceId}
+					port={node.port}
+					visible={visible}
+					onShowRunning={props.onShowRunning}
 				/>
 			);
 		}

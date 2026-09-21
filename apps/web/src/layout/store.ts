@@ -68,6 +68,11 @@ export interface LayoutState {
 	 * (issue #160). There is no limit on open tabs (issue #240).
 	 */
 	openFile: (path: string, options?: { line?: number; diff?: boolean }) => void;
+	/**
+	 * Open a preview tab for one port, or activate the one already open for
+	 * it (SPEC.md §14.6). There is no limit on open tabs (issue #240).
+	 */
+	openPreview: (port: number) => void;
 	/** Close one whole tab. Terminal tabs close by closing their terminals. */
 	closeTab: (tabId: string) => void;
 	/** Record whether one file tab has unsaved edits (issue #240). */
@@ -233,6 +238,17 @@ export function createLayoutStore() {
 					pendingLine,
 					pendingDiff,
 					pendingEdit,
+					dirty: state.dirty || opened.layout !== state.layout,
+				});
+			},
+
+			openPreview: (port) => {
+				const state = get();
+				const opened = tree.openPreview(state.layout, port);
+				set({
+					layout: opened.layout,
+					activeTabId: opened.tabId,
+					tabHistory: remember(state.tabHistory, opened.tabId),
 					dirty: state.dirty || opened.layout !== state.layout,
 				});
 			},

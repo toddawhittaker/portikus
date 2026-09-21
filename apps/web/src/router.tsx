@@ -9,7 +9,7 @@ import {
 	useParams,
 } from "@tanstack/react-router";
 import { AdminPage } from "./admin/AdminPage.js";
-import { ComingLater } from "./ComingLater.js";
+import { MIN_PREVIEW_PORT } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
 import { SignIn } from "./pages/SignIn.js";
@@ -66,6 +66,14 @@ function safePath(value: unknown): string | undefined {
 	return parsed.success ? parsed.data : undefined;
 }
 
+/** A port from a link is a port a preview may use (SPEC.md §14.7). */
+function safePort(value: unknown): number | undefined {
+	const port = Number(value);
+	return Number.isInteger(port) && port >= MIN_PREVIEW_PORT && port <= 65535
+		? port
+		: undefined;
+}
+
 /** A line number from a link is a whole line, counted from one. */
 function safeLine(value: unknown): number | undefined {
 	const line = Number(value);
@@ -82,13 +90,14 @@ const projectRoute = createRoute({
 	validateSearch: (search: Record<string, unknown> & SearchSchemaInput) => ({
 		open: safePath(search.open),
 		line: safeLine(search.line),
+		preview: safePort(search.preview),
 	}),
 	component: ProjectScreen,
 });
 
 function ProjectScreen() {
 	const { id, projectId } = useParams({ from: "/workspaces/$id/projects/$projectId" });
-	const { open, line } = projectRoute.useSearch();
+	const { open, line, preview } = projectRoute.useSearch();
 	const projects = useProjects(id, "active");
 	const project = projects.data?.find((item) => item.id === projectId);
 	if (!project) return <div className="flex-1" aria-busy="true" />;
@@ -99,6 +108,7 @@ function ProjectScreen() {
 			projectPath={project.path}
 			openPath={open}
 			openLine={line}
+			openPreviewPort={preview}
 			onSessionEnded={() => router.navigate({ to: "/session-ended" })}
 		/>
 	);
@@ -126,22 +136,23 @@ const filesRoute = createRoute({
 	},
 });
 
+/**
+ * `/preview/<port>` is the project screen with an instruction, the way the
+ * files route is: it hands over and lets the work area open the tab
+ * (SPEC.md §14.6, §14.9).
+ */
 const previewRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/workspaces/$id/projects/$projectId/preview/$port",
-	component: PreviewPlaceholder,
+	beforeLoad: ({ params }) => {
+		throw redirect({
+			to: "/workspaces/$id/projects/$projectId",
+			params: { id: params.id, projectId: params.projectId },
+			search: { preview: safePort(params.port) },
+			replace: true,
+		});
+	},
 });
-
-function PreviewPlaceholder() {
-	const { id, port } = previewRoute.useParams();
-	return (
-		<ComingLater
-			title="Preview"
-			workspaceId={id}
-			detail={`The preview for port ${port} is not built yet.`}
-		/>
-	);
-}
 
 export const routeTree = rootRoute.addChildren([
 	indexRoute,
