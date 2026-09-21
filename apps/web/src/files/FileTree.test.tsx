@@ -406,6 +406,18 @@ describe("the file tree", () => {
 		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBeNull());
 	});
 
+	/** Issue #237: the empty area below the tree is a project-root target. */
+	it("offers the empty area below the tree as a drop target for the root", async () => {
+		renderPane();
+		const space = await screen.findByTestId("file-tree-space-drop");
+
+		expect(space.getAttribute("data-drop-dir")).toBe("");
+		// The path line under the header stays a target too.
+		expect(
+			screen.getByTestId("file-tree-root-drop").getAttribute("data-drop-dir"),
+		).toBe("");
+	});
+
 	/** Issue #220: the root drop target must not flicker over a top-level row. */
 	it("keeps the root drop target while the drag crosses a top-level file", async () => {
 		renderPane();

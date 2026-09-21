@@ -270,6 +270,46 @@ test.describe("file tree", () => {
 		);
 	});
 
+	/** Issue #237: the drag is visible, and the empty pane is a root target. */
+	test("a drag shows what it carries and drops on the empty pane", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openProject(page, student.workspaceId, "Dragvisible");
+
+		await row(page, "src").click();
+		await expect(row(page, "src/app.ts")).toBeVisible();
+
+		const source = await row(page, "src/app.ts").boundingBox();
+		const target = await page.getByTestId("file-tree-space-drop").boundingBox();
+		if (!source || !target) throw new Error("the drag needs both boxes");
+		await page.mouse.move(source.x + 20, source.y + source.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(source.x + 30, source.y + source.height / 2, { steps: 5 });
+
+		// Something follows the pointer and says what is being dragged.
+		const overlay = page.getByTestId("file-drag-overlay");
+		await expect(overlay).toBeVisible();
+		await expect(overlay).toHaveText("app.ts");
+
+		await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, {
+			steps: 10,
+		});
+		await expect(page.getByTestId("file-tree-space-drop")).toHaveAttribute(
+			"data-drop-over",
+			"true",
+		);
+		await page.mouse.up();
+
+		await expect(overlay).toHaveCount(0);
+		await expect(row(page, "app.ts")).toBeVisible();
+		await expect(row(page, "src/app.ts")).toHaveCount(0);
+		expect(await readSeededFile(student.workspaceId, project.slug, "app.ts")).toBe(
+			"export const a = 1;\n",
+		);
+	});
+
 	test("an upload onto an existing name says so and offers to replace", async ({
 		page,
 		context,

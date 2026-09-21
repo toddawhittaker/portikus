@@ -36,6 +36,46 @@
 .pk-tree-row.is-dragging {
 	opacity: 0.5;
 }
+/* What follows the pointer during a drag (issue #237). */
+.pk-tree-drag {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	max-width: 240px;
+	padding: var(--space-1) var(--space-2);
+	border-radius: var(--radius-sm);
+	background: var(--surface-raised);
+	box-shadow: var(--shadow-md);
+	color: var(--ink);
+	font-size: 13px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	pointer-events: none;
+}
+/* A flex column so the empty area below the tree can take whatever height
+   is left over (issue #237). Only the files pane; other panes are unchanged. */
+.pk-pane--right > .pk-pane-body {
+	display: flex;
+	flex-direction: column;
+}
+/* The empty area under the last row: a drop here means the project root
+   (issue #237). It fills whatever height is left so there is always a
+   target, however few files the project has. */
+.pk-tree-space {
+	flex: 1;
+	min-height: var(--pk-tree-row);
+	display: flex;
+	align-items: flex-start;
+	padding: var(--space-1) var(--space-2);
+	border-radius: var(--radius-sm);
+	color: var(--ink-muted);
+	font-size: 12px;
+}
+.pk-tree-space.is-drop-target {
+	background: var(--surface-selected);
+	box-shadow: inset 0 0 0 1px var(--accent);
+}
 .pk-tree-row .pk-icon {
 	color: var(--ink-muted);
 }
