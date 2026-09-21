@@ -10,6 +10,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AgentCallError } from "../agent-client.js";
+import { createBridgeForwards, parseBridgeUri } from "../preview/bridge.js";
 import {
 	inactiveServicePage,
 	refusedPage,
@@ -65,10 +66,11 @@ function page(reply: FastifyReply, status: number, html: string): FastifyReply {
  */
 export function registerPreviewRoutes(
 	app: FastifyInstance,
-	{ db, config, registry }: ServerDeps & { registry: ListeningRegistry },
+	{ db, config, logger, registry }: ServerDeps & { registry: ListeningRegistry },
 ): void {
 	const cookieName = previewCookieName(config);
 	const secure = config.PUBLIC_URL.startsWith("https:");
+	const bridge = createBridgeForwards({ registry, logger });
 
 	/** What the workspace agent reports, plus the policy verdict. */
 	function servicesOf(workspaceId: string): ListeningService[] {
@@ -194,6 +196,7 @@ export function registerPreviewRoutes(
 				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
 		}
 		await revokeWorkspacePreviewSessions(db, params.data.id);
+		await bridge.closeForWorkspace(params.data.id);
 		for (const service of servicesOf(params.data.id)) {
 			if (service.previewReachability !== "forwarded") continue;
 			await registry.closeForward(params.data.id, service.port).catch(() => undefined);
@@ -240,7 +243,10 @@ export function registerPreviewRoutes(
 		const token = request.cookies[cookieName];
 		if (token) {
 			const session = await loadPreviewSession(db, token);
-			if (session) await revokePreviewSession(db, session.id);
+			if (session) {
+				await revokePreviewSession(db, session.id);
+				await bridge.closeForSession(session.id);
+			}
 		}
 		return reply
 			.clearCookie(cookieName, { path: "/", secure, sameSite: "strict" })
@@ -293,18 +299,51 @@ export function registerPreviewRoutes(
 			return page(reply, 503, stoppedWorkspacePage());
 		}
 
-		const service = registry.service(session.workspace_id, session.port);
-		const live =
-			service?.previewReachability === "reachable" ||
-			service?.previewReachability === "forwarded";
-		if (!live || !workspace.agent_address) {
-			return page(reply, 503, inactiveServicePage(session.port));
+		// The same-origin port bridge may name another port of this same
+		// workspace (BROWSER-HANDLING.md §14, pattern 2). Anything else under
+		// the reserved prefix is refused rather than quietly treated as the
+		// session's own port.
+		const headers = request.headers as Record<string, unknown>;
+		const target = parseBridgeUri(headers["x-forwarded-uri"]);
+		if (target.kind === "invalid") return page(reply, 403, refusedPage());
+		const port = target.kind === "port" ? target.port : session.port;
+		if (!portAllowed(config, port)) return page(reply, 403, refusedPage());
+
+		if (!workspace.agent_address) {
+			return page(reply, 503, inactiveServicePage(port));
 		}
 
-		// The upstream comes from the workspace row and the session's port,
-		// never from anything the request carries (SPEC.md §24.7).
+		// Only this workspace's registry is consulted, so the bridge can never
+		// reach another student's service (BROWSER-HANDLING.md §16.3).
+		const service = registry.service(session.workspace_id, port);
+		if (!service || service.previewReachability === "denied") {
+			return page(reply, 503, inactiveServicePage(port));
+		}
+		if (service.previewReachability === "unknown") {
+			// A loopback-only bridge port needs the agent's forward first. The
+			// session's own port got one when its grant was issued.
+			if (target.kind !== "port") {
+				return page(reply, 503, inactiveServicePage(port));
+			}
+			try {
+				await bridge.ensure(session.workspace_id, session.id, port);
+			} catch (error) {
+				request.log.warn(
+					{
+						workspaceId: session.workspace_id,
+						port,
+						code: error instanceof AgentCallError ? error.code : "INTERNAL",
+					},
+					"bridge forward could not be opened",
+				);
+				return page(reply, 503, inactiveServicePage(port));
+			}
+		}
+
+		// The upstream comes from the workspace row and a port the registry
+		// vouched for, never from anything the request carries (SPEC.md §24.7).
 		return reply
-			.header("x-portikus-upstream", `${workspace.agent_address}:${session.port}`)
+			.header("x-portikus-upstream", `${workspace.agent_address}:${port}`)
 			.header("cache-control", "no-store")
 			.status(200)
 			.send();
