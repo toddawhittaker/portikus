@@ -129,7 +129,9 @@ test.describe("tab strip", () => {
 			timeout: 15_000,
 		});
 
-		await page.locator(".monaco-editor textarea").first().click();
+		const editor = page.getByTestId("editor-notes.txt").locator(".view-lines");
+		await expect(editor).toContainText("one", { timeout: 60_000 });
+		await editor.click();
 		await page.keyboard.type("two");
 
 		const dot = page.getByTestId("tab-file:notes.txt-dirty");
