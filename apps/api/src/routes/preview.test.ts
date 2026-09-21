@@ -11,7 +11,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
-import { hashToken } from "../preview/store.js";
+import { createPreviewSession, hashToken } from "../preview/store.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
 const skip = !hasTestDb();
@@ -841,6 +841,50 @@ test.skipIf(skip)("the probe needs a session", async () => {
 	});
 	expect(response.statusCode).toBe(401);
 });
+
+test.skipIf(skip)(
+	"a student holds at most fifty live preview sessions",
+	async () => {
+		// Nothing else bounds how many previews one main session can open, so
+		// the oldest gives way rather than the table growing without limit.
+		// The sessions are made through the store so the grant rate limit,
+		// which is a separate guard, does not decide this test.
+		const first = await openPreview(5173);
+		const row = await testDb.db
+			.selectFrom("preview_sessions")
+			.select(["user_id", "session_id"])
+			.executeTakeFirstOrThrow();
+
+		const tokens = [first];
+		for (let opened = 0; opened < 51; opened += 1) {
+			tokens.push(
+				await createPreviewSession(testDb.db, {
+					userId: row.user_id,
+					sessionId: row.session_id,
+					workspaceId,
+					port: 5173,
+					previewHost: previewHostFor(5173),
+				}),
+			);
+		}
+
+		const live = await testDb.db
+			.selectFrom("preview_sessions")
+			.select("id")
+			.where("revoked_at", "is", null)
+			.execute();
+		expect(live.length).toBe(50);
+
+		// The oldest gave way; the newest still opens the preview.
+		expect(
+			(await authorize(tokens[0] as string, previewHostFor(5173))).statusCode,
+		).toBe(401);
+		expect(
+			(await authorize(tokens[51] as string, previewHostFor(5173))).statusCode,
+		).toBe(200);
+	},
+	30_000,
+);
 
 // ── Reset (BROWSER-HANDLING.md §16.4) ──
 
