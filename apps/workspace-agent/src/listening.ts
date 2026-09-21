@@ -158,6 +158,11 @@ export function parseProcNetTcp(text: string): ProcListener[] {
  * uid rule catches systemd-resolved, sshd and dnsmasq. A port published by an
  * inner Docker container is the student's work even though `docker-proxy`
  * holds it as root, so a container attribution wins.
+ *
+ * A port can have several rows, one per address family. It is hidden only
+ * when every one of them belongs to a system account: one row that is the
+ * student's makes the port the student's, because hiding it would hide their
+ * own work (issue #265).
  */
 export function isSystemListener(input: {
 	ownerPid?: number;
@@ -168,7 +173,8 @@ export function isSystemListener(input: {
 	if (input.hasContainer) return false;
 	const selfPid = input.selfPid ?? process.pid;
 	if (input.ownerPid !== undefined && input.ownerPid === selfPid) return true;
-	return input.uids.some((uid) => uid >= 0 && uid < FIRST_HUMAN_UID);
+	if (input.uids.length === 0) return false;
+	return input.uids.every((uid) => uid >= 0 && uid < FIRST_HUMAN_UID);
 }
 
 /**

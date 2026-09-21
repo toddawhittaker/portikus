@@ -344,6 +344,38 @@ test("a student's own listener is not a system service", () => {
 	).toBe(false);
 });
 
+/**
+ * Issue #265: a port is hidden only when nothing listening on it is the
+ * student's. A dev server bound on both IPv4 and IPv6 can show one row owned
+ * by a system account beside the student's own; hiding that port would hide
+ * the student's work.
+ */
+test("a port with one student listener among system ones is the student's", () => {
+	expect(
+		isSystemListener({
+			ownerPid: 42,
+			uids: [0, 1000],
+			hasContainer: false,
+			selfPid: 9,
+		}),
+	).toBe(false);
+	expect(
+		isSystemListener({
+			ownerPid: 42,
+			uids: [1000, 101],
+			hasContainer: false,
+			selfPid: 9,
+		}),
+	).toBe(false);
+	// Every row a system account's: still hidden.
+	expect(
+		isSystemListener({ ownerPid: 42, uids: [0, 101], hasContainer: false, selfPid: 9 }),
+	).toBe(true);
+	// A uid we could not read is not evidence that the port is the system's.
+	expect(isSystemListener({ uids: [-1], hasContainer: false, selfPid: 9 })).toBe(false);
+	expect(isSystemListener({ uids: [], hasContainer: false, selfPid: 9 })).toBe(false);
+});
+
 test("a port published by a container is the student's, not the system's", () => {
 	// docker-proxy holds the socket as root, but the service is the student's.
 	expect(isSystemListener({ uids: [0], hasContainer: true, selfPid: 9 })).toBe(false);
