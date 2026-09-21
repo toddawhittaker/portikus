@@ -162,7 +162,7 @@ export async function startMockOidcProvider(
 		subject_types_supported: ["public"],
 		id_token_signing_alg_values_supported: ["RS256"],
 		scopes_supported: ["openid", "profile", "email", "groups"],
-		claims_supported: ["sub", "email", "name", "groups"],
+		claims_supported: ["sub", "email", "name", "preferred_username", "groups"],
 		token_endpoint_auth_methods_supported: [
 			"client_secret_basic",
 			"client_secret_post",
@@ -298,6 +298,7 @@ export async function startMockOidcProvider(
 		const idToken = await new SignJWT({
 			email: pending.user.email,
 			name: pending.user.name,
+			preferred_username: pending.user.sub,
 			groups: pending.user.groups,
 			...(pending.nonce ? { nonce: pending.nonce } : {}),
 		})
@@ -334,6 +335,7 @@ export async function startMockOidcProvider(
 			sub: user.sub,
 			email: user.email,
 			name: user.name,
+			preferred_username: user.sub,
 			groups: user.groups,
 		});
 	});
