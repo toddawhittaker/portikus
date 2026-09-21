@@ -223,9 +223,14 @@ until the host forwards to it. Publish it once per VM:
 make publish-vm
 ```
 
-That adds two iptables chains named `PORTIKUS_PUBLISH` on the host, one
-in the `nat` table and one in `filter`. They forward port 8443 arriving
-on the host's LAN interface to port 8443 on the VM, and nothing else.
+That adds three iptables chains on the host: `PORTIKUS_PUBLISH` in the
+`nat` table and in `filter`, which forward port 8443 arriving on the
+host's LAN interface to port 8443 on the VM, and
+`PORTIKUS_PUBLISH_LOCAL` on the `nat` table's output hook, which does the
+same for connections the host itself makes to its own LAN address. That
+second one is what lets preview hostnames work from the host without
+`/etc/hosts` entries (docs/WORKFLOW.md, "Using the pilot from the host
+that runs it"). Nothing else is forwarded.
 The site is on 8443 rather than 443 because another service on the pilot
 host already owns 80 and 443, so the public address is
 `https://<host-lan-address-name>:8443`. A oneshot systemd unit, `portikus-publish-vm.service`, puts the rules back
@@ -290,7 +295,7 @@ this on a network you trust, and withdraw it when you are finished:
 make unpublish-vm
 ```
 
-That deletes both chains, the systemd unit, and the stored address. It
+That deletes all three chains, the systemd unit, and the stored address. It
 leaves libvirt's own rules alone, so the VM keeps its outbound access.
 
 ### Identity provider
