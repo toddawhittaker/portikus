@@ -50,7 +50,7 @@ test("a student can change the workspace timezone and a new terminal uses it", a
 
 	// The dialog opens on the zone the deployment starts everyone in.
 	await page.getByTestId("me").click();
-	await page.getByRole("menuitem", { name: "Editor settings" }).click();
+	await page.getByRole("menuitem", { name: "Settings" }).click();
 	await expect(page.getByTestId("dialog-editor-settings")).toBeVisible();
 	await expect(page.getByLabel("Workspace timezone")).toContainText("America/New York");
 
@@ -85,6 +85,6 @@ test("a student can change the workspace timezone and a new terminal uses it", a
 	await page.reload();
 	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
 	await page.getByTestId("me").click();
-	await page.getByRole("menuitem", { name: "Editor settings" }).click();
+	await page.getByRole("menuitem", { name: "Settings" }).click();
 	await expect(page.getByLabel("Workspace timezone")).toContainText("Los Angeles");
 });

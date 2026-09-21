@@ -1,8 +1,9 @@
 /**
- * The student's own editor and terminal settings (issues #159 and #239,
- * SPEC.md §13.5): auto-save on or off, how long after the last keystroke it
- * writes, word wrap, and the terminal colour scheme. They are kept on the
- * server per user, so they follow the student between browsers.
+ * The student's own settings (issues #159, #239, #287 and #288, SPEC.md
+ * §13.5), in three groups: Editor (auto-save, its delay, word wrap), Terminal
+ * (the colour scheme a new terminal starts in) and Workspace (the timezone).
+ * They are kept on the server per user, so they follow the student between
+ * browsers.
  */
 import {
 	EDITOR_SETTINGS_DEFAULTS,
@@ -26,7 +27,22 @@ const TERMINAL_THEME_OPTIONS = [
 	{ value: "light", label: "Light" },
 ];
 
-export function EditorSettingsDialog({ onClose }: { onClose: () => void }) {
+/**
+ * One headed group of settings (issue #288). The dialog is one scrolling
+ * column of these, not tabs: at this size tabs would hide more than they help.
+ */
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+	return (
+		<section className="grid gap-4" aria-labelledby={`settings-${title}`}>
+			<h3 id={`settings-${title}`} className="pk-text-label text-ink">
+				{title}
+			</h3>
+			{children}
+		</section>
+	);
+}
+
+export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const settings = useEditorSettings();
 	const update = useUpdateEditorSettings();
 	// While the settings are still loading the dialog shows the defaults, the
@@ -67,7 +83,7 @@ export function EditorSettingsDialog({ onClose }: { onClose: () => void }) {
 		<DialogRoot open onOpenChange={(open) => !open && onClose()}>
 			<Dialog
 				testId="dialog-editor-settings"
-				title="Editor settings"
+				title="Settings"
 				description="These follow you to any browser you sign in from."
 				onClose={onClose}
 				footer={
@@ -88,65 +104,71 @@ export function EditorSettingsDialog({ onClose }: { onClose: () => void }) {
 				}
 			>
 				<form
-					className="grid gap-4"
+					className="grid max-h-[60vh] gap-6 overflow-y-auto"
 					onSubmit={(event) => {
 						event.preventDefault();
 						save();
 					}}
 				>
-					<Checkbox
-						label="Auto-save"
-						description="Write the file a few seconds after you stop typing. Ctrl+S always saves now, whether this is on or off."
-						checked={autoSave}
-						onChange={(event) =>
-							setDraft((current) => ({ ...current, autoSave: event.target.checked }))
-						}
-						className="pk-setting-autosave"
-					/>
-					<TextField
-						id="editor-autosave-delay"
-						data-testid="editor-settings-delay"
-						label="Auto-save delay in seconds"
-						className="w-48"
-						inputMode="numeric"
-						value={delay}
-						disabled={!autoSave}
-						error={delayError}
-						onChange={(event) => setDelayText(event.target.value)}
-					/>
-					<Checkbox
-						label="Word wrap"
-						description="Wrap long lines instead of scrolling sideways."
-						checked={wordWrap}
-						onChange={(event) =>
-							setDraft((current) => ({ ...current, wordWrap: event.target.checked }))
-						}
-						className="pk-setting-wordwrap"
-					/>
-					<Select
-						id="terminal-theme"
-						label="Terminal colours"
-						hint="What a new terminal starts with. Each terminal's three-dots menu can switch that one terminal, and a program already running keeps the colours it started with."
-						options={TERMINAL_THEME_OPTIONS}
-						value={terminalTheme}
-						onValueChange={(value) =>
-							setDraft((current) => ({
-								...current,
-								terminalTheme: value as TerminalTheme,
-							}))
-						}
-					/>
-					<Select
-						id="workspace-timezone"
-						label="Workspace timezone"
-						hint="The clock your terminals, logs, and Git commits use. A new terminal takes it at once; a shell already running keeps the zone it started with until the workspace restarts. Programs you run in Docker containers keep their own clock."
-						options={[currentZoneOption(timezone)]}
-						groups={timezoneGroups(timezone)}
-						value={timezone}
-						onValueChange={(value) =>
-							setDraft((current) => ({ ...current, timezone: value }))
-						}
-					/>
+					<Section title="Editor">
+						<Checkbox
+							label="Auto-save"
+							description="Write the file a few seconds after you stop typing. Ctrl+S always saves now, whether this is on or off."
+							checked={autoSave}
+							onChange={(event) =>
+								setDraft((current) => ({ ...current, autoSave: event.target.checked }))
+							}
+							className="pk-setting-autosave"
+						/>
+						<TextField
+							id="editor-autosave-delay"
+							data-testid="editor-settings-delay"
+							label="Auto-save delay in seconds"
+							className="w-48"
+							inputMode="numeric"
+							value={delay}
+							disabled={!autoSave}
+							error={delayError}
+							onChange={(event) => setDelayText(event.target.value)}
+						/>
+						<Checkbox
+							label="Word wrap"
+							description="Wrap long lines instead of scrolling sideways."
+							checked={wordWrap}
+							onChange={(event) =>
+								setDraft((current) => ({ ...current, wordWrap: event.target.checked }))
+							}
+							className="pk-setting-wordwrap"
+						/>
+					</Section>
+					<Section title="Terminal">
+						<Select
+							id="terminal-theme"
+							label="Terminal colours"
+							hint="What a new terminal starts with. Each terminal's three-dots menu can switch that one terminal, and a program already running keeps the colours it started with."
+							options={TERMINAL_THEME_OPTIONS}
+							value={terminalTheme}
+							onValueChange={(value) =>
+								setDraft((current) => ({
+									...current,
+									terminalTheme: value as TerminalTheme,
+								}))
+							}
+						/>
+					</Section>
+					<Section title="Workspace">
+						<Select
+							id="workspace-timezone"
+							label="Workspace timezone"
+							hint="The clock your terminals, logs, and Git commits use. A new terminal takes it at once; a shell already running keeps the zone it started with until the workspace restarts. Programs you run in Docker containers keep their own clock."
+							options={[currentZoneOption(timezone)]}
+							groups={timezoneGroups(timezone)}
+							value={timezone}
+							onValueChange={(value) =>
+								setDraft((current) => ({ ...current, timezone: value }))
+							}
+						/>
+					</Section>
 					<button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
 				</form>
 				{update.isError ? (

@@ -931,7 +931,7 @@ Known gaps. The design mirror under `design/system/components/bundle.css`
 still shows the old label-sized tab rule; it is generated from the Claude
 Design artifact and was left for a design pull rather than hand-edited.
 
-## Epic 8 pilot fixes, second batch (issues #264, #267, #268)
+## Epic 8 pilot fixes, second batch (issues #264, #267, #268, #287, #288)
 
 More small fixes from driving the pilot on 2026-09-21, landed into the
 Epic 8.1 branch.
@@ -964,7 +964,33 @@ terminal contract, so it survives a reload and looks the same in every
 browser. The per-user setting from issue #239 stays as the scheme a new
 terminal starts in (issue #268, SPEC.md sections 10 and 13.5).
 
+**A workspace timezone.** Containers ran in UTC, so a student's shell,
+logs, and Git commits disagreed with the clock on the wall. A workspace
+now runs in America/New_York unless the student picks another zone in
+their settings. The zone is checked against the zone names Node knows
+before it goes anywhere near a command, in the contract, in the API, and
+again in the controller. At every start the controller writes
+`/etc/timezone`, links `/etc/localtime`, and exports `TZ` from the same
+`/etc/profile.d/portikus.sh` the preview suffix uses, and the worker
+reads the owner's setting into the start request. A new terminal carries
+the zone to `tmux new-session -e`, so a change applies without a restart;
+a shell already running keeps the zone it started with, and programs in
+inner Docker containers keep their own (issue #287, SPEC.md section
+13.5). A smoke-test check reads `$TZ` in a fresh terminal on the VM.
+
+**One Settings dialog.** The account menu entry and its dialog are now
+called "Settings" rather than "Editor settings", and the fields sit under
+three headings in one scrolling column: Editor (auto-save, its delay,
+word wrap), Terminal (the scheme a new terminal starts in) and Workspace
+(the timezone). No tabs at this size; the section list is where later
+settings go. Administration settings stay on the admin screen. Every test
+id is unchanged, so nothing that drove the old dialog had to be rewritten
+(issue #288, SPEC.md section 13.5).
+
 Known gaps. The chrome around a pane, its title bar and its scrollbar,
 still follows the per-user terminal setting rather than that one
 terminal's choice, because those colours come from the `--terminal-*`
 tokens on the document root. The terminal surface itself is correct.
+Changing the timezone does not restart a running workspace, so shells
+already open keep the old zone until the student opens a new terminal or
+the workspace restarts.

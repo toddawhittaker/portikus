@@ -6,7 +6,7 @@ import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../test-utils.js";
-import { EditorSettingsDialog } from "./EditorSettingsDialog.js";
+import { SettingsDialog } from "./SettingsDialog.js";
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -36,6 +36,27 @@ function checkbox(name: RegExp) {
 	return screen.getByRole("checkbox", { name });
 }
 
+/** Issue #288: one dialog, three headed groups, every field under its own. */
+test("the three sections each hold their fields", async () => {
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() =>
+		expect(
+			(screen.getByTestId("editor-settings-delay") as HTMLInputElement).value,
+		).toBe("5"),
+	);
+
+	const editor = screen.getByRole("region", { name: "Editor" });
+	const terminal = screen.getByRole("region", { name: "Terminal" });
+	const workspace = screen.getByRole("region", { name: "Workspace" });
+
+	expect(editor.textContent).toContain("Auto-save");
+	expect(editor.textContent).toContain("Word wrap");
+	expect(editor.contains(screen.getByTestId("editor-settings-delay"))).toBe(true);
+	expect(terminal.textContent).toContain("Terminal colours");
+	expect(workspace.textContent).toContain("Workspace timezone");
+});
+
 test("it shows the settings the server holds", async () => {
 	stubSettings({
 		autoSave: false,
@@ -44,7 +65,7 @@ test("it shows the settings the server holds", async () => {
 		terminalTheme: "light",
 		timezone: "America/New_York",
 	});
-	renderWithQuery(<EditorSettingsDialog onClose={() => {}} />);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 
 	await waitFor(() =>
 		expect(
@@ -59,7 +80,7 @@ test("it shows the settings the server holds", async () => {
 test("saving sends every setting and closes the dialog", async () => {
 	const writes = stubSettings();
 	const onClose = vi.fn();
-	renderWithQuery(<EditorSettingsDialog onClose={onClose} />);
+	renderWithQuery(<SettingsDialog onClose={onClose} />);
 	await waitFor(() =>
 		expect(
 			(screen.getByTestId("editor-settings-delay") as HTMLInputElement).value,
@@ -86,7 +107,7 @@ test("saving sends every setting and closes the dialog", async () => {
 
 test("turning auto-save off is saved and the delay field is disabled", async () => {
 	const writes = stubSettings();
-	renderWithQuery(<EditorSettingsDialog onClose={() => {}} />);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() =>
 		expect(
 			(screen.getByTestId("editor-settings-delay") as HTMLInputElement).value,
@@ -105,7 +126,7 @@ test("turning auto-save off is saved and the delay field is disabled", async () 
 
 test("a delay outside 1 to 60 seconds is refused before anything is sent", async () => {
 	const writes = stubSettings();
-	renderWithQuery(<EditorSettingsDialog onClose={() => {}} />);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() =>
 		expect(
 			(screen.getByTestId("editor-settings-delay") as HTMLInputElement).value,
@@ -133,7 +154,7 @@ test("the stored terminal theme is shown and sent back", async () => {
 		terminalTheme: "light",
 		timezone: "America/New_York",
 	});
-	renderWithQuery(<EditorSettingsDialog onClose={() => {}} />);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() =>
 		expect(screen.getByLabelText("Terminal colours").textContent).toContain("Light"),
 	);
@@ -158,7 +179,7 @@ test("the stored timezone is shown and sent back", async () => {
 		terminalTheme: "dark",
 		timezone: "Europe/Berlin",
 	});
-	renderWithQuery(<EditorSettingsDialog onClose={() => {}} />);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() =>
 		expect(screen.getByLabelText("Workspace timezone").textContent).toContain(
 			"Europe/Berlin",

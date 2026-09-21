@@ -26,7 +26,7 @@ test.describe("file editor", () => {
 	/** Open the editor settings dialog from the account menu (issue #159). */
 	async function openEditorSettings(page: Page) {
 		await page.getByTestId("me").click();
-		await page.getByRole("menuitem", { name: "Editor settings" }).click();
+		await page.getByRole("menuitem", { name: "Settings" }).click();
 		await expect(page.getByTestId("dialog-editor-settings")).toBeVisible();
 	}
 
@@ -476,6 +476,40 @@ test.describe("file editor", () => {
 
 		// The setting reaches the open editor without a reload.
 		await expect.poll(async () => rows.count(), { timeout: 15_000 }).toBeLessThan(4);
+	});
+
+	/**
+	 * Issue #288: one Settings dialog with three sections. A change in each is
+	 * saved together and is there again when the dialog is reopened.
+	 */
+	test("Settings holds three sections and saves a change in each", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openFileTab(page, student, "Sections", PATH, CONTENT);
+
+		await openEditorSettings(page);
+		const dialog = page.getByTestId("dialog-editor-settings");
+		await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible();
+		for (const section of ["Editor", "Terminal", "Workspace"]) {
+			await expect(dialog.getByRole("heading", { name: section })).toBeVisible();
+		}
+
+		// One field per section: the delay, the terminal colours, the zone.
+		await page.getByTestId("editor-settings-delay").fill("11");
+		await page.getByLabel("Terminal colours").click();
+		await page.getByRole("option", { name: "Light" }).click();
+		await page.getByLabel("Workspace timezone").click();
+		await page.getByRole("option", { name: "Los Angeles", exact: true }).click();
+		await page.getByTestId("editor-settings-save").click();
+		await expect(dialog).toHaveCount(0);
+
+		await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "light");
+		await openEditorSettings(page);
+		await expect(page.getByTestId("editor-settings-delay")).toHaveValue("11");
+		await expect(page.getByLabel("Terminal colours")).toContainText("Light");
+		await expect(page.getByLabel("Workspace timezone")).toContainText("Los Angeles");
 	});
 
 	test("the editor settings survive a reload (issue #159)", async ({
