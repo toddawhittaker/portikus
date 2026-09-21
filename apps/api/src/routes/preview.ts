@@ -1,0 +1,319 @@
+import { requireUser } from "@portikus/auth";
+import type { ApiConfig } from "@portikus/config";
+import {
+	type ListeningService,
+	PreviewGrantRequest,
+	type PreviewGrantResponse,
+	parsePreviewHost,
+	previewHost,
+} from "@portikus/contracts";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
+import { AgentCallError } from "../agent-client.js";
+import {
+	inactiveServicePage,
+	refusedPage,
+	resetPage,
+	signInPage,
+	stoppedWorkspacePage,
+} from "../preview/pages.js";
+import { portAllowed, previewOriginFor, requestHost } from "../preview/policy.js";
+import type { ListeningRegistry } from "../preview/registry.js";
+import {
+	consumeGrant,
+	createGrant,
+	createPreviewSession,
+	hashToken,
+	loadMainSessionUser,
+	loadPreviewSession,
+	revokePreviewSession,
+	revokeWorkspacePreviewSessions,
+} from "../preview/store.js";
+import type { ServerDeps } from "../server.js";
+import { findWorkspaceOwnedBy } from "./workspace-view.js";
+
+/** The preview-host cookie, `__Host-` prefixed wherever the site is https. */
+export function previewCookieName(config: ApiConfig): string {
+	return config.PUBLIC_URL.startsWith("https:")
+		? "__Host-portikus-preview"
+		: "portikus-preview";
+}
+
+const IdParams = z.object({ id: z.string().uuid() });
+const TicketQuery = z.object({ t: z.string().min(1).max(200) });
+
+/** The socket's own peer address, which no header can influence. */
+function fromLoopback(request: FastifyRequest): boolean {
+	const address = request.raw.socket.remoteAddress ?? "";
+	return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
+/** Send a Portikus-owned page. Nothing from the request is echoed. */
+function page(reply: FastifyReply, status: number, html: string): FastifyReply {
+	return reply
+		.status(status)
+		.header("content-type", "text/html; charset=utf-8")
+		.header("cache-control", "no-store")
+		.header("referrer-policy", "no-referrer")
+		.send(html);
+}
+
+/**
+ * Preview grants, the bootstrap and reset endpoints on the preview host, and
+ * the edge authorization subrequest (SPEC.md §14, §24.7;
+ * BROWSER-HANDLING.md §9, §10, §11, §16, §17).
+ */
+export function registerPreviewRoutes(
+	app: FastifyInstance,
+	{ db, config, registry }: ServerDeps & { registry: ListeningRegistry },
+): void {
+	const cookieName = previewCookieName(config);
+	const secure = config.PUBLIC_URL.startsWith("https:");
+
+	/** What the workspace agent reports, plus the policy verdict. */
+	function servicesOf(workspaceId: string): ListeningService[] {
+		return registry.services(workspaceId);
+	}
+
+	app.get("/workspaces/:id/listening", async (request, reply) => {
+		const user = requireUser(request);
+		const params = IdParams.safeParse(request.params);
+		if (!params.success) {
+			return reply
+				.status(400)
+				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
+		}
+		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		if (!workspace) {
+			return reply
+				.status(404)
+				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+		}
+		return reply.send({ services: servicesOf(params.data.id) });
+	});
+
+	app.post("/workspaces/:id/preview-grants", async (request, reply) => {
+		const user = requireUser(request);
+		const params = IdParams.safeParse(request.params);
+		if (!params.success) {
+			return reply
+				.status(400)
+				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
+		}
+		const body = PreviewGrantRequest.safeParse(request.body);
+		if (!body.success) {
+			return reply
+				.status(400)
+				.send({ code: "VALIDATION_FAILED", message: "invalid grant request" });
+		}
+
+		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		if (!workspace) {
+			return reply
+				.status(404)
+				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+		}
+		if (workspace.state !== "running") {
+			return reply.status(409).send({
+				code: "WORKSPACE_NOT_RUNNING",
+				message: "Start the workspace before opening a preview",
+			});
+		}
+		if (!portAllowed(config, body.data.port)) {
+			return reply.status(403).send({
+				code: "PREVIEW_PORT_NOT_ALLOWED",
+				message: `Port ${body.data.port} cannot be previewed`,
+			});
+		}
+
+		// A service bound only to loopback needs the agent's forward before the
+		// gateway can reach it (BROWSER-HANDLING.md §11.1).
+		const service = registry.service(params.data.id, body.data.port);
+		if (service && service.previewReachability === "unknown") {
+			try {
+				await registry.ensureReachable(params.data.id, body.data.port);
+			} catch (error) {
+				request.log.warn(
+					{
+						workspaceId: params.data.id,
+						port: body.data.port,
+						code: error instanceof AgentCallError ? error.code : "INTERNAL",
+					},
+					"loopback forward could not be opened",
+				);
+				return reply.status(409).send({
+					code: "PREVIEW_FORWARD_FAILED",
+					message:
+						`Portikus could not reach port ${body.data.port} inside the ` +
+						"workspace. Try again, or bind the application to 0.0.0.0.",
+				});
+			}
+		}
+
+		const host = previewHost(
+			workspace.label as string,
+			body.data.port,
+			config.PREVIEW_SUFFIX,
+		);
+		const { ticket, expiresAt } = await createGrant(db, {
+			userId: user.id,
+			// The plugin gave us a live session, so the token is present.
+			sessionId: sessionIdOf(request),
+			workspaceId: params.data.id,
+			port: body.data.port,
+			previewHost: host,
+			presentation: body.data.presentation,
+			ttlSeconds: config.PREVIEW_TICKET_TTL_SECONDS,
+		});
+
+		const origin = previewOriginFor(config, host);
+		const payload: PreviewGrantResponse = {
+			previewOrigin: origin,
+			bootstrapUrl: `${origin}/__portikus/bootstrap?t=${encodeURIComponent(ticket)}`,
+			expiresAt: expiresAt.toISOString(),
+		};
+		return reply
+			.header("cache-control", "no-store")
+			.header("referrer-policy", "no-referrer")
+			.status(201)
+			.send(payload);
+	});
+
+	app.post("/workspaces/:id/preview/reset", async (request, reply) => {
+		const user = requireUser(request);
+		const params = IdParams.safeParse(request.params);
+		if (!params.success) {
+			return reply
+				.status(400)
+				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
+		}
+		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		if (!workspace) {
+			return reply
+				.status(404)
+				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+		}
+		await revokeWorkspacePreviewSessions(db, params.data.id);
+		for (const service of servicesOf(params.data.id)) {
+			if (service.previewReachability !== "forwarded") continue;
+			await registry.closeForward(params.data.id, service.port).catch(() => undefined);
+		}
+		return reply.status(204).send();
+	});
+
+	// ── Preview host: Caddy proxies these two paths straight to the API ──
+
+	app.get("/__portikus/bootstrap", async (request, reply) => {
+		const host = requestHost(request.headers as Record<string, unknown>);
+		const query = TicketQuery.safeParse(request.query);
+		if (!host || !query.success) return page(reply, 403, refusedPage());
+		// A host that does not parse cannot match a grant either, but checking
+		// here keeps a malformed name away from the database.
+		if (parsePreviewHost(host, config.PREVIEW_SUFFIX) === null) {
+			return page(reply, 403, refusedPage());
+		}
+
+		const grant = await consumeGrant(db, query.data.t, host);
+		if (!grant) return page(reply, 403, refusedPage());
+
+		const token = await createPreviewSession(db, {
+			userId: grant.user_id,
+			sessionId: grant.session_id,
+			workspaceId: grant.workspace_id,
+			port: grant.port,
+			previewHost: grant.preview_host,
+		});
+
+		return reply
+			.setCookie(cookieName, token, {
+				httpOnly: true,
+				secure,
+				sameSite: "strict",
+				path: "/",
+			})
+			.header("cache-control", "no-store")
+			.header("referrer-policy", "no-referrer")
+			.redirect("/", 303);
+	});
+
+	app.get("/__portikus/reset", async (request, reply) => {
+		const token = request.cookies[cookieName];
+		if (token) {
+			const session = await loadPreviewSession(db, token);
+			if (session) await revokePreviewSession(db, session.id);
+		}
+		return reply
+			.clearCookie(cookieName, { path: "/", secure, sameSite: "strict" })
+			.header("clear-site-data", '"cookies", "storage"')
+			.header("content-type", "text/html; charset=utf-8")
+			.header("cache-control", "no-store")
+			.header("referrer-policy", "no-referrer")
+			.status(200)
+			.send(resetPage());
+	});
+
+	// ── The edge authorization subrequest (ADR 0018, BROWSER-HANDLING §10) ──
+
+	app.get("/preview/authorize", async (request, reply) => {
+		// Only Caddy on this machine may ask. The peer address is used, not
+		// request.ip, which trustProxy would let a forwarded header move.
+		if (!fromLoopback(request)) {
+			return page(reply, 403, refusedPage());
+		}
+
+		const host = requestHost(request.headers as Record<string, unknown>);
+		if (!host) return page(reply, 403, refusedPage());
+		const parsed = parsePreviewHost(host, config.PREVIEW_SUFFIX);
+		if (!parsed) return page(reply, 403, refusedPage());
+
+		const token = request.cookies[cookieName];
+		if (!token) return page(reply, 401, signInPage());
+		const session = await loadPreviewSession(db, token);
+		if (!session) return page(reply, 401, signInPage());
+
+		// The preview session lives with the main one (BROWSER-HANDLING §9.2).
+		const user = await loadMainSessionUser(db, session.session_id);
+		if (!user || user.id !== session.user_id) return page(reply, 401, signInPage());
+
+		if (session.preview_host !== host) return page(reply, 403, refusedPage());
+		if (session.port !== parsed.port) return page(reply, 403, refusedPage());
+		if (!portAllowed(config, session.port)) return page(reply, 403, refusedPage());
+
+		const workspace = await db
+			.selectFrom("workspaces")
+			.select(["id", "label", "state", "owner_user_id", "agent_address"])
+			.where("id", "=", session.workspace_id)
+			.executeTakeFirst();
+		if (!workspace) return page(reply, 403, refusedPage());
+		if (workspace.owner_user_id !== session.user_id) {
+			return page(reply, 403, refusedPage());
+		}
+		if (workspace.label !== parsed.label) return page(reply, 403, refusedPage());
+		if (workspace.state !== "running") {
+			return page(reply, 503, stoppedWorkspacePage());
+		}
+
+		const service = registry.service(session.workspace_id, session.port);
+		const live =
+			service?.previewReachability === "reachable" ||
+			service?.previewReachability === "forwarded";
+		if (!live || !workspace.agent_address) {
+			return page(reply, 503, inactiveServicePage(session.port));
+		}
+
+		// The upstream comes from the workspace row and the session's port,
+		// never from anything the request carries (SPEC.md §24.7).
+		return reply
+			.header("x-portikus-upstream", `${workspace.agent_address}:${session.port}`)
+			.header("cache-control", "no-store")
+			.status(200)
+			.send();
+	});
+}
+
+/** The main session's row id, which is the hash of its cookie token. */
+function sessionIdOf(request: FastifyRequest): string {
+	const token = request.sessionToken;
+	if (!token) throw new Error("preview grant reached without a session");
+	return hashToken(token);
+}

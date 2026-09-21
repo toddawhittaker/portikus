@@ -443,6 +443,54 @@ export async function pushEvent(
 	return ((await response.json()) as { sent: number }).sent;
 }
 
+/**
+ * Seed what the workspace is listening on (BROWSER-HANDLING.md §11.1). The
+ * list replaces whatever was there, so passing an empty array is how a test
+ * says the application has stopped. `previewReachability` may be left out: it
+ * defaults to "reachable", the way an application bound to 0.0.0.0 looks.
+ * Pass "unknown" for one bound only to loopback, which makes the API ask the
+ * agent for a forward before it issues a grant.
+ */
+export async function seedListening(
+	workspaceId: string,
+	services: {
+		port: number;
+		addresses?: string[];
+		protocolHint?: "http" | "https" | "unknown";
+		previewReachability?: "reachable" | "forwarded" | "unknown";
+	}[],
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/listening`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, services }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused the listening seed: ${response.status}`);
+	}
+}
+
+/**
+ * Start a real HTTP and WebSocket application inside the fake agent and
+ * report it as listening, so a preview test drives actual traffic. It answers
+ * a small HTML page on `GET /` and echoes every WebSocket frame back with an
+ * `echo:` prefix. Returns the port it bound.
+ */
+export async function startPreviewApp(
+	workspaceId: string,
+	title = "Portikus test app",
+): Promise<number> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/app`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, title }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused to start an app: ${response.status}`);
+	}
+	return ((await response.json()) as { port: number }).port;
+}
+
 export async function projectIds(workspaceId: string): Promise<string[]> {
 	const rows = await query<{ id: string }>(
 		"select id from projects where workspace_id = $1 order by created_at",

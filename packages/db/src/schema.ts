@@ -4,8 +4,8 @@ import type { ColumnType, Generated } from "kysely";
  * Kysely Database interface for the Portikus control plane.
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
- * 0007_editor_settings, 0008_preview, and 0009_project_directory_id
- * (SPEC section 26, STACK section 6).
+ * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
+ * 0010_preview_grant_session (SPEC section 26, STACK section 6).
  */
 export interface Database {
 	users: UsersTable;
@@ -129,6 +129,8 @@ export interface AuditEventsTable {
 export interface PreviewGrantsTable {
 	id: Generated<string>;
 	user_id: string;
+	/** The main Portikus session the preview session will live with. */
+	session_id: string;
 	workspace_id: string;
 	port: number;
 	preview_host: string;

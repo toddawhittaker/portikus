@@ -183,7 +183,7 @@ test.skipIf(skip)("a state change is broadcast to open sockets", async () => {
 	const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
 	await socket.next();
 
-	const update = socket.next() as Promise<Record<string, unknown>>;
+	const update = socket.nextOf("workspace");
 	await testDb.db
 		.updateTable("workspaces")
 		.set({ state: "running", updated_at: new Date().toISOString() })
@@ -191,7 +191,7 @@ test.skipIf(skip)("a state change is broadcast to open sockets", async () => {
 		.execute();
 
 	const message = await update;
-	expect((message.workspace as { state: string }).state).toBe("running");
+	expect(message.workspace.state).toBe("running");
 
 	await socket.close();
 });
