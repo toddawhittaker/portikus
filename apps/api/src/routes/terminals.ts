@@ -151,19 +151,21 @@ export function chooseTerminalName(
 }
 
 /**
- * The colour scheme a new terminal of this user starts in (issue #268). It is
- * the user's own setting; once the terminal exists its own row decides.
+ * The settings a new terminal of this user starts with: the colour scheme
+ * (issue #268) and the zone its shell runs in (issue #287). Once the terminal
+ * exists, its own row decides the scheme.
  */
-async function userTerminalTheme(
+async function userTerminalSettings(
 	db: Kysely<Database>,
 	userId: string,
-): Promise<TerminalTheme> {
+): Promise<{ terminalTheme: TerminalTheme; timezone: string }> {
 	const row = await db
 		.selectFrom("users")
 		.select("editor_settings")
 		.where("id", "=", userId)
 		.executeTakeFirst();
-	return toEditorSettings(row?.editor_settings).terminalTheme;
+	const settings = toEditorSettings(row?.editor_settings);
+	return { terminalTheme: settings.terminalTheme, timezone: settings.timezone };
 }
 
 function listTerminalRows(db: Kysely<Database>, workspaceId: string) {
@@ -287,8 +289,10 @@ export function registerTerminalRoutes(
 			body.data.name ?? chooseTerminalName(rows, project ? project.id : null);
 		const cwd = body.data.cwd ?? project?.path ?? DEFAULT_CWD;
 		// A new terminal starts in the scheme the user chose in their settings
-		// unless the caller asked for one outright (issues #267, #268).
-		const theme = body.data.theme ?? (await userTerminalTheme(db, user.id));
+		// unless the caller asked for one outright (issues #267, #268), and in
+		// the zone they chose (issue #287).
+		const settings = await userTerminalSettings(db, user.id);
+		const theme = body.data.theme ?? settings.terminalTheme;
 
 		const created = await db
 			.insertInto("terminals")
@@ -305,7 +309,7 @@ export function registerTerminalRoutes(
 			.executeTakeFirstOrThrow();
 
 		try {
-			await agent.createTerminal({ id, cwd, theme });
+			await agent.createTerminal({ id, cwd, theme, timezone: settings.timezone });
 		} catch (error) {
 			// The row only means something if the agent has the tmux session.
 			await db.deleteFrom("terminals").where("id", "=", id).execute();

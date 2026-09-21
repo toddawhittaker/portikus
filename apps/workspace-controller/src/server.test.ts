@@ -131,6 +131,7 @@ test("start happy path", async () => {
 			agentToken: AGENT_TOKEN,
 			hostname: "tw7",
 			previewHostSuffix: "preview.example.edu",
+			timezone: "America/New_York",
 		},
 	});
 	expect(res.statusCode).toBe(200);
@@ -153,6 +154,7 @@ test("start passes the agent token through to the provider", async () => {
 			agentToken: AGENT_TOKEN,
 			hostname: "tw7",
 			previewHostSuffix: "preview.example.edu",
+			timezone: "America/New_York",
 		},
 	});
 	expect(provider.instances.get("ws-abc")?.agentToken).toBe(AGENT_TOKEN);
@@ -174,6 +176,7 @@ test("start passes the preview host suffix through to the provider", async () =>
 			agentToken: AGENT_TOKEN,
 			hostname: "tw7",
 			previewHostSuffix: "preview.example.edu",
+			timezone: "America/New_York",
 		},
 	});
 	expect(provider.instances.get("ws-abc")?.previewHostSuffix).toBe(
@@ -201,6 +204,7 @@ test("start not found returns 404", async () => {
 			agentToken: AGENT_TOKEN,
 			hostname: "tw7",
 			previewHostSuffix: "preview.example.edu",
+			timezone: "America/New_York",
 		},
 	});
 	expect(res.statusCode).toBe(404);
@@ -233,6 +237,7 @@ test("stop happy path", async () => {
 			agentToken: AGENT_TOKEN,
 			hostname: "tw7",
 			previewHostSuffix: "preview.example.edu",
+			timezone: "America/New_York",
 		},
 	});
 	const res = await app.inject({
@@ -324,6 +329,7 @@ test("two concurrent starts cause one provider call", async () => {
 				agentToken: AGENT_TOKEN,
 				hostname: "tw7",
 				previewHostSuffix: "preview.example.edu",
+				timezone: "America/New_York",
 			},
 		}),
 		app.inject({
@@ -335,6 +341,7 @@ test("two concurrent starts cause one provider call", async () => {
 				agentToken: AGENT_TOKEN,
 				hostname: "tw7",
 				previewHostSuffix: "preview.example.edu",
+				timezone: "America/New_York",
 			},
 		}),
 	]);

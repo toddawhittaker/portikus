@@ -106,6 +106,7 @@ export class AgentClient {
 		id: string;
 		cwd: string;
 		theme: TerminalTheme;
+		timezone: string;
 	}): Promise<void> {
 		await this.call("POST", "/terminals", AgentCreateTerminalRequest.parse(input));
 	}

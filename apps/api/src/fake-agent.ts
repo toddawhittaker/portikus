@@ -33,7 +33,7 @@ export interface FakeAgent {
 	token: string;
 	/** How many HTTP requests each test application has answered, by port. */
 	appHits: Map<number, number>;
-	terminals: Map<string, { cwd: string; theme: string }>;
+	terminals: Map<string, { cwd: string; theme: string; timezone: string }>;
 	/** Frames the fake received on an attach socket, in order. */
 	received: string[];
 	/** Attach sockets currently open on the fake. */
@@ -255,7 +255,7 @@ export async function startFakeAgent(
 	token: string,
 	options: { port?: number } = {},
 ): Promise<FakeAgent> {
-	const terminals = new Map<string, { cwd: string; theme: string }>();
+	const terminals = new Map<string, { cwd: string; theme: string; timezone: string }>();
 	// Every attachment of one terminal, so echoed output reaches them all,
 	// the way a real shared tmux session would.
 	const attached = new Map<string, Set<WebSocket>>();
@@ -493,9 +493,18 @@ export async function startFakeAgent(
 				.status(code === "INVALID_CWD" ? 400 : 500)
 				.send({ error: { code, message: "create refused" } });
 		}
-		const body = request.body as { id: string; cwd: string; theme: string };
+		const body = request.body as {
+			id: string;
+			cwd: string;
+			theme: string;
+			timezone: string;
+		};
 		// The theme is kept so a test can check it reached here (issue #267).
-		terminals.set(body.id, { cwd: body.cwd, theme: body.theme });
+		terminals.set(body.id, {
+			cwd: body.cwd,
+			theme: body.theme,
+			timezone: body.timezone,
+		});
 		return reply.status(201).send({ ok: true });
 	});
 
@@ -1383,6 +1392,18 @@ export async function startFakeAgent(
 								peer.send(JSON.stringify({ type: "cwd", path: moved[1] }));
 							}
 						}
+					}
+					// A shell runs in the zone the terminal was created with
+					// (issue #287), so `date` answers in that zone. The real
+					// shell does this through TZ; the fake formats it here.
+					if (/(^|\s)date(\s|$)/.test(inputData)) {
+						const zone = terminals.get(id)?.timezone ?? "UTC";
+						broadcast(
+							new Date().toLocaleString("en-US", {
+								timeZone: zone,
+								timeZoneName: "short",
+							}),
+						);
 					}
 					// Ctrl+D ends the shell, and a shell that ends closes its pane.
 					if (inputData.includes("\u0004")) {

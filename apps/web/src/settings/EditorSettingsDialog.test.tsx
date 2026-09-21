@@ -42,6 +42,7 @@ test("it shows the settings the server holds", async () => {
 		autoSaveDelaySeconds: 12,
 		wordWrap: true,
 		terminalTheme: "light",
+		timezone: "America/New_York",
 	});
 	renderWithQuery(<EditorSettingsDialog onClose={() => {}} />);
 
@@ -78,6 +79,7 @@ test("saving sends every setting and closes the dialog", async () => {
 		// The box starts ticked now (issue #270), so the click clears it.
 		wordWrap: false,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
 	});
 	await waitFor(() => expect(onClose).toHaveBeenCalled());
 });
@@ -129,6 +131,7 @@ test("the stored terminal theme is shown and sent back", async () => {
 		autoSaveDelaySeconds: 5,
 		wordWrap: false,
 		terminalTheme: "light",
+		timezone: "America/New_York",
 	});
 	renderWithQuery(<EditorSettingsDialog onClose={() => {}} />);
 	await waitFor(() =>
@@ -140,4 +143,31 @@ test("the stored terminal theme is shown and sent back", async () => {
 
 	await waitFor(() => expect(writes).toHaveLength(1));
 	expect(writes[0]?.body).toMatchObject({ terminalTheme: "light", wordWrap: true });
+});
+
+/**
+ * Issue #287: the dialog shows the stored zone and sends it back with the
+ * rest. Choosing a different zone from the Radix list needs a real browser,
+ * so that is covered in e2e/timezone.spec.ts.
+ */
+test("the stored timezone is shown and sent back", async () => {
+	const writes = stubSettings({
+		autoSave: true,
+		autoSaveDelaySeconds: 5,
+		wordWrap: false,
+		terminalTheme: "dark",
+		timezone: "Europe/Berlin",
+	});
+	renderWithQuery(<EditorSettingsDialog onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByLabelText("Workspace timezone").textContent).toContain(
+			"Europe/Berlin",
+		),
+	);
+
+	fireEvent.click(checkbox(/Word wrap/));
+	fireEvent.click(screen.getByTestId("editor-settings-save"));
+
+	await waitFor(() => expect(writes).toHaveLength(1));
+	expect(writes[0]?.body).toMatchObject({ timezone: "Europe/Berlin" });
 });

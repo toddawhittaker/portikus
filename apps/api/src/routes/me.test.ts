@@ -68,6 +68,7 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 		autoSaveDelaySeconds: 5,
 		wordWrap: true,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
 	});
 });
 
@@ -82,6 +83,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		autoSaveDelaySeconds: 5,
 		wordWrap: false,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
 	});
 
 	const second = await put(jar, { autoSaveDelaySeconds: 30 });
@@ -90,6 +92,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		autoSaveDelaySeconds: 30,
 		wordWrap: false,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
 	});
 
 	const read = await app.inject({
@@ -102,6 +105,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		autoSaveDelaySeconds: 30,
 		wordWrap: false,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
 	});
 });
 
@@ -115,11 +119,32 @@ test.skipIf(skip)("bad values and unknown keys are refused", async () => {
 		{ autoSave: "yes" },
 		{ theme: "dark" },
 		{},
+		// Issue #287: only a name on the zone list is taken.
+		{ timezone: "Mars/Olympus" },
+		{ timezone: "America/New_York; id" },
+		{ timezone: "" },
 	]) {
 		const res = await put(jar, body);
 		expect(res.statusCode).toBe(400);
 		expect(res.json().code).toBe("VALIDATION_FAILED");
 	}
+});
+
+/** Issue #287: a zone the student chooses is stored and read back. */
+test.skipIf(skip)("a known zone is accepted and kept", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	const res = await put(jar, { timezone: "Europe/Berlin" });
+	expect(res.statusCode).toBe(200);
+	expect(res.json().timezone).toBe("Europe/Berlin");
+
+	const read = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: jar.cookieHeader() },
+	});
+	expect(read.json().timezone).toBe("Europe/Berlin");
 });
 
 test.skipIf(skip)("one user's settings never reach another user", async () => {
@@ -140,6 +165,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		autoSaveDelaySeconds: 5,
 		wordWrap: true,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
 	});
 
 	// Bob's own change must not touch Alice's row.
@@ -154,6 +180,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		autoSaveDelaySeconds: 42,
 		wordWrap: false,
 		terminalTheme: "dark",
+		timezone: "America/New_York",
 	});
 });
 
@@ -171,6 +198,7 @@ test.skipIf(skip)(
 					autoSaveDelaySeconds: 20,
 					wordWrap: true,
 					terminalTheme: "dark",
+					timezone: "America/New_York",
 					theme: "dark",
 				}),
 			})
@@ -187,6 +215,7 @@ test.skipIf(skip)(
 			autoSaveDelaySeconds: 20,
 			wordWrap: true,
 			terminalTheme: "dark",
+			timezone: "America/New_York",
 		});
 
 		// A later change must not write the defaults over the other stored values.
@@ -196,6 +225,7 @@ test.skipIf(skip)(
 			autoSaveDelaySeconds: 20,
 			wordWrap: false,
 			terminalTheme: "dark",
+			timezone: "America/New_York",
 		});
 	},
 );

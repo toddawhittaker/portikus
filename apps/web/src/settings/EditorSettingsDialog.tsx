@@ -15,6 +15,7 @@ import {
 	useEditorSettings,
 	useUpdateEditorSettings,
 } from "../editor/settingsQueries.js";
+import { currentZoneOption, timezoneGroups } from "./timezones.js";
 
 /** The delay a student may ask for, in seconds (contracts/settings.ts). */
 const MIN_DELAY = 1;
@@ -40,6 +41,7 @@ export function EditorSettingsDialog({ onClose }: { onClose: () => void }) {
 	const autoSave = draft.autoSave ?? current.autoSave;
 	const wordWrap = draft.wordWrap ?? current.wordWrap;
 	const terminalTheme = draft.terminalTheme ?? current.terminalTheme;
+	const timezone = draft.timezone ?? current.timezone;
 	const delay =
 		delayText ?? String(draft.autoSaveDelaySeconds ?? current.autoSaveDelaySeconds);
 
@@ -56,6 +58,7 @@ export function EditorSettingsDialog({ onClose }: { onClose: () => void }) {
 			autoSaveDelaySeconds: parsedDelay,
 			wordWrap,
 			terminalTheme,
+			timezone,
 		};
 		update.mutate(body, { onSuccess: onClose });
 	}
@@ -131,6 +134,17 @@ export function EditorSettingsDialog({ onClose }: { onClose: () => void }) {
 								...current,
 								terminalTheme: value as TerminalTheme,
 							}))
+						}
+					/>
+					<Select
+						id="workspace-timezone"
+						label="Workspace timezone"
+						hint="The clock your terminals, logs, and Git commits use. A new terminal takes it at once; a shell already running keeps the zone it started with until the workspace restarts. Programs you run in Docker containers keep their own clock."
+						options={[currentZoneOption(timezone)]}
+						groups={timezoneGroups(timezone)}
+						value={timezone}
+						onValueChange={(value) =>
+							setDraft((current) => ({ ...current, timezone: value }))
 						}
 					/>
 					<button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />

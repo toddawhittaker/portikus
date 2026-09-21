@@ -247,6 +247,7 @@ export async function createSession(
 	cwd: string,
 	homeDir: string,
 	theme: TerminalTheme,
+	timezone: string,
 	socketName?: string,
 ): Promise<TmuxSession> {
 	const name = sessionName(id);
@@ -267,6 +268,11 @@ export async function createSession(
 			// started with; only a new terminal gets the new value.
 			"-e",
 			`COLORFGBG=${theme === "light" ? "0;15" : "15;0"}`,
+			// The shell runs in the owner's zone (issue #287). A terminal
+			// opened after the setting changed gets it without a restart; one
+			// already running keeps the zone it started with.
+			"-e",
+			`TZ=${timezone}`,
 		],
 		socketName,
 	);
