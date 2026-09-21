@@ -114,16 +114,50 @@
 .pk-tabs {
 	display: flex;
 	align-items: stretch;
+	min-width: 0;
 	height: var(--density-comfortable-tab);
 	background: var(--surface-sunken);
 	border-bottom: 1px solid var(--line);
 }
+/* The launcher keeps its place however many tabs there are. */
+.pk-tabs-actions {
+	flex: none;
+}
+/*
+ * The strip scrolls sideways once every tab is at its floor width
+ * (issue #240). Its own scrollbar is hidden: the fade edges say there is
+ * more, and the wheel and keyboard both scroll it.
+ */
+.pk-tablist {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+	mask-image: linear-gradient(
+		to right,
+		transparent 0,
+		#000 var(--space-3),
+		#000 calc(100% - var(--space-3)),
+		transparent 100%
+	);
+}
+.pk-tablist::-webkit-scrollbar {
+	display: none;
+}
+/*
+ * Every tab shares the width equally up to 220px and shrinks with the rest
+ * down to the floor, where only the kind icon and the close control are left
+ * (issue #240, the Chrome model).
+ */
 .pk-tab {
 	position: relative;
 	display: flex;
 	align-items: center;
 	gap: var(--space-1\.5);
-	min-width: 96px;
+	flex: 1 1 0;
+	min-width: var(--size-tab-floor);
 	max-width: 220px;
 	height: 100%;
 	padding: 0 var(--space-1) 0 var(--space-3);
@@ -135,6 +169,10 @@
 	font-size: 13px;
 	cursor: pointer;
 	outline: none;
+}
+/* The kind icon keeps its size while the tab shrinks around it. */
+.pk-tab > svg {
+	flex: none;
 }
 .pk-tab:hover {
 	background: var(--surface-hover);
@@ -170,38 +208,58 @@
 .pk-tab--drop-before {
 	box-shadow: inset 2px 0 0 var(--focus);
 }
+/* The label fades out at its right edge rather than ending in an ellipsis,
+   and collapses to nothing when the strip is at its floor width. */
 .pk-tab-label {
-	flex: 1;
+	flex: 1 1 0;
 	min-width: 0;
 	overflow: hidden;
-	text-overflow: ellipsis;
 	white-space: nowrap;
 	text-align: left;
+	mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent 100%);
 }
 .pk-tab--ended .pk-tab-label {
 	font-style: italic;
 }
+/* The unsaved dot sits where the close control does and the two swap on
+   hover or focus, as Chrome and VS Code do (issue #240). */
 .pk-tab-dirty {
+	flex: none;
+	width: 20px;
+	height: 20px;
+	display: grid;
+	place-items: center;
+	color: var(--ink-muted);
+}
+.pk-tab-dirty::before {
+	content: "";
 	width: 8px;
 	height: 8px;
 	border-radius: var(--radius-full);
 	background: currentColor;
 }
+.pk-tab:hover .pk-tab-dirty,
+.pk-tab:focus-visible .pk-tab-dirty {
+	display: none;
+}
+/* Always visible, at every width, on every tab (issue #240). */
 .pk-tab-close {
 	display: grid;
 	place-items: center;
+	flex: none;
 	width: 20px;
 	height: 20px;
 	border-radius: var(--radius-xs);
 	color: var(--ink-muted);
+	cursor: pointer;
 }
 .pk-tab-close:hover {
 	background: var(--surface-hover);
 	color: var(--ink);
 }
-.pk-tab:not([data-state="active"]):not(:hover):not(:focus-visible)
-	.pk-tab-close--hover {
-	visibility: hidden;
+/* A dirty tab hides its close control until the pointer or focus is on it. */
+.pk-tab:not(:hover):not(:focus-visible) .pk-tab-dirty + .pk-tab-close {
+	display: none;
 }
 
 /* PaneHandle (react-resizable-panels Separator, which sets data-separator) */

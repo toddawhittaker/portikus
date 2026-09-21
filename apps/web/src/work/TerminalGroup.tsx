@@ -45,6 +45,8 @@ export interface TerminalGroupProps {
 	consumePendingEdit: () => boolean;
 	/** Bring the Running surface into view (BROWSER-HANDLING.md §12). */
 	onShowRunning: () => void;
+	/** A file tab reporting whether its edits are on disk (issue #240). */
+	onUnsavedChange?: (unsaved: boolean) => void;
 	/** The pane a drag is hovering, and the zone it would drop into. */
 	dropTarget?: { terminalId: string; edge: DropEdge } | null;
 }
@@ -100,6 +102,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					consumePendingDiff={props.consumePendingDiff}
 					pendingEdit={props.pendingEdit}
 					consumePendingEdit={props.consumePendingEdit}
+					onUnsavedChange={props.onUnsavedChange}
 				/>
 			);
 		}

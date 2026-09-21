@@ -2,7 +2,7 @@
  * Preview tabs in a saved layout (SPEC.md §7.5, §14.6). A preview is a tab
  * of its own, one per port, and it survives a reload like a file tab.
  */
-import { MAX_LAYOUT_TABS, ProjectLayout } from "@portikus/contracts";
+import { ProjectLayout } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import { createLayoutStore } from "./store.js";
 import { emptyLayout, openPreview, previewTabId } from "./tree.js";
@@ -21,19 +21,6 @@ test("opening the same port twice keeps one tab", () => {
 	const second = openPreview(first.layout, 5173);
 	expect(second?.layout).toBe(first.layout);
 	expect(second?.tabId).toBe(first.tabId);
-});
-
-test("a full tab strip refuses another preview", () => {
-	let layout = emptyLayout();
-	for (let i = 0; i < MAX_LAYOUT_TABS; i += 1) {
-		layout = {
-			tabs: [
-				...layout.tabs,
-				{ id: `t${i}`, root: { type: "leaf", terminalId: `t${i}` } },
-			],
-		};
-	}
-	expect(openPreview(layout, 5173)).toBeNull();
 });
 
 test("a preview tab is a layout the API accepts", () => {
@@ -70,7 +57,7 @@ test("a preview tab id must name its port", () => {
 
 test("the store opens, activates and closes a preview tab", () => {
 	const store = createLayoutStore();
-	expect(store.getState().openPreview(5173)).toBe(true);
+	store.getState().openPreview(5173);
 	expect(store.getState().activeTabId).toBe(previewTabId(5173));
 	expect(store.getState().dirty).toBe(true);
 	store.getState().closeTab(previewTabId(5173));

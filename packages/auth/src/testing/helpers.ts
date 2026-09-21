@@ -122,6 +122,14 @@ export interface OpenSocket {
 	/** Every message received so far, JSON-parsed. */
 	messages: ServerMessage[];
 	next: () => Promise<ServerMessage>;
+	/**
+	 * The next message of one kind, skipping the others. The socket carries
+	 * more than workspace updates, so a test that waits for a state change
+	 * must say which frame it means.
+	 */
+	nextOf: <T extends ServerMessage["type"]>(
+		type: T,
+	) => Promise<Extract<ServerMessage, { type: T }>>;
 	close: () => Promise<void>;
 }
 
@@ -190,22 +198,32 @@ export async function openWorkspaceSocket(
 		);
 	});
 
+	const next = (): Promise<ServerMessage> =>
+		new Promise<ServerMessage>((resolve) => {
+			const pending = messages[cursor];
+			if (pending !== undefined) {
+				resolve(pending);
+				cursor += 1;
+				return;
+			}
+			waiting.push((message) => {
+				cursor += 1;
+				resolve(message);
+			});
+		});
+
 	return {
 		ws,
 		messages,
-		next: () =>
-			new Promise<ServerMessage>((resolve) => {
-				const pending = messages[cursor];
-				if (pending !== undefined) {
-					resolve(pending);
-					cursor += 1;
-					return;
+		next,
+		async nextOf<T extends ServerMessage["type"]>(type: T) {
+			while (true) {
+				const message = await next();
+				if (message.type === type) {
+					return message as Extract<ServerMessage, { type: T }>;
 				}
-				waiting.push((message) => {
-					cursor += 1;
-					resolve(message);
-				});
-			}),
+			}
+		},
 		close: () =>
 			new Promise<void>((resolve) => {
 				if (ws.readyState === WebSocket.CLOSED) {

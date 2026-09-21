@@ -2,10 +2,12 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	moveProjectDir,
 	projectDirs,
 	projectIds,
 	query,
 	removeProjectDir,
+	seedFile,
 	seedProjectDir,
 	WEB_ORIGIN,
 	workspacePath,
@@ -447,6 +449,48 @@ test.describe("projects", () => {
 		await expect(page.getByRole("menuitem", { name: "Archive" })).toBeVisible();
 		await expect(page.getByRole("menuitem", { name: "Rename" })).toHaveCount(0);
 		await expect(page.getByRole("menuitem", { name: "Download" })).toHaveCount(0);
+	});
+
+	/** Issue #238: `mv` in the shell keeps the project, its id and its layout. */
+	test("a project renamed in the shell keeps its row and its tabs", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Todo api" });
+		await seedFile(
+			student.workspaceId,
+			project.slug,
+			"app.ts",
+			"export const a = 1;\n",
+		);
+		await query("update projects set layout = $2 where id = $1", [
+			project.id,
+			JSON.stringify({
+				tabs: [{ id: "file:app.ts", root: { type: "file", path: "app.ts" } }],
+			}),
+		]);
+
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByTestId(`project-item-${project.id}`)).toBeVisible({
+			timeout: 15_000,
+		});
+
+		// The student renames the folder in a shell.
+		await moveProjectDir(student.workspaceId, project.slug, "todo-service");
+
+		// The same project, under its new folder name, with its tab still open.
+		const item = page.getByTestId(`project-item-${project.id}`);
+		await expect(item).toContainText("todo-service", { timeout: 20_000 });
+		await expect(item).not.toContainText(/missing/i);
+		await expect(page.getByTestId("tab-file:app.ts")).toBeAttached();
+
+		// One row, not two: the new folder was not discovered as a new project.
+		const rows = await query<{ count: string }>(
+			"select count(*)::text as count from projects where workspace_id = $1",
+			[student.workspaceId],
+		);
+		expect(rows[0]?.count).toBe("1");
 	});
 
 	test("another student's project is not readable", async ({ page, browser }) => {

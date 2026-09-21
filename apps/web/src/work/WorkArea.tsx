@@ -28,10 +28,8 @@ import {
 	MenuTrigger,
 	type TabItem,
 	Tabs,
-	useToast,
 } from "@portikus/ui";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { tooManyTabsToast } from "../files/errors.js";
 import { useLayoutPersistence } from "../layout/persist.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { type DropEdge, type SplitDirection, terminalIds } from "../layout/tree.js";
@@ -82,13 +80,13 @@ export function WorkArea({
 	onSessionEnded,
 }: WorkAreaProps) {
 	const store = useLayoutStore(projectId);
-	const toast = useToast();
 	const layout = useLayout(store, (state) => state.layout);
 	const activeTabId = useLayout(store, (state) => state.activeTabId);
 	const focusedTerminalId = useLayout(store, (state) => state.focusedTerminalId);
 	const pendingLine = useLayout(store, (state) => state.pendingLine);
 	const pendingDiff = useLayout(store, (state) => state.pendingDiff);
 	const pendingEdit = useLayout(store, (state) => state.pendingEdit);
+	const unsavedTabs = useLayout(store, (state) => state.unsavedTabs);
 	const loaded = useLayoutPersistence(workspaceId, projectId, store, onSessionEnded);
 	const terminals = useTerminals(workspaceId, projectId, true, onSessionEnded);
 	const [closingTabId, setClosingTabId] = useState<string | null>(null);
@@ -124,19 +122,15 @@ export function WorkArea({
 	// it would otherwise replace the tab this just opened.
 	useEffect(() => {
 		if (!loaded || !openPath) return;
-		if (!store.getState().openFile(openPath, { line: openLine })) {
-			toast.show(tooManyTabsToast());
-		}
-	}, [loaded, openPath, openLine, store, toast]);
+		store.getState().openFile(openPath, { line: openLine });
+	}, [loaded, openPath, openLine, store]);
 
 	// A preview the URL named opens once the saved layout is in, for the same
 	// reason a file does.
 	useEffect(() => {
 		if (!loaded || openPreviewPort === undefined) return;
-		if (!store.getState().openPreview(openPreviewPort)) {
-			toast.show(tooManyTabsToast());
-		}
-	}, [loaded, openPreviewPort, store, toast]);
+		store.getState().openPreview(openPreviewPort);
+	}, [loaded, openPreviewPort, store]);
 
 	const newTerminal = useCallback(async (): Promise<Terminal | null> => {
 		try {
@@ -250,6 +244,7 @@ export function WorkArea({
 				// The strip has no room for a path, so the file name is the label.
 				label: path.split("/").pop() ?? path,
 				title: path,
+				dirty: unsavedTabs[tab.id] ?? false,
 				testId: `tab-${tab.id}`,
 			};
 		}
@@ -452,6 +447,9 @@ export function WorkArea({
 							consumePendingDiff={() => store.getState().consumePendingDiff(tab.id)}
 							pendingEdit={pendingEdit[tab.id]}
 							consumePendingEdit={() => store.getState().consumePendingEdit(tab.id)}
+							onUnsavedChange={(unsaved) =>
+								store.getState().setTabUnsaved(tab.id, unsaved)
+							}
 							dropTarget={
 								dragTarget?.kind === "pane" && dragTarget.tabId === tab.id
 									? { terminalId: dragTarget.terminalId, edge: dragTarget.edge }
@@ -466,7 +464,7 @@ export function WorkArea({
 						onClose={() => setPickingPreview(false)}
 						onOpen={(port) => {
 							setPickingPreview(false);
-							if (!store.getState().openPreview(port)) toast.show(tooManyTabsToast());
+							store.getState().openPreview(port);
 						}}
 					/>
 				) : null}

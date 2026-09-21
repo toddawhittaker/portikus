@@ -503,8 +503,8 @@ and refuses the request unless the parent of the result is exactly the realpath
 of `~/projects`, which is what enforces §7.1. Child processes are started
 directly, never through a shell.
 
-The workspace agent exposes `GET /projects` (each entry is a slug and whether
-the directory holds a Git repository), `GET /projects/:slug`,
+The workspace agent exposes `GET /projects` (each entry is a slug, whether the
+directory holds a Git repository, and the directory's own identity), `GET /projects/:slug`,
 `POST /projects`, `POST /projects/:slug/rename`,
 `POST /projects/:slug/duplicate`, `POST /projects/:slug/git-init`, and
 `GET /projects/:slug/archive`, which streams a zip.
@@ -527,6 +527,18 @@ true` and may only be archived. A directory that is not a Git repository is
 ignored. Discovery never resurrects an archived slug, because that slug already
 has a row. When the workspace is not running, rows are returned with the Git
 and missing fields null.
+
+Renamed directories. A directory carries an identity of its own, independent
+of its name: its inode, which `mv` preserves. The agent reports it with each
+listing and the control plane stores it on the project row. Before discovery,
+each listing does two things: it records the identity of any directory a row
+already names, and it moves a row whose directory is gone to whichever
+directory now carries that row's identity. So a project a student renames with
+`mv` in a shell keeps its id, its name, its open tabs, and its layout, and its
+terminals' recorded working directories move with it. A copy, or a restore from
+a recovery archive, has a different identity and is honestly a new project. A
+directory whose identity belongs to no row is discovered under the existing
+rule: only if it is a Git repository.
 
 Rename changes the name, the slug, and the directory together. The agent moves
 the directory and refuses if the target already exists; the control plane
@@ -604,6 +616,18 @@ Supported P0 tab types:
 - application preview.
 
 Tabs must be closable and reorderable.
+
+Tab strip sizing. Every tab in a strip is the same width, whatever its label.
+Tabs share the available width equally up to a maximum of 220 pixels, and the
+label is truncated with a fade at its right edge rather than an ellipsis. When
+the strip runs out of room, every tab shrinks together down to a floor width at
+which the label is gone and only the kind icon and the close control remain.
+Past that floor the strip scrolls sideways: the mouse wheel over the strip
+scrolls it, a tab that becomes selected is scrolled into view, and fade edges
+show that there are more tabs on either side. The close control is visible on
+every tab at every width; on a tab with unsaved changes an unsaved dot takes its
+place and turns back into the close control on hover or focus. There is no cap
+on how many tabs a project may have open; memory is the only limit.
 
 Closing the selected tab selects the tab that was selected most recently before
 it, the way a web browser does. When no earlier selection is still open, the tab
@@ -1138,6 +1162,15 @@ The editor must:
 - surface save failures clearly.
 
 An explicit keyboard save command such as `Ctrl/Cmd+S` may force an immediate save, but students should not need to remember to save manually for normal operation.
+
+Per-user preferences. Autosave on or off, the autosave delay, word wrap, and
+the terminal colour scheme are settings of the signed-in user, not of the
+browser. They are stored on the server, read and written through
+`GET` and `PUT /me/settings`, and changed in the account menu, so they follow
+the student to any browser they sign in from. The terminal colour scheme is
+dark or light, and it is deliberately independent of the page appearance: a
+student in a bright room may want a light terminal on a dark page, or the
+other way round.
 
 ## 14. Application preview and port proxying
 

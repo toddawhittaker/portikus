@@ -2,6 +2,7 @@ import { PaneHandle, Skeleton } from "@portikus/ui";
 import { Navigate, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
+import { useTerminalThemeAttribute } from "./editor/settingsQueries.js";
 import { LayoutStoreContext, useLayoutStore } from "./layout/store.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
@@ -57,6 +58,9 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 		() => ({ services: services ?? [], loaded: services !== undefined }),
 		[services],
 	);
+	// The student's terminal colour scheme, applied to the whole shell
+	// (issue #239).
+	useTerminalThemeAttribute();
 
 	return (
 		<LayoutStoreContext.Provider value={projectId ? layoutStore : null}>

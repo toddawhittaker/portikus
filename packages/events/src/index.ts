@@ -11,7 +11,8 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 /** Messages the API sends on the workspace WebSocket (SPEC.md §6.4). */
 export const ServerMessage = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("workspace"), workspace: Workspace }),
-	// The ports listening inside the workspace right now (SPEC.md §18.2).
+	// What is listening inside the workspace right now, for the Preview tab
+	// (BROWSER-HANDLING.md §11.1, §17).
 	z.object({
 		type: z.literal("listening-services"),
 		services: z.array(ListeningService),

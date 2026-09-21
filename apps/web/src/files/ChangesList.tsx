@@ -3,7 +3,7 @@
  * commit, one row each, opening the file's diff when it is clicked.
  */
 import type { GitStatus } from "@portikus/contracts";
-import { Icon, useToast } from "@portikus/ui";
+import { Icon } from "@portikus/ui";
 import { useState } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { type ChangeRow, changeRows } from "./gitStatus.js";
@@ -19,7 +19,6 @@ export function ChangesList({
 	error?: boolean;
 }) {
 	const [open, setOpen] = useState(true);
-	const toast = useToast();
 	const layoutStore = useLayoutStore(projectId);
 	const openFile = useLayout(layoutStore, (state) => state.openFile);
 	const rows = changeRows(status);
@@ -30,12 +29,7 @@ export function ChangesList({
 	function show(row: ChangeRow) {
 		// The diff is a view of the file's own tab, so a file already open is
 		// switched to its diff rather than opened a second time (issue #160).
-		if (!openFile(row.path, { diff: true })) {
-			toast.show({
-				tone: "warning",
-				title: "Too many tabs are open. Close one to open another.",
-			});
-		}
+		openFile(row.path, { diff: true });
 	}
 
 	return (

@@ -165,6 +165,11 @@ test.describe("project search", () => {
 		});
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(page.getByTestId("search-open")).toBeVisible();
+		// The header's placeholder search icon is gone (issue #241); the files
+		// pane and this shortcut are the only ways in.
+		await expect(
+			page.getByTestId("app-header").getByRole("button", { name: /search/i }),
+		).toHaveCount(0);
 
 		await page.keyboard.press("ControlOrMeta+Shift+F");
 

@@ -61,5 +61,7 @@ export function buildTestServer(
 		config,
 		logger,
 		oidc: createOidcClient(toAuthOptions(config)),
+		// The registry must notice a workspace within one test's patience.
+		previewPollIntervalMs: 50,
 	});
 }

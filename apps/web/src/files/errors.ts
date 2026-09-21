@@ -18,14 +18,6 @@ export function tooLargeToast(): ToastProps {
 	};
 }
 
-/** One wording for the tab cap, wherever a file fails to open (SPEC.md §8.3). */
-export function tooManyTabsToast(): ToastProps {
-	return {
-		tone: "warning",
-		title: "Too many tabs are open. Close one to open another.",
-	};
-}
-
 /** The sentence for each error code the file routes return. */
 const MESSAGES: Record<string, string> = {
 	FILE_NOT_FOUND: "That file is no longer there. The tree has been refreshed.",

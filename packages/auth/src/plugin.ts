@@ -93,7 +93,13 @@ function isExempt(request: FastifyRequest): boolean {
 	if (!url) {
 		return false;
 	}
-	return (request.method === "GET" && url === "/health") || url.startsWith("/auth/");
+	if (request.method === "GET" && url === "/health") return true;
+	if (url.startsWith("/auth/")) return true;
+	// The preview host never carries the main session cookie, and the edge
+	// authorization subrequest carries none at all: both authenticate with the
+	// preview session instead (BROWSER-HANDLING.md §9.2, §10).
+	if (request.method === "GET" && url.startsWith("/__portikus/")) return true;
+	return request.method === "GET" && url === "/preview/authorize";
 }
 
 export interface AuthPluginOptions {
