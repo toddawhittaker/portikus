@@ -210,11 +210,14 @@ test.describe("file tree", () => {
 		);
 	});
 
-	test("a full tab strip says to close a tab first", async ({ page, context }) => {
+	test("a full tab strip still opens another file (issue #240)", async ({
+		page,
+		context,
+	}) => {
 		const student = await createStudent(context);
 		const project = await createProject(student.workspaceId, { name: "Full" });
 		await seedFile(student.workspaceId, project.slug, "README.md", "# hello\n");
-		// Sixteen tabs is the cap (SPEC.md §7.5, MAX_LAYOUT_TABS).
+		// SPEC.md §8.3: the strip shrinks and then scrolls; there is no cap.
 		const tabs = Array.from({ length: 16 }, (_item, index) => ({
 			id: `file:full-${index}.txt`,
 			root: { type: "file", path: `full-${index}.txt` },
@@ -227,16 +230,15 @@ test.describe("file tree", () => {
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(page.getByTestId("file-tree")).toBeVisible({ timeout: 15_000 });
 		// The saved layout arrives after the tree; clicking before it lands
-		// would open the file instead of refusing it.
-		await expect(page.getByTestId("tab-file:full-15.txt")).toBeVisible();
+		// would not be opening onto a full strip at all.
+		await expect(page.getByTestId("tab-file:full-15.txt")).toBeAttached();
 
 		await row(page, "README.md").click();
 
-		const refused = toast(page, "Too many tabs are open. Close one to open another.");
-		await expect(refused).toBeVisible();
-		// One click refuses once: a second toast would mean a doubled handler.
-		await expect(refused).toHaveCount(1);
-		await expect(page.getByTestId("tab-file:README.md")).toHaveCount(0);
+		await expect(page.getByTestId("tab-file:README.md")).toBeAttached();
+		await expect(
+			toast(page, "Too many tabs are open. Close one to open another."),
+		).toHaveCount(0);
 	});
 
 	test("dragging a file onto the project root moves it there", async ({

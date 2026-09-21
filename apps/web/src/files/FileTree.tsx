@@ -50,12 +50,7 @@ import {
 } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
-import {
-	fileErrorToast,
-	isFileExists,
-	tooLargeToast,
-	tooManyTabsToast,
-} from "./errors.js";
+import { fileErrorToast, isFileExists, tooLargeToast } from "./errors.js";
 import "./files.css";
 import { ChangesList } from "./ChangesList.js";
 import { fileIconName } from "./fileIcon.js";
@@ -394,9 +389,9 @@ export function FileTreePane({
 
 	const openFile = useCallback(
 		(node: FileNode) => {
-			if (!openFileTab(node.path)) toast.show(tooManyTabsToast());
+			openFileTab(node.path);
 		},
-		[openFileTab, toast],
+		[openFileTab],
 	);
 
 	const pickUpload = useCallback((dir: string) => {

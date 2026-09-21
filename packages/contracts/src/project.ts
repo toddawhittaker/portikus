@@ -261,9 +261,6 @@ export const SplitNode: z.ZodType<SplitNode> = z.lazy(() =>
 	]),
 );
 
-/** Most tabs one project may save. Well past what fits on a screen. */
-export const MAX_LAYOUT_TABS = 16;
-
 /** Most nodes on any one path from a tab's root to a leaf. */
 export const MAX_SPLIT_DEPTH = 8;
 
@@ -300,9 +297,12 @@ export function documentTabId(node: SplitNode): string | null {
 }
 
 /**
- * The saved layout of one project (SPEC.md §7.5). The browser writes this
- * column, so its size is bounded here: the whole tree is otherwise
- * attacker-controlled JSON the API stores and hands back.
+ * The saved layout of one project (SPEC.md §7.5). There is no cap on the
+ * number of tabs (issue #240): the strip shrinks and then scrolls instead.
+ * The browser writes this column and the whole tree is attacker-controlled
+ * JSON the API stores and hands back, so its size is still bounded, by
+ * Fastify's 1 MiB body limit on the request that saves it and by the length
+ * and shape limits on each tab below.
  */
 export const ProjectLayout = z.object({
 	tabs: z
@@ -314,7 +314,6 @@ export const ProjectLayout = z.object({
 				root: SplitNode,
 			}),
 		)
-		.max(MAX_LAYOUT_TABS)
 		.superRefine((tabs, ctx) => {
 			const seen = new Set<string>();
 			const documents = new Set<string>();

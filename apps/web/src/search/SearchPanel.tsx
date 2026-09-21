@@ -4,10 +4,9 @@
  * line number and the matching line, and opening one opens the file at that
  * line.
  */
-import { Checkbox, EmptyState, TextField, useToast } from "@portikus/ui";
+import { Checkbox, EmptyState, TextField } from "@portikus/ui";
 import { type KeyboardEvent, useContext, useRef, useState } from "react";
 import { ApiError } from "../api/request.js";
-import { tooManyTabsToast } from "../files/errors.js";
 import { LayoutStoreContext } from "../layout/store.js";
 import { groupByFile, highlightParts } from "./results.js";
 import { useSearch } from "./useSearch.js";
@@ -38,7 +37,6 @@ export interface SearchPanelProps {
 export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProps) {
 	const [query, setQuery] = useState("");
 	const [hidden, setHidden] = useState(false);
-	const toast = useToast();
 	const { result, term } = useSearch(workspaceId, projectId, query, hidden);
 	const results = useRef<HTMLDivElement | null>(null);
 	// The panel sits inside the workspace provider, so it shares the work
@@ -50,8 +48,7 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 
 	/** Open one match in the work area, at its line (SPEC.md §11.5). */
 	function open(path: string, line: number) {
-		if (store?.getState().openFile(path, { line })) return;
-		toast.show(tooManyTabsToast());
+		store?.getState().openFile(path, { line });
 	}
 
 	/** Escape leaves the search; the arrows walk the result rows. */

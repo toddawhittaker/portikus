@@ -140,6 +140,9 @@
 	--size-icon-md: 16px;
 	--size-icon-lg: 20px;
 	--size-pane-handle: 8px;
+	/* The narrowest a centre-pane tab gets: padding, kind icon, gap, close
+	   control (issue #240). Past this the strip scrolls instead. */
+	--size-tab-floor: 58px;
 	--size-rail: 48px;
 
 	/* Density source values; --pk-* below picks one set. */

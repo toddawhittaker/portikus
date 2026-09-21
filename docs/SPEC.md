@@ -605,6 +605,18 @@ Supported P0 tab types:
 
 Tabs must be closable and reorderable.
 
+Tab strip sizing. Every tab in a strip is the same width, whatever its label.
+Tabs share the available width equally up to a maximum of 220 pixels, and the
+label is truncated with a fade at its right edge rather than an ellipsis. When
+the strip runs out of room, every tab shrinks together down to a floor width at
+which the label is gone and only the kind icon and the close control remain.
+Past that floor the strip scrolls sideways: the mouse wheel over the strip
+scrolls it, a tab that becomes selected is scrolled into view, and fade edges
+show that there are more tabs on either side. The close control is visible on
+every tab at every width; on a tab with unsaved changes an unsaved dot takes its
+place and turns back into the close control on hover or focus. There is no cap
+on how many tabs a project may have open; memory is the only limit.
+
 Closing the selected tab selects the tab that was selected most recently before
 it, the way a web browser does. When no earlier selection is still open, the tab
 to the left takes over, or the tab to the right when the closed tab was the

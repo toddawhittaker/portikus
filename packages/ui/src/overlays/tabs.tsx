@@ -25,6 +25,8 @@ export interface TabItem {
 	/** Hover text, when the label is a shortened form of something longer. */
 	title?: string;
 	ended?: boolean;
+	/** Unsaved changes: the dot takes the close button's place (issue #240). */
+	dirty?: boolean;
 	/** Test hook: set as `data-testid` on the trigger, plus `-close` on the close control. */
 	testId?: string;
 }
@@ -101,11 +103,21 @@ function TabTrigger({ tab, onClose, onMove }: TabTriggerProps): React.ReactEleme
 				{tab.label}
 				{tab.ended ? <span className="pk-visually-hidden">(session ended)</span> : null}
 			</span>
+			{/* An unsaved tab shows a dot where the close button goes; CSS swaps
+			    the two back on hover or focus, as Chrome and VS Code do. */}
+			{tab.dirty ? (
+				<span
+					className="pk-tab-dirty"
+					data-testid={tab.testId ? `${tab.testId}-dirty` : undefined}
+				>
+					<span className="pk-visually-hidden">Unsaved changes</span>
+				</span>
+			) : null}
 			{/* The tab itself is a button, so this cannot be one: nested
 			    buttons are invalid HTML. */}
 			{/* biome-ignore lint/a11y/useSemanticElements: nested button */}
 			<span
-				className="pk-tab-close pk-tab-close--hover"
+				className="pk-tab-close"
 				role="button"
 				tabIndex={-1}
 				aria-label={`Close ${tab.label}`}
@@ -139,6 +151,25 @@ export function Tabs({
 	className,
 }: TabsProps): React.ReactElement {
 	const [announcement, setAnnouncement] = React.useState("");
+	const list = React.useRef<HTMLDivElement | null>(null);
+
+	// Selecting a tab brings it back into view, however the selection was made
+	// (click, keyboard, Ctrl+Tab, or opening a file). Issue #240.
+	const activeIndex = tabs.findIndex((tab) => tab.id === activeId);
+	React.useEffect(() => {
+		const container = list.current;
+		if (!container || activeIndex < 0) return;
+		const rendered = container.querySelectorAll<HTMLElement>('[role="tab"]');
+		rendered[activeIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+	}, [activeIndex]);
+
+	/** The wheel scrolls the strip sideways, because it has no vertical axis. */
+	function onWheel(event: React.WheelEvent<HTMLDivElement>) {
+		const container = list.current;
+		if (!container || event.deltaY === 0 || event.deltaX !== 0) return;
+		container.scrollLeft += event.deltaY;
+	}
+
 	const sensors = useSensors(
 		// 4px so a click still selects the tab instead of starting a drag.
 		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -177,7 +208,12 @@ export function Tabs({
 				onDragEnd={handleDragEnd}
 			>
 				<SortableContext items={ids} strategy={horizontalListSortingStrategy}>
-					<RadixTabs.List aria-label={label ?? "Open tabs"} className="pk-tablist flex">
+					<RadixTabs.List
+						ref={list}
+						aria-label={label ?? "Open tabs"}
+						className="pk-tablist"
+						onWheel={onWheel}
+					>
 						{tabs.map((tab) => (
 							<TabTrigger key={tab.id} tab={tab} onClose={onClose} onMove={move} />
 						))}

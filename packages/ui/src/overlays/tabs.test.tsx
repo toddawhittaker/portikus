@@ -96,4 +96,58 @@ describe("Tabs", () => {
 		expect(ended.textContent).toContain("(session ended)");
 		expect(ended.className).toContain("pk-tab--ended");
 	});
+
+	/** Issue #240: every tab keeps a close control, at every width. */
+	it("gives every tab a close control, however many tabs there are", () => {
+		const many: TabItem[] = Array.from({ length: 30 }, (_, index) => ({
+			id: `t${index}`,
+			kind: "file" as const,
+			label: `file${index}.ts`,
+			testId: `tab-t${index}`,
+		}));
+		renderTabs({ tabs: many, activeId: "t0" });
+
+		expect(screen.getAllByRole("tab")).toHaveLength(30);
+		for (const tab of many) {
+			expect(screen.getByTestId(`${tab.testId}-close`)).toBeTruthy();
+		}
+	});
+
+	it("shows an unsaved dot beside the close control on a dirty tab", () => {
+		renderTabs({
+			tabs: [
+				{ id: "t1", kind: "file", label: "app.ts", dirty: true, testId: "tab-t1" },
+				{ id: "t2", kind: "file", label: "other.ts", testId: "tab-t2" },
+			],
+			activeId: "t1",
+		});
+
+		expect(screen.getByTestId("tab-t1-dirty")).toBeTruthy();
+		// The CSS swaps the two; both are in the tree so hover can reveal one.
+		expect(screen.getByTestId("tab-t1-close")).toBeTruthy();
+		expect(screen.queryByTestId("tab-t2-dirty")).toBeNull();
+	});
+
+	it("scrolls the selected tab into view when the selection changes", () => {
+		const scrollIntoView = vi.fn();
+		Element.prototype.scrollIntoView = scrollIntoView;
+		const many: TabItem[] = Array.from({ length: 30 }, (_, index) => ({
+			id: `t${index}`,
+			kind: "file" as const,
+			label: `file${index}.ts`,
+		}));
+		renderTabs({ tabs: many, activeId: "t29" });
+
+		expect(scrollIntoView).toHaveBeenCalled();
+	});
+
+	it("turns a vertical wheel over the strip into sideways scrolling", () => {
+		renderTabs();
+		const list = screen.getByRole("tablist");
+		list.scrollLeft = 0;
+
+		fireEvent.wheel(list, { deltaY: 120, deltaX: 0 });
+
+		expect(list.scrollLeft).toBe(120);
+	});
 });

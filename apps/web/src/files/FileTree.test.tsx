@@ -1,4 +1,3 @@
-import { MAX_LAYOUT_TABS } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -132,10 +131,10 @@ describe("the file tree", () => {
 		);
 	});
 
-	it("says so when there is no room for another tab", async () => {
+	it("opens another file on a strip that is already full (issue #240)", async () => {
 		const store = createLayoutStore();
 		store.getState().load({
-			tabs: Array.from({ length: MAX_LAYOUT_TABS }, (_item, index) => ({
+			tabs: Array.from({ length: 16 }, (_item, index) => ({
 				id: `file:full-${index}.txt`,
 				root: { type: "file" as const, path: `full-${index}.txt` },
 			})),
@@ -144,11 +143,8 @@ describe("the file tree", () => {
 
 		fireEvent.click(await screen.findByText("README.md"));
 
-		expect(
-			await screen.findByText("Too many tabs are open. Close one to open another."),
-		).toBeDefined();
-		// One click must refuse once, not once per handler on the row.
-		expect(document.querySelectorAll(".pk-toast")).toHaveLength(1);
+		await waitFor(() => expect(store.getState().layout.tabs).toHaveLength(17));
+		expect(document.querySelectorAll(".pk-toast")).toHaveLength(0);
 	});
 
 	/** SPEC.md §11.2: the tree is usable from the keyboard alone. */
