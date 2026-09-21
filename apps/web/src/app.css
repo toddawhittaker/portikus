@@ -599,3 +599,24 @@ body {
 .pk-statusbar-muted {
 	color: var(--ink-faint);
 }
+
+/* The right pane's Files / Running switch (SPEC.md §18.2, DESIGN.md). */
+.pk-pane-switch {
+	flex: none;
+	display: flex;
+	gap: var(--space-1);
+	padding: var(--space-1) var(--space-2) 0;
+}
+.pk-pane-switch button {
+	border: 0;
+	background: transparent;
+	color: var(--ink-muted);
+	font-size: 12px;
+	padding: 2px 8px;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+.pk-pane-switch button[aria-selected="true"] {
+	background: var(--surface-hover);
+	color: var(--ink);
+}

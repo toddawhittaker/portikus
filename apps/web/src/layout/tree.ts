@@ -427,6 +427,27 @@ export function fileTabId(path: string): string {
 	return `file:${path}`;
 }
 
+/** The id of the one tab that previews `port` (SPEC.md §14.6). */
+export function previewTabId(port: number): string {
+	return `preview:${port}`;
+}
+
+/**
+ * Open a preview of `port` as a tab of its own (SPEC.md §14.6). A port
+ * already open is not opened twice; the caller activates the tab it gets
+ * back. Null when there is no room for another tab.
+ */
+export function openPreview(
+	layout: ProjectLayout,
+	port: number,
+): { layout: ProjectLayout; tabId: string } | null {
+	const tabId = previewTabId(port);
+	if (layout.tabs.some((tab) => tab.id === tabId)) return { layout, tabId };
+	if (layout.tabs.length >= MAX_LAYOUT_TABS) return null;
+	const node: SplitNode = { type: "preview", port };
+	return { layout: { tabs: [...layout.tabs, { id: tabId, root: node }] }, tabId };
+}
+
 /**
  * Turn the diff tabs of a layout saved by an older version into file tabs,
  * so one path has one tab. The ids of the tabs that were diffs come back as

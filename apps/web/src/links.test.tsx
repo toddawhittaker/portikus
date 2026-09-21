@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
 	canOpenInNewTab,
 	fileRouteFor,
+	localPreviewTarget,
 	previewRouteFor,
 	wrappedUrlsOnRow,
 } from "./links";
@@ -26,23 +27,59 @@ test("a 127.0.0.1 URL with a port becomes the preview route", () => {
 	});
 });
 
-test.each([
-	["http with no port means 80", "http://localhost/", "80"],
-	["https with no port means 443", "https://127.0.0.1/app", "443"],
-])("%s", (_name, url, port) => {
-	expect(previewRouteFor(url, WORKSPACE, PROJECT)).toEqual({
+test("an IPv6 loopback URL becomes the preview route", () => {
+	expect(previewRouteFor("http://[::1]:5173/", WORKSPACE, PROJECT)).toEqual({
 		kind: "preview",
 		to: "/workspaces/$id/projects/$projectId/preview/$port",
-		params: { id: WORKSPACE, projectId: PROJECT, port },
+		params: { id: WORKSPACE, projectId: PROJECT, port: "5173" },
 	});
+});
+
+// The default ports of http and https are both below 1024, so a URL with no
+// port is a workspace URL the preview policy refuses (SPEC.md §14.7).
+test.each([
+	["http with no port means 80", "http://localhost/", 80],
+	["https with no port means 443", "https://127.0.0.1/app", 443],
+	["a reserved port", "http://localhost:22/", 22],
+])("%s is a local URL that may not be previewed", (_name, url, port) => {
+	expect(localPreviewTarget(url)).toEqual({ port, allowed: false });
+	expect(previewRouteFor(url, WORKSPACE, PROJECT)).toBeNull();
 });
 
 test.each([
 	["a non-local host", "https://example.invalid:3000"],
+	["a suffix trick", "http://localhost.evil.example:3000/"],
+	["a subdomain of localhost", "http://app.localhost:3000/"],
+	["user-info syntax", "http://localhost@evil.example:3000/"],
+	["a user name and password", "http://localhost:3000@evil.example/"],
+	["a look-alike host", "http://127.0.0.1.evil.example:3000/"],
+	["another loopback address", "http://127.0.0.2:3000/"],
+	["an IPv4-mapped loopback", "http://[::ffff:127.0.0.1]:3000/"],
 	["a non-http scheme", "file:///etc/passwd"],
+	["a javascript scheme", "javascript:alert(1)"],
+	["a data URL", "data:text/html,<script>1</script>"],
+	["a websocket scheme", "ws://localhost:3000/"],
 	["text that is not a URL", "not a url"],
-])("%s is not a preview route", (_name, url) => {
+	["an empty string", ""],
+])("%s is not a preview target", (_name, url) => {
+	expect(localPreviewTarget(url)).toBeNull();
 	expect(previewRouteFor(url, WORKSPACE, PROJECT)).toBeNull();
+});
+
+// The URL parser normalises `127.1` to `127.0.0.1` before the host is
+// compared, and that is the same loopback interface inside the workspace.
+test("a short loopback form is the same loopback host", () => {
+	expect(localPreviewTarget("http://127.1:3000/")).toEqual({
+		port: 3000,
+		allowed: true,
+	});
+});
+
+test("host matching ignores case", () => {
+	expect(localPreviewTarget("http://LocalHost:3000/")).toEqual({
+		port: 3000,
+		allowed: true,
+	});
 });
 
 test("an ordinary remote URL may open in a new tab", () => {

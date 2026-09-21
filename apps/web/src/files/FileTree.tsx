@@ -172,11 +172,14 @@ export function FileTreePane({
 	workspaceId,
 	project,
 	onSearch,
+	switcher,
 }: {
 	workspaceId: string;
 	project: Project;
 	/** Swap this pane for find in files (SPEC.md 11.5). */
 	onSearch: () => void;
+	/** The right pane's Files / Running switch, drawn above the head. */
+	switcher?: ReactNode;
 }) {
 	const toast = useToast();
 	const mutations = useFileMutations(workspaceId, project.id);
@@ -491,6 +494,7 @@ export function FileTreePane({
 		>
 			<TreeContext.Provider value={api}>
 				<aside className="pk-pane pk-pane--right" aria-label="Files">
+					{switcher}
 					<div className="pk-pane-head">
 						<h2 className="pk-pane-title">Files</h2>
 						<MenuRoot>

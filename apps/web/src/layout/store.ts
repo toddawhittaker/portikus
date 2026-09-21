@@ -63,6 +63,11 @@ export interface LayoutState {
 	 * caller can say so.
 	 */
 	openFile: (path: string, options?: { line?: number; diff?: boolean }) => boolean;
+	/**
+	 * Open a preview tab for one port, or activate the one already open for
+	 * it (SPEC.md §14.6). False when there is no room for another tab.
+	 */
+	openPreview: (port: number) => boolean;
 	/** Close one whole tab. Terminal tabs close by closing their terminals. */
 	closeTab: (tabId: string) => void;
 	/** Read and forget the line a file tab was asked to jump to. */
@@ -226,6 +231,19 @@ export function createLayoutStore() {
 					pendingLine,
 					pendingDiff,
 					pendingEdit,
+					dirty: state.dirty || opened.layout !== state.layout,
+				});
+				return true;
+			},
+
+			openPreview: (port) => {
+				const state = get();
+				const opened = tree.openPreview(state.layout, port);
+				if (!opened) return false;
+				set({
+					layout: opened.layout,
+					activeTabId: opened.tabId,
+					tabHistory: remember(state.tabHistory, opened.tabId),
 					dirty: state.dirty || opened.layout !== state.layout,
 				});
 				return true;

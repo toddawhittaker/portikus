@@ -21,7 +21,15 @@ export type TerminalLink =
 			search: { path: string; line: number };
 	  };
 
-const PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1"]);
+/**
+ * The only hosts a printed URL may name for a preview
+ * (BROWSER-HANDLING.md §15). They are compared exactly: `localhost.evil.example`
+ * and `evil.localhost` are other people's machines, not this workspace.
+ */
+const PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Ports below this are reserved and are never previewed (SPEC.md §14.7). */
+export const MIN_PREVIEW_PORT = 1024;
 
 /**
  * Whether a dotted-quad address is loopback, unspecified, private, or
@@ -121,14 +129,17 @@ function isLocalOrPrivateHost(host: string): boolean {
 export const FILE_LINE_PATTERN = /([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):(\d+)/;
 
 /**
- * A local development URL such as `http://localhost:3000` becomes the
- * authenticated preview route for that port. Anything else is not ours.
+ * What a URL printed by a terminal points at, when it points at a service
+ * inside this workspace (SPEC.md §14.9, BROWSER-HANDLING.md §15).
+ *
+ * Null for anything else: another host, a scheme we do not open, or a URL
+ * carrying a user name, which is how `localhost@evil.example` is written.
+ * `allowed` is false for a port policy reserves, so the caller can say why
+ * nothing opened instead of opening the wrong thing.
  */
-export function previewRouteFor(
+export function localPreviewTarget(
 	url: string,
-	workspaceId: string,
-	projectId: string,
-): TerminalLink | null {
+): { port: number; allowed: boolean } | null {
 	let parsed: URL;
 	try {
 		parsed = new URL(url);
@@ -136,7 +147,10 @@ export function previewRouteFor(
 		return null;
 	}
 	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
-	if (!PREVIEW_HOSTS.has(parsed.hostname)) return null;
+	if (parsed.username !== "" || parsed.password !== "") return null;
+	// `hostname` keeps the brackets of an IPv6 literal, which is how [::1] is
+	// written in a URL.
+	if (!PREVIEW_HOSTS.has(parsed.hostname.toLowerCase())) return null;
 	// A URL with no port means the scheme's default port.
 	const port = parsed.port
 		? Number(parsed.port)
@@ -144,10 +158,25 @@ export function previewRouteFor(
 			? 443
 			: 80;
 	if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+	return { port, allowed: port >= MIN_PREVIEW_PORT };
+}
+
+/**
+ * A local development URL such as `http://localhost:3000` becomes the
+ * authenticated preview route for that port. Anything else, and any port
+ * policy reserves, is not ours.
+ */
+export function previewRouteFor(
+	url: string,
+	workspaceId: string,
+	projectId: string,
+): TerminalLink | null {
+	const target = localPreviewTarget(url);
+	if (!target?.allowed) return null;
 	return {
 		kind: "preview",
 		to: "/workspaces/$id/projects/$projectId/preview/$port",
-		params: { id: workspaceId, projectId, port: String(port) },
+		params: { id: workspaceId, projectId, port: String(target.port) },
 	};
 }
 
