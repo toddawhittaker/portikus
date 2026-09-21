@@ -1,8 +1,8 @@
 /**
  * Loopback forwards (BROWSER-HANDLING.md §11.1, §11.2). A forward is a
  * listener on the container's workspace-reachable interface that copies bytes
- * to and from `127.0.0.1` on the same port in this container, and nothing
- * else. It is not a general TCP proxy: it has no target address or port of
+ * to and from the loopback address that port is listening on in this
+ * container, on the same port, and nothing else. It is not a general TCP proxy: it has no target address or port of
  * its own, and only the control plane's routes below can create one.
  */
 import { connect, createServer, type Server, type Socket } from "node:net";
@@ -87,7 +87,10 @@ export class Forwards {
 		const sockets = new Set<Socket>();
 		const server = createServer((incoming) => {
 			sockets.add(incoming);
-			const target = connect({ host: "127.0.0.1", port });
+			// Asked again per connection: a restarted server can move between
+			// the IPv4 and IPv6 loopback address on the same port.
+			const host = this.monitor.loopbackTarget(port) ?? "127.0.0.1";
+			const target = connect({ host, port });
 			sockets.add(target);
 			const drop = () => {
 				sockets.delete(incoming);

@@ -22,13 +22,13 @@ afterEach(() => {
 	servers.length = 0;
 });
 
-/** An echo server on 127.0.0.1 that prefixes what it is sent. */
-async function echoServer(label: string): Promise<number> {
+/** An echo server on one loopback address that prefixes what it is sent. */
+async function echoServer(label: string, host = "127.0.0.1"): Promise<number> {
 	const server = createServer((socket) => {
 		socket.on("data", (chunk) => socket.write(`${label}:${chunk.toString()}`));
 	});
 	servers.push(server);
-	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	await new Promise<void>((resolve) => server.listen(0, host, resolve));
 	return (server.address() as AddressInfo).port;
 }
 
@@ -47,19 +47,29 @@ function roundTrip(host: string, port: number, message: string): Promise<string>
 	});
 }
 
-/** A monitor stand-in: the tests drive which ports look loopback-only. */
-function fakeMonitor(loopbackPorts: Set<number>): ListeningMonitor {
+/**
+ * A monitor stand-in: the tests drive which ports look loopback-only and
+ * which loopback address each of them is listening on.
+ */
+function fakeMonitor(
+	loopbackPorts: Set<number>,
+	target: (port: number) => string | null = () => "127.0.0.1",
+): ListeningMonitor {
 	return {
 		refresh: async () => [],
 		isLoopbackOnly: (port: number) => loopbackPorts.has(port),
 		hasLoopbackListener: (port: number) => loopbackPorts.has(port),
+		loopbackTarget: (port: number) => (loopbackPorts.has(port) ? target(port) : null),
 	} as unknown as ListeningMonitor;
 }
 
-function makeForwards(loopbackPorts: Set<number>): Forwards {
+function makeForwards(
+	loopbackPorts: Set<number>,
+	target?: (port: number) => string | null,
+): Forwards {
 	const pool = new Forwards({
 		interfaceAddress: FORWARD_ADDRESS,
-		monitor: fakeMonitor(loopbackPorts),
+		monitor: fakeMonitor(loopbackPorts, target),
 	});
 	pools.push(pool);
 	return pool;
@@ -149,4 +159,32 @@ test("the forward closes itself when the loopback listener disappears", async ()
 
 	expect(forwards.list()).toEqual([]);
 	await expect(roundTrip(FORWARD_ADDRESS, port, "hello")).rejects.toThrow();
+});
+
+test("a forward reaches a service bound to ::1 only", async () => {
+	const port = await echoServer("six", "::1");
+	const forwards = makeForwards(new Set([port]), () => "::1");
+
+	await forwards.open(port);
+	expect(await roundTrip(FORWARD_ADDRESS, port, "hello")).toBe("six:hello");
+});
+
+test("the forward re-reads the loopback address on every connection", async () => {
+	// The same port, first served over IPv4 and then over IPv6, as a restarted
+	// development server can do.
+	const port = await echoServer("four", "127.0.0.1");
+	let host = "127.0.0.1";
+	const forwards = makeForwards(new Set([port]), () => host);
+	await forwards.open(port);
+	expect(await roundTrip(FORWARD_ADDRESS, port, "hello")).toBe("four:hello");
+
+	for (const server of servers.splice(0, servers.length)) server.close();
+	const sixServer = createServer((socket) => {
+		socket.on("data", (chunk) => socket.write(`six:${chunk.toString()}`));
+	});
+	servers.push(sixServer);
+	await new Promise<void>((resolve) => sixServer.listen(port, "::1", resolve));
+	host = "::1";
+
+	expect(await roundTrip(FORWARD_ADDRESS, port, "hello")).toBe("six:hello");
 });
