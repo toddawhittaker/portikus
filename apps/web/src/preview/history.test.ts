@@ -206,21 +206,41 @@ test("stepping off the anchor re-anchors and Back then refuses", () => {
 
 test("a second Preview tab shares the one anchor", () => {
 	const tab = fakeWindow();
-	const first = attachPreviewHistory("tab-1", tab.win);
+	attachPreviewHistory("tab-1", tab.win);
 	const second = attachPreviewHistory("tab-2", tab.win);
 	// One anchor, not two: there is one history list per browser tab.
 	expect(tab.entries).toHaveLength(2);
-	first.release();
-	// The guard is still held, so the second tab still works.
 	tab.frameNavigates();
 	expect(second.canGoBack()).toBe(true);
-	second.release();
 });
 
 test("opening and closing Preview tabs does not pile up history entries", () => {
 	const tab = fakeWindow();
 	for (let cycle = 0; cycle < 5; cycle += 1) {
-		attachPreviewHistory(`tab-${cycle}`, tab.win).release();
+		attachPreviewHistory(`tab-${cycle}`, tab.win);
 	}
 	expect(tab.entries).toHaveLength(2);
+});
+
+/**
+ * The guard keeps watching even with no Preview tab open. It used to drop
+ * the listener when the last tab closed, and then a student who pressed the
+ * browser's own Back a few times and reopened a preview found the anchor
+ * still where it had been: Back believed there were frame entries below it
+ * and the next press took the workspace away.
+ */
+test("Back presses made with no Preview tab open are still seen", () => {
+	const tab = fakeWindow();
+	attachPreviewHistory("tab-1", tab.win);
+	tab.frameNavigates();
+
+	// The student closes the Preview tab and walks back by hand.
+	tab.win.history.back();
+	tab.win.history.back();
+
+	// Reopening finds the anchor put back where the student now stands.
+	const reopened = attachPreviewHistory("tab-2", tab.win);
+	expect(reopened.canGoBack()).toBe(false);
+	expect(reopened.back()).toBe(false);
+	expect(tab.win.location.href).toBe(PORTIKUS);
 });

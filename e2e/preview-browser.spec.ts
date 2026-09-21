@@ -1025,6 +1025,51 @@ test.describe("the preview in a real browser", () => {
 	});
 
 	/**
+	 * The same counting, for a single-page application that changes route
+	 * with `pushState` and never loads a page (issue #283). Two route changes
+	 * are two presses of Back, and the third is refused.
+	 */
+	test("two in-frame route changes are two presses of Back", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Routes");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await expect(appHeading(page)).toHaveText("Routes", { timeout: 20_000 });
+		const portikusUrl = page.url();
+
+		// Two route changes, and no page load at all: every entry here belongs
+		// to the one document the frame already had.
+		const frame = () => page.frameLocator("[data-testid=preview-frame]");
+		await frame().locator("#push").click();
+		await expect(appHeading(page)).toHaveText("pushed route");
+		await frame().locator("#push").click();
+		await expect(appHeading(page)).toHaveText("pushed route");
+
+		// Two entries, so two presses: the first steps between the two route
+		// changes, the second returns to the page the frame started on.
+		await page.getByTestId("preview-back").click();
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("Routes");
+
+		// The third press has nothing of the frame's left, and must not reach
+		// for the Portikus page's own entries.
+		await page.getByTestId("preview-back").click();
+		await expect(page.getByTestId("preview-back")).toHaveAttribute(
+			"title",
+			"Nothing to go back to",
+			{ timeout: 10_000 },
+		);
+		await expect(appHeading(page)).toHaveText("Routes");
+		expect(page.url()).toBe(portikusUrl);
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await expect(page.getByTestId("preview-frame")).toBeVisible();
+		await app.close();
+	});
+
+	/**
 	 * The states are a compact stack in the middle of the pane, not a column
 	 * stretched from top to bottom (issue #275).
 	 */
