@@ -123,7 +123,7 @@ interface PendingHarness extends Omit<Harness, "pty"> {
  */
 async function startAttach(options: AttachOptions = {}): Promise<PendingHarness> {
 	const id = makeId();
-	await createSession(id, homeDir, homeDir, "dark", SOCKET_NAME);
+	await createSession(id, homeDir, homeDir, "dark", "America/New_York", SOCKET_NAME);
 	let pty: FakePty | null = null;
 	const { logger, lines } = collectingLogger();
 	const registry = new TerminalRegistry(

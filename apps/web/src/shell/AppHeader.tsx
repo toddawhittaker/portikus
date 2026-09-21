@@ -21,7 +21,7 @@ import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useWorkspaceAction } from "../api/workspace.js";
 import { clearLocalLayouts } from "../layout/local.js";
-import { EditorSettingsDialog } from "../settings/EditorSettingsDialog.js";
+import { SettingsDialog } from "../settings/SettingsDialog.js";
 import type { MeUser } from "../useMe.js";
 import { type ThemePreference, useThemePreference } from "./theme.js";
 
@@ -152,7 +152,7 @@ export function AppHeader({
 					) : null}
 					<MenuSeparator />
 					<MenuItem onSelect={() => setSettingsOpen(true)}>
-						<span data-testid="editor-settings">Editor settings</span>
+						<span data-testid="editor-settings">Settings</span>
 					</MenuItem>
 					<MenuSeparator />
 					<MenuItem
@@ -170,9 +170,7 @@ export function AppHeader({
 			{/* A real form post, so the session cookie is cleared by the server. */}
 			<form ref={signOutForm} method="post" action="/auth/logout" className="hidden" />
 
-			{settingsOpen ? (
-				<EditorSettingsDialog onClose={() => setSettingsOpen(false)} />
-			) : null}
+			{settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
 
 			<DialogRoot open={statusOpen} onOpenChange={setStatusOpen}>
 				{statusOpen && (
