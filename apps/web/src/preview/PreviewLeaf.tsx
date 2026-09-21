@@ -13,6 +13,7 @@ import { useListening } from "../running/services.js";
 import {
 	clearPreviewOriginData,
 	type Grant,
+	openPreviewInNewTab,
 	probeEmbeddable,
 	requestGrant,
 	resetPreviewData,
@@ -200,20 +201,12 @@ export function PreviewLeaf({
 	 * `opener` on the handle cuts the back-reference instead.
 	 */
 	async function openInNewTab() {
-		const opened = window.open("about:blank", "_blank");
-		if (opened) opened.opener = null;
-		try {
-			const grant = await requestGrant(workspaceId, port, "top-level");
-			if (opened) opened.location.replace(grant.bootstrapUrl);
-			else window.open(grant.bootstrapUrl, "_blank", "noopener,noreferrer");
-		} catch {
-			opened?.close();
-			toast.show({
-				tone: "danger",
-				title: "That preview could not be opened",
-				children: "Check that your application is still running, then try again.",
-			});
-		}
+		if (await openPreviewInNewTab(workspaceId, port)) return;
+		toast.show({
+			tone: "danger",
+			title: "That preview could not be opened",
+			children: "Check that your application is still running, then try again.",
+		});
 	}
 
 	async function copyUrl() {

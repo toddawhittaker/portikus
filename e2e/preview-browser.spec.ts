@@ -706,6 +706,46 @@ test.describe("the preview in a real browser", () => {
 		await app.close();
 	});
 
+	test("Open in new tab from a Running row opens exactly one tab", async ({
+		page,
+		context,
+	}) => {
+		// The Running row uses the same single-tab pattern as the Preview tab
+		// (issues #261, #272), so one click must leave exactly one new page.
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Row tab");
+		const project = await createProject(student.workspaceId, { name: "row-new-tab" });
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await page.getByTestId("right-pane-tab-running").click();
+		await expect(page.getByTestId(`running-row-${app.port}`)).toBeVisible({
+			timeout: 20_000,
+		});
+
+		const before = context.pages();
+		await page.getByTestId(`running-new-tab-${app.port}`).click();
+		let opened: Page | undefined;
+		await expect
+			.poll(
+				() => {
+					opened = context.pages().find((one) => {
+						try {
+							return new URL(one.url()).hostname.endsWith(PREVIEW_SUFFIX);
+						} catch {
+							return false;
+						}
+					});
+					return opened !== undefined;
+				},
+				{ timeout: 20_000 },
+			)
+			.toBe(true);
+		if (!opened) throw new Error("no tab opened on the preview origin");
+		await expect(opened.locator("#title")).toHaveText("Row tab", { timeout: 20_000 });
+		expect(context.pages().filter((one) => !before.includes(one))).toHaveLength(1);
+		await app.close();
+	});
+
 	test("Open in new tab lands on the preview origin, not the Portikus one", async ({
 		page,
 		context,
