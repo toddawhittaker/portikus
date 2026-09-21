@@ -11,11 +11,13 @@ import {
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
+import { createListeningRegistry } from "./preview/registry.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerGitSearchRoutes } from "./routes/git-search.js";
 import { registerMeRoutes } from "./routes/me.js";
+import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectEventsSocket } from "./routes/project-events.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerTerminalRoutes } from "./routes/terminals.js";
@@ -29,6 +31,8 @@ export interface ServerDeps {
 	logger: Logger;
 	/** Tests inject a client bound to the mock provider. */
 	oidc?: OidcClient;
+	/** How often the listening registry looks for workspaces; tests go faster. */
+	previewPollIntervalMs?: number;
 }
 
 /** Build the control-plane HTTP server (SPEC.md §2.8, STACK.md §4). */
@@ -117,10 +121,26 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		reply.status(500).send(body);
 	});
 
+	// One websocket per running workspace tells the control plane what is
+	// listening inside it (BROWSER-HANDLING.md §11.1).
+	const registry = createListeningRegistry({
+		db: deps.db,
+		config: deps.config,
+		logger: deps.logger,
+		...(deps.previewPollIntervalMs === undefined
+			? {}
+			: { pollIntervalMs: deps.previewPollIntervalMs }),
+	});
+	app.addHook("onReady", async () => registry.start());
+	app.addHook("onClose", async () => registry.stop());
+
+	const routeDeps = { ...deps, registry };
+
 	app.register(async (instance) => {
 		registerAuthRoutes(instance, deps);
 		registerWorkspaceRoutes(instance, deps);
-		registerWorkspaceSocket(instance, deps);
+		registerWorkspaceSocket(instance, routeDeps);
+		registerPreviewRoutes(instance, routeDeps);
 		registerTerminalRoutes(instance, deps);
 		registerProjectRoutes(instance, deps);
 		registerFileRoutes(instance, deps);

@@ -8,6 +8,8 @@ import {
 	AgentProjectList,
 	AgentRenameProjectRequest,
 	type LogLevel,
+	LoopbackForward,
+	LoopbackForwardRequest,
 	SetLogLevelRequest,
 } from "@portikus/contracts";
 
@@ -64,6 +66,29 @@ export class AgentClient {
 	/** The websocket URL the project's filesystem events are piped from. */
 	projectEventsUrl(slug: string): string {
 		return `ws://${this.address}:${this.port}/projects/${encodeURIComponent(slug)}/events`;
+	}
+
+	/** The websocket URL the workspace's listening-port changes arrive on. */
+	listeningEventsUrl(): string {
+		return `ws://${this.address}:${this.port}/listening/events`;
+	}
+
+	/** Ask the agent to open a loopback forward (BROWSER-HANDLING.md §11.1). */
+	async openForward(port: number): Promise<LoopbackForward> {
+		const payload = await this.call(
+			"POST",
+			"/forwards",
+			LoopbackForwardRequest.parse({ port }),
+		);
+		return LoopbackForward.parse(payload);
+	}
+
+	/**
+	 * Close a loopback forward. Best effort: a forward that is already gone,
+	 * or an agent that has stopped, leaves nothing for us to clean up.
+	 */
+	async closeForward(port: number): Promise<void> {
+		await this.call("DELETE", `/forwards/${port}`).catch(() => undefined);
 	}
 
 	/** The Authorization header for the agent. Never log the result. */

@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
+import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import websocket, { type WebSocket } from "@fastify/websocket";
 import {
+	type AgentListeningService,
 	type GitDiff,
 	type GitStatus,
 	GitStatusQuery,
@@ -16,6 +18,7 @@ import Fastify, {
 	type FastifyReply,
 	type FastifyRequest,
 } from "fastify";
+import { WebSocketServer } from "ws";
 
 /**
  * A stand-in for the workspace agent, used by the API tests. It checks the
@@ -53,6 +56,12 @@ export interface FakeAgent {
 	readonly eventsReceived: number;
 	/** How each events socket was closed by the caller, in order. */
 	eventCloses: Array<{ code: number; reason: string }>;
+	/** What each workspace key is listening on, keyed by agent-token suffix. */
+	listening: Map<string, AgentListeningService[]>;
+	/** Ports with a loopback forward open, keyed the same way. */
+	forwards: Map<string, Set<number>>;
+	/** While true, `POST /forwards` fails so the grant route's 409 shows. */
+	failForward: boolean;
 	/** Push one frame to every events subscriber of a project. */
 	pushEvent: (key: string, slug: string, frame: unknown) => number;
 	/** Push one frame larger than the control plane's 1 MiB cap. */
@@ -287,7 +296,67 @@ export async function startFakeAgent(
 		searchAborted: 0,
 		eventLimit: false,
 		eventsReceived: 0,
+		failForward: false,
 	};
+
+	// What each workspace key is listening on, who is watching it, and which
+	// ports have a loopback forward open (BROWSER-HANDLING.md §11.1).
+	const listening = new Map<string, AgentListeningService[]>();
+	const listeningSockets = new Map<string, Set<WebSocket>>();
+	const forwards = new Map<string, Set<number>>();
+	const testApps: Server[] = [];
+
+	function listeningFor(key: string): AgentListeningService[] {
+		return listening.get(key) ?? [];
+	}
+
+	function sendListening(socket: WebSocket, services: AgentListeningService[]): void {
+		if (socket.readyState !== socket.OPEN) return;
+		socket.send(
+			JSON.stringify({
+				type: "workspace.listening-services.changed",
+				services,
+				observedAt: new Date().toISOString(),
+			}),
+		);
+	}
+
+	function pushListening(key: string): void {
+		for (const socket of listeningSockets.get(key) ?? []) {
+			sendListening(socket, listeningFor(key));
+		}
+	}
+
+	/** Mirror the real agent: an open forward makes a loopback port reachable. */
+	function markForwarded(key: string, port: number, open: boolean): void {
+		listening.set(
+			key,
+			listeningFor(key).map((service) =>
+				service.port === port
+					? { ...service, previewReachability: open ? "forwarded" : "unknown" }
+					: service,
+			),
+		);
+		pushListening(key);
+	}
+
+	/** A real HTTP and WebSocket application, on a port of its own. */
+	async function startTestApp(title: string): Promise<number> {
+		const server = createServer((_req, res) => {
+			res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+			res.end(`<!doctype html><title>${title}</title><h1>${title}</h1>`);
+		});
+		const sockets = new WebSocketServer({ server });
+		sockets.on("connection", (socket) => {
+			socket.on("message", (data: Buffer) => socket.send(`echo:${data.toString()}`));
+			socket.send("hello");
+		});
+		testApps.push(server);
+		await new Promise<void>((resolve) => {
+			server.listen(0, "127.0.0.1", () => resolve());
+		});
+		return (server.address() as AddressInfo).port;
+	}
 	const logLevels: (string | null)[] = [];
 
 	function projectNotFound(reply: FastifyReply) {
@@ -1117,6 +1186,116 @@ export async function startFakeAgent(
 		},
 	);
 
+	// ── Listening services and loopback forwards (BROWSER-HANDLING.md §11.1) ──
+
+	app.get("/listening", async (request) => ({
+		services: listeningFor(keyOf(request)),
+	}));
+
+	app.get(
+		"/listening/events",
+		{ websocket: true },
+		(socket: WebSocket, request: FastifyRequest) => {
+			const key = keyOf(request);
+			const peers = listeningSockets.get(key) ?? new Set<WebSocket>();
+			peers.add(socket);
+			listeningSockets.set(key, peers);
+			socket.on("close", () => peers.delete(socket));
+			// Like the real agent, the first frame is the whole list.
+			sendListening(socket, listeningFor(key));
+		},
+	);
+
+	app.get("/forwards", async (request) => ({
+		forwards: [...(forwards.get(keyOf(request)) ?? new Set<number>())].map((port) => ({
+			port,
+			address: "10.0.0.2",
+			state: "open" as const,
+		})),
+	}));
+
+	app.post("/forwards", async (request, reply) => {
+		const body = request.body as { port?: number };
+		const port = body?.port;
+		if (typeof port !== "number") {
+			return reply
+				.status(400)
+				.send({ error: { code: "BAD_REQUEST", message: "invalid port" } });
+		}
+		if (state.failForward) {
+			return reply
+				.status(409)
+				.send({ error: { code: "INTERNAL", message: "cannot bind" } });
+		}
+		const key = keyOf(request);
+		const open = forwards.get(key) ?? new Set<number>();
+		open.add(port);
+		forwards.set(key, open);
+		markForwarded(key, port, true);
+		return { port, address: "10.0.0.2", state: "open" };
+	});
+
+	app.delete("/forwards/:port", async (request, reply) => {
+		const port = Number.parseInt((request.params as { port: string }).port, 10);
+		const key = keyOf(request);
+		const open = forwards.get(key) ?? new Set<number>();
+		if (!open.delete(port)) {
+			return reply
+				.status(404)
+				.send({ error: { code: "INTERNAL", message: "no such forward" } });
+		}
+		markForwarded(key, port, false);
+		return reply.status(204).send();
+	});
+
+	/**
+	 * Seed what the workspace is listening on. The body is the whole list, so
+	 * a test can also clear it by sending an empty array.
+	 */
+	app.post("/__test/listening", async (request, reply) => {
+		const body = request.body as {
+			key?: string;
+			services?: Partial<AgentListeningService>[];
+		};
+		const key = body.key ?? "";
+		listening.set(
+			key,
+			(body.services ?? []).map((service) => ({
+				port: service.port ?? 0,
+				addresses: service.addresses ?? ["0.0.0.0"],
+				protocolHint: service.protocolHint ?? "http",
+				previewReachability: service.previewReachability ?? "reachable",
+				observedAt: new Date().toISOString(),
+			})),
+		);
+		pushListening(key);
+		return reply.status(204).send();
+	});
+
+	/**
+	 * Start a tiny HTTP and WebSocket application on a free port and report it
+	 * as listening, so an end-to-end test can drive a real preview.
+	 */
+	app.post("/__test/app", async (request, reply) => {
+		const body = (request.body ?? {}) as { key?: string; title?: string };
+		const key = body.key ?? "";
+		const title = body.title ?? "Portikus test app";
+		const port = await startTestApp(title);
+		const current = listeningFor(key).filter((one) => one.port !== port);
+		listening.set(key, [
+			...current,
+			{
+				port,
+				addresses: ["0.0.0.0"],
+				protocolHint: "http",
+				previewReachability: "reachable",
+				observedAt: new Date().toISOString(),
+			},
+		]);
+		pushListening(key);
+		return reply.status(201).send({ port });
+	});
+
 	await app.listen({ port: options.port ?? 0, host: "127.0.0.1" });
 	const address = app.server.address() as AddressInfo;
 
@@ -1161,7 +1340,18 @@ export async function startFakeAgent(
 		set failCreateWith(code: string | null) {
 			state.failCreateWith = code;
 		},
+		listening,
+		forwards,
+		get failForward() {
+			return state.failForward;
+		},
+		set failForward(value: boolean) {
+			state.failForward = value;
+		},
 		close: async () => {
+			for (const server of testApps) {
+				await new Promise<void>((resolve) => server.close(() => resolve()));
+			}
 			for (const timer of pendingFsTimers.values()) clearTimeout(timer);
 			pendingFsTimers.clear();
 			pendingFsPaths.clear();

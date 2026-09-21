@@ -124,6 +124,8 @@ export interface AuditEventsTable {
 export interface PreviewGrantsTable {
 	id: Generated<string>;
 	user_id: string;
+	/** The main Portikus session the preview session will live with. */
+	session_id: string;
 	workspace_id: string;
 	port: number;
 	preview_host: string;

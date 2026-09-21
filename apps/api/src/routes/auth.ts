@@ -13,6 +13,7 @@ import {
 import type { ApiError, MeResponse } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
+import { revokeSessionPreviewSessions } from "../preview/store.js";
 import type { ServerDeps } from "../server.js";
 
 const DENIED_MESSAGE = "Your account is not authorized to use Portikus";
@@ -148,6 +149,11 @@ export function registerAuthRoutes(
 	app.post("/auth/logout", async (request, reply) => {
 		const user = request.user;
 		if (request.sessionToken) {
+			// A preview session lives with the main one, so signing out ends it
+			// too (BROWSER-HANDLING.md §9.2). The row would go with the cascade
+			// below anyway; revoking first makes the intent explicit and leaves
+			// no window where the preview still authorizes.
+			await revokeSessionPreviewSessions(db, request.sessionToken);
 			await deleteSession(db, request.sessionToken);
 		}
 		if (user) {

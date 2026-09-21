@@ -1,4 +1,4 @@
-import { AgentErrorCode, Workspace } from "@portikus/contracts";
+import { AgentErrorCode, ListeningService, Workspace } from "@portikus/contracts";
 import { z } from "zod";
 
 /**
@@ -11,6 +11,12 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 /** Messages the API sends on the workspace WebSocket (SPEC.md §6.4). */
 export const ServerMessage = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("workspace"), workspace: Workspace }),
+	// What is listening inside the workspace right now, for the Preview tab
+	// (BROWSER-HANDLING.md §11.1, §17).
+	z.object({
+		type: z.literal("listening-services"),
+		services: z.array(ListeningService),
+	}),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
