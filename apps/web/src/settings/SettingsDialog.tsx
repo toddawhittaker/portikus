@@ -48,6 +48,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	// While the settings are still loading the dialog shows the defaults, the
 	// same values the editor is using until they arrive.
 	const current = settings.data ?? EDITOR_SETTINGS_DEFAULTS;
+	// The zone names the server accepts, so the select cannot offer one it
+	// would reject (issue #287). Empty until the settings arrive.
+	const zones = settings.data?.timezones ?? [];
 
 	// The draft is only what the student has touched, so a setting they left
 	// alone still shows what the server sent once it arrives.
@@ -157,17 +160,21 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						/>
 					</Section>
 					<Section title="Workspace">
-						<Select
-							id="workspace-timezone"
-							label="Workspace timezone"
-							hint="The clock your terminals, logs, and Git commits use. A new terminal takes it at once; a shell already running keeps the zone it started with until the workspace restarts. Programs you run in Docker containers keep their own clock."
-							options={[currentZoneOption(timezone)]}
-							groups={timezoneGroups(timezone)}
-							value={timezone}
-							onValueChange={(value) =>
-								setDraft((current) => ({ ...current, timezone: value }))
-							}
-						/>
+						{/* Waits for the server's zone list, so the select is built once
+						    with the stored zone already among its options. */}
+						{zones.length > 0 ? (
+							<Select
+								id="workspace-timezone"
+								label="Workspace timezone"
+								hint="The clock your terminals, logs, and Git commits use. A new terminal takes it at once; a shell already running keeps the zone it started with until the workspace restarts. Programs you run in Docker containers keep their own clock."
+								options={[currentZoneOption(timezone)]}
+								groups={timezoneGroups(zones, timezone)}
+								value={timezone}
+								onValueChange={(value) =>
+									setDraft((current) => ({ ...current, timezone: value }))
+								}
+							/>
+						) : null}
 					</Section>
 					<button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
 				</form>

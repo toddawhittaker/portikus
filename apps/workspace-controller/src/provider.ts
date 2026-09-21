@@ -2,9 +2,9 @@ import {
 	type CreateInstanceResponse,
 	InstanceName,
 	type InstanceStatus,
+	isSystemTimezone,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
-	TIMEZONES,
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
 import { type IncusClient, IncusError } from "./incus.js";
@@ -35,9 +35,6 @@ const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
 /** A lowercase DNS label; anything else must never reach the container. */
 const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
-/** The zone names this build knows, checked again here as defence in depth. */
-const KNOWN_TIMEZONES = new Set(TIMEZONES);
-
 /** A lowercase DNS name, checked again here as defence in depth. */
 const DNS_NAME_PATTERN =
 	/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
@@ -65,6 +62,15 @@ function validateName(name: string): void {
 
 function enc(name: string): string {
 	return encodeURIComponent(name);
+}
+
+/**
+ * The exit status of a finished exec operation, or null when Incus did not
+ * report one. Incus puts it in the operation's own metadata as `return`.
+ */
+function execExitStatus(result: unknown): number | null {
+	const meta = (result as { metadata?: { return?: unknown } } | undefined)?.metadata;
+	return typeof meta?.return === "number" ? meta.return : null;
 }
 
 export class IncusWorkspaceProvider implements WorkspaceProvider {
@@ -176,7 +182,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 		// The zone name ends up in a path in a command inside the container, so
 		// it has to be one of the names this build knows (issue #287).
-		if (!KNOWN_TIMEZONES.has(opts.timezone)) {
+		if (!isSystemTimezone(opts.timezone)) {
 			throw new IncusError("INVALID_NAME", `invalid timezone: ${opts.timezone}`);
 		}
 
@@ -277,7 +283,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			signal,
 		);
 
-		await this.client.request(
+		const result = await this.client.request(
 			"POST",
 			`/1.0/instances/${enc(name)}/exec`,
 			{
@@ -289,6 +295,18 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			signal,
 			timeoutSeconds,
 		);
+
+		// A missing zone file in the image makes `ln` fail, and the container
+		// would then run in the wrong zone with nothing said (issue #287).
+		const status = execExitStatus(result);
+		if (status !== null && status !== 0) {
+			throw new IncusError(
+				"OPERATION_FAILED",
+				`could not set the timezone to ${timezone}: ` +
+					`/usr/share/zoneinfo/${timezone} is missing from the image ` +
+					`(ln exited ${status})`,
+			);
+		}
 	}
 
 	private async waitForAddress(

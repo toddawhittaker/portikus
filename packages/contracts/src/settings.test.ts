@@ -5,9 +5,10 @@ import {
 	DEFAULT_TIMEZONE,
 	EDITOR_SETTINGS_DEFAULTS,
 	EditorSettings,
+	MeSettings,
 	PlatformSettings,
 	SetLogLevelRequest,
-	TIMEZONES,
+	systemTimezones,
 	UpdateAdminUserSettingsRequest,
 	UpdateEditorSettingsRequest,
 	UpdatePlatformSettingsRequest,
@@ -202,18 +203,34 @@ test("EditorSettings requires every field", () => {
 	expect(() => EditorSettings.parse({ autoSave: true })).toThrow();
 });
 
-/** Issue #287: the workspace runs in a zone the student may change. */
-test("EditorSettings takes only IANA zone names", () => {
+/**
+ * Issue #287: the workspace runs in a zone the student may change. Only a
+ * write is checked against the zone list, because a browser reading this
+ * schema back knows a different set of names.
+ */
+test("a zone is only checked when one is written", () => {
 	expect(EDITOR_SETTINGS_DEFAULTS.timezone).toBe(DEFAULT_TIMEZONE);
-	expect(
-		EditorSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, timezone: "Europe/Berlin" })
-			.timezone,
-	).toBe("Europe/Berlin");
+	expect(UpdateEditorSettingsRequest.parse({ timezone: "Europe/Berlin" })).toEqual({
+		timezone: "Europe/Berlin",
+	});
 	for (const bad of ["Mars/Olympus", "", "America/New_York; rm -rf /", 5]) {
-		expect(() =>
-			EditorSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, timezone: bad }),
-		).toThrow();
+		expect(() => UpdateEditorSettingsRequest.parse({ timezone: bad })).toThrow();
 	}
+	// Reading is lenient, so a zone this build dropped still comes back.
+	expect(
+		EditorSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, timezone: "Mars/Olympus" })
+			.timezone,
+	).toBe("Mars/Olympus");
+});
+
+/** Issue #287: the browser is given the server's list, not asked for its own. */
+test("MeSettings carries the zone list beside the settings", () => {
+	const zones = [...systemTimezones()];
+	expect(MeSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, timezones: zones })).toEqual({
+		...EDITOR_SETTINGS_DEFAULTS,
+		timezones: zones,
+	});
+	expect(() => MeSettings.parse(EDITOR_SETTINGS_DEFAULTS)).toThrow();
 });
 
 /**
@@ -221,8 +238,8 @@ test("EditorSettings takes only IANA zone names", () => {
  * nothing on this list may carry a shell metacharacter.
  */
 test("the zone list holds the default and no shell metacharacters", () => {
-	expect(TIMEZONES).toContain(DEFAULT_TIMEZONE);
-	for (const zone of TIMEZONES) {
+	expect(systemTimezones()).toContain(DEFAULT_TIMEZONE);
+	for (const zone of systemTimezones()) {
 		expect(zone).toMatch(/^[A-Za-z0-9_+\-/]+$/);
 	}
 });

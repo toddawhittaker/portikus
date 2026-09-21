@@ -1009,6 +1009,29 @@ TERMPROBE
       check "terminal shell runs in the default timezone" \
         term_probe "$term_id" 'echo $TZ' "America/New_York" - 30000
 
+      # A student who changes the zone gets it in the next terminal they
+      # open, without restarting the workspace: the agent puts TZ in the new
+      # tmux session's environment (issue #287).  The abbreviation is worked
+      # out on the VM so the check does not hard-code daylight saving.
+      chosen_zone="America/Los_Angeles"
+      chosen_abbrev=$(ssh_cmd "TZ=${chosen_zone} date +%Z")
+      set_zone() {
+        vm_get alice "${API}/me/settings" \
+          "-X PUT -H 'Origin: ${API}' -H 'Content-Type: application/json' \
+            -d '{\"timezone\":\"${chosen_zone}\"}'" \
+          | grep -q "${chosen_zone}"
+      }
+      check "a student can change the workspace timezone" set_zone
+
+      zone_term_id=$(new_terminal | json_field id)
+      if [ -z "$zone_term_id" ]; then
+        printf '\033[1;31mFAIL\033[0m  POST /terminals for the zone check returned no id\n'
+        fail=$((fail + 1))
+      else
+        check "a terminal opened after the change runs in the chosen zone" \
+          term_probe "$zone_term_id" "date +%Z" "$chosen_abbrev" - 30000
+      fi
+
       # Reattaching inside the grace period redraws the same tmux screen,
       # so the marker written a moment ago is still on it (SPEC.md 9.2).
       check "reattached terminal shows the earlier output" \

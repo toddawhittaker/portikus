@@ -90,19 +90,34 @@ export const TerminalTheme = z.enum(TERMINAL_THEMES);
 export type TerminalTheme = z.infer<typeof TerminalTheme>;
 
 /**
- * Every IANA zone name this Node build knows (issue #287). It is the whole
- * list the student chooses from and the only list a zone name is accepted
- * from, so a name that reaches a command inside the container is always one
- * of these.
+ * The IANA zone names this build knows (issue #287). This is the server's
+ * list: a browser's own list can differ, so the browser is handed this one by
+ * `GET /me/settings` instead of building its own. It is both the whole list
+ * the student chooses from and the only list a zone name is accepted from, so
+ * a name that reaches a command inside the container is always one of these.
  */
-export const TIMEZONES: readonly string[] = Intl.supportedValuesOf("timeZone");
+export function systemTimezones(): readonly string[] {
+	return Intl.supportedValuesOf("timeZone");
+}
 
-const TIMEZONE_SET = new Set(TIMEZONES);
+/** Built on first use, so a browser bundle never pays for it. */
+let systemTimezoneSet: Set<string> | null = null;
+
+/** Whether a value is one of the zone names this build knows. */
+export function isSystemTimezone(value: unknown): boolean {
+	systemTimezoneSet ??= new Set(systemTimezones());
+	return typeof value === "string" && systemTimezoneSet.has(value);
+}
 
 /** The zone a workspace runs in until the student picks another (issue #287). */
 export const DEFAULT_TIMEZONE = "America/New_York";
 
-export const Timezone = z.string().refine((value) => TIMEZONE_SET.has(value), {
+/**
+ * A zone name, checked against the list of the process doing the checking.
+ * Parsed on the server only: the API, the worker, the controller and the
+ * workspace agent are one build, so they all accept the same names.
+ */
+export const Timezone = z.string().refine(isSystemTimezone, {
 	message: "Must be an IANA time zone name such as America/New_York",
 });
 export type Timezone = z.infer<typeof Timezone>;
@@ -112,8 +127,13 @@ export const EditorSettings = z.object({
 	autoSaveDelaySeconds: z.number().int().min(1).max(60),
 	wordWrap: z.boolean(),
 	terminalTheme: TerminalTheme,
-	/** The IANA zone the student's workspace runs in (issue #287). */
-	timezone: Timezone,
+	/**
+	 * The IANA zone the student's workspace runs in (issue #287). A plain
+	 * string here because the browser parses this schema too and knows a
+	 * different set of zone names; the server checks the value against its
+	 * own list whenever one is written.
+	 */
+	timezone: z.string().min(1),
 });
 export type EditorSettings = z.infer<typeof EditorSettings>;
 
@@ -128,11 +148,26 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
 
 /**
  * Request body for `PUT /me/settings`. Every field is optional and is merged
- * into the stored settings; a request that changes nothing is rejected.
+ * into the stored settings; a request that changes nothing is rejected. The
+ * zone is checked against the server's list, which is the same list the API
+ * hands the browser, so the dialog can only offer names this accepts.
  */
-export const UpdateEditorSettingsRequest = EditorSettings.partial()
+export const UpdateEditorSettingsRequest = EditorSettings.extend({
+	timezone: Timezone,
+})
+	.partial()
 	.strict()
 	.refine((body) => Object.values(body).some((value) => value !== undefined), {
 		message: "At least one setting must be given",
 	});
 export type UpdateEditorSettingsRequest = z.infer<typeof UpdateEditorSettingsRequest>;
+
+/**
+ * The body of `GET /me/settings`: the settings plus every zone name the
+ * server will accept, so the dialog offers exactly what the API takes
+ * (issue #287).
+ */
+export const MeSettings = EditorSettings.extend({
+	timezones: z.array(z.string()),
+});
+export type MeSettings = z.infer<typeof MeSettings>;

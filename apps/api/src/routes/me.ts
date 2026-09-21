@@ -2,14 +2,22 @@ import { requireUser } from "@portikus/auth";
 import {
 	EDITOR_SETTINGS_DEFAULTS,
 	EditorSettings,
+	type MeSettings,
+	systemTimezones,
+	Timezone,
 	UpdateEditorSettingsRequest,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import type { ServerDeps } from "../server.js";
 import { sendError } from "./project-scope.js";
 
-/** Stored settings as we read them back: every field optional (issue #159). */
-const StoredEditorSettings = EditorSettings.partial();
+/**
+ * Stored settings as we read them back: every field optional (issue #159).
+ * The zone is checked against the server's list here too, so a name this
+ * build no longer knows reads back as the default rather than as a choice the
+ * dialog cannot offer (issue #287).
+ */
+const StoredEditorSettings = EditorSettings.extend({ timezone: Timezone }).partial();
 
 /**
  * Fill in the defaults for anything the user has not set, and ignore anything
@@ -34,7 +42,12 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 			.select("editor_settings")
 			.where("id", "=", user.id)
 			.executeTakeFirst();
-		const body: EditorSettings = toEditorSettings(row?.editor_settings);
+		// The zone list travels with the settings so the dialog can only offer
+		// names PUT will accept (issue #287).
+		const body: MeSettings = {
+			...toEditorSettings(row?.editor_settings),
+			timezones: [...systemTimezones()],
+		};
 		return body;
 	});
 
@@ -70,7 +83,11 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 			.returning("editor_settings")
 			.executeTakeFirstOrThrow();
 
-		const out: EditorSettings = toEditorSettings(updated.editor_settings);
+		// Same shape as GET, so the browser's cached copy keeps the zone list.
+		const out: MeSettings = {
+			...toEditorSettings(updated.editor_settings),
+			timezones: [...systemTimezones()],
+		};
 		return out;
 	});
 }
