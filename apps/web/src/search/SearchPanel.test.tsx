@@ -202,7 +202,7 @@ test("the arrows walk the result rows", async () => {
 	expect(document.activeElement).toBe(screen.getByTestId("search-result-src/app.ts-3"));
 });
 
-test("a click with no work area to open into says so", async () => {
+test("a click with no work area to open into does nothing", async () => {
 	stubSearch({ matches: [match()] });
 	renderWithQuery(
 		<SearchPanel workspaceId={WORKSPACE} projectId={PROJECT} onClose={() => {}} />,
@@ -214,7 +214,8 @@ test("a click with no work area to open into says so", async () => {
 	);
 	fireEvent.click(screen.getByTestId("search-result-src/app.ts-3"));
 
-	expect(
-		await screen.findByText("Too many tabs are open. Close one to open another."),
-	).toBeTruthy();
+	// There is no tab cap to complain about any more (issue #240), and no work
+	// area in this render, so the click is simply ignored.
+	expect(screen.getByTestId("search-result-src/app.ts-3")).toBeTruthy();
+	expect(document.querySelectorAll(".pk-toast")).toHaveLength(0);
 });

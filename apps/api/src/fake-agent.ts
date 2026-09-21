@@ -40,7 +40,7 @@ export interface FakeAgent {
 	/** While true, `PUT /log-level` fails so a retry can be observed. */
 	failLogLevel: boolean;
 	/** Project directories the fake pretends to have under ~/projects. */
-	projects: Map<string, { isGitRepo: boolean }>;
+	projects: Map<string, FakeDirectory>;
 	/** Everything under those directories, keyed the same way as the listings. */
 	files: Map<string, FakeNode>;
 	/** Seeded Git answers, keyed by `<workspace key>/<slug>`. */
@@ -206,6 +206,23 @@ function removeTree(tree: Map<string, FakeNode>, slug: string): void {
 }
 
 /** Move (or copy) a project's whole subtree onto a new slug. */
+/**
+ * One directory under `~/projects` as the fake holds it. `directoryId` stands
+ * in for the inode the real agent reports (issue #238): a rename keeps the
+ * same record, so the identity travels with the directory.
+ */
+interface FakeDirectory {
+	isGitRepo: boolean;
+	/** Absent when a test seeded the map directly and does not care. */
+	directoryId?: string;
+}
+
+let directoryIdCounter = 1000;
+function nextDirectoryId(): string {
+	directoryIdCounter += 1;
+	return String(directoryIdCounter);
+}
+
 function rekeyTree(
 	tree: Map<string, FakeNode>,
 	from: string,
@@ -237,13 +254,13 @@ export async function startFakeAgent(
 	const received: string[] = [];
 	// The same frames, with the terminal each arrived on.
 	const receivedByTerminal: { terminalId: string; text: string }[] = [];
-	const projects = new Map<string, { isGitRepo: boolean }>();
+	const projects = new Map<string, FakeDirectory>();
 	const files = new Map<string, FakeNode>();
 	const perKeyFiles = new Map<string, Map<string, FakeNode>>();
 	// One fake agent stands in for every workspace in an end-to-end run, so a
 	// token of the form "<token>:<key>" gets its own ~/projects listing and
 	// workspaces do not discover each other's directories.
-	const perKey = new Map<string, Map<string, { isGitRepo: boolean }>>();
+	const perKey = new Map<string, Map<string, FakeDirectory>>();
 	const app: FastifyInstance = Fastify({ logger: false, bodyLimit: MAX_UPLOAD_BYTES });
 	await app.register(websocket);
 
@@ -306,7 +323,7 @@ export async function startFakeAgent(
 	}
 
 	/** The ~/projects listing for a key; the bare token keeps the shared one. */
-	function dirsForKey(key: string): Map<string, { isGitRepo: boolean }> {
+	function dirsForKey(key: string): Map<string, FakeDirectory> {
 		if (key === "") return projects;
 		let dirs = perKey.get(key);
 		if (!dirs) {
@@ -329,7 +346,7 @@ export async function startFakeAgent(
 	}
 
 	/** The caller's ~/projects, from the suffix on its bearer token. */
-	function dirs(request: FastifyRequest): Map<string, { isGitRepo: boolean }> {
+	function dirs(request: FastifyRequest): Map<string, FakeDirectory> {
 		return dirsForKey(keyOf(request));
 	}
 
@@ -404,6 +421,7 @@ export async function startFakeAgent(
 
 	app.get("/projects", async (request) => ({
 		projects: [...dirs(request)].map(([slug, value]) => ({
+			directoryId: value.directoryId,
 			slug,
 			isGitRepo: value.isGitRepo,
 		})),
@@ -413,7 +431,11 @@ export async function startFakeAgent(
 		const slug = (request.params as { slug: string }).slug;
 		const project = dirs(request).get(slug);
 		if (!project) return projectNotFound(reply);
-		return { slug, isGitRepo: project.isGitRepo };
+		return {
+			slug,
+			isGitRepo: project.isGitRepo,
+			directoryId: project.directoryId,
+		};
 	});
 
 	app.post("/projects", async (request, reply) => {
@@ -440,7 +462,7 @@ export async function startFakeAgent(
 			await new Promise((resolve) => setTimeout(resolve, 300));
 		}
 		const isGitRepo = body.source === "new" ? body.gitInit : true;
-		here.set(body.slug, { isGitRepo });
+		here.set(body.slug, { isGitRepo, directoryId: nextDirectoryId() });
 		return reply.status(201).send({ slug: body.slug, isGitRepo });
 	});
 
@@ -479,7 +501,7 @@ export async function startFakeAgent(
 				.status(409)
 				.send({ error: { code: "PROJECT_EXISTS", message: "already exists" } });
 		}
-		here.set(to, { isGitRepo: project.isGitRepo });
+		here.set(to, { isGitRepo: project.isGitRepo, directoryId: nextDirectoryId() });
 		rekeyTree(fsOf(request), slug, to, { copy: true });
 		return reply.status(201).send({ slug: to, isGitRepo: project.isGitRepo });
 	});
@@ -1137,7 +1159,25 @@ export async function startFakeAgent(
 	// API. "key" picks the workspace listing the bearer token would have.
 	app.post("/__test/projects", async (request, reply) => {
 		const body = request.body as { slug: string; isGitRepo?: boolean; key?: string };
-		dirsForKey(body.key ?? "").set(body.slug, { isGitRepo: body.isGitRepo ?? true });
+		dirsForKey(body.key ?? "").set(body.slug, {
+			isGitRepo: body.isGitRepo ?? true,
+			directoryId: nextDirectoryId(),
+		});
+		return reply.status(204).send();
+	});
+
+	// Rename a directory the way `mv` in the shell does: the same directory
+	// under a new name, so its identity is unchanged (issue #238).
+	app.post("/__test/projects/:slug/move", async (request, reply) => {
+		const from = (request.params as { slug: string }).slug;
+		const to = (request.body as { to: string }).to;
+		const key = (request.query as { key?: string }).key ?? "";
+		const here = dirsForKey(key);
+		const directory = here.get(from);
+		if (!directory) return projectNotFound(reply);
+		here.delete(from);
+		here.set(to, directory);
+		rekeyTree(filesForKey(key), from, to, { copy: false });
 		return reply.status(204).send();
 	});
 

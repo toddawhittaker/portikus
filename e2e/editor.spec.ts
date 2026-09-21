@@ -489,6 +489,32 @@ test.describe("file editor", () => {
 		await openEditorSettings(page);
 		await expect(page.getByTestId("editor-settings-delay")).toHaveValue("9");
 	});
+
+	/** Issue #239: a light terminal, remembered per user (SPEC.md 13.5). */
+	test("a student can choose a light terminal and it is remembered", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openFileTab(page, student, "Lightterm", PATH, CONTENT);
+		await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "dark");
+
+		await openEditorSettings(page);
+		await page.getByLabel("Terminal colours").click();
+		await page.getByRole("option", { name: "Light" }).click();
+		await page.getByTestId("editor-settings-save").click();
+		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
+
+		// The choice reaches the shell without a reload, and survives one.
+		await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "light");
+		await page.reload();
+		await expect(page.getByTestId(`file-pane-${PATH}`)).toBeVisible({
+			timeout: 30_000,
+		});
+		await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "light");
+		await openEditorSettings(page);
+		await expect(page.getByLabel("Terminal colours")).toContainText("Light");
+	});
 	test("a Markdown file is never a false conflict (issue #157)", async ({
 		page,
 		context,

@@ -1,4 +1,4 @@
-import { MAX_LAYOUT_TABS, type Terminal } from "@portikus/contracts";
+import type { Terminal } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -212,19 +212,17 @@ test("closing a tab with two live terminals asks first", async () => {
 	expect(screen.getByTestId("terminal-group-tab1")).toBeTruthy();
 });
 
-test("a file the URL asks for says so when the tab strip is full", async () => {
-	// SPEC.md §14.9: a link that cannot open must not fail in silence.
-	const tabs = Array.from({ length: MAX_LAYOUT_TABS }, (_, index) => ({
+test("a file the URL asks for opens on a full strip (issue #240)", async () => {
+	// SPEC.md §14.9 with issue #240: there is no cap, so the link always opens.
+	const tabs = Array.from({ length: 16 }, (_, index) => ({
 		id: `file:src/file${index}.ts`,
 		root: { type: "file", path: `src/file${index}.ts` },
 	}));
 	stubFetch({ layout: { tabs }, terminals: [] });
 	renderArea({ openPath: "src/new.ts", openLine: 4 });
 
-	expect(
-		await screen.findByText("Too many tabs are open. Close one to open another."),
-	).toBeTruthy();
-	expect(screen.queryByTestId("tab-file:src/new.ts")).toBeNull();
+	expect(await screen.findByTestId("tab-file:src/new.ts")).toBeTruthy();
+	expect(screen.queryByText(/Too many tabs are open/)).toBeNull();
 });
 
 test("a saved diff tab loads as the file's own tab (issue #160)", async () => {

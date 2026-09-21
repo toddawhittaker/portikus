@@ -1,12 +1,15 @@
 import type { Terminal } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { createQueryClient } from "./api/queryClient.js";
 import {
 	decodeOsc52,
 	MAX_CLIPBOARD_BYTES,
 	SCROLLBACK_LINES,
 	TerminalPane,
+	terminalTheme,
 } from "./TerminalPane";
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
@@ -86,19 +89,21 @@ function renderPane(onExited = vi.fn(), onCwd = vi.fn(), visible = true) {
 	stubBrowserApis();
 	vi.stubGlobal("WebSocket", FakeWebSocket);
 	const view = render(
-		<ToastProvider>
-			<TerminalPane
-				workspaceId={WORKSPACE}
-				projectId={PROJECT}
-				terminal={terminal}
-				visible={visible}
-				onExited={onExited}
-				onSessionEnded={vi.fn()}
-				onCwd={onCwd}
-				onFocus={vi.fn()}
-				onLeave={vi.fn()}
-			/>
-		</ToastProvider>,
+		<QueryClientProvider client={createQueryClient(() => {})}>
+			<ToastProvider>
+				<TerminalPane
+					workspaceId={WORKSPACE}
+					projectId={PROJECT}
+					terminal={terminal}
+					visible={visible}
+					onExited={onExited}
+					onSessionEnded={vi.fn()}
+					onCwd={onCwd}
+					onFocus={vi.fn()}
+					onLeave={vi.fn()}
+				/>
+			</ToastProvider>
+		</QueryClientProvider>,
 	);
 	return { view, onExited, onCwd };
 }
@@ -368,4 +373,17 @@ test("an OSC 52 read request is ignored rather than handing over the clipboard",
 
 test("an OSC 52 payload that is not base64 copies nothing", () => {
 	expect(decodeOsc52("not base64!!")).toBe("");
+});
+
+/** Issue #239: the light scheme is a light ground with readable ANSI colours. */
+test("the light terminal theme is light and has its own ANSI palette", () => {
+	const dark = terminalTheme("dark");
+	const light = terminalTheme("light");
+
+	expect(dark.background).toBe("#11100e");
+	expect(light.background).toBe("#fdfcfa");
+	expect(light.foreground).toBe("#23211d");
+	// The default palette is written for a dark ground, so light brings its own.
+	expect(light.red).toBeDefined();
+	expect(dark.red).toBeUndefined();
 });

@@ -210,6 +210,66 @@ test.skipIf(skip)(
 	},
 );
 
+/**
+ * Issue #238: `mv olddir newdir` in the shell keeps the project. The marker
+ * is the directory's identity, which a rename preserves.
+ */
+test.skipIf(skip)("a project renamed in the shell follows its directory", async () => {
+	agent.projects.set("todo-api", { isGitRepo: true, directoryId: "7001" });
+
+	const first = await listProjects(alice, workspaceId);
+	const before = first.json().projects[0] as Record<string, unknown>;
+	expect(before.slug).toBe("todo-api");
+
+	// The student renames the folder: same directory, new name.
+	agent.projects.delete("todo-api");
+	agent.projects.set("todo-service", { isGitRepo: true, directoryId: "7001" });
+
+	const second = await listProjects(alice, workspaceId);
+	const projects = second.json().projects as Array<Record<string, unknown>>;
+	expect(projects).toHaveLength(1);
+	const after = projects[0] as Record<string, unknown>;
+	expect(after.id).toBe(before.id);
+	expect(after.slug).toBe("todo-service");
+	expect(after.path).toBe("/home/student/projects/todo-service");
+	expect(after.missing).toBe(false);
+});
+
+test.skipIf(skip)(
+	"a directory that is not the one a project named becomes its own project",
+	async () => {
+		agent.projects.set("alpha", { isGitRepo: true, directoryId: "8001" });
+		await listProjects(alice, workspaceId);
+
+		// A different directory appears while alpha is still there.
+		agent.projects.set("beta", { isGitRepo: true, directoryId: "8002" });
+
+		const listed = await listProjects(alice, workspaceId);
+		const slugs = (listed.json().projects as Array<Record<string, unknown>>)
+			.map((project) => project.slug)
+			.sort();
+		expect(slugs).toEqual(["alpha", "beta"]);
+	},
+);
+
+test.skipIf(skip)(
+	"a project whose directory is gone for good stays missing",
+	async () => {
+		agent.projects.set("gone", { isGitRepo: true, directoryId: "9001" });
+		await listProjects(alice, workspaceId);
+
+		// Deleted, not renamed: nothing on disk carries its identity.
+		agent.projects.delete("gone");
+		agent.projects.set("fresh", { isGitRepo: true, directoryId: "9002" });
+
+		const listed = await listProjects(alice, workspaceId);
+		const projects = listed.json().projects as Array<Record<string, unknown>>;
+		const old = projects.find((project) => project.slug === "gone");
+		expect(old?.missing).toBe(true);
+		expect(projects.map((project) => project.slug).sort()).toEqual(["fresh", "gone"]);
+	},
+);
+
 test.skipIf(skip)("an archived slug is never re-added by discovery", async () => {
 	const created = await createProject(alice, workspaceId, {
 		name: "old work",
