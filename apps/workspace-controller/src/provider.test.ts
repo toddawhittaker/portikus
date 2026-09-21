@@ -250,7 +250,9 @@ test("start pushes the agent token, then waits for agent health", async () => {
 	]);
 	expect(profilePush.url).toContain("path=%2Fetc%2Fprofile.d%2Fportikus.sh");
 	expect(profilePush.body).toBe(
-		"export PORTIKUS_PREVIEW=true\nexport PORTIKUS_PREVIEW_HOST_SUFFIX=preview.portikus.example.edu\nexport TZ=America/New_York\n",
+		"export PORTIKUS_PREVIEW=true\nexport PORTIKUS_PREVIEW_HOST_SUFFIX=preview.portikus.example.edu\n" +
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell syntax, not a placeholder
+			'export TZ="${TZ:-America/New_York}"\n',
 	);
 	expect(profilePush.headers["x-incus-uid"]).toBe("0");
 	expect(profilePush.headers["x-incus-gid"]).toBe("0");

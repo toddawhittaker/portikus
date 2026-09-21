@@ -206,7 +206,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		await this.client.pushFile(
 			name,
 			PROFILE_PATH,
-			`export PORTIKUS_PREVIEW=true\nexport PORTIKUS_PREVIEW_HOST_SUFFIX=${opts.previewHostSuffix}\nexport TZ=${opts.timezone}\n`,
+			// TZ is a default, not an override: tmux sets the session's current
+			// zone and a login shell sources this file afterwards, so a student
+			// who changes their timezone must not get the start-time zone back
+			// (issue #287). The zone was validated against the system list.
+			`export PORTIKUS_PREVIEW=true\n` +
+				`export PORTIKUS_PREVIEW_HOST_SUFFIX=${opts.previewHostSuffix}\n` +
+				`export TZ="\${TZ:-${opts.timezone}}"\n`,
 			{ uid: 0, gid: 0, mode: "0644" },
 			signal,
 		);
