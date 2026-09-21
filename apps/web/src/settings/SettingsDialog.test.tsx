@@ -16,10 +16,22 @@ interface Sent {
 	body: unknown;
 }
 
+/**
+ * The zone names the server says it accepts. The dialog offers these and
+ * nothing else, so the browser's own zone list never comes into it (#287).
+ */
+const SERVER_ZONES = [
+	"UTC",
+	"America/New_York",
+	"Europe/Berlin",
+	"Europe/Madrid",
+	"Asia/Tokyo",
+];
+
 /** Answers GET /me/settings with `stored` and records what is written. */
 function stubSettings(stored = EDITOR_SETTINGS_DEFAULTS) {
 	const writes: Sent[] = [];
-	let current = stored;
+	let current = { ...stored, timezones: SERVER_ZONES };
 	stubFetch((url, init) => {
 		if (url !== "/me/settings") throw new Error(`unexpected request to ${url}`);
 		if ((init?.method ?? "GET") !== "GET") {
@@ -40,10 +52,10 @@ function checkbox(name: RegExp) {
 test("the three sections each hold their fields", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	await waitFor(() =>
-		expect(
-			(screen.getByTestId("editor-settings-delay") as HTMLInputElement).value,
-		).toBe("5"),
+	// The zone select waits for the server's list, so it arrives last.
+	await waitFor(() => expect(screen.getByLabelText("Workspace timezone")).toBeTruthy());
+	expect((screen.getByTestId("editor-settings-delay") as HTMLInputElement).value).toBe(
+		"5",
 	);
 
 	const editor = screen.getByRole("region", { name: "Editor" });
@@ -191,4 +203,33 @@ test("the stored timezone is shown and sent back", async () => {
 
 	await waitFor(() => expect(writes).toHaveLength(1));
 	expect(writes[0]?.body).toMatchObject({ timezone: "Europe/Berlin" });
+});
+
+/**
+ * Issue #287: the zone select is built from the list the server sent with the
+ * settings, so it can only offer names the API accepts. The browser's own
+ * zone list, which differs, is never read.
+ */
+test("the zone select offers exactly the zones the server sent", async () => {
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByLabelText("Workspace timezone").textContent).toContain(
+			"America/New York",
+		),
+	);
+
+	fireEvent.click(screen.getByLabelText("Workspace timezone"));
+	const offered = await waitFor(() => {
+		const found = screen.getAllByRole("option");
+		expect(found.length).toBe(SERVER_ZONES.length);
+		return found;
+	});
+	expect(offered.map((option) => option.textContent).sort()).toEqual([
+		"America/New York (current)",
+		"Berlin",
+		"Madrid",
+		"Tokyo",
+		"UTC",
+	]);
 });

@@ -2,9 +2,9 @@ import {
 	type CreateInstanceResponse,
 	InstanceName,
 	type InstanceStatus,
+	isSystemTimezone,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
-	TIMEZONES,
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
 import { type IncusClient, IncusError } from "./incus.js";
@@ -34,9 +34,6 @@ const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
 
 /** A lowercase DNS label; anything else must never reach the container. */
 const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
-
-/** The zone names this build knows, checked again here as defence in depth. */
-const KNOWN_TIMEZONES = new Set(TIMEZONES);
 
 /** A lowercase DNS name, checked again here as defence in depth. */
 const DNS_NAME_PATTERN =
@@ -176,7 +173,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 		// The zone name ends up in a path in a command inside the container, so
 		// it has to be one of the names this build knows (issue #287).
-		if (!KNOWN_TIMEZONES.has(opts.timezone)) {
+		if (!isSystemTimezone(opts.timezone)) {
 			throw new IncusError("INVALID_NAME", `invalid timezone: ${opts.timezone}`);
 		}
 

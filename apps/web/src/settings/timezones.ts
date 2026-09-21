@@ -1,9 +1,9 @@
 /**
- * The timezone list the settings dialog shows (issue #287). There are a few
- * hundred zone names, so they are grouped by the region their name starts
- * with, and the zone in use is offered on its own at the top.
+ * The timezone list the settings dialog shows (issue #287). The names come
+ * from the server with the settings, so the dialog can only offer zones the
+ * API will accept. There are a few hundred, so they are grouped by the region
+ * their name starts with, and the zone in use is offered on its own at the top.
  */
-import { TIMEZONES } from "@portikus/contracts";
 import type { SelectGroup, SelectOption } from "@portikus/ui";
 
 /** "America/Indiana/Knox" reads as "Indiana / Knox". */
@@ -22,9 +22,12 @@ export function currentZoneOption(current: string): SelectOption {
 }
 
 /** Every other zone, by region. The current one is left out, it is on top. */
-export function timezoneGroups(current: string): SelectGroup[] {
+export function timezoneGroups(
+	zones: readonly string[],
+	current: string,
+): SelectGroup[] {
 	const byRegion = new Map<string, SelectOption[]>();
-	for (const zone of TIMEZONES) {
+	for (const zone of zones) {
 		if (zone === current) continue;
 		const here = byRegion.get(region(zone)) ?? [];
 		here.push({ value: zone, label: zoneLabel(zone) });

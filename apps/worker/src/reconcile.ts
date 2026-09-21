@@ -2,16 +2,13 @@ import { randomBytes } from "node:crypto";
 import {
 	type ControllerErrorCode,
 	DEFAULT_TIMEZONE,
-	TIMEZONES,
+	isSystemTimezone,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Logger, silentLogger } from "@portikus/observability";
 import { type ExpressionBuilder, type Kysely, sql } from "kysely";
 import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
-
-/** The zone names this build knows, so a stored one can be checked (issue #287). */
-const KNOWN_TIMEZONES = new Set(TIMEZONES);
 
 /** Config values the reconciler reads. */
 export interface ReconcileConfig {
@@ -634,9 +631,7 @@ async function ownerTimezone(
 		.where("workspaces.id", "=", workspaceId)
 		.executeTakeFirst();
 	const stored = row?.editor_settings?.timezone;
-	return typeof stored === "string" && KNOWN_TIMEZONES.has(stored)
-		? stored
-		: DEFAULT_TIMEZONE;
+	return isSystemTimezone(stored) ? (stored as string) : DEFAULT_TIMEZONE;
 }
 
 /**

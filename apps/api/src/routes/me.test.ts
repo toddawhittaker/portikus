@@ -5,6 +5,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import { systemTimezones, UpdateEditorSettingsRequest } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -69,6 +70,7 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 		wordWrap: true,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 });
 
@@ -84,6 +86,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 
 	const second = await put(jar, { autoSaveDelaySeconds: 30 });
@@ -93,6 +96,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 
 	const read = await app.inject({
@@ -106,6 +110,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 });
 
@@ -147,6 +152,36 @@ test.skipIf(skip)("a known zone is accepted and kept", async () => {
 	expect(read.json().timezone).toBe("Europe/Berlin");
 });
 
+/**
+ * Issue #287: the dialog builds its zone select from the list GET hands it,
+ * so every name on that list has to be one PUT accepts. The browser's own
+ * zone list is not consulted anywhere.
+ */
+test.skipIf(skip)("the zone list GET hands over is the list PUT accepts", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	const read = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: jar.cookieHeader() },
+	});
+	const offered: string[] = read.json().timezones;
+	expect(offered.length).toBeGreaterThan(100);
+	expect(offered).toContain("America/New_York");
+
+	for (const zone of offered) {
+		expect(UpdateEditorSettingsRequest.safeParse({ timezone: zone }).success).toBe(
+			true,
+		);
+	}
+
+	// And one of them all the way through the route.
+	const last = offered.at(-1);
+	if (last === undefined) throw new Error("the zone list was empty");
+	expect((await put(jar, { timezone: last })).statusCode).toBe(200);
+});
+
 test.skipIf(skip)("one user's settings never reach another user", async () => {
 	const alice = new CookieJar();
 	await loginAs(app, "alice", alice);
@@ -166,6 +201,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		wordWrap: true,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 
 	// Bob's own change must not touch Alice's row.
@@ -181,6 +217,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		timezones: [...systemTimezones()],
 	});
 });
 
@@ -216,6 +253,7 @@ test.skipIf(skip)(
 			wordWrap: true,
 			terminalTheme: "dark",
 			timezone: "America/New_York",
+			timezones: [...systemTimezones()],
 		});
 
 		// A later change must not write the defaults over the other stored values.
@@ -226,6 +264,7 @@ test.skipIf(skip)(
 			wordWrap: false,
 			terminalTheme: "dark",
 			timezone: "America/New_York",
+			timezones: [...systemTimezones()],
 		});
 	},
 );
