@@ -66,7 +66,7 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 	expect(res.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
-		wordWrap: false,
+		wordWrap: true,
 		terminalTheme: "dark",
 	});
 });
@@ -75,12 +75,12 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 	const jar = new CookieJar();
 	await loginAs(app, "alice", jar);
 
-	const first = await put(jar, { wordWrap: true });
+	const first = await put(jar, { wordWrap: false });
 	expect(first.statusCode).toBe(200);
 	expect(first.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
-		wordWrap: true,
+		wordWrap: false,
 		terminalTheme: "dark",
 	});
 
@@ -88,7 +88,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 	expect(second.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 30,
-		wordWrap: true,
+		wordWrap: false,
 		terminalTheme: "dark",
 	});
 
@@ -100,7 +100,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 	expect(read.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 30,
-		wordWrap: true,
+		wordWrap: false,
 		terminalTheme: "dark",
 	});
 });
@@ -128,7 +128,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 	const bob = new CookieJar();
 	await loginAs(app, "bob", bob);
 
-	await put(alice, { wordWrap: true, autoSaveDelaySeconds: 42 });
+	await put(alice, { wordWrap: false, autoSaveDelaySeconds: 42 });
 
 	const bobRead = await app.inject({
 		method: "GET",
@@ -138,7 +138,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 	expect(bobRead.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
-		wordWrap: false,
+		wordWrap: true,
 		terminalTheme: "dark",
 	});
 
@@ -152,7 +152,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 	expect(aliceRead.json()).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 42,
-		wordWrap: true,
+		wordWrap: false,
 		terminalTheme: "dark",
 	});
 });

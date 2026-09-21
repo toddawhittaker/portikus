@@ -101,7 +101,7 @@ export type EditorSettings = z.infer<typeof EditorSettings>;
 export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
 	autoSave: true,
 	autoSaveDelaySeconds: 5,
-	wordWrap: false,
+	wordWrap: true,
 	terminalTheme: "dark",
 };
 

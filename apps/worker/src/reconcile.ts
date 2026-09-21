@@ -15,6 +15,7 @@ export interface ReconcileConfig {
 	STATUS_REFRESH_SECONDS: number;
 	WORKSPACE_HOME_SIZE_GIB: number;
 	WORKSPACE_DOCKER_SIZE_GIB: number;
+	PREVIEW_SUFFIX: string;
 }
 
 export interface SweepResult {
@@ -652,6 +653,7 @@ async function startWorkspace(
 			timeoutSeconds: config.START_TIMEOUT_SECONDS,
 			agentToken,
 			hostname: ws.label,
+			previewHostSuffix: config.PREVIEW_SUFFIX,
 		});
 		const updated = await casUpdate(
 			db,

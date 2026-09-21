@@ -75,7 +75,8 @@ test("saving sends every setting and closes the dialog", async () => {
 	expect(writes[0]?.body).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 8,
-		wordWrap: true,
+		// The box starts ticked now (issue #270), so the click clears it.
+		wordWrap: false,
 		terminalTheme: "dark",
 	});
 	await waitFor(() => expect(onClose).toHaveBeenCalled());

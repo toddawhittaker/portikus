@@ -966,6 +966,8 @@ test("the auto-save delay comes from the settings (issue #159)", async () => {
 }, 12_000);
 
 test("word wrap off is what Monaco is created with (issue #159)", async () => {
+	// Wrap is on by default now (issue #270), so this student turned it off.
+	settings = { ...EDITOR_SETTINGS_DEFAULTS, wordWrap: false };
 	renderLeaf();
 	await findEditor();
 	expect(state.created?.wordWrap).toBe("off");

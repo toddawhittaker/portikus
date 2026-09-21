@@ -202,13 +202,8 @@ test.describe("markdown tab", () => {
 			timeout: 60_000,
 		});
 
-		await page.getByTestId("me").click();
-		await page.getByRole("menuitem", { name: "Editor settings" }).click();
-		await expect(page.getByTestId("dialog-editor-settings")).toBeVisible();
-		await page.locator(".pk-setting-wordwrap").click();
-		await page.getByTestId("editor-settings-save").click();
-		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
-		// Wrapping draws the one paragraph line as many rows.
+		// Wrapping is on for a student who has chosen nothing (issue #270), so
+		// the one paragraph line is drawn as many rows.
 		await expect
 			.poll(() => editor.locator(".view-line").count(), { timeout: 15_000 })
 			.toBeGreaterThan(8);
