@@ -50,11 +50,24 @@
 }
 
 .pk-preview-body {
+	position: relative;
 	flex: 1;
 	min-height: 0;
 	display: flex;
 	justify-content: center;
 	overflow: auto;
+}
+
+/* The "cannot be embedded" notice sits over the frame rather than replacing
+   it, so a slow application that loads late can still show through. */
+.pk-preview-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--surface);
 }
 
 .pk-preview-frame {
