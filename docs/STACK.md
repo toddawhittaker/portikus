@@ -810,6 +810,15 @@ Do not log:
 - `.env` contents;
 - raw terminal history.
 
+The preview routes log the user id, the workspace id, the port, the request
+method, the class of path, the status and the timing, which is what makes a
+refused preview diagnosable. They never log a bootstrap ticket, a preview
+session cookie, a query string, a request or response body, an authorization
+header, or a cookie belonging to the student's own application. Caddy's preview
+access log applies the same rule at the edge with its `filter` encoder, because
+a bootstrap ticket travels in a query string (`docs/BROWSER-HANDLING.md`
+section 16.5).
+
 A lightweight metrics/log stack may be added during pilot hardening, but application instrumentation should not depend on one specific monitoring vendor.
 
 # Part II — Infrastructure stack

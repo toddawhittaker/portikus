@@ -608,3 +608,144 @@ It becomes wanted only if a required tool ships with no out-of-band path.
 2026-09-19, when the remote browser was judged the most expensive and
 security-sensitive piece in that design and unneeded by either P0 agent.
 
+
+## A separate preview domain with partitioned cookies
+
+**What.** Serve student application previews from their own registrable
+domain, for example `*.portikus-preview.example`, instead of from a
+subdomain of the Portikus application host, with the preview session
+cookie partitioned by top-level site so it is not shared across sites.
+
+**Why.** ADR 0018 chose the same-site shape for Epic 8 because it needs
+no extra DNS and no extra certificate. A separate domain removes the
+related-domain risks of `docs/BROWSER-HANDLING.md` section 9.3 entirely:
+a student application could then not plant a cookie on a name the
+Portikus host also reads.
+
+**What it would take.** A second DNS name and certificate in the Ansible
+Caddy role, a configuration switch that changes the cookie from
+`__Host-` and `SameSite=Strict` to a partitioned cross-site cookie, and
+a browser matrix that proves the flow in current Chrome, Firefox and
+Safari, since partitioned cookie support differs between them. Roughly
+three days, most of it the browser matrix.
+
+**Source.** ADR 0018 and `docs/STATUS.md`, Epic 8.
+
+## Camera and microphone in the preview iframe
+
+**What.** A way for a student application that needs the camera or the
+microphone to get them inside the Preview tab, instead of only in a
+separate browser tab.
+
+**Why.** ADR 0018 denies camera, microphone and geolocation in the
+iframe's permissions policy, which is the right default. A course about
+media or computer vision would want an exception.
+
+**What it would take.** A per-workspace or per-preview opt-in that a
+student turns on knowingly, the matching `allow` attribute on the frame,
+and a decision about whether an administrator may switch it off for a
+cohort. About a day, plus a design review of the consent wording.
+
+**Source.** ADR 0018 consequences and `docs/STATUS.md`, Epic 8.
+
+## Persisted check runs and check history
+
+**What.** Store the result of each check run — when it ran, how long it
+took, whether it passed, and its output — instead of keeping only the
+latest runs in the workspace agent's memory.
+
+**Why.** Today a check's result is gone when the workspace stops or the
+agent restarts, so a student cannot show that a check passed earlier and
+an instructor cannot see a trend. `docs/SPEC.md` section 25 lists check
+result metadata that is currently produced but never kept.
+
+**What it would take.** A `check_runs` table, a route that writes a
+finished run through the control plane, retention so output does not
+grow without bound, and a history list in the Checks pane. About two
+days.
+
+**Source.** `docs/STATUS.md`, Epic 8 decisions.
+
+## `PORTIKUS_PREVIEW_*` environment hints for project templates
+
+**What.** Set environment variables in each terminal that tell a
+development server what its public preview origin will be, as
+`docs/BROWSER-HANDLING.md` section 14 describes.
+
+**Why.** Frameworks such as Vite check the `Host` header and need to be
+told the external origin before hot module reloading works smoothly.
+Today a student edits the framework's configuration by hand.
+
+**What it would take.** Compute the values when a terminal starts, pass
+them through the agent's terminal spawn, and document the one-line
+configuration each supported framework needs. About a day.
+
+**Source.** `docs/BROWSER-HANDLING.md` section 14; left out of PR #251.
+
+## Move the last client-side port minimum into server policy
+
+**What.** Remove the 1024 minimum still hard-coded in the terminal link
+handler and the web app's preview route, and take that limit from the
+API the way the launcher and the Running pane now do.
+
+**Why.** The port policy lives in the API (`PREVIEW_PORT_MIN`,
+`PREVIEW_PORT_MAX`, `PREVIEW_DENIED_PORTS`). Two copies in the browser
+can disagree with it, so a deployment that allows a lower port would see
+a terminal link silently refuse to open.
+
+**What it would take.** Serve the policy to the browser once per
+workspace, or let a Preview tab open and show the API's own refusal.
+Half a day.
+
+**Source.** `docs/STATUS.md`, Epic 8 known gaps.
+
+## A total quota on saved layout
+
+**What.** A limit on how much layout one user can store in total, not
+only on the size of a single save request.
+
+**Why.** Epic 8 removed the tab cap, and the only bound left is
+Fastify's 1 MiB body limit per request plus the shape checks on each
+tab. A user with many workspaces and projects can therefore hold a large
+amount of layout in the database.
+
+**What it would take.** Count stored layout bytes per user, refuse a
+save past the limit with a clear message, and decide whether to prune
+the oldest project layouts instead. Half a day.
+
+**Source.** `docs/STATUS.md`, Epic 8 known gaps.
+
+## Docker container identity when the socket is unavailable
+
+**What.** Name the container behind a published port in the Running pane
+even when `docker ps` cannot be run.
+
+**Why.** Listener discovery matches published ports to containers with
+`docker ps`. If the Docker socket is missing or slow, the row falls back
+to `unknown` and the student cannot tell which service it is.
+
+**What it would take.** Read the container identity from the process
+tree or from the published-port rules in the container runtime's own
+state instead of shelling out, with a test for a workspace whose Docker
+daemon is stopped. About a day.
+
+**Source.** `docs/STATUS.md`, Epic 8 known gaps.
+
+## A stronger binding between a preview grant and its presentation
+
+**What.** Prove that a bootstrap ticket made for an embedded preview is
+really being opened in a frame, and one made for a top-level preview in
+a top-level tab, by something better than the `Sec-Fetch-Dest` request
+header.
+
+**Why.** `Sec-Fetch-Dest` is set by the browser and is trustworthy in
+current browsers, but a client that omits it is still accepted, so the
+check tightens the door rather than closing it.
+
+**What it would take.** Research first: candidates are a frame-ancestor
+check on the bootstrap answer, a nonce the parent document passes into
+the frame and the bootstrap route verifies, or refusing requests with no
+fetch metadata at all once every supported browser sends it. Half a day
+of research, then a day to build.
+
+**Source.** Epic 8 security review; `docs/STATUS.md`, Epic 8 known gaps.
