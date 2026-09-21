@@ -18,19 +18,71 @@
  *    there is no server-side request forgery to be had: the only reachable
  *    targets are ports the caller's own workspace is already listening on and
  *    that preview policy allows.
- *  - Nothing from the answer but these two headers is ever looked at or
- *    returned. The body is discarded without being read, so no application
- *    content can leak through this route.
+ *  - Nothing from the answer but the two framing headers is looked at or
+ *    returned, with one narrow exception: when the application answers 403,
+ *    the first few kilobytes are matched against the fixed sentences Vite
+ *    and webpack-dev-server use to refuse an unknown `Host` (issue #262).
+ *    Only which of those sentences matched leaves this file; no application
+ *    content is returned, stored, or logged.
  */
+
+import { request as httpRequest } from "node:http";
 
 /** How long the application has to answer before it counts as unreachable. */
 const PROBE_TIMEOUT_MS = 3_000;
 
-export type EmbeddableReason = "x-frame-options" | "frame-ancestors" | "unreachable";
+/**
+ * How much of a refused answer is read while looking for a development
+ * server's "this host is not allowed" message (issue #262). Nothing read
+ * here is returned or logged; only the match is.
+ */
+export const MAX_REFUSAL_BODY_BYTES = 4_096;
+
+export type EmbeddableReason =
+	| "x-frame-options"
+	| "frame-ancestors"
+	| "unreachable"
+	| "host-refused";
+
+/** A development server whose refusal of the preview host is recognised. */
+export type RefusingServer = "vite" | "webpack-dev-server";
 
 export interface EmbeddableVerdict {
 	embeddable: boolean;
 	reason?: EmbeddableReason;
+	/** The preview host the development server refused. */
+	refusedHost?: string;
+	/** Which server refused it, so the tab can show the right setting. */
+	refusedServer?: RefusingServer;
+}
+
+/**
+ * The refusals this code recognises.
+ *
+ * Vite (5.4.12 and later) and webpack-dev-server check the `Host` header
+ * against an allow-list and answer 403 with a fixed sentence. Next.js has no
+ * equivalent refusal to match: its `allowedDevOrigins` setting warns about
+ * cross-origin requests rather than refusing the host with a 403, so it is
+ * deliberately not in this table.
+ */
+const HOST_REFUSALS: { server: RefusingServer; pattern: RegExp }[] = [
+	{ server: "vite", pattern: /blocked request\.[\s\S]{0,200}?is not allowed/i },
+	{ server: "vite", pattern: /server\.allowedHosts/i },
+	{ server: "webpack-dev-server", pattern: /invalid host(\/origin)? header/i },
+];
+
+/**
+ * Which development server refused the preview host, if the answer says so.
+ *
+ * Only a 403 counts: these servers refuse an unknown host with that status,
+ * and a page that merely mentions the words is not a refusal.
+ */
+export function hostRefusalFrom(status: number, body: string): RefusingServer | null {
+	if (status !== 403) return null;
+	for (const { server, pattern } of HOST_REFUSALS) {
+		if (pattern.test(body)) return server;
+	}
+	return null;
 }
 
 /**
@@ -107,32 +159,112 @@ function ancestorsAllow(sources: string[], portikusOrigin: string): boolean {
 	return false;
 }
 
+/** One answer from the application: its status, headers, and start of body. */
+interface ProbeAnswer {
+	status: number;
+	headers: Headers;
+	/** At most MAX_REFUSAL_BODY_BYTES, and only when the caller asked. */
+	body: string;
+}
+
+/**
+ * Ask the application once.
+ *
+ * `node:http` rather than `fetch`, because the request must present the
+ * preview host: a development server that checks `Host` only refuses the
+ * name the student's browser would use, and `fetch` ignores a `host` header.
+ */
+function ask(
+	upstream: string,
+	method: "HEAD" | "GET",
+	hostHeader: string,
+	/** Read the start of the body only for statuses this says yes to. */
+	wantBody: (status: number) => boolean,
+	signal: AbortSignal,
+): Promise<ProbeAnswer> {
+	const separator = upstream.lastIndexOf(":");
+	const hostname = upstream.slice(0, separator);
+	const port = Number(upstream.slice(separator + 1));
+	return new Promise((resolve, reject) => {
+		const outbound = httpRequest(
+			{
+				host: hostname,
+				port,
+				path: "/",
+				method,
+				signal,
+				headers: { host: hostHeader },
+			},
+			(response) => {
+				const headers = new Headers();
+				for (const [name, value] of Object.entries(response.headers)) {
+					if (typeof value === "string") headers.append(name, value);
+					else if (Array.isArray(value))
+						for (const one of value) headers.append(name, one);
+				}
+				let body = "";
+				if (!wantBody(response.statusCode ?? 0)) {
+					response.resume();
+					resolve({ status: response.statusCode ?? 0, headers, body });
+					return;
+				}
+				response.setEncoding("utf8");
+				response.on("data", (chunk: string) => {
+					if (body.length >= MAX_REFUSAL_BODY_BYTES) return;
+					body += chunk;
+				});
+				response.on("end", () =>
+					resolve({
+						status: response.statusCode ?? 0,
+						headers,
+						body: body.slice(0, MAX_REFUSAL_BODY_BYTES),
+					}),
+				);
+				response.on("error", reject);
+			},
+		);
+		outbound.on("error", reject);
+		outbound.end();
+	});
+}
+
 /**
  * Ask one application whether it allows framing. `upstream` is a
- * `host:port` the registry vouched for.
+ * `host:port` the registry vouched for, and `previewHost` the public name
+ * the student's browser would use.
  *
- * `HEAD /` first, because it costs the application least; an application that
- * refuses HEAD gets a `GET /` whose body is discarded unread.
+ * `HEAD /` first, because it costs the application least; an application
+ * that refuses HEAD gets one `GET /`. The body of that answer is read only
+ * when the status is 403, only up to MAX_REFUSAL_BODY_BYTES, and only to see
+ * whether a development server is refusing the preview host (issue #262).
+ * No part of it is returned, stored, or logged.
  */
 export async function probeEmbeddable(
 	upstream: string,
 	portikusOrigin: string,
+	previewHost?: string,
 ): Promise<EmbeddableVerdict> {
-	const url = `http://${upstream}/`;
+	const hostHeader = previewHost ?? upstream;
 	// One budget for both attempts, so a slow application cannot hold the
 	// route for twice the timeout.
 	const signal = AbortSignal.timeout(PROBE_TIMEOUT_MS);
 	try {
-		let response = await fetch(url, { method: "HEAD", redirect: "manual", signal });
-		if (response.status >= 400) {
+		const refused = (status: number) => status === 403;
+		let answer = await ask(upstream, "HEAD", hostHeader, () => false, signal);
+		if (answer.status >= 400) {
 			// An application that will not answer HEAD gets one GET instead.
-			await response.body?.cancel();
-			response = await fetch(url, { method: "GET", redirect: "manual", signal });
+			answer = await ask(upstream, "GET", hostHeader, refused, signal);
 		}
-		const verdict = verdictFromHeaders(response.headers, portikusOrigin);
-		// Never read the body: only the headers of this answer are used.
-		await response.body?.cancel();
-		return verdict;
+		const server = hostRefusalFrom(answer.status, answer.body);
+		if (server) {
+			return {
+				embeddable: false,
+				reason: "host-refused",
+				refusedHost: hostHeader,
+				refusedServer: server,
+			};
+		}
+		return verdictFromHeaders(answer.headers, portikusOrigin);
 	} catch {
 		return { embeddable: false, reason: "unreachable" };
 	}

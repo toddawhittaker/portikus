@@ -137,6 +137,7 @@ export function registerPreviewRoutes(
 		workspaceId: string,
 		port: number,
 		upstream: string,
+		host: string,
 	): Promise<EmbeddableVerdict> {
 		const running = probes.get(workspaceId);
 		if (running) {
@@ -146,9 +147,9 @@ export function registerPreviewRoutes(
 				(): EmbeddableVerdict => ({ embeddable: false, reason: "unreachable" }),
 			);
 			if (running.port === port) return earlier;
-			return probeOnce(workspaceId, port, upstream);
+			return probeOnce(workspaceId, port, upstream, host);
 		}
-		const answer = probeEmbeddable(upstream, config.PUBLIC_URL).finally(() => {
+		const answer = probeEmbeddable(upstream, config.PUBLIC_URL, host).finally(() => {
 			if (probes.get(workspaceId)?.answer === answer) probes.delete(workspaceId);
 		});
 		probes.set(workspaceId, { port, answer });
@@ -387,7 +388,14 @@ export function registerPreviewRoutes(
 			return reply.header("cache-control", "no-store").send(unreachable);
 		}
 
-		const verdict = await probeOnce(params.data.id, port, `${address}:${port}`);
+		// Asked as the preview host, because a development server that checks
+		// `Host` refuses only the name the student's browser would use.
+		const verdict = await probeOnce(
+			params.data.id,
+			port,
+			`${address}:${port}`,
+			previewHost(workspace.label, port, config.PREVIEW_SUFFIX),
+		);
 		return reply.header("cache-control", "no-store").send(verdict);
 	});
 

@@ -126,7 +126,12 @@ test("start happy path", async () => {
 		method: "POST",
 		url: "/instances/ws-abc/start",
 		headers: auth(),
-		payload: { timeoutSeconds: 10, agentToken: AGENT_TOKEN, hostname: "tw7" },
+		payload: {
+			timeoutSeconds: 10,
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7",
+			previewHostSuffix: "preview.example.edu",
+		},
 	});
 	expect(res.statusCode).toBe(200);
 	expect(res.json().ipv4).toBe("10.0.0.2");
@@ -143,9 +148,37 @@ test("start passes the agent token through to the provider", async () => {
 		method: "POST",
 		url: "/instances/ws-abc/start",
 		headers: auth(),
-		payload: { timeoutSeconds: 10, agentToken: AGENT_TOKEN, hostname: "tw7" },
+		payload: {
+			timeoutSeconds: 10,
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7",
+			previewHostSuffix: "preview.example.edu",
+		},
 	});
 	expect(provider.instances.get("ws-abc")?.agentToken).toBe(AGENT_TOKEN);
+});
+
+test("start passes the preview host suffix through to the provider", async () => {
+	await app.inject({
+		method: "POST",
+		url: "/instances",
+		headers: auth(),
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+	});
+	await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/start",
+		headers: auth(),
+		payload: {
+			timeoutSeconds: 10,
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7",
+			previewHostSuffix: "preview.example.edu",
+		},
+	});
+	expect(provider.instances.get("ws-abc")?.previewHostSuffix).toBe(
+		"preview.example.edu",
+	);
 });
 
 test("start without an agent token returns 400", async () => {
@@ -163,7 +196,12 @@ test("start not found returns 404", async () => {
 		method: "POST",
 		url: "/instances/ws-missing/start",
 		headers: auth(),
-		payload: { timeoutSeconds: 10, agentToken: AGENT_TOKEN, hostname: "tw7" },
+		payload: {
+			timeoutSeconds: 10,
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7",
+			previewHostSuffix: "preview.example.edu",
+		},
 	});
 	expect(res.statusCode).toBe(404);
 });
@@ -191,7 +229,11 @@ test("stop happy path", async () => {
 		method: "POST",
 		url: "/instances/ws-abc/start",
 		headers: auth(),
-		payload: { agentToken: AGENT_TOKEN, hostname: "tw7" },
+		payload: {
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7",
+			previewHostSuffix: "preview.example.edu",
+		},
 	});
 	const res = await app.inject({
 		method: "POST",
@@ -277,13 +319,23 @@ test("two concurrent starts cause one provider call", async () => {
 			method: "POST",
 			url: "/instances/ws-abc/start",
 			headers: auth(),
-			payload: { timeoutSeconds: 10, agentToken: AGENT_TOKEN, hostname: "tw7" },
+			payload: {
+				timeoutSeconds: 10,
+				agentToken: AGENT_TOKEN,
+				hostname: "tw7",
+				previewHostSuffix: "preview.example.edu",
+			},
 		}),
 		app.inject({
 			method: "POST",
 			url: "/instances/ws-abc/start",
 			headers: auth(),
-			payload: { timeoutSeconds: 10, agentToken: AGENT_TOKEN, hostname: "tw7" },
+			payload: {
+				timeoutSeconds: 10,
+				agentToken: AGENT_TOKEN,
+				hostname: "tw7",
+				previewHostSuffix: "preview.example.edu",
+			},
 		}),
 	]);
 

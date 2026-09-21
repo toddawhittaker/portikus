@@ -30,6 +30,7 @@ const cfg: ReconcileConfig = {
 	STATUS_REFRESH_SECONDS: 15,
 	WORKSPACE_HOME_SIZE_GIB: 25,
 	WORKSPACE_DOCKER_SIZE_GIB: 20,
+	PREVIEW_SUFFIX: "preview.portikus.example.edu",
 };
 
 beforeAll(async () => {
@@ -137,6 +138,11 @@ test.skipIf(skip)("connect -> sweep -> start called -> running", async () => {
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
 	expect(fake.calls.some((c) => c.method === "start")).toBe(true);
+	// The start request carries the preview host suffix (issue #263).
+	const startCall = fake.calls.find((c) => c.method === "start");
+	expect(startCall?.args[1]).toMatchObject({
+		previewHostSuffix: "preview.portikus.example.edu",
+	});
 	const audits = await getAudits(id);
 	expect(audits.some((a) => a.action === "workspace.start")).toBe(true);
 });

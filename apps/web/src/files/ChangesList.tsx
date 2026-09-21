@@ -21,6 +21,7 @@ export function ChangesList({
 	const [open, setOpen] = useState(true);
 	const layoutStore = useLayoutStore(projectId);
 	const openFile = useLayout(layoutStore, (state) => state.openFile);
+	const activeTabId = useLayout(layoutStore, (state) => state.activeTabId);
 	const rows = changeRows(status);
 	const notARepo = status !== undefined && !status.repo;
 	// Until the first status arrives nothing is known, so nothing is claimed.
@@ -61,26 +62,35 @@ export function ChangesList({
 					</p>
 				) : (
 					<ul className="pk-changes-list" data-testid="changes-list">
-						{rows.map((row) => (
-							<li key={row.path}>
-								<button
-									type="button"
-									className="pk-changes-row"
-									data-testid={`change-row-${row.path}`}
-									data-git={row.decoration.kind}
-									title={row.decoration.title}
-									onClick={() => show(row)}
-								>
-									<span className="pk-git-letter" aria-hidden="true">
-										{row.decoration.letter}
-									</span>
-									{row.decoration.kind === "conflict" ? (
-										<Icon name="alert" size="sm" />
-									) : null}
-									<span className="pk-changes-path">{row.label}</span>
-								</button>
-							</li>
-						))}
+						{rows.map((row) => {
+							// The row whose file is the tab on show is the selected one.
+							const current =
+								activeTabId === `file:${row.path}` ||
+								activeTabId === `diff:${row.path}`;
+							return (
+								<li key={row.path}>
+									<button
+										type="button"
+										className={`pk-changes-row${current ? " is-current" : ""}`}
+										data-selected={current ? "true" : undefined}
+										data-testid={`change-row-${row.path}`}
+										data-git={row.decoration.kind}
+										title={row.decoration.title}
+										onClick={() => show(row)}
+									>
+										<span className="pk-git-letter" aria-hidden="true">
+											{row.decoration.letter}
+										</span>
+										{row.decoration.kind === "conflict" ? (
+											<Icon name="alert" size="sm" />
+										) : null}
+										<span className="pk-changes-path" title={row.path}>
+											{row.label}
+										</span>
+									</button>
+								</li>
+							);
+						})}
 					</ul>
 				)
 			) : null}

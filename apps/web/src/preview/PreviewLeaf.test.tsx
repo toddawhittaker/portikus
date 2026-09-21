@@ -194,6 +194,81 @@ test("an application that refuses framing is offered in a new tab at once", asyn
 	expect(screen.getByTestId("preview-blocked")).toBeTruthy();
 });
 
+test("a dev server refusing the preview host gets the line to paste", async () => {
+	// The control plane recognised Vite's blocked-host answer (issue #262).
+	stubFetch((url) =>
+		url.includes("/preview/embeddable")
+			? json(200, {
+					embeddable: false,
+					reason: "host-refused",
+					refusedHost: "alice-5173.preview.portikus.example.edu",
+					refusedServer: "vite",
+				})
+			: json(200, GRANT),
+	);
+	const writeText = vi.fn(async () => {});
+	vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+	show({});
+
+	const line = await screen.findByTestId("preview-refused-line");
+	// The suffix is the real one, with the workspace label dropped so the
+	// line covers every port and project.
+	expect(line.textContent).toBe(
+		'server: { allowedHosts: [".preview.portikus.example.edu"] }',
+	);
+	expect(screen.getByTestId("preview-refused").textContent).toContain(
+		"alice-5173.preview.portikus.example.edu",
+	);
+	expect(screen.getByTestId("preview-pane-5173").dataset.state).toBe("host-refused");
+	// The student is not told the application cannot be embedded: it can.
+	expect(screen.queryByTestId("preview-blocked")).toBeNull();
+
+	fireEvent.click(screen.getByTestId("preview-refused-copy"));
+	await waitFor(() =>
+		expect(writeText).toHaveBeenCalledWith(
+			'server: { allowedHosts: [".preview.portikus.example.edu"] }',
+		),
+	);
+	expect(screen.getByTestId("preview-retry")).toBeTruthy();
+});
+
+test("webpack-dev-server gets its own setting", async () => {
+	stubFetch((url) =>
+		url.includes("/preview/embeddable")
+			? json(200, {
+					embeddable: false,
+					reason: "host-refused",
+					refusedHost: "alice-8080.preview.portikus.example.edu",
+					refusedServer: "webpack-dev-server",
+				})
+			: json(200, GRANT),
+	);
+	show({});
+	const line = await screen.findByTestId("preview-refused-line");
+	expect(line.textContent).toBe(
+		'devServer: { allowedHosts: [".preview.portikus.example.edu"] }',
+	);
+});
+
+test("Back and Forward step the joint history and are always enabled", async () => {
+	stubFetch(() => json(200, GRANT));
+	const back = vi.fn();
+	const forward = vi.fn();
+	vi.stubGlobal("history", { ...window.history, back, forward });
+	show({});
+	await screen.findByTestId("preview-frame");
+
+	const backButton = screen.getByTestId("preview-back") as HTMLButtonElement;
+	const forwardButton = screen.getByTestId("preview-forward") as HTMLButtonElement;
+	expect(backButton.disabled).toBe(false);
+	expect(forwardButton.disabled).toBe(false);
+
+	fireEvent.click(backButton);
+	fireEvent.click(forwardButton);
+	expect(back).toHaveBeenCalledTimes(1);
+	expect(forward).toHaveBeenCalledTimes(1);
+});
+
 test("an application the probe could not reach keeps the timeout", async () => {
 	vi.useFakeTimers({ shouldAdvanceTime: true });
 	stubFetch((url) =>
