@@ -540,6 +540,7 @@ type PreviewGrant = {
   port: number;
   previewHost: string;
   presentation: "embedded" | "top-level";
+  sessionId: string; // the main Portikus session the grant was issued in
   ticketHash: string;
   expiresAt: string;
   consumedAt?: string;
@@ -553,7 +554,6 @@ type PreviewSession = {
   workspaceId: string;
   port: number;
   previewHost: string;
-  partitioned: boolean;
   createdAt: string;
   revokedAt?: string;
 };

@@ -536,8 +536,6 @@ describe("database migrations and schema", () => {
 				expect(down8.error).toBeUndefined();
 				const down9 = await migrator.migrateDown();
 				expect(down9.error).toBeUndefined();
-				const down10 = await migrator.migrateDown();
-				expect(down10.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -550,7 +548,6 @@ describe("database migrations and schema", () => {
 					"0007_editor_settings",
 					"0008_preview",
 					"0009_project_directory_id",
-					"0010_preview_grant_session",
 				]);
 				throw rollback;
 			}),
@@ -760,7 +757,6 @@ describe("database migrations and schema", () => {
 					workspace_id: ws.id,
 					port: 5173,
 					preview_host: "tw7-5173.preview.localhost",
-					partitioned: true,
 				})
 				.execute();
 
