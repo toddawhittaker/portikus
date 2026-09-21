@@ -66,8 +66,10 @@ export interface EmbeddableVerdict {
  * deliberately not in this table.
  */
 const HOST_REFUSALS: { server: RefusingServer; pattern: RegExp }[] = [
+	// The exact sentence only. A bare mention of `server.allowedHosts` is not
+	// a refusal: a student's own page, a tutorial or an error trace may carry
+	// those words and must not be read as one.
 	{ server: "vite", pattern: /blocked request\.[\s\S]{0,200}?is not allowed/i },
-	{ server: "vite", pattern: /server\.allowedHosts/i },
 	{ server: "webpack-dev-server", pattern: /invalid host(\/origin)? header/i },
 ];
 
@@ -186,6 +188,19 @@ function ask(
 	const hostname = upstream.slice(0, separator);
 	const port = Number(upstream.slice(separator + 1));
 	return new Promise((resolve, reject) => {
+		// The answer settles once, whether that is the end of the body, the
+		// cap being reached, or a socket error.
+		let settled = false;
+		const settle = (answer: ProbeAnswer) => {
+			if (settled) return;
+			settled = true;
+			resolve(answer);
+		};
+		const fail = (error: Error) => {
+			if (settled) return;
+			settled = true;
+			reject(error);
+		};
 		const outbound = httpRequest(
 			{
 				host: hostname,
@@ -202,28 +217,28 @@ function ask(
 					else if (Array.isArray(value))
 						for (const one of value) headers.append(name, one);
 				}
+				const status = response.statusCode ?? 0;
 				let body = "";
-				if (!wantBody(response.statusCode ?? 0)) {
+				if (!wantBody(status)) {
 					response.resume();
-					resolve({ status: response.statusCode ?? 0, headers, body });
+					settle({ status, headers, body });
 					return;
 				}
 				response.setEncoding("utf8");
 				response.on("data", (chunk: string) => {
-					if (body.length >= MAX_REFUSAL_BODY_BYTES) return;
-					body += chunk;
+					if (settled) return;
+					body += chunk.slice(0, MAX_REFUSAL_BODY_BYTES - body.length);
+					if (body.length < MAX_REFUSAL_BODY_BYTES) return;
+					// Enough to recognise a refusal. The rest of the student's
+					// page never enters this process: the connection goes now.
+					response.destroy();
+					settle({ status, headers, body });
 				});
-				response.on("end", () =>
-					resolve({
-						status: response.statusCode ?? 0,
-						headers,
-						body: body.slice(0, MAX_REFUSAL_BODY_BYTES),
-					}),
-				);
-				response.on("error", reject);
+				response.on("end", () => settle({ status, headers, body }));
+				response.on("error", fail);
 			},
 		);
-		outbound.on("error", reject);
+		outbound.on("error", fail);
 		outbound.end();
 	});
 }
@@ -231,7 +246,9 @@ function ask(
 /**
  * Ask one application whether it allows framing. `upstream` is a
  * `host:port` the registry vouched for, and `previewHost` the public name
- * the student's browser would use.
+ * the student's browser would use. Both are required: a development server
+ * that checks `Host` refuses only the public name, so falling back to the
+ * upstream address would quietly stop recognising the refusal.
  *
  * `HEAD /` first, because it costs the application least; an application
  * that refuses HEAD gets one `GET /`. The body of that answer is read only
@@ -242,9 +259,9 @@ function ask(
 export async function probeEmbeddable(
 	upstream: string,
 	portikusOrigin: string,
-	previewHost?: string,
+	previewHost: string,
 ): Promise<EmbeddableVerdict> {
-	const hostHeader = previewHost ?? upstream;
+	const hostHeader = previewHost;
 	// One budget for both attempts, so a slow application cannot hold the
 	// route for twice the timeout.
 	const signal = AbortSignal.timeout(PROBE_TIMEOUT_MS);
