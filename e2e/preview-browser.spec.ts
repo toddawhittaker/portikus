@@ -234,6 +234,8 @@ function startApp(
 	title: string,
 	/** Sent as `X-Frame-Options` on every answer, for the refused-framing path. */
 	frameOptions?: string,
+	/** Answer every request the way Vite refuses a host it does not allow. */
+	blockHost?: boolean,
 ): Promise<{ port: number; close: () => Promise<void> }> {
 	const page = (body: string) =>
 		`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>` +
@@ -241,6 +243,8 @@ function startApp(
 
 	const home = page(`
 		<h1 id="title">${title}</h1>
+		<a id="link" href="/second">Second page</a>
+		<button id="push" type="button">Push a route</button>
 		<p id="state">pending</p>
 		<p id="cookie">pending</p>
 		<form id="form" method="POST" action="/form">
@@ -257,6 +261,16 @@ function startApp(
 			document.cookie = "app-cookie=chocolate; path=/";
 			const cookie = document.cookie === "" ? "none" : document.cookie;
 			document.getElementById("cookie").textContent = "cookie:" + cookie;
+			// A single-page route change, which leaves an entry in the joint
+			// history without loading the frame again (issue #271).
+			document.getElementById("push").addEventListener("click", () => {
+				history.pushState({}, "", "/pushed");
+				document.getElementById("title").textContent = "pushed route";
+			});
+			window.addEventListener("popstate", () => {
+				document.getElementById("title").textContent =
+					location.pathname === "/pushed" ? "pushed route" : "${title}";
+			});
 			document.getElementById("popup").addEventListener("click", () => {
 				window.open("/opened", "_blank");
 			});
@@ -283,6 +297,24 @@ function startApp(
 	const server = createServer((request, response) => {
 		const url = new URL(request.url ?? "/", "http://app.invalid");
 		if (frameOptions) response.setHeader("x-frame-options", frameOptions);
+		if (blockHost) {
+			// Word for word what Vite answers for a host it does not allow.
+			const host = request.headers.host ?? "";
+			response.writeHead(403, { "content-type": "text/html; charset=utf-8" });
+			response.end(
+				`Blocked request. This host ("${host}") is not allowed.\n` +
+					`To allow this host, add "${host}" to \`server.allowedHosts\` in ` +
+					"vite.config.js.",
+			);
+			return;
+		}
+		if (url.pathname === "/second") {
+			response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+			response.end(
+				page('<h1 id="title">second page</h1><a id="home" href="/">Home</a>'),
+			);
+			return;
+		}
 		if (url.pathname === "/sw.js") {
 			response.writeHead(200, {
 				"content-type": "text/javascript",
@@ -332,8 +364,9 @@ async function startPreview(
 	workspaceId: string,
 	title: string,
 	frameOptions?: string,
+	blockHost?: boolean,
 ): Promise<{ port: number; close: () => Promise<void>; stop: () => Promise<void> }> {
-	const app = await startApp(title, frameOptions);
+	const app = await startApp(title, frameOptions, blockHost);
 	await seedListening(workspaceId, [{ port: app.port }]);
 	return {
 		port: app.port,
@@ -350,13 +383,15 @@ async function openPreviewTab(
 	page: Page,
 	workspaceId: string,
 	port: number,
+	/** What the tab must end up showing; the frame unless a state replaces it. */
+	expected = "preview-frame",
 ): Promise<void> {
 	const project = await createProject(workspaceId, { name: "preview-browser" });
 	await page.goto(workspacePath(workspaceId, project.id));
 	await expect(page.getByTestId("work-tabs")).toBeVisible({ timeout: 15_000 });
 	await page.getByTestId("right-pane-tab-running").click();
 	await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
-	await expect(page.getByTestId("preview-frame")).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByTestId(expected)).toBeVisible({ timeout: 20_000 });
 }
 
 function appHeading(page: Page) {
@@ -761,5 +796,107 @@ test.describe("the preview in a real browser", () => {
 		await page.goto(`${origin}/`);
 		await expect(page.locator("h1")).toHaveText("Preview session ended");
 		await app.close();
+	});
+
+	/**
+	 * A development server that refuses the preview host is explained, with
+	 * the exact line to paste (issue #262).
+	 */
+	test("a dev server refusing the preview host is explained", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Blocked", undefined, true);
+		await openPreviewTab(page, student.workspaceId, app.port, "preview-refused");
+
+		// The real suffix of this deployment, with the workspace label gone.
+		await expect(page.getByTestId("preview-refused-line")).toHaveText(
+			`server: { allowedHosts: ["${PREVIEW_SUFFIX}"] }`,
+		);
+		const host = (await page.getByTestId("preview-host").textContent()) ?? "";
+		await expect(page.getByTestId("preview-refused")).toContainText(
+			host.split(":")[0] ?? "",
+		);
+		// Not the "cannot be embedded" notice: this application can be framed.
+		await expect(page.getByTestId("preview-blocked")).toHaveCount(0);
+		await expect(page.getByTestId("preview-refused-copy")).toBeVisible();
+		await expect(page.getByTestId("preview-retry")).toBeVisible();
+		await app.close();
+	});
+
+	/**
+	 * Back and Forward step the joint history, including across a `pushState`
+	 * route change, and never move the Portikus page (issue #271).
+	 */
+	test("Back and Forward step the preview's history", async ({ page, context }) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "History");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await expect(appHeading(page)).toHaveText("History", { timeout: 20_000 });
+		const portikusUrl = page.url();
+
+		const frame = () => page.frameLocator("[data-testid=preview-frame]");
+		// Two navigations forward first, so stepping back stays on pages the
+		// application served. The entry the frame started on is the bootstrap
+		// URL, whose ticket is single-use; in a real deployment the browser
+		// sees the bootstrap redirect and keeps "/" instead, but this file
+		// stands in for Caddy and follows that redirect itself.
+		await frame().locator("#link").click();
+		await expect(appHeading(page)).toHaveText("second page");
+		await frame().locator("#home").click();
+		await expect(appHeading(page)).toHaveText("History");
+
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("second page");
+		expect(page.url()).toBe(portikusUrl);
+
+		await page.getByTestId("preview-forward").click();
+		await expect(appHeading(page)).toHaveText("History");
+
+		// A single-page route change is an entry too.
+		await frame().locator("#push").click();
+		await expect(appHeading(page)).toHaveText("pushed route");
+		await page.getByTestId("preview-back").click();
+		await expect(appHeading(page)).toHaveText("History");
+
+		// Whatever the history did, the Portikus page stayed where it was.
+		expect(page.url()).toBe(portikusUrl);
+		await expect(page.getByTestId("work-tabs")).toBeVisible();
+		await app.close();
+	});
+
+	/**
+	 * The states are a compact stack in the middle of the pane, not a column
+	 * stretched from top to bottom (issue #275).
+	 */
+	test("an inactive preview is one compact stack in the middle", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Layout");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await app.stop();
+
+		const retry = page.getByTestId("preview-retry");
+		await expect(retry).toBeVisible({ timeout: 20_000 });
+		const button = await retry.boundingBox();
+		const pane = await page.getByTestId(`preview-pane-${app.port}`).boundingBox();
+		const heading = await page
+			.getByTestId("preview-inactive")
+			.locator("xpath=../..")
+			.locator("h3")
+			.boundingBox();
+		if (!button || !pane || !heading) throw new Error("the preview pane has no box");
+
+		// A stretched button fills the pane; a normal one is a line high.
+		expect(button.height).toBeLessThan(40);
+		const middle = heading.y + heading.height / 2;
+		expect(middle).toBeGreaterThan(pane.y + pane.height / 3);
+		expect(middle).toBeLessThan(pane.y + (pane.height * 2) / 3);
 	});
 });
