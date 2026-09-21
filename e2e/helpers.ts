@@ -340,6 +340,28 @@ export async function removeProjectDir(
 	}
 }
 
+/**
+ * Rename a project directory the way `mv` in the workspace shell does: the
+ * same directory under a new name, so its identity is unchanged (issue #238).
+ */
+export async function moveProjectDir(
+	workspaceId: string,
+	from: string,
+	to: string,
+): Promise<void> {
+	const response = await fetch(
+		`${FAKE_AGENT_URL}/__test/projects/${encodeURIComponent(from)}/move?key=${workspaceId}`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ to }),
+		},
+	);
+	if (!response.ok) {
+		throw new Error(`the fake agent refused to move ${from}: ${response.status}`);
+	}
+}
+
 /** The directories the fake agent currently has for this workspace. */
 export async function projectDirs(workspaceId: string): Promise<string[]> {
 	const response = await fetch(`${FAKE_AGENT_URL}/__test/projects?key=${workspaceId}`);

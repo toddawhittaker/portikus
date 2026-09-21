@@ -88,6 +88,21 @@ async function isGitRepo(path: string): Promise<boolean> {
 	return isDirectory(join(path, ".git"));
 }
 
+/**
+ * The directory's own identity: its inode number as a decimal string
+ * (issue #238). `mv` within a filesystem keeps the inode, so this is what
+ * lets the control plane recognise a project a student renamed in the shell.
+ * A copy or a restore from an archive gets a new inode and is a new project,
+ * which is the honest answer.
+ */
+async function directoryId(path: string): Promise<string | undefined> {
+	try {
+		return String((await stat(path)).ino);
+	} catch {
+		return undefined;
+	}
+}
+
 /** Every directory directly under `~/projects` whose name is a valid slug. */
 export async function listProjects(homeDir: string): Promise<AgentProject[]> {
 	const root = projectsDir(homeDir);
@@ -100,6 +115,7 @@ export async function listProjects(homeDir: string): Promise<AgentProject[]> {
 		projects.push({
 			slug: entry.name,
 			isGitRepo: await isGitRepo(join(root, entry.name)),
+			directoryId: await directoryId(join(root, entry.name)),
 		});
 	}
 	projects.sort((a, b) => a.slug.localeCompare(b.slug));
@@ -127,7 +143,11 @@ export async function getProject(slug: string, homeDir: string): Promise<AgentPr
 	if (!target.exists || !(await isDirectory(target.path))) {
 		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
 	}
-	return { slug, isGitRepo: await isGitRepo(target.path) };
+	return {
+		slug,
+		isGitRepo: await isGitRepo(target.path),
+		directoryId: await directoryId(target.path),
+	};
 }
 
 function gitFailure(error: unknown): AgentFailure {

@@ -67,6 +67,7 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
 		wordWrap: false,
+		terminalTheme: "dark",
 	});
 });
 
@@ -80,6 +81,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
 		wordWrap: true,
+		terminalTheme: "dark",
 	});
 
 	const second = await put(jar, { autoSaveDelaySeconds: 30 });
@@ -87,6 +89,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		autoSave: true,
 		autoSaveDelaySeconds: 30,
 		wordWrap: true,
+		terminalTheme: "dark",
 	});
 
 	const read = await app.inject({
@@ -98,6 +101,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		autoSave: true,
 		autoSaveDelaySeconds: 30,
 		wordWrap: true,
+		terminalTheme: "dark",
 	});
 });
 
@@ -135,6 +139,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
 		wordWrap: false,
+		terminalTheme: "dark",
 	});
 
 	// Bob's own change must not touch Alice's row.
@@ -148,6 +153,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		autoSave: true,
 		autoSaveDelaySeconds: 42,
 		wordWrap: true,
+		terminalTheme: "dark",
 	});
 });
 
@@ -164,6 +170,7 @@ test.skipIf(skip)(
 					autoSave: false,
 					autoSaveDelaySeconds: 20,
 					wordWrap: true,
+					terminalTheme: "dark",
 					theme: "dark",
 				}),
 			})
@@ -179,6 +186,7 @@ test.skipIf(skip)(
 			autoSave: false,
 			autoSaveDelaySeconds: 20,
 			wordWrap: true,
+			terminalTheme: "dark",
 		});
 
 		// A later change must not write the defaults over the other stored values.
@@ -187,6 +195,7 @@ test.skipIf(skip)(
 			autoSave: false,
 			autoSaveDelaySeconds: 20,
 			wordWrap: false,
+			terminalTheme: "dark",
 		});
 	},
 );
