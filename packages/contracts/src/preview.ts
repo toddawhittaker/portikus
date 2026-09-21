@@ -38,7 +38,16 @@ export type PreviewGrantResponse = z.infer<typeof PreviewGrantResponse>;
  */
 export const PreviewEmbeddableResponse = z.object({
 	embeddable: z.boolean(),
-	reason: z.enum(["x-frame-options", "frame-ancestors", "unreachable"]).optional(),
+	reason: z
+		.enum(["x-frame-options", "frame-ancestors", "unreachable", "host-refused"])
+		.optional(),
+	/**
+	 * With `host-refused`, the preview host the development server turned
+	 * away and which server did it, so the tab can show the exact setting to
+	 * add (issue #262).
+	 */
+	refusedHost: z.string().optional(),
+	refusedServer: z.enum(["vite", "webpack-dev-server"]).optional(),
 });
 export type PreviewEmbeddableResponse = z.infer<typeof PreviewEmbeddableResponse>;
 

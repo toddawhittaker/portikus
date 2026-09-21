@@ -52,6 +52,9 @@
 	--surface-sunken: #eeebe4;
 	--surface-hover: #e6e2d9;
 	--surface-selected: #d9e8e5;
+	/* The picked-out row in a right-pane list: a tonal shift of the pane, and
+	   never green, which belongs to the passed badge and Git added. */
+	--surface-row-selected: #e0dbd0;
 	--surface-inverse: #2a2723;
 	--surface-inverse-hover: #3d3933;
 	--line: #dcd7cc;
@@ -191,6 +194,7 @@
 	--surface-sunken: #121110;
 	--surface-hover: #2b2925;
 	--surface-selected: #1c3533;
+	--surface-row-selected: #3a3730;
 	--surface-inverse: #ece8df;
 	--surface-inverse-hover: #d3cec3;
 	--line: #35322d;
@@ -242,6 +246,7 @@
 		--surface-sunken: #121110;
 		--surface-hover: #2b2925;
 		--surface-selected: #1c3533;
+		--surface-row-selected: #3a3730;
 		--surface-inverse: #ece8df;
 		--surface-inverse-hover: #d3cec3;
 		--line: #35322d;
@@ -372,6 +377,7 @@
 	--color-surface-sunken: var(--surface-sunken);
 	--color-surface-hover: var(--surface-hover);
 	--color-surface-selected: var(--surface-selected);
+	--color-surface-row-selected: var(--surface-row-selected);
 	--color-surface-inverse: var(--surface-inverse);
 	--color-surface-inverse-hover: var(--surface-inverse-hover);
 	--color-line: var(--line);

@@ -78,6 +78,7 @@
   --surface-sunken: #eeebe4;
   --surface-hover: #e6e2d9;
   --surface-selected: #d9e8e5;
+  --surface-row-selected: #e0dbd0;
   --surface-inverse: #2a2723;
   --surface-inverse-hover: #3d3933;
   --line: #dcd7cc;
@@ -128,6 +129,7 @@
   --surface-sunken: #121110;
   --surface-hover: #2b2925;
   --surface-selected: #1c3533;
+  --surface-row-selected: #3a3730;
   --surface-inverse: #ece8df;
   --surface-inverse-hover: #d3cec3;
   --line: #35322d;
