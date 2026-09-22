@@ -2,7 +2,7 @@
 # Every target is a thin wrapper over a tool that stays usable on its own.
 
 .PHONY: help install check typecheck lint format test test-coverage build test-e2e dev clean \
-       infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test destroy-pilot rebuild-pilot \
+       infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy
 
@@ -58,6 +58,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-lint infra/ansible
 	find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/*
 	bash infra/tests/cleanup-scope-test.sh
+	bash infra/tests/security-cleanup-scope-test.sh
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/caddy-preview-test.sh
 
@@ -115,6 +116,14 @@ smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HO
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
 		PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
 		bash infra/tests/smoke-test.sh $(VM_IP)
+
+# Safe on the live pilot: it creates and removes only its own users and two
+# workspaces, and fails if anything else changed (infra/README.md, "Security test").
+security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM)
+	@test -n "$(VM_IP)" || { echo "security-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
+		PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
+		bash infra/tests/security-test.sh $(VM_IP) $(if $(SWEEP),--sweep,)
 
 destroy-pilot: ## Destroy the platform VM (irreversible)
 	cd $(TOFU_DIR) && tofu destroy
