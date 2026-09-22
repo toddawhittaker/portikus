@@ -1,0 +1,65 @@
+/*
+ * The Monitor tab (SPEC.md §18.3). Tall and narrow: a few figures, then the
+ * process list. No chart and no way to kill a process.
+ */
+
+.pk-monitor {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.pk-monitor-stats {
+	display: grid;
+	grid-template-columns: 5.5rem minmax(0, 1fr);
+	gap: var(--space-1) var(--space-2);
+	margin: 0;
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.pk-monitor-stats dt {
+	margin: 0;
+	color: var(--ink-muted);
+}
+
+.pk-monitor-stats dd {
+	margin: 0;
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+}
+
+.pk-monitor-heading {
+	margin: 0;
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--ink-muted);
+}
+
+.pk-monitor-procs {
+	width: 100%;
+	border-collapse: collapse;
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.pk-monitor-procs th {
+	text-align: left;
+	font-weight: 500;
+	color: var(--ink-muted);
+	font-size: 11px;
+}
+
+.pk-monitor-procs th,
+.pk-monitor-procs td {
+	padding: 2px 6px 2px 0;
+	white-space: nowrap;
+}
+
+.pk-monitor-procs td:last-child {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 8rem;
+}

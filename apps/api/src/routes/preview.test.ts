@@ -227,6 +227,29 @@ beforeEach(async () => {
 
 // ── The listening registry (BROWSER-HANDLING.md §11.1, §17) ──
 
+test.skipIf(skip)(
+	"usage is proxied for the owner and hidden from everyone else",
+	async () => {
+		const response = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/usage`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(response.statusCode).toBe(200);
+		expect(response.json()).toMatchObject({
+			cpuPercent: 1.5,
+			processes: [{ pid: 7, command: "node" }],
+		});
+
+		const denied = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/usage`,
+			headers: { cookie: bob.cookieHeader() },
+		});
+		expect(denied.statusCode).toBe(404);
+	},
+);
+
 test.skipIf(skip)("the registry stamps the workspace id on every service", async () => {
 	const response = await app.inject({
 		method: "GET",

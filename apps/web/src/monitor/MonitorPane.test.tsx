@@ -1,0 +1,87 @@
+/**
+ * The Monitor tab (SPEC.md §18.3): the figures, the process list, and a
+ * refresh that runs only while the tab is shown.
+ */
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import { MonitorPane } from "./MonitorPane.js";
+
+const WORKSPACE = "22222222-2222-4222-8222-222222222222";
+
+const USAGE = {
+	observedAt: "2026-01-01T00:00:00.000Z",
+	cpuPercent: 12.5,
+	memory: { usedBytes: 512 * 1024, totalBytes: 1024 * 1024 },
+	disk: { usedBytes: 2 * 1024 * 1024, totalBytes: 4 * 1024 * 1024 },
+	network: { receiveBytesPerSecond: 2048, transmitBytesPerSecond: null },
+	processes: [
+		{ pid: 7, cpuPercent: 10, residentBytes: 4096, command: "node" },
+		{ pid: 9, cpuPercent: 1, residentBytes: 1024, command: "python" },
+	],
+};
+
+function json(body: unknown): Response {
+	return new Response(JSON.stringify(body), {
+		status: 200,
+		headers: { "content-type": "application/json" },
+	});
+}
+
+function renderPane() {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	return render(
+		<QueryClientProvider client={client}>
+			<MonitorPane workspaceId={WORKSPACE} />
+		</QueryClientProvider>,
+	);
+}
+
+afterEach(() => {
+	cleanup();
+	vi.useRealTimers();
+	vi.unstubAllGlobals();
+});
+
+test("shows CPU, memory, disk, network rates and the process list", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => json(USAGE)),
+	);
+	renderPane();
+	await waitFor(() =>
+		expect(screen.getByTestId("monitor-cpu").textContent).toBe("12.5%"),
+	);
+	expect(screen.getByTestId("monitor-memory").textContent).toBe("512 KB / 1.0 MB");
+	expect(screen.getByTestId("monitor-disk").textContent).toBe("2.0 MB / 4.0 MB");
+	expect(screen.getByTestId("monitor-receive").textContent).toBe("2.0 KB/s");
+	expect(screen.getByTestId("monitor-transmit").textContent).toBe("—");
+	const rows = screen.getAllByTestId(/monitor-process-/);
+	expect(rows[0]?.textContent).toContain("node");
+	expect(rows[1]?.textContent).toContain("python");
+	// No way to kill a process, and no chart.
+	expect(screen.queryByRole("button")).toBeNull();
+	expect(screen.getByTestId("monitor").textContent).not.toContain("btop");
+});
+
+test("refreshes once a second while shown and stops when it goes away", async () => {
+	vi.useFakeTimers();
+	const calls = vi.fn(async () => json(USAGE));
+	vi.stubGlobal("fetch", calls);
+	const view = renderPane();
+	await act(async () => {});
+	expect(calls.mock.calls.length).toBeGreaterThan(0);
+	const first = calls.mock.calls.length;
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(1000);
+	});
+	expect(calls.mock.calls.length).toBeGreaterThan(first);
+	const shown = calls.mock.calls.length;
+	view.unmount();
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(5000);
+	});
+	expect(calls.mock.calls.length).toBe(shown);
+});
