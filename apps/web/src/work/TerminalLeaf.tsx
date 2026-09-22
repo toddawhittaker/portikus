@@ -43,6 +43,10 @@ export interface TerminalLeafProps {
 	onReplace: (terminalId: string) => void;
 	onSessionEnded: () => void;
 	onLeave: () => void;
+	/** Give this pane a tab of its own, the keyboard way to drag it (issue #370). */
+	onMoveToNewTab: (terminalId: string) => void;
+	/** The only pane in its tab, which already has a tab of its own. */
+	alone: boolean;
 	/** The zone to shade while a pane is being dragged over this one. */
 	dropEdge?: DropEdge | null;
 }
@@ -79,13 +83,27 @@ function usePointerDismissFocus() {
 		};
 	}
 
+	// An action that moves the keyboard elsewhere runs once the menu has
+	// closed, instead of the trigger taking the keyboard back.
+	const afterClose = useRef<(() => void) | null>(null);
+	function thenFocus(action: () => void) {
+		afterClose.current = action;
+	}
+
 	function onCloseAutoFocus(event: Event) {
+		const action = afterClose.current;
+		if (action) {
+			afterClose.current = null;
+			event.preventDefault();
+			action();
+			return;
+		}
 		if (!pointer.current) return;
 		event.preventDefault();
 		pointer.current = false;
 	}
 
-	return { onOpenChange, onCloseAutoFocus };
+	return { onOpenChange, onCloseAutoFocus, thenFocus };
 }
 
 /** `/home/student/projects/x` reads as `~/projects/x` to a student. */
@@ -110,6 +128,8 @@ export function TerminalLeaf({
 	onReplace,
 	onSessionEnded,
 	onLeave,
+	onMoveToNewTab,
+	alone,
 	dropEdge = null,
 }: TerminalLeafProps) {
 	const [renaming, setRenaming] = useState(false);
@@ -220,6 +240,9 @@ export function TerminalLeaf({
 						<MenuItem disabled={ended} onSelect={() => onSplit(terminal.id, "column")}>
 							<span data-testid="split-down">Split down</span>
 						</MenuItem>
+						<MenuItem disabled={alone} onSelect={() => onMoveToNewTab(terminal.id)}>
+							<span data-testid="terminal-move-to-new-tab">Move to new tab</span>
+						</MenuItem>
 						<MenuSeparator />
 						<MenuItem
 							onSelect={() => {
@@ -240,6 +263,13 @@ export function TerminalLeaf({
 							>
 								{terminal.theme === "light" ? "Dark terminal" : "Light terminal"}
 							</span>
+						</MenuItem>
+						<MenuSeparator />
+						<MenuItem
+							shortcut={["Alt", "Shift", "Q"]}
+							onSelect={() => actionsMenu.thenFocus(onLeave)}
+						>
+							<span data-testid="terminal-leave">Leave terminal</span>
 						</MenuItem>
 						<MenuSeparator />
 						<MenuItem danger={true} onSelect={() => onClose(terminal.id)}>
