@@ -305,14 +305,9 @@ function UserRow({
 				<div className="pk-actions items-end">
 					<TextField
 						id={`user-grace-${user.id}`}
-						label={
-							<>
-								Seconds
-								<span className="pk-visually-hidden">
-									{`, grace period for ${user.displayName}`}
-								</span>
-							</>
-						}
+						label="Seconds"
+						// Every row's visible label is the same, so the name says whose it is.
+						aria-label={`Grace period for ${user.displayName}, in seconds`}
 						className="w-40"
 						inputMode="numeric"
 						placeholder={

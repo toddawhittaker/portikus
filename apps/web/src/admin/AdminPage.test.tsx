@@ -244,11 +244,11 @@ test("each user row names its field and button after the user (issue #371)", asy
 	renderApp("/admin");
 
 	const alice = await screen.findByRole("textbox", {
-		name: "Seconds, grace period for Alice Example",
+		name: "Grace period for Alice Example, in seconds",
 	});
 	expect(alice).toBe(screen.getByTestId(`user-grace-input-${USER.id}`));
 	expect(
-		screen.getByRole("textbox", { name: "Seconds, grace period for Carol Admin" }),
+		screen.getByRole("textbox", { name: "Grace period for Carol Admin, in seconds" }),
 	).toBe(screen.getByTestId(`user-grace-input-${ADMIN.id}`));
 	expect(screen.getByRole("button", { name: "Save Alice Example" })).toBe(
 		screen.getByTestId(`user-grace-save-${USER.id}`),

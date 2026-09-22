@@ -99,20 +99,19 @@ test.describe("admin and standalone page accessibility", () => {
 		await page.goto("/admin");
 		await expect(page).toHaveTitle("Administration, Portikus", { timeout: 15_000 });
 
+		// Other tests add students with repeated names, so compare two known rows.
 		const table = page.getByTestId("admin-users");
-		const buttons = table.getByRole("button");
-		await expect(buttons.first()).toBeVisible();
-		const names: string[] = [];
-		for (const button of await buttons.all()) {
-			names.push((await button.getAttribute("aria-label")) ?? "");
-		}
-		expect(names.length).toBeGreaterThan(1);
-		expect(new Set(names).size).toBe(names.length);
 		await expect(
-			table.getByRole("textbox", { name: "Seconds, grace period for Alice Student" }),
+			table.getByRole("button", { name: "Save Carol Admin", exact: true }),
 		).toBeVisible();
 		await expect(
-			table.getByRole("button", { name: "Save Alice Student" }),
+			table.getByRole("textbox", {
+				name: "Grace period for Alice Student, in seconds",
+				exact: true,
+			}),
+		).toBeVisible();
+		await expect(
+			table.getByRole("button", { name: "Save Alice Student", exact: true }),
 		).toBeVisible();
 	});
 
