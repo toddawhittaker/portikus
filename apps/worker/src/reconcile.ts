@@ -9,6 +9,7 @@ import { type Logger, silentLogger } from "@portikus/observability";
 import { type ExpressionBuilder, type Kysely, sql } from "kysely";
 import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
+import { rebuildPointsDone } from "./recovery.js";
 
 /** Config values the reconciler reads. */
 export interface ReconcileConfig {
@@ -287,7 +288,10 @@ export async function reconcile(
 				{
 					state: "stopped",
 					image_version: result.imageFingerprint,
-					quota_config: JSON.stringify(result.quota),
+					quota_config: JSON.stringify({
+						...result.quota,
+						recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
+					}),
 					error_code: null,
 					error_message: null,
 				},
@@ -324,12 +328,14 @@ export async function reconcile(
 		}
 	}
 
-	// 3b: stopped with desired running (or restarting) -> start.
+	// 3b: stopped with desired running (or restarting) -> start. A pending
+	// maintenance operation runs first (ADR 0021).
 	const toStart = await db
 		.selectFrom("workspaces")
 		.select(["id", "incus_instance_name", "label"])
 		.where("state", "=", "stopped")
 		.where("desired_state", "in", ["running", "restarting"])
+		.where("pending_operation", "is", null)
 		.execute();
 
 	for (const ws of toStart) {
@@ -352,6 +358,32 @@ export async function reconcile(
 		if (!moved) continue;
 		transitions++;
 		record(ws.id, "stop requested");
+		await endOpenTerminals(db, ws.id, now);
+		await doStop(db, controller, config, ws, now);
+	}
+
+	// A pending maintenance operation stops a running workspace without
+	// touching desired_state, so it restarts afterwards (ADR 0021). A rebuild
+	// first waits for the recovery loop to try a point of each project.
+	const toStopForOperation = await db
+		.selectFrom("workspaces")
+		.select(["id", "incus_instance_name", "pending_operation", "pending_operation_at"])
+		.where("state", "=", "running")
+		.where("pending_operation", "is not", null)
+		.execute();
+
+	for (const ws of toStopForOperation) {
+		if (!ws.incus_instance_name) continue;
+		if (
+			ws.pending_operation !== "reset-docker" &&
+			!(await rebuildPointsDone(db, ws.id, ws.pending_operation_at ?? now))
+		) {
+			continue;
+		}
+		const moved = await casUpdate(db, ws.id, "running", { state: "stopping" }, now);
+		if (!moved) continue;
+		transitions++;
+		record(ws.id, `stop for ${ws.pending_operation}`);
 		await endOpenTerminals(db, ws.id, now);
 		await doStop(db, controller, config, ws, now);
 	}
@@ -397,6 +429,7 @@ export async function reconcile(
 		.where("state", "=", "error")
 		.where("desired_state", "in", ["running", "restarting"])
 		.where("updated_at", "<", retryCutoff)
+		.where("pending_operation", "is", null)
 		.execute();
 
 	for (const ws of errorRetryStart) {
@@ -405,6 +438,39 @@ export async function reconcile(
 	}
 
 	// Note: error with desired=stopped is at rest (nothing to retry).
+
+	// 3e: run a pending maintenance operation on a stopped or errored
+	// workspace. Step 3b restarts it on the next sweep if it should run.
+	const toMaintain = await db
+		.selectFrom("workspaces")
+		.select([
+			"id",
+			"incus_instance_name",
+			"state",
+			"pending_operation",
+			"pending_operation_by",
+		])
+		.where("state", "in", ["stopped", "error"])
+		.where("pending_operation", "is not", null)
+		.execute();
+
+	for (const ws of toMaintain) {
+		if (!ws.incus_instance_name || !ws.pending_operation) continue;
+		record(ws.id, ws.pending_operation);
+		transitions += await runOperation(
+			db,
+			controller,
+			config,
+			{
+				id: ws.id,
+				incus_instance_name: ws.incus_instance_name,
+				state: ws.state,
+				pending_operation: ws.pending_operation,
+				pending_operation_by: ws.pending_operation_by,
+			},
+			now,
+		);
+	}
 
 	// (4) Periodic drift reconciliation from list().
 	const shouldRefresh =
@@ -680,6 +746,7 @@ async function startWorkspace(
 			hostname: ws.label,
 			previewHostSuffix: config.PREVIEW_SUFFIX,
 			timezone: await ownerTimezone(db, ws.id),
+			recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
 		});
 		const updated = await casUpdate(
 			db,
@@ -767,5 +834,103 @@ export async function doStop(
 			errorCode: err.code,
 			message: err.message,
 		});
+	}
+}
+
+/** What the student sees when a maintenance operation fails (SPEC.md §28). */
+const OPERATION_FAILED_MESSAGE: Record<string, string> = {
+	"reset-docker":
+		"Docker could not be reset. Please try again or contact your administrator.",
+	rebuild: "The workspace could not be rebuilt. Please contact your administrator.",
+	"rebuild-reset-docker":
+		"The workspace could not be rebuilt. Please contact your administrator.",
+};
+
+/**
+ * Run one maintenance operation on a stopped or errored workspace, clear it,
+ * and audit the result (SPEC.md §16.4, §17.2, §24.11; ADR 0021). A failure
+ * clears it too, so a broken controller is not retried every second, and
+ * leaves the workspace in error with a message for the student.
+ */
+async function runOperation(
+	db: Kysely<Database>,
+	controller: ControllerClient,
+	config: ReconcileConfig,
+	ws: {
+		id: string;
+		incus_instance_name: string;
+		state: string;
+		pending_operation: string;
+		pending_operation_by: string | null;
+	},
+	now: Date,
+): Promise<number> {
+	const clear = {
+		pending_operation: null,
+		pending_operation_at: null,
+		pending_operation_by: null,
+	};
+	const isReset = ws.pending_operation === "reset-docker";
+	const metadata = {
+		operation: ws.pending_operation,
+		requestedBy: ws.pending_operation_by,
+	};
+	try {
+		let imageFingerprint: string | null = null;
+		if (isReset) {
+			await controller.resetDocker(ws.incus_instance_name, {
+				dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+			});
+		} else {
+			const result = await controller.rebuild(ws.incus_instance_name, {
+				resetDocker: ws.pending_operation === "rebuild-reset-docker",
+				dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+			});
+			imageFingerprint = result.imageFingerprint;
+		}
+		const updated = await casUpdate(
+			db,
+			ws.id,
+			ws.state,
+			{
+				...clear,
+				state: "stopped",
+				error_code: null,
+				error_message: null,
+				...(imageFingerprint ? { image_version: imageFingerprint } : {}),
+			},
+			now,
+		);
+		await audit(
+			db,
+			ws.id,
+			isReset ? "workspace.docker_reset" : "workspace.rebuilt",
+			"ok",
+			imageFingerprint ? { ...metadata, imageFingerprint } : metadata,
+		);
+		return updated && ws.state !== "stopped" ? 1 : 0;
+	} catch (e) {
+		const err = toControllerError(e);
+		const updated = await casUpdate(
+			db,
+			ws.id,
+			ws.state,
+			{
+				...clear,
+				state: "error",
+				error_code: err.code,
+				error_message:
+					OPERATION_FAILED_MESSAGE[ws.pending_operation] ?? userMessage(err.code),
+			},
+			now,
+		);
+		await audit(
+			db,
+			ws.id,
+			isReset ? "workspace.docker_reset_failed" : "workspace.rebuild_failed",
+			"failed",
+			{ ...metadata, errorCode: err.code },
+		);
+		return updated && ws.state !== "error" ? 1 : 0;
 	}
 }
