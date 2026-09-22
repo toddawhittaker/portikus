@@ -1,5 +1,7 @@
 import {
 	AgentCreateProjectRequest,
+	AgentCreateRecoveryPointRequest,
+	AgentCreateRecoveryPointResponse,
 	AgentCreateTerminalRequest,
 	AgentCreateTerminalResponse,
 	AgentDuplicateProjectRequest,
@@ -8,6 +10,7 @@ import {
 	AgentProject,
 	AgentProjectList,
 	AgentRenameProjectRequest,
+	AgentRestoreRecoveryPointRequest,
 	type LogLevel,
 	LoopbackForward,
 	LoopbackForwardRequest,
@@ -42,6 +45,9 @@ const AGENT_CREATE_PROJECT_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Copying a whole project tree is as slow as a clone, so it gets the same budget. */
 const AGENT_DUPLICATE_PROJECT_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
+
+/** Archiving or restoring a project walks the whole tree, as a copy does. */
+export const AGENT_RECOVERY_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 
 /** Most bytes the API will buffer from an agent JSON body. */
 const AGENT_JSON_LIMIT_BYTES = 1024 * 1024;
@@ -191,6 +197,40 @@ export class AgentClient {
 
 	async gitInit(slug: string): Promise<void> {
 		await this.call("POST", `/projects/${slug}/git-init`);
+	}
+
+	/** Archive a project into a recovery point (SPEC.md §15, ADR 0020). */
+	async createRecoveryPoint(
+		slug: string,
+		input: AgentCreateRecoveryPointRequest,
+		timeoutMs: number = AGENT_RECOVERY_TIMEOUT_MS,
+	): Promise<AgentCreateRecoveryPointResponse> {
+		const payload = await this.call(
+			"POST",
+			`/projects/${encodeURIComponent(slug)}/recovery-points`,
+			AgentCreateRecoveryPointRequest.parse(input),
+			timeoutMs,
+		);
+		return AgentCreateRecoveryPointResponse.parse(payload);
+	}
+
+	/** Put a project back to a recovery point (SPEC.md §15.8). */
+	async restoreRecoveryPoint(
+		slug: string,
+		pointId: string,
+		input: AgentRestoreRecoveryPointRequest,
+	): Promise<void> {
+		await this.call(
+			"POST",
+			`/projects/${encodeURIComponent(slug)}/recovery-points/${encodeURIComponent(pointId)}/restore`,
+			AgentRestoreRecoveryPointRequest.parse(input),
+			AGENT_RECOVERY_TIMEOUT_MS,
+		);
+	}
+
+	/** Remove every archive of a deleted project (SPEC.md §15.7). */
+	async deleteProjectRecoveryPoints(projectId: string): Promise<void> {
+		await this.call("DELETE", `/recovery-points/${encodeURIComponent(projectId)}`);
 	}
 
 	/**
