@@ -26,6 +26,7 @@ const workspaceId =
 const app = buildServer({
 	tokenPath: config.TOKEN_PATH,
 	homeDir: config.HOME_DIR,
+	recoveryRoot: config.RECOVERY_ROOT,
 	tmuxSocketName: config.TMUX_SOCKET_NAME,
 	logger,
 	brokerSocketPath: "/run/portikus/browser.sock",

@@ -23,6 +23,10 @@ export interface UsageSamplerOptions {
 	procRoot?: string;
 	/** The student's home. Its filesystem is the disk figure. */
 	homePath?: string;
+	/** Where the Docker volume is mounted. Defaults to `/var/lib/docker`. */
+	dockerPath?: string;
+	/** Where the recovery volume is mounted (ADR 0020). */
+	recoveryPath?: string;
 	/**
 	 * Cgroup directory with `memory.current`, or null to skip it. Unset in
 	 * production tries `/sys/fs/cgroup`; unset beside a fake procRoot skips
@@ -183,6 +187,24 @@ export function parseNetDev(text: string): { receive: number; transmit: number }
 	return { receive, transmit };
 }
 
+/**
+ * Mount points from `/proc/self/mountinfo` (field five). The kernel writes
+ * space, tab, newline and backslash as octal escapes.
+ */
+export function parseMountPoints(text: string): Set<string> {
+	const points = new Set<string>();
+	for (const line of text.split("\n")) {
+		const field = line.split(" ")[4];
+		if (!field) continue;
+		points.add(
+			field.replace(/\\([0-7]{3})/g, (_match, octal: string) =>
+				String.fromCharCode(Number.parseInt(octal, 8)),
+			),
+		);
+	}
+	return points;
+}
+
 export function diskBytes(stat: DiskStat): { usedBytes: number; totalBytes: number } {
 	const block = stat.bsize > 0 ? stat.bsize : 0;
 	const totalBytes = whole(stat.blocks * block);
@@ -207,6 +229,8 @@ interface Sample {
 export class UsageSampler {
 	private readonly procRoot: string;
 	private readonly homePath: string;
+	private readonly dockerPath: string;
+	private readonly recoveryPath: string;
 	private readonly cgroupRoot: string | null;
 	private readonly now: () => number;
 	private readonly readDisk: (path: string) => Promise<DiskStat>;
@@ -216,6 +240,8 @@ export class UsageSampler {
 	constructor(options: UsageSamplerOptions = {}) {
 		this.procRoot = options.procRoot ?? "/proc";
 		this.homePath = options.homePath ?? "/home/student";
+		this.dockerPath = options.dockerPath ?? "/var/lib/docker";
+		this.recoveryPath = options.recoveryPath ?? "/var/lib/portikus/recovery";
 		this.now = options.now ?? Date.now;
 		this.readDisk = options.statfs ?? readDisk;
 		if (options.cgroupRoot === null) this.cgroupRoot = null;
@@ -236,12 +262,13 @@ export class UsageSampler {
 
 	private async readOnce(): Promise<WorkspaceUsage> {
 		const at = this.now();
-		const [total, processes, memory, disk, net] = await Promise.all([
+		const [total, processes, memory, disk, net, storage] = await Promise.all([
 			this.totalCpu(),
 			this.processes(),
 			this.memory(),
 			this.disk(),
 			this.network(),
+			this.storage(),
 		]);
 		const previous = this.previous;
 		const rows: UsageProcess[] = [];
@@ -309,8 +336,7 @@ export class UsageSampler {
 			disk,
 			network,
 			processes: rows,
-			// Filled in per storage class by Epic 10 task 2.
-			storage: { home: null, docker: null, recovery: null },
+			storage,
 		};
 	}
 
@@ -392,6 +418,30 @@ export class UsageSampler {
 		} catch {
 			return { usedBytes: 0, totalBytes: 0 };
 		}
+	}
+
+	/**
+	 * The three storage classes (SPEC.md §18.3, §19.2). A class whose path is
+	 * not a mount point is null: statfs there would report the root disk.
+	 */
+	private async storage(): Promise<WorkspaceUsage["storage"]> {
+		const mounts = parseMountPoints(
+			(await readText(join(this.procRoot, "self", "mountinfo"))) ?? "",
+		);
+		const figure = async (path: string) => {
+			if (!mounts.has(path)) return null;
+			try {
+				return diskBytes(await this.readDisk(path));
+			} catch {
+				return null;
+			}
+		};
+		const [home, docker, recovery] = await Promise.all([
+			figure(this.homePath),
+			figure(this.dockerPath),
+			figure(this.recoveryPath),
+		]);
+		return { home, docker, recovery };
 	}
 
 	private async network(): Promise<{ receive: number; transmit: number } | null> {

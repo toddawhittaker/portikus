@@ -15,6 +15,7 @@ import {
 	cpuPercentBetween,
 	diskBytes,
 	parseMeminfo,
+	parseMountPoints,
 	parseNetDev,
 	parseProcessStat,
 	parseTotalCpu,
@@ -245,6 +246,87 @@ test("GET /usage reports the second sample and does not log the command", async 
 afterAll(async () => {
 	await app?.close();
 	if (procRoot) await rm(procRoot, { recursive: true, force: true });
+});
+
+test("mount points come from field five of mountinfo, octal escapes decoded", () => {
+	const points = parseMountPoints(
+		[
+			"36 35 98:0 / / rw,noatime master:1 - ext3 /dev/root rw",
+			"40 36 0:33 / /home/my\\040home rw - btrfs /dev/sdb rw",
+			"",
+		].join("\n"),
+	);
+	expect([...points]).toEqual(["/", "/home/my home"]);
+});
+
+test("storage reports each mounted class from statfs and null for a missing mount", async () => {
+	// SPEC.md §18.3, §19.2: three classes. Recovery is not mounted here, as on
+	// a workspace that has not restarted since the volume was added.
+	const root = await mkdtemp(join(tmpdir(), "portikus-usage-storage-"));
+	try {
+		await writeSample(root, { total: 1, rx: 0, tx: 0, loRx: 0, processes: [] });
+		await mkdir(join(root, "self"));
+		await writeFile(
+			join(root, "self", "mountinfo"),
+			[
+				"36 35 98:0 / / rw - ext4 /dev/root rw",
+				"40 36 0:33 / /home/student rw - btrfs /dev/a rw",
+				"41 36 0:34 / /var/lib/docker rw - btrfs /dev/b rw",
+			].join("\n"),
+		);
+		const sizes: Record<string, { blocks: number; bfree: number; bsize: number }> = {
+			"/home/student": { blocks: 100, bfree: 20, bsize: 1024 },
+			"/var/lib/docker": { blocks: 50, bfree: 45, bsize: 4096 },
+			"/var/lib/portikus/recovery": { blocks: 9, bfree: 9, bsize: 1 },
+		};
+		const sampler = new UsageSampler({
+			procRoot: root,
+			homePath: "/home/student",
+			statfs: async (path) => {
+				const size = sizes[path];
+				if (!size) throw new Error("no such path");
+				return size;
+			},
+		});
+		const usage = WorkspaceUsage.parse(await sampler.read());
+		expect(usage.storage).toEqual({
+			home: { usedBytes: 80 * 1024, totalBytes: 100 * 1024 },
+			docker: { usedBytes: 5 * 4096, totalBytes: 50 * 4096 },
+			recovery: null,
+		});
+
+		// Mounted but unreadable is null too, never a zero that looks real.
+		await writeFile(
+			join(root, "self", "mountinfo"),
+			"42 36 0:35 / /var/lib/portikus/recovery rw - btrfs /dev/c rw\n",
+		);
+		const failing = new UsageSampler({
+			procRoot: root,
+			homePath: "/home/student",
+			recoveryPath: "/var/lib/portikus/recovery",
+			statfs: async () => {
+				throw new Error("EACCES");
+			},
+		});
+		expect((await failing.read()).storage).toEqual({
+			home: null,
+			docker: null,
+			recovery: null,
+		});
+
+		// A mount at the configured recovery path is measured.
+		const measured = new UsageSampler({
+			procRoot: root,
+			homePath: "/home/student",
+			statfs: async () => ({ blocks: 3, bfree: 1, bsize: 1024 }),
+		});
+		expect((await measured.read()).storage.recovery).toEqual({
+			usedBytes: 2048,
+			totalBytes: 3072,
+		});
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 function statLine(pid: number, command: string, utime: number, stime: number): string {
