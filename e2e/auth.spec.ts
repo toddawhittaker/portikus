@@ -1,7 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { apiLoginAs, loginAs } from "./helpers";
-
-const WEB_ORIGIN = "http://127.0.0.1:5173";
+import { WEB_ORIGIN } from "./ports";
 
 test("a student can log in through the mock identity provider", async ({ page }) => {
 	await loginAs(page, "alice");
