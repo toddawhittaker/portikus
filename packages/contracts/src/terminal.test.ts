@@ -93,6 +93,52 @@ test("TerminalList round-trips", () => {
 	expect(TerminalList.parse(input)).toEqual(input);
 });
 
+const sha1 = "a".repeat(40);
+const sha256 = "b".repeat(64);
+
+test("CreateTerminalRequest accepts a launcher agent and rejects anything else", () => {
+	expect(CreateTerminalRequest.parse({ agent: "claude" })).toEqual({ agent: "claude" });
+	expect(CreateTerminalRequest.parse({ agent: "codex" })).toEqual({ agent: "codex" });
+	expect(CreateTerminalRequest.parse({})).toEqual({});
+	expect(CreateTerminalRequest.safeParse({ agent: "gemini" }).success).toBe(false);
+	expect(
+		CreateTerminalRequest.safeParse({ agent: "claude", command: "claude" }).success,
+	).toBe(false);
+});
+
+test("Terminal carries an optional review baseline", () => {
+	expect(Terminal.parse(sampleTerminal)).toEqual(sampleTerminal);
+	const recorded = {
+		...sampleTerminal,
+		agent: "claude" as const,
+		baselineObjectId: sha1,
+		baselineHead: sha256,
+	};
+	expect(Terminal.parse(recorded)).toEqual(recorded);
+	expect(
+		Terminal.parse({
+			...sampleTerminal,
+			agent: null,
+			baselineObjectId: null,
+			baselineHead: null,
+		}),
+	).toEqual({
+		...sampleTerminal,
+		agent: null,
+		baselineObjectId: null,
+		baselineHead: null,
+	});
+	expect(Terminal.safeParse({ ...sampleTerminal, agent: "gemini" }).success).toBe(
+		false,
+	);
+	expect(
+		Terminal.safeParse({ ...sampleTerminal, baselineObjectId: "abc" }).success,
+	).toBe(false);
+	expect(Terminal.safeParse({ ...sampleTerminal, baselineHead: "HEAD" }).success).toBe(
+		false,
+	);
+});
+
 test("limits match the agreed transport budget", () => {
 	expect(MAX_TERMINALS_PER_WORKSPACE).toBe(8);
 	expect(MAX_ATTACHMENTS_PER_TERMINAL).toBe(4);

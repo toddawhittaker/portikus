@@ -19,7 +19,10 @@ export interface CreateLoggerOptions {
 }
 
 /**
- * Keys and header names never written to a log line (SPEC.md §24.11).
+ * Keys and header names never written to a log line (SPEC.md §24.8, §24.11;
+ * BROWSER-HANDLING.md §21.3). Query, fragment, and userinfo are the URL
+ * parts that can carry a token. The two key names are institutional
+ * credentials and must not appear even outside `institutionalEnv`.
  *
  * This is a backstop two to three levels deep, not a guarantee: log named
  * fields, never a whole database row, config object or request object.
@@ -47,6 +50,24 @@ const REDACT_PATHS = [
 	"agentToken",
 	"clientSecret",
 	"cookie",
+	"query",
+	"*.query",
+	"*.*.query",
+	"fragment",
+	"*.fragment",
+	"*.*.fragment",
+	"userinfo",
+	"*.userinfo",
+	"*.*.userinfo",
+	"institutionalEnv",
+	"*.institutionalEnv",
+	"*.*.institutionalEnv",
+	"ANTHROPIC_API_KEY",
+	"*.ANTHROPIC_API_KEY",
+	"*.*.ANTHROPIC_API_KEY",
+	"OPENAI_API_KEY",
+	"*.OPENAI_API_KEY",
+	"*.*.OPENAI_API_KEY",
 ];
 
 /**
