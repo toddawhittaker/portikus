@@ -203,6 +203,32 @@ export async function loadPreviewSession(
 }
 
 /**
+ * Whether a cookie belongs to a revoked preview session for this host whose
+ * workspace is no longer running. Stopping revokes the sessions, and the
+ * student should still be told the workspace stopped (BROWSER-HANDLING.md §9.2).
+ */
+export async function revokedForStoppedWorkspace(
+	db: Kysely<Database>,
+	token: string,
+	host: string,
+): Promise<boolean> {
+	const row = await db
+		.selectFrom("preview_sessions")
+		.innerJoin("workspaces", "workspaces.id", "preview_sessions.workspace_id")
+		.select(["preview_sessions.user_id", "preview_sessions.session_id"])
+		.where("preview_sessions.token_hash", "=", hashToken(token))
+		.where("preview_sessions.preview_host", "=", host)
+		.where("preview_sessions.revoked_at", "is not", null)
+		.whereRef("workspaces.owner_user_id", "=", "preview_sessions.user_id")
+		.where("workspaces.state", "!=", "running")
+		.executeTakeFirst();
+	if (!row) return false;
+	// A student who has signed out is told to sign in, not about the workspace.
+	const user = await loadMainSessionUser(db, row.session_id);
+	return user?.id === row.user_id;
+}
+
+/**
  * The user behind a main session row, found by its id rather than its token:
  * the preview host never sees the main session cookie, so the preview session
  * carries the id instead. Mirrors `loadSession` (SPEC.md §5.3).

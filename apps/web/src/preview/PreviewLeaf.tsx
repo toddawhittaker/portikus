@@ -301,7 +301,9 @@ export function PreviewLeaf({
 	}, [state, loadedUrl]);
 
 	function onFrameLoad() {
-		setBackHint(undefined);
+		// A load can be a late echo of an earlier Back, so the hint goes only
+		// when there really is something to go back to again.
+		if (history.current?.canGoBack()) setBackHint(undefined);
 		if (state.status !== "available" && state.status !== "blocked") return;
 		setLoadedUrl(state.grant.bootstrapUrl);
 		// A slow application that finally loaded was not refusing to be
