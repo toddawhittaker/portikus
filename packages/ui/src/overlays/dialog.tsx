@@ -24,20 +24,31 @@ interface FocusOrigin {
 	element: HTMLElement;
 	/** The button that opened the menu, when the element is a menu item. */
 	menuTrigger: HTMLElement | null;
+	/** What had focus before the menu opened, for a menu with no trigger. */
+	beforeMenu: HTMLElement | null;
 }
 
 function focusOrigin(element: HTMLElement): FocusOrigin {
-	const menuId = element.closest('[role="menu"]')?.getAttribute("aria-labelledby");
-	return { element, menuTrigger: menuId ? document.getElementById(menuId) : null };
+	const menu = element.closest('[role="menu"]');
+	const menuId = menu?.getAttribute("aria-labelledby");
+	return {
+		element,
+		menuTrigger: menuId ? document.getElementById(menuId) : null,
+		beforeMenu: menu ? lastOutsideMenu : null,
+	};
 }
 
 // A menu item that opens a dialog unmounts before the dialog mounts, and focus
 // falls to the body, so remember the last focused element as it happens.
 let lastFocus: FocusOrigin | null = null;
+// A right-click menu has no trigger button, so keep what had focus before it.
+let lastOutsideMenu: HTMLElement | null = null;
 let tracking = false;
 
 function trackFocus(event: FocusEvent): void {
-	if (event.target instanceof HTMLElement) lastFocus = focusOrigin(event.target);
+	if (!(event.target instanceof HTMLElement)) return;
+	lastFocus = focusOrigin(event.target);
+	if (!event.target.closest('[role="menu"]')) lastOutsideMenu = event.target;
 }
 
 /**
@@ -64,9 +75,11 @@ export function useReturnFocus(): {
 					: lastFocus;
 		},
 		onCloseAutoFocus(event) {
-			const target = [origin.current?.element, origin.current?.menuTrigger].find(
-				(element) => element?.isConnected && element !== document.body,
-			);
+			const target = [
+				origin.current?.element,
+				origin.current?.menuTrigger,
+				origin.current?.beforeMenu,
+			].find((element) => element?.isConnected && element !== document.body);
 			origin.current = null;
 			if (!target) return;
 			event.preventDefault();

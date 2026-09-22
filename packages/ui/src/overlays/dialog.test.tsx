@@ -115,4 +115,47 @@ describe("Dialog", () => {
 			expect(document.activeElement).toBe(screen.getByText("Project actions")),
 		);
 	});
+
+	it("falls back to what had focus before an unlabelled menu opened (#358)", async () => {
+		// A right-click menu has no trigger button to go back to.
+		function ContextFixture() {
+			const [menuOpen, setMenuOpen] = React.useState(false);
+			const [open, setOpen] = React.useState(false);
+			return (
+				<>
+					<button type="button" onClick={() => setMenuOpen(true)}>
+						README.md
+					</button>
+					{menuOpen ? (
+						<div role="menu" aria-label="Actions for README.md">
+							<button
+								type="button"
+								role="menuitem"
+								onClick={() => {
+									setOpen(true);
+									setMenuOpen(false);
+								}}
+							>
+								Delete…
+							</button>
+						</div>
+					) : null}
+					<DialogRoot open={open} onOpenChange={setOpen}>
+						<Dialog title="Delete README.md" />
+					</DialogRoot>
+				</>
+			);
+		}
+		render(<ContextFixture />);
+		const row = screen.getByText("README.md");
+		row.focus();
+		fireEvent.click(row);
+		const item = screen.getByRole("menuitem");
+		item.focus();
+		fireEvent.click(item);
+
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+		await waitFor(() => expect(document.activeElement).toBe(row));
+	});
 });

@@ -75,6 +75,7 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 		terminalTheme: "dark",
 		timezone: "America/New_York",
 		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 	});
 });
@@ -92,6 +93,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		terminalTheme: "dark",
 		timezone: "America/New_York",
 		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 	});
 
@@ -103,6 +105,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		terminalTheme: "dark",
 		timezone: "America/New_York",
 		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 	});
 
@@ -118,6 +121,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		terminalTheme: "dark",
 		timezone: "America/New_York",
 		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 	});
 });
@@ -210,6 +214,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		terminalTheme: "dark",
 		timezone: "America/New_York",
 		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 	});
 
@@ -227,6 +232,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		terminalTheme: "dark",
 		timezone: "America/New_York",
 		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 	});
 });
@@ -264,6 +270,7 @@ test.skipIf(skip)(
 			terminalTheme: "dark",
 			timezone: "America/New_York",
 			appearance: "system",
+			screenReaderMode: false,
 			timezones: [...systemTimezones()],
 		});
 
@@ -276,6 +283,7 @@ test.skipIf(skip)(
 			terminalTheme: "dark",
 			timezone: "America/New_York",
 			appearance: "system",
+			screenReaderMode: false,
 			timezones: [...systemTimezones()],
 		});
 	},
@@ -317,6 +325,7 @@ test.skipIf(skip)("an unknown stored zone loses only the zone", async () => {
 		terminalTheme: "light",
 		timezone: "America/New_York",
 		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 	});
 });
@@ -340,6 +349,26 @@ test.skipIf(skip)("appearance is saved and merged with the rest", async () => {
 		headers: { cookie: other.cookieHeader() },
 	});
 	expect(bob.json()).toMatchObject({ appearance: "system" });
+});
+
+/** Issue #357: screen-reader mode is off by default, saved per user, merged like any other setting. */
+test.skipIf(skip)("screen-reader mode is saved per user and merged", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	await put(jar, { wordWrap: false });
+	const res = await put(jar, { screenReaderMode: true });
+	expect(res.statusCode).toBe(200);
+	expect(res.json()).toMatchObject({ screenReaderMode: true, wordWrap: false });
+
+	const other = new CookieJar();
+	await loginAs(app, "bob", other);
+	const bob = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: other.cookieHeader() },
+	});
+	expect(bob.json()).toMatchObject({ screenReaderMode: false });
 });
 
 const PNG = Buffer.concat([
@@ -441,6 +470,25 @@ test.skipIf(skip)("a png picture is stored and served only to its owner", async 
 	expect(removed.json()).toMatchObject({ picture: null });
 	expect((await getAs(jar, "/me/picture")).statusCode).toBe(404);
 });
+
+/** Security review: only the versioned picture URL may be cached for long. */
+test.skipIf(skip)(
+	"the picture is cached long only under its versioned URL",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "alice", jar);
+		const picture = (await putPicture(jar, PNG)).json().picture as string;
+
+		const versioned = await getAs(jar, picture);
+		expect(versioned.headers["cache-control"]).toBe(
+			"private, max-age=31536000, immutable",
+		);
+
+		const bare = await getAs(jar, "/me/picture");
+		expect(bare.statusCode).toBe(200);
+		expect(bare.headers["cache-control"]).toBe("private, no-cache");
+	},
+);
 
 test.skipIf(skip)("a picture over the cap or of another type is refused", async () => {
 	const jar = new CookieJar();

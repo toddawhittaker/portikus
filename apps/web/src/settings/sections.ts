@@ -70,6 +70,10 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 				controls: [{ id: "terminal-colours", label: "Terminal colors" }],
 			},
 			{
+				title: "Accessibility",
+				controls: [{ id: "screen-reader-mode", label: "Screen reader mode" }],
+			},
+			{
 				title: "Workspace",
 				controls: [{ id: "workspace-timezone", label: "Workspace timezone" }],
 			},
@@ -78,6 +82,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 				controls: [{ id: "colour-scheme", label: "Color scheme" }],
 			},
 		],
+	},
+	// Help text only, no controls; search finds it by its title (issue #359).
+	{
+		id: "keyboard",
+		title: "Keyboard and screen readers",
+		groups: [],
 	},
 ];
 

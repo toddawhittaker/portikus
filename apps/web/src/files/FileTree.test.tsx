@@ -554,6 +554,19 @@ describe("the file tree", () => {
 		expect(screen.getByTestId("row-rename")).toBeDefined();
 	});
 
+	/**
+	 * Issue #358: a dialog opened from the row menu returns focus to the menu's
+	 * button, which is not a Tab stop, so the button hands it to its row.
+	 */
+	it("hands focus given to a row's menu button on to the row", async () => {
+		renderPane();
+		const row = await screen.findByTestId("file-row-README.md");
+
+		screen.getByTestId("file-menu-README.md").focus();
+
+		expect(document.activeElement).toBe(row);
+	});
+
 	it("tells a screen reader how to open the row menu", async () => {
 		renderPane();
 		const tree = await screen.findByTestId("file-tree");

@@ -6,12 +6,14 @@
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef } from "react";
 import {
+	accessibilitySupport,
 	baseEditorOptions,
 	currentThemeName,
 	getMonaco,
 	languageForPath,
 	watchTheme,
 } from "./monaco.js";
+import { useScreenReaderMode } from "./settingsQueries.js";
 import "./editor.css";
 
 export interface DiffViewerProps {
@@ -65,6 +67,9 @@ export function DiffViewer({
 	// Whether the editor was built editable. No tab changes its mind while it
 	// is open, so this is read once, when the editor is created.
 	const editableRef = useRef(editable);
+	const screenReaderMode = useScreenReaderMode();
+	const screenReaderRef = useRef(screenReaderMode);
+	screenReaderRef.current = screenReaderMode;
 
 	useEffect(() => {
 		let disposed = false;
@@ -91,6 +96,7 @@ export function DiffViewer({
 				renderSideBySide: true,
 				useInlineViewWhenSpaceIsLimited: false,
 				renderOverviewRuler: false,
+				accessibilitySupport: accessibilitySupport(screenReaderRef.current),
 			});
 			editor.setModel(models);
 			if (editableRef.current) {
@@ -129,6 +135,13 @@ export function DiffViewer({
 		}
 		if (view) editor.restoreViewState(view);
 	}, [original, modified, version]);
+
+	// Screen-reader support follows the student's setting, live (issue #357).
+	useEffect(() => {
+		editorRef.current?.updateOptions({
+			accessibilitySupport: accessibilitySupport(screenReaderMode),
+		});
+	}, [screenReaderMode]);
 
 	// The theme follows the page's choice; one watcher serves every editor.
 	useEffect(() => {

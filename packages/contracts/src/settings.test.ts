@@ -176,6 +176,7 @@ test("the editor settings defaults are a valid, complete set", () => {
 		terminalTheme: "dark",
 		timezone: "America/New_York",
 		appearance: "system",
+		screenReaderMode: false,
 	});
 });
 
@@ -268,6 +269,21 @@ test("appearance defaults to system and takes only the three choices", () => {
 	expect(UpdateEditorSettingsRequest.safeParse({ appearance: "blue" }).success).toBe(
 		false,
 	);
+});
+
+/**
+ * Issue #357: screen-reader mode is off unless the student turns it on. With
+ * it on, xterm.js drops text that arrives without a key press (emoji
+ * pickers, dictation), so it is not forced on everyone.
+ */
+test("screen-reader mode defaults to off and takes only a boolean", () => {
+	expect(EDITOR_SETTINGS_DEFAULTS.screenReaderMode).toBe(false);
+	expect(
+		UpdateEditorSettingsRequest.safeParse({ screenReaderMode: true }).success,
+	).toBe(true);
+	expect(
+		UpdateEditorSettingsRequest.safeParse({ screenReaderMode: "on" }).success,
+	).toBe(false);
 });
 
 /** Issue #300: links are https URLs or bare usernames, nothing else. */

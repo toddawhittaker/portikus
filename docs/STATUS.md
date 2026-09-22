@@ -1337,3 +1337,55 @@ the picture lives on the users row. The picture upload uses its own
 into a workspace. The administration page does not wait for the saved
 appearance, so it uses the browser's copy until the workspace screen has
 loaded once.
+
+**Accessibility (issues #357 to #374).** An accessibility review of main
+at 9d6da94 raised eighteen issues against WCAG 2.2 AA (SPEC.md section
+25.8, DESIGN.md section 6). All of them landed on the epic in PRs #376 to
+#381 and the screen-reader task PR.
+
+- Shared overlays (PR #376): a dialog or confirmation puts focus back
+  where it opened, falling back to the menu button (#358). Toasts sit
+  above dialogs and name F8 (#364). Tabs announce Delete and
+  Alt+Shift+Arrow and have a 24px close target (#372, part of #370).
+- Profile and per-user appearance (PR #377, issue #300).
+- File tree and project list (PR #378): keyboard Download as zip and Show
+  hidden (#361), spoken Git status and ignored state (#362), one Tab stop
+  per tree with Shift+F10 for the row menu (#366), readable ignored rows
+  and Git letters (#367), a 2px ink bar on the selected row (#369), and
+  Move to… for files (#370).
+- Right pane, search, preview, admin, and titles (PR #379): arrow keys in
+  the Files, Checks, Running and Monitor switcher (#365), distinct names
+  in the admin table and check editor (#371), status regions and alerts
+  (#363), aria-current and the ink bar on current rows (#369), a title for
+  every page (#374), and focus kept after Find in files and a removed
+  check (#358).
+- Work area (PR #380): the terminal focus ring follows the terminal's own
+  scheme (#368), Move to new tab and Leave terminal in each terminal's
+  menu (#370, #359), named tab panels (#374), and a bold pressed Edit or
+  Diff button with focus kept across the swap (#369, #358).
+- Terminal (PR #381): the dark palette passes 4.5:1, with xterm lifting
+  any cell below it (#360), the helper textarea describes Alt+Shift+Q
+  (#359), and connection flags are announced (#363).
+- Screen-reader task: a per-user screen-reader mode, off by default,
+  turns on xterm's screen-reader mode in every terminal and the check
+  output and Monaco's `accessibilitySupport` in every editor, live (#357).
+  The first Tab stop on the workspace page toggles it and announces the
+  change. Settings gains a "Keyboard and screen readers" section (#359),
+  the Settings save error is an alert (#363), and the terminal colours
+  switch is named "Light terminal" (#373). A dialog opened from a file
+  row's menu, by Shift+F10 or a right-click, now returns focus to the row
+  (#358). The light `--ansi-bright-green` and `--ansi-bright-yellow`
+  tokens now match the terminal's #35793b and #946800, which pass 4.5:1 on
+  the light background; the old tokens measured 4.32:1 and 4.18:1.
+  Security review follow-up: `GET /me/picture` is cached for a year only
+  under its versioned `?v=` URL; the bare URL answers `private, no-cache`.
+
+Gaps: screen-reader mode ships off by default. Measured with it on, bulk
+output is about twice as slow (20 MB: 0.45 s to 0.96 s) and typing and
+redraw do not change, but xterm.js then drops text that arrives without a
+key press, such as from an emoji picker or dictation, so it was not
+turned on for everyone. The Settings help section says so. F2 to rename a file row (optional in
+#366) was not added. The administration page has no terminals or editors,
+so it has no screen-reader toggle. Terminal and editor limits are
+documented in Settings rather than fixed: full-screen programs redraw the
+screen, and colours and inline editor hints are not announced.

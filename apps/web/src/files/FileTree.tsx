@@ -1188,6 +1188,9 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 							className="pk-tree-actions"
 							data-testid={`file-menu-${path}`}
 							onClick={(event) => event.stopPropagation()}
+							// A dialog opened from this menu returns focus here on close;
+							// hand it on to the row, the tree's Tab stop (issue #358).
+							onFocus={() => rowRef.current?.focus()}
 						/>
 					</MenuTrigger>
 					<Menu

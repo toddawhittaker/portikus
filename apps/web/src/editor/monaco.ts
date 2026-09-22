@@ -85,6 +85,14 @@ export const baseEditorOptions: Monaco.editor.IEditorOptions = {
 	scrollBeyondLastLine: false,
 };
 
+/**
+ * Monaco's screen-reader support follows the student's setting (issue #357).
+ * Never "auto": a browser cannot tell that a screen reader is running.
+ */
+export function accessibilitySupport(screenReaderMode: boolean): "on" | "off" {
+	return screenReaderMode ? "on" : "off";
+}
+
 export const LIGHT_THEME = "portikus-light";
 export const DARK_THEME = "portikus-dark";
 

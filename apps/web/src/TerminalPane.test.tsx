@@ -1,11 +1,16 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { MAX_UPLOAD_BYTES, type Terminal } from "@portikus/contracts";
+import {
+	EDITOR_SETTINGS_DEFAULTS,
+	MAX_UPLOAD_BYTES,
+	type Terminal,
+} from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "./api/queryClient.js";
+import { editorSettingsKey } from "./editor/settingsQueries.js";
 import {
 	decodeOsc52,
 	MAX_CLIPBOARD_BYTES,
@@ -113,11 +118,12 @@ function renderPane(
 	visible = true,
 	overrides: Partial<Terminal> = {},
 	focusOnMount = false,
+	client = createQueryClient(() => {}),
 ) {
 	stubBrowserApis();
 	vi.stubGlobal("WebSocket", FakeWebSocket);
 	const view = render(
-		<QueryClientProvider client={createQueryClient(() => {})}>
+		<QueryClientProvider client={client}>
 			<ToastProvider>
 				<TerminalPane
 					workspaceId={WORKSPACE}
@@ -517,6 +523,54 @@ test("the dark ANSI palette matches the dark --ansi-* tokens in theme.css", () =
 	}
 });
 
+/** The light palette is the design's light --ansi-* tokens, so the two cannot drift. */
+test("the light ANSI palette matches the light --ansi-* tokens in theme.css", () => {
+	const css = readFileSync(
+		resolve(import.meta.dirname, "../../../packages/ui/src/theme.css"),
+		"utf8",
+	);
+	const start = css.indexOf('[data-terminal-theme="light"] {');
+	expect(start).toBeGreaterThan(-1);
+	const block = css.slice(start, css.indexOf("}", start));
+	const light = terminalTheme("light");
+	for (const name of ANSI_NAMES) {
+		const token = `--ansi-${name.replace(/[A-Z]/, (c) => `-${c.toLowerCase()}`)}`;
+		const match = new RegExp(`${token}: (#[0-9a-f]{6});`).exec(block);
+		expect(match?.[1], token).toBe(light[name]);
+	}
+});
+
+/** Issue #357: before the settings arrive a terminal uses the default. */
+test("a terminal starts in the default screen-reader mode", async () => {
+	renderPane();
+	await waitFor(() => expect(opened.terminals).toHaveLength(1));
+	expect(opened.terminals[0]?.options.screenReaderMode).toBe(
+		EDITOR_SETTINGS_DEFAULTS.screenReaderMode,
+	);
+});
+
+/** Issue #357: the student's setting turns it on, and a change applies without a reload. */
+test("the screen-reader setting turns the mode on and off in an open terminal", async () => {
+	const client = createQueryClient(() => {});
+	const settings = {
+		...EDITOR_SETTINGS_DEFAULTS,
+		screenReaderMode: true,
+		timezones: [],
+	};
+	client.setQueryData(editorSettingsKey, settings);
+	renderPane(vi.fn(), vi.fn(), true, {}, false, client);
+	await waitFor(() => expect(opened.terminals).toHaveLength(1));
+	expect(opened.terminals[0]?.options.screenReaderMode).toBe(true);
+
+	act(() => {
+		client.setQueryData(editorSettingsKey, { ...settings, screenReaderMode: false });
+	});
+	await waitFor(() =>
+		expect(opened.terminals[0]?.options.screenReaderMode).toBe(false),
+	);
+	expect(opened.terminals).toHaveLength(1);
+});
+
 /** Issue #360: colours a program picks itself are lifted to AA too. */
 test("the terminal enforces a 4.5:1 minimum contrast", async () => {
 	renderPane();
@@ -714,6 +768,8 @@ function stubFileApi(): Call[] {
 		"fetch",
 		vi.fn(async (input: string, init: RequestInit = {}) => {
 			const url = String(input);
+			// The pane reads the screen-reader setting (issue #357); not a file call.
+			if (url === "/me/settings") return json(500, { code: "INTERNAL", message: "" });
 			if (url.endsWith("/projects?state=active")) {
 				return json(200, {
 					projects: [

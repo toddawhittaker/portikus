@@ -12,6 +12,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { useEffect, useId, useRef, useState } from "react";
 import { wsUrl } from "./api/ws.js";
+import { useScreenReaderMode } from "./editor/settingsQueries.js";
 import { fileErrorToast, tooLargeToast } from "./files/errors.js";
 import { savePastedImage } from "./files/queries.js";
 import {
@@ -284,6 +285,14 @@ export function TerminalPane({
 		if (xterm.current) xterm.current.options.theme = terminalTheme(scheme);
 	}, [scheme]);
 
+	// Read at construction and applied live when the student changes it (issue #357).
+	const screenReaderMode = useScreenReaderMode();
+	const screenReaderRef = useRef(screenReaderMode);
+	screenReaderRef.current = screenReaderMode;
+	useEffect(() => {
+		if (xterm.current) xterm.current.options.screenReaderMode = screenReaderMode;
+	}, [screenReaderMode]);
+
 	const terminalId = terminal.id;
 
 	useEffect(() => {
@@ -324,6 +333,7 @@ export function TerminalPane({
 			scrollback: SCROLLBACK_LINES,
 			// Programs pick their own colours too; lift any that miss WCAG AA.
 			minimumContrastRatio: 4.5,
+			screenReaderMode: screenReaderRef.current,
 		});
 		function openUrl(uri: string) {
 			const preview = previewRouteFor(uri, workspaceId, projectId);

@@ -498,7 +498,7 @@ test.describe("file editor", () => {
 
 		// One field per section: the delay, the terminal colors, the zone.
 		await page.getByTestId("editor-settings-delay").fill("11");
-		await page.getByRole("switch", { name: "Terminal colors" }).click();
+		await page.getByRole("switch", { name: "Light terminal" }).click();
 		await page.getByLabel("Workspace timezone").click();
 		await page.getByRole("option", { name: "Los Angeles", exact: true }).click();
 		await page.getByTestId("editor-settings-save").click();
@@ -507,7 +507,7 @@ test.describe("file editor", () => {
 		await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "light");
 		await openEditorSettings(page);
 		await expect(page.getByTestId("editor-settings-delay")).toHaveValue("11");
-		await expect(page.getByRole("switch", { name: "Terminal colors" })).toBeChecked();
+		await expect(page.getByRole("switch", { name: "Light terminal" })).toBeChecked();
 		await expect(page.getByLabel("Workspace timezone")).toContainText("Los Angeles");
 	});
 
@@ -544,7 +544,7 @@ test.describe("file editor", () => {
 		await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "dark");
 
 		await openEditorSettings(page);
-		await page.getByRole("switch", { name: "Terminal colors" }).click();
+		await page.getByRole("switch", { name: "Light terminal" }).click();
 		await page.getByTestId("editor-settings-save").click();
 		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
 
@@ -556,7 +556,7 @@ test.describe("file editor", () => {
 		});
 		await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "light");
 		await openEditorSettings(page);
-		await expect(page.getByRole("switch", { name: "Terminal colors" })).toBeChecked();
+		await expect(page.getByRole("switch", { name: "Light terminal" })).toBeChecked();
 	});
 	test("a Markdown file is never a false conflict (issue #157)", async ({
 		page,

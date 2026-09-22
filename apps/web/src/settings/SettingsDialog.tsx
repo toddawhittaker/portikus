@@ -95,6 +95,7 @@ function ChoiceField({
 
 const PREFERENCES = SETTINGS_SECTIONS.find((section) => section.id === "preferences");
 const PROFILE = SETTINGS_SECTIONS.find((section) => section.id === "profile");
+const KEYBOARD = SETTINGS_SECTIONS.find((section) => section.id === "keyboard");
 
 /** The profile links the student has typed but not saved yet. */
 interface LinkDraft {
@@ -220,6 +221,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const autoSave = draft.autoSave ?? current.autoSave;
 	const wordWrap = draft.wordWrap ?? current.wordWrap;
 	const terminalTheme = draft.terminalTheme ?? current.terminalTheme;
+	const screenReaderMode = draft.screenReaderMode ?? current.screenReaderMode;
 	const timezone = draft.timezone ?? current.timezone;
 	const delay =
 		delayText ?? String(draft.autoSaveDelaySeconds ?? current.autoSaveDelaySeconds);
@@ -255,6 +257,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 			wordWrap,
 			terminalTheme,
 			timezone,
+			screenReaderMode,
 		};
 		try {
 			if (Object.keys(profileBody).length > 0) {
@@ -324,9 +327,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 			case "terminal-colours":
 				return (
 					<div className="grid gap-2">
-						<span id="terminal-colors-label" className={LABEL_CLASS}>
-							{control.label}
-						</span>
+						<span className={LABEL_CLASS}>{control.label}</span>
 						<p className="pk-hint m-0 text-[12px] leading-4 text-ink-muted">
 							What a new terminal starts with. Each terminal's three-dots menu can
 							switch that one terminal, and a program already running keeps the colors
@@ -337,7 +338,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 								type="checkbox"
 								role="switch"
 								aria-checked={terminalTheme === "light"}
-								aria-labelledby="terminal-colors-label"
 								checked={terminalTheme === "light"}
 								onChange={(event) =>
 									setDraft((next) => ({
@@ -346,9 +346,24 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 									}))
 								}
 							/>
-							<span>{terminalTheme === "light" ? "Light" : "Dark"}</span>
+							{/* A fixed name, so on and off mean light and dark (issue #373). */}
+							<span>Light terminal</span>
 						</label>
 					</div>
+				);
+			case "screen-reader-mode":
+				return (
+					<Checkbox
+						label={control.label}
+						description="Lets a screen reader read what terminals, check output, and the editor show. While it is on, busy terminals are slower, and text that arrives without key presses, such as from an emoji picker or dictation, does not reach a terminal."
+						checked={screenReaderMode}
+						onChange={(event) =>
+							setDraft((next) => ({
+								...next,
+								screenReaderMode: event.target.checked,
+							}))
+						}
+					/>
 				);
 			case "workspace-timezone":
 				return (
@@ -485,7 +500,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 					</div>
 					<div className="flex min-h-0 min-w-0 flex-col">
 						<div className="min-h-0 flex-1 overflow-y-auto p-4">
-							{sectionId === PROFILE?.id ? (
+							{sectionId === KEYBOARD?.id ? (
+								<KeyboardHelp />
+							) : sectionId === PROFILE?.id ? (
 								<ProfilePane
 									highlightId={highlightId}
 									links={links}
@@ -541,6 +558,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						</div>
 						{saveError ? (
 							<p
+								role="alert"
 								className="pk-text-body px-4 pb-4 text-status-error"
 								data-testid="editor-settings-error"
 							>
@@ -553,6 +571,82 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 				</div>
 			</Dialog>
 		</DialogRoot>
+	);
+}
+
+/** The keys that are hard to discover, and what the libraries cannot do (issue #359, SPEC.md §25.8). */
+const KEYS: readonly { keys: string; what: string }[] = [
+	{
+		keys: "Alt+Shift+Q",
+		what: "Leave a terminal. While a terminal has the keyboard, Tab goes to the shell. Each terminal's three-dots menu also has Leave terminal.",
+	},
+	{
+		keys: "Ctrl+M",
+		what: "In the editor, switch whether Tab types a tab or moves focus out of the editor.",
+	},
+	{ keys: "Alt+F1", what: "In the editor, open the editor's own accessibility help." },
+	{
+		keys: "Alt+Shift+Left Arrow, Alt+Shift+Right Arrow",
+		what: "Move the focused tab left or right. Delete closes it.",
+	},
+	{
+		keys: "Shift+F10",
+		what: "Open the menu of the focused row in the file tree. The Menu key does the same.",
+	},
+	{
+		keys: "F8",
+		what: "Move to notifications. Inside the editor F8 goes to the next problem instead, so leave the editor first.",
+	},
+];
+
+function KeyboardHelp() {
+	return (
+		<section className="grid gap-6" aria-labelledby="settings-section-keyboard">
+			<h2 id="settings-section-keyboard" className="pk-text-heading text-ink">
+				Keyboard and screen readers
+			</h2>
+			<section className="grid gap-3" aria-labelledby="settings-keys">
+				<h3 id="settings-keys" className="pk-text-label text-ink">
+					Keys
+				</h3>
+				<dl className="m-0 grid gap-3" data-testid="settings-keys">
+					{KEYS.map((item) => (
+						<div key={item.keys} className="grid gap-1">
+							<dt className="pk-text-body font-medium text-ink">
+								<kbd>{item.keys}</kbd>
+							</dt>
+							<dd className="pk-text-compact m-0 text-ink-muted">{item.what}</dd>
+						</div>
+					))}
+				</dl>
+			</section>
+			<section className="grid gap-3" aria-labelledby="settings-limits">
+				<h3 id="settings-limits" className="pk-text-label text-ink">
+					What the terminal and editor cannot do
+				</h3>
+				<ul className="pk-text-compact m-0 grid gap-2 pl-5 text-ink-muted">
+					<li>
+						Terminals are silent to a screen reader until you turn on Screen reader mode
+						in Preferences. With it on, output is read as plain lines of text: colors,
+						bold, and layout are not announced.
+					</li>
+					<li>
+						With Screen reader mode on, a terminal takes only typed keys: text from an
+						emoji picker, dictation, or some on-screen keyboards is dropped.
+					</li>
+					<li>
+						Full-screen programs such as vim, htop, and agent command lines redraw the
+						whole screen, so a screen reader may read repeated or partial lines. There
+						is no way to review what they draw other than moving through the lines.
+					</li>
+					<li>
+						The editor reads the current line. Error underlines, the diff view, and
+						inline hints are drawn visually; use Alt+F1 and the editor's own commands to
+						reach them.
+					</li>
+				</ul>
+			</section>
+		</section>
 	);
 }
 

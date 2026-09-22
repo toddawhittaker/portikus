@@ -15,6 +15,7 @@ import { AppHeader } from "./shell/AppHeader.js";
 import { DisconnectNotice } from "./shell/DisconnectNotice.js";
 import { FilesPane } from "./shell/FilesPane.js";
 import { type RightPane, RightPaneContext } from "./shell/rightPane.js";
+import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
 import { StatusBar } from "./shell/StatusBar.js";
 import { type MeUser, useMe } from "./useMe.js";
 import { useWorkspaceSocket } from "./useWorkspaceSocket.js";
@@ -86,6 +87,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 			<ListeningContext.Provider value={listeningValue}>
 				<RightPaneContext.Provider value={rightPaneApi}>
 					<div className="pk-root">
+						<ScreenReaderToggle />
 						<AppHeader
 							workspaceId={workspaceId}
 							user={user}
