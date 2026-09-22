@@ -15,11 +15,21 @@ for (const name of await removeStaleTemporaries(config.HOME_DIR)) {
 	logger.info({ name }, "removed a stale project temporary directory");
 }
 
+const workspaceFromEnv = process.env.PORTIKUS_WORKSPACE_ID ?? "";
+const workspaceId =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+		workspaceFromEnv,
+	)
+		? workspaceFromEnv
+		: undefined;
+
 const app = buildServer({
 	tokenPath: config.TOKEN_PATH,
 	homeDir: config.HOME_DIR,
 	tmuxSocketName: config.TMUX_SOCKET_NAME,
 	logger,
+	brokerSocketPath: "/run/portikus/browser.sock",
+	workspaceId,
 });
 
 // The workspace bridge is the only network the container has, and the Incus

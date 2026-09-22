@@ -233,6 +233,16 @@ export class ProjectWatchers {
 		this.close(entry);
 	}
 
+	/**
+	 * Push one frame that is not a filesystem batch, on the sockets already
+	 * watching this project root (BROWSER-HANDLING.md §18).
+	 */
+	publish(root: string, message: object): void {
+		const entry = this.entries.get(root);
+		if (!entry || entry.failed) return;
+		this.emit(entry, message as FsEvent);
+	}
+
 	private emit(entry: Entry, event: FsEvent | null): void {
 		for (const listener of [...entry.listeners]) {
 			try {
