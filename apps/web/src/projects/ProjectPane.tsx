@@ -125,15 +125,6 @@ export function ProjectPane({
 								>
 									<Icon name={current ? "folder-open" : "folder"} size="md" />
 									<span className="pk-list-label">{project.name}</span>
-									{/* A project is a folder, so the folder name is always shown. */}
-									{project.missing ? null : (
-										<span
-											className="pk-list-slug pk-mono-small"
-											data-testid={`project-slug-${project.id}`}
-										>
-											{project.slug}
-										</span>
-									)}
 									{project.missing ? (
 										<span className="pk-tag pk-tag--warning">missing</span>
 									) : null}
