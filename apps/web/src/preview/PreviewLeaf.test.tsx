@@ -528,6 +528,29 @@ test("a listening list that empties for a moment leaves a running preview alone"
 	vi.useRealTimers();
 });
 
+test("a list that empties while the grant is in flight asks for one grant, not two", async () => {
+	// A second grant would remount the frame and load the application twice.
+	const answers: ((response: Response) => void)[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(
+			(input: RequestInfo | URL) =>
+				new Promise<Response>((resolve) => {
+					if (String(input).endsWith("/preview-grants")) answers.push(resolve);
+					else resolve(json(200, { embeddable: true }));
+				}),
+		),
+	);
+	const { rerender } = render(tab([service(5173)]));
+	await waitFor(() => expect(answers).toHaveLength(1));
+
+	rerender(tab([]));
+	rerender(tab([service(5173)]));
+	for (const answer of answers) answer(json(200, GRANT));
+	await screen.findByTestId("preview-frame");
+	expect(answers).toHaveLength(1);
+});
+
 test("a port that stays quiet past the grace says nothing is listening", async () => {
 	vi.useFakeTimers({ shouldAdvanceTime: true });
 	stubFetch(() => json(200, GRANT));
