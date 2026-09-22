@@ -262,6 +262,7 @@ export function TerminalPane({
 			fontSize: 13,
 			theme: terminalTheme(schemeRef.current),
 			convertEol: false,
+			// Ordinary output keeps this many lines. CSI 3 J, which `clear` sends, erases them.
 			scrollback: SCROLLBACK_LINES,
 		});
 		function openUrl(uri: string) {

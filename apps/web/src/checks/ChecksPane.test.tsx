@@ -95,6 +95,7 @@ function stubChecks(body: unknown, calls: { url: string; method: string }[] = []
 
 afterEach(() => {
 	cleanup();
+	sessionStorage.clear();
 	vi.unstubAllGlobals();
 });
 
@@ -105,6 +106,7 @@ test("a project with no checks file offers to configure some", async () => {
 
 	await waitFor(() => expect(screen.getByText("No checks configured")).toBeTruthy());
 	expect(screen.getByTestId("checks-empty-edit")).toBeTruthy();
+	expect(screen.queryByRole("separator")).toBeNull();
 });
 
 test("each check shows its name, its real command, and what it last did", async () => {
@@ -231,4 +233,28 @@ test("a long command keeps the whole of it in a tooltip (issue #274)", async () 
 
 	await waitFor(() => expect(screen.getByTestId("checks-list")).toBeTruthy());
 	expect(screen.getByText(long).getAttribute("title")).toBe(long);
+});
+
+test("the output divider is a keyboard-focusable handle and keeps its height", async () => {
+	const key = "react-resizable-panels:pk-checks-output";
+	const saved = JSON.stringify({
+		"pk-checks-output-list": 70,
+		"pk-checks-output-panel": 30,
+	});
+	sessionStorage.setItem(key, saved);
+	stubBrowserApis();
+	stubChecks({
+		checks: [{ id: "tests", name: "Tests", command: "npm test" }],
+		error: null,
+		runs: [],
+	});
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	await waitFor(() => expect(screen.getByTestId("checks-list")).toBeTruthy());
+	const handle = screen.getByRole("separator", { name: "Resize output" });
+	expect(handle.getAttribute("tabindex")).toBe("0");
+	expect(handle.className).toContain("pk-handle");
+	// Mounting must not replace the height kept for this browser session.
+	expect(sessionStorage.getItem(key)).toBe(saved);
+	expect(document.getElementById("pk-checks-output-panel")?.style.flexGrow).toBe("30");
 });

@@ -4,8 +4,8 @@
  */
 import type { ListeningService } from "@portikus/contracts";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
-import { ListeningContext } from "../running/services.js";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { ListeningContext, writeShowSystem } from "../running/services.js";
 import { PreviewPicker, portError } from "./PreviewPicker.js";
 
 function service(over: Partial<ListeningService>): ListeningService {
@@ -29,6 +29,10 @@ function show(services: ListeningService[], onOpen: (port: number) => void) {
 		</ListeningContext.Provider>,
 	);
 }
+
+beforeEach(() => {
+	localStorage.clear();
+});
 
 afterEach(cleanup);
 
@@ -96,4 +100,40 @@ test("a typed port the server may refuse is still opened", () => {
 	fireEvent.change(screen.getByLabelText("Port"), { target: { value: "80" } });
 	fireEvent.click(screen.getByTestId("preview-open-port"));
 	expect(onOpen).toHaveBeenCalledWith(80);
+});
+
+test("a system service is hidden unless Running is showing them", () => {
+	show(
+		[
+			service({ port: 5173 }),
+			service({ port: 5355, system: true, process: { command: "systemd-resolve" } }),
+		],
+		vi.fn(),
+	);
+	expect(screen.getByTestId("preview-port-5173")).toBeTruthy();
+	expect(screen.queryByTestId("preview-port-5355")).toBeNull();
+});
+
+test("a system service is offered when Running is showing them", () => {
+	writeShowSystem(true);
+	show(
+		[service({ port: 5355, system: true, process: { command: "systemd-resolve" } })],
+		vi.fn(),
+	);
+	expect(screen.getByTestId("preview-port-5355")).toBeTruthy();
+});
+
+test("a denied port stays hidden even when system services are shown", () => {
+	writeShowSystem(true);
+	show([service({ port: 5355, system: true, previewReachability: "denied" })], vi.fn());
+	expect(screen.queryByTestId("preview-port-5355")).toBeNull();
+	expect(screen.getByText("Nothing is listening yet.")).toBeTruthy();
+});
+
+test("typing a hidden system port still opens it", () => {
+	const onOpen = vi.fn();
+	show([service({ port: 5355, system: true })], onOpen);
+	fireEvent.change(screen.getByLabelText("Port"), { target: { value: "5355" } });
+	fireEvent.click(screen.getByTestId("preview-open-port"));
+	expect(onOpen).toHaveBeenCalledWith(5355);
 });
