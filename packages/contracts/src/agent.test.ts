@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
 	AgentCreateProjectRequest,
 	AgentCreateTerminalRequest,
+	AgentCreateTerminalResponse,
 	AgentDuplicateProjectRequest,
 	AgentError,
 	AgentHealthResponse,
@@ -92,6 +93,23 @@ test("AgentCreateTerminalRequest takes a launcher agent and only the two institu
 			institutionalEnv: { ANTHROPIC_API_KEY: "k", EXTRA: "no" },
 		}).success,
 	).toBe(false);
+});
+
+test("AgentCreateTerminalResponse carries the two baseline ids or null", () => {
+	const sha = "a".repeat(40);
+	expect(
+		AgentCreateTerminalResponse.parse({
+			baselineObjectId: sha,
+			baselineHead: null,
+		}),
+	).toEqual({ baselineObjectId: sha, baselineHead: null });
+	expect(
+		AgentCreateTerminalResponse.safeParse({
+			baselineObjectId: 1,
+			baselineHead: null,
+		}).success,
+	).toBe(false);
+	expect(AgentCreateTerminalResponse.safeParse({}).success).toBe(false);
 });
 
 test("AgentError round-trips and rejects an unknown code", () => {

@@ -5,9 +5,11 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import { redactUrl } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
@@ -67,6 +69,8 @@ beforeEach(async () => {
 	if (skip) return;
 	await testDb.truncate();
 	agent.terminals.clear();
+	agent.creates.length = 0;
+	agent.baselineReply = { baselineObjectId: null, baselineHead: null };
 	agent.received.length = 0;
 	agent.failCreateWith = null;
 	app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
@@ -100,6 +104,9 @@ test.skipIf(skip)("create, list, rename, and delete a terminal", async () => {
 	expect(terminal.cwd).toBe("/home/student/projects");
 	expect(terminal.endedAt).toBeNull();
 	expect(agent.terminals.has(terminal.id)).toBe(true);
+	expect(terminal.agent).toBeNull();
+	expect(terminal.baselineObjectId).toBeNull();
+	expect(terminal.baselineHead).toBeNull();
 
 	const listed = await app.inject({
 		method: "GET",
@@ -514,4 +521,127 @@ test.skipIf(skip)("a chosen name still wins over the numbering", async () => {
 	const projectId = await makeProject("alpha");
 	const created = await create(alice, workspaceId, { projectId, name: "watch" });
 	expect(created.json().name).toBe("watch");
+});
+
+const BASELINE = "a".repeat(40);
+const HEAD = "b".repeat(64);
+
+test.skipIf(skip)("an unknown agent kind is rejected", async () => {
+	const response = await create(alice, workspaceId, { agent: "gemini" });
+	expect(response.statusCode).toBe(400);
+	expect(response.json().code).toBe("VALIDATION_FAILED");
+	expect(agent.creates).toHaveLength(0);
+});
+
+test.skipIf(skip)("a command field is rejected", async () => {
+	const response = await create(alice, workspaceId, {
+		agent: "claude",
+		command: "claude",
+	});
+	expect(response.statusCode).toBe(400);
+	expect(response.json().code).toBe("VALIDATION_FAILED");
+	expect(agent.creates).toHaveLength(0);
+});
+
+test.skipIf(skip)("another student's workspace is rejected", async () => {
+	const bob = new CookieJar();
+	await loginAs(app, "bob", bob);
+	const response = await create(bob, workspaceId, { agent: "codex" });
+	expect(response.statusCode).toBe(404);
+	expect(response.json().code).toBe("WORKSPACE_NOT_FOUND");
+});
+
+test.skipIf(skip)("a stopped workspace is rejected", async () => {
+	await testDb.db
+		.updateTable("workspaces")
+		.set({ state: "stopped", updated_at: new Date().toISOString() })
+		.where("id", "=", workspaceId)
+		.execute();
+	const response = await create(alice, workspaceId, { agent: "claude" });
+	expect(response.statusCode).toBe(409);
+	expect(response.json().code).toBe("AGENT_UNAVAILABLE");
+	expect(agent.creates).toHaveLength(0);
+});
+
+test.skipIf(skip)(
+	"a launcher stores the baseline and forwards only the matching key",
+	async () => {
+		const secret = "sk-ant-institutional-test-value";
+		vi.stubEnv("ANTHROPIC_API_KEY", secret);
+		vi.stubEnv("OPENAI_API_KEY", "sk-openai-should-not-be-sent");
+		agent.baselineReply = { baselineObjectId: BASELINE, baselineHead: HEAD };
+		const { logger, lines } = collectingLogger();
+		const logged = buildTestServer(
+			testDb.db,
+			mock.issuer,
+			{ AGENT_PORT: agent.port },
+			logger,
+		);
+		await logged.listen({ port: 0, host: "127.0.0.1" });
+		try {
+			const jar = new CookieJar();
+			await loginAs(logged, "carol", jar);
+			const id = (
+				await logged.inject({
+					method: "POST",
+					url: "/workspaces",
+					headers: csrfHeaders(jar, PUBLIC_URL),
+				})
+			).json().id;
+			await testDb.db
+				.updateTable("workspaces")
+				.set({
+					state: "running",
+					agent_address: "127.0.0.1",
+					agent_token: AGENT_TOKEN,
+					updated_at: new Date().toISOString(),
+				})
+				.where("id", "=", id)
+				.execute();
+
+			const response = await logged.inject({
+				method: "POST",
+				url: `/workspaces/${id}/terminals`,
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload: { agent: "claude" },
+			});
+			expect(response.statusCode).toBe(201);
+			const body = response.json();
+			expect(body.agent).toBe("claude");
+			expect(body.baselineObjectId).toBe(BASELINE);
+			expect(body.baselineHead).toBe(HEAD);
+			const text = `${JSON.stringify(body)}\n${JSON.stringify(lines)}`;
+			expect(text).not.toContain(secret);
+			expect(text).not.toContain("sk-openai-should-not-be-sent");
+
+			const forwarded = agent.creates.at(-1);
+			expect(forwarded?.agent).toBe("claude");
+			expect(forwarded?.institutionalEnv).toEqual({ ANTHROPIC_API_KEY: secret });
+
+			const row = await testDb.db
+				.selectFrom("terminals")
+				.select(["agent", "baseline_object_id", "baseline_head"])
+				.where("id", "=", body.id)
+				.executeTakeFirstOrThrow();
+			expect(row).toEqual({
+				agent: "claude",
+				baseline_object_id: BASELINE,
+				baseline_head: HEAD,
+			});
+		} finally {
+			vi.unstubAllEnvs();
+			await logged.close();
+		}
+	},
+);
+
+test("a log line about a broker URL contains the origin and not the query", () => {
+	const { logger, lines } = collectingLogger();
+	const raw = "https://auth.example.com/device?code=super-secret-query";
+	logger.info({ url: redactUrl(raw) }, "broker URL");
+	const text = JSON.stringify(lines);
+	expect(text).toContain("broker URL");
+	expect(text).toContain("https://auth.example.com");
+	expect(text).not.toContain("super-secret-query");
+	expect(text).not.toContain("code=");
 });

@@ -33,7 +33,20 @@ export interface FakeAgent {
 	token: string;
 	/** How many HTTP requests each test application has answered, by port. */
 	appHits: Map<number, number>;
-	terminals: Map<string, { cwd: string; theme: string; timezone: string }>;
+	terminals: Map<
+		string,
+		{
+			cwd: string;
+			theme: string;
+			timezone: string;
+			agent?: string;
+			institutionalEnv?: Record<string, string>;
+		}
+	>;
+	/** Bodies of POST /terminals, in order, so a test can see what was forwarded. */
+	readonly creates: Array<Record<string, unknown>>;
+	/** What the next create answers for the review baseline (SPEC.md §10.9). */
+	baselineReply: { baselineObjectId: string | null; baselineHead: string | null };
 	/** Frames the fake received on an attach socket, in order. */
 	received: string[];
 	/** Attach sockets currently open on the fake. */
@@ -258,7 +271,22 @@ export async function startFakeAgent(
 	token: string,
 	options: { port?: number } = {},
 ): Promise<FakeAgent> {
-	const terminals = new Map<string, { cwd: string; theme: string; timezone: string }>();
+	const terminals = new Map<
+		string,
+		{
+			cwd: string;
+			theme: string;
+			timezone: string;
+			agent?: string;
+			institutionalEnv?: Record<string, string>;
+		}
+	>();
+	const creates: Array<Record<string, unknown>> = [];
+	let baselineReply: { baselineObjectId: string | null; baselineHead: string | null } =
+		{
+			baselineObjectId: null,
+			baselineHead: null,
+		};
 	// Every attachment of one terminal, so echoed output reaches them all,
 	// the way a real shared tmux session would.
 	const attached = new Map<string, Set<WebSocket>>();
@@ -512,14 +540,21 @@ export async function startFakeAgent(
 			cwd: string;
 			theme: string;
 			timezone: string;
+			agent?: string;
+			institutionalEnv?: Record<string, string>;
 		};
+		creates.push(body);
 		// The theme is kept so a test can check it reached here (issue #267).
 		terminals.set(body.id, {
 			cwd: body.cwd,
 			theme: body.theme,
 			timezone: body.timezone,
+			...(body.agent === undefined ? {} : { agent: body.agent }),
+			...(body.institutionalEnv === undefined
+				? {}
+				: { institutionalEnv: body.institutionalEnv }),
 		});
-		return reply.status(201).send({ ok: true });
+		return reply.status(201).send(baselineReply);
 	});
 
 	app.delete("/terminals/:id", async (request, reply) => {
@@ -907,6 +942,36 @@ export async function startFakeAgent(
 		if (!dirs(request).has(slug)) return projectNotFound(reply);
 		await slowIfMarked(slug);
 		const path = (request.query as { path?: string }).path ?? "";
+		if (!ProjectPath.safeParse(path).success) {
+			return fileError(reply, new FakeFileError("PATH_INVALID", "invalid path"));
+		}
+		const diff = gitAnswers.get(answerKey(keyOf(request), slug))?.diffs?.[path];
+		if (!diff) {
+			return fileError(reply, new FakeFileError("FILE_NOT_FOUND", "no such file"));
+		}
+		return diff;
+	});
+
+	// Session review uses the same seeded Git answers (SPEC.md §12.7).
+	app.get("/projects/:slug/baseline-status", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		const object = (request.query as { object?: string }).object ?? "";
+		if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(object)) {
+			return fileError(reply, new FakeFileError("BAD_REQUEST", "invalid object"));
+		}
+		const status = gitAnswers.get(answerKey(keyOf(request), slug))?.status;
+		return status ?? emptyStatus();
+	});
+
+	app.get("/projects/:slug/baseline-diff", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		const query = request.query as { object?: string; path?: string };
+		if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(query.object ?? "")) {
+			return fileError(reply, new FakeFileError("BAD_REQUEST", "invalid object"));
+		}
+		const path = query.path ?? "";
 		if (!ProjectPath.safeParse(path).success) {
 			return fileError(reply, new FakeFileError("PATH_INVALID", "invalid path"));
 		}
@@ -1587,6 +1652,13 @@ export async function startFakeAgent(
 		token,
 		appHits,
 		terminals,
+		creates,
+		get baselineReply() {
+			return baselineReply;
+		},
+		set baselineReply(value) {
+			baselineReply = value;
+		},
 		received,
 		projects,
 		files,
