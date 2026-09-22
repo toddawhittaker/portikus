@@ -72,3 +72,51 @@ test("a saved appearance applies in a fresh browser without a flash", async ({
 		await fresh.close();
 	}
 });
+
+/** A pilot student's browser-only theme survives the move to a per-user setting. */
+test("a theme kept only in this browser is saved once to the account", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await context.addInitScript(() => {
+		if (localStorage.getItem("pk-theme") === null)
+			localStorage.setItem("pk-theme", "dark");
+	});
+	const saved = page.waitForResponse(
+		(response) =>
+			response.url().endsWith("/me/settings") && response.request().method() === "PUT",
+	);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+	expect((await saved).ok()).toBe(true);
+	await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+	const [row] = await query<{ appearance: string }>(
+		"select editor_settings->>'appearance' as appearance from users where id = $1",
+		[student.userId],
+	);
+	expect(row?.appearance).toBe("dark");
+});
+
+test("a saved appearance is not replaced by this browser's copy", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await query(
+		`update users set editor_settings = '{"appearance":"light"}'::jsonb where id = $1`,
+		[student.userId],
+	);
+	await context.addInitScript(() => {
+		if (localStorage.getItem("pk-theme") === null)
+			localStorage.setItem("pk-theme", "dark");
+	});
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+	await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+	const [row] = await query<{ appearance: string }>(
+		"select editor_settings->>'appearance' as appearance from users where id = $1",
+		[student.userId],
+	);
+	expect(row?.appearance).toBe("light");
+});

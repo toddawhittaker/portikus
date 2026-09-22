@@ -14,6 +14,7 @@ import { editorSettingsKey } from "./editor/settingsQueries.js";
 import {
 	decodeOsc52,
 	MAX_CLIPBOARD_BYTES,
+	PASTE_NAME_TRIES,
 	pastedImageType,
 	pastedPathInput,
 	pastePath,
@@ -739,6 +740,16 @@ test("a pasted picture gets a name Portikus chose under .portikus/pastes", () =>
 	);
 });
 
+test("a second paste in the same second gets -2, then -3, before the extension", () => {
+	const now = new Date("2026-09-22T13:40:00Z");
+	expect(pastePath(now, "image/png", 2)).toBe(
+		".portikus/pastes/2026-09-22T13-40-00-2.png",
+	);
+	expect(pastePath(now, "image/jpeg", 3)).toBe(
+		".portikus/pastes/2026-09-22T13-40-00-3.jpeg",
+	);
+});
+
 test("the shell gets the absolute home path, a space, and no newline", () => {
 	expect(pastedPathInput("todo-api", ".portikus/pastes/a.png")).toBe(
 		"/home/student/projects/todo-api/.portikus/pastes/a.png ",
@@ -762,7 +773,7 @@ function json(status: number, body: unknown): Response {
 }
 
 /** A fake API: the project list, and a record of every file call. */
-function stubFileApi(): Call[] {
+function stubFileApi(existing: string[] = []): Call[] {
 	const calls: Call[] = [];
 	vi.stubGlobal(
 		"fetch",
@@ -800,6 +811,9 @@ function stubFileApi(): Call[] {
 				return json(409, { code: "FILE_EXISTS", message: "exists" });
 			}
 			if (url.endsWith("/mkdir")) return json(201, {});
+			if (existing.some((path) => url.endsWith(encodeURIComponent(path)))) {
+				return json(409, { code: "FILE_EXISTS", message: "exists" });
+			}
 			return json(200, { etag: "e1", size: PNG_BYTES.length });
 		}),
 	);
@@ -840,8 +854,8 @@ function inputsSent(): string[] {
 }
 
 /** A connected pane whose project list, and so its slug, has loaded. */
-async function loadedPane() {
-	const calls = stubFileApi();
+async function loadedPane(existing: string[] = []) {
+	const calls = stubFileApi(existing);
 	const { view } = renderPane();
 	await waitFor(() => expect(sockets).toHaveLength(1));
 	act(() => sockets[0]?.onopen?.());
@@ -932,11 +946,89 @@ test("right-click pastes a picture even where readText is missing", async () => 
 
 test("right-click with text on the clipboard types the text", async () => {
 	const { view, calls } = await loadedPane();
+	const readText = vi.fn(async () => "hello");
 	stubClipboard({
-		read: async () => [{ types: ["text/plain", "image/png"], getType: vi.fn() }],
-		readText: async () => "hello",
+		read: async () => [
+			{
+				types: ["text/plain", "image/png"],
+				getType: async () => new Blob(["hello"], { type: "text/plain" }),
+			},
+		],
+		readText,
 	});
 	rightClick(view);
 	await waitFor(() => expect(inputsSent()).toEqual(["hello"]));
 	expect(calls).toEqual([]);
+	expect(readText).not.toHaveBeenCalled();
+});
+
+test("right-click text paste is bracketed when the program asks, and reads once", async () => {
+	const { view } = await loadedPane();
+	act(() => {
+		sockets[0]?.onmessage?.({ data: outputBytes("\u001b[?2004h") });
+	});
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	});
+	const read = vi.fn(async () => [
+		{
+			types: ["text/plain"],
+			getType: async () => new Blob(["ls\npwd"], { type: "text/plain" }),
+		},
+	]);
+	const readText = vi.fn(async () => "wrong");
+	stubClipboard({ read, readText });
+	rightClick(view);
+	await waitFor(() =>
+		expect(inputsSent().join("")).toBe("\u001b[200~ls\rpwd\u001b[201~"),
+	);
+	expect(read).toHaveBeenCalledTimes(1);
+	expect(readText).not.toHaveBeenCalled();
+});
+
+test("right-click falls back to readText through the same bracketed paste", async () => {
+	const { view } = await loadedPane();
+	act(() => {
+		sockets[0]?.onmessage?.({ data: outputBytes("\u001b[?2004h") });
+	});
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	});
+	stubClipboard({ readText: async () => "echo hi" });
+	rightClick(view);
+	await waitFor(() =>
+		expect(inputsSent().join("")).toBe("\u001b[200~echo hi\u001b[201~"),
+	);
+});
+
+test("two pastes in the same second never overwrite: the second gets -2", async () => {
+	const first = ".portikus/pastes/2026-09-22T13-40-00.png";
+	const { view, calls } = await loadedPane([first]);
+	vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-09-22T13:40:00Z") });
+	const image = new File([PNG_BYTES], "p.png", { type: "image/png" });
+	firePaste(view, [{ kind: "file", type: "image/png", getAsFile: () => image }]);
+	vi.useRealTimers();
+	const second = ".portikus/pastes/2026-09-22T13-40-00-2.png";
+	await waitFor(() =>
+		expect(inputsSent()).toEqual([`/home/student/projects/todo-api/${second} `]),
+	);
+	const puts = calls.filter((call) => call.method === "PUT");
+	expect(puts).toHaveLength(2);
+	for (const put of puts) expect(put.headers["if-none-match"]).toBe("*");
+});
+
+test("when every name is taken the paste fails with a toast", async () => {
+	const now = new Date("2026-09-22T13:40:00Z");
+	const taken = Array.from({ length: PASTE_NAME_TRIES }, (_, i) =>
+		pastePath(now, "image/png", i + 1),
+	);
+	const { view, calls } = await loadedPane(taken);
+	vi.useFakeTimers({ toFake: ["Date"], now });
+	firePaste(view, [
+		{ kind: "file", type: "image/png", getAsFile: () => new File([PNG_BYTES], "p") },
+	]);
+	vi.useRealTimers();
+	await waitFor(() => expect(view.getByText(/already exists/)).toBeTruthy());
+	expect(calls.filter((call) => call.method === "PUT")).toHaveLength(PASTE_NAME_TRIES);
+	expect(inputsSent()).toEqual([]);
 });

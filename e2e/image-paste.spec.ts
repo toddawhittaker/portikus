@@ -187,6 +187,64 @@ test.describe("image paste", () => {
 		expect(seen).not.toContain("png-bytes-marker");
 	});
 
+	test("two pastes in the same second keep both pictures", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { project, terminalId } = await openTerminal(page, student.workspaceId);
+		await page.clock.setFixedTime(new Date("2026-09-22T13:40:00Z"));
+
+		await firePaste(page, terminalId, {
+			file: { type: "image/png", content: "first" },
+		});
+		await typedPath(page, terminalId, project.slug);
+		await firePaste(page, terminalId, {
+			file: { type: "image/png", content: "second" },
+		});
+
+		const dir = `/home/student/projects/${project.slug}/.portikus/pastes`;
+		await expect(rowsOf(page, terminalId)).toContainText(
+			`${dir}/2026-09-22T13-40-00-2.png `,
+			{ timeout: 15_000 },
+		);
+		expect(
+			await readSeededFile(
+				student.workspaceId,
+				project.slug,
+				".portikus/pastes/2026-09-22T13-40-00.png",
+			),
+		).toBe("first");
+		expect(
+			await readSeededFile(
+				student.workspaceId,
+				project.slug,
+				".portikus/pastes/2026-09-22T13-40-00-2.png",
+			),
+		).toBe("second");
+	});
+
+	test("right-click text goes through the terminal's own paste", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { terminalId } = await openTerminal(page, student.workspaceId);
+		await page.evaluate(() => navigator.clipboard.writeText("line-one\nline-two"));
+
+		await page
+			.locator(`[data-testid=terminal-pane-${terminalId}] .xterm-screen`)
+			.click({ button: "right" });
+
+		// xterm's paste turns newlines into carriage returns, as a keyboard paste does.
+		await expect(rowsOf(page, terminalId)).toContainText("line-one\\rline-two", {
+			timeout: 15_000,
+		});
+		await page.waitForTimeout(1500);
+		const seen = (await rowsOf(page, terminalId).textContent()) ?? "";
+		expect(seen.split("line-one").length - 1).toBe(1);
+	});
+
 	test.describe("where readText is refused, as in Firefox", () => {
 		test.beforeEach(async ({ page }) => {
 			await page.addInitScript(() => {

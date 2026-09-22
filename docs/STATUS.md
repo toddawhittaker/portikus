@@ -1312,7 +1312,10 @@ that carries any text stays a text paste. Keyboard paste now always goes
 through the browser paste event, so it works where `readText` is refused,
 as in Firefox, and text still lands once. A right-click reads the
 clipboard items and falls back to `readText`. A picture over the 50 MiB
-upload cap is refused with the usual message. Gap: in Firefox a
+upload cap is refused with the usual message. A second paste in the
+same second is saved as `-2`, then `-3`, up to five names, and never
+overwrites; a right-click text paste goes through xterm's own paste, so it
+is bracketed like a keyboard paste. Gap: in Firefox a
 right-click paste still depends on the browser allowing `clipboard.read`.
 
 **Settings (issue #300).** Appearance now follows the student. The
@@ -1320,7 +1323,10 @@ light, dark, or system choice is a per-user setting saved through `PUT /me/setti
 chosen. The browser's `pk-theme` copy is still read before the first
 paint, and the workspace screen waits for the settings before it draws,
 so a browser that has never seen the choice shows it without a flash.
-The saved value wins and refreshes that copy.
+The saved value wins and refreshes that copy. A student with no saved
+appearance whose browser copy says light or dark has that choice saved
+once, so an upgrade does not reset it. Settings saves merge in one SQL
+statement, so two saves at once both survive.
 
 The Account section is folded into a new Profile section at the top of
 Settings. It shows the display name, email, sign-in name, and workspace

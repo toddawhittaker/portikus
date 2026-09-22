@@ -180,6 +180,8 @@ export type UpdateEditorSettingsRequest = z.infer<typeof UpdateEditorSettingsReq
  */
 export const MeSettings = EditorSettings.extend({
 	timezones: z.array(z.string()),
+	/** False when appearance is the default, not a saved choice. */
+	appearanceStored: z.boolean().optional(),
 });
 export type MeSettings = z.infer<typeof MeSettings>;
 

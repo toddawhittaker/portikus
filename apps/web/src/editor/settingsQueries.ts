@@ -6,7 +6,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { request } from "../api/request.js";
-import { rememberThemePreference } from "../shell/theme.js";
+import { readThemePreference, rememberThemePreference } from "../shell/theme.js";
 
 export const editorSettingsKey = ["me", "settings"] as const;
 
@@ -20,10 +20,23 @@ export function useEditorSettings() {
 		// The saved appearance wins over this browser's copy, and it is applied
 		// here, before anything renders with the settings (issue #300).
 		queryFn: async () => {
-			const settings = await request(MeSettings, "/me/settings");
+			let settings = await request(MeSettings, "/me/settings");
+			// A theme picked before appearance moved to the server is kept once.
+			const local = readThemePreference();
+			if (settings.appearanceStored === false && local !== "system") {
+				settings = await saveEditorSettings({ appearance: local });
+			}
 			rememberThemePreference(settings.appearance);
 			return settings;
 		},
+	});
+}
+
+function saveEditorSettings(body: UpdateEditorSettingsRequest) {
+	return request(MeSettings, "/me/settings", {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
 	});
 }
 
@@ -31,12 +44,7 @@ export function useEditorSettings() {
 export function useUpdateEditorSettings() {
 	const client = useQueryClient();
 	return useMutation({
-		mutationFn: (body: UpdateEditorSettingsRequest) =>
-			request(MeSettings, "/me/settings", {
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(body),
-			}),
+		mutationFn: saveEditorSettings,
 		onSuccess: (settings) => {
 			rememberThemePreference(settings.appearance);
 			client.setQueryData(editorSettingsKey, settings);

@@ -77,6 +77,7 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 });
 
@@ -95,6 +96,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 
 	const second = await put(jar, { autoSaveDelaySeconds: 30 });
@@ -107,6 +109,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 
 	const read = await app.inject({
@@ -123,6 +126,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 });
 
@@ -216,6 +220,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 
 	// Bob's own change must not touch Alice's row.
@@ -234,6 +239,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 });
 
@@ -272,6 +278,7 @@ test.skipIf(skip)(
 			appearance: "system",
 			screenReaderMode: false,
 			timezones: [...systemTimezones()],
+			appearanceStored: false,
 		});
 
 		// A later change must not write the defaults over the other stored values.
@@ -284,6 +291,7 @@ test.skipIf(skip)(
 			timezone: "America/New_York",
 			appearance: "system",
 			screenReaderMode: false,
+			appearanceStored: false,
 			timezones: [...systemTimezones()],
 		});
 	},
@@ -327,6 +335,7 @@ test.skipIf(skip)("an unknown stored zone loses only the zone", async () => {
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 });
 
@@ -505,4 +514,37 @@ test.skipIf(skip)("a picture over the cap or of another type is refused", async 
 	expect((await putPicture(jar, gif, "image/png")).statusCode).toBe(415);
 
 	expect((await getAs(jar, "/me/profile")).json()).toMatchObject({ picture: null });
+});
+
+/** Two saves at once, each changing a different setting, both survive. */
+test.skipIf(skip)("concurrent saves of different settings both survive", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	const saves = await Promise.all([
+		put(jar, { wordWrap: false }),
+		put(jar, { appearance: "dark" }),
+		put(jar, { autoSaveDelaySeconds: 30 }),
+	]);
+	for (const res of saves) expect(res.statusCode).toBe(200);
+
+	expect((await getAs(jar, "/me/settings")).json()).toMatchObject({
+		wordWrap: false,
+		appearance: "dark",
+		autoSaveDelaySeconds: 30,
+	});
+});
+
+/** A defaulted appearance is told apart from a saved one, for the pk-theme upgrade. */
+test.skipIf(skip)("GET says whether appearance was saved or defaulted", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+	const stored = async () => (await getAs(jar, "/me/settings")).json().appearanceStored;
+
+	expect(await stored()).toBe(false);
+	await put(jar, { wordWrap: false });
+	expect(await stored()).toBe(false);
+	const saved = await put(jar, { appearance: "system" });
+	expect(saved.json().appearanceStored).toBe(true);
+	expect(await stored()).toBe(true);
 });
