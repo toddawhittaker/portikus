@@ -61,6 +61,8 @@ export function CheckOutput({
 			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 			fontSize: 13,
 			theme: THEME,
+			// The same floor as the terminals, so dim ANSI colours stay readable.
+			minimumContrastRatio: 4.5,
 			convertEol: false,
 			scrollback: SCROLLBACK_LINES,
 			// There is nothing to type into: the panel is output only.

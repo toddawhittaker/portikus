@@ -1,5 +1,6 @@
 import { requireUser } from "@portikus/auth";
 import {
+	Appearance,
 	EDITOR_SETTINGS_DEFAULTS,
 	EditorSettings,
 	isSystemTimezone,
@@ -12,6 +13,7 @@ import {
 	UpdateProfileRequest,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import type { ServerDeps } from "../server.js";
 import { sendError } from "./project-scope.js";
 
@@ -43,6 +45,12 @@ export function toEditorSettings(stored: unknown): EditorSettings {
 		...rest,
 		...(isSystemTimezone(timezone) ? { timezone } : {}),
 	};
+}
+
+/** Whether the user has saved an appearance, rather than getting the default. */
+function hasStoredAppearance(stored: unknown): boolean {
+	const value = (stored as { appearance?: unknown } | null | undefined)?.appearance;
+	return Appearance.safeParse(value).success;
 }
 
 /**
@@ -83,6 +91,7 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 		const body: MeSettings = {
 			...toEditorSettings(row?.editor_settings),
 			timezones: TIMEZONES,
+			appearanceStored: hasStoredAppearance(row?.editor_settings),
 		};
 		return body;
 	});
@@ -95,34 +104,25 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
 
-		const before = await db
-			.selectFrom("users")
-			.select("editor_settings")
-			.where("id", "=", user.id)
-			.executeTakeFirst();
-		if (!before) {
-			return sendError(reply, 404, "NOT_FOUND", "User not found");
-		}
-
-		const merged: EditorSettings = {
-			...toEditorSettings(before.editor_settings),
-			...body.data,
-		};
-
+		// Merged in the one statement, so two saves at once both survive.
 		const updated = await db
 			.updateTable("users")
 			.set({
-				editor_settings: JSON.stringify(merged),
+				editor_settings: sql`coalesce(editor_settings, '{}'::jsonb) || ${JSON.stringify(body.data)}::jsonb`,
 				updated_at: new Date().toISOString(),
 			})
 			.where("id", "=", user.id)
 			.returning("editor_settings")
-			.executeTakeFirstOrThrow();
+			.executeTakeFirst();
+		if (!updated) {
+			return sendError(reply, 404, "NOT_FOUND", "User not found");
+		}
 
 		// Same shape as GET, so the browser's cached copy keeps the zone list.
 		const out: MeSettings = {
 			...toEditorSettings(updated.editor_settings),
 			timezones: TIMEZONES,
+			appearanceStored: hasStoredAppearance(updated.editor_settings),
 		};
 		return out;
 	});

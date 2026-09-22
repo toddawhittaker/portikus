@@ -119,7 +119,8 @@ export function checkLink(
 			};
 }
 
-function initials(displayName: string): string {
+/** Up to two initials for the avatar placeholder. */
+export function initials(displayName: string): string {
 	const parts = displayName.trim().split(/\s+/).slice(0, 2);
 	const letters = parts.map((part) => part[0]?.toUpperCase() ?? "").join("");
 	return letters || "?";

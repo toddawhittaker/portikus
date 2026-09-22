@@ -13,13 +13,8 @@ import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { clearLocalLayouts } from "../layout/local.js";
 import { useProfile } from "../settings/profileQueries.js";
-import { SettingsDialog } from "../settings/SettingsDialog.js";
+import { initials, SettingsDialog } from "../settings/SettingsDialog.js";
 import type { MeUser } from "../useMe.js";
-
-function initials(displayName: string): string {
-	const parts = displayName.trim().split(/\s+/).slice(0, 2);
-	return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "?";
-}
 
 /**
  * The top bar: the mark, the project in view, and the account menu.

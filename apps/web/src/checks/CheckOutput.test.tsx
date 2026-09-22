@@ -69,6 +69,12 @@ test("the check output starts without screen-reader mode when the setting is off
 	expect(opened.terminals[0]?.options.screenReaderMode).toBe(false);
 });
 
+test("the check output enforces the same 4.5:1 contrast as the terminals", async () => {
+	renderOutput(false);
+	await waitFor(() => expect(opened.terminals).toHaveLength(1));
+	expect(opened.terminals[0]?.options.minimumContrastRatio).toBe(4.5);
+});
+
 test("the check output uses screen-reader mode and follows a change live", async () => {
 	const { client, settings } = renderOutput(true);
 	await waitFor(() => expect(opened.terminals).toHaveLength(1));

@@ -184,11 +184,18 @@ export function pastedImageType(types: readonly string[]): string | null {
 	return types[0] ?? null;
 }
 
-/** Where a pasted picture is saved, relative to the project root. */
-export function pastePath(now: Date, type: string): string {
+/** How many names a paste tries before giving up, for pastes in one second. */
+export const PASTE_NAME_TRIES = 5;
+
+/**
+ * Where a pasted picture is saved, relative to the project root. Attempt 2
+ * and later add `-2`, `-3` before the extension.
+ */
+export function pastePath(now: Date, type: string, attempt = 1): string {
 	// One path segment: no colons, no milliseconds, no zone letter.
 	const stamp = now.toISOString().slice(0, 19).replaceAll(":", "-");
-	return `.portikus/pastes/${stamp}.${type === "image/jpeg" ? "jpeg" : "png"}`;
+	const suffix = attempt > 1 ? `-${attempt}` : "";
+	return `.portikus/pastes/${stamp}${suffix}.${type === "image/jpeg" ? "jpeg" : "png"}`;
 }
 
 /**
@@ -461,19 +468,6 @@ export function TerminalPane({
 			if (data !== "") send({ type: "input", data });
 		}
 
-		/** Read the clipboard and type it into the shell. */
-		async function paste(): Promise<boolean> {
-			try {
-				const text = await navigator.clipboard.readText();
-				sendInput(text);
-				return true;
-			} catch {
-				// Firefox may refuse readText; letting the event through means
-				// xterm's textarea still receives the browser's own paste.
-				return false;
-			}
-		}
-
 		/** Save a pasted picture in the project and type its path. */
 		async function pasteImage(image: Blob, type: string) {
 			if (image.size > MAX_UPLOAD_BYTES) {
@@ -481,10 +475,17 @@ export function TerminalPane({
 				return;
 			}
 			const slug = handlers.current.projectSlug;
-			if (!slug) return;
-			const path = pastePath(new Date(), type);
+			if (!slug) {
+				// The paste event was already cancelled, so say it failed.
+				handlers.current.toast.show(fileErrorToast(null));
+				return;
+			}
+			const now = new Date();
+			const paths = Array.from({ length: PASTE_NAME_TRIES }, (_, index) =>
+				pastePath(now, type, index + 1),
+			);
 			try {
-				await savePastedImage(workspaceId, projectId, path, image);
+				const path = await savePastedImage(workspaceId, projectId, paths, image);
 				sendInput(pastedPathInput(slug, path));
 			} catch (error) {
 				handlers.current.toast.show(fileErrorToast(error));
@@ -509,18 +510,32 @@ export function TerminalPane({
 
 		/** A right-click has no paste event, so read the clipboard's items. */
 		async function pasteFromMenu() {
-			try {
-				const items = await navigator.clipboard.read();
-				const type = pastedImageType(items.flatMap((item) => item.types));
-				const first = items[0];
-				if (type && first) {
-					await pasteImage(await first.getType(type), type);
-					return;
+			// term.paste brackets the text when the program asked for it.
+			if (typeof navigator.clipboard?.read === "function") {
+				try {
+					const items = await navigator.clipboard.read();
+					const type = pastedImageType(items.flatMap((item) => item.types));
+					const first = items[0];
+					if (type && first) {
+						await pasteImage(await first.getType(type), type);
+						return;
+					}
+					const textItem = items.find((item) => item.types.includes("text/plain"));
+					if (textItem) {
+						const blob = await textItem.getType("text/plain");
+						term.paste(await blob.text());
+					}
+				} catch {
+					// Refused: nothing the student can act on.
 				}
-			} catch {
-				// No read() or refused: fall back to text below.
+				return;
 			}
-			if (canReadClipboard()) await paste();
+			if (!canReadClipboard()) return;
+			try {
+				term.paste(await navigator.clipboard.readText());
+			} catch {
+				// Firefox may refuse readText.
+			}
 		}
 
 		// True while a full-screen program such as nano or less holds the
