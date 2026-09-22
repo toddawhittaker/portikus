@@ -78,10 +78,8 @@ test("appearance is chosen in Settings and stays in this browser", async ({
 	await expect(dialog.getByRole("heading", { name: "Appearance" })).toBeVisible();
 	await expect(dialog.getByRole("heading", { name: "Terminal" })).toBeVisible();
 	await expect(
-		dialog
-			.getByRole("group", { name: "Terminal colors" })
-			.getByRole("radio", { name: "Dark" }),
-	).toBeChecked();
+		dialog.getByRole("switch", { name: "Terminal colors" }),
+	).not.toBeChecked();
 	await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "dark");
 
 	// Light page, dark terminal: the two choices are independent (SPEC.md §13.5).
@@ -95,10 +93,8 @@ test("appearance is chosen in Settings and stays in this browser", async ({
 		.toBe("light");
 	await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "dark");
 	await expect(
-		dialog
-			.getByRole("group", { name: "Terminal colors" })
-			.getByRole("radio", { name: "Dark" }),
-	).toBeChecked();
+		dialog.getByRole("switch", { name: "Terminal colors" }),
+	).not.toBeChecked();
 
 	// It applied before Save, and Cancel does not take it back.
 	await page.getByRole("button", { name: "Cancel" }).click();

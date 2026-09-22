@@ -117,8 +117,8 @@ test("it shows the settings the server holds", async () => {
 	expect((checkbox(/Word wrap/) as HTMLInputElement).checked).toBe(true);
 	expect(
 		(
-			within(screen.getByRole("region", { name: "Terminal" })).getByRole("radio", {
-				name: "Light",
+			within(screen.getByRole("region", { name: "Terminal" })).getByRole("switch", {
+				name: "Terminal colors",
 			}) as HTMLInputElement
 		).checked,
 	).toBe(true);
@@ -200,9 +200,12 @@ test("choosing an appearance applies at once and is not sent to the server", asy
 	const appearance = () => screen.getByRole("region", { name: "Appearance" });
 	await waitFor(() =>
 		expect(
-			(within(terminal()).getByRole("radio", { name: "Dark" }) as HTMLInputElement)
-				.checked,
-		).toBe(true),
+			(
+				within(terminal()).getByRole("switch", {
+					name: "Terminal colors",
+				}) as HTMLInputElement
+			).checked,
+		).toBe(false),
 	);
 
 	fireEvent.click(within(appearance()).getByRole("radio", { name: "Light" }));
@@ -210,9 +213,12 @@ test("choosing an appearance applies at once and is not sent to the server", asy
 	expect(document.documentElement.getAttribute("data-theme")).toBe("light");
 	expect(localStorage.getItem("pk-theme")).toBe("light");
 	expect(
-		(within(terminal()).getByRole("radio", { name: "Dark" }) as HTMLInputElement)
-			.checked,
-	).toBe(true);
+		(
+			within(terminal()).getByRole("switch", {
+				name: "Terminal colors",
+			}) as HTMLInputElement
+		).checked,
+	).toBe(false);
 
 	fireEvent.click(within(appearance()).getByRole("radio", { name: "System" }));
 	expect(document.documentElement.getAttribute("data-theme")).toBeNull();
@@ -245,11 +251,14 @@ test("the stored terminal theme is shown and sent back", async () => {
 	const terminal = () => screen.getByRole("region", { name: "Terminal" });
 	await waitFor(() =>
 		expect(
-			(within(terminal()).getByRole("radio", { name: "Light" }) as HTMLInputElement)
-				.checked,
+			(
+				within(terminal()).getByRole("switch", {
+					name: "Terminal colors",
+				}) as HTMLInputElement
+			).checked,
 		).toBe(true),
 	);
-	fireEvent.click(within(terminal()).getByRole("radio", { name: "Dark" }));
+	fireEvent.click(within(terminal()).getByRole("switch", { name: "Terminal colors" }));
 
 	fireEvent.click(checkbox(/Word wrap/));
 	fireEvent.click(screen.getByTestId("editor-settings-save"));

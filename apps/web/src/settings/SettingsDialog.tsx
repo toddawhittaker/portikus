@@ -8,7 +8,6 @@
  */
 import {
 	EDITOR_SETTINGS_DEFAULTS,
-	type TerminalTheme,
 	type UpdateEditorSettingsRequest,
 } from "@portikus/contracts";
 import {
@@ -34,11 +33,6 @@ import "./settings.css";
 /** The delay a student may ask for, in seconds (contracts/settings.ts). */
 const MIN_DELAY = 1;
 const MAX_DELAY = 60;
-
-const TERMINAL_THEME_OPTIONS = [
-	{ value: "dark", label: "Dark" },
-	{ value: "light", label: "Light" },
-];
 
 const APPEARANCE_OPTIONS: { value: ThemePreference; label: string }[] = [
 	{ value: "system", label: "System" },
@@ -256,19 +250,33 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 				);
 			case "terminal-colours":
 				return (
-					<ChoiceField
-						label={control.label}
-						hint="What a new terminal starts with. Each terminal's three-dots menu can switch that one terminal, and a program already running keeps the colors it started with."
-						name="terminal-theme"
-						options={TERMINAL_THEME_OPTIONS}
-						value={terminalTheme}
-						onChange={(value) =>
-							setDraft((next) => ({
-								...next,
-								terminalTheme: value as TerminalTheme,
-							}))
-						}
-					/>
+					<div className="grid gap-2">
+						<span id="terminal-colors-label" className={LABEL_CLASS}>
+							{control.label}
+						</span>
+						<p className="pk-hint m-0 text-[12px] leading-4 text-ink-muted">
+							What a new terminal starts with. Each terminal's three-dots menu can
+							switch that one terminal, and a program already running keeps the colors
+							it started with.
+						</p>
+						<label className="pk-switch">
+							<input
+								type="checkbox"
+								role="switch"
+								aria-checked={terminalTheme === "light"}
+								aria-labelledby="terminal-colors-label"
+								checked={terminalTheme === "light"}
+								onChange={(event) =>
+									setDraft((next) => ({
+										...next,
+										terminalTheme: event.target.checked ? "light" : "dark",
+									}))
+								}
+							/>
+							<span className="pk-switch-track" aria-hidden="true" />
+							<span>{terminalTheme === "light" ? "Light" : "Dark"}</span>
+						</label>
+					</div>
 				);
 			case "workspace-timezone":
 				return (

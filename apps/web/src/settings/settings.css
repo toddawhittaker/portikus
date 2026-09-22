@@ -40,3 +40,56 @@
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: -2px;
 }
+
+/* On is light, off is dark. Two states do not need a menu. */
+.pk-switch {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	width: fit-content;
+	cursor: pointer;
+	color: var(--ink);
+}
+
+.pk-switch input {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: 0;
+	opacity: 0;
+}
+
+.pk-switch-track {
+	position: relative;
+	width: 36px;
+	height: 20px;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-full);
+	background: var(--surface-sunken);
+}
+
+.pk-switch-track::after {
+	content: "";
+	position: absolute;
+	top: 1px;
+	left: 1px;
+	width: 16px;
+	height: 16px;
+	border-radius: var(--radius-full);
+	background: var(--ink-muted);
+}
+
+.pk-switch input:checked + .pk-switch-track {
+	border-color: var(--accent);
+	background: var(--accent);
+}
+
+.pk-switch input:checked + .pk-switch-track::after {
+	transform: translateX(16px);
+	background: var(--on-accent);
+}
+
+.pk-switch input:focus-visible + .pk-switch-track {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: 2px;
+}
