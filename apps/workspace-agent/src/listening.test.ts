@@ -532,6 +532,24 @@ test("a process that ignores SIGTERM is killed after the grace period", async ()
  * forked the server inherited the listening socket. Saying "stopped" there
  * would be a lie: the student would see the service still running.
  */
+/**
+ * Issue #348: a server often keeps the port for a moment after it accepts
+ * the signal. That delay is not a failed stop.
+ */
+test("a port that frees shortly after the process exits is a success", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({
+		kill: (_pid, signal) => {
+			// The process has accepted the stop. The socket stays a moment.
+			if (Number(signal) === 0) throw killError("ESRCH");
+			setTimeout(() => clearProcNet(), 120);
+		},
+		graceMs: 500,
+	});
+	await expect(monitor.stopListener(5173)).resolves.toBeUndefined();
+});
+
 test("a port still listening after the pid died is not a success", async () => {
 	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
 	await fakeProcess(88, "node", [3]);

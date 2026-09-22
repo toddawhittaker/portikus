@@ -575,19 +575,26 @@ export class ListeningMonitor {
 	}
 
 	/**
-	 * The owning process is gone, but the port may not be: a parent that
-	 * forked the server inherited the listening socket and holds it open. One
-	 * more scan tells the student the truth rather than a comforting success
-	 * (issue #273).
+	 * The owning process is gone, but the port may not be. A server that is
+	 * shutting down often keeps the socket for a moment, and a parent that
+	 * forked the server can hold it open for good (issue #273). Keep looking
+	 * for the grace period. A port that clears in that time is a stop. A port
+	 * that is still taken at the end is the failure the student is told about
+	 * (issue #348).
 	 */
 	private async confirmPortFree(port: number): Promise<void> {
-		await this.refresh();
-		if (this.services.some((entry) => entry.port === port)) {
-			throw new StopFailure(
-				409,
-				"STOP_FAILED",
-				"the process stopped but something is still listening on that port",
-			);
+		const deadline = Date.now() + this.graceMs;
+		while (true) {
+			await this.refresh();
+			if (!this.services.some((entry) => entry.port === port)) return;
+			if (Date.now() >= deadline) {
+				throw new StopFailure(
+					409,
+					"STOP_FAILED",
+					"the process stopped but something is still listening on that port",
+				);
+			}
+			await new Promise((resolve) => setTimeout(resolve, 50));
 		}
 	}
 
