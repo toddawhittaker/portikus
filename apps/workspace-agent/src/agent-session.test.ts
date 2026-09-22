@@ -566,6 +566,111 @@ test("a clean filter does not run while recording a baseline", async () => {
 	}
 });
 
+/** A filter command that records it ran and moves a branch. */
+async function installEvilFilter(
+	dir: string,
+	key: string,
+): Promise<{ marker: string }> {
+	const marker = join(dir, "filter-ran");
+	const script = join(dir, "evil-filter.sh");
+	await writeFile(
+		script,
+		`#!/bin/sh\necho ran >> '${marker}'\ngit update-ref refs/heads/pwned HEAD\ncat\n`,
+		{ mode: 0o755 },
+	);
+	await writeFile(join(dir, ".gitattributes"), "tracked.txt filter=evil\n");
+	await git(["add", ".gitattributes"], dir);
+	await git(["commit", "-m", "attr"], dir);
+	await git(["config", key, script], dir);
+	await writeFile(join(dir, "tracked.txt"), "tracked\ndirty\n");
+	return { marker };
+}
+
+test("a process filter does not move a ref while recording or reading a baseline", async () => {
+	const { home, dir } = await tempRepo("filter-process");
+	try {
+		const { marker } = await installEvilFilter(dir, "filter.evil.process");
+		const recorded = await recordBaseline(dir);
+		expect(recorded.baselineObjectId).toMatch(/^[0-9a-f]{40}$/);
+		await expect(stat(marker)).rejects.toThrow();
+		await expect(
+			git(["rev-parse", "--verify", "refs/heads/pwned"], dir),
+		).rejects.toThrow();
+		const objectId = recorded.baselineObjectId;
+		if (!objectId) throw new Error("expected a baseline");
+		await baselineStatus(home, "filter-process", objectId);
+		await expect(stat(marker)).rejects.toThrow();
+		await expect(
+			git(["rev-parse", "--verify", "refs/heads/pwned"], dir),
+		).rejects.toThrow();
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+test("a filter named evil_us does not run while recording a baseline", async () => {
+	const { home, dir } = await tempRepo("filter-underscore");
+	try {
+		const marker = join(dir, "filter-ran");
+		const script = join(dir, "evil-filter.sh");
+		await writeFile(
+			script,
+			`#!/bin/sh\necho ran >> '${marker}'\ngit update-ref refs/heads/pwned HEAD\ncat\n`,
+			{ mode: 0o755 },
+		);
+		await writeFile(join(dir, ".gitattributes"), "tracked.txt filter=evil_us\n");
+		await git(["add", ".gitattributes"], dir);
+		await git(["commit", "-m", "attr"], dir);
+		await git(["config", "filter.evil_us.clean", script], dir);
+		await git(["config", "filter.evil.dot.clean", script], dir);
+		await writeFile(join(dir, "tracked.txt"), "tracked\ndirty\n");
+		const recorded = await recordBaseline(dir);
+		expect(recorded.baselineObjectId).toMatch(/^[0-9a-f]{40}$/);
+		await expect(stat(marker)).rejects.toThrow();
+		await expect(
+			git(["rev-parse", "--verify", "refs/heads/pwned"], dir),
+		).rejects.toThrow();
+
+		await writeFile(join(dir, ".gitattributes"), "tracked.txt filter=evil.dot\n");
+		const objectId = recorded.baselineObjectId;
+		if (!objectId) throw new Error("expected a baseline");
+		await baselineStatus(home, "filter-underscore", objectId);
+		await expect(stat(marker)).rejects.toThrow();
+		await expect(
+			git(["rev-parse", "--verify", "refs/heads/pwned"], dir),
+		).rejects.toThrow();
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+test("a failed filter listing does not run the filter command", async () => {
+	const { home, dir } = await tempRepo("filter-list");
+	try {
+		const { marker } = await installEvilFilter(dir, "filter.evil.process");
+		// Larger than the config read cap, so the name list is incomplete.
+		await git(["config", "filter.pad.clean", "A".repeat(80 * 1024)], dir);
+		const recorded = await recordBaseline(dir);
+		expect(recorded.baselineObjectId).toBeNull();
+		await expect(stat(marker)).rejects.toThrow();
+		await expect(
+			git(["rev-parse", "--verify", "refs/heads/pwned"], dir),
+		).rejects.toThrow();
+
+		const head = (await git(["rev-parse", "HEAD"], dir)).trim();
+		await expect(baselineStatus(home, "filter-list", head)).rejects.toMatchObject({
+			code: "GIT_FAILED",
+			message: "baseline status failed",
+		});
+		await expect(stat(marker)).rejects.toThrow();
+		await expect(
+			git(["rev-parse", "--verify", "refs/heads/pwned"], dir),
+		).rejects.toThrow();
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
 test("a 64-character object id is accepted", async () => {
 	const { home, dir } = await tempRepo("sha256", "sha256");
 	try {

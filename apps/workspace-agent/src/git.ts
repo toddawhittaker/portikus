@@ -492,8 +492,11 @@ export async function recordBaseline(dir: string): Promise<{
 		return { baselineObjectId: null, baselineHead: null };
 	}
 
+	// A failed listing must not fall through to stash with filters still on.
+	const config = await contentFilterOverrides(dir);
+	if (!config) return { baselineObjectId: null, baselineHead };
 	const created = await runGit(["stash", "create"], dir, 128, GIT_TIMEOUT_MS, {
-		config: await stashCreateConfig(dir),
+		config,
 	});
 	if (!created.ok) return { baselineObjectId: null, baselineHead };
 	const printed = created.stdout.toString().trim();
@@ -504,24 +507,43 @@ export async function recordBaseline(dir: string): Promise<{
 }
 
 /**
- * This invocation only. A clean filter can run `git update-ref`, which would
- * move a branch (SPEC.md §10.9). Empty `-c` values override repo config
- * without writing it, and `core.hooksPath` points at `/dev/null`.
+ * This invocation only. A content filter can run `git update-ref`, which
+ * would move a branch (SPEC.md §10.9). Git runs `filter.<name>.process`
+ * even when clean and smudge are blank, and the name may contain `_` or
+ * `.`. Empty `-c` values override repo config without writing it.
+ * `core.hooksPath` points at `/dev/null`.
+ *
+ * Null means fail closed: the listing failed, its output was past the read
+ * cap, or a name cannot be overridden safely. Callers must not run a
+ * command that applies filters.
  */
-async function stashCreateConfig(dir: string): Promise<string[]> {
+async function contentFilterOverrides(dir: string): Promise<string[] | null> {
 	const listed = await runGit(["config", "--get-regexp", "^filter\\."], dir, 64 * 1024);
+	// Exit 1 with an empty body means there are no filter keys. Any other
+	// failure, including a killed read past the cap, is not a usable list.
+	const noFilters =
+		listed.exitCode === 1 &&
+		listed.stdout.length === 0 &&
+		!listed.overflow &&
+		!listed.timedOut;
+	if (!listed.ok && !noFilters) return null;
 	const names = new Set<string>();
-	if (listed.ok) {
-		for (const line of listed.stdout.toString().split("\n")) {
-			const match = /^filter\.([A-Za-z0-9][A-Za-z0-9-]*)\.(clean|smudge)(?:\s|$)/.exec(
-				line,
-			);
-			if (match?.[1]) names.add(match[1]);
-		}
+	for (const line of listed.stdout.toString().split("\n")) {
+		const key = line.split(/[ \t]/, 1)[0] ?? "";
+		const match = /^filter\.(.*)\.(clean|smudge|process)$/i.exec(key);
+		if (!match) continue;
+		const name = match[1];
+		// `git -c` splits on the first `=`, so such a name cannot be blanked.
+		if (!name || /[\s=]/.test(name)) return null;
+		names.add(name);
 	}
 	const config = ["core.hooksPath=/dev/null"];
 	for (const name of names) {
-		config.push(`filter.${name}.clean=`, `filter.${name}.smudge=`);
+		config.push(
+			`filter.${name}.clean=`,
+			`filter.${name}.smudge=`,
+			`filter.${name}.process=`,
+		);
 	}
 	return config;
 }
@@ -836,10 +858,15 @@ export async function baselineStatus(
 		options.log?.debug({ stderr: kind.stderr }, "baseline object missing");
 		throw new AgentFailure("GIT_FAILED", "baseline object missing");
 	}
+	// `--no-ext-diff` does not disable content filters.
+	const config = await contentFilterOverrides(dir);
+	if (!config) throw new AgentFailure("GIT_FAILED", "baseline status failed");
 	const diff = await runGit(
 		["diff", "-z", "--no-ext-diff", "--name-status", "--find-renames", objectId],
 		dir,
 		32 * 1024 * 1024,
+		GIT_TIMEOUT_MS,
+		{ config },
 	);
 	const untracked = await runGit(
 		["ls-files", "-z", "--others", "--exclude-standard"],
@@ -881,10 +908,14 @@ async function baselinePathState(
 	objectId: string,
 	relPath: string,
 ): Promise<PathState> {
+	const config = await contentFilterOverrides(dir);
+	if (!config) throw new AgentFailure("GIT_FAILED", "baseline status failed");
 	const result = await runGit(
 		["diff", "-z", "--no-ext-diff", "--name-status", "--find-renames", objectId],
 		dir,
 		32 * 1024 * 1024,
+		GIT_TIMEOUT_MS,
+		{ config },
 	);
 	const state: PathState = { unmerged: false };
 	if (!result.ok) return state;
