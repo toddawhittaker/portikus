@@ -22,10 +22,10 @@
 		"@portikus/db": "workspace:*",
 		"@portikus/events": "workspace:*",
 		"@portikus/observability": "workspace:*",
-		"fastify": "5.12.4",
+		"fastify": "5.12.5",
 		"fastify-plugin": "6.0.0",
 		"jose": "6.2.12",
-		"kysely": "0.29.5",
+		"kysely": "0.29.6",
 		"openid-client": "6.8.8"
 	},
 	"devDependencies": {
