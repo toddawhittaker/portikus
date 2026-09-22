@@ -44,6 +44,7 @@ import {
 import {
 	createContext,
 	type ReactNode,
+	type Ref,
 	useCallback,
 	useContext,
 	useEffect,
@@ -186,11 +187,14 @@ export function FileTreePane({
 	workspaceId,
 	project,
 	onSearch,
+	searchButtonRef,
 }: {
 	workspaceId: string;
 	project: Project;
 	/** Swap this pane for find in files (SPEC.md 11.5). */
 	onSearch: () => void;
+	/** Lets the caller return focus here when the search closes (issue #358). */
+	searchButtonRef?: Ref<HTMLButtonElement>;
 }) {
 	const toast = useToast();
 	const mutations = useFileMutations(workspaceId, project.id);
@@ -567,6 +571,7 @@ export function FileTreePane({
 							label="Find in files"
 							size="sm"
 							data-testid="search-open"
+							ref={searchButtonRef}
 							onClick={onSearch}
 						/>
 						<MenuRoot>

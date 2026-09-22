@@ -268,6 +268,16 @@ test("each terminal scheme sets its own focus colour", async () => {
 		/\s+/g,
 		" ",
 	);
-	expect(css).toContain('.pk-term[data-terminal-theme="light"] { --focus: #1b7a86; }');
-	expect(css).toContain('.pk-term[data-terminal-theme="dark"] { --focus: #5fc3cf; }');
+	expect(css).toContain(
+		'.pk-term[data-terminal-theme="light"] { --focus: var(--focus-on-light); }',
+	);
+	expect(css).toContain(
+		'.pk-term[data-terminal-theme="dark"] { --focus: var(--focus-on-dark); }',
+	);
+	const theme = readFileSync(
+		`${import.meta.dirname}/../../../../packages/ui/src/theme.css`,
+		"utf8",
+	);
+	expect(theme).toContain("--focus-on-light: #1b7a86;");
+	expect(theme).toContain("--focus-on-dark: #5fc3cf;");
 });

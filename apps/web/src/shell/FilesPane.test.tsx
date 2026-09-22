@@ -4,10 +4,12 @@
  * nothing at all.
  */
 import type { Project } from "@portikus/contracts";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { renderWithQuery } from "../test-utils.js";
 import { FilesPane } from "./FilesPane.js";
+import { type RightPane, RightPaneContext } from "./rightPane.js";
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
 
@@ -209,5 +211,37 @@ test("closing find in files returns focus to its button (issue #358)", async () 
 
 	await waitFor(() =>
 		expect(document.activeElement).toBe(screen.getByTestId("search-open")),
+	);
+});
+
+/** A workspace screen stand-in whose pane choice a test can change from outside. */
+function SharedPane({ onShow }: { onShow: (show: (pane: RightPane) => void) => void }) {
+	const [pane, setPane] = useState<RightPane>("files");
+	onShow(setPane);
+	return (
+		<RightPaneContext.Provider value={{ pane, show: setPane }}>
+			<FilesPane workspaceId={WORKSPACE} project={project()} />
+		</RightPaneContext.Provider>
+	);
+}
+
+test("closing find in files while another surface is chosen focuses that surface's tab", async () => {
+	stubEmpty();
+	let show: (pane: RightPane) => void = () => {};
+	renderWithQuery(
+		<SharedPane
+			onShow={(fn) => {
+				show = fn;
+			}}
+		/>,
+	);
+
+	fireEvent.click(await screen.findByTestId("search-open"));
+	// A Preview tab can switch the pane to Running while the search is open.
+	await act(async () => show("running"));
+	fireEvent.click(await screen.findByTestId("search-close"));
+
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Running" })),
 	);
 });

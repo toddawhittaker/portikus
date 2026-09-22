@@ -29,7 +29,7 @@
 .pk-portrow.is-selected {
 	background: var(--surface-row-selected);
 	/* An ink bar, so the selection does not rest on a faint tint (issue #369). */
-	box-shadow: inset 2px 0 0 var(--ink);
+	box-shadow: var(--row-current-bar);
 }
 
 /*
