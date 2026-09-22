@@ -268,8 +268,9 @@
 	display: grid;
 	place-items: center;
 	flex: none;
-	width: 20px;
-	height: 20px;
+	/* 24px: the WCAG 2.5.8 minimum target (issue #372). */
+	width: 24px;
+	height: 24px;
 	border-radius: var(--radius-xs);
 	color: var(--ink-muted);
 	cursor: pointer;

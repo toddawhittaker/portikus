@@ -612,6 +612,8 @@ describe("database migrations and schema", () => {
 				expect(down10.error).toBeUndefined();
 				const down11 = await migrator.migrateDown();
 				expect(down11.error).toBeUndefined();
+				const down12 = await migrator.migrateDown();
+				expect(down12.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -626,6 +628,7 @@ describe("database migrations and schema", () => {
 					"0009_project_directory_id",
 					"0010_terminal_theme",
 					"0011_terminal_agent",
+					"0012_profile",
 				]);
 				throw rollback;
 			}),

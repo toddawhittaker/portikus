@@ -108,3 +108,24 @@ test("the header has no search button; find in files lives in the files pane (is
 
 	expect(screen.queryByRole("button", { name: /search/i })).toBeNull();
 });
+
+/** Issue #300: a saved profile picture replaces the initials. */
+test("a saved profile picture shows in the account button instead of initials", async () => {
+	stubFetch((url) =>
+		url === "/me/profile"
+			? json(200, {
+					displayName: "Alice Example",
+					email: null,
+					workspaceLabel: null,
+					github: null,
+					website: null,
+					picture: "/me/picture?v=1",
+				})
+			: json(404, { code: "NOT_FOUND", message: "no" }),
+	);
+	renderHeader();
+
+	const picture = await screen.findByTestId("account-picture");
+	expect(picture.getAttribute("src")).toBe("/me/picture?v=1");
+	expect(screen.getByTestId("me").textContent).not.toContain("AE");
+});

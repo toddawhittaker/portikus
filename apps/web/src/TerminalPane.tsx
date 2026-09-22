@@ -1,4 +1,8 @@
-import type { Terminal as TerminalMeta, TerminalTheme } from "@portikus/contracts";
+import {
+	MAX_UPLOAD_BYTES,
+	type Terminal as TerminalMeta,
+	type TerminalTheme,
+} from "@portikus/contracts";
 import { useToast } from "@portikus/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { FitAddon } from "@xterm/addon-fit";
@@ -8,6 +12,8 @@ import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { useEffect, useRef, useState } from "react";
 import { wsUrl } from "./api/ws.js";
+import { fileErrorToast, tooLargeToast } from "./files/errors.js";
+import { savePastedImage } from "./files/queries.js";
 import {
 	canOpenInNewTab,
 	FILE_LINE_PATTERN,
@@ -18,6 +24,7 @@ import {
 	type TerminalLink,
 	wrappedUrlsOnRow,
 } from "./links.js";
+import { useProjects } from "./projects/queries.js";
 import { decodeTerminalFrame } from "./terminalFrames.js";
 import { currentPlatform, decide } from "./work/terminalClipboard.js";
 
@@ -146,6 +153,35 @@ export function decodeOsc52(encoded: string): string {
 	}
 }
 
+/** The only picture types a paste saves as a file (Epic 9.2 brief). */
+const PASTE_IMAGE_TYPES = ["image/png", "image/jpeg"];
+
+/**
+ * The picture type when a paste is a png or jpeg and nothing else. Anything
+ * with text in it, or any other type, stays a text paste.
+ */
+export function pastedImageType(types: readonly string[]): string | null {
+	if (types.length === 0) return null;
+	if (!types.every((type) => PASTE_IMAGE_TYPES.includes(type))) return null;
+	return types[0] ?? null;
+}
+
+/** Where a pasted picture is saved, relative to the project root. */
+export function pastePath(now: Date, type: string): string {
+	// One path segment: no colons, no milliseconds, no zone letter.
+	const stamp = now.toISOString().slice(0, 19).replaceAll(":", "-");
+	return `.portikus/pastes/${stamp}.${type === "image/jpeg" ? "jpeg" : "png"}`;
+}
+
+/**
+ * What the shell receives for a pasted picture: the absolute path, since the
+ * shell may be in another directory, and a space instead of a newline so
+ * nothing runs (SPEC.md §2.5, §4.4).
+ */
+export function pastedPathInput(slug: string, path: string): string {
+	return `/home/student/projects/${slug}/${path} `;
+}
+
 /** Copy to the system clipboard, ignoring a browser that refuses. */
 async function writeClipboard(text: string): Promise<void> {
 	if (text === "") return;
@@ -182,6 +218,8 @@ export function TerminalPane({
 	const [connected, setConnected] = useState(false);
 	const navigate = useNavigate();
 	const toast = useToast();
+	const projects = useProjects(workspaceId, "active");
+	const projectSlug = projects.data?.find((project) => project.id === projectId)?.slug;
 
 	// Callbacks the long-lived effect reads through a ref, so that a new
 	// render does not tear down the terminal and its socket.
@@ -194,6 +232,7 @@ export function TerminalPane({
 		navigate,
 		toast,
 		terminalName: terminal.name,
+		projectSlug,
 	});
 	handlers.current = {
 		onExited,
@@ -204,6 +243,7 @@ export function TerminalPane({
 		navigate,
 		toast,
 		terminalName: terminal.name,
+		projectSlug,
 	};
 
 	// The long-lived effect reads visibility through a ref, for the same reason.
@@ -403,6 +443,55 @@ export function TerminalPane({
 			}
 		}
 
+		/** Save a pasted picture in the project and type its path. */
+		async function pasteImage(image: Blob, type: string) {
+			if (image.size > MAX_UPLOAD_BYTES) {
+				handlers.current.toast.show(tooLargeToast());
+				return;
+			}
+			const slug = handlers.current.projectSlug;
+			if (!slug) return;
+			const path = pastePath(new Date(), type);
+			try {
+				await savePastedImage(workspaceId, projectId, path, image);
+				sendInput(pastedPathInput(slug, path));
+			} catch (error) {
+				handlers.current.toast.show(fileErrorToast(error));
+			}
+		}
+
+		/**
+		 * Every keyboard paste arrives as the browser's paste event. Text is
+		 * left for xterm to type; a lone picture is saved instead, so its
+		 * bytes never reach the terminal.
+		 */
+		function onPaste(event: ClipboardEvent) {
+			const items = Array.from(event.clipboardData?.items ?? []);
+			const type = pastedImageType(items.map((item) => item.type));
+			if (!type) return;
+			event.preventDefault();
+			event.stopPropagation();
+			const image = items[0]?.getAsFile();
+			if (image) void pasteImage(image, type);
+		}
+		container.addEventListener("paste", onPaste, { capture: true });
+
+		/** A right-click has no paste event, so read the clipboard's items. */
+		async function pasteFromMenu() {
+			try {
+				const items = await navigator.clipboard.read();
+				const type = pastedImageType(items.flatMap((item) => item.types));
+				const first = items[0];
+				if (type && first) {
+					await pasteImage(await first.getType(type), type);
+					return;
+				}
+			} catch {
+				// No read() or refused: fall back to text below.
+			}
+			if (canReadClipboard()) await paste();
+		}
+
 		// True while a full-screen program such as nano or less holds the
 		// terminal, as the agent reports it (SPEC.md §9.1).
 		let alternateScreen = false;
@@ -462,12 +551,8 @@ export function TerminalPane({
 				return false;
 			}
 			if (action === "paste") {
-				// Firefox without readText: let the browser's own paste do the work.
-				if (!canReadClipboard()) return true;
-				// Returning false only stops xterm's key handling; without this the
-				// browser still pastes into xterm's textarea and the text lands twice.
-				event.preventDefault();
-				void paste();
+				// The browser's own paste event follows and lands exactly once:
+				// xterm types text, and onPaste saves a picture.
 				return false;
 			}
 			return true;
@@ -493,7 +578,7 @@ export function TerminalPane({
 				clearSelection();
 				return;
 			}
-			if (canReadClipboard()) void paste();
+			void pasteFromMenu();
 		}
 		container.addEventListener("contextmenu", onContextMenu);
 
@@ -613,6 +698,7 @@ export function TerminalPane({
 			observer.disconnect();
 			container.removeEventListener("wheel", onWheel, { capture: true });
 			container.removeEventListener("contextmenu", onContextMenu);
+			container.removeEventListener("paste", onPaste, { capture: true });
 			container.removeEventListener("focusin", onFocusIn);
 			container.removeEventListener("focusout", onFocusOut);
 			container.removeEventListener("pointerdown", onPointerDown);

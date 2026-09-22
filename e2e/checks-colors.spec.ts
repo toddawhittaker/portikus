@@ -2,6 +2,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	query,
 	seedFile,
 	type TestProject,
 	workspacePath,
@@ -25,7 +26,7 @@ test.describe("check action colours", () => {
 			],
 		});
 
-		await chooseTheme(page, "light");
+		await chooseTheme(page, student.userId, "light");
 		const lightRunning = await tokenColor(page, "--status-running");
 		const lightDanger = await tokenColor(page, "--status-danger");
 		await expectTint(page, "check-run-tests", "--status-running", "Run Tests");
@@ -36,7 +37,7 @@ test.describe("check action colours", () => {
 		});
 		await expectTint(page, "check-stop-watch", "--status-danger", "Stop Watch");
 
-		await chooseTheme(page, "dark");
+		await chooseTheme(page, student.userId, "dark");
 		// The same token names must resolve to the other theme, not the light values.
 		expect(await tokenColor(page, "--status-running")).not.toBe(lightRunning);
 		expect(await tokenColor(page, "--status-danger")).not.toBe(lightDanger);
@@ -69,14 +70,19 @@ async function openChecks(
 }
 
 /**
- * Remember Light or Dark and reload. The account menu is not involved: that
- * control is moving, and `pk-theme` is what the page already reads on load.
- * A reload returns the right pane to Files, so Checks is opened again.
+ * Save Light or Dark as the student's appearance and reload. The Settings
+ * dialog is not involved; appearance.spec.ts covers it. A reload returns the
+ * right pane to Files, so Checks is opened again.
  */
-async function chooseTheme(page: Page, theme: "light" | "dark"): Promise<void> {
-	await page.evaluate((value) => {
-		localStorage.setItem("pk-theme", value);
-	}, theme);
+async function chooseTheme(
+	page: Page,
+	userId: string,
+	theme: "light" | "dark",
+): Promise<void> {
+	await query(
+		"update users set editor_settings = editor_settings || $1::jsonb where id = $2",
+		[JSON.stringify({ appearance: theme }), userId],
+	);
 	await page.reload();
 	await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
 	const tab = page.getByTestId("right-pane-tab-checks");
