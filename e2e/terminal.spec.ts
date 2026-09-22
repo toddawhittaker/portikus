@@ -216,8 +216,15 @@ test("New terminal here leaves the keyboard in the new terminal", async ({
 	await expect(page.getByTestId("new-terminal-here")).toBeVisible({ timeout: 15_000 });
 	await page.getByTestId("new-terminal-here").click();
 
-	const ids = await terminalIds(student.workspaceId);
-	const newId = ids.find((id) => id !== terminalId);
+	// The row is written after the click returns, so wait for it.
+	let newId: string | undefined;
+	await expect
+		.poll(async () => {
+			const ids = await terminalIds(student.workspaceId);
+			newId = ids.find((id) => id !== terminalId);
+			return newId;
+		})
+		.toBeDefined();
 	if (!newId) throw new Error("the replacement terminal row was not created");
 	await expectConnected(page, newId);
 
