@@ -945,3 +945,30 @@ test.skipIf(skip)("the debug snapshot query is not issued at info", async () => 
 	await reconcile(db, fake, cfg, new Date(), null, false, loud);
 	expect(counter.count).toBe(1);
 });
+
+test.skipIf(skip)(
+	"an archived workspace is never started, even when student presence set desired running",
+	async () => {
+		const now = new Date();
+		const archivedAt = new Date(now.getTime() - 60_000).toISOString();
+		// What a student's socket leaves behind: a connection and desired running.
+		const stopped = await insertWorkspace({
+			state: "stopped",
+			desired_state: "running",
+			archived_at: archivedAt,
+		});
+		await insertConnection(stopped);
+		const errored = await insertWorkspace({
+			state: "error",
+			desired_state: "restarting",
+			archived_at: archivedAt,
+			updated_at: new Date(now.getTime() - 3_600_000).toISOString(),
+		});
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		expect(fake.calls.filter((c) => c.method === "start")).toEqual([]);
+		expect((await getWorkspace(stopped)).state).toBe("stopped");
+		expect((await getWorkspace(errored)).state).toBe("error");
+	},
+);

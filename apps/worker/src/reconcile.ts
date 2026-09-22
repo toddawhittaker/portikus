@@ -328,6 +328,7 @@ export async function reconcile(
 		.select(["id", "incus_instance_name", "label"])
 		.where("state", "=", "stopped")
 		.where("desired_state", "in", ["running", "restarting"])
+		.where("archived_at", "is", null)
 		.execute();
 
 	for (const ws of toStart) {
@@ -395,6 +396,7 @@ export async function reconcile(
 		.where("state", "=", "error")
 		.where("desired_state", "in", ["running", "restarting"])
 		.where("updated_at", "<", retryCutoff)
+		.where("archived_at", "is", null)
 		.execute();
 
 	for (const ws of errorRetryStart) {
