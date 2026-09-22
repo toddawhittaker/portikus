@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { Terminal } from "@portikus/contracts";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -38,6 +39,7 @@ const terminal: Terminal = {
 function renderLeaf(
 	overrides: Partial<Terminal> = {},
 	handlers: Record<string, ReturnType<typeof vi.fn>> = {},
+	alone = false,
 ) {
 	const props = {
 		onFocus: vi.fn(),
@@ -49,6 +51,7 @@ function renderLeaf(
 		onReplace: vi.fn(),
 		onSessionEnded: vi.fn(),
 		onLeave: vi.fn(),
+		onMoveToNewTab: vi.fn(),
 		...handlers,
 	};
 	render(
@@ -67,6 +70,8 @@ function renderLeaf(
 			onReplace={props.onReplace}
 			onSessionEnded={props.onSessionEnded}
 			onLeave={props.onLeave}
+			onMoveToNewTab={props.onMoveToNewTab}
+			alone={alone}
 		/>,
 	);
 	return props;
@@ -210,4 +215,69 @@ test("the pane carries the terminal's own colour scheme", () => {
 	cleanup();
 	renderLeaf({ theme: "light" });
 	expect(screen.getByTestId(paneId).getAttribute("data-terminal-theme")).toBe("light");
+});
+
+function openActions() {
+	fireEvent.pointerDown(screen.getByTestId(`terminal-actions-${terminal.id}`), {
+		button: 0,
+		ctrlKey: false,
+	});
+}
+
+/** Issue #370: a pane can leave its split without a drag (WCAG 2.5.7). */
+test("Move to new tab moves this pane without a drag", () => {
+	const props = renderLeaf();
+	openActions();
+	fireEvent.click(screen.getByTestId("terminal-move-to-new-tab"));
+	expect(props.onMoveToNewTab).toHaveBeenCalledWith(terminal.id);
+});
+
+test("Move to new tab is disabled for a pane that is already alone in its tab", () => {
+	renderLeaf({}, {}, true);
+	openActions();
+	const item = screen
+		.getByTestId("terminal-move-to-new-tab")
+		.closest('[role="menuitem"]');
+	expect(item?.getAttribute("aria-disabled")).toBe("true");
+});
+
+/** Issue #359: the menu says how to leave the terminal and does it. */
+test("Leave terminal names Alt+Shift+Q and leaves the terminal", async () => {
+	const outside = document.createElement("button");
+	document.body.append(outside);
+	const props = renderLeaf({}, { onLeave: vi.fn(() => outside.focus()) });
+	const trigger = screen.getByTestId(`terminal-actions-${terminal.id}`);
+	trigger.focus();
+	fireEvent.keyDown(trigger, { key: "Enter" });
+	const item = screen.getByTestId("terminal-leave").closest('[role="menuitem"]');
+	expect(item?.getAttribute("aria-keyshortcuts")).toBe("Alt+Shift+Q");
+	fireEvent.click(screen.getByTestId("terminal-leave"));
+	await flushCloseFocus();
+	expect(props.onLeave).toHaveBeenCalled();
+	// The menu does not pull the keyboard back to its trigger.
+	expect(document.activeElement).toBe(outside);
+	outside.remove();
+});
+
+/**
+ * Issue #368: the focus ring follows the pane's own scheme, so it keeps 3:1
+ * on a light terminal in a dark page and on a dark terminal in a light page.
+ */
+test("each terminal scheme sets its own focus colour", async () => {
+	const css = readFileSync(`${import.meta.dirname}/work.css`, "utf8").replace(
+		/\s+/g,
+		" ",
+	);
+	expect(css).toContain(
+		'.pk-term[data-terminal-theme="light"] { --focus: var(--focus-on-light); }',
+	);
+	expect(css).toContain(
+		'.pk-term[data-terminal-theme="dark"] { --focus: var(--focus-on-dark); }',
+	);
+	const theme = readFileSync(
+		`${import.meta.dirname}/../../../../packages/ui/src/theme.css`,
+		"utf8",
+	);
+	expect(theme).toContain("--focus-on-light: #1b7a86;");
+	expect(theme).toContain("--focus-on-dark: #5fc3cf;");
 });

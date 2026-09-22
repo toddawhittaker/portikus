@@ -68,7 +68,13 @@
 	--on-accent: #ffffff;
 	--accent-soft: #dcebe8;
 	--accent-text: #24605c;
-	--focus: #1b7a86;
+	/* Both focus colours, named once so a pane with its own scheme can pick
+	   one without the two drifting apart (issue #368). */
+	--focus-on-light: #1b7a86;
+	--focus-on-dark: #5fc3cf;
+	--focus: var(--focus-on-light);
+	/* The bar that marks the current row in the right pane's lists. */
+	--row-current-bar: inset 2px 0 0 var(--ink);
 	--scrim: #1a18154d;
 	--status-provisioning: #3f5a8c;
 	--status-provisioning-soft: #e3e8f2;
@@ -90,8 +96,8 @@
 	--on-danger: #ffffff;
 	--mark-code: #3a8a7e;
 	/* Git decorations (SPEC.md §12.1): subtle, and a conflict is its own hue. */
-	--git-added: #2e6e34;
-	--git-modified: #855b00;
+	--git-added: #2a6630;
+	--git-modified: #7a5300;
 	--git-deleted: #a4342a;
 	--git-conflict: #8a3ea0;
 
@@ -182,7 +188,7 @@
 	--on-accent: #0f201e;
 	--accent-soft: #1b3230;
 	--accent-text: #8fcdc4;
-	--focus: #5fc3cf;
+	--focus: var(--focus-on-dark);
 	--scrim: #00000099;
 	--status-provisioning: #9fb4e0;
 	--status-provisioning-soft: #1f2636;
@@ -233,7 +239,7 @@
 		--on-accent: #0f201e;
 		--accent-soft: #1b3230;
 		--accent-text: #8fcdc4;
-		--focus: #5fc3cf;
+		--focus: var(--focus-on-dark);
 		--scrim: #00000099;
 		--status-provisioning: #9fb4e0;
 		--status-provisioning-soft: #1f2636;
@@ -283,7 +289,7 @@
 	/* Hairline between terminal panes, on terminal-bg. Proposed in Epic 6. */
 	--terminal-line: #2a2824;
 	--ansi-black: #11100e;
-	--ansi-bright-black: #5f5a51;
+	--ansi-bright-black: #857f73;
 	--ansi-red: #e07a6e;
 	--ansi-bright-red: #f09a8f;
 	--ansi-green: #8fc28a;
@@ -312,9 +318,9 @@
 	--ansi-red: #a4342a;
 	--ansi-bright-red: #c14437;
 	--ansi-green: #2e6e34;
-	--ansi-bright-green: #3c8743;
+	--ansi-bright-green: #35793b;
 	--ansi-yellow: #855b00;
-	--ansi-bright-yellow: #a27100;
+	--ansi-bright-yellow: #946800;
 	--ansi-blue: #3f5a8c;
 	--ansi-bright-blue: #4f70ab;
 	--ansi-magenta: #8a3ea0;

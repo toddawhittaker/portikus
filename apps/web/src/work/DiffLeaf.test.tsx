@@ -3,8 +3,10 @@
  * diffed, and what a live refresh does to the reader's place (SPEC.md §12.6).
  * Monaco is replaced by a fake, so these tests are about the states.
  */
-import { cleanup, screen, waitFor } from "@testing-library/react";
+import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
+import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { editorSettingsKey } from "../editor/settingsQueries.js";
 import { renderWithQuery } from "../test-utils.js";
 import { DiffLeaf } from "./DiffLeaf.js";
 
@@ -27,6 +29,8 @@ const editorState = {
 	models: null as { original: FakeModel; modified: FakeModel } | null,
 	/** Every call to save and restore, in the order they happened. */
 	calls: [] as string[],
+	/** The options the diff editor was built with, then each later update. */
+	options: [] as Record<string, unknown>[],
 };
 
 vi.mock("../editor/features.js", () => ({ loadEditorFeatures: async () => {} }));
@@ -41,27 +45,33 @@ vi.mock("monaco-editor/editor/editor.api.js", () => ({
 		defineTheme: () => {},
 		setTheme: () => {},
 		createModel: (value: string) => new FakeModel(value),
-		createDiffEditor: () => ({
-			setModel: (models: { original: FakeModel; modified: FakeModel }) => {
-				editorState.models = models;
-			},
-			// The Markdown split scrolls the working-copy side by line (issue
-			// #229); nothing scrolls in jsdom, so this only has to answer.
-			getModifiedEditor: () => ({
-				onDidScrollChange: () => {},
-				getVisibleRanges: () => [],
-				getTopForLineNumber: () => 0,
-				setScrollTop: () => {},
-			}),
-			saveViewState: () => {
-				editorState.calls.push("save");
-				return { scroll: 1 };
-			},
-			restoreViewState: () => {
-				editorState.calls.push("restore");
-			},
-			dispose: () => {},
-		}),
+		createDiffEditor: (_host: unknown, options: Record<string, unknown>) => {
+			editorState.options.push(options);
+			return {
+				updateOptions: (next: Record<string, unknown>) => {
+					editorState.options.push(next);
+				},
+				setModel: (models: { original: FakeModel; modified: FakeModel }) => {
+					editorState.models = models;
+				},
+				// The Markdown split scrolls the working-copy side by line (issue
+				// #229); nothing scrolls in jsdom, so this only has to answer.
+				getModifiedEditor: () => ({
+					onDidScrollChange: () => {},
+					getVisibleRanges: () => [],
+					getTopForLineNumber: () => 0,
+					setScrollTop: () => {},
+				}),
+				saveViewState: () => {
+					editorState.calls.push("save");
+					return { scroll: 1 };
+				},
+				restoreViewState: () => {
+					editorState.calls.push("restore");
+				},
+				dispose: () => {},
+			};
+		},
 	},
 }));
 
@@ -98,6 +108,7 @@ function diff(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
 	editorState.models = null;
 	editorState.calls.length = 0;
+	editorState.options.length = 0;
 	answer = { status: 200, body: diff() };
 	stubServer();
 });
@@ -108,7 +119,7 @@ afterEach(() => {
 });
 
 function renderLeaf() {
-	renderWithQuery(
+	return renderWithQuery(
 		<DiffLeaf
 			path={PATH}
 			workspaceId={WORKSPACE}
@@ -275,4 +286,26 @@ test("closing the tab disposes both sides of the diff", async () => {
 
 	expect(models?.original.disposed).toBe(true);
 	expect(models?.modified.disposed).toBe(true);
+});
+
+/** Issue #357: the diff editor's screen-reader support follows the setting, live. */
+test("the diff editor's screen-reader support follows the setting", async () => {
+	const client = renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await waitFor(() => expect(editorState.options).toHaveLength(1));
+	const initial = EDITOR_SETTINGS_DEFAULTS.screenReaderMode ? "on" : "off";
+	expect(editorState.options[0]?.accessibilitySupport).toBe(initial);
+
+	act(() => {
+		client.setQueryData(editorSettingsKey, {
+			...EDITOR_SETTINGS_DEFAULTS,
+			screenReaderMode: !EDITOR_SETTINGS_DEFAULTS.screenReaderMode,
+			timezones: [],
+		});
+	});
+	await waitFor(() =>
+		expect(editorState.options.at(-1)).toEqual({
+			accessibilitySupport: initial === "on" ? "off" : "on",
+		}),
+	);
 });

@@ -6,7 +6,7 @@ import type { SearchMatch } from "@portikus/contracts";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { renderWithQuery } from "../test-utils.js";
-import { SearchPanel } from "./SearchPanel.js";
+import { matchCount, SearchPanel } from "./SearchPanel.js";
 
 const WORKSPACE = "ws-1";
 const PROJECT = "pr-1";
@@ -72,6 +72,8 @@ test("results are grouped by file, with the match highlighted", async () => {
 	// One line of context on each side (SPEC.md §11.5).
 	expect(screen.getByTestId("search-results").textContent).toContain("// the answer");
 	expect(screen.getByTestId("search-results").textContent).toContain("export {};");
+	// The count is announced in a status region (issue #363).
+	expect(screen.getByRole("status").textContent).toBe("3 matches in 2 files");
 });
 
 test("a truncated answer says only the first matches are shown", async () => {
@@ -107,6 +109,24 @@ test("a search with no matches says so", async () => {
 	type("nothing");
 
 	await waitFor(() => expect(screen.getByTestId("search-empty")).toBeTruthy());
+	expect(screen.getByRole("status").textContent).toBe("No matches");
+});
+
+test("the status region is there before a search starts, empty", () => {
+	stubSearch({ matches: [] });
+	renderWithQuery(
+		<SearchPanel workspaceId={WORKSPACE} projectId={PROJECT} onClose={() => {}} />,
+	);
+
+	expect(screen.getByRole("status").textContent).toBe("");
+});
+
+test("the count reads in words, singular and truncated", () => {
+	expect(matchCount(1, 1, false)).toBe("1 match in 1 file");
+	expect(matchCount(0, 0, false)).toBe("No matches");
+	expect(matchCount(5, 2, true)).toBe(
+		"5 matches in 2 files, showing the first matches only",
+	);
 });
 
 /** Answer every search with one error body. */

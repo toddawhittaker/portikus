@@ -5,7 +5,11 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { systemTimezones, UpdateEditorSettingsRequest } from "@portikus/contracts";
+import {
+	MAX_PROFILE_PICTURE_BYTES,
+	systemTimezones,
+	UpdateEditorSettingsRequest,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -70,7 +74,10 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 		wordWrap: true,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 });
 
@@ -86,7 +93,10 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 
 	const second = await put(jar, { autoSaveDelaySeconds: 30 });
@@ -96,7 +106,10 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 
 	const read = await app.inject({
@@ -110,7 +123,10 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 });
 
@@ -201,7 +217,10 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		wordWrap: true,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 
 	// Bob's own change must not touch Alice's row.
@@ -217,7 +236,10 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
 });
 
@@ -253,7 +275,10 @@ test.skipIf(skip)(
 			wordWrap: true,
 			terminalTheme: "dark",
 			timezone: "America/New_York",
+			appearance: "system",
+			screenReaderMode: false,
 			timezones: [...systemTimezones()],
+			appearanceStored: false,
 		});
 
 		// A later change must not write the defaults over the other stored values.
@@ -264,6 +289,9 @@ test.skipIf(skip)(
 			wordWrap: false,
 			terminalTheme: "dark",
 			timezone: "America/New_York",
+			appearance: "system",
+			screenReaderMode: false,
+			appearanceStored: false,
 			timezones: [...systemTimezones()],
 		});
 	},
@@ -304,6 +332,266 @@ test.skipIf(skip)("an unknown stored zone loses only the zone", async () => {
 		wordWrap: false,
 		terminalTheme: "light",
 		timezone: "America/New_York",
+		appearance: "system",
+		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		appearanceStored: false,
 	});
+});
+
+/** One bad stored key falls back on its own; the rest and new saves survive. */
+test.skipIf(skip)("an invalid stored key loses only that key", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	await testDb.db
+		.updateTable("users")
+		.set({
+			editor_settings: JSON.stringify({
+				autoSave: false,
+				autoSaveDelaySeconds: 999,
+				wordWrap: false,
+				terminalTheme: "light",
+				appearance: "dark",
+			}),
+		})
+		.where("oidc_subject", "=", "alice")
+		.execute();
+
+	const read = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: jar.cookieHeader() },
+	});
+	expect(read.json()).toEqual({
+		autoSave: false,
+		autoSaveDelaySeconds: 5,
+		wordWrap: false,
+		terminalTheme: "light",
+		timezone: "America/New_York",
+		appearance: "dark",
+		screenReaderMode: false,
+		timezones: [...systemTimezones()],
+		appearanceStored: true,
+	});
+
+	const res = await put(jar, { screenReaderMode: true });
+	expect(res.json()).toMatchObject({
+		autoSave: false,
+		autoSaveDelaySeconds: 5,
+		wordWrap: false,
+		terminalTheme: "light",
+		appearance: "dark",
+		screenReaderMode: true,
+	});
+});
+
+/** Issue #300: appearance is saved per user, merged like any other setting. */
+test.skipIf(skip)("appearance is saved and merged with the rest", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	await put(jar, { wordWrap: false });
+	const res = await put(jar, { appearance: "dark" });
+	expect(res.statusCode).toBe(200);
+	expect(res.json()).toMatchObject({ appearance: "dark", wordWrap: false });
+	expect((await put(jar, { appearance: "sepia" })).statusCode).toBe(400);
+
+	const other = new CookieJar();
+	await loginAs(app, "bob", other);
+	const bob = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: other.cookieHeader() },
+	});
+	expect(bob.json()).toMatchObject({ appearance: "system" });
+});
+
+/** Issue #357: screen-reader mode is off by default, saved per user, merged like any other setting. */
+test.skipIf(skip)("screen-reader mode is saved per user and merged", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	await put(jar, { wordWrap: false });
+	const res = await put(jar, { screenReaderMode: true });
+	expect(res.statusCode).toBe(200);
+	expect(res.json()).toMatchObject({ screenReaderMode: true, wordWrap: false });
+
+	const other = new CookieJar();
+	await loginAs(app, "bob", other);
+	const bob = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: other.cookieHeader() },
+	});
+	expect(bob.json()).toMatchObject({ screenReaderMode: false });
+});
+
+const PNG = Buffer.concat([
+	Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+	Buffer.alloc(32, 1),
+]);
+
+function getAs(jar: CookieJar, url: string) {
+	return app.inject({ method: "GET", url, headers: { cookie: jar.cookieHeader() } });
+}
+
+function putPicture(jar: CookieJar, body: Buffer, type = "image/png") {
+	return app.inject({
+		method: "PUT",
+		url: "/me/picture",
+		headers: { ...csrfHeaders(jar, PUBLIC_URL), "content-type": type },
+		payload: body,
+	});
+}
+
+test.skipIf(skip)("the profile routes need a session", async () => {
+	expect((await app.inject({ method: "GET", url: "/me/profile" })).statusCode).toBe(
+		401,
+	);
+	expect((await app.inject({ method: "GET", url: "/me/picture" })).statusCode).toBe(
+		401,
+	);
+});
+
+test.skipIf(skip)(
+	"a new profile has the sign-in details and nothing else",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "alice", jar);
+
+		const res = await getAs(jar, "/me/profile");
+		expect(res.statusCode).toBe(200);
+		expect(res.json()).toMatchObject({ github: null, website: null, picture: null });
+		expect(typeof res.json().displayName).toBe("string");
+	},
+);
+
+test.skipIf(skip)("links are saved, cleared, and validated", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+	const putProfile = (payload: Record<string, unknown>) =>
+		app.inject({
+			method: "PUT",
+			url: "/me/profile",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload,
+		});
+
+	const saved = await putProfile({ github: "alice-ex", website: "https://a.example/" });
+	expect(saved.statusCode).toBe(200);
+	expect(saved.json()).toMatchObject({
+		github: "alice-ex",
+		website: "https://a.example/",
+	});
+
+	for (const body of [
+		{ website: "http://a.example/" },
+		{ website: "javascript:alert(1)" },
+		{ github: "not a name" },
+		{ displayName: "Mallory" },
+	]) {
+		expect((await putProfile(body)).statusCode, JSON.stringify(body)).toBe(400);
+	}
+
+	const cleared = await putProfile({ website: null });
+	expect(cleared.json()).toMatchObject({ github: "alice-ex", website: null });
+});
+
+test.skipIf(skip)("a png picture is stored and served only to its owner", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	const res = await putPicture(jar, PNG);
+	expect(res.statusCode).toBe(200);
+	const picture = res.json().picture as string;
+	expect(picture).toMatch(/^\/me\/picture\?v=\d+$/);
+
+	const served = await getAs(jar, picture);
+	expect(served.statusCode).toBe(200);
+	expect(served.headers["content-type"]).toBe("image/png");
+	expect(served.headers["x-content-type-options"]).toBe("nosniff");
+	expect(served.rawPayload.equals(PNG)).toBe(true);
+
+	// /me/picture is always the caller's own; bob has none.
+	const other = new CookieJar();
+	await loginAs(app, "bob", other);
+	expect((await getAs(other, "/me/picture")).statusCode).toBe(404);
+
+	const removed = await app.inject({
+		method: "DELETE",
+		url: "/me/picture",
+		headers: csrfHeaders(jar, PUBLIC_URL),
+	});
+	expect(removed.json()).toMatchObject({ picture: null });
+	expect((await getAs(jar, "/me/picture")).statusCode).toBe(404);
+});
+
+/** Security review: only the versioned picture URL may be cached for long. */
+test.skipIf(skip)(
+	"the picture is cached long only under its versioned URL",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "alice", jar);
+		const picture = (await putPicture(jar, PNG)).json().picture as string;
+
+		const versioned = await getAs(jar, picture);
+		expect(versioned.headers["cache-control"]).toBe(
+			"private, max-age=31536000, immutable",
+		);
+
+		const bare = await getAs(jar, "/me/picture");
+		expect(bare.statusCode).toBe(200);
+		expect(bare.headers["cache-control"]).toBe("private, no-cache");
+	},
+);
+
+test.skipIf(skip)("a picture over the cap or of another type is refused", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	const big = Buffer.concat([PNG, Buffer.alloc(MAX_PROFILE_PICTURE_BYTES)]);
+	const tooBig = await putPicture(jar, big);
+	expect(tooBig.statusCode).toBe(413);
+	expect(tooBig.json()).toMatchObject({ code: "FILE_TOO_LARGE" });
+
+	// The type is read from the bytes, not from the header.
+	const gif = Buffer.from("GIF89a-not-a-png");
+	expect((await putPicture(jar, gif)).statusCode).toBe(415);
+	expect((await putPicture(jar, gif, "image/png")).statusCode).toBe(415);
+
+	expect((await getAs(jar, "/me/profile")).json()).toMatchObject({ picture: null });
+});
+
+/** Two saves at once, each changing a different setting, both survive. */
+test.skipIf(skip)("concurrent saves of different settings both survive", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	const saves = await Promise.all([
+		put(jar, { wordWrap: false }),
+		put(jar, { appearance: "dark" }),
+		put(jar, { autoSaveDelaySeconds: 30 }),
+	]);
+	for (const res of saves) expect(res.statusCode).toBe(200);
+
+	expect((await getAs(jar, "/me/settings")).json()).toMatchObject({
+		wordWrap: false,
+		appearance: "dark",
+		autoSaveDelaySeconds: 30,
+	});
+});
+
+/** A defaulted appearance is told apart from a saved one, for the pk-theme upgrade. */
+test.skipIf(skip)("GET says whether appearance was saved or defaulted", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+	const stored = async () => (await getAs(jar, "/me/settings")).json().appearanceStored;
+
+	expect(await stored()).toBe(false);
+	await put(jar, { wordWrap: false });
+	expect(await stored()).toBe(false);
+	const saved = await put(jar, { appearance: "system" });
+	expect(saved.json().appearanceStored).toBe(true);
+	expect(await stored()).toBe(true);
 });

@@ -28,6 +28,8 @@
 .pk-portrow.is-current,
 .pk-portrow.is-selected {
 	background: var(--surface-row-selected);
+	/* An ink bar, so the selection does not rest on a faint tint (issue #369). */
+	box-shadow: var(--row-current-bar);
 }
 
 /*

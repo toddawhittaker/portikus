@@ -5,6 +5,7 @@ import {
 	DEFAULT_TIMEZONE,
 	EDITOR_SETTINGS_DEFAULTS,
 	EditorSettings,
+	githubHref,
 	MeSettings,
 	PlatformSettings,
 	SetLogLevelRequest,
@@ -12,6 +13,7 @@ import {
 	UpdateAdminUserSettingsRequest,
 	UpdateEditorSettingsRequest,
 	UpdatePlatformSettingsRequest,
+	UpdateProfileRequest,
 } from "./index.js";
 
 test("PlatformSettings accepts zero, meaning no shutdown", () => {
@@ -173,6 +175,8 @@ test("the editor settings defaults are a valid, complete set", () => {
 		wordWrap: true,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
+		screenReaderMode: false,
 	});
 });
 
@@ -254,4 +258,54 @@ test("UpdateEditorSettingsRequest rejects an empty body and unknown keys", () =>
 	expect(() => UpdateEditorSettingsRequest.parse({})).toThrow();
 	expect(() => UpdateEditorSettingsRequest.parse({ theme: "dark" })).toThrow();
 	expect(() => UpdateEditorSettingsRequest.parse({ autoSave: "yes" })).toThrow();
+});
+
+/** Issue #300: appearance is a per-user setting that starts on "system". */
+test("appearance defaults to system and takes only the three choices", () => {
+	expect(EDITOR_SETTINGS_DEFAULTS.appearance).toBe("system");
+	expect(UpdateEditorSettingsRequest.safeParse({ appearance: "dark" }).success).toBe(
+		true,
+	);
+	expect(UpdateEditorSettingsRequest.safeParse({ appearance: "blue" }).success).toBe(
+		false,
+	);
+});
+
+/**
+ * Issue #357: screen-reader mode is off unless the student turns it on. With
+ * it on, xterm.js drops text that arrives without a key press (emoji
+ * pickers, dictation), so it is not forced on everyone.
+ */
+test("screen-reader mode defaults to off and takes only a boolean", () => {
+	expect(EDITOR_SETTINGS_DEFAULTS.screenReaderMode).toBe(false);
+	expect(
+		UpdateEditorSettingsRequest.safeParse({ screenReaderMode: true }).success,
+	).toBe(true);
+	expect(
+		UpdateEditorSettingsRequest.safeParse({ screenReaderMode: "on" }).success,
+	).toBe(false);
+});
+
+/** Issue #300: links are https URLs or bare usernames, nothing else. */
+test("profile links accept https URLs and GitHub usernames only", () => {
+	const ok = (body: unknown) => UpdateProfileRequest.safeParse(body).success;
+	expect(ok({ github: "alice-ex" })).toBe(true);
+	expect(ok({ github: "https://github.com/alice" })).toBe(true);
+	expect(ok({ website: "https://alice.example.edu/" })).toBe(true);
+	expect(ok({ github: null, website: null })).toBe(true);
+
+	expect(ok({ github: "http://github.com/alice" })).toBe(false);
+	expect(ok({ github: "-alice" })).toBe(false);
+	expect(ok({ github: "a--b" })).toBe(false);
+	expect(ok({ github: "a".repeat(40) })).toBe(false);
+	expect(ok({ website: "alice" })).toBe(false);
+	expect(ok({ website: "javascript:alert(1)" })).toBe(false);
+	expect(ok({ website: "https://user:pw@example.edu/" })).toBe(false);
+	expect(ok({ website: `https://example.edu/${"a".repeat(200)}` })).toBe(false);
+	expect(ok({ picture: "x" })).toBe(false);
+});
+
+test("a GitHub username links to its profile; a URL is kept as it is", () => {
+	expect(githubHref("alice-ex")).toBe("https://github.com/alice-ex");
+	expect(githubHref("https://github.com/alice")).toBe("https://github.com/alice");
 });

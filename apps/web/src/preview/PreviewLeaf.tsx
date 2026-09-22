@@ -112,6 +112,26 @@ function allowedHostsLine(server: RefusedServer, refusedHost: string): string {
 	return ALLOWED_HOSTS_SETTING[server].line(suffixOf(refusedHost));
 }
 
+/** What a screen reader hears as the preview changes state (issue #363). */
+function announcement(state: State, port: number): string {
+	switch (state.status) {
+		case "connecting":
+			return `Connecting to port ${port}`;
+		case "available":
+			return `Showing port ${port}`;
+		case "inactive":
+			return `Nothing is running on port ${port}`;
+		case "unauthorized":
+			return "You cannot preview this workspace";
+		case "error":
+			return "That preview did not open";
+		case "host-refused":
+			return "Your dev server is refusing the preview host";
+		case "blocked":
+			return "This application cannot be embedded";
+	}
+}
+
 export interface PreviewLeafProps {
 	workspaceId: string;
 	port: number;
@@ -134,6 +154,8 @@ export function PreviewLeaf({
 	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
 	const frame = useRef<HTMLIFrameElement | null>(null);
 	const statusRef = useRef<State["status"]>("connecting");
+	/** True while a grant request is out, so a flickering list cannot start a second. */
+	const granting = useRef(false);
 	const history = useRef<PreviewHistory | null>(null);
 	/** Shown on Back once a press found nothing to go back to (issue #283). */
 	const [backHint, setBackHint] = useState<string | undefined>(undefined);
@@ -164,7 +186,13 @@ export function PreviewLeaf({
 	const connect = useCallback(async () => {
 		setState({ status: "connecting" });
 		try {
-			const grant = await requestGrant(workspaceId, port, "embedded");
+			granting.current = true;
+			let grant: Awaited<ReturnType<typeof requestGrant>>;
+			try {
+				grant = await requestGrant(workspaceId, port, "embedded");
+			} finally {
+				granting.current = false;
+			}
 			setState({ status: "available", grant });
 			// Ask whether the application allows framing. The browser gives the
 			// parent page no way to see a refusal for itself: Chromium fires the
@@ -244,6 +272,7 @@ export function PreviewLeaf({
 			// An open preview is already pointed at this port; re-granting here
 			// would reload the application for nothing.
 			if (showing || statusRef.current === "unauthorized") return;
+			if (granting.current) return;
 			void connect();
 			return;
 		}
@@ -272,7 +301,9 @@ export function PreviewLeaf({
 	}, [state, loadedUrl]);
 
 	function onFrameLoad() {
-		setBackHint(undefined);
+		// A load can be a late echo of an earlier Back, so the hint goes only
+		// when there really is something to go back to again.
+		if (history.current?.canGoBack()) setBackHint(undefined);
 		if (state.status !== "available" && state.status !== "blocked") return;
 		setLoadedUrl(state.grant.bootstrapUrl);
 		// A slow application that finally loaded was not refusing to be
@@ -441,6 +472,11 @@ export function PreviewLeaf({
 					Running
 				</button>
 			</div>
+
+			{/* Always rendered, so each change is announced rather than missed. */}
+			<p className="pk-visually-hidden" role="status" data-testid="preview-status">
+				{announcement(state, port)}
+			</p>
 
 			<div className="pk-preview-body">
 				{/* Every state but the frame itself is one compact stack, centred

@@ -15,6 +15,7 @@ import {
 } from "@tanstack/react-query";
 import { z } from "zod";
 import { request, toApiError } from "../api/request.js";
+import { isFileExists } from "./errors.js";
 import { isDescendant, parentOf } from "./paths.js";
 
 const base = (workspaceId: string, projectId: string) =>
@@ -355,4 +356,46 @@ export function flushWrite(
 		body: text,
 		keepalive: true,
 	}).catch(() => {});
+}
+
+/**
+ * Save a pasted picture at the first of `paths` that is free, and return it, creating `.portikus/pastes` first because
+ * mkdir needs its parent to exist. A folder that is already there is fine;
+ * the file itself is never overwritten (SPEC.md §11.2, §13.5).
+ */
+export async function savePastedImage(
+	workspaceId: string,
+	projectId: string,
+	paths: readonly string[],
+	image: Blob,
+): Promise<string> {
+	for (const dir of [".portikus", ".portikus/pastes"]) {
+		try {
+			await request(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ path: dir }),
+			});
+		} catch (error) {
+			if (!isFileExists(error)) throw error;
+		}
+	}
+	let lastError: unknown;
+	for (const path of paths) {
+		try {
+			await request(WriteFileResponse, fileUrl(workspaceId, projectId, path), {
+				method: "PUT",
+				headers: {
+					"if-none-match": "*",
+					"content-type": "application/octet-stream",
+				},
+				body: image,
+			});
+			return path;
+		} catch (error) {
+			if (!isFileExists(error)) throw error;
+			lastError = error;
+		}
+	}
+	throw lastError;
 }

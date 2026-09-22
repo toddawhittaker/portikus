@@ -4,6 +4,7 @@
  * by a fake, so these tests are about the states, not about rendering text.
  */
 
+import { readFileSync } from "node:fs";
 import { EDITOR_SETTINGS_DEFAULTS, type EditorSettings } from "@portikus/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
@@ -1049,4 +1050,31 @@ test("a save refused twice over is a real conflict (issue #157)", async () => {
 	type("hello world");
 	await screen.findByTestId("file-conflict", undefined, { timeout: 4000 });
 	expect(status().textContent).toBe("Conflict");
+});
+
+/**
+ * Issue #358: Edit and Diff live in different headers, so the button the
+ * student pressed is replaced; the keyboard follows it to the new one.
+ */
+test("the Edit and Diff swap keeps focus on the pressed button", async () => {
+	renderLeaf();
+	await findEditor();
+	const diff = screen.getByTestId(`file-view-diff-${PATH}`);
+	diff.focus();
+	fireEvent.click(diff);
+	await screen.findByTestId(`diff-pane-${PATH}`);
+	const shownDiff = screen.getByTestId(`file-view-diff-${PATH}`);
+	expect(shownDiff).not.toBe(diff);
+	expect(document.activeElement).toBe(shownDiff);
+
+	fireEvent.click(screen.getByTestId(`file-view-edit-${PATH}`));
+	await waitFor(() => expect(screen.queryByTestId(`diff-pane-${PATH}`)).toBeNull());
+	expect(document.activeElement).toBe(screen.getByTestId(`file-view-edit-${PATH}`));
+});
+
+/** Issue #369: the pressed view button is marked by more than colour. */
+test("the pressed view button is bold as well as tinted", async () => {
+	const css = readFileSync(`${import.meta.dirname}/work.css`, "utf8");
+	const rule = css.match(/\.pk-md-modes button\[aria-pressed="true"\] \{([^}]*)\}/);
+	expect(rule?.[1]).toContain("font-weight: 700");
 });

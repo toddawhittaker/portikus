@@ -1,5 +1,5 @@
 import * as RadixDialog from "@radix-ui/react-dialog";
-import type * as React from "react";
+import * as React from "react";
 import { IconButton } from "../primitives/index.js";
 
 export const DialogRoot = RadixDialog.Root;
@@ -20,9 +20,84 @@ export interface DialogProps {
 	testId?: string;
 }
 
+interface FocusOrigin {
+	element: HTMLElement;
+	/** The button that opened the menu, when the element is a menu item. */
+	menuTrigger: HTMLElement | null;
+	/** What had focus before the menu opened, for a menu with no trigger. */
+	beforeMenu: HTMLElement | null;
+}
+
+function focusOrigin(element: HTMLElement): FocusOrigin {
+	const menu = element.closest('[role="menu"]');
+	const menuId = menu?.getAttribute("aria-labelledby");
+	return {
+		element,
+		menuTrigger: menuId ? document.getElementById(menuId) : null,
+		beforeMenu: menu ? lastOutsideMenu : null,
+	};
+}
+
+// A menu item that opens a dialog unmounts before the dialog mounts, and focus
+// falls to the body, so remember the last focused element as it happens.
+let lastFocus: FocusOrigin | null = null;
+// A right-click menu has no trigger button, so keep what had focus before it.
+let lastOutsideMenu: HTMLElement | null = null;
+let tracking = false;
+
+function trackFocus(event: FocusEvent): void {
+	if (!(event.target instanceof HTMLElement)) return;
+	lastFocus = focusOrigin(event.target);
+	if (!event.target.closest('[role="menu"]')) lastOutsideMenu = event.target;
+}
+
+/**
+ * Puts focus back where it was when a dialog opened. Most dialogs open from
+ * state or a menu item, so Radix has no trigger to return to and focus would
+ * fall to the page body (issue #358).
+ */
+export function useReturnFocus(): {
+	onOpenAutoFocus: () => void;
+	onCloseAutoFocus: (event: Event) => void;
+} {
+	const origin = React.useRef<FocusOrigin | null>(null);
+	React.useEffect(() => {
+		if (tracking) return;
+		tracking = true;
+		document.addEventListener("focusin", trackFocus);
+	}, []);
+	return {
+		onOpenAutoFocus() {
+			const active = document.activeElement;
+			origin.current =
+				active instanceof HTMLElement && active !== document.body
+					? focusOrigin(active)
+					: lastFocus;
+		},
+		onCloseAutoFocus(event) {
+			const target = [
+				origin.current?.element,
+				origin.current?.menuTrigger,
+				origin.current?.beforeMenu,
+			].find(
+				(element) =>
+					element?.isConnected &&
+					element !== document.body &&
+					// A menu or pane that hid rather than unmounted cannot take focus.
+					element.checkVisibility?.() !== false,
+			);
+			origin.current = null;
+			if (!target) return;
+			event.preventDefault();
+			target.focus({ preventScroll: true });
+		},
+	};
+}
+
 /**
  * The styled modal. Render it inside a DialogRoot; Radix owns the focus trap,
- * Escape and the return of focus to the trigger.
+ * Escape and the return of focus to the trigger; useReturnFocus covers
+ * dialogs opened without one.
  */
 export function Dialog({
 	id,
@@ -36,6 +111,7 @@ export function Dialog({
 	role,
 	testId,
 }: DialogProps): React.ReactElement {
+	const returnFocus = useReturnFocus();
 	return (
 		<RadixDialog.Portal>
 			<RadixDialog.Overlay className="pk-scrim" />
@@ -47,9 +123,11 @@ export function Dialog({
 				// Focus the dialog itself, not the close button: its tooltip would open
 				// on that focus and swallow the first Escape.
 				onOpenAutoFocus={(event) => {
+					returnFocus.onOpenAutoFocus();
 					event.preventDefault();
 					(event.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
 				}}
+				onCloseAutoFocus={returnFocus.onCloseAutoFocus}
 				className={["pk-dialog", size === "lg" ? "pk-dialog--lg" : "", className]
 					.filter(Boolean)
 					.join(" ")}

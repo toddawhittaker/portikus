@@ -6,6 +6,12 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { request } from "../api/request.js";
+import {
+	markThemeCarriedOver,
+	readThemePreference,
+	rememberThemePreference,
+	themeCarriedOver,
+} from "../shell/theme.js";
 
 export const editorSettingsKey = ["me", "settings"] as const;
 
@@ -16,7 +22,36 @@ export const editorSettingsKey = ["me", "settings"] as const;
 export function useEditorSettings() {
 	return useQuery({
 		queryKey: editorSettingsKey,
-		queryFn: () => request(MeSettings, "/me/settings"),
+		// The saved appearance wins over this browser's copy, and it is applied
+		// here, before anything renders with the settings (issue #300).
+		queryFn: async () => {
+			let settings = await request(MeSettings, "/me/settings");
+			// A theme picked before appearance moved to the server is kept once
+			// per browser, so a shared lab machine never hands it to the next account.
+			const local = readThemePreference();
+			const upload =
+				!themeCarriedOver() &&
+				settings.appearanceStored === false &&
+				local !== "system";
+			markThemeCarriedOver();
+			if (upload) {
+				try {
+					settings = await saveEditorSettings({ appearance: local });
+				} catch {
+					// Keep what was read; the theme still applies in this browser.
+				}
+			}
+			rememberThemePreference(settings.appearance);
+			return settings;
+		},
+	});
+}
+
+function saveEditorSettings(body: UpdateEditorSettingsRequest) {
+	return request(MeSettings, "/me/settings", {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
 	});
 }
 
@@ -24,13 +59,9 @@ export function useEditorSettings() {
 export function useUpdateEditorSettings() {
 	const client = useQueryClient();
 	return useMutation({
-		mutationFn: (body: UpdateEditorSettingsRequest) =>
-			request(MeSettings, "/me/settings", {
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(body),
-			}),
+		mutationFn: saveEditorSettings,
 		onSuccess: (settings) => {
+			rememberThemePreference(settings.appearance);
 			client.setQueryData(editorSettingsKey, settings);
 		},
 	});
@@ -47,4 +78,13 @@ export function useTerminalThemeAttribute(): void {
 	useEffect(() => {
 		document.documentElement.setAttribute("data-terminal-theme", theme);
 	}, [theme]);
+}
+
+/**
+ * Whether terminals run in xterm's screen-reader mode (issue #357). Off until
+ * the settings arrive, since the mode has a rendering cost.
+ */
+export function useScreenReaderMode(): boolean {
+	const settings = useEditorSettings();
+	return settings.data?.screenReaderMode ?? EDITOR_SETTINGS_DEFAULTS.screenReaderMode;
 }

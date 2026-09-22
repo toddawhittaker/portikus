@@ -43,6 +43,19 @@ export interface TabsProps {
 	className?: string;
 }
 
+/**
+ * DOM ids for a tab and the panel it controls. Radix lets these override its
+ * generated ids, so a panel rendered elsewhere can name itself by its tab.
+ * Encoded because ids and aria-labelledby cannot hold whitespace.
+ */
+export function tabDomId(id: string): string {
+	return `pk-tab-${encodeURIComponent(id)}`;
+}
+
+export function tabPanelDomId(id: string): string {
+	return `pk-tabpanel-${encodeURIComponent(id)}`;
+}
+
 const KIND_ICON: Record<TabItem["kind"], IconName> = {
 	terminal: "terminal",
 	claude: "agent",
@@ -55,18 +68,31 @@ const KIND_ICON: Record<TabItem["kind"], IconName> = {
 
 interface TabTriggerProps {
 	tab: TabItem;
+	/** Id of the hidden text that explains the keyboard shortcuts. */
+	hintId: string;
 	onClose?: (id: string) => void;
 	onMove: (tab: TabItem, direction: -1 | 1) => void;
 }
 
-function TabTrigger({ tab, onClose, onMove }: TabTriggerProps): React.ReactElement {
+function TabTrigger({
+	tab,
+	hintId,
+	onClose,
+	onMove,
+}: TabTriggerProps): React.ReactElement {
 	const sortable = useSortable({ id: tab.id });
 	return (
 		<RadixTabs.Trigger
 			ref={sortable.setNodeRef}
 			value={tab.id}
+			id={tabDomId(tab.id)}
+			aria-controls={tabPanelDomId(tab.id)}
 			title={tab.title ?? tab.label}
 			data-testid={tab.testId}
+			// The close control sits inside the tab, so assistive technology only
+			// learns about closing and moving from these (issues #370, #372).
+			aria-keyshortcuts="Delete Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
+			aria-describedby={hintId}
 			className={[
 				"pk-tab",
 				tab.kind === "terminal" && !tab.ended ? "pk-tab--terminal" : "",
@@ -139,6 +165,12 @@ function TabTrigger({ tab, onClose, onMove }: TabTriggerProps): React.ReactEleme
 	);
 }
 
+// Plain Radix tabs for panes that need no reordering or close buttons.
+export const TabsRoot = RadixTabs.Root;
+export const TabsList = RadixTabs.List;
+export const TabsTrigger = RadixTabs.Trigger;
+export const TabsContent = RadixTabs.Content;
+
 /** The work-area tab strip: Radix Tabs with dnd-kit reordering. */
 export function Tabs({
 	tabs,
@@ -152,6 +184,7 @@ export function Tabs({
 }: TabsProps): React.ReactElement {
 	const [announcement, setAnnouncement] = React.useState("");
 	const list = React.useRef<HTMLDivElement | null>(null);
+	const hintId = React.useId();
 
 	// Selecting a tab brings it back into view, however the selection was made
 	// (click, keyboard, Ctrl+Tab, or opening a file). Issue #240.
@@ -215,7 +248,13 @@ export function Tabs({
 						onWheel={onWheel}
 					>
 						{tabs.map((tab) => (
-							<TabTrigger key={tab.id} tab={tab} onClose={onClose} onMove={move} />
+							<TabTrigger
+								key={tab.id}
+								tab={tab}
+								hintId={hintId}
+								onClose={onClose}
+								onMove={move}
+							/>
 						))}
 					</RadixTabs.List>
 				</SortableContext>
@@ -225,6 +264,9 @@ export function Tabs({
 					<IconButton icon="plus" label="New tab" size="sm" aria-haspopup="menu" />
 				)}
 			</div>
+			<span id={hintId} className="pk-visually-hidden">
+				Delete closes the tab. Alt+Shift+Left or Right Arrow moves it.
+			</span>
 			<span className="pk-visually-hidden" aria-live="polite">
 				{announcement}
 			</span>

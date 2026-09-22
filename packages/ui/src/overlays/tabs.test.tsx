@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { type TabItem, Tabs } from "./tabs";
+import { type TabItem, Tabs, tabDomId, tabPanelDomId } from "./tabs";
 
 const TABS: TabItem[] = [
 	{ id: "t1", kind: "terminal", label: "zsh — todo-api" },
@@ -22,6 +22,16 @@ function renderTabs(overrides: Partial<React.ComponentProps<typeof Tabs>> = {}) 
 }
 
 describe("Tabs", () => {
+	it("gives each tab a stable id and panel id, even for paths with spaces", () => {
+		const odd = "file:src/my dir/a#b.ts";
+		render(<Tabs tabs={[{ id: odd, kind: "file", label: "a#b.ts" }]} activeId={odd} />);
+		const tab = screen.getByRole("tab");
+		expect(tab.id).toBe(tabDomId(odd));
+		expect(tab.getAttribute("aria-controls")).toBe(tabPanelDomId(odd));
+		expect(tab.id).not.toMatch(/\s/);
+		expect(tabPanelDomId(odd)).not.toMatch(/\s/);
+	});
+
 	it("renders every tab and the launcher slot", () => {
 		renderTabs();
 
@@ -149,5 +159,19 @@ describe("Tabs", () => {
 		fireEvent.wheel(list, { deltaY: 120, deltaX: 0 });
 
 		expect(list.scrollLeft).toBe(120);
+	});
+
+	it("advertises Delete and Alt+Shift+Arrow on every tab (#370, #372)", () => {
+		renderTabs();
+
+		for (const tab of screen.getAllByRole("tab")) {
+			expect(tab.getAttribute("aria-keyshortcuts")).toBe(
+				"Delete Alt+Shift+ArrowLeft Alt+Shift+ArrowRight",
+			);
+			const describedBy = tab.getAttribute("aria-describedby") ?? "";
+			const description = document.getElementById(describedBy)?.textContent ?? "";
+			expect(description).toContain("Delete");
+			expect(description).toContain("Alt+Shift");
+		}
 	});
 });

@@ -1296,3 +1296,129 @@ migration from another branch that stopped Kysely from starting (PR #342).
   per-user settings row the issue asks for. The Profile section (picture,
   GitHub and personal links) did not land; the Account section shows only
   the institution sign-in.
+
+## Epic 9.2 — image paste into the terminal, and the rest of issue #300
+
+The requirement is `docs/EPIC-9.2.md` until SPEC.md section 29 lists the
+epic.
+
+**Image paste (issue #355).** Pasting a lone png or jpeg into a terminal,
+by Ctrl+V, Ctrl+Shift+V or a right-click, saves it through the existing
+project upload as `.portikus/pastes/<UTC time>.png` (or `.jpeg`) in the
+project the terminal was opened in, creating the folders first. The
+terminal then receives the absolute path under `/home/student`, a
+trailing space, and no newline; the picture bytes never reach it. A paste
+that carries any text stays a text paste. Keyboard paste now always goes
+through the browser paste event, so it works where `readText` is refused,
+as in Firefox, and text still lands once. A right-click reads the
+clipboard items and falls back to `readText`. A picture over the 50 MiB
+upload cap is refused with the usual message. A second paste in the
+same second is saved as `-2`, then `-3`, up to five names, and never
+overwrites; a right-click text paste goes through xterm's own paste, so it
+is bracketed like a keyboard paste. Gap: in Firefox a
+right-click paste still depends on the browser allowing `clipboard.read`.
+
+**Settings (issue #300).** Appearance now follows the student. The
+light, dark, or system choice is a per-user setting saved through `PUT /me/settings` the moment it is
+chosen. The browser's `pk-theme` copy is still read before the first
+paint, and the workspace screen waits for the settings before it draws,
+so a browser that has never seen the choice shows it without a flash.
+The saved value wins and refreshes that copy. A student with no saved
+appearance whose browser copy says light or dark has that choice saved
+once, so an upgrade does not reset it. Settings saves merge in one SQL
+statement, so two saves at once both survive.
+
+The Account section is folded into a new Profile section at the top of
+Settings. It shows the display name, email, sign-in name, and workspace
+label from the institution sign-in, read-only. The student can add a
+GitHub username or link, one personal https link, and a PNG or JPEG
+picture of up to 1 MiB, which replaces the initials in the account menu
+button. The API checks the picture type from its bytes, keeps it on the
+users row (migration 0012), and serves it only to its owner at
+`/me/picture`. Nothing in Profile is used for authorization.
+
+Gaps: the picture cap is 1 MiB, not the 50 MiB file-upload cap, because
+the picture lives on the users row. The picture upload uses its own
+`PUT /me/picture` route rather than the project file upload, which writes
+into a workspace. The administration page does not wait for the saved
+appearance, so it uses the browser's copy until the workspace screen has
+loaded once.
+
+**Accessibility (issues #357 to #374).** An accessibility review of main
+at 9d6da94 raised eighteen issues against WCAG 2.2 AA (SPEC.md section
+25.8, DESIGN.md section 6). All of them landed on the epic in PRs #376 to
+#381 and #383.
+
+- Shared overlays (PR #376): a dialog or confirmation puts focus back
+  where it opened, falling back to the menu button (#358). Toasts sit
+  above dialogs and name F8 (#364). Tabs announce Delete and
+  Alt+Shift+Arrow and have a 24px close target (#372, part of #370).
+- Profile and per-user appearance (PR #377, issue #300).
+- File tree and project list (PR #378): keyboard Download as zip and Show
+  hidden (#361), spoken Git status and ignored state (#362), one Tab stop
+  per tree with Shift+F10 for the row menu (#366), readable ignored rows
+  and Git letters (#367), a 2px ink bar on the selected row (#369), and
+  Move to… for files (#370).
+- Right pane, search, preview, admin, and titles (PR #379): arrow keys in
+  the Files, Checks, Running and Monitor switcher (#365), distinct names
+  in the admin table and check editor (#371), status regions and alerts
+  (#363), aria-current and the ink bar on current rows (#369), a title for
+  every page (#374), and focus kept after Find in files and a removed
+  check (#358).
+- Work area (PR #380): the terminal focus ring follows the terminal's own
+  scheme (#368), Move to new tab and Leave terminal in each terminal's
+  menu (#370, #359), named tab panels (#374), and a bold pressed Edit or
+  Diff button with focus kept across the swap (#369, #358).
+- Terminal (PR #381): the dark palette passes 4.5:1, with xterm lifting
+  any cell below it (#360), the helper textarea describes Alt+Shift+Q
+  (#359), and connection flags are announced (#363).
+- Screen-reader task (PR #383): a per-user screen-reader mode, off by default,
+  turns on xterm's screen-reader mode in every terminal and the check
+  output and Monaco's `accessibilitySupport` in every editor, live (#357).
+  The first Tab stop on the workspace page toggles it and announces the
+  change. Settings gains a "Keyboard and screen readers" section (#359),
+  the Settings save error is an alert (#363), and the terminal colours
+  switch is named "Light terminal" (#373). A dialog opened from a file
+  row's menu, by Shift+F10 or a right-click, now returns focus to the row
+  (#358). The light `--ansi-bright-green` and `--ansi-bright-yellow`
+  tokens now match the terminal's #35793b and #946800, which pass 4.5:1 on
+  the light background; the old tokens measured 4.32:1 and 4.18:1.
+  Security review follow-up: `GET /me/picture` is cached for a year only
+  under its versioned `?v=` URL; the bare URL answers `private, no-cache`.
+
+Gaps: screen-reader mode ships off by default. Measured with it on, bulk
+output is about twice as slow (20 MB: 0.45 s to 0.96 s) and typing and
+redraw do not change, but xterm.js then drops text that arrives without a
+key press, such as from an emoji picker or dictation, so it was not
+turned on for everyone. The Settings help section says so. F2 to rename a file row (optional in
+#366) was not added. The administration page has no terminals or editors,
+so it has no screen-reader toggle. Terminal and editor limits are
+documented in Settings rather than fixed: full-screen programs redraw the
+screen, and colours and inline editor hints are not announced.
+
+**Confirmation-review fixes.** The browser-only theme is carried over to
+an account at most once per browser: the first settings load marks the
+browser (`pk-theme-synced`), so on a shared lab machine one student's
+theme is never saved to the next student's account (N1). If that one-time
+save fails, the settings still load (N2). Stored settings are checked one
+field at a time, so a single bad stored value falls back to its own
+default and no longer resets every other setting (N3). Every text paste
+into a terminal, by keyboard or right-click, now has control characters
+removed except tab, line feed and carriage return, so text planted on the
+clipboard by a web page cannot end the paste bracket early and run a
+command (pastejacking, SPEC.md section 24).
+
+**Preview races (PRs #387 and #388).** Stress runs of the preview
+browser tests found four intermittent failures in Epic 8 code, now fixed.
+The preview frame could ask for two grants when the list of listening
+ports emptied and refilled during a grant, which reloaded the app; this
+happens after an API restart. A late frame load from an earlier Back
+cleared the "Nothing to go back to" hint. A stopped workspace could
+answer "Preview session ended" once its preview sessions were revoked;
+the more specific "This workspace is not running" now wins, but only for
+a revoked cookie on its own host whose owner is still signed in
+(BROWSER-HANDLING.md section 25.1). The end-to-end test's fake gateway
+now answers 502 when the app it proxies to has closed, as Caddy does.
+Accepted residual: a stolen, already-revoked preview cookie can tell
+whether its owner's workspace is running until the sweep deletes revoked
+rows a day later.

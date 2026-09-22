@@ -117,6 +117,7 @@ export function RunningPane({
 							type="button"
 							className="pk-portrow-select"
 							aria-expanded={isSelected}
+							aria-current={service.port === activePort ? "true" : undefined}
 							aria-controls={isSelected ? "running-details" : undefined}
 							onClick={() => setSelectedPort(service.port)}
 						>

@@ -1,6 +1,13 @@
 import type { Project } from "@portikus/contracts";
-import { EmptyState, IconButton } from "@portikus/ui";
-import { useEffect, useRef, useState } from "react";
+import {
+	EmptyState,
+	IconButton,
+	TabsContent,
+	TabsList,
+	TabsRoot,
+	TabsTrigger,
+} from "@portikus/ui";
+import { type Ref, useEffect, useRef, useState } from "react";
 import { ChecksPane } from "../checks/ChecksPane.js";
 import "../checks/checks.css";
 import { FileTreePane } from "../files/FileTree.js";
@@ -27,6 +34,22 @@ export function FilesPane({
 	// for the Running surface too (BROWSER-HANDLING.md §12).
 	const { pane, show } = useRightPaneState();
 	const open = project !== undefined && !project.missing;
+	// Closing the search hands focus back to the button that opened it (issue #358),
+	// or to the chosen surface's tab when the pane has moved off Files meanwhile.
+	const searchButton = useRef<HTMLButtonElement>(null);
+	const currentTab = useRef<HTMLButtonElement>(null);
+	const refocus = useRef(false);
+
+	function closeSearch() {
+		refocus.current = true;
+		setSearching(false);
+	}
+
+	useEffect(() => {
+		if (searching || !refocus.current) return;
+		refocus.current = false;
+		(searchButton.current ?? currentTab.current)?.focus();
+	}, [searching]);
 
 	// Mod+Shift+F opens find in files from anywhere in the workspace
 	// (SPEC.md §11.5). With no project open there is nothing to search.
@@ -60,14 +83,14 @@ export function FilesPane({
 						label="Close search"
 						size="sm"
 						data-testid="search-close"
-						onClick={() => setSearching(false)}
+						onClick={closeSearch}
 					/>
 				</div>
 				<SearchPanel
 					key={project.id}
 					workspaceId={workspaceId}
 					projectId={project.id}
-					onClose={() => setSearching(false)}
+					onClose={closeSearch}
 				/>
 			</aside>
 		);
@@ -75,50 +98,65 @@ export function FilesPane({
 
 	if (open) {
 		return (
-			<div className="pk-right-pane">
-				<Tabs pane={pane} show={show} />
-				{pane === "files" ? (
-					// Keyed by project, so nothing (focus above all) carries across a switch.
+			<TabsRoot
+				className="pk-right-pane"
+				value={pane}
+				onValueChange={(value) => show(value as RightPane)}
+			>
+				<Switchers show={show} current={pane} currentRef={currentTab} />
+				<TabsContent value="files" className="pk-pane-panel">
+					{/* Keyed by project, so nothing (focus above all) carries across a switch. */}
 					<FileTreePane
 						key={project.id}
 						workspaceId={workspaceId}
 						project={project}
 						onSearch={() => setSearching(true)}
+						searchButtonRef={searchButton}
 					/>
-				) : null}
-				{pane === "checks" ? (
+				</TabsContent>
+				<TabsContent value="checks" className="pk-pane-panel">
 					<aside className="pk-pane pk-pane--right" aria-label="Checks">
 						<ChecksPane key={project.id} workspaceId={workspaceId} project={project} />
 					</aside>
-				) : null}
-				{pane === "running" ? (
+				</TabsContent>
+				<TabsContent value="running" className="pk-pane-panel">
 					<aside className="pk-pane pk-pane--right" aria-label="Running">
 						<RunningSurface workspaceId={workspaceId} projectId={project.id} />
 					</aside>
-				) : null}
-				{pane === "monitor" ? (
+				</TabsContent>
+				<TabsContent value="monitor" className="pk-pane-panel">
 					<aside className="pk-pane pk-pane--right" aria-label="Monitor">
 						<MonitorPane workspaceId={workspaceId} />
 					</aside>
-				) : null}
-			</div>
+				</TabsContent>
+			</TabsRoot>
 		);
 	}
 
 	// With no project open there is no file tree and no checks, but a port may
 	// still be listening, so the Running surface stays reachable.
 	return (
-		<div className="pk-right-pane">
-			<Tabs pane={pane === "checks" ? "files" : pane} show={show} />
-			{pane === "running" ? (
+		<TabsRoot
+			className="pk-right-pane"
+			value={pane === "checks" ? "files" : pane}
+			onValueChange={(value) => show(value as RightPane)}
+		>
+			<Switchers
+				show={show}
+				current={pane === "checks" ? "files" : pane}
+				currentRef={currentTab}
+			/>
+			<TabsContent value="running" className="pk-pane-panel">
 				<aside className="pk-pane pk-pane--right" aria-label="Running">
 					<RunningSurface workspaceId={workspaceId} projectId={undefined} />
 				</aside>
-			) : pane === "monitor" ? (
+			</TabsContent>
+			<TabsContent value="monitor" className="pk-pane-panel">
 				<aside className="pk-pane pk-pane--right" aria-label="Monitor">
 					<MonitorPane workspaceId={workspaceId} />
 				</aside>
-			) : (
+			</TabsContent>
+			<TabsContent value="files" className="pk-pane-panel">
 				<aside className="pk-pane pk-pane--right" aria-label="Files">
 					<div className="pk-pane-head">
 						<h2 className="pk-pane-title">Files</h2>
@@ -133,48 +171,75 @@ export function FilesPane({
 						</EmptyState>
 					</div>
 				</aside>
-			)}
-		</div>
+			</TabsContent>
+		</TabsRoot>
 	);
 }
 
-function Tabs({ pane, show }: { pane: RightPane; show: (pane: RightPane) => void }) {
+/**
+ * The switcher: Radix Tabs, so the arrow keys move between surfaces and the
+ * whole strip is one Tab stop (issue #365).
+ */
+function Switchers({
+	show,
+	current,
+	currentRef,
+}: {
+	show: (pane: RightPane) => void;
+	current: RightPane;
+	currentRef: Ref<HTMLButtonElement>;
+}) {
+	const refFor = (value: RightPane) => (value === current ? currentRef : undefined);
 	return (
-		<div
+		<TabsList
 			className="pk-pane-tabs"
-			role="tablist"
 			aria-label="Files, checks, running services or monitor"
 		>
-			<Switcher current={pane} value="files" label="Files" onPick={show} />
-			<Switcher current={pane} value="checks" label="Checks" onPick={show} />
-			<Switcher current={pane} value="running" label="Running" onPick={show} />
-			<Switcher current={pane} value="monitor" label="Monitor" onPick={show} />
-		</div>
+			<Switcher value="files" buttonRef={refFor("files")} label="Files" onPick={show} />
+			<Switcher
+				value="checks"
+				buttonRef={refFor("checks")}
+				label="Checks"
+				onPick={show}
+			/>
+			<Switcher
+				value="running"
+				buttonRef={refFor("running")}
+				label="Running"
+				onPick={show}
+			/>
+			<Switcher
+				value="monitor"
+				buttonRef={refFor("monitor")}
+				label="Monitor"
+				onPick={show}
+			/>
+		</TabsList>
 	);
 }
 
 function Switcher({
-	current,
 	value,
 	label,
 	onPick,
+	buttonRef,
 }: {
-	current: RightPane;
 	value: RightPane;
+	buttonRef?: Ref<HTMLButtonElement>;
 	label: string;
 	onPick: (pane: RightPane) => void;
 }) {
 	return (
-		<button
-			type="button"
-			role="tab"
+		<TabsTrigger
+			ref={buttonRef}
+			value={value}
 			className="pk-pane-tab"
-			aria-selected={current === value}
 			data-testid={`right-pane-tab-${value}`}
+			// Radix selects on mouse down; a click from assistive technology arrives alone.
 			onClick={() => onPick(value)}
 		>
 			{label}
-		</button>
+		</TabsTrigger>
 	);
 }
 

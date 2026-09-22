@@ -4,7 +4,7 @@
  * come from the saved layout and go back to it when the user drags a handle.
  */
 import type { SplitNode, Terminal, TerminalTheme } from "@portikus/contracts";
-import { PaneHandle } from "@portikus/ui";
+import { PaneHandle, tabDomId, tabPanelDomId } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
@@ -31,6 +31,7 @@ export interface TerminalGroupProps {
 	onResize: (path: number[], sizes: number[]) => void;
 	onSessionEnded: () => void;
 	onLeave: () => void;
+	onMoveToNewTab: (terminalId: string) => void;
 	/** Close this whole tab: a file tab offers it when the file is gone. */
 	onCloseTab: () => void;
 	/** The line this tab was last asked to open at, or undefined for none. */
@@ -83,6 +84,8 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					onReplace={props.onReplace}
 					onSessionEnded={props.onSessionEnded}
 					onLeave={props.onLeave}
+					onMoveToNewTab={props.onMoveToNewTab}
+					alone={root.type === "leaf"}
 					dropEdge={
 						props.dropTarget?.terminalId === terminal.id ? props.dropTarget.edge : null
 					}
@@ -165,6 +168,8 @@ export function TerminalGroup(props: TerminalGroupProps) {
 	return (
 		<div
 			role="tabpanel"
+			id={tabPanelDomId(tabId)}
+			aria-labelledby={tabDomId(tabId)}
 			className="pk-termgroup"
 			hidden={!visible}
 			data-testid={`terminal-group-${tabId}`}

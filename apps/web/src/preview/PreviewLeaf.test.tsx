@@ -123,6 +123,11 @@ test("a port nothing is listening on says so and asks no grant", async () => {
 		"Nothing is currently listening on port 5173. Start your application to reconnect this preview.",
 	);
 	expect(fetchMock).not.toHaveBeenCalled();
+	// Announced, not only shown (issue #363).
+	expect(screen.getByTestId("preview-status").getAttribute("role")).toBe("status");
+	expect(screen.getByTestId("preview-status").textContent).toBe(
+		"Nothing is running on port 5173",
+	);
 });
 
 test("the preview reconnects when the port starts listening again", async () => {
@@ -161,6 +166,9 @@ test("a refused grant says the student may not preview this workspace", async ()
 	stubFetch(() => json(403, { code: "FORBIDDEN", message: "no" }));
 	show({});
 	expect(await screen.findByTestId("preview-unauthorized")).toBeTruthy();
+	expect(screen.getByTestId("preview-status").textContent).toBe(
+		"You cannot preview this workspace",
+	);
 });
 
 test("a grant the gateway could not open shows its message", async () => {
@@ -291,6 +299,39 @@ test("Back on a fresh preview does nothing and explains itself", async () => {
 	await waitFor(() =>
 		expect(backButton.getAttribute("title")).toBe("Nothing to go back to"),
 	);
+});
+
+test("a late load from an earlier Back does not clear the hint", async () => {
+	// Chromium can fire the frame's load for a step Back after the next
+	// press has already found nothing left.
+	stubFetch(() => json(200, GRANT));
+	stubHistory();
+	show({});
+	const frame = await screen.findByTestId("preview-frame");
+	fireEvent.load(frame);
+
+	const backButton = screen.getByTestId("preview-back") as HTMLButtonElement;
+	fireEvent.click(backButton);
+	await waitFor(() =>
+		expect(backButton.getAttribute("title")).toBe("Nothing to go back to"),
+	);
+	fireEvent.load(frame);
+	expect(backButton.getAttribute("title")).toBe("Nothing to go back to");
+});
+
+test("a load that adds an entry clears the hint", async () => {
+	stubFetch(() => json(200, GRANT));
+	const tab = stubHistory();
+	show({});
+	const frame = await screen.findByTestId("preview-frame");
+	const backButton = screen.getByTestId("preview-back") as HTMLButtonElement;
+	fireEvent.click(backButton);
+	await waitFor(() =>
+		expect(backButton.getAttribute("title")).toBe("Nothing to go back to"),
+	);
+	tab.frameNavigates();
+	fireEvent.load(frame);
+	await waitFor(() => expect(backButton.getAttribute("title")).toBe(null));
 });
 
 test("Back steps once the frame has an entry of its own, and Forward always does", async () => {
@@ -518,6 +559,29 @@ test("a listening list that empties for a moment leaves a running preview alone"
 	expect(screen.getByTestId("preview-frame")).toBe(frame);
 	expect(grants).toBe(1);
 	vi.useRealTimers();
+});
+
+test("a list that empties while the grant is in flight asks for one grant, not two", async () => {
+	// A second grant would remount the frame and load the application twice.
+	const answers: ((response: Response) => void)[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(
+			(input: RequestInfo | URL) =>
+				new Promise<Response>((resolve) => {
+					if (String(input).endsWith("/preview-grants")) answers.push(resolve);
+					else resolve(json(200, { embeddable: true }));
+				}),
+		),
+	);
+	const { rerender } = render(tab([service(5173)]));
+	await waitFor(() => expect(answers).toHaveLength(1));
+
+	rerender(tab([]));
+	rerender(tab([service(5173)]));
+	for (const answer of answers) answer(json(200, GRANT));
+	await screen.findByTestId("preview-frame");
+	expect(answers).toHaveLength(1);
 });
 
 test("a port that stays quiet past the grace says nothing is listening", async () => {

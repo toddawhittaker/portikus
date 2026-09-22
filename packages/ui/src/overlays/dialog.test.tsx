@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import * as React from "react";
 import { describe, expect, it } from "vitest";
 import { Dialog, DialogRoot, DialogTrigger } from "./dialog";
 
@@ -47,5 +48,147 @@ describe("Dialog", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Close" }));
 		expect(screen.queryByRole("dialog")).toBeNull();
+	});
+
+	it("returns focus to the button that opened it from state, with no trigger (#358)", async () => {
+		function StateFixture() {
+			const [open, setOpen] = React.useState(false);
+			return (
+				<>
+					<button type="button" onClick={() => setOpen(true)}>
+						Rename
+					</button>
+					<DialogRoot open={open} onOpenChange={setOpen}>
+						<Dialog title="Rename" />
+					</DialogRoot>
+				</>
+			);
+		}
+		render(<StateFixture />);
+		const opener = screen.getByText("Rename", { selector: "button" });
+		opener.focus();
+		fireEvent.click(opener);
+
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+		await waitFor(() => expect(document.activeElement).toBe(opener));
+	});
+
+	it("falls back to the menu trigger when the opening menu item is gone (#358)", async () => {
+		function MenuFixture() {
+			const [menuOpen, setMenuOpen] = React.useState(true);
+			const [open, setOpen] = React.useState(false);
+			return (
+				<>
+					<button type="button" id="menu-trigger">
+						Project actions
+					</button>
+					{menuOpen ? (
+						<div role="menu" aria-labelledby="menu-trigger">
+							<button
+								type="button"
+								role="menuitem"
+								onClick={() => {
+									setOpen(true);
+									setMenuOpen(false);
+								}}
+							>
+								Rename…
+							</button>
+						</div>
+					) : null}
+					<DialogRoot open={open} onOpenChange={setOpen}>
+						<Dialog title="Rename project" />
+					</DialogRoot>
+				</>
+			);
+		}
+		render(<MenuFixture />);
+		const item = screen.getByRole("menuitem");
+		item.focus();
+		fireEvent.click(item);
+		expect(item.isConnected).toBe(false);
+
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByText("Project actions")),
+		);
+	});
+
+	it("skips a return target that is still mounted but hidden", async () => {
+		function HiddenItemFixture() {
+			const [open, setOpen] = React.useState(false);
+			return (
+				<>
+					<button type="button" id="hidden-trigger">
+						Tab actions
+					</button>
+					<div role="menu" aria-labelledby="hidden-trigger">
+						<button type="button" role="menuitem" onClick={() => setOpen(true)}>
+							Rename…
+						</button>
+					</div>
+					<DialogRoot open={open} onOpenChange={setOpen}>
+						<Dialog title="Rename tab" />
+					</DialogRoot>
+				</>
+			);
+		}
+		render(<HiddenItemFixture />);
+		const item = screen.getByRole("menuitem");
+		item.focus();
+		fireEvent.click(item);
+		// jsdom has no layout, so stand in for a menu that closed by hiding.
+		item.checkVisibility = () => false;
+
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByText("Tab actions")),
+		);
+	});
+
+	it("falls back to what had focus before an unlabelled menu opened (#358)", async () => {
+		// A right-click menu has no trigger button to go back to.
+		function ContextFixture() {
+			const [menuOpen, setMenuOpen] = React.useState(false);
+			const [open, setOpen] = React.useState(false);
+			return (
+				<>
+					<button type="button" onClick={() => setMenuOpen(true)}>
+						README.md
+					</button>
+					{menuOpen ? (
+						<div role="menu" aria-label="Actions for README.md">
+							<button
+								type="button"
+								role="menuitem"
+								onClick={() => {
+									setOpen(true);
+									setMenuOpen(false);
+								}}
+							>
+								Delete…
+							</button>
+						</div>
+					) : null}
+					<DialogRoot open={open} onOpenChange={setOpen}>
+						<Dialog title="Delete README.md" />
+					</DialogRoot>
+				</>
+			);
+		}
+		render(<ContextFixture />);
+		const row = screen.getByText("README.md");
+		row.focus();
+		fireEvent.click(row);
+		const item = screen.getByRole("menuitem");
+		item.focus();
+		fireEvent.click(item);
+
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+		await waitFor(() => expect(document.activeElement).toBe(row));
 	});
 });

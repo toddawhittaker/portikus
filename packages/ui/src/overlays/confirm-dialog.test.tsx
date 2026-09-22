@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	ConfirmDialog,
@@ -62,5 +63,46 @@ describe("ConfirmDialog", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Archive project" }));
 		expect(onConfirm).toHaveBeenCalledTimes(1);
+	});
+
+	it("returns focus to the menu trigger when the opening item is gone (#358)", async () => {
+		function MenuFixture() {
+			const [menuOpen, setMenuOpen] = React.useState(true);
+			const [open, setOpen] = React.useState(false);
+			return (
+				<>
+					<button type="button" id="row-menu">
+						Row actions
+					</button>
+					{menuOpen ? (
+						<div role="menu" aria-labelledby="row-menu">
+							<button
+								type="button"
+								role="menuitem"
+								onClick={() => {
+									setOpen(true);
+									setMenuOpen(false);
+								}}
+							>
+								Delete…
+							</button>
+						</div>
+					) : null}
+					<ConfirmDialogRoot open={open} onOpenChange={setOpen}>
+						<ConfirmDialog title="Delete app.ts?" confirmLabel="Delete" />
+					</ConfirmDialogRoot>
+				</>
+			);
+		}
+		render(<MenuFixture />);
+		const item = screen.getByRole("menuitem");
+		item.focus();
+		fireEvent.click(item);
+
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByText("Row actions")),
+		);
 	});
 });

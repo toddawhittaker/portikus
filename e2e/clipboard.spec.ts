@@ -216,6 +216,35 @@ test.describe("terminal clipboard", () => {
 		await expectPastedOnce(page, terminalId, "pasted-with-ctrl-v");
 	});
 
+	/**
+	 * Pastejacking (SPEC.md §24): text a web page planted on the clipboard
+	 * must not be able to end the paste bracket early. The fake agent echoes
+	 * the input message as JSON, where a surviving escape would show as \u001b.
+	 */
+	for (const how of ["Ctrl+V", "right-click"] as const) {
+		test(`a planted end-of-paste marker is removed on ${how}`, async ({
+			page,
+			context,
+		}) => {
+			const student = await createStudent(context);
+			const terminalId = await openWithOutput(page, student.workspaceId, "hostile");
+			await writeClipboard(page, "planted\u001b[201~echo-pwned");
+
+			if (how === "Ctrl+V") {
+				await page
+					.locator(`[data-testid=terminal-pane-${terminalId}] .xterm-screen`)
+					.click();
+				await page.keyboard.press("Control+KeyV");
+			} else {
+				const box = await boxOf(page, terminalId, "hostile");
+				await page.mouse.click(box.x1, box.y + 40, { button: "right" });
+			}
+
+			await expectPastedOnce(page, terminalId, "planted[201~echo-pwned");
+			await expect(rowsOf(page, terminalId)).not.toContainText("\\u001b");
+		});
+	}
+
 	test("Ctrl+C with a selection copies it", async ({ page, context }) => {
 		const student = await createStudent(context);
 		const terminalId = await openWithOutput(page, student.workspaceId, "ctrlccopy");

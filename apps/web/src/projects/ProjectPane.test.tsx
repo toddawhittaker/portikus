@@ -106,6 +106,18 @@ test("a repository offers rename, duplicate, download and archive", async () => 
 	expect(screen.queryByTestId("project-git-init")).toBeNull();
 });
 
+/** Issue #361: Enter on the download item must start the download itself. */
+test("the zip download is the menu item itself, a link", async () => {
+	await mount();
+	openMenu(TODO.id);
+
+	const item = screen.getByRole("menuitem", { name: "Download as zip" });
+	expect(item.tagName).toBe("A");
+	expect(item.getAttribute("data-testid")).toBe("project-download");
+	expect(item.getAttribute("href")).toContain(`/projects/${TODO.id}/`);
+	expect(item.getAttribute("download")).toBe(`${TODO.slug}.zip`);
+});
+
 test("a folder that is not a repository offers Initialize Git", async () => {
 	await mount();
 	openMenu(NOTES.id);

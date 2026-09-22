@@ -22,6 +22,8 @@ test("signed out, the front page offers the institution sign-in", async () => {
 
 	const link = await screen.findByTestId("signin");
 	expect(link.getAttribute("href")).toBe("/auth/login");
+	// Each page names the browser tab (issue #374).
+	expect(document.title).toBe("Sign in, Portikus");
 });
 
 test("signed in, the front page goes to the student's workspace", async () => {
@@ -56,6 +58,7 @@ test("an account without access lands on the not-authorized page", async () => {
 
 	await waitFor(() => expect(router.state.location.pathname).toBe("/not-authorized"));
 	expect(screen.getByTestId("page-not-authorized")).toBeDefined();
+	expect(document.title).toBe("Not authorized, Portikus");
 });
 
 test("a 401 from a data request ends the session", async () => {
@@ -73,6 +76,7 @@ test("a 401 from a data request ends the session", async () => {
 
 	await waitFor(() => expect(router.state.location.pathname).toBe("/session-ended"));
 	expect(screen.getByTestId("page-session-ended")).toBeDefined();
+	expect(document.title).toBe("Session ended, Portikus");
 });
 
 test("the files route hands over to the project screen with the file to open", async () => {
@@ -95,6 +99,14 @@ test("the files route hands over to the project screen with the file to open", a
 		),
 	);
 	expect(router.state.location.search).toEqual({ open: "src/app.ts", line: 3 });
+});
+
+test("the project screen names the tab after the project (issue #374)", async () => {
+	stubProject();
+
+	renderApp(`/workspaces/${WORKSPACE.id}/projects/${project().id}`);
+
+	await waitFor(() => expect(document.title).toBe("todo-api, Portikus"));
 });
 
 /** The stubs every link test needs: the user, the templates and the project. */

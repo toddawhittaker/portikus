@@ -122,6 +122,11 @@ export const Timezone = z.string().refine(isSystemTimezone, {
 });
 export type Timezone = z.infer<typeof Timezone>;
 
+/** The page appearance: follow the computer, or always light or dark (issue #300). */
+export const APPEARANCES = ["system", "light", "dark"] as const;
+export const Appearance = z.enum(APPEARANCES);
+export type Appearance = z.infer<typeof Appearance>;
+
 export const EditorSettings = z.object({
 	autoSave: z.boolean(),
 	autoSaveDelaySeconds: z.number().int().min(1).max(60),
@@ -134,6 +139,10 @@ export const EditorSettings = z.object({
 	 * own list whenever one is written.
 	 */
 	timezone: z.string().min(1),
+	/** Page appearance, separate from the terminal colours (issue #300). */
+	appearance: Appearance,
+	/** Turns on xterm's screen-reader mode in every terminal (issue #357). */
+	screenReaderMode: z.boolean(),
 });
 export type EditorSettings = z.infer<typeof EditorSettings>;
 
@@ -144,6 +153,8 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
 	wordWrap: true,
 	terminalTheme: "dark",
 	timezone: DEFAULT_TIMEZONE,
+	appearance: "system",
+	screenReaderMode: false,
 };
 
 /**
@@ -169,5 +180,77 @@ export type UpdateEditorSettingsRequest = z.infer<typeof UpdateEditorSettingsReq
  */
 export const MeSettings = EditorSettings.extend({
 	timezones: z.array(z.string()),
+	/** False when appearance is the default, not a saved choice. */
+	appearanceStored: z.boolean().optional(),
 });
 export type MeSettings = z.infer<typeof MeSettings>;
+
+/** Largest profile picture the API stores on the users row (issue #300). */
+export const MAX_PROFILE_PICTURE_BYTES = 1024 * 1024;
+
+/** What the student is told when a picture is over the cap, by the API or the browser. */
+export const PICTURE_TOO_LARGE_MESSAGE = "The picture must be at most 1 MiB";
+
+const MAX_LINK_LENGTH = 200;
+
+/** A GitHub username: letters, digits, and single inner hyphens, at most 39. */
+const GITHUB_USERNAME = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
+
+/** An https URL with a host and no user name or password in it. */
+export function isHttpsUrl(value: string): boolean {
+	if (value.length > MAX_LINK_LENGTH) return false;
+	try {
+		const url = new URL(value);
+		return (
+			url.protocol === "https:" &&
+			url.hostname !== "" &&
+			url.username === "" &&
+			url.password === ""
+		);
+	} catch {
+		return false;
+	}
+}
+
+/** GitHub: a bare username or an https link to a profile (issue #300). */
+export const GithubLink = z
+	.string()
+	.trim()
+	.refine((value) => GITHUB_USERNAME.test(value) || isHttpsUrl(value), {
+		message: "Give a GitHub username or an https:// link",
+	});
+
+/** Personal site: an https link only. */
+export const WebsiteLink = z
+	.string()
+	.trim()
+	.refine(isHttpsUrl, { message: "Give an https:// link" });
+
+/** Where a GitHub value points: a username becomes its profile page. */
+export function githubHref(value: string): string {
+	return GITHUB_USERNAME.test(value) ? `https://github.com/${value}` : value;
+}
+
+/**
+ * The student's profile (issue #300). Name, email, and workspace label come
+ * from the institution sign-in; the rest is optional and never used for
+ * authorization. `picture` is the owner-only picture URL, or null.
+ */
+export const Profile = z.object({
+	displayName: z.string().min(1),
+	email: z.string().nullable(),
+	workspaceLabel: z.string().nullable(),
+	github: z.string().nullable(),
+	website: z.string().nullable(),
+	picture: z.string().nullable(),
+});
+export type Profile = z.infer<typeof Profile>;
+
+/** Request body for `PUT /me/profile`. Null clears a link. */
+export const UpdateProfileRequest = z
+	.object({
+		github: GithubLink.nullable().optional(),
+		website: WebsiteLink.nullable().optional(),
+	})
+	.strict();
+export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequest>;

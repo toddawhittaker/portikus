@@ -67,6 +67,15 @@
 	color: var(--terminal-fg);
 }
 
+/* The focus ring follows the pane's scheme, not the page's (issue #368). */
+.pk-term[data-terminal-theme="light"] {
+	--focus: var(--focus-on-light);
+}
+
+.pk-term[data-terminal-theme="dark"] {
+	--focus: var(--focus-on-dark);
+}
+
 .pk-term.is-focused {
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
@@ -354,6 +363,7 @@
 }
 
 .pk-md-modes button[aria-pressed="true"] {
+	font-weight: 700;
 	background: var(--accent-soft);
 	color: var(--accent-text);
 }

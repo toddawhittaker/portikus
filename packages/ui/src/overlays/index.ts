@@ -10,6 +10,8 @@ export {
 	type ContextMenuProps,
 	ContextMenuTrigger,
 	Menu,
+	MenuCheckboxItem,
+	type MenuCheckboxItemProps,
 	MenuItem,
 	type MenuItemProps,
 	MenuLabel,
@@ -20,7 +22,17 @@ export {
 	MenuTrigger,
 } from "./menu";
 export { PaneHandle, type PaneHandleProps } from "./pane-handle";
-export { type TabItem, Tabs, type TabsProps } from "./tabs";
+export {
+	type TabItem,
+	Tabs,
+	TabsContent,
+	TabsList,
+	type TabsProps,
+	TabsRoot,
+	TabsTrigger,
+	tabDomId,
+	tabPanelDomId,
+} from "./tabs";
 export {
 	Toast,
 	type ToastProps,

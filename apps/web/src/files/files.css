@@ -26,6 +26,9 @@
    whole row carries it, actions included (issue #274). */
 .pk-tree-item[aria-selected="true"] > .pk-tree-row {
 	background: var(--surface-row-selected);
+	/* The tone alone is too faint to see, so an ink bar marks the row too,
+	   never green (issue #369). */
+	box-shadow: var(--row-current-bar);
 }
 .pk-tree-item:focus-visible > .pk-tree-row {
 	outline: var(--ring-width) solid var(--focus);
@@ -169,9 +172,42 @@
 .pk-changes-row[data-git="conflict"] {
 	background: var(--status-warning-soft);
 }
-.pk-tree-row.is-ignored .pk-tree-name,
-.pk-tree-row.is-ignored .pk-icon {
-	opacity: 0.55;
+/* Muted colour plus a word, not opacity, which failed contrast (issue #367). */
+.pk-tree-row.is-ignored .pk-tree-name {
+	color: var(--ink-muted);
+}
+.pk-tree-tag {
+	flex: none;
+	color: var(--ink-muted);
+	font-size: 11px;
+}
+
+/* A folder in the Move to picker (issue #370). */
+.pk-move-folder {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	width: 100%;
+	min-height: var(--pk-row);
+	padding: 0 var(--space-2);
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	font: inherit;
+	font-size: 13px;
+	color: var(--ink);
+	text-align: left;
+	cursor: pointer;
+}
+.pk-move-folder:hover {
+	background: var(--surface-hover);
+}
+.pk-move-folder:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+.pk-move-folder .pk-icon {
+	color: var(--ink-muted);
 }
 
 /* The Changes list (SPEC.md §12.6). */
@@ -239,6 +275,8 @@
 /* The same neutral selection as the tree and the Checks pane (issue #274). */
 .pk-changes-row.is-current {
 	background: var(--surface-row-selected);
+	/* An ink bar, so the selection does not rest on a faint tint (issue #369). */
+	box-shadow: var(--row-current-bar);
 }
 .pk-changes-row:focus-visible {
 	outline: var(--ring-width) solid var(--focus);

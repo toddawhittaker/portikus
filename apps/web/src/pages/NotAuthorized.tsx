@@ -14,7 +14,7 @@ export function NotAuthorized() {
 	const user = me.status === "authenticated" ? me.user : null;
 
 	return (
-		<StandalonePage testId="page-not-authorized">
+		<StandalonePage title="Not authorized" testId="page-not-authorized">
 			<div className="flex flex-col gap-2">
 				<h1 id="page-title" className="pk-text-display">
 					You don't have access to Portikus

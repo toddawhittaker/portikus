@@ -1,6 +1,6 @@
 import { ToastProvider } from "@portikus/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store.js";
@@ -487,5 +487,134 @@ describe("the file tree", () => {
 		expect(link.getAttribute("href")).toBe(
 			`/workspaces/${WORKSPACE.id}/projects/${PROJECT.id}/file?path=README.md&download=1`,
 		);
+	});
+
+	/** Issue #361: Show hidden is a menu item, so the keyboard can reach it. */
+	it("toggles Show hidden from the keyboard as a menu checkbox", async () => {
+		renderPane();
+		expect(await screen.findByText(".env")).toBeDefined();
+		fireEvent.keyDown(screen.getByTestId("files-more"), { key: "Enter" });
+
+		const item = await screen.findByRole("menuitemcheckbox", {
+			name: "Show hidden and generated files",
+		});
+		expect(item.getAttribute("aria-checked")).toBe("true");
+		fireEvent.keyDown(item, { key: "Enter" });
+
+		await waitFor(() => expect(screen.queryByText(".env")).toBeNull());
+	});
+
+	/** Issue #362: the Git state is part of what a screen reader hears. */
+	it("puts the Git state, ignored and contains-changes into the row's text", async () => {
+		gitStatus = {
+			...NO_CHANGES,
+			entries: [
+				{ path: "README.md", x: ".", y: "M", unmerged: false },
+				{ path: "src/app.ts", x: "?", y: "?", unmerged: false },
+			],
+			ignored: ["node_modules/"],
+		};
+		renderPane();
+
+		const readme = await screen.findByTestId("file-row-README.md");
+		await waitFor(() => expect(readme.textContent).toContain("Modified"));
+		expect(screen.getByTestId("file-row-src").textContent).toContain(
+			"contains changes",
+		);
+		const ignored = screen.getByTestId("file-row-node_modules");
+		expect(ignored.textContent).toContain("ignored");
+		expect(ignored.getAttribute("data-ignored")).toBe("true");
+	});
+
+	/** Issue #366: one Tab leaves the tree, so row buttons are not tab stops. */
+	it("keeps the row action buttons out of the Tab order", async () => {
+		renderPane();
+		await screen.findByTestId("file-row-README.md");
+
+		expect(screen.getByTestId("file-menu-README.md").getAttribute("tabindex")).toBe(
+			"-1",
+		);
+		expect(screen.getByTestId("file-menu-src").getAttribute("tabindex")).toBe("-1");
+	});
+
+	/** Issue #366: Shift+F10 and the Menu key open the focused row's menu. */
+	it.each([
+		{ key: "F10", shiftKey: true },
+		{ key: "ContextMenu", shiftKey: false },
+	])("opens the row menu from the focused row on $key", async (press) => {
+		renderPane();
+		const row = await screen.findByTestId("file-row-README.md");
+		row.focus();
+
+		fireEvent.keyDown(row, press);
+
+		expect(
+			await screen.findByRole("menu", { name: "Actions for README.md" }),
+		).toBeDefined();
+		expect(screen.getByTestId("row-rename")).toBeDefined();
+	});
+
+	/**
+	 * Issue #358: a dialog opened from the row menu returns focus to the menu's
+	 * button, which is not a Tab stop, so the button hands it to its row.
+	 */
+	it("hands focus given to a row's menu button on to the row", async () => {
+		renderPane();
+		const row = await screen.findByTestId("file-row-README.md");
+
+		screen.getByTestId("file-menu-README.md").focus();
+
+		expect(document.activeElement).toBe(row);
+	});
+
+	it("tells a screen reader how to open the row menu", async () => {
+		renderPane();
+		const tree = await screen.findByTestId("file-tree");
+		const id = tree.getAttribute("aria-describedby") ?? "";
+
+		expect(document.getElementById(id)?.textContent).toContain("Shift+F10");
+	});
+
+	/** Issue #370: a file moves into a folder without a drag. */
+	it("moves a file into a folder picked in the Move to dialog", async () => {
+		const moves: unknown[] = [];
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				moves.push(JSON.parse(String(init?.body)));
+				return json(204, null);
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=src")) return json(200, SRC);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {
+			key: "Enter",
+		});
+		fireEvent.click(await screen.findByTestId("row-move"));
+
+		const dialog = await screen.findByTestId("dialog-move-file");
+		// Where it already is is not a place to move it to.
+		const confirm = within(dialog).getByTestId("dialog-confirm") as HTMLButtonElement;
+		expect(confirm.disabled).toBe(true);
+		fireEvent.click(await within(dialog).findByTestId("move-folder-src"));
+		expect(within(dialog).getByTestId("move-destination").textContent).toContain("src");
+		fireEvent.click(within(dialog).getByTestId("dialog-confirm"));
+
+		await waitFor(() =>
+			expect(moves).toEqual([{ from: "README.md", to: "src/README.md" }]),
+		);
+	});
+
+	it("does not offer a folder as a place to move itself", async () => {
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-src"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("row-move"));
+
+		const dialog = await screen.findByTestId("dialog-move-file");
+		await within(dialog).findByTestId("move-folder-node_modules");
+		expect(within(dialog).queryByTestId("move-folder-src")).toBeNull();
 	});
 });

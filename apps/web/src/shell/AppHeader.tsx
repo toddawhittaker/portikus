@@ -12,13 +12,9 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { clearLocalLayouts } from "../layout/local.js";
-import { SettingsDialog } from "../settings/SettingsDialog.js";
+import { useProfile } from "../settings/profileQueries.js";
+import { initials, SettingsDialog } from "../settings/SettingsDialog.js";
 import type { MeUser } from "../useMe.js";
-
-function initials(displayName: string): string {
-	const parts = displayName.trim().split(/\s+/).slice(0, 2);
-	return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "?";
-}
 
 /**
  * The top bar: the mark, the project in view, and the account menu.
@@ -38,6 +34,7 @@ export function AppHeader({
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const signOutForm = useRef<HTMLFormElement>(null);
+	const picture = useProfile().data?.picture ?? null;
 
 	return (
 		<header className="pk-appbar" data-testid="app-header">
@@ -64,7 +61,16 @@ export function AppHeader({
 			<MenuRoot>
 				<MenuTrigger asChild>
 					<button type="button" className="pk-account" data-testid="me">
-						<span className="pk-initials">{initials(user.displayName)}</span>
+						{picture ? (
+							<img
+								className="pk-initials object-cover"
+								src={picture}
+								alt=""
+								data-testid="account-picture"
+							/>
+						) : (
+							<span className="pk-initials">{initials(user.displayName)}</span>
+						)}
 						{/* The gap is only visual. This space is part of the button text. */}{" "}
 						<span>{user.displayName}</span>
 						<Icon name="chevron-down" size="sm" />

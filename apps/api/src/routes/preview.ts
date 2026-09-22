@@ -29,6 +29,7 @@ import {
 	hashToken,
 	loadMainSessionUser,
 	loadPreviewSession,
+	revokedForStoppedWorkspace,
 	revokePreviewSession,
 	revokeWorkspacePreviewSessions,
 } from "../preview/store.js";
@@ -574,7 +575,13 @@ export function registerPreviewRoutes(
 		const token = request.cookies[cookieName];
 		if (!token) return page(reply, 401, signInPage());
 		const session = await loadPreviewSession(db, token);
-		if (!session) return page(reply, 401, signInPage());
+		if (!session) {
+			// Stopping revokes the sessions; the more specific cause wins.
+			if (await revokedForStoppedWorkspace(db, token, host)) {
+				return page(reply, 503, stoppedWorkspacePage());
+			}
+			return page(reply, 401, signInPage());
+		}
 
 		// The preview session lives with the main one (BROWSER-HANDLING §9.2).
 		const user = await loadMainSessionUser(db, session.session_id);

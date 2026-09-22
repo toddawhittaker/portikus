@@ -2,8 +2,12 @@ import { PaneHandle, Skeleton } from "@portikus/ui";
 import { Navigate, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
-import { useTerminalThemeAttribute } from "./editor/settingsQueries.js";
+import {
+	useEditorSettings,
+	useTerminalThemeAttribute,
+} from "./editor/settingsQueries.js";
 import { LayoutStoreContext, useLayoutStore } from "./layout/store.js";
+import { usePageTitle } from "./pageTitle.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
 import { ListeningContext, useListeningQuery } from "./running/services.js";
@@ -11,6 +15,7 @@ import { AppHeader } from "./shell/AppHeader.js";
 import { DisconnectNotice } from "./shell/DisconnectNotice.js";
 import { FilesPane } from "./shell/FilesPane.js";
 import { type RightPane, RightPaneContext } from "./shell/rightPane.js";
+import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
 import { StatusBar } from "./shell/StatusBar.js";
 import { type MeUser, useMe } from "./useMe.js";
 import { useWorkspaceSocket } from "./useWorkspaceSocket.js";
@@ -28,7 +33,21 @@ export function WorkspacePage() {
 	}
 	if (me.status === "anonymous") return <Navigate to="/" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
-	return <WorkspaceShell workspaceId={id} user={me.user} />;
+	return <WorkspaceShellWhenSettled workspaceId={id} user={me.user} />;
+}
+
+/**
+ * Waits for the student's settings so the saved appearance is applied before
+ * the shell first paints, even in a browser that has never seen them
+ * (issue #300). A failed load does not hold the shell back.
+ */
+function WorkspaceShellWhenSettled(props: { workspaceId: string; user: MeUser }) {
+	const settings = useEditorSettings();
+	// Only the first answer is waited for; a later refetch never hides the shell.
+	if (!settings.isFetched) {
+		return <div className="pk-root" aria-busy="true" />;
+	}
+	return <WorkspaceShell {...props} />;
 }
 
 function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUser }) {
@@ -40,6 +59,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const { projectId } = useParams({ strict: false }) as { projectId?: string };
 	const projects = useProjects(workspaceId, "active");
 	const project = projects.data?.find((item) => item.id === projectId);
+	usePageTitle(project?.name ?? "");
 	const running = workspace?.state === "running";
 	const layout = useDefaultLayout({ id: "pk-shell", panelIds: PANEL_IDS });
 	// The work area and the file tree share one layout store, so a file
@@ -67,6 +87,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 			<ListeningContext.Provider value={listeningValue}>
 				<RightPaneContext.Provider value={rightPaneApi}>
 					<div className="pk-root">
+						<ScreenReaderToggle />
 						<AppHeader
 							workspaceId={workspaceId}
 							user={user}

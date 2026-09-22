@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
+	ContextMenu,
+	ContextMenuTrigger,
 	Menu,
+	MenuCheckboxItem,
 	MenuItem,
 	MenuLabel,
 	MenuRoot,
@@ -84,5 +87,48 @@ describe("Menu", () => {
 		expect(screen.getByRole("menuitem", { name: "Archive…" }).className).toContain(
 			"pk-menu-item--danger",
 		);
+	});
+
+	/** Issue #361: a toggle inside a menu is a menu item, so arrows and Enter reach it. */
+	it("offers a checkbox item that toggles from the keyboard", () => {
+		const onCheckedChange = vi.fn();
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="View">
+					<MenuCheckboxItem
+						checked={false}
+						onCheckedChange={onCheckedChange}
+						testId="show-hidden"
+					>
+						Show hidden files
+					</MenuCheckboxItem>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
+
+		const item = screen.getByRole("menuitemcheckbox", { name: "Show hidden files" });
+		expect(item.getAttribute("aria-checked")).toBe("false");
+		expect(item.getAttribute("data-testid")).toBe("show-hidden");
+		fireEvent.keyDown(item, { key: "Enter" });
+		expect(onCheckedChange).toHaveBeenCalledWith(true);
+	});
+
+	it("shows a checked checkbox item as checked in the context menu family", () => {
+		render(
+			<ContextMenu>
+				<ContextMenuTrigger>Area</ContextMenuTrigger>
+				<Menu label="View">
+					<MenuCheckboxItem checked onCheckedChange={vi.fn()}>
+						Word wrap
+					</MenuCheckboxItem>
+				</Menu>
+			</ContextMenu>,
+		);
+		fireEvent.contextMenu(screen.getByText("Area"));
+
+		const item = screen.getByRole("menuitemcheckbox", { name: "Word wrap" });
+		expect(item.getAttribute("aria-checked")).toBe("true");
 	});
 });

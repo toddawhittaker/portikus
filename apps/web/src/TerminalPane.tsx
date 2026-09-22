@@ -1,4 +1,8 @@
-import type { Terminal as TerminalMeta, TerminalTheme } from "@portikus/contracts";
+import {
+	MAX_UPLOAD_BYTES,
+	type Terminal as TerminalMeta,
+	type TerminalTheme,
+} from "@portikus/contracts";
 import { useToast } from "@portikus/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { FitAddon } from "@xterm/addon-fit";
@@ -6,8 +10,11 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { wsUrl } from "./api/ws.js";
+import { useScreenReaderMode } from "./editor/settingsQueries.js";
+import { fileErrorToast, tooLargeToast } from "./files/errors.js";
+import { savePastedImage } from "./files/queries.js";
 import {
 	canOpenInNewTab,
 	FILE_LINE_PATTERN,
@@ -18,6 +25,7 @@ import {
 	type TerminalLink,
 	wrappedUrlsOnRow,
 } from "./links.js";
+import { useProjects } from "./projects/queries.js";
 import { decodeTerminalFrame } from "./terminalFrames.js";
 import { currentPlatform, decide } from "./work/terminalClipboard.js";
 
@@ -55,6 +63,23 @@ const DARK_THEME = {
 	scrollbarSliderBackground: "#9a938666",
 	scrollbarSliderHoverBackground: "#9a9386b3",
 	scrollbarSliderActiveBackground: "#9a9386cc",
+	// xterm's default palette fails AA on this ground (issue #360).
+	black: "#11100e",
+	brightBlack: "#857f73",
+	red: "#e07a6e",
+	brightRed: "#f09a8f",
+	green: "#8fc28a",
+	brightGreen: "#a9d6a4",
+	yellow: "#e0bb6c",
+	brightYellow: "#ecd08e",
+	blue: "#86a7d9",
+	brightBlue: "#a6c0e6",
+	magenta: "#c49ad0",
+	brightMagenta: "#d6b5df",
+	cyan: "#79c1b8",
+	brightCyan: "#9ad3cb",
+	white: "#cfc9bd",
+	brightWhite: "#f2eee6",
 };
 
 const LIGHT_THEME = {
@@ -146,6 +171,53 @@ export function decodeOsc52(encoded: string): string {
 	}
 }
 
+/**
+ * Pasted text with control characters removed, keeping tab, line feed and
+ * carriage return. xterm does not strip an end-of-paste marker (ESC[201~)
+ * inside the text, so planted clipboard text could otherwise leave the
+ * bracket early and run a command (SPEC.md §24).
+ */
+export function sanitizePaste(text: string): string {
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point.
+	return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, "");
+}
+
+/** The only picture types a paste saves as a file (Epic 9.2 brief). */
+const PASTE_IMAGE_TYPES = ["image/png", "image/jpeg"];
+
+/**
+ * The picture type when a paste is a png or jpeg and nothing else. Anything
+ * with text in it, or any other type, stays a text paste.
+ */
+export function pastedImageType(types: readonly string[]): string | null {
+	if (types.length === 0) return null;
+	if (!types.every((type) => PASTE_IMAGE_TYPES.includes(type))) return null;
+	return types[0] ?? null;
+}
+
+/** How many names a paste tries before giving up, for pastes in one second. */
+export const PASTE_NAME_TRIES = 5;
+
+/**
+ * Where a pasted picture is saved, relative to the project root. Attempt 2
+ * and later add `-2`, `-3` before the extension.
+ */
+export function pastePath(now: Date, type: string, attempt = 1): string {
+	// One path segment: no colons, no milliseconds, no zone letter.
+	const stamp = now.toISOString().slice(0, 19).replaceAll(":", "-");
+	const suffix = attempt > 1 ? `-${attempt}` : "";
+	return `.portikus/pastes/${stamp}${suffix}.${type === "image/jpeg" ? "jpeg" : "png"}`;
+}
+
+/**
+ * What the shell receives for a pasted picture: the absolute path, since the
+ * shell may be in another directory, and a space instead of a newline so
+ * nothing runs (SPEC.md §2.5, §4.4).
+ */
+export function pastedPathInput(slug: string, path: string): string {
+	return `/home/student/projects/${slug}/${path} `;
+}
+
 /** Copy to the system clipboard, ignoring a browser that refuses. */
 async function writeClipboard(text: string): Promise<void> {
 	if (text === "") return;
@@ -178,10 +250,13 @@ export function TerminalPane({
 	const fit = useRef<FitAddon | null>(null);
 	const [reconnecting, setReconnecting] = useState(false);
 	const [lost, setLost] = useState(false);
+	const leaveHintId = useId();
 	// Exposed on the pane element so tests can wait for the socket to be open.
 	const [connected, setConnected] = useState(false);
 	const navigate = useNavigate();
 	const toast = useToast();
+	const projects = useProjects(workspaceId, "active");
+	const projectSlug = projects.data?.find((project) => project.id === projectId)?.slug;
 
 	// Callbacks the long-lived effect reads through a ref, so that a new
 	// render does not tear down the terminal and its socket.
@@ -194,6 +269,7 @@ export function TerminalPane({
 		navigate,
 		toast,
 		terminalName: terminal.name,
+		projectSlug,
 	});
 	handlers.current = {
 		onExited,
@@ -204,6 +280,7 @@ export function TerminalPane({
 		navigate,
 		toast,
 		terminalName: terminal.name,
+		projectSlug,
 	};
 
 	// The long-lived effect reads visibility through a ref, for the same reason.
@@ -225,6 +302,14 @@ export function TerminalPane({
 	useEffect(() => {
 		if (xterm.current) xterm.current.options.theme = terminalTheme(scheme);
 	}, [scheme]);
+
+	// Read at construction and applied live when the student changes it (issue #357).
+	const screenReaderMode = useScreenReaderMode();
+	const screenReaderRef = useRef(screenReaderMode);
+	screenReaderRef.current = screenReaderMode;
+	useEffect(() => {
+		if (xterm.current) xterm.current.options.screenReaderMode = screenReaderMode;
+	}, [screenReaderMode]);
 
 	const terminalId = terminal.id;
 
@@ -264,6 +349,9 @@ export function TerminalPane({
 			convertEol: false,
 			// Ordinary output keeps this many lines. CSI 3 J, which `clear` sends, erases them.
 			scrollback: SCROLLBACK_LINES,
+			// Programs pick their own colours too; lift any that miss WCAG AA.
+			minimumContrastRatio: 4.5,
+			screenReaderMode: screenReaderRef.current,
 		});
 		function openUrl(uri: string) {
 			const preview = previewRouteFor(uri, workspaceId, projectId);
@@ -337,6 +425,7 @@ export function TerminalPane({
 			return true;
 		});
 		term.open(container);
+		term.textarea?.setAttribute("aria-describedby", leaveHintId);
 		xterm.current = term;
 		fit.current = fitAddon;
 		fitAddon.fit();
@@ -390,16 +479,78 @@ export function TerminalPane({
 			if (data !== "") send({ type: "input", data });
 		}
 
-		/** Read the clipboard and type it into the shell. */
-		async function paste(): Promise<boolean> {
+		/** Save a pasted picture in the project and type its path. */
+		async function pasteImage(image: Blob, type: string) {
+			if (image.size > MAX_UPLOAD_BYTES) {
+				handlers.current.toast.show(tooLargeToast());
+				return;
+			}
+			const slug = handlers.current.projectSlug;
+			if (!slug) {
+				// The paste event was already cancelled, so say it failed.
+				handlers.current.toast.show(fileErrorToast(null));
+				return;
+			}
+			const now = new Date();
+			const paths = Array.from({ length: PASTE_NAME_TRIES }, (_, index) =>
+				pastePath(now, type, index + 1),
+			);
 			try {
-				const text = await navigator.clipboard.readText();
-				sendInput(text);
-				return true;
+				const path = await savePastedImage(workspaceId, projectId, paths, image);
+				sendInput(pastedPathInput(slug, path));
+			} catch (error) {
+				handlers.current.toast.show(fileErrorToast(error));
+			}
+		}
+
+		/**
+		 * Every keyboard paste arrives as the browser's paste event. It is
+		 * handled here rather than by xterm: text is sanitized and typed once,
+		 * and a lone picture is saved, so its bytes never reach the terminal.
+		 */
+		function onPaste(event: ClipboardEvent) {
+			const data = event.clipboardData;
+			if (!data) return;
+			event.preventDefault();
+			event.stopPropagation();
+			const items = Array.from(data.items ?? []);
+			const type = pastedImageType(items.map((item) => item.type));
+			if (!type) {
+				term.paste(sanitizePaste(data.getData("text/plain")));
+				return;
+			}
+			const image = items[0]?.getAsFile();
+			if (image) void pasteImage(image, type);
+		}
+		container.addEventListener("paste", onPaste, { capture: true });
+
+		/** A right-click has no paste event, so read the clipboard's items. */
+		async function pasteFromMenu() {
+			// term.paste brackets the text when the program asked for it.
+			if (typeof navigator.clipboard?.read === "function") {
+				try {
+					const items = await navigator.clipboard.read();
+					const type = pastedImageType(items.flatMap((item) => item.types));
+					const first = items[0];
+					if (type && first) {
+						await pasteImage(await first.getType(type), type);
+						return;
+					}
+					const textItem = items.find((item) => item.types.includes("text/plain"));
+					if (textItem) {
+						const blob = await textItem.getType("text/plain");
+						term.paste(sanitizePaste(await blob.text()));
+					}
+				} catch {
+					// Refused: nothing the student can act on.
+				}
+				return;
+			}
+			if (!canReadClipboard()) return;
+			try {
+				term.paste(sanitizePaste(await navigator.clipboard.readText()));
 			} catch {
-				// Firefox may refuse readText; letting the event through means
-				// xterm's textarea still receives the browser's own paste.
-				return false;
+				// Firefox may refuse readText.
 			}
 		}
 
@@ -462,12 +613,8 @@ export function TerminalPane({
 				return false;
 			}
 			if (action === "paste") {
-				// Firefox without readText: let the browser's own paste do the work.
-				if (!canReadClipboard()) return true;
-				// Returning false only stops xterm's key handling; without this the
-				// browser still pastes into xterm's textarea and the text lands twice.
-				event.preventDefault();
-				void paste();
+				// The browser's own paste event follows and lands exactly once:
+				// xterm types text, and onPaste saves a picture.
 				return false;
 			}
 			return true;
@@ -493,7 +640,7 @@ export function TerminalPane({
 				clearSelection();
 				return;
 			}
-			if (canReadClipboard()) void paste();
+			void pasteFromMenu();
 		}
 		container.addEventListener("contextmenu", onContextMenu);
 
@@ -613,6 +760,7 @@ export function TerminalPane({
 			observer.disconnect();
 			container.removeEventListener("wheel", onWheel, { capture: true });
 			container.removeEventListener("contextmenu", onContextMenu);
+			container.removeEventListener("paste", onPaste, { capture: true });
 			container.removeEventListener("focusin", onFocusIn);
 			container.removeEventListener("focusout", onFocusOut);
 			container.removeEventListener("pointerdown", onPointerDown);
@@ -623,7 +771,7 @@ export function TerminalPane({
 			xterm.current = null;
 			fit.current = null;
 		};
-	}, [workspaceId, projectId, terminalId]);
+	}, [workspaceId, projectId, terminalId, leaveHintId]);
 
 	// A hidden pane has no size, so re-fit when it comes back into view.
 	useEffect(() => {
@@ -637,12 +785,17 @@ export function TerminalPane({
 			data-connected={connected ? "true" : undefined}
 		>
 			<div className="pk-terminal-surface" ref={host} />
-			{reconnecting && <div className="pk-term-flag">Reconnecting…</div>}
-			{lost && (
-				<div className="pk-term-flag">
-					This terminal lost its connection. Reload the page to try again.
-				</div>
-			)}
+			<p id={leaveHintId} hidden>
+				Tab goes to the shell. Press Alt+Shift+Q to leave the terminal.
+			</p>
+			<div role="status">
+				{reconnecting && <div className="pk-term-flag">Reconnecting…</div>}
+				{lost && (
+					<div className="pk-term-flag">
+						This terminal lost its connection. Reload the page to try again.
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }

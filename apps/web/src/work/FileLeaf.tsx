@@ -155,6 +155,21 @@ export function FileLeaf({
 	const [conflictEdits, setConflictEdits] = useState(0);
 	// Which view this tab shows. It belongs to this browser and is not saved.
 	const [view, setView] = useState<View>("edit");
+	// The pressed button is replaced by its twin in the other header, so the
+	// keyboard is handed to the twin as it mounts (issue #358).
+	const focusView = useRef<View | null>(null);
+	function pressView(next: View, button: View = next) {
+		if (next !== view) focusView.current = button;
+		setView(next);
+	}
+	function viewButtonRef(which: View) {
+		return (button: HTMLButtonElement | null) => {
+			if (button && focusView.current === which) {
+				focusView.current = null;
+				button.focus();
+			}
+		};
+	}
 	const markdown = isMarkdownPath(path);
 	// The two sides of the Markdown split keep the same top line (issue #229).
 	// Each side remembers the place it last put the other one at, so it can
@@ -608,8 +623,9 @@ export function FileLeaf({
 			<legend className="pk-visually-hidden">File view</legend>
 			<button
 				type="button"
+				ref={viewButtonRef("diff")}
 				aria-pressed={inDiff}
-				onClick={() => setView(inDiff ? "edit" : "diff")}
+				onClick={() => pressView(inDiff ? "edit" : "diff", "diff")}
 				data-testid={`file-view-diff-${path}`}
 			>
 				Diff
@@ -620,16 +636,18 @@ export function FileLeaf({
 			<legend className="pk-visually-hidden">File view</legend>
 			<button
 				type="button"
+				ref={viewButtonRef("edit")}
 				aria-pressed={!inDiff}
-				onClick={() => setView("edit")}
+				onClick={() => pressView("edit")}
 				data-testid={`file-view-edit-${path}`}
 			>
 				Edit
 			</button>
 			<button
 				type="button"
+				ref={viewButtonRef("diff")}
 				aria-pressed={inDiff}
-				onClick={() => setView("diff")}
+				onClick={() => pressView("diff")}
 				data-testid={`file-view-diff-${path}`}
 			>
 				Diff
