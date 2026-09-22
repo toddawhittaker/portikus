@@ -440,16 +440,20 @@ second option is worth trying first.
 ## One filesystem watcher shared by the terminal and events pipes
 
 **What.** A single watcher per project feeding both the events socket and
-whatever the terminal side needs, instead of a watcher per purpose.
+the terminal's working-directory updates, instead of a watcher per purpose.
+Session review already subscribes to the existing project watcher (Epic 9,
+PR #308). The terminal's own poll of its current directory was left in
+place on purpose and is not part of that subscription.
 
-**Why.** Epic 9's session change review will want the same events, and a
-second watcher doubles the inotify cost for the same information.
+**Why.** A second watcher doubles the inotify cost for the same
+information. The session-review half of that is done. The terminal poll
+is the part still separate.
 
-**What it would take.** Make the agent's watcher registry the one source of
-filesystem events and have every consumer subscribe to it. Half a day, best
-done as part of Epic 9 rather than on its own.
+**What it would take.** Have the terminal's directory updates come from
+the agent's existing watcher registry, and remove the poll only then.
+Half a day.
 
-**Source.** Epic 7 review, 2026-09-18.
+**Source.** Epic 7 review, 2026-09-18. Updated after Epic 9, 2026-09-21.
 
 ## One merged zip for a multi-file download
 
@@ -484,24 +488,6 @@ being edited.
 rendered DOM nodes, built while parsing, and using it instead of the
 relative-position sync on both sides. Half a day; worth doing once a pilot
 student notices the drift on a long document.
-
-**Source.** `docs/STATUS.md`, Epic 7.1.
-
-## Codex agent configuration, including its update-check setting
-
-**What.** The same kind of environment and configuration control Epic 7.1
-gave Claude Code's self-updater (`DISABLE_AUTOUPDATER=1` in
-`/etc/profile.d/portikus-agents.sh`, #127), extended to Codex and folded
-into whatever general agent-configuration story Epic 9 builds.
-
-**Why.** Codex has no equivalent environment variable; its update check is
-a config file setting (`check_for_update_on_startup` in
-`/etc/codex/config.toml`), which is one small piece of a larger question
-about how the platform configures every coding agent it ships, better
-answered once rather than agent by agent.
-
-**What it would take.** Part of Epic 9's agent configuration work; no
-separate estimate. Issue #129 stays open for it.
 
 **Source.** `docs/STATUS.md`, Epic 7.1.
 
