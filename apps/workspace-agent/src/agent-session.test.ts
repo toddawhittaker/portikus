@@ -3,7 +3,7 @@
  * (SPEC.md §10.2, §10.9, §12.7; BROWSER-HANDLING.md §18, §25.2).
  */
 import { execFile, spawn } from "node:child_process";
-import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 import { createLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
-import { baselineStatus, recordBaseline } from "./git.js";
+import { baselineDiff, baselineStatus, recordBaseline } from "./git.js";
 import { buildServer } from "./server.js";
 import { commandForAgent, createSession, killSession } from "./tmux.js";
 
@@ -472,6 +472,65 @@ test("an untracked file from before the baseline is not a session addition", asy
 		expect(paths).not.toContain(".env");
 		expect(paths).not.toContain("node_modules/pkg.js");
 		expect(paths).toContain("during.txt");
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+test("an edited pre-existing untracked file diffs against the second parent", async () => {
+	const { home, dir } = await tempRepo("untracked-diff");
+	try {
+		await writeFile(join(dir, "already.txt"), "before\n");
+		const recorded = await recordBaseline(dir);
+		const objectId = recorded.baselineObjectId;
+		if (!objectId) throw new Error("expected a baseline");
+
+		await writeFile(join(dir, "already.txt"), "after\n");
+		const edited = await baselineDiff(home, "untracked-diff", objectId, "already.txt");
+		expect(edited.status).toBe("M");
+		expect(edited.before).toBe("before\n");
+		expect(edited.after).toBe("after\n");
+
+		await rm(join(dir, "already.txt"));
+		const removed = await baselineDiff(home, "untracked-diff", objectId, "already.txt");
+		expect(removed.status).toBe("D");
+		expect(removed.before).toBe("before\n");
+		expect(removed.after).toBeNull();
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+test("a tracked root .env.example appears once after it is edited", async () => {
+	const { home, dir } = await tempRepo("env-example");
+	try {
+		await writeFile(join(dir, ".env.example"), "A=1\n");
+		await git(["add", ".env.example"], dir);
+		await git(["commit", "-m", "example"], dir);
+		const recorded = await recordBaseline(dir);
+		const objectId = recorded.baselineObjectId;
+		if (!objectId) throw new Error("expected a baseline");
+		await writeFile(join(dir, ".env.example"), "A=2\n");
+		const status = await baselineStatus(home, "env-example", objectId);
+		const rows = status.entries.filter((entry) => entry.path === ".env.example");
+		expect(rows).toEqual([{ path: ".env.example", x: ".", y: "M", unmerged: false }]);
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+test("a pre-existing untracked symlink is not a session addition", async () => {
+	const { home, dir } = await tempRepo("symlink");
+	try {
+		await symlink("/etc/hostname", join(dir, "outside.link"));
+		const recorded = await recordBaseline(dir);
+		const objectId = recorded.baselineObjectId;
+		if (!objectId) throw new Error("expected a baseline");
+		await symlink("tracked.txt", join(dir, "during.link"));
+		const status = await baselineStatus(home, "symlink", objectId);
+		const paths = status.entries.map((entry) => entry.path);
+		expect(paths).not.toContain("outside.link");
+		expect(paths).toContain("during.link");
 	} finally {
 		await rm(home, { recursive: true, force: true });
 	}
