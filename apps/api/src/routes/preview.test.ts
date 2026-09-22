@@ -740,6 +740,38 @@ test.skipIf(skip)("a stopped workspace explains itself", async () => {
 	expect(response.body).toContain("not running");
 });
 
+test.skipIf(skip)(
+	"a stopped workspace explains itself after its sessions are revoked",
+	async () => {
+		// Stopping revokes the preview sessions too; the more specific cause wins.
+		const token = await openPreview(5173);
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ state: "stopped", updated_at: new Date().toISOString() })
+			.where("id", "=", workspaceId)
+			.execute();
+		await testDb.db
+			.updateTable("preview_sessions")
+			.set({ revoked_at: new Date().toISOString() })
+			.execute();
+		const response = await authorize(token, previewHostFor(5173));
+		expect(response.statusCode).toBe(503);
+		expect(response.body).toContain("not running");
+		expect(response.headers["x-portikus-upstream"]).toBeUndefined();
+
+		// The revoked cookie proves nothing on another host.
+		expect((await authorize(token, previewHostFor(3000))).statusCode).toBe(401);
+
+		// A student who signed out is told to sign in, not about the workspace.
+		await app.inject({
+			method: "POST",
+			url: "/auth/logout",
+			headers: csrfHeaders(alice, PUBLIC_URL),
+		});
+		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(401);
+	},
+);
+
 test.skipIf(skip)("a port with nothing listening explains itself", async () => {
 	const token = await openPreview(5173);
 	await seedListening([]);
@@ -1136,6 +1168,17 @@ test.skipIf(skip)("a workspace leaving running revokes its previews", async () =
 			.execute();
 		return rows.every((row) => row.revoked_at !== null);
 	});
+	// The preview stops working; the student is told why (the stopped page).
+	const stopped = await authorize(token, previewHostFor(5173));
+	expect(stopped.statusCode).toBe(503);
+	expect(stopped.headers["x-portikus-upstream"]).toBeUndefined();
+
+	// Starting the workspace again does not bring the revoked session back.
+	await testDb.db
+		.updateTable("workspaces")
+		.set({ state: "running", updated_at: new Date().toISOString() })
+		.where("id", "=", workspaceId)
+		.execute();
 	expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(401);
 });
 

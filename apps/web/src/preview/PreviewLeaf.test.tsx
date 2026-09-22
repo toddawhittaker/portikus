@@ -301,6 +301,39 @@ test("Back on a fresh preview does nothing and explains itself", async () => {
 	);
 });
 
+test("a late load from an earlier Back does not clear the hint", async () => {
+	// Chromium can fire the frame's load for a step Back after the next
+	// press has already found nothing left.
+	stubFetch(() => json(200, GRANT));
+	stubHistory();
+	show({});
+	const frame = await screen.findByTestId("preview-frame");
+	fireEvent.load(frame);
+
+	const backButton = screen.getByTestId("preview-back") as HTMLButtonElement;
+	fireEvent.click(backButton);
+	await waitFor(() =>
+		expect(backButton.getAttribute("title")).toBe("Nothing to go back to"),
+	);
+	fireEvent.load(frame);
+	expect(backButton.getAttribute("title")).toBe("Nothing to go back to");
+});
+
+test("a load that adds an entry clears the hint", async () => {
+	stubFetch(() => json(200, GRANT));
+	const tab = stubHistory();
+	show({});
+	const frame = await screen.findByTestId("preview-frame");
+	const backButton = screen.getByTestId("preview-back") as HTMLButtonElement;
+	fireEvent.click(backButton);
+	await waitFor(() =>
+		expect(backButton.getAttribute("title")).toBe("Nothing to go back to"),
+	);
+	tab.frameNavigates();
+	fireEvent.load(frame);
+	await waitFor(() => expect(backButton.getAttribute("title")).toBe(null));
+});
+
 test("Back steps once the frame has an entry of its own, and Forward always does", async () => {
 	stubFetch(() => json(200, GRANT));
 	const tab = stubHistory();

@@ -863,7 +863,7 @@ Phases A and B are `SPEC.md` Epic 8; phase C is Epic 9. There is no remote-brows
 - A preview session ends when the main Portikus session ends, and a fresh bootstrap restores it after login.
 - The multi-port bridge reaches only another authorized port in the same workspace.
 - An application that blocks framing is offered in a top-level tab without its security headers being silently removed.
-- A stopped workspace or inactive service produces a Portikus-owned explanation, not a raw proxy error.
+- A stopped workspace or inactive service produces a Portikus-owned explanation, not a raw proxy error. The more specific cause wins: when the workspace is not running, the student sees "This workspace is not running" even if stopping has already revoked the preview session.
 - Reset preview data clears supported stored state and establishes a fresh preview session.
 
 ### 25.2 URL broker
