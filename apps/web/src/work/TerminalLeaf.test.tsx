@@ -1,5 +1,5 @@
 import type { Terminal } from "@portikus/contracts";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { shortenPath, TerminalLeaf } from "./TerminalLeaf";
 
@@ -94,6 +94,41 @@ test("the actions menu splits right and down", () => {
 	});
 	fireEvent.click(screen.getByTestId("split-down"));
 	expect(props.onSplit).toHaveBeenCalledWith(terminal.id, "column");
+});
+
+/** Radix returns focus on a timeout, so wait that turn out before asserting. */
+async function flushCloseFocus() {
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+}
+
+test("dismissing the actions menu with the pointer does not focus it", async () => {
+	renderLeaf();
+	const trigger = screen.getByTestId(`terminal-actions-${terminal.id}`);
+	fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+	await flushCloseFocus();
+	expect(screen.getByRole("menu")).toBeTruthy();
+
+	fireEvent.pointerDown(document.body, { button: 0, ctrlKey: false });
+	await flushCloseFocus();
+
+	expect(screen.queryByRole("menu")).toBeNull();
+	expect(document.activeElement).not.toBe(trigger);
+});
+
+test("closing the actions menu from the keyboard focuses it", async () => {
+	renderLeaf();
+	const trigger = screen.getByTestId(`terminal-actions-${terminal.id}`);
+	trigger.focus();
+	fireEvent.keyDown(trigger, { key: "Enter" });
+	expect(screen.getByRole("menu")).toBeTruthy();
+
+	fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+	await flushCloseFocus();
+
+	expect(screen.queryByRole("menu")).toBeNull();
+	expect(document.activeElement).toBe(trigger);
 });
 
 test("the actions menu closes the terminal", () => {

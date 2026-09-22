@@ -1,13 +1,29 @@
 import type { Terminal } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { WorkArea } from "./WorkArea";
 
 vi.mock("../TerminalPane", () => ({
-	TerminalPane: ({ terminal }: { terminal: Terminal }) => (
-		<div data-testid={`terminal-pane-${terminal.id}`} />
+	TerminalPane: ({
+		terminal,
+		focusOnMount,
+	}: {
+		terminal: Terminal;
+		focusOnMount?: boolean;
+	}) => (
+		<div
+			data-testid={`terminal-pane-${terminal.id}`}
+			data-focus-on-mount={focusOnMount ? "true" : "false"}
+		/>
 	),
 }));
 
@@ -176,6 +192,92 @@ test("the launcher opens a terminal for this project and gives it a tab", async 
 	);
 	const post = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
 	expect(JSON.parse(String(post?.[1]?.body))).toEqual({ projectId: PROJECT });
+});
+
+/** Radix returns focus on a timeout, so wait that turn out before asserting. */
+async function flushCloseFocus() {
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+}
+
+test("a terminal, Claude Code, or Codex opened from New is the focused pane", async () => {
+	for (const item of [
+		"launcher-terminal",
+		"launcher-claude",
+		"launcher-codex",
+	] as const) {
+		cleanup();
+		vi.unstubAllGlobals();
+		const { created } = stubFetch({
+			layout: { tabs: [{ id: "tab1", root: { type: "leaf", terminalId: ONE } }] },
+			terminals: [terminal(ONE, "zsh")],
+		});
+		renderArea();
+		await waitFor(() =>
+			expect(screen.getByTestId(`terminal-leaf-${ONE}`)).toBeTruthy(),
+		);
+
+		fireEvent.pointerDown(screen.getByTestId("launcher"), {
+			button: 0,
+			ctrlKey: false,
+		});
+		fireEvent.click(screen.getByTestId(item));
+
+		const pane = await screen.findByTestId(`terminal-pane-${created.id}`);
+		expect(pane.getAttribute("data-focus-on-mount")).toBe("true");
+		expect(screen.getByTestId(`terminal-leaf-${created.id}`).className).toContain(
+			"is-focused",
+		);
+		expect(screen.getByTestId(`terminal-leaf-${ONE}`).className).not.toContain(
+			"is-focused",
+		);
+		await flushCloseFocus();
+		expect(document.activeElement).not.toBe(screen.getByTestId("launcher"));
+	}
+});
+
+test("the New menu has no File placeholder", async () => {
+	stubFetch({ terminals: [] });
+	renderArea();
+	await waitFor(() => expect(screen.getByTestId("launcher")).toBeTruthy());
+	fireEvent.pointerDown(screen.getByTestId("launcher"), { button: 0, ctrlKey: false });
+
+	const menu = screen.getByRole("menu");
+	expect(menu.textContent).not.toContain("File — Epic 7");
+	expect(menu.querySelector("[role=separator]")).toBeNull();
+	expect(screen.getByTestId("launcher-terminal")).toBeTruthy();
+	expect(screen.getByTestId("launcher-preview")).toBeTruthy();
+});
+
+test("dismissing the New menu with the pointer does not focus New", async () => {
+	stubFetch({ terminals: [] });
+	renderArea();
+	const launcher = await screen.findByTestId("launcher");
+	fireEvent.pointerDown(launcher, { button: 0, ctrlKey: false });
+	await flushCloseFocus();
+	expect(screen.getByRole("menu")).toBeTruthy();
+
+	fireEvent.pointerDown(document.body, { button: 0, ctrlKey: false });
+	await flushCloseFocus();
+
+	expect(screen.queryByRole("menu")).toBeNull();
+	expect(document.activeElement).not.toBe(launcher);
+});
+
+test("closing the New menu from the keyboard focuses New", async () => {
+	stubFetch({ terminals: [] });
+	renderArea();
+	const launcher = await screen.findByTestId("launcher");
+	launcher.focus();
+	fireEvent.keyDown(launcher, { key: "Enter" });
+	expect(screen.getByRole("menu")).toBeTruthy();
+
+	fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+	await flushCloseFocus();
+
+	expect(screen.queryByRole("menu")).toBeNull();
+	expect(document.activeElement).toBe(launcher);
 });
 
 test("Claude Code and Codex post the agent enum and no command", async () => {

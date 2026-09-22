@@ -1,8 +1,7 @@
 /**
  * The centre work area: the terminal tabs, their splits, and the saved
  * layout of one project (SPEC.md §7.5, §8, §9.3, §10.2). A coding-agent
- * launcher creates an ordinary terminal and names the agent. The File item
- * stays disabled.
+ * launcher creates an ordinary terminal and names the agent.
  */
 import {
 	DndContext,
@@ -24,7 +23,6 @@ import {
 	MenuItem,
 	MenuLabel,
 	MenuRoot,
-	MenuSeparator,
 	MenuTrigger,
 	type TabItem,
 	Tabs,
@@ -47,6 +45,58 @@ const TAB_STRIP_DROP_ID = "work-tab-strip";
 type DragTarget =
 	| { kind: "pane"; tabId: string; terminalId: string; edge: DropEdge }
 	| { kind: "strip"; index: number; markerX: number };
+
+/**
+ * Radix focuses a menu trigger when the menu closes, and that programmatic
+ * focus paints the focus ring. A pointer dismiss leaves the trigger at rest.
+ * A keyboard dismiss still focuses it. `declineTriggerFocus` is for an action
+ * that moves the keyboard itself, so the trigger must not take it back.
+ */
+function useLauncherMenuFocus() {
+	const pointer = useRef(false);
+	const launched = useRef(false);
+	const open = useRef(false);
+	const stop = useRef<(() => void) | null>(null);
+
+	useEffect(() => () => stop.current?.(), []);
+
+	function onOpenChange(next: boolean) {
+		open.current = next;
+		stop.current?.();
+		stop.current = null;
+		if (!next) return;
+		pointer.current = false;
+		const onPointerDown = () => {
+			pointer.current = true;
+		};
+		const onKeyDown = (event: globalThis.KeyboardEvent) => {
+			if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
+				pointer.current = false;
+			}
+		};
+		document.addEventListener("pointerdown", onPointerDown, true);
+		document.addEventListener("keydown", onKeyDown, true);
+		stop.current = () => {
+			document.removeEventListener("pointerdown", onPointerDown, true);
+			document.removeEventListener("keydown", onKeyDown, true);
+		};
+	}
+
+	function declineTriggerFocus() {
+		if (open.current) launched.current = true;
+	}
+
+	function onCloseAutoFocus(event: Event) {
+		const launchedFromMenu = launched.current;
+		launched.current = false;
+		if (pointer.current || launchedFromMenu) {
+			event.preventDefault();
+			pointer.current = false;
+		}
+	}
+
+	return { onOpenChange, onCloseAutoFocus, declineTriggerFocus };
+}
 
 /** The tab strip as a drop area; separate so it can use `useDroppable`. */
 function TabStripDrop({ children }: { children: ReactNode }) {
@@ -99,6 +149,7 @@ export function WorkArea({
 	} | null>(null);
 	const [dragTarget, setDragTarget] = useState<DragTarget | null>(null);
 	const strip = useRef<HTMLDivElement | null>(null);
+	const launcherMenu = useLauncherMenuFocus();
 
 	const byId = new Map(terminals.terminals.map((terminal) => [terminal.id, terminal]));
 
@@ -150,12 +201,18 @@ export function WorkArea({
 		terminals.refetch();
 	}
 
+	/** A new tab, with the keyboard in that terminal's pane (SPEC.md §10.2). */
+	function placeFocusedTab(created: Terminal) {
+		store.getState().addTab(created.id);
+		store.getState().setFocused(created.id);
+	}
+
 	async function openTerminalTab() {
-		await createAndPlace((created) => store.getState().addTab(created.id));
+		await createAndPlace(placeFocusedTab);
 	}
 
 	async function openAgent(agent: CodingAgent) {
-		await createAndPlace((created) => store.getState().addTab(created.id), { agent });
+		await createAndPlace(placeFocusedTab, { agent });
 	}
 
 	async function split(terminalId: string, direction: SplitDirection) {
@@ -380,7 +437,7 @@ export function WorkArea({
 							onClose={requestCloseTab}
 							onReorder={(from, to) => store.getState().moveTab(from, to)}
 							actions={
-								<MenuRoot>
+								<MenuRoot onOpenChange={launcherMenu.onOpenChange}>
 									<MenuTrigger asChild={true}>
 										<IconButton
 											icon="plus"
@@ -390,24 +447,38 @@ export function WorkArea({
 											aria-haspopup="menu"
 										/>
 									</MenuTrigger>
-									<Menu label="New tab">
+									<Menu
+										label="New tab"
+										onCloseAutoFocus={launcherMenu.onCloseAutoFocus}
+									>
 										<MenuLabel>Open in {projectPath}</MenuLabel>
 										<MenuItem
 											icon="terminal"
 											shortcut={["Mod", "Alt", "T"]}
-											onSelect={() => void openTerminalTab()}
+											onSelect={() => {
+												launcherMenu.declineTriggerFocus();
+												void openTerminalTab();
+											}}
 										>
 											<span data-testid="launcher-terminal">Terminal</span>
 										</MenuItem>
-										<MenuItem icon="agent" onSelect={() => void openAgent("claude")}>
+										<MenuItem
+											icon="agent"
+											onSelect={() => {
+												launcherMenu.declineTriggerFocus();
+												void openAgent("claude");
+											}}
+										>
 											<span data-testid="launcher-claude">Claude Code</span>
 										</MenuItem>
-										<MenuItem icon="agent" onSelect={() => void openAgent("codex")}>
+										<MenuItem
+											icon="agent"
+											onSelect={() => {
+												launcherMenu.declineTriggerFocus();
+												void openAgent("codex");
+											}}
+										>
 											<span data-testid="launcher-codex">Codex</span>
-										</MenuItem>
-										<MenuSeparator />
-										<MenuItem icon="file" disabled={true}>
-											File — Epic 7
 										</MenuItem>
 										<MenuItem icon="preview" onSelect={() => setPickingPreview(true)}>
 											<span data-testid="launcher-preview">Preview</span>
