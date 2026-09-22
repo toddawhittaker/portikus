@@ -4,6 +4,7 @@ import { isAbsolute } from "node:path";
 import { promisify } from "node:util";
 import {
 	type AgentErrorCode,
+	type CodingAgent,
 	TerminalId,
 	type TerminalTheme,
 } from "@portikus/contracts";
@@ -211,6 +212,63 @@ export interface TmuxSession {
 	cwd: string;
 }
 
+/**
+ * The only commands a launcher may start (SPEC.md §10.2). The request names
+ * an agent, never a command string.
+ */
+export function commandForAgent(agent: CodingAgent): string[] {
+	switch (agent) {
+		case "claude":
+			return ["claude"];
+		case "codex":
+			return ["codex"];
+	}
+}
+
+export interface SessionBaseline {
+	baselineObjectId: string | null;
+	baselineHead: string | null;
+}
+
+/** What a launcher adds to one new session (SPEC.md §10.2, §10.6, §10.9). */
+export interface SessionLaunch {
+	/** Argv tmux runs instead of a login shell. Absent for an ordinary terminal. */
+	command?: readonly string[];
+	/**
+	 * Institution keys for this session only. Passed to tmux with `-e` and
+	 * never written down.
+	 */
+	institutionalEnv?: {
+		ANTHROPIC_API_KEY?: string;
+		OPENAI_API_KEY?: string;
+	};
+	/**
+	 * Records the review baseline in the resolved project directory before
+	 * tmux starts. Supplied by the server so this file does not import git.
+	 */
+	recordBaseline?: (dir: string) => Promise<SessionBaseline>;
+}
+
+const EMPTY_BASELINE: SessionBaseline = {
+	baselineObjectId: null,
+	baselineHead: null,
+};
+
+/** `-e` flags for the two institutional keys, and nothing else. */
+function credentialArgs(env: SessionLaunch["institutionalEnv"]): string[] {
+	if (!env) return [];
+	const args: string[] = [];
+	for (const name of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"] as const) {
+		const value = env[name];
+		if (value === undefined) continue;
+		if (value.includes("\0") || value.includes("\n")) {
+			throw new AgentFailure("BAD_REQUEST", "invalid credential");
+		}
+		args.push("-e", `${name}=${value}`);
+	}
+	return args;
+}
+
 /** Every `pk-*` session on this tmux server (SPEC.md §9.7). */
 export async function listSessions(socketName?: string): Promise<TmuxSession[]> {
 	let stdout: string;
@@ -241,7 +299,7 @@ export async function hasSession(id: string, socketName?: string): Promise<boole
 	}
 }
 
-/** Create the tmux session that backs one terminal (SPEC.md §9.7). */
+/** Create the tmux session that backs one terminal (SPEC.md §9.7, §10.2). */
 export async function createSession(
 	id: string,
 	cwd: string,
@@ -249,9 +307,21 @@ export async function createSession(
 	theme: TerminalTheme,
 	timezone: string,
 	socketName?: string,
-): Promise<TmuxSession> {
+	launch?: SessionLaunch,
+): Promise<TmuxSession & SessionBaseline> {
 	const name = sessionName(id);
 	const real = await resolveCwd(cwd, homeDir);
+	// The baseline is recorded before the agent can write (SPEC.md §10.9).
+	// A failure here still starts the CLI.
+	let baseline = EMPTY_BASELINE;
+	if (launch?.command && launch.recordBaseline) {
+		try {
+			baseline = await launch.recordBaseline(real);
+		} catch {
+			baseline = EMPTY_BASELINE;
+		}
+	}
+	const command = launch?.command;
 	await tmux(
 		[
 			...serverOptionArgs(),
@@ -273,6 +343,10 @@ export async function createSession(
 			// already running keeps the zone it started with.
 			"-e",
 			`TZ=${timezone}`,
+			// Keys ride on this session only, and only for an agent command
+			// (SPEC.md §10.6).
+			...(command ? credentialArgs(launch?.institutionalEnv) : []),
+			...(command ?? []),
 		],
 		socketName,
 	);
@@ -280,7 +354,7 @@ export async function createSession(
 	// attachment does not shrink the terminal to the smallest window.
 	await tmux(["set-option", "-t", name, "window-size", "latest"], socketName);
 	await tmux(["set-option", "-t", name, "status", "off"], socketName);
-	return { id, cwd: real };
+	return { id, cwd: real, ...baseline };
 }
 
 export interface PaneState {
