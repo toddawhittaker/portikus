@@ -132,6 +132,7 @@ export function ChangesList({
 										type="button"
 										className={`pk-changes-row${current ? " is-current" : ""}`}
 										data-selected={current ? "true" : undefined}
+										aria-current={current ? "true" : undefined}
 										data-testid={`change-row-${row.path}`}
 										data-git={row.decoration.kind}
 										title={row.decoration.title}

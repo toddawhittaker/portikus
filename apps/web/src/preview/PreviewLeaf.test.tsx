@@ -123,6 +123,11 @@ test("a port nothing is listening on says so and asks no grant", async () => {
 		"Nothing is currently listening on port 5173. Start your application to reconnect this preview.",
 	);
 	expect(fetchMock).not.toHaveBeenCalled();
+	// Announced, not only shown (issue #363).
+	expect(screen.getByTestId("preview-status").getAttribute("role")).toBe("status");
+	expect(screen.getByTestId("preview-status").textContent).toBe(
+		"Nothing is running on port 5173",
+	);
 });
 
 test("the preview reconnects when the port starts listening again", async () => {
@@ -161,6 +166,9 @@ test("a refused grant says the student may not preview this workspace", async ()
 	stubFetch(() => json(403, { code: "FORBIDDEN", message: "no" }));
 	show({});
 	expect(await screen.findByTestId("preview-unauthorized")).toBeTruthy();
+	expect(screen.getByTestId("preview-status").textContent).toBe(
+		"You cannot preview this workspace",
+	);
 });
 
 test("a grant the gateway could not open shows its message", async () => {

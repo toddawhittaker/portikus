@@ -112,6 +112,26 @@ function allowedHostsLine(server: RefusedServer, refusedHost: string): string {
 	return ALLOWED_HOSTS_SETTING[server].line(suffixOf(refusedHost));
 }
 
+/** What a screen reader hears as the preview changes state (issue #363). */
+function announcement(state: State, port: number): string {
+	switch (state.status) {
+		case "connecting":
+			return `Connecting to port ${port}`;
+		case "available":
+			return `Showing port ${port}`;
+		case "inactive":
+			return `Nothing is running on port ${port}`;
+		case "unauthorized":
+			return "You cannot preview this workspace";
+		case "error":
+			return "That preview did not open";
+		case "host-refused":
+			return "Your dev server is refusing the preview host";
+		case "blocked":
+			return "This application cannot be embedded";
+	}
+}
+
 export interface PreviewLeafProps {
 	workspaceId: string;
 	port: number;
@@ -441,6 +461,11 @@ export function PreviewLeaf({
 					Running
 				</button>
 			</div>
+
+			{/* Always rendered, so each change is announced rather than missed. */}
+			<p className="pk-visually-hidden" role="status" data-testid="preview-status">
+				{announcement(state, port)}
+			</p>
 
 			<div className="pk-preview-body">
 				{/* Every state but the frame itself is one compact stack, centred

@@ -127,6 +127,7 @@ export function ChecksPane({
 											<button
 												type="button"
 												className="pk-check-face"
+												aria-current={shown === check.id ? "true" : undefined}
 												onClick={() => setSelected(check.id)}
 											>
 												<span className="pk-check-text">

@@ -10,6 +10,7 @@ import {
 import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ApiError } from "../api/request.js";
+import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { useMe } from "../useMe.js";
 import { defaultLabel, graceText } from "./graceText.js";
@@ -25,6 +26,7 @@ const ROLE_LABEL = { student: "Student", administrator: "Administrator" } as con
 /** The administration screen. Students never get here (SPEC.md §5.2, §6.4). */
 export function AdminPage() {
 	const me = useMe();
+	usePageTitle("Administration");
 
 	if (me.status === "loading") {
 		return <div className="pk-root" aria-busy="true" />;
@@ -67,6 +69,11 @@ function parseSeconds(value: string): number | null {
 function errorText(error: unknown): string {
 	if (error instanceof ApiError) return error.message;
 	return "Something went wrong. Please try again.";
+}
+
+/** A field error, announced when it appears (issue #363). */
+function announced(error: string | null) {
+	return error ? <span role="alert">{error}</span> : null;
 }
 
 function GraceSection() {
@@ -115,7 +122,9 @@ function GraceSection() {
 					data-testid="grace-input"
 					value={value}
 					hint={seconds === null ? undefined : graceText(seconds)}
-					error={error ?? (settings.isError ? errorText(settings.error) : null)}
+					error={announced(
+						error ?? (settings.isError ? errorText(settings.error) : null),
+					)}
 					disabled={settings.isLoading}
 					onChange={(event) => setDraft(event.target.value)}
 				/>
@@ -184,6 +193,8 @@ function LogLevelSection() {
 						data-testid="log-level-select"
 						value={value}
 						disabled={settings.isLoading}
+						aria-invalid={error ? true : undefined}
+						aria-describedby={error ? "log-level-err" : undefined}
 						onChange={(event) => setDraft(event.target.value)}
 					>
 						<option value={SERVICE_DEFAULT}>Use service default</option>
@@ -194,7 +205,11 @@ function LogLevelSection() {
 						))}
 					</select>
 					{error ? (
-						<p className="pk-error m-0 text-[12px] leading-4 text-status-error">
+						<p
+							className="pk-error m-0 text-[12px] leading-4 text-status-error"
+							id="log-level-err"
+							role="alert"
+						>
 							{error}
 						</p>
 					) : null}
@@ -291,6 +306,8 @@ function UserRow({
 					<TextField
 						id={`user-grace-${user.id}`}
 						label="Seconds"
+						// Every row's visible label is the same, so the name says whose it is.
+						aria-label={`Grace period for ${user.displayName}, in seconds`}
 						className="w-40"
 						inputMode="numeric"
 						placeholder={
@@ -299,12 +316,13 @@ function UserRow({
 						data-testid={`user-grace-input-${user.id}`}
 						value={value}
 						hint={effective === null ? undefined : graceText(effective)}
-						error={error}
+						error={announced(error)}
 						onChange={(event) => setDraft(event.target.value)}
 					/>
 					<Button
 						data-testid={`user-grace-save-${user.id}`}
 						loading={update.isPending}
+						aria-label={`Save ${user.displayName}`}
 						onClick={save}
 					>
 						Save

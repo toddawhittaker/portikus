@@ -23,7 +23,7 @@ export function SignIn() {
 	}
 
 	return (
-		<StandalonePage testId="page-signin">
+		<StandalonePage title="Sign in" testId="page-signin">
 			<div className="flex flex-col gap-2">
 				<h1 id="page-title" className="pk-text-display">
 					Sign in to Portikus

@@ -135,6 +135,23 @@ test("each check shows its name, its real command, and what it last did", async 
 	expect(screen.getByTestId("check-state-lint").textContent).toContain("Not run yet");
 });
 
+test("the check whose output shows is marked current for screen readers (issue #369)", async () => {
+	stubBrowserApis();
+	stubChecks({ checks: CHECKS, error: null, runs: [] });
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	await waitFor(() => expect(screen.getByTestId("checks-list")).toBeTruthy());
+	const face = (id: string) =>
+		screen.getByTestId(`check-item-${id}`).querySelector(".pk-check-face");
+	expect(face("tests")?.getAttribute("aria-current")).toBe("true");
+	expect(face("lint")?.getAttribute("aria-current")).toBeNull();
+
+	fireEvent.click(face("lint") as Element);
+
+	expect(face("lint")?.getAttribute("aria-current")).toBe("true");
+	expect(face("tests")?.getAttribute("aria-current")).toBeNull();
+});
+
 test("a check that is running offers Stop instead of Run", async () => {
 	stubBrowserApis();
 	stubChecks({
