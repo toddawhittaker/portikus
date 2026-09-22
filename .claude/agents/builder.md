@@ -5,7 +5,7 @@ description: |
   runs the relevant tests and lint, and reports what it built and what it
   left out. Use for ordinary feature and refactor work with a clear target.
   Hand infrastructure work (Incus, LVM, libvirt, cloud-init) to infra instead.
-model: claude-opus-5
+model: claude-opus-5-5
 effort: low
 tools: Bash, Read, Write, Edit, Grep, Glob
 ---

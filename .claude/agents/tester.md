@@ -5,7 +5,7 @@ description: |
   the code happens to do. Runs them and reports failures with output. Use
   after a builder change or when a spec section needs coverage. For pure
   "run the suite and summarize" with no test design, a cheaper agent will do.
-model: claude-opus-5
+model: claude-opus-5-5
 effort: low
 tools: Bash, Read, Write, Edit, Grep, Glob
 ---
