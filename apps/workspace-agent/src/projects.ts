@@ -1,9 +1,11 @@
-import { type ChildProcessByStdio, execFile, spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { createReadStream } from "node:fs";
 import {
 	access,
 	lstat,
 	mkdir,
+	mkdtemp,
 	readdir,
 	realpath,
 	rename,
@@ -12,6 +14,7 @@ import {
 	unlink,
 	writeFile,
 } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { Readable } from "node:stream";
 import { promisify } from "node:util";
@@ -386,15 +389,10 @@ export async function gitInitProject(
 }
 
 /**
- * Stream the project as a zip. `-y` stores symlinks rather than following
- * them, so a link out of the project cannot leak its target.
+ * Zip the project. `-y` stores symlinks rather than following them, so a
+ * link out of the project cannot leak its target.
  */
-export type ArchiveProcess = ChildProcessByStdio<null, Readable, Readable>;
-
-export async function archiveProject(
-	slug: string,
-	homeDir: string,
-): Promise<ArchiveProcess> {
+export async function archiveProject(slug: string, homeDir: string): Promise<Readable> {
 	const target = await resolveProject(slug, homeDir);
 	if (!target.exists) {
 		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
@@ -404,20 +402,47 @@ export async function archiveProject(
 
 /**
  * Zip one directory from its parent, so the archive holds a single top-level
- * entry named after that directory (SPEC.md §11.2).
+ * entry named after that directory (SPEC.md §11.2). zip writes to a private
+ * temporary file, because it cannot store a symlink entry on a pipe (#400);
+ * the returned stream deletes that file when it closes.
  */
-export async function archiveDir(dir: string): Promise<ArchiveProcess> {
-	const child = spawn("zip", ["-r", "-y", "-q", "-", "--", basename(dir)], {
-		cwd: dirname(dir),
-		stdio: ["ignore", "pipe", "pipe"],
-	});
-	// An image without zip installed fails here, and an unhandled "error"
-	// event would take the whole agent down.
-	await new Promise<void>((resolve, reject) => {
-		child.once("spawn", resolve);
+export async function archiveDir(dir: string): Promise<Readable> {
+	const tempDir = await mkdtemp(join(tmpdir(), "portikus-archive-"));
+	const zipPath = join(tempDir, "archive.zip");
+	try {
+		await runZip(dir, zipPath);
+		const stream = createReadStream(zipPath);
+		stream.once("close", () => {
+			void rm(tempDir, { recursive: true, force: true });
+		});
+		return stream;
+	} catch (error) {
+		await rm(tempDir, { recursive: true, force: true });
+		throw error;
+	}
+}
+
+function runZip(dir: string, zipPath: string): Promise<void> {
+	return new Promise<void>((resolve, reject) => {
+		const child = spawn("zip", ["-r", "-y", "-q", zipPath, "--", basename(dir)], {
+			cwd: dirname(dir),
+			stdio: ["ignore", "ignore", "pipe"],
+		});
+		let stderr = "";
+		child.stderr.on("data", (chunk: Buffer) => {
+			stderr = (stderr + chunk.toString()).slice(-STDERR_LIMIT);
+		});
+		// An image without zip installed fails here, and an unhandled "error"
+		// event would take the whole agent down.
 		child.once("error", (error: Error) => {
 			reject(new AgentFailure("GIT_FAILED", `could not start zip: ${error.message}`));
 		});
+		child.once("close", (code) => {
+			if (code === 0) {
+				resolve();
+			} else {
+				reject(new AgentFailure("GIT_FAILED", `zip failed: ${stderr.trim()}`));
+			}
+		});
 	});
-	return child;
 }

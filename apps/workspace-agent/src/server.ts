@@ -51,7 +51,6 @@ import {
 } from "./listening.js";
 import { listeningRoutes } from "./listening-route.js";
 import {
-	type ArchiveProcess,
 	archiveDir,
 	archiveProject,
 	createProject,
@@ -61,7 +60,6 @@ import {
 	gitInitProject,
 	listProjects,
 	renameProject,
-	STDERR_LIMIT,
 } from "./projects.js";
 import { registerSearchRoutes } from "./search-routes.js";
 import { TerminalRegistry } from "./terminals.js";
@@ -571,39 +569,22 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 
 		instance.get("/projects/:slug/archive", async (request, reply) => {
 			const { slug } = request.params as { slug: string };
-			let child: ArchiveProcess;
+			let archive: Readable;
 			try {
 				const { path } = queryPath(request);
 				if (path === "") {
-					child = await archiveProject(slug, options.homeDir);
+					archive = await archiveProject(slug, options.homeDir);
 				} else {
 					const target = await resolveInProject(options.homeDir, slug, path, {
 						mustExist: true,
 					});
-					child = await archiveDir(target.path);
+					archive = await archiveDir(target.path);
 				}
 			} catch (error) {
 				return sendError(request, reply, error, "INTERNAL");
 			}
 			request.log.debug({ slug, operation: "archive" }, "project operation");
-			let stderr = "";
-			child.stderr.on("data", (chunk: Buffer) => {
-				// zip can be noisy; keep only as much as the student needs.
-				stderr = (stderr + chunk.toString()).slice(-STDERR_LIMIT);
-			});
-			// The process is already running, so the response is on its way;
-			// a late failure ends the stream rather than the agent.
-			child.on("error", (error: Error) => {
-				request.log.error({ slug, error: error.message }, "project archive failed");
-				child.stdout.destroy(new Error("zip failed"));
-			});
-			child.on("close", (code) => {
-				if (code !== 0) {
-					request.log.error({ slug, code, stderr }, "project archive failed");
-					child.stdout.destroy(new Error("zip failed"));
-				}
-			});
-			return reply.type("application/zip").send(child.stdout);
+			return reply.type("application/zip").send(archive);
 		});
 
 		registerGitRoutes(instance, { homeDir: options.homeDir });
