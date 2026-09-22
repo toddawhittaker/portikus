@@ -291,6 +291,15 @@ export function WorkArea({
 		(tabs[index < 0 ? 0 : index] ?? tabs[0])?.focus();
 	}
 
+	/** Give a pane a tab of its own after its current one (issue #370). */
+	function moveToNewTab(terminalId: string) {
+		const from = layout.tabs.findIndex((tab) =>
+			terminalIds(tab.root).includes(terminalId),
+		);
+		store.getState().moveLeafToNewTab(terminalId, from + 1);
+		store.getState().setFocused(terminalId);
+	}
+
 	const items: TabItem[] = layout.tabs.map((tab) => {
 		if (tab.root.type === "preview") {
 			const port = tab.root.port;
@@ -530,6 +539,7 @@ export function WorkArea({
 							onSessionEnded={onSessionEnded}
 							onShowRunning={() => showRightPane("running")}
 							onLeave={leaveTerminal}
+							onMoveToNewTab={moveToNewTab}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
 							pendingLine={pendingLine[tab.id]}
 							consumePendingLine={() => store.getState().consumePendingLine(tab.id)}

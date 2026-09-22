@@ -5,7 +5,7 @@
  */
 import type { SplitNode, Terminal, TerminalTheme } from "@portikus/contracts";
 import { PaneHandle } from "@portikus/ui";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { PreviewLeaf } from "../preview/PreviewLeaf.js";
@@ -31,6 +31,7 @@ export interface TerminalGroupProps {
 	onResize: (path: number[], sizes: number[]) => void;
 	onSessionEnded: () => void;
 	onLeave: () => void;
+	onMoveToNewTab: (terminalId: string) => void;
 	/** Close this whole tab: a file tab offers it when the file is gone. */
 	onCloseTab: () => void;
 	/** The line this tab was last asked to open at, or undefined for none. */
@@ -57,6 +58,8 @@ export interface TerminalGroupProps {
 
 export function TerminalGroup(props: TerminalGroupProps) {
 	const { tabId, root, terminals, visible } = props;
+	const panel = useRef<HTMLDivElement | null>(null);
+	const naming = useTabNaming(tabId, panel);
 
 	function panelId(path: number[], index: number): string {
 		return `pk-${tabId}-${[...path, index].join("-")}`;
@@ -83,6 +86,8 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					onReplace={props.onReplace}
 					onSessionEnded={props.onSessionEnded}
 					onLeave={props.onLeave}
+					onMoveToNewTab={props.onMoveToNewTab}
+					alone={root.type === "leaf"}
 					dropEdge={
 						props.dropTarget?.terminalId === terminal.id ? props.dropTarget.edge : null
 					}
@@ -164,7 +169,10 @@ export function TerminalGroup(props: TerminalGroupProps) {
 
 	return (
 		<div
+			ref={panel}
 			role="tabpanel"
+			id={naming.panelId}
+			aria-labelledby={naming.tabId}
 			className="pk-termgroup"
 			hidden={!visible}
 			data-testid={`terminal-group-${tabId}`}
@@ -172,4 +180,31 @@ export function TerminalGroup(props: TerminalGroupProps) {
 			{render(root, [])}
 		</div>
 	);
+}
+
+/**
+ * The Radix tab strip picks its own ids and points each tab's aria-controls
+ * at a panel id, so this panel takes that id and names itself by the tab
+ * (issue #374). The strip lives in the same work area as the panel.
+ */
+function useTabNaming(
+	tabId: string,
+	panel: { current: HTMLElement | null },
+): { panelId?: string; tabId?: string } {
+	const [naming, setNaming] = useState<{ panelId?: string; tabId?: string }>({});
+	// No dependency list: the strip may render its tab after this panel.
+	useEffect(() => {
+		const area = panel.current?.closest('[data-testid="work-area"]');
+		const tab = area?.querySelector<HTMLElement>(
+			`[data-testid="tab-${CSS.escape(tabId)}"]`,
+		);
+		const next = {
+			panelId: tab?.getAttribute("aria-controls") ?? undefined,
+			tabId: tab?.id || undefined,
+		};
+		setNaming((current) =>
+			current.panelId === next.panelId && current.tabId === next.tabId ? current : next,
+		);
+	});
+	return naming;
 }

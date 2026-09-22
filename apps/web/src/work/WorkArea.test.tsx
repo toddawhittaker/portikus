@@ -404,3 +404,58 @@ test("a saved diff tab loads as the file's own tab (issue #160)", async () => {
 	expect(await screen.findByTestId("tab-file:src/app.ts")).toBeTruthy();
 	expect(screen.queryByTestId("tab-diff:src/app.ts")).toBeNull();
 });
+
+/** Issue #374: each tab body is the panel its tab's aria-controls names. */
+test("each tab panel is named by its tab", async () => {
+	stubFetch({
+		layout: savedLayout,
+		terminals: [terminal(ONE, "zsh"), terminal(TWO, "npm")],
+	});
+	renderArea();
+	await waitFor(() => expect(screen.getByTestId("terminal-group-tab1")).toBeTruthy());
+	const tab = screen.getByTestId("tab-tab1");
+	const panel = screen.getByTestId("terminal-group-tab1");
+	await waitFor(() => expect(panel.id).toBe(tab.getAttribute("aria-controls")));
+	expect(panel.getAttribute("aria-labelledby")).toBe(tab.id);
+	expect(screen.getByRole("tabpanel", { name: /zsh/ })).toBe(panel);
+});
+
+/** Issue #370: Move to new tab puts the pane in a tab after its own and focuses it. */
+test("Move to new tab gives the pane a tab of its own", async () => {
+	stubFetch({
+		layout: savedLayout,
+		terminals: [terminal(ONE, "zsh"), terminal(TWO, "npm")],
+	});
+	renderArea();
+	await waitFor(() => expect(screen.getByTestId(`terminal-leaf-${TWO}`)).toBeTruthy());
+	const trigger = screen.getByTestId(`terminal-actions-${TWO}`);
+	trigger.focus();
+	fireEvent.keyDown(trigger, { key: "Enter" });
+	fireEvent.click(screen.getByTestId("terminal-move-to-new-tab"));
+	await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
+	const tabs = screen.getAllByRole("tab");
+	expect(tabs[1]?.getAttribute("aria-selected")).toBe("true");
+	expect(
+		screen.getByTestId(`terminal-pane-${TWO}`).getAttribute("data-focus-on-mount"),
+	).toBe("true");
+	const first = screen.getByTestId("terminal-group-tab1");
+	expect(first.contains(screen.getByTestId(`terminal-leaf-${ONE}`))).toBe(true);
+});
+
+/** Issue #359: Leave terminal in the menu does what Alt+Shift+Q does. */
+test("Leave terminal moves the keyboard to the active tab", async () => {
+	stubFetch({
+		layout: savedLayout,
+		terminals: [terminal(ONE, "zsh"), terminal(TWO, "npm")],
+	});
+	renderArea();
+	await waitFor(() => expect(screen.getByTestId(`terminal-leaf-${ONE}`)).toBeTruthy());
+	const trigger = screen.getByTestId(`terminal-actions-${ONE}`);
+	trigger.focus();
+	fireEvent.keyDown(trigger, { key: "Enter" });
+	fireEvent.click(screen.getByTestId("terminal-leave"));
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	expect(document.activeElement).toBe(screen.getByTestId("tab-tab1"));
+});
