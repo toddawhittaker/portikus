@@ -11,3 +11,4 @@ minimumReleaseAgeExclude:
   - vitest@5.0.1
   - '@tanstack/query-core@5.103.1'
   - '@tanstack/react-query@5.103.1'
+  - jsdom@30.1.1
