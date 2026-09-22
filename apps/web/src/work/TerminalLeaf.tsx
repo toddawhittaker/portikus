@@ -47,6 +47,47 @@ export interface TerminalLeafProps {
 	dropEdge?: DropEdge | null;
 }
 
+/**
+ * Radix focuses a menu trigger when the menu closes, and that programmatic
+ * focus paints the focus ring. A pointer dismiss leaves the trigger at rest;
+ * a keyboard dismiss still focuses it.
+ */
+function usePointerDismissFocus() {
+	const pointer = useRef(false);
+	const stop = useRef<(() => void) | null>(null);
+
+	useEffect(() => () => stop.current?.(), []);
+
+	function onOpenChange(next: boolean) {
+		stop.current?.();
+		stop.current = null;
+		if (!next) return;
+		pointer.current = false;
+		const onPointerDown = () => {
+			pointer.current = true;
+		};
+		const onKeyDown = (event: globalThis.KeyboardEvent) => {
+			if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
+				pointer.current = false;
+			}
+		};
+		document.addEventListener("pointerdown", onPointerDown, true);
+		document.addEventListener("keydown", onKeyDown, true);
+		stop.current = () => {
+			document.removeEventListener("pointerdown", onPointerDown, true);
+			document.removeEventListener("keydown", onKeyDown, true);
+		};
+	}
+
+	function onCloseAutoFocus(event: Event) {
+		if (!pointer.current) return;
+		event.preventDefault();
+		pointer.current = false;
+	}
+
+	return { onOpenChange, onCloseAutoFocus };
+}
+
 /** `/home/student/projects/x` reads as `~/projects/x` to a student. */
 export function shortenPath(path: string): string {
 	return path.startsWith("/home/student")
@@ -75,6 +116,7 @@ export function TerminalLeaf({
 	const [draft, setDraft] = useState(terminal.name);
 	const field = useRef<HTMLInputElement | null>(null);
 	const mountId = useRef(crypto.randomUUID());
+	const actionsMenu = usePointerDismissFocus();
 	// The menu returns focus to its trigger as it closes, so the field waits
 	// for that to happen and only commits on a blur once it really had focus.
 	const armed = useRef(false);
@@ -159,7 +201,7 @@ export function TerminalLeaf({
 						{title}
 					</span>
 				)}
-				<MenuRoot>
+				<MenuRoot onOpenChange={actionsMenu.onOpenChange}>
 					<MenuTrigger asChild={true}>
 						<IconButton
 							icon="more"
@@ -168,7 +210,10 @@ export function TerminalLeaf({
 							data-testid={`terminal-actions-${terminal.id}`}
 						/>
 					</MenuTrigger>
-					<Menu label={`Actions for ${terminal.name}`}>
+					<Menu
+						label={`Actions for ${terminal.name}`}
+						onCloseAutoFocus={actionsMenu.onCloseAutoFocus}
+					>
 						<MenuItem disabled={ended} onSelect={() => onSplit(terminal.id, "row")}>
 							<span data-testid="split-right">Split right</span>
 						</MenuItem>

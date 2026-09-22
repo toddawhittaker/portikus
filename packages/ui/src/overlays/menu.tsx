@@ -41,6 +41,8 @@ export interface MenuProps {
 	children?: React.ReactNode;
 	className?: string;
 	style?: React.CSSProperties;
+	/** Before focus returns to the trigger. preventDefault to leave it. */
+	onCloseAutoFocus?: (event: Event) => void;
 }
 
 /** The styled menu surface: Radix Content inside its Portal. */
@@ -49,6 +51,7 @@ export function Menu({
 	children,
 	className,
 	style,
+	onCloseAutoFocus,
 }: MenuProps): React.ReactElement {
 	const kind = React.useContext(MenuKindContext);
 	const P = parts(kind);
@@ -58,6 +61,7 @@ export function Menu({
 			className={`pk-menu min-w-50 rounded-md border border-line bg-surface-raised p-1 shadow-md ${className ?? ""}`}
 			style={style}
 			sideOffset={kind === "dropdown" ? 4 : undefined}
+			onCloseAutoFocus={onCloseAutoFocus}
 		>
 			{children}
 		</P.Content>
