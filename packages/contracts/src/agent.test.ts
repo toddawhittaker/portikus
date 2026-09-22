@@ -55,6 +55,45 @@ test("AgentCreateTerminalRequest requires an id, a cwd, a theme and a zone", () 
 	).toBe(false);
 });
 
+test("AgentCreateTerminalRequest takes a launcher agent and only the two institutional keys", () => {
+	const input = {
+		id: terminalId,
+		cwd: "/home/student",
+		theme: "dark" as const,
+		timezone: "America/New_York",
+		agent: "codex" as const,
+		institutionalEnv: { OPENAI_API_KEY: "sk-test" },
+	};
+	expect(AgentCreateTerminalRequest.parse(input)).toEqual(input);
+	expect(
+		AgentCreateTerminalRequest.parse({
+			...input,
+			agent: "claude",
+			institutionalEnv: { ANTHROPIC_API_KEY: "sk-ant" },
+		}).agent,
+	).toBe("claude");
+	const { agent: _agent, institutionalEnv: _env, ...plain } = input;
+	expect(AgentCreateTerminalRequest.parse(plain)).toEqual(plain);
+	expect(
+		AgentCreateTerminalRequest.safeParse({ ...plain, agent: "gemini" }).success,
+	).toBe(false);
+	expect(
+		AgentCreateTerminalRequest.safeParse({ ...plain, command: "codex" }).success,
+	).toBe(false);
+	expect(
+		AgentCreateTerminalRequest.safeParse({
+			...plain,
+			institutionalEnv: { PATH: "/usr/bin" },
+		}).success,
+	).toBe(false);
+	expect(
+		AgentCreateTerminalRequest.safeParse({
+			...plain,
+			institutionalEnv: { ANTHROPIC_API_KEY: "k", EXTRA: "no" },
+		}).success,
+	).toBe(false);
+});
+
 test("AgentError round-trips and rejects an unknown code", () => {
 	const input = { error: { code: "TERMINAL_LIMIT" as const, message: "too many" } };
 	expect(AgentError.parse(input)).toEqual(input);

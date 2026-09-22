@@ -15,6 +15,20 @@ export const TerminalId = z.string().uuid();
 export type TerminalId = z.infer<typeof TerminalId>;
 
 /**
+ * Which coding agent a launcher started in this terminal (SPEC.md §10.1).
+ * An ordinary shell has no value.
+ */
+export const CodingAgent = z.enum(["claude", "codex"]);
+export type CodingAgent = z.infer<typeof CodingAgent>;
+
+/**
+ * Full object id from Git: `git stash create` for the review baseline, or
+ * the HEAD that baseline was taken against (SPEC.md §10.9). SHA-1 or SHA-256.
+ * Not a second snapshot format.
+ */
+const GitObjectId = z.string().regex(/^[0-9a-f]{40}$|^[0-9a-f]{64}$/);
+
+/**
  * Terminal metadata persisted by the control plane (SPEC.md §9.6, §26).
  * The process itself is not persisted across a full workspace stop.
  */
@@ -29,6 +43,15 @@ export const Terminal = z.object({
 	endedAt: z.string().datetime().nullable(),
 	/** This terminal's own colour scheme (issue #268). */
 	theme: TerminalTheme,
+	/**
+	 * Set when a launcher started a coding agent here (SPEC.md §10.8).
+	 * Absent on rows written before Epic 9.
+	 */
+	agent: CodingAgent.nullable().optional(),
+	/** Object id from `git stash create` before the agent ran (SPEC.md §10.9). */
+	baselineObjectId: GitObjectId.nullable().optional(),
+	/** HEAD at the moment that baseline was taken (SPEC.md §10.9, §12.7). */
+	baselineHead: GitObjectId.nullable().optional(),
 });
 export type Terminal = z.infer<typeof Terminal>;
 
@@ -44,6 +67,11 @@ export const CreateTerminalRequest = z
 		projectId: z.string().uuid().optional(),
 		/** Defaults to the user's terminal colour scheme (issue #268). */
 		theme: TerminalTheme.optional(),
+		/**
+		 * Present when the center-pane launcher is starting Claude or Codex
+		 * (SPEC.md §10.2). There is no command string: the server picks the CLI.
+		 */
+		agent: CodingAgent.optional(),
 	})
 	.strict();
 export type CreateTerminalRequest = z.infer<typeof CreateTerminalRequest>;
