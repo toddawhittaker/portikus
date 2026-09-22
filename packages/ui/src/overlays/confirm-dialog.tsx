@@ -1,6 +1,7 @@
 import * as RadixAlertDialog from "@radix-ui/react-alert-dialog";
 import * as React from "react";
 import { Button, Icon, TextField } from "../primitives/index.js";
+import { useReturnFocus } from "./dialog";
 
 export const ConfirmDialogRoot = RadixAlertDialog.Root;
 export const ConfirmDialogTrigger = RadixAlertDialog.Trigger;
@@ -44,6 +45,7 @@ export function ConfirmDialog({
 }: ConfirmDialogProps): React.ReactElement {
 	const [typed, setTyped] = React.useState(typedValue ?? "");
 	const ready = !confirmText || typed === confirmText;
+	const returnFocus = useReturnFocus();
 	return (
 		<RadixAlertDialog.Portal>
 			<RadixAlertDialog.Overlay
@@ -52,6 +54,8 @@ export function ConfirmDialog({
 			<RadixAlertDialog.Content
 				id={id}
 				data-testid={testId}
+				onOpenAutoFocus={returnFocus.onOpenAutoFocus}
+				onCloseAutoFocus={returnFocus.onCloseAutoFocus}
 				className={`pk-dialog ${inline ? "pk-dialog--inline" : ""}`}
 			>
 				<div className="flex items-start gap-3 px-6 pt-6">

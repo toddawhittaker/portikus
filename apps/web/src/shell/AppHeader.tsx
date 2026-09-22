@@ -12,6 +12,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { clearLocalLayouts } from "../layout/local.js";
+import { useProfile } from "../settings/profileQueries.js";
 import { SettingsDialog } from "../settings/SettingsDialog.js";
 import type { MeUser } from "../useMe.js";
 
@@ -38,6 +39,7 @@ export function AppHeader({
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const signOutForm = useRef<HTMLFormElement>(null);
+	const picture = useProfile().data?.picture ?? null;
 
 	return (
 		<header className="pk-appbar" data-testid="app-header">
@@ -64,7 +66,16 @@ export function AppHeader({
 			<MenuRoot>
 				<MenuTrigger asChild>
 					<button type="button" className="pk-account" data-testid="me">
-						<span className="pk-initials">{initials(user.displayName)}</span>
+						{picture ? (
+							<img
+								className="pk-initials object-cover"
+								src={picture}
+								alt=""
+								data-testid="account-picture"
+							/>
+						) : (
+							<span className="pk-initials">{initials(user.displayName)}</span>
+						)}
 						{/* The gap is only visual. This space is part of the button text. */}{" "}
 						<span>{user.displayName}</span>
 						<Icon name="chevron-down" size="sm" />

@@ -1296,3 +1296,44 @@ migration from another branch that stopped Kysely from starting (PR #342).
   per-user settings row the issue asks for. The Profile section (picture,
   GitHub and personal links) did not land; the Account section shows only
   the institution sign-in.
+
+## Epic 9.2 — image paste into the terminal, and the rest of issue #300
+
+The requirement is `docs/EPIC-9.2.md` until SPEC.md section 29 lists the
+epic.
+
+**Image paste (issue #355).** Pasting a lone png or jpeg into a terminal,
+by Ctrl+V, Ctrl+Shift+V or a right-click, saves it through the existing
+project upload as `.portikus/pastes/<UTC time>.png` (or `.jpeg`) in the
+project the terminal was opened in, creating the folders first. The
+terminal then receives the absolute path under `/home/student`, a
+trailing space, and no newline; the picture bytes never reach it. A paste
+that carries any text stays a text paste. Keyboard paste now always goes
+through the browser paste event, so it works where `readText` is refused,
+as in Firefox, and text still lands once. A right-click reads the
+clipboard items and falls back to `readText`. A picture over the 50 MiB
+upload cap is refused with the usual message. Gap: in Firefox a
+right-click paste still depends on the browser allowing `clipboard.read`.
+
+**Settings (issue #300).** Appearance now follows the student. The
+light, dark, or system choice is a per-user setting saved through `PUT /me/settings` the moment it is
+chosen. The browser's `pk-theme` copy is still read before the first
+paint, and the workspace screen waits for the settings before it draws,
+so a browser that has never seen the choice shows it without a flash.
+The saved value wins and refreshes that copy.
+
+The Account section is folded into a new Profile section at the top of
+Settings. It shows the display name, email, sign-in name, and workspace
+label from the institution sign-in, read-only. The student can add a
+GitHub username or link, one personal https link, and a PNG or JPEG
+picture of up to 1 MiB, which replaces the initials in the account menu
+button. The API checks the picture type from its bytes, keeps it on the
+users row (migration 0012), and serves it only to its owner at
+`/me/picture`. Nothing in Profile is used for authorization.
+
+Gaps: the picture cap is 1 MiB, not the 50 MiB file-upload cap, because
+the picture lives on the users row. The picture upload uses its own
+`PUT /me/picture` route rather than the project file upload, which writes
+into a workspace. The administration page does not wait for the saved
+appearance, so it uses the browser's copy until the workspace screen has
+loaded once.

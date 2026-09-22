@@ -2,7 +2,10 @@ import { PaneHandle, Skeleton } from "@portikus/ui";
 import { Navigate, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
-import { useTerminalThemeAttribute } from "./editor/settingsQueries.js";
+import {
+	useEditorSettings,
+	useTerminalThemeAttribute,
+} from "./editor/settingsQueries.js";
 import { LayoutStoreContext, useLayoutStore } from "./layout/store.js";
 import { usePageTitle } from "./pageTitle.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
@@ -29,7 +32,21 @@ export function WorkspacePage() {
 	}
 	if (me.status === "anonymous") return <Navigate to="/" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
-	return <WorkspaceShell workspaceId={id} user={me.user} />;
+	return <WorkspaceShellWhenSettled workspaceId={id} user={me.user} />;
+}
+
+/**
+ * Waits for the student's settings so the saved appearance is applied before
+ * the shell first paints, even in a browser that has never seen them
+ * (issue #300). A failed load does not hold the shell back.
+ */
+function WorkspaceShellWhenSettled(props: { workspaceId: string; user: MeUser }) {
+	const settings = useEditorSettings();
+	// Only the first answer is waited for; a later refetch never hides the shell.
+	if (!settings.isFetched) {
+		return <div className="pk-root" aria-busy="true" />;
+	}
+	return <WorkspaceShell {...props} />;
 }
 
 function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUser }) {

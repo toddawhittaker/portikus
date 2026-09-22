@@ -28,13 +28,13 @@ import {
 } from "@portikus/contracts";
 import {
 	Button,
-	Checkbox,
 	ContextMenu,
 	ContextMenuTrigger,
 	EmptyState,
 	Icon,
 	IconButton,
 	Menu,
+	MenuCheckboxItem,
 	MenuItem,
 	MenuRoot,
 	MenuSeparator,
@@ -47,6 +47,7 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useId,
 	useMemo,
 	useRef,
 	useState,
@@ -65,6 +66,7 @@ import {
 	isIgnored,
 	NO_DECORATIONS,
 } from "./gitStatus.js";
+import { MoveDialog } from "./MoveDialog.js";
 import { NameDialog } from "./NameDialog.js";
 import {
 	baseName,
@@ -119,6 +121,7 @@ interface TreeApi {
 	openFile: (node: FileNode) => void;
 	newIn: (dir: string, kind: "file" | "dir") => void;
 	rename: (node: FileNode) => void;
+	move: (node: FileNode) => void;
 	remove: (node: FileNode) => void;
 	uploadInto: (dir: string, files: FileList | File[]) => void;
 	pickUpload: (dir: string) => void;
@@ -141,6 +144,9 @@ interface TreeApi {
 	uploadDrag: boolean;
 	/** Git decorations for the rows (SPEC.md §12.1). */
 	git: GitDecorations;
+	/** The row whose ⋯ menu is open, so the keyboard can open it (issue #366). */
+	menuPath: string | null;
+	setMenuPath: (path: string | null) => void;
 }
 
 const TreeContext = createContext<TreeApi | null>(null);
@@ -232,11 +238,13 @@ export function FileTreePane({
 	// way to tell "moved within the pane" from "left the pane" (issue #220).
 	const uploadDepth = useRef(0);
 	const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
+	const [menuPath, setMenuPath] = useState<string | null>(null);
 	const [dialog, setDialog] = useState<
 		| { kind: "none" }
 		| { kind: "new"; dir: string; type: "file" | "dir" }
 		| { kind: "rename"; node: FileNode }
 		| { kind: "delete"; nodes: FileNode[] }
+		| { kind: "move"; nodes: FileNode[] }
 	>({ kind: "none" });
 	const treeElement = useRef<HTMLElement | null>(null);
 	const uploadInput = useRef<HTMLInputElement | null>(null);
@@ -443,6 +451,7 @@ export function FileTreePane({
 			openFile,
 			newIn: (dir, kind) => setDialog({ kind: "new", dir, type: kind }),
 			rename: (node) => setDialog({ kind: "rename", node }),
+			move: (node) => setDialog({ kind: "move", nodes: targetsFor(node) }),
 			remove: (node) => setDialog({ kind: "delete", nodes: targetsFor(node) }),
 			uploadInto,
 			pickUpload,
@@ -460,6 +469,8 @@ export function FileTreePane({
 			dropDir,
 			uploadDrag,
 			git,
+			menuPath,
+			setMenuPath,
 		}),
 		[
 			workspaceId,
@@ -481,6 +492,7 @@ export function FileTreePane({
 			dropDir,
 			uploadDrag,
 			git,
+			menuPath,
 		],
 	);
 
@@ -571,14 +583,13 @@ export function FileTreePane({
 							    root, so a project with no files still has them. */}
 								<CreateMenuItems dir="" testIdPrefix="files-more" />
 								<MenuSeparator />
-								<div className="px-2 py-1.5" data-testid="files-show-hidden">
-									<Checkbox
-										label="Show hidden and generated files"
-										description="node_modules, .git and dist are hidden"
-										checked={showHidden}
-										onChange={() => toggleShowHidden(project.id)}
-									/>
-								</div>
+								<MenuCheckboxItem
+									checked={showHidden}
+									onCheckedChange={() => toggleShowHidden(project.id)}
+									testId="files-show-hidden"
+								>
+									Show hidden and generated files
+								</MenuCheckboxItem>
 								<MenuSeparator />
 								<MenuItem onSelect={() => api.pickUpload("")}>
 									<span data-testid="files-upload">Upload files…</span>
@@ -781,6 +792,34 @@ export function FileTreePane({
 							}}
 						/>
 					)}
+					{dialog.kind === "move" && (
+						<MoveDialog
+							workspaceId={workspaceId}
+							projectId={project.id}
+							slug={project.slug}
+							nodes={dialog.nodes}
+							showHidden={showHidden}
+							pending={mutations.pending}
+							onClose={() => setDialog({ kind: "none" })}
+							onMove={(destination) => {
+								// One at a time, so a failure stops the rest and is reported once.
+								void (async () => {
+									try {
+										for (const node of dialog.nodes) {
+											const to = joinPath(destination, node.name);
+											await mutations.move.mutateAsync({ from: node.path, to });
+											afterMove(node.path, to);
+										}
+										if (destination !== "") api.setOpen(destination, true);
+										setSelection(EMPTY_SELECTION);
+										setDialog({ kind: "none" });
+									} catch (error) {
+										fail(error);
+									}
+								})();
+							}}
+						/>
+					)}
 					{dialog.kind === "delete" && (
 						<DeleteFileConfirm
 							nodes={dialog.nodes}
@@ -863,6 +902,7 @@ function RootDropZone({ slug }: { slug: string }) {
 function TreeRoot({ slug }: { slug: string }) {
 	const api = useTreeApi();
 	const ref = useRef<HTMLDivElement | null>(null);
+	const helpId = useId();
 	const { treeRef } = api;
 	useEffect(() => {
 		treeRef(ref.current);
@@ -935,6 +975,15 @@ function TreeRoot({ slug }: { slug: string }) {
 				if (isDir) api.toggle(path);
 				else api.openFile({ path, name: baseName(path), isDir: false });
 				break;
+			case "F10":
+				if (!event.shiftKey) break;
+				event.preventDefault();
+				api.setMenuPath(path);
+				break;
+			case "ContextMenu":
+				event.preventDefault();
+				api.setMenuPath(path);
+				break;
 			case "Delete":
 				// Delete acts on the selection when the focused row is part of it.
 				event.preventDefault();
@@ -951,10 +1000,15 @@ function TreeRoot({ slug }: { slug: string }) {
 			ref={ref}
 			role="tree"
 			aria-label={`Files in ${slug}`}
+			aria-describedby={helpId}
 			className="pk-tree"
 			data-testid="file-tree"
 			onKeyDown={onKeyDown}
 		>
+			<span id={helpId} className="pk-visually-hidden">
+				Arrow keys move and open folders, Enter opens a file, Shift+F10 or the Menu key
+				opens the actions for a row, Delete deletes it.
+			</span>
 			<Directory dir="" level={1} />
 		</div>
 	);
@@ -995,6 +1049,15 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	const dirty = isDir && api.git.changedDirs.has(path);
 	const ignored = api.git.repo && isIgnored(path, api.git.ignored);
 	const title = decoration ? `${shown} — ${decoration.title}` : undefined;
+	// What the letter, the dot and the muted colour say, in words (issue #362).
+	const status = decoration
+		? decoration.title
+		: dirty
+			? "contains changes"
+			: ignored
+				? "ignored"
+				: null;
+	const rowRef = useRef<HTMLDivElement | null>(null);
 
 	const selected = api.selection.paths.includes(path);
 	const drag = useDraggable({ id: `row:${path}`, data: { isDir } });
@@ -1013,6 +1076,7 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	return (
 		// biome-ignore lint/a11y/useKeyWithClickEvents: the tree handles keys for every row
 		<div
+			ref={rowRef}
 			role="treeitem"
 			aria-level={level}
 			aria-expanded={isDir ? open : undefined}
@@ -1028,6 +1092,13 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 			data-ignored={ignored ? "true" : undefined}
 			className="pk-tree-item"
 			onFocus={() => api.setFocusedPath(path)}
+			onContextMenu={(event) => {
+				// A keyboard context menu lands on the focused row itself; a pointer
+				// lands inside it and is handled by the right-click menu.
+				if (event.target !== event.currentTarget) return;
+				event.preventDefault();
+				api.setMenuPath(path);
+			}}
 			onClick={(event) => {
 				// A click inside a nested row belongs to that row, not this one.
 				const row =
@@ -1079,6 +1150,12 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 								size="md"
 							/>
 							<span className="pk-tree-name">{shown}</span>
+							{status ? <span className="pk-visually-hidden">, {status}</span> : null}
+							{ignored && !decoration && !dirty ? (
+								<span className="pk-tree-tag" aria-hidden="true">
+									ignored
+								</span>
+							) : null}
 							{decoration ? (
 								<>
 									{decoration.kind === "conflict" ? (
@@ -1097,18 +1174,30 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 						<RowMenuItems node={node} />
 					</Menu>
 				</ContextMenu>
-				<MenuRoot>
+				<MenuRoot
+					open={api.menuPath === path}
+					onOpenChange={(value) => api.setMenuPath(value ? path : null)}
+				>
 					<MenuTrigger asChild>
+						{/* Not a Tab stop: the row is, and Shift+F10 opens this (issue #366). */}
 						<IconButton
 							icon="more"
 							label={`Actions for ${shown}`}
 							size="sm"
+							tabIndex={-1}
 							className="pk-tree-actions"
 							data-testid={`file-menu-${path}`}
 							onClick={(event) => event.stopPropagation()}
 						/>
 					</MenuTrigger>
-					<Menu label={`Actions for ${shown}`}>
+					<Menu
+						label={`Actions for ${shown}`}
+						onCloseAutoFocus={(event) => {
+							// Back to the row, the tree's one Tab stop, not the hidden button.
+							event.preventDefault();
+							rowRef.current?.focus();
+						}}
+					>
 						<RowMenuItems node={node} />
 					</Menu>
 				</MenuRoot>
@@ -1162,6 +1251,11 @@ function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 					<span data-testid="row-rename">Rename…</span>
 				</MenuItem>
 			)}
+			<MenuItem onSelect={() => api.move(node)}>
+				<span data-testid="row-move">
+					{many ? `Move ${targets.length} items to…` : "Move to…"}
+				</span>
+			</MenuItem>
 			{many ? (
 				<MenuItem onSelect={() => api.download(targets)}>
 					<span data-testid="row-download-selection">

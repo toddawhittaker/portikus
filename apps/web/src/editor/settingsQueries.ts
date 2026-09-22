@@ -6,6 +6,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { request } from "../api/request.js";
+import { rememberThemePreference } from "../shell/theme.js";
 
 export const editorSettingsKey = ["me", "settings"] as const;
 
@@ -16,7 +17,13 @@ export const editorSettingsKey = ["me", "settings"] as const;
 export function useEditorSettings() {
 	return useQuery({
 		queryKey: editorSettingsKey,
-		queryFn: () => request(MeSettings, "/me/settings"),
+		// The saved appearance wins over this browser's copy, and it is applied
+		// here, before anything renders with the settings (issue #300).
+		queryFn: async () => {
+			const settings = await request(MeSettings, "/me/settings");
+			rememberThemePreference(settings.appearance);
+			return settings;
+		},
 	});
 }
 
@@ -31,6 +38,7 @@ export function useUpdateEditorSettings() {
 				body: JSON.stringify(body),
 			}),
 		onSuccess: (settings) => {
+			rememberThemePreference(settings.appearance);
 			client.setQueryData(editorSettingsKey, settings);
 		},
 	});

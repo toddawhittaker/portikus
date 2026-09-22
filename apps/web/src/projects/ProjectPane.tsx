@@ -152,15 +152,13 @@ export function ProjectPane({
 												>
 													<span data-testid="project-duplicate">Duplicate…</span>
 												</MenuItem>
-												<MenuItem>
-													{/* A plain link so the browser streams the zip to disk. */}
-													<a
-														href={projectDownloadUrl(workspaceId, project.id)}
-														download={`${project.slug}.zip`}
-														data-testid="project-download"
-													>
-														Download as zip
-													</a>
+												{/* The item is the link, so Enter downloads (issue #361). */}
+												<MenuItem
+													href={projectDownloadUrl(workspaceId, project.id)}
+													download={`${project.slug}.zip`}
+													testId="project-download"
+												>
+													Download as zip
 												</MenuItem>
 												{project.isGitRepo === false && (
 													<MenuItem onSelect={() => gitInit.mutate(project.id)}>
