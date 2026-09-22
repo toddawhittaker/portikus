@@ -240,3 +240,27 @@ test.skipIf(skip)("a workspace refuses more than sixteen connections", async () 
 		}
 	}
 });
+
+test.skipIf(skip)(
+	"an administrator's socket on a student's workspace is not presence",
+	async () => {
+		const carol = new CookieJar();
+		await loginAs(app, "carol", carol);
+		const socket = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+		const message = (await socket.next()) as Record<string, unknown>;
+		expect(message.type).toBe("workspace");
+		socket.ws.send(JSON.stringify({ type: "heartbeat" }));
+		await new Promise((resolve) => setTimeout(resolve, 200));
+
+		expect(await countConnections()).toBe(0);
+		const row = await testDb.db
+			.selectFrom("workspaces")
+			.select(["desired_state", "last_active_connection_at"])
+			.where("id", "=", workspaceId)
+			.executeTakeFirstOrThrow();
+		expect(row.desired_state).toBe("stopped");
+		expect(row.last_active_connection_at).toBeNull();
+
+		await socket.close();
+	},
+);

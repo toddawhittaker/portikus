@@ -5,6 +5,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import type { AdminUser } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -378,4 +379,285 @@ test.skipIf(skip)("an unknown user id is 404 and a bad body is 400", async () =>
 	});
 	expect(badBody.statusCode).toBe(400);
 	expect(badBody.json().code).toBe("VALIDATION_FAILED");
+});
+
+// --- Accounts: markers, disable and enable (SPEC.md §20.1, issue #302) ---
+
+test.skipIf(skip)("a student gets 403 on every /admin route", async () => {
+	// Collect the routes as the server registers them, so a new admin route
+	// cannot be left out of this table.
+	const probe = buildTestServer(testDb.db, mock.issuer);
+	const routes: { method: string; url: string }[] = [];
+	probe.addHook("onRoute", (route) => {
+		const methods = Array.isArray(route.method) ? route.method : [route.method];
+		for (const method of methods) {
+			if (route.url.startsWith("/admin") && method !== "HEAD") {
+				routes.push({ method, url: route.url });
+			}
+		}
+	});
+	await probe.ready();
+	try {
+		const urls = routes.map((route) => `${route.method} ${route.url}`);
+		for (const known of [
+			"GET /admin/workspaces",
+			"GET /admin/settings",
+			"PUT /admin/settings",
+			"GET /admin/users",
+			"PUT /admin/users/:id/settings",
+			"POST /admin/users/:id/disable",
+			"POST /admin/users/:id/enable",
+			"GET /admin/workspaces/:id",
+			"POST /admin/workspaces/:id/archive",
+			"POST /admin/workspaces/:id/unarchive",
+			"PUT /admin/workspaces/:id/quota",
+		]) {
+			expect(urls).toContain(known);
+		}
+
+		const jar = new CookieJar();
+		await loginAs(probe, "alice", jar);
+		for (const route of routes) {
+			const res = await probe.inject({
+				method: route.method as "GET",
+				url: route.url.replace(":id", crypto.randomUUID()),
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				...(route.method === "GET" ? {} : { payload: {} }),
+			});
+			expect(res.statusCode, `${route.method} ${route.url}`).toBe(403);
+		}
+	} finally {
+		await probe.close();
+	}
+});
+
+async function userId(name: string): Promise<string> {
+	const row = await testDb.db
+		.selectFrom("users")
+		.select("id")
+		.where("display_name", "like", `${name}%`)
+		.executeTakeFirstOrThrow();
+	return row.id;
+}
+
+test.skipIf(skip)(
+	"the account list carries identity, markers and the workspace",
+	async () => {
+		const alice = await studentJar();
+		await app.inject({
+			method: "POST",
+			url: "/workspaces",
+			headers: csrfHeaders(alice, PUBLIC_URL),
+		});
+		const carol = await adminJar();
+		const now = Date.now();
+		const day = 24 * 60 * 60 * 1000;
+		// Two accounts share an email; the one with the older sign-in is stale.
+		await testDb.db
+			.insertInto("users")
+			.values([
+				{
+					oidc_issuer: "https://old.example",
+					oidc_subject: "bob-old",
+					email: "BOB@example.edu",
+					display_name: "Zed Bob Old",
+					role: "student",
+					last_login_at: new Date(now - 2 * day).toISOString(),
+				},
+				{
+					oidc_issuer: "https://new.example",
+					oidc_subject: "bob-new",
+					email: "bob@example.edu",
+					display_name: "Bob New",
+					role: "student",
+					last_login_at: new Date(now - day).toISOString(),
+				},
+				{
+					oidc_issuer: "https://new.example",
+					oidc_subject: "gone",
+					email: "gone@example.edu",
+					display_name: "Gone Student",
+					role: "student",
+					last_login_at: new Date(now - 31 * day).toISOString(),
+				},
+			])
+			.execute();
+
+		const res = await app.inject({
+			method: "GET",
+			url: "/admin/users",
+			headers: { cookie: carol.cookieHeader() },
+		});
+		expect(res.statusCode).toBe(200);
+		const users = res.json().users as AdminUser[];
+		const names = users.map((user) => user.displayName);
+
+		// The duplicates sit together even though their names sort apart.
+		expect(names[names.indexOf("Bob New") + 1]).toBe("Zed Bob Old");
+
+		const byName = new Map(users.map((user) => [user.displayName, user]));
+		expect(byName.get("Bob New")?.markers).toEqual({
+			disabled: false,
+			archived: false,
+			duplicateEmail: true,
+			stale: false,
+		});
+		expect(byName.get("Zed Bob Old")?.markers).toMatchObject({
+			duplicateEmail: true,
+			stale: true,
+		});
+		expect(byName.get("Gone Student")?.markers?.stale).toBe(true);
+		expect(byName.get("Gone Student")?.workspace).toBeNull();
+
+		const aliceRow = byName.get("Alice Student");
+		expect(aliceRow?.issuer).toBe(mock.issuer);
+		expect(aliceRow?.preferredUsername).toBe("alice");
+		expect(aliceRow?.lastLoginAt).not.toBeNull();
+		expect(aliceRow?.markers?.stale).toBe(false);
+		expect(aliceRow?.workspace).toMatchObject({
+			state: "provisioning",
+			activeConnections: 0,
+			quotaConfig: { homeGiB: 25, dockerGiB: 20 },
+			archivedAt: null,
+		});
+	},
+);
+
+test.skipIf(skip)(
+	"disable signs the user out, revokes previews, stops the workspace and blocks sign-in",
+	async () => {
+		const alice = await studentJar();
+		const workspace = (
+			await app.inject({
+				method: "POST",
+				url: "/workspaces",
+				headers: csrfHeaders(alice, PUBLIC_URL),
+			})
+		).json();
+		const aliceId = await userId("Alice");
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ desired_state: "running" })
+			.where("id", "=", workspace.id)
+			.execute();
+		const session = await testDb.db
+			.selectFrom("sessions")
+			.select("id")
+			.where("user_id", "=", aliceId)
+			.executeTakeFirstOrThrow();
+		await testDb.db
+			.insertInto("preview_sessions")
+			.values({
+				token_hash: "hash-disable",
+				user_id: aliceId,
+				session_id: session.id,
+				workspace_id: workspace.id,
+				port: 3000,
+				preview_host: "x.preview.localhost",
+			})
+			.execute();
+
+		const carol = await adminJar();
+		const res = await app.inject({
+			method: "POST",
+			url: `/admin/users/${aliceId}/disable`,
+			headers: csrfHeaders(carol, PUBLIC_URL),
+		});
+		expect(res.statusCode).toBe(200);
+		expect(res.json().disabledAt).not.toBeNull();
+
+		// The student's next request is refused.
+		const next = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspace.id}`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(next.statusCode).toBe(401);
+
+		const sessions = await testDb.db
+			.selectFrom("sessions")
+			.select("id")
+			.where("user_id", "=", aliceId)
+			.execute();
+		expect(sessions).toHaveLength(0);
+		// No preview session of theirs is left live (the rows die with the sessions).
+		const livePreviews = await testDb.db
+			.selectFrom("preview_sessions")
+			.select("id")
+			.where("user_id", "=", aliceId)
+			.where("revoked_at", "is", null)
+			.execute();
+		expect(livePreviews).toHaveLength(0);
+		const row = await testDb.db
+			.selectFrom("workspaces")
+			.select("desired_state")
+			.where("id", "=", workspace.id)
+			.executeTakeFirstOrThrow();
+		expect(row.desired_state).toBe("stopped");
+
+		// A new sign-in is denied.
+		expect((await loginAs(app, "alice", new CookieJar())).status).toBe(403);
+
+		const list = await app.inject({
+			method: "GET",
+			url: "/admin/users",
+			headers: { cookie: carol.cookieHeader() },
+		});
+		const listed = (list.json().users as AdminUser[]).find(
+			(user) => user.id === aliceId,
+		);
+		expect(listed?.markers?.disabled).toBe(true);
+
+		// Enable lets sign-in work again.
+		const enabled = await app.inject({
+			method: "POST",
+			url: `/admin/users/${aliceId}/enable`,
+			headers: csrfHeaders(carol, PUBLIC_URL),
+		});
+		expect(enabled.statusCode).toBe(200);
+		expect(enabled.json().disabledAt).toBeNull();
+		expect((await loginAs(app, "alice", new CookieJar())).status).toBe(302);
+
+		const audits = await testDb.db
+			.selectFrom("audit_events")
+			.select(["action", "actor"])
+			.where("target", "=", aliceId)
+			.where("action", "in", ["user.disabled", "user.enabled"])
+			.orderBy("id")
+			.execute();
+		const carolId = await userId("Carol");
+		expect(audits).toEqual([
+			{ action: "user.disabled", actor: `user:${carolId}` },
+			{ action: "user.enabled", actor: `user:${carolId}` },
+		]);
+	},
+);
+
+test.skipIf(skip)("an administrator cannot disable their own account", async () => {
+	const carol = await adminJar();
+	const res = await app.inject({
+		method: "POST",
+		url: `/admin/users/${await userId("Carol")}/disable`,
+		headers: csrfHeaders(carol, PUBLIC_URL),
+	});
+	expect(res.statusCode).toBe(400);
+	expect(res.json().code).toBe("VALIDATION_FAILED");
+});
+
+test.skipIf(skip)("disable and enable answer 404 and 400 for bad ids", async () => {
+	const carol = await adminJar();
+	for (const action of ["disable", "enable"]) {
+		const missing = await app.inject({
+			method: "POST",
+			url: `/admin/users/${crypto.randomUUID()}/${action}`,
+			headers: csrfHeaders(carol, PUBLIC_URL),
+		});
+		expect(missing.statusCode).toBe(404);
+		const bad = await app.inject({
+			method: "POST",
+			url: `/admin/users/not-a-uuid/${action}`,
+			headers: csrfHeaders(carol, PUBLIC_URL),
+		});
+		expect(bad.statusCode).toBe(400);
+	}
 });
