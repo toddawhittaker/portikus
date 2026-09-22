@@ -1503,6 +1503,16 @@ export async function startFakeAgent(
 		services: listeningFor(keyOf(request)),
 	}));
 
+	// A fixed sample, so the control plane can proxy usage without a /proc.
+	app.get("/usage", async () => ({
+		observedAt: "2026-01-01T00:00:00.000Z",
+		cpuPercent: 1.5,
+		memory: { usedBytes: 100, totalBytes: 200 },
+		disk: { usedBytes: 300, totalBytes: 400 },
+		network: { receiveBytesPerSecond: 10, transmitBytesPerSecond: 20 },
+		processes: [{ pid: 7, cpuPercent: 1.5, residentBytes: 4096, command: "node" }],
+	}));
+
 	app.get(
 		"/listening/events",
 		{ websocket: true },

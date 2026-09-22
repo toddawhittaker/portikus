@@ -5,10 +5,29 @@
  */
 import type { ListeningService } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { RunningPane } from "./RunningPane.js";
 import { ListeningContext } from "./services.js";
+
+const USAGE = {
+	observedAt: "2026-01-01T00:00:00.000Z",
+	cpuPercent: 1,
+	memory: { usedBytes: 1024, totalBytes: 2048 },
+	disk: { usedBytes: 1024, totalBytes: 4096 },
+	network: { receiveBytesPerSecond: 0, transmitBytesPerSecond: 0 },
+	processes: [{ pid: 7, cpuPercent: 1, residentBytes: 4096, command: "node" }],
+};
+
+let client: QueryClient;
 
 const WORKSPACE = "11111111-1111-4111-8111-111111111111";
 
@@ -36,6 +55,28 @@ function selectRow(port: number) {
 	fireEvent.click(button);
 }
 
+function tree(
+	services: ListeningService[],
+	options: {
+		activePort?: number | null;
+		onOpenPreview?: (port: number) => void;
+	} = {},
+) {
+	return (
+		<QueryClientProvider client={client}>
+			<ToastProvider>
+				<ListeningContext.Provider value={{ services, loaded: true }}>
+					<RunningPane
+						workspaceId={WORKSPACE}
+						activePort={options.activePort ?? null}
+						onOpenPreview={options.onOpenPreview ?? (() => {})}
+					/>
+				</ListeningContext.Provider>
+			</ToastProvider>
+		</QueryClientProvider>
+	);
+}
+
 function show(
 	services: ListeningService[],
 	options: {
@@ -43,26 +84,40 @@ function show(
 		onOpenPreview?: (port: number) => void;
 	} = {},
 ) {
-	return render(
-		<ToastProvider>
-			<ListeningContext.Provider value={{ services, loaded: true }}>
-				<RunningPane
-					workspaceId={WORKSPACE}
-					activePort={options.activePort ?? null}
-					onOpenPreview={options.onOpenPreview ?? (() => {})}
-				/>
-			</ListeningContext.Provider>
-		</ToastProvider>,
-	);
+	return render(tree(services, options));
 }
 
 beforeEach(() => {
 	localStorage.clear();
+	sessionStorage.clear();
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe() {}
+			unobserve() {}
+			disconnect() {}
+		},
+	);
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(
+			async () =>
+				new Response(JSON.stringify(USAGE), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+		),
+	);
 });
 
 afterEach(() => {
 	cleanup();
+	client.clear();
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 });
 
 test("an empty workspace says nothing is running yet", () => {
@@ -161,21 +216,26 @@ test("no toggle is shown when nothing is hidden", () => {
 });
 
 test("Stop asks first, naming the command and the port", async () => {
-	const stop = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-		new Response("{}", {
+	const stop = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+		const url = String(input);
+		const body = url.includes("/usage") ? USAGE : {};
+		return new Response(JSON.stringify(body), {
 			status: 200,
 			headers: { "content-type": "application/json" },
-		}),
-	);
+		});
+	});
 	show([service({ port: 5173 })]);
 	fireEvent.click(screen.getByTestId("running-stop-5173"));
 	expect(screen.getByTestId("dialog-stop-listener").textContent).toContain(
 		"Stop node on port 5173?",
 	);
 	fireEvent.click(screen.getByTestId("dialog-confirm"));
-	await waitFor(() => expect(stop).toHaveBeenCalled());
-	expect(String(stop.mock.calls[0]?.[0])).toContain(
-		`/workspaces/${WORKSPACE}/listening/5173/stop`,
+	await waitFor(() =>
+		expect(
+			stop.mock.calls.some((call) =>
+				String(call[0]).includes(`/workspaces/${WORKSPACE}/listening/5173/stop`),
+			),
+		).toBe(true),
 	);
 });
 
@@ -253,19 +313,73 @@ test("the panel closes when the selected port disappears", () => {
 	const view = show([service({ port: 3000 }), service({ port: 5173 })]);
 	selectRow(3000);
 	expect(screen.getByTestId("running-details")).toBeTruthy();
-	view.rerender(
-		<ToastProvider>
-			<ListeningContext.Provider
-				value={{ services: [service({ port: 5173 })], loaded: true }}
-			>
-				<RunningPane
-					workspaceId={WORKSPACE}
-					activePort={null}
-					onOpenPreview={() => {}}
-				/>
-			</ListeningContext.Provider>
-		</ToastProvider>,
-	);
+	view.rerender(tree([service({ port: 5173 })]));
 	expect(screen.queryByTestId("running-row-3000")).toBeNull();
 	expect(screen.queryByTestId("running-details")).toBeNull();
+});
+
+test("a selected row shows CPU and memory, and the details divider can be focused", async () => {
+	show([service({ port: 3000 })]);
+	expect(vi.mocked(fetch).mock.calls.length).toBe(0);
+	selectRow(3000);
+	await waitFor(() =>
+		expect(screen.getByTestId("running-cpu").textContent).toBe("1.0%"),
+	);
+	expect(screen.getByTestId("running-memory").textContent).toBe("4.0 KB");
+	const handle = screen.getByRole("separator", { name: "Resize details" });
+	expect(handle.getAttribute("tabindex")).toBe("0");
+	expect(handle.className).toContain("pk-handle");
+});
+
+test("a selected process that has exited says so", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(
+			async () =>
+				new Response(JSON.stringify({ ...USAGE, processes: [] }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+		),
+	);
+	show([service({ port: 3000 })]);
+	selectRow(3000);
+	await waitFor(() =>
+		expect(screen.getByTestId("running-process-gone").textContent).toBe(
+			"This process is no longer running.",
+		),
+	);
+});
+
+test("usage polling stops when the row is no longer selected", async () => {
+	vi.useFakeTimers();
+	try {
+		const calls = vi.fn(
+			async () =>
+				new Response(JSON.stringify(USAGE), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+		);
+		vi.stubGlobal("fetch", calls);
+		const view = show([service({ port: 3000 })]);
+		await act(async () => {});
+		expect(calls).not.toHaveBeenCalled();
+		selectRow(3000);
+		await act(async () => {});
+		expect(calls.mock.calls.length).toBeGreaterThan(0);
+		const selected = calls.mock.calls.length;
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1000);
+		});
+		expect(calls.mock.calls.length).toBeGreaterThan(selected);
+		const whileSelected = calls.mock.calls.length;
+		view.rerender(tree([]));
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000);
+		});
+		expect(calls.mock.calls.length).toBe(whileSelected);
+	} finally {
+		vi.useRealTimers();
+	}
 });

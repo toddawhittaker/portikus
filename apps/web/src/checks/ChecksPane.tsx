@@ -3,6 +3,7 @@ import { Button, EmptyState, IconButton, StateBadge } from "@portikus/ui";
 import { useState } from "react";
 import { CheckOutput } from "./CheckOutput.js";
 import "./checks.css";
+import { PaneSplit } from "../shell/paneSplit.js";
 import { EditChecksDialog } from "./EditChecksDialog.js";
 import { useChecks, useRunCheck, useStopCheck } from "./queries.js";
 
@@ -52,6 +53,20 @@ export function ChecksPane({
 		});
 	}
 
+	const output =
+		shown === null ? null : (
+			<div className="pk-check-panel">
+				<div className="pk-check-panel-head">Output</div>
+				<CheckOutput
+					key={`${shown}:${runKey}`}
+					workspaceId={workspaceId}
+					projectId={projectId}
+					checkId={shown}
+					onFinished={() => void checks.refetch()}
+				/>
+			</div>
+		);
+
 	return (
 		<>
 			<div className="pk-pane-head">
@@ -66,13 +81,13 @@ export function ChecksPane({
 			</div>
 			<div className="pk-pane-sub">~/projects/{project.slug}</div>
 
-			<div className="pk-pane-body">
-				{checks.data?.error && (
-					<p className="pk-hint" data-testid="checks-file-error">
-						{checks.data.error}
-					</p>
-				)}
-				{definitions.length === 0 ? (
+			{definitions.length === 0 ? (
+				<div className="pk-pane-body">
+					{checks.data?.error && (
+						<p className="pk-hint" data-testid="checks-file-error">
+							{checks.data.error}
+						</p>
+					)}
 					<EmptyState
 						icon="check"
 						title="No checks configured"
@@ -88,68 +103,64 @@ export function ChecksPane({
 					>
 						Add a command such as <code>npm test</code> and run it here.
 					</EmptyState>
-				) : (
-					<ul className="pk-list pk-check-list" data-testid="checks-list">
-						{definitions.map((check) => {
-							const state = runs.get(check.id)?.state ?? "idle";
-							const badge = BADGE[state];
-							const running = state === "running";
-							return (
-								<li
-									key={check.id}
-									className={`pk-check-item${shown === check.id ? " is-current" : ""}`}
-									data-testid={`check-item-${check.id}`}
-								>
-									<div className="pk-check-row">
-										<button
-											type="button"
-											className="pk-check-face"
-											onClick={() => setSelected(check.id)}
-										>
-											<span className="pk-check-text">
-												<span className="pk-check-name" title={check.name}>
-													{check.name}
-												</span>
-												<span className="pk-check-command" title={check.command}>
-													{check.command}
-												</span>
-											</span>
-										</button>
-										<span
-											className="pk-check-badge"
-											data-testid={`check-state-${check.id}`}
-										>
-											<StateBadge state={badge.state} label={badge.label} />
-										</span>
-										<IconButton
-											icon={running ? "stop" : "play"}
-											label={`${running ? "Stop" : "Run"} ${check.name}`}
-											size="sm"
-											className={running ? "pk-check-stop" : "pk-check-run"}
-											data-testid={`check-${running ? "stop" : "run"}-${check.id}`}
-											onClick={() =>
-												running ? stop.mutate(check.id) : start(check.id)
-											}
-										/>
-									</div>
-								</li>
-							);
-						})}
-					</ul>
-				)}
-			</div>
-
-			{shown !== null && (
-				<div className="pk-check-panel">
-					<div className="pk-check-panel-head">Output</div>
-					<CheckOutput
-						key={`${shown}:${runKey}`}
-						workspaceId={workspaceId}
-						projectId={projectId}
-						checkId={shown}
-						onFinished={() => void checks.refetch()}
-					/>
 				</div>
+			) : (
+				<PaneSplit storageKey="pk-checks-output" label="Resize output" panel={output}>
+					<div className="pk-pane-body">
+						{checks.data?.error && (
+							<p className="pk-hint" data-testid="checks-file-error">
+								{checks.data.error}
+							</p>
+						)}
+						<ul className="pk-list pk-check-list" data-testid="checks-list">
+							{definitions.map((check) => {
+								const state = runs.get(check.id)?.state ?? "idle";
+								const badge = BADGE[state];
+								const running = state === "running";
+								return (
+									<li
+										key={check.id}
+										className={`pk-check-item${shown === check.id ? " is-current" : ""}`}
+										data-testid={`check-item-${check.id}`}
+									>
+										<div className="pk-check-row">
+											<button
+												type="button"
+												className="pk-check-face"
+												onClick={() => setSelected(check.id)}
+											>
+												<span className="pk-check-text">
+													<span className="pk-check-name" title={check.name}>
+														{check.name}
+													</span>
+													<span className="pk-check-command" title={check.command}>
+														{check.command}
+													</span>
+												</span>
+											</button>
+											<span
+												className="pk-check-badge"
+												data-testid={`check-state-${check.id}`}
+											>
+												<StateBadge state={badge.state} label={badge.label} />
+											</span>
+											<IconButton
+												icon={running ? "stop" : "play"}
+												label={`${running ? "Stop" : "Run"} ${check.name}`}
+												size="sm"
+												className={running ? "pk-check-stop" : "pk-check-run"}
+												data-testid={`check-${running ? "stop" : "run"}-${check.id}`}
+												onClick={() =>
+													running ? stop.mutate(check.id) : start(check.id)
+												}
+											/>
+										</div>
+									</li>
+								);
+							})}
+						</ul>
+					</div>
+				</PaneSplit>
 			)}
 
 			{editing && (
