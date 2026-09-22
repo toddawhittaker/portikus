@@ -3,7 +3,7 @@
  * server holds and sends the changes back.
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch, USER } from "../test-utils.js";
 import { SettingsDialog } from "./SettingsDialog.js";
@@ -87,10 +87,15 @@ test("each section holds its own fields", async () => {
 	expect(editor.textContent).toContain("Auto-save");
 	expect(editor.textContent).toContain("Word wrap");
 	expect(editor.contains(screen.getByTestId("editor-settings-delay"))).toBe(true);
-	expect(terminal.textContent).toContain("Terminal colours");
+	expect(terminal.textContent).toContain("Terminal colors");
 	expect(workspace.textContent).toContain("Workspace timezone");
-	expect(appearance.contains(screen.getByLabelText("Colour scheme"))).toBe(true);
-	expect(screen.getByLabelText("Colour scheme").textContent).toContain("System");
+	expect(appearance.contains(screen.getByRole("group", { name: "Color scheme" }))).toBe(
+		true,
+	);
+	expect(
+		(within(appearance).getByRole("radio", { name: "System" }) as HTMLInputElement)
+			.checked,
+	).toBe(true);
 });
 
 test("it shows the settings the server holds", async () => {
@@ -110,7 +115,13 @@ test("it shows the settings the server holds", async () => {
 	);
 	expect((checkbox(/Auto-save/) as HTMLInputElement).checked).toBe(false);
 	expect((checkbox(/Word wrap/) as HTMLInputElement).checked).toBe(true);
-	expect(screen.getByLabelText("Terminal colours").textContent).toContain("Light");
+	expect(
+		(
+			within(screen.getByRole("region", { name: "Terminal" })).getByRole("switch", {
+				name: "Terminal colors",
+			}) as HTMLInputElement
+		).checked,
+	).toBe(true);
 });
 
 test("saving sends every setting and closes the dialog", async () => {
@@ -180,24 +191,36 @@ test("a delay outside 1 to 60 seconds is refused before anything is sent", async
 /**
  * Issue #329: page appearance is chosen here, applied at once, and kept in
  * this browser. It is not part of the settings the server stores, and it
- * does not change the terminal colour scheme sent with everything else.
+ * does not change the terminal color scheme sent with everything else.
  */
 test("choosing an appearance applies at once and is not sent to the server", async () => {
 	const writes = stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const terminal = () => screen.getByRole("region", { name: "Terminal" });
+	const appearance = () => screen.getByRole("region", { name: "Appearance" });
 	await waitFor(() =>
-		expect(screen.getByLabelText("Terminal colours").textContent).toContain("Dark"),
+		expect(
+			(
+				within(terminal()).getByRole("switch", {
+					name: "Terminal colors",
+				}) as HTMLInputElement
+			).checked,
+		).toBe(false),
 	);
 
-	fireEvent.click(screen.getByLabelText("Colour scheme"));
-	fireEvent.click(await screen.findByRole("option", { name: "Light" }));
+	fireEvent.click(within(appearance()).getByRole("radio", { name: "Light" }));
 
 	expect(document.documentElement.getAttribute("data-theme")).toBe("light");
 	expect(localStorage.getItem("pk-theme")).toBe("light");
-	expect(screen.getByLabelText("Terminal colours").textContent).toContain("Dark");
+	expect(
+		(
+			within(terminal()).getByRole("switch", {
+				name: "Terminal colors",
+			}) as HTMLInputElement
+		).checked,
+	).toBe(false);
 
-	fireEvent.click(screen.getByLabelText("Colour scheme"));
-	fireEvent.click(await screen.findByRole("option", { name: "System" }));
+	fireEvent.click(within(appearance()).getByRole("radio", { name: "System" }));
 	expect(document.documentElement.getAttribute("data-theme")).toBeNull();
 	expect(localStorage.getItem("pk-theme")).toBe("system");
 
@@ -214,8 +237,7 @@ test("choosing an appearance applies at once and is not sent to the server", asy
 
 /**
  * Issue #239: the dialog shows the stored terminal theme and sends it back
- * with everything else. The Radix select cannot be opened in jsdom, so
- * actually choosing a different theme is covered in e2e/editor.spec.ts.
+ * with everything else.
  */
 test("the stored terminal theme is shown and sent back", async () => {
 	const writes = stubSettings({
@@ -226,15 +248,23 @@ test("the stored terminal theme is shown and sent back", async () => {
 		timezone: "America/New_York",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const terminal = () => screen.getByRole("region", { name: "Terminal" });
 	await waitFor(() =>
-		expect(screen.getByLabelText("Terminal colours").textContent).toContain("Light"),
+		expect(
+			(
+				within(terminal()).getByRole("switch", {
+					name: "Terminal colors",
+				}) as HTMLInputElement
+			).checked,
+		).toBe(true),
 	);
+	fireEvent.click(within(terminal()).getByRole("switch", { name: "Terminal colors" }));
 
 	fireEvent.click(checkbox(/Word wrap/));
 	fireEvent.click(screen.getByTestId("editor-settings-save"));
 
 	await waitFor(() => expect(writes).toHaveLength(1));
-	expect(writes[0]?.body).toMatchObject({ terminalTheme: "light", wordWrap: true });
+	expect(writes[0]?.body).toMatchObject({ terminalTheme: "dark", wordWrap: true });
 });
 
 /**

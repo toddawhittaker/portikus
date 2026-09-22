@@ -44,7 +44,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 			},
 			{
 				title: "Terminal",
-				controls: [{ id: "terminal-colours", label: "Terminal colours" }],
+				controls: [{ id: "terminal-colours", label: "Terminal colors" }],
 			},
 			{
 				title: "Workspace",
@@ -52,7 +52,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 			},
 			{
 				title: "Appearance",
-				controls: [{ id: "colour-scheme", label: "Colour scheme" }],
+				controls: [{ id: "colour-scheme", label: "Color scheme" }],
 			},
 		],
 	},
