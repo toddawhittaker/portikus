@@ -1143,3 +1143,81 @@ Pilot verification: (to be filled)
   key lives on the VM that runs student workspaces. The hint and
   `infra/README.md` say to use a throwaway browser profile for the pilot
   rather than an everyday one.
+
+## Epic 9 — Coding-agent launchers and credentials
+
+Epic 9 is on the `epic/9-agent-launchers` branch and has not been merged
+to `main`. A student can start Claude Code or Codex in the selected
+project, confirm a link a program in the workspace asks to open, and
+review the working tree against the snapshot taken when that session
+began. SPEC.md section 29 Epic 9, sections 10.4–10.9 and 12.7, and
+`docs/BROWSER-HANDLING.md` Part II. A server-side browser was never part
+of this epic; it stays in `docs/BACKLOG.md`.
+
+**Contracts.** The shared contracts name the two launchers, `claude` and
+`codex`, and the frames the URL broker uses. A request on the workspace
+socket carries the raw URL. Classification accepts only `http` and
+`https`, rejects userinfo and control characters, and splits loopback
+(`127.0.0.1`, `localhost`, `::1`) from every other host. Preview versus
+login is not decided from the URL text. Logs keep the origin only;
+anything that does not parse is written as `[redacted-url]` (PR #304).
+
+**The workspace image.** The image ships `portikus-open` and an
+`xdg-open` wrapper that sends `http` and `https` opens to it. A login
+shell sets `BROWSER` to `/usr/local/bin/portikus-open`. Codex is pinned
+with `check_for_update_on_startup = false` in `/etc/codex/config.toml`,
+the same idea as Claude's updater already being off. The image was not
+rebuilt on this host (PR #305).
+
+**The workspace agent.** A launcher runs only the argument lists for
+`claude` and `codex`. Before that process starts, the agent runs
+`git stash create` and keeps the object id. Git writes a dangling commit
+and moves no ref, so the index, branches, tags and the stash list stay
+as they were. If the directory is not a repository, or the command
+fails, the CLI still starts and the baseline is null (ADR 0019). Browser
+opens arrive on the Unix socket `/run/portikus/browser.sock`. One request
+becomes one `browser.open.request` frame on the project events socket.
+A loopback URL whose process is Codex is classified as a login callback
+(PR #307).
+
+**The API.** Creating a terminal can name `claude` or `codex` and sends
+no command string. The terminals row stores that agent kind and the
+baseline object ids the agent returns. An institutional key is forwarded
+into the new session only when this API process already has that key. It
+is not written to the row and it is not returned to the browser. The
+baseline routes relay `GitStatus` and `GitDiff` for that object, with
+the same ownership checks as the ordinary Git routes (PR #306).
+
+**The web.** The New menu in the project tab strip has Claude Code and
+Codex next to Terminal. Choosing one posts the agent name. A
+`browser.open.request` frame opens a confirmation dialog that shows the
+origin and asks before anything is opened. A loopback login is explained
+and not opened: the dialog names `codex login --device-auth` and tells
+the student to finish from the code in the terminal. An external link
+opens in the student's own browser, and a loopback preview uses the
+preview the app already has. Session review is labeled "Changes since
+Claude session started" or "Changes since Codex session started", and it
+subscribes to the project's existing file watcher (PR #308).
+
+Issue #129 is addressed on this branch. The login callback is explained
+and names `codex login --device-auth`, and the Codex update check is
+pinned in the image. The issue closes when this epic merges to `main`,
+not in the status pull request.
+
+**Left out, because the spec and the plan left it out.**
+
+- No server-side browser. Loopback OAuth that has no device or paste-back
+  path stays the backlog item "Remote browser for loopback OAuth
+  callbacks".
+- No restore of the tree as it was before the session. That is Epic 10.
+  The baseline is a review snapshot only. A later `git prune` can drop
+  the dangling object, and the review then has nothing to compare.
+- No admin screen for pasting institutional keys. The API forwards a key
+  only when the process already has one.
+- No busy or idle indicator, and no cost display, for a running agent.
+- No general screen for configuring agents. The Codex update check is
+  one line in the image, the same way Claude's updater is one environment
+  variable.
+- The terminal's own poll of its working directory was left in place.
+  Session review uses the existing project watcher. The two were not
+  folded into one watcher.
