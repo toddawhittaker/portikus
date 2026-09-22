@@ -10,6 +10,7 @@ import {
 } from "@portikus/auth/testing";
 import { MAX_EDITOR_FILE_BYTES, MAX_UPLOAD_BYTES } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
@@ -254,6 +255,51 @@ test.skipIf(skip)(
 		expect(tree.json().code).toBe("AGENT_UNAVAILABLE");
 		const file = await get(alice, "file", "?path=README.md");
 		expect(file.statusCode).toBe(409);
+	},
+);
+
+test.skipIf(skip)(
+	"a pasted picture is written without its bytes reaching the log",
+	async () => {
+		// Epic 9.2 brief, "Done" 6; STACK.md §15.
+		const { logger, lines } = collectingLogger("debug");
+		const logged = buildTestServer(
+			testDb.db,
+			mock.issuer,
+			{ AGENT_PORT: agent.port },
+			logger,
+		);
+		try {
+			for (const dir of [".portikus", ".portikus/pastes"]) {
+				const made = await logged.inject({
+					method: "POST",
+					url: url("mkdir"),
+					headers: csrfHeaders(alice, PUBLIC_URL),
+					payload: { path: dir },
+				});
+				expect(made.statusCode).toBeLessThan(300);
+			}
+			const bytes = Buffer.from("\u0089PNG image-bytes-marker");
+			const written = await logged.inject({
+				method: "PUT",
+				url: url("file", "?path=.portikus/pastes/2026-09-22T13-40-00.png"),
+				headers: {
+					...csrfHeaders(alice, PUBLIC_URL),
+					"content-type": "application/octet-stream",
+					"if-none-match": "*",
+				},
+				payload: bytes,
+			});
+			expect(written.statusCode).toBe(200);
+			expect(agent.files.get("lab/.portikus/pastes/2026-09-22T13-40-00.png")).toEqual({
+				type: "file",
+				content: bytes,
+			});
+			expect(lines.length).toBeGreaterThan(0);
+			expect(JSON.stringify(lines)).not.toContain("image-bytes-marker");
+		} finally {
+			await logged.close();
+		}
 	},
 );
 
