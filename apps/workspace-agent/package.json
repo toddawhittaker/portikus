@@ -10,13 +10,13 @@
 		"typecheck": "tsc -b"
 	},
 	"dependencies": {
-		"@fastify/websocket": "11.3.0",
+		"@fastify/websocket": "11.3.1",
 		"@portikus/config": "workspace:*",
 		"@portikus/contracts": "workspace:*",
 		"@portikus/observability": "workspace:*",
 		"@portikus/events": "workspace:*",
 		"chokidar": "4.0.3",
-		"fastify": "5.12.4",
+		"fastify": "5.12.5",
 		"node-pty": "1.1.0",
 		"zod": "4.6.5"
 	},
