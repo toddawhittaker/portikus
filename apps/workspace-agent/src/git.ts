@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
-import { lstat, open, stat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { lstat, mkdtemp, open, readdir, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	GIT_TIMEOUT_MS,
 	type GitDiff,
@@ -53,27 +56,28 @@ export async function runGit(
 	cwd: string,
 	maxBytes: number,
 	timeoutMs: number = GIT_TIMEOUT_MS,
+	options: { config?: readonly string[]; env?: Readonly<Record<string, string>> } = {},
 ): Promise<GitResult> {
+	// A repository config could name a filesystem monitor. Turn it off (SPEC.md §24.6).
+	const configArgs: string[] = ["-c", "core.fsmonitor="];
+	for (const item of options.config ?? []) {
+		configArgs.push("-c", item);
+	}
 	return new Promise<GitResult>((resolve, reject) => {
-		const child = spawn(
-			"git",
-			// A repository's own config could name a filesystem-monitor command,
-			// which git would run during status. Turn it off (SPEC.md §24.6).
-			["-c", "core.fsmonitor=", ...args],
-			{
-				cwd,
-				stdio: ["ignore", "pipe", "pipe"],
-				// Its own process group, so a kill reaches helpers too.
-				detached: true,
-				env: {
-					...process.env,
-					// Reading status must never write the index or ask for a password.
-					GIT_OPTIONAL_LOCKS: "0",
-					GIT_TERMINAL_PROMPT: "0",
-					LC_ALL: "C",
-				},
+		const child = spawn("git", [...configArgs, ...args], {
+			cwd,
+			stdio: ["ignore", "pipe", "pipe"],
+			// Its own process group, so a kill reaches helpers too.
+			detached: true,
+			env: {
+				...process.env,
+				// Reading status must never write the index or ask for a password.
+				GIT_OPTIONAL_LOCKS: "0",
+				GIT_TERMINAL_PROMPT: "0",
+				LC_ALL: "C",
+				...options.env,
 			},
-		);
+		});
 		const chunks: Buffer[] = [];
 		let size = 0;
 		let overflow = false;
@@ -426,13 +430,27 @@ export async function gitDiff(
 	return finishDiff(before, after, state.unmerged, origPath);
 }
 
-const OBJECT_ID = /^[0-9a-f]{40}$/;
+/** A full object id: SHA-1 is 40 hex characters, SHA-256 is 64. */
+export const OBJECT_ID = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
+
+/** Directories that must not be copied into the baseline object. */
+const BASELINE_SKIP = new Set(["node_modules", ".git", "dist", ".next"]);
+
+/** Identity for the dangling baseline commit only. Never written to git config. */
+const BASELINE_IDENTITY = {
+	GIT_AUTHOR_NAME: "Portikus",
+	GIT_AUTHOR_EMAIL: "portikus@localhost",
+	GIT_COMMITTER_NAME: "Portikus",
+	GIT_COMMITTER_EMAIL: "portikus@localhost",
+};
 
 /**
  * `git stash create` writes one dangling commit and prints its id. It does
  * not update HEAD, the index, or any ref (SPEC.md §10.9, §12.5, ADR 0019).
- * A directory that is not a work tree, or a command that fails, yields a
- * null object. `baselineHead` is HEAD when there is a commit.
+ * On a clean tree it prints nothing, so the baseline is HEAD. Untracked
+ * files and root `.env` files ride along as a parentless second parent,
+ * because `stash create -u` does not record them on Git 2.43. A directory
+ * that is not a work tree, or a command that fails, yields a null object.
  */
 export async function recordBaseline(dir: string): Promise<{
 	baselineObjectId: string | null;
@@ -447,11 +465,193 @@ export async function recordBaseline(dir: string): Promise<{
 		return { baselineObjectId: null, baselineHead: null };
 	}
 
-	const created = await runGit(["stash", "create"], dir, 128);
+	const created = await runGit(["stash", "create"], dir, 128, GIT_TIMEOUT_MS, {
+		config: await stashCreateConfig(dir),
+	});
 	if (!created.ok) return { baselineObjectId: null, baselineHead };
-	const objectId = created.stdout.toString().trim();
+	const printed = created.stdout.toString().trim();
+	const objectId = printed === "" ? (baselineHead ?? "") : printed;
 	if (!OBJECT_ID.test(objectId)) return { baselineObjectId: null, baselineHead };
-	return { baselineObjectId: objectId, baselineHead };
+	const withExtras = await attachUntracked(dir, objectId);
+	return { baselineObjectId: withExtras, baselineHead };
+}
+
+/**
+ * This invocation only. A clean filter can run `git update-ref`, which would
+ * move a branch (SPEC.md §10.9). Empty `-c` values override repo config
+ * without writing it, and `core.hooksPath` points at `/dev/null`.
+ */
+async function stashCreateConfig(dir: string): Promise<string[]> {
+	const listed = await runGit(["config", "--get-regexp", "^filter\\."], dir, 64 * 1024);
+	const names = new Set<string>();
+	if (listed.ok) {
+		for (const line of listed.stdout.toString().split("\n")) {
+			const match = /^filter\.([A-Za-z0-9][A-Za-z0-9-]*)\.(clean|smudge)(?:\s|$)/.exec(
+				line,
+			);
+			if (match?.[1]) names.add(match[1]);
+		}
+	}
+	const config = ["core.hooksPath=/dev/null"];
+	for (const name of names) {
+		config.push(`filter.${name}.clean=`, `filter.${name}.smudge=`);
+	}
+	return config;
+}
+
+function skippedBaselinePath(path: string): boolean {
+	return path.split("/").some((segment) => BASELINE_SKIP.has(segment));
+}
+
+/** Untracked files Git already knows to show, plus root `.env` and `.env.*`. */
+async function extraBaselinePaths(dir: string): Promise<string[]> {
+	const listed = await runGit(
+		["ls-files", "-z", "--others", "--exclude-standard"],
+		dir,
+		32 * 1024 * 1024,
+	);
+	const paths: string[] = [];
+	if (listed.ok) {
+		for (const path of listed.stdout.toString("utf8").split("\0")) {
+			if (!path || path.includes("\n") || skippedBaselinePath(path)) continue;
+			paths.push(path);
+		}
+	}
+	let entries: Dirent[] = [];
+	try {
+		entries = await readdir(dir, { withFileTypes: true });
+	} catch {
+		return paths;
+	}
+	for (const entry of entries) {
+		if (!entry.isFile()) continue;
+		if (!/^\.env(\..+)?$/.test(entry.name)) continue;
+		if (!paths.includes(entry.name)) paths.push(entry.name);
+	}
+	return paths;
+}
+
+/**
+ * A parentless commit whose tree is only the extra files. The baseline
+ * commit keeps the tracked tree and points at this as its second parent.
+ * No ref is updated.
+ */
+async function attachUntracked(dir: string, base: string): Promise<string> {
+	const paths = await extraBaselinePaths(dir);
+	if (paths.length === 0) return base;
+	const indexDir = await mkdtemp(join(tmpdir(), "portikus-baseline-"));
+	const indexPath = join(indexDir, "index");
+	try {
+		const blobs: { path: string; oid: string; mode: string }[] = [];
+		for (const path of paths) {
+			const hashed = await runGit(
+				["hash-object", "-w", "--no-filters", "--", path],
+				dir,
+				128,
+			);
+			const oid = hashed.ok ? hashed.stdout.toString().trim() : "";
+			if (!OBJECT_ID.test(oid)) continue;
+			const info = await lstat(join(dir, path)).catch(() => null);
+			if (!info?.isFile()) continue;
+			const mode = info.mode & 0o111 ? "100755" : "100644";
+			blobs.push({ path, oid, mode });
+		}
+		if (blobs.length === 0) return base;
+		const empty = await runGit(["read-tree", "--empty"], dir, 64, GIT_TIMEOUT_MS, {
+			env: { GIT_INDEX_FILE: indexPath },
+		});
+		if (!empty.ok) return base;
+		for (const blob of blobs) {
+			const added = await runGit(
+				[
+					"update-index",
+					"--add",
+					"--cacheinfo",
+					`${blob.mode},${blob.oid},${blob.path}`,
+				],
+				dir,
+				64,
+				GIT_TIMEOUT_MS,
+				{ env: { GIT_INDEX_FILE: indexPath } },
+			);
+			if (!added.ok) return base;
+		}
+		const tree = await runGit(["write-tree"], dir, 128, GIT_TIMEOUT_MS, {
+			env: { GIT_INDEX_FILE: indexPath },
+		});
+		const treeId = tree.ok ? tree.stdout.toString().trim() : "";
+		if (!OBJECT_ID.test(treeId)) return base;
+		const side = await runGit(
+			["commit-tree", treeId, "-m", "baseline untracked"],
+			dir,
+			128,
+			GIT_TIMEOUT_MS,
+			{ env: BASELINE_IDENTITY },
+		);
+		const sideId = side.ok ? side.stdout.toString().trim() : "";
+		if (!OBJECT_ID.test(sideId)) return base;
+		const baseTree = await runGit(
+			["rev-parse", "--verify", `${base}^{tree}`],
+			dir,
+			128,
+		);
+		const baseTreeId = baseTree.ok ? baseTree.stdout.toString().trim() : "";
+		if (!OBJECT_ID.test(baseTreeId)) return base;
+		const wrapped = await runGit(
+			["commit-tree", baseTreeId, "-p", base, "-p", sideId, "-m", "baseline"],
+			dir,
+			128,
+			GIT_TIMEOUT_MS,
+			{ env: BASELINE_IDENTITY },
+		);
+		const wrappedId = wrapped.ok ? wrapped.stdout.toString().trim() : "";
+		return OBJECT_ID.test(wrappedId) ? wrappedId : base;
+	} finally {
+		await rm(indexDir, { recursive: true, force: true });
+	}
+}
+
+/**
+ * The parentless second parent, when this baseline recorded extra files.
+ * A stash commit's second parent has its own parent, so it is left alone.
+ */
+async function untrackedSide(
+	dir: string,
+	objectId: string,
+): Promise<Map<string, string>> {
+	const side = await runGit(
+		["rev-parse", "--verify", "--quiet", `${objectId}^2`],
+		dir,
+		128,
+	);
+	const sideId = side.ok ? side.stdout.toString().trim() : "";
+	if (!OBJECT_ID.test(sideId)) return new Map();
+	const parent = await runGit(
+		["rev-parse", "--verify", "--quiet", `${sideId}^`],
+		dir,
+		128,
+	);
+	if (parent.ok && OBJECT_ID.test(parent.stdout.toString().trim())) return new Map();
+	const listed = await runGit(["ls-tree", "-r", "-z", sideId], dir, 32 * 1024 * 1024);
+	if (!listed.ok) return new Map();
+	const map = new Map<string, string>();
+	for (const record of listed.stdout.toString("utf8").split("\0")) {
+		if (!record) continue;
+		const tab = record.indexOf("\t");
+		if (tab === -1) continue;
+		const meta = record.slice(0, tab).split(" ");
+		const oid = meta[2] ?? "";
+		const path = record.slice(tab + 1);
+		if (!OBJECT_ID.test(oid) || !path) continue;
+		map.set(path, oid);
+	}
+	return map;
+}
+
+async function hashWorktree(dir: string, path: string): Promise<string | null> {
+	const hashed = await runGit(["hash-object", "--no-filters", "--", path], dir, 128);
+	const oid = hashed.ok ? hashed.stdout.toString().trim() : "";
+	return OBJECT_ID.test(oid) ? oid : null;
 }
 
 /** One name-status record from `git diff -z`, plus untracked paths. */
@@ -481,6 +681,64 @@ function baselineEntries(diffText: string, untrackedText: string): GitEntry[] {
 		entries.push({ path, x: ".", y: "?", unmerged: false });
 	}
 	return entries;
+}
+
+/** `node_modules`, `.git`, `dist`, and `.next` are not session additions. */
+function dropSkipped(untrackedText: string): string {
+	const kept = untrackedText
+		.split("\0")
+		.filter((path) => path.length > 0 && !skippedBaselinePath(path));
+	return kept.length === 0 ? "" : `${kept.join("\0")}\0`;
+}
+
+/** Paths already appended by `git ls-files` stay; root `.env` files join them. */
+function mergeExtraPaths(untrackedText: string, extras: string[]): string {
+	const have = new Set(untrackedText.split("\0").filter((path) => path.length > 0));
+	const add = extras.filter((path) => !have.has(path));
+	if (add.length === 0) return untrackedText;
+	const prefix =
+		untrackedText.length === 0 || untrackedText.endsWith("\0")
+			? untrackedText
+			: `${untrackedText}\0`;
+	return `${prefix}${add.join("\0")}\0`;
+}
+
+/**
+ * An extra file that was already in the baseline is not a session addition.
+ * Content that has changed since then is a modification; a file that is gone
+ * is a deletion.
+ */
+async function withoutBaselineExtras(
+	dir: string,
+	entries: GitEntry[],
+	side: Map<string, string>,
+): Promise<GitEntry[]> {
+	if (side.size === 0) return entries;
+	const kept: GitEntry[] = [];
+	const seen = new Set<string>();
+	for (const entry of entries) {
+		seen.add(entry.path);
+		const recorded = side.get(entry.path);
+		if (entry.y !== "?" || recorded === undefined) {
+			kept.push(entry);
+			continue;
+		}
+		const now = await hashWorktree(dir, entry.path);
+		if (now === recorded) continue;
+		kept.push({ ...entry, y: now === null ? "D" : "M" });
+	}
+	for (const [path, recorded] of side) {
+		if (seen.has(path)) continue;
+		const now = await hashWorktree(dir, path);
+		if (now === recorded) continue;
+		kept.push({
+			path,
+			x: ".",
+			y: now === null ? "D" : "M",
+			unmerged: false,
+		});
+	}
+	return kept;
 }
 
 /**
@@ -525,7 +783,17 @@ export async function baselineStatus(
 	}
 	const status = emptyStatus();
 	status.repo = true;
-	const all = baselineEntries(diff.stdout.toString(), untracked.stdout.toString());
+	const extras = await extraBaselinePaths(dir);
+	const untrackedText = mergeExtraPaths(
+		dropSkipped(untracked.stdout.toString()),
+		extras,
+	);
+	const side = await untrackedSide(dir, objectId);
+	const all = await withoutBaselineExtras(
+		dir,
+		baselineEntries(diff.stdout.toString(), untrackedText),
+		side,
+	);
 	status.entries = all.slice(0, MAX_GIT_ENTRIES);
 	status.truncated =
 		diff.overflow || untracked.overflow || all.length > MAX_GIT_ENTRIES;

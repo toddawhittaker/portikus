@@ -2,7 +2,7 @@
  * Launcher argv, the session baseline, and the URL broker
  * (SPEC.md §10.2, §10.9, §12.7; BROWSER-HANDLING.md §18, §25.2).
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 import { createLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
-import { recordBaseline } from "./git.js";
+import { baselineStatus, recordBaseline } from "./git.js";
 import { buildServer } from "./server.js";
 import { commandForAgent, createSession, killSession } from "./tmux.js";
 
@@ -413,6 +413,179 @@ test("a javascript URL never produces a frame", async () => {
 			.some((frame) => frameType(frame) === "browser.open.request"),
 	).toBe(false);
 	await events.close();
+});
+
+async function tempRepo(
+	name: string,
+	objectFormat?: "sha256",
+): Promise<{
+	home: string;
+	dir: string;
+}> {
+	const home = await mkdtemp(join(tmpdir(), `portikus-${name}-`));
+	const dir = join(home, "projects", name);
+	await mkdir(dir, { recursive: true });
+	const init = ["init", "--initial-branch=main"];
+	if (objectFormat) init.push(`--object-format=${objectFormat}`);
+	await git(init, dir);
+	await writeFile(join(dir, "tracked.txt"), "tracked\n");
+	await git(["add", "tracked.txt"], dir);
+	await git(["commit", "-m", "init"], dir);
+	return { home, dir };
+}
+
+test("a clean repo gets a non-null baseline and git status is unchanged", async () => {
+	const { home, dir } = await tempRepo("clean");
+	try {
+		const before = await snapshot(dir);
+		const recorded = await recordBaseline(dir);
+		expect(recorded.baselineObjectId).toMatch(/^[0-9a-f]{40}$/);
+		expect(recorded.baselineHead).toBe(recorded.baselineObjectId);
+		expect(await snapshot(dir)).toBe(before);
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+test("an untracked file from before the baseline is not a session addition", async () => {
+	const { home, dir } = await tempRepo("untracked");
+	try {
+		await writeFile(join(dir, ".gitignore"), "node_modules\n.env\n.env.*\n");
+		await git(["add", ".gitignore"], dir);
+		await git(["commit", "-m", "ignore"], dir);
+		await writeFile(join(dir, "already.txt"), "before\n");
+		await writeFile(join(dir, ".env"), "SECRET=1\n");
+		await mkdir(join(dir, "node_modules"), { recursive: true });
+		await writeFile(join(dir, "node_modules", "pkg.js"), "x\n");
+		const before = await snapshot(dir);
+		const recorded = await recordBaseline(dir);
+		const objectId = recorded.baselineObjectId;
+		if (!objectId) throw new Error("expected a baseline");
+		expect(await snapshot(dir)).toBe(before);
+		const refs = await git(["show-ref"], dir);
+		expect(refs).not.toContain("refs/stash");
+
+		await writeFile(join(dir, "during.txt"), "after\n");
+		const status = await baselineStatus(home, "untracked", objectId);
+		const paths = status.entries.map((entry) => entry.path);
+		expect(paths).not.toContain("already.txt");
+		expect(paths).not.toContain(".env");
+		expect(paths).not.toContain("node_modules/pkg.js");
+		expect(paths).toContain("during.txt");
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+test("a clean filter does not run while recording a baseline", async () => {
+	const { home, dir } = await tempRepo("filter");
+	try {
+		const marker = join(dir, "filter-ran");
+		const script = join(dir, "evil-filter.sh");
+		await writeFile(
+			script,
+			`#!/bin/sh\necho ran >> '${marker}'\ngit update-ref refs/heads/pwned HEAD\ncat\n`,
+			{ mode: 0o755 },
+		);
+		await git(["config", "filter.evil.clean", script], dir);
+		await git(["config", "filter.evil.smudge", "cat"], dir);
+		await writeFile(join(dir, ".gitattributes"), "tracked.txt filter=evil\n");
+		await git(["add", ".gitattributes"], dir);
+		await git(["commit", "-m", "attr"], dir);
+		// Committing the attributes file runs the filter once. Clear that.
+		await git(["update-ref", "-d", "refs/heads/pwned"], dir);
+		await rm(marker, { force: true });
+		await writeFile(join(dir, "tracked.txt"), "tracked\ndirty\n");
+		const recorded = await recordBaseline(dir);
+		expect(recorded.baselineObjectId).toMatch(/^[0-9a-f]{40}$/);
+		await expect(stat(marker)).rejects.toThrow();
+		await expect(
+			git(["rev-parse", "--verify", "refs/heads/pwned"], dir),
+		).rejects.toThrow();
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+test("a 64-character object id is accepted", async () => {
+	const { home, dir } = await tempRepo("sha256", "sha256");
+	try {
+		const recorded = await recordBaseline(dir);
+		expect(recorded.baselineObjectId).toMatch(/^[0-9a-f]{64}$/);
+		const status = await baselineStatus(
+			home,
+			"sha256",
+			recorded.baselineObjectId ?? "",
+		);
+		expect(status.repo).toBe(true);
+		expect(status.entries).toEqual([]);
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+
+	const missing = "ab".repeat(32);
+	const response = await app.inject({
+		method: "GET",
+		url: `/projects/${SLUG}/baseline-status?object=${missing}`,
+		headers: auth(),
+	});
+	expect(response.statusCode).not.toBe(400);
+	expect(response.json()).toMatchObject({ error: { code: "GIT_FAILED" } });
+});
+
+test("a Node cmdline for codex is loopback-login", async () => {
+	await waitForSocket();
+	// Basename `codex`, but the process executable is Node.
+	const script = join(homeDir, "codex");
+	await writeFile(script, "setInterval(() => {}, 1000);\n");
+	const nodeChild = spawn(process.execPath, [script], { stdio: "ignore" });
+	try {
+		expect(nodeChild.pid).toBeGreaterThan(0);
+		const events = await openEvents();
+		const requestId = "550e8400-e29b-41d4-a716-4466554400dd";
+		const url = "http://127.0.0.1:43127/callback";
+		const reply = await brokerRequest({
+			requestId,
+			url,
+			executable: process.execPath,
+			pid: nodeChild.pid,
+			cwd: project,
+		});
+		expect(reply).toEqual({ ok: true });
+		await vi.waitFor(() => {
+			expect(
+				events.frames.filter((frame) => frameType(frame) === "browser.open.request"),
+			).toHaveLength(1);
+		});
+		const frame = events.frames.find(
+			(item) => frameType(item) === "browser.open.request",
+		);
+		expect(frame).toMatchObject({ brokerClass: "loopback-login", url });
+		await events.close();
+	} finally {
+		nodeChild.kill();
+	}
+});
+
+test("a dropped frame is ok false", async () => {
+	await waitForSocket();
+	const outside = await brokerRequest({
+		requestId: "550e8400-e29b-41d4-a716-4466554400e1",
+		url: "https://example.com/login",
+		executable: "claude",
+		cwd: "/tmp",
+	});
+	expect(outside).toEqual({ ok: false, reason: "no-project" });
+	expect(JSON.stringify(outside)).not.toContain("example.com");
+
+	const quiet = await brokerRequest({
+		requestId: "550e8400-e29b-41d4-a716-4466554400e2",
+		url: "https://example.com/login",
+		executable: "claude",
+		cwd: project,
+	});
+	expect(quiet).toEqual({ ok: false, reason: "no-subscriber" });
+	expect(JSON.stringify(quiet)).not.toContain("example.com");
 });
 
 function frameType(frame: unknown): string | undefined {

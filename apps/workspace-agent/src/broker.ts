@@ -1,4 +1,4 @@
-import { chmod, mkdir, realpath, unlink } from "node:fs/promises";
+import { chmod, mkdir, readFile, readlink, realpath, unlink } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import { basename } from "node:path";
 import {
@@ -158,13 +158,12 @@ async function handleLine(
 		writeReply(socket, { ok: true });
 		return;
 	}
-	recent.set(parsed.data.requestId, now);
 
 	const executable = parsed.data.executable;
 	const brokerClass =
 		classified.outcome === "external"
 			? "external"
-			: basename(executable ?? "") === "codex"
+			: (await processIsCodex(executable, parsed.data.pid))
 				? "loopback-login"
 				: "loopback-preview";
 
@@ -188,13 +187,54 @@ async function handleLine(
 	});
 
 	const root = await projectRoot(options.homeDir, parsed.data.cwd);
-	if (root) options.watchers.publish(root, frame);
+	const delivered = root ? options.watchers.publish(root, frame) : false;
 	// Origin only, and only because this line exists at all (BROWSER-HANDLING.md §21.3).
 	options.log.debug(
 		{ origin: redactUrl(parsed.data.url), brokerClass },
 		"browser open",
 	);
+	if (!delivered) {
+		writeReply(socket, {
+			ok: false,
+			reason: root ? "no-subscriber" : "no-project",
+		});
+		return;
+	}
+	recent.set(parsed.data.requestId, now);
 	writeReply(socket, { ok: true });
+}
+
+/** Basename `codex` (or a Node script of that name). The URL text is not consulted. */
+const CODEX_COMMAND = new Set(["codex", "codex.js", "codex.mjs", "codex.cjs"]);
+
+function commandIsCodex(path: string): boolean {
+	return CODEX_COMMAND.has(basename(path));
+}
+
+/**
+ * Codex's CLI is a Node program, so `/proc/<pid>/exe` is `node`. The command
+ * line names the codex program (BROWSER-HANDLING.md §19).
+ */
+async function processIsCodex(
+	executable: string | undefined,
+	pid: number | undefined,
+): Promise<boolean> {
+	if (executable && commandIsCodex(executable)) return true;
+	if (pid === undefined || pid <= 0) return false;
+	try {
+		if (commandIsCodex(await readlink(`/proc/${pid}/exe`))) return true;
+	} catch {
+		// The exe link can be gone. The command line is the other check.
+	}
+	try {
+		const raw = await readFile(`/proc/${pid}/cmdline`);
+		return raw
+			.toString("utf8")
+			.split("\0")
+			.some((arg) => arg.length > 0 && commandIsCodex(arg));
+	} catch {
+		return false;
+	}
 }
 
 function writeReply(socket: Socket, reply: BrokerOpenReply): void {

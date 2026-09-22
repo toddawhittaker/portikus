@@ -2,14 +2,14 @@ import { GitStatusQuery, ProjectPath } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { sendError } from "./errors.js";
-import { baselineDiff, baselineStatus, gitDiff, gitStatus } from "./git.js";
+import { baselineDiff, baselineStatus, gitDiff, gitStatus, OBJECT_ID } from "./git.js";
 import { AgentFailure } from "./tmux.js";
 
 const DiffQuery = z.object({ path: ProjectPath });
 
-/** A full object id from `git stash create`. Anything else is refused. */
+/** A full object id, SHA-1 or SHA-256. Anything else is refused. */
 const ObjectQuery = z.object({
-	object: z.string().regex(/^[0-9a-f]{40}$/),
+	object: z.string().regex(OBJECT_ID),
 });
 
 const BaselineDiffQuery = ObjectQuery.extend({ path: ProjectPath });
