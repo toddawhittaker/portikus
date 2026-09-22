@@ -215,8 +215,9 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// is buffered (SPEC.md §9.7).
 	app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
-	// Every route, the upgrade included, needs the token (SPEC.md §23.5).
-	app.addHook("preHandler", tokenAuth(options.tokenPath));
+	// Every route, the upgrade included, needs the token (SPEC.md §23.5). It
+	// runs on request, so a caller without it never gets a body parsed.
+	app.addHook("onRequest", tokenAuth(options.tokenPath));
 
 	// A refused upgrade is answered over a socket Fastify does not track, so
 	// close it here or shutdown waits for it forever.
