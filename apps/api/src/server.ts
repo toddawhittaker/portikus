@@ -22,6 +22,7 @@ import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectEventsSocket } from "./routes/project-events.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerTerminalRoutes } from "./routes/terminals.js";
+import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerWorkspaceSocket } from "./routes/ws.js";
 
@@ -147,6 +148,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerFileRoutes(instance, deps);
 		registerGitSearchRoutes(instance, deps);
 		registerCheckRoutes(instance, deps);
+		registerUsageRoutes(instance, deps);
 		registerProjectEventsSocket(instance, deps);
 		registerMeRoutes(instance, deps);
 		registerAdminRoutes(instance, deps);
