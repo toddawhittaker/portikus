@@ -259,10 +259,19 @@ export function WorkArea({
 		}
 		const ids = terminalIds(tab.root);
 		const first = ids[0] ? byId.get(ids[0]) : undefined;
+		// Claude Code and Codex share the agent icon and are named apart from a
+		// shell (design system, Iconography). The terminal record is the source.
+		const agent =
+			first?.agent === "claude" || first?.agent === "codex" ? first.agent : null;
 		return {
 			id: tab.id,
-			kind: "terminal",
-			label: first?.name ?? "Terminal",
+			kind: agent ?? "terminal",
+			label:
+				agent === "claude"
+					? "Claude Code"
+					: agent === "codex"
+						? "Codex"
+						: (first?.name ?? "Terminal"),
 			testId: `tab-${tab.id}`,
 			ended: ids.length > 0 && ids.every((id) => byId.get(id)?.endedAt != null),
 		};

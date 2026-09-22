@@ -11,8 +11,10 @@ export function sessionReviewLabel(agent: CodingAgent): string {
 }
 
 /**
- * The open agent terminal the Changes list can review. The focused terminal
- * wins when it has a baseline; otherwise the newest open one that does.
+ * The agent terminal the Changes list can review. A session that has ended
+ * still counts: the review action stays while or after the session exists
+ * (SPEC.md §10.9). The focused terminal wins when it has a baseline;
+ * otherwise the newest one that does.
  */
 export function openAgentSession(
 	terminals: readonly Terminal[],
@@ -20,7 +22,6 @@ export function openAgentSession(
 ): Terminal | null {
 	const ready = terminals.filter(
 		(terminal) =>
-			terminal.endedAt === null &&
 			(terminal.agent === "claude" || terminal.agent === "codex") &&
 			typeof terminal.baselineObjectId === "string",
 	);

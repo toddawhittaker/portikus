@@ -5,7 +5,8 @@
  * loopback login is explained and not opened.
  */
 import { type BrowserOpenRequest, classifyBrokerUrl } from "@portikus/contracts";
-import { Button, Dialog, DialogRoot } from "@portikus/ui";
+import { Button, Dialog, DialogRoot, useToast } from "@portikus/ui";
+import { useState } from "react";
 import { previewRouteFor } from "../links.js";
 
 export interface BrowserOpenDialogProps {
@@ -30,6 +31,32 @@ function httpUrl(raw: string): URL | null {
 	}
 }
 
+/**
+ * Loopback and private addresses stay off the clipboard. Copy is only for an
+ * external http(s) URL (BROWSER-HANDLING.md §18).
+ */
+function isPrivateHost(hostname: string): boolean {
+	const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+	if (host.includes(":")) {
+		const head = Number.parseInt(host.split(":")[0] || "0", 16);
+		if (Number.isNaN(head)) return false;
+		if (head >= 0xfc00 && head <= 0xfdff) return true;
+		if (head >= 0xfe80 && head <= 0xfebf) return true;
+		return false;
+	}
+	const parts = host.split(".");
+	if (parts.length !== 4) return false;
+	const nums = parts.map((part) => Number(part));
+	if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+	const a = nums[0] ?? 0;
+	const b = nums[1] ?? 0;
+	if (a === 0 || a === 10 || a === 127) return true;
+	if (a === 172 && b >= 16 && b <= 31) return true;
+	if (a === 192 && b === 168) return true;
+	if (a === 169 && b === 254) return true;
+	return false;
+}
+
 export function BrowserOpenDialog({
 	request,
 	workspaceId,
@@ -37,6 +64,10 @@ export function BrowserOpenDialog({
 	onOpenPreview,
 	onClose,
 }: BrowserOpenDialogProps) {
+	const toast = useToast();
+	const [copyError, setCopyError] = useState<{ id: string; message: string } | null>(
+		null,
+	);
 	const url = httpUrl(request.url);
 	const login = request.brokerClass === "loopback-login";
 	const preview = request.brokerClass === "loopback-preview";
@@ -54,6 +85,8 @@ export function BrowserOpenDialog({
 		: preview
 			? previewRoute?.kind === "preview"
 			: classified?.outcome === "external";
+	const canCopy =
+		classified?.outcome === "external" && url !== null && !isPrivateHost(url.hostname);
 
 	function open() {
 		if (!canOpen || !url) return;
@@ -69,50 +102,76 @@ export function BrowserOpenDialog({
 	}
 
 	async function copy() {
+		if (!canCopy) return;
 		try {
-			await navigator.clipboard?.writeText(request.url);
+			const write = navigator.clipboard?.writeText;
+			if (!write) throw new Error("clipboard unavailable");
+			await write.call(navigator.clipboard, request.url);
 		} catch {
-			// A browser that refuses the clipboard leaves the page where it is.
+			setCopyError({ id: request.requestId, message: "The link could not be copied." });
+			return;
 		}
+		toast.show({ tone: "success", title: "Link copied" });
 		onClose();
 	}
 
+	const asked = "A program in the workspace asked to open a link.";
+
 	return (
 		<DialogRoot
+			key={request.requestId}
 			open
-			onOpenChange={(open) => {
-				if (!open) onClose();
+			onOpenChange={(next) => {
+				if (!next) onClose();
 			}}
 		>
 			<Dialog
 				testId="browser-open-dialog"
 				title="Open this link?"
-				description="A program in the workspace asked to open a link."
+				description={
+					<>
+						{asked}{" "}
+						{origin ? (
+							<span data-testid="browser-open-origin">{origin}</span>
+						) : (
+							<span data-testid="browser-open-rejected">
+								This link cannot be opened.
+							</span>
+						)}
+						{login ? (
+							<>
+								{" "}
+								<span data-testid="browser-open-login">
+									The workspace cannot receive a callback on localhost. Run{" "}
+									<code>codex login --device-auth</code> and finish signing in from the
+									code the terminal shows.
+								</span>
+							</>
+						) : null}
+					</>
+				}
 				footer={
 					<>
 						<Button variant="quiet" data-testid="browser-open-cancel" onClick={onClose}>
 							Cancel
 						</Button>
-						<Button data-testid="browser-open-copy" onClick={() => void copy()}>
-							Copy link
-						</Button>
+						{canCopy ? (
+							<Button data-testid="browser-open-copy" onClick={() => void copy()}>
+								Copy link
+							</Button>
+						) : null}
 						{canOpen ? (
 							<Button
 								variant="primary"
 								data-testid="browser-open-confirm"
 								onClick={open}
 							>
-								Open in my browser
+								{preview ? "Open preview" : "Open in my browser"}
 							</Button>
 						) : null}
 					</>
 				}
 			>
-				{origin ? (
-					<p data-testid="browser-open-origin">{origin}</p>
-				) : (
-					<p data-testid="browser-open-rejected">This link cannot be opened.</p>
-				)}
 				{executable ? (
 					<p data-testid="browser-open-executable">Started by {executable}</p>
 				) : null}
@@ -121,11 +180,9 @@ export function BrowserOpenDialog({
 						This link is plain HTTP, so it is not encrypted.
 					</p>
 				) : null}
-				{login ? (
-					<p data-testid="browser-open-login">
-						The workspace cannot receive a callback on localhost. Run{" "}
-						<code>codex login --device-auth</code> and finish signing in from the code
-						the terminal shows.
+				{copyError?.id === request.requestId ? (
+					<p role="alert" data-testid="browser-open-copy-error">
+						{copyError.message}
 					</p>
 				) : null}
 			</Dialog>

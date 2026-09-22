@@ -4,7 +4,7 @@
  */
 import type { GitStatus } from "@portikus/contracts";
 import { Icon } from "@portikus/ui";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { type ChangeRow, changeRows } from "./gitStatus.js";
 
@@ -31,6 +31,18 @@ export function ChangesList({
 	onOpen?: (path: string) => void;
 }) {
 	const [open, setOpen] = useState(true);
+	const reviewButton = useRef<HTMLButtonElement>(null);
+	const gitButton = useRef<HTMLButtonElement>(null);
+	// The button that was clicked is about to unmount. Focus lands on whatever
+	// replaces it, once that control is in the document.
+	const moveFocusTo = useRef<"review" | "git" | null>(null);
+	useLayoutEffect(() => {
+		const target = moveFocusTo.current;
+		const node = target === "git" ? gitButton.current : reviewButton.current;
+		if (!target || !node) return;
+		node.focus();
+		moveFocusTo.current = null;
+	});
 	const layoutStore = useLayoutStore(projectId);
 	const openFile = useLayout(layoutStore, (state) => state.openFile);
 	const activeTabId = useLayout(layoutStore, (state) => state.activeTabId);
@@ -59,27 +71,35 @@ export function ChangesList({
 				onClick={() => setOpen((value) => !value)}
 			>
 				<Icon name={open ? "chevron-down" : "chevron-right"} size="sm" />
-				<span data-testid="changes-title">
+				<span data-testid="changes-title" aria-live="polite" aria-atomic="true">
 					{sessionLabel ??
 						(unknown || notARepo ? "Changes" : `Changes (${rows.length})`)}
 				</span>
 			</button>
 			{onReviewSession ? (
 				<button
+					ref={reviewButton}
 					type="button"
 					className="pk-changes-review"
 					data-testid="review-session"
-					onClick={onReviewSession}
+					onClick={() => {
+						moveFocusTo.current = "git";
+						onReviewSession();
+					}}
 				>
 					Review session changes
 				</button>
 			) : null}
 			{onShowGit ? (
 				<button
+					ref={gitButton}
 					type="button"
 					className="pk-changes-review"
 					data-testid="show-git-changes"
-					onClick={onShowGit}
+					onClick={() => {
+						moveFocusTo.current = "review";
+						onShowGit();
+					}}
 				>
 					Show Git changes
 				</button>
