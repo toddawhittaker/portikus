@@ -34,6 +34,7 @@ export function toWorkspace(
 		shutdownDeadline: row.shutdown_deadline
 			? (row.shutdown_deadline as Date).toISOString()
 			: null,
+		archivedAt: row.archived_at ? (row.archived_at as Date).toISOString() : null,
 		createdAt: (row.created_at as Date).toISOString(),
 		updatedAt: (row.updated_at as Date).toISOString(),
 	};

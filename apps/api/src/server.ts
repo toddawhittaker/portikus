@@ -13,6 +13,9 @@ import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { registerAdminRoutes } from "./routes/admin.js";
+import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
+import { registerAdminHealthRoutes } from "./routes/admin-health.js";
+import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCheckRoutes } from "./routes/checks.js";
 import { registerFileRoutes } from "./routes/files.js";
@@ -152,6 +155,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerProjectEventsSocket(instance, deps);
 		registerMeRoutes(instance, deps);
 		registerAdminRoutes(instance, deps);
+		registerAdminWorkspaceRoutes(instance, routeDeps);
+		registerAdminAuditRoutes(instance, routeDeps);
+		registerAdminHealthRoutes(instance, routeDeps);
 	});
 
 	return app;

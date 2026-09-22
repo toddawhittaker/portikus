@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AdminAccountMarkers, AdminWorkspaceSummary } from "./admin.js";
 import { Role } from "./auth.js";
 
 /** Largest value a PostgreSQL integer column holds. */
@@ -60,6 +61,12 @@ export const AdminUser = z.object({
 	disabledAt: z.string().datetime().nullable(),
 	/** Per-user override; null means use the platform-wide value. */
 	shutdownGraceSeconds: graceSeconds.nullable(),
+	// Epic 11 (issue #302). Optional until GET /admin/users fills them in.
+	preferredUsername: z.string().nullable().optional(),
+	issuer: z.string().nullable().optional(),
+	lastLoginAt: z.string().datetime().nullable().optional(),
+	markers: AdminAccountMarkers.optional(),
+	workspace: AdminWorkspaceSummary.nullable().optional(),
 });
 export type AdminUser = z.infer<typeof AdminUser>;
 

@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, and 0012_profile (SPEC section 26, STACK
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, and 0014_admin (SPEC section 26, STACK
  * section 6).
  */
 export interface Database {
@@ -19,6 +19,7 @@ export interface Database {
 	audit_events: AuditEventsTable;
 	preview_grants: PreviewGrantsTable;
 	preview_sessions: PreviewSessionsTable;
+	health_samples: HealthSamplesTable;
 }
 
 export interface UsersTable {
@@ -75,6 +76,14 @@ export interface WorkspacesTable {
 	disconnected_at: ColumnType<Date | null, string | null, string | null>;
 	agent_token: string | null;
 	agent_address: string | null;
+	/** Set while an administrator has the workspace archived. */
+	archived_at: ColumnType<Date | null, string | null, string | null>;
+	/** The sizes the worker last applied to the volumes. */
+	quota_applied: ColumnType<
+		{ homeGiB: number; dockerGiB: number } | null,
+		string | null,
+		string | null
+	>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 }
@@ -167,4 +176,11 @@ export interface PreviewSessionsTable {
 	preview_host: string;
 	created_at: ColumnType<Date, string | undefined, never>;
 	revoked_at: ColumnType<Date | null, string | null, string | null>;
+}
+
+export interface HealthSamplesTable {
+	id: Generated<string>;
+	observed_at: ColumnType<Date, string | undefined, never>;
+	/** A HealthSample from @portikus/contracts. */
+	sample: ColumnType<Record<string, unknown>, string, never>;
 }
