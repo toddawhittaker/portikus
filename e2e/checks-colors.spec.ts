@@ -21,7 +21,7 @@ test.describe("check action colours", () => {
 		await openChecks(page, student.workspaceId, "Colours", {
 			checks: [
 				{ id: "tests", name: "Tests", command: "npm test" },
-				{ id: "watch", name: "Watch", command: "sleep 30" },
+				{ id: "watch", name: "Watch", command: "sleep 120" },
 			],
 		});
 
@@ -68,16 +68,26 @@ async function openChecks(
 	return project;
 }
 
-/** Pick Light or Dark from the account menu, the way a student would. */
+/**
+ * Remember Light or Dark and reload. The account menu is not involved: that
+ * control is moving, and `pk-theme` is what the page already reads on load.
+ * A reload returns the right pane to Files, so Checks is opened again.
+ */
 async function chooseTheme(page: Page, theme: "light" | "dark"): Promise<void> {
-	await page.getByTestId("me").click();
-	await page.getByTestId(`appearance-${theme}`).click();
+	await page.evaluate((value) => {
+		localStorage.setItem("pk-theme", value);
+	}, theme);
+	await page.reload();
 	await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+	const tab = page.getByTestId("right-pane-tab-checks");
+	await expect(tab).toBeVisible({ timeout: 15_000 });
+	await tab.click();
 }
 
 /**
  * The icon's used colour matches the status token, at rest and while hovered,
- * and the button keeps the name a screen reader already has.
+ * and the button keeps the name a screen reader already has. Polling waits
+ * out a paint that has not settled yet.
  */
 async function expectTint(
 	page: Page,
@@ -86,11 +96,14 @@ async function expectTint(
 	name: string,
 ): Promise<void> {
 	const button = page.getByTestId(testId);
+	await expect(button).toBeVisible();
 	await expect(button).toHaveAttribute("aria-label", name);
 	const expected = await tokenColor(page, token);
-	expect(await iconColor(button)).toBe(expected);
+	// Leave whatever the pointer was over, so the first read is really at rest.
+	await page.mouse.move(0, 0);
+	await expect.poll(() => iconColor(button)).toBe(expected);
 	await button.hover();
-	expect(await iconColor(button)).toBe(expected);
+	await expect.poll(() => iconColor(button)).toBe(expected);
 }
 
 /** The colour the icon is painted with. The stroke is currentColor. */

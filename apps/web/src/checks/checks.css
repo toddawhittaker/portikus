@@ -92,15 +92,23 @@
 /*
  * Play takes the running green and stop the danger red (issue #324). Colour
  * is extra: the icon and the accessible name already say which is which, and
- * these tokens follow the theme. Hover keeps the tint; the button's own
- * hover colour would replace it.
+ * these tokens follow the theme. The button's own transition would blend the
+ * two while a check flips, and its hover colour would replace the tint.
  */
 .pk-check-row .pk-iconbtn.pk-check-run,
-.pk-check-row .pk-iconbtn.pk-check-run:hover {
+.pk-check-row .pk-iconbtn.pk-check-run:hover,
+.pk-check-row .pk-iconbtn.pk-check-stop,
+.pk-check-row .pk-iconbtn.pk-check-stop:hover {
+	transition: none;
+}
+.pk-check-row .pk-iconbtn.pk-check-run,
+.pk-check-row .pk-iconbtn.pk-check-run:hover,
+.pk-check-row .pk-iconbtn.pk-check-run svg {
 	color: var(--status-running);
 }
 .pk-check-row .pk-iconbtn.pk-check-stop,
-.pk-check-row .pk-iconbtn.pk-check-stop:hover {
+.pk-check-row .pk-iconbtn.pk-check-stop:hover,
+.pk-check-row .pk-iconbtn.pk-check-stop svg {
 	color: var(--status-danger);
 }
 /* The clickable text: it is what shrinks when the command is long. */
