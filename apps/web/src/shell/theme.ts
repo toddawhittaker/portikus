@@ -32,6 +32,25 @@ export function applyThemePreference(preference: ThemePreference): void {
 	}
 }
 
+const CARRIED_OVER_KEY = "pk-theme-synced";
+
+/** Whether this browser has already loaded some account's settings. */
+export function themeCarriedOver(): boolean {
+	try {
+		return localStorage.getItem(CARRIED_OVER_KEY) === "1";
+	} catch {
+		return false;
+	}
+}
+
+export function markThemeCarriedOver(): void {
+	try {
+		localStorage.setItem(CARRIED_OVER_KEY, "1");
+	} catch {
+		// Without storage there is no browser copy to carry over either.
+	}
+}
+
 /** Apply a choice and remember it in this browser for the next first paint. */
 export function rememberThemePreference(preference: ThemePreference): void {
 	applyThemePreference(preference);

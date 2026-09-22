@@ -1395,3 +1395,15 @@ turned on for everyone. The Settings help section says so. F2 to rename a file r
 so it has no screen-reader toggle. Terminal and editor limits are
 documented in Settings rather than fixed: full-screen programs redraw the
 screen, and colours and inline editor hints are not announced.
+
+**Confirmation-review fixes.** The browser-only theme is carried over to
+an account at most once per browser: the first settings load marks the
+browser (`pk-theme-synced`), so on a shared lab machine one student's
+theme is never saved to the next student's account (N1). If that one-time
+save fails, the settings still load (N2). Stored settings are checked one
+field at a time, so a single bad stored value falls back to its own
+default and no longer resets every other setting (N3). Every text paste
+into a terminal, by keyboard or right-click, now has control characters
+removed except tab, line feed and carriage return, so text planted on the
+clipboard by a web page cannot end the paste bracket early and run a
+command (pastejacking, SPEC.md section 24).

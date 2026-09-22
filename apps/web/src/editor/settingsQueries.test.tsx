@@ -61,6 +61,44 @@ test("a stored appearance wins over this browser's copy and nothing is saved", a
 	expect(localStorage.getItem("pk-theme")).toBe("light");
 });
 
+test("the carry-over happens once per browser, not once per account", async () => {
+	localStorage.setItem("pk-theme", "dark");
+	localStorage.setItem("pk-theme-synced", "1");
+	const fetch = vi.fn(async () => settings("system", false));
+	vi.stubGlobal("fetch", fetch);
+
+	const { result } = load();
+	await waitFor(() => expect(result.current.isSuccess).toBe(true));
+	expect(fetch).toHaveBeenCalledTimes(1);
+	expect(result.current.data?.appearance).toBe("system");
+});
+
+test("any settings load marks this browser as carried over", async () => {
+	const fetch = vi.fn(async () => settings("light", true));
+	vi.stubGlobal("fetch", fetch);
+
+	const { result } = load();
+	await waitFor(() => expect(result.current.isSuccess).toBe(true));
+	expect(localStorage.getItem("pk-theme-synced")).toBe("1");
+});
+
+test("a failed carry-over save still loads the settings", async () => {
+	localStorage.setItem("pk-theme", "dark");
+	const fetch = vi.fn(async (_url: string, init: RequestInit = {}) =>
+		init.method === "PUT"
+			? new Response("{}", {
+					status: 500,
+					headers: { "content-type": "application/json" },
+				})
+			: settings("system", false),
+	);
+	vi.stubGlobal("fetch", fetch);
+
+	const { result } = load();
+	await waitFor(() => expect(result.current.isSuccess).toBe(true));
+	expect(result.current.data?.appearance).toBe("system");
+});
+
 test("a browser that follows the system saves nothing", async () => {
 	const fetch = vi.fn(async () => settings("system", false));
 	vi.stubGlobal("fetch", fetch);

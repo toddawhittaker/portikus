@@ -171,6 +171,17 @@ export function decodeOsc52(encoded: string): string {
 	}
 }
 
+/**
+ * Pasted text with control characters removed, keeping tab, line feed and
+ * carriage return. xterm does not strip an end-of-paste marker (ESC[201~)
+ * inside the text, so planted clipboard text could otherwise leave the
+ * bracket early and run a command (SPEC.md §24).
+ */
+export function sanitizePaste(text: string): string {
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point.
+	return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, "");
+}
+
 /** The only picture types a paste saves as a file (Epic 9.2 brief). */
 const PASTE_IMAGE_TYPES = ["image/png", "image/jpeg"];
 
@@ -493,16 +504,21 @@ export function TerminalPane({
 		}
 
 		/**
-		 * Every keyboard paste arrives as the browser's paste event. Text is
-		 * left for xterm to type; a lone picture is saved instead, so its
-		 * bytes never reach the terminal.
+		 * Every keyboard paste arrives as the browser's paste event. It is
+		 * handled here rather than by xterm: text is sanitized and typed once,
+		 * and a lone picture is saved, so its bytes never reach the terminal.
 		 */
 		function onPaste(event: ClipboardEvent) {
-			const items = Array.from(event.clipboardData?.items ?? []);
-			const type = pastedImageType(items.map((item) => item.type));
-			if (!type) return;
+			const data = event.clipboardData;
+			if (!data) return;
 			event.preventDefault();
 			event.stopPropagation();
+			const items = Array.from(data.items ?? []);
+			const type = pastedImageType(items.map((item) => item.type));
+			if (!type) {
+				term.paste(sanitizePaste(data.getData("text/plain")));
+				return;
+			}
 			const image = items[0]?.getAsFile();
 			if (image) void pasteImage(image, type);
 		}
@@ -523,7 +539,7 @@ export function TerminalPane({
 					const textItem = items.find((item) => item.types.includes("text/plain"));
 					if (textItem) {
 						const blob = await textItem.getType("text/plain");
-						term.paste(await blob.text());
+						term.paste(sanitizePaste(await blob.text()));
 					}
 				} catch {
 					// Refused: nothing the student can act on.
@@ -532,7 +548,7 @@ export function TerminalPane({
 			}
 			if (!canReadClipboard()) return;
 			try {
-				term.paste(await navigator.clipboard.readText());
+				term.paste(sanitizePaste(await navigator.clipboard.readText()));
 			} catch {
 				// Firefox may refuse readText.
 			}

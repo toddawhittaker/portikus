@@ -339,6 +339,53 @@ test.skipIf(skip)("an unknown stored zone loses only the zone", async () => {
 	});
 });
 
+/** One bad stored key falls back on its own; the rest and new saves survive. */
+test.skipIf(skip)("an invalid stored key loses only that key", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	await testDb.db
+		.updateTable("users")
+		.set({
+			editor_settings: JSON.stringify({
+				autoSave: false,
+				autoSaveDelaySeconds: 999,
+				wordWrap: false,
+				terminalTheme: "light",
+				appearance: "dark",
+			}),
+		})
+		.where("oidc_subject", "=", "alice")
+		.execute();
+
+	const read = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: jar.cookieHeader() },
+	});
+	expect(read.json()).toEqual({
+		autoSave: false,
+		autoSaveDelaySeconds: 5,
+		wordWrap: false,
+		terminalTheme: "light",
+		timezone: "America/New_York",
+		appearance: "dark",
+		screenReaderMode: false,
+		timezones: [...systemTimezones()],
+		appearanceStored: true,
+	});
+
+	const res = await put(jar, { screenReaderMode: true });
+	expect(res.json()).toMatchObject({
+		autoSave: false,
+		autoSaveDelaySeconds: 5,
+		wordWrap: false,
+		terminalTheme: "light",
+		appearance: "dark",
+		screenReaderMode: true,
+	});
+});
+
 /** Issue #300: appearance is saved per user, merged like any other setting. */
 test.skipIf(skip)("appearance is saved and merged with the rest", async () => {
 	const jar = new CookieJar();
