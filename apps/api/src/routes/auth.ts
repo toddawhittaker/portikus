@@ -130,6 +130,19 @@ export function registerAuthRoutes(
 		}
 
 		const user = await upsertUser(db, identity, role);
+		if (user.previousRole !== null && user.previousRole !== role) {
+			// Roles come from identity-provider groups (SPEC.md §24.11).
+			await db
+				.insertInto("audit_events")
+				.values({
+					actor: "identity-provider",
+					target: user.id,
+					action: "user.role_changed",
+					result: "ok",
+					metadata: JSON.stringify({ from: user.previousRole, to: role }),
+				})
+				.execute();
+		}
 
 		if (user.disabledAt) {
 			await audit(request, "auth.login", `user:${user.id}`, user.id, "denied");
