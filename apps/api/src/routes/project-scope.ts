@@ -64,6 +64,11 @@ export const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>>
 	CHECK_NOT_FOUND: [404, "CHECK_NOT_FOUND"],
 	CHECK_RUNNING: [409, "CHECK_RUNNING"],
 	CHECK_NOT_RUNNING: [404, "CHECK_NOT_RUNNING"],
+	// Recovery points (SPEC.md §15, ADR 0020). There is no API code for a
+	// refused archive, so it reads as a request that cannot be carried out.
+	BUSY: [409, "BUSY"],
+	STORAGE_FULL: [507, "STORAGE_FULL"],
+	RECOVERY_POINT_INVALID: [422, "VALIDATION_FAILED"],
 	// The agent answers these with a 500 of its own, so the control plane is
 	// reporting a failure upstream of it rather than one of its own.
 	SEARCH_FAILED: [502, "SEARCH_FAILED"],

@@ -86,6 +86,14 @@ export interface FakeAgent {
 	 * resolves once that stop has arrived at the fake.
 	 */
 	holdNextStop: () => { reached: Promise<void>; release: () => void };
+	/** Archives the fake holds in memory, by point id (ADR 0020). */
+	recoveryPoints: Map<string, FakeRecoveryPoint>;
+	/** Project ids whose archives `DELETE /recovery-points/:projectId` removed. */
+	readonly recoveryDeletes: string[];
+	/** Workspace keys whose next recovery point fails with STORAGE_FULL. */
+	recoveryFull: Set<string>;
+	/** Storage figures `/usage` reports, by workspace key; absent means null. */
+	storage: Map<string, FakeStorage>;
 	/** Push one frame to every events subscriber of a project. */
 	pushEvent: (key: string, slug: string, frame: unknown) => number;
 	/** Push one frame larger than the control plane's 1 MiB cap. */
@@ -97,6 +105,23 @@ export interface FakeAgent {
 export interface FakeGitAnswer {
 	status?: GitStatus;
 	diffs?: Record<string, GitDiff>;
+}
+
+/** One archive of the fake: a copy of the project's entries at that time. */
+export interface FakeRecoveryPoint {
+	key: string;
+	projectId: string;
+	sha256: string;
+	entries: Map<string, FakeNode>;
+}
+
+type StorageFigure = { usedBytes: number; totalBytes: number } | null;
+
+/** The three storage classes `/usage` reports (SPEC.md §19.2). */
+export interface FakeStorage {
+	home: StorageFigure;
+	docker: StorageFigure;
+	recovery: StorageFigure;
 }
 
 /** One entry of the fake filesystem. Paths are `<slug>/<path inside it>`. */
@@ -1503,6 +1528,141 @@ export async function startFakeAgent(
 		},
 	);
 
+	// ── Recovery points (ADR 0020), held in memory ──
+
+	const recoveryPoints = new Map<string, FakeRecoveryPoint>();
+	const recoveryDeletes: string[] = [];
+	const recoveryFull = new Set<string>();
+	const storage = new Map<string, FakeStorage>();
+
+	function recoveryError(reply: FastifyReply, status: number, code: string) {
+		return reply.status(status).send({ error: { code, message: code.toLowerCase() } });
+	}
+
+	/** A hash over the project's entries, the way the real agent fingerprints. */
+	function fingerprintOf(entries: Map<string, FakeNode>): string {
+		const hash = createHash("sha256");
+		for (const key of [...entries.keys()].sort()) {
+			const node = entries.get(key) as FakeNode;
+			hash.update(`${key}\0${node.type}\0`);
+			if (node.type === "file") hash.update(node.content);
+		}
+		return hash.digest("hex");
+	}
+
+	/** A copy of one project's entries, keyed by the path after the slug. */
+	function projectEntries(tree: Map<string, FakeNode>, slug: string) {
+		const entries = new Map<string, FakeNode>();
+		for (const [key, node] of tree) {
+			if (key !== slug && !key.startsWith(`${slug}/`)) continue;
+			entries.set(
+				key.slice(slug.length),
+				node.type === "file"
+					? { type: "file", content: Buffer.from(node.content) }
+					: { type: "dir" },
+			);
+		}
+		return entries;
+	}
+
+	app.post("/projects/:slug/recovery-points", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		const body = request.body as {
+			projectId: string;
+			pointId: string;
+			skipIfFingerprint?: string;
+		};
+		const key = keyOf(request);
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		if (recoveryFull.has(key)) return recoveryError(reply, 507, "STORAGE_FULL");
+		const entries = projectEntries(fsOf(request), slug);
+		const fingerprint = fingerprintOf(entries);
+		if (body.skipIfFingerprint === fingerprint) {
+			return { created: false, fingerprint };
+		}
+		const sha256 = createHash("sha256")
+			.update(`${fingerprint}${body.pointId}`)
+			.digest("hex");
+		recoveryPoints.set(body.pointId, {
+			key,
+			projectId: body.projectId,
+			sha256,
+			entries,
+		});
+		let sizeBytes = 0;
+		for (const node of entries.values()) {
+			if (node.type === "file") sizeBytes += node.content.length;
+		}
+		return { created: true, sizeBytes, sha256, fingerprint };
+	});
+
+	app.post(
+		"/projects/:slug/recovery-points/:pointId/restore",
+		async (request, reply) => {
+			const { slug, pointId } = request.params as { slug: string; pointId: string };
+			const body = request.body as { projectId: string; sha256: string };
+			if (!dirs(request).has(slug)) return projectNotFound(reply);
+			const point = recoveryPoints.get(pointId);
+			if (
+				!point ||
+				point.key !== keyOf(request) ||
+				point.projectId !== body.projectId ||
+				point.sha256 !== body.sha256
+			) {
+				return recoveryError(reply, 422, "RECOVERY_POINT_INVALID");
+			}
+			const tree = fsOf(request);
+			removeTree(tree, slug);
+			for (const [rest, node] of point.entries) {
+				tree.set(
+					`${slug}${rest}`,
+					node.type === "file"
+						? { type: "file", content: Buffer.from(node.content) }
+						: { type: "dir" },
+				);
+			}
+			return reply.status(204).send();
+		},
+	);
+
+	app.delete("/recovery-points/:projectId/:pointId", async (request, reply) => {
+		const { pointId } = request.params as { pointId: string };
+		if (recoveryPoints.get(pointId)?.key === keyOf(request)) {
+			recoveryPoints.delete(pointId);
+		}
+		return reply.status(204).send();
+	});
+
+	app.delete("/recovery-points/:projectId", async (request, reply) => {
+		const { projectId } = request.params as { projectId: string };
+		const key = keyOf(request);
+		for (const [id, point] of [...recoveryPoints]) {
+			if (point.key === key && point.projectId === projectId) recoveryPoints.delete(id);
+		}
+		recoveryDeletes.push(projectId);
+		return reply.status(204).send();
+	});
+
+	/** Make the recovery points of a workspace fail as full, or stop doing so. */
+	app.post("/__test/recovery", async (request, reply) => {
+		const body = (request.body ?? {}) as { key?: string; storageFull?: boolean };
+		const key = body.key ?? "";
+		if (body.storageFull) recoveryFull.add(key);
+		else recoveryFull.delete(key);
+		return reply.status(204).send();
+	});
+
+	/** Set the storage figures `/usage` reports; an omitted class is null. */
+	app.post("/__test/storage", async (request, reply) => {
+		const body = (request.body ?? {}) as { key?: string } & Partial<FakeStorage>;
+		storage.set(body.key ?? "", {
+			home: body.home ?? null,
+			docker: body.docker ?? null,
+			recovery: body.recovery ?? null,
+		});
+		return reply.status(204).send();
+	});
+
 	// ── Listening services and loopback forwards (BROWSER-HANDLING.md §11.1) ──
 
 	app.get("/listening", async (request) => ({
@@ -1510,14 +1670,18 @@ export async function startFakeAgent(
 	}));
 
 	// A fixed sample, so the control plane can proxy usage without a /proc.
-	app.get("/usage", async () => ({
+	app.get("/usage", async (request) => ({
 		observedAt: "2026-01-01T00:00:00.000Z",
 		cpuPercent: 1.5,
 		memory: { usedBytes: 100, totalBytes: 200 },
 		disk: { usedBytes: 300, totalBytes: 400 },
 		network: { receiveBytesPerSecond: 10, transmitBytesPerSecond: 20 },
 		processes: [{ pid: 7, cpuPercent: 1.5, residentBytes: 4096, command: "node" }],
-		storage: { home: null, docker: null, recovery: null },
+		storage: storage.get(keyOf(request)) ?? {
+			home: null,
+			docker: null,
+			recovery: null,
+		},
 	}));
 
 	app.get(
@@ -1733,6 +1897,10 @@ export async function startFakeAgent(
 		},
 		listening,
 		forwards,
+		recoveryPoints,
+		recoveryDeletes,
+		recoveryFull,
+		storage,
 		get failForward() {
 			return state.failForward;
 		},

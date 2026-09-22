@@ -35,6 +35,7 @@ import {
 	sendAgentError,
 	sendError,
 } from "./project-scope.js";
+import { makeRecoveryPoint } from "./recovery.js";
 
 const ProjectParam = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 const ListQuery = z.object({ state: ProjectState.default("active") });
@@ -508,6 +509,27 @@ export function registerProjectRoutes(
 
 		if (body.data.state !== undefined && body.data.state !== current.state) {
 			const archiving = body.data.state === "archived";
+			// Best effort: archive leaves the directory in place, so a failed
+			// point must not block it (SPEC.md §7.3, §15.6).
+			if (archiving && scope.agent) {
+				try {
+					await makeRecoveryPoint(db, config, scope.agent, {
+						workspaceId: scope.workspaceId,
+						project: current,
+						reason: "before-archive",
+						createdBy: user.id,
+					});
+				} catch (error) {
+					request.log.warn(
+						{
+							workspaceId: scope.workspaceId,
+							projectId: current.id,
+							code: error instanceof AgentCallError ? error.code : "INTERNAL",
+						},
+						"before-archive recovery point failed",
+					);
+				}
+			}
 			current = await db
 				.updateTable("projects")
 				.set({
@@ -613,6 +635,18 @@ export function registerProjectRoutes(
 			const gone =
 				error instanceof AgentCallError && error.code === "PROJECT_NOT_FOUND";
 			if (!gone) return sendAgentError(reply, error);
+		}
+
+		// The rows go by cascade; the archives are the agent's to remove. A
+		// leftover directory only costs recovery space, so it does not block.
+		try {
+			await agent.deleteProjectRecoveryPoints(row.id);
+		} catch (error) {
+			if (!(error instanceof AgentCallError)) throw error;
+			request.log.warn(
+				{ workspaceId: scope.workspaceId, projectId: row.id, code: error.code },
+				"recovery points of a deleted project were not removed",
+			);
 		}
 
 		await db.transaction().execute(async (trx) => {
