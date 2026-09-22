@@ -20,6 +20,7 @@ import {
 	useSensors,
 } from "@dnd-kit/core";
 import {
+	type BrowserOpenRequest,
 	MAX_TREE_ENTRIES,
 	MAX_UPLOAD_BYTES,
 	type Project,
@@ -51,6 +52,8 @@ import {
 	useState,
 } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
+import { useTerminals } from "../useTerminals.js";
+import { BrowserOpenDialog } from "./BrowserOpenDialog.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
 import { fileErrorToast, isFileExists, tooLargeToast } from "./errors.js";
 import "./files.css";
@@ -91,6 +94,7 @@ import {
 	type Selection,
 	selectionAfterClick,
 } from "./selection.js";
+import { openAgentSession, sessionReviewLabel } from "./sessionReview.js";
 import { useExpanded, useFileViewStore, useShowHidden } from "./store.js";
 import { useGitStatus } from "./useGitStatus.js";
 import { useProjectEvents } from "./useProjectEvents.js";
@@ -193,11 +197,28 @@ export function FileTreePane({
 	const rewriteExpanded = useFileViewStore((state) => state.rewriteExpanded);
 	const layoutStore = useLayoutStore(project.id);
 	const openFileTab = useLayout(layoutStore, (state) => state.openFile);
+	const focusedTerminalId = useLayout(layoutStore, (state) => state.focusedTerminalId);
 	const root = useTree(workspaceId, project.id, "");
+	const terminals = useTerminals(workspaceId, project.id, true, () => {});
+	const session = openAgentSession(terminals.terminals, focusedTerminalId);
+	const [reviewSession, setReviewSession] = useState(false);
+	const [browserOpens, setBrowserOpens] = useState<BrowserOpenRequest[]>([]);
+	const seenOpens = useRef(new Set<string>());
 	// One socket per open project keeps the tree, the open files and the Git
-	// status fresh without polling (SPEC.md §11.4, §25.1).
-	useProjectEvents(workspaceId, project.id);
+	// status fresh without polling (SPEC.md §11.4, §25.1). The same socket
+	// carries browser-open requests (BROWSER-HANDLING.md §18).
+	useProjectEvents(workspaceId, project.id, (request) => {
+		if (seenOpens.current.has(request.requestId)) return;
+		seenOpens.current.add(request.requestId);
+		setBrowserOpens((queue) => [...queue, request]);
+	});
 	const gitStatus = useGitStatus(workspaceId, project.id);
+	const baselineStatus = useGitStatus(workspaceId, project.id, {
+		baseline: reviewSession ? (session?.baselineObjectId ?? undefined) : undefined,
+	});
+	useEffect(() => {
+		if (!session) setReviewSession(false);
+	}, [session]);
 	const git = useMemo(
 		() => (gitStatus.data ? buildDecorations(gitStatus.data) : NO_DECORATIONS),
 		[gitStatus.data],
@@ -669,9 +690,36 @@ export function FileTreePane({
 					{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
 					<ChangesList
 						projectId={project.id}
-						status={gitStatus.data}
-						error={gitStatus.isError}
+						status={reviewSession ? baselineStatus.data : gitStatus.data}
+						error={reviewSession ? baselineStatus.isError : gitStatus.isError}
+						sessionLabel={
+							reviewSession && session?.agent
+								? sessionReviewLabel(session.agent)
+								: undefined
+						}
+						onReviewSession={
+							session && !reviewSession ? () => setReviewSession(true) : undefined
+						}
+						onShowGit={reviewSession ? () => setReviewSession(false) : undefined}
+						onOpen={
+							reviewSession && session?.baselineObjectId
+								? (path) =>
+										openFileTab(path, {
+											diff: true,
+											baseline: session.baselineObjectId ?? undefined,
+										})
+								: undefined
+						}
 					/>
+					{browserOpens[0] ? (
+						<BrowserOpenDialog
+							request={browserOpens[0]}
+							workspaceId={workspaceId}
+							projectId={project.id}
+							onOpenPreview={(port) => layoutStore.getState().openPreview(port)}
+							onClose={() => setBrowserOpens((queue) => queue.slice(1))}
+						/>
+					) : null}
 
 					{/* One hidden input serves every upload action. */}
 					<input

@@ -28,6 +28,7 @@ import Fastify, {
 } from "fastify";
 import { z } from "zod";
 import { tokenAuth } from "./auth.js";
+import { startUrlBroker } from "./broker.js";
 import { checksRoute } from "./checks-route.js";
 import { ERROR_STATUS, sendError } from "./errors.js";
 import { eventsRoute } from "./events-route.js";
@@ -41,6 +42,7 @@ import {
 	writeFile,
 } from "./files.js";
 import { Forwards } from "./forwards.js";
+import { recordBaseline } from "./git.js";
 import { registerGitRoutes } from "./git-routes.js";
 import {
 	ListeningMonitor,
@@ -65,12 +67,13 @@ import { registerSearchRoutes } from "./search-routes.js";
 import { TerminalRegistry } from "./terminals.js";
 import {
 	AgentFailure,
+	commandForAgent,
 	createSession,
 	hasSession,
 	killSession,
 	listSessions,
 } from "./tmux.js";
-import type { ProjectWatchers } from "./watch.js";
+import { ProjectWatchers } from "./watch.js";
 
 const IdParam = z.object({ terminalId: TerminalId });
 
@@ -114,6 +117,13 @@ export interface ServerOptions {
 	watchers?: ProjectWatchers;
 	/** Overrides where ports are discovered and how. For tests. */
 	listening?: ListeningMonitorOptions;
+	/**
+	 * Unix socket for `portikus-open`. Unset in tests that do not exercise
+	 * the broker; production passes `/run/portikus/browser.sock`.
+	 */
+	brokerSocketPath?: string;
+	/** Workspace id stamped on browser-open frames. */
+	workspaceId?: string;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -139,6 +149,25 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		app.log,
 		options.tmuxSocketName,
 	);
+	const watchers = options.watchers ?? new ProjectWatchers(app.log);
+
+	let closeBroker: () => Promise<void> = async () => {};
+	if (options.brokerSocketPath) {
+		const pending = startUrlBroker({
+			socketPath: options.brokerSocketPath,
+			homeDir: options.homeDir,
+			watchers,
+			workspaceId: options.workspaceId,
+			log: app.log,
+		});
+		closeBroker = async () => {
+			const handle = await pending;
+			await handle.close();
+		};
+	}
+	app.addHook("preClose", async () => {
+		await closeBroker();
+	});
 
 	// Registered before @fastify/websocket's own preClose so attachments get a
 	// close code before that plugin drops the sockets.
@@ -255,14 +284,25 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					parsed.data.theme,
 					parsed.data.timezone,
 					options.tmuxSocketName,
+					parsed.data.agent
+						? {
+								command: commandForAgent(parsed.data.agent),
+								institutionalEnv: parsed.data.institutionalEnv,
+								recordBaseline,
+							}
+						: undefined,
 				);
 				request.log.debug(
 					{ terminalId: created.id, session: `pk-${created.id}` },
 					"tmux session created",
 				);
-				return reply
-					.code(201)
-					.send({ id: created.id, cwd: created.cwd, attachments: 0 });
+				return reply.code(201).send({
+					id: created.id,
+					cwd: created.cwd,
+					attachments: 0,
+					baselineObjectId: created.baselineObjectId,
+					baselineHead: created.baselineHead,
+				});
 			} catch (error) {
 				return sendError(request, reply, error);
 			}
@@ -558,7 +598,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,
 			maxSockets: options.maxEventSockets,
-			watchers: options.watchers,
+			watchers,
 		});
 
 		instance.get(

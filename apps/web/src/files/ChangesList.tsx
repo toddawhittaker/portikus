@@ -4,7 +4,7 @@
  */
 import type { GitStatus } from "@portikus/contracts";
 import { Icon } from "@portikus/ui";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { type ChangeRow, changeRows } from "./gitStatus.js";
 
@@ -12,13 +12,37 @@ export function ChangesList({
 	projectId,
 	status,
 	error = false,
+	sessionLabel,
+	onReviewSession,
+	onShowGit,
+	onOpen,
 }: {
 	projectId: string;
 	status: GitStatus | undefined;
 	/** The status query failed; the list says so rather than "no changes". */
 	error?: boolean;
+	/** Set while the list is the agent-session comparison (SPEC.md §12.7). */
+	sessionLabel?: string;
+	/** Offered when an open terminal has a baseline and Git changes are showing. */
+	onReviewSession?: () => void;
+	/** Back to the Git HEAD list. */
+	onShowGit?: () => void;
+	/** Opens one row. The default opens the file's Git diff. */
+	onOpen?: (path: string) => void;
 }) {
 	const [open, setOpen] = useState(true);
+	const reviewButton = useRef<HTMLButtonElement>(null);
+	const gitButton = useRef<HTMLButtonElement>(null);
+	// The button that was clicked is about to unmount. Focus lands on whatever
+	// replaces it, once that control is in the document.
+	const moveFocusTo = useRef<"review" | "git" | null>(null);
+	useLayoutEffect(() => {
+		const target = moveFocusTo.current;
+		const node = target === "git" ? gitButton.current : reviewButton.current;
+		if (!target || !node) return;
+		node.focus();
+		moveFocusTo.current = null;
+	});
 	const layoutStore = useLayoutStore(projectId);
 	const openFile = useLayout(layoutStore, (state) => state.openFile);
 	const activeTabId = useLayout(layoutStore, (state) => state.activeTabId);
@@ -28,6 +52,10 @@ export function ChangesList({
 	const unknown = status === undefined;
 
 	function show(row: ChangeRow) {
+		if (onOpen) {
+			onOpen(row.path);
+			return;
+		}
 		// The diff is a view of the file's own tab, so a file already open is
 		// switched to its diff rather than opened a second time (issue #160).
 		openFile(row.path, { diff: true });
@@ -43,10 +71,39 @@ export function ChangesList({
 				onClick={() => setOpen((value) => !value)}
 			>
 				<Icon name={open ? "chevron-down" : "chevron-right"} size="sm" />
-				<span data-testid="changes-title">
-					{unknown || notARepo ? "Changes" : `Changes (${rows.length})`}
+				<span data-testid="changes-title" aria-live="polite" aria-atomic="true">
+					{sessionLabel ??
+						(unknown || notARepo ? "Changes" : `Changes (${rows.length})`)}
 				</span>
 			</button>
+			{onReviewSession ? (
+				<button
+					ref={reviewButton}
+					type="button"
+					className="pk-changes-review"
+					data-testid="review-session"
+					onClick={() => {
+						moveFocusTo.current = "git";
+						onReviewSession();
+					}}
+				>
+					Review session changes
+				</button>
+			) : null}
+			{onShowGit ? (
+				<button
+					ref={gitButton}
+					type="button"
+					className="pk-changes-review"
+					data-testid="show-git-changes"
+					onClick={() => {
+						moveFocusTo.current = "review";
+						onShowGit();
+					}}
+				>
+					Show Git changes
+				</button>
+			) : null}
 			{open ? (
 				error ? (
 					<p className="pk-changes-empty" data-testid="changes-error">
@@ -58,7 +115,9 @@ export function ChangesList({
 					</p>
 				) : rows.length === 0 ? (
 					<p className="pk-changes-empty" data-testid="changes-empty">
-						No changes since the last commit
+						{sessionLabel
+							? "No changes since this session started"
+							: "No changes since the last commit"}
 					</p>
 				) : (
 					<ul className="pk-changes-list" data-testid="changes-list">

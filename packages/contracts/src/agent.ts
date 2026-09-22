@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CloneUrl, ProjectSlug } from "./project.js";
 import { TerminalTheme, Timezone } from "./settings.js";
-import { TerminalId } from "./terminal.js";
+import { CodingAgent, TerminalId } from "./terminal.js";
 
 /**
  * Response body for `GET /health` on the workspace agent
@@ -49,9 +49,36 @@ export const AgentCreateTerminalRequest = z
 		 * new zone without waiting for a workspace restart.
 		 */
 		timezone: Timezone,
+		/**
+		 * Present when a launcher is starting Claude or Codex (SPEC.md §10.2).
+		 * There is no command string: the agent picks the CLI.
+		 */
+		agent: CodingAgent.optional(),
+		/**
+		 * Institution-provided keys for this process only (SPEC.md §10.6,
+		 * §24.8). No other environment variable is accepted.
+		 */
+		institutionalEnv: z
+			.object({
+				ANTHROPIC_API_KEY: z.string().min(1).optional(),
+				OPENAI_API_KEY: z.string().min(1).optional(),
+			})
+			.strict()
+			.optional(),
 	})
 	.strict();
 export type AgentCreateTerminalRequest = z.infer<typeof AgentCreateTerminalRequest>;
+
+/**
+ * Reply from `POST /terminals` on the agent (SPEC.md §10.9). Both ids are
+ * null when the project had nothing to record. Any other field the agent
+ * still sends is ignored by the caller, which reads only these two.
+ */
+export const AgentCreateTerminalResponse = z.object({
+	baselineObjectId: z.string().nullable(),
+	baselineHead: z.string().nullable(),
+});
+export type AgentCreateTerminalResponse = z.infer<typeof AgentCreateTerminalResponse>;
 
 /**
  * A project directory as the agent sees it under `~/projects`

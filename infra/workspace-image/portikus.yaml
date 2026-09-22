@@ -1432,13 +1432,206 @@ files:
 # Coding-agent settings for every student login shell.  The CLIs are
 # installed system-wide at pinned versions, so the student cannot write the
 # npm prefix; Claude Code's updater would fail on every launch.  Versions
-# move with image rebuilds instead (SPEC.md 10, issue #127).
+# move with image rebuilds instead (SPEC.md 10, issue #127).  BROWSER sends
+# link opens to the workspace agent (BROWSER-HANDLING.md 18).
 - path: /etc/profile.d/portikus-agents.sh
   generator: dump
   mode: "0644"
   content: |-
     # Claude Code self-update is disabled: the image owns the version.
     export DISABLE_AUTOUPDATER=1
+    # CLIs that honor BROWSER open links through the workspace broker.
+    export BROWSER=/usr/local/bin/portikus-open
+
+# Codex has no updater environment variable.  This is the system config
+# layer it reads on Linux, and the image owns the version (issue #129).
+# A student's own ~/.codex stays untouched; nothing here copies auth.json.
+- path: /etc/codex/config.toml
+  generator: dump
+  mode: "0644"
+  content: |-
+    # The image owns the Codex version, same as Claude Code's updater.
+    check_for_update_on_startup = false
+
+# One http(s) URL in, one JSON line to the workspace agent, one JSON line
+# back.  The URL is never printed (BROWSER-HANDLING.md 18 and 25.2).
+- path: /usr/local/bin/portikus-open
+  generator: dump
+  mode: "0755"
+  content: |-
+    #!/bin/sh
+    # Forwards one http(s) URL to the workspace agent. Never prints the URL.
+    set -eu
+
+    sock=/run/portikus/browser.sock
+    fail='Could not open that link.'
+    # Same ceiling the broker enforces before it will read a URL.
+    max_url=4096
+
+    die() {
+      printf '%s\n' "$fail" >&2
+      exit 1
+    }
+
+    if [ "$#" -ne 1 ]; then
+      die
+    fi
+
+    url=$1
+
+    # A control character cannot travel as one JSON line.
+    stripped=$(printf '%s' "$url" | tr -d '\000-\037\177') || die
+    if [ "$stripped" != "$url" ]; then
+      die
+    fi
+
+    if [ "${#url}" -gt "$max_url" ]; then
+      die
+    fi
+
+    case "$url" in
+      [hH][tT][tT][pP]://*|[hH][tT][tT][pP][sS]://*)
+        ;;
+      *)
+        die
+        ;;
+    esac
+
+    # Userinfo (user:pass@host) is not brokered. The host is whatever is
+    # left of the first slash, question mark, or hash.
+    rest=${url#*://}
+    case "$rest" in
+      ''|[/?#]*)
+        die
+        ;;
+    esac
+    authority=${rest%%[/?#]*}
+    case "$authority" in
+      ''|*@*)
+        die
+        ;;
+    esac
+
+    if [ ! -S "$sock" ]; then
+      die
+    fi
+
+    if ! command -v python3 >/dev/null 2>&1; then
+      die
+    fi
+
+    # Read this shell's stat, not awk's. $$ stays the script in a
+    # substitution; /proc/self would be awk, whose parent has already
+    # exited by the time we connect. The parent here is the CLI.
+    ppid=$(awk '{
+      s = $0
+      i = length(s)
+      while (i > 0 && substr(s, i, 1) != ")") i--
+      rest = substr(s, i + 2)
+      split(rest, f, " ")
+      print f[2]
+    }' "/proc/$$/stat" 2>/dev/null || true)
+    case "$ppid" in
+      ''|*[!0-9]*) ppid= ;;
+    esac
+
+    script=$(cat <<'PY'
+    import json
+    import os
+    import socket
+    import sys
+    import uuid
+
+    def main():
+        sock_path = sys.argv[1]
+        message = sys.argv[2]
+        ppid = sys.argv[3]
+        url = sys.stdin.read()
+
+        def fail():
+            sys.stderr.write(message + "\n")
+            raise SystemExit(1)
+
+        req = {"requestId": str(uuid.uuid4()), "url": url}
+        if ppid.isdigit() and int(ppid) > 0:
+            pid = int(ppid)
+            req["pid"] = pid
+            try:
+                exe = os.readlink("/proc/%s/exe" % pid)
+            except OSError:
+                exe = ""
+            if exe:
+                req["executable"] = exe
+        # Our cwd, not the parent's: exec replaces the CLI and leaves its shell behind.
+        try:
+            cwd = os.getcwd()
+        except OSError:
+            cwd = ""
+        if cwd:
+            req["cwd"] = cwd
+
+        payload = json.dumps(req, ensure_ascii=True, separators=(",", ":")) + "\n"
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                # The reply is the agent's acceptance, not the student's click.
+                client.settimeout(10)
+                client.connect(sock_path)
+                client.sendall(payload.encode("ascii"))
+                buf = bytearray()
+                while b"\n" not in buf:
+                    chunk = client.recv(4096)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    if len(buf) > 65536:
+                        fail()
+        except OSError:
+            fail()
+
+        try:
+            reply = json.loads(bytes(buf).split(b"\n", 1)[0].decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError):
+            fail()
+        if not isinstance(reply, dict) or reply.get("ok") is not True:
+            fail()
+
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        sys.stderr.write(sys.argv[2] + "\n")
+        raise SystemExit(1)
+    PY
+    )
+
+    printf '%s' "$url" | python3 -c "$script" "$sock" "$fail" "$ppid"
+
+# Ahead of /usr/bin on PATH. Browser URLs go to the broker; every other
+# open is still the distro tool when that tool is installed.
+- path: /usr/local/bin/xdg-open
+  generator: dump
+  mode: "0755"
+  content: |-
+    #!/bin/sh
+    # An http(s) argument is a browser open. Anything else is Debian's
+    # xdg-open, so a file open still behaves as the distro tool does.
+    set -eu
+
+    for arg in "$@"; do
+      case "$arg" in
+        [hH][tT][tT][pP]://*|[hH][tT][tT][pP][sS]://*)
+          exec /usr/local/bin/portikus-open "$arg"
+          ;;
+      esac
+    done
+
+    if [ -x /usr/bin/xdg-open ]; then
+      exec /usr/bin/xdg-open "$@"
+    fi
+
+    printf '%s\n' 'Could not open that link.' >&2
+    exit 1
 
 # Clipboard bridge for programs that expect X11 or macOS clipboard tools.
 # A workspace has no display, so the shim turns a copy into an OSC 52
@@ -1633,6 +1826,9 @@ files:
     # can drop settings here, and the dash keeps the unit starting when
     # the file is absent.
     EnvironmentFile=-/etc/portikus/agent.env
+    # /run is root-owned mode 0755, so the student cannot mkdir this.
+    RuntimeDirectory=portikus
+    RuntimeDirectoryMode=0700
     ExecStart=/opt/portikus/workspace-agent/bin/workspace-agent
     Restart=on-failure
     RestartSec=5

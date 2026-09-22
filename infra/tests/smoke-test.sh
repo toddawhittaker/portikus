@@ -209,6 +209,20 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   # 17. CLI tools are installed
   check "codex --version"                       ws_student "codex --version"
   check "claude --version"                      ws_student "claude --version"
+  # Browser opens are brokered, and Codex does not look for updates on
+  # startup (BROWSER-HANDLING.md 18 and 25.2). These do not log in.
+  check "portikus-open is executable"           ws_exec "test -x /usr/local/bin/portikus-open"
+  check "xdg-open wrapper is executable"        ws_exec "test -x /usr/local/bin/xdg-open"
+  check_output "BROWSER is portikus-open in a login shell" \
+    "BROWSER=/usr/local/bin/portikus-open" ws_student 'env | grep ^BROWSER='
+  # The student cannot mkdir under /run. systemd must create the broker
+  # socket directory before the agent starts (BROWSER-HANDLING.md 18).
+  check_output "workspace agent unit sets RuntimeDirectory=portikus" \
+    "RuntimeDirectory=portikus" \
+    ws_exec "grep -F -x 'RuntimeDirectory=portikus' /etc/systemd/system/portikus-workspace-agent.service"
+  check_output "Codex update check is off" \
+    "check_for_update_on_startup = false" \
+    ws_exec "grep -F -x 'check_for_update_on_startup = false' /etc/codex/config.toml"
   check "gh --version"                          ws_student "gh --version"
   check "node --version"                        ws_student "node --version"
   check "python3 --version"                     ws_student "python3 --version"

@@ -244,7 +244,43 @@ describe("database migrations and schema", () => {
 		expect(row.position).toBe(0);
 		expect(row.ended_at).toBeNull();
 		expect(row.created_at).toBeInstanceOf(Date);
+		// A shell has no launcher and no review baseline (SPEC.md §10.8).
+		expect(row.agent).toBeNull();
+		expect(row.baseline_object_id).toBeNull();
+		expect(row.baseline_head).toBeNull();
 	});
+
+	test.skipIf(!hasTestDb())(
+		"a terminal can record a launcher and its baseline",
+		async () => {
+			const ws = await t.db
+				.insertInto("workspaces")
+				.values({
+					label: testLabel(),
+					owner_user_id: await insertTestUser(t.db),
+					state: "running",
+				})
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			const sha = "a".repeat(40);
+			const head = "b".repeat(64);
+			const row = await t.db
+				.insertInto("terminals")
+				.values({
+					workspace_id: ws.id,
+					name: "claude",
+					cwd: "/home/student/projects/essay",
+					agent: "claude",
+					baseline_object_id: sha,
+					baseline_head: head,
+				})
+				.returning(["agent", "baseline_object_id", "baseline_head"])
+				.executeTakeFirstOrThrow();
+			expect(row.agent).toBe("claude");
+			expect(row.baseline_object_id).toBe(sha);
+			expect(row.baseline_head).toBe(head);
+		},
+	);
 
 	// --- migration 0010: the terminal's own colour scheme (issue #268) ---
 
@@ -574,6 +610,8 @@ describe("database migrations and schema", () => {
 				expect(down9.error).toBeUndefined();
 				const down10 = await migrator.migrateDown();
 				expect(down10.error).toBeUndefined();
+				const down11 = await migrator.migrateDown();
+				expect(down11.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -587,6 +625,7 @@ describe("database migrations and schema", () => {
 					"0008_preview",
 					"0009_project_directory_id",
 					"0010_terminal_theme",
+					"0011_terminal_agent",
 				]);
 				throw rollback;
 			}),

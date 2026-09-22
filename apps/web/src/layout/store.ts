@@ -63,11 +63,20 @@ export interface LayoutState {
 	load: (layout: ProjectLayout) => void;
 	addTab: (terminalId: string) => void;
 	/**
+	 * Object id a file tab's diff compares against, or null for Git HEAD.
+	 * Local to this browser (SPEC.md §12.7).
+	 */
+	diffBaseline: Record<string, string | null>;
+	/**
 	 * Open a file tab, or activate the one already open for this path. With
 	 * `diff` the tab is asked to show its diff rather than the editor
-	 * (issue #160). There is no limit on open tabs (issue #240).
+	 * (issue #160). `baseline` compares that diff with an object id instead
+	 * of Git HEAD. There is no limit on open tabs (issue #240).
 	 */
-	openFile: (path: string, options?: { line?: number; diff?: boolean }) => void;
+	openFile: (
+		path: string,
+		options?: { line?: number; diff?: boolean; baseline?: string },
+	) => void;
 	/**
 	 * Open a preview tab for one port, or activate the one already open for
 	 * it (SPEC.md §14.6). There is no limit on open tabs (issue #240).
@@ -176,6 +185,7 @@ export function createLayoutStore() {
 			pendingLine: {},
 			pendingDiff: {},
 			pendingEdit: {},
+			diffBaseline: {},
 			viewStates: {},
 			zooms: {},
 			tabHistory: [],
@@ -231,6 +241,9 @@ export function createLayoutStore() {
 					pendingEdit[opened.tabId] = (pendingEdit[opened.tabId] ?? 0) + 1;
 					delete pendingDiff[opened.tabId];
 				}
+				const diffBaseline = { ...state.diffBaseline };
+				diffBaseline[opened.tabId] =
+					options?.diff && options.baseline ? options.baseline : null;
 				set({
 					layout: opened.layout,
 					activeTabId: opened.tabId,
@@ -238,6 +251,7 @@ export function createLayoutStore() {
 					pendingLine,
 					pendingDiff,
 					pendingEdit,
+					diffBaseline,
 					dirty: state.dirty || opened.layout !== state.layout,
 				});
 			},
@@ -277,6 +291,7 @@ export function createLayoutStore() {
 					const { [tabId]: _line, ...pendingLine } = state.pendingLine;
 					const { [tabId]: _diff, ...pendingDiff } = state.pendingDiff;
 					const { [tabId]: _edit, ...pendingEdit } = state.pendingEdit;
+					const { [tabId]: _baseline, ...diffBaseline } = state.diffBaseline;
 					const viewStates = { ...state.viewStates };
 					const zooms = { ...state.zooms };
 					// Nothing to put back next time: the file tab is gone.
@@ -291,6 +306,7 @@ export function createLayoutStore() {
 						pendingLine,
 						pendingDiff,
 						pendingEdit,
+						diffBaseline,
 						viewStates,
 						zooms,
 						dirty: true,
