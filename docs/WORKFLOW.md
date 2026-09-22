@@ -72,9 +72,17 @@ Playwright starts, named with this host and the wrapper's process id,
 migrates the empty database from this checkout, and drops it after
 Playwright exits. It does not migrate the shared database. A shared database keeps the migration history of
 whichever checkout last wrote it, and a later checkout cannot migrate a
-history that names a migration it does not contain. The browser tests still
-use fixed ports, so two `pnpm test:e2e` runs on one machine fight over the
-API and web dev server ports. Run the browser tests one at a time.
+history that names a migration it does not contain.
+
+The wrapper also picks four free ports for the run, one each for the web
+dev server, the API, the mock identity provider, and the fake workspace
+agent. It passes them to Playwright as `PORTIKUS_WEB_PORT`,
+`PORTIKUS_API_PORT`, `PORTIKUS_OIDC_PORT`, and `FAKE_AGENT_PORT`;
+`e2e/ports.ts` reads them for the tests and `playwright.config.ts` for the
+servers it starts. Any number of `pnpm test:e2e` runs on one machine can
+therefore run at once. Arguments after `pnpm test:e2e` go to Playwright,
+for example `pnpm test:e2e --shard=1/3`. A direct `playwright test` falls
+back to the development ports 5173, 3000, 3002, and 7400.
 
 ### Logging in locally
 
@@ -266,8 +274,12 @@ task pull requests without asking each time.
   floors in `vitest.config.ts` (for example 80% of lines overall). The lcov
   report is uploaded as the `coverage-lcov` artifact and kept for three days. `make check` runs the
   same coverage command, so a local check catches the same failure.
-- **Browser end-to-end tests**: `pnpm test:e2e` with Playwright. Skipped
-  until the script exists.
+- **Browser end-to-end tests**: `pnpm test:e2e` with Playwright, split
+  across three parallel jobs with `--shard`, each with its own database
+  service. They start alongside Application checks rather than after it. A
+  last job with the required name "Browser end-to-end tests" passes only
+  when every shard passed. The Playwright browser download is cached.
+  Skipped until the script exists.
 - **Infrastructure checks**: `tofu fmt` and `tofu validate`, ansible-lint,
   shellcheck. Each skipped until the matching directory or files exist.
 - **Package build**: builds the control-plane Debian package with `nfpm`
