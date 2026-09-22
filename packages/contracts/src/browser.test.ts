@@ -120,11 +120,30 @@ test("classifyBrokerUrl keeps loopback hosts, with the port only when it was wri
 		outcome: "loopback",
 		port: 8443,
 	});
-	// A trailing-dot host is not the loopback name, and this function does
-	// not decide preview versus login.
+	// Absolute DNS form of the loopback name. This function does not decide
+	// preview versus login.
 	expect(classifyBrokerUrl("http://localhost.:3000/")).toEqual({
-		outcome: "external",
-		origin: "http://localhost.:3000",
+		outcome: "loopback",
+		port: 3000,
+	});
+	expect(classifyBrokerUrl("http://127.0.0.2/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://0.0.0.0/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://[::]/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://[::ffff:127.0.0.1]/")).toEqual({
+		outcome: "loopback",
+	});
+	expect(classifyBrokerUrl("http://2130706433/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://127.1/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://app.localhost/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://app.localhost./")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://10.1.2.3/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://172.16.0.1/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://192.168.0.1/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://169.254.1.1/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://[fd00::1]/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://[fe80::1]/")).toEqual({ outcome: "loopback" });
+	expect(classifyBrokerUrl("http://[::ffff:10.0.0.1]/")).toEqual({
+		outcome: "loopback",
 	});
 });
 
@@ -136,6 +155,18 @@ test("classifyBrokerUrl returns the normalized origin of any other http(s) URL",
 	expect(classifyBrokerUrl("http://example.com:8443/x")).toEqual({
 		outcome: "external",
 		origin: "http://example.com:8443",
+	});
+	expect(classifyBrokerUrl("http://172.32.0.1/")).toEqual({
+		outcome: "external",
+		origin: "http://172.32.0.1",
+	});
+	expect(classifyBrokerUrl("http://[2001:db8::1]/")).toEqual({
+		outcome: "external",
+		origin: "http://[2001:db8::1]",
+	});
+	expect(classifyBrokerUrl("http://localhost.evil.example/")).toEqual({
+		outcome: "external",
+		origin: "http://localhost.evil.example",
 	});
 });
 
