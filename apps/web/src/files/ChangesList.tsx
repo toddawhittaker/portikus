@@ -12,11 +12,23 @@ export function ChangesList({
 	projectId,
 	status,
 	error = false,
+	sessionLabel,
+	onReviewSession,
+	onShowGit,
+	onOpen,
 }: {
 	projectId: string;
 	status: GitStatus | undefined;
 	/** The status query failed; the list says so rather than "no changes". */
 	error?: boolean;
+	/** Set while the list is the agent-session comparison (SPEC.md §12.7). */
+	sessionLabel?: string;
+	/** Offered when an open terminal has a baseline and Git changes are showing. */
+	onReviewSession?: () => void;
+	/** Back to the Git HEAD list. */
+	onShowGit?: () => void;
+	/** Opens one row. The default opens the file's Git diff. */
+	onOpen?: (path: string) => void;
 }) {
 	const [open, setOpen] = useState(true);
 	const layoutStore = useLayoutStore(projectId);
@@ -28,6 +40,10 @@ export function ChangesList({
 	const unknown = status === undefined;
 
 	function show(row: ChangeRow) {
+		if (onOpen) {
+			onOpen(row.path);
+			return;
+		}
 		// The diff is a view of the file's own tab, so a file already open is
 		// switched to its diff rather than opened a second time (issue #160).
 		openFile(row.path, { diff: true });
@@ -44,9 +60,30 @@ export function ChangesList({
 			>
 				<Icon name={open ? "chevron-down" : "chevron-right"} size="sm" />
 				<span data-testid="changes-title">
-					{unknown || notARepo ? "Changes" : `Changes (${rows.length})`}
+					{sessionLabel ??
+						(unknown || notARepo ? "Changes" : `Changes (${rows.length})`)}
 				</span>
 			</button>
+			{onReviewSession ? (
+				<button
+					type="button"
+					className="pk-changes-review"
+					data-testid="review-session"
+					onClick={onReviewSession}
+				>
+					Review session changes
+				</button>
+			) : null}
+			{onShowGit ? (
+				<button
+					type="button"
+					className="pk-changes-review"
+					data-testid="show-git-changes"
+					onClick={onShowGit}
+				>
+					Show Git changes
+				</button>
+			) : null}
 			{open ? (
 				error ? (
 					<p className="pk-changes-empty" data-testid="changes-error">
@@ -58,7 +95,9 @@ export function ChangesList({
 					</p>
 				) : rows.length === 0 ? (
 					<p className="pk-changes-empty" data-testid="changes-empty">
-						No changes since the last commit
+						{sessionLabel
+							? "No changes since this session started"
+							: "No changes since the last commit"}
 					</p>
 				) : (
 					<ul className="pk-changes-list" data-testid="changes-list">

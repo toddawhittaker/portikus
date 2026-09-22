@@ -227,3 +227,40 @@ test("a reconnected socket refetches everything, because frames were missed", ()
 		true,
 	);
 });
+
+test("a frame that is neither filesystem nor a browser open is ignored", () => {
+	const { invalidate } = mountSocket();
+	act(() => {
+		FakeWebSocket.last?.onmessage?.({ data: JSON.stringify({ type: "other" }) });
+		FakeWebSocket.last?.onmessage?.({ data: "not json" });
+		vi.advanceTimersByTime(1_000);
+	});
+	expect(invalidate).not.toHaveBeenCalled();
+});
+
+test("a browser open frame is handed up and does not refetch files", () => {
+	const onBrowserOpen = vi.fn();
+	const client = new QueryClient();
+	const invalidate = vi
+		.spyOn(client, "invalidateQueries")
+		.mockReturnValue(Promise.resolve());
+	renderHook(() => useProjectEvents("ws", "pid", onBrowserOpen), {
+		wrapper: ({ children }) => (
+			<QueryClientProvider client={client}>{children}</QueryClientProvider>
+		),
+	});
+	const frame = {
+		type: "browser.open.request",
+		requestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+		url: "https://example.com/login",
+		brokerClass: "external",
+		requestedAt: "2026-01-01T00:00:00.000Z",
+	};
+	act(() => {
+		FakeWebSocket.last?.onmessage?.({ data: JSON.stringify(frame) });
+		vi.advanceTimersByTime(1_000);
+	});
+	expect(onBrowserOpen).toHaveBeenCalledWith(frame);
+	expect(invalidate).not.toHaveBeenCalled();
+});

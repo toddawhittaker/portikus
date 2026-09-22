@@ -4,7 +4,12 @@
  * §9.7). The server decides the working directory from the project
  * (SPEC.md §9.4), so nothing here sends a cwd.
  */
-import { Terminal, TerminalList, type TerminalTheme } from "@portikus/contracts";
+import {
+	type CodingAgent,
+	Terminal,
+	TerminalList,
+	type TerminalTheme,
+} from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { z } from "zod";
@@ -19,7 +24,7 @@ export interface Terminals {
 	terminals: Terminal[];
 	loaded: boolean;
 	error: string | null;
-	create: (init?: { name?: string }) => Promise<Terminal>;
+	create: (init?: { name?: string; agent?: CodingAgent }) => Promise<Terminal>;
 	rename: (terminalId: string, name: string) => Promise<void>;
 	/** Switch one terminal between the light and dark scheme (issue #268). */
 	setTheme: (terminalId: string, theme: TerminalTheme) => Promise<void>;
@@ -54,12 +59,17 @@ export function useTerminals(
 	}
 
 	const create = useMutation({
-		mutationFn: (init?: { name?: string }) =>
-			// The API answers with the created terminal.
+		mutationFn: (init?: { name?: string; agent?: CodingAgent }) =>
+			// The API answers with the created terminal. A launcher sends the
+			// agent enum and no command string (SPEC.md §10.2).
 			request(Terminal, url, {
 				method: "POST",
 				headers: JSON_HEADERS,
-				body: JSON.stringify({ projectId, ...(init?.name ? { name: init.name } : {}) }),
+				body: JSON.stringify({
+					projectId,
+					...(init?.name ? { name: init.name } : {}),
+					...(init?.agent ? { agent: init.agent } : {}),
+				}),
 			}),
 		// No refetch here on purpose: a list answer holding a terminal the caller
 		// has not placed yet would be reconciled into a tab of its own. The
