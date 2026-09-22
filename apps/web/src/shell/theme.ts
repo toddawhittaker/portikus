@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 
 /**
  * Appearance: the theme follows the operating system unless the person picks
- * one in the account menu (design/system/README.md, "Colour"). The choice is
- * remembered in localStorage, which some browsers refuse, so every access is
- * guarded.
+ * one in Settings (design/system/README.md, "Colour"). The choice is
+ * remembered in this browser under `pk-theme`, which some browsers refuse,
+ * so every access is guarded. It is not a server setting.
  */
 export type ThemePreference = "system" | "light" | "dark";
 
