@@ -3,7 +3,14 @@
  * refresh that runs only while the tab is shown.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { MonitorPane } from "./MonitorPane.js";
 
@@ -61,9 +68,37 @@ test("shows CPU, memory, disk, network rates and the process list", async () => 
 	const rows = screen.getAllByTestId(/monitor-process-/);
 	expect(rows[0]?.textContent).toContain("node");
 	expect(rows[1]?.textContent).toContain("python");
-	// No way to kill a process, and no chart.
-	expect(screen.queryByRole("button")).toBeNull();
+	expect(screen.queryByRole("button", { name: /kill|stop/i })).toBeNull();
 	expect(screen.getByTestId("monitor").textContent).not.toContain("btop");
+});
+
+test("clicking a column sorts it, and clicking again reverses it", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () =>
+			json({
+				...USAGE,
+				processes: [
+					{ pid: 10, cpuPercent: 50, residentBytes: 100, command: "node10" },
+					{ pid: 2, cpuPercent: 1, residentBytes: 5000, command: "node2" },
+				],
+			}),
+		),
+	);
+	renderPane();
+	await waitFor(() => expect(screen.getByTestId("monitor-process-2")).toBeTruthy());
+	const pids = () =>
+		screen
+			.getAllByTestId(/monitor-process-/)
+			.map((row) => row.getAttribute("data-testid"));
+
+	// Default is CPU descending, so the busier process is first.
+	expect(pids()).toEqual(["monitor-process-10", "monitor-process-2"]);
+
+	fireEvent.click(screen.getByRole("button", { name: "PID" }));
+	expect(pids()).toEqual(["monitor-process-2", "monitor-process-10"]);
+	fireEvent.click(screen.getByRole("button", { name: "PID" }));
+	expect(pids()).toEqual(["monitor-process-10", "monitor-process-2"]);
 });
 
 test("refreshes once a second while shown and stops when it goes away", async () => {

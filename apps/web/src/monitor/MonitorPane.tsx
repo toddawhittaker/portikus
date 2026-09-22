@@ -4,8 +4,16 @@
  * while it is the selected tab, and it does not manage processes.
  */
 import type { UsageProcess, WorkspaceUsage } from "@portikus/contracts";
+import { useState } from "react";
 import "./monitor.css";
 import { formatBytes, formatCpu, formatRate } from "./format.js";
+import {
+	compareProcesses,
+	DEFAULT_PROCESS_SORT,
+	type ProcessColumn,
+	type ProcessSort,
+	toggleProcessSort,
+} from "./sort.js";
 import { useWorkspaceUsage } from "./usage.js";
 
 export function MonitorPane({ workspaceId }: { workspaceId: string }) {
@@ -31,7 +39,10 @@ export function MonitorPane({ workspaceId }: { workspaceId: string }) {
 }
 
 function Figures({ usage }: { usage: WorkspaceUsage }) {
-	const processes = [...usage.processes].sort(byLoad);
+	const [sort, setSort] = useState<ProcessSort>(DEFAULT_PROCESS_SORT);
+	const processes = [...usage.processes].sort((left, right) =>
+		compareProcesses(left, right, sort),
+	);
 	return (
 		<>
 			<dl className="pk-monitor-stats">
@@ -58,10 +69,10 @@ function Figures({ usage }: { usage: WorkspaceUsage }) {
 			<table className="pk-monitor-procs" data-testid="monitor-processes">
 				<thead>
 					<tr>
-						<th>PID</th>
-						<th>CPU</th>
-						<th>Memory</th>
-						<th>Command</th>
+						<SortHeader column="pid" label="PID" sort={sort} onSort={setSort} />
+						<SortHeader column="cpu" label="CPU" sort={sort} onSort={setSort} />
+						<SortHeader column="memory" label="Memory" sort={sort} onSort={setSort} />
+						<SortHeader column="command" label="Command" sort={sort} onSort={setSort} />
 					</tr>
 				</thead>
 				<tbody>
@@ -91,9 +102,27 @@ function ProcessRow({ process }: { process: UsageProcess }) {
 	);
 }
 
-/** Busiest first. A process with no sample yet sorts as idle. */
-function byLoad(left: UsageProcess, right: UsageProcess): number {
-	const cpu = (right.cpuPercent ?? -1) - (left.cpuPercent ?? -1);
-	if (cpu !== 0) return cpu;
-	return right.residentBytes - left.residentBytes || left.pid - right.pid;
+function SortHeader({
+	column,
+	label,
+	sort,
+	onSort,
+}: {
+	column: ProcessColumn;
+	label: string;
+	sort: ProcessSort;
+	onSort: (next: ProcessSort) => void;
+}) {
+	const active = sort.column === column;
+	return (
+		<th
+			aria-sort={
+				active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"
+			}
+		>
+			<button type="button" onClick={() => onSort(toggleProcessSort(sort, column))}>
+				{label}
+			</button>
+		</th>
+	);
 }

@@ -10,6 +10,15 @@ describe("Checkbox", () => {
 		).toBeDefined();
 	});
 
+	it("puts the description under the label, not on the same line", () => {
+		render(
+			<Checkbox label="Auto-save" description="Write the file a few seconds later." />,
+		);
+		const description = screen.getByText("Write the file a few seconds later.");
+		expect(description.closest(".pk-checkbox-copy")).not.toBeNull();
+		expect(description.previousElementSibling?.textContent).toBe("Auto-save");
+	});
+
 	it("toggles from the keyboard", () => {
 		const onChange = vi.fn();
 		render(<Checkbox label="Open preview in a new tab" onChange={onChange} />);

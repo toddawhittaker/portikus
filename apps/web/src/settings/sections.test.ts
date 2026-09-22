@@ -37,7 +37,7 @@ test("a section added to the list is found by its title and its control labels",
 });
 
 test("matching ignores case and can hit several controls in one section", () => {
-	const hits = settingsHits(SETTINGS_SECTIONS, "COLOUR");
+	const hits = settingsHits(SETTINGS_SECTIONS, "color");
 	expect(hits.map((hit) => hit.controlId)).toEqual([
 		"terminal-colours",
 		"colour-scheme",
