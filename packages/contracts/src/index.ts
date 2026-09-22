@@ -14,6 +14,7 @@ export type HealthResponse = z.infer<typeof HealthResponse>;
 
 export * from "./agent.js";
 export * from "./auth.js";
+export * from "./browser.js";
 export * from "./checks.js";
 export * from "./controller.js";
 export * from "./events.js";
