@@ -136,6 +136,22 @@ test("an added file has an empty HEAD side and says so", async () => {
 	expect(screen.getByTestId("diff-note").textContent).toBe("New file (not in HEAD)");
 });
 
+test("an added file under session review says it is new since the session started", async () => {
+	answer = { status: 200, body: diff({ status: "A", before: null, after: "new\n" }) };
+	renderWithQuery(
+		<DiffLeaf
+			path={PATH}
+			workspaceId={WORKSPACE}
+			projectId={PROJECT}
+			baseline="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		/>,
+	);
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	expect(screen.getByTestId("diff-note").textContent).toBe(
+		"New since this session started",
+	);
+});
+
 test("a deleted file shows the HEAD side and offers no Open file", async () => {
 	answer = { status: 200, body: diff({ status: "D", before: "gone\n", after: null }) };
 	renderLeaf();

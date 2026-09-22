@@ -126,7 +126,13 @@ export function DiffLeaf({
 	}
 
 	const status = data?.status;
-	const note = status === undefined ? null : (STATUS_NOTE[status] ?? null);
+	// Under session review the comparison is the baseline, not Git HEAD.
+	const note =
+		status === undefined
+			? null
+			: status === "A" && baseline
+				? "New since this session started"
+				: (STATUS_NOTE[status] ?? null);
 	// The badge comes from the same table the tree and the Changes list use,
 	// so one file never wears two letters (SPEC.md §12.6).
 	const kind = status === undefined ? null : DIFF_KIND[status];

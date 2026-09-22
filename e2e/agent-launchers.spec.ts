@@ -28,7 +28,7 @@ test("Claude Code starts from the New menu", async ({ page, context }) => {
 		agent: "claude",
 	});
 	expect(request.postData() ?? "").not.toContain("command");
-	await expect(page.getByRole("tab", { name: /Terminal/ })).toBeVisible();
+	await expect(page.getByRole("tab", { name: /Claude Code/ })).toBeVisible();
 });
 
 test("a javascript URL is refused and an https URL opens only after the click", async ({
