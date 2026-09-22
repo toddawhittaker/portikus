@@ -23,6 +23,7 @@ export * from "./git.js";
 export * from "./listening.js";
 export * from "./preview.js";
 export * from "./project.js";
+export * from "./recovery.js";
 export * from "./search.js";
 export * from "./settings.js";
 export * from "./terminal.js";

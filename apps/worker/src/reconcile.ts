@@ -19,6 +19,7 @@ export interface ReconcileConfig {
 	STATUS_REFRESH_SECONDS: number;
 	WORKSPACE_HOME_SIZE_GIB: number;
 	WORKSPACE_DOCKER_SIZE_GIB: number;
+	WORKSPACE_RECOVERY_SIZE_GIB: number;
 	PREVIEW_SUFFIX: string;
 }
 
@@ -277,6 +278,7 @@ export async function reconcile(
 				name: ws.incus_instance_name,
 				homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
 				dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+				recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
 			});
 			const updated = await casUpdate(
 				db,

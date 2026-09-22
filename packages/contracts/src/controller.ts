@@ -23,6 +23,7 @@ export const CreateInstanceRequest = z.object({
 	name: InstanceName,
 	homeGiB: z.number().int().positive(),
 	dockerGiB: z.number().int().positive(),
+	recoveryGiB: z.number().int().positive(),
 });
 export type CreateInstanceRequest = z.infer<typeof CreateInstanceRequest>;
 
@@ -69,6 +70,9 @@ export const StartInstanceRequest = z.object({
 	// The owner's timezone, set on the container at every start so shells,
 	// logs, and Git commits read in the student's own clock (issue #287).
 	timezone: Timezone,
+	// Size of the recovery volume to add when it is missing (ADR 0020).
+	// When absent the controller skips that step.
+	recoveryGiB: z.number().int().positive().optional(),
 });
 export type StartInstanceRequest = z.infer<typeof StartInstanceRequest>;
 
@@ -95,6 +99,32 @@ export const StopInstanceResponse = z.object({
 	forced: z.boolean(),
 });
 export type StopInstanceResponse = z.infer<typeof StopInstanceResponse>;
+
+/**
+ * Request body for `POST /instances/:name/reset-docker`: replace the
+ * Docker volume with a clean one of this size (SPEC.md §16.4, ADR 0021).
+ */
+export const ResetDockerRequest = z.object({
+	dockerGiB: z.number().int().positive(),
+});
+export type ResetDockerRequest = z.infer<typeof ResetDockerRequest>;
+
+/**
+ * Request body for `POST /instances/:name/rebuild`: replace the root
+ * filesystem from the current image, optionally with a clean Docker volume
+ * (SPEC.md §17.2, §22.3, ADR 0021).
+ */
+export const RebuildInstanceRequest = z.object({
+	resetDocker: z.boolean(),
+	dockerGiB: z.number().int().positive(),
+});
+export type RebuildInstanceRequest = z.infer<typeof RebuildInstanceRequest>;
+
+/** Response body for `POST /instances/:name/rebuild`. */
+export const RebuildInstanceResponse = z.object({
+	imageFingerprint: z.string().min(1),
+});
+export type RebuildInstanceResponse = z.infer<typeof RebuildInstanceResponse>;
 
 /**
  * Status of a single Incus instance as returned by the controller

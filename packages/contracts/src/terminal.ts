@@ -52,6 +52,8 @@ export const Terminal = z.object({
 	baselineObjectId: GitObjectId.nullable().optional(),
 	/** HEAD at the moment that baseline was taken (SPEC.md §10.9, §12.7). */
 	baselineHead: GitObjectId.nullable().optional(),
+	/** Recovery point made before the agent session started (SPEC.md §10.9). */
+	recoveryPointId: z.string().uuid().nullable().optional(),
 });
 export type Terminal = z.infer<typeof Terminal>;
 

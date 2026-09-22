@@ -30,6 +30,7 @@ const cfg: ReconcileConfig = {
 	STATUS_REFRESH_SECONDS: 15,
 	WORKSPACE_HOME_SIZE_GIB: 25,
 	WORKSPACE_DOCKER_SIZE_GIB: 20,
+	WORKSPACE_RECOVERY_SIZE_GIB: 3,
 	PREVIEW_SUFFIX: "preview.portikus.example.edu",
 };
 

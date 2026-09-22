@@ -309,6 +309,8 @@ export class UsageSampler {
 			disk,
 			network,
 			processes: rows,
+			// Filled in per storage class by Epic 10 task 2.
+			storage: { home: null, docker: null, recovery: null },
 		};
 	}
 

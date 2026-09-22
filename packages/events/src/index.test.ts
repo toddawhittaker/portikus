@@ -15,6 +15,7 @@ const workspace = {
 	incusInstanceName: "ws-abc123",
 	imageVersion: null,
 	quotaConfig: { homeGiB: 25, dockerGiB: 20 },
+	pendingOperation: null,
 	errorCode: null,
 	errorMessage: null,
 	activeConnections: 1,

@@ -5,8 +5,8 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, and 0012_profile (SPEC section 26, STACK
- * section 6).
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, and 0013_recovery
+ * (SPEC section 26, STACK section 6).
  */
 export interface Database {
 	users: UsersTable;
@@ -19,6 +19,7 @@ export interface Database {
 	audit_events: AuditEventsTable;
 	preview_grants: PreviewGrantsTable;
 	preview_sessions: PreviewSessionsTable;
+	recovery_points: RecoveryPointsTable;
 }
 
 export interface UsersTable {
@@ -64,7 +65,7 @@ export interface WorkspacesTable {
 	desired_state: Generated<string>;
 	image_version: string | null;
 	quota_config: ColumnType<
-		{ homeGiB: number; dockerGiB: number } | null,
+		{ homeGiB: number; dockerGiB: number; recoveryGiB?: number } | null,
 		string | null,
 		string | null
 	>;
@@ -75,6 +76,11 @@ export interface WorkspacesTable {
 	disconnected_at: ColumnType<Date | null, string | null, string | null>;
 	agent_token: string | null;
 	agent_address: string | null;
+	/** "reset-docker", "rebuild" or "rebuild-reset-docker" (ADR 0021). */
+	pending_operation: string | null;
+	pending_operation_at: ColumnType<Date | null, string | null, string | null>;
+	/** The user id that asked for the operation. */
+	pending_operation_by: string | null;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 }
@@ -94,6 +100,8 @@ export interface TerminalsTable {
 	baseline_object_id: string | null;
 	/** HEAD at the moment that baseline was taken (SPEC.md §10.9, §12.7). */
 	baseline_head: string | null;
+	/** Recovery point made before this agent session (SPEC.md §10.9). */
+	recovery_point_id: string | null;
 	created_at: ColumnType<Date, string | undefined, never>;
 	ended_at: ColumnType<Date | null, string | null, string | null>;
 }
@@ -114,6 +122,8 @@ export interface ProjectsTable {
 	layout: ColumnType<Record<string, unknown> | null, string | null, string | null>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	archived_at: ColumnType<Date | null, string | null, string | null>;
+	/** When the worker last checked this project for a periodic point. */
+	recovery_checked_at: ColumnType<Date | null, string | null, string | null>;
 }
 
 export interface SettingsTable {
@@ -167,4 +177,19 @@ export interface PreviewSessionsTable {
 	preview_host: string;
 	created_at: ColumnType<Date, string | undefined, never>;
 	revoked_at: ColumnType<Date | null, string | null, string | null>;
+}
+
+export interface RecoveryPointsTable {
+	id: string;
+	project_id: string;
+	workspace_id: string;
+	reason: string;
+	created_at: ColumnType<Date, string | undefined, never>;
+	/** A user id, or "worker". */
+	created_by: string;
+	/** Postgres returns bigint as a string. */
+	size_bytes: ColumnType<string, number | string, number | string>;
+	sha256: string;
+	fingerprint: string;
+	expires_at: ColumnType<Date, string, string>;
 }
