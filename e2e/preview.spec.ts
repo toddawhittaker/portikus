@@ -399,19 +399,23 @@ test.describe("application preview", () => {
 		await expect(appHeading(page)).toHaveText("Back again", { timeout: 20_000 });
 	});
 
-	test("the Running surface marks a saved preview that is no longer running", async ({
+	test("a port that is no longer listening disappears from Running", async ({
 		page,
 		context,
 	}) => {
 		const student = await createStudent(context);
 		await seedListening(student.workspaceId, [{ port: 3000 }]);
 		const project = await createProject(student.workspaceId, { name: "stale" });
+		// A saved preview of a port that is not listening used to leave a
+		// "not running" row. The list now shows only what is listening.
 		await savePreviewTab(project.id, 5173);
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await page.getByTestId("right-pane-tab-running").click();
-		await expect(page.getByTestId("running-stale-5173")).toContainText("not running", {
+		await expect(page.getByTestId("running-row-3000")).toBeVisible({
 			timeout: 20_000,
 		});
+		await expect(page.getByTestId("running-stale-5173")).toHaveCount(0);
+		await expect(page.getByText("not running")).toHaveCount(0);
 	});
 
 	test("a preview of a port policy denies explains itself", async ({
