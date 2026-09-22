@@ -385,16 +385,17 @@ test.skipIf(skip)(
 test.skipIf(skip)("a second stop while one is running is refused", async () => {
 	await seedListening([{ port: 5173 }, { port: 5174 }]);
 	await untilPorts([5173, 5174]);
-	const [first, second] = await Promise.all([
-		stop(alice, workspaceId, 5173),
-		stop(alice, workspaceId, 5174),
-	]);
-	const codes = [first.statusCode, second.statusCode].sort();
-	expect(codes).toEqual([200, 409]);
-	const refused = first.statusCode === 409 ? first : second;
-	expect(refused.json().code).toBe("STOP_IN_PROGRESS");
+	// The fake agent holds the first stop, so the second arrives while it runs.
+	const hold = agent.holdNextStop();
+	const firstStop = stop(alice, workspaceId, 5173);
+	await hold.reached;
+	const second = await stop(alice, workspaceId, 5174);
+	hold.release();
+	const first = await firstStop;
+	expect([first.statusCode, second.statusCode]).toEqual([200, 409]);
+	expect(second.json().code).toBe("STOP_IN_PROGRESS");
 	// Once the first has answered, stopping works again.
-	const again = await stop(alice, workspaceId, refused === first ? 5173 : 5174);
+	const again = await stop(alice, workspaceId, 5174);
 	expect(again.statusCode).toBe(200);
 });
 
