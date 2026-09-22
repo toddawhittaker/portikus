@@ -1,11 +1,15 @@
 import { defineConfig, devices } from "@playwright/test";
+import {
+	API_ORIGIN,
+	API_PORT,
+	FAKE_AGENT_PORT,
+	MOCK_ISSUER as MOCK_OIDC_ISSUER,
+	OIDC_PORT,
+	WEB_PORT,
+	WEB_ORIGIN as WEB_URL,
+} from "./e2e/ports";
 
-const MOCK_OIDC_ISSUER = "http://127.0.0.1:3002";
-const WEB_URL = "http://127.0.0.1:5173";
-
-/** The fake workspace agent the terminal tests attach to. */
-export const FAKE_AGENT_PORT = 7400;
-export const FAKE_AGENT_TOKEN = "e2e-agent-token";
+const FAKE_AGENT_TOKEN = "e2e-agent-token";
 
 // The throwaway PostgreSQL from docs/WORKFLOW.md, "Local PostgreSQL for
 // database tests"; CI points TEST_DATABASE_URL at its service container.
@@ -52,7 +56,7 @@ export default defineConfig({
 			command: "node packages/auth/dist/testing/mock-oidc-main.js",
 			url: `${MOCK_OIDC_ISSUER}/.well-known/openid-configuration`,
 			env: {
-				MOCK_OIDC_PORT: "3002",
+				MOCK_OIDC_PORT: String(OIDC_PORT),
 				MOCK_OIDC_ISSUER,
 				MOCK_OIDC_CLIENT_ID: "portikus-dev",
 				MOCK_OIDC_CLIENT_SECRET: "portikus-dev-secret",
@@ -63,10 +67,10 @@ export default defineConfig({
 		},
 		{
 			command: "node packages/db/dist/migrate.js && node apps/api/dist/index.js",
-			url: "http://127.0.0.1:3000/health",
+			url: `${API_ORIGIN}/health`,
 			env: {
 				NODE_ENV: "test",
-				PORT: "3000",
+				PORT: String(API_PORT),
 				AGENT_PORT: String(FAKE_AGENT_PORT),
 				DATABASE_URL: databaseUrl,
 				PUBLIC_URL: WEB_URL,
@@ -92,6 +96,7 @@ export default defineConfig({
 		{
 			command: "pnpm --filter @portikus/web dev",
 			url: WEB_URL,
+			env: { PORTIKUS_WEB_PORT: String(WEB_PORT), PORTIKUS_API_PORT: String(API_PORT) },
 			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,
 		},

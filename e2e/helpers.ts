@@ -7,6 +7,7 @@ import {
 	type Page,
 } from "@playwright/test";
 import pg from "pg";
+import { API_ORIGIN, FAKE_AGENT_URL, MOCK_ISSUER, WEB_ORIGIN } from "./ports";
 
 /**
  * The visible toast carrying this text. Radix Toast also renders a hidden
@@ -27,9 +28,9 @@ export type MockUser = "alice" | "bob" | "carol" | "dave";
 export async function loginAs(page: Page, key: MockUser): Promise<void> {
 	await page.goto("/");
 	await page.click("[data-testid=signin]");
-	await page.waitForURL(/127\.0\.0\.1:3002\/authorize/);
+	await page.waitForURL(`${MOCK_ISSUER}/authorize**`);
 	await page.click(`[data-testid=mock-user-${key}]`);
-	await page.waitForURL(/127\.0\.0\.1:5173/);
+	await page.waitForURL(`${WEB_ORIGIN}/**`);
 }
 
 /**
@@ -56,8 +57,7 @@ export async function apiLoginAs(
  * the workspace at the fake workspace agent that playwright.config.ts starts.
  */
 
-export const WEB_ORIGIN = "http://127.0.0.1:5173";
-export const MOCK_ISSUER = "http://127.0.0.1:3002";
+export { API_ORIGIN, MOCK_ISSUER, WEB_ORIGIN };
 
 /** Matches the fake agent started by playwright.config.ts. */
 export const FAKE_AGENT_TOKEN = "e2e-agent-token";
@@ -194,9 +194,6 @@ export async function terminalIds(
 			);
 	return rows.map((row) => row.id);
 }
-
-/** Where the fake workspace agent from playwright.config.ts listens. */
-const FAKE_AGENT_URL = `http://127.0.0.1:${process.env.FAKE_AGENT_PORT ?? "7400"}`;
 
 /** Where a project directory lives inside the workspace (SPEC.md §7.1). */
 export function projectPath(slug: string): string {

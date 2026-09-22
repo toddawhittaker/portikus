@@ -1,3 +1,4 @@
+import { type AddressInfo, createServer } from "node:net";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -54,6 +55,15 @@ async function seedListening(
 		body: JSON.stringify({ key: workspaceId, services }),
 	});
 	expect(response.status).toBe(204);
+}
+
+/** A port that was free a moment ago and has nothing listening on it now. */
+async function closedPort(): Promise<number> {
+	const server = createServer();
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	const { port } = server.address() as AddressInfo;
+	await new Promise<void>((resolve) => server.close(() => resolve()));
+	return port;
 }
 
 function previewHostFor(port: number, name = label): string {
@@ -911,8 +921,18 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)("an application that does not answer is unreachable", async () => {
-	// 5173 is seeded as listening, but no server ever bound the port.
-	const response = await embeddable(5173);
+	// A port this test bound and closed, so nothing else on the machine answers it.
+	const port = await closedPort();
+	await seedListening([{ port }]);
+	await until(async () => {
+		const seen = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/listening`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		return seen.json().services.some((one: { port: number }) => one.port === port);
+	});
+	const response = await embeddable(port);
 	expect(response.statusCode).toBe(200);
 	expect(response.json()).toEqual({ embeddable: false, reason: "unreachable" });
 });

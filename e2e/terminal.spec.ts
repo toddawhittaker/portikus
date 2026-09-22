@@ -14,6 +14,7 @@ import {
 	workspacePath,
 	workTabs,
 } from "./helpers";
+import { FAKE_AGENT_URL } from "./ports";
 
 /**
  * The workspace terminal screen (SPEC.md §6.7, §6.8, §9, §14.9). The fake
@@ -552,7 +553,6 @@ test("the title bar follows cd", async ({ page, context }) => {
 });
 
 /** The fake agent, which the end-to-end run puts on this port. */
-const FAKE_AGENT_URL = `http://127.0.0.1:${process.env.FAKE_AGENT_PORT ?? "7400"}`;
 
 /** Put lines on a terminal's screen without typing for them. */
 async function printLines(terminalId: string, lines: string[]): Promise<void> {
