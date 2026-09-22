@@ -1517,6 +1517,7 @@ export async function startFakeAgent(
 		disk: { usedBytes: 300, totalBytes: 400 },
 		network: { receiveBytesPerSecond: 10, transmitBytesPerSecond: 20 },
 		processes: [{ pid: 7, cpuPercent: 1.5, residentBytes: 4096, command: "node" }],
+		storage: { home: null, docker: null, recovery: null },
 	}));
 
 	app.get(

@@ -614,6 +614,8 @@ describe("database migrations and schema", () => {
 				expect(down11.error).toBeUndefined();
 				const down12 = await migrator.migrateDown();
 				expect(down12.error).toBeUndefined();
+				const down13 = await migrator.migrateDown();
+				expect(down13.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -629,6 +631,7 @@ describe("database migrations and schema", () => {
 					"0010_terminal_theme",
 					"0011_terminal_agent",
 					"0012_profile",
+					"0013_recovery",
 				]);
 				throw rollback;
 			}),
@@ -845,6 +848,151 @@ describe("database migrations and schema", () => {
 
 			const left = await t.db.selectFrom("preview_sessions").selectAll().execute();
 			expect(left).toHaveLength(0);
+		},
+	);
+
+	// --- migration 0013: recovery points and maintenance operations ---
+	// SPEC.md sections 15, 16.4, 17.2; ADR 0020 and 0021.
+
+	async function insertProject(): Promise<{ workspaceId: string; projectId: string }> {
+		const userId = await insertTestUser(t.db);
+		const ws = await t.db
+			.insertInto("workspaces")
+			.values({ label: testLabel(), owner_user_id: userId, state: "running" })
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		const project = await t.db
+			.insertInto("projects")
+			.values({
+				workspace_id: ws.id,
+				slug: "demo",
+				name: "Demo",
+				path: "/home/student/projects/demo",
+				source: "new",
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		return { workspaceId: ws.id, projectId: project.id };
+	}
+
+	function pointValues(workspaceId: string, projectId: string, reason = "periodic") {
+		return {
+			id: crypto.randomUUID(),
+			project_id: projectId,
+			workspace_id: workspaceId,
+			reason,
+			created_by: "worker",
+			size_bytes: 1234,
+			sha256: "a".repeat(64),
+			fingerprint: "f".repeat(64),
+			expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+		};
+	}
+
+	test.skipIf(!hasTestDb())(
+		"deleting a project removes its recovery points and clears the terminal link",
+		async () => {
+			const { workspaceId, projectId } = await insertProject();
+			const point = pointValues(workspaceId, projectId, "agent-session");
+			await t.db.insertInto("recovery_points").values(point).execute();
+			const terminal = await t.db
+				.insertInto("terminals")
+				.values({
+					workspace_id: workspaceId,
+					name: "claude",
+					cwd: "/home/student",
+					recovery_point_id: point.id,
+				})
+				.returning("id")
+				.executeTakeFirstOrThrow();
+
+			const stored = await t.db
+				.selectFrom("recovery_points")
+				.selectAll()
+				.executeTakeFirstOrThrow();
+			expect(stored.size_bytes).toBe("1234");
+
+			await t.db.deleteFrom("projects").where("id", "=", projectId).execute();
+
+			const left = await t.db.selectFrom("recovery_points").selectAll().execute();
+			expect(left).toHaveLength(0);
+			const row = await t.db
+				.selectFrom("terminals")
+				.select("recovery_point_id")
+				.where("id", "=", terminal.id)
+				.executeTakeFirstOrThrow();
+			expect(row.recovery_point_id).toBeNull();
+		},
+	);
+
+	test.skipIf(!hasTestDb())("a recovery point rejects an unknown reason", async () => {
+		const { workspaceId, projectId } = await insertProject();
+		await expect(
+			t.db
+				.insertInto("recovery_points")
+				.values(pointValues(workspaceId, projectId, "hourly"))
+				.execute(),
+		).rejects.toThrow(/check|violates/i);
+	});
+
+	test.skipIf(!hasTestDb())(
+		"a workspace accepts only the three pending operations",
+		async () => {
+			const { workspaceId } = await insertProject();
+			for (const op of ["reset-docker", "rebuild", "rebuild-reset-docker"]) {
+				await t.db
+					.updateTable("workspaces")
+					.set({ pending_operation: op })
+					.where("id", "=", workspaceId)
+					.execute();
+			}
+			await expect(
+				t.db
+					.updateTable("workspaces")
+					.set({ pending_operation: "reinstall" })
+					.where("id", "=", workspaceId)
+					.execute(),
+			).rejects.toThrow(/check|violates/i);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"migration 0013 adds recoveryGiB to quotas that lack it",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const userId = await insertTestUser(t.db);
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await trx
+						.insertInto("workspaces")
+						.values({
+							label: testLabel(),
+							owner_user_id: userId,
+							state: "stopped",
+							quota_config: JSON.stringify({ homeGiB: 25, dockerGiB: 20 }),
+						})
+						.execute();
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					const row = await trx
+						.selectFrom("workspaces")
+						.select("quota_config")
+						.executeTakeFirstOrThrow();
+					expect(row.quota_config).toEqual({
+						homeGiB: 25,
+						dockerGiB: 20,
+						recoveryGiB: 3,
+					});
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
 		},
 	);
 });

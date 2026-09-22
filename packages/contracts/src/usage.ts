@@ -17,6 +17,13 @@ export const UsageProcess = z.object({
 });
 export type UsageProcess = z.infer<typeof UsageProcess>;
 
+/** Used and total bytes of one mounted volume, from `statfs`. */
+export const StorageFigure = z.object({
+	usedBytes: z.number().int().nonnegative(),
+	totalBytes: z.number().int().nonnegative(),
+});
+export type StorageFigure = z.infer<typeof StorageFigure>;
+
 /**
  * One usage sample from the workspace agent (SPEC.md §18.2, §18.3).
  *
@@ -43,5 +50,14 @@ export const WorkspaceUsage = z.object({
 		transmitBytesPerSecond: z.number().nonnegative().nullable(),
 	}),
 	processes: z.array(UsageProcess),
+	/**
+	 * The three storage classes (SPEC.md §18.3, §19.2). A class is null when
+	 * its mount is missing.
+	 */
+	storage: z.object({
+		home: StorageFigure.nullable(),
+		docker: StorageFigure.nullable(),
+		recovery: StorageFigure.nullable(),
+	}),
 });
 export type WorkspaceUsage = z.infer<typeof WorkspaceUsage>;

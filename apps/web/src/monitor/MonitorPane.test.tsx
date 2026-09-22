@@ -26,6 +26,7 @@ const USAGE = {
 		{ pid: 7, cpuPercent: 10, residentBytes: 4096, command: "node" },
 		{ pid: 9, cpuPercent: 1, residentBytes: 1024, command: "python" },
 	],
+	storage: { home: null, docker: null, recovery: null },
 };
 
 function json(body: unknown): Response {

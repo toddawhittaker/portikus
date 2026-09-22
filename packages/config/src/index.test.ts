@@ -574,3 +574,37 @@ test("the worker config carries the preview suffix and checks its shape", () => 
 		}),
 	).toThrow(/PREVIEW_SUFFIX/);
 });
+
+// --- recovery points (SPEC.md §15, §19.1; ADR 0020) ---
+
+test("WorkerConfig applies the recovery defaults", () => {
+	const config = loadConfig(WorkerConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+	});
+	expect(config.WORKSPACE_RECOVERY_SIZE_GIB).toBe(3);
+	expect(config.RECOVERY_INTERVAL_SECONDS).toBe(900);
+	expect(config.RECOVERY_RETENTION_DAYS).toBe(14);
+	expect(config.RECOVERY_SWEEP_SECONDS).toBe(60);
+});
+
+test("ApiConfig applies the recovery defaults", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+	});
+	expect(config.WORKSPACE_RECOVERY_SIZE_GIB).toBe(3);
+	expect(config.RECOVERY_RETENTION_DAYS).toBe(14);
+});
+
+test("AgentConfig defaults RECOVERY_ROOT to the recovery volume mount", () => {
+	const config = loadConfig(AgentConfigSchema, {});
+	expect(config.RECOVERY_ROOT).toBe("/var/lib/portikus/recovery");
+});
+
+test("a zero recovery interval is a config error", () => {
+	expect(() =>
+		loadConfig(WorkerConfigSchema, {
+			DATABASE_URL: "postgres://localhost/portikus",
+			RECOVERY_INTERVAL_SECONDS: "0",
+		}),
+	).toThrow(/RECOVERY_INTERVAL_SECONDS/);
+});

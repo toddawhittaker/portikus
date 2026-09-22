@@ -25,6 +25,7 @@ export function toWorkspace(
 			homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
 			dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
 		},
+		pendingOperation: (row.pending_operation as Workspace["pendingOperation"]) ?? null,
 		errorCode: (row.error_code as string) ?? null,
 		errorMessage: (row.error_message as string) ?? null,
 		activeConnections,

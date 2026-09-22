@@ -29,7 +29,7 @@ test("401 without token", async () => {
 	const res = await app.inject({
 		method: "POST",
 		url: "/instances",
-		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	expect(res.statusCode).toBe(401);
 	expect(res.json().code).toBe("UNAUTHORIZED");
@@ -39,7 +39,7 @@ test("401 with wrong-length token", async () => {
 	const res = await app.inject({
 		method: "POST",
 		url: "/instances",
-		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 		headers: { authorization: "Bearer short" },
 	});
 	expect(res.statusCode).toBe(401);
@@ -49,7 +49,7 @@ test("401 with wrong token of same length", async () => {
 	const res = await app.inject({
 		method: "POST",
 		url: "/instances",
-		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 		headers: { authorization: "Bearer wrong-token-valu" },
 	});
 	expect(res.statusCode).toBe(401);
@@ -79,7 +79,7 @@ test("create instance happy path", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	expect(res.statusCode).toBe(201);
 	expect(res.json().created).toBe(true);
@@ -90,13 +90,13 @@ test("create instance already exists returns 200", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	const res = await app.inject({
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	expect(res.statusCode).toBe(200);
 	expect(res.json().created).toBe(false);
@@ -107,7 +107,7 @@ test("create with invalid name returns 400", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "INVALID!", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "INVALID!", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	expect(res.statusCode).toBe(400);
 	expect(res.json().code).toBe("INVALID_NAME");
@@ -120,7 +120,7 @@ test("start happy path", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	const res = await app.inject({
 		method: "POST",
@@ -143,7 +143,7 @@ test("start passes the agent token through to the provider", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	await app.inject({
 		method: "POST",
@@ -165,7 +165,7 @@ test("start passes the preview host suffix through to the provider", async () =>
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	await app.inject({
 		method: "POST",
@@ -227,7 +227,7 @@ test("stop happy path", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	await app.inject({
 		method: "POST",
@@ -255,7 +255,7 @@ test("stop with forced path", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	provider.setStopHangs(true);
 	const res = await app.inject({
@@ -275,7 +275,7 @@ test("list instances", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	const res = await app.inject({
 		method: "GET",
@@ -316,7 +316,7 @@ test("two concurrent starts cause one provider call", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 
 	const [r1, r2] = await Promise.all([
@@ -468,7 +468,7 @@ test("a request logs one line, and an Incus failure names the reason", async () 
 			method: "POST",
 			url: "/instances",
 			headers: auth(),
-			payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+			payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 		});
 		expect(failed.statusCode).toBe(503);
 		const line = requests()[1];
