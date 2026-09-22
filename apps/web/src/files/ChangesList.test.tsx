@@ -153,6 +153,13 @@ test("the row whose file is the tab on show is marked selected (issue #274)", ()
 	expect(
 		screen.getByTestId("change-row-src/other.ts").getAttribute("data-selected"),
 	).toBeNull();
+	// Screen readers hear which row is current, not only see a tint (issue #369).
+	expect(screen.getByTestId("change-row-src/app.ts").getAttribute("aria-current")).toBe(
+		"true",
+	);
+	expect(
+		screen.getByTestId("change-row-src/other.ts").getAttribute("aria-current"),
+	).toBeNull();
 });
 
 test("clicking a changed file that is not open opens one tab in diff view", () => {

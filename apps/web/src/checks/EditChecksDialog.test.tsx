@@ -145,3 +145,71 @@ test("a row can be removed before saving", async () => {
 		{ id: "lint", name: "Lint", command: "npm run lint" },
 	]);
 });
+
+const TWO = [
+	{ id: "tests", name: "Tests", command: "npm test" },
+	{ id: "lint", name: "Lint", command: "npm run lint" },
+];
+
+test("each row's fields say which check they belong to (issue #371)", () => {
+	stubFileApi(true);
+	renderWithQuery(
+		<EditChecksDialog
+			workspaceId={WORKSPACE}
+			projectId={PROJECT}
+			checks={TWO}
+			onClose={vi.fn()}
+		/>,
+	);
+
+	expect(screen.getByLabelText(/^Check 1 name$/i)).toBe(
+		screen.getByTestId("check-name-0"),
+	);
+	expect(screen.getByLabelText(/^Check 2 command$/i)).toBe(
+		screen.getByTestId("check-command-1"),
+	);
+});
+
+test("removing a row keeps focus in the dialog (issue #358)", async () => {
+	stubFileApi(true);
+	renderWithQuery(
+		<EditChecksDialog
+			workspaceId={WORKSPACE}
+			projectId={PROJECT}
+			checks={TWO}
+			onClose={vi.fn()}
+		/>,
+	);
+
+	// The row below takes the removed row's place, so its remove button takes focus.
+	fireEvent.click(screen.getByTestId("check-remove-0"));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByTestId("check-remove-0")),
+	);
+
+	// With no rows left, focus goes to Add a check.
+	fireEvent.click(screen.getByTestId("check-remove-0"));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByTestId("check-add")),
+	);
+});
+
+test("a failed save is announced as an alert (issue #363)", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => new Response("{}", { status: 500 })),
+	);
+	renderWithQuery(
+		<EditChecksDialog
+			workspaceId={WORKSPACE}
+			projectId={PROJECT}
+			checks={TWO}
+			onClose={vi.fn()}
+		/>,
+	);
+
+	fireEvent.click(screen.getByTestId("dialog-confirm"));
+
+	const error = await screen.findByTestId("checks-save-error");
+	expect(error.getAttribute("role")).toBe("alert");
+});

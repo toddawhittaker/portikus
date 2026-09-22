@@ -154,3 +154,60 @@ test("the Monitor tab sits with the others and shows usage", async () => {
 	);
 	expect(screen.queryByTestId("file-tree-body")).toBeNull();
 });
+
+/** Answers every request with an empty listing, so the tree renders. */
+function stubEmpty() {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(
+			async () =>
+				new Response(JSON.stringify({ entries: [], truncated: false }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+		),
+	);
+}
+
+test("the switcher is one tab stop, the arrows move along it, and each tab controls a panel (issue #365)", async () => {
+	stubEmpty();
+	renderWithQuery(<FilesPane workspaceId={WORKSPACE} project={project()} />);
+
+	const files = screen.getByRole("tab", { name: "Files" });
+	const checks = screen.getByRole("tab", { name: "Checks" });
+	// The strip is the one Tab stop; entering it lands on the selected tab.
+	const strip = screen.getByRole("tablist");
+	expect(strip.getAttribute("tabindex")).toBe("0");
+	for (const tab of screen.getAllByRole("tab")) {
+		expect(tab.getAttribute("tabindex")).toBe("-1");
+	}
+	fireEvent.focus(strip);
+	await waitFor(() => expect(document.activeElement).toBe(files));
+	const panel = screen.getByRole("tabpanel");
+	expect(files.getAttribute("aria-controls")).toBe(panel.id);
+	expect(panel.getAttribute("aria-labelledby")).toBe(files.id);
+
+	files.focus();
+	fireEvent.keyDown(files, { key: "ArrowRight" });
+
+	await waitFor(() => expect(document.activeElement).toBe(checks));
+	expect(checks.getAttribute("aria-selected")).toBe("true");
+	fireEvent.keyDown(checks, { key: "End" });
+	await waitFor(() =>
+		expect(
+			screen.getByRole("tab", { name: "Monitor" }).getAttribute("aria-selected"),
+		).toBe("true"),
+	);
+});
+
+test("closing find in files returns focus to its button (issue #358)", async () => {
+	stubEmpty();
+	renderWithQuery(<FilesPane workspaceId={WORKSPACE} project={project()} />);
+
+	fireEvent.click(await screen.findByTestId("search-open"));
+	fireEvent.click(await screen.findByTestId("search-close"));
+
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByTestId("search-open")),
+	);
+});

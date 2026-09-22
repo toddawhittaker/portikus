@@ -5,7 +5,7 @@ import {
 	slugify,
 } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, IconButton, TextField } from "@portikus/ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./checks.css";
 import { useSaveChecks } from "./queries.js";
 
@@ -63,6 +63,19 @@ export function EditChecksDialog({
 			: [{ key: "row-0", name: "Tests", command: "npm test" }],
 	);
 	const save = useSaveChecks(workspaceId, projectId);
+	const form = useRef<HTMLFormElement>(null);
+	// After a row is removed, the index whose remove button takes focus.
+	const [focusRow, setFocusRow] = useState<number | null>(null);
+
+	useEffect(() => {
+		if (focusRow === null || !form.current) return;
+		const target =
+			form.current.querySelector<HTMLElement>(
+				`[data-testid="check-remove-${focusRow}"]`,
+			) ?? form.current.querySelector<HTMLElement>('[data-testid="check-add"]');
+		target?.focus();
+		setFocusRow(null);
+	}, [focusRow]);
 
 	function update(key: string, patch: Partial<Draft>) {
 		setDrafts((rows) =>
@@ -106,6 +119,7 @@ export function EditChecksDialog({
 				}
 			>
 				<form
+					ref={form}
 					onSubmit={(event) => {
 						event.preventDefault();
 						submit();
@@ -120,7 +134,12 @@ export function EditChecksDialog({
 							<TextField
 								id={`check-name-${draft.key}`}
 								data-testid={`check-name-${index}`}
-								label="Name"
+								label={
+									<>
+										<span className="pk-visually-hidden">Check {index + 1} </span>
+										Name
+									</>
+								}
 								value={draft.name}
 								autoComplete="off"
 								spellCheck={false}
@@ -129,7 +148,12 @@ export function EditChecksDialog({
 							<TextField
 								id={`check-command-${draft.key}`}
 								data-testid={`check-command-${index}`}
-								label="Command"
+								label={
+									<>
+										<span className="pk-visually-hidden">Check {index + 1} </span>
+										Command
+									</>
+								}
 								mono
 								value={draft.command}
 								autoComplete="off"
@@ -140,9 +164,11 @@ export function EditChecksDialog({
 								icon="trash"
 								label={`Remove check ${index + 1}`}
 								data-testid={`check-remove-${index}`}
-								onClick={() =>
-									setDrafts((rows) => rows.filter((row) => row.key !== draft.key))
-								}
+								onClick={() => {
+									setDrafts((rows) => rows.filter((row) => row.key !== draft.key));
+									// The row below moves up into this place; the last row falls back.
+									setFocusRow(Math.min(index, drafts.length - 2));
+								}}
 							/>
 						</div>
 					))}
@@ -157,7 +183,11 @@ export function EditChecksDialog({
 					<button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
 				</form>
 				{save.error && (
-					<p className="pk-hint mt-3" data-testid="checks-save-error">
+					<p
+						className="pk-error mt-3 text-[12px] leading-4 text-status-error"
+						role="alert"
+						data-testid="checks-save-error"
+					>
 						{save.error.message}
 					</p>
 				)}

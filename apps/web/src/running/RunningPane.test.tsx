@@ -243,6 +243,13 @@ test("the row of the Preview tab in view is marked current", () => {
 	show([service({ port: 3000 }), service({ port: 5173 })], { activePort: 5173 });
 	expect(screen.getByTestId("running-row-5173").className).toContain("is-current");
 	expect(screen.getByTestId("running-row-3000").className).not.toContain("is-current");
+	// Screen readers hear it too (issue #369).
+	expect(
+		screen.getByRole("button", { name: /^5173/ }).getAttribute("aria-current"),
+	).toBe("true");
+	expect(
+		screen.getByRole("button", { name: /^3000/ }).getAttribute("aria-current"),
+	).toBeNull();
 });
 
 test("the command cell carries the full command as a tooltip", () => {

@@ -1,5 +1,6 @@
 import type { Project } from "@portikus/contracts";
 import { EmptyState, IconButton } from "@portikus/ui";
+import * as RadixTabs from "@radix-ui/react-tabs";
 import { useEffect, useRef, useState } from "react";
 import { ChecksPane } from "../checks/ChecksPane.js";
 import "../checks/checks.css";
@@ -27,6 +28,20 @@ export function FilesPane({
 	// for the Running surface too (BROWSER-HANDLING.md §12).
 	const { pane, show } = useRightPaneState();
 	const open = project !== undefined && !project.missing;
+	const root = useRef<HTMLDivElement>(null);
+	// Closing the search hands focus back to the button that opened it (issue #358).
+	const refocus = useRef(false);
+
+	function closeSearch() {
+		refocus.current = true;
+		setSearching(false);
+	}
+
+	useEffect(() => {
+		if (searching || !refocus.current) return;
+		refocus.current = false;
+		root.current?.querySelector<HTMLElement>('[data-testid="search-open"]')?.focus();
+	}, [searching]);
 
 	// Mod+Shift+F opens find in files from anywhere in the workspace
 	// (SPEC.md §11.5). With no project open there is nothing to search.
@@ -60,14 +75,14 @@ export function FilesPane({
 						label="Close search"
 						size="sm"
 						data-testid="search-close"
-						onClick={() => setSearching(false)}
+						onClick={closeSearch}
 					/>
 				</div>
 				<SearchPanel
 					key={project.id}
 					workspaceId={workspaceId}
 					projectId={project.id}
-					onClose={() => setSearching(false)}
+					onClose={closeSearch}
 				/>
 			</aside>
 		);
@@ -75,50 +90,62 @@ export function FilesPane({
 
 	if (open) {
 		return (
-			<div className="pk-right-pane">
-				<Tabs pane={pane} show={show} />
-				{pane === "files" ? (
-					// Keyed by project, so nothing (focus above all) carries across a switch.
+			<RadixTabs.Root
+				ref={root}
+				className="pk-right-pane"
+				value={pane}
+				onValueChange={(value) => show(value as RightPane)}
+			>
+				<Switchers show={show} />
+				<RadixTabs.Content value="files" className="pk-pane-panel">
+					{/* Keyed by project, so nothing (focus above all) carries across a switch. */}
 					<FileTreePane
 						key={project.id}
 						workspaceId={workspaceId}
 						project={project}
 						onSearch={() => setSearching(true)}
 					/>
-				) : null}
-				{pane === "checks" ? (
+				</RadixTabs.Content>
+				<RadixTabs.Content value="checks" className="pk-pane-panel">
 					<aside className="pk-pane pk-pane--right" aria-label="Checks">
 						<ChecksPane key={project.id} workspaceId={workspaceId} project={project} />
 					</aside>
-				) : null}
-				{pane === "running" ? (
+				</RadixTabs.Content>
+				<RadixTabs.Content value="running" className="pk-pane-panel">
 					<aside className="pk-pane pk-pane--right" aria-label="Running">
 						<RunningSurface workspaceId={workspaceId} projectId={project.id} />
 					</aside>
-				) : null}
-				{pane === "monitor" ? (
+				</RadixTabs.Content>
+				<RadixTabs.Content value="monitor" className="pk-pane-panel">
 					<aside className="pk-pane pk-pane--right" aria-label="Monitor">
 						<MonitorPane workspaceId={workspaceId} />
 					</aside>
-				) : null}
-			</div>
+				</RadixTabs.Content>
+			</RadixTabs.Root>
 		);
 	}
 
 	// With no project open there is no file tree and no checks, but a port may
 	// still be listening, so the Running surface stays reachable.
 	return (
-		<div className="pk-right-pane">
-			<Tabs pane={pane === "checks" ? "files" : pane} show={show} />
-			{pane === "running" ? (
+		<RadixTabs.Root
+			ref={root}
+			className="pk-right-pane"
+			value={pane === "checks" ? "files" : pane}
+			onValueChange={(value) => show(value as RightPane)}
+		>
+			<Switchers show={show} />
+			<RadixTabs.Content value="running" className="pk-pane-panel">
 				<aside className="pk-pane pk-pane--right" aria-label="Running">
 					<RunningSurface workspaceId={workspaceId} projectId={undefined} />
 				</aside>
-			) : pane === "monitor" ? (
+			</RadixTabs.Content>
+			<RadixTabs.Content value="monitor" className="pk-pane-panel">
 				<aside className="pk-pane pk-pane--right" aria-label="Monitor">
 					<MonitorPane workspaceId={workspaceId} />
 				</aside>
-			) : (
+			</RadixTabs.Content>
+			<RadixTabs.Content value="files" className="pk-pane-panel">
 				<aside className="pk-pane pk-pane--right" aria-label="Files">
 					<div className="pk-pane-head">
 						<h2 className="pk-pane-title">Files</h2>
@@ -133,48 +160,48 @@ export function FilesPane({
 						</EmptyState>
 					</div>
 				</aside>
-			)}
-		</div>
+			</RadixTabs.Content>
+		</RadixTabs.Root>
 	);
 }
 
-function Tabs({ pane, show }: { pane: RightPane; show: (pane: RightPane) => void }) {
+/**
+ * The switcher: Radix Tabs, so the arrow keys move between surfaces and the
+ * whole strip is one Tab stop (issue #365).
+ */
+function Switchers({ show }: { show: (pane: RightPane) => void }) {
 	return (
-		<div
+		<RadixTabs.List
 			className="pk-pane-tabs"
-			role="tablist"
 			aria-label="Files, checks, running services or monitor"
 		>
-			<Switcher current={pane} value="files" label="Files" onPick={show} />
-			<Switcher current={pane} value="checks" label="Checks" onPick={show} />
-			<Switcher current={pane} value="running" label="Running" onPick={show} />
-			<Switcher current={pane} value="monitor" label="Monitor" onPick={show} />
-		</div>
+			<Switcher value="files" label="Files" onPick={show} />
+			<Switcher value="checks" label="Checks" onPick={show} />
+			<Switcher value="running" label="Running" onPick={show} />
+			<Switcher value="monitor" label="Monitor" onPick={show} />
+		</RadixTabs.List>
 	);
 }
 
 function Switcher({
-	current,
 	value,
 	label,
 	onPick,
 }: {
-	current: RightPane;
 	value: RightPane;
 	label: string;
 	onPick: (pane: RightPane) => void;
 }) {
 	return (
-		<button
-			type="button"
-			role="tab"
+		<RadixTabs.Trigger
+			value={value}
 			className="pk-pane-tab"
-			aria-selected={current === value}
 			data-testid={`right-pane-tab-${value}`}
+			// Radix selects on mouse down; a click from assistive technology arrives alone.
 			onClick={() => onPick(value)}
 		>
 			{label}
-		</button>
+		</RadixTabs.Trigger>
 	);
 }
 

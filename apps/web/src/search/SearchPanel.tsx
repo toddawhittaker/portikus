@@ -27,6 +27,13 @@ function searchErrorMessage(error: unknown): string {
 	return "Something went wrong. Please try again.";
 }
 
+/** The result count, in words (issue #363). */
+export function matchCount(matches: number, files: number, truncated: boolean): string {
+	if (matches === 0) return "No matches";
+	const count = `${matches} ${matches === 1 ? "match" : "matches"} in ${files} ${files === 1 ? "file" : "files"}`;
+	return truncated ? `${count}, showing the first matches only` : count;
+}
+
 export interface SearchPanelProps {
 	workspaceId: string;
 	projectId: string;
@@ -45,6 +52,14 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 
 	const matches = result.data?.matches ?? [];
 	const groups = groupByFile(matches);
+
+	// Said by screen readers as the search settles (issue #363).
+	let status = "";
+	if (term === "") status = "";
+	else if (result.isError) status = "The search failed";
+	else if (result.isPending) status = "Searching…";
+	else
+		status = matchCount(matches.length, groups.length, result.data?.truncated ?? false);
 
 	/** Open one match in the work area, at its line (SPEC.md §11.5). */
 	function open(path: string, line: number) {
@@ -180,6 +195,10 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 					onChange={(event) => setHidden(event.target.checked)}
 				/>
 			</div>
+			{/* Always rendered, so the change is announced rather than missed. */}
+			<p className="pk-visually-hidden" role="status" data-testid="search-status">
+				{status}
+			</p>
 			{body()}
 			{result.data?.truncated ? (
 				<p className="pk-search-note" data-testid="search-truncated">

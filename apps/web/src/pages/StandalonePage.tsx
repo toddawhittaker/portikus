@@ -1,14 +1,19 @@
 import { NameMark } from "@portikus/ui";
 import type * as React from "react";
+import { usePageTitle } from "../pageTitle.js";
 
 /** The frame the sign-in, session-ended and not-authorized pages share. */
 export function StandalonePage({
+	title,
 	testId,
 	children,
 }: {
+	/** The browser tab's name for this page. */
+	title: string;
 	testId?: string;
 	children: React.ReactNode;
 }) {
+	usePageTitle(title);
 	return (
 		<div className="pk-root">
 			<main className="pk-standalone" data-testid={testId}>

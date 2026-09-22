@@ -3,7 +3,7 @@ import { StandalonePage } from "./StandalonePage.js";
 /** Where a 401, or a 4401 close on the workspace socket, lands (SPEC.md §5.3). */
 export function SessionEnded() {
 	return (
-		<StandalonePage testId="page-session-ended">
+		<StandalonePage title="Session ended" testId="page-session-ended">
 			<div className="flex flex-col gap-2">
 				<h1 id="page-title" className="pk-text-display">
 					Your session ended

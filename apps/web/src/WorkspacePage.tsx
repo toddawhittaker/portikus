@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import { useTerminalThemeAttribute } from "./editor/settingsQueries.js";
 import { LayoutStoreContext, useLayoutStore } from "./layout/store.js";
+import { usePageTitle } from "./pageTitle.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
 import { ListeningContext, useListeningQuery } from "./running/services.js";
@@ -40,6 +41,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const { projectId } = useParams({ strict: false }) as { projectId?: string };
 	const projects = useProjects(workspaceId, "active");
 	const project = projects.data?.find((item) => item.id === projectId);
+	usePageTitle(project?.name ?? "");
 	const running = workspace?.state === "running";
 	const layout = useDefaultLayout({ id: "pk-shell", panelIds: PANEL_IDS });
 	// The work area and the file tree share one layout store, so a file

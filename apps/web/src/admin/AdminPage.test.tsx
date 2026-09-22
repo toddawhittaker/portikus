@@ -237,3 +237,77 @@ test("the grace form still sends only the seconds", async () => {
 	await waitFor(() => expect(writes.length).toBe(1));
 	expect(writes[0]?.body).toEqual({ shutdownGraceSeconds: 900 });
 });
+
+test("each user row names its field and button after the user (issue #371)", async () => {
+	stubAdmin(600);
+
+	renderApp("/admin");
+
+	const alice = await screen.findByRole("textbox", {
+		name: "Seconds, grace period for Alice Example",
+	});
+	expect(alice).toBe(screen.getByTestId(`user-grace-input-${USER.id}`));
+	expect(
+		screen.getByRole("textbox", { name: "Seconds, grace period for Carol Admin" }),
+	).toBe(screen.getByTestId(`user-grace-input-${ADMIN.id}`));
+	expect(screen.getByRole("button", { name: "Save Alice Example" })).toBe(
+		screen.getByTestId(`user-grace-save-${USER.id}`),
+	);
+	expect(screen.getByRole("button", { name: "Save Carol Admin" })).toBe(
+		screen.getByTestId(`user-grace-save-${ADMIN.id}`),
+	);
+});
+
+test("the page is titled Administration (issue #374)", async () => {
+	stubAdmin(600);
+
+	renderApp("/admin");
+
+	await screen.findByTestId("page-admin");
+	expect(document.title).toBe("Administration, Portikus");
+});
+
+test("grace-period errors are announced as alerts (issue #363)", async () => {
+	stubAdmin(600);
+
+	renderApp("/admin");
+
+	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
+	await waitFor(() => expect(input.value).toBe("600"));
+	fireEvent.change(input, { target: { value: "soon" } });
+	fireEvent.click(screen.getByTestId("grace-save"));
+	expect((await screen.findByRole("alert")).textContent).toBe(
+		"Enter a whole number of seconds, 0 or more.",
+	);
+
+	fireEvent.change(input, { target: { value: "600" } });
+	const row = screen.getByTestId(`user-grace-input-${USER.id}`);
+	fireEvent.change(row, { target: { value: "later" } });
+	fireEvent.click(screen.getByTestId(`user-grace-save-${USER.id}`));
+	await waitFor(() => expect(screen.getAllByRole("alert").length).toBe(2));
+});
+
+test("a failed log-level save is an alert tied to the select (issue #363)", async () => {
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, ADMIN);
+		if (url === "/admin/settings" && init?.method === "PUT") {
+			return json(500, { error: "internal", message: "Something broke" });
+		}
+		if (url === "/admin/settings") {
+			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+		}
+		if (url === "/admin/users") return json(200, { users: [] });
+		throw new Error(`unexpected request: ${url}`);
+	});
+
+	renderApp("/admin");
+
+	const select = (await screen.findByTestId("log-level-select")) as HTMLSelectElement;
+	await waitFor(() => expect(select.disabled).toBe(false));
+	fireEvent.change(select, { target: { value: "debug" } });
+	fireEvent.click(screen.getByTestId("log-level-save"));
+
+	const error = await screen.findByRole("alert");
+	expect(select.getAttribute("aria-invalid")).toBe("true");
+	expect(select.getAttribute("aria-describedby")).toBe(error.id);
+});
