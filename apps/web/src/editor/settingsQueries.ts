@@ -6,7 +6,12 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { request } from "../api/request.js";
-import { readThemePreference, rememberThemePreference } from "../shell/theme.js";
+import {
+	markThemeCarriedOver,
+	readThemePreference,
+	rememberThemePreference,
+	themeCarriedOver,
+} from "../shell/theme.js";
 
 export const editorSettingsKey = ["me", "settings"] as const;
 
@@ -21,10 +26,20 @@ export function useEditorSettings() {
 		// here, before anything renders with the settings (issue #300).
 		queryFn: async () => {
 			let settings = await request(MeSettings, "/me/settings");
-			// A theme picked before appearance moved to the server is kept once.
+			// A theme picked before appearance moved to the server is kept once
+			// per browser, so a shared lab machine never hands it to the next account.
 			const local = readThemePreference();
-			if (settings.appearanceStored === false && local !== "system") {
-				settings = await saveEditorSettings({ appearance: local });
+			const upload =
+				!themeCarriedOver() &&
+				settings.appearanceStored === false &&
+				local !== "system";
+			markThemeCarriedOver();
+			if (upload) {
+				try {
+					settings = await saveEditorSettings({ appearance: local });
+				} catch {
+					// Keep what was read; the theme still applies in this browser.
+				}
 			}
 			rememberThemePreference(settings.appearance);
 			return settings;

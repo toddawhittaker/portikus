@@ -19,6 +19,7 @@ import {
 	pastedPathInput,
 	pastePath,
 	SCROLLBACK_LINES,
+	sanitizePaste,
 	TerminalPane,
 	terminalTheme,
 } from "./TerminalPane";
@@ -1031,4 +1032,67 @@ test("when every name is taken the paste fails with a toast", async () => {
 	await waitFor(() => expect(view.getByText(/already exists/)).toBeTruthy());
 	expect(calls.filter((call) => call.method === "PUT")).toHaveLength(PASTE_NAME_TRIES);
 	expect(inputsSent()).toEqual([]);
+});
+
+// Pastejacking (SPEC.md §24): planted text must not close the paste bracket.
+
+const HOSTILE = "safe\u001b[201~rm -rf ~\n";
+const BRACKETED = "\u001b[200~safe[201~rm -rf ~\r\u001b[201~";
+
+test("the paste sanitizer drops control characters but keeps tab and newlines", () => {
+	expect(sanitizePaste(HOSTILE)).toBe("safe[201~rm -rf ~\n");
+	expect(sanitizePaste("a\tb\r\nc")).toBe("a\tb\r\nc");
+	expect(sanitizePaste("a\u0000\u0007\u0008b\u007fc")).toBe("abc");
+	expect(sanitizePaste("x\u0080\u009by\u009fz")).toBe("xyz");
+	// Printable text beyond the C1 range is left alone.
+	expect(sanitizePaste("café  ü 😀")).toBe("café  ü 😀");
+});
+
+async function bracketedPane() {
+	const pane = await loadedPane();
+	act(() => {
+		sockets[0]?.onmessage?.({ data: outputBytes("\u001b[?2004h") });
+	});
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	});
+	return pane;
+}
+
+test("a keyboard paste is sanitized and lands once inside the bracket", async () => {
+	const { view } = await bracketedPane();
+	const target = view.container.querySelector("textarea");
+	const event = new Event("paste", { bubbles: true, cancelable: true });
+	Object.defineProperty(event, "clipboardData", {
+		value: {
+			items: [{ kind: "string", type: "text/plain", getAsFile: () => null }],
+			getData: (type: string) => (type === "text/plain" ? HOSTILE : ""),
+		},
+	});
+	act(() => {
+		target?.dispatchEvent(event);
+	});
+	expect(event.defaultPrevented).toBe(true);
+	await waitFor(() => expect(inputsSent().join("")).toBe(BRACKETED));
+});
+
+test("a right-click paste is sanitized", async () => {
+	const { view } = await bracketedPane();
+	stubClipboard({
+		read: async () => [
+			{
+				types: ["text/plain"],
+				getType: async () => new Blob([HOSTILE], { type: "text/plain" }),
+			},
+		],
+	});
+	rightClick(view);
+	await waitFor(() => expect(inputsSent().join("")).toBe(BRACKETED));
+});
+
+test("the readText fallback is sanitized too", async () => {
+	const { view } = await bracketedPane();
+	stubClipboard({ readText: async () => HOSTILE });
+	rightClick(view);
+	await waitFor(() => expect(inputsSent().join("")).toBe(BRACKETED));
 });
