@@ -137,6 +137,38 @@ export function MenuItem({
 	);
 }
 
+export interface MenuCheckboxItemProps {
+	checked: boolean;
+	onCheckedChange: (checked: boolean) => void;
+	testId?: string;
+	children?: React.ReactNode;
+}
+
+/** An on/off item: a menu item the keyboard reaches, not a form checkbox. */
+export function MenuCheckboxItem({
+	checked,
+	onCheckedChange,
+	testId,
+	children,
+}: MenuCheckboxItemProps): React.ReactElement {
+	const P = parts(React.useContext(MenuKindContext));
+	return (
+		<P.CheckboxItem
+			className={itemClass(false)}
+			checked={checked}
+			onCheckedChange={(value) => onCheckedChange(value === true)}
+			data-testid={testId}
+		>
+			<span className="grid size-[var(--size-icon-sm)] place-items-center">
+				<P.ItemIndicator>
+					<Icon name="check" size="sm" />
+				</P.ItemIndicator>
+			</span>
+			<span className="pk-menu-item-label flex-1">{children}</span>
+		</P.CheckboxItem>
+	);
+}
+
 function itemClass(danger: boolean | undefined): string {
 	return `pk-menu-item ${danger ? "pk-menu-item--danger" : ""}`;
 }

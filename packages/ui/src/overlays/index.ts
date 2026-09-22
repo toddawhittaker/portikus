@@ -10,6 +10,8 @@ export {
 	type ContextMenuProps,
 	ContextMenuTrigger,
 	Menu,
+	MenuCheckboxItem,
+	type MenuCheckboxItemProps,
 	MenuItem,
 	type MenuItemProps,
 	MenuLabel,

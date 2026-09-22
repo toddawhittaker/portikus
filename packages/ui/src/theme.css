@@ -90,8 +90,8 @@
 	--on-danger: #ffffff;
 	--mark-code: #3a8a7e;
 	/* Git decorations (SPEC.md §12.1): subtle, and a conflict is its own hue. */
-	--git-added: #2e6e34;
-	--git-modified: #855b00;
+	--git-added: #2a6630;
+	--git-modified: #7a5300;
 	--git-deleted: #a4342a;
 	--git-conflict: #8a3ea0;
 
