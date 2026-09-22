@@ -283,7 +283,7 @@
 	/* Hairline between terminal panes, on terminal-bg. Proposed in Epic 6. */
 	--terminal-line: #2a2824;
 	--ansi-black: #11100e;
-	--ansi-bright-black: #5f5a51;
+	--ansi-bright-black: #857f73;
 	--ansi-red: #e07a6e;
 	--ansi-bright-red: #f09a8f;
 	--ansi-green: #8fc28a;

@@ -10,7 +10,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { wsUrl } from "./api/ws.js";
 import { fileErrorToast, tooLargeToast } from "./files/errors.js";
 import { savePastedImage } from "./files/queries.js";
@@ -62,6 +62,23 @@ const DARK_THEME = {
 	scrollbarSliderBackground: "#9a938666",
 	scrollbarSliderHoverBackground: "#9a9386b3",
 	scrollbarSliderActiveBackground: "#9a9386cc",
+	// xterm's default palette fails AA on this ground (issue #360).
+	black: "#11100e",
+	brightBlack: "#857f73",
+	red: "#e07a6e",
+	brightRed: "#f09a8f",
+	green: "#8fc28a",
+	brightGreen: "#a9d6a4",
+	yellow: "#e0bb6c",
+	brightYellow: "#ecd08e",
+	blue: "#86a7d9",
+	brightBlue: "#a6c0e6",
+	magenta: "#c49ad0",
+	brightMagenta: "#d6b5df",
+	cyan: "#79c1b8",
+	brightCyan: "#9ad3cb",
+	white: "#cfc9bd",
+	brightWhite: "#f2eee6",
 };
 
 const LIGHT_THEME = {
@@ -214,6 +231,7 @@ export function TerminalPane({
 	const fit = useRef<FitAddon | null>(null);
 	const [reconnecting, setReconnecting] = useState(false);
 	const [lost, setLost] = useState(false);
+	const leaveHintId = useId();
 	// Exposed on the pane element so tests can wait for the socket to be open.
 	const [connected, setConnected] = useState(false);
 	const navigate = useNavigate();
@@ -304,6 +322,8 @@ export function TerminalPane({
 			convertEol: false,
 			// Ordinary output keeps this many lines. CSI 3 J, which `clear` sends, erases them.
 			scrollback: SCROLLBACK_LINES,
+			// Programs pick their own colours too; lift any that miss WCAG AA.
+			minimumContrastRatio: 4.5,
 		});
 		function openUrl(uri: string) {
 			const preview = previewRouteFor(uri, workspaceId, projectId);
@@ -377,6 +397,7 @@ export function TerminalPane({
 			return true;
 		});
 		term.open(container);
+		term.textarea?.setAttribute("aria-describedby", leaveHintId);
 		xterm.current = term;
 		fit.current = fitAddon;
 		fitAddon.fit();
@@ -709,7 +730,7 @@ export function TerminalPane({
 			xterm.current = null;
 			fit.current = null;
 		};
-	}, [workspaceId, projectId, terminalId]);
+	}, [workspaceId, projectId, terminalId, leaveHintId]);
 
 	// A hidden pane has no size, so re-fit when it comes back into view.
 	useEffect(() => {
@@ -723,12 +744,17 @@ export function TerminalPane({
 			data-connected={connected ? "true" : undefined}
 		>
 			<div className="pk-terminal-surface" ref={host} />
-			{reconnecting && <div className="pk-term-flag">Reconnecting…</div>}
-			{lost && (
-				<div className="pk-term-flag">
-					This terminal lost its connection. Reload the page to try again.
-				</div>
-			)}
+			<p id={leaveHintId} hidden>
+				Tab goes to the shell. Press Alt+Shift+Q to leave the terminal.
+			</p>
+			<div role="status">
+				{reconnecting && <div className="pk-term-flag">Reconnecting…</div>}
+				{lost && (
+					<div className="pk-term-flag">
+						This terminal lost its connection. Reload the page to try again.
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }
