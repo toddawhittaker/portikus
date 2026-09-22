@@ -1,7 +1,7 @@
 /**
  * The Running surface (SPEC.md §18.2): what each row says, which ports
- * offer actions, how a system listener is hidden, and how a saved preview
- * with no listener is marked (issues #265, #272, #273).
+ * offer actions, how a system listener is hidden, and what selecting a
+ * row shows (issues #265, #272, #273, #325, #326).
  */
 import type { ListeningService } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
@@ -26,20 +26,28 @@ function service(over: Partial<ListeningService>): ListeningService {
 	};
 }
 
+function selectRow(port: number) {
+	const button = screen
+		.getByTestId(`running-row-${port}`)
+		.querySelector("button.pk-portrow-select");
+	if (!(button instanceof HTMLButtonElement)) {
+		throw new Error(`row ${port} has no select button`);
+	}
+	fireEvent.click(button);
+}
+
 function show(
 	services: ListeningService[],
 	options: {
-		previewPorts?: number[];
 		activePort?: number | null;
 		onOpenPreview?: (port: number) => void;
 	} = {},
 ) {
-	render(
+	return render(
 		<ToastProvider>
 			<ListeningContext.Provider value={{ services, loaded: true }}>
 				<RunningPane
 					workspaceId={WORKSPACE}
-					previewPorts={options.previewPorts ?? []}
 					activePort={options.activePort ?? null}
 					onOpenPreview={options.onOpenPreview ?? (() => {})}
 				/>
@@ -82,11 +90,21 @@ test("the Docker chip appears only for a container, and never a Preview chip", (
 	expect(screen.getByTestId("running-row-8080").textContent).toContain("Docker");
 });
 
-test("a previewable port offers Open preview, a new tab and Stop", () => {
+test("a previewable port offers preview, a new tab and stop as icon buttons", () => {
 	show([service({ port: 3000 })]);
-	expect(screen.getByTestId("running-open-3000")).toBeTruthy();
-	expect(screen.getByTestId("running-new-tab-3000")).toBeTruthy();
-	expect(screen.getByTestId("running-stop-3000")).toBeTruthy();
+	const open = screen.getByTestId("running-open-3000");
+	expect(open.getAttribute("aria-label")).toBe("Open preview of port 3000");
+	expect(open.querySelector("[data-icon=preview]")).toBeTruthy();
+	expect(open.textContent).toBe("");
+	const tab = screen.getByTestId("running-new-tab-3000");
+	expect(tab.getAttribute("aria-label")).toBe("Open port 3000 in a new tab");
+	expect(tab.querySelector("[data-icon=external]")).toBeTruthy();
+	const stop = screen.getByTestId("running-stop-3000");
+	expect(stop.getAttribute("aria-label")).toBe("Stop port 3000");
+	expect(stop.className).toContain("pk-running-stop");
+	expect(stop.querySelector("[data-icon=stop]")).toBeTruthy();
+	expect(screen.queryByText("Open preview")).toBeNull();
+	expect(screen.queryByText("Stop")).toBeNull();
 });
 
 test("ports are listed lowest first", () => {
@@ -174,8 +192,80 @@ test("the command cell carries the full command as a tooltip", () => {
 	).toBeTruthy();
 });
 
-test("a saved preview whose port stopped is marked as not running", () => {
-	show([service({ port: 3000 })], { previewPorts: [3000, 5173] });
-	expect(screen.queryByTestId("running-stale-3000")).toBeNull();
-	expect(screen.getByTestId("running-stale-5173").textContent).toContain("not running");
+test("a port that is not listening is not listed", () => {
+	show([service({ port: 3000 })]);
+	expect(screen.queryByTestId("running-stale-5173")).toBeNull();
+	expect(screen.queryByText("not running")).toBeNull();
+});
+
+test("clicking a row shows the port, addresses, pid, command and command line", () => {
+	show([
+		service({
+			port: 3000,
+			addresses: ["127.0.0.1", "0.0.0.0"],
+			process: {
+				pid: 7,
+				command: "MainThread",
+				commandLine: "python server.py",
+			},
+		}),
+	]);
+	expect(screen.queryByTestId("running-details")).toBeNull();
+	selectRow(3000);
+	const details = screen.getByTestId("running-details");
+	expect(details.textContent).toContain("3000");
+	expect(details.textContent).toContain("127.0.0.1, 0.0.0.0");
+	expect(details.textContent).toContain("7");
+	expect(details.textContent).toContain("MainThread");
+	expect(details.textContent).toContain("python server.py");
+	expect(screen.getByTestId("running-row-3000").className).toContain("is-selected");
+});
+
+test("a process with no command line says it is unknown", () => {
+	show([service({ port: 3000 })]);
+	selectRow(3000);
+	expect(screen.getByTestId("running-details").textContent).toContain("Command line");
+	expect(screen.getByTestId("running-details").textContent).toContain("unknown");
+});
+
+test("selecting another row replaces the details", () => {
+	show([
+		service({
+			port: 3000,
+			process: { pid: 1, command: "node", commandLine: "node one" },
+		}),
+		service({
+			port: 5173,
+			process: { pid: 2, command: "node", commandLine: "node two" },
+		}),
+	]);
+	selectRow(3000);
+	expect(screen.getByTestId("running-details").textContent).toContain("node one");
+	selectRow(5173);
+	const details = screen.getByTestId("running-details");
+	expect(details.textContent).toContain("node two");
+	expect(details.textContent).not.toContain("node one");
+	expect(screen.getByTestId("running-row-5173").className).toContain("is-selected");
+	expect(screen.getByTestId("running-row-3000").className).not.toContain("is-selected");
+});
+
+test("the panel closes when the selected port disappears", () => {
+	const view = show([service({ port: 3000 }), service({ port: 5173 })]);
+	selectRow(3000);
+	expect(screen.getByTestId("running-details")).toBeTruthy();
+	view.rerender(
+		<ToastProvider>
+			<ListeningContext.Provider
+				value={{ services: [service({ port: 5173 })], loaded: true }}
+			>
+				<RunningPane
+					workspaceId={WORKSPACE}
+					activePort={null}
+					onOpenPreview={() => {}}
+				/>
+			</ListeningContext.Provider>
+		</ToastProvider>,
+	);
+	expect(screen.queryByTestId("running-row-3000")).toBeNull();
+	expect(screen.queryByTestId("running-details")).toBeNull();
 });

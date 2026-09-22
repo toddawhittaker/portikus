@@ -19,7 +19,17 @@ export const ListeningService = z.object({
 	addresses: z.array(z.string()),
 	protocolHint: z.enum(["http", "https", "unknown"]),
 	process: z
-		.object({ pid: z.number().int().optional(), command: z.string().optional() })
+		.object({
+			pid: z.number().int().optional(),
+			/** `/proc/<pid>/comm`. A thread name, so Python often reads MainThread. */
+			command: z.string().optional(),
+			/**
+			 * `/proc/<pid>/cmdline` with the NUL separators turned into spaces.
+			 * Absent when it could not be read. Arguments can carry secrets,
+			 * so this is never logged.
+			 */
+			commandLine: z.string().optional(),
+		})
 		.optional(),
 	container: z
 		.object({ id: z.string().optional(), name: z.string().optional() })

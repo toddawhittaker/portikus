@@ -6,7 +6,8 @@
  *
  * Listeners the agent attributes to the platform or a system account are
  * hidden behind a toggle, so a student sees their own Vite server and not
- * systemd-resolved (issue #265).
+ * systemd-resolved (issue #265). A port that stops listening leaves the
+ * list (issue #325). Selecting a row shows what holds it (issue #326).
  */
 
 import type { ListeningService } from "@portikus/contracts";
@@ -33,8 +34,6 @@ import {
 
 export interface RunningPaneProps {
 	workspaceId: string;
-	/** Ports that have a saved preview tab, so a stale one can be marked. */
-	previewPorts: number[];
 	/** The port of the Preview tab in view, so its row can be marked current. */
 	activePort: number | null;
 	onOpenPreview: (port: number) => void;
@@ -42,7 +41,6 @@ export interface RunningPaneProps {
 
 export function RunningPane({
 	workspaceId,
-	previewPorts,
 	activePort,
 	onOpenPreview,
 }: RunningPaneProps) {
@@ -50,14 +48,19 @@ export function RunningPane({
 	const toast = useToast();
 	const [showSystem, setShowSystem] = useState(readShowSystem);
 	const [stopping, setStopping] = useState<ListeningService | null>(null);
+	const [selectedPort, setSelectedPort] = useState<number | null>(null);
 
 	const all = [...listening.services].sort((a, b) => a.port - b.port);
 	const services = showSystem ? all : all.filter((service) => !service.system);
 	const systemCount = all.filter((service) => service.system).length;
-	const live = new Set(all.map((service) => service.port));
-	// A preview tab whose port stopped listening is said so here, rather than
-	// leaving the student to guess (SPEC.md §18.2).
-	const stale = previewPorts.filter((port) => !live.has(port)).sort((a, b) => a - b);
+	// The panel only describes a row that is still on screen. A port that
+	// stopped, or a system row the toggle just hid, closes it (issue #326).
+	const stillThere =
+		selectedPort !== null && services.some((service) => service.port === selectedPort);
+	if (selectedPort !== null && !stillThere) setSelectedPort(null);
+	const selected = stillThere
+		? services.find((service) => service.port === selectedPort)
+		: undefined;
 
 	async function openTab(port: number) {
 		if (await openPreviewInNewTab(workspaceId, port)) return;
@@ -82,113 +85,157 @@ export function RunningPane({
 	}
 
 	return (
-		<div className="pk-pane-body" data-testid="running-list">
-			{services.length === 0 && stale.length === 0 ? (
-				<EmptyState icon="play" title="Nothing is running yet">
-					Start an application in a terminal and its port appears here.
-				</EmptyState>
-			) : null}
+		<>
+			<div className="pk-pane-body" data-testid="running-list">
+				{services.length === 0 ? (
+					<EmptyState icon="play" title="Nothing is running yet">
+						Start an application in a terminal and its port appears here.
+					</EmptyState>
+				) : null}
 
-			{services.map((service) => {
-				const reason = serviceReason(service);
-				return (
-					<div
-						key={service.port}
-						className={
-							service.port === activePort ? "pk-portrow is-current" : "pk-portrow"
-						}
-						data-testid={`running-row-${service.port}`}
-					>
-						<span className="pk-portrow-port">{service.port}</span>
-						{/* The column truncates, so the full command is the tooltip. */}
-						<span title={serviceCommand(service)}>{serviceCommand(service)}</span>
-						{isDocker(service) ? (
-							<span className="pk-portrow-kind">Docker</span>
-						) : (
-							<span />
-						)}
-						<span className="pk-portrow-actions">
-							{reason !== null ? (
-								<span
-									className="pk-portrow-kind"
-									data-testid={`running-reason-${service.port}`}
-								>
-									{reason}
-								</span>
-							) : null}
-							{isPreviewable(service) && !service.system ? (
-								<>
-									<button
-										type="button"
-										className="pk-preview-action"
-										data-testid={`running-open-${service.port}`}
-										onClick={() => onOpenPreview(service.port)}
+				{services.map((service) => {
+					const reason = serviceReason(service);
+					const command = serviceCommand(service);
+					const isSelected = service.port === selected?.port;
+					return (
+						<div
+							key={service.port}
+							className={[
+								"pk-portrow",
+								service.port === activePort ? "is-current" : "",
+								isSelected ? "is-selected" : "",
+							]
+								.filter(Boolean)
+								.join(" ")}
+							data-testid={`running-row-${service.port}`}
+						>
+							<button
+								type="button"
+								className="pk-portrow-select"
+								aria-expanded={isSelected}
+								aria-controls={isSelected ? "running-details" : undefined}
+								onClick={() => setSelectedPort(service.port)}
+							>
+								<span className="pk-portrow-port">{service.port}</span>
+								{/* The column truncates, so the full command is the tooltip. */}
+								<span title={command}>{command}</span>
+								{isDocker(service) ? (
+									<span className="pk-portrow-kind">Docker</span>
+								) : (
+									<span />
+								)}
+							</button>
+							<span className="pk-portrow-actions">
+								{reason !== null ? (
+									<span
+										className="pk-portrow-kind"
+										data-testid={`running-reason-${service.port}`}
 									>
-										Open preview
-									</button>
+										{reason}
+									</span>
+								) : null}
+								{isPreviewable(service) && !service.system ? (
+									<>
+										<IconButton
+											icon="preview"
+											label={`Open preview of port ${service.port}`}
+											size="sm"
+											data-testid={`running-open-${service.port}`}
+											onClick={() => {
+												setSelectedPort(service.port);
+												onOpenPreview(service.port);
+											}}
+										/>
+										<IconButton
+											icon="external"
+											label={`Open port ${service.port} in a new tab`}
+											size="sm"
+											data-testid={`running-new-tab-${service.port}`}
+											onClick={() => {
+												setSelectedPort(service.port);
+												void openTab(service.port);
+											}}
+										/>
+									</>
+								) : null}
+								{service.system ? null : (
 									<IconButton
-										icon="external"
-										label={`Open port ${service.port} in a new tab`}
+										icon="stop"
+										label={`Stop port ${service.port}`}
 										size="sm"
-										data-testid={`running-new-tab-${service.port}`}
-										onClick={() => void openTab(service.port)}
+										className="pk-running-stop"
+										data-testid={`running-stop-${service.port}`}
+										onClick={() => {
+											setSelectedPort(service.port);
+											setStopping(service);
+										}}
 									/>
-								</>
-							) : null}
-							{service.system ? null : (
-								<button
-									type="button"
-									className="pk-preview-action"
-									data-testid={`running-stop-${service.port}`}
-									onClick={() => setStopping(service)}
-								>
-									Stop
-								</button>
-							)}
-						</span>
-					</div>
-				);
-			})}
+								)}
+							</span>
+						</div>
+					);
+				})}
 
-			{stale.map((port) => (
-				<div key={port} className="pk-portrow" data-testid={`running-stale-${port}`}>
-					<span className="pk-portrow-port">{port}</span>
-					<span className="pk-portrow-kind">not running</span>
-					<span />
-					<span />
-				</div>
-			))}
+				{systemCount > 0 || showSystem ? (
+					<label className="pk-running-toggle" data-testid="running-system-toggle">
+						<input
+							type="checkbox"
+							checked={showSystem}
+							onChange={(event) => {
+								setShowSystem(event.target.checked);
+								writeShowSystem(event.target.checked);
+							}}
+						/>
+						Show system services
+					</label>
+				) : null}
 
-			{systemCount > 0 || showSystem ? (
-				<label className="pk-running-toggle" data-testid="running-system-toggle">
-					<input
-						type="checkbox"
-						checked={showSystem}
-						onChange={(event) => {
-							setShowSystem(event.target.checked);
-							writeShowSystem(event.target.checked);
-						}}
-					/>
-					Show system services
-				</label>
-			) : null}
+				{stopping ? (
+					<ConfirmDialogRoot open onOpenChange={(open) => !open && setStopping(null)}>
+						<ConfirmDialog
+							testId="dialog-stop-listener"
+							title={`Stop ${serviceCommand(stopping)} on port ${stopping.port}?`}
+							description={
+								isDocker(stopping)
+									? "The Docker container publishing this port is stopped."
+									: "The process holding this port is asked to stop, and killed if it does not."
+							}
+							confirmLabel="Stop"
+							onCancel={() => setStopping(null)}
+							onConfirm={() => void confirmStop(stopping)}
+						/>
+					</ConfirmDialogRoot>
+				) : null}
+			</div>
 
-			{stopping ? (
-				<ConfirmDialogRoot open onOpenChange={(open) => !open && setStopping(null)}>
-					<ConfirmDialog
-						testId="dialog-stop-listener"
-						title={`Stop ${serviceCommand(stopping)} on port ${stopping.port}?`}
-						description={
-							isDocker(stopping)
-								? "The Docker container publishing this port is stopped."
-								: "The process holding this port is asked to stop, and killed if it does not."
-						}
-						confirmLabel="Stop"
-						onCancel={() => setStopping(null)}
-						onConfirm={() => void confirmStop(stopping)}
-					/>
-				</ConfirmDialogRoot>
-			) : null}
+			{selected ? <RunningDetails service={selected} /> : null}
+		</>
+	);
+}
+
+/** What is holding the selected port (issue #326). */
+function RunningDetails({ service }: { service: ListeningService }) {
+	const addresses =
+		service.addresses.length > 0 ? service.addresses.join(", ") : "unknown";
+	return (
+		<div
+			className="pk-running-panel"
+			id="running-details"
+			data-testid="running-details"
+		>
+			<div className="pk-running-panel-head">Details</div>
+			<dl className="pk-running-details">
+				<dt>Port</dt>
+				<dd>{service.port}</dd>
+				<dt>Addresses</dt>
+				<dd>{addresses}</dd>
+				<dt>PID</dt>
+				<dd>{service.process?.pid ?? "unknown"}</dd>
+				<dt>Command</dt>
+				<dd>{service.process?.command ?? "unknown"}</dd>
+				<dt>Command line</dt>
+				<dd>{service.process?.commandLine ?? "unknown"}</dd>
+			</dl>
 		</div>
 	);
 }

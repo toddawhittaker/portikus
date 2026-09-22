@@ -169,7 +169,7 @@ function Switcher({
 
 /**
  * The Running surface, wired to the layout of the open project so that Open
- * preview lands as a tab and a saved preview with no listener is marked.
+ * preview lands as a tab and the preview in view can be marked.
  */
 function RunningSurface({
 	workspaceId,
@@ -180,9 +180,6 @@ function RunningSurface({
 }) {
 	const store = useLayoutStore(projectId ?? "none");
 	const layout = useLayout(store, (state) => state.layout);
-	const previewPorts = layout.tabs
-		.map((tab) => (tab.root.type === "preview" ? tab.root.port : null))
-		.filter((port): port is number => port !== null);
 	const activeTabId = useLayout(store, (state) => state.activeTabId);
 	const activeTab = layout.tabs.find((tab) => tab.id === activeTabId);
 	const activePort =
@@ -194,7 +191,6 @@ function RunningSurface({
 			</div>
 			<RunningPane
 				workspaceId={workspaceId}
-				previewPorts={projectId ? previewPorts : []}
 				activePort={projectId ? activePort : null}
 				onOpenPreview={(port) => {
 					if (projectId) store.getState().openPreview(port);
