@@ -148,7 +148,10 @@ export function registerWorkspaceSocket(
 			const workspaceId = (request.params as { id: string }).id;
 			const connectionId = crypto.randomUUID();
 
-			await openPresence(db, workspaceId, connectionId);
+			// An administrator looking at a student's workspace is not presence: it
+			// must not start the workspace or hold it up (SPEC.md §20.2).
+			const present = request.workspaceRow?.owner_user_id === request.user?.id;
+			if (present) await openPresence(db, workspaceId, connectionId);
 
 			if (socket.readyState !== socket.OPEN) {
 				// The browser gave up while we were writing presence.
@@ -201,7 +204,7 @@ export function registerWorkspaceSocket(
 						return;
 					}
 
-					await touchPresence(db, connectionId);
+					if (present) await touchPresence(db, connectionId);
 				} catch (error) {
 					request.log.error(
 						{ err: error, workspaceId },
