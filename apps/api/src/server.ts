@@ -115,6 +115,28 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// Never let a driver or runtime message reach the client (SPEC.md §24, §27).
 	app.setErrorHandler((error, request, reply) => {
+		// Fastify's own client errors (too large, bad JSON, wrong type) keep
+		// their 4xx status; they are the caller's fault, not ours (issue #401).
+		const status = (error as { statusCode?: unknown }).statusCode;
+		const code = (error as { code?: unknown }).code;
+		if (
+			typeof status === "number" &&
+			status >= 400 &&
+			status < 500 &&
+			typeof code === "string" &&
+			code.startsWith("FST_")
+		) {
+			request.log.info({ code }, "request refused by fastify");
+			const body: ApiError = {
+				code: "VALIDATION_FAILED",
+				message:
+					status === 413
+						? "The request body is too large."
+						: "The request was not valid.",
+			};
+			reply.status(status).send(body);
+			return;
+		}
 		request.log.error({ err: error }, "unhandled request error");
 		const body: ApiError = {
 			code: "INTERNAL",

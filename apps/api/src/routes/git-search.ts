@@ -3,6 +3,7 @@ import {
 	GitDiff,
 	GitStatus,
 	GitStatusQuery,
+	MAX_SEARCH_MATCHES,
 	ProjectPath,
 	SEARCH_TIMEOUT_MS,
 	SearchQuery,
@@ -29,6 +30,17 @@ const SEARCH_BUDGET_MS = SEARCH_TIMEOUT_MS + AGENT_TIMEOUT_MS;
 const STATUS_BUDGET_MS = GIT_TIMEOUT_MS + AGENT_TIMEOUT_MS;
 /** A diff runs two git commands, one for each side. */
 const DIFF_BUDGET_MS = GIT_TIMEOUT_MS * 2 + AGENT_TIMEOUT_MS;
+
+/**
+ * The agent is untrusted (SPEC.md §24.1), so its matches are cut to the
+ * contract limit here too, and marked truncated the way the agent marks its
+ * own cut (issue #397).
+ */
+const RelayedSearchResponse = SearchResponse.transform((answer) =>
+	answer.matches.length > MAX_SEARCH_MATCHES
+		? { matches: answer.matches.slice(0, MAX_SEARCH_MATCHES), truncated: true }
+		: answer,
+);
 
 /**
  * Call the agent and relay its JSON, checked against the contract. One shape
@@ -216,7 +228,7 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 					q: query.data.q,
 					hidden: String(query.data.hidden),
 				}),
-				SearchResponse,
+				RelayedSearchResponse,
 				controller.signal,
 			);
 		} finally {

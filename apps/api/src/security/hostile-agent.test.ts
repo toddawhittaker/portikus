@@ -309,45 +309,49 @@ test.skipIf(skip)("checks the contract refuses become a 503", async () => {
 	expect(response.body).not.toContain("all of them");
 });
 
-test.fails("KNOWN-VULN #397: the API relays at most MAX_CHECKS_PER_PROJECT checks from an agent (SPEC.md §18.1, §24.1)", async () => {
-	if (skip) throw new Error("needs a test database");
-	const check = (n: number) => ({ id: `c${n}`, name: `Check ${n}`, command: "true" });
-	hostile.behaviour.checks = {
-		checks: Array.from({ length: 200 }, (_, n) => check(n)),
-		error: null,
-		runs: [],
-	};
-	const response = await app.inject({
-		method: "GET",
-		url: `/workspaces/${workspaceId}/projects/${projectId}/checks`,
-		headers: { cookie: alice.cookieHeader() },
-	});
-	const count = response.statusCode === 200 ? response.json().checks.length : 0;
-	expect(count).toBeLessThanOrEqual(32);
-});
+test.skipIf(skip)(
+	"the API relays at most MAX_CHECKS_PER_PROJECT checks from an agent (SPEC.md §18.1, §24.1)",
+	async () => {
+		const check = (n: number) => ({ id: `c${n}`, name: `Check ${n}`, command: "true" });
+		hostile.behaviour.checks = {
+			checks: Array.from({ length: 200 }, (_, n) => check(n)),
+			error: null,
+			runs: [],
+		};
+		const response = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/projects/${projectId}/checks`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		const count = response.statusCode === 200 ? response.json().checks.length : 0;
+		expect(count).toBeLessThanOrEqual(32);
+	},
+);
 
-test.fails("KNOWN-VULN #397: the API relays at most MAX_SEARCH_MATCHES matches from an agent (SPEC.md §11.5, §24.1)", async () => {
-	if (skip) throw new Error("needs a test database");
-	const match = (n: number) => ({
-		path: "a.txt",
-		line: n + 1,
-		column: 1,
-		text: "x",
-		before: [],
-		after: [],
-	});
-	hostile.behaviour.search = {
-		matches: Array.from({ length: 2000 }, (_, n) => match(n)),
-		truncated: false,
-	};
-	const response = await app.inject({
-		method: "GET",
-		url: `/workspaces/${workspaceId}/projects/${projectId}/search?q=x`,
-		headers: { cookie: alice.cookieHeader() },
-	});
-	const count = response.statusCode === 200 ? response.json().matches.length : 0;
-	expect(count).toBeLessThanOrEqual(500);
-});
+test.skipIf(skip)(
+	"the API relays at most MAX_SEARCH_MATCHES matches from an agent (SPEC.md §11.5, §24.1)",
+	async () => {
+		const match = (n: number) => ({
+			path: "a.txt",
+			line: n + 1,
+			column: 1,
+			text: "x",
+			before: [],
+			after: [],
+		});
+		hostile.behaviour.search = {
+			matches: Array.from({ length: 2000 }, (_, n) => match(n)),
+			truncated: false,
+		};
+		const response = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/projects/${projectId}/search?q=x`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		const count = response.statusCode === 200 ? response.json().matches.length : 0;
+		expect(count).toBeLessThanOrEqual(500);
+	},
+);
 
 test.skipIf(skip)(
 	"an oversized events frame from the agent closes the pipe",

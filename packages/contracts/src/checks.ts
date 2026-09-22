@@ -68,7 +68,8 @@ export type CheckRun = z.infer<typeof CheckRun>;
  * checks must remain usable").
  */
 export const ChecksResponse = z.object({
-	checks: z.array(CheckDefinition),
+	// The agent refuses a file with more, so the API refuses such an answer.
+	checks: z.array(CheckDefinition).max(MAX_CHECKS_PER_PROJECT),
 	/** Why the file could not be used, or null when there was nothing wrong. */
 	error: z.string().nullable(),
 	/** The last run of each check this agent still remembers. */

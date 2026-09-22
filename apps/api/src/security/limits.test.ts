@@ -190,15 +190,39 @@ test.skipIf(skip)(
 	},
 );
 
-test.fails("KNOWN-VULN #401: an oversized JSON body is answered 413, not 500 (SPEC.md §27)", async () => {
-	if (skip) throw new Error("needs a test database");
-	const wrong: string[] = [];
-	for (const route of jsonBodyRoutes()) {
-		const response = await sendOversized(route);
-		if (response.statusCode !== 413) wrong.push(`${route.method} ${route.url}`);
-	}
-	expect(wrong).toEqual([]);
-});
+test.skipIf(skip)(
+	"an oversized JSON body is answered 413, not 500 (SPEC.md §27)",
+	async () => {
+		const wrong: string[] = [];
+		for (const route of jsonBodyRoutes()) {
+			const response = await sendOversized(route);
+			if (response.statusCode !== 413) wrong.push(`${route.method} ${route.url}`);
+		}
+		expect(wrong).toEqual([]);
+	},
+);
+
+test.skipIf(skip)(
+	"other body errors keep their 4xx status and error shape (SPEC.md §27)",
+	async () => {
+		const route = jsonBodyRoutes()[0];
+		if (!route) throw new Error("no route takes a JSON body");
+		const jar = route.url.startsWith("/admin") ? carol : alice;
+		const send = (contentType: string, payload: string) =>
+			app.inject({
+				method: route.method as "POST",
+				url: fill(route.url),
+				headers: { ...csrfHeaders(jar, PUBLIC_URL), "content-type": contentType },
+				payload,
+			});
+		const badJson = await send("application/json", "{not json");
+		expect(badJson.statusCode).toBe(400);
+		expect(badJson.json().code).toBe("VALIDATION_FAILED");
+		const wrongType = await send("application/x-unknown", "x");
+		expect(wrongType.statusCode).toBe(415);
+		expect(wrongType.json().code).toBe("VALIDATION_FAILED");
+	},
+);
 
 test.fails("KNOWN-VULN #398: repeated sign-in attempts from one address are rate limited (SPEC.md §24)", async () => {
 	if (skip) throw new Error("needs a test database");
