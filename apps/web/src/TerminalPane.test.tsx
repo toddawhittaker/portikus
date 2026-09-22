@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { MAX_UPLOAD_BYTES, type Terminal } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -412,7 +414,7 @@ test("the light terminal theme is light and has its own ANSI palette", () => {
 	expect(light.foreground).toBe("#23211d");
 	// The default palette is written for a dark ground, so light brings its own.
 	expect(light.red).toBeDefined();
-	expect(dark.red).toBeUndefined();
+	expect(dark.red).toBeDefined();
 });
 
 /** The relative luminance of a #rrggbb colour, as WCAG 2 defines it. */
@@ -479,6 +481,75 @@ test("every light ANSI colour is readable on the light background", () => {
 	expect(contrastRatio(light.foreground as string, background)).toBeGreaterThanOrEqual(
 		CONTRAST_FLOOR,
 	);
+});
+
+/**
+ * Issue #360: xterm's own defaults failed contrast on the dark ground. Every
+ * dark ANSI colour but black, which programs use as a background, must clear
+ * AA on it.
+ */
+test("every dark ANSI colour except black is readable on the dark background", () => {
+	const dark = terminalTheme("dark");
+	const background = dark.background as string;
+	for (const name of ANSI_NAMES.filter((name) => name !== "black")) {
+		const colour = dark[name];
+		expect(colour, `${name} is missing from the dark palette`).toBeDefined();
+		const ratio = contrastRatio(colour as string, background);
+		expect(
+			ratio,
+			`${name} (${colour}) is only ${ratio.toFixed(2)}:1 on the dark background`,
+		).toBeGreaterThanOrEqual(CONTRAST_FLOOR);
+	}
+});
+
+/** Issue #360: the dark palette is the design's --ansi-* tokens, not a copy that drifts. */
+test("the dark ANSI palette matches the dark --ansi-* tokens in theme.css", () => {
+	const css = readFileSync(
+		resolve(import.meta.dirname, "../../../packages/ui/src/theme.css"),
+		"utf8",
+	);
+	const block = css.slice(css.indexOf('[data-terminal-theme="dark"] {'));
+	const dark = terminalTheme("dark");
+	for (const name of ANSI_NAMES) {
+		const token = `--ansi-${name.replace(/[A-Z]/, (c) => `-${c.toLowerCase()}`)}`;
+		const match = new RegExp(`${token}: (#[0-9a-f]{6});`).exec(block);
+		expect(match?.[1], token).toBe(dark[name]);
+	}
+});
+
+/** Issue #360: colours a program picks itself are lifted to AA too. */
+test("the terminal enforces a 4.5:1 minimum contrast", async () => {
+	renderPane();
+	await waitFor(() => expect(opened.terminals).toHaveLength(1));
+	expect(opened.terminals[0]?.options.minimumContrastRatio).toBe(4.5);
+});
+
+/** Issue #359: Tab stays in the shell, so the way out is described on the input. */
+test("the terminal input describes Alt+Shift+Q as the way out", async () => {
+	const { view } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const textarea = view.container.querySelector("textarea.xterm-helper-textarea");
+	const id = textarea?.getAttribute("aria-describedby");
+	expect(id).toBeTruthy();
+	expect(document.getElementById(id as string)?.textContent).toContain("Alt+Shift+Q");
+});
+
+/** Issue #363: connection changes are announced from a status region. */
+test("the reconnecting and lost flags sit in a status region", async () => {
+	const { view } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const status = view.getByRole("status");
+	expect(status.textContent).toBe("");
+
+	act(() => {
+		sockets[0]?.onclose?.({ code: 1006 });
+	});
+	expect(status.textContent).toContain("Reconnecting");
+
+	act(() => {
+		sockets[0]?.onclose?.({ code: 1008 });
+	});
+	await waitFor(() => expect(status.textContent).toContain("lost its connection"));
 });
 
 /** Output bytes a program in the pane wrote, as the socket delivers them. */
