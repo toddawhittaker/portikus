@@ -284,6 +284,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 		<DialogRoot open onOpenChange={(open) => !open && onClose()}>
 			<Dialog
 				testId="dialog-editor-settings"
+				className="pk-dialog--fit"
 				size="lg"
 				title="Settings"
 				description="Editor, terminal, and timezone settings follow you to any browser you sign in from."
@@ -305,7 +306,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 					</>
 				}
 			>
-				<div className="-mx-6 mt-2 grid h-[min(28rem,52vh)] grid-cols-[13rem_minmax(0,1fr)] border-y border-line">
+				<div className="-mx-6 mt-2 grid min-h-0 flex-1 grid-cols-[13rem_minmax(0,1fr)] border-y border-line">
 					<div className="flex min-h-0 flex-col gap-3 border-r border-line p-3">
 						<TextField
 							id="settings-search"
