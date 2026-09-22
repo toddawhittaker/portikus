@@ -63,6 +63,7 @@ import {
 	renameProject,
 	STDERR_LIMIT,
 } from "./projects.js";
+import { registerRecoveryRoutes } from "./recovery-routes.js";
 import { registerSearchRoutes } from "./search-routes.js";
 import { TerminalRegistry } from "./terminals.js";
 import {
@@ -127,6 +128,8 @@ export interface ServerOptions {
 	workspaceId?: string;
 	/** Overrides where usage is read. For tests. */
 	usage?: UsageSamplerOptions;
+	/** Mount point of the recovery volume (ADR 0020). */
+	recoveryRoot?: string;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -201,8 +204,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	});
 	monitor.start();
 
+	const recoveryRoot = options.recoveryRoot ?? "/var/lib/portikus/recovery";
 	const usage = new UsageSampler({
 		homePath: options.homeDir,
+		recoveryPath: recoveryRoot,
 		...options.usage,
 	});
 
@@ -607,6 +612,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		});
 
 		registerGitRoutes(instance, { homeDir: options.homeDir });
+		registerRecoveryRoutes(instance, { homeDir: options.homeDir, recoveryRoot });
 		instance.register(checksRoute, { homeDir: options.homeDir });
 		instance.register(listeningRoutes, { monitor, forwards });
 		instance.register(eventsRoute, {
