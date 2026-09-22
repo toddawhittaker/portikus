@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { apiLoginAs, query } from "./helpers";
+import { API_ORIGIN, apiLoginAs, query } from "./helpers";
 
 /**
- * Playwright reuses an API server that is already listening on port 3000
+ * Playwright reuses an API server that is already listening on the API port
  * (`reuseExistingServer` outside CI). If that server belongs to another
  * checkout it reads a different database from the one `query()` writes, so
  * every test that sets up its data in SQL and checks it in the browser goes
@@ -24,7 +24,7 @@ test("the API under test reads the same database as the test helpers", async ({
 		const settings = (await response.json()) as { shutdownGraceSeconds: number };
 		expect(
 			settings.shutdownGraceSeconds,
-			"The API on port 3000 is reading a different database from TEST_DATABASE_URL. " +
+			`The API on ${API_ORIGIN} is reading a different database from TEST_DATABASE_URL. ` +
 				"Another end-to-end run is probably already using these ports; stop it and run again.",
 		).toBe(marker);
 	} finally {

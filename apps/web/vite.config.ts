@@ -2,7 +2,10 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { createLogger, defineConfig } from "vite";
 
-const api = { target: "http://127.0.0.1:3000", changeOrigin: true };
+// The end-to-end runs pick their own ports (e2e/with-run-database.mjs).
+const apiPort = process.env.PORTIKUS_API_PORT ?? "3000";
+const webPort = Number(process.env.PORTIKUS_WEB_PORT ?? "5173");
+const api = { target: `http://127.0.0.1:${apiPort}`, changeOrigin: true };
 
 /**
  * A page that closes or navigates away while a terminal or presence socket
@@ -35,7 +38,7 @@ export default defineConfig({
 	},
 	server: {
 		host: "127.0.0.1",
-		port: 5173,
+		port: webPort,
 		strictPort: true,
 		proxy: {
 			"/health": api,

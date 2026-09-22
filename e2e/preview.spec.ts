@@ -8,6 +8,7 @@ import {
 	toast,
 	workspacePath,
 } from "./helpers";
+import { API_ORIGIN } from "./ports";
 
 /**
  * The Preview tab, the Running surface and the preview route a terminal link
@@ -42,7 +43,6 @@ import {
  */
 
 /** Where the API listens in the end-to-end environment. */
-const API_ORIGIN = "http://127.0.0.1:3000";
 
 /** The preview suffix the end-to-end API is configured with. */
 const PREVIEW_SUFFIX = ".preview.localhost";

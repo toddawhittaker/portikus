@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { createStudent, WEB_ORIGIN, workspacePath } from "./helpers";
+import { API_ORIGIN } from "./ports";
 
 /**
  * The Profile section of Settings (issue #300, SPEC.md §13.5): links are
@@ -81,7 +82,7 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	// The API refuses it on its own too. Sent straight to the API, because the
 	// development proxy cannot relay an answer to a body the server stopped
 	// reading.
-	const refused = await page.request.put("http://127.0.0.1:3000/me/picture", {
+	const refused = await page.request.put(`${API_ORIGIN}/me/picture`, {
 		headers: { origin: WEB_ORIGIN, "content-type": "image/png" },
 		data: Buffer.concat([PNG, Buffer.alloc(1024 * 1024 + 1)]),
 	});
