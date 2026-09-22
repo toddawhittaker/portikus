@@ -5,7 +5,11 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { systemTimezones, UpdateEditorSettingsRequest } from "@portikus/contracts";
+import {
+	MAX_PROFILE_PICTURE_BYTES,
+	systemTimezones,
+	UpdateEditorSettingsRequest,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -70,6 +74,7 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 		wordWrap: true,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
 		timezones: [...systemTimezones()],
 	});
 });
@@ -86,6 +91,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
 		timezones: [...systemTimezones()],
 	});
 
@@ -96,6 +102,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
 		timezones: [...systemTimezones()],
 	});
 
@@ -110,6 +117,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
 		timezones: [...systemTimezones()],
 	});
 });
@@ -201,6 +209,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		wordWrap: true,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
 		timezones: [...systemTimezones()],
 	});
 
@@ -217,6 +226,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		appearance: "system",
 		timezones: [...systemTimezones()],
 	});
 });
@@ -253,6 +263,7 @@ test.skipIf(skip)(
 			wordWrap: true,
 			terminalTheme: "dark",
 			timezone: "America/New_York",
+			appearance: "system",
 			timezones: [...systemTimezones()],
 		});
 
@@ -264,6 +275,7 @@ test.skipIf(skip)(
 			wordWrap: false,
 			terminalTheme: "dark",
 			timezone: "America/New_York",
+			appearance: "system",
 			timezones: [...systemTimezones()],
 		});
 	},
@@ -304,6 +316,145 @@ test.skipIf(skip)("an unknown stored zone loses only the zone", async () => {
 		wordWrap: false,
 		terminalTheme: "light",
 		timezone: "America/New_York",
+		appearance: "system",
 		timezones: [...systemTimezones()],
 	});
+});
+
+/** Issue #300: appearance is saved per user, merged like any other setting. */
+test.skipIf(skip)("appearance is saved and merged with the rest", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	await put(jar, { wordWrap: false });
+	const res = await put(jar, { appearance: "dark" });
+	expect(res.statusCode).toBe(200);
+	expect(res.json()).toMatchObject({ appearance: "dark", wordWrap: false });
+	expect((await put(jar, { appearance: "sepia" })).statusCode).toBe(400);
+
+	const other = new CookieJar();
+	await loginAs(app, "bob", other);
+	const bob = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: other.cookieHeader() },
+	});
+	expect(bob.json()).toMatchObject({ appearance: "system" });
+});
+
+const PNG = Buffer.concat([
+	Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+	Buffer.alloc(32, 1),
+]);
+
+function getAs(jar: CookieJar, url: string) {
+	return app.inject({ method: "GET", url, headers: { cookie: jar.cookieHeader() } });
+}
+
+function putPicture(jar: CookieJar, body: Buffer, type = "image/png") {
+	return app.inject({
+		method: "PUT",
+		url: "/me/picture",
+		headers: { ...csrfHeaders(jar, PUBLIC_URL), "content-type": type },
+		payload: body,
+	});
+}
+
+test.skipIf(skip)("the profile routes need a session", async () => {
+	expect((await app.inject({ method: "GET", url: "/me/profile" })).statusCode).toBe(
+		401,
+	);
+	expect((await app.inject({ method: "GET", url: "/me/picture" })).statusCode).toBe(
+		401,
+	);
+});
+
+test.skipIf(skip)(
+	"a new profile has the sign-in details and nothing else",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "alice", jar);
+
+		const res = await getAs(jar, "/me/profile");
+		expect(res.statusCode).toBe(200);
+		expect(res.json()).toMatchObject({ github: null, website: null, picture: null });
+		expect(typeof res.json().displayName).toBe("string");
+	},
+);
+
+test.skipIf(skip)("links are saved, cleared, and validated", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+	const putProfile = (payload: Record<string, unknown>) =>
+		app.inject({
+			method: "PUT",
+			url: "/me/profile",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload,
+		});
+
+	const saved = await putProfile({ github: "alice-ex", website: "https://a.example/" });
+	expect(saved.statusCode).toBe(200);
+	expect(saved.json()).toMatchObject({
+		github: "alice-ex",
+		website: "https://a.example/",
+	});
+
+	for (const body of [
+		{ website: "http://a.example/" },
+		{ website: "javascript:alert(1)" },
+		{ github: "not a name" },
+		{ displayName: "Mallory" },
+	]) {
+		expect((await putProfile(body)).statusCode, JSON.stringify(body)).toBe(400);
+	}
+
+	const cleared = await putProfile({ website: null });
+	expect(cleared.json()).toMatchObject({ github: "alice-ex", website: null });
+});
+
+test.skipIf(skip)("a png picture is stored and served only to its owner", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	const res = await putPicture(jar, PNG);
+	expect(res.statusCode).toBe(200);
+	const picture = res.json().picture as string;
+	expect(picture).toMatch(/^\/me\/picture\?v=\d+$/);
+
+	const served = await getAs(jar, picture);
+	expect(served.statusCode).toBe(200);
+	expect(served.headers["content-type"]).toBe("image/png");
+	expect(served.headers["x-content-type-options"]).toBe("nosniff");
+	expect(served.rawPayload.equals(PNG)).toBe(true);
+
+	// /me/picture is always the caller's own; bob has none.
+	const other = new CookieJar();
+	await loginAs(app, "bob", other);
+	expect((await getAs(other, "/me/picture")).statusCode).toBe(404);
+
+	const removed = await app.inject({
+		method: "DELETE",
+		url: "/me/picture",
+		headers: csrfHeaders(jar, PUBLIC_URL),
+	});
+	expect(removed.json()).toMatchObject({ picture: null });
+	expect((await getAs(jar, "/me/picture")).statusCode).toBe(404);
+});
+
+test.skipIf(skip)("a picture over the cap or of another type is refused", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+
+	const big = Buffer.concat([PNG, Buffer.alloc(MAX_PROFILE_PICTURE_BYTES)]);
+	const tooBig = await putPicture(jar, big);
+	expect(tooBig.statusCode).toBe(413);
+	expect(tooBig.json()).toMatchObject({ code: "FILE_TOO_LARGE" });
+
+	// The type is read from the bytes, not from the header.
+	const gif = Buffer.from("GIF89a-not-a-png");
+	expect((await putPicture(jar, gif)).statusCode).toBe(415);
+	expect((await putPicture(jar, gif, "image/png")).statusCode).toBe(415);
+
+	expect((await getAs(jar, "/me/profile")).json()).toMatchObject({ picture: null });
 });

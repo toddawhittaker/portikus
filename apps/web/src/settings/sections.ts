@@ -31,6 +31,29 @@ export interface SettingsHit {
 
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 	{
+		id: "profile",
+		title: "Profile",
+		groups: [
+			{
+				title: "From your institution sign-in",
+				controls: [
+					{ id: "display-name", label: "Display name" },
+					{ id: "email", label: "Email" },
+					{ id: "sign-in-name", label: "Sign-in name" },
+					{ id: "workspace-label", label: "Workspace label" },
+				],
+			},
+			{
+				title: "About you",
+				controls: [
+					{ id: "profile-picture", label: "Profile picture" },
+					{ id: "github", label: "GitHub" },
+					{ id: "website", label: "Personal site" },
+				],
+			},
+		],
+	},
+	{
 		id: "preferences",
 		title: "Preferences",
 		groups: [
@@ -53,20 +76,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 			{
 				title: "Appearance",
 				controls: [{ id: "colour-scheme", label: "Color scheme" }],
-			},
-		],
-	},
-	{
-		id: "account",
-		title: "Account",
-		groups: [
-			{
-				title: "Account",
-				controls: [
-					{ id: "display-name", label: "Display name" },
-					{ id: "email", label: "Email" },
-					{ id: "sign-in-name", label: "Sign-in name" },
-				],
 			},
 		],
 	},

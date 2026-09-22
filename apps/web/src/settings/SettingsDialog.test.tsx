@@ -38,10 +38,23 @@ function stubSettings(
 ) {
 	const writes: Sent[] = [];
 	let current = { ...stored, timezones: SERVER_ZONES };
+	let profile = { ...PROFILE };
+	profileWrites = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") {
 			if (!user) throw new Error("unexpected request to /auth/me");
 			return json(200, user);
+		}
+		if (url === "/me/profile") {
+			if ((init?.method ?? "GET") !== "GET") {
+				const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+				profileWrites.push({ body });
+				profile = { ...profile, ...body };
+			}
+			return json(200, profile);
+		}
+		if (url === "/me/picture") {
+			return json(413, { code: "FILE_TOO_LARGE", message: "The picture is too big" });
 		}
 		if (url !== "/me/settings") throw new Error(`unexpected request to ${url}`);
 		if ((init?.method ?? "GET") !== "GET") {
@@ -53,6 +66,19 @@ function stubSettings(
 	});
 	return writes;
 }
+
+/** What GET /me/profile answers with before anything is changed. */
+const PROFILE = {
+	displayName: "Alice Example",
+	email: "alice@example.edu",
+	workspaceLabel: "alice",
+	github: null,
+	website: null,
+	picture: null,
+};
+
+/** Profile writes seen by the last stubSettings. */
+let profileWrites: Sent[] = [];
 
 function checkbox(name: RegExp) {
 	return screen.getByRole("checkbox", { name });
@@ -105,6 +131,7 @@ test("it shows the settings the server holds", async () => {
 		wordWrap: true,
 		terminalTheme: "light",
 		timezone: "America/New_York",
+		appearance: "system",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 
@@ -189,11 +216,11 @@ test("a delay outside 1 to 60 seconds is refused before anything is sent", async
 });
 
 /**
- * Issue #329: page appearance is chosen here, applied at once, and kept in
- * this browser. It is not part of the settings the server stores, and it
- * does not change the terminal color scheme sent with everything else.
+ * Issues #329 and #300: page appearance is chosen here, applied at once,
+ * cached in this browser, and saved on the server at once. It does not
+ * change the terminal color scheme sent with everything else.
  */
-test("choosing an appearance applies at once and is not sent to the server", async () => {
+test("choosing an appearance applies at once, is cached, and is saved", async () => {
 	const writes = stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	const terminal = () => screen.getByRole("region", { name: "Terminal" });
@@ -220,13 +247,18 @@ test("choosing an appearance applies at once and is not sent to the server", asy
 		).checked,
 	).toBe(false);
 
+	await waitFor(() => expect(writes).toHaveLength(1));
+	expect(writes[0]?.body).toEqual({ appearance: "light" });
+
 	fireEvent.click(within(appearance()).getByRole("radio", { name: "System" }));
 	expect(document.documentElement.getAttribute("data-theme")).toBeNull();
 	expect(localStorage.getItem("pk-theme")).toBe("system");
+	await waitFor(() => expect(writes).toHaveLength(2));
+	expect(writes[1]?.body).toEqual({ appearance: "system" });
 
 	fireEvent.click(screen.getByTestId("editor-settings-save"));
-	await waitFor(() => expect(writes).toHaveLength(1));
-	expect(writes[0]?.body).toEqual({
+	await waitFor(() => expect(writes).toHaveLength(3));
+	expect(writes[2]?.body).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
 		wordWrap: true,
@@ -246,6 +278,7 @@ test("the stored terminal theme is shown and sent back", async () => {
 		wordWrap: false,
 		terminalTheme: "light",
 		timezone: "America/New_York",
+		appearance: "system",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	const terminal = () => screen.getByRole("region", { name: "Terminal" });
@@ -279,6 +312,7 @@ test("the stored timezone is shown and sent back", async () => {
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "Europe/Berlin",
+		appearance: "system",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() =>
@@ -360,7 +394,7 @@ test("a failed settings request explains why the zone cannot be changed", async 
 
 const ACCOUNT_USER = { ...USER, oidcSubject: "university-alice" };
 
-test("settings opens on Preferences, with Account in the list", async () => {
+test("settings opens on Preferences, with Profile first in the list", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() => expect(screen.getByLabelText("Workspace timezone")).toBeTruthy());
@@ -368,10 +402,28 @@ test("settings opens on Preferences, with Account in the list", async () => {
 	expect(
 		screen.getByRole("button", { name: "Preferences" }).getAttribute("aria-current"),
 	).toBe("page");
-	expect(screen.getByRole("button", { name: "Account" })).toBeTruthy();
+	const nav = screen.getByRole("navigation", { name: "Settings sections" });
+	expect(within(nav).getAllByRole("button")[0]?.textContent).toBe("Profile");
+	// Account is folded into Profile (issue #300).
+	expect(screen.queryByRole("button", { name: "Account" })).toBeNull();
 	expect(screen.getByRole("heading", { name: "Preferences" })).toBeTruthy();
 	expect(screen.queryByLabelText("Display name")).toBeNull();
-	expect(screen.queryByRole("button", { name: "Billing" })).toBeNull();
+});
+
+test("the saved appearance is shown and wins over this browser's copy", async () => {
+	localStorage.setItem("pk-theme", "light");
+	stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, appearance: "dark" });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const appearance = () => screen.getByRole("region", { name: "Appearance" });
+
+	await waitFor(() =>
+		expect(
+			(within(appearance()).getByRole("radio", { name: "Dark" }) as HTMLInputElement)
+				.checked,
+		).toBe(true),
+	);
+	expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+	expect(localStorage.getItem("pk-theme")).toBe("dark");
 });
 
 test("every control label on the section list is a search hit", async () => {
@@ -397,7 +449,7 @@ test("choosing a search hit opens the section and shows that control", async () 
 	await waitFor(() => expect(screen.getByLabelText("Search")).toBeTruthy());
 
 	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "word wrap" } });
-	expect(screen.queryByRole("button", { name: "Account" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Profile" })).toBeNull();
 	fireEvent.click(buttonNamed("Word wrap"));
 
 	const frame = document.getElementById("settings-control-word-wrap");
@@ -416,41 +468,48 @@ test("a search with no match says so", async () => {
 	expect(screen.queryByRole("button", { name: "Preferences" })).toBeNull();
 });
 
-test("Account shows the institution sign-in and cannot be edited", async () => {
+async function openProfile() {
+	fireEvent.click(await screen.findByRole("button", { name: "Profile" }));
+	await screen.findByLabelText("GitHub");
+}
+
+test("Profile shows the institution sign-in, read-only", async () => {
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	await waitFor(() =>
-		expect(screen.getByRole("button", { name: "Account" })).toBeTruthy(),
-	);
+	await openProfile();
 
-	fireEvent.click(screen.getByRole("button", { name: "Account" }));
-
-	expect(
-		await screen.findByText("These come from the institution sign-in."),
-	).toBeTruthy();
+	expect(screen.getByText(/come from the institution sign-in/)).toBeTruthy();
 	expect(screen.getByTestId("account-initials").textContent).toBe("AE");
 	const displayName = screen.getByLabelText("Display name") as HTMLInputElement;
 	expect(displayName.value).toBe("Alice Example");
 	expect(displayName.readOnly).toBe(true);
-	expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe(USER.email);
+	expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe(
+		PROFILE.email,
+	);
 	expect((screen.getByLabelText("Sign-in name") as HTMLInputElement).value).toBe(
 		"university-alice",
 	);
-	expect(document.querySelector("input[type=file]")).toBeNull();
-	expect(screen.queryByRole("button", { name: /upload/i })).toBeNull();
+	const label = screen.getByLabelText("Workspace label") as HTMLInputElement;
+	expect(label.value).toBe("alice");
+	expect(label.readOnly).toBe(true);
 });
 
 test("a missing email is shown as not provided", async () => {
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, { ...ACCOUNT_USER, email: null });
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, ACCOUNT_USER);
+		if (url === "/me/profile") return json(200, { ...PROFILE, email: null });
+		return json(200, { ...EDITOR_SETTINGS_DEFAULTS, timezones: SERVER_ZONES });
+	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	fireEvent.click(await screen.findByRole("button", { name: "Account" }));
+	await openProfile();
 
-	expect(((await screen.findByLabelText("Email")) as HTMLInputElement).value).toBe(
+	expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe(
 		"Not provided",
 	);
 });
 
-test("choosing the sign-in name hit opens Account on that field", async () => {
+test("choosing the sign-in name hit opens Profile on that field", async () => {
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() => expect(screen.getByLabelText("Search")).toBeTruthy());
@@ -471,15 +530,100 @@ test("choosing the sign-in name hit opens Account on that field", async () => {
 test("a failed account request explains that the details are missing", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(500, { code: "INTERNAL", message: "no" });
+		if (url === "/me/profile") return json(200, PROFILE);
 		if (url === "/me/settings") {
 			return json(200, { ...EDITOR_SETTINGS_DEFAULTS, timezones: SERVER_ZONES });
 		}
 		throw new Error(`unexpected request to ${url}`);
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	fireEvent.click(await screen.findByRole("button", { name: "Account" }));
+	fireEvent.click(await screen.findByRole("button", { name: "Profile" }));
 
 	expect((await screen.findByTestId("account-error")).textContent).toContain(
 		"could not be loaded",
 	);
+});
+
+test("valid links are saved with the rest and shown as plain anchors", async () => {
+	const writes = stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const onClose = vi.fn();
+	renderWithQuery(<SettingsDialog onClose={onClose} />);
+	await openProfile();
+
+	fireEvent.change(screen.getByLabelText("GitHub"), {
+		target: { value: " alice-ex " },
+	});
+	fireEvent.change(screen.getByLabelText("Personal site"), {
+		target: { value: "https://alice.example.edu/" },
+	});
+	fireEvent.click(screen.getByTestId("editor-settings-save"));
+
+	await waitFor(() => expect(onClose).toHaveBeenCalled());
+	expect(profileWrites.map((write) => write.body)).toEqual([
+		{ github: "alice-ex", website: "https://alice.example.edu/" },
+	]);
+	expect(writes).toHaveLength(1);
+
+	const github = screen.getByTestId("profile-github-link");
+	expect(github.tagName).toBe("A");
+	expect(github.getAttribute("href")).toBe("https://github.com/alice-ex");
+	expect(github.getAttribute("rel")).toBe("noopener");
+	const site = screen.getByTestId("profile-website-link");
+	expect(site.getAttribute("href")).toBe("https://alice.example.edu/");
+	expect(site.getAttribute("rel")).toBe("noopener");
+});
+
+test("an invalid link is refused before anything is sent", async () => {
+	const writes = stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await openProfile();
+
+	fireEvent.change(screen.getByLabelText("Personal site"), {
+		target: { value: "javascript:alert(1)" },
+	});
+	expect(screen.getByText("Give an https:// link")).toBeTruthy();
+	fireEvent.change(screen.getByLabelText("GitHub"), {
+		target: { value: "http://github.com/alice" },
+	});
+	expect(screen.getByText("Give a GitHub username or an https:// link")).toBeTruthy();
+
+	const save = screen.getByTestId("editor-settings-save") as HTMLButtonElement;
+	expect(save.disabled).toBe(true);
+	fireEvent.click(save);
+	expect(profileWrites).toHaveLength(0);
+	expect(writes).toHaveLength(0);
+});
+
+test("a refused picture upload shows the server's reason", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await openProfile();
+
+	const file = new File([new Uint8Array(8)], "me.png", { type: "image/png" });
+	fireEvent.change(screen.getByTestId("profile-picture-input"), {
+		target: { files: [file] },
+	});
+
+	expect((await screen.findByTestId("profile-picture-error")).textContent).toBe(
+		"The picture is too big",
+	);
+});
+
+test("a picture over the cap is refused before it is sent", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await openProfile();
+	const sent = vi.mocked(fetch).mock.calls.length;
+
+	const file = new File([new Uint8Array(1024 * 1024 + 1)], "big.png", {
+		type: "image/png",
+	});
+	fireEvent.change(screen.getByTestId("profile-picture-input"), {
+		target: { files: [file] },
+	});
+
+	expect((await screen.findByTestId("profile-picture-error")).textContent).toBe(
+		"The picture must be at most 1 MiB",
+	);
+	expect(vi.mocked(fetch).mock.calls.length).toBe(sent);
 });

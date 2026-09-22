@@ -2,13 +2,18 @@
  * The student's settings (issues #159, #239, #287, #288, #329 and #340,
  * SPEC.md §13.5). The left pane is the section list and a search box; the
  * right pane is the section that was chosen. Search reads that same list.
- * Appearance is remembered in this browser only. Editor, terminal, and
- * workspace settings are kept on the server, per user. The terminal color
- * scheme is separate from the page appearance.
+ * Every setting, the appearance included, is kept on the server per user
+ * (issue #300). The terminal color scheme is separate from the page
+ * appearance. Profile shows the institution sign-in and a few optional
+ * links and a picture, none of which is used for authorization.
  */
 import {
 	EDITOR_SETTINGS_DEFAULTS,
+	GithubLink,
+	githubHref,
 	type UpdateEditorSettingsRequest,
+	type UpdateProfileRequest,
+	WebsiteLink,
 } from "@portikus/contracts";
 import {
 	Button,
@@ -24,8 +29,18 @@ import {
 	useEditorSettings,
 	useUpdateEditorSettings,
 } from "../editor/settingsQueries.js";
-import { type ThemePreference, useThemePreference } from "../shell/theme.js";
+import {
+	readThemePreference,
+	rememberThemePreference,
+	type ThemePreference,
+} from "../shell/theme.js";
 import { useMe } from "../useMe.js";
+import {
+	useProfile,
+	useRemovePicture,
+	useUpdateProfile,
+	useUploadPicture,
+} from "./profileQueries.js";
 import { SETTINGS_SECTIONS, type SettingsControl, settingsHits } from "./sections.js";
 import { currentZoneOption, timezoneGroups } from "./timezones.js";
 import "./settings.css";
@@ -79,7 +94,29 @@ function ChoiceField({
 }
 
 const PREFERENCES = SETTINGS_SECTIONS.find((section) => section.id === "preferences");
-const ACCOUNT = SETTINGS_SECTIONS.find((section) => section.id === "account");
+const PROFILE = SETTINGS_SECTIONS.find((section) => section.id === "profile");
+
+/** The profile links the student has typed but not saved yet. */
+interface LinkDraft {
+	github?: string;
+	website?: string;
+}
+
+/** A blank link clears it; anything else must pass the same check the API makes. */
+export function checkLink(
+	schema: typeof GithubLink | typeof WebsiteLink,
+	text: string | undefined,
+): { value: string | null | undefined; error: string | null } {
+	if (text === undefined) return { value: undefined, error: null };
+	if (text.trim() === "") return { value: null, error: null };
+	const parsed = schema.safeParse(text);
+	return parsed.success
+		? { value: parsed.data, error: null }
+		: {
+				value: undefined,
+				error: parsed.error.issues[0]?.message ?? "Not a valid link",
+			};
+}
 
 function initials(displayName: string): string {
 	const parts = displayName.trim().split(/\s+/).slice(0, 2);
@@ -152,7 +189,19 @@ function ControlFrame({
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const settings = useEditorSettings();
 	const update = useUpdateEditorSettings();
-	const [preference, setPreference] = useThemePreference();
+	// Appearance saves on its own the moment it is chosen, so its request
+	// never shows as the Save button's.
+	const appearanceUpdate = useUpdateEditorSettings();
+	const updateProfile = useUpdateProfile();
+	const [appearanceChoice, setAppearanceChoice] = useState<ThemePreference | null>(
+		null,
+	);
+	const preference =
+		appearanceChoice ?? settings.data?.appearance ?? readThemePreference();
+	const [links, setLinks] = useState<LinkDraft>({});
+	const github = checkLink(GithubLink, links.github);
+	const website = checkLink(WebsiteLink, links.website);
+	const linkError = github.error ?? website.error;
 	// While the settings are still loading the dialog shows the defaults, the
 	// same values the editor is using until they arrive.
 	const current = settings.data ?? EDITOR_SETTINGS_DEFAULTS;
@@ -191,8 +240,15 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
 	useShowSetting(highlightId, sectionId === PREFERENCES?.id);
 
-	function save() {
-		if (delayError !== null || parsedDelay === null || update.isPending) return;
+	const saving = update.isPending || updateProfile.isPending;
+
+	async function save() {
+		if (delayError !== null || parsedDelay === null || linkError !== null || saving) {
+			return;
+		}
+		const profileBody: UpdateProfileRequest = {};
+		if (github.value !== undefined) profileBody.github = github.value;
+		if (website.value !== undefined) profileBody.website = website.value;
 		const body: UpdateEditorSettingsRequest = {
 			autoSave,
 			autoSaveDelaySeconds: parsedDelay,
@@ -200,8 +256,25 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 			terminalTheme,
 			timezone,
 		};
-		update.mutate(body, { onSuccess: onClose });
+		try {
+			if (Object.keys(profileBody).length > 0) {
+				await updateProfile.mutateAsync(profileBody);
+				setLinks({});
+			}
+			await update.mutateAsync(body);
+			onClose();
+		} catch {
+			// The error is shown under the pane; the dialog stays open.
+		}
 	}
+
+	function chooseAppearance(value: ThemePreference) {
+		setAppearanceChoice(value);
+		rememberThemePreference(value);
+		appearanceUpdate.mutate({ appearance: value });
+	}
+
+	const saveError = updateProfile.error ?? update.error ?? appearanceUpdate.error;
 
 	function open(nextSectionId: string, controlId: string | null) {
 		setSectionId(nextSectionId);
@@ -314,11 +387,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 				return (
 					<ChoiceField
 						label={control.label}
-						hint="Light, dark, or follow this computer. This stays in this browser and applies as soon as you choose it."
+						hint="Light, dark, or follow this computer. It applies and is saved as soon as you choose it, and follows you to any browser you sign in from."
 						name="page-appearance"
 						options={APPEARANCE_OPTIONS}
 						value={preference}
-						onChange={(value) => setPreference(value as ThemePreference)}
+						onChange={(value) => chooseAppearance(value as ThemePreference)}
 					/>
 				);
 			default:
@@ -333,7 +406,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 				className="pk-dialog--fit"
 				size="lg"
 				title="Settings"
-				description="Editor, terminal, and timezone settings follow you to any browser you sign in from."
+				description="Your settings follow you to any browser you sign in from."
 				onClose={onClose}
 				footer={
 					<>
@@ -343,9 +416,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						<Button
 							data-testid="editor-settings-save"
 							variant="primary"
-							loading={update.isPending}
-							disabled={delayError !== null || update.isPending}
-							onClick={save}
+							loading={saving}
+							disabled={delayError !== null || linkError !== null || saving}
+							onClick={() => void save()}
 						>
 							Save
 						</Button>
@@ -412,14 +485,20 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 					</div>
 					<div className="flex min-h-0 min-w-0 flex-col">
 						<div className="min-h-0 flex-1 overflow-y-auto p-4">
-							{sectionId === ACCOUNT?.id ? (
-								<AccountPane highlightId={highlightId} />
+							{sectionId === PROFILE?.id ? (
+								<ProfilePane
+									highlightId={highlightId}
+									links={links}
+									githubError={github.error}
+									websiteError={website.error}
+									onLinksChange={setLinks}
+								/>
 							) : (
 								<form
 									className="grid gap-6"
 									onSubmit={(event) => {
 										event.preventDefault();
-										save();
+										void save();
 									}}
 								>
 									<h2
@@ -460,13 +539,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 								</form>
 							)}
 						</div>
-						{update.isError ? (
+						{saveError ? (
 							<p
 								className="pk-text-body px-4 pb-4 text-status-error"
 								data-testid="editor-settings-error"
 							>
-								{update.error instanceof Error
-									? update.error.message
+								{saveError instanceof Error
+									? saveError.message
 									: "The settings were not saved."}
 							</p>
 						) : null}
@@ -477,51 +556,184 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	);
 }
 
-function accountValue(
-	controlId: string,
-	user: { displayName: string; email: string | null; oidcSubject?: string },
-): string {
-	if (controlId === "display-name") return user.displayName;
-	if (controlId === "email") return user.email ?? "Not provided";
-	if (controlId === "sign-in-name") return user.oidcSubject ?? "Not provided";
-	return "";
+/** A saved link, shown only as a plain anchor (issue #300). */
+function SavedLink({ href, testId }: { href: string; testId: string }) {
+	return (
+		<a
+			href={href}
+			target="_blank"
+			rel="noopener"
+			data-testid={testId}
+			className="pk-text-compact break-all text-[var(--accent-text)] underline"
+		>
+			{href}
+		</a>
+	);
 }
 
-function AccountPane({ highlightId }: { highlightId: string | null }) {
+function ProfilePane({
+	highlightId,
+	links,
+	githubError,
+	websiteError,
+	onLinksChange,
+}: {
+	highlightId: string | null;
+	links: LinkDraft;
+	githubError: string | null;
+	websiteError: string | null;
+	onLinksChange: (next: LinkDraft) => void;
+}) {
 	const me = useMe();
-	const ready = me.status === "authenticated";
+	const profile = useProfile();
+	const upload = useUploadPicture();
+	const remove = useRemovePicture();
+	const ready = me.status === "authenticated" && profile.isSuccess;
 	useShowSetting(highlightId, ready);
-	const user = ready ? me.user : null;
+	const user = me.status === "authenticated" ? me.user : null;
+	const saved = profile.data;
+	const pictureError = upload.error ?? remove.error;
+
+	function signInValue(controlId: string): string {
+		if (controlId === "display-name")
+			return saved?.displayName ?? user?.displayName ?? "";
+		if (controlId === "email") return saved?.email ?? "Not provided";
+		if (controlId === "sign-in-name") return user?.oidcSubject ?? "Not provided";
+		if (controlId === "workspace-label")
+			return saved?.workspaceLabel ?? "Not created yet";
+		return "";
+	}
+
+	function editable(controlId: string) {
+		switch (controlId) {
+			case "profile-picture":
+				return (
+					<div className="grid gap-2">
+						<span className={LABEL_CLASS}>Profile picture</span>
+						<div className="flex items-center gap-3">
+							{saved?.picture ? (
+								<img
+									src={saved.picture}
+									alt="Your profile"
+									data-testid="profile-picture"
+									className="size-12 shrink-0 rounded-full border border-line object-cover"
+								/>
+							) : (
+								<span
+									className="grid size-12 shrink-0 place-items-center rounded-full border border-line bg-surface-sunken text-[15px] font-semibold text-ink"
+									data-testid="account-initials"
+									aria-hidden="true"
+								>
+									{initials(user?.displayName ?? "")}
+								</span>
+							)}
+							<input
+								type="file"
+								accept="image/png,image/jpeg"
+								aria-label="Choose a profile picture"
+								data-testid="profile-picture-input"
+								disabled={upload.isPending}
+								onChange={(event) => {
+									const file = event.target.files?.[0];
+									if (file) upload.mutate(file);
+									event.target.value = "";
+								}}
+								className="pk-text-compact"
+							/>
+							{saved?.picture ? (
+								<Button
+									variant="secondary"
+									onClick={() => remove.mutate(undefined)}
+									loading={remove.isPending}
+								>
+									Remove
+								</Button>
+							) : null}
+						</div>
+						<p className="pk-hint m-0 text-[12px] leading-4 text-ink-muted">
+							A PNG or JPEG of up to 1 MiB. It is saved as soon as you choose it and
+							shows in the account menu.
+						</p>
+						{pictureError ? (
+							<p
+								className="pk-text-body m-0 text-status-error"
+								data-testid="profile-picture-error"
+							>
+								{pictureError instanceof Error
+									? pictureError.message
+									: "The picture was not saved."}
+							</p>
+						) : null}
+					</div>
+				);
+			case "github":
+				return (
+					<div className="grid gap-1">
+						<TextField
+							id="profile-github"
+							label="GitHub"
+							hint="Your GitHub username or an https:// link to your profile."
+							value={links.github ?? saved?.github ?? ""}
+							error={githubError}
+							autoComplete="off"
+							onChange={(event) =>
+								onLinksChange({ ...links, github: event.target.value })
+							}
+						/>
+						{saved?.github ? (
+							<SavedLink href={githubHref(saved.github)} testId="profile-github-link" />
+						) : null}
+					</div>
+				);
+			case "website":
+				return (
+					<div className="grid gap-1">
+						<TextField
+							id="profile-website"
+							label="Personal site"
+							hint="One https:// link."
+							value={links.website ?? saved?.website ?? ""}
+							error={websiteError}
+							autoComplete="off"
+							onChange={(event) =>
+								onLinksChange({ ...links, website: event.target.value })
+							}
+						/>
+						{saved?.website ? (
+							<SavedLink href={saved.website} testId="profile-website-link" />
+						) : null}
+					</div>
+				);
+			default:
+				return null;
+		}
+	}
+
+	const [signIn, about] = PROFILE?.groups ?? [];
 
 	return (
-		<section className="grid gap-4" aria-labelledby="settings-section-account">
-			<h2 id="settings-section-account" className="pk-text-heading text-ink">
-				Account
+		<section className="grid gap-6" aria-labelledby="settings-section-profile">
+			<h2 id="settings-section-profile" className="pk-text-heading text-ink">
+				Profile
 			</h2>
-			{me.status === "loading" ? (
-				<p className="pk-text-body text-ink-muted">Loading your account…</p>
+			{me.status === "loading" || profile.isPending ? (
+				<p className="pk-text-body text-ink-muted">Loading your profile…</p>
 			) : null}
-			{me.status !== "loading" && !user ? (
+			{me.status !== "loading" && !profile.isPending && !ready ? (
 				<p className="pk-text-body text-status-error" data-testid="account-error">
 					Your account details could not be loaded.
 				</p>
 			) : null}
-			{user ? (
+			{ready ? (
 				<>
-					<div className="flex items-center gap-3">
-						<span
-							className="grid size-12 shrink-0 place-items-center rounded-full border border-line bg-surface-sunken text-[15px] font-semibold text-ink"
-							data-testid="account-initials"
-							aria-hidden="true"
-						>
-							{initials(user.displayName)}
-						</span>
+					<section className="grid gap-4" aria-labelledby="settings-profile-signin">
+						<h3 id="settings-profile-signin" className="pk-text-label text-ink">
+							{signIn?.title}
+						</h3>
 						<p className="pk-text-compact m-0 text-ink-muted">
-							These come from the institution sign-in.
+							These come from the institution sign-in and cannot be changed here.
 						</p>
-					</div>
-					{ACCOUNT?.groups.flatMap((group) =>
-						group.controls.map((control) => (
+						{signIn?.controls.map((control) => (
 							<ControlFrame
 								key={control.id}
 								control={control}
@@ -535,13 +747,30 @@ function AccountPane({ highlightId }: { highlightId: string | null }) {
 										id={`account-${control.id}`}
 										type="text"
 										readOnly
-										value={accountValue(control.id, user)}
+										value={signInValue(control.id)}
 										className="pk-focus-ring w-full break-all border-0 bg-transparent p-0 text-[14px] leading-5 text-ink"
 									/>
 								</div>
 							</ControlFrame>
-						)),
-					)}
+						))}
+					</section>
+					<section className="grid gap-4" aria-labelledby="settings-profile-about">
+						<h3 id="settings-profile-about" className="pk-text-label text-ink">
+							{about?.title}
+						</h3>
+						<p className="pk-text-compact m-0 text-ink-muted">
+							Optional. Links are saved with Save.
+						</p>
+						{about?.controls.map((control) => (
+							<ControlFrame
+								key={control.id}
+								control={control}
+								highlighted={highlightId === control.id}
+							>
+								{editable(control.id)}
+							</ControlFrame>
+						))}
+					</section>
 				</>
 			) : null}
 		</section>

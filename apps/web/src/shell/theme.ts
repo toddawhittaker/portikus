@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import type { Appearance } from "@portikus/contracts";
 
 /**
  * Appearance: the theme follows the operating system unless the person picks
- * one in Settings (design/system/README.md, "Colour"). The choice is
- * remembered in this browser under `pk-theme`, which some browsers refuse,
- * so every access is guarded. It is not a server setting.
+ * one in Settings (design/system/README.md, "Colour"). The choice is a
+ * per-user setting (issue #300, SPEC.md §13.5). This browser keeps a copy
+ * under `pk-theme` so the first paint, and the sign-in page, use it before
+ * the settings arrive. Some browsers refuse storage, so every access is
+ * guarded.
  */
-export type ThemePreference = "system" | "light" | "dark";
+export type ThemePreference = Appearance;
 
 const STORAGE_KEY = "pk-theme";
 
@@ -30,24 +32,12 @@ export function applyThemePreference(preference: ThemePreference): void {
 	}
 }
 
-export function useThemePreference(): [
-	ThemePreference,
-	(next: ThemePreference) => void,
-] {
-	const [preference, setPreference] = useState<ThemePreference>(readThemePreference);
-
-	useEffect(() => {
-		applyThemePreference(preference);
-	}, [preference]);
-
-	const choose = useCallback((next: ThemePreference) => {
-		setPreference(next);
-		try {
-			localStorage.setItem(STORAGE_KEY, next);
-		} catch {
-			// The choice still applies to this page.
-		}
-	}, []);
-
-	return [preference, choose];
+/** Apply a choice and remember it in this browser for the next first paint. */
+export function rememberThemePreference(preference: ThemePreference): void {
+	applyThemePreference(preference);
+	try {
+		localStorage.setItem(STORAGE_KEY, preference);
+	} catch {
+		// The choice still applies to this page.
+	}
 }

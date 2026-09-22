@@ -1296,3 +1296,30 @@ migration from another branch that stopped Kysely from starting (PR #342).
   per-user settings row the issue asks for. The Profile section (picture,
   GitHub and personal links) did not land; the Account section shows only
   the institution sign-in.
+
+## Epic 9.2 — image paste, and the rest of issue #300
+
+### Settings
+
+Appearance now follows the student. The light, dark, or system choice is
+a per-user setting saved through `PUT /me/settings` the moment it is
+chosen. The browser's `pk-theme` copy is still read before the first
+paint, and the workspace screen waits for the settings before it draws,
+so a browser that has never seen the choice shows it without a flash.
+The saved value wins and refreshes that copy.
+
+The Account section is folded into a new Profile section at the top of
+Settings. It shows the display name, email, sign-in name, and workspace
+label from the institution sign-in, read-only. The student can add a
+GitHub username or link, one personal https link, and a PNG or JPEG
+picture of up to 1 MiB, which replaces the initials in the account menu
+button. The API checks the picture type from its bytes, keeps it on the
+users row (migration 0012), and serves it only to its owner at
+`/me/picture`. Nothing in Profile is used for authorization.
+
+Gaps: the picture cap is 1 MiB, not the 50 MiB file-upload cap, because
+the picture lives on the users row. The picture upload uses its own
+`PUT /me/picture` route rather than the project file upload, which writes
+into a workspace. The administration page does not wait for the saved
+appearance, so it uses the browser's copy until the workspace screen has
+loaded once.
