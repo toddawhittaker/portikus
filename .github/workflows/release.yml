@@ -31,14 +31,14 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - name: Cache nfpm
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/portikus/nfpm
           key: nfpm-${{ runner.os }}-${{ hashFiles('scripts/build-deb.sh') }}
       - name: Build Debian package
         run: pnpm build:deb
       - name: Upload the package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portikus-deb
           path: |
@@ -55,7 +55,7 @@ jobs:
       contents: write
     steps:
       - name: Download the package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: portikus-deb
           path: dist/deb
