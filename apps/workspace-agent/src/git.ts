@@ -423,17 +423,206 @@ export async function gitDiff(
 	}
 	const before = hasHead ? await showFromHead(dir, headPath, options) : MISSING;
 	const after = await readWorkingTree(target.path);
+	return finishDiff(before, after, state.unmerged, origPath);
+}
 
+const OBJECT_ID = /^[0-9a-f]{40}$/;
+
+/**
+ * `git stash create` writes one dangling commit and prints its id. It does
+ * not update HEAD, the index, or any ref (SPEC.md §10.9, §12.5, ADR 0019).
+ * A directory that is not a work tree, or a command that fails, yields a
+ * null object. `baselineHead` is HEAD when there is a commit.
+ */
+export async function recordBaseline(dir: string): Promise<{
+	baselineObjectId: string | null;
+	baselineHead: string | null;
+}> {
+	const head = await runGit(["rev-parse", "--verify", "HEAD"], dir, 128);
+	const headId = head.ok ? head.stdout.toString().trim() : "";
+	const baselineHead = OBJECT_ID.test(headId) ? headId : null;
+
+	const inside = await runGit(["rev-parse", "--is-inside-work-tree"], dir, 64);
+	if (!inside.ok || inside.stdout.toString().trim() !== "true") {
+		return { baselineObjectId: null, baselineHead: null };
+	}
+
+	const created = await runGit(["stash", "create"], dir, 128);
+	if (!created.ok) return { baselineObjectId: null, baselineHead };
+	const objectId = created.stdout.toString().trim();
+	if (!OBJECT_ID.test(objectId)) return { baselineObjectId: null, baselineHead };
+	return { baselineObjectId: objectId, baselineHead };
+}
+
+/** One name-status record from `git diff -z`, plus untracked paths. */
+function baselineEntries(diffText: string, untrackedText: string): GitEntry[] {
+	const entries: GitEntry[] = [];
+	const records = diffText.split("\0");
+	for (let i = 0; i < records.length; i += 1) {
+		const header = records[i];
+		if (!header) continue;
+		const code = header[0] ?? "M";
+		if (code === "R" || code === "C") {
+			const origPath = records[i + 1];
+			const path = records[i + 2];
+			i += 2;
+			if (!path || !origPath) continue;
+			entries.push({ path, x: ".", y: "R", unmerged: false, origPath });
+			continue;
+		}
+		const path = records[i + 1];
+		i += 1;
+		if (!path) continue;
+		const y = code === "A" || code === "D" || code === "M" ? code : "M";
+		entries.push({ path, x: ".", y, unmerged: false });
+	}
+	for (const path of untrackedText.split("\0")) {
+		if (!path) continue;
+		entries.push({ path, x: ".", y: "?", unmerged: false });
+	}
+	return entries;
+}
+
+/**
+ * Working tree against a session baseline object (SPEC.md §12.7). Branch
+ * fields stay empty: this is not `git status`, and it does not move refs.
+ */
+export async function baselineStatus(
+	homeDir: string,
+	slug: string,
+	objectId: string,
+	options: { log?: GitDebugLog } = {},
+): Promise<GitStatus> {
+	if (!OBJECT_ID.test(objectId)) {
+		throw new AgentFailure("BAD_REQUEST", "invalid object");
+	}
+	const dir = await projectDir(homeDir, slug);
+	if (!(await isRepoRoot(dir))) return emptyStatus();
+	const kind = await runGit(["cat-file", "-t", objectId], dir, 64);
+	if (!kind.ok) {
+		options.log?.debug({ stderr: kind.stderr }, "baseline object missing");
+		throw new AgentFailure("GIT_FAILED", "baseline object missing");
+	}
+	const diff = await runGit(
+		["diff", "-z", "--no-ext-diff", "--name-status", "--find-renames", objectId],
+		dir,
+		32 * 1024 * 1024,
+	);
+	const untracked = await runGit(
+		["ls-files", "-z", "--others", "--exclude-standard"],
+		dir,
+		32 * 1024 * 1024,
+	);
+	if (diff.timedOut || untracked.timedOut) {
+		throw new AgentFailure("GIT_FAILED", "git timed out");
+	}
+	if (!diff.ok || !untracked.ok) {
+		options.log?.debug(
+			{ stderr: diff.stderr || untracked.stderr },
+			"baseline status failed",
+		);
+		throw new AgentFailure("GIT_FAILED", "baseline status failed");
+	}
+	const status = emptyStatus();
+	status.repo = true;
+	const all = baselineEntries(diff.stdout.toString(), untracked.stdout.toString());
+	status.entries = all.slice(0, MAX_GIT_ENTRIES);
+	status.truncated =
+		diff.overflow || untracked.overflow || all.length > MAX_GIT_ENTRIES;
+	return status;
+}
+
+/** Where a path sits relative to the baseline object, including a rename. */
+async function baselinePathState(
+	dir: string,
+	objectId: string,
+	relPath: string,
+): Promise<PathState> {
+	const result = await runGit(
+		["diff", "-z", "--no-ext-diff", "--name-status", "--find-renames", objectId],
+		dir,
+		32 * 1024 * 1024,
+	);
+	const state: PathState = { unmerged: false };
+	if (!result.ok) return state;
+	for (const entry of baselineEntries(result.stdout.toString(), "")) {
+		if (entry.path === relPath && entry.origPath) state.origPath = entry.origPath;
+	}
+	return state;
+}
+
+/**
+ * One file against the session baseline object (SPEC.md §12.7). Same size
+ * and binary limits as the Git diff.
+ */
+export async function baselineDiff(
+	homeDir: string,
+	slug: string,
+	objectId: string,
+	relPath: string,
+	options: { log?: GitDebugLog } = {},
+): Promise<GitDiff> {
+	if (!OBJECT_ID.test(objectId)) {
+		throw new AgentFailure("BAD_REQUEST", "invalid object");
+	}
+	const dir = await projectDir(homeDir, slug);
+	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: false });
+	const info = await lstat(target.path).catch(() => null);
+	if (info && !info.isFile()) {
+		throw new AgentFailure("PATH_INVALID", "not a file");
+	}
+
+	const repo = await isRepoRoot(dir);
+	const state = repo
+		? await baselinePathState(dir, objectId, relPath)
+		: { unmerged: false };
+	const origPath = state.origPath;
+	const beforePath = origPath ?? relPath;
+	const kind = await runGit(["cat-file", "-t", `${objectId}:${beforePath}`], dir, 64);
+	if (kind.ok && kind.stdout.toString().trim() !== "blob") {
+		throw new AgentFailure("PATH_INVALID", "not a file");
+	}
+	const before = kind.ok
+		? await showFromRev(dir, objectId, beforePath, options)
+		: MISSING;
+	const after = await readWorkingTree(target.path);
+	return finishDiff(before, after, false, origPath);
+}
+
+/** Read a blob out of an arbitrary object, with the same cap as HEAD. */
+async function showFromRev(
+	dir: string,
+	rev: string,
+	path: string,
+	options: { log?: GitDebugLog },
+): Promise<Side> {
+	const result = await runGit(["show", `${rev}:${path}`], dir, MAX_DIFF_SIDE_BYTES + 1);
+	if (result.overflow) return { content: null, tooLarge: true };
+	if (result.timedOut || result.exitCode === null) {
+		options.log?.debug({ stderr: result.stderr }, "git show failed");
+		throw new AgentFailure("GIT_FAILED", "git show failed");
+	}
+	if (!result.ok) return MISSING;
+	if (result.stdout.length > MAX_DIFF_SIDE_BYTES) {
+		return { content: null, tooLarge: true };
+	}
+	return { content: result.stdout, tooLarge: false };
+}
+
+function finishDiff(
+	before: Side,
+	after: Side,
+	unmerged: boolean,
+	origPath: string | undefined,
+): GitDiff {
 	const tooLarge = before.tooLarge || after.tooLarge;
 	const binary = !tooLarge && (isBinary(before) || isBinary(after));
-
 	let status: GitDiff["status"];
-	if (state.unmerged) status = "U";
+	if (unmerged) status = "U";
 	else if (origPath) status = "R";
 	else if (before.content === null && !before.tooLarge) status = "A";
 	else if (after.content === null && !after.tooLarge) status = "D";
 	else status = "M";
-
 	const hide = tooLarge || binary;
 	return {
 		status,
