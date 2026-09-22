@@ -1341,7 +1341,7 @@ loaded once.
 **Accessibility (issues #357 to #374).** An accessibility review of main
 at 9d6da94 raised eighteen issues against WCAG 2.2 AA (SPEC.md section
 25.8, DESIGN.md section 6). All of them landed on the epic in PRs #376 to
-#381 and the screen-reader task PR.
+#381 and #383.
 
 - Shared overlays (PR #376): a dialog or confirmation puts focus back
   where it opened, falling back to the menu button (#358). Toasts sit
@@ -1366,7 +1366,7 @@ at 9d6da94 raised eighteen issues against WCAG 2.2 AA (SPEC.md section
 - Terminal (PR #381): the dark palette passes 4.5:1, with xterm lifting
   any cell below it (#360), the helper textarea describes Alt+Shift+Q
   (#359), and connection flags are announced (#363).
-- Screen-reader task: a per-user screen-reader mode, off by default,
+- Screen-reader task (PR #383): a per-user screen-reader mode, off by default,
   turns on xterm's screen-reader mode in every terminal and the check
   output and Monaco's `accessibilitySupport` in every editor, live (#357).
   The first Tab stop on the workspace page toggles it and announces the
