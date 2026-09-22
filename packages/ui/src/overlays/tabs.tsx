@@ -55,11 +55,18 @@ const KIND_ICON: Record<TabItem["kind"], IconName> = {
 
 interface TabTriggerProps {
 	tab: TabItem;
+	/** Id of the hidden text that explains the keyboard shortcuts. */
+	hintId: string;
 	onClose?: (id: string) => void;
 	onMove: (tab: TabItem, direction: -1 | 1) => void;
 }
 
-function TabTrigger({ tab, onClose, onMove }: TabTriggerProps): React.ReactElement {
+function TabTrigger({
+	tab,
+	hintId,
+	onClose,
+	onMove,
+}: TabTriggerProps): React.ReactElement {
 	const sortable = useSortable({ id: tab.id });
 	return (
 		<RadixTabs.Trigger
@@ -67,6 +74,10 @@ function TabTrigger({ tab, onClose, onMove }: TabTriggerProps): React.ReactEleme
 			value={tab.id}
 			title={tab.title ?? tab.label}
 			data-testid={tab.testId}
+			// The close control sits inside the tab, so assistive technology only
+			// learns about closing and moving from these (issues #370, #372).
+			aria-keyshortcuts="Delete Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
+			aria-describedby={hintId}
 			className={[
 				"pk-tab",
 				tab.kind === "terminal" && !tab.ended ? "pk-tab--terminal" : "",
@@ -152,6 +163,7 @@ export function Tabs({
 }: TabsProps): React.ReactElement {
 	const [announcement, setAnnouncement] = React.useState("");
 	const list = React.useRef<HTMLDivElement | null>(null);
+	const hintId = React.useId();
 
 	// Selecting a tab brings it back into view, however the selection was made
 	// (click, keyboard, Ctrl+Tab, or opening a file). Issue #240.
@@ -215,7 +227,13 @@ export function Tabs({
 						onWheel={onWheel}
 					>
 						{tabs.map((tab) => (
-							<TabTrigger key={tab.id} tab={tab} onClose={onClose} onMove={move} />
+							<TabTrigger
+								key={tab.id}
+								tab={tab}
+								hintId={hintId}
+								onClose={onClose}
+								onMove={move}
+							/>
 						))}
 					</RadixTabs.List>
 				</SortableContext>
@@ -225,6 +243,9 @@ export function Tabs({
 					<IconButton icon="plus" label="New tab" size="sm" aria-haspopup="menu" />
 				)}
 			</div>
+			<span id={hintId} className="pk-visually-hidden">
+				Delete closes the tab. Alt+Shift+Left or Right Arrow moves it.
+			</span>
 			<span className="pk-visually-hidden" aria-live="polite">
 				{announcement}
 			</span>
