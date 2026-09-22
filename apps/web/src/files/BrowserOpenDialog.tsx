@@ -31,32 +31,6 @@ function httpUrl(raw: string): URL | null {
 	}
 }
 
-/**
- * Loopback and private addresses stay off the clipboard. Copy is only for an
- * external http(s) URL (BROWSER-HANDLING.md §18).
- */
-function isPrivateHost(hostname: string): boolean {
-	const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-	if (host.includes(":")) {
-		const head = Number.parseInt(host.split(":")[0] || "0", 16);
-		if (Number.isNaN(head)) return false;
-		if (head >= 0xfc00 && head <= 0xfdff) return true;
-		if (head >= 0xfe80 && head <= 0xfebf) return true;
-		return false;
-	}
-	const parts = host.split(".");
-	if (parts.length !== 4) return false;
-	const nums = parts.map((part) => Number(part));
-	if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
-	const a = nums[0] ?? 0;
-	const b = nums[1] ?? 0;
-	if (a === 0 || a === 10 || a === 127) return true;
-	if (a === 172 && b >= 16 && b <= 31) return true;
-	if (a === 192 && b === 168) return true;
-	if (a === 169 && b === 254) return true;
-	return false;
-}
-
 export function BrowserOpenDialog({
 	request,
 	workspaceId,
@@ -85,8 +59,9 @@ export function BrowserOpenDialog({
 		: preview
 			? previewRoute?.kind === "preview"
 			: classified?.outcome === "external";
-	const canCopy =
-		classified?.outcome === "external" && url !== null && !isPrivateHost(url.hostname);
+	// Copy is only for an external http(s) URL. classifyBrokerUrl already
+	// keeps loopback and private hosts off that outcome (BROWSER-HANDLING.md §18).
+	const canCopy = classified?.outcome === "external";
 
 	function open() {
 		if (!canOpen || !url) return;

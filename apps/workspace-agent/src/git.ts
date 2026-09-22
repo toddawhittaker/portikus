@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { Dirent } from "node:fs";
-import { lstat, mkdtemp, open, readdir, rm, stat } from "node:fs/promises";
+import { lstat, mkdtemp, open, readdir, readlink, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -56,7 +56,12 @@ export async function runGit(
 	cwd: string,
 	maxBytes: number,
 	timeoutMs: number = GIT_TIMEOUT_MS,
-	options: { config?: readonly string[]; env?: Readonly<Record<string, string>> } = {},
+	options: {
+		config?: readonly string[];
+		env?: Readonly<Record<string, string>>;
+		/** Exact stdin bytes. Used to hash a symlink target without following it. */
+		input?: Buffer;
+	} = {},
 ): Promise<GitResult> {
 	// A repository config could name a filesystem monitor. Turn it off (SPEC.md §24.6).
 	const configArgs: string[] = ["-c", "core.fsmonitor="];
@@ -66,7 +71,7 @@ export async function runGit(
 	return new Promise<GitResult>((resolve, reject) => {
 		const child = spawn("git", [...configArgs, ...args], {
 			cwd,
-			stdio: ["ignore", "pipe", "pipe"],
+			stdio: [options.input ? "pipe" : "ignore", "pipe", "pipe"],
 			// Its own process group, so a kill reaches helpers too.
 			detached: true,
 			env: {
@@ -90,7 +95,29 @@ export async function runGit(
 			killGroup(child.pid);
 		}, timeoutMs);
 
-		child.stdout.on("data", (chunk: Buffer) => {
+		const stdout = child.stdout;
+		const stderrStream = child.stderr;
+		if (!stdout || !stderrStream) {
+			settled = true;
+			clearTimeout(timer);
+			killGroup(child.pid);
+			reject(new AgentFailure("GIT_FAILED", "could not run git"));
+			return;
+		}
+		if (options.input) {
+			const stdin = child.stdin;
+			if (!stdin) {
+				settled = true;
+				clearTimeout(timer);
+				killGroup(child.pid);
+				reject(new AgentFailure("GIT_FAILED", "could not run git"));
+				return;
+			}
+			stdin.on("error", () => {});
+			stdin.end(options.input);
+		}
+
+		stdout.on("data", (chunk: Buffer) => {
 			if (overflow) return;
 			size += chunk.length;
 			if (size > maxBytes) {
@@ -100,7 +127,7 @@ export async function runGit(
 			}
 			chunks.push(chunk);
 		});
-		child.stderr.on("data", (chunk: Buffer) => {
+		stderrStream.on("data", (chunk: Buffer) => {
 			stderr = (stderr + chunk.toString()).slice(-STDERR_LIMIT);
 		});
 		child.on("error", (error: Error) => {
@@ -465,8 +492,11 @@ export async function recordBaseline(dir: string): Promise<{
 		return { baselineObjectId: null, baselineHead: null };
 	}
 
+	// A failed listing must not fall through to stash with filters still on.
+	const config = await contentFilterOverrides(dir);
+	if (!config) return { baselineObjectId: null, baselineHead };
 	const created = await runGit(["stash", "create"], dir, 128, GIT_TIMEOUT_MS, {
-		config: await stashCreateConfig(dir),
+		config,
 	});
 	if (!created.ok) return { baselineObjectId: null, baselineHead };
 	const printed = created.stdout.toString().trim();
@@ -477,24 +507,43 @@ export async function recordBaseline(dir: string): Promise<{
 }
 
 /**
- * This invocation only. A clean filter can run `git update-ref`, which would
- * move a branch (SPEC.md §10.9). Empty `-c` values override repo config
- * without writing it, and `core.hooksPath` points at `/dev/null`.
+ * This invocation only. A content filter can run `git update-ref`, which
+ * would move a branch (SPEC.md §10.9). Git runs `filter.<name>.process`
+ * even when clean and smudge are blank, and the name may contain `_` or
+ * `.`. Empty `-c` values override repo config without writing it.
+ * `core.hooksPath` points at `/dev/null`.
+ *
+ * Null means fail closed: the listing failed, its output was past the read
+ * cap, or a name cannot be overridden safely. Callers must not run a
+ * command that applies filters.
  */
-async function stashCreateConfig(dir: string): Promise<string[]> {
+async function contentFilterOverrides(dir: string): Promise<string[] | null> {
 	const listed = await runGit(["config", "--get-regexp", "^filter\\."], dir, 64 * 1024);
+	// Exit 1 with an empty body means there are no filter keys. Any other
+	// failure, including a killed read past the cap, is not a usable list.
+	const noFilters =
+		listed.exitCode === 1 &&
+		listed.stdout.length === 0 &&
+		!listed.overflow &&
+		!listed.timedOut;
+	if (!listed.ok && !noFilters) return null;
 	const names = new Set<string>();
-	if (listed.ok) {
-		for (const line of listed.stdout.toString().split("\n")) {
-			const match = /^filter\.([A-Za-z0-9][A-Za-z0-9-]*)\.(clean|smudge)(?:\s|$)/.exec(
-				line,
-			);
-			if (match?.[1]) names.add(match[1]);
-		}
+	for (const line of listed.stdout.toString().split("\n")) {
+		const key = line.split(/[ \t]/, 1)[0] ?? "";
+		const match = /^filter\.(.*)\.(clean|smudge|process)$/i.exec(key);
+		if (!match) continue;
+		const name = match[1];
+		// `git -c` splits on the first `=`, so such a name cannot be blanked.
+		if (!name || /[\s=]/.test(name)) return null;
+		names.add(name);
 	}
 	const config = ["core.hooksPath=/dev/null"];
 	for (const name of names) {
-		config.push(`filter.${name}.clean=`, `filter.${name}.smudge=`);
+		config.push(
+			`filter.${name}.clean=`,
+			`filter.${name}.smudge=`,
+			`filter.${name}.process=`,
+		);
 	}
 	return config;
 }
@@ -526,7 +575,10 @@ async function extraBaselinePaths(dir: string): Promise<string[]> {
 	for (const entry of entries) {
 		if (!entry.isFile()) continue;
 		if (!/^\.env(\..+)?$/.test(entry.name)) continue;
-		if (!paths.includes(entry.name)) paths.push(entry.name);
+		if (paths.includes(entry.name)) continue;
+		// A committed `.env.example` is already in the commit tree.
+		if (await trackedPath(dir, entry.name)) continue;
+		paths.push(entry.name);
 	}
 	return paths;
 }
@@ -544,16 +596,29 @@ async function attachUntracked(dir: string, base: string): Promise<string> {
 	try {
 		const blobs: { path: string; oid: string; mode: string }[] = [];
 		for (const path of paths) {
-			const hashed = await runGit(
-				["hash-object", "-w", "--no-filters", "--", path],
-				dir,
-				128,
-			);
-			const oid = hashed.ok ? hashed.stdout.toString().trim() : "";
+			const full = join(dir, path);
+			const info = await lstat(full).catch(() => null);
+			if (!info) continue;
+			let oid = "";
+			let mode = "";
+			if (info.isSymbolicLink()) {
+				// The blob is the link text. Hashing the path would follow it.
+				const target = await readlink(full).catch(() => null);
+				if (target === null) continue;
+				oid = (await hashStdin(dir, target, true)) ?? "";
+				mode = "120000";
+			} else if (info.isFile()) {
+				const hashed = await runGit(
+					["hash-object", "-w", "--no-filters", "--", path],
+					dir,
+					128,
+				);
+				oid = hashed.ok ? hashed.stdout.toString().trim() : "";
+				mode = info.mode & 0o111 ? "100755" : "100644";
+			} else {
+				continue;
+			}
 			if (!OBJECT_ID.test(oid)) continue;
-			const info = await lstat(join(dir, path)).catch(() => null);
-			if (!info?.isFile()) continue;
-			const mode = info.mode & 0o111 ? "100755" : "100644";
 			blobs.push({ path, oid, mode });
 		}
 		if (blobs.length === 0) return base;
@@ -648,7 +713,39 @@ async function untrackedSide(
 	return map;
 }
 
+/** True when the path is already in the index, so Git will report it itself. */
+async function trackedPath(dir: string, path: string): Promise<boolean> {
+	const listed = await runGit(["ls-files", "-z", "--", path], dir, 8192);
+	if (!listed.ok) return false;
+	return listed.stdout.toString("utf8").split("\0").includes(path);
+}
+
+/** Hash exact bytes. `write` stores the blob in the repository. */
+async function hashStdin(
+	dir: string,
+	bytes: string,
+	write: boolean,
+): Promise<string | null> {
+	const args = write
+		? ["hash-object", "-w", "--stdin", "--no-filters"]
+		: ["hash-object", "--stdin", "--no-filters"];
+	const hashed = await runGit(args, dir, 128, GIT_TIMEOUT_MS, {
+		input: Buffer.from(bytes),
+	});
+	const oid = hashed.ok ? hashed.stdout.toString().trim() : "";
+	return OBJECT_ID.test(oid) ? oid : null;
+}
+
 async function hashWorktree(dir: string, path: string): Promise<string | null> {
+	const full = join(dir, path);
+	const info = await lstat(full).catch(() => null);
+	if (!info) return null;
+	if (info.isSymbolicLink()) {
+		const target = await readlink(full).catch(() => null);
+		if (target === null) return null;
+		return hashStdin(dir, target, false);
+	}
+	if (!info.isFile()) return null;
 	const hashed = await runGit(["hash-object", "--no-filters", "--", path], dir, 128);
 	const oid = hashed.ok ? hashed.stdout.toString().trim() : "";
 	return OBJECT_ID.test(oid) ? oid : null;
@@ -761,10 +858,15 @@ export async function baselineStatus(
 		options.log?.debug({ stderr: kind.stderr }, "baseline object missing");
 		throw new AgentFailure("GIT_FAILED", "baseline object missing");
 	}
+	// `--no-ext-diff` does not disable content filters.
+	const config = await contentFilterOverrides(dir);
+	if (!config) throw new AgentFailure("GIT_FAILED", "baseline status failed");
 	const diff = await runGit(
 		["diff", "-z", "--no-ext-diff", "--name-status", "--find-renames", objectId],
 		dir,
 		32 * 1024 * 1024,
+		GIT_TIMEOUT_MS,
+		{ config },
 	);
 	const untracked = await runGit(
 		["ls-files", "-z", "--others", "--exclude-standard"],
@@ -806,10 +908,14 @@ async function baselinePathState(
 	objectId: string,
 	relPath: string,
 ): Promise<PathState> {
+	const config = await contentFilterOverrides(dir);
+	if (!config) throw new AgentFailure("GIT_FAILED", "baseline status failed");
 	const result = await runGit(
 		["diff", "-z", "--no-ext-diff", "--name-status", "--find-renames", objectId],
 		dir,
 		32 * 1024 * 1024,
+		GIT_TIMEOUT_MS,
+		{ config },
 	);
 	const state: PathState = { unmerged: false };
 	if (!result.ok) return state;
@@ -847,12 +953,18 @@ export async function baselineDiff(
 	const origPath = state.origPath;
 	const beforePath = origPath ?? relPath;
 	const kind = await runGit(["cat-file", "-t", `${objectId}:${beforePath}`], dir, 64);
-	if (kind.ok && kind.stdout.toString().trim() !== "blob") {
+	const treeKind = kind.ok ? kind.stdout.toString().trim() : "";
+	if (treeKind && treeKind !== "blob") {
 		throw new AgentFailure("PATH_INVALID", "not a file");
 	}
-	const before = kind.ok
-		? await showFromRev(dir, objectId, beforePath, options)
-		: MISSING;
+	// Untracked content from before the session lives on the parentless
+	// second parent, the same place baseline status reads (SPEC.md §12.7).
+	let before = MISSING;
+	if (treeKind === "blob") {
+		before = await showFromRev(dir, objectId, beforePath, options);
+	} else if ((await untrackedSide(dir, objectId)).has(beforePath)) {
+		before = await showFromRev(dir, `${objectId}^2`, beforePath, options);
+	}
 	const after = await readWorkingTree(target.path);
 	return finishDiff(before, after, false, origPath);
 }

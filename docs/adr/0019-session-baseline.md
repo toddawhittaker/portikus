@@ -23,10 +23,15 @@ same tracked tree, with a parentless second parent that holds those files.
 No ref is updated. A clean tree makes `stash create` print nothing, and the
 baseline is HEAD. Object ids are SHA-1 (40 hex characters) or SHA-256 (64).
 
-That `stash create` runs with empty command-line overrides for every
-`filter.<name>.clean` and `filter.<name>.smudge` from `git config
---get-regexp`, and with `core.hooksPath=/dev/null`. The overrides are not
-written into git config. A clean filter must not be able to move a branch.
+That `stash create`, and the `git diff` used to read session changes, run
+with empty command-line overrides for `filter.<name>.clean`,
+`filter.<name>.smudge`, and `filter.<name>.process` for every filter name
+`git config --get-regexp` lists. Git runs `.process` even when clean and
+smudge are blank, and a name may contain `_` or `.`. The overrides are not
+written into git config, and `core.hooksPath` points at `/dev/null`. Git exits 1 when nothing matches; that empty list is safe. If the listing
+fails for any other reason, or it is larger than the read cap, the agent
+does not run the command with filters still enabled: the baseline is null,
+or the status read fails. A content filter must not be able to move a branch.
 
 If the directory is not a repository, or the command fails, the agent still
 starts the CLI and reports a null baseline. Review reads, which the API task
