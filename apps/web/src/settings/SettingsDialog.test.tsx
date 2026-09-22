@@ -9,6 +9,8 @@ import { json, renderWithQuery, stubFetch } from "../test-utils.js";
 import { SettingsDialog } from "./SettingsDialog.js";
 
 afterEach(() => {
+	document.documentElement.removeAttribute("data-theme");
+	localStorage.clear();
 	vi.unstubAllGlobals();
 });
 
@@ -48,8 +50,8 @@ function checkbox(name: RegExp) {
 	return screen.getByRole("checkbox", { name });
 }
 
-/** Issue #288: one dialog, three headed groups, every field under its own. */
-test("the three sections each hold their fields", async () => {
+/** Issue #288, plus appearance in the same dialog (issue #329). */
+test("each section holds its own fields", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	// The zone select waits for the server's list, so it arrives last.
@@ -61,12 +63,15 @@ test("the three sections each hold their fields", async () => {
 	const editor = screen.getByRole("region", { name: "Editor" });
 	const terminal = screen.getByRole("region", { name: "Terminal" });
 	const workspace = screen.getByRole("region", { name: "Workspace" });
+	const appearance = screen.getByRole("region", { name: "Appearance" });
 
 	expect(editor.textContent).toContain("Auto-save");
 	expect(editor.textContent).toContain("Word wrap");
 	expect(editor.contains(screen.getByTestId("editor-settings-delay"))).toBe(true);
 	expect(terminal.textContent).toContain("Terminal colours");
 	expect(workspace.textContent).toContain("Workspace timezone");
+	expect(appearance.contains(screen.getByLabelText("Colour scheme"))).toBe(true);
+	expect(screen.getByLabelText("Colour scheme").textContent).toContain("System");
 });
 
 test("it shows the settings the server holds", async () => {
@@ -151,6 +156,41 @@ test("a delay outside 1 to 60 seconds is refused before anything is sent", async
 	expect(screen.getByText(/between 1 and 60/)).not.toBeNull();
 	fireEvent.click(screen.getByTestId("editor-settings-save"));
 	expect(writes).toHaveLength(0);
+});
+
+/**
+ * Issue #329: page appearance is chosen here, applied at once, and kept in
+ * this browser. It is not part of the settings the server stores, and it
+ * does not change the terminal colour scheme sent with everything else.
+ */
+test("choosing an appearance applies at once and is not sent to the server", async () => {
+	const writes = stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByLabelText("Terminal colours").textContent).toContain("Dark"),
+	);
+
+	fireEvent.click(screen.getByLabelText("Colour scheme"));
+	fireEvent.click(await screen.findByRole("option", { name: "Light" }));
+
+	expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+	expect(localStorage.getItem("pk-theme")).toBe("light");
+	expect(screen.getByLabelText("Terminal colours").textContent).toContain("Dark");
+
+	fireEvent.click(screen.getByLabelText("Colour scheme"));
+	fireEvent.click(await screen.findByRole("option", { name: "System" }));
+	expect(document.documentElement.getAttribute("data-theme")).toBeNull();
+	expect(localStorage.getItem("pk-theme")).toBe("system");
+
+	fireEvent.click(screen.getByTestId("editor-settings-save"));
+	await waitFor(() => expect(writes).toHaveLength(1));
+	expect(writes[0]?.body).toEqual({
+		autoSave: true,
+		autoSaveDelaySeconds: 5,
+		wordWrap: true,
+		terminalTheme: "dark",
+		timezone: "America/New_York",
+	});
 });
 
 /**

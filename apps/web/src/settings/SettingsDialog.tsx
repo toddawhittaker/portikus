@@ -1,9 +1,9 @@
 /**
- * The student's own settings (issues #159, #239, #287 and #288, SPEC.md
- * §13.5), in three groups: Editor (auto-save, its delay, word wrap), Terminal
- * (the colour scheme a new terminal starts in) and Workspace (the timezone).
- * They are kept on the server per user, so they follow the student between
- * browsers.
+ * The student's own settings (issues #159, #239, #287, #288 and #329, SPEC.md
+ * §13.5). Appearance (light, dark, or the computer's own) is remembered in
+ * this browser only. Editor, Terminal, and Workspace are kept on the server
+ * per user, so they follow the student between browsers. The terminal colour
+ * scheme is separate from the page appearance.
  */
 import {
 	EDITOR_SETTINGS_DEFAULTS,
@@ -16,6 +16,7 @@ import {
 	useEditorSettings,
 	useUpdateEditorSettings,
 } from "../editor/settingsQueries.js";
+import { type ThemePreference, useThemePreference } from "../shell/theme.js";
 import { currentZoneOption, timezoneGroups } from "./timezones.js";
 
 /** The delay a student may ask for, in seconds (contracts/settings.ts). */
@@ -25,6 +26,12 @@ const MAX_DELAY = 60;
 const TERMINAL_THEME_OPTIONS = [
 	{ value: "dark", label: "Dark" },
 	{ value: "light", label: "Light" },
+];
+
+const APPEARANCE_OPTIONS: { value: ThemePreference; label: string }[] = [
+	{ value: "system", label: "System" },
+	{ value: "light", label: "Light" },
+	{ value: "dark", label: "Dark" },
 ];
 
 /**
@@ -45,6 +52,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const settings = useEditorSettings();
 	const update = useUpdateEditorSettings();
+	const [preference, setPreference] = useThemePreference();
 	// While the settings are still loading the dialog shows the defaults, the
 	// same values the editor is using until they arrive.
 	const current = settings.data ?? EDITOR_SETTINGS_DEFAULTS;
@@ -87,7 +95,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 			<Dialog
 				testId="dialog-editor-settings"
 				title="Settings"
-				description="These follow you to any browser you sign in from."
+				description="Editor, terminal, and timezone settings follow you to any browser you sign in from."
 				onClose={onClose}
 				footer={
 					<>
@@ -188,6 +196,16 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 								here yet.
 							</p>
 						) : null}
+					</Section>
+					<Section title="Appearance">
+						<Select
+							id="page-appearance"
+							label="Colour scheme"
+							hint="Light, dark, or follow this computer. This stays in this browser and applies as soon as you choose it."
+							options={APPEARANCE_OPTIONS}
+							value={preference}
+							onValueChange={(value) => setPreference(value as ThemePreference)}
+						/>
 					</Section>
 					<button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
 				</form>
