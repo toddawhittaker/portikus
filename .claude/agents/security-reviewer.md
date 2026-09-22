@@ -6,7 +6,7 @@ description: |
   scenario for each. Use before merging anything that touches auth, the
   preview gateway, the workspace agent, file APIs, Incus, or nested Docker.
   Read-only: it does not fix what it finds.
-model: claude-opus-5
+model: claude-opus-5-5
 effort: medium
 tools: Bash, Read, Grep, Glob
 ---

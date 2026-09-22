@@ -8,7 +8,7 @@ description: |
   distrobuilder). Reports ranked findings with a concrete scenario or
   a concrete simpler alternative for each. Read-only: it does not fix
   what it finds. Security is security-reviewer's job, not this one's.
-model: claude-opus-5
+model: claude-opus-5-5
 effort: medium
 tools: Bash, Read, Grep, Glob
 ---
