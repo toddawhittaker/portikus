@@ -1407,3 +1407,18 @@ into a terminal, by keyboard or right-click, now has control characters
 removed except tab, line feed and carriage return, so text planted on the
 clipboard by a web page cannot end the paste bracket early and run a
 command (pastejacking, SPEC.md section 24).
+
+**Preview races (PRs #387 and #388).** Stress runs of the preview
+browser tests found four intermittent failures in Epic 8 code, now fixed.
+The preview frame could ask for two grants when the list of listening
+ports emptied and refilled during a grant, which reloaded the app; this
+happens after an API restart. A late frame load from an earlier Back
+cleared the "Nothing to go back to" hint. A stopped workspace could
+answer "Preview session ended" once its preview sessions were revoked;
+the more specific "This workspace is not running" now wins, but only for
+a revoked cookie on its own host whose owner is still signed in
+(BROWSER-HANDLING.md section 25.1). The end-to-end test's fake gateway
+now answers 502 when the app it proxies to has closed, as Caddy does.
+Accepted residual: a stolen, already-revoked preview cookie can tell
+whether its owner's workspace is running until the sweep deletes revoked
+rows a day later.
