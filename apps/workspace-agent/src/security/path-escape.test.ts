@@ -334,25 +334,48 @@ test.skipIf(!haveZip)(
 	},
 );
 
-test
-	.skipIf(!haveZip)
-	.fails(
-		"KNOWN-VULN #400: a project holding a symlink downloads as a complete archive (SPEC.md §11.2)",
-		async () => {
-			await symlink("notes.txt", join(project, "inside-link"));
-			const answer = await call("GET", "/projects/alpha/archive");
-			const zipPath = join(homeDir, "linked.zip");
-			await writeFile(zipPath, answer.body);
-			try {
-				// zip refuses to store an entry uncompressed on a pipe, so it stops
-				// at the link and the archive has no central directory.
-				const { stdout } = await run("unzip", ["-Z1", zipPath]);
-				expect(stdout).toContain("alpha/inside-link");
-			} finally {
-				await rm(zipPath);
-			}
-		},
-	);
+test.skipIf(!haveZip)(
+	"a project holding a symlink downloads as a complete archive (SPEC.md §11.2, #400)",
+	async () => {
+		await symlink("notes.txt", join(project, "inside-link"));
+		const answer = await call("GET", "/projects/alpha/archive");
+		const zipPath = join(homeDir, "linked.zip");
+		await writeFile(zipPath, answer.body);
+		try {
+			const { stdout } = await run("unzip", ["-Z1", zipPath]);
+			expect(stdout).toContain("alpha/inside-link");
+		} finally {
+			await rm(zipPath);
+		}
+	},
+);
+
+test.skipIf(!haveZip)(
+	"an outward symlink downloads as a valid zip holding the link, not its target",
+	async () => {
+		const target = join(homeDir, "outside.txt");
+		await symlink(target, join(project, "outside-file"));
+		const answer = await call("GET", "/projects/alpha/archive");
+		expect(answer.status).toBe(200);
+		const zipPath = join(homeDir, "outward.zip");
+		await writeFile(zipPath, answer.body);
+		try {
+			// A long listing marks a stored symlink with an "l" mode.
+			const { stdout: listing } = await run("unzip", ["-Z", zipPath]);
+			expect(listing).toMatch(/^l\S+ .*alpha\/outside-file$/m);
+			// A link entry's data is its target path, never the target's content.
+			const { stdout: data } = await run("unzip", [
+				"-p",
+				zipPath,
+				"alpha/outside-file",
+			]);
+			expect(data).toBe(target);
+			expect(answer.body.includes(SECRET)).toBe(false);
+		} finally {
+			await rm(zipPath);
+		}
+	},
+);
 
 test.skipIf(!haveGit)(
 	"git diff of a symlink out of the project shows no content",
