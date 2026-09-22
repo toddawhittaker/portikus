@@ -103,7 +103,11 @@ export function ToastProvider({ children }: ToastProviderProps): React.ReactElem
 						}}
 					/>
 				))}
-				<RadixToast.Viewport className="pk-toast-viewport fixed right-4 bottom-4 z-50 m-0 flex w-95 list-none flex-col gap-2 p-0 outline-none" />
+				{/* Radix fills {hotkey} with F8, the only keyboard route to a toast. */}
+				<RadixToast.Viewport
+					label="Notifications (press {hotkey} to reach them)"
+					className="pk-toast-viewport fixed right-4 bottom-4 z-[var(--z-toast)] m-0 flex w-95 list-none flex-col gap-2 p-0 outline-none"
+				/>
 			</RadixToast.Provider>
 		</ToastContext.Provider>
 	);
