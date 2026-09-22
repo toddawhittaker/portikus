@@ -49,6 +49,8 @@ export interface TerminalGroupProps {
 	onShowRunning: () => void;
 	/** A file tab reporting whether its edits are on disk (issue #240). */
 	onUnsavedChange?: (unsaved: boolean) => void;
+	/** Object id this file tab's diff compares against, or null for Git HEAD. */
+	diffBaseline?: string | null;
 	/** The pane a drag is hovering, and the zone it would drop into. */
 	dropTarget?: { terminalId: string; edge: DropEdge } | null;
 }
@@ -106,6 +108,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					pendingEdit={props.pendingEdit}
 					consumePendingEdit={props.consumePendingEdit}
 					onUnsavedChange={props.onUnsavedChange}
+					baseline={props.diffBaseline}
 				/>
 			);
 		}

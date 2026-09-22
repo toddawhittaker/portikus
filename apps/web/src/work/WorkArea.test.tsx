@@ -178,6 +178,38 @@ test("the launcher opens a terminal for this project and gives it a tab", async 
 	expect(JSON.parse(String(post?.[1]?.body))).toEqual({ projectId: PROJECT });
 });
 
+test("Claude Code and Codex post the agent enum and no command", async () => {
+	const { fetchMock } = stubFetch({ terminals: [] });
+	renderArea();
+
+	await waitFor(() => expect(screen.getByTestId("launcher")).toBeTruthy());
+
+	for (const agent of ["claude", "codex"] as const) {
+		fireEvent.pointerDown(screen.getByTestId("launcher"), {
+			button: 0,
+			ctrlKey: false,
+		});
+		fireEvent.click(screen.getByTestId(`launcher-${agent}`));
+		await waitFor(() =>
+			expect(
+				fetchMock.mock.calls.some((call) => {
+					if (call[1]?.method !== "POST") return false;
+					return JSON.parse(String(call[1]?.body)).agent === agent;
+				}),
+			).toBe(true),
+		);
+	}
+
+	const bodies = fetchMock.mock.calls
+		.filter((call) => call[1]?.method === "POST")
+		.map((call) => JSON.parse(String(call[1]?.body)) as Record<string, unknown>);
+	expect(bodies).toEqual([
+		{ projectId: PROJECT, agent: "claude" },
+		{ projectId: PROJECT, agent: "codex" },
+	]);
+	expect(bodies.every((body) => !("command" in body))).toBe(true);
+});
+
 test("closing a tab with one terminal deletes it without asking", async () => {
 	const { fetchMock } = stubFetch({
 		layout: { tabs: [{ id: "tab1", root: { type: "leaf", terminalId: ONE } }] },

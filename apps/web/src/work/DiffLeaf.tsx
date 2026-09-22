@@ -31,6 +31,8 @@ export interface DiffLeafProps {
 	visible?: boolean;
 	/** The tab's own controls, drawn in this view's header. */
 	toolbar?: ReactNode;
+	/** Compare with this object id instead of Git HEAD (SPEC.md §12.7). */
+	baseline?: string;
 }
 
 export function DiffLeaf({
@@ -39,8 +41,9 @@ export function DiffLeaf({
 	projectId,
 	visible = true,
 	toolbar,
+	baseline,
 }: DiffLeafProps) {
-	const diff = useGitDiff(workspaceId, projectId, path);
+	const diff = useGitDiff(workspaceId, projectId, path, baseline);
 
 	// Coming back to a diff that was in the background shows what is on disk
 	// now, not what it was when the tab was last looked at (SPEC.md §12.6).
@@ -132,9 +135,11 @@ export function DiffLeaf({
 		<div className="pk-doc-leaf pk-file-leaf" data-testid={`diff-pane-${path}`}>
 			<div className="pk-file-header">
 				<span className="pk-file-path">
-					{data?.status === "R" && data.oldPath
-						? `Diff · ${data.oldPath} → ${path}`
-						: `Diff · ${path}`}
+					{baseline
+						? `Diff since session baseline · ${path}`
+						: data?.status === "R" && data.oldPath
+							? `Diff · ${data.oldPath} → ${path}`
+							: `Diff · ${path}`}
 				</span>
 				{kind !== null ? (
 					<span

@@ -1,8 +1,8 @@
 /**
  * The centre work area: the terminal tabs, their splits, and the saved
- * layout of one project (SPEC.md §7.5, §8, §9.3). Files, previews and coding
- * agents get their own tab kinds in later epics; their launcher entries are
- * here but disabled.
+ * layout of one project (SPEC.md §7.5, §8, §9.3, §10.2). A coding-agent
+ * launcher creates an ordinary terminal and names the agent. The File item
+ * stays disabled.
  */
 import {
 	DndContext,
@@ -14,7 +14,7 @@ import {
 	useSensor,
 	useSensors,
 } from "@dnd-kit/core";
-import type { Terminal } from "@portikus/contracts";
+import type { CodingAgent, Terminal } from "@portikus/contracts";
 import {
 	ConfirmDialog,
 	ConfirmDialogRoot,
@@ -29,7 +29,7 @@ import {
 	type TabItem,
 	Tabs,
 } from "@portikus/ui";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLayoutPersistence } from "../layout/persist.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { type DropEdge, type SplitDirection, terminalIds } from "../layout/tree.js";
@@ -85,6 +85,7 @@ export function WorkArea({
 	const focusedTerminalId = useLayout(store, (state) => state.focusedTerminalId);
 	const pendingLine = useLayout(store, (state) => state.pendingLine);
 	const pendingDiff = useLayout(store, (state) => state.pendingDiff);
+	const diffBaseline = useLayout(store, (state) => state.diffBaseline);
 	const pendingEdit = useLayout(store, (state) => state.pendingEdit);
 	const unsavedTabs = useLayout(store, (state) => state.unsavedTabs);
 	const loaded = useLayoutPersistence(workspaceId, projectId, store, onSessionEnded);
@@ -132,18 +133,18 @@ export function WorkArea({
 		store.getState().openPreview(openPreviewPort);
 	}, [loaded, openPreviewPort, store]);
 
-	const newTerminal = useCallback(async (): Promise<Terminal | null> => {
-		try {
-			return await terminals.create();
-		} catch {
-			return null;
-		}
-	}, [terminals]);
-
 	// Place the new terminal before the list is refetched, so no reconcile ever
 	// sees a terminal that has no pane yet and gives it a tab of its own.
-	async function createAndPlace(place: (created: Terminal) => void) {
-		const created = await newTerminal();
+	async function createAndPlace(
+		place: (created: Terminal) => void,
+		init?: { agent?: CodingAgent },
+	) {
+		let created: Terminal | null;
+		try {
+			created = await terminals.create(init);
+		} catch {
+			created = null;
+		}
 		if (!created) return;
 		place(created);
 		terminals.refetch();
@@ -151,6 +152,10 @@ export function WorkArea({
 
 	async function openTerminalTab() {
 		await createAndPlace((created) => store.getState().addTab(created.id));
+	}
+
+	async function openAgent(agent: CodingAgent) {
+		await createAndPlace((created) => store.getState().addTab(created.id), { agent });
 	}
 
 	async function split(terminalId: string, direction: SplitDirection) {
@@ -385,11 +390,11 @@ export function WorkArea({
 										>
 											<span data-testid="launcher-terminal">Terminal</span>
 										</MenuItem>
-										<MenuItem icon="agent" disabled={true}>
-											Claude Code — Epic 9
+										<MenuItem icon="agent" onSelect={() => void openAgent("claude")}>
+											<span data-testid="launcher-claude">Claude Code</span>
 										</MenuItem>
-										<MenuItem icon="agent" disabled={true}>
-											Codex — Epic 9
+										<MenuItem icon="agent" onSelect={() => void openAgent("codex")}>
+											<span data-testid="launcher-codex">Codex</span>
 										</MenuItem>
 										<MenuSeparator />
 										<MenuItem icon="file" disabled={true}>
@@ -449,6 +454,7 @@ export function WorkArea({
 							pendingLine={pendingLine[tab.id]}
 							consumePendingLine={() => store.getState().consumePendingLine(tab.id)}
 							pendingDiff={pendingDiff[tab.id]}
+							diffBaseline={diffBaseline[tab.id] ?? null}
 							consumePendingDiff={() => store.getState().consumePendingDiff(tab.id)}
 							pendingEdit={pendingEdit[tab.id]}
 							consumePendingEdit={() => store.getState().consumePendingEdit(tab.id)}

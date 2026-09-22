@@ -5,9 +5,13 @@
  * seconds of a change made in a terminal or by a coding agent, and nothing
  * polls.
  */
-import { FsEvent } from "@portikus/contracts";
+import {
+	type BrowserOpenRequest,
+	BrowserOpenRequest as BrowserOpenRequestSchema,
+	FsEvent,
+} from "@portikus/contracts";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { wsUrl } from "../api/ws.js";
 import { parentOf } from "./paths.js";
 import { fileKeys } from "./queries.js";
@@ -78,6 +82,10 @@ export function applyInvalidations(
 				queryKey: fileKeys.git(workspaceId, projectId, hidden),
 			});
 		}
+		// Session review uses the same Git shape against another object id.
+		void client.invalidateQueries({
+			queryKey: ["git-status", workspaceId, projectId, "baseline"],
+		});
 		// A commit or a staged change rewrites every open diff.
 		void client.invalidateQueries({
 			predicate: (query) => {
@@ -123,8 +131,14 @@ export function applyInvalidations(
  * restarting should not be hammered, and a socket the server refuses is not
  * opened again at all.
  */
-export function useProjectEvents(workspaceId: string, projectId: string): void {
+export function useProjectEvents(
+	workspaceId: string,
+	projectId: string,
+	onBrowserOpen?: (request: BrowserOpenRequest) => void,
+): void {
 	const client = useQueryClient();
+	const onBrowserOpenRef = useRef(onBrowserOpen);
+	onBrowserOpenRef.current = onBrowserOpen;
 
 	useEffect(() => {
 		let stopped = false;
@@ -170,6 +184,13 @@ export function useProjectEvents(workspaceId: string, projectId: string): void {
 				try {
 					frame = JSON.parse(String(event.data));
 				} catch {
+					return;
+				}
+				// The same socket carries filesystem batches and browser-open
+				// requests. A frame that is neither is ignored.
+				const browser = BrowserOpenRequestSchema.safeParse(frame);
+				if (browser.success) {
+					onBrowserOpenRef.current?.(browser.data);
 					return;
 				}
 				const parsed = FsEvent.safeParse(frame);

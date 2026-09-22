@@ -67,6 +67,7 @@ beforeEach(() => {
 	gitStatus = NO_CHANGES;
 	stubFetch((url, init) => {
 		if (init?.method === "DELETE") return json(204, null);
+		if (url.includes("/terminals")) return json(200, { terminals: [] });
 		if (url.includes("/git/status")) return json(200, gitStatus);
 		if (url.includes("/tree?path=src")) return json(200, SRC);
 		if (url.includes("/tree?path=")) return json(200, ROOT);

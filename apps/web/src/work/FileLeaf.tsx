@@ -94,6 +94,8 @@ export interface FileLeafProps {
 	visible?: boolean;
 	/** Tells the tab strip whether this file has unsaved edits (issue #240). */
 	onUnsavedChange?: (unsaved: boolean) => void;
+	/** Object id the diff compares against, or null for Git HEAD. */
+	baseline?: string | null;
 }
 
 export function FileLeaf({
@@ -109,6 +111,7 @@ export function FileLeaf({
 	consumePendingEdit,
 	visible = true,
 	onUnsavedChange,
+	baseline,
 }: FileLeafProps) {
 	// The student's own editor settings (issue #159). They load once per
 	// session; until they arrive the editor uses the defaults.
@@ -703,6 +706,7 @@ export function FileLeaf({
 					projectId={projectId}
 					visible={visible}
 					toolbar={toggle}
+					baseline={baseline ?? undefined}
 				/>
 			) : null}
 		</>

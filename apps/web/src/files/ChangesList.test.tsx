@@ -9,6 +9,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store.js";
 import { ChangesList } from "./ChangesList.js";
+import { sessionReviewLabel } from "./sessionReview.js";
 
 function show(status: GitStatus | undefined, error = false) {
 	const store = createLayoutStore();
@@ -49,6 +50,29 @@ test("a failed status read is reported, not read as an empty repository", () => 
 		"Could not read Git status",
 	);
 	expect(screen.queryByTestId("changes-empty")).toBeNull();
+});
+
+test("a session review names the agent session, not the last commit", () => {
+	const store = createLayoutStore();
+	render(
+		<ToastProvider>
+			<LayoutStoreContext.Provider value={store}>
+				<ChangesList
+					projectId="pid"
+					status={EMPTY}
+					sessionLabel={sessionReviewLabel("claude")}
+				/>
+			</LayoutStoreContext.Provider>
+		</ToastProvider>,
+	);
+	expect(screen.getByTestId("changes-title").textContent).toBe(
+		"Changes since Claude session started",
+	);
+	expect(screen.getByTestId("changes-empty").textContent).toBe(
+		"No changes since this session started",
+	);
+	expect(screen.queryByText("No changes since the last commit")).toBeNull();
+	expect(sessionReviewLabel("codex")).toBe("Changes since Codex session started");
 });
 
 test("a repository with nothing changed says so", () => {
