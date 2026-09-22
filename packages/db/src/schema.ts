@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, and 0011_terminal_agent (SPEC section 26, STACK
+ * 0010_terminal_theme, 0011_terminal_agent, and 0012_profile (SPEC section 26, STACK
  * section 6).
  */
 export interface Database {
@@ -36,6 +36,13 @@ export interface UsersTable {
 	/** Editor preferences the user has changed; the API fills in the rest. */
 	editor_settings: ColumnType<Record<string, unknown>, string | undefined, string>;
 	last_login_at: ColumnType<Date | null, string | null, string | null>;
+	/** Optional profile links (issue #300); never used for authorization. */
+	profile_github: string | null;
+	profile_website: string | null;
+	/** The profile picture, png or jpeg, capped by the API. */
+	picture: Buffer | null;
+	picture_type: string | null;
+	picture_updated_at: ColumnType<Date | null, string | null, string | null>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 }

@@ -10,6 +10,7 @@ import { down as down0008, up as up0008 } from "./0008_preview.js";
 import { down as down0009, up as up0009 } from "./0009_project_directory_id.js";
 import { down as down0010, up as up0010 } from "./0010_terminal_theme.js";
 import { down as down0011, up as up0011 } from "./0011_terminal_agent.js";
+import { down as down0012, up as up0012 } from "./0012_profile.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -27,4 +28,5 @@ export const migrations: Record<string, Migration> = {
 	"0009_project_directory_id": { up: up0009, down: down0009 },
 	"0010_terminal_theme": { up: up0010, down: down0010 },
 	"0011_terminal_agent": { up: up0011, down: down0011 },
+	"0012_profile": { up: up0012, down: down0012 },
 };

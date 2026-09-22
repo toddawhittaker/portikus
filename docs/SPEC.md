@@ -1181,6 +1181,23 @@ starts in. The workspace timezone is an IANA zone name, `America/New_York` by
 default; it is applied to the container at every start and to each new
 terminal, so a change reaches a shell that has not been opened yet.
 
+The page appearance, system, light, or dark, is a per-user preference too,
+kept with the others and saved as soon as it is chosen. The browser keeps a
+copy for the first paint and for the sign-in page; once the saved value
+arrives it wins and refreshes that copy, and the workspace screen waits for
+it so the page does not flash to the default.
+
+Profile. Settings opens with a Profile section. The display name, email,
+sign-in name, and workspace label come from the institution sign-in and are
+read-only. The student may add a GitHub username or https link, one personal
+https link, and a PNG or JPEG picture of at most 1 MiB, read through
+`GET /me/profile`, changed through `PUT /me/profile`, `PUT /me/picture`, and
+`DELETE /me/picture`. The API reads the picture type from its bytes, stores
+the picture on the users row, and serves it at `GET /me/picture` to its owner
+only. The picture replaces the initials in the account menu button. Links are
+shown only as plain anchors with `rel="noopener"`. Nothing in the profile is
+used for authorization, and picture bytes are never logged.
+
 ## 14. Application preview and port proxying
 
 `docs/BROWSER-HANDLING.md` is the detailed design for this section, for
