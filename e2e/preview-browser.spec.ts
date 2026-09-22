@@ -140,16 +140,24 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 		const upstream = authorized.headers.get("x-portikus-upstream");
 		if (!upstream) throw new Error("the authorization answer named no upstream");
 		seen.app.push(`${method} ${path}`);
-		const proxied = await fetch(`http://${upstream}${path}`, {
-			method,
-			headers: {
-				host,
-				cookie,
-				...(contentType === null ? {} : { "content-type": contentType }),
-			},
-			body: body ?? undefined,
-			redirect: "manual",
-		});
+		let proxied: Response;
+		let proxiedBody: Buffer;
+		try {
+			proxied = await fetch(`http://${upstream}${path}`, {
+				method,
+				headers: {
+					host,
+					cookie,
+					...(contentType === null ? {} : { "content-type": contentType }),
+				},
+				body: body ?? undefined,
+				redirect: "manual",
+			});
+			proxiedBody = Buffer.from(await proxied.arrayBuffer());
+		} catch {
+			// The app closed after authorization; Caddy has no error page and answers a bare 502.
+			return { status: 502, headers: {}, body: Buffer.alloc(0) };
+		}
 		const headers = headersOf(proxied);
 		const setCookie = proxied.headers.getSetCookie();
 		if (setCookie.length > 0) headers["set-cookie"] = setCookie.join("\n");
@@ -158,7 +166,7 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 		return {
 			status: proxied.status,
 			headers,
-			body: Buffer.from(await proxied.arrayBuffer()),
+			body: proxiedBody,
 		};
 	}
 

@@ -154,6 +154,8 @@ export function PreviewLeaf({
 	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
 	const frame = useRef<HTMLIFrameElement | null>(null);
 	const statusRef = useRef<State["status"]>("connecting");
+	/** True while a grant request is out, so a flickering list cannot start a second. */
+	const granting = useRef(false);
 	const history = useRef<PreviewHistory | null>(null);
 	/** Shown on Back once a press found nothing to go back to (issue #283). */
 	const [backHint, setBackHint] = useState<string | undefined>(undefined);
@@ -184,7 +186,13 @@ export function PreviewLeaf({
 	const connect = useCallback(async () => {
 		setState({ status: "connecting" });
 		try {
-			const grant = await requestGrant(workspaceId, port, "embedded");
+			granting.current = true;
+			let grant: Awaited<ReturnType<typeof requestGrant>>;
+			try {
+				grant = await requestGrant(workspaceId, port, "embedded");
+			} finally {
+				granting.current = false;
+			}
 			setState({ status: "available", grant });
 			// Ask whether the application allows framing. The browser gives the
 			// parent page no way to see a refusal for itself: Chromium fires the
@@ -264,6 +272,7 @@ export function PreviewLeaf({
 			// An open preview is already pointed at this port; re-granting here
 			// would reload the application for nothing.
 			if (showing || statusRef.current === "unauthorized") return;
+			if (granting.current) return;
 			void connect();
 			return;
 		}
