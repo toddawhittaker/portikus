@@ -68,7 +68,13 @@
 	--on-accent: #ffffff;
 	--accent-soft: #dcebe8;
 	--accent-text: #24605c;
-	--focus: #1b7a86;
+	/* Both focus colours, named once so a pane with its own scheme can pick
+	   one without the two drifting apart (issue #368). */
+	--focus-on-light: #1b7a86;
+	--focus-on-dark: #5fc3cf;
+	--focus: var(--focus-on-light);
+	/* The bar that marks the current row in the right pane's lists. */
+	--row-current-bar: inset 2px 0 0 var(--ink);
 	--scrim: #1a18154d;
 	--status-provisioning: #3f5a8c;
 	--status-provisioning-soft: #e3e8f2;
@@ -182,7 +188,7 @@
 	--on-accent: #0f201e;
 	--accent-soft: #1b3230;
 	--accent-text: #8fcdc4;
-	--focus: #5fc3cf;
+	--focus: var(--focus-on-dark);
 	--scrim: #00000099;
 	--status-provisioning: #9fb4e0;
 	--status-provisioning-soft: #1f2636;
@@ -233,7 +239,7 @@
 		--on-accent: #0f201e;
 		--accent-soft: #1b3230;
 		--accent-text: #8fcdc4;
-		--focus: #5fc3cf;
+		--focus: var(--focus-on-dark);
 		--scrim: #00000099;
 		--status-provisioning: #9fb4e0;
 		--status-provisioning-soft: #1f2636;

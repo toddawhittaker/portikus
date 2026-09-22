@@ -64,16 +64,14 @@ export function EditChecksDialog({
 	);
 	const save = useSaveChecks(workspaceId, projectId);
 	const form = useRef<HTMLFormElement>(null);
+	const removeButtons = useRef<(HTMLButtonElement | null)[]>([]);
+	const addButton = useRef<HTMLButtonElement>(null);
 	// After a row is removed, the index whose remove button takes focus.
 	const [focusRow, setFocusRow] = useState<number | null>(null);
 
 	useEffect(() => {
-		if (focusRow === null || !form.current) return;
-		const target =
-			form.current.querySelector<HTMLElement>(
-				`[data-testid="check-remove-${focusRow}"]`,
-			) ?? form.current.querySelector<HTMLElement>('[data-testid="check-add"]');
-		target?.focus();
+		if (focusRow === null) return;
+		(removeButtons.current[focusRow] ?? addButton.current)?.focus();
 		setFocusRow(null);
 	}, [focusRow]);
 
@@ -164,6 +162,9 @@ export function EditChecksDialog({
 								icon="trash"
 								label={`Remove check ${index + 1}`}
 								data-testid={`check-remove-${index}`}
+								ref={(element: HTMLButtonElement | null) => {
+									removeButtons.current[index] = element;
+								}}
 								onClick={() => {
 									setDrafts((rows) => rows.filter((row) => row.key !== draft.key));
 									// The row below moves up into this place; the last row falls back.
@@ -175,6 +176,7 @@ export function EditChecksDialog({
 					<Button
 						variant="secondary"
 						data-testid="check-add"
+						ref={addButton}
 						disabled={drafts.length >= MAX_CHECKS_PER_PROJECT}
 						onClick={addRow}
 					>

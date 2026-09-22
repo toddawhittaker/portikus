@@ -15,7 +15,7 @@ const SIZE_CLASS = {
 	lg: "h-[var(--size-control-lg)] px-5 text-[15px]",
 } as const;
 
-export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends React.ComponentPropsWithRef<"button"> {
 	variant?: "primary" | "secondary" | "quiet" | "danger";
 	size?: "sm" | "md" | "lg";
 	/** Keeps the label and colour, adds the spinner and aria-busy. */

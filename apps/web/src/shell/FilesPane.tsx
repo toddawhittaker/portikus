@@ -1,7 +1,13 @@
 import type { Project } from "@portikus/contracts";
-import { EmptyState, IconButton } from "@portikus/ui";
-import * as RadixTabs from "@radix-ui/react-tabs";
-import { useEffect, useRef, useState } from "react";
+import {
+	EmptyState,
+	IconButton,
+	TabsContent,
+	TabsList,
+	TabsRoot,
+	TabsTrigger,
+} from "@portikus/ui";
+import { type Ref, useEffect, useRef, useState } from "react";
 import { ChecksPane } from "../checks/ChecksPane.js";
 import "../checks/checks.css";
 import { FileTreePane } from "../files/FileTree.js";
@@ -28,8 +34,10 @@ export function FilesPane({
 	// for the Running surface too (BROWSER-HANDLING.md §12).
 	const { pane, show } = useRightPaneState();
 	const open = project !== undefined && !project.missing;
-	const root = useRef<HTMLDivElement>(null);
-	// Closing the search hands focus back to the button that opened it (issue #358).
+	// Closing the search hands focus back to the button that opened it (issue #358),
+	// or to the chosen surface's tab when the pane has moved off Files meanwhile.
+	const searchButton = useRef<HTMLButtonElement>(null);
+	const currentTab = useRef<HTMLButtonElement>(null);
 	const refocus = useRef(false);
 
 	function closeSearch() {
@@ -40,7 +48,7 @@ export function FilesPane({
 	useEffect(() => {
 		if (searching || !refocus.current) return;
 		refocus.current = false;
-		root.current?.querySelector<HTMLElement>('[data-testid="search-open"]')?.focus();
+		(searchButton.current ?? currentTab.current)?.focus();
 	}, [searching]);
 
 	// Mod+Shift+F opens find in files from anywhere in the workspace
@@ -90,62 +98,65 @@ export function FilesPane({
 
 	if (open) {
 		return (
-			<RadixTabs.Root
-				ref={root}
+			<TabsRoot
 				className="pk-right-pane"
 				value={pane}
 				onValueChange={(value) => show(value as RightPane)}
 			>
-				<Switchers show={show} />
-				<RadixTabs.Content value="files" className="pk-pane-panel">
+				<Switchers show={show} current={pane} currentRef={currentTab} />
+				<TabsContent value="files" className="pk-pane-panel">
 					{/* Keyed by project, so nothing (focus above all) carries across a switch. */}
 					<FileTreePane
 						key={project.id}
 						workspaceId={workspaceId}
 						project={project}
 						onSearch={() => setSearching(true)}
+						searchButtonRef={searchButton}
 					/>
-				</RadixTabs.Content>
-				<RadixTabs.Content value="checks" className="pk-pane-panel">
+				</TabsContent>
+				<TabsContent value="checks" className="pk-pane-panel">
 					<aside className="pk-pane pk-pane--right" aria-label="Checks">
 						<ChecksPane key={project.id} workspaceId={workspaceId} project={project} />
 					</aside>
-				</RadixTabs.Content>
-				<RadixTabs.Content value="running" className="pk-pane-panel">
+				</TabsContent>
+				<TabsContent value="running" className="pk-pane-panel">
 					<aside className="pk-pane pk-pane--right" aria-label="Running">
 						<RunningSurface workspaceId={workspaceId} projectId={project.id} />
 					</aside>
-				</RadixTabs.Content>
-				<RadixTabs.Content value="monitor" className="pk-pane-panel">
+				</TabsContent>
+				<TabsContent value="monitor" className="pk-pane-panel">
 					<aside className="pk-pane pk-pane--right" aria-label="Monitor">
 						<MonitorPane workspaceId={workspaceId} />
 					</aside>
-				</RadixTabs.Content>
-			</RadixTabs.Root>
+				</TabsContent>
+			</TabsRoot>
 		);
 	}
 
 	// With no project open there is no file tree and no checks, but a port may
 	// still be listening, so the Running surface stays reachable.
 	return (
-		<RadixTabs.Root
-			ref={root}
+		<TabsRoot
 			className="pk-right-pane"
 			value={pane === "checks" ? "files" : pane}
 			onValueChange={(value) => show(value as RightPane)}
 		>
-			<Switchers show={show} />
-			<RadixTabs.Content value="running" className="pk-pane-panel">
+			<Switchers
+				show={show}
+				current={pane === "checks" ? "files" : pane}
+				currentRef={currentTab}
+			/>
+			<TabsContent value="running" className="pk-pane-panel">
 				<aside className="pk-pane pk-pane--right" aria-label="Running">
 					<RunningSurface workspaceId={workspaceId} projectId={undefined} />
 				</aside>
-			</RadixTabs.Content>
-			<RadixTabs.Content value="monitor" className="pk-pane-panel">
+			</TabsContent>
+			<TabsContent value="monitor" className="pk-pane-panel">
 				<aside className="pk-pane pk-pane--right" aria-label="Monitor">
 					<MonitorPane workspaceId={workspaceId} />
 				</aside>
-			</RadixTabs.Content>
-			<RadixTabs.Content value="files" className="pk-pane-panel">
+			</TabsContent>
+			<TabsContent value="files" className="pk-pane-panel">
 				<aside className="pk-pane pk-pane--right" aria-label="Files">
 					<div className="pk-pane-head">
 						<h2 className="pk-pane-title">Files</h2>
@@ -160,8 +171,8 @@ export function FilesPane({
 						</EmptyState>
 					</div>
 				</aside>
-			</RadixTabs.Content>
-		</RadixTabs.Root>
+			</TabsContent>
+		</TabsRoot>
 	);
 }
 
@@ -169,17 +180,41 @@ export function FilesPane({
  * The switcher: Radix Tabs, so the arrow keys move between surfaces and the
  * whole strip is one Tab stop (issue #365).
  */
-function Switchers({ show }: { show: (pane: RightPane) => void }) {
+function Switchers({
+	show,
+	current,
+	currentRef,
+}: {
+	show: (pane: RightPane) => void;
+	current: RightPane;
+	currentRef: Ref<HTMLButtonElement>;
+}) {
+	const refFor = (value: RightPane) => (value === current ? currentRef : undefined);
 	return (
-		<RadixTabs.List
+		<TabsList
 			className="pk-pane-tabs"
 			aria-label="Files, checks, running services or monitor"
 		>
-			<Switcher value="files" label="Files" onPick={show} />
-			<Switcher value="checks" label="Checks" onPick={show} />
-			<Switcher value="running" label="Running" onPick={show} />
-			<Switcher value="monitor" label="Monitor" onPick={show} />
-		</RadixTabs.List>
+			<Switcher value="files" buttonRef={refFor("files")} label="Files" onPick={show} />
+			<Switcher
+				value="checks"
+				buttonRef={refFor("checks")}
+				label="Checks"
+				onPick={show}
+			/>
+			<Switcher
+				value="running"
+				buttonRef={refFor("running")}
+				label="Running"
+				onPick={show}
+			/>
+			<Switcher
+				value="monitor"
+				buttonRef={refFor("monitor")}
+				label="Monitor"
+				onPick={show}
+			/>
+		</TabsList>
 	);
 }
 
@@ -187,13 +222,16 @@ function Switcher({
 	value,
 	label,
 	onPick,
+	buttonRef,
 }: {
 	value: RightPane;
+	buttonRef?: Ref<HTMLButtonElement>;
 	label: string;
 	onPick: (pane: RightPane) => void;
 }) {
 	return (
-		<RadixTabs.Trigger
+		<TabsTrigger
+			ref={buttonRef}
 			value={value}
 			className="pk-pane-tab"
 			data-testid={`right-pane-tab-${value}`}
@@ -201,7 +239,7 @@ function Switcher({
 			onClick={() => onPick(value)}
 		>
 			{label}
-		</RadixTabs.Trigger>
+		</TabsTrigger>
 	);
 }
 

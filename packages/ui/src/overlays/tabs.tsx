@@ -43,6 +43,19 @@ export interface TabsProps {
 	className?: string;
 }
 
+/**
+ * DOM ids for a tab and the panel it controls. Radix lets these override its
+ * generated ids, so a panel rendered elsewhere can name itself by its tab.
+ * Encoded because ids and aria-labelledby cannot hold whitespace.
+ */
+export function tabDomId(id: string): string {
+	return `pk-tab-${encodeURIComponent(id)}`;
+}
+
+export function tabPanelDomId(id: string): string {
+	return `pk-tabpanel-${encodeURIComponent(id)}`;
+}
+
 const KIND_ICON: Record<TabItem["kind"], IconName> = {
 	terminal: "terminal",
 	claude: "agent",
@@ -72,6 +85,8 @@ function TabTrigger({
 		<RadixTabs.Trigger
 			ref={sortable.setNodeRef}
 			value={tab.id}
+			id={tabDomId(tab.id)}
+			aria-controls={tabPanelDomId(tab.id)}
 			title={tab.title ?? tab.label}
 			data-testid={tab.testId}
 			// The close control sits inside the tab, so assistive technology only
@@ -149,6 +164,12 @@ function TabTrigger({
 		</RadixTabs.Trigger>
 	);
 }
+
+// Plain Radix tabs for panes that need no reordering or close buttons.
+export const TabsRoot = RadixTabs.Root;
+export const TabsList = RadixTabs.List;
+export const TabsTrigger = RadixTabs.Trigger;
+export const TabsContent = RadixTabs.Content;
 
 /** The work-area tab strip: Radix Tabs with dnd-kit reordering. */
 export function Tabs({

@@ -116,6 +116,39 @@ describe("Dialog", () => {
 		);
 	});
 
+	it("skips a return target that is still mounted but hidden", async () => {
+		function HiddenItemFixture() {
+			const [open, setOpen] = React.useState(false);
+			return (
+				<>
+					<button type="button" id="hidden-trigger">
+						Tab actions
+					</button>
+					<div role="menu" aria-labelledby="hidden-trigger">
+						<button type="button" role="menuitem" onClick={() => setOpen(true)}>
+							Rename…
+						</button>
+					</div>
+					<DialogRoot open={open} onOpenChange={setOpen}>
+						<Dialog title="Rename tab" />
+					</DialogRoot>
+				</>
+			);
+		}
+		render(<HiddenItemFixture />);
+		const item = screen.getByRole("menuitem");
+		item.focus();
+		fireEvent.click(item);
+		// jsdom has no layout, so stand in for a menu that closed by hiding.
+		item.checkVisibility = () => false;
+
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByText("Tab actions")),
+		);
+	});
+
 	it("falls back to what had focus before an unlabelled menu opened (#358)", async () => {
 		// A right-click menu has no trigger button to go back to.
 		function ContextFixture() {

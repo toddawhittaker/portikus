@@ -79,7 +79,13 @@ export function useReturnFocus(): {
 				origin.current?.element,
 				origin.current?.menuTrigger,
 				origin.current?.beforeMenu,
-			].find((element) => element?.isConnected && element !== document.body);
+			].find(
+				(element) =>
+					element?.isConnected &&
+					element !== document.body &&
+					// A menu or pane that hid rather than unmounted cannot take focus.
+					element.checkVisibility?.() !== false,
+			);
 			origin.current = null;
 			if (!target) return;
 			event.preventDefault();

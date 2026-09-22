@@ -5,7 +5,7 @@ import { Icon, type IconName } from "./Icon.js";
 import { type Key, ShortcutHint } from "./ShortcutHint.js";
 
 export interface IconButtonProps
-	extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
+	extends Omit<React.ComponentPropsWithRef<"button">, "children"> {
 	icon: IconName;
 	/** Required. Becomes aria-label and the tooltip text. */
 	label: string;
