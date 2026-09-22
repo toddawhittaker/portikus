@@ -1,6 +1,6 @@
 {
-  "model": "claude-fable-5-1",
-  "effortLevel": "low",
+  "model": "claude-opus-5-5",
+  "effortLevel": "medium",
   "permissions": {
     "allow": [
       "Bash(gh pr merge:*)",

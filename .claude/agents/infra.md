@@ -6,7 +6,7 @@ description: |
   network/profiles, distrobuilder workspace images, and Caddy. Use for anything
   touching KVM, Debian VM, Incus, LVM thin, unprivileged nesting, or Docker
   inside the workspace container.
-model: claude-opus-5
+model: claude-opus-5-5
 effort: medium
 tools: Bash, Read, Write, Edit, Grep, Glob
 ---

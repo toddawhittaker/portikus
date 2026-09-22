@@ -17,4 +17,4 @@ else
   exit 1
 fi
 # shellcheck disable=SC2086
-exec "$biome" check --error-on-warnings $staged
+exec "$biome" check --error-on-warnings --no-errors-on-unmatched $staged
