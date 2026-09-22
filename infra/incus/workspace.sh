@@ -19,6 +19,8 @@ PROFILE="workspace"
 IMAGE="portikus"
 HOME_SIZE="25GB"
 DOCKER_SIZE="20GB"
+RECOVERY_SIZE="3GiB"
+RECOVERY_PATH="/var/lib/portikus/recovery"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -81,6 +83,7 @@ cmd_create() {
     # Persistent volumes (SPEC 4.4, 16.2, 19.1).
     ensure_volume "${name}-home" "$HOME_SIZE"
     ensure_volume "${name}-docker" "$DOCKER_SIZE"
+    ensure_volume "${name}-recovery" "$RECOVERY_SIZE"
 
     # Create the container from the workspace image and profile.
     incus_cmd init "$IMAGE" "$name" \
@@ -100,6 +103,13 @@ cmd_create() {
         path="/var/lib/docker" \
         --project "$PROJECT"
 
+    # Recovery points live on their own volume (ADR 0020).
+    incus_cmd config device add "$name" recovery disk \
+        pool="$POOL" \
+        source="${name}-recovery" \
+        path="$RECOVERY_PATH" \
+        --project "$PROJECT"
+
     incus_cmd start "$name" --project "$PROJECT"
 
     # Wait for an IPv4 address (up to 60 seconds).
@@ -114,6 +124,10 @@ cmd_create() {
         sleep 2
         waited=$((waited + 2))
     done
+
+    # A new volume's root belongs to root; the agent runs as the student.
+    incus_cmd exec "$name" --project "$PROJECT" -- chown 1000:1000 "$RECOVERY_PATH"
+    incus_cmd exec "$name" --project "$PROJECT" -- chmod 0700 "$RECOVERY_PATH"
 
     if [[ -z "$ip" ]]; then
         echo "workspace ${name} started but no IPv4 address after 60 s"
@@ -133,7 +147,7 @@ cmd_destroy() {
         echo "container ${name} does not exist, skipping"
     fi
 
-    for suffix in home docker; do
+    for suffix in home docker recovery; do
         local vol="${name}-${suffix}"
         if volume_exists "$vol"; then
             incus_cmd storage volume delete "$POOL" "$vol" --project "$PROJECT"

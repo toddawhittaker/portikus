@@ -479,3 +479,181 @@ test("a request logs one line, and an Incus failure names the reason", async () 
 		await logged.close();
 	}
 });
+
+// Maintenance operations (ADR 0021).
+
+async function createStopped(name = "ws-abc") {
+	await app.inject({
+		method: "POST",
+		url: "/instances",
+		headers: auth(),
+		payload: { name, homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
+	});
+}
+
+test("create and start pass the recovery size to the provider", async () => {
+	await createStopped();
+	expect(provider.instances.get("ws-abc")?.recoveryGiB).toBe(3);
+
+	const calls: Array<number | undefined> = [];
+	const original = provider.start.bind(provider);
+	provider.start = async (name, opts) => {
+		calls.push(opts.recoveryGiB);
+		return original(name, opts);
+	};
+	await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/start",
+		headers: auth(),
+		payload: {
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7",
+			previewHostSuffix: "preview.example.edu",
+			timezone: "America/New_York",
+			recoveryGiB: 4,
+		},
+	});
+	expect(calls).toEqual([4]);
+});
+
+test("reset-docker on a stopped instance answers 204 and replaces the volume", async () => {
+	await createStopped();
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/reset-docker",
+		headers: auth(),
+		payload: { dockerGiB: 30 },
+	});
+	expect(res.statusCode).toBe(204);
+	const inst = provider.instances.get("ws-abc");
+	expect(inst?.dockerGeneration).toBe(2);
+	expect(inst?.quota.dockerGiB).toBe(30);
+});
+
+test("reset-docker and rebuild answer 409 while the instance runs", async () => {
+	await createStopped();
+	const inst = provider.instances.get("ws-abc");
+	if (!inst) throw new Error("expected the instance");
+	inst.status = "Running";
+
+	const reset = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/reset-docker",
+		headers: auth(),
+		payload: { dockerGiB: 20 },
+	});
+	const rebuild = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/rebuild",
+		headers: auth(),
+		payload: { resetDocker: false, dockerGiB: 20 },
+	});
+	expect(reset.statusCode).toBe(409);
+	expect(rebuild.statusCode).toBe(409);
+	expect(rebuild.json().message).toContain("stop it first");
+	expect(inst.dockerGeneration).toBe(1);
+	expect(inst.rebuilds).toBe(0);
+});
+
+test("rebuild answers the new image fingerprint", async () => {
+	await createStopped();
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/rebuild",
+		headers: auth(),
+		payload: { resetDocker: true, dockerGiB: 20 },
+	});
+	expect(res.statusCode).toBe(200);
+	expect(res.json()).toEqual({ imageFingerprint: "def456" });
+	const inst = provider.instances.get("ws-abc");
+	expect(inst?.rebuilds).toBe(1);
+	expect(inst?.dockerGeneration).toBe(2);
+});
+
+test("maintenance routes check the name, the body, and the token", async () => {
+	await createStopped();
+	const badName = await app.inject({
+		method: "POST",
+		url: "/instances/BAD!/rebuild",
+		headers: auth(),
+		payload: { resetDocker: false, dockerGiB: 20 },
+	});
+	expect(badName.statusCode).toBe(400);
+	expect(badName.json().code).toBe("INVALID_NAME");
+
+	const badBody = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/reset-docker",
+		headers: auth(),
+		payload: { dockerGiB: -1 },
+	});
+	expect(badBody.statusCode).toBe(400);
+	expect(badBody.json().code).toBe("BAD_REQUEST");
+
+	const noRebuildFlag = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/rebuild",
+		headers: auth(),
+		payload: { dockerGiB: 20 },
+	});
+	expect(noRebuildFlag.statusCode).toBe(400);
+
+	const noToken = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/reset-docker",
+		payload: { dockerGiB: 20 },
+	});
+	expect(noToken.statusCode).toBe(401);
+
+	const missing = await app.inject({
+		method: "POST",
+		url: "/instances/ws-nope/reset-docker",
+		headers: auth(),
+		payload: { dockerGiB: 20 },
+	});
+	expect(missing.statusCode).toBe(404);
+});
+
+test("two concurrent resets cause one provider call", async () => {
+	await createStopped();
+	let resets = 0;
+	const original = provider.resetDocker.bind(provider);
+	provider.resetDocker = async (name, opts) => {
+		resets++;
+		await new Promise((r) => setTimeout(r, 50));
+		return original(name, opts);
+	};
+	const request = () =>
+		app.inject({
+			method: "POST",
+			url: "/instances/ws-abc/reset-docker",
+			headers: auth(),
+			payload: { dockerGiB: 20 },
+		});
+	const [a, b] = await Promise.all([request(), request()]);
+	expect(a.statusCode).toBe(204);
+	expect(b.statusCode).toBe(204);
+	expect(resets).toBe(1);
+});
+
+test("two concurrent rebuilds cause one provider call", async () => {
+	await createStopped();
+	let rebuilds = 0;
+	const original = provider.rebuild.bind(provider);
+	provider.rebuild = async (name, opts) => {
+		rebuilds++;
+		await new Promise((r) => setTimeout(r, 50));
+		return original(name, opts);
+	};
+	const request = () =>
+		app.inject({
+			method: "POST",
+			url: "/instances/ws-abc/rebuild",
+			headers: auth(),
+			payload: { resetDocker: false, dockerGiB: 20 },
+		});
+	const [a, b] = await Promise.all([request(), request()]);
+	expect(a.statusCode).toBe(200);
+	expect(b.json()).toEqual({ imageFingerprint: "def456" });
+	expect(rebuilds).toBe(1);
+});

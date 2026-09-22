@@ -18,6 +18,8 @@ interface IncusEnvelope {
 	metadata?: unknown;
 	error?: string;
 	error_code?: number;
+	/** The response's ETag header, read for the guarded update below. */
+	etag?: string;
 }
 
 export interface IncusClientOptions {
@@ -45,16 +47,67 @@ export class IncusClient {
 		signal?: AbortSignal,
 		waitTimeout?: number,
 	): Promise<unknown> {
-		const sep = path.includes("?") ? "&" : "?";
-		const fullPath = `${path}${sep}project=${encodeURIComponent(this.project)}`;
-
-		const envelope = await this.rawRequest(method, fullPath, body, signal);
+		const envelope = await this.rawRequest(
+			method,
+			this.withProject(path),
+			body,
+			signal,
+		);
 
 		if (envelope.type === "async" && envelope.operation) {
 			return this.waitForOperation(envelope.operation, waitTimeout ?? 60, signal);
 		}
 
 		return envelope.metadata;
+	}
+
+	/** Read a resource together with its ETag, for `putIfMatch`. */
+	async getWithEtag(
+		path: string,
+		signal?: AbortSignal,
+	): Promise<{ metadata: unknown; etag: string }> {
+		const envelope = await this.rawRequest(
+			"GET",
+			this.withProject(path),
+			undefined,
+			signal,
+		);
+		if (!envelope.etag) {
+			throw new IncusError("OPERATION_FAILED", `Incus sent no ETag for ${path}`);
+		}
+		return { metadata: envelope.metadata, etag: envelope.etag };
+	}
+
+	/**
+	 * Replace a resource only if it is unchanged since `getWithEtag`, so a
+	 * concurrent edit is refused rather than overwritten (Incus answers 412).
+	 */
+	async putIfMatch(
+		path: string,
+		body: unknown,
+		etag: string,
+		signal?: AbortSignal,
+		waitTimeout?: number,
+	): Promise<unknown> {
+		const envelope = await this.rawRequest(
+			"PUT",
+			this.withProject(path),
+			body,
+			signal,
+			{
+				headers: { "Content-Type": "application/json", "If-Match": etag },
+				body: JSON.stringify(body),
+			},
+		);
+		if (envelope.type === "async" && envelope.operation) {
+			return this.waitForOperation(envelope.operation, waitTimeout ?? 60, signal);
+		}
+		return envelope.metadata;
+	}
+
+	private withProject(path: string): string {
+		const sep = path.includes("?") ? "&" : "?";
+		return `${path}${sep}project=${encodeURIComponent(this.project)}`;
 	}
 
 	/**
@@ -127,7 +180,8 @@ export class IncusClient {
 							if (err) {
 								reject(err);
 							} else {
-								resolve(envelope);
+								const etag = res.headers.etag;
+								resolve(etag ? { ...envelope, etag } : envelope);
 							}
 						} catch (e) {
 							reject(
