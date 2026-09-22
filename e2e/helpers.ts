@@ -459,7 +459,7 @@ export async function seedListening(
 		protocolHint?: "http" | "https" | "unknown";
 		previewReachability?: "reachable" | "forwarded" | "unknown";
 		system?: boolean;
-		process?: { pid?: number; command?: string };
+		process?: { pid?: number; command?: string; commandLine?: string };
 		container?: { id?: string; name?: string };
 	}[],
 ): Promise<void> {
