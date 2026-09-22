@@ -2,12 +2,15 @@
  * The `+ Preview` launcher (SPEC.md §14.6, DESIGN.md "Terminal tabs").
  * It lists the ports the workspace agent found listening and lets the
  * student name another one, because discovery is a help rather than a rule.
+ * System services stay off that list unless Running is showing them
+ * (SPEC.md §18.2).
  */
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
 import {
 	isDocker,
 	isPreviewable,
+	readShowSystem,
 	serviceCommand,
 	useListening,
 } from "../running/services.js";
@@ -39,7 +42,12 @@ export function PreviewPicker({
 	const [text, setText] = useState("");
 	const [touched, setTouched] = useState(false);
 	const error = portError(text);
-	const offered = listening.services.filter(isPreviewable);
+	// The same choice as Running: system listeners stay off the list unless
+	// the student asked to see them. Typing a port is not affected.
+	const showSystem = readShowSystem();
+	const offered = listening.services.filter(
+		(service) => isPreviewable(service) && (showSystem || !service.system),
+	);
 
 	function submit() {
 		setTouched(true);
