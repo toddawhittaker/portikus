@@ -74,4 +74,14 @@ describe("Toast", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 		expect(onDismiss).toHaveBeenCalledTimes(1);
 	});
+
+	it("sits above dialogs and names F8 as the way to reach it (#364)", () => {
+		render(<ToastProvider />);
+
+		const viewport = screen.getByRole("region");
+		expect(viewport.getAttribute("aria-label")).toContain("F8");
+		expect(viewport.querySelector("ol")?.className ?? "").toContain(
+			"z-[var(--z-toast)]",
+		);
+	});
 });
