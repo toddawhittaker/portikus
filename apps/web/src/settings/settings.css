@@ -1,0 +1,42 @@
+/* A short list of choices. Two or three options do not need a menu. */
+.pk-choice {
+	display: flex;
+	width: fit-content;
+	max-width: 100%;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	overflow: hidden;
+}
+
+.pk-choice label {
+	position: relative;
+	display: flex;
+	align-items: center;
+	min-height: 32px;
+	padding: 0 12px;
+	background: var(--surface-raised);
+	color: var(--ink);
+	cursor: pointer;
+}
+
+.pk-choice label + label {
+	border-left: 1px solid var(--line);
+}
+
+.pk-choice input {
+	position: absolute;
+	inset: 0;
+	margin: 0;
+	opacity: 0;
+	cursor: pointer;
+}
+
+.pk-choice label:has(:checked) {
+	background: var(--surface-selected);
+	font-weight: 600;
+}
+
+.pk-choice label:has(:focus-visible) {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: -2px;
+}

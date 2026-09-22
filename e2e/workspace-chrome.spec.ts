@@ -77,18 +77,28 @@ test("appearance is chosen in Settings and stays in this browser", async ({
 	const dialog = page.getByTestId("dialog-editor-settings");
 	await expect(dialog.getByRole("heading", { name: "Appearance" })).toBeVisible();
 	await expect(dialog.getByRole("heading", { name: "Terminal" })).toBeVisible();
-	await expect(dialog.getByLabel("Terminal colours")).toContainText("Dark");
+	await expect(
+		dialog
+			.getByRole("group", { name: "Terminal colors" })
+			.getByRole("radio", { name: "Dark" }),
+	).toBeChecked();
 	await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "dark");
 
 	// Light page, dark terminal: the two choices are independent (SPEC.md §13.5).
-	await dialog.getByLabel("Colour scheme").click();
-	await page.getByRole("option", { name: "Light", exact: true }).click();
+	await dialog
+		.getByRole("group", { name: "Color scheme" })
+		.getByRole("radio", { name: "Light" })
+		.click();
 	await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 	await expect
 		.poll(() => page.evaluate(() => localStorage.getItem("pk-theme")))
 		.toBe("light");
 	await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "dark");
-	await expect(dialog.getByLabel("Terminal colours")).toContainText("Dark");
+	await expect(
+		dialog
+			.getByRole("group", { name: "Terminal colors" })
+			.getByRole("radio", { name: "Dark" }),
+	).toBeChecked();
 
 	// It applied before Save, and Cancel does not take it back.
 	await page.getByRole("button", { name: "Cancel" }).click();
@@ -101,9 +111,15 @@ test("appearance is chosen in Settings and stays in this browser", async ({
 
 	await page.getByTestId("me").click();
 	await page.getByRole("menuitem", { name: "Settings" }).click();
-	await expect(page.getByLabel("Colour scheme")).toContainText("Light");
-	await page.getByLabel("Colour scheme").click();
-	await page.getByRole("option", { name: "System", exact: true }).click();
+	await expect(
+		page
+			.getByRole("group", { name: "Color scheme" })
+			.getByRole("radio", { name: "Light" }),
+	).toBeChecked();
+	await page
+		.getByRole("group", { name: "Color scheme" })
+		.getByRole("radio", { name: "System" })
+		.click();
 	await expect(page.locator("html")).not.toHaveAttribute("data-theme");
 	await expect
 		.poll(() => page.evaluate(() => localStorage.getItem("pk-theme")))

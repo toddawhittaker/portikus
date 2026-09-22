@@ -496,10 +496,12 @@ test.describe("file editor", () => {
 			await expect(dialog.getByRole("heading", { name: section })).toBeVisible();
 		}
 
-		// One field per section: the delay, the terminal colours, the zone.
+		// One field per section: the delay, the terminal colors, the zone.
 		await page.getByTestId("editor-settings-delay").fill("11");
-		await page.getByLabel("Terminal colours").click();
-		await page.getByRole("option", { name: "Light" }).click();
+		await page
+			.getByRole("group", { name: "Terminal colors" })
+			.getByRole("radio", { name: "Light" })
+			.click();
 		await page.getByLabel("Workspace timezone").click();
 		await page.getByRole("option", { name: "Los Angeles", exact: true }).click();
 		await page.getByTestId("editor-settings-save").click();
@@ -508,7 +510,11 @@ test.describe("file editor", () => {
 		await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "light");
 		await openEditorSettings(page);
 		await expect(page.getByTestId("editor-settings-delay")).toHaveValue("11");
-		await expect(page.getByLabel("Terminal colours")).toContainText("Light");
+		await expect(
+			page
+				.getByRole("group", { name: "Terminal colors" })
+				.getByRole("radio", { name: "Light" }),
+		).toBeChecked();
 		await expect(page.getByLabel("Workspace timezone")).toContainText("Los Angeles");
 	});
 
@@ -545,8 +551,10 @@ test.describe("file editor", () => {
 		await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "dark");
 
 		await openEditorSettings(page);
-		await page.getByLabel("Terminal colours").click();
-		await page.getByRole("option", { name: "Light" }).click();
+		await page
+			.getByRole("group", { name: "Terminal colors" })
+			.getByRole("radio", { name: "Light" })
+			.click();
 		await page.getByTestId("editor-settings-save").click();
 		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
 
@@ -558,7 +566,11 @@ test.describe("file editor", () => {
 		});
 		await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "light");
 		await openEditorSettings(page);
-		await expect(page.getByLabel("Terminal colours")).toContainText("Light");
+		await expect(
+			page
+				.getByRole("group", { name: "Terminal colors" })
+				.getByRole("radio", { name: "Light" }),
+		).toBeChecked();
 	});
 	test("a Markdown file is never a false conflict (issue #157)", async ({
 		page,

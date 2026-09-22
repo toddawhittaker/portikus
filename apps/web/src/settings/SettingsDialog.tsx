@@ -3,7 +3,7 @@
  * SPEC.md §13.5). The left pane is the section list and a search box; the
  * right pane is the section that was chosen. Search reads that same list.
  * Appearance is remembered in this browser only. Editor, terminal, and
- * workspace settings are kept on the server, per user. The terminal colour
+ * workspace settings are kept on the server, per user. The terminal color
  * scheme is separate from the page appearance.
  */
 import {
@@ -29,6 +29,7 @@ import { type ThemePreference, useThemePreference } from "../shell/theme.js";
 import { useMe } from "../useMe.js";
 import { SETTINGS_SECTIONS, type SettingsControl, settingsHits } from "./sections.js";
 import { currentZoneOption, timezoneGroups } from "./timezones.js";
+import "./settings.css";
 
 /** The delay a student may ask for, in seconds (contracts/settings.ts). */
 const MIN_DELAY = 1;
@@ -44,6 +45,44 @@ const APPEARANCE_OPTIONS: { value: ThemePreference; label: string }[] = [
 	{ value: "light", label: "Light" },
 	{ value: "dark", label: "Dark" },
 ];
+
+/** Two or three options, shown together. A menu hides the choices until it opens. */
+function ChoiceField({
+	label,
+	hint,
+	name,
+	value,
+	options,
+	onChange,
+}: {
+	label: string;
+	hint: string;
+	name: string;
+	value: string;
+	options: readonly { value: string; label: string }[];
+	onChange: (value: string) => void;
+}) {
+	return (
+		<fieldset className="m-0 grid gap-2 border-0 p-0">
+			<legend className={LABEL_CLASS}>{label}</legend>
+			<p className="pk-hint m-0 text-[12px] leading-4 text-ink-muted">{hint}</p>
+			<div className="pk-choice">
+				{options.map((option) => (
+					<label key={option.value}>
+						<input
+							type="radio"
+							name={name}
+							value={option.value}
+							checked={value === option.value}
+							onChange={() => onChange(option.value)}
+						/>
+						<span>{option.label}</span>
+					</label>
+				))}
+			</div>
+		</fieldset>
+	);
+}
 
 const PREFERENCES = SETTINGS_SECTIONS.find((section) => section.id === "preferences");
 const ACCOUNT = SETTINGS_SECTIONS.find((section) => section.id === "account");
@@ -217,13 +256,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 				);
 			case "terminal-colours":
 				return (
-					<Select
-						id="terminal-theme"
+					<ChoiceField
 						label={control.label}
-						hint="What a new terminal starts with. Each terminal's three-dots menu can switch that one terminal, and a program already running keeps the colours it started with."
+						hint="What a new terminal starts with. Each terminal's three-dots menu can switch that one terminal, and a program already running keeps the colors it started with."
+						name="terminal-theme"
 						options={TERMINAL_THEME_OPTIONS}
 						value={terminalTheme}
-						onValueChange={(value) =>
+						onChange={(value) =>
 							setDraft((next) => ({
 								...next,
 								terminalTheme: value as TerminalTheme,
@@ -266,13 +305,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 				);
 			case "colour-scheme":
 				return (
-					<Select
-						id="page-appearance"
+					<ChoiceField
 						label={control.label}
 						hint="Light, dark, or follow this computer. This stays in this browser and applies as soon as you choose it."
+						name="page-appearance"
 						options={APPEARANCE_OPTIONS}
 						value={preference}
-						onValueChange={(value) => setPreference(value as ThemePreference)}
+						onChange={(value) => setPreference(value as ThemePreference)}
 					/>
 				);
 			default:
