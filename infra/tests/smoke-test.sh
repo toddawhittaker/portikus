@@ -215,6 +215,11 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "xdg-open wrapper is executable"        ws_exec "test -x /usr/local/bin/xdg-open"
   check_output "BROWSER is portikus-open in a login shell" \
     "BROWSER=/usr/local/bin/portikus-open" ws_student 'env | grep ^BROWSER='
+  # The student cannot mkdir under /run. systemd must create the broker
+  # socket directory before the agent starts (BROWSER-HANDLING.md 18).
+  check_output "workspace agent unit sets RuntimeDirectory=portikus" \
+    "RuntimeDirectory=portikus" \
+    ws_exec "grep -F -x 'RuntimeDirectory=portikus' /etc/systemd/system/portikus-workspace-agent.service"
   check_output "Codex update check is off" \
     "check_for_update_on_startup = false" \
     ws_exec "grep -F -x 'check_for_update_on_startup = false' /etc/codex/config.toml"
