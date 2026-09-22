@@ -67,10 +67,14 @@ PID namespace) that assigned it, and several machines can share one
 PostgreSQL server. Databases of a run still in progress are left alone, so
 parallel runs on the same machine stay safe.
 
-The Playwright run has the same problem for a different reason: its ports are
-fixed, so two `pnpm test:e2e` runs on one machine fight over the API and web
-dev server ports whatever database they use. Run the browser tests one at a
-time.
+`pnpm test:e2e` creates a database of its own on that same server before
+Playwright starts, named with this host and the wrapper's process id,
+migrates the empty database from this checkout, and drops it after
+Playwright exits. It does not migrate the shared database. A shared database keeps the migration history of
+whichever checkout last wrote it, and a later checkout cannot migrate a
+history that names a migration it does not contain. The browser tests still
+use fixed ports, so two `pnpm test:e2e` runs on one machine fight over the
+API and web dev server ports. Run the browser tests one at a time.
 
 ### Logging in locally
 

@@ -9,6 +9,9 @@ export const FAKE_AGENT_TOKEN = "e2e-agent-token";
 
 // The throwaway PostgreSQL from docs/WORKFLOW.md, "Local PostgreSQL for
 // database tests"; CI points TEST_DATABASE_URL at its service container.
+// `pnpm test:e2e` points this at a database created for the run. A direct
+// `playwright test` uses the shared database, which can refuse to migrate
+// when its history names a migration this checkout does not contain.
 const databaseUrl =
 	process.env.TEST_DATABASE_URL ??
 	"postgres://postgres:portikus@127.0.0.1:55432/portikus_test";
