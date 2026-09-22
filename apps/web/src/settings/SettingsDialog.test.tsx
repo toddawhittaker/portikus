@@ -132,6 +132,7 @@ test("it shows the settings the server holds", async () => {
 		terminalTheme: "light",
 		timezone: "America/New_York",
 		appearance: "system",
+		screenReaderMode: false,
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 
@@ -145,7 +146,7 @@ test("it shows the settings the server holds", async () => {
 	expect(
 		(
 			within(screen.getByRole("region", { name: "Terminal" })).getByRole("switch", {
-				name: "Terminal colors",
+				name: "Light terminal",
 			}) as HTMLInputElement
 		).checked,
 	).toBe(true);
@@ -175,6 +176,7 @@ test("saving sends every setting and closes the dialog", async () => {
 		wordWrap: false,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		screenReaderMode: EDITOR_SETTINGS_DEFAULTS.screenReaderMode,
 	});
 	await waitFor(() => expect(onClose).toHaveBeenCalled());
 });
@@ -229,7 +231,7 @@ test("choosing an appearance applies at once, is cached, and is saved", async ()
 		expect(
 			(
 				within(terminal()).getByRole("switch", {
-					name: "Terminal colors",
+					name: "Light terminal",
 				}) as HTMLInputElement
 			).checked,
 		).toBe(false),
@@ -242,7 +244,7 @@ test("choosing an appearance applies at once, is cached, and is saved", async ()
 	expect(
 		(
 			within(terminal()).getByRole("switch", {
-				name: "Terminal colors",
+				name: "Light terminal",
 			}) as HTMLInputElement
 		).checked,
 	).toBe(false);
@@ -264,6 +266,7 @@ test("choosing an appearance applies at once, is cached, and is saved", async ()
 		wordWrap: true,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
+		screenReaderMode: EDITOR_SETTINGS_DEFAULTS.screenReaderMode,
 	});
 });
 
@@ -279,6 +282,7 @@ test("the stored terminal theme is shown and sent back", async () => {
 		terminalTheme: "light",
 		timezone: "America/New_York",
 		appearance: "system",
+		screenReaderMode: false,
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	const terminal = () => screen.getByRole("region", { name: "Terminal" });
@@ -286,12 +290,12 @@ test("the stored terminal theme is shown and sent back", async () => {
 		expect(
 			(
 				within(terminal()).getByRole("switch", {
-					name: "Terminal colors",
+					name: "Light terminal",
 				}) as HTMLInputElement
 			).checked,
 		).toBe(true),
 	);
-	fireEvent.click(within(terminal()).getByRole("switch", { name: "Terminal colors" }));
+	fireEvent.click(within(terminal()).getByRole("switch", { name: "Light terminal" }));
 
 	fireEvent.click(checkbox(/Word wrap/));
 	fireEvent.click(screen.getByTestId("editor-settings-save"));
@@ -313,6 +317,7 @@ test("the stored timezone is shown and sent back", async () => {
 		terminalTheme: "dark",
 		timezone: "Europe/Berlin",
 		appearance: "system",
+		screenReaderMode: false,
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() =>
@@ -626,4 +631,87 @@ test("a picture over the cap is refused before it is sent", async () => {
 		"The picture must be at most 1 MiB",
 	);
 	expect(vi.mocked(fetch).mock.calls.length).toBe(sent);
+});
+
+/** Issue #357: screen-reader mode is a per-user setting, saved with the rest. */
+test("screen reader mode shows what is stored and is saved when turned on", async () => {
+	const writes = stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, screenReaderMode: false });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const region = await screen.findByRole("region", { name: "Accessibility" });
+	const box = within(region).getByRole("checkbox", {
+		name: /Screen reader mode/,
+	}) as HTMLInputElement;
+	await waitFor(() => expect(box.checked).toBe(false));
+
+	fireEvent.click(box);
+	fireEvent.click(screen.getByTestId("editor-settings-save"));
+
+	await waitFor(() => expect(writes).toHaveLength(1));
+	expect(writes[0]?.body).toMatchObject({ screenReaderMode: true });
+});
+
+/** Issue #373: the switch is named for what "on" means, whatever it shows. */
+test("the terminal colours switch is named Light terminal", async () => {
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const terminal = await screen.findByRole("region", { name: "Terminal" });
+	const toggle = within(terminal).getByRole("switch", { name: "Light terminal" });
+	fireEvent.click(toggle);
+	expect(within(terminal).getByRole("switch", { name: "Light terminal" })).toBe(toggle);
+});
+
+/** Issue #359: the hard-to-find keys and the library limits are written down. */
+test("the keyboard section lists the keys and the terminal and editor limits", async () => {
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Keyboard and screen readers" }),
+	);
+
+	const section = screen.getByRole("region", { name: "Keyboard and screen readers" });
+	for (const keys of [
+		"Alt+Shift+Q",
+		"Ctrl+M",
+		"Alt+F1",
+		"Alt+Shift+Left Arrow",
+		"Shift+F10",
+		"F8",
+	]) {
+		expect(section.textContent).toContain(keys);
+	}
+	const limits = within(section).getByRole("region", {
+		name: "What the terminal and editor cannot do",
+	});
+	expect(limits.textContent).toContain("Screen reader mode");
+});
+
+/** Issue #359: search finds the help section by its title. */
+test("searching for keyboard finds the help section", async () => {
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	fireEvent.change(await screen.findByLabelText("Search"), {
+		target: { value: "keyboard" },
+	});
+	expect(
+		screen.getByRole("button", { name: "Keyboard and screen readers" }),
+	).toBeTruthy();
+});
+
+/** Issue #363: a failed save is announced, not only shown. */
+test("a failed save is shown as an alert", async () => {
+	stubFetch((url, init) => {
+		if ((init?.method ?? "GET") !== "GET") {
+			return json(500, { code: "INTERNAL", message: "The settings were not saved." });
+		}
+		if (url === "/me/settings") {
+			return json(200, { ...EDITOR_SETTINGS_DEFAULTS, timezones: SERVER_ZONES });
+		}
+		throw new Error(`unexpected request to ${url}`);
+	});
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await screen.findByRole("region", { name: "Editor" });
+	fireEvent.click(screen.getByTestId("editor-settings-save"));
+
+	const alert = await screen.findByRole("alert");
+	expect(alert.getAttribute("data-testid")).toBe("editor-settings-error");
 });

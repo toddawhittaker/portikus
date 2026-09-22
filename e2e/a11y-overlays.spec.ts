@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { createProject, createStudent, workspacePath } from "./helpers";
+import { createProject, createStudent, seedFile, workspacePath } from "./helpers";
 
 /**
  * Shared overlays (SPEC.md §25.8, DESIGN.md §6): focus returns somewhere
@@ -44,6 +44,53 @@ test.describe("accessible overlays", () => {
 
 		await expect(page.getByRole("alertdialog")).toHaveCount(0);
 		await expect(page.getByTestId(`project-menu-${project.id}`)).toBeFocused();
+	});
+
+	/** Issue #358 remainder: a file row's menu has no trigger button in the Tab order. */
+	for (const item of ["row-move", "row-delete"]) {
+		test(`closing the ${item} dialog from a file row menu returns focus to the row`, async ({
+			page,
+			context,
+		}) => {
+			const student = await createStudent(context);
+			const project = await createProject(student.workspaceId, { name: `Row ${item}` });
+			await seedFile(student.workspaceId, project.slug, "README.md", "# hi\n");
+			await seedFile(student.workspaceId, project.slug, "src/app.ts", "export {};\n");
+			await page.goto(workspacePath(student.workspaceId, project.id));
+			const row = page.getByTestId("file-row-README.md");
+			await expect(row).toBeVisible({ timeout: 15_000 });
+
+			await row.focus();
+			await page.keyboard.press("Shift+F10");
+			await page.getByTestId(item).click();
+			const dialog = page.locator("[role=dialog], [role=alertdialog]");
+			await expect(dialog).toBeVisible();
+			await page.keyboard.press("Escape");
+
+			await expect(dialog).toHaveCount(0);
+			await expect(row).toBeFocused();
+		});
+	}
+
+	test("closing a dialog opened from a file row's right-click menu returns focus to the row", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Row Right" });
+		await seedFile(student.workspaceId, project.slug, "README.md", "# hi\n");
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		const row = page.getByTestId("file-row-README.md");
+		await expect(row).toBeVisible({ timeout: 15_000 });
+
+		await row.click({ button: "right" });
+		await page.getByRole("menuitem", { name: /Delete/ }).click();
+		const dialog = page.getByRole("alertdialog");
+		await expect(dialog).toBeVisible();
+		await page.keyboard.press("Escape");
+
+		await expect(dialog).toHaveCount(0);
+		await expect(row).toBeFocused();
 	});
 
 	test("the toast layer sits above an open dialog", async ({ page, context }) => {

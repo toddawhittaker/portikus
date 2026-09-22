@@ -1187,6 +1187,23 @@ copy for the first paint and for the sign-in page; once the saved value
 arrives it wins and refreshes that copy, and the workspace screen waits for
 it so the page does not flash to the default.
 
+Screen-reader mode is a per-user preference too, off by default: with it
+on, xterm.js takes only typed keys and drops text that arrives without a
+key press (an emoji picker, dictation, some on-screen keyboards), and bulk
+output renders about half as fast. The default is the one constant
+`EDITOR_SETTINGS_DEFAULTS.screenReaderMode` in the contracts package. When
+on, every terminal and the check output run in xterm.js screen-reader
+mode, and every Monaco editor, the diff editor included, runs with
+`accessibilitySupport` "on"; when off, Monaco's support is "off", never
+"auto", because a browser cannot detect a screen reader. A change applies
+to open terminals and editors without a reload. It is set in Settings or
+by the workspace page's first Tab stop, a skip-link-style button that is
+hidden until focused, reads "Turn on screen-reader mode" or "Turn off
+screen-reader mode", saves the setting at once, and announces the change
+from a status region. Settings also has a "Keyboard and screen readers"
+section listing the keys that are hard to discover and what xterm.js and
+Monaco cannot do (section 25.8).
+
 Profile. Settings opens with a Profile section. The display name, email,
 sign-in name, and workspace label come from the institution sign-in and are
 read-only. The student may add a GitHub username or https link, one personal

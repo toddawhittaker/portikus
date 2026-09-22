@@ -7,6 +7,7 @@ import type * as Monaco from "monaco-editor";
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useEditorZoom } from "../layout/store.js";
 import {
+	accessibilitySupport,
 	baseEditorOptions,
 	currentThemeName,
 	getMonaco,
@@ -14,6 +15,7 @@ import {
 	watchTheme,
 } from "./monaco.js";
 import { editorScrollTop, editorTopLine } from "./scrollSync.js";
+import { useScreenReaderMode } from "./settingsQueries.js";
 import { DEFAULT_ZOOM, fontSizeFor, stepZoom } from "./zoom.js";
 import "./editor.css";
 
@@ -98,6 +100,9 @@ export function CodeEditor({
 	// setting here and through the effect below.
 	const wrapRef = useRef(wordWrap);
 	wrapRef.current = wordWrap;
+	const screenReaderMode = useScreenReaderMode();
+	const screenReaderRef = useRef(screenReaderMode);
+	screenReaderRef.current = screenReaderMode;
 	const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	const modelRef = useRef<Monaco.editor.ITextModel | null>(null);
 	// True while an external refresh is being applied, so that edit is not
@@ -166,6 +171,7 @@ export function CodeEditor({
 				renderLineHighlight: "line",
 				fontSize: fontSizeFor(zoomRef.current),
 				wordWrap: wrapRef.current,
+				accessibilitySupport: accessibilitySupport(screenReaderRef.current),
 			});
 			// Editor-only zoom by keyboard (SPEC.md §13.1). Monaco swallows these
 			// keys, so the browser's own zoom does not also fire.
@@ -280,6 +286,13 @@ export function CodeEditor({
 	useEffect(() => {
 		editorRef.current?.updateOptions({ wordWrap });
 	}, [wordWrap]);
+
+	// Screen-reader support follows the student's setting, live (issue #357).
+	useEffect(() => {
+		editorRef.current?.updateOptions({
+			accessibilitySupport: accessibilitySupport(screenReaderMode),
+		});
+	}, [screenReaderMode]);
 
 	// Ctrl + wheel zooms the editor only. preventDefault stops the browser from
 	// zooming the whole page, so the listener cannot be passive (SPEC.md §13.1).

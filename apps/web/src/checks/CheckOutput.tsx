@@ -5,6 +5,7 @@ import "./checks.css";
 import { FitAddon } from "@xterm/addon-fit";
 import { useEffect, useRef } from "react";
 import { wsUrl } from "../api/ws.js";
+import { useScreenReaderMode } from "../editor/settingsQueries.js";
 import { decodeCheckFrame } from "./checkFrames.js";
 
 /** The check panel uses the terminal's colours, so output looks the same. */
@@ -43,12 +44,20 @@ export function CheckOutput({
 	const host = useRef<HTMLDivElement | null>(null);
 	const finished = useRef(onFinished);
 	finished.current = onFinished;
+	const term = useRef<Xterm | null>(null);
+	// Read at construction and applied live when the student changes it (issue #357).
+	const screenReaderMode = useScreenReaderMode();
+	const screenReaderRef = useRef(screenReaderMode);
+	screenReaderRef.current = screenReaderMode;
+	useEffect(() => {
+		if (term.current) term.current.options.screenReaderMode = screenReaderMode;
+	}, [screenReaderMode]);
 
 	useEffect(() => {
 		const container = host.current;
 		if (!container) return;
 
-		const term = new Xterm({
+		const xterm = new Xterm({
 			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 			fontSize: 13,
 			theme: THEME,
@@ -58,10 +67,12 @@ export function CheckOutput({
 			disableStdin: true,
 			cursorStyle: "bar",
 			cursorInactiveStyle: "none",
+			screenReaderMode: screenReaderRef.current,
 		});
+		term.current = xterm;
 		const fit = new FitAddon();
-		term.loadAddon(fit);
-		term.open(container);
+		xterm.loadAddon(fit);
+		xterm.open(container);
 		fit.fit();
 
 		const socket = new WebSocket(
@@ -73,11 +84,11 @@ export function CheckOutput({
 		socket.onmessage = (event: MessageEvent) => {
 			const frame = decodeCheckFrame(event.data);
 			if (frame.kind === "output") {
-				term.write(frame.bytes);
+				xterm.write(frame.bytes);
 				return;
 			}
 			if (frame.kind === "exit") {
-				term.writeln(
+				xterm.writeln(
 					frame.exitCode === 0
 						? "\r\n[portikus] check passed (exit code 0)"
 						: `\r\n[portikus] check failed (exit code ${frame.exitCode})`,
@@ -86,7 +97,7 @@ export function CheckOutput({
 				return;
 			}
 			if (frame.kind === "error") {
-				term.writeln("\r\n[portikus] this check could not be started.");
+				xterm.writeln("\r\n[portikus] this check could not be started.");
 				finished.current();
 			}
 		};
@@ -100,7 +111,8 @@ export function CheckOutput({
 		return () => {
 			observer.disconnect();
 			socket.close();
-			term.dispose();
+			xterm.dispose();
+			term.current = null;
 		};
 	}, [workspaceId, projectId, checkId]);
 

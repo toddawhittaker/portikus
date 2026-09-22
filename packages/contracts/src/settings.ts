@@ -141,6 +141,8 @@ export const EditorSettings = z.object({
 	timezone: z.string().min(1),
 	/** Page appearance, separate from the terminal colours (issue #300). */
 	appearance: Appearance,
+	/** Turns on xterm's screen-reader mode in every terminal (issue #357). */
+	screenReaderMode: z.boolean(),
 });
 export type EditorSettings = z.infer<typeof EditorSettings>;
 
@@ -152,6 +154,7 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
 	terminalTheme: "dark",
 	timezone: DEFAULT_TIMEZONE,
 	appearance: "system",
+	screenReaderMode: false,
 };
 
 /**

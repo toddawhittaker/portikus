@@ -56,3 +56,12 @@ export function useTerminalThemeAttribute(): void {
 		document.documentElement.setAttribute("data-terminal-theme", theme);
 	}, [theme]);
 }
+
+/**
+ * Whether terminals run in xterm's screen-reader mode (issue #357). Off until
+ * the settings arrive, since the mode has a rendering cost.
+ */
+export function useScreenReaderMode(): boolean {
+	const settings = useEditorSettings();
+	return settings.data?.screenReaderMode ?? EDITOR_SETTINGS_DEFAULTS.screenReaderMode;
+}

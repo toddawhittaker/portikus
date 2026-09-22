@@ -199,7 +199,13 @@ function registerProfileRoutes(app: FastifyInstance, db: ServerDeps["db"]): void
 		if (!row?.picture || !row.picture_type) {
 			return sendError(reply, 404, "NOT_FOUND", "No picture");
 		}
-		reply.header("cache-control", "private, max-age=31536000, immutable");
+		// Only a versioned URL is cached for long; the bare URL must not
+		// linger in a shared lab computer's cache after sign-out.
+		const versioned = (request.query as { v?: unknown }).v !== undefined;
+		reply.header(
+			"cache-control",
+			versioned ? "private, max-age=31536000, immutable" : "private, no-cache",
+		);
 		reply.header("x-content-type-options", "nosniff");
 		reply.type(row.picture_type);
 		return reply.send(row.picture);
