@@ -12,6 +12,21 @@ import {
 	terminalTheme,
 } from "./TerminalPane";
 
+const opened = vi.hoisted(() => ({
+	terminals: [] as import("@xterm/xterm").Terminal[],
+}));
+
+vi.mock("@xterm/xterm", async () => {
+	const actual = await vi.importActual<typeof import("@xterm/xterm")>("@xterm/xterm");
+	class RecordingTerminal extends actual.Terminal {
+		constructor(options?: ConstructorParameters<typeof actual.Terminal>[0]) {
+			super(options);
+			opened.terminals.push(this);
+		}
+	}
+	return { ...actual, Terminal: RecordingTerminal };
+});
+
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
@@ -58,6 +73,7 @@ class FakeWebSocket {
 afterEach(() => {
 	cleanup();
 	sockets.length = 0;
+	opened.terminals.length = 0;
 	vi.unstubAllGlobals();
 });
 
@@ -529,4 +545,46 @@ test("a pane created unfocused leaves the keyboard alone", async () => {
 	await waitFor(() => expect(sockets).toHaveLength(1));
 	const textarea = view.container.querySelector("textarea.xterm-helper-textarea");
 	expect(document.activeElement).not.toBe(textarea);
+});
+
+/** Lines from the top of the scrollback up to, but not including, the cursor. */
+function linesAboveCursor(term: import("@xterm/xterm").Terminal): number {
+	const buffer = term.buffer.active;
+	return buffer.baseY + buffer.cursorY;
+}
+
+/**
+ * Issue #335: `clear` on TERM=xterm-256color sends the terminfo clear and
+ * then erase-scrollback (CSI 3 J). After that sequence nothing is left above
+ * the cursor. Ordinary output still keeps the scrollback limit.
+ */
+test("clear erases the scrollback and ordinary output still keeps it", async () => {
+	renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const term = opened.terminals.at(-1);
+	if (!term) throw new Error("no terminal");
+	expect(term.options.scrollback).toBe(SCROLLBACK_LINES);
+
+	let filled = "";
+	for (let line = 1; line <= term.rows + 8; line += 1) filled += `line ${line}\r\n`;
+	act(() => {
+		sockets[0]?.onmessage?.({ data: outputBytes(filled) });
+	});
+	await waitFor(() => expect(linesAboveCursor(term)).toBeGreaterThan(0));
+
+	// Cursor home, erase the visible screen, erase the saved lines.
+	act(() => {
+		sockets[0]?.onmessage?.({ data: outputBytes("\u001b[H\u001b[2J\u001b[3J") });
+	});
+	await waitFor(() => expect(linesAboveCursor(term)).toBe(0));
+
+	// The limit is unchanged, so later output can scroll again.
+	expect(term.options.scrollback).toBe(SCROLLBACK_LINES);
+	act(() => {
+		sockets[0]?.onmessage?.({
+			data: outputBytes("still here\r\n".repeat(term.rows + 3)),
+		});
+	});
+	await waitFor(() => expect(linesAboveCursor(term)).toBeGreaterThan(0));
+	expect(term.buffer.active.length).toBeLessThanOrEqual(SCROLLBACK_LINES + term.rows);
 });

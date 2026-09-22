@@ -112,7 +112,10 @@ test.skipIf(!haveTmux)(
 test.skipIf(!haveTmux)(
 	"the scrollback and terminal overrides are still set",
 	async () => {
-		expect(await serverOption("terminal-overrides")).toContain("smcup@");
+		const overrides = await serverOption("terminal-overrides");
+		expect(overrides).toContain("smcup@");
+		// Erase-scrollback for the attached terminal (SPEC.md §9.1).
+		expect(overrides).toContain("E3=\\E[3J");
 		const { stdout } = await run("tmux", [
 			"-L",
 			SOCKET_NAME,
