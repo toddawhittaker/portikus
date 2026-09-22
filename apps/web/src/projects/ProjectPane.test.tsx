@@ -82,12 +82,16 @@ test("lists the active projects and marks the one in view", async () => {
 	);
 });
 
-test("every row that is not missing shows its folder name", async () => {
-	await mount();
+test("a row shows the project name and not the directory slug beside it", async () => {
+	// The name and the folder stay in sync, so the slug is not a second label.
+	const named = project({ name: "Todo API" });
+	await mount([named, NOTES, GONE]);
 
-	expect(screen.getByTestId(`project-slug-${TODO.id}`).textContent).toBe(TODO.slug);
-	// A folder that is not a repository still lives in ~/projects.
-	expect(screen.getByTestId(`project-slug-${NOTES.id}`).textContent).toBe(NOTES.slug);
+	const row = screen.getByTestId(`project-item-${named.id}`);
+	expect(row.textContent).toContain("Todo API");
+	expect(row.textContent).not.toContain(named.slug);
+	expect(screen.queryByTestId(`project-slug-${named.id}`)).toBeNull();
+	expect(screen.queryByTestId(`project-slug-${NOTES.id}`)).toBeNull();
 	expect(screen.queryByTestId(`project-slug-${GONE.id}`)).toBeNull();
 });
 
