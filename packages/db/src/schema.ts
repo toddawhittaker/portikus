@@ -5,7 +5,8 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme (SPEC section 26, STACK section 6).
+ * 0010_terminal_theme, and 0011_terminal_agent (SPEC section 26, STACK
+ * section 6).
  */
 export interface Database {
 	users: UsersTable;
@@ -80,6 +81,12 @@ export interface TerminalsTable {
 	project_id: string | null;
 	/** This terminal's own colour scheme, "dark" or "light" (issue #268). */
 	theme: Generated<string>;
+	/** "claude" or "codex" when a launcher started it; null for a shell. */
+	agent: string | null;
+	/** `git stash create` object for this agent session (SPEC.md §10.9). */
+	baseline_object_id: string | null;
+	/** HEAD at the moment that baseline was taken (SPEC.md §10.9, §12.7). */
+	baseline_head: string | null;
 	created_at: ColumnType<Date, string | undefined, never>;
 	ended_at: ColumnType<Date | null, string | null, string | null>;
 }

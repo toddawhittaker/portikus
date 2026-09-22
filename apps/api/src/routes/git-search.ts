@@ -9,7 +9,7 @@ import {
 	SearchResponse,
 } from "@portikus/contracts";
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
-import type { z } from "zod";
+import { z } from "zod";
 import {
 	AGENT_TIMEOUT_MS,
 	type AgentClient,
@@ -120,6 +120,67 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 			request.log,
 			scope.agent,
 			agentUrl(scope.slug, "git/diff", { path: path.data }),
+			GitDiff,
+			AbortSignal.timeout(DIFF_BUDGET_MS),
+		);
+	});
+
+	// GET baseline-status and baseline-diff -- the same Git shapes, compared
+	// with the object recorded when a launcher started (SPEC.md §10.9, §12.7).
+	// The agent paths are /projects/:slug/baseline-status and baseline-diff.
+	const BaselineObject = z.string().regex(/^[0-9a-f]{40}$|^[0-9a-f]{64}$/);
+
+	app.get("/workspaces/:id/projects/:pid/baseline-status", async (request, reply) => {
+		const scope = await scopedProject(db, config, request, reply);
+		if (!scope) return;
+		const object = BaselineObject.safeParse(
+			(request.query as { object?: unknown })?.object,
+		);
+		if (!object.success) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"object must be a Git object id",
+			);
+		}
+		return relay(
+			reply,
+			request.log,
+			scope.agent,
+			agentUrl(scope.slug, "baseline-status", { object: object.data }),
+			GitStatus,
+			AbortSignal.timeout(STATUS_BUDGET_MS),
+		);
+	});
+
+	app.get("/workspaces/:id/projects/:pid/baseline-diff", async (request, reply) => {
+		const scope = await scopedProject(db, config, request, reply);
+		if (!scope) return;
+		const query = request.query as { object?: unknown; path?: unknown };
+		const object = BaselineObject.safeParse(query.object);
+		if (!object.success) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"object must be a Git object id",
+			);
+		}
+		const path = ProjectPath.safeParse(query.path);
+		if (!path.success) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"that path is not inside the project",
+			);
+		}
+		return relay(
+			reply,
+			request.log,
+			scope.agent,
+			agentUrl(scope.slug, "baseline-diff", { object: object.data, path: path.data }),
 			GitDiff,
 			AbortSignal.timeout(DIFF_BUDGET_MS),
 		);

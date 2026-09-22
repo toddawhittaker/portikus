@@ -42,6 +42,53 @@ async function startUpstream(
 	return (server.address() as AddressInfo).port;
 }
 
+test("createTerminal reads the baseline ids and refuses a bad one", async () => {
+	const sha = "a".repeat(40);
+	let body = "";
+	const port = await startUpstream((request, response) => {
+		request.on("data", (chunk) => {
+			body += String(chunk);
+		});
+		request.on("end", () => {
+			response.writeHead(201, { "content-type": "application/json" });
+			response.end(
+				JSON.stringify({
+					id: "ignored",
+					baselineObjectId: sha,
+					baselineHead: null,
+				}),
+			);
+		});
+	});
+	const client = new AgentClient("127.0.0.1", port, "token");
+	await expect(
+		client.createTerminal({
+			id: "550e8400-e29b-41d4-a716-446655440000",
+			cwd: "/home/student",
+			theme: "dark",
+			timezone: "America/New_York",
+			agent: "codex",
+		}),
+	).resolves.toEqual({ baselineObjectId: sha, baselineHead: null });
+	expect(JSON.parse(body).agent).toBe("codex");
+
+	await new Promise<void>((resolve) => server?.close(() => resolve()));
+	const badPort = await startUpstream((_request, response) => {
+		response.writeHead(201, { "content-type": "application/json" });
+		response.end(JSON.stringify({ baselineObjectId: 4, baselineHead: null }));
+	});
+	const bad = new AgentClient("127.0.0.1", badPort, "token");
+	const error = await bad
+		.createTerminal({
+			id: "550e8400-e29b-41d4-a716-446655440000",
+			cwd: "/home/student",
+			theme: "dark",
+			timezone: "America/New_York",
+		})
+		.catch((caught) => caught);
+	expect(error).toBeInstanceOf(AgentCallError);
+});
+
 test("setLogLevel puts the level on /log-level behind the bearer token", async () => {
 	const seen: { method?: string; url?: string; auth?: string; body: string } = {
 		body: "",

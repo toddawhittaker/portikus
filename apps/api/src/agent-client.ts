@@ -1,6 +1,7 @@
 import {
 	AgentCreateProjectRequest,
 	AgentCreateTerminalRequest,
+	AgentCreateTerminalResponse,
 	AgentDuplicateProjectRequest,
 	AgentError as AgentErrorBody,
 	type AgentErrorCode,
@@ -11,7 +12,6 @@ import {
 	LoopbackForward,
 	LoopbackForwardRequest,
 	SetLogLevelRequest,
-	type TerminalTheme,
 } from "@portikus/contracts";
 
 /** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
@@ -113,13 +113,31 @@ export class AgentClient {
 		return `Bearer ${this.token}`;
 	}
 
-	async createTerminal(input: {
-		id: string;
-		cwd: string;
-		theme: TerminalTheme;
-		timezone: string;
-	}): Promise<void> {
-		await this.call("POST", "/terminals", AgentCreateTerminalRequest.parse(input));
+	async createTerminal(
+		input: AgentCreateTerminalRequest,
+	): Promise<AgentCreateTerminalResponse> {
+		const payload = await this.call(
+			"POST",
+			"/terminals",
+			AgentCreateTerminalRequest.parse(input),
+		);
+		// An agent that has not started recording baselines still answers with
+		// its older terminal body. Missing ids are null; a wrong type is not.
+		const record =
+			payload !== null && typeof payload === "object"
+				? (payload as Record<string, unknown>)
+				: {};
+		const parsed = AgentCreateTerminalResponse.safeParse({
+			baselineObjectId: record.baselineObjectId ?? null,
+			baselineHead: record.baselineHead ?? null,
+		});
+		if (!parsed.success) {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent sent an answer we could not read.",
+			);
+		}
+		return parsed.data;
 	}
 
 	async deleteTerminal(terminalId: string): Promise<void> {

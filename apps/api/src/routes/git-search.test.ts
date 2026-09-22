@@ -159,6 +159,40 @@ test.skipIf(skip)("a hidden flag the contract rejects is a 400", async () => {
 	expect(response.json().code).toBe("VALIDATION_FAILED");
 });
 
+test.skipIf(skip)("baseline status and diff come back for the owner", async () => {
+	const object = "c".repeat(40);
+	const status = await get(
+		alice,
+		workspaceId,
+		projectId,
+		"baseline-status",
+		`?object=${object}`,
+	);
+	expect(status.statusCode).toBe(200);
+	expect(status.json()).toEqual(STATUS);
+
+	const diff = await get(
+		alice,
+		workspaceId,
+		projectId,
+		"baseline-diff",
+		`?object=${object}&path=README.md`,
+	);
+	expect(diff.statusCode).toBe(200);
+	expect(diff.json()).toEqual(DIFF);
+
+	const missing = await get(alice, workspaceId, projectId, "baseline-status");
+	expect(missing.statusCode).toBe(400);
+	const escaped = await get(
+		alice,
+		workspaceId,
+		projectId,
+		"baseline-diff",
+		`?object=${object}&path=../../etc/passwd`,
+	);
+	expect(escaped.statusCode).toBe(400);
+});
+
 test.skipIf(skip)("git diff comes back for the owner", async () => {
 	const response = await get(
 		alice,
@@ -218,7 +252,14 @@ test.skipIf(skip)("a traversal path is refused before the request leaves", async
 test.skipIf(skip)("another student gets a 404 on all three", async () => {
 	const bob = new CookieJar();
 	await loginAs(app, "bob", bob);
-	for (const route of ["git/status", "git/diff?path=README.md", "search?q=hello"]) {
+	const object = "a".repeat(40);
+	for (const route of [
+		"git/status",
+		"git/diff?path=README.md",
+		"search?q=hello",
+		`baseline-status?object=${object}`,
+		`baseline-diff?object=${object}&path=README.md`,
+	]) {
 		const response = await get(bob, workspaceId, projectId, route);
 		expect(response.statusCode).toBe(404);
 		expect(response.json().code).toBe("WORKSPACE_NOT_FOUND");
@@ -233,7 +274,14 @@ test.skipIf(skip)("a stopped workspace answers 409 on all three", async () => {
 		.where("id", "=", workspaceId)
 		.execute();
 
-	for (const route of ["git/status", "git/diff?path=README.md", "search?q=hello"]) {
+	const object = "a".repeat(40);
+	for (const route of [
+		"git/status",
+		"git/diff?path=README.md",
+		"search?q=hello",
+		`baseline-status?object=${object}`,
+		`baseline-diff?object=${object}&path=README.md`,
+	]) {
 		const response = await get(alice, workspaceId, projectId, route);
 		expect(response.statusCode).toBe(409);
 		expect(response.json().code).toBe("AGENT_UNAVAILABLE");

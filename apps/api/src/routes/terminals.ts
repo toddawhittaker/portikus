@@ -79,6 +79,33 @@ function sendError(
 	reply.status(statusCode).send({ code, message });
 }
 
+/** Full object id, SHA-1 or SHA-256. Anything else is not a baseline. */
+const GIT_OBJECT_ID = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
+
+function gitObjectOrNull(value: string | null): string | null {
+	if (value !== null && GIT_OBJECT_ID.test(value)) return value;
+	return null;
+}
+
+/**
+ * The one institutional key this agent kind may receive (SPEC.md §10.6).
+ * Only a variable this process actually has is forwarded, and only for the
+ * launcher that uses it. The value is never stored or logged.
+ */
+function institutionalEnv(
+	agent: "claude" | "codex" | undefined,
+): { ANTHROPIC_API_KEY: string } | { OPENAI_API_KEY: string } | undefined {
+	if (agent === "claude") {
+		const key = process.env.ANTHROPIC_API_KEY;
+		if (key) return { ANTHROPIC_API_KEY: key };
+	}
+	if (agent === "codex") {
+		const key = process.env.OPENAI_API_KEY;
+		if (key) return { OPENAI_API_KEY: key };
+	}
+	return undefined;
+}
+
 function toTerminal(row: {
 	id: string;
 	workspace_id: string;
@@ -87,9 +114,13 @@ function toTerminal(row: {
 	position: number;
 	project_id: string | null;
 	theme: string;
+	agent: string | null;
+	baseline_object_id: string | null;
+	baseline_head: string | null;
 	created_at: Date;
 	ended_at: Date | null;
 }): Terminal {
+	const agent = row.agent === "claude" || row.agent === "codex" ? row.agent : null;
 	return {
 		id: row.id,
 		workspaceId: row.workspace_id,
@@ -101,6 +132,9 @@ function toTerminal(row: {
 		endedAt: row.ended_at ? row.ended_at.toISOString() : null,
 		// A row written before migration 0010, or by hand, reads as dark.
 		theme: TerminalTheme.catch("dark").parse(row.theme),
+		agent,
+		baselineObjectId: gitObjectOrNull(row.baseline_object_id),
+		baselineHead: gitObjectOrNull(row.baseline_head),
 	};
 }
 
@@ -294,7 +328,7 @@ export function registerTerminalRoutes(
 		const settings = await userTerminalSettings(db, user.id);
 		const theme = body.data.theme ?? settings.terminalTheme;
 
-		const created = await db
+		await db
 			.insertInto("terminals")
 			.values({
 				id,
@@ -304,12 +338,27 @@ export function registerTerminalRoutes(
 				position,
 				project_id: project ? project.id : null,
 				theme,
+				agent: body.data.agent ?? null,
 			})
-			.returningAll()
-			.executeTakeFirstOrThrow();
+			.execute();
 
+		let baselineObjectId: string | null = null;
+		let baselineHead: string | null = null;
 		try {
-			await agent.createTerminal({ id, cwd, theme, timezone: settings.timezone });
+			// The API does not choose the CLI. It forwards the launcher kind
+			// and, when this process has it, the matching institutional key
+			// (SPEC.md §10.2, §10.6, §24.8).
+			const keys = institutionalEnv(body.data.agent);
+			const created = await agent.createTerminal({
+				id,
+				cwd,
+				theme,
+				timezone: settings.timezone,
+				...(body.data.agent === undefined ? {} : { agent: body.data.agent }),
+				...(keys === undefined ? {} : { institutionalEnv: keys }),
+			});
+			baselineObjectId = gitObjectOrNull(created.baselineObjectId);
+			baselineHead = gitObjectOrNull(created.baselineHead);
 		} catch (error) {
 			// The row only means something if the agent has the tmux session.
 			await db.deleteFrom("terminals").where("id", "=", id).execute();
@@ -324,7 +373,17 @@ export function registerTerminalRoutes(
 			);
 		}
 
-		return reply.status(201).send(toTerminal(created));
+		const saved = await db
+			.updateTable("terminals")
+			.set({
+				baseline_object_id: baselineObjectId,
+				baseline_head: baselineHead,
+			})
+			.where("id", "=", id)
+			.returningAll()
+			.executeTakeFirstOrThrow();
+
+		return reply.status(201).send(toTerminal(saved));
 	});
 
 	// PATCH /workspaces/:id/terminals/:tid -- display name, colour scheme, or

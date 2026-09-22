@@ -70,6 +70,17 @@ export const AgentCreateTerminalRequest = z
 export type AgentCreateTerminalRequest = z.infer<typeof AgentCreateTerminalRequest>;
 
 /**
+ * Reply from `POST /terminals` on the agent (SPEC.md §10.9). Both ids are
+ * null when the project had nothing to record. Any other field the agent
+ * still sends is ignored by the caller, which reads only these two.
+ */
+export const AgentCreateTerminalResponse = z.object({
+	baselineObjectId: z.string().nullable(),
+	baselineHead: z.string().nullable(),
+});
+export type AgentCreateTerminalResponse = z.infer<typeof AgentCreateTerminalResponse>;
+
+/**
  * A project directory as the agent sees it under `~/projects`
  * (SPEC.md §7.1; the agent owns the filesystem, STACK.md §10).
  */
