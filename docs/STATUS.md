@@ -1221,3 +1221,78 @@ not in the status pull request.
 - The terminal's own poll of its working directory was left in place.
   Session review uses the existing project watcher. The two were not
   folded into one watcher.
+
+## Epic 9.1 — pilot fix batch after Epic 9
+
+Small fixes raised while driving the pilot on 2026-09-22, gathered on the
+`epic/9-1-pilot-fixes` branch. Each is a separate change, so this section
+is grouped by the surface it touches. The issues below close when the
+epic merges to `main`.
+
+**Terminals.** A terminal, Claude Code, or Codex tab opened from New takes
+the keyboard focus at once. The New button and a terminal's menu button
+no longer keep the focus ring after a pointer dismiss, and the disabled
+File item is gone from the New menu (issues #320, #321 and #322, PR #334).
+Running `clear` now erases the saved lines as well as the screen. The
+interactive terminal handles the CSI 3 J sequence (the "erase saved
+lines" control code that `clear` sends on xterm-256color), and the tmux
+terminal overrides set E3, the erase-scrollback capability, so tmux passes
+the request through (issue #335, PR #344).
+
+**Projects and the workspace chrome.** The projects pane shows the project
+name without the directory slug beside it. The status-bar path, the
+create preview, and downloads still use the slug as the folder name
+(issue #323, PR #330). The status-bar state opens the workspace dialog,
+and the header no longer has a Workspace button. The leave-terminal hint
+is gone, but the shortcut stays. The account button no longer shows the
+role, and its text is the initials, a space, and the display name. Light,
+dark, and system appearance are chosen in Settings and kept in this
+browser (issues #327, #328 and #329, PR #333).
+
+**Checks.** The play and stop icons use the running and danger colour
+tokens in both themes, and the colour does not blend during a flip or
+change on hover. The accessible names stay "Run …" and "Stop …"
+(issue #324, PR #331).
+
+**Running and preview.** Stop and Open preview are icon buttons, and a
+port that has stopped listening leaves the list. Selecting a row opens a
+details panel that includes the command line from `/proc` (issues #325
+and #326, PR #332). A selected row also shows CPU and memory (issue #338,
+PR #346). After a stop, the agent keeps checking for the port to close
+for the same grace period it gives the process, instead of looking once
+and reporting "Port N did not stop" (issue #348, PR #349). The preview
+picker hides system ports unless the Running pane's "Show system
+services" preference is on. Typing a port still opens it, and the API's
+preview policy is unchanged (issue #336, PR #341).
+
+**Right-pane panels and the Monitor tab.** The divider under Checks and
+under Running can be dragged, and the height lasts for the browser
+session (issue #337). A Monitor tab shows the workspace's CPU, memory,
+disk, network, and processes, from one sample the agent reads; clicking a
+column header sorts it, and PID, CPU, and memory sort as numbers
+(issue #339, PRs #346 and #347).
+
+**Settings.** The dialog is a searchable list of sections on the left and
+the chosen section on the right. Preferences keeps the existing editor,
+terminal, workspace, and appearance controls. Account shows the
+institution sign-in, including the sign-in name from `GET /auth/me`
+(issue #340, PR #345). Only the pane inside the dialog scrolls
+now, not the frame. A setting's description sits on the line below its
+label, terminal colours are a light or dark switch, and the page colour
+scheme is a row of three choices (PR #347).
+
+**Maintenance.** Patch-level dependency bumps (Biome, Fastify,
+@fastify/websocket, Kysely, TanStack Router), chokidar 5, and newer
+GitHub Actions pins for upload-artifact, download-artifact, and cache.
+`@types/node` stays on 24 to match `.nvmrc` (PR #343). Each Playwright
+run now creates its own empty database, migrates it from the checkout,
+and drops it afterwards, because the shared test database carried a
+migration from another branch that stopped Kysely from starting (PR #342).
+
+**Gaps.**
+
+- Issue #300 is only partly done, so it stays open. Appearance moved into
+  Settings, but it is still kept only in this browser, not in the
+  per-user settings row the issue asks for. The Profile section (picture,
+  GitHub and personal links) did not land; the Account section shows only
+  the institution sign-in.
