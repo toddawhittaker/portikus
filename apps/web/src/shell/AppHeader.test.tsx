@@ -39,8 +39,7 @@ test("shows the project in view and the signed-in name, not a workspace button",
 	expect(screen.getByText("todo-api")).toBeDefined();
 	expect(screen.getByText("~/projects/todo-api")).toBeDefined();
 	const account = screen.getByTestId("me");
-	expect(account.textContent).toContain("AE");
-	expect(account.textContent).toContain("Alice Example");
+	expect(account.textContent?.replace(/\s+/g, " ").trim()).toBe("AE Alice Example");
 	expect(account.textContent).not.toContain("Student");
 	expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
 	expect(screen.queryByTestId("workspace-status")).toBeNull();
@@ -87,7 +86,7 @@ test("signing out posts a form to the API", () => {
 test("an administrator gets an Administration link that opens in a new tab", () => {
 	renderHeader(WORKSPACE, { ...USER, role: "administrator" });
 	const account = screen.getByTestId("me");
-	expect(account.textContent).toContain("Alice Example");
+	expect(account.textContent?.replace(/\s+/g, " ").trim()).toBe("AE Alice Example");
 	expect(account.textContent).not.toContain("Administrator");
 	openAccountMenu();
 

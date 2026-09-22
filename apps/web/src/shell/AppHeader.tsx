@@ -64,9 +64,8 @@ export function AppHeader({
 			<MenuRoot>
 				<MenuTrigger asChild>
 					<button type="button" className="pk-account" data-testid="me">
-						<span className="pk-initials" aria-hidden="true">
-							{initials(user.displayName)}
-						</span>
+						<span className="pk-initials">{initials(user.displayName)}</span>
+						{/* The gap is only visual. This space is part of the button text. */}{" "}
 						<span>{user.displayName}</span>
 						<Icon name="chevron-down" size="sm" />
 					</button>
