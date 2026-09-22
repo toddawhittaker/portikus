@@ -97,6 +97,19 @@ test("AuthUser round-trips and allows a null email", () => {
 		role: "student" as const,
 	};
 	expect(AuthUser.parse(input)).toEqual(input);
+	const withSubject = { ...input, oidcSubject: "alice" };
+	expect(AuthUser.parse(withSubject)).toEqual(withSubject);
+});
+
+test("AuthUser rejects an empty sign-in name", () => {
+	const result = AuthUser.safeParse({
+		id: "550e8400-e29b-41d4-a716-446655440111",
+		email: null,
+		displayName: "Alice",
+		role: "student",
+		oidcSubject: "",
+	});
+	expect(result.success).toBe(false);
 });
 
 test("AuthUser rejects an unknown role", () => {
