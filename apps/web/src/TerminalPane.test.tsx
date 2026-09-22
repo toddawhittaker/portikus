@@ -1,4 +1,4 @@
-import type { Terminal } from "@portikus/contracts";
+import { MAX_UPLOAD_BYTES, type Terminal } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -7,6 +7,9 @@ import { createQueryClient } from "./api/queryClient.js";
 import {
 	decodeOsc52,
 	MAX_CLIPBOARD_BYTES,
+	pastedImageType,
+	pastedPathInput,
+	pastePath,
 	SCROLLBACK_LINES,
 	TerminalPane,
 	terminalTheme,
@@ -587,4 +590,226 @@ test("clear erases the scrollback and ordinary output still keeps it", async () 
 	});
 	await waitFor(() => expect(linesAboveCursor(term)).toBeGreaterThan(0));
 	expect(term.buffer.active.length).toBeLessThanOrEqual(SCROLLBACK_LINES + term.rows);
+});
+
+// Image paste (Epic 9.2 brief, "Done").
+
+test("only a lone png or jpeg becomes a picture paste", () => {
+	expect(pastedImageType(["image/png"])).toBe("image/png");
+	expect(pastedImageType(["image/jpeg"])).toBe("image/jpeg");
+	// Text beside a picture stays a text paste.
+	expect(pastedImageType(["text/plain", "image/png"])).toBeNull();
+	expect(pastedImageType(["image/png", "text/html"])).toBeNull();
+	// Other picture types are not part of this epic.
+	expect(pastedImageType(["image/gif"])).toBeNull();
+	expect(pastedImageType(["image/webp"])).toBeNull();
+	expect(pastedImageType([])).toBeNull();
+});
+
+test("a pasted picture gets a name Portikus chose under .portikus/pastes", () => {
+	const now = new Date("2026-09-22T13:40:00.123Z");
+	expect(pastePath(now, "image/png")).toBe(".portikus/pastes/2026-09-22T13-40-00.png");
+	expect(pastePath(now, "image/jpeg")).toBe(
+		".portikus/pastes/2026-09-22T13-40-00.jpeg",
+	);
+});
+
+test("the shell gets the absolute home path, a space, and no newline", () => {
+	expect(pastedPathInput("todo-api", ".portikus/pastes/a.png")).toBe(
+		"/home/student/projects/todo-api/.portikus/pastes/a.png ",
+	);
+});
+
+const PNG_BYTES = "\u0089PNG-image-bytes";
+
+interface Call {
+	method: string;
+	url: string;
+	headers: Record<string, string>;
+	body: unknown;
+}
+
+function json(status: number, body: unknown): Response {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { "content-type": "application/json" },
+	});
+}
+
+/** A fake API: the project list, and a record of every file call. */
+function stubFileApi(): Call[] {
+	const calls: Call[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: string, init: RequestInit = {}) => {
+			const url = String(input);
+			if (url.endsWith("/projects?state=active")) {
+				return json(200, {
+					projects: [
+						{
+							id: PROJECT,
+							workspaceId: WORKSPACE,
+							slug: "todo-api",
+							name: "todo-api",
+							path: "/home/student/projects/todo-api",
+							state: "active",
+							source: "new",
+							isGitRepo: true,
+							missing: false,
+							createdAt: "2026-01-01T00:00:00.000Z",
+							archivedAt: null,
+						},
+					],
+				});
+			}
+			calls.push({
+				method: init.method ?? "GET",
+				url,
+				headers: (init.headers ?? {}) as Record<string, string>,
+				body: init.body,
+			});
+			// `.portikus` already holds checks.json in this project.
+			if (url.endsWith("/mkdir") && String(init.body).includes('".portikus"')) {
+				return json(409, { code: "FILE_EXISTS", message: "exists" });
+			}
+			if (url.endsWith("/mkdir")) return json(201, {});
+			return json(200, { etag: "e1", size: PNG_BYTES.length });
+		}),
+	);
+	return calls;
+}
+
+/** Fire the browser's paste event on the terminal, carrying `items`. */
+function firePaste(view: ReturnType<typeof render>, items: unknown[]): Event {
+	const target = view.container.querySelector("textarea");
+	if (!target) throw new Error("no xterm textarea");
+	const event = new Event("paste", { bubbles: true, cancelable: true });
+	const text = items.some((item) => (item as { type: string }).type === "text/plain")
+		? "typed-text"
+		: "";
+	Object.defineProperty(event, "clipboardData", {
+		value: { items, getData: () => text },
+	});
+	act(() => {
+		target.dispatchEvent(event);
+	});
+	return event;
+}
+
+function rightClick(view: ReturnType<typeof render>) {
+	const surface = view.container.querySelector(".pk-terminal-surface");
+	act(() => {
+		surface?.dispatchEvent(
+			new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+		);
+	});
+}
+
+function inputsSent(): string[] {
+	return (sockets[0]?.sent ?? [])
+		.map((raw) => JSON.parse(raw) as { type: string; data?: string })
+		.filter((message) => message.type === "input")
+		.map((message) => message.data ?? "");
+}
+
+/** A connected pane whose project list, and so its slug, has loaded. */
+async function loadedPane() {
+	const calls = stubFileApi();
+	const { view } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	act(() => sockets[0]?.onopen?.());
+	await waitFor(() => expect(fetch).toHaveBeenCalled());
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	return { view, calls };
+}
+
+test("pasting a png saves it in the project and types only its path", async () => {
+	const { view, calls } = await loadedPane();
+	vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-09-22T13:40:00Z") });
+	const image = new File([PNG_BYTES], "clipboard-name.png", { type: "image/png" });
+
+	const event = firePaste(view, [
+		{ kind: "file", type: "image/png", getAsFile: () => image },
+	]);
+	vi.useRealTimers();
+	expect(event.defaultPrevented).toBe(true);
+
+	const path = ".portikus/pastes/2026-09-22T13-40-00.png";
+	await waitFor(() =>
+		expect(inputsSent()).toEqual([`/home/student/projects/todo-api/${path} `]),
+	);
+	// .portikus, then .portikus/pastes, then the file, which must not exist yet.
+	expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "PUT"]);
+	expect(calls[0]?.body).toBe(JSON.stringify({ path: ".portikus" }));
+	expect(calls[1]?.body).toBe(JSON.stringify({ path: ".portikus/pastes" }));
+	const put = calls[2];
+	expect(put?.url).toBe(
+		`/workspaces/${WORKSPACE}/projects/${PROJECT}/file?path=${encodeURIComponent(path)}`,
+	);
+	expect(put?.headers["if-none-match"]).toBe("*");
+	expect(put?.body).toBe(image);
+	// The clipboard's own name is ignored, and no bytes reach the shell.
+	expect(put?.url).not.toContain("clipboard-name");
+	expect(inputsSent().join("")).not.toContain("PNG");
+});
+
+test("a jpeg paste is saved with a .jpeg name", async () => {
+	const { view, calls } = await loadedPane();
+	const image = new File([PNG_BYTES], "x", { type: "image/jpeg" });
+	firePaste(view, [{ kind: "file", type: "image/jpeg", getAsFile: () => image }]);
+	await waitFor(() =>
+		expect(inputsSent()[0]).toMatch(/\.portikus\/pastes\/[^/ ]+\.jpeg $/),
+	);
+	expect(calls.at(-1)?.url).toMatch(/\.jpeg$/);
+});
+
+test("a paste with text beside a picture is left to the text paste", async () => {
+	const { view, calls } = await loadedPane();
+	firePaste(view, [
+		{ kind: "string", type: "text/plain", getAsFile: () => null },
+		{ kind: "file", type: "image/png", getAsFile: () => new File([PNG_BYTES], "p") },
+	]);
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	expect(calls).toEqual([]);
+	// xterm types the text, exactly once.
+	await waitFor(() => expect(inputsSent()).toEqual(["typed-text"]));
+});
+
+test("a picture over the upload cap is refused and nothing is written", async () => {
+	const { view, calls } = await loadedPane();
+	const huge = { size: MAX_UPLOAD_BYTES + 1, type: "image/png" };
+	firePaste(view, [{ kind: "file", type: "image/png", getAsFile: () => huge }]);
+	await waitFor(() => expect(view.getByText(/MB or smaller/)).toBeTruthy());
+	expect(calls).toEqual([]);
+	expect(inputsSent()).toEqual([]);
+});
+
+test("right-click pastes a picture even where readText is missing", async () => {
+	const { view, calls } = await loadedPane();
+	const image = new Blob([PNG_BYTES], { type: "image/png" });
+	stubClipboard({
+		read: async () => [{ types: ["image/png"], getType: async () => image }],
+	});
+	rightClick(view);
+	await waitFor(() =>
+		expect(inputsSent()[0]).toMatch(
+			/^\/home\/student\/projects\/todo-api\/\.portikus\/pastes\/.+\.png $/,
+		),
+	);
+	expect(calls.at(-1)?.body).toBe(image);
+});
+
+test("right-click with text on the clipboard types the text", async () => {
+	const { view, calls } = await loadedPane();
+	stubClipboard({
+		read: async () => [{ types: ["text/plain", "image/png"], getType: vi.fn() }],
+		readText: async () => "hello",
+	});
+	rightClick(view);
+	await waitFor(() => expect(inputsSent()).toEqual(["hello"]));
+	expect(calls).toEqual([]);
 });
