@@ -111,7 +111,9 @@ export const HISTORY_LINES = 5000;
  * xterm.js has no scrollback at all and turns the wheel into arrow keys.
  * `indn`/`rin` scroll by N lines in place, which xterm.js does not save.
  * Without them tmux uses plain line feeds at the bottom of the screen, and
- * those do get saved.
+ * those do get saved. `E3=\E[3J` tells tmux the attached terminal can erase
+ * its scrollback, which is what `clear` asks for. The browser drops the saved
+ * lines when that sequence arrives (SPEC.md §9.1).
  *
  * `history-limit` has to be global and set first: tmux reads it when a window
  * is created, so setting it on a session afterwards leaves that session's
@@ -129,7 +131,7 @@ function serverOptionArgs(): string[] {
 		"set-option",
 		"-s",
 		"terminal-overrides",
-		"*:smcup@:rmcup@:indn@:rin@",
+		"*:smcup@:rmcup@:indn@:rin@:E3=\\E[3J",
 		";",
 		"set-option",
 		"-s",
