@@ -6,6 +6,7 @@
 import type { GitStatus } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { expect, test } from "vitest";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store.js";
 import { ChangesList } from "./ChangesList.js";
@@ -73,6 +74,39 @@ test("a session review names the agent session, not the last commit", () => {
 	);
 	expect(screen.queryByText("No changes since the last commit")).toBeNull();
 	expect(sessionReviewLabel("codex")).toBe("Changes since Codex session started");
+});
+
+test("switching review mode moves focus and announces the new heading", () => {
+	function Harness() {
+		const [review, setReview] = useState(false);
+		return (
+			<ChangesList
+				projectId="pid"
+				status={EMPTY}
+				sessionLabel={review ? sessionReviewLabel("claude") : undefined}
+				onReviewSession={review ? undefined : () => setReview(true)}
+				onShowGit={review ? () => setReview(false) : undefined}
+			/>
+		);
+	}
+	const store = createLayoutStore();
+	render(
+		<ToastProvider>
+			<LayoutStoreContext.Provider value={store}>
+				<Harness />
+			</LayoutStoreContext.Provider>
+		</ToastProvider>,
+	);
+
+	const title = screen.getByTestId("changes-title");
+	expect(title.getAttribute("aria-live")).toBe("polite");
+	fireEvent.click(screen.getByTestId("review-session"));
+	expect(title.textContent).toBe("Changes since Claude session started");
+	expect(document.activeElement).toBe(screen.getByTestId("show-git-changes"));
+
+	fireEvent.click(screen.getByTestId("show-git-changes"));
+	expect(title.textContent).toBe("Changes (0)");
+	expect(document.activeElement).toBe(screen.getByTestId("review-session"));
 });
 
 test("a repository with nothing changed says so", () => {

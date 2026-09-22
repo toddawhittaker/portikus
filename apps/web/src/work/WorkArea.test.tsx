@@ -210,6 +210,38 @@ test("Claude Code and Codex post the agent enum and no command", async () => {
 	expect(bodies.every((body) => !("command" in body))).toBe(true);
 });
 
+test("Claude Code and Codex tabs share the agent icon and those labels", async () => {
+	const shell = "66666666-6666-4666-8666-666666666666";
+	stubFetch({
+		layout: {
+			tabs: [
+				{ id: "tab1", root: { type: "leaf", terminalId: ONE } },
+				{ id: "tab2", root: { type: "leaf", terminalId: TWO } },
+				{ id: "tab3", root: { type: "leaf", terminalId: shell } },
+			],
+		},
+		terminals: [
+			{ ...terminal(ONE, "Terminal 1"), agent: "claude" },
+			{ ...terminal(TWO, "Terminal 2"), agent: "codex" },
+			terminal(shell, "zsh"),
+		],
+	});
+	renderArea();
+
+	await waitFor(() => expect(screen.getByTestId("tab-tab1")).toBeTruthy());
+	const claude = screen.getByTestId("tab-tab1");
+	const codex = screen.getByTestId("tab-tab2");
+	const ordinary = screen.getByTestId("tab-tab3");
+	expect(claude.textContent).toContain("Claude Code");
+	expect(claude.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe("agent");
+	expect(codex.textContent).toContain("Codex");
+	expect(codex.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe("agent");
+	expect(ordinary.textContent).toContain("zsh");
+	expect(ordinary.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe(
+		"terminal",
+	);
+});
+
 test("closing a tab with one terminal deletes it without asking", async () => {
 	const { fetchMock } = stubFetch({
 		layout: { tabs: [{ id: "tab1", root: { type: "leaf", terminalId: ONE } }] },
