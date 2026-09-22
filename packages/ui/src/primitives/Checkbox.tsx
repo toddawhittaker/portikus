@@ -43,7 +43,7 @@ export function Checkbox({
 			>
 				{checked ? <Icon name="check" size="sm" /> : null}
 			</span>
-			<span className="pk-check-text grid gap-0.5">
+			<span className="pk-checkbox-copy">
 				<span>{label}</span>
 				{description ? <span className={HINT_CLASS}>{description}</span> : null}
 			</span>

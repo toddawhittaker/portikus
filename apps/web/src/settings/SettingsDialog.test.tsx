@@ -3,12 +3,15 @@
  * server holds and sends the changes back.
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, renderWithQuery, stubFetch } from "../test-utils.js";
+import { json, renderWithQuery, stubFetch, USER } from "../test-utils.js";
 import { SettingsDialog } from "./SettingsDialog.js";
+import { SETTINGS_SECTIONS } from "./sections.js";
 
 afterEach(() => {
+	document.documentElement.removeAttribute("data-theme");
+	localStorage.clear();
 	vi.unstubAllGlobals();
 });
 
@@ -29,10 +32,17 @@ const SERVER_ZONES = [
 ];
 
 /** Answers GET /me/settings with `stored` and records what is written. */
-function stubSettings(stored = EDITOR_SETTINGS_DEFAULTS) {
+function stubSettings(
+	stored = EDITOR_SETTINGS_DEFAULTS,
+	user: Record<string, unknown> | null = null,
+) {
 	const writes: Sent[] = [];
 	let current = { ...stored, timezones: SERVER_ZONES };
 	stubFetch((url, init) => {
+		if (url === "/auth/me") {
+			if (!user) throw new Error("unexpected request to /auth/me");
+			return json(200, user);
+		}
 		if (url !== "/me/settings") throw new Error(`unexpected request to ${url}`);
 		if ((init?.method ?? "GET") !== "GET") {
 			const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
@@ -48,8 +58,19 @@ function checkbox(name: RegExp) {
 	return screen.getByRole("checkbox", { name });
 }
 
-/** Issue #288: one dialog, three headed groups, every field under its own. */
-test("the three sections each hold their fields", async () => {
+/** The accessible name is the whole string, not a substring of a longer one. */
+function buttonNamed(label: string): HTMLElement {
+	const found = screen
+		.getAllByRole("button")
+		.filter((button) => button.textContent === label);
+	expect(found).toHaveLength(1);
+	const button = found[0];
+	if (!button) throw new Error(`missing button ${label}`);
+	return button;
+}
+
+/** Issue #288, plus appearance in the same dialog (issue #329). */
+test("each section holds its own fields", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	// The zone select waits for the server's list, so it arrives last.
@@ -61,12 +82,20 @@ test("the three sections each hold their fields", async () => {
 	const editor = screen.getByRole("region", { name: "Editor" });
 	const terminal = screen.getByRole("region", { name: "Terminal" });
 	const workspace = screen.getByRole("region", { name: "Workspace" });
+	const appearance = screen.getByRole("region", { name: "Appearance" });
 
 	expect(editor.textContent).toContain("Auto-save");
 	expect(editor.textContent).toContain("Word wrap");
 	expect(editor.contains(screen.getByTestId("editor-settings-delay"))).toBe(true);
-	expect(terminal.textContent).toContain("Terminal colours");
+	expect(terminal.textContent).toContain("Terminal colors");
 	expect(workspace.textContent).toContain("Workspace timezone");
+	expect(appearance.contains(screen.getByRole("group", { name: "Color scheme" }))).toBe(
+		true,
+	);
+	expect(
+		(within(appearance).getByRole("radio", { name: "System" }) as HTMLInputElement)
+			.checked,
+	).toBe(true);
 });
 
 test("it shows the settings the server holds", async () => {
@@ -86,7 +115,13 @@ test("it shows the settings the server holds", async () => {
 	);
 	expect((checkbox(/Auto-save/) as HTMLInputElement).checked).toBe(false);
 	expect((checkbox(/Word wrap/) as HTMLInputElement).checked).toBe(true);
-	expect(screen.getByLabelText("Terminal colours").textContent).toContain("Light");
+	expect(
+		(
+			within(screen.getByRole("region", { name: "Terminal" })).getByRole("switch", {
+				name: "Terminal colors",
+			}) as HTMLInputElement
+		).checked,
+	).toBe(true);
 });
 
 test("saving sends every setting and closes the dialog", async () => {
@@ -154,9 +189,55 @@ test("a delay outside 1 to 60 seconds is refused before anything is sent", async
 });
 
 /**
+ * Issue #329: page appearance is chosen here, applied at once, and kept in
+ * this browser. It is not part of the settings the server stores, and it
+ * does not change the terminal color scheme sent with everything else.
+ */
+test("choosing an appearance applies at once and is not sent to the server", async () => {
+	const writes = stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const terminal = () => screen.getByRole("region", { name: "Terminal" });
+	const appearance = () => screen.getByRole("region", { name: "Appearance" });
+	await waitFor(() =>
+		expect(
+			(
+				within(terminal()).getByRole("switch", {
+					name: "Terminal colors",
+				}) as HTMLInputElement
+			).checked,
+		).toBe(false),
+	);
+
+	fireEvent.click(within(appearance()).getByRole("radio", { name: "Light" }));
+
+	expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+	expect(localStorage.getItem("pk-theme")).toBe("light");
+	expect(
+		(
+			within(terminal()).getByRole("switch", {
+				name: "Terminal colors",
+			}) as HTMLInputElement
+		).checked,
+	).toBe(false);
+
+	fireEvent.click(within(appearance()).getByRole("radio", { name: "System" }));
+	expect(document.documentElement.getAttribute("data-theme")).toBeNull();
+	expect(localStorage.getItem("pk-theme")).toBe("system");
+
+	fireEvent.click(screen.getByTestId("editor-settings-save"));
+	await waitFor(() => expect(writes).toHaveLength(1));
+	expect(writes[0]?.body).toEqual({
+		autoSave: true,
+		autoSaveDelaySeconds: 5,
+		wordWrap: true,
+		terminalTheme: "dark",
+		timezone: "America/New_York",
+	});
+});
+
+/**
  * Issue #239: the dialog shows the stored terminal theme and sends it back
- * with everything else. The Radix select cannot be opened in jsdom, so
- * actually choosing a different theme is covered in e2e/editor.spec.ts.
+ * with everything else.
  */
 test("the stored terminal theme is shown and sent back", async () => {
 	const writes = stubSettings({
@@ -167,15 +248,23 @@ test("the stored terminal theme is shown and sent back", async () => {
 		timezone: "America/New_York",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const terminal = () => screen.getByRole("region", { name: "Terminal" });
 	await waitFor(() =>
-		expect(screen.getByLabelText("Terminal colours").textContent).toContain("Light"),
+		expect(
+			(
+				within(terminal()).getByRole("switch", {
+					name: "Terminal colors",
+				}) as HTMLInputElement
+			).checked,
+		).toBe(true),
 	);
+	fireEvent.click(within(terminal()).getByRole("switch", { name: "Terminal colors" }));
 
 	fireEvent.click(checkbox(/Word wrap/));
 	fireEvent.click(screen.getByTestId("editor-settings-save"));
 
 	await waitFor(() => expect(writes).toHaveLength(1));
-	expect(writes[0]?.body).toMatchObject({ terminalTheme: "light", wordWrap: true });
+	expect(writes[0]?.body).toMatchObject({ terminalTheme: "dark", wordWrap: true });
 });
 
 /**
@@ -266,5 +355,131 @@ test("a failed settings request explains why the zone cannot be changed", async 
 	);
 	expect(screen.getByLabelText("Workspace timezone").hasAttribute("disabled")).toBe(
 		true,
+	);
+});
+
+const ACCOUNT_USER = { ...USER, oidcSubject: "university-alice" };
+
+test("settings opens on Preferences, with Account in the list", async () => {
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByLabelText("Workspace timezone")).toBeTruthy());
+
+	expect(
+		screen.getByRole("button", { name: "Preferences" }).getAttribute("aria-current"),
+	).toBe("page");
+	expect(screen.getByRole("button", { name: "Account" })).toBeTruthy();
+	expect(screen.getByRole("heading", { name: "Preferences" })).toBeTruthy();
+	expect(screen.queryByLabelText("Display name")).toBeNull();
+	expect(screen.queryByRole("button", { name: "Billing" })).toBeNull();
+});
+
+test("every control label on the section list is a search hit", async () => {
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByLabelText("Search")).toBeTruthy());
+
+	for (const section of SETTINGS_SECTIONS) {
+		for (const group of section.groups) {
+			for (const control of group.controls) {
+				fireEvent.change(screen.getByLabelText("Search"), {
+					target: { value: control.label },
+				});
+				expect(buttonNamed(control.label)).toBeTruthy();
+			}
+		}
+	}
+});
+
+test("choosing a search hit opens the section and shows that control", async () => {
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByLabelText("Search")).toBeTruthy());
+
+	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "word wrap" } });
+	expect(screen.queryByRole("button", { name: "Account" })).toBeNull();
+	fireEvent.click(buttonNamed("Word wrap"));
+
+	const frame = document.getElementById("settings-control-word-wrap");
+	expect(frame?.getAttribute("data-highlighted")).toBe("true");
+	expect(frame?.contains(checkbox(/Word wrap/))).toBe(true);
+	expect(screen.getByRole("heading", { name: "Editor" })).toBeTruthy();
+});
+
+test("a search with no match says so", async () => {
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByLabelText("Search")).toBeTruthy());
+
+	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "billing" } });
+	expect(screen.getByText("No matching settings.")).toBeTruthy();
+	expect(screen.queryByRole("button", { name: "Preferences" })).toBeNull();
+});
+
+test("Account shows the institution sign-in and cannot be edited", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByRole("button", { name: "Account" })).toBeTruthy(),
+	);
+
+	fireEvent.click(screen.getByRole("button", { name: "Account" }));
+
+	expect(
+		await screen.findByText("These come from the institution sign-in."),
+	).toBeTruthy();
+	expect(screen.getByTestId("account-initials").textContent).toBe("AE");
+	const displayName = screen.getByLabelText("Display name") as HTMLInputElement;
+	expect(displayName.value).toBe("Alice Example");
+	expect(displayName.readOnly).toBe(true);
+	expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe(USER.email);
+	expect((screen.getByLabelText("Sign-in name") as HTMLInputElement).value).toBe(
+		"university-alice",
+	);
+	expect(document.querySelector("input[type=file]")).toBeNull();
+	expect(screen.queryByRole("button", { name: /upload/i })).toBeNull();
+});
+
+test("a missing email is shown as not provided", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, { ...ACCOUNT_USER, email: null });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	fireEvent.click(await screen.findByRole("button", { name: "Account" }));
+
+	expect(((await screen.findByLabelText("Email")) as HTMLInputElement).value).toBe(
+		"Not provided",
+	);
+});
+
+test("choosing the sign-in name hit opens Account on that field", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByLabelText("Search")).toBeTruthy());
+
+	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "sign-in" } });
+	fireEvent.click(buttonNamed("Sign-in name"));
+
+	expect(
+		((await screen.findByLabelText("Sign-in name")) as HTMLInputElement).value,
+	).toBe("university-alice");
+	expect(
+		document
+			.getElementById("settings-control-sign-in-name")
+			?.getAttribute("data-highlighted"),
+	).toBe("true");
+});
+
+test("a failed account request explains that the details are missing", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(500, { code: "INTERNAL", message: "no" });
+		if (url === "/me/settings") {
+			return json(200, { ...EDITOR_SETTINGS_DEFAULTS, timezones: SERVER_ZONES });
+		}
+		throw new Error(`unexpected request to ${url}`);
+	});
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	fireEvent.click(await screen.findByRole("button", { name: "Account" }));
+
+	expect((await screen.findByTestId("account-error")).textContent).toContain(
+		"could not be loaded",
 	);
 });

@@ -167,7 +167,16 @@ export function registerAuthRoutes(
 		if (!request.user) {
 			return fail(reply, 401, "UNAUTHORIZED", "Sign in to continue");
 		}
-		const body: MeResponse = request.user;
+		// The session user has no sign-in name; it lives on the user row.
+		const row = await db
+			.selectFrom("users")
+			.select("oidc_subject")
+			.where("id", "=", request.user.id)
+			.executeTakeFirst();
+		if (!row) {
+			return fail(reply, 401, "UNAUTHORIZED", "Sign in to continue");
+		}
+		const body: MeResponse = { ...request.user, oidcSubject: row.oidc_subject };
 		return reply.send(body);
 	});
 }

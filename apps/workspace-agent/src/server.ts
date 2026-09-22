@@ -73,6 +73,7 @@ import {
 	killSession,
 	listSessions,
 } from "./tmux.js";
+import { UsageSampler, type UsageSamplerOptions } from "./usage.js";
 import { ProjectWatchers } from "./watch.js";
 
 const IdParam = z.object({ terminalId: TerminalId });
@@ -124,6 +125,8 @@ export interface ServerOptions {
 	brokerSocketPath?: string;
 	/** Workspace id stamped on browser-open frames. */
 	workspaceId?: string;
+	/** Overrides where usage is read. For tests. */
+	usage?: UsageSamplerOptions;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -139,7 +142,9 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		loggerInstance: rootLogger as FastifyBaseLogger,
 		logController: quietLogController(),
 	});
-	registerRequestLogging(app, { debugPaths: ["/health"] });
+	// Usage is polled once a second and its body names processes, so the
+	// request line stays at debug and the body is never logged (STACK.md §15).
+	registerRequestLogging(app, { debugPaths: ["/health", "/usage"] });
 
 	// The level to return to when the API clears the override (ADR 0012).
 	const startLevel = rootLogger.level as LogLevel;
@@ -196,6 +201,11 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	});
 	monitor.start();
 
+	const usage = new UsageSampler({
+		homePath: options.homeDir,
+		...options.usage,
+	});
+
 	app.addHook("preClose", async () => {
 		monitor.stop();
 		forwards.closeEverything();
@@ -225,6 +235,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// wrapped the upgrade handler before they are registered.
 	app.register(async (instance) => {
 		instance.get("/health", async () => ({ ok: true }));
+
+		// One sample serves the Monitor tab and the selected Running row.
+		// The handler logs nothing: the body carries process names.
+		instance.get("/usage", async () => usage.read());
 
 		// The control plane turns debug logging on and off while the agent
 		// runs (ADR 0012); the level lives only in this process.

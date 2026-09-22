@@ -125,3 +125,32 @@ test("the right pane switches between Files and Checks", async () => {
 	fireEvent.click(screen.getByTestId("right-pane-tab-files"));
 	await waitFor(() => expect(screen.getByTestId("file-tree-body")).toBeTruthy());
 });
+
+test("the Monitor tab sits with the others and shows usage", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			const body = url.includes("/usage")
+				? {
+						observedAt: "2026-01-01T00:00:00.000Z",
+						cpuPercent: 3,
+						memory: { usedBytes: 1024, totalBytes: 2048 },
+						disk: { usedBytes: 1024, totalBytes: 4096 },
+						network: { receiveBytesPerSecond: null, transmitBytesPerSecond: null },
+						processes: [],
+					}
+				: { entries: [], truncated: false };
+			return new Response(JSON.stringify(body), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}),
+	);
+	renderWithQuery(<FilesPane workspaceId={WORKSPACE} project={project()} />);
+	fireEvent.click(screen.getByTestId("right-pane-tab-monitor"));
+	await waitFor(() =>
+		expect(screen.getByTestId("monitor-cpu").textContent).toBe("3.0%"),
+	);
+	expect(screen.queryByTestId("file-tree-body")).toBeNull();
+});

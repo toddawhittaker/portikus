@@ -1,0 +1,85 @@
+/* A short list of choices. Two or three options do not need a menu. */
+.pk-choice {
+	display: flex;
+	width: fit-content;
+	max-width: 100%;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	overflow: hidden;
+}
+
+.pk-choice label {
+	position: relative;
+	display: flex;
+	align-items: center;
+	min-height: 32px;
+	padding: 0 12px;
+	background: var(--surface-raised);
+	color: var(--ink);
+	cursor: pointer;
+}
+
+.pk-choice label + label {
+	border-left: 1px solid var(--line);
+}
+
+.pk-choice input {
+	position: absolute;
+	inset: 0;
+	margin: 0;
+	opacity: 0;
+	cursor: pointer;
+}
+
+.pk-choice label:has(:checked) {
+	background: var(--surface-selected);
+	font-weight: 600;
+}
+
+.pk-choice label:has(:focus-visible) {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: -2px;
+}
+
+/* On is light, off is dark. Two states do not need a menu. */
+.pk-switch {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	width: fit-content;
+	cursor: pointer;
+	color: var(--ink);
+}
+
+/* The input is the visible control. A hidden input is not clickable in the
+   browser tests, which wait until the switch is visible. */
+.pk-switch input {
+	appearance: none;
+	width: 36px;
+	height: 20px;
+	margin: 0;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-full);
+	background-color: var(--surface-sunken);
+	background-image: radial-gradient(
+		circle at 10px 50%,
+		var(--ink-muted) 6px,
+		transparent 7px
+	);
+	cursor: pointer;
+}
+
+.pk-switch input:checked {
+	border-color: var(--accent);
+	background-color: var(--accent);
+	background-image: radial-gradient(
+		circle at 26px 50%,
+		var(--on-accent) 6px,
+		transparent 7px
+	);
+}
+
+.pk-switch input:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: 2px;
+}

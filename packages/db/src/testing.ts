@@ -153,6 +153,41 @@ export async function createTestDb(): Promise<TestDb> {
 	return { db, truncate, close };
 }
 
+/**
+ * A database for one Playwright run. The browser suite used to migrate the
+ * shared database in place, so a checkout whose migration history differed
+ * (a renamed or removed migration still recorded in `kysely_migration`)
+ * could not start. This database is empty, migrated from the checkout that
+ * created it, and named so the orphan sweep above drops it after the run
+ * is gone. The fixed ports are unchanged.
+ */
+export async function createRunDatabase(
+	sharedUrl: string,
+): Promise<{ url: string; name: string }> {
+	const url = new URL(sharedUrl);
+	const prefix = basePrefix(url);
+	await dropOrphanedDbs(sharedUrl, prefix);
+	const name = `${prefix}_h${hostId()}_p${process.pid}_e2e`;
+	await runOnServer(sharedUrl, [
+		`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`,
+		`CREATE DATABASE "${name}"`,
+	]);
+	url.pathname = `/${name}`;
+	const ownUrl = url.toString();
+	const db = createDb(ownUrl, TEST_POOL_SIZE);
+	try {
+		await migrateToLatest(db);
+	} finally {
+		await db.destroy();
+	}
+	return { url: ownUrl, name };
+}
+
+/** Drop the database `createRunDatabase` made. */
+export async function dropRunDatabase(sharedUrl: string, name: string): Promise<void> {
+	await runOnServer(sharedUrl, [`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`]);
+}
+
 /** Run statements on the shared database, used to create and drop databases. */
 async function runOnServer(url: string, statements: string[]): Promise<void> {
 	const client = new pg.Client({ connectionString: url });

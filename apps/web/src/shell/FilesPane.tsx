@@ -5,14 +5,15 @@ import { ChecksPane } from "../checks/ChecksPane.js";
 import "../checks/checks.css";
 import { FileTreePane } from "../files/FileTree.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
+import { MonitorPane } from "../monitor/MonitorPane.js";
 import { RunningPane } from "../running/RunningPane.js";
 import { SearchPanel } from "../search/SearchPanel.js";
 import { type RightPane, useRightPaneState } from "./rightPane.js";
 
 /**
  * The right pane (SPEC.md §8.4): one project's file tree, its checks
- * (SPEC.md §18.1), the Running surface (SPEC.md §18.2), find in files
- * (SPEC.md §11.5), or nothing to show.
+ * (SPEC.md §18.1), the Running surface (SPEC.md §18.2), workspace usage
+ * (SPEC.md §18.3), find in files (SPEC.md §11.5), or nothing to show.
  */
 export function FilesPane({
 	workspaceId,
@@ -95,6 +96,11 @@ export function FilesPane({
 						<RunningSurface workspaceId={workspaceId} projectId={project.id} />
 					</aside>
 				) : null}
+				{pane === "monitor" ? (
+					<aside className="pk-pane pk-pane--right" aria-label="Monitor">
+						<MonitorPane workspaceId={workspaceId} />
+					</aside>
+				) : null}
 			</div>
 		);
 	}
@@ -107,6 +113,10 @@ export function FilesPane({
 			{pane === "running" ? (
 				<aside className="pk-pane pk-pane--right" aria-label="Running">
 					<RunningSurface workspaceId={workspaceId} projectId={undefined} />
+				</aside>
+			) : pane === "monitor" ? (
+				<aside className="pk-pane pk-pane--right" aria-label="Monitor">
+					<MonitorPane workspaceId={workspaceId} />
 				</aside>
 			) : (
 				<aside className="pk-pane pk-pane--right" aria-label="Files">
@@ -133,11 +143,12 @@ function Tabs({ pane, show }: { pane: RightPane; show: (pane: RightPane) => void
 		<div
 			className="pk-pane-tabs"
 			role="tablist"
-			aria-label="Files, checks or running services"
+			aria-label="Files, checks, running services or monitor"
 		>
 			<Switcher current={pane} value="files" label="Files" onPick={show} />
 			<Switcher current={pane} value="checks" label="Checks" onPick={show} />
 			<Switcher current={pane} value="running" label="Running" onPick={show} />
+			<Switcher current={pane} value="monitor" label="Monitor" onPick={show} />
 		</div>
 	);
 }
@@ -169,7 +180,7 @@ function Switcher({
 
 /**
  * The Running surface, wired to the layout of the open project so that Open
- * preview lands as a tab and a saved preview with no listener is marked.
+ * preview lands as a tab and the preview in view can be marked.
  */
 function RunningSurface({
 	workspaceId,
@@ -180,9 +191,6 @@ function RunningSurface({
 }) {
 	const store = useLayoutStore(projectId ?? "none");
 	const layout = useLayout(store, (state) => state.layout);
-	const previewPorts = layout.tabs
-		.map((tab) => (tab.root.type === "preview" ? tab.root.port : null))
-		.filter((port): port is number => port !== null);
 	const activeTabId = useLayout(store, (state) => state.activeTabId);
 	const activeTab = layout.tabs.find((tab) => tab.id === activeTabId);
 	const activePort =
@@ -194,7 +202,6 @@ function RunningSurface({
 			</div>
 			<RunningPane
 				workspaceId={workspaceId}
-				previewPorts={projectId ? previewPorts : []}
 				activePort={projectId ? activePort : null}
 				onOpenPreview={(port) => {
 					if (projectId) store.getState().openPreview(port);

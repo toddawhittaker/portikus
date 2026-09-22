@@ -12,6 +12,8 @@ export interface DialogProps {
 	children?: React.ReactNode;
 	footer?: React.ReactNode;
 	size?: "md" | "lg";
+	/** Extra classes on the dialog frame. */
+	className?: string;
 	onClose?: () => void;
 	role?: "dialog" | "alertdialog";
 	/** Test hook: set as `data-testid` on the dialog surface. */
@@ -29,6 +31,7 @@ export function Dialog({
 	children,
 	footer,
 	size,
+	className,
 	onClose,
 	role,
 	testId,
@@ -47,9 +50,11 @@ export function Dialog({
 					event.preventDefault();
 					(event.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
 				}}
-				className={`pk-dialog ${size === "lg" ? "pk-dialog--lg" : ""}`}
+				className={["pk-dialog", size === "lg" ? "pk-dialog--lg" : "", className]
+					.filter(Boolean)
+					.join(" ")}
 			>
-				<div className="flex items-start gap-3 px-6 pt-6">
+				<div className="pk-dialog-head flex items-start gap-3 px-6 pt-6">
 					<div className="min-w-0">
 						<RadixDialog.Title className="m-0 text-xl font-semibold text-ink">
 							{title}
@@ -75,9 +80,13 @@ export function Dialog({
 				</div>
 				{/* Without a footer the body carries the bottom padding itself. */}
 				{children ? (
-					<div className={`px-6 pt-4 ${footer ? "" : "pb-6"}`}>{children}</div>
+					<div className={`pk-dialog-body px-6 pt-4 ${footer ? "" : "pb-6"}`}>
+						{children}
+					</div>
 				) : null}
-				{footer ? <div className="flex justify-end gap-2 p-6">{footer}</div> : null}
+				{footer ? (
+					<div className="pk-dialog-foot flex justify-end gap-2 p-6">{footer}</div>
+				) : null}
 			</RadixDialog.Content>
 		</RadixDialog.Portal>
 	);

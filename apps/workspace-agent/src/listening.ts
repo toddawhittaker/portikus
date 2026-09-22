@@ -58,7 +58,10 @@ export const DOCKER_STOP_TIMEOUT_MS = 15_000;
 /** The process a socket inode belongs to. */
 export interface SocketOwner {
 	pid: number;
+	/** `/proc/<pid>/comm`, the thread name. */
 	command?: string;
+	/** `/proc/<pid>/cmdline` with NULs turned into spaces. Never logged. */
+	commandLine?: string;
 }
 
 /** A running inner Docker container and the host ports it publishes. */
@@ -213,6 +216,7 @@ export async function readSocketOwners(
 			continue;
 		}
 		let command: string | undefined;
+		let commandLine: string | undefined;
 		let commandRead = false;
 		for (const descriptor of descriptors) {
 			let target: string;
@@ -226,11 +230,18 @@ export async function readSocketOwners(
 			if (!commandRead) {
 				commandRead = true;
 				command = await readComm(procRoot, entry);
+				commandLine = await readCommandLine(procRoot, entry);
 			}
 			// The first process found for an inode wins; a forked child holding
 			// the same socket tells the student nothing extra.
 			const inode = match[1] ?? "";
-			if (!owners.has(inode)) owners.set(inode, { pid, command });
+			if (!owners.has(inode)) {
+				owners.set(inode, {
+					pid,
+					command,
+					...(commandLine !== undefined ? { commandLine } : {}),
+				});
+			}
 		}
 	}
 	return owners;
@@ -241,6 +252,25 @@ async function readComm(procRoot: string, pid: string): Promise<string | undefin
 		const text = await readFile(join(procRoot, pid, "comm"), "utf8");
 		const command = text.trim();
 		return command === "" ? undefined : command;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * The command line, with NUL separators turned into spaces. The file usually
+ * ends in a NUL; an empty one is not a command line. Never log the result:
+ * arguments can carry secrets (STACK.md §15).
+ */
+async function readCommandLine(
+	procRoot: string,
+	pid: string,
+): Promise<string | undefined> {
+	try {
+		const text = await readFile(join(procRoot, pid, "cmdline"), "utf8");
+		const body = text.replace(/\0+$/, "");
+		if (body === "") return undefined;
+		return body.replaceAll("\0", " ");
 	} catch {
 		return undefined;
 	}
@@ -545,19 +575,26 @@ export class ListeningMonitor {
 	}
 
 	/**
-	 * The owning process is gone, but the port may not be: a parent that
-	 * forked the server inherited the listening socket and holds it open. One
-	 * more scan tells the student the truth rather than a comforting success
-	 * (issue #273).
+	 * The owning process is gone, but the port may not be. A server that is
+	 * shutting down often keeps the socket for a moment, and a parent that
+	 * forked the server can hold it open for good (issue #273). Keep looking
+	 * for the grace period. A port that clears in that time is a stop. A port
+	 * that is still taken at the end is the failure the student is told about
+	 * (issue #348).
 	 */
 	private async confirmPortFree(port: number): Promise<void> {
-		await this.refresh();
-		if (this.services.some((entry) => entry.port === port)) {
-			throw new StopFailure(
-				409,
-				"STOP_FAILED",
-				"the process stopped but something is still listening on that port",
-			);
+		const deadline = Date.now() + this.graceMs;
+		while (true) {
+			await this.refresh();
+			if (!this.services.some((entry) => entry.port === port)) return;
+			if (Date.now() >= deadline) {
+				throw new StopFailure(
+					409,
+					"STOP_FAILED",
+					"the process stopped but something is still listening on that port",
+				);
+			}
+			await new Promise((resolve) => setTimeout(resolve, 50));
 		}
 	}
 
@@ -627,7 +664,17 @@ export class ListeningMonitor {
 				port,
 				addresses,
 				protocolHint: HTTP_PORTS.has(port) ? "http" : "unknown",
-				...(owner ? { process: { pid: owner.pid, command: owner.command } } : {}),
+				...(owner
+					? {
+							process: {
+								pid: owner.pid,
+								command: owner.command,
+								...(owner.commandLine !== undefined
+									? { commandLine: owner.commandLine }
+									: {}),
+							},
+						}
+					: {}),
 				...(container ? { container: { id: container.id, name: container.name } } : {}),
 				previewReachability: this.reachability(addresses, forwarded.has(port)),
 				system: isSystemListener({

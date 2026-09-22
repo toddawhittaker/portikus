@@ -61,6 +61,7 @@ test.skipIf(skip)("a student can sign in and see themselves", async () => {
 	expect(me.statusCode).toBe(200);
 	expect(me.json().role).toBe("student");
 	expect(me.json().displayName).toBeTruthy();
+	expect(me.json().oidcSubject).toBe("alice");
 });
 
 test.skipIf(skip)("the admin group maps to the administrator role", async () => {

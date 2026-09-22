@@ -93,6 +93,27 @@
 .pk-dialog--lg {
 	width: min(640px, calc(100vw - 32px));
 }
+/*
+ * The frame stays put and the body fills what is left, so a dialog that
+ * scrolls inside itself does not also scroll the frame.
+ */
+.pk-dialog--fit {
+	display: flex;
+	flex-direction: column;
+	height: min(40rem, calc(100vh - 64px));
+	overflow: hidden;
+}
+.pk-dialog--fit > .pk-dialog-head,
+.pk-dialog--fit > .pk-dialog-foot {
+	flex: none;
+}
+.pk-dialog--fit > .pk-dialog-body {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
 .pk-dialog-status {
 	flex: none;
 	display: grid;

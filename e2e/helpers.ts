@@ -62,6 +62,8 @@ export const MOCK_ISSUER = "http://127.0.0.1:3002";
 /** Matches the fake agent started by playwright.config.ts. */
 export const FAKE_AGENT_TOKEN = "e2e-agent-token";
 
+// `pnpm test:e2e` points this at a database created for the run, not the
+// shared server database the URL named when the process started.
 const DATABASE_URL =
 	process.env.TEST_DATABASE_URL ??
 	"postgres://postgres:portikus@127.0.0.1:55432/portikus_test";
@@ -459,7 +461,7 @@ export async function seedListening(
 		protocolHint?: "http" | "https" | "unknown";
 		previewReachability?: "reachable" | "forwarded" | "unknown";
 		system?: boolean;
-		process?: { pid?: number; command?: string };
+		process?: { pid?: number; command?: string; commandLine?: string };
 		container?: { id?: string; name?: string };
 	}[],
 ): Promise<void> {

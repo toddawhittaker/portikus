@@ -15,12 +15,12 @@
 		"test": "vitest run",
 		"test:coverage": "vitest run --coverage",
 		"build": "tsc -b && pnpm --filter @portikus/ui build && pnpm --filter @portikus/web build",
-		"test:e2e": "playwright test",
+		"test:e2e": "node e2e/with-run-database.mjs",
 		"dev": "tsc -b && pnpm --filter @portikus/ui build && pnpm --parallel --filter \"./apps/*\" dev",
 		"build:deb": "bash scripts/build-deb.sh"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.5.13",
+		"@biomejs/biome": "2.5.14",
 		"@playwright/test": "1.63.0",
 		"@types/node": "24.9.2",
 		"@types/pg": "8.23.1",

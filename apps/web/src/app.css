@@ -205,12 +205,10 @@ body {
 	background: var(--surface-hover);
 }
 .pk-account:focus-visible,
-.pk-wsbutton:focus-visible {
+.pk-wsbutton:focus-visible,
+button.pk-statusbar-item:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset);
-}
-.pk-account-role {
-	color: var(--ink-muted);
 }
 .pk-initials {
 	display: grid;
@@ -436,6 +434,19 @@ body {
 	align-items: center;
 	gap: var(--space-1\.5);
 	white-space: nowrap;
+}
+button.pk-statusbar-item {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	line-height: inherit;
+	cursor: pointer;
+}
+button.pk-statusbar-item:hover {
+	background: var(--surface-hover);
 }
 .pk-statusbar-mono {
 	font-family: var(--font-mono);

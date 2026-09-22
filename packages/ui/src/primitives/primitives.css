@@ -4,6 +4,15 @@
  * combination of attributes. Everything else is a utility class on the component.
  */
 
+/* The label sits above its description. A shared `.pk-check-text` rule in the
+   checks pane is `display: block`, which left these two spans on one line. */
+.pk-checkbox-copy {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
 /* Focus: one rule for every platform-owned control (DESIGN.md section 7). */
 .pk-focus-ring:focus-visible {
 	outline: var(--ring-width) solid var(--focus);

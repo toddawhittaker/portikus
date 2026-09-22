@@ -10,6 +10,11 @@ export const AuthUser = z.object({
 	email: z.string().nullable(),
 	displayName: z.string().min(1),
 	role: Role,
+	/**
+	 * Institution sign-in name (`users.oidc_subject`). `GET /auth/me` always
+	 * sends it. Optional so a caller that only has the session user still parses.
+	 */
+	oidcSubject: z.string().min(1).optional(),
 });
 export type AuthUser = z.infer<typeof AuthUser>;
 

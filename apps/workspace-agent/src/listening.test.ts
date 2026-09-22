@@ -82,10 +82,16 @@ afterEach(async () => {
 	await rm(procRoot, { recursive: true, force: true });
 });
 
-async function fakeProcess(pid: number, comm: string, inodes: number[]): Promise<void> {
+async function fakeProcess(
+	pid: number,
+	comm: string,
+	inodes: number[],
+	cmdline?: string,
+): Promise<void> {
 	const dir = join(procRoot, String(pid));
 	await mkdir(join(dir, "fd"), { recursive: true });
 	await writeFile(join(dir, "comm"), `${comm}\n`);
+	if (cmdline !== undefined) await writeFile(join(dir, "cmdline"), cmdline);
 	let descriptor = 3;
 	for (const inode of inodes) {
 		await symlink(`socket:[${inode}]`, join(dir, "fd", String(descriptor)));
@@ -105,6 +111,27 @@ test("maps socket inodes to the pid and command that hold them", async () => {
 	expect(owners.get("34568")).toEqual({ pid: 42, command: "node" });
 	expect(owners.get("55555")).toEqual({ pid: 43, command: "python3" });
 	expect(owners.size).toBe(3);
+});
+
+test("reads a NUL-separated command line and turns the separators into spaces", async () => {
+	await fakeProcess(
+		42,
+		"MainThread",
+		[34567],
+		"python\x00server.py\x00--port\x008080\x00",
+	);
+	const owners = await readSocketOwners(procRoot);
+	expect(owners.get("34567")).toEqual({
+		pid: 42,
+		command: "MainThread",
+		commandLine: "python server.py --port 8080",
+	});
+});
+
+test("an empty command line is left out", async () => {
+	await fakeProcess(42, "node", [34567], "\x00");
+	const owners = await readSocketOwners(procRoot);
+	expect(owners.get("34567")).toEqual({ pid: 42, command: "node" });
 });
 
 test("a process with no comm file still maps its sockets", async () => {
@@ -165,6 +192,18 @@ test("reports a service with its process, addresses, and protocol hint", async (
 		previewReachability: "unknown",
 	});
 	expect(services[0]?.observedAt).toMatch(/^\d{4}-/);
+	expect(services[0]?.process).toEqual({ pid: 42, command: "node" });
+});
+
+test("a service carries the command line when /proc has one", async () => {
+	await writeProcNet([HEADER, row("0100007F:1388", "0A", "34567")].join("\n"));
+	await fakeProcess(42, "MainThread", [34567], "python\x00server.py\x00");
+	const services = await monitorFor().refresh();
+	expect(services[0]?.process).toEqual({
+		pid: 42,
+		command: "MainThread",
+		commandLine: "python server.py",
+	});
 });
 
 test("a wildcard bind is reachable and a low port is still reported", async () => {
@@ -493,6 +532,24 @@ test("a process that ignores SIGTERM is killed after the grace period", async ()
  * forked the server inherited the listening socket. Saying "stopped" there
  * would be a lie: the student would see the service still running.
  */
+/**
+ * Issue #348: a server often keeps the port for a moment after it accepts
+ * the signal. That delay is not a failed stop.
+ */
+test("a port that frees shortly after the process exits is a success", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const monitor = monitorFor({
+		kill: (_pid, signal) => {
+			// The process has accepted the stop. The socket stays a moment.
+			if (Number(signal) === 0) throw killError("ESRCH");
+			setTimeout(() => clearProcNet(), 120);
+		},
+		graceMs: 500,
+	});
+	await expect(monitor.stopListener(5173)).resolves.toBeUndefined();
+});
+
 test("a port still listening after the pid died is not a success", async () => {
 	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
 	await fakeProcess(88, "node", [3]);

@@ -25,6 +25,7 @@
 .pk-pane-tabs {
 	flex: none;
 	display: flex;
+	flex-wrap: wrap;
 	gap: var(--space-0\.5);
 	padding: var(--space-1\.5) var(--space-2) 0;
 	border-bottom: 1px solid var(--line);
@@ -88,6 +89,28 @@
 .pk-check-badge,
 .pk-check-row .pk-iconbtn {
 	flex: none;
+}
+/*
+ * Play takes the running green and stop the danger red (issue #324). Colour
+ * is extra: the icon and the accessible name already say which is which, and
+ * these tokens follow the theme. The button's own transition would blend the
+ * two while a check flips, and its hover colour would replace the tint.
+ */
+.pk-check-row .pk-iconbtn.pk-check-run,
+.pk-check-row .pk-iconbtn.pk-check-run:hover,
+.pk-check-row .pk-iconbtn.pk-check-stop,
+.pk-check-row .pk-iconbtn.pk-check-stop:hover {
+	transition: none;
+}
+.pk-check-row .pk-iconbtn.pk-check-run,
+.pk-check-row .pk-iconbtn.pk-check-run:hover,
+.pk-check-row .pk-iconbtn.pk-check-run svg {
+	color: var(--status-running);
+}
+.pk-check-row .pk-iconbtn.pk-check-stop,
+.pk-check-row .pk-iconbtn.pk-check-stop:hover,
+.pk-check-row .pk-iconbtn.pk-check-stop svg {
+	color: var(--status-danger);
 }
 /* The clickable text: it is what shrinks when the command is long. */
 .pk-check-face {
@@ -160,6 +183,40 @@
 }
 
 /* One row of the edit dialog: name, command, and remove. */
+/*
+ * The list and the output share the pane, and the handle between them is the
+ * same one a terminal split uses (issue #337). The panel's own 45% height
+ * only applies when it is not inside the split.
+ */
+.pk-pane-split {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+.pk-pane-split > .pk-split {
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+}
+.pk-pane-split .pk-split-panel {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+}
+.pk-pane-split .pk-pane-body,
+.pk-pane-split .pk-check-panel,
+.pk-pane-split .pk-running-panel {
+	flex: 1 1 auto;
+	height: 100%;
+	min-height: 0;
+}
+.pk-pane-split .pk-check-panel,
+.pk-pane-split .pk-running-panel {
+	border-top: 0;
+}
+
 .pk-check-edit-row {
 	display: grid;
 	grid-template-columns: 1fr 1.6fr auto;

@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { displayNameFromDirectory } from "../packages/contracts/src/project.ts";
 import {
 	createProject,
 	createStudent,
@@ -402,8 +403,12 @@ test.describe("projects", () => {
 
 		await page.goto(workspacePath(student.workspaceId));
 
-		await expect(page.getByTestId("project-list")).toContainText(slug);
-		await expect(page.getByTestId("project-list")).not.toContainText(`${slug}-plain`);
+		await expect(page.getByTestId("project-list")).toContainText(
+			displayNameFromDirectory(slug),
+		);
+		await expect(page.getByTestId("project-list")).not.toContainText(
+			displayNameFromDirectory(`${slug}-plain`),
+		);
 		const rows = await query<{ slug: string; source: string }>(
 			"select slug, source from projects where workspace_id = $1",
 			[student.workspaceId],
@@ -425,9 +430,10 @@ test.describe("projects", () => {
 		await seedProjectDir(student.workspaceId, slug, true);
 
 		// The pane polls, so the row turns up on its own (SPEC.md §7.6).
-		await expect(page.getByTestId("project-list")).toContainText(slug, {
-			timeout: 15_000,
-		});
+		await expect(page.getByTestId("project-list")).toContainText(
+			displayNameFromDirectory(slug),
+			{ timeout: 15_000 },
+		);
 	});
 
 	test("a project whose directory is gone is shown as missing", async ({
@@ -479,11 +485,11 @@ test.describe("projects", () => {
 		// The student renames the folder in a shell.
 		await moveProjectDir(student.workspaceId, project.slug, "todo-service");
 
-		// The same project, under its new folder name, with its tab still open.
+		// The same project, under its new name, with its tab still open.
 		// The title is read from the folder, so it changes too (issue #269).
 		const item = page.getByTestId(`project-item-${project.id}`);
-		await expect(item).toContainText("todo-service", { timeout: 20_000 });
-		await expect(item).toContainText("Todo Service");
+		await expect(item).toContainText("Todo Service", { timeout: 20_000 });
+		await expect(item).not.toContainText("todo-service");
 		await expect(item).not.toContainText(/missing/i);
 		await expect(page.getByTestId("tab-file:app.ts")).toBeAttached();
 

@@ -130,7 +130,7 @@ jobs:
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-lcov
           path: coverage/lcov.info
@@ -140,7 +140,7 @@ jobs:
         run: pnpm build
       - name: Cache nfpm
         if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/portikus/nfpm
           key: nfpm-${{ runner.os }}-${{ hashFiles('scripts/build-deb.sh') }}
@@ -196,7 +196,7 @@ jobs:
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
       - name: Upload the Playwright report
         if: failure() && steps.run.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-report/
@@ -222,7 +222,7 @@ jobs:
       - name: Cache Ansible collections
         id: collections
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.ansible/collections
           key: ansible-collections-${{ hashFiles('infra/ansible/requirements.yml') }}
