@@ -1,5 +1,4 @@
 import { defineConfig, devices } from "@playwright/test";
-import { createRunDatabase } from "./packages/db/dist/testing.js";
 
 const MOCK_OIDC_ISSUER = "http://127.0.0.1:3002";
 const WEB_URL = "http://127.0.0.1:5173";
@@ -10,24 +9,12 @@ export const FAKE_AGENT_TOKEN = "e2e-agent-token";
 
 // The throwaway PostgreSQL from docs/WORKFLOW.md, "Local PostgreSQL for
 // database tests"; CI points TEST_DATABASE_URL at its service container.
-const sharedDatabaseUrl =
+// `pnpm test:e2e` points this at a database created for the run. A direct
+// `playwright test` uses the shared database, which can refuse to migrate
+// when its history names a migration this checkout does not contain.
+const databaseUrl =
 	process.env.TEST_DATABASE_URL ??
 	"postgres://postgres:portikus@127.0.0.1:55432/portikus_test";
-
-// A fresh database for this run, migrated from this checkout. The shared
-// database keeps whatever history the last checkout wrote, and Kysely will
-// not migrate a history that names a migration this checkout does not have.
-// Listing tests does not start the servers, so it keeps the shared URL and
-// creates nothing.
-const listing = process.argv.includes("--list");
-const runDatabase = listing
-	? { url: sharedDatabaseUrl, name: "" }
-	: await createRunDatabase(sharedDatabaseUrl);
-if (!listing) {
-	process.env.TEST_DATABASE_URL = runDatabase.url;
-	process.env.PORTIKUS_E2E_ADMIN_URL = sharedDatabaseUrl;
-	process.env.PORTIKUS_E2E_DB_NAME = runDatabase.name;
-}
 
 export default defineConfig({
 	testDir: "./e2e",
@@ -35,7 +22,6 @@ export default defineConfig({
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 1 : 0,
 	reporter: "list",
-	globalTeardown: "./e2e/global-teardown.ts",
 	use: {
 		baseURL: WEB_URL,
 		trace: "on-first-retry",
@@ -82,7 +68,7 @@ export default defineConfig({
 				NODE_ENV: "test",
 				PORT: "3000",
 				AGENT_PORT: String(FAKE_AGENT_PORT),
-				DATABASE_URL: runDatabase.url,
+				DATABASE_URL: databaseUrl,
 				PUBLIC_URL: WEB_URL,
 				OIDC_ISSUER_URL: MOCK_OIDC_ISSUER,
 				OIDC_CLIENT_ID: "portikus-dev",
