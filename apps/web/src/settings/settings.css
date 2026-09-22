@@ -51,45 +51,35 @@
 	color: var(--ink);
 }
 
+/* The input is the visible control. A hidden input is not clickable in the
+   browser tests, which wait until the switch is visible. */
 .pk-switch input {
-	position: absolute;
-	width: 1px;
-	height: 1px;
-	margin: 0;
-	opacity: 0;
-}
-
-.pk-switch-track {
-	position: relative;
+	appearance: none;
 	width: 36px;
 	height: 20px;
+	margin: 0;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-full);
-	background: var(--surface-sunken);
+	background-color: var(--surface-sunken);
+	background-image: radial-gradient(
+		circle at 10px 50%,
+		var(--ink-muted) 6px,
+		transparent 7px
+	);
+	cursor: pointer;
 }
 
-.pk-switch-track::after {
-	content: "";
-	position: absolute;
-	top: 1px;
-	left: 1px;
-	width: 16px;
-	height: 16px;
-	border-radius: var(--radius-full);
-	background: var(--ink-muted);
-}
-
-.pk-switch input:checked + .pk-switch-track {
+.pk-switch input:checked {
 	border-color: var(--accent);
-	background: var(--accent);
+	background-color: var(--accent);
+	background-image: radial-gradient(
+		circle at 26px 50%,
+		var(--on-accent) 6px,
+		transparent 7px
+	);
 }
 
-.pk-switch input:checked + .pk-switch-track::after {
-	transform: translateX(16px);
-	background: var(--on-accent);
-}
-
-.pk-switch input:focus-visible + .pk-switch-track {
+.pk-switch input:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: 2px;
 }

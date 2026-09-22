@@ -273,7 +273,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 									}))
 								}
 							/>
-							<span className="pk-switch-track" aria-hidden="true" />
 							<span>{terminalTheme === "light" ? "Light" : "Dark"}</span>
 						</label>
 					</div>
