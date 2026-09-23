@@ -158,12 +158,20 @@ test.skipIf(skip)(
 		socket.ws.send(JSON.stringify({ type: "heartbeat" }));
 		expect(await closed).toBe(4401);
 
-		await new Promise((resolve) => setTimeout(resolve, 300));
-		const rows = await testDb.db
-			.selectFrom("workspace_connections")
-			.selectAll()
-			.execute();
-		expect(rows).toHaveLength(0);
+		// The connection row is dropped after the close event fires the socket
+		// closes as soon as the server calls close(), but the row deletion is
+		// a separate awaited database call that follows it, so poll for it
+		// instead of assuming a fixed delay is always enough (SPEC.md §6.4).
+		await vi.waitFor(
+			async () => {
+				const rows = await testDb.db
+					.selectFrom("workspace_connections")
+					.selectAll()
+					.execute();
+				expect(rows).toHaveLength(0);
+			},
+			{ timeout: 3000, interval: 50 },
+		);
 	},
 );
 
