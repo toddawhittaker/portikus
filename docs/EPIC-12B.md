@@ -126,7 +126,7 @@ Part A lands first, and it can be deployed to the pilot on its own.
   - `displayName`: 1 to 100 characters.
   - `role`: `student` or `administrator`.
   - `userId`: a random UUID the tool writes once, when the user is created, and never changes. It fixes the user's Dex subject.
-  - `passwordHash`: bcrypt, matching `^\$2[aby]\$1[0-6]\$[./A-Za-z0-9]{53}$`.
+  - `passwordHash`: bcrypt, matching `^\$2[aby]\$1[0-2]\$[./A-Za-z0-9]{53}$`.
   - Unknown keys are refused, and the file must hold at least one administrator.
   - Why a random `userId` rather than the username: at a school, usernames such as `jsmith` get reused. A reused username must never inherit the previous owner's workspace. A lost file can be recovered (see the risks).
 
@@ -137,7 +137,7 @@ Part A lands first, and it can be deployed to the pilot on its own.
     - Node has no built-in bcrypt.
     - `bcryptjs` is pure JavaScript with no dependencies and no install scripts. ADR 0023 records this new dependency.
   - No app depends on the package, so `pnpm deploy` never puts it in the `.deb`.
-  - Cost factor 12. Dex accepts costs 10 to 16.
+  - Cost factor 12. The users file and the Dex role accept costs 10 to 12 only; Dex itself takes up to 16, but a higher cost lets the counted password attempts burn the VM's CPU.
 
 - **Decision: the commands, wrapped as Make targets.**
   - `make users-add USERNAME=<name>`: creates or updates one user.
@@ -241,9 +241,9 @@ Part A lands first, and it can be deployed to the pilot on its own.
 - **Decision: one in-memory limiter in the API, keyed by client address, covering the Portikus sign-in routes and Dex's password form.**
   - Code: `apps/api/src/signin-throttle.ts`, registered as a plugin in `server.ts` with an `onRequest` hook.
   - Covered:
-    - `GET /auth/login` and `GET /auth/callback`: 60 per minute per address.
-    - Dex password form posts: 30 per 10 minutes per address, and 300 per 10 minutes in total. The total protects the VM's CPU from bcrypt checks.
-  - How Dex's posts are covered: Caddy adds a `forward_auth` in front of `POST /dex/auth/local/login*`, pointing at the API's new loopback-only route `GET /edge/signin-throttle`. The route answers 204, or 429.
+    - `GET /auth/login`, `GET /auth/callback`, and every `/dex/auth*` request except the password post: 150 per minute per address. One sign-in takes five, so a lab of 30 behind one campus address can all sign in within a minute. There is no class-wide start limit.
+    - Dex password form posts: 30 per 10 minutes per address, and 300 per 10 minutes in total. The total protects the VM's CPU from bcrypt checks. Only attempts the per-address limit lets through count toward the total, so one address cannot lock out the class.
+  - How Dex's posts are covered: Caddy adds a `forward_auth` in front of `POST /dex/auth/local/login*`, pointing at the API's new loopback-only route `GET /edge/signin-throttle`. The route answers 204, or 429. Caddy matches the decoded path, so the API counts every check it is asked and does not match the URI again. The password post asks with `?scope=password`. Every GET under `/dex/auth*` asks with `?scope=start` and counts as a sign-in start (150 a minute per address), because Dex keeps each one in memory for ten minutes. Each ask names its scope because Caddy would otherwise pass on a query the client added. Any other method on `/dex/auth*` is a 405, because Dex also reads an auth request from a POST body. Caddy refuses a `/dex` URI over 1024 bytes with 414 (the longest real sign-in URI is about 360 bytes) and caps a `/dex` request body at 16 KB. Only the Dex paths Portikus uses are let through: `/dex/auth*`, `/dex/token`, `/dex/userinfo`, `/dex/keys`, `/dex/.well-known/*`, `/dex/static/*`, `/dex/theme/*` and `/dex/callback*`; everything else, such as the unthrottled `/dex/device/code`, is a 404. Students behind one shared public address share both per-address limits.
     - Caddy never proxies `/edge*` on the public site, the same way `/preview/authorize` works today.
   - The client address comes from `request.ip`. `trustProxy` is already `127.0.0.1`, and `publish-vm` only rewrites the destination, so LAN addresses reach the VM unchanged.
   - A refusal:
@@ -360,7 +360,7 @@ Part A lands first, and it can be deployed to the pilot on its own.
    - writes atomically;
    - refuses a path inside a Git work tree and a file with looser permissions;
    - never puts the password in argv, the environment or any message.
-5. `make users-check` rejects, each with a message naming the entry: a duplicate username, a duplicate email (in any case), a bad hash, a cost outside 10 to 16, a bad role, an unknown key, and a file with no administrator. `make configure-vm` and `make users-deploy` stop before Ansible runs when the check fails.
+5. `make users-check` rejects, each with a message naming the entry: a duplicate username, a duplicate email (in any case), a bad hash, a cost outside 10 to 12, a bad role, an unknown key, and a file with no administrator. `make configure-vm` and `make users-deploy` stop before Ansible runs when the check fails.
 6. The rendered Dex config has one entry per user, with groups following the role. The users file is never on the VM. `make build-deb` fails if any packaged file contains `staticPasswords` or a bcrypt hash.
 7. Through a real Dex:
    - a student and an administrator each sign in and get the right role;
@@ -376,7 +376,7 @@ Part A lands first, and it can be deployed to the pilot on its own.
    - it never touches rows outside `fromIssuers`, including `urn:portikus:sectest` and `urn:portikus:smoketest`;
    - all of this is proved by Vitest tests on a real test database, including a copy of the #302 case (two rows per email, both owning workspaces).
 9. Sign-in rate limit (#398):
-   - the 61st `GET /auth/login` in a minute from one address is a 429 with `RATE_LIMITED`, and another address is unaffected;
+   - the 151st `GET /auth/login` in a minute from one address is a 429 with `RATE_LIMITED`, and another address is unaffected;
    - `/edge/signin-throttle` refuses the 31st check in 10 minutes;
    - the #398 `test.fails` marker in `apps/api/src/security/limits.test.ts` is removed and the test passes;
    - the route is classified in `apps/api/src/security/route-policy.ts`;
@@ -486,7 +486,7 @@ Once security-reviewer and code-reviewer have reviewed Part A, the orchestrator 
 
 Two interfaces are fixed here so tasks can build against each other without waiting:
 
-- `GET /edge/signin-throttle` answers 204 or 429 and reads `X-Forwarded-For` and `X-Forwarded-Uri`.
+- `GET /edge/signin-throttle` answers 204 or 429 and reads `X-Forwarded-For`; it counts every check, since Caddy already matched the path. With exactly `?scope=start` it counts a sign-in start; anything else, including `?scope=password`, counts as a password attempt.
 - The carry-over input JSON has the shape `{toIssuer, fromIssuers[], users[{email, username, userId}]}`, and the command's flags are `--input <path>` and `--apply`.
 
 ### A6 procedure, out of class hours
