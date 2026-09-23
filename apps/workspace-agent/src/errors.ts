@@ -38,6 +38,7 @@ export const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	STORAGE_FULL: 507,
 	RECOVERY_POINT_INVALID: 422,
 	RESTORE_INCOMPLETE: 500,
+	ROLLBACK_COPY_EXISTS: 409,
 };
 
 /**

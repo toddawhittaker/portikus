@@ -229,7 +229,7 @@ export async function restoreRecoveryPoint(
 	// An aside copy may be the only copy of a failed restore's files.
 	if (await exists(aside)) {
 		throw new AgentFailure(
-			"RESTORE_INCOMPLETE",
+			"ROLLBACK_COPY_EXISTS",
 			"a previous restore left files set aside",
 		);
 	}

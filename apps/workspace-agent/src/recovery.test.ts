@@ -567,7 +567,7 @@ describe("unreadable directories, changing files, and the point's own rules", ()
 		await mkdir(aside);
 		await writeFile(join(aside, "rollback.txt"), "only copy\n");
 		await expect(restore(pointId, file)).rejects.toMatchObject({
-			code: "RESTORE_INCOMPLETE",
+			code: "ROLLBACK_COPY_EXISTS",
 		});
 		expect(await readFile(join(aside, "rollback.txt"), "utf8")).toBe("only copy\n");
 	});
