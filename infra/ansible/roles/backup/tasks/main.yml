@@ -1,0 +1,32 @@
+---
+# VM side of the nightly backup (docs/adr/0024-backups-pulled-to-host.md).
+# The host pulls everything over SSH and sends the export command with each
+# run; this role only gives Incus somewhere off the OS disk to stage exports.
+
+- name: Check for the backups volume
+  ansible.builtin.command:
+    cmd: incus storage volume show {{ incus_storage_pool_name }} {{ backup_volume_name }}
+  register: backup_volume_check
+  changed_when: false
+  failed_when: false
+
+# storage.backups_volume must name a volume in the default project.
+- name: Create the backups volume
+  ansible.builtin.command:
+    cmd: >-
+      incus storage volume create {{ incus_storage_pool_name }} {{ backup_volume_name }}
+      size={{ backup_volume_size }}
+  when: backup_volume_check.rc != 0
+  changed_when: true
+
+- name: Read where Incus stages exports
+  ansible.builtin.command:
+    cmd: incus config get storage.backups_volume
+  register: backup_staging
+  changed_when: false
+
+- name: Stage Incus exports on the backups volume, not the OS disk
+  ansible.builtin.command:
+    cmd: incus config set storage.backups_volume={{ incus_storage_pool_name }}/{{ backup_volume_name }}
+  when: backup_staging.stdout | trim != incus_storage_pool_name ~ '/' ~ backup_volume_name
+  changed_when: true

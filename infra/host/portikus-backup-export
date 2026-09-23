@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# VM half of the nightly backup (docs/adr/0024-backups-pulled-to-host.md).
+# backup.sh sends this script with every command, so it is never installed
+# on the VM and cannot drift from the host's copy.  Every command writes its
+# data to standard output for the host to encrypt; nothing is kept on the VM.
+# It only reads: the one thing it creates and deletes is its own snapshot
+# and temporary copy, named below.
+#
+# Usage (as root on the VM):
+#   portikus-backup-export volumes        one workspace volume name per line
+#   portikus-backup-export db             pg_dump -Fc of the portikus database
+#   portikus-backup-export counts         users, workspaces and projects rows
+#   portikus-backup-export workspaces     workspace id and instance name, one per line
+#   portikus-backup-export idmap VOL      the ID map the volume was last shifted to
+#   portikus-backup-export volume VOL     an Incus export of VOL, without its snapshots
+set -euo pipefail
+
+POOL="${PORTIKUS_BACKUP_POOL:-workspace-data}"
+PROJECT="${PORTIKUS_BACKUP_PROJECT:-portikus}"
+SNAPSHOT=portikus-backup
+# Only these volumes hold student data; Docker and root disks are rebuilt.
+VOLUME_PATTERN='^ws-[0-9a-f]{24}-(home|recovery)$'
+
+die() { echo "portikus-backup-export: $*" >&2; exit 1; }
+
+valid_volume() {
+  [[ "$1" =~ $VOLUME_PATTERN ]] || die "not a workspace data volume: $1"
+}
+
+incus_p() { incus --project "$PROJECT" "$@"; }
+
+# Exact names only: never a student's own snapshot, never pre-epic10-11.
+remove_leftovers() {
+  local vol=$1
+  incus_p storage volume delete "$POOL" "backup-${vol}" >/dev/null 2>&1 || true
+  incus_p storage volume snapshot delete "$POOL" "$vol" "$SNAPSHOT" >/dev/null 2>&1 || true
+}
+
+export_volume() {
+  vol=$1
+  valid_volume "$vol"
+  remove_leftovers "$vol"
+  # vol is global: the trap runs after this function has returned.
+  trap 'remove_leftovers "$vol"' EXIT
+  # The snapshot fixes one moment of a volume a running workspace may be
+  # writing; Incus exports volumes, not snapshots, so a thin copy of it is
+  # what gets exported.
+  incus_p storage volume snapshot create "$POOL" "$vol" "$SNAPSHOT" >/dev/null
+  incus_p storage volume copy "${POOL}/${vol}/${SNAPSHOT}" "${POOL}/backup-${vol}" >/dev/null
+  # Incus stages the tarball in storage.backups_volume, not on the OS disk.
+  incus_p storage volume export "$POOL" "backup-${vol}" /dev/stdout --volume-only -q
+}
+
+case "${1:-}" in
+  volumes)
+    incus_p storage volume list "$POOL" --format csv --columns tn \
+      | awk -F, -v re="$VOLUME_PATTERN" '$1 == "custom" && $2 ~ re { print $2 }' | sort
+    ;;
+  db)
+    runuser -u postgres -- pg_dump -Fc portikus
+    ;;
+  counts)
+    runuser -u postgres -- psql -X -q -t -A -d portikus -c \
+      "SELECT 'users ' || (SELECT count(*) FROM users) || ' workspaces ' || (SELECT count(*) FROM workspaces) || ' projects ' || (SELECT count(*) FROM projects)"
+    ;;
+  workspaces)
+    runuser -u postgres -- psql -X -q -t -A -F ' ' -d portikus -c \
+      "SELECT id, COALESCE(incus_instance_name, '-') FROM workspaces ORDER BY id"
+    ;;
+  idmap)
+    valid_volume "${2:-}"
+    incus_p storage volume get "$POOL" "$2" volatile.idmap.last || true
+    ;;
+  volume)
+    export_volume "${2:-}"
+    ;;
+  *)
+    die "usage: portikus-backup-export volumes | db | counts | workspaces | idmap VOL | volume VOL"
+    ;;
+esac
