@@ -1,0 +1,127 @@
+---
+# Load the LTI platforms file from the machine that runs Ansible and apply
+# cheap guards (docs/EPIC-13.md, ruling 14).  The API validates the file in
+# full at start and refuses to start on a bad one, so these guards keep an
+# obvious mistake from taking the API down.  Runs in the play's pre_tasks.
+
+- name: Look at the LTI platforms file
+  ansible.builtin.stat:
+    path: "{{ portikus_lti_platforms_file }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: portikus_lti_platforms_stat
+
+- name: Start with LTI off
+  ansible.builtin.set_fact:
+    portikus_lti_platforms: null
+    portikus_lti_keyset_cidrs: []
+
+- name: Read the LTI platforms file
+  when: portikus_lti_platforms_stat.stat.exists
+  run_once: true
+  block:
+    - name: Parse the LTI platforms file
+      ansible.builtin.set_fact:
+        portikus_lti_platforms: "{{ lookup('ansible.builtin.file', portikus_lti_platforms_file) | from_json }}"
+  rescue:
+    - name: Explain an unreadable LTI platforms file
+      ansible.builtin.fail:
+        msg: "The LTI platforms file {{ portikus_lti_platforms_file }} is not valid JSON."
+
+- name: Check the LTI platforms file
+  when: portikus_lti_platforms is not none
+  run_once: true
+  block:
+    - name: Require a version 1 file with at least one platform
+      ansible.builtin.assert:
+        that:
+          - portikus_lti_platforms is mapping
+          - portikus_lti_platforms.keys() | difference(['version', 'platforms']) | length == 0
+          - portikus_lti_platforms.version | default(0) == 1
+          - portikus_lti_platforms.platforms | default('') is sequence
+          - portikus_lti_platforms.platforms | default('') is not string
+          - portikus_lti_platforms.platforms | default([]) | length > 0
+        fail_msg: >-
+          The LTI platforms file {{ portikus_lti_platforms_file }} must be
+          {"version": 1, "platforms": [...]} with at least one platform and
+          no other keys.
+
+    - name: Require every platform to be complete
+      ansible.builtin.assert:
+        that:
+          - item is mapping
+          - item.keys() | difference(portikus_lti_platform_keys) | length == 0
+          - item.name | default('') is string
+          - item.name | default('') | length >= 1
+          - item.name | default('') | length <= 60
+          - item.clientId | default('') is string
+          - item.clientId | default('') | length > 0
+          - item.deploymentIds | default('') is sequence
+          - item.deploymentIds | default('') is not string
+          - item.deploymentIds | default([]) | length > 0
+          - item.mock | default(false) is boolean
+          - portikus_lti_urls | select('string') | list | length == 3
+          - portikus_lti_urls | reject('match', portikus_lti_url_pattern) | list | length == 0
+        fail_msg: >-
+          Platform '{{ item.name | default('?') }}' in {{ portikus_lti_platforms_file }}
+          needs a name of 1 to 60 characters, a clientId, at least one
+          deploymentId, and HTTPS issuer, authLoginUrl and keysetUrl
+          (http:// only with "mock": true); the only keys allowed are
+          {{ portikus_lti_platform_keys | join(', ') }}.
+      loop: "{{ portikus_lti_platforms.platforms }}"
+      loop_control:
+        label: "{{ item.name | default('?') }}"
+      vars:
+        portikus_lti_platform_keys:
+          [name, issuer, clientId, authLoginUrl, keysetUrl, deploymentIds, mock]
+        portikus_lti_urls:
+          - "{{ item.issuer | default(none) }}"
+          - "{{ item.authLoginUrl | default(none) }}"
+          - "{{ item.keysetUrl | default(none) }}"
+        portikus_lti_url_pattern: "{{ '^https?://[^/]' if item.mock | default(false) else '^https://[^/]' }}"
+
+    - name: Require unique names and unique issuer and client id pairs
+      ansible.builtin.assert:
+        that:
+          - portikus_lti_names | unique | length == portikus_lti_names | length
+          - portikus_lti_pairs | unique | length == portikus_lti_pairs | length
+        fail_msg: >-
+          Each platform in {{ portikus_lti_platforms_file }} needs its own
+          name, and each issuer and clientId pair may appear only once.
+      vars:
+        portikus_lti_names: "{{ portikus_lti_platforms.platforms | map(attribute='name') | list }}"
+        portikus_lti_pairs: >-
+          {{ portikus_lti_platforms.platforms | map(attribute='issuer')
+             | zip(portikus_lti_platforms.platforms | map(attribute='clientId'))
+             | map('join', ' ') | list }}
+
+    # The API unit may reach only the addresses it is given.  A keyset URL
+    # that names an address, like the mock's, is allowed exactly; a hostname
+    # has changing addresses, so its ranges come from PORTIKUS_API_IP_ALLOW.
+    - name: Allow the API to reach the keyset addresses
+      ansible.builtin.set_fact:
+        portikus_lti_keyset_cidrs: >-
+          {{ (portikus_lti_keyset_hosts | select('match', '^[0-9]{1,3}(\.[0-9]{1,3}){3}$')
+              | map('regex_replace', '$', '/32') | list)
+             + (portikus_lti_keyset_hosts | select('search', ':')
+              | map('regex_replace', '$', '/128') | list) }}
+      vars:
+        portikus_lti_keyset_hosts: >-
+          {{ portikus_lti_platforms.platforms | map(attribute='keysetUrl')
+             | map('urlsplit', 'hostname') | unique | list }}
+
+    - name: Name the keyset hosts PORTIKUS_API_IP_ALLOW has to cover
+      ansible.builtin.debug:
+        msg: >-
+          The API reaches the keyset of {{ item.name }} by hostname
+          ({{ item.keysetUrl | urlsplit('hostname') }}).  Set
+          PORTIKUS_API_IP_ALLOW to that host's address ranges, or LTI launches
+          from it fail with keyset_unavailable (docs/EPIC-13.md, risk 1).
+      loop: "{{ portikus_lti_platforms.platforms }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: >-
+        item.keysetUrl | urlsplit('hostname') is not match('^[0-9]{1,3}(\.[0-9]{1,3}){3}$')
+        and ':' not in item.keysetUrl | urlsplit('hostname')
+        and item.keysetUrl | urlsplit('hostname') != 'localhost'

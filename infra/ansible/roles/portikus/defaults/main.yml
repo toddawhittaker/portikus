@@ -9,3 +9,8 @@ portikus_carry_over_script: /usr/lib/portikus/api/node_modules/@portikus/auth/di
 portikus_carry_over_input: /run/portikus-carry-over.json
 # The report line for a row that was rewritten (packages/auth carry-over formatReport).
 portikus_carry_over_changed_pattern: ': carried row '
+
+# LTI launch (docs/EPIC-13.md, rulings 14 and 15): where the API reads the
+# platforms file and the tool key on the VM.
+portikus_lti_platforms_path: /etc/portikus/lti-platforms.json
+portikus_lti_tool_key_path: /etc/portikus/lti-tool-key.pem

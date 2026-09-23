@@ -1,0 +1,55 @@
+---
+# LTI launch on the VM (docs/EPIC-13.md, rulings 14, 15 and 26).  api.env
+# always names both files; a missing platforms file means LTI is off.
+# lti_load.yml has already read and checked the file on the Ansible host.
+
+# The tool key is generated once and never replaced, because every LMS
+# registration pins its public half (ruling 15).
+- name: Generate the LTI tool key
+  ansible.builtin.shell:
+    cmd: >-
+      umask 077 && openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048
+      -out {{ portikus_lti_tool_key_path }}
+    creates: "{{ portikus_lti_tool_key_path }}"
+  no_log: true
+
+- name: Set LTI tool key permissions
+  ansible.builtin.file:
+    path: "{{ portikus_lti_tool_key_path }}"
+    owner: root
+    group: portikus
+    mode: "0640"
+
+- name: Install the LTI platforms file
+  ansible.builtin.copy:
+    src: "{{ portikus_lti_platforms_file }}"
+    dest: "{{ portikus_lti_platforms_path }}"
+    owner: root
+    group: portikus
+    mode: "0640"
+  when: portikus_lti_platforms is not none
+  notify: Restart portikus-api
+
+- name: Remove the LTI platforms file, which turns LTI off
+  ansible.builtin.file:
+    path: "{{ portikus_lti_platforms_path }}"
+    state: absent
+  when: portikus_lti_platforms is none
+  notify: Restart portikus-api
+
+# A run limited to the lti tag does not render api.env, so a VM configured
+# before this change would silently keep LTI off.
+- name: Read the API environment file
+  ansible.builtin.slurp:
+    src: /etc/portikus/api.env
+  register: portikus_lti_api_env
+  when: portikus_lti_platforms is not none
+  no_log: true
+
+- name: Require the API environment file to name the platforms file
+  ansible.builtin.assert:
+    that:
+      - ('LTI_PLATFORMS_FILE=' ~ portikus_lti_platforms_path) in (portikus_lti_api_env.content | b64decode)
+    fail_msg: "/etc/portikus/api.env has no LTI_PLATFORMS_FILE line; run make configure-vm once first."
+    quiet: true
+  when: portikus_lti_platforms is not none
