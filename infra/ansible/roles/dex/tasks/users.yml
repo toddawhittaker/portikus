@@ -46,7 +46,7 @@
       - dex_bad_roles | length == 0
     fail_msg: >-
       The users file {{ portikus_users_file }} must be version 1, hold at least
-      one user, and every entry needs a bcrypt hash of cost 10 to 16 and the
+      one user, and every entry needs a bcrypt hash of cost 10 to 12 and the
       role student or administrator.
       Bad hashes: {{ dex_bad_hashes | join(', ') or 'none' }}.
       Bad roles: {{ dex_bad_roles | join(', ') or 'none' }}.

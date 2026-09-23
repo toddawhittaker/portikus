@@ -168,17 +168,36 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# Dex, the sign-in provider (ADR 0023). It mounts its routes under the
 	# issuer's path, so the prefix is passed through unchanged. Dex has no
 	# lockout, so every password form post first asks the API's sign-in
-	# throttle (#398); a 429 goes back to the browser unchanged.
+	# throttle (#398), and every other /dex/auth request counts as a sign-in
+	# start, because Dex keeps each one in memory for ten minutes. A 429 goes
+	# back to the browser unchanged.
 	handle /dex/* {
-		# No % in the pattern: Caddy then matches the decoded path, which
+		# What Dex keeps comes from the URI and the form body, so both are
+		# capped. Real sign-in URIs are about 400 bytes.
+		@dex_long_uri expression {http.request.uri}.size() > 4096
+		# No % in the patterns: Caddy then matches the decoded path, which
 		# also catches encoded spellings such as /dex/auth/loc%61l/login.
 		@dex_password_post {
 			method POST
 			path /dex/auth/local/login*
 		}
+		@dex_signin_start {
+			path /dex/auth*
+			not {
+				method POST
+				path /dex/auth/local/login*
+			}
+		}
 		route {
+			respond @dex_long_uri 414
+			request_body {
+				max_size 16KB
+			}
 			forward_auth @dex_password_post 127.0.0.1:{{ portikus_api_port }} {
 				uri /edge/signin-throttle
+			}
+			forward_auth @dex_signin_start 127.0.0.1:{{ portikus_api_port }} {
+				uri /edge/signin-throttle?scope=start
 			}
 			reverse_proxy 127.0.0.1:{{ dex_port }}
 		}

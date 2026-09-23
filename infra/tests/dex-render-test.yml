@@ -47,6 +47,19 @@
       vars:
         portikus_users_file: "{{ dex_render_workdir.path }}/users.json"
 
+    # Cost 16 would let the 300 counted attempts burn about 20 CPU-minutes.
+    - name: Check the role accepts bcrypt costs 10 to 12 and nothing higher
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - (prefix ~ '10$' ~ salt) is match(dex_bcrypt_pattern)
+          - (prefix ~ '12$' ~ salt) is match(dex_bcrypt_pattern)
+          - (prefix ~ '13$' ~ salt) is not match(dex_bcrypt_pattern)
+          - (prefix ~ '16$' ~ salt) is not match(dex_bcrypt_pattern)
+      vars:
+        prefix: "$2b$"
+        salt: MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEFfG
+
     - name: Render the configuration template
       ansible.builtin.template:
         src: "{{ playbook_dir }}/../ansible/roles/dex/templates/config.yaml.j2"

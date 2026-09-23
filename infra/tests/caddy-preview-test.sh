@@ -286,13 +286,31 @@ has "a password post asks the API's sign-in throttle first" \
   "forward_auth @dex_password_post 127\.0\.0\.1:${API_PORT} \{" "${app}"
 has "the throttle is asked at /edge/signin-throttle" \
   '^[[:space:]]+uri /edge/signin-throttle$' "${app}"
-throttle_line="$(grep -n 'forward_auth @dex_password_post' "${app}" | head -1 | cut -d: -f1)"
-dex_proxy_line="$(grep -n 'reverse_proxy 127.0.0.1:5556' "${app}" | head -1 | cut -d: -f1)"
-if [ -n "${throttle_line}" ] && [ -n "${dex_proxy_line}" ] && [ "${throttle_line}" -lt "${dex_proxy_line}" ]; then
-  ok "the throttle runs before the post reaches Dex"
-else
-  no "the throttle runs before the post reaches Dex"
-fi
+# Dex stores every /dex/auth request for ten minutes, so each one is counted
+# as a sign-in start and what it can store is capped (security review, 12b).
+has "every other /dex/auth request is matched as a sign-in start" \
+  '^[[:space:]]+path /dex/auth\*$' "${app}"
+has "the sign-in start matcher leaves out only the password post" \
+  '^[[:space:]]+not \{$' "${app}"
+has "a /dex/auth request asks the throttle as a sign-in start" \
+  "forward_auth @dex_signin_start 127\.0\.0\.1:${API_PORT} \{" "${app}"
+has "the sign-in start is asked at /edge/signin-throttle?scope=start" \
+  '^[[:space:]]+uri /edge/signin-throttle\?scope=start$' "${app}"
+has "a Dex URI longer than 4096 bytes is refused" \
+  '^[[:space:]]+@dex_long_uri expression \{http\.request\.uri\}\.size\(\) > 4096$' "${app}"
+has "the long-URI refusal is a 414" '^[[:space:]]+respond @dex_long_uri 414$' "${app}"
+has "a Dex request body is capped" '^[[:space:]]+max_size 16KB$' "${app}"
+line_of() { grep -n -- "$1" "${app}" | head -1 | cut -d: -f1; }
+dex_proxy_line="$(line_of 'reverse_proxy 127.0.0.1:5556')"
+for step in 'respond @dex_long_uri' 'max_size 16KB' \
+  'forward_auth @dex_password_post' 'forward_auth @dex_signin_start'; do
+  step_line="$(line_of "${step}")"
+  if [ -n "${step_line}" ] && [ -n "${dex_proxy_line}" ] && [ "${step_line}" -lt "${dex_proxy_line}" ]; then
+    ok "${step} runs before the request reaches Dex"
+  else
+    no "${step} runs before the request reaches Dex"
+  fi
+done
 has "with Dex, the mock provider's prefix is a 404" 'handle /mock-idp\* \{' "${app}"
 lacks "with Dex, nothing proxies to the mock provider" '127\.0\.0\.1:3002' "${app}"
 lacks "the /edge routes are never proxied on the public site" 'handle /edge' "${rendered}"

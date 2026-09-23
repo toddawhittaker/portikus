@@ -9,5 +9,6 @@ dex_marker: /usr/local/share/portikus/dex-commit
 dex_web_dir: /usr/local/share/portikus/dex-web
 # A separate build cache, so clearing it after a build leaves distrobuilder's alone.
 dex_gocache: /root/go/dex-cache
-# The bcrypt shape Dex accepts: cost 10 to 16 (docs/EPIC-12B.md, the users file).
-dex_bcrypt_pattern: '^\$2[aby]\$1[0-6]\$[./A-Za-z0-9]{53}$'
+# The bcrypt shape allowed: cost 10 to 12, as higher costs let counted
+# password attempts burn the VM's CPU (docs/EPIC-12B.md, the users file).
+dex_bcrypt_pattern: '^\$2[aby]\$1[0-2]\$[./A-Za-z0-9]{53}$'

@@ -201,6 +201,34 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 		expect((await edgeCheck("192.0.2.11")).statusCode).toBe(204);
 	});
 
+	test("/edge/signin-throttle?scope=start counts a sign-in start, shared with /auth/login", async () => {
+		const start = (ip: string) =>
+			app.inject({
+				url: "/edge/signin-throttle?scope=start",
+				headers: {
+					"x-forwarded-for": ip,
+					"x-forwarded-uri": "/dex/auth/local?state=x",
+				},
+			});
+		for (let i = 0; i < 30; i += 1) {
+			await app.inject({ url: "/auth/login", remoteAddress: "192.0.2.20" });
+		}
+		for (let i = 0; i < 30; i += 1) {
+			expect((await start("192.0.2.20")).statusCode).toBe(204);
+		}
+		const refused = await start("192.0.2.20");
+		expect(refused.statusCode).toBe(429);
+		expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
+		// A start is not a password attempt.
+		expect((await edgeCheck("192.0.2.20")).statusCode).toBe(204);
+
+		const rows = await throttledRows();
+		expect(rows[0]?.metadata).toMatchObject({
+			ip: "192.0.2.20",
+			scope: "signin-start",
+		});
+	});
+
 	test("/edge/signin-throttle answers only a loopback peer", async () => {
 		const res = await app.inject({
 			url: "/edge/signin-throttle",
