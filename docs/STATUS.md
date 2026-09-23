@@ -1423,3 +1423,119 @@ now answers 502 when the app it proxies to has closed, as Caddy does.
 Accepted residual: a stolen, already-revoked preview cookie can tell
 whether its owner's workspace is running until the sweep deletes revoked
 rows a day later.
+
+## Epic 12a — Security test suites
+
+The requirement is `docs/EPIC-12A.md`. This is the first half of SPEC.md
+section 29 Epic 12: tests of code that already exists, plus section 30
+Gate C. The second half, Epic 12b (load, backup and restore, the
+destructive rebuild exercise, deployment documentation, and the
+threat-model review), is separate and still ahead.
+
+**The authorization matrix.** Every route the API registers is classified
+into one of seven access rules (public, self, owner, owner-or-admin,
+admin, preview-edge, inert), 97 entries including the automatic HEAD
+twins, and the test checks the rule against every kind of caller:
+anonymous, the workspace's own student, another student, an
+administrator, a disabled user, a bearer token with no cookie, and a
+preview-origin request. The class table lives on the test side
+(`apps/api/src/security/route-policy.ts`), and the check runs both ways:
+a route Fastify registers with no class fails the test, and a class entry
+naming a route that no longer exists also fails it. The comparison now
+walks Fastify's own printed route tree, so a route registered outside the
+one routes plugin (where `onRoute` would miss it) is still caught. The
+same idea covers the four browser sockets and every workspace-agent route
+and socket: a wrong or missing token is refused before the request body
+is even parsed (PR #396, #409, #440).
+
+**Filesystem escape.** 72 cases (35 through the API to two real agents,
+37 directly at the agent) send hostile path spellings, percent- and
+double-encoding, overlong UTF-8, full-width characters, NUL bytes,
+symlink loops, and symlinked project directories, across every file
+operation the API and agent expose: read, write, delete, mkdir, move,
+tree, download, search, and both kinds of diff. None of them reached
+outside the caller's own project (PR #407).
+
+**Limits and the hostile agent.** New tests drive the API against a small
+misbehaving stand-in workspace agent: oversized and malformed answers,
+answers that claim another workspace's identity, listening lists that
+name a denied port, and frames over the sockets' 1 MiB cap. They also
+check every route's JSON body limit, including routes added after this
+task shipped, since the test finds routes itself (PR #409).
+
+**Browser checks.** Two Playwright specs cover what one student's browser
+can see of another's workspace, and what a preview page loaded in a
+student's own browser can do with their session: no tabs, terminals,
+files, or project name leak across students or to an administrator, and
+preview code cannot read `/auth/me`, act on the workspace, or read the
+session cookie (PR #410).
+
+**`make security-test` on the live VM.** The suite makes its own users by
+SQL insert (never the mock sign-in's fixed accounts), creates two
+workspaces of its own, and probes only those two, through the real Caddy
+edge, the real Incus containers, and the real firewall. It snapshots
+every other workspace and every setting before and after and fails on
+any difference; it checks free memory and thin-pool space before
+creating anything; and it takes a run lock so two runs, including from
+different machines, cannot collide (PR #418, #430, #436, #440). The final
+run against the live pilot passed 172 checks with one known failure
+(#408, below) in about three minutes, twice in a row, and left nothing
+behind. **Gate C (SPEC.md section 30) is proven on the pilot, except that
+the pilot still signs in through the mock identity provider**, so that
+one condition is recorded as not yet met.
+
+**Product fixes that came out of the suites.**
+
+- **#400.** Downloading a project or folder containing a symbolic link
+  gave a broken zip, because `zip` cannot store an uncompressed link
+  entry on a pipe. Downloads now zip to a temporary file under
+  `/var/tmp`, streamed to the browser and deleted once the stream closes
+  or the browser leaves; a failure now returns a proper error instead of
+  a truncated file.
+- **#397 and #401.** The API now re-applies its own count limits (32
+  checks, 500 search matches) to whatever the agent sends back, instead
+  of relaying an untrusted agent's answer as-is. Fastify's own 4xx errors
+  (an oversized or malformed body) now keep their real status, so an
+  oversized request gets 413 instead of a misleading 500.
+- **The agent's token check** now runs before its body is parsed, so a
+  caller with no token cannot make the agent do the work of parsing up to
+  1 MiB first.
+- **Test doubles and test helpers are removed from the packaged build.**
+  `make build-deb` now fails if any test file reaches the `.deb`. The
+  mock identity provider stays in the package, because the pilot's
+  separate mock-IdP service runs it on purpose (ADR 0008).
+
+**Two high-severity findings were fixed directly on `main`, ahead of and
+separate from this epic's task PRs**, because the repository is public
+and each was exploitable on the live pilot: a workspace agent could send
+an oversized terminal frame and make the API buffer it without bound
+(PR #406), and a workspace could reach the host and other private
+network ranges that should have been closed to it (PR #424). PR #424 is
+already applied on the pilot; the network-isolation checks in this epic's
+VM suite depend on it and were verified against the pilot with it in
+place.
+
+**Gaps.**
+
+- **#402** (HEAD on a browser socket route answers 500 for an otherwise
+  allowed caller) is still open. Its fix would remove the HEAD twin from
+  four routes in the test-side policy table, and the automatic permission
+  check that protects security tests from being weakened refused that
+  edit; it needs the user's approval, or a task that is scoped to touch
+  only that file.
+- **#398** (no rate limit on sign-in) and **#399** (no size cap on
+  downloads) are documented gaps, pinned as known and expected, not
+  fixed in this epic.
+- **#408:** the pilot signs in through the mock identity provider, so
+  anyone who reaches the site can sign in as an administrator. This is
+  the one condition Gate C has not met.
+- **Zip-slip has no tests yet.** Nothing in the platform extracts an
+  archive a student provides today, so there is nothing to test; Epic
+  10's restore work will need its own traversal tests when it lands.
+- **The heavy limit tests** (memory past 4 GiB, an untimed fork bomb)
+  have never run on a VM with no other workspace present, because the
+  pilot always has student workspaces on it. They stay opt-in behind
+  `PORTIKUS_SECURITY_HEAVY=1`.
+- **Epic 12b** (load and concurrency, backup and restore, the destructive
+  infrastructure rebuild exercise, deployment documentation, and the
+  threat-model review) has not started.
