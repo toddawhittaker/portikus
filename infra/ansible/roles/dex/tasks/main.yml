@@ -43,10 +43,16 @@
         path: /usr/local/bin/dex
       register: dex_binary
 
+    - name: Look for the Dex web templates
+      ansible.builtin.stat:
+        path: "{{ dex_web_dir }}/templates/password.html"
+      register: dex_web_templates
+
     - name: Decide whether Dex needs building
       ansible.builtin.set_fact:
         dex_needs_build: >-
           {{ not dex_binary.stat.exists
+             or not dex_web_templates.stat.exists
              or (dex_marker_file.content | default('') | b64decode | trim) != dex_commit }}
 
     - name: Build Dex
@@ -121,6 +127,23 @@
             path: /usr/local/bin/dex.new
             state: absent
 
+        # frontend.dir replaces Dex's built-in pages as a whole, so the tree is
+        # taken from the same pinned source and patched below.
+        - name: Remove the web templates of the previous build
+          ansible.builtin.file:
+            path: "{{ dex_web_dir }}"
+            state: absent
+
+        - name: Install the web templates of this build
+          ansible.builtin.copy:
+            src: "{{ dex_src_dir }}/web/"
+            dest: "{{ dex_web_dir }}/"
+            remote_src: true
+            owner: root
+            group: root
+            mode: u=rwX,go=rX
+          notify: Restart portikus-dex
+
         - name: Create the marker directory
           ansible.builtin.file:
             path: "{{ dex_marker | dirname }}"
@@ -142,6 +165,22 @@
           ansible.builtin.file:
             path: "{{ dex_gocache }}"
             state: absent
+
+    # Accessibility fixes only, no restyling (Gate E review): the page names
+    # its language, and a failed sign-in is announced to screen readers.
+    - name: Give the Dex pages a language
+      ansible.builtin.replace:
+        path: "{{ dex_web_dir }}/templates/header.html"
+        regexp: '^<html>$'
+        replace: '<html lang="en">'
+      notify: Restart portikus-dex
+
+    - name: Announce a failed Dex sign-in
+      ansible.builtin.replace:
+        path: "{{ dex_web_dir }}/templates/password.html"
+        regexp: '<div id="login-error" class="dex-error-box">'
+        replace: '<div id="login-error" class="dex-error-box" role="alert">'
+      notify: Restart portikus-dex
 
     # ── Client secret (generated once) ───────────────────────────
 
