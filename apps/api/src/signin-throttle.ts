@@ -13,9 +13,8 @@ const MINUTE_MS = 60_000;
 const TEN_MINUTES_MS = 10 * MINUTE_MS;
 /** The overall password limit is this many times the per-address one. */
 const PASSWORD_TOTAL_FACTOR = 10;
-/** The path Caddy asks about for Dex's password form. */
+/** The path Caddy asks about for Dex's sign-in pages and password form. */
 export const EDGE_THROTTLE_PATH = "/edge/signin-throttle";
-const PASSWORD_FORM_PREFIX = "/dex/auth/local/login";
 const START_ROUTES = new Set(["/auth/login", "/auth/callback"]);
 
 export interface ThrottleDecision {
@@ -93,11 +92,11 @@ export function createSigninThrottle(options: {
 		},
 		checkPassword(ip: string): ThrottleDecision {
 			const window = passwords.hit(ip);
+			if (window.count > passwords.limit) return decide(window, true);
+			// Only attempts the address limit let through count class-wide, so
+			// one address cannot use up everyone's allowance.
 			const total = allPasswords.hit("all");
-			return decide(
-				window,
-				window.count > passwords.limit || total.count > allPasswords.limit,
-			);
+			return decide(window, total.count > allPasswords.limit);
 		},
 	};
 }
@@ -105,10 +104,6 @@ export function createSigninThrottle(options: {
 function fromLoopback(request: FastifyRequest): boolean {
 	const address = request.raw.socket.remoteAddress ?? "";
 	return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
-}
-
-function headerValue(value: string | string[] | undefined): string {
-	return (Array.isArray(value) ? value[0] : value) ?? "";
 }
 
 /**
@@ -168,14 +163,24 @@ export function registerSigninThrottle(
 			await reply.status(403).send(body);
 			return;
 		}
-		const uri = headerValue(request.headers["x-forwarded-uri"]);
-		if (uri.startsWith(PASSWORD_FORM_PREFIX)) {
-			// request.ip is the client Caddy named in X-Forwarded-For.
-			const decision = throttle.checkPassword(request.ip);
-			if (!decision.allowed) {
-				await refuse(request, reply, decision, "password");
-				return;
-			}
+		// Caddy has already matched the decoded path, so every ask counts;
+		// matching the raw URI again here let encoded paths by. Caddy sets
+		// scope=start for Dex's sign-in pages, which each store a request, and
+		// scope=password for the password post; anything else counts as a password.
+		// request.ip is the client Caddy named in X-Forwarded-For.
+		const { scope } = request.query as { scope?: string };
+		const decision =
+			scope === "start"
+				? throttle.checkStart(request.ip)
+				: throttle.checkPassword(request.ip);
+		if (!decision.allowed) {
+			await refuse(
+				request,
+				reply,
+				decision,
+				scope === "start" ? "signin-start" : "password",
+			);
+			return;
 		}
 		await reply.status(204).send();
 	});

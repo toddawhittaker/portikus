@@ -10,6 +10,17 @@
     path: "{{ dex_users_revoke_script }}"
   register: dex_users_revoke_command
 
+- name: Summarise the users deployed now
+  ansible.builtin.set_fact:
+    dex_users_deployed: >-
+      {% set ns = namespace(users=[]) -%}
+      {% for u in dex_users.users -%}
+      {% set ns.users = ns.users + [{'username': u.username, 'userId': u.userId,
+           'role': u.role, 'passwordFingerprint': u.passwordHash | hash('sha256')}] -%}
+      {% endfor -%}
+      {{ ns.users }}
+  no_log: true
+
 # A fresh VM gets the package after this role, and has no sessions yet.
 - name: End the sessions of changed accounts
   when: dex_users_revoke_command.stat.exists
@@ -19,17 +30,6 @@
         src: "{{ dex_users_state_file }}"
       register: dex_users_state
       failed_when: false
-
-    - name: Summarise the users deployed now
-      ansible.builtin.set_fact:
-        dex_users_deployed: >-
-          {% set ns = namespace(users=[]) -%}
-          {% for u in dex_users.users -%}
-          {% set ns.users = ns.users + [{'username': u.username, 'userId': u.userId,
-               'role': u.role, 'passwordFingerprint': u.passwordHash | hash('sha256')}] -%}
-          {% endfor -%}
-          {{ ns.users }}
-      no_log: true
 
     - name: Write the session revoke input
       ansible.builtin.copy:
@@ -67,19 +67,21 @@
       ansible.builtin.debug:
         var: dex_users_revoke.stdout_lines
 
-    # Recorded only after the revoke succeeded, so a failed run is retried.
-    - name: Record the users deployed now
-      ansible.builtin.copy:
-        dest: "{{ dex_users_state_file }}"
-        content: "{{ dex_users_deployed | to_nice_json }}\n"
-        owner: root
-        group: root
-        mode: "0600"
-      no_log: true
-
   always:
     - name: Remove the session revoke input
       ansible.builtin.file:
         path: "{{ dex_users_revoke_input }}"
         state: absent
       changed_when: false
+
+# Always recorded, so the first deploy after the package arrives has a list
+# to compare with.  A failed revoke stops the play first, so it is retried.
+- name: Record the users deployed now
+  ansible.builtin.copy:
+    dest: "{{ dex_users_state_file }}"
+    content: "{{ dex_users_deployed | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  register: dex_users_recorded
+  no_log: true

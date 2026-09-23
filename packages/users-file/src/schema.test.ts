@@ -42,6 +42,8 @@ describe("validateUsersFile", () => {
 	it.each([
 		["not a hash", "not-a-hash"],
 		["cost 09", "$2b$09$MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEFfG"],
+		["cost 13", "$2b$13$MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEFfG"],
+		["cost 16", "$2b$16$MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEFfG"],
 		["cost 17", "$2b$17$MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEFfG"],
 		["wrong prefix", "$2x$12$MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEFfG"],
 		["short", "$2b$12$MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEF"],

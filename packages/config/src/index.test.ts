@@ -599,6 +599,15 @@ test("ApiConfig applies the recovery defaults", () => {
 	expect(config.RECOVERY_RETENTION_DAYS).toBe(14);
 });
 
+test("ApiConfig's sign-in limits let a lab of 30 behind one address sign in within a minute", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+	});
+	// One sign-in takes five starts: /auth/login, three /dex/auth pages, /auth/callback.
+	expect(config.SIGNIN_START_LIMIT_PER_MINUTE).toBe(150);
+	expect(config.PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES).toBe(30);
+});
+
 test("AgentConfig defaults RECOVERY_ROOT to the recovery volume mount", () => {
 	const config = loadConfig(AgentConfigSchema, {});
 	expect(config.RECOVERY_ROOT).toBe("/var/lib/portikus/recovery");

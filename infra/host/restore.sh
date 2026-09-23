@@ -204,9 +204,10 @@ info "portikus-api and portikus-worker stopped; they stay stopped if the restore
 # --create --clean drops and recreates the whole database, so no table a
 # newer release added survives to confuse the migrations.
 decrypt db.dump | vm_in "sudo runuser -u postgres -- pg_restore --create --clean --if-exists --exit-on-error -d postgres"
-# Otherwise every workspace running at backup time starts at once.
-psql_vm "UPDATE workspaces SET state = 'stopped', desired_state = 'stopped'"
-step "database restored, every workspace marked stopped"
+# Stopped, or every workspace running at backup time starts at once.  The
+# sessions go too, so a cookie stolen before the backup does not work here.
+psql_vm "BEGIN; UPDATE workspaces SET state = 'stopped', desired_state = 'stopped'; DELETE FROM preview_sessions; DELETE FROM sessions; COMMIT;"
+step "database restored, every workspace marked stopped, every session ended"
 
 # ── 5. Volumes ────────────────────────────────────────────────────
 for vol in "${volumes[@]}"; do
