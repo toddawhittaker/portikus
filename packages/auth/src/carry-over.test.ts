@@ -257,12 +257,13 @@ describe.skipIf(!hasTestDb())("carryOver", () => {
 	});
 
 	test("a second --apply changes nothing and revokes nothing", async () => {
-		await seedPilot();
+		const seeded = await seedPilot();
 		await carryOver(t.db, input, { apply: true });
 		const between = await rows();
 		const auditCount = (await t.db.selectFrom("audit_events").selectAll().execute())
 			.length;
-		await session(between[0]?.id ?? "");
+		// A Dex sign-in after the cutover.
+		await session(seeded.carolNew.id);
 
 		const report = await carryOver(t.db, input, { apply: true });
 
@@ -273,6 +274,55 @@ describe.skipIf(!hasTestDb())("carryOver", () => {
 			auditCount,
 		);
 		expect(await t.db.selectFrom("sessions").selectAll().execute()).toHaveLength(1);
+	});
+
+	test("with nothing to carry, --apply still revokes every session left from the mock", async () => {
+		const admin = await user(MOCK, "admin", "admin@elsewhere.example");
+		const adminSession = await session(admin.id);
+		await session(admin.id);
+		const ws = await t.db
+			.selectFrom("workspaces")
+			.select("id")
+			.where("owner_user_id", "=", admin.id)
+			.executeTakeFirstOrThrow();
+		await t.db
+			.insertInto("preview_sessions")
+			.values({
+				token_hash: "h",
+				user_id: admin.id,
+				session_id: adminSession,
+				workspace_id: ws.id,
+				port: 3000,
+				preview_host: "p",
+			})
+			.execute();
+
+		const report = await carryOver(t.db, input, { apply: true });
+
+		expect(report.users.map((u) => u.status)).toEqual(["new", "new", "new"]);
+		expect(report.sessionsRevoked).toBe(2);
+		expect(await t.db.selectFrom("sessions").selectAll().execute()).toEqual([]);
+		expect(await t.db.selectFrom("preview_sessions").selectAll().execute()).toEqual([]);
+		const audit = await t.db.selectFrom("audit_events").selectAll().execute();
+		expect(audit.map((a) => [a.action, a.metadata])).toEqual([
+			["auth.sessions_revoked", { reason: "identity-provider-cutover", count: 2 }],
+		]);
+	});
+
+	test("a re-run after the cutover does not revoke a Dex session", async () => {
+		const mockOnly = await user(MOCK, "admin", "admin@elsewhere.example");
+		await session(mockOnly.id);
+		await carryOver(t.db, input, { apply: true });
+		const dexUser = await user(DEX, dexLocalSubject(CAROL_ID), "carol@example.edu");
+		const dexSession = await session(dexUser.id);
+
+		const report = await carryOver(t.db, input, { apply: true });
+
+		expect(report.sessionsRevoked).toBe(0);
+		expect(
+			(await t.db.selectFrom("sessions").select("id").execute()).map((s) => s.id),
+		).toEqual([dexSession]);
+		expect(await t.db.selectFrom("audit_events").selectAll().execute()).toHaveLength(1);
 	});
 
 	test("never touches rows outside fromIssuers, even with a matching email", async () => {

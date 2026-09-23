@@ -94,8 +94,14 @@ export async function carryOver(
 	options: { apply: boolean },
 ): Promise<CarryOverReport> {
 	return db.transaction().execute(async (trx) => {
+		// Checked before any row moves to Dex, so a carried user's old session counts.
+		const mockSession = await trx
+			.selectFrom("sessions")
+			.innerJoin("users", "users.id", "sessions.user_id")
+			.select("sessions.id")
+			.where("users.oidc_issuer", "in", input.fromIssuers)
+			.executeTakeFirst();
 		const users: CarryOverOutcome[] = [];
-		let carried = 0;
 		for (const u of input.users) {
 			const subject = dexLocalSubject(u.userId);
 			const linked = await trx
@@ -173,12 +179,12 @@ export async function carryOver(
 					}),
 				})
 				.execute();
-			carried += 1;
 		}
 
 		let sessionsRevoked = 0;
 		// While the mock was on, anyone could have made an administrator session.
-		if (carried > 0) {
+		// Once no mock-issuer session is left, a re-run leaves Dex sessions alone.
+		if (options.apply && mockSession) {
 			await trx.deleteFrom("preview_sessions").execute();
 			const deleted = await trx.deleteFrom("sessions").executeTakeFirst();
 			sessionsRevoked = Number(deleted.numDeletedRows);
