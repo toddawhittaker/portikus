@@ -244,6 +244,8 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	PRESENCE_TTL_SECONDS: positiveInt.default(60),
 	SWEEP_INTERVAL_SECONDS: positiveInt.default(1),
 	START_TIMEOUT_SECONDS: positiveInt.default(60),
+	/** How many creates, and then starts, one sweep runs at once. */
+	WORKER_START_CONCURRENCY: positiveInt.default(6),
 	STOP_TIMEOUT_SECONDS: positiveInt.default(30),
 	STATUS_REFRESH_SECONDS: positiveInt.default(15),
 	WORKSPACE_HOME_SIZE_GIB: positiveInt.default(25),
