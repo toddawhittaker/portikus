@@ -1926,7 +1926,11 @@ sign-in took about 10 min 30 s. Removing an account with
 `make users-deploy` ended its live session (401) and was audited. The
 load test rerun measured a start p95 of 12.6 s, down from 77 s. Timings
 are in `docs/OPERATIONS.md`, "Rebuild from code (B5)", and the load
-numbers in `docs/CAPACITY.md`.
+numbers in `docs/CAPACITY.md`. `make rebuild-exercise` (PR #471) now
+runs every STACK.md section 33 step in one command, including the
+rollback to the previous package, and passed end to end in 17 min 48 s.
+The smoke test gained checks for restored data and for the Incus script's
+checksum.
 
 ### Gaps
 
@@ -1943,9 +1947,10 @@ numbers in `docs/CAPACITY.md`.
   opening their workspaces within 48 seconds, start p95 was 12.6 s against
   the 10 s target (SPEC.md section 25.1). Every other load criterion
   passed.
-- **The rebuild exercise is not one command.** There is no
-  `make rebuild-exercise` yet, and the rollback step (install the previous
-  release, check `/health` and sign-in) was not run.
+- **The rollback step needs a package with Dex.** No published release
+  has Dex yet, so the exercise rolled back to a local build of the
+  previous epic head. Once this epic's release is out, the exercise rolls
+  back to a published release (`PREVIOUS_VERSION`).
 - **A backup from before the Dex cutover needs the carry-over after a
   restore.** The runbook says how (`docs/OPERATIONS.md`, "Rebuild from
   code (B5)").

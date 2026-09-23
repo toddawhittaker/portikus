@@ -417,7 +417,54 @@ The journal is capped at 2 GB. On the host, the nightly backup logs to
 
 ## Rebuild from code (B5)
 
-On 2026-09-23 the rehearsal VM was rebuilt twice from the repository,
+**The one-command exercise.** `make rebuild-exercise` runs the whole
+STACK.md section 33 exercise on the rehearsal VM and destroys the VM at
+the end, even when a step fails:
+
+```
+make rebuild-exercise BACKUP=/var/backups/portikus/portikus/<timestamp> \
+  PREVIOUS_VERSION=<release to roll back to> \
+  PORTIKUS_USERS_FILE=<rehearsal users file> \
+  PORTIKUS_SMOKE_SIGNIN_FILE=<file with a test user's email and password>
+```
+
+Run it from a shell in the `libvirt` group, like `make rehearsal-up`.
+It does these steps in order:
+
+1. It builds the package from the checkout.
+2. It rebuilds the VM from code, and builds the workspace image.
+3. It restores the set.
+4. It carries mock accounts over to Dex, if the set holds any.
+5. It runs the smoke test with the restored-data checks.
+6. It rolls back to the previous package, then checks `/health` and a
+   Dex sign-in.
+
+It prints a timing table at the end, and keeps a log of each step under
+`/tmp/portikus-rebuild-exercise.*`.
+
+`PREVIOUS_DEB=<file>` rolls back to a local package instead of a release.
+The previous package must support Dex. At the time of writing, no
+published release does, so the run below used a local build of the
+previous epic head.
+
+The run on 2026-09-23 restored the pilot's set `20260923T045452Z` and
+rolled back to `0.1.366+g1acca31`. Every step passed:
+
+| Step | Time |
+|---|---|
+| Build the package, reinstall dev dependencies | 10 s |
+| Destroy the old VM | 1 s |
+| Create the VM (OpenTofu, cloud-init) | 52 s |
+| Converge with Ansible | 4 min 40 s |
+| Build the workspace image | 2 min 53 s |
+| Restore the set, start one workspace | 56 s |
+| Carry 3 mock accounts over to Dex | 57 s |
+| Smoke test (231 passed, lifecycle block included) | 6 min 21 s |
+| Roll back, check `/health` and a Dex sign-in | 56 s |
+| Destroy the VM | 2 s |
+| **Total** | **17 min 48 s** |
+
+**The step-by-step runs.** Earlier the same day, the rehearsal VM was rebuilt twice from the repository,
 from nothing to a working platform, with package `0.1.367+gc543a49` (the
 Epic 12b head after PR #468). The pilot's newest backup was then restored
 into the second rebuild. Every step was a Make target. No step was done
@@ -506,12 +553,7 @@ N=25` ran on the first rebuild. It took 19 min 20 s in all. Start p95 was
 still over the 10 s target. Every other criterion passed, with no failed
 operation (`docs/CAPACITY.md`, "Rerun after parallel starts").
 
-**Not covered by this exercise:**
-
-- There is no single `make rebuild-exercise` target yet. The steps above
-  were run one after another.
-- Installing the previous release again and checking `/health` and
-  sign-in (STACK.md section 33, the rollback step) was not part of this
-  run.
-- The smoke test was not run on the restored VM. Its lifecycle block
-  skips itself while student workspaces exist.
+The smoke test's lifecycle block normally skips itself while other
+people's workspaces exist. `make rebuild-exercise` sets
+`PORTIKUS_SMOKE_RESTORED_SET`, which lets the block run beside the
+restored workspaces, and only on a VM that is not named `portikus`.
