@@ -27,7 +27,8 @@ fi
 snapshot_before="${SEC_LOCAL_DIR}/before"
 snapshot_after="${SEC_LOCAL_DIR}/after"
 sec_snapshot_others >"$snapshot_before"
-echo "Snapshot of everything else: $(wc -l <"$snapshot_before") line(s)."
+# The fingerprint lets two runs be compared without keeping the snapshot.
+echo "Snapshot of everything else: $(wc -l <"$snapshot_before") line(s), fingerprint $(sha256sum <"$snapshot_before" | cut -c1-16)."
 
 finish() {
   trap - EXIT INT TERM
@@ -42,6 +43,10 @@ finish() {
   local left
   left=$(sec_psql "SELECT count(*) FROM users WHERE oidc_issuer = '${SEC_ISSUER}' AND oidc_subject LIKE 'sectest-${SEC_RUN_ID}-%'")
   check_output "no user row of this run is left" "0" echo "$left"
+  left=$(sec_ssh "incus list --project ${SEC_PROJECT} -c n --format csv" | grep -xF -f <(printf '%s\n' "${sec_created_instances[@]:-none}") | paste -sd' ')
+  check_output "no instance of this run is left" "" echo "$left"
+  left=$(sec_ssh "ls -d ${SEC_REMOTE_DIR} ${SEC_REMOTE_VARDIR} 2>/dev/null; true" | paste -sd' ')
+  check_output "no directory of this run is left on the VM" "" echo "$left"
   sec_summary
   echo "Run took $(($(date +%s) - SEC_START_EPOCH)) s."
   rm -rf "$SEC_LOCAL_DIR"

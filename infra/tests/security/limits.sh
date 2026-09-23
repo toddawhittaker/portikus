@@ -3,7 +3,8 @@
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # a's cgroup limits match the profile, a bounded fork loop hits the process
-# limit, and fallocate past each volume's size fails.  Meanwhile the API and
+# limit, busy loops fill a's CPUs for 20 seconds, and fallocate past each
+# volume's size is refused for lack of space.  Meanwhile the API and
 # b's agent keep answering within two seconds.  The heavy tests, memory past
 # the limit, run only with PORTIKUS_SECURITY_HEAVY=1 on an otherwise empty VM.
 # shellcheck disable=SC2154  # pass, fail and the SEC_ globals come from lib.sh
@@ -59,19 +60,28 @@ fi
 
 # lim_watch_start / lim_watch_stop -- a loop on the VM asks the API's /health
 # through the edge and b's agent every half second, each with a two-second limit.
+# It ends on the stop file, when the run's directory is gone, or after 15
+# minutes, so a run that dies never leaves it polling an address that may
+# later belong to a student.
 lim_b_ip=$(sec_ws_ip b)
 sec_agent_header b
 lim_watch_start() {
   sec_ssh "rm -f ${SEC_REMOTE_DIR}/watch.stop ${SEC_REMOTE_DIR}/watch.log; \
-    nohup bash -c 'while [ ! -f ${SEC_REMOTE_DIR}/watch.stop ]; do \
+    nohup timeout 900 bash -c 'while [ -d ${SEC_REMOTE_DIR} ] && [ ! -f ${SEC_REMOTE_DIR}/watch.stop ]; do \
       echo api \$(curl -s -o /dev/null -w %{http_code} --max-time 2 --cacert ${SEC_CA} ${SEC_API}/health) \
                b \$(curl -s -o /dev/null -w %{http_code} --max-time 2 -H @${SEC_REMOTE_DIR}/b.agent http://${lim_b_ip}:7400/health); \
       sleep 0.5; done' >${SEC_REMOTE_DIR}/watch.log 2>&1 </dev/null &"
 }
-# Prints "N samples, M slow or failed".
+# lim_watch_count -- samples so far, to mark the start of a stretch.
+lim_watch_count() { sec_ssh "wc -l < ${SEC_REMOTE_DIR}/watch.log"; }
+# lim_watch_summary FROM -- "N samples, M slow or failed" from line FROM on.
+lim_watch_summary() {
+  sec_ssh "awk -v from=$1 'NR >= from { n++; if (\$2 != 200 || \$4 != 200) bad++ } END { printf \"%d samples, %d slow or failed\", n, bad }' ${SEC_REMOTE_DIR}/watch.log"
+}
 lim_watch_stop() {
-  sec_ssh "touch ${SEC_REMOTE_DIR}/watch.stop; sleep 3; \
-    awk '{ n++ } \$2 != 200 || \$4 != 200 { bad++ } END { printf \"%d samples, %d slow or failed\", n, bad }' ${SEC_REMOTE_DIR}/watch.log"
+  sec_ssh "touch ${SEC_REMOTE_DIR}/watch.stop"
+  sleep 3
+  lim_watch_summary 1
 }
 lim_watch_ok() { [[ "$1" =~ ^[1-9][0-9]*\ samples,\ 0\ slow ]]; }
 
@@ -112,18 +122,52 @@ check "a bounded fork loop in a is refused (EAGAIN)" test "${lim_fork##* }" = "E
 check "the refusal came from a's container limit (pids.events max went up)" \
   test "${lim_hits_after:-0}" -gt "${lim_hits_before:-0}"
 
+# ── CPU ──────────────────────────────────────────────────────────
+
+# One busy loop per CPU a has, as the student, for 20 seconds under timeout.
+# a's cgroup CPU time over the stretch shows the loops really ran (control).
+lim_cpu_usec() { lim_cgroup cpu.stat | awk '$1 == "usage_usec" { print $2 }'; }
+lim_mark=$(lim_watch_count)
+lim_usec_before=$(lim_cpu_usec)
+lim_burn_start=$(date +%s%N)
+sec_exec a student "for i in \$(seq ${lim_cpu}); do timeout 20 sh -c 'while :; do :; done' & done; wait" >/dev/null 2>&1
+lim_burn_ns=$(($(date +%s%N) - lim_burn_start))
+lim_usec_after=$(lim_cpu_usec)
+lim_busy=$(awk -v u="$((${lim_usec_after:-0} - ${lim_usec_before:-0}))" -v ns="$lim_burn_ns" -v c="$lim_cpu" \
+  'BEGIN { printf "%d", 100 * u * 1000 / (ns * c) }')
+lim_cpu_watch=$(lim_watch_summary "$((${lim_mark:-0} + 1))")
+echo "CPU loops in a: ${lim_busy}% of ${lim_cpu} CPUs over $((lim_burn_ns / 1000000000)) s; liveness meanwhile: ${lim_cpu_watch}"
+check "a's busy loops kept its CPUs at least 80% busy (control)" test "$lim_busy" -ge 80
+check "the API and b's agent answered within two seconds while a used all its CPUs" \
+  lim_watch_ok "$lim_cpu_watch"
+
 # ── Disk ─────────────────────────────────────────────────────────
 
 # fallocate reserves blocks without writing them, so the thin pool is not used
-# up (Epic 12a decisions).  The file goes whatever happens.
+# up (Epic 12a decisions).  The file goes whatever happens.  It prints what
+# fallocate said, so a refusal for space can be told from any other failure.
 lim_fallocate() { # KEY USER DIR SIZE
-  sec_exec "$1" "$2" "f=$3/.sectest-fill-${SEC_RUN_ID}; fallocate -l $4 \$f; rc=\$?; rm -f \$f; exit \$rc" >/dev/null 2>&1
+  sec_exec "$1" "$2" "f=$3/.sectest-fill-${SEC_RUN_ID}; fallocate -l $4 \$f 2>&1; rc=\$?; rm -f \$f; exit \$rc"
+}
+# lim_refused LABEL KEY USER DIR SIZE -- passes only on a refusal for space.
+lim_refused() {
+  local label="$1" said; shift
+  said=$(lim_fallocate "$@" 2>&1 | tr '\n' ' ')
+  if [[ "$said" == *"No space left on device"* ]]; then
+    sec_pass "$label"
+  else
+    sec_fail "${label} (fallocate said: ${said:-nothing, so it succeeded})"
+  fi
 }
 check "fallocate a little in a's home works (control)" lim_fallocate a student /home/student 64M
-lim_refuses() { ! lim_fallocate "$@"; }
-check "fallocate past a's home volume (${lim_home_gib} GiB) fails" lim_refuses a student /home/student "$((lim_home_gib + 1))G"
-check "fallocate past a's Docker volume (${lim_docker_gib} GiB) fails" lim_refuses a root /var/lib/docker "$((lim_docker_gib + 1))G"
-check "fallocate past a's root disk (${lim_root_gb} GB) fails" lim_refuses a root /var/tmp "$((lim_root_gb + 1))G"
+check "fallocate a little in a's Docker volume works (control)" lim_fallocate a root /var/lib/docker 64M
+check "fallocate a little on a's root disk works (control)" lim_fallocate a root /var/tmp 64M
+lim_refused "fallocate past a's home volume (${lim_home_gib} GiB) is refused for lack of space" \
+  a student /home/student "$((lim_home_gib + 1))G"
+lim_refused "fallocate past a's Docker volume (${lim_docker_gib} GiB) is refused for lack of space" \
+  a root /var/lib/docker "$((lim_docker_gib + 1))G"
+lim_refused "fallocate past a's root disk (${lim_root_gb} GB) is refused for lack of space" \
+  a root /var/tmp "$((lim_root_gb + 1))G"
 
 # ── Heavy: memory past the limit ─────────────────────────────────
 

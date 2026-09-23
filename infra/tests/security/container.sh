@@ -5,8 +5,9 @@
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # a has no mount of b's volumes, the two ID maps do not overlap, root in a
 # privileged inner Docker container is an unprivileged user on the VM, and
-# symbolic links planted where the controller writes files cannot steer those
-# writes onto the VM.  The last part restarts a, which is this run's own.
+# symbolic links planted where the controller writes files, or on their
+# parent directories, cannot steer those writes onto the VM.  The last two
+# parts each restart a, which is this run's own, and put it back afterwards.
 # shellcheck disable=SC2154  # pass, fail and the SEC_ globals come from lib.sh
 # shellcheck disable=SC2016  # the probe scripts expand inside the workspace
 
@@ -72,8 +73,11 @@ check_output "root in a privileged inner container created the file as root insi
 ct_vm_uid_of_sleep() {
   sec_ssh "ps -eo uid=,args= | awk '\$2 == \"sleep\" && \$3 == \"${ct_sleep}\" { print \$1; exit }'"
 }
-check_output "on the VM, that container's root runs as a's shifted root (${ct_base_a})" \
-  "${ct_base_a}" ct_vm_uid_of_sleep
+# An empty base would match an empty answer, so the two checks need it.
+ct_base_known() { [ -n "$ct_base_a" ]; }
+check "a's shifted root ID is known (control)" ct_base_known
+check_output "on the VM, that container's root runs as a's shifted root (${ct_base_a:-unknown})" \
+  "${ct_base_a:-unknown}" ct_vm_uid_of_sleep
 # The file as the VM sees it through the running container's mount namespace.
 ct_vm_uid_of_file() {
   local pid
@@ -81,8 +85,8 @@ ct_vm_uid_of_file() {
   [ -n "$pid" ] || return 1
   sec_ssh "sudo stat -c %u /proc/${pid}/root${ct_marker}"
 }
-check_output "on the VM, the file belongs to a's shifted root (${ct_base_a})" \
-  "${ct_base_a}" ct_vm_uid_of_file
+check_output "on the VM, the file belongs to a's shifted root (${ct_base_a:-unknown})" \
+  "${ct_base_a:-unknown}" ct_vm_uid_of_file
 check_output "the VM has no file at the marker path" "absent" \
   sec_ssh "test -e ${ct_marker} && echo present || echo absent"
 sec_exec a student "docker rm -f sectest-priv-${SEC_RUN_ID}" >/dev/null 2>&1
@@ -137,3 +141,40 @@ for ct_path in "${ct_pushed[@]}"; do
   ct_restore="${ct_restore} if [ -L ${ct_path} ]; then t=\$(readlink -f ${ct_path}); rm -f ${ct_path}; mv \"\$t\" ${ct_path}; fi; rm -f ${ct_path}.sectest;"
 done
 sec_exec a root "${ct_restore} true" >/dev/null 2>&1
+
+# ── Symbolic links on the parent directories ─────────────────────
+
+# Root in a turns /etc/portikus and /etc/profile.d into links to a directory
+# that exists, empty and writable by anyone, at the same path on the VM.  If
+# the controller's pushes followed a link on the VM's side, they would land
+# there.  The copies inside a keep a working, so the restart itself succeeds.
+ct_dirs=(/etc/portikus /etc/profile.d)
+ct_dir_plant=""
+ct_dir_restore=""
+for ct_dir in "${ct_dirs[@]}"; do
+  ct_target="${SEC_REMOTE_VARDIR}/$(basename "$ct_dir")"
+  ct_dir_plant="${ct_dir_plant} mkdir -p ${ct_target} && cp -a ${ct_dir}/. ${ct_target}/ \
+    && mv ${ct_dir} ${ct_dir}.sectest && ln -s ${ct_target} ${ct_dir} &&"
+  # The restart pushed a new agent token into the link's target; keep it.
+  ct_dir_restore="${ct_dir_restore} if [ -L ${ct_dir} ]; then rm -f ${ct_dir} \
+    && mv ${ct_dir}.sectest ${ct_dir} && cp -a ${ct_target}/. ${ct_dir}/; fi;"
+done
+ct_dir_restore="${ct_dir_restore} rm -rf ${SEC_REMOTE_VARDIR};"
+sec_ssh "install -d -m 0755 ${SEC_REMOTE_VARDIR} && install -d -m 1777 ${SEC_REMOTE_VARDIR}/portikus ${SEC_REMOTE_VARDIR}/profile.d"
+check "root in a turns the pushed files' directories into links" \
+  sec_exec a root "${ct_dir_plant} true"
+echo "Restarting workspace a with the directory links in place..."
+check "a restarts with the directory links in place and its agent answers" ct_restart_a
+check_output "the restart wrote nothing into the matching directories on the VM" "" \
+  sec_ssh "sudo find ${SEC_REMOTE_VARDIR} -mindepth 2; true"
+check_output "the pushed files reached a through its links" "2" \
+  sec_exec a root "n=0; for p in /etc/portikus/agent.token /etc/profile.d/portikus.sh; do [ -s \"\$(readlink -f \$p)\" ] && n=\$((n + 1)); done; echo \$n"
+sec_exec a root "${ct_dir_restore} true" >/dev/null 2>&1
+ct_restored() {
+  sec_exec a root "test ! -L /etc/portikus && test ! -L /etc/profile.d && test -s /etc/portikus/agent.token \
+    && test -s /etc/profile.d/portikus.sh && test ! -e /etc/portikus.sectest && test ! -e /etc/profile.d.sectest" || return 1
+  sec_agent_header a
+  [ "$(sec_ssh "curl -s -o /dev/null -w '%{http_code}' --max-time 3 -H @${SEC_REMOTE_DIR}/a.agent http://$(sec_ws_ip a):7400/health")" = "200" ]
+}
+check "a is restored: real directories, pushed files present, agent answers" ct_restored
+sec_ssh "sudo rm -rf ${SEC_REMOTE_VARDIR}" 2>/dev/null

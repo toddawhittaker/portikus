@@ -15,6 +15,12 @@ xu_a=$(sec_ws_id a)
 xu_b=$(sec_ws_id b)
 xu_slug="sectest-files-${SEC_RUN_ID}"
 xu_secret="sectest-secret-${SEC_RUN_ID}"
+# Without both addresses the network probes below would dial nothing and pass.
+xu_a_ip=$(sec_ws_ip a)
+xu_b_ip=$(sec_ws_ip b)
+if [ -z "$xu_a_ip" ] || [ -z "$xu_b_ip" ]; then
+  sec_fail "cross-user setup: both workspace addresses are known (a '${xu_a_ip}', b '${xu_b_ip}')"
+fi
 
 # The project is made through the API so it has a row, then the secret file
 # is written straight into a's home as the student.
@@ -87,45 +93,48 @@ else
   xu_term="/workspaces/${xu_a}/terminals/${xu_tid}/ws"
   check_output "a opens its own terminal socket (control)" "101" \
     sec_ws_upgrade a "$xu_term" "$SEC_API"
-  xu_not_opened() { # KEY URL
-    local got
-    got=$(sec_ws_upgrade "$1" "$2" "$SEC_API")
-    [ -n "$got" ] && [ "$got" != "101" ]
-  }
-  check "b cannot open a's terminal socket" xu_not_opened b "$xu_term"
-  check "the administrator cannot open a's terminal socket" xu_not_opened admin "$xu_term"
-  check "anonymous cannot open a's terminal socket" xu_not_opened - "$xu_term"
-  check "b cannot open a's terminal through b's own workspace id" xu_not_opened b \
-    "/workspaces/${xu_b}/terminals/${xu_tid}/ws"
+  check_output "b gets 404 opening a's terminal socket" "404" \
+    sec_ws_upgrade b "$xu_term" "$SEC_API"
+  check_output "the administrator gets 404 opening a's terminal socket" "404" \
+    sec_ws_upgrade admin "$xu_term" "$SEC_API"
+  check_output "anonymous gets 401 opening a's terminal socket" "401" \
+    sec_ws_upgrade - "$xu_term" "$SEC_API"
+  check_output "b gets 404 opening a's terminal through b's own workspace id" "404" \
+    sec_ws_upgrade b "/workspaces/${xu_b}/terminals/${xu_tid}/ws" "$SEC_API"
   xu_expect "b gets 404 closing a's terminal" 404 b DELETE "${xu_term%/ws}"
 fi
 
 # From workspace b, a's agent attach endpoint gives no HTTP answer at all:
-# 000 means nothing accepted the connection.
-xu_a_ip=$(sec_ws_ip a)
+# 000 means nothing accepted the connection.  The same exec dials the
+# Internet, since a probe that cannot connect anywhere proves nothing.
 xu_ws_key=$(openssl rand -base64 16)
 xu_attach="http://${xu_a_ip}:7400/terminals/${xu_tid:-x}/attach"
 xu_upgrade_args="-s -o /dev/null -w %{http_code} --max-time 4 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: ${xu_ws_key}'"
-check_output "b as student gets no answer from a's agent attach endpoint" "000" \
-  sec_exec b student "curl ${xu_upgrade_args} ${xu_attach}; true"
-check_output "b, inner Docker, gets no answer from a's agent port" "refused" \
-  sec_docker_exec b "nc -z -w 3 ${xu_a_ip} 7400 && echo open || echo refused"
+xu_control="timeout 3 bash -c 'exec 3<>/dev/tcp/1.1.1.1/443' && echo control-open"
+if [ -z "$xu_a_ip" ] || [ -z "$xu_b_ip" ]; then
+  sec_info "Skipping the agent network checks: a workspace address is missing (failed above)."
+else
+  check_output "b as student gets no answer from a's agent attach endpoint (Internet control open)" \
+    "000 control-open" sec_exec b student "curl ${xu_upgrade_args} ${xu_attach}; echo -n ' '; ${xu_control}"
+  check_output "b, inner Docker, gets no answer from a's agent port (Internet control open)" \
+    "refused control-open" \
+    sec_docker_exec b "if nc -z -w 3 ${xu_a_ip} 7400; then echo -n 'open '; else echo -n 'refused '; fi; nc -z -w 3 1.1.1.1 443 && echo control-open"
 
-# a's token at b's agent: refused on the plain routes and the attach socket.
-xu_b_ip=$(sec_ws_ip b)
-sec_agent_header a
-sec_agent_header b
-xu_agent() { # HEADER-KEY PATH [curl args]
-  local key="$1" path="$2"; shift 2
-  sec_ssh "curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H @${SEC_REMOTE_DIR}/${key}.agent $* http://${xu_b_ip}:7400${path}"
-}
-check_output "b's agent answers b's own token (control)" "200" xu_agent b /health
-check_output "b's agent refuses a's token on /health" "401" xu_agent a /health
-check_output "b's agent refuses a's token on /terminals" "401" xu_agent a /terminals
-check_output "b's agent refuses a's token on /projects" "401" xu_agent a /projects
-check_output "b's agent refuses a's token on a terminal attach upgrade" "401" \
-  xu_agent a "/terminals/${xu_tid:-x}/attach" \
-  "-H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: ${xu_ws_key}'"
+  # a's token at b's agent: refused on the plain routes and the attach socket.
+  sec_agent_header a
+  sec_agent_header b
+  xu_agent() { # HEADER-KEY PATH [curl args]
+    local key="$1" path="$2"; shift 2
+    sec_ssh "curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H @${SEC_REMOTE_DIR}/${key}.agent $* http://${xu_b_ip}:7400${path}"
+  }
+  check_output "b's agent answers b's own token (control)" "200" xu_agent b /health
+  check_output "b's agent refuses a's token on /health" "401" xu_agent a /health
+  check_output "b's agent refuses a's token on /terminals" "401" xu_agent a /terminals
+  check_output "b's agent refuses a's token on /projects" "401" xu_agent a /projects
+  check_output "b's agent refuses a's token on a terminal attach upgrade" "401" \
+    xu_agent a "/terminals/${xu_tid:-x}/attach" \
+    "-H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: ${xu_ws_key}'"
+fi
 
 # Leave a's terminal closed; the project goes with the workspace at cleanup.
 if [ -n "${xu_tid:-}" ]; then
