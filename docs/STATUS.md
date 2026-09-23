@@ -1830,10 +1830,11 @@ place.
 - **Zip-slip has no tests yet.** Nothing in the platform extracts an
   archive a student provides today, so there is nothing to test; Epic
   10's restore work will need its own traversal tests when it lands.
-- **The heavy limit tests** (memory past 4 GiB, an untimed fork bomb)
-  have never run on a VM with no other workspace present, because the
-  pilot always has student workspaces on it. They stay opt-in behind
-  `PORTIKUS_SECURITY_HEAVY=1`.
+- **The heavy limit tests** stay opt-in behind
+  `PORTIKUS_SECURITY_HEAVY=1`, because they need a VM with no other
+  workspace. The memory test first ran on the rehearsal VM on 2026-09-23
+  in Epic 12b and passed (docs/CAPACITY.md, "When memory runs out"). An
+  untimed fork bomb is not among them.
 - **Epic 12b** (load and concurrency, backup and restore, the destructive
   infrastructure rebuild exercise, deployment documentation, and the
   threat-model review) has not started.

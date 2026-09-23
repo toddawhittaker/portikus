@@ -84,7 +84,7 @@ For 25 active workspaces:
 
 The rehearsal VM at 12 vCPUs and 24 GiB was measured directly. The 8 vCPU and 16 GiB figure is worked out from those measurements and has not been run. A confirming run is `make rehearsal-up REHEARSAL_VCPUS=8 REHEARSAL_MEMORY_MB=16384`, then `make load-test TOFU_ENV=rehearsal-libvirt N=25`, when nothing else is using the rehearsal VM.
 
-Resizing the pilot is Todd's decision (docs/EPIC-12B.md, risk 9). CPU and memory are an OpenTofu change to `vcpus` and `memory_mb`, with a VM reboot. The data disk is less simple: OpenTofu can grow `data_disk_size_bytes`, but the `lvm` Ansible role only creates the thin pool and never extends it. Growing the pool on a disk that already holds student volumes needs its own automated step, which does not exist yet. Until it does, the 100 GiB disk is the limit, and 100 provisioned workspaces do not fit.
+Resizing the pilot is Todd's decision (docs/EPIC-12B.md, risk 9). The steps are under "Resizing the pilot" below.
 
 ## Limits observed
 
@@ -95,4 +95,75 @@ Resizing the pilot is Todd's decision (docs/EPIC-12B.md, risk 9). CPU and memory
 
    The fix is a bounded number of starts and creates in parallel in the worker, which is code outside `infra/`. Once it lands, `make load-test` rechecks it.
 2. **A controller restart during a create leaves the workspace in `error`.** On 2026-09-23 at 04:00:30, a `configure-vm` restarted `portikus-controller` while the worker was creating a workspace. The worker recorded `workspace.provision_failed` with `INCUS_UNAVAILABLE: Controller is unreachable`, and the instance was left created but stopped. It was not a concurrency failure: the two creates before it succeeded, and the 40-at-once run had none. The worker retries starts in `error`, but not creates, so an operator has to deal with such a workspace. Run `configure-vm` when no workspace is being created.
-3. **Memory is the first resource limit.** Up to 40 workspaces on 24 GiB, no latency moved, and memory pressure barely registered. Memory ran out before CPU did.
+3. **Memory is the first resource limit.** Up to 40 workspaces on 24 GiB, no latency moved, and memory pressure barely registered. Memory ran out before CPU did. "When memory runs out" below says what protects the platform when it does.
+
+## When memory runs out
+
+Each workspace may use 4 GB (`workspace_memory_limit` in `infra/ansible/site.yml`), and the pilot has 8 GiB. So a few busy workspaces together can use up the VM's memory. The VM has no swap. When that happens, the Linux kernel's out-of-memory killer ends one process to free memory. It picks the process with the highest "OOM score", which is mostly its memory use plus an adjustment the service sets.
+
+**What is in place.** PostgreSQL, portikus-api, portikus-worker, portikus-controller, portikus-dex and Caddy all start with `OOMScoreAdjust=-900`. That makes the kernel pick any workspace process before them. The Portikus units set it in `packaging/systemd`. Dex's unit is written by the `dex` role. PostgreSQL and Caddy get a systemd drop-in from their Ansible roles. Debian's PostgreSQL unit already sets -900; the drop-in keeps it if the packaging ever changes. PostgreSQL's worker processes stay at 0, as upstream recommends, so a runaway query can be killed without taking the server down. The security suite checks every one of these units on each run.
+
+**What was not done, and why.**
+
+- **No cap on all workspaces together (a `MemoryHigh` or `MemoryMax` on a shared parent).** Incus puts each container in its own top-level control group (`/sys/fs/cgroup/lxc.payload.<name>`), so there is no shared parent to set a limit on. Making one would mean overriding the control group paths Incus manages, which is fragile across Incus upgrades. Incus's own total, `limits.memory` on the project, is a different thing: it refuses to start a workspace once the per-workspace limits add up past the total. With 4 GB each that would allow only one workspace on the pilot. The per-workspace `limits.memory` stays the limit, and the OOM adjustment decides who goes when the VM as a whole runs out.
+- **The Incus daemon is not protected.** A workspace's processes are started by Incus and inherit its adjustment, so protecting Incus would protect every workspace process too, which defeats the point.
+
+**Rehearsal results, 2026-09-23.** Rehearsal VM, 12 vCPUs and 24 GiB. `PORTIKUS_SECURITY_HEAVY=1 make security-test TOFU_ENV=rehearsal-libvirt`, with no other workspace on the VM. The heavy test makes workspace `a` allocate 4 326 MiB, 512 MiB past its limit, while a loop asks `/health` and workspace `b`'s agent every half second.
+
+| | Before (package 0.1.361+g5ef379c) | After (this change) |
+|---|---|---|
+| OOM adjustment, PostgreSQL | -900 (Debian's own) | -900 |
+| OOM adjustment, API, worker, controller, Dex, Caddy | 0 | -900 |
+| Kernel OOM score, PostgreSQL | 68 | 68 |
+| Kernel OOM score, API, worker, controller, Dex, Caddy | 667 to 669 | 68 to 70 |
+| Allocation past the limit in `a` | killed | killed |
+| Kills counted in `a`'s own control group | 0, then 1 | 0, then 1 |
+| PostgreSQL and API main processes | unchanged | unchanged |
+| `/health` and `b`'s agent during the allocation | every sample within 2 s | every sample within 2 s |
+| Suite result | 179 passed, 6 failed | 184 passed, 1 failed |
+
+Before, the five platform services' adjustment checks failed, as expected. The one failure left in both runs is the `#408` marker. It reports `XPASS` because the rehearsal VM signs in through Dex, so the mock-provider gap it tracks is closed there.
+
+What this shows: a workspace that allocates past its own limit is stopped inside its own control group, and nothing else notices, with or without the adjustment. The adjustment matters when the VM as a whole runs out, which happens when several workspaces each stay under 4 GB. There, the kernel ranks by OOM score, and the platform's scores dropped from about 668 to about 70, below any workspace process with real memory use. A VM-wide out-of-memory event was not forced on the shared rehearsal VM.
+
+## Resizing the pilot
+
+Two changes, done in a window Todd chooses: grow the data disk, and raise memory and vCPUs. Both have been planned against the rehearsal VM. Only the disk growth has been applied there. Take a backup first (`make backup`), and do both from a checkout that includes this change.
+
+**Never run `make infra-apply` for the pilot from an older checkout after growing the disk.** Before this change, OpenTofu replaced the data disk when its size changed. An older checkout would plan to replace the grown disk with an empty 100 GiB one. Always read the plan before typing `yes`.
+
+### Grow the data disk (no downtime)
+
+1. In `infra/tofu/environments/dev-libvirt/terraform.tfvars`, set `data_disk_size_bytes = 214748364800` (200 GiB). The host needs no free space up front: the disk file is sparse and grows as it fills.
+2. Run `make infra-plan`. The only change must be `module.platform_vm.terraform_data.data_disk_size` being created, or replaced if it already exists. If the plan shows the data disk or the VM being replaced, stop.
+3. Run `make infra-apply`. It prints `grow-data-disk: grew portikus-data.qcow2 from 107374182400 to 214748364800 bytes`. The running VM sees the bigger disk at once.
+4. Run `make configure-vm` with the pilot's usual settings. The `lvm` role grows the physical volume, then the thin pool's metadata and data, so the pool is again 90% of the disk.
+5. Check: `ssh deploy@10.100.0.120 sudo lvs portikus-data/thinpool` shows about 180 GiB, and `incus storage info workspace-data` shows the same total.
+
+OpenTofu refuses to shrink the disk, and the `lvm` role refuses to grow anything if the volume group sits on another device or holds anything but the thin pool. It never shrinks.
+
+On the rehearsal VM, growing from 100 GiB to 150 GiB with `make rehearsal-up REHEARSAL_DATA_DISK_GB=150`, then `make configure-vm TOFU_ENV=rehearsal-libvirt`, gave:
+
+| | Before | After |
+|---|---|---|
+| Disk seen by the VM | 100 GiB | 150 GiB, no reboot |
+| Physical volume | 25 599 extents | 38 399 extents |
+| Thin pool data | 89.8 GiB | 134.7 GiB |
+| Thin pool metadata, and its spare | 92 MiB each | 136 MiB each |
+| Left free in the volume group | 10 GiB | 15 GiB (10%) |
+| Incus's total for the pool | 89.82 GiB | 134.73 GiB |
+
+A second `configure-vm` changed nothing. The shrink refusal and both `lvm` refusals were tested on the rehearsal VM, and each left the disk and the volume group as they were.
+
+### Raise memory and vCPUs (a restart of about two minutes)
+
+1. Pick a time when no student is working, and take a backup.
+2. In `terraform.tfvars`, set `memory_mb = 16384` and `vcpus = 8`. Check that the host has 16 GiB available: `free -m`.
+3. Run `make infra-plan`. OpenTofu cannot resize a running VM, so the plan replaces `module.platform_vm.libvirt_domain.vm` with `memory` and `vcpu` marked as forcing it. Nothing else may be replaced, and the network interface's MAC address must stay the same. The Makefile passes the MAC address from the state, because the VM's network configuration and its DHCP address both match it. Without it, the new VM would come up with no network.
+4. Shut the VM down cleanly, so that PostgreSQL and the thin pool are closed properly rather than cut off: `ssh deploy@10.100.0.120 sudo systemctl poweroff`, then wait until `virsh -c qemu:///system domstate portikus` says `shut off`.
+5. Run `make infra-apply`. It creates the new VM on the same disks and waits for its address, which stays 10.100.0.120.
+6. Run `make smoke-test`. The port forward from `make publish-vm` still points at the same address.
+
+To undo it, set the old values and repeat steps 3 to 6.
+
+This replacement has not been exercised: during this work the rehearsal VM was shared, and restarting it was not allowed. Rehearse it first with `make rehearsal-up REHEARSAL_VCPUS=8 REHEARSAL_MEMORY_MB=16384` (after shutting the rehearsal VM down cleanly, as in step 4). That run is also the confirming load test at 8 vCPUs and 16 GiB described under "The size the pilot needs".

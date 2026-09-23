@@ -74,6 +74,8 @@ make configure-vm
 
 This installs Incus, creates the LVM thin pool on the data disk, sets
 up the workspace network, profile, and project, and applies the firewall.
+When the data disk has grown, it also grows the thin pool onto it
+(docs/CAPACITY.md, "Resizing the pilot").
 
 ## 6. Build the workspace image
 
@@ -132,7 +134,9 @@ If a run is interrupted before it cleans up, the next run lists the
 leftover `sectest` users and workspaces. `make security-test SWEEP=1`
 removes them. `PORTIKUS_SECURITY_HEAVY=1` adds the heavy resource tests,
 which need a VM with no other workspace; the suite refuses to run them
-otherwise.
+otherwise. They allocate memory past a workspace's limit and check that
+only that workspace's process is killed, while PostgreSQL and the API keep
+running and answering (docs/CAPACITY.md, "When memory runs out").
 
 A check marked `KNOWN-VULN #<issue>` is a known gap with an open issue. It
 does not fail the run. If such a check starts passing, the suite prints
