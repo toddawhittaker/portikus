@@ -292,7 +292,7 @@ backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pi
 restore: ## Restore a backup set onto the rehearsal VM (TOFU_ENV=rehearsal-libvirt BACKUP=<set dir>; START_CHECK=1 starts one workspace and checks it; REMOVE=1 deletes the restored data afterwards)
 	$(TOFU_BANNER)
 	@test "$(TOFU_ENV)" != dev-libvirt || { echo "restore: refuses the pilot environment; pass TOFU_ENV=rehearsal-libvirt"; exit 1; }
-	@test -n "$(BACKUP)" || { echo "restore: BACKUP=<set dir> is required, e.g. $(PORTIKUS_BACKUP_DIR)/<timestamp>"; exit 1; }
+	@test -n "$(BACKUP)" || { echo "restore: BACKUP=<set dir> is required, e.g. $(PORTIKUS_BACKUP_DIR)/<hostname>/<timestamp>"; exit 1; }
 	@test -n "$(VM_IP)" || { echo "restore: no VM address; run make rehearsal-up first or pass VM_IP=<ip>"; exit 1; }
 	PORTIKUS_BACKUP_IDENTITY=$(PORTIKUS_BACKUP_IDENTITY) \
 		bash infra/host/restore.sh $(if $(START_CHECK),--start-check,) $(if $(REMOVE),--remove,) --target-name "$(TOFU_VM_NAME)" $(VM_IP) $(BACKUP)

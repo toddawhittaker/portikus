@@ -1836,4 +1836,92 @@ place.
   `PORTIKUS_SECURITY_HEAVY=1`.
 - **Epic 12b** (load and concurrency, backup and restore, the destructive
   infrastructure rebuild exercise, deployment documentation, and the
-  threat-model review) has not started.
+  threat-model review) followed as its own epic, below.
+
+## Epic 12b — Dex sign-in and pilot readiness
+
+The requirement is `docs/EPIC-12B.md`. This is the second half of SPEC.md
+section 29 Epic 12, and the last epic before the pilot. The operator's
+runbook is `docs/OPERATIONS.md`.
+
+**Sign-in through Dex, from a users file.** Dex, an open-source sign-in
+server, now runs on the VM as the default provider, built from a pinned
+upstream commit (PR #459, ADR 0023). `PORTIKUS_IDP` picks `dex`, `mock` or
+`external`, and only the chosen one runs. Accounts live in a users file on
+the operator's machine, `~/.config/portikus/users.json` (mode 0600), which
+holds bcrypt hashes and never passwords. `make users-add`, `users-remove`,
+`users-list`, `users-check` and `users-deploy` manage it (PR #453), and
+`users-deploy` ends the sessions of removed users, reset passwords and
+demoted administrators (PR #465). A CI job signs in through a real Dex at
+the pinned commit (PR #460).
+
+**Carrying accounts over.** Portikus computes the subject Dex will give
+each user, so a carry-over command can move each existing mock account to
+its Dex identity by email before the switch, keeping the same workspace
+(PR #452). It is a dry run unless applied, audits each change, and leaves
+the #302 duplicates alone. The cutover always ends every session made
+while the mock was on, even when no account is carried (PR #461).
+`make identity-carry-over-dry-run` shows the pairings first.
+
+**Sign-in throttle (#398 fixed).** The API limits sign-in starts to 60 a
+minute per address, and Dex password posts to 30 per 10 minutes per
+address and 300 in total, answering 429 with the new `RATE_LIMITED` code
+(PR #454). Caddy asks the API before each password post. A later fix
+stopped one address from using up the shared total, and made the check
+count encoded spellings of the password path. The same task capped the
+journal at 2 GB.
+
+**Download cap (#399 fixed).** Downloads are capped at 1 GiB. The agent
+refuses larger files and folders before zipping, the API cuts any relayed
+body at the cap plus 64 MiB, and the browser explains the limit (PR #456).
+
+**Gate E accessibility fixes.** The twelve findings on the recovery,
+admin and download screens are fixed: busy buttons stay focusable, focus
+is kept or moved sensibly, errors are tied to their fields, and live
+regions hold only fixed text (PR #458, with follow-up test fixes in
+PR #465).
+
+**#402 closed.** HEAD on a browser socket route no longer answers 500.
+The fix landed on the epic branch before its task PRs.
+
+**Backups and restore.** A nightly host timer at 02:30 pulls a backup of
+the pilot to the host and encrypts it with age: a `pg_dump` and an export
+of every workspace's home and recovery volume. Sets go to
+`/var/backups/portikus/<hostname>/<timestamp>`, and 14 are kept per VM
+(PR #463, PR #466, ADR 0024). A restore onto the rehearsal VM was tested,
+including starting a restored workspace and checking its files and
+commits. A restore refuses any target that already holds users or
+workspace volumes. `make configure-vm` also keeps the VM's Incus scripts
+in step now (PR #455), and a rehearsal VM beside the pilot runs every
+exercise that must not touch it (PR #457).
+
+**Load test and capacity.** `make load-test` ran 25 and 40 workspaces on
+the rehearsal VM (PR #462, `docs/CAPACITY.md`). Once running, every
+latency was far inside its limit, with no failed operation. For 100
+provisioned and 25 active workspaces, the pilot needs 8 vCPUs, 16 GiB of
+memory and a 200 GiB data disk; Todd resizes it in a window he chooses.
+The test found that the worker started workspaces one at a time, so the
+worker now starts and creates up to six at once, and retries a create
+when the controller is briefly unreachable (PR #464).
+
+**Memory protection and pool growth.** The platform services are ranked
+below every workspace process for the kernel's out-of-memory killer, and
+each has its own memory cap. Growing the data disk now also grows the
+storage pool (PR #467, `docs/CAPACITY.md`, "When memory runs out" and
+"Resizing the pilot").
+
+**Rebuild from code (B5).** TODO: not run yet; results to follow.
+
+### Gaps
+
+- **The Dex cutover has not been run on the pilot.** The pilot still
+  signs in through the mock provider, so #408 stays open until it does.
+  The steps are in `docs/OPERATIONS.md`, "The Dex cutover".
+- **The VM replacement for a memory and CPU resize was not rehearsed**,
+  because the rehearsal VM was shared at the time. The disk growth was.
+- **The threat model is kept private** for Todd to decide whether and
+  how to publish it.
+- **The confirming load test at 8 vCPUs and 16 GiB** has not run; the
+  size is worked out from the 12 vCPU run.
+- **Backups sit on the same physical disk as the VM.** A weekly copy to
+  external storage is a manual step.

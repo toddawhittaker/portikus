@@ -2926,6 +2926,8 @@ Acceptance:
 
 Epic 12a (security test suites): see docs/EPIC-12A.md; landed on epic/12a-security-tests.
 
+Epic 12b (Dex sign-in and pilot readiness: load, backup and restore, rebuild, deployment documentation, threat model): see docs/EPIC-12B.md; the operations runbook is docs/OPERATIONS.md.
+
 Includes:
 
 - authorization test matrix;
