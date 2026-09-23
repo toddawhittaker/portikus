@@ -104,7 +104,7 @@
             cmd: /usr/local/bin/dex.new version
           register: dex_new_version
           changed_when: false
-          failed_when: ("Dex Version: " ~ dex_version) not in dex_new_version.stdout
+          failed_when: "('Dex Version: ' ~ dex_version) not in dex_new_version.stdout"
 
         - name: Put the new Dex binary in place
           ansible.builtin.copy:

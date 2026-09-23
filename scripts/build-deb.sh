@@ -120,6 +120,7 @@ fi
 unpacked="$(mktemp -d)"
 trap 'rm -rf "$unpacked"' EXIT
 dpkg-deb -x "$deb" "$unpacked"
+# shellcheck disable=SC2016 # a literal pattern, not an expansion
 leaked="$(grep -rlE 'staticPasswords|\$2[aby]\$[0-9]{2}\$' "$unpacked" || true)"
 if [ -n "$leaked" ]; then
 	echo "Files in the package hold Dex users or a bcrypt hash:" >&2

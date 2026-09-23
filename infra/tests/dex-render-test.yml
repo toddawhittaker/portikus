@@ -13,6 +13,10 @@
   gather_facts: false
   become: false
 
+  # The role's defaults hold the hash pattern its guards use.
+  vars_files:
+    - ../ansible/roles/dex/defaults/main.yml
+
   vars:
     dex_render_users_file: "{{ playbook_dir }}/fixtures/users.sample.json"
     dex_render_dest: "{{ dex_render_workdir.path }}/config.yaml"
@@ -39,9 +43,7 @@
         mode: "0600"
 
     - name: Load the users file through the role's own guards
-      ansible.builtin.include_role:
-        name: "{{ playbook_dir }}/../ansible/roles/dex"
-        tasks_from: users
+      ansible.builtin.include_tasks: ../ansible/roles/dex/tasks/users.yml
       vars:
         portikus_users_file: "{{ dex_render_workdir.path }}/users.json"
 
