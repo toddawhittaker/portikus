@@ -164,6 +164,8 @@ export const ApiErrorCode = z.enum([
 	"PREVIEW_PORT_NOT_ALLOWED",
 	"PREVIEW_FORWARD_FAILED",
 	"PREVIEW_RATE_LIMITED",
+	// Too many sign-in attempts from one address (#398).
+	"RATE_LIMITED",
 	"CHECK_NOT_FOUND",
 	"CHECK_RUNNING",
 	"CHECK_NOT_RUNNING",
