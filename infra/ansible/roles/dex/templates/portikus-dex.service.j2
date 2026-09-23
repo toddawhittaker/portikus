@@ -9,6 +9,8 @@ Type=simple
 User=portikus-dex
 Group=portikus-dex
 ExecStart=/usr/local/bin/dex serve {{ dex_config_dir }}/config.yaml
+# Dex exits 2 when systemd stops it with SIGTERM; that is a clean stop.
+SuccessExitStatus=2
 Restart=on-failure
 RestartSec=5
 
