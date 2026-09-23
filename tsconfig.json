@@ -6,6 +6,7 @@
 		{ "path": "packages/contracts" },
 		{ "path": "packages/db" },
 		{ "path": "packages/events" },
+		{ "path": "packages/mock-lms" },
 		{ "path": "packages/observability" },
 		{ "path": "packages/ui" },
 		{ "path": "packages/users-file" },
