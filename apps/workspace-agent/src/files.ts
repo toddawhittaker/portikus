@@ -16,6 +16,7 @@ import { basename, dirname, join } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
+	MAX_DOWNLOAD_BYTES,
 	MAX_EDITOR_FILE_BYTES,
 	MAX_TREE_ENTRIES,
 	MAX_UPLOAD_BYTES,
@@ -208,7 +209,7 @@ export interface ReadFileResult {
 	size: number;
 	/** Present unless the file was requested as a download. */
 	body?: Buffer;
-	/** Present only for a download, so any size can be sent. */
+	/** Present only for a download, so a large file is streamed. */
 	stream?: Readable;
 }
 
@@ -224,7 +225,7 @@ function sniffContentType(sample: Buffer): string {
 
 /**
  * Read a file. An editor read is capped at MAX_EDITOR_FILE_BYTES; a download
- * streams instead, so any size can leave the workspace (SPEC.md §11.2).
+ * streams instead, up to MAX_DOWNLOAD_BYTES (SPEC.md §11.2, #399).
  */
 export async function readFile(
 	homeDir: string,
@@ -249,6 +250,12 @@ export async function readFile(
 		const handle = await open(target.path, "r");
 		try {
 			const current = await handle.stat();
+			if (current.size > MAX_DOWNLOAD_BYTES) {
+				throw new AgentFailure(
+					"FILE_TOO_LARGE",
+					"that download is over the size limit",
+				);
+			}
 			const sample = Buffer.alloc(Math.min(SNIFF_BYTES, current.size));
 			await handle.read(sample, 0, sample.length, 0);
 			const stream = handle.createReadStream();

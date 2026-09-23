@@ -50,6 +50,36 @@ export function fileDownloadUrl(
 	return `${fileUrl(workspaceId, projectId, path)}&download=1`;
 }
 
+/**
+ * Start a download once the API says it is under the size cap. The check
+ * adds up file sizes without zipping, so a refusal is explained in the page
+ * rather than shown as a failed download (#399). `checkUrl` is a download
+ * URL with `check=1`.
+ */
+export async function startDownload(
+	href: string,
+	checkUrl: string,
+	name: string,
+): Promise<void> {
+	const response = await fetch(checkUrl, { credentials: "same-origin" });
+	if (!response.ok) throw await toApiError(response);
+	const link = document.createElement("a");
+	link.href = href;
+	link.download = name;
+	document.body.append(link);
+	link.click();
+	link.remove();
+}
+
+/** The size check for a download of one file or folder; "" is the project. */
+export function downloadCheckUrl(
+	workspaceId: string,
+	projectId: string,
+	path: string,
+): string {
+	return `${directoryDownloadUrl(workspaceId, projectId, path)}&check=1`;
+}
+
 /** The link that downloads one directory as a zip; "" is the whole project. */
 export function directoryDownloadUrl(
 	workspaceId: string,

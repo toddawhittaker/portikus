@@ -82,6 +82,16 @@ export const MAX_EDITOR_FILE_BYTES = 2 * 1024 * 1024;
 /** Largest upload the agent accepts (SPEC.md §11.2). */
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
+/**
+ * Largest file, folder or project a download serves (#399). A folder counts
+ * the apparent size of its regular files. A tenth of the workspace root
+ * disk, where the zip is staged.
+ */
+export const MAX_DOWNLOAD_BYTES = 1024 * 1024 * 1024;
+
+/** What the API relays past MAX_DOWNLOAD_BYTES, for zip headers (#399). */
+export const ZIP_OVERHEAD_BYTES = 64 * 1024 * 1024;
+
 /** Generated and dependency directories the tree hides by default (SPEC.md §11.3). */
 export const GENERATED_NAMES = [
 	".git",

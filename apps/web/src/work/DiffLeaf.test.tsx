@@ -199,9 +199,9 @@ test("a binary change offers a download instead of a diff", async () => {
 	};
 	renderLeaf();
 	expect(await screen.findByText("Binary file changed")).not.toBeNull();
-	expect(screen.getByTestId(`diff-download-${PATH}`).getAttribute("href")).toBe(
-		`/workspaces/${WORKSPACE}/projects/${PROJECT}/file?path=src%2Fapp.ts&download=1`,
-	);
+	expect(
+		screen.getByRole("button", { name: "Download app.ts" }).getAttribute("data-testid"),
+	).toBe(`diff-download-${PATH}`);
 	expect(screen.queryByTestId(`diff-editor-${PATH}`)).toBeNull();
 });
 

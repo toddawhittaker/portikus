@@ -623,10 +623,8 @@ test("a write answered without an etag fails loudly", async () => {
 test("a file past the editor limit offers a download instead", async () => {
 	seed = { text: "", etag: "", status: 413 };
 	renderLeaf();
-	const link = await screen.findByTestId("file-download");
-	expect(link.getAttribute("href")).toBe(
-		`/workspaces/${WORKSPACE}/projects/${PROJECT}/file?path=src%2Fapp.ts&download=1`,
-	);
+	const button = await screen.findByRole("button", { name: "Download app.ts" });
+	expect(button.getAttribute("data-testid")).toBe("file-download");
 	expect(screen.queryByTestId(`editor-${PATH}`)).toBeNull();
 	// Nothing was ever edited, so the pill would only be noise.
 	expect(screen.queryByTestId(`file-status-${PATH}`)).toBeNull();
