@@ -16,7 +16,8 @@ for (const name of await removeStaleTemporaries(config.HOME_DIR)) {
 	logger.info({ name }, "removed a stale project temporary directory");
 }
 
-// A restore cut off by a crash leaves its staging and aside directories.
+// A restore cut off by a crash leaves its staging directory. An aside
+// directory may hold the only copy of files, so it is kept.
 const leftovers = await removeRestoreLeftovers(config.HOME_DIR);
 if (leftovers > 0) {
 	logger.info({ count: leftovers }, "removed leftover restore directories");

@@ -52,7 +52,22 @@ test("an unexpected filesystem error logs its code and syscall, never the path",
 	);
 	sendError(request, reply, error, "INTERNAL");
 	expect(logged).toEqual([
-		[{ errorCode: "EACCES", syscall: "open" }, "agent request failed"],
+		[
+			{ errorCode: "EACCES", syscall: "open", errorName: "Error" },
+			"agent request failed",
+		],
+	]);
+	expect(JSON.stringify(logged)).not.toContain("secret-plan");
+});
+
+test("an unexpected programming error logs its class name, never its message", () => {
+	const { request, reply, logged } = stubs();
+	sendError(request, reply, new TypeError("cannot read secret-plan.md"), "INTERNAL");
+	expect(logged).toEqual([
+		[
+			{ errorCode: undefined, syscall: undefined, errorName: "TypeError" },
+			"agent request failed",
+		],
 	]);
 	expect(JSON.stringify(logged)).not.toContain("secret-plan");
 });

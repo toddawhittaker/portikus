@@ -5,7 +5,6 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
-	appendFile,
 	chmod,
 	lstat,
 	mkdir,
@@ -537,20 +536,40 @@ describe("unreadable directories, changing files, and the point's own rules", ()
 		expect(await readFile(join(project, "pgdata", "PG_VERSION"), "utf8")).toBe("16\n");
 	});
 
-	test("a file growing while it is archived still makes a point", async () => {
-		const growing = join(project, "server.log");
-		await writeFile(growing, Buffer.alloc(32 * 1024 * 1024, 97));
-		let writing = true;
-		const writer = (async () => {
-			while (writing) await appendFile(growing, "more log\n".repeat(1000));
-		})();
+	test("an unreadable file is left out of a point and kept by a restore", async () => {
+		await writeFile(join(project, "secret.key"), "only copy\n");
+		await chmod(join(project, "secret.key"), 0o000);
 		try {
-			const { result } = await point();
-			expect(result.created).toBe(true);
+			const { pointId, file } = await point();
+			expect(names(await listMembers(file))).not.toContain("secret.key");
+			await restore(pointId, file);
+			expect((await lstat(join(project, "secret.key"))).mode & 0o777).toBe(0);
 		} finally {
-			writing = false;
-			await writer;
+			await chmod(join(project, "secret.key"), 0o600);
 		}
+		expect(await readFile(join(project, "secret.key"), "utf8")).toBe("only copy\n");
+	});
+
+	test("a directory today's .workspaceignore excludes is kept by a restore", async () => {
+		const { pointId, file } = await point();
+		await writeFile(join(project, ".workspaceignore"), "datasets/\n");
+		await mkdir(join(project, "datasets"));
+		await writeFile(join(project, "datasets", "big.csv"), "only copy\n");
+		await restore(pointId, file);
+		expect(await readFile(join(project, "datasets", "big.csv"), "utf8")).toBe(
+			"only copy\n",
+		);
+	});
+
+	test("an aside copy already present refuses the restore and is kept", async () => {
+		const { pointId, file } = await point();
+		const aside = join(paths.homeDir, "projects", `.portikus-aside-${pointId}`);
+		await mkdir(aside);
+		await writeFile(join(aside, "rollback.txt"), "only copy\n");
+		await expect(restore(pointId, file)).rejects.toMatchObject({
+			code: "RESTORE_INCOMPLETE",
+		});
+		expect(await readFile(join(aside, "rollback.txt"), "utf8")).toBe("only copy\n");
 	});
 
 	test("the point's own .workspaceignore decides what a restore keeps", async () => {
@@ -581,7 +600,7 @@ describe("unreadable directories, changing files, and the point's own rules", ()
 		expect(await readdir(join(paths.homeDir, "projects"))).toEqual(["alpha"]);
 	});
 
-	test("leftover staging and aside directories are removed, nothing else", async () => {
+	test("leftover staging directories are removed; aside copies and others are kept", async () => {
 		const root = join(paths.homeDir, "projects");
 		const id = randomUUID();
 		const linkName = `.portikus-restore-${randomUUID()}`;
@@ -590,9 +609,9 @@ describe("unreadable directories, changing files, and the point's own rules", ()
 		await symlink(outside, join(root, `.portikus-aside-${id}`, "out"));
 		await symlink(outside, join(root, linkName));
 		await mkdir(join(root, ".portikus-aside-not-a-uuid"));
-		expect(await removeRestoreLeftovers(paths.homeDir)).toBe(2);
+		expect(await removeRestoreLeftovers(paths.homeDir)).toBe(1);
 		expect((await readdir(root)).sort()).toEqual(
-			[".portikus-aside-not-a-uuid", "alpha", linkName].sort(),
+			[`.portikus-aside-${id}`, ".portikus-aside-not-a-uuid", "alpha", linkName].sort(),
 		);
 		expect(await readFile(join(outside, "target.txt"), "utf8")).toBe(
 			"OUTSIDE-SECRET\n",

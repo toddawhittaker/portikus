@@ -11,6 +11,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants, type Dirent } from "node:fs";
 import {
+	access,
 	chmod,
 	lstat,
 	mkdir,
@@ -225,8 +226,14 @@ export async function restoreRecoveryPoint(
 	// These names fail the slug pattern, so project discovery never lists them.
 	const staging = join(projectsDir(paths.homeDir), `${STAGING_PREFIX}${input.pointId}`);
 	const aside = join(projectsDir(paths.homeDir), `${ASIDE_PREFIX}${input.pointId}`);
+	// An aside copy may be the only copy of a failed restore's files.
+	if (await exists(aside)) {
+		throw new AgentFailure(
+			"RESTORE_INCOMPLETE",
+			"a previous restore left files set aside",
+		);
+	}
 	await rm(staging, { recursive: true, force: true });
-	await rm(aside, { recursive: true, force: true });
 	await mkdir(staging, { mode: 0o700 });
 	try {
 		const extracted = await readArchive(archive, [
@@ -244,8 +251,13 @@ export async function restoreRecoveryPoint(
 				"the recovery point does not match its record",
 			);
 		}
-		// The rules the point was made with decide what is replaced and kept.
-		const matcher = await loadRecoveryMatcher(staging);
+		// Kept when either the point's rules or today's rules exclude it, so
+		// nothing that no point ever held is moved aside.
+		const pointRules = await loadRecoveryMatcher(staging);
+		const todayRules = await loadRecoveryMatcher(project.path);
+		const matcher: RecoveryMatcher = {
+			excludes: (path) => pointRules.excludes(path) || todayRules.excludes(path),
+		};
 		await swapIn(project.path, staging, aside, matcher);
 	} finally {
 		await rm(staging, { recursive: true, force: true });
@@ -278,12 +290,13 @@ export async function deleteProjectRecoveryPoints(
 const STAGING_PREFIX = ".portikus-restore-";
 const ASIDE_PREFIX = ".portikus-aside-";
 const LEFTOVER =
-	/^\.portikus-(restore|aside)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+	/^\.portikus-restore-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Remove staging and aside directories a crashed restore left in
- * `~/projects`: only real directories with exactly those names, and `rm`
- * never follows a link inside them. Returns how many were removed.
+ * Remove staging directories a crashed restore left in `~/projects`: only
+ * real directories with exactly that name, and `rm` never follows a link
+ * inside them. Aside directories are kept, since one may be the only copy
+ * of a student's files. Returns how many were removed.
  */
 export async function removeRestoreLeftovers(homeDir: string): Promise<number> {
 	const root = projectsDir(homeDir);
@@ -549,7 +562,8 @@ async function undo(step: Step): Promise<void> {
 /**
  * Move every entry a point would hold into `aside`. Files and links are
  * renamed, never followed. A directory that is excluded or unreadable is
- * kept as it is, and one that still has kept children stays in place.
+ * kept as it is, as is an unreadable file, and a directory that still has
+ * kept children stays in place.
  */
 async function moveAside(
 	projectPath: string,
@@ -586,6 +600,8 @@ async function moveAside(
 			}
 		} else if (info.isFile() || info.isSymbolicLink()) {
 			if (matcher.excludes(rel)) continue;
+			// tar skips an unreadable file, so no point holds it.
+			if (info.isFile() && !(await readable(path))) continue;
 			const to = join(aside, rel);
 			await rename(path, to);
 			steps.push({ kind: "moved", from: path, to });
@@ -624,6 +640,25 @@ async function moveInto(from: string, to: string, steps: Step[]): Promise<void> 
 		if (targetInfo) continue;
 		await rename(source, target);
 		steps.push({ kind: "moved", from: source, to: target });
+	}
+}
+
+async function exists(path: string): Promise<boolean> {
+	try {
+		await lstat(path);
+		return true;
+	} catch (error) {
+		if (isMissing(error)) return false;
+		throw error;
+	}
+}
+
+async function readable(path: string): Promise<boolean> {
+	try {
+		await access(path, constants.R_OK);
+		return true;
+	} catch {
+		return false;
 	}
 }
 
