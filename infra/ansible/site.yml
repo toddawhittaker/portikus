@@ -118,7 +118,7 @@
     portikus_oidc_admin_group: >-
       {{ lookup('env', 'PORTIKUS_OIDC_ADMIN_GROUP') | default('portikus-administrators', true) }}
     portikus_oidc_instructor_group: >-
-      {{ lookup('env', 'PORTIKUS_OIDC_INSTRUCTOR_GROUP') | default('instructor', true) }}
+      {{ lookup('env', 'PORTIKUS_OIDC_INSTRUCTOR_GROUP') | default('portikus-instructors', true) }}
     portikus_session_ttl_seconds: 43200
 
     # ── LTI launch (docs/EPIC-13.md, rulings 14 and 26) ──────────
@@ -202,8 +202,9 @@
       when: portikus_idp == 'external'
       tags: always
 
-    # Checked before the address rule below, which depends on it, so a bad
-    # file changes nothing on the VM.
+    # Read before the address rule below, which depends on it.  A file that
+    # is not JSON changes nothing on the VM; the API's parser checks the
+    # rest when the portikus role installs it.
     - name: Load the LTI platforms file
       ansible.builtin.include_role:
         name: portikus
