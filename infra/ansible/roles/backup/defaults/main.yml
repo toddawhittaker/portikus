@@ -1,0 +1,4 @@
+---
+# Incus stages each export here before streaming it to the host (ADR 0024).
+backup_volume_name: portikus-backups
+backup_volume_size: 20GiB

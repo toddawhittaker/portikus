@@ -5,7 +5,8 @@
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy \
-       users-add users-remove users-list users-check users-deploy identity-carry-over-dry-run
+       users-add users-remove users-list users-check users-deploy identity-carry-over-dry-run \
+       backup-setup backup backup-install-timer restore
 
 help: ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -116,12 +117,13 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	done
 	ansible-galaxy collection install --force -r infra/ansible/requirements.yml
 	ansible-lint infra/ansible
-	find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/*
+	find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* infra/host/portikus-backup-export
 	bash infra/tests/cleanup-scope-test.sh
 	bash infra/tests/security-cleanup-scope-test.sh
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/caddy-preview-test.sh
 	ansible-playbook infra/tests/dex-render-test.yml
+	bash infra/tests/backup-scope-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
 	bash infra/host/dev-libvirt/bootstrap.sh
@@ -239,6 +241,55 @@ publish-vm: ## Forward port 8443 from the host's LAN address to the VM (rerun af
 
 unpublish-vm: ## Withdraw the host port forward to the VM
 	bash infra/host/publish-vm.sh --remove
+
+# ── Backup and restore (docs/adr/0024-backups-pulled-to-host.md) ──
+
+PORTIKUS_BACKUP_DIR ?= /var/backups/portikus
+PORTIKUS_BACKUP_IDENTITY ?= $(HOME)/.config/portikus/backup-age-key.txt
+PORTIKUS_BACKUP_RECIPIENTS ?= $(HOME)/.config/portikus/backup-recipients.txt
+
+# Makes the age key pair and the set directory once.  Backing up needs only
+# the public half; the private half belongs in a password manager, and a
+# restore reads it from PORTIKUS_BACKUP_IDENTITY.
+backup-setup:
+	@command -v age-keygen >/dev/null || { echo "backup-setup: age is not installed (make bootstrap-host)"; exit 1; }
+	@if [ ! -f "$(PORTIKUS_BACKUP_IDENTITY)" ] && [ ! -s "$(PORTIKUS_BACKUP_RECIPIENTS)" ]; then \
+		install -d -m 0700 "$(dir $(PORTIKUS_BACKUP_IDENTITY))"; \
+		(umask 077 && age-keygen -o "$(PORTIKUS_BACKUP_IDENTITY)" 2>/dev/null); \
+		echo "backup-setup: made the backup key $(PORTIKUS_BACKUP_IDENTITY). Store it in your password manager, then remove it from this host: backups need only the public half, and without the private half no backup can be read."; \
+	fi
+	@test -s "$(PORTIKUS_BACKUP_RECIPIENTS)" || age-keygen -y "$(PORTIKUS_BACKUP_IDENTITY)" >"$(PORTIKUS_BACKUP_RECIPIENTS)"
+	@test -w "$(PORTIKUS_BACKUP_DIR)" || sudo install -d -m 0700 -o "$$(id -un)" -g "$$(id -gn)" "$(PORTIKUS_BACKUP_DIR)"
+
+# Only reads from the VM, so it is safe on the live pilot.
+backup: backup-setup ## Pull an encrypted backup of the VM to the host (CHECK_STATE=1 also proves workspaces and settings did not change)
+	@test -n "$(VM_IP)" || { echo "backup: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	@echo "backup: reading from VM '$(or $(TOFU_VM_NAME),unknown)' at $(VM_IP)"
+	PORTIKUS_BACKUP_DIR=$(PORTIKUS_BACKUP_DIR) PORTIKUS_BACKUP_RECIPIENTS=$(PORTIKUS_BACKUP_RECIPIENTS) \
+		bash infra/host/backup.sh $(if $(CHECK_STATE),--check-state,) $(VM_IP)
+
+backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pilot as a host systemd timer (rerun after changing backup.sh)
+	@test "$(TOFU_ENV)" = dev-libvirt || { echo "backup-install-timer: the timer backs up the pilot only"; exit 1; }
+	@test -n "$(VM_IP)" || { echo "backup-install-timer: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	sudo install -m 0755 infra/host/backup.sh /usr/local/sbin/portikus-backup
+	sudo install -m 0644 infra/host/portikus-backup-export /usr/local/sbin/portikus-backup-export
+	sed -e "s|@USER@|$$(id -un)|" -e "s|@BACKUP_DIR@|$(PORTIKUS_BACKUP_DIR)|" \
+		-e "s|@RECIPIENTS@|$(abspath $(PORTIKUS_BACKUP_RECIPIENTS))|" -e "s|@VM_IP@|$(VM_IP)|" \
+		infra/host/systemd/portikus-backup.service | sudo tee /etc/systemd/system/portikus-backup.service >/dev/null
+	sudo install -m 0644 infra/host/systemd/portikus-backup.timer /etc/systemd/system/portikus-backup.timer
+	sudo systemctl daemon-reload
+	sudo systemctl enable --now portikus-backup.timer
+	systemctl list-timers portikus-backup.timer --no-pager
+
+# Replaces the target's database, so it refuses the pilot's environment, and
+# restore.sh refuses any VM whose hostname is not the one in the state.
+restore: ## Restore a backup set onto the rehearsal VM (TOFU_ENV=rehearsal-libvirt BACKUP=<set dir>; START_CHECK=1 starts one workspace and checks it; REMOVE=1 deletes the restored data afterwards)
+	$(TOFU_BANNER)
+	@test "$(TOFU_ENV)" != dev-libvirt || { echo "restore: refuses the pilot environment; pass TOFU_ENV=rehearsal-libvirt"; exit 1; }
+	@test -n "$(BACKUP)" || { echo "restore: BACKUP=<set dir> is required, e.g. $(PORTIKUS_BACKUP_DIR)/<timestamp>"; exit 1; }
+	@test -n "$(VM_IP)" || { echo "restore: no VM address; run make rehearsal-up first or pass VM_IP=<ip>"; exit 1; }
+	PORTIKUS_BACKUP_IDENTITY=$(PORTIKUS_BACKUP_IDENTITY) \
+		bash infra/host/restore.sh $(if $(START_CHECK),--start-check,) $(if $(REMOVE),--remove,) --target-name "$(TOFU_VM_NAME)" $(VM_IP) $(BACKUP)
 
 # ── Application deployment targets ────────────────────────────────
 
