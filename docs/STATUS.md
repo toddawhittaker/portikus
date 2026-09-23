@@ -2006,8 +2006,8 @@ the Debian package, which a build guard checks.
 role mapping, the platforms file and the Course routes. Playwright tests
 cover a student launch, an instructor launch and the Course page, each bad
 token, the frame page and its new-tab button, administrator routes refused
-for an instructor, and axe on the new pages. A new `lti-launch` CI job runs
-them against the mock and PostgreSQL (PR #488).
+for an instructor, and axe on the new pages. The ordinary end-to-end CI shards
+run them against the mock and PostgreSQL (PR #488).
 
 Pilot deploy: pending.
 

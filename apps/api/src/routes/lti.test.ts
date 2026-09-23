@@ -629,6 +629,80 @@ describe.skipIf(skip)("login initiation", () => {
 		expect(rows).toEqual([]);
 	});
 
+	test("a frame request (iframe or frame) gets the new-tab page and no cookie", async () => {
+		for (const dest of ["iframe", "frame"]) {
+			const res = await app.inject({
+				url: `/lti/login?${loginQuery}`,
+				headers: { "sec-fetch-dest": dest },
+			});
+			expect(res.statusCode).toBe(200);
+			expect(res.body).toContain("Open Portikus in a new tab");
+			expect(res.cookies).toEqual([]);
+		}
+	});
+
+	test("a navigation with Sec-Fetch-Dest document starts the login", async () => {
+		const res = await app.inject({
+			url: `/lti/login?${loginQuery}`,
+			headers: { "sec-fetch-dest": "document" },
+		});
+		expect(res.statusCode).toBe(302);
+		expect(res.cookies).toHaveLength(1);
+	});
+
+	test("an image, script, fetch or empty destination is refused before any state", async () => {
+		for (const dest of ["image", "script", "empty", "style"]) {
+			for (const [method, url] of [
+				["GET", `/lti/login?${loginQuery}`],
+				["POST", "/lti/login"],
+			] as const) {
+				const res = await app.inject({
+					method,
+					url,
+					headers: {
+						"sec-fetch-dest": dest,
+						...(method === "POST"
+							? { "content-type": "application/x-www-form-urlencoded" }
+							: {}),
+					},
+					...(method === "POST" ? { payload: loginQuery } : {}),
+				});
+				expect(res.statusCode).toBe(400);
+				expect(res.headers["content-type"]).toContain("text/html");
+				expect(res.cookies).toEqual([]);
+			}
+		}
+		const rows = await testDb.db.selectFrom("lti_login_states").selectAll().execute();
+		expect(rows).toEqual([]);
+	});
+
+	test("a new login clears the oldest state cookies so at most four remain", async () => {
+		const old = ["s1", "s2", "s3", "s4", "s5", "s6"];
+		const res = await app.inject({
+			url: `/lti/login?${loginQuery}`,
+			headers: {
+				cookie: [...old.map((s) => stateCookie(s)), "other=1"].join("; "),
+			},
+		});
+		expect(res.statusCode).toBe(302);
+		const cleared = res.cookies
+			.filter((one) => one.value === "")
+			.map((one) => one.name);
+		expect(cleared).toEqual([ltiStateCookieName("s1"), ltiStateCookieName("s2")]);
+		const set = res.cookies.filter((one) => one.value !== "");
+		expect(set).toHaveLength(1);
+		expect(set[0]?.name.startsWith("__Host-portikus_lti_state_")).toBe(true);
+	});
+
+	test("with four or fewer state cookies a new login clears none", async () => {
+		const res = await app.inject({
+			url: `/lti/login?${loginQuery}`,
+			headers: { cookie: ["a", "b", "c", "d"].map((s) => stateCookie(s)).join("; ") },
+		});
+		expect(res.statusCode).toBe(302);
+		expect(res.cookies).toHaveLength(1);
+	});
+
 	test("an unknown issuer or a target off our origin is 400", async () => {
 		for (const query of [
 			loginQuery.replace(

@@ -348,9 +348,10 @@ decision in the threat model.
 ### Roles and the Course page
 
 - LTI gives `instructor` for the LMS membership roles Instructor,
-  TeachingAssistant and ContentDeveloper (and their sub-roles), and for an
-  Administrator role. Everything else, including an institution-level
-  Instructor, gives `student`. LTI never gives `administrator`.
+  TeachingAssistant and ContentDeveloper (and their sub-roles), and for
+  Administrator under the institution, system or membership vocabularies.
+  A bare `Administrator` short form gives `student`, as does everything
+  else, including an institution-level Instructor. LTI never gives `administrator`.
 - The role is refreshed on every launch, and a change is audited.
 - A Dex account can be an instructor too: `make users-add` offers the
   role, and Dex gives it the group `portikus-instructors`. `make

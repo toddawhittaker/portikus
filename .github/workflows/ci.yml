@@ -331,57 +331,6 @@ jobs:
         if: failure()
         run: cat "$DEX_DIR/dex.log" || true
 
-  # LTI launches from the mock LMS (docs/EPIC-13.md, task T5). The e2e shards
-  # run these specs too; this job names the LTI result on its own. Not a
-  # required check.
-  lti-launch:
-    name: LTI launch
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.app == 'true'
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_PASSWORD: portikus
-          POSTGRES_DB: portikus_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-      - run: pnpm exec playwright install --with-deps --only-shell chromium
-      # typecheck builds every package, the mock LMS included.
-      - run: pnpm typecheck && pnpm --filter @portikus/ui build
-      - id: run
-        run: >-
-          pnpm test:e2e e2e/lti-launch.spec.ts e2e/lti-course.spec.ts
-          e2e/lti-frame.spec.ts e2e/lti-negative.spec.ts e2e/a11y-course.spec.ts
-        env:
-          TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
-      - name: Upload the Playwright report
-        if: failure() && steps.run.outcome == 'failure'
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-report-lti
-          path: playwright-report/
-          retention-days: 7
-
   infra:
     name: Infrastructure checks
     runs-on: ubuntu-latest
