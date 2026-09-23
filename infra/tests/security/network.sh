@@ -3,8 +3,8 @@
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # A workspace may reach the Internet and the public site on its published
-# port, and nothing else: not the VM's services, not the libvirt host, not
-# link-local targets, not the other workspace.
+# port, and nothing else: not the VM's services, not the libvirt host on any
+# address, not link-local targets, not the other workspace.
 # shellcheck disable=SC2154  # pass, fail and the SEC_ globals come from lib.sh
 # shellcheck disable=SC2016  # the probe scripts expand inside the workspace
 
@@ -15,10 +15,37 @@ net_a_ip=$(sec_ws_ip a)
 net_b_ip=$(sec_ws_ip b)
 net_bridge=$(sec_ssh "incus network get portikus-ws ipv4.address" | cut -d/ -f1)
 net_gateway=$(sec_ssh "ip -4 route show default" | awk '{ print $3; exit }')
+net_lan_gateway=$(ip -4 route show default | awk '{ print $3; exit }')
 # A probe that can never connect proves nothing, so every context also dials
 # the Internet and must see it open.
 net_control="1.1.1.1,443"
 echo "Workspace a ${net_a_ip}, workspace b ${net_b_ip}, bridge ${net_bridge}, VM ${SEC_VM}, libvirt host ${net_gateway}"
+
+# Every IPv4 address this host holds, with 22 and each port something listens
+# on for that address, except the published port, which is allowed.  The
+# suite is meant to run on the libvirt host; elsewhere only its gateway
+# address is known.
+net_host_targets() {
+  local addrs listen addr port a
+  addrs=$(ip -4 -o addr show | awk '{ split($4, x, "/"); if (x[1] !~ /^127\./) print x[1] }')
+  if ! printf '%s\n' "$addrs" | grep -qx "$net_gateway"; then
+    echo "WARN: not running on the libvirt host; probing only ${net_gateway}" >&2
+    addrs="$net_gateway"
+  fi
+  listen=$(ss -ltnH | awk '{ print $4 }')
+  for a in $addrs; do
+    {
+      echo 22
+      while read -r addr_port; do
+        addr="${addr_port%:*}"; port="${addr_port##*:}"
+        case "$addr" in
+          0.0.0.0 | '*' | '[::]') echo "$port" ;;
+          "$a") echo "$port" ;;
+        esac
+      done <<<"$listen"
+    } | sort -un | grep -vx "$SEC_PUBLIC_PORT" | while read -r port; do echo "${a},${port}"; done
+  done
+}
 
 net_vm_ports=(22 80 "${SEC_PUBLIC_PORT}" 443 2019 3000 3001 3002 5432 8443)
 net_targets_for() { # ADDRESS PORTS...
@@ -38,11 +65,13 @@ check_output "the VM reaches workspace b's own listener (probe control)" "sectes
 net_b_ll=$(sec_exec b root "ip -6 -o addr show dev eth0 scope link" 2>/dev/null | awk '{ split($4, x, "/"); print x[1]; exit }')
 echo "Workspace b link-local address: ${net_b_ll:-(none)}"
 
-net_groups=(vm-bridge vm-management libvirt-host link-local peer)
+net_groups=(vm-bridge vm-management libvirt-host host-addresses lan-gateway link-local peer)
 declare -A net_group_targets=(
   [vm-bridge]="$(net_targets_for "$net_bridge" "${net_vm_ports[@]}")"
   [vm-management]="$(net_targets_for "$SEC_VM" "${net_vm_ports[@]}")"
   [libvirt-host]="$(net_targets_for "$net_gateway" 22 53 80 443)"
+  [host-addresses]="$(net_host_targets)"
+  [lan-gateway]="$(net_targets_for "$net_lan_gateway" 22 53 80 443)"
   [link-local]="$(net_targets_for 169.254.169.254 80 443)"
   [peer]="$(net_targets_for "$net_b_ip" 22 80 3000 5173 7400 8080)
 ${net_b_ll:+${net_b_ll}%eth0,7400
@@ -52,6 +81,8 @@ declare -A net_group_names=(
   [vm-bridge]="the VM on its bridge address"
   [vm-management]="the VM on its management address"
   [libvirt-host]="the libvirt host on the management network"
+  [host-addresses]="every other address the host holds"
+  [lan-gateway]="the host's LAN gateway"
   [link-local]="the metadata address"
   [peer]="the other workspace"
 )
