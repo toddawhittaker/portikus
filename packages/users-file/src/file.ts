@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, realpathSync } from "node:fs";
 import { chmod, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -12,16 +13,40 @@ export function defaultUsersFilePath(): string {
 
 // The file holds password hashes, so it must never be committable.
 export function assertOutsideGitWorkTree(path: string): void {
-	let dir = dirname(resolve(path));
+	// A symlinked config directory must be judged by where it really is.
+	let dir = nearestExisting(dirname(resolve(path)));
+	const refuse = (at: string) =>
+		new UsersFileError(
+			`${path} is inside the Git work tree at ${at}; keep the users file outside any repository (default ${defaultUsersFilePath()})`,
+		);
+	if (insideGitWorkTree(dir)) throw refuse(dir);
 	for (;;) {
-		if (existsSync(join(dir, ".git"))) {
-			throw new UsersFileError(
-				`${path} is inside the Git work tree at ${dir}; keep the users file outside any repository (default ${defaultUsersFilePath()})`,
-			);
-		}
+		if (existsSync(join(dir, ".git"))) throw refuse(dir);
 		const parent = dirname(dir);
 		if (parent === dir) return;
 		dir = parent;
+	}
+}
+
+function nearestExisting(dir: string): string {
+	let current = dir;
+	while (!existsSync(current) && dirname(current) !== current)
+		current = dirname(current);
+	return realpathSync(current);
+}
+
+// Git knows about work trees the .git walk misses, such as GIT_DIR setups.
+function insideGitWorkTree(dir: string): boolean {
+	try {
+		const out = execFileSync("git", ["rev-parse", "--is-inside-work-tree"], {
+			cwd: dir,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		});
+		return out.trim() === "true";
+	} catch {
+		// Not a work tree, or git is not installed.
+		return false;
 	}
 }
 

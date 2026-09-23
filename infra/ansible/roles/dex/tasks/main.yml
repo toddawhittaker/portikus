@@ -272,6 +272,9 @@
           - dex_discovery.json.issuer == portikus_dex_issuer
         fail_msg: "Dex reports issuer {{ dex_discovery.json.issuer }}, expected {{ portikus_dex_issuer }}."
 
+    - name: End the sessions of accounts this deploy removed or weakened
+      ansible.builtin.include_tasks: revoke.yml
+
 - name: Turn Dex off
   when: portikus_idp != 'dex'
   block:

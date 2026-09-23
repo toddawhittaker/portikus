@@ -67,7 +67,8 @@
       register: portikus_carry_over
       changed_when: >-
         portikus_carry_over_apply | bool
-        and portikus_carry_over_changed_pattern in portikus_carry_over.stdout
+        and (portikus_carry_over_changed_pattern in portikus_carry_over.stdout
+             or portikus_carry_over.stdout is search('Sessions revoked: [1-9]'))
 
     - name: Show the carry-over report
       ansible.builtin.debug:

@@ -11,3 +11,8 @@ dex_web_dir: /usr/local/share/portikus/dex-web
 dex_gocache: /root/go/dex-cache
 # The bcrypt shape Dex accepts: cost 10 to 16 (docs/EPIC-12B.md, the users file).
 dex_bcrypt_pattern: '^\$2[aby]\$1[0-6]\$[./A-Za-z0-9]{53}$'
+
+# Ending sessions after a users deploy (tasks/revoke.yml).
+dex_users_revoke_script: /usr/lib/portikus/api/node_modules/@portikus/auth/dist/users-revoke-main.js
+dex_users_revoke_input: /run/portikus-users-revoke.json
+dex_users_state_file: "{{ dex_config_dir }}/deployed-users.json"

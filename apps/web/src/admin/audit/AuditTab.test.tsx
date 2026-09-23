@@ -117,6 +117,7 @@ test("Older and Newer page by id", async () => {
 	await waitFor(() => expect(older.getAttribute("aria-disabled")).toBe("true"));
 	expect(newer.getAttribute("aria-disabled")).toBe(null);
 	expect(document.activeElement).toBe(older);
+	expect(older.hasAttribute("disabled")).toBe(false);
 	expect(screen.getByTestId("audit-page").textContent).toBe("Page 2, 1 event");
 
 	// Clicking the unavailable button does nothing.
@@ -126,6 +127,7 @@ test("Older and Newer page by id", async () => {
 	fireEvent.click(newer);
 	await screen.findByTestId("audit-row-60");
 	expect(document.activeElement).toBe(newer);
+	expect(newer.hasAttribute("disabled")).toBe(false);
 	expect(fetch.mock.calls.map((call) => String(call[0]))).toEqual([
 		"/admin/audit",
 		"/admin/audit?before=59",
