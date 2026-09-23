@@ -24,9 +24,9 @@ The shell needs the `libvirt` group. Until you log in again after
 
 ```
 make rehearsal-up                      # create it and wait for first boot
-make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_MOCK_IDP=true
+make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_USERS_FILE=<a rehearsal users file>
 make build-workspace-image TOFU_ENV=rehearsal-libvirt   # a new VM has no image
-make smoke-test   TOFU_ENV=rehearsal-libvirt PORTIKUS_MOCK_IDP=true
+make smoke-test   TOFU_ENV=rehearsal-libvirt
 make rehearsal-destroy                 # remove the VM, disks, network and pool
 ```
 
