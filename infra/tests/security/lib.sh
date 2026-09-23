@@ -24,6 +24,7 @@
 #                                  CMD under sh in an inner Docker container of KEY's workspace
 #   sec_ws_ip KEY, sec_agent_token KEY, sec_ws_id KEY, sec_instance KEY
 #   check LABEL CMD..., check_output LABEL EXPECTED CMD..., known_vuln ISSUE LABEL CMD...
+#   sec_warn LABEL                 a finding the operator allowed, listed in the summary
 #   sec_na LABEL REASON            a check that cannot prove anything here, listed in the summary
 # shellcheck disable=SC2034  # globals are read by the runner and the modules
 
@@ -52,6 +53,7 @@ pass=0
 fail=0
 sec_known=()
 sec_xpass=()
+sec_warnings=()
 sec_not_applicable=()
 
 # ── Output and checks ────────────────────────────────────────────
@@ -90,6 +92,13 @@ known_vuln() {
   fi
 }
 
+# sec_warn LABEL -- not a failure, because the operator chose it, but never
+# silent: the summary lists it.
+sec_warn() {
+  printf '\033[1;33mWARN\033[0m  %s\n' "$1"
+  sec_warnings+=("$1")
+}
+
 # sec_na LABEL REASON -- neither a pass nor a failure; the summary says why.
 sec_na() {
   printf '\033[1;36mN/A\033[0m   %s (%s)\n' "$1" "$2"
@@ -103,6 +112,10 @@ sec_summary() {
     echo "Not applicable on this host (not counted as passed):"
     for item in "${sec_not_applicable[@]}"; do echo "  ${item}"; done
   fi
+  if [ "${#sec_warnings[@]}" -gt 0 ]; then
+    echo "Warnings (allowed on this VM by the operator):"
+    for item in "${sec_warnings[@]}"; do echo "  ${item}"; done
+  fi
   if [ "${#sec_known[@]}" -gt 0 ]; then
     echo "Expected failures (KNOWN-VULN):"
     for item in "${sec_known[@]}"; do echo "  ${item}"; done
@@ -111,7 +124,33 @@ sec_summary() {
     echo "Marked checks that now pass (remove the marker):"
     for item in "${sec_xpass[@]}"; do echo "  ${item}"; done
   fi
-  echo "--- Security results: ${pass} passed, ${fail} failed, ${#sec_known[@]} known ---"
+  echo "--- Security results: ${pass} passed, ${fail} failed, ${#sec_known[@]} known, ${#sec_warnings[@]} warning(s) ---"
+}
+
+# ── Sign-in provider (#408) ──────────────────────────────────────
+
+# With the mock provider on, anyone who reaches the site can sign in as
+# anyone, administrators included.  Only PORTIKUS_IDP=mock allows that, and
+# then as a warning.  Otherwise the mock must be off and the API must not
+# name it as its issuer.
+sec_check_idp() {
+  local issuer
+  if [ "$SEC_IDP" = "mock" ]; then
+    if sec_ssh "systemctl is-active --quiet portikus-mock-idp" >/dev/null 2>&1; then
+      sec_warn "mock sign-in on: anyone who reaches ${SEC_API} can sign in as anyone (PORTIKUS_IDP=mock, #408)"
+    else
+      sec_pass "mock sign-in is off"
+    fi
+    return 0
+  fi
+  check "the mock identity provider is not running" \
+    sec_ssh "! systemctl is-active --quiet portikus-mock-idp"
+  issuer=$(sec_ssh "sudo sed -n 's/^OIDC_ISSUER_URL=//p' /etc/portikus/api.env" 2>/dev/null)
+  if [ -n "$issuer" ] && [[ "$issuer" != */mock-idp ]]; then
+    sec_pass "the API's issuer is not the mock (${issuer})"
+  else
+    sec_fail "the API's issuer is not the mock (got: ${issuer:-none})"
+  fi
 }
 
 # ── Transport ────────────────────────────────────────────────────
@@ -153,6 +192,15 @@ sec_init() {
   SEC_SWEEP=no
   [ "${2:-}" = "--sweep" ] && SEC_SWEEP=yes
   SEC_HEAVY="${PORTIKUS_SECURITY_HEAVY:-0}"
+  if [ -n "${PORTIKUS_MOCK_IDP:-}" ]; then
+    echo "security-test: PORTIKUS_MOCK_IDP was renamed: use PORTIKUS_IDP=mock" >&2
+    exit 2
+  fi
+  SEC_IDP="${PORTIKUS_IDP:-dex}"
+  case "$SEC_IDP" in
+    dex | mock | external) ;;
+    *) echo "security-test: PORTIKUS_IDP must be dex, mock or external (got: ${SEC_IDP})" >&2; exit 2 ;;
+  esac
   SEC_RUN_ID="$(date -u +%m%d%H%M%S)"
   SEC_PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${SEC_VM}.nip.io}"
   SEC_PUBLIC_PORT="${PORTIKUS_PUBLIC_PORT:-443}"

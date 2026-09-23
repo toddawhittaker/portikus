@@ -212,18 +212,18 @@ identity-carry-over-dry-run: users-check wait-vm ## Show which existing accounts
 configure-vm: $(USERS_CHECK) wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|mock|external picks the sign-in provider, PORTIKUS_USERS_FILE=<path> the Dex accounts)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml
 
-smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_IDP=<provider> as configured)
+smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_IDP=<provider> as configured; PORTIKUS_SMOKE_SIGNIN_FILE=<file> for a full Dex sign-in)
 	@test -n "$(VM_IP)" || { echo "smoke-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
-		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_MOCK_IDP=$(if $(filter mock,$(PORTIKUS_IDP)),true,false) \
+		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_SMOKE_SIGNIN_FILE=$(PORTIKUS_SMOKE_SIGNIN_FILE) \
 		bash infra/tests/smoke-test.sh $(VM_IP)
 
 # Safe on the live pilot: it creates and removes only its own users and two
 # workspaces, and fails if anything else changed (infra/README.md, "Security test").
-security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM)
+security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM; PORTIKUS_IDP=<provider> as configured)
 	@test -n "$(VM_IP)" || { echo "security-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
-		PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
+		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
 		bash infra/tests/security-test.sh $(VM_IP) $(if $(SWEEP),--sweep,)
 
 destroy-pilot: ## Destroy the pilot VM (irreversible)
