@@ -52,13 +52,25 @@ export function registerRecoveryRoutes(
 		};
 		reply.raw.once("close", onClose);
 		try {
-			const result = await locks.run(projectId, () =>
-				createRecoveryPoint(
+			const result = await locks.run(projectId, async () => {
+				const made = await createRecoveryPoint(
 					paths,
 					{ slug: params.data.slug, projectId, pointId, skipIfFingerprint },
 					abort.signal,
-				),
-			);
+				);
+				// Nobody will record this point, so it must not stay on disk.
+				if (made.created && abort.signal.aborted) {
+					await deleteRecoveryPoint(paths.recoveryRoot, projectId, pointId);
+				}
+				return made;
+			});
+			if (abort.signal.aborted) {
+				request.log.info(
+					{ projectId, pointId },
+					"recovery point abandoned by the caller",
+				);
+				return reply;
+			}
 			if (!result.created) {
 				request.log.debug({ projectId }, "recovery point skipped, project unchanged");
 				return reply.code(200).send(result);

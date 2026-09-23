@@ -31,12 +31,18 @@ import { buildServer } from "./server.js";
 
 /** Renames whose source path contains this text fail. */
 const failRename = { from: [] as string[] };
+/** When set, the rename that finishes a point waits for this promise. */
+const holdPointRename: { started?: () => void; until?: Promise<void> } = {};
 
 vi.mock("node:fs/promises", async (importOriginal) => {
 	const actual = await importOriginal<typeof FsPromises>();
 	const rename: typeof actual.rename = async (from, to) => {
 		if (failRename.from.some((text) => String(from).includes(text))) {
 			throw Object.assign(new Error("injected"), { code: "EIO" });
+		}
+		if (holdPointRename.until && String(from).endsWith(".tar.zst.partial")) {
+			holdPointRename.started?.();
+			await holdPointRename.until;
 		}
 		return actual.rename(from, to);
 	};
@@ -67,7 +73,8 @@ beforeEach(async () => {
 			"#!/bin/sh",
 			'case " $* " in',
 			'*" --extract "*) if [ -n "$FAKE_TAR_NOSPACE" ]; then cat >/dev/null; echo "tar: x: Cannot write: No space left on device" >&2; exit 2; fi ;;',
-			'*" --create "*) if [ -n "$FAKE_TAR_HANG" ]; then cat >/dev/null; exec sleep 30; fi ;;',
+			'*" --create "*) if [ -n "$FAKE_TAR_HANG" ]; then cat >/dev/null; exec sleep 30; fi',
+			'  if [ -n "$FAKE_TAR_EXIT1" ]; then /usr/bin/tar "$@"; exit 1; fi ;;',
 			"esac",
 			'exec /usr/bin/tar "$@"',
 			"",
@@ -79,9 +86,12 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	failRename.from = [];
+	holdPointRename.started = undefined;
+	holdPointRename.until = undefined;
 	process.env.PATH = realPath;
 	delete process.env.FAKE_TAR_NOSPACE;
 	delete process.env.FAKE_TAR_HANG;
+	delete process.env.FAKE_TAR_EXIT1;
 	await rm(base, { recursive: true, force: true });
 });
 
@@ -131,6 +141,15 @@ test("a rollback that fails is RESTORE_INCOMPLETE and keeps the aside copy", asy
 	);
 });
 
+test("tar exiting 1 (a file changed while read) still makes a point that restores", async () => {
+	process.env.FAKE_TAR_EXIT1 = "1";
+	const { pointId, sha256 } = await makePoint();
+	delete process.env.FAKE_TAR_EXIT1;
+	await writeFile(join(project, "a.txt"), "a2\n");
+	await restore(pointId, sha256);
+	expect(await readFile(join(project, "a.txt"), "utf8")).toBe("a1\n");
+});
+
 test("a full disk while extracting is STORAGE_FULL and changes nothing", async () => {
 	const { pointId, sha256 } = await makePoint();
 	await writeFile(join(project, "a.txt"), "a2\n");
@@ -140,6 +159,62 @@ test("a full disk while extracting is STORAGE_FULL and changes nothing", async (
 		code: "STORAGE_FULL",
 	});
 	expect(await projectState()).toEqual(before);
+});
+
+test("a caller hanging up after the archive is finished leaves no archive behind", async () => {
+	const token = "c".repeat(64);
+	const tokenPath = join(base, "agent.token");
+	await writeFile(tokenPath, `${token}\n`, { mode: 0o600 });
+	const app = buildServer({
+		tokenPath,
+		homeDir: paths.homeDir,
+		recoveryRoot: paths.recoveryRoot,
+		logger: collectingLogger("debug").logger,
+		listening: {
+			procRoot: base,
+			interfaceAddress: null,
+			docker: null,
+			intervalMs: 60_000,
+		},
+	});
+	await app.listen({ host: "127.0.0.1", port: 0 });
+	try {
+		const { port } = app.server.address() as AddressInfo;
+		let release = () => {};
+		const renaming = new Promise<void>((resolve) => {
+			holdPointRename.started = resolve;
+		});
+		holdPointRename.until = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const body = JSON.stringify({ projectId, pointId: randomUUID() });
+		const pending = request({
+			host: "127.0.0.1",
+			port,
+			method: "POST",
+			path: "/projects/alpha/recovery-points",
+			headers: {
+				authorization: `Bearer ${token}`,
+				"content-type": "application/json",
+				"content-length": Buffer.byteLength(body),
+			},
+		});
+		pending.on("error", () => {});
+		pending.end(body);
+		await renaming;
+		pending.destroy();
+		await delay(100);
+		release();
+		const dir = join(paths.recoveryRoot, projectId);
+		const archives = async () =>
+			(await readdir(dir)).filter((name) => name.endsWith(".tar.zst"));
+		for (let i = 0; i < 100 && (await archives()).length > 0; i++) await delay(20);
+		await delay(100);
+		expect(await archives()).toEqual([]);
+		expect(await readdir(dir)).toEqual([]);
+	} finally {
+		await app.close();
+	}
 });
 
 test("a caller hanging up stops the point, removes the partial file, and frees the lock", async () => {
