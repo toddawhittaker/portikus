@@ -10,6 +10,7 @@ import {
 } from "@portikus/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { RecoveryDialog } from "../recovery/RecoveryDialog.js";
 import { ArchiveConfirm } from "./ArchiveConfirm.js";
 import { type CreateMode, CreateProjectDialog } from "./CreateProjectDialog.js";
 import { DeleteConfirm } from "./DeleteConfirm.js";
@@ -29,6 +30,7 @@ type Open =
 	| { kind: "rename"; project: Project }
 	| { kind: "duplicate"; project: Project }
 	| { kind: "archive"; project: Project }
+	| { kind: "recovery"; project: Project }
 	| { kind: "delete"; project: Project };
 
 /** The left pane: the active projects, their actions, and the archived list (SPEC.md §8.2). */
@@ -160,6 +162,11 @@ export function ProjectPane({
 												>
 													Download as zip
 												</MenuItem>
+												<MenuItem
+													onSelect={() => setOpen({ kind: "recovery", project })}
+												>
+													<span data-testid="project-recovery">Recovery points…</span>
+												</MenuItem>
 												{project.isGitRepo === false && (
 													<MenuItem onSelect={() => gitInit.mutate(project.id)}>
 														<span data-testid="project-git-init">Initialize Git</span>
@@ -268,6 +275,13 @@ export function ProjectPane({
 					project={open.project}
 					onClose={() => setOpen({ kind: "none" })}
 					onDeleted={() => afterRemoval(open.project)}
+				/>
+			)}
+			{open.kind === "recovery" && (
+				<RecoveryDialog
+					workspaceId={workspaceId}
+					project={open.project}
+					onClose={() => setOpen({ kind: "none" })}
 				/>
 			)}
 			{open.kind === "archive" && (

@@ -1,4 +1,4 @@
-import type { Workspace } from "@portikus/contracts";
+import type { PendingOperation, Workspace } from "@portikus/contracts";
 import { Button, Icon, Skeleton, useToast } from "@portikus/ui";
 import { useWorkspaceAction } from "./api/workspace.js";
 
@@ -44,6 +44,22 @@ const COPY: Record<StartingPhase, [string, string]> = {
 	],
 };
 
+/** What the wait is while a maintenance operation runs (SPEC.md §16.4, §17.2, §27). */
+const PENDING_COPY: Record<PendingOperation, [string, string]> = {
+	"reset-docker": [
+		"Resetting Docker…",
+		"Docker's storage is being replaced with an empty one. Your projects, home folder and recovery points are kept.",
+	],
+	rebuild: [
+		"Rebuilding…",
+		"An administrator is rebuilding the workspace system. Your projects and home folder are kept.",
+	],
+	"rebuild-reset-docker": [
+		"Rebuilding…",
+		"An administrator is rebuilding the workspace system and resetting Docker. Your projects and home folder are kept.",
+	],
+};
+
 /** Which part of the wait the person is in (design/mockups/WorkspaceStarting). */
 export function startingPhase(workspace: Workspace | null): StartingPhase {
 	if (!workspace) return "connecting";
@@ -69,7 +85,8 @@ export function WorkspaceStarting({
 	workspace: Workspace | null;
 }) {
 	const phase = startingPhase(workspace);
-	const [heading, sub] = COPY[phase];
+	const pending = workspace?.pendingOperation ?? null;
+	const [heading, sub] = pending ? PENDING_COPY[pending] : COPY[phase];
 	const at = STEPS.indexOf(phase as (typeof STEPS)[number]);
 
 	return (
@@ -85,6 +102,7 @@ export function WorkspaceStarting({
 					aria-labelledby="progress-title"
 					data-testid="workspace-progress"
 					data-phase={phase}
+					data-pending={pending ?? undefined}
 				>
 					<div className="flex flex-col gap-2">
 						<h1 id="progress-title" className="pk-text-title">
