@@ -55,6 +55,12 @@ for lim_unit in $lim_platform_units; do
   check "${lim_unit} has a negative OOM score adjustment" \
     sec_ssh "p=\$(systemctl show -p MainPID --value ${lim_unit}); [ \"\$p\" -gt 0 ] && [ \"\$(cat /proc/\$p/oom_score_adj)\" -lt 0 ]"
 done
+# A protected service that takes requests must not be able to take the VM
+# with it; PostgreSQL is bounded by its own settings instead.
+for lim_unit in ${lim_platform_units/postgresql@17-main/}; do
+  check "${lim_unit} has a memory cap" \
+    sec_ssh "[ \"\$(cat /sys/fs/cgroup/system.slice/${lim_unit}.service/memory.max)\" != max ]"
+done
 
 # ── The thin pool, reported only (Epic 12a risk 3) ───────────────
 
@@ -205,6 +211,14 @@ if [ "$SEC_HEAVY" = "1" ]; then
   check_output "heavy: PostgreSQL and the API kept running (same main PIDs)" "$lim_pids_before" lim_main_pids
   check "heavy: the API and b's agent answered within two seconds while a ran out of memory" \
     lim_watch_ok "$lim_mem_watch"
+  # A protected service still dies at its own cap, so a flood against Dex
+  # or the API cannot take the VM: a throwaway unit with Dex's settings.
+  lim_capped() {
+    sec_ssh "sudo systemd-run --wait --collect --unit=portikus-sectest-${SEC_RUN_ID}-cap \
+      -p OOMScoreAdjust=-900 -p MemoryMax=256M python3 -c 'b = b\"x\" * (512 * 1048576)' 2>&1" \
+      | grep -qx 'Finished with result: oom-kill'
+  }
+  check "heavy: a service with the platform's OOM adjustment is killed at its memory cap" lim_capped
 fi
 
 lim_watch=$(lim_watch_stop)

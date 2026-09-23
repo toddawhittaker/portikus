@@ -14,8 +14,10 @@ SuccessExitStatus=2
 Restart=on-failure
 RestartSec=5
 # Workspaces may together promise more memory than the VM has; when it runs
-# out, the kernel kills workspace processes first (docs/CAPACITY.md).
+# out, the kernel kills workspace processes first.  The cap keeps a leak or
+# a flood of requests from taking the VM instead (about 30 MiB measured; docs/CAPACITY.md).
 OOMScoreAdjust=-900
+MemoryMax=256M
 
 # Hardening, the same as the Portikus units (SPEC section 24).
 NoNewPrivileges=yes

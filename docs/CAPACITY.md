@@ -80,7 +80,7 @@ For 25 active workspaces:
 
 - **Memory: 16 GiB.** The run used 9.3 GiB with a 150 MB stand-in. A real agent CLI, a dev server and an inner Docker container can double a workspace's memory. 16 GiB keeps about 6.5 GiB free for that. At 8 GiB, the pilot fills at about 19 stand-in workspaces, and sooner with real agents.
 - **CPU: 8 vCPUs.** Steady use was about one core in total. The peak is a build: each workspace may use 2 cores (`limits.cpu`), so 8 vCPUs let three students build at full speed at the same time while the control plane stays responsive.
-- **Data disk: 200 GiB.** At 1.1 GiB per started workspace, the 90 GiB thin pool on today's 100 GiB disk holds about 80 workspaces before any student data. SPEC.md section 25.2 targets 100 provisioned workspaces.
+- **Data disk: 200 GiB.** The thin pool is 90% of the disk, and the nightly backup needs up to about 20 GiB of it (see "Backups in the thin pool" below). On today's 100 GiB disk that leaves about 70 GiB, or about 60 started workspaces at 1.1 GiB each before any student data. SPEC.md section 25.2 targets 100 provisioned workspaces. On a 200 GiB disk the pool is about 180 GiB: 110 GiB for 100 workspaces, 20 GiB for the backup, and about 50 GiB for student files.
 
 The rehearsal VM at 12 vCPUs and 24 GiB was measured directly. The 8 vCPU and 16 GiB figure is worked out from those measurements and has not been run. A confirming run is `make rehearsal-up REHEARSAL_VCPUS=8 REHEARSAL_MEMORY_MB=16384`, then `make load-test TOFU_ENV=rehearsal-libvirt N=25`, when nothing else is using the rehearsal VM.
 
@@ -103,6 +103,20 @@ Each workspace may use 4 GB (`workspace_memory_limit` in `infra/ansible/site.yml
 
 **What is in place.** PostgreSQL, portikus-api, portikus-worker, portikus-controller, portikus-dex and Caddy all start with `OOMScoreAdjust=-900`. That makes the kernel pick any workspace process before them. The Portikus units set it in `packaging/systemd`. Dex's unit is written by the `dex` role. PostgreSQL and Caddy get a systemd drop-in from their Ansible roles. Debian's PostgreSQL unit already sets -900; the drop-in keeps it if the packaging ever changes. PostgreSQL's worker processes stay at 0, as upstream recommends, so a runaway query can be killed without taking the server down. The security suite checks every one of these units on each run.
 
+**Each protected service also has a memory cap.** A negative adjustment alone would be dangerous for a service that takes requests from the network. If a leak or a flood of requests made it grow, the kernel would kill every student's workspace before it. Dex is the clear case: its storage is in memory, and today every plain request to its sign-in page stores an auth request for ten minutes. So each service gets a systemd `MemoryMax`. When a service reaches its cap, the kernel kills that service alone, inside its own control group, and systemd restarts it after 5 seconds.
+
+| Service | Measured on the rehearsal VM | `MemoryMax` |
+|---|---|---|
+| portikus-api | about 110 MiB idle, about 240 MiB at 25 workspaces | 1G |
+| portikus-worker | about 100 MiB | 512M |
+| portikus-controller | about 75 MiB | 512M |
+| portikus-dex | about 30 MiB | 256M |
+| portikus-mock-idp (test only) | a few tens of MiB | 256M |
+| Caddy | about 80 MiB | 1G |
+| PostgreSQL | about 25 MiB for the main process | none |
+
+Each cap is at least four times the busiest measurement, so normal load never reaches it. The API and Caddy get the most room because they carry every student's traffic, including file uploads and downloads. PostgreSQL has no cap: its own settings (`shared_buffers`, `work_mem`, and the connection limit) bound it, only the API and the worker connect to it, and a cap would turn a busy moment into a database restart. Dex sign-in also needs a rate limit, which is separate work. The cap only makes sure a flood costs a Dex restart, which ends in-progress sign-ins, rather than the VM.
+
 **What was not done, and why.**
 
 - **No cap on all workspaces together (a `MemoryHigh` or `MemoryMax` on a shared parent).** Incus puts each container in its own top-level control group (`/sys/fs/cgroup/lxc.payload.<name>`), so there is no shared parent to set a limit on. Making one would mean overriding the control group paths Incus manages, which is fragile across Incus upgrades. Incus's own total, `limits.memory` on the project, is a different thing: it refuses to start a workspace once the per-workspace limits add up past the total. With 4 GB each that would allow only one workspace on the pilot. The per-workspace `limits.memory` stays the limit, and the OOM adjustment decides who goes when the VM as a whole runs out.
@@ -124,7 +138,19 @@ Each workspace may use 4 GB (`workspace_memory_limit` in `infra/ansible/site.yml
 
 Before, the five platform services' adjustment checks failed, as expected. The one failure left in both runs is the `#408` marker. It reports `XPASS` because the rehearsal VM signs in through Dex, so the mock-provider gap it tracks is closed there.
 
+With the caps in place, the security suite also checks that each service except PostgreSQL has a cap. The heavy tests start a throwaway service with Dex's settings (an adjustment of -900 and a 256M cap) that allocates 512 MiB. The kernel kills it at its cap, and systemd reports `oom-kill`.
+
 What this shows: a workspace that allocates past its own limit is stopped inside its own control group, and nothing else notices, with or without the adjustment. The adjustment matters when the VM as a whole runs out, which happens when several workspaces each stay under 4 GB. There, the kernel ranks by OOM score, and the platform's scores dropped from about 668 to about 70, below any workspace process with real memory use. A VM-wide out-of-memory event was not forced on the shared rehearsal VM.
+
+## Backups in the thin pool
+
+The nightly backup (docs/adr/0024-backups-pulled-to-host.md) uses the same thin pool as the workspaces, `workspace-data`:
+
+- **The staging volume, `portikus-backups`, 20 GiB.** Incus writes each export there as a file before the host pulls it. It holds one volume's export at a time, and the file is deleted afterwards. Incus mounts its volumes with `discard`, so the freed space goes back to the pool. At its peak, it can use the whole 20 GiB.
+- **A snapshot and a thin copy of each volume being exported.** Both share the volume's blocks, so they cost almost nothing when made. They grow only by what the running workspace writes during that volume's export. Both are deleted before the next volume starts.
+- **Thin pool metadata.** Each snapshot and copy adds a little. On the rehearsal VM the metadata was 12% used, so there is plenty of room.
+
+So a backup needs up to about 20 GiB of free pool space, one volume at a time, plus what workspaces write while it runs. The sizing above keeps 20 GiB for it. The security suite and the load test both refuse to start when the pool is short of space. The pool growth in the `lvm` role does not change any of this: the backup volume lives inside the pool, and growing the pool gives it more room like everything else.
 
 ## Resizing the pilot
 
