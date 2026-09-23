@@ -38,7 +38,11 @@ your `~/.ssh/id_ed25519` key.
 - `rehearsal-up` refuses to create the VM when the host has less free memory
   than the VM's size. Pass `REHEARSAL_MEMORY_MB=<MiB>` and
   `REHEARSAL_VCPUS=<n>` for a smaller VM; keep the same values on later runs,
-  or OpenTofu will resize it.
+  or OpenTofu will replace the VM with one of the new size.
+- `REHEARSAL_DATA_DISK_GB=<GiB>` (100 by default) grows the data disk in
+  place; `make configure-vm TOFU_ENV=rehearsal-libvirt` then grows the thin
+  pool. The disk never shrinks: a smaller value than the disk's size fails
+  the apply, so keep passing the grown size on later runs.
 - `REHEARSAL_SSH_KEY=<file>` picks another public key for the `deploy` user.
 - `configure-vm` uses the pilot's own site name and port by default, so a
   restored pilot database matches. Caddy's role resolves that name to
