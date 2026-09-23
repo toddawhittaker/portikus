@@ -32,6 +32,10 @@
 #   PORTIKUS_PUBLIC_HOST, PORTIKUS_PUBLIC_PORT  as for the pilot
 set -euo pipefail
 
+# Nested makes see only what the M array passes: a VM_IP or PORTIKUS_DEB from
+# the caller's command line or environment could aim a step at the pilot.
+unset MAKEFLAGS MFLAGS VM_IP PORTIKUS_DEB
+
 SET="${1:?Usage: rebuild-exercise.sh <backup set dir>}"
 SET=$(cd "$SET" && pwd)
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -103,7 +107,7 @@ finish() {
   local rc=$?
   trap - EXIT
   set +e
-  step "destroy the rehearsal VM" destroy_vm
+  step "destroy the rehearsal VM" destroy_vm || rc=1
   table
   if [ "$rc" -eq 0 ]; then echo "Rebuild exercise passed."; else echo "Rebuild exercise FAILED."; fi
   exit "$rc"
@@ -159,13 +163,12 @@ smoke() {
 signin_status() {
   sed -n 2p "$PORTIKUS_SMOKE_SIGNIN_FILE" | tr -d '\n' \
     | ssh -o BatchMode=yes -o ConnectTimeout=15 "deploy@$(vm_ip)" "
-      set -e; umask 077; t=\$(mktemp -d); cat >\"\$t/pw\"
+      set -e; umask 077; t=\$(mktemp -d); trap 'rm -rf \"\$t\"' EXIT; cat >\"\$t/pw\"
       A='https://${AUTHORITY}'
       C=\"curl -s --cacert /etc/portikus/caddy-root.crt -c \$t/jar -b \$t/jar\"
       form=\$(\$C -L -o /dev/null -w '%{url_effective}' \"\$A/auth/login\")
       \$C -L -o /dev/null --data-urlencode 'login=${signin_email}' --data-urlencode \"password@\$t/pw\" \"\$form\"
-      \$C -o /dev/null -w '%{http_code}' \"\$A/auth/me\"
-      rm -rf \"\$t\""
+      \$C -o /dev/null -w '%{http_code}' \"\$A/auth/me\""
 }
 
 rollback() {

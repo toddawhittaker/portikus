@@ -1929,8 +1929,11 @@ are in `docs/OPERATIONS.md`, "Rebuild from code (B5)", and the load
 numbers in `docs/CAPACITY.md`. `make rebuild-exercise` (PR #471) now
 runs every STACK.md section 33 step in one command, including the
 rollback to the previous package, and passed end to end in 17 min 48 s.
-The smoke test gained checks for restored data and for the Incus script's
-checksum.
+The smoke test gained checks for restored data, and it now compares the
+VM's Incus script with the checkout's on every run. Ruling: STACK.md
+section 33 step 6 says to install the newest release. The exercise
+installs a package built from the checkout instead, so it tests what is
+about to ship, and this was accepted.
 
 ### Gaps
 
