@@ -553,3 +553,15 @@ These rulings settle overlaps between Epics 10, 11, and 12a, which are built in 
 6. **Real host.** No builder stops, restarts, resizes, rebuilds, resets, or restores any existing student workspace, and none runs `make smoke-test` on the pilot while student workspaces exist. Epic 10 verifies on scratch instances it creates and removes itself, after taking `pre-epic10` snapshots of the student home volumes and a `pg_dump`. When Epic 10 has to install its package on the pilot to verify, the pilot is put back on the `main` package afterwards, so students never stay on unreviewed code. Epic 11's real-host work is read-only Incus queries plus volume-grow checks on `e11-scratch-*` objects. Epic 11 does not deploy to the pilot, and it does not disable or archive the #302 debris accounts; that waits for Todd.
 7. **Shared tooling.** Every epic branch first receives the same "Per-run e2e ports and sharded browser tests in CI" change, so parallel Playwright runs do not clash.
 8. **Docs.** Builders do not edit `docs/STATUS.md` or `docs/BACKLOG.md`; the orchestrator writes each epic's STATUS section and BACKLOG notes in a closing PR. SPEC.md edits named in a task stay with that task.
+
+### Merging with Epic 10
+
+Whichever of Epics 10 and 11 merges into main second has to make these changes while resolving the merge:
+
+- Reset Docker and Rebuild must pass the row's `quota_config.dockerGiB` to the controller, falling back to the default size when it is missing. The spot is `reconcile.ts` on `epic/10`, around lines 884 to 890.
+- The create path writes `quota_applied` as the two-key `result.quota` (homeGiB and dockerGiB only), never with Epic 10's `recoveryGiB`.
+- Flip the tests that expect Rebuild and Reset Docker to be disabled: `e2e/admin-workspaces.spec.ts`, and `admin-workspaces.test.ts`, which expects `rebuild` to be false.
+- `db.test.ts` needs 14 `migrateDown` calls, and `0013_recovery` in its migration list.
+- The worker's start step (3b) and its error-retry step (3d) keep both `pending_operation is null` and `archived_at is null` in their conditions.
+- Take the union of both epics' additions to `ApiErrorCode`.
+- The admin detail fills in `storage`, and it disables Rebuild and Reset Docker while `pendingOperation` is set.

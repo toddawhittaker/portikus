@@ -278,5 +278,8 @@ test.skipIf(skip)("the health counts can use the (action, at) index", async () =
 		});
 		return result.rows.map((row) => row["QUERY PLAN"]).join("\n");
 	});
-	expect(plan).toContain("audit_events_action_at_idx");
+	// Without the action list the index can still be used on `at` alone, so the
+	// index name proves nothing; the action has to be an index condition.
+	const indexCond = plan.split("\n").find((line) => line.includes("Index Cond"));
+	expect(indexCond).toContain("action = ANY");
 });

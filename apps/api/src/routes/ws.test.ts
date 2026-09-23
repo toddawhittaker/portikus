@@ -9,8 +9,21 @@ import {
 } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+
+// Lets one test make the socket's first workspace read throw.
+const failRead = vi.hoisted(() => ({ on: false }));
+vi.mock("./workspace-view.js", async (importOriginal) => {
+	const real = await importOriginal<typeof import("./workspace-view.js")>();
+	return {
+		...real,
+		countActive: async (...args: Parameters<typeof real.countActive>) => {
+			if (failRead.on) throw new Error("read failed");
+			return real.countActive(...args);
+		},
+	};
+});
 
 const skip = !hasTestDb();
 let testDb: TestDb;
@@ -196,6 +209,25 @@ test.skipIf(skip)("a state change is broadcast to open sockets", async () => {
 	await socket.close();
 });
 
+test.skipIf(skip)("archiving and unarchiving reach an open socket", async () => {
+	const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+	await socket.next();
+
+	for (const archivedAt of [new Date().toISOString(), null]) {
+		const update = socket.nextOf("workspace");
+		// Only archived_at changes, so nothing else could trigger the push.
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ archived_at: archivedAt })
+			.where("id", "=", workspaceId)
+			.execute();
+		const message = await update;
+		expect(message.workspace.archivedAt === null).toBe(archivedAt === null);
+	}
+
+	await socket.close();
+});
+
 test.skipIf(skip)("shutting the server down closes sockets with 1001", async () => {
 	const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
 	await socket.next();
@@ -291,6 +323,28 @@ test.skipIf(skip)("an administrator is capped at sixteen sockets too", async () 
 		}
 	}
 });
+
+test.skipIf(skip)(
+	"an administrator socket whose first read throws still releases its slot",
+	async () => {
+		const carol = new CookieJar();
+		await loginAs(app, "carol", carol);
+		failRead.on = true;
+		try {
+			for (let i = 0; i < 16; i += 1) {
+				const socket = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+				expect(await nextClose(socket)).toBe(1011);
+			}
+		} finally {
+			failRead.on = false;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		// Had any slot leaked, sixteen leaks would refuse this with 429.
+		const socket = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+		await socket.next();
+		await socket.close();
+	},
+);
 
 async function archive(state: string): Promise<void> {
 	await testDb.db
