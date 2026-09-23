@@ -343,6 +343,51 @@ for resizing the pilot. In short: for 25 active workspaces and 100
 provisioned ones, the pilot needs 8 vCPUs, 16 GiB of memory and a 200 GiB
 data disk. Resizing is done in a window you choose, after a backup.
 
+### Host hardware for a class of about 24
+
+The 16 GiB figure is a floor, not a comfortable size. It was worked out
+from a load test that used a 150 MB stand-in for the coding agent, and a
+real agent, a dev server and a Docker container can double a workspace's
+memory (docs/CAPACITY.md, "The size the pilot needs"). Give the pilot VM
+24 to 32 GiB of memory and 12 or more vCPUs, so a whole class can build
+at once without waiting on each other.
+
+The host needs room for that VM, its own operating system, the nightly
+backups, and the rehearsal VM (24 GiB by default) so that a restore drill
+or load test does not mean stopping the class.
+
+| | Minimum | Recommended |
+|---|---|---|
+| CPU | 8 cores, 16 threads | 12 to 16 cores |
+| Memory | 32 GB | 64 GB |
+| Disk | 1 TB NVMe SSD | 2 TB NVMe SSD |
+| Network | Wired gigabit | Wired gigabit |
+
+- **Memory.** 32 GB runs the pilot but not the rehearsal VM beside it.
+  64 GB runs both, and leaves room for language servers if the editor
+  work in docs/BACKLOG.md ("Course profiles and a language-aware
+  editor") goes ahead; those add roughly 100 to 500 MB per active
+  student.
+- **Disk.** The VM takes a 20 GiB system disk and a 200 GiB data disk.
+  The host also keeps the 14 newest backup sets under
+  `/var/backups/portikus/`, which grow with student files and Docker
+  images. NVMe matters because many students running `npm install` or
+  Docker builds at once are limited mostly by disk speed.
+- **Virtualisation.** Hardware virtualisation (KVM) must be on in the
+  BIOS or UEFI (infra/README.md).
+- **Off-host backups.** An external drive or network storage for the
+  off-host copy of the backups, which is still a manual step (see
+  "Backups" above).
+
+A desktop or small tower workstation is enough; server hardware is not
+needed at this size. Before a class starts, confirm the size you chose by
+running the load test on the rehearsal VM at that size:
+`make rehearsal-up REHEARSAL_VCPUS=<n> REHEARSAL_MEMORY_MB=<MiB>`, then
+`make load-test TOFU_ENV=rehearsal-libvirt N=25`.
+
+To rent a host instead of buying one, docs/HOSTING.md compares providers
+and prices for this size, dated 2026-09-23.
+
 **Never run `make infra-apply` for the pilot from a checkout older than
 the one that grew the data disk.** An older checkout replaces a data disk
 whose size changed, so it would plan to swap the grown disk for an empty
