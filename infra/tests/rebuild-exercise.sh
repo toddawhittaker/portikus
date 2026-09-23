@@ -84,7 +84,7 @@ step() {
   local name="$1" start rc=0 log
   shift
   start=$(date +%s)
-  log="${LOGS}/$((${#names[@]} + 1))-${name// /-}.log"
+  log="${LOGS}/$((${#names[@]} + 1))-${name//[^A-Za-z0-9.+-]/-}.log"
   echo "[$(date +%H:%M:%S)] ${name}..."
   "$@" >"$log" 2>&1 || rc=$?
   names+=("$name")
