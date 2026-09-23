@@ -12,6 +12,9 @@ import sys
 import tempfile
 
 NAME = "mock-lms"
+# Must match packages/mock-lms/src/seed.ts; infra/tests/lti-platforms-test.sh checks it.
+CLIENT_ID = "portikus-mock"
+DEPLOYMENT_ID = "mock-deployment-1"
 
 
 def load(path):
@@ -42,8 +45,6 @@ def main():
     parser.add_argument("action", choices=["register", "unregister"])
     parser.add_argument("--file", required=True)
     parser.add_argument("--url", help="the mock's base URL as the VM reaches it")
-    parser.add_argument("--client-id")
-    parser.add_argument("--deployment-id")
     args = parser.parse_args()
 
     data = load(args.file)
@@ -59,15 +60,15 @@ def main():
             print(f"{args.file}: removed; no LMS is registered, so LTI is off")
         return
 
-    if not (args.url and args.client_id and args.deployment_id):
-        parser.error("register needs --url, --client-id and --deployment-id")
+    if not args.url:
+        parser.error("register needs --url")
     mock = {
         "name": NAME,
         "issuer": args.url,
-        "clientId": args.client_id,
+        "clientId": CLIENT_ID,
         "authLoginUrl": f"{args.url}/authorize",
         "keysetUrl": f"{args.url}/.well-known/jwks.json",
-        "deploymentIds": [args.deployment_id],
+        "deploymentIds": [DEPLOYMENT_ID],
         "mock": True,
     }
     save(args.file, {**data, "platforms": others + [mock]})

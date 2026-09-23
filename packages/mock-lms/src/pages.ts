@@ -25,7 +25,7 @@ ${body}
 `;
 }
 
-export function launchPage(toolUrl: string): string {
+export function launchPage(toolUrl: string, formToken: string): string {
 	const people = PEOPLE.map(
 		(p) =>
 			`<option value="${p.key}">${escapeHtml(`${p.givenName} ${p.familyName} (${p.role})`)}</option>`,
@@ -41,6 +41,7 @@ export function launchPage(toolUrl: string): string {
 <h1>Mock LMS</h1>
 <p>Opens Portikus at ${escapeHtml(toolUrl)} as a seeded person. For development only.</p>
 <form method="post" action="/start">
+<input type="hidden" name="form_token" value="${escapeHtml(formToken)}">
 <label for="person">Person</label>
 <select id="person" name="person">${people}</select>
 <label for="course">Course</label>

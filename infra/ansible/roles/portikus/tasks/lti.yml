@@ -1,7 +1,7 @@
 ---
 # LTI launch on the VM (docs/EPIC-13.md, rulings 14, 15 and 26).  api.env
 # always names both files; a missing platforms file means LTI is off.
-# lti_load.yml has already read and checked the file on the Ansible host.
+# lti_load.yml has already read the file on the Ansible host.
 
 # The tool key is generated once and never replaced, because every LMS
 # registration pins its public half (ruling 15).
@@ -20,6 +20,27 @@
     group: portikus
     mode: "0640"
 
+# A run limited to the lti tag skips the package install, so the installed
+# package may predate the check command.
+- name: Look for the LTI platforms check command
+  ansible.builtin.stat:
+    path: "{{ portikus_lti_platforms_check_script }}"
+  register: portikus_lti_check_command
+  when: portikus_lti_platforms is not none
+
+- name: Require a package that has the LTI platforms check command
+  ansible.builtin.assert:
+    that:
+      - portikus_lti_check_command.stat.exists
+    fail_msg: >-
+      The installed portikus package cannot check an LTI platforms file.
+      Install a release that can first, with `make configure-vm`, then run
+      this again.
+  when: portikus_lti_platforms is not none
+
+# Validated by the API's own parser, so a file the API would refuse at
+# start never reaches the VM.  Node runs as root because the file being
+# checked sits in root's private Ansible temporary directory.
 - name: Install the LTI platforms file
   ansible.builtin.copy:
     src: "{{ portikus_lti_platforms_file }}"
@@ -27,6 +48,7 @@
     owner: root
     group: portikus
     mode: "0640"
+    validate: "/usr/bin/node {{ portikus_lti_platforms_check_script }} %s"
   when: portikus_lti_platforms is not none
   notify: Restart portikus-api
 

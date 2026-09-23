@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { autoPostPage, errorPage, framePage, launchPage } from "./pages.js";
 import {
@@ -55,6 +55,14 @@ export function createHandler(options: MockLmsOptions) {
 	// Launches stay valid for the life of the process: the frame fallback re-submits the same hint.
 	const pending = new Map<string, PendingLaunch>();
 	let previousToken: string | undefined; // the last good launch's token
+	let previousExp = 0; // its exp claim, in seconds
+	// Stops another site from making the operator's browser start a launch (login CSRF).
+	const formToken = randomBytes(32).toString("base64url");
+	const formTokenOk = (value: string | null) => {
+		const given = Buffer.from(value ?? "");
+		const expected = Buffer.from(formToken);
+		return given.length === expected.length && timingSafeEqual(given, expected);
+	};
 
 	function send(res: ServerResponse, status: number, type: string, body: string) {
 		res.writeHead(status, {
@@ -79,6 +87,13 @@ export function createHandler(options: MockLmsOptions) {
 	}
 
 	function start(params: URLSearchParams, res: ServerResponse) {
+		if (!formTokenOk(params.get("form_token"))) {
+			return html(
+				res,
+				403,
+				errorPage("Start the launch from this mock's launch page."),
+			);
+		}
 		const person = findPerson(params.get("person") ?? "");
 		const course = findCourse(params.get("course") ?? "");
 		const roleParam = params.get("role") ?? "";
@@ -161,6 +176,12 @@ export function createHandler(options: MockLmsOptions) {
 					"replayed_nonce needs an earlier launch to replay. Launch once first.",
 				);
 			}
+			// An expired replay would fail on exp as well as on its nonce.
+			if (now() >= previousExp) {
+				return refuse(
+					"The last good launch's token has expired. Launch once more without a defect, then replay.",
+				);
+			}
 			idToken = previousToken;
 		} else {
 			const claims = launchClaims({
@@ -175,7 +196,10 @@ export function createHandler(options: MockLmsOptions) {
 			});
 			idToken = await signLaunch(signer, claims, defect);
 			// Replay only a good token, so the replay fails on its nonce and nothing else.
-			if (defect === undefined) previousToken = idToken;
+			if (defect === undefined) {
+				previousToken = idToken;
+				previousExp = Number(claims.exp);
+			}
 		}
 		// Never the token, and nothing about the person beyond the seed key.
 		log(`launch person=${launch.person.key} defect=${defect ?? "none"}`);
@@ -194,7 +218,7 @@ export function createHandler(options: MockLmsOptions) {
 		const method = req.method ?? "GET";
 		try {
 			if (method === "GET" && url.pathname === "/")
-				return html(res, 200, launchPage(toolUrl));
+				return html(res, 200, launchPage(toolUrl, formToken));
 			if (method === "GET" && url.pathname === "/.well-known/jwks.json") {
 				return send(res, 200, "application/json", JSON.stringify(signer.jwks));
 			}

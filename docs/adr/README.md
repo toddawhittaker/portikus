@@ -52,3 +52,4 @@ has four sections:
 | [0021](0021-workspace-maintenance-operations.md) | Reset Docker and Rebuild are pending operations the worker drives |
 | [0022](0022-operational-metrics-in-postgres.md) | Operational metrics live in PostgreSQL, not OpenTelemetry |
 | [0024](0024-backups-pulled-to-host.md) | Backups are pulled to the host and encrypted there with age |
+| [0025](0025-lti-launch.md) | LTI 1.3 launch: state row and per-login cookie, file-registered platforms, and the instructor role |

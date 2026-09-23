@@ -253,7 +253,7 @@ mock-lms: ## Run the mock LMS on this host in the foreground (MOCK_LMS_BIND, MOC
 		$(foreach bind,$(MOCK_LMS_BIND),--bind $(bind)) --issuer $(MOCK_LMS_URL)
 
 lti-mock-register: $(USERS_CHECK) wait-vm ## Trust the mock LMS on the VM: add its registration to the platforms file and apply only the LTI tasks
-	$(LTI_MOCK_CLI) register --url $(MOCK_LMS_URL) --client-id portikus-mock --deployment-id mock-deployment-1
+	$(LTI_MOCK_CLI) register --url $(MOCK_LMS_URL)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti
 
 lti-mock-unregister: $(USERS_CHECK) wait-vm ## Stop trusting the mock LMS: remove its registration and apply only the LTI tasks

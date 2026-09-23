@@ -1959,3 +1959,69 @@ about to ship, and this was accepted.
   code (B5)").
 - **Backups sit on the same physical disk as the VM.** A weekly copy to
   external storage is a manual step.
+
+## Epic 13 — LTI 1.3 launch and an instructor role
+
+The requirement is `docs/EPIC-13.md`, with its rulings as amended by the
+epic reviews, and the design is ADR 0025. It serves SPEC.md sections 5.1
+and 5.2 and the new section 29 entry. The operator's steps are in
+`docs/OPERATIONS.md`, "Signing in from a learning management system (LTI
+1.3)".
+
+**Launch from an LMS.** A learning management system (LMS) such as Canvas
+or Moodle can now open Portikus from a course with LTI 1.3 (Learning Tools
+Interoperability). `/lti/login` starts the sign-in, `/lti/launch` checks
+the LMS's signed token, and `/lti/jwks` publishes the tool's public key
+(PR #484, PR #486). Every failed check refuses the launch with its own
+reason code. The launch creates the normal session. State is a database
+row plus a `__Host-` cookie named per login, so the nonce is single use and
+a launch is tied to the browser that began it. The two launch routes may
+be framed, but when framed they only show a page with an "Open Portikus in
+a new tab" button or a refusal. Launches are audited with the platform,
+role or reason, address and user agent. Tokens and roster data are never
+logged.
+
+**Instructor role and Course page.** `instructor` is a new role between
+student and administrator (migration `0015_lti`, PR #481). LTI gives it to
+instructors, teaching assistants and course designers, never
+`administrator`. Dex accounts can be instructors through the group
+`portikus-instructors` (PR #487). An instructor gets a read-only Course
+page listing who has launched from each of their courses, with role, last
+launch and workspace state (PR #483, PR #486). The authorization matrix
+proves an instructor is refused on every administrator route and gets 404
+for anyone else's workspace.
+
+**Deployment.** LMS registrations live in a platforms file on the host,
+which `make configure-vm` copies to the VM after checking it with the
+API's own parser. Ansible generates the tool key once, and Caddy lets
+`/lti/*` set its own frame rule (PR #485).
+
+**Mock LMS.** `packages/mock-lms` plays an LMS for tests and for trying
+launches (PR #482, PR #489). It can send each kind of bad token on
+request. `make mock-lms`, `make lti-mock-register` and `make
+lti-mock-unregister` run and trust it from the host; it never ships in
+the Debian package, which a build guard checks.
+
+**Verified.** Unit, route and database tests cover every reason code, the
+role mapping, the platforms file and the Course routes. Playwright tests
+cover a student launch, an instructor launch and the Course page, each bad
+token, the frame page and its new-tab button, administrator routes refused
+for an instructor, and axe on the new pages. A new `lti-launch` CI job runs
+them against the mock and PostgreSQL (PR #488).
+
+Pilot deploy: pending.
+
+### Gaps
+
+- **No real LMS has been tried yet.** Only the mock has launched Portikus.
+  Canvas's and Moodle's quirks will show up with the first real
+  registration.
+- **A cloud LMS needs the API's egress allow list widened** for its keyset
+  host (`PORTIKUS_API_IP_ALLOW`), which weakens the API sandbox. A
+  keyset-fetch proxy would avoid that and is not built.
+- **Someone removed from a course stays on the Course page.** Removing
+  members needs roster sync.
+- **An LTI account and a Dex account are separate**, even for the same
+  person.
+- Grade passback, roster sync, Deep Linking and instructor views of
+  student workspaces are left out; they are in `docs/BACKLOG.md`.

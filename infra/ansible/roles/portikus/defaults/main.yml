@@ -6,6 +6,8 @@ portikus_log_level: info
 # The Dex carry-over (docs/EPIC-12B.md).  False makes it a dry run.
 portikus_carry_over_apply: true
 portikus_carry_over_script: /usr/lib/portikus/api/node_modules/@portikus/auth/dist/carry-over-main.js
+# The API's own platforms-file parser, which validates the file at install (EPIC-13 ruling 14).
+portikus_lti_platforms_check_script: /usr/lib/portikus/api/node_modules/@portikus/auth/dist/lti/platforms-check-main.js
 portikus_carry_over_input: /run/portikus-carry-over.json
 # The report line for a row that was rewritten (packages/auth carry-over formatReport).
 portikus_carry_over_changed_pattern: ': carried row '
