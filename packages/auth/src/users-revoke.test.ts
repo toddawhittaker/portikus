@@ -50,7 +50,7 @@ describe("usersToRevoke", () => {
 		]);
 	});
 
-	test("a demoted administrator is revoked, a promoted student is not", () => {
+	test("any role change is revoked, promotion and instructor changes included", () => {
 		expect(
 			usersToRevoke(
 				[carol, alice],
@@ -59,7 +59,18 @@ describe("usersToRevoke", () => {
 					{ ...alice, role: "administrator" },
 				],
 			),
-		).toEqual([carol]);
+		).toEqual([carol, alice]);
+		expect(usersToRevoke([alice], [{ ...alice, role: "instructor" }])).toEqual([alice]);
+		expect(
+			usersToRevoke(
+				[{ ...alice, role: "instructor" }],
+				[{ ...alice, role: "student" }],
+			),
+		).toEqual([{ ...alice, role: "instructor" }]);
+	});
+
+	test("an unchanged role is not revoked", () => {
+		expect(usersToRevoke([carol, alice], [carol, alice])).toEqual([]);
 	});
 
 	test("a new user and a new email or name change nothing", () => {

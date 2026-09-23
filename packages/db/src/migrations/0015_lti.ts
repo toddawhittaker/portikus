@@ -16,6 +16,12 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("client_id", "text", (col) => col.notNull())
 		.addColumn("expires_at", "timestamptz", (col) => col.notNull())
 		.execute();
+	// Every save deletes expired rows first; keep that delete off a full scan.
+	await db.schema
+		.createIndex("lti_login_states_expires_at_idx")
+		.on("lti_login_states")
+		.column("expires_at")
+		.execute();
 
 	await db.schema
 		.createTable("lti_contexts")

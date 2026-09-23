@@ -738,6 +738,14 @@ describe("database migrations and schema", () => {
 		).rejects.toThrow(/duplicate key/);
 	});
 
+	test.skipIf(!hasTestDb())("lti_login_states is indexed by expiry", async () => {
+		const { rows } = await sql<{ indexdef: string }>`
+			SELECT indexdef FROM pg_indexes
+			WHERE tablename = 'lti_login_states' AND indexname = 'lti_login_states_expires_at_idx'
+		`.execute(t.db);
+		expect(rows[0]?.indexdef).toMatch(/\(expires_at\)/);
+	});
+
 	test.skipIf(!hasTestDb())(
 		"0015 down drops the LTI tables and turns instructors into students",
 		async () => {

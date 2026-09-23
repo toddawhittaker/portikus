@@ -35,9 +35,8 @@ function problem(data: unknown): string {
 }
 
 describe("parsePlatformsFile", () => {
-	test("accepts the brief's example and an empty list", () => {
+	test("accepts the brief's example", () => {
 		expect(parsePlatformsFile(file(canvas))).toEqual([canvas]);
-		expect(parsePlatformsFile(file())).toEqual([]);
 	});
 
 	test("accepts two registrations sharing an issuer with different client ids", () => {
@@ -60,6 +59,7 @@ describe("parsePlatformsFile", () => {
 	test.each([
 		["a wrong version", { version: 2, platforms: [] }, "version"],
 		["no platforms key", { version: 1 }, "platforms"],
+		["an empty platforms list", { version: 1, platforms: [] }, "platforms"],
 		["an unknown top-level key", { version: 1, platforms: [], extra: 1 }, "extra"],
 		["an unknown platform key", file({ ...canvas, secret: "x" }), "secret"],
 		["an empty name", file({ ...canvas, name: "" }), "platforms.0.name"],

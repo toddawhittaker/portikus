@@ -103,8 +103,8 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_GROUPS_CLAIM: z.string().min(1).default("groups"),
 	OIDC_STUDENT_GROUP: z.string().min(1).default("portikus-students"),
 	OIDC_ADMIN_GROUP: z.string().min(1).default("portikus-administrators"),
-	/** Unset means "instructor", applied by `mapRole` (docs/EPIC-13.md ruling 4). */
-	OIDC_INSTRUCTOR_GROUP: z.string().min(1).optional(),
+	/** The group whose members are instructors (docs/EPIC-13.md ruling 4). */
+	OIDC_INSTRUCTOR_GROUP: z.string().min(1).default("portikus-instructors"),
 	/** The LTI platforms file (docs/EPIC-13.md ruling 14); unset means LTI is off. */
 	LTI_PLATFORMS_FILE: z.string().min(1).optional(),
 	/** The tool's RSA key, whose public half `/lti/jwks` serves (ruling 15). */
