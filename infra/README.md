@@ -112,8 +112,8 @@ Gate C checks of section 30) against the VM. Unlike the smoke test, it is
 safe to run on the live pilot while students use it:
 
 - It makes its own users directly in PostgreSQL, under the issuer
-  `urn:portikus:sectest` with subjects `sectest-<run id>-a`, `-b` and
-  `-admin`. Their sessions expire after one hour. It never signs in as a
+  `urn:portikus:sectest` with subjects `sectest-<run id>-a`, `-b`,
+  `-admin` and `-inst` (an instructor). Their sessions expire after one hour. It never signs in as a
   mock account.
 - It creates two workspaces through the API as those users, keeps them
   running with a presence socket, and probes only those two.
@@ -139,6 +139,12 @@ which need a VM with no other workspace; the suite refuses to run them
 otherwise. They allocate memory past a workspace's limit and check that
 only that workspace's process is killed, while PostgreSQL and the API keep
 running and answering (docs/CAPACITY.md, "When memory runs out").
+
+The LTI checks work with or without a registered LMS. With none, every
+`/lti` route must answer 404. With one, the suite starts real logins for
+the first registered platform and posts tokens nobody signed; each must be
+refused and audited, and none may create a user or a session. While a mock
+LMS is registered, the run prints a warning naming it.
 
 A check marked `KNOWN-VULN #<issue>` is a known gap with an open issue. It
 does not fail the run. If such a check starts passing, the suite prints
@@ -421,7 +427,7 @@ once, without waiting for a deploy, disable the account in `/admin`.
 and stop if it fails. Ansible reads the file on your machine and renders
 one Dex entry per user into `/etc/portikus-dex/config.yaml` on the VM
 (`root:portikus-dex`, mode 0640), with the group `portikus-students`,
-`instructor` or `portikus-administrators` from the role. That rendered file is the only
+`portikus-instructors` or `portikus-administrators` from the role. That rendered file is the only
 place on the VM that holds the hashes; the users file itself is never
 copied there.
 
@@ -548,6 +554,14 @@ make lti-mock-register     # trust it on the VM
 # open http://10.100.0.1:8765/ in a browser on this host and launch
 make lti-mock-unregister   # stop trusting it
 ```
+
+`make smoke-test` checks the LTI files and the keyset every time. With no
+LMS registered it checks that every `/lti` route answers 404. With the mock
+registered it launches as the student Sam and the instructor Ivy, and
+checks the session, the roles, the Course page and that a second post of
+the same launch is refused. If the mock is not running, the smoke test
+starts it for the run and stops it afterwards. It prints a warning while
+the mock is registered, and lists the accounts mock launches have made.
 
 `make lti-mock-register` adds a `mock: true` registration named
 `mock-lms` to the platforms file and runs only the play's `lti` tasks.
