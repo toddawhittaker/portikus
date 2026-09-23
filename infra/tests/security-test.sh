@@ -10,7 +10,8 @@
 # Usage: ./infra/tests/security-test.sh <vm-ip> [--sweep]
 #   --sweep  also remove sectest users and workspaces an earlier run left.
 # Environment: PORTIKUS_PUBLIC_HOST, PORTIKUS_PUBLIC_PORT as for the smoke
-# test; PORTIKUS_SECURITY_HEAVY=1 turns on the heavy limit tests, which need
+# test; PORTIKUS_IDP as the VM was configured (dex, mock or external);
+# PORTIKUS_SECURITY_HEAVY=1 turns on the heavy limit tests, which need
 # a VM with no other workspace.
 set -uo pipefail
 
@@ -71,10 +72,11 @@ check_output "a reads its own workspace through the edge (control)" "200" \
 check_output "a opens its own presence socket through the edge (control)" "101" \
   sec_ws_upgrade a "/workspaces/$(sec_ws_id a)/ws" "$SEC_API"
 
-# The pilot signs in with the mock provider, so anyone who reaches the site
-# can sign in as an administrator (Epic 12a, risk 1; issue #408).
-known_vuln 408 "the site signs in through a real identity provider, not the mock one" \
-  sec_ssh "! systemctl is-active --quiet portikus-mock-idp"
+# With the mock provider on, anyone who reaches the site can sign in as an
+# administrator (issue #408).  That is allowed only where the operator says
+# so with PORTIKUS_IDP=mock, and then it is a warning; otherwise the mock must
+# be off and the API must not trust it.
+sec_check_idp
 
 # Modules run in this order; one that is not there yet is skipped.  The
 # network module goes last because it briefly claims b's address from a.

@@ -74,6 +74,8 @@ make configure-vm
 
 This installs Incus, creates the LVM thin pool on the data disk, sets
 up the workspace network, profile, and project, and applies the firewall.
+When the data disk has grown, it also grows the thin pool onto it
+(docs/CAPACITY.md, "Resizing the pilot").
 
 ## 6. Build the workspace image
 
@@ -132,7 +134,9 @@ If a run is interrupted before it cleans up, the next run lists the
 leftover `sectest` users and workspaces. `make security-test SWEEP=1`
 removes them. `PORTIKUS_SECURITY_HEAVY=1` adds the heavy resource tests,
 which need a VM with no other workspace; the suite refuses to run them
-otherwise.
+otherwise. They allocate memory past a workspace's limit and check that
+only that workspace's process is killed, while PostgreSQL and the API keep
+running and answering (docs/CAPACITY.md, "When memory runs out").
 
 A check marked `KNOWN-VULN #<issue>` is a known gap with an open issue. It
 does not fail the run. If such a check starts passing, the suite prints
@@ -375,7 +379,7 @@ first run needs GitHub and the Go module proxy and takes a few minutes. A
 later run builds nothing unless the pin changed, and a failed build leaves
 the running binary in place. Dex listens on `127.0.0.1:5556` and Caddy
 serves it at `https://<public-host>:<port>/dex`, which is also its issuer.
-It keeps nothing on disk, so it has nothing to back up. Before a password
+It keeps no sign-in state on disk, so it has nothing to back up. Before a password
 form post reaches Dex, Caddy asks the API's sign-in throttle, because Dex
 has no lockout of its own (#398).
 
@@ -398,6 +402,18 @@ make users-deploy                 # apply the file to Dex on the VM
 need at least 12 characters. Students sign in with their email address and
 that password. Nobody can change their own password; to reset one, run
 `make users-add` again for that user and then `make users-deploy`.
+
+Removing a user, resetting a password, or changing a role from
+`administrator` to `student` also ends that user's Portikus sessions and
+preview sessions when `make users-deploy` runs, so nobody keeps the old
+access until their session expires. The deploy compares the file with the
+one it deployed last time, which it keeps on the VM in
+`/etc/portikus-dex/deployed-users.json` (root, mode 0600) as usernames,
+ids, roles and a SHA-256 of each password hash, never the hash itself. It
+writes one `auth.sessions_revoked` audit event naming the usernames, and a
+repeat run with an unchanged file ends nothing. The very first deploy has
+nothing to compare with, so it only records the file. To stop someone at
+once, without waiting for a deploy, disable the account in `/admin`.
 
 `make configure-vm` and `make users-deploy` run `make users-check` first
 and stop if it fails. Ansible reads the file on your machine and renders

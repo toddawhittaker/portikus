@@ -19,7 +19,7 @@ import { promisify } from "node:util";
 import { MAX_DOWNLOAD_BYTES } from "@portikus/contracts";
 import type { FastifyInstance, InjectOptions } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { archiveDir, removeStaleTemporaries } from "./projects.js";
+import { archiveDir, checkDownloadSize, removeStaleTemporaries } from "./projects.js";
 import { buildServer } from "./server.js";
 
 const run = promisify(execFile);
@@ -714,6 +714,16 @@ test("a folder past the download cap is refused before zip runs (#399)", async (
 	} finally {
 		await rm(tempBase, { recursive: true, force: true });
 	}
+});
+
+test("a symlink to a file past the download cap is refused (#399)", async () => {
+	const alpha = join(projectsRoot, "alpha");
+	await mkdir(alpha, { recursive: true });
+	await sparse(join(alpha, "big.bin"), MAX_DOWNLOAD_BYTES + 1);
+	await symlink("big.bin", join(alpha, "link.bin"));
+	await expect(checkDownloadSize(join(alpha, "link.bin"))).rejects.toMatchObject({
+		code: "FILE_TOO_LARGE",
+	});
 });
 
 test("the project archive route refuses a project past the cap with FILE_TOO_LARGE", async () => {

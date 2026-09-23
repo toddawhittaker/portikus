@@ -1,4 +1,12 @@
-import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+	chmodSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	symlinkSync,
+} from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,6 +69,16 @@ describe("writeUsersFile", () => {
 	it("refuses a path inside a Git work tree", async () => {
 		mkdirSync(join(root, "repo", ".git"), { recursive: true });
 		const path = join(root, "repo", "sub", "users.json");
+		await expect(writeUsersFile(path, fixture())).rejects.toThrow(/Git work tree/);
+		await expect(readUsersFile(path)).rejects.toThrow(/Git work tree/);
+	});
+
+	it("refuses a symlinked config directory that points into a Git work tree", async () => {
+		const repo = join(root, "repo");
+		mkdirSync(join(repo, "config"), { recursive: true });
+		execFileSync("git", ["init", "--quiet", repo]);
+		symlinkSync(join(repo, "config"), join(root, "config-link"));
+		const path = join(root, "config-link", "users.json");
 		await expect(writeUsersFile(path, fixture())).rejects.toThrow(/Git work tree/);
 		await expect(readUsersFile(path)).rejects.toThrow(/Git work tree/);
 	});

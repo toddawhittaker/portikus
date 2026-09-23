@@ -465,7 +465,13 @@ function WorkspaceActions({
 					data-testid="detail-archive"
 					aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
 					loading={archived && archive.isPending}
-					onClick={() => (archived ? unarchive() : setDialog("archive"))}
+					aria-disabled={archive.isPending ? true : undefined}
+					onClick={() => {
+						// A second dialog mid-request would only race the first.
+						if (archive.isPending) return;
+						if (archived) unarchive();
+						else setDialog("archive");
+					}}
 				>
 					{archived ? "Unarchive" : "Archive workspace…"}
 				</Button>

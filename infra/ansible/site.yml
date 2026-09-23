@@ -10,7 +10,9 @@
     data_disk_device: /dev/vdb
     lvm_vg_name: portikus-data
     lvm_thinpool_name: thinpool
-    lvm_thinpool_size: "90%FREE"
+    # The thin pool's share of the data disk, metadata and its spare included.
+    # The rest stays free so the metadata can grow (docs/CAPACITY.md).
+    lvm_thinpool_percent: 90
     incus_storage_pool_name: workspace-data
     incus_network_name: portikus-ws
     incus_network_cidr: "10.200.0.1/24"
@@ -255,3 +257,5 @@
       tags: dex
     - role: portikus
       tags: portikus
+    - role: backup
+      tags: backup

@@ -15,6 +15,7 @@
   register: lvm_vg_check
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Create physical volume on data disk
   ansible.builtin.command:
@@ -34,13 +35,119 @@
   register: lvm_tp_check
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Create thin pool
   ansible.builtin.command:
     cmd: >-
       lvcreate --type thin-pool
       --name {{ lvm_thinpool_name }}
-      --extents {{ lvm_thinpool_size }}
+      --extents {{ lvm_thinpool_percent }}%FREE
       {{ lvm_vg_name }}
   when: lvm_tp_check.rc != 0
   changed_when: true
+
+# ── Grow onto a bigger data disk (docs/CAPACITY.md) ─────────────
+# OpenTofu grows the disk in place.  These tasks then grow the physical
+# volume and the thin pool, never shrink them, and stop on anything they do
+# not expect.  A pool created in this run already fills the disk.
+- name: Grow the physical volume and thin pool to fill the data disk
+  when: lvm_vg_check.rc == 0 and lvm_tp_check.rc == 0
+  block:
+    - name: Read the volume group's physical volumes
+      ansible.builtin.command:
+        cmd: >-
+          pvs --noheadings --nosuffix --units b --separator ,
+          -o pv_name,pv_size,dev_size,pe_start,vg_extent_size
+          --select vg_name={{ lvm_vg_name }}
+      register: lvm_pvs
+      changed_when: false
+      check_mode: false
+
+    - name: Parse the physical volume
+      ansible.builtin.set_fact:
+        lvm_pv: >-
+          {{ dict(['name', 'size', 'dev_size', 'pe_start', 'extent']
+                  | zip(lvm_pvs.stdout | trim | split(','))) }}
+
+    - name: Refuse to grow anything but a single physical volume on the data disk
+      ansible.builtin.assert:
+        that:
+          - lvm_pvs.stdout_lines | length == 1
+          - lvm_pv.name == data_disk_device
+          - lvm_pv.dev_size | int >= lvm_pv.size | int + lvm_pv.pe_start | int
+        fail_msg: >-
+          The volume group {{ lvm_vg_name }} should sit on {{ data_disk_device }}
+          alone, on a disk at least as big as the volume.  Found:
+          {{ lvm_pvs.stdout_lines | join('; ') }}.  Nothing was changed.
+
+    # pvresize without a size grows to the whole device.
+    - name: Grow the physical volume to the disk
+      ansible.builtin.command:
+        cmd: "pvresize {{ data_disk_device }}"
+      when: >-
+        (lvm_pv.dev_size | int - lvm_pv.pe_start | int) // lvm_pv.extent | int * lvm_pv.extent | int
+        > lvm_pv.size | int
+      changed_when: true
+
+    - name: Read the thin pool and its volume group
+      ansible.builtin.command:
+        cmd: >-
+          lvs --noheadings --nosuffix --units b --separator ,
+          -o segtype,lv_size,lv_metadata_size,chunk_size,vg_extent_size,vg_extent_count,vg_free_count
+          {{ lvm_vg_name }}/{{ lvm_thinpool_name }}
+      register: lvm_pool
+      changed_when: false
+      check_mode: false
+
+    - name: Parse the thin pool
+      ansible.builtin.set_fact:
+        lvm_tp: >-
+          {{ dict(['segtype', 'data', 'meta', 'chunk', 'extent', 'extents', 'free']
+                  | zip(lvm_pool.stdout | trim | split(','))) }}
+
+    # The pool takes lvm_thinpool_percent of the disk: data, plus metadata
+    # and its equal-sized spare.  Metadata follows LVM's own sizing, 64 bytes
+    # per chunk, capped at its 15.81 GiB maximum.
+    - name: Work out the thin pool's target size
+      ansible.builtin.set_fact:
+        lvm_tp_data_ext: "{{ lvm_tp.data | int // lvm_tp.extent | int }}"
+        lvm_tp_meta_ext: "{{ lvm_tp.meta | int // lvm_tp.extent | int }}"
+        lvm_tp_meta_target_ext: >-
+          {{ [lvm_tp.meta | int // lvm_tp.extent | int,
+              [((lvm_tp.extents | int * lvm_thinpool_percent // 100 * lvm_tp.extent | int)
+                // lvm_tp.chunk | int * 64 + lvm_tp.extent | int - 1) // lvm_tp.extent | int,
+               16978542592 // lvm_tp.extent | int] | min] | max }}
+
+    - name: Work out the thin pool's target data size
+      ansible.builtin.set_fact:
+        lvm_tp_data_target_ext: >-
+          {{ lvm_tp.extents | int * lvm_thinpool_percent // 100 - 2 * lvm_tp_meta_target_ext | int }}
+
+    - name: Refuse to grow a volume group that holds anything but the thin pool
+      ansible.builtin.assert:
+        that:
+          - lvm_tp.segtype == 'thin-pool'
+          - lvm_tp.chunk | int > 0
+          - lvm_tp_data_ext | int + 2 * lvm_tp_meta_ext | int + lvm_tp.free | int == lvm_tp.extents | int
+        fail_msg: >-
+          {{ lvm_vg_name }} should hold only the thin pool {{ lvm_thinpool_name }},
+          its metadata and the metadata spare.  Found: {{ lvm_pool.stdout | trim }}
+          (segment type, data, metadata, chunk, extent size, extents, free
+          extents).  Nothing was changed.
+
+    - name: Grow the thin pool's metadata
+      ansible.builtin.command:
+        cmd: >-
+          lvextend --poolmetadatasize {{ lvm_tp_meta_target_ext | int * lvm_tp.extent | int }}b
+          {{ lvm_vg_name }}/{{ lvm_thinpool_name }}
+      when: lvm_tp_meta_target_ext | int > lvm_tp_meta_ext | int
+      changed_when: true
+
+    - name: Grow the thin pool's data
+      ansible.builtin.command:
+        cmd: >-
+          lvextend --extents {{ lvm_tp_data_target_ext }}
+          {{ lvm_vg_name }}/{{ lvm_thinpool_name }}
+      when: lvm_tp_data_target_ext | int > lvm_tp_data_ext | int
+      changed_when: true

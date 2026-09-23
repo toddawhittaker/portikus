@@ -440,7 +440,8 @@ export async function archiveDir(
 /**
  * Refuse a download over MAX_DOWNLOAD_BYTES before any zipping (#399). A
  * directory counts the apparent size of its regular files, walked without
- * following symlinks, and the walk stops as soon as the cap is passed.
+ * following symlinks, and the walk stops as soon as the cap is passed. A
+ * symlink named directly counts its target file.
  */
 export async function checkDownloadSize(path: string): Promise<void> {
 	let total = 0;
@@ -448,7 +449,12 @@ export async function checkDownloadSize(path: string): Promise<void> {
 	while (pending.length > 0) {
 		const current = pending.pop() as string;
 		try {
-			const info = await lstat(current);
+			let info = await lstat(current);
+			// A symlinked file downloads its target's bytes, so count those.
+			if (current === path && info.isSymbolicLink()) {
+				const target = await stat(current);
+				if (target.isFile()) info = target;
+			}
 			if (info.isFile()) {
 				total += info.size;
 				if (total > MAX_DOWNLOAD_BYTES) {

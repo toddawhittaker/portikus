@@ -228,7 +228,7 @@ Part A lands first, and it can be deployed to the pilot on its own.
     4. Report every other candidate as "left behind (#302)" and do not touch it.
   - In one transaction, it also:
     - writes a `user.identity_changed` audit row per rewrite (actor `operator:carry-over`, metadata `{fromIssuer, toIssuer, username}`);
-    - if at least one row was rewritten in this run, deletes every row in `sessions` and `preview_sessions` and writes one `auth.sessions_revoked` row (`{reason: "identity-provider-cutover", count}`).
+    - if any session still belongs to a row under one of the mock issuers (checked before rewriting), deletes every row in `sessions` and `preview_sessions` and writes one `auth.sessions_revoked` row (`{reason: "identity-provider-cutover", count}`). This holds even when no row was carried, and a later re-run finds no mock session and leaves Dex sessions alone.
   - Why revoke every session: while the mock was on, anyone could have made an administrator session.
   - The default `fromIssuers` is `["{{ portikus_public_url }}/mock-idp", "https://{{ portikus_public_host }}/mock-idp"]`. The second entry covers the #302 rows made before the move to port 8443.
   - Ansible runs the carry-over in the `portikus` role after the package install and before `api.env` changes. The API keeps running on the mock until the play's restart handler switches it, so no Dex identity can create a row first.
@@ -371,7 +371,8 @@ Part A lands first, and it can be deployed to the pilot on its own.
 8. The carry-over:
    - its dry run lists every user as linked, carried, new or left behind, and changes nothing;
    - `--apply` rewrites exactly the chosen rows, audits each one, and revokes all sessions and preview sessions once;
-   - a second `--apply` changes nothing and revokes nothing;
+   - a second `--apply` changes nothing and revokes nothing, not even a Dex session made in between;
+   - with nothing to carry, `--apply` still revokes the sessions left from the mock;
    - it never touches rows outside `fromIssuers`, including `urn:portikus:sectest` and `urn:portikus:smoketest`;
    - all of this is proved by Vitest tests on a real test database, including a copy of the #302 case (two rows per email, both owning workspaces).
 9. Sign-in rate limit (#398):

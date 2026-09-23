@@ -5,7 +5,8 @@
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy \
-       users-add users-remove users-list users-check users-deploy identity-carry-over-dry-run
+       users-add users-remove users-list users-check users-deploy identity-carry-over-dry-run \
+       backup-setup backup backup-install-timer restore
 
 help: ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -56,6 +57,7 @@ REHEARSAL_STATE ?= $(HOME)/.local/state/portikus/rehearsal-libvirt/terraform.tfs
 REHEARSAL_SSH_KEY ?= $(HOME)/.ssh/id_ed25519.pub
 REHEARSAL_VCPUS ?= 12
 REHEARSAL_MEMORY_MB ?= 24576
+REHEARSAL_DATA_DISK_GB ?= 100
 
 ifeq ($(TOFU_ENV),dev-libvirt)
 TOFU_STATE := $(TOFU_DIR)/terraform.tfstate
@@ -66,6 +68,7 @@ TOFU_INIT_ARGS := -backend-config=path=$(REHEARSAL_STATE)
 export TF_VAR_ssh_public_key := $(shell cat $(REHEARSAL_SSH_KEY) 2>/dev/null)
 export TF_VAR_vcpus := $(REHEARSAL_VCPUS)
 export TF_VAR_memory_mb := $(REHEARSAL_MEMORY_MB)
+export TF_VAR_data_disk_size_bytes := $(shell echo $$(( $(REHEARSAL_DATA_DISK_GB) * 1073741824 )))
 else
 $(error TOFU_ENV must be dev-libvirt or rehearsal-libvirt, not '$(TOFU_ENV)')
 endif
@@ -73,17 +76,19 @@ endif
 # Read straight from the state file, so no `tofu init` is needed to learn them.
 tofu_output = $(shell python3 -c 'import json, sys; v = json.load(open(sys.argv[1]))["outputs"][sys.argv[2]]["value"]; print(v[0] if isinstance(v, list) else v)' '$(TOFU_STATE)' $(1) 2>/dev/null)
 TOFU_VM_NAME = $(shell python3 -c 'import json, sys; print(next(r["instances"][0]["attributes"]["name"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == "libvirt_domain"))' '$(TOFU_STATE)' 2>/dev/null)
+# A replaced VM keeps its MAC address, which its network configuration matches.
+export TF_VAR_mac_address = $(shell python3 -c 'import json, sys; print(next(r["instances"][0]["attributes"]["network_interface"][0]["mac"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == "libvirt_domain"))' '$(TOFU_STATE)' 2>/dev/null)
 
 # First recipe line of every OpenTofu target: name the VM, and never let a
 # non-pilot environment act on a state file that holds the pilot.
 TOFU_BANNER = @echo "$@: OpenTofu environment $(TOFU_ENV), state $(TOFU_STATE), VM '$(or $(TOFU_VM_NAME),<none yet>)'"; \
 	test "$(TOFU_ENV)" = dev-libvirt || test "$(TOFU_VM_NAME)" != portikus || { echo "$@: that state holds the pilot VM; refusing"; exit 1; }
 
-rehearsal-up: ## Create the rehearsal VM beside the pilot and wait for first boot (REHEARSAL_VCPUS, REHEARSAL_MEMORY_MB size it)
+rehearsal-up: ## Create or update the rehearsal VM beside the pilot and wait for it (REHEARSAL_VCPUS, REHEARSAL_MEMORY_MB, REHEARSAL_DATA_DISK_GB size it)
 	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt rehearsal-preflight infra-apply wait-vm
 
 rehearsal-destroy: ## Destroy the rehearsal VM, its disks, network and pool (never the pilot)
-	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt tofu-destroy
+	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt TOFU_DESTROY_CALLER=rehearsal-destroy tofu-destroy
 
 # Refuses to start the VM when the host lacks its memory; a running VM is fine.
 rehearsal-preflight:
@@ -100,8 +105,10 @@ rehearsal-preflight:
 		echo "rehearsal-preflight: $$avail MiB available for a $(REHEARSAL_MEMORY_MB) MiB VM"; \
 	fi
 
-# Only rehearsal-destroy and destroy-pilot call this; each fixes TOFU_ENV.
+# Only rehearsal-destroy and destroy-pilot call this; each fixes TOFU_ENV
+# and sets the private TOFU_DESTROY_CALLER so a direct call is refused.
 tofu-destroy:
+	@test -n "$(TOFU_DESTROY_CALLER)" || { echo "tofu-destroy: use make destroy-pilot or make rehearsal-destroy"; exit 1; }
 	$(TOFU_BANNER)
 	cd $(TOFU_DIR) && tofu init -input=false $(TOFU_INIT_ARGS) && tofu destroy
 
@@ -116,12 +123,13 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	done
 	ansible-galaxy collection install --force -r infra/ansible/requirements.yml
 	ansible-lint infra/ansible
-	find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/*
+	find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* infra/host/portikus-backup-export
 	bash infra/tests/cleanup-scope-test.sh
 	bash infra/tests/security-cleanup-scope-test.sh
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/caddy-preview-test.sh
 	ansible-playbook infra/tests/dex-render-test.yml
+	bash infra/tests/backup-scope-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
 	bash infra/host/dev-libvirt/bootstrap.sh
@@ -176,13 +184,17 @@ USERS_FILE_FLAG = --file "$(abspath $(PORTIKUS_USERS_FILE))"
 # The users file is needed, and checked first, only when Dex is the provider.
 USERS_CHECK := $(if $(filter dex,$(PORTIKUS_IDP)),users-check,)
 
+# The client secret reaches Ansible through the environment, never a recipe
+# line, where make's echo and ps would show it.
+export PORTIKUS_OIDC_CLIENT_SECRET
+
 ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) \
 	PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) \
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
 	PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
 	PORTIKUS_USERS_FILE="$(abspath $(PORTIKUS_USERS_FILE))" \
 	PORTIKUS_OIDC_ISSUER=$(PORTIKUS_OIDC_ISSUER) PORTIKUS_OIDC_CLIENT_ID=$(PORTIKUS_OIDC_CLIENT_ID) \
-	PORTIKUS_OIDC_CLIENT_SECRET=$(PORTIKUS_OIDC_CLIENT_SECRET) PORTIKUS_OIDC_SCOPES="$(PORTIKUS_OIDC_SCOPES)" \
+	PORTIKUS_OIDC_SCOPES="$(PORTIKUS_OIDC_SCOPES)" \
 	PORTIKUS_OIDC_STUDENT_GROUP=$(PORTIKUS_OIDC_STUDENT_GROUP) \
 	PORTIKUS_OIDC_ADMIN_GROUP=$(PORTIKUS_OIDC_ADMIN_GROUP) \
 	PORTIKUS_API_IP_ALLOW="$(PORTIKUS_API_IP_ALLOW)"
@@ -212,25 +224,25 @@ identity-carry-over-dry-run: users-check wait-vm ## Show which existing accounts
 configure-vm: $(USERS_CHECK) wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|mock|external picks the sign-in provider, PORTIKUS_USERS_FILE=<path> the Dex accounts)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml
 
-smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_IDP=<provider> as configured)
+smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_IDP=<provider> as configured; PORTIKUS_SMOKE_SIGNIN_FILE=<file> for a full Dex sign-in)
 	@test -n "$(VM_IP)" || { echo "smoke-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
-		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_MOCK_IDP=$(if $(filter mock,$(PORTIKUS_IDP)),true,false) \
+		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_SMOKE_SIGNIN_FILE=$(PORTIKUS_SMOKE_SIGNIN_FILE) \
 		bash infra/tests/smoke-test.sh $(VM_IP)
 
 # Safe on the live pilot: it creates and removes only its own users and two
 # workspaces, and fails if anything else changed (infra/README.md, "Security test").
-security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM)
+security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM; PORTIKUS_IDP=<provider> as configured)
 	@test -n "$(VM_IP)" || { echo "security-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
-		PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
+		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
 		bash infra/tests/security-test.sh $(VM_IP) $(if $(SWEEP),--sweep,)
 
 destroy-pilot: ## Destroy the pilot VM (irreversible)
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "destroy-pilot: acts on the pilot only; use make rehearsal-destroy for the rehearsal VM"; exit 1; }
-	@$(MAKE) --no-print-directory TOFU_ENV=dev-libvirt tofu-destroy
+	@$(MAKE) --no-print-directory TOFU_ENV=dev-libvirt TOFU_DESTROY_CALLER=destroy-pilot tofu-destroy
 
-rebuild-pilot: destroy-pilot infra-apply configure-vm publish-vm ## Destroy and recreate the platform VM
+rebuild-pilot: $(USERS_CHECK) destroy-pilot infra-apply configure-vm publish-vm ## Destroy and recreate the platform VM
 
 publish-vm: ## Forward port 8443 from the host's LAN address to the VM (rerun after a rebuild)
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "publish-vm: only the pilot is published; port 8443 belongs to it, not to $(TOFU_ENV)"; exit 1; }
@@ -239,6 +251,55 @@ publish-vm: ## Forward port 8443 from the host's LAN address to the VM (rerun af
 
 unpublish-vm: ## Withdraw the host port forward to the VM
 	bash infra/host/publish-vm.sh --remove
+
+# ── Backup and restore (docs/adr/0024-backups-pulled-to-host.md) ──
+
+PORTIKUS_BACKUP_DIR ?= /var/backups/portikus
+PORTIKUS_BACKUP_IDENTITY ?= $(HOME)/.config/portikus/backup-age-key.txt
+PORTIKUS_BACKUP_RECIPIENTS ?= $(HOME)/.config/portikus/backup-recipients.txt
+
+# Makes the age key pair and the set directory once.  Backing up needs only
+# the public half; the private half belongs in a password manager, and a
+# restore reads it from PORTIKUS_BACKUP_IDENTITY.
+backup-setup:
+	@command -v age-keygen >/dev/null || { echo "backup-setup: age is not installed (make bootstrap-host)"; exit 1; }
+	@if [ ! -f "$(PORTIKUS_BACKUP_IDENTITY)" ] && [ ! -s "$(PORTIKUS_BACKUP_RECIPIENTS)" ]; then \
+		install -d -m 0700 "$(dir $(PORTIKUS_BACKUP_IDENTITY))"; \
+		(umask 077 && age-keygen -o "$(PORTIKUS_BACKUP_IDENTITY)" 2>/dev/null); \
+		echo "backup-setup: made the backup key $(PORTIKUS_BACKUP_IDENTITY). Store it in your password manager, then remove it from this host: backups need only the public half, and without the private half no backup can be read."; \
+	fi
+	@test -s "$(PORTIKUS_BACKUP_RECIPIENTS)" || age-keygen -y "$(PORTIKUS_BACKUP_IDENTITY)" >"$(PORTIKUS_BACKUP_RECIPIENTS)"
+	@test -w "$(PORTIKUS_BACKUP_DIR)" || sudo install -d -m 0700 -o "$$(id -un)" -g "$$(id -gn)" "$(PORTIKUS_BACKUP_DIR)"
+
+# Only reads from the VM, so it is safe on the live pilot.
+backup: backup-setup ## Pull an encrypted backup of the VM to the host (CHECK_STATE=1 also proves workspaces and settings did not change)
+	@test -n "$(VM_IP)" || { echo "backup: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	@echo "backup: reading from VM '$(or $(TOFU_VM_NAME),unknown)' at $(VM_IP)"
+	PORTIKUS_BACKUP_DIR=$(PORTIKUS_BACKUP_DIR) PORTIKUS_BACKUP_RECIPIENTS=$(PORTIKUS_BACKUP_RECIPIENTS) \
+		bash infra/host/backup.sh $(if $(CHECK_STATE),--check-state,) $(VM_IP)
+
+backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pilot as a host systemd timer (rerun after changing backup.sh)
+	@test "$(TOFU_ENV)" = dev-libvirt || { echo "backup-install-timer: the timer backs up the pilot only"; exit 1; }
+	@test -n "$(VM_IP)" || { echo "backup-install-timer: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	sudo install -m 0755 infra/host/backup.sh /usr/local/sbin/portikus-backup
+	sudo install -m 0644 infra/host/portikus-backup-export /usr/local/sbin/portikus-backup-export
+	sed -e "s|@USER@|$$(id -un)|" -e "s|@BACKUP_DIR@|$(PORTIKUS_BACKUP_DIR)|" \
+		-e "s|@RECIPIENTS@|$(abspath $(PORTIKUS_BACKUP_RECIPIENTS))|" -e "s|@VM_IP@|$(VM_IP)|" \
+		infra/host/systemd/portikus-backup.service | sudo tee /etc/systemd/system/portikus-backup.service >/dev/null
+	sudo install -m 0644 infra/host/systemd/portikus-backup.timer /etc/systemd/system/portikus-backup.timer
+	sudo systemctl daemon-reload
+	sudo systemctl enable --now portikus-backup.timer
+	systemctl list-timers portikus-backup.timer --no-pager
+
+# Replaces the target's database, so it refuses the pilot's environment, and
+# restore.sh refuses any VM whose hostname is not the one in the state.
+restore: ## Restore a backup set onto the rehearsal VM (TOFU_ENV=rehearsal-libvirt BACKUP=<set dir>; START_CHECK=1 starts one workspace and checks it; REMOVE=1 deletes the restored data afterwards)
+	$(TOFU_BANNER)
+	@test "$(TOFU_ENV)" != dev-libvirt || { echo "restore: refuses the pilot environment; pass TOFU_ENV=rehearsal-libvirt"; exit 1; }
+	@test -n "$(BACKUP)" || { echo "restore: BACKUP=<set dir> is required, e.g. $(PORTIKUS_BACKUP_DIR)/<timestamp>"; exit 1; }
+	@test -n "$(VM_IP)" || { echo "restore: no VM address; run make rehearsal-up first or pass VM_IP=<ip>"; exit 1; }
+	PORTIKUS_BACKUP_IDENTITY=$(PORTIKUS_BACKUP_IDENTITY) \
+		bash infra/host/restore.sh $(if $(START_CHECK),--start-check,) $(if $(REMOVE),--remove,) --target-name "$(TOFU_VM_NAME)" $(VM_IP) $(BACKUP)
 
 # ── Application deployment targets ────────────────────────────────
 

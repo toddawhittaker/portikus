@@ -2,6 +2,12 @@
 # The module declares what Portikus needs; the environment wires
 # provider-specific values.
 
+variable "libvirt_uri" {
+  description = "Libvirt connection URI, for growing the data disk"
+  type        = string
+  default     = "qemu:///system"
+}
+
 variable "vm_name" {
   description = "Name of the platform VM"
   type        = string
@@ -57,6 +63,12 @@ variable "cloud_init_user_data" {
 
 variable "cloud_init_network_config" {
   description = "cloud-init network-config as a string (optional)"
+  type        = string
+  default     = ""
+}
+
+variable "mac_address" {
+  description = "MAC address of the VM's network interface; empty lets libvirt pick one"
   type        = string
   default     = ""
 }

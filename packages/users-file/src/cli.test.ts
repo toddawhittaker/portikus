@@ -210,6 +210,25 @@ describe("add", () => {
 		expect(invalid.stderr).not.toContain(PASSWORD);
 	});
 
+	it("says the first user must be an administrator before the password", async () => {
+		const result = await run(
+			[
+				"add",
+				"carol",
+				"--email",
+				"carol@example.edu",
+				"--name",
+				"Carol",
+				"--role",
+				"student",
+				"--password-stdin",
+			],
+			piped(`${PASSWORD}\n`),
+		);
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain("the first user must be an administrator");
+	});
+
 	it("rejects a bad username and a bad role flag", async () => {
 		expect((await run(["add", "Bad Name"], piped(""))).code).toBe(2);
 		expect((await run(["add", "carol", "--role", "boss"], piped(""))).code).toBe(2);

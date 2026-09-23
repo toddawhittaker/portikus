@@ -8,42 +8,48 @@ import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
 import { announced } from "./SettingsTab.js";
 
-/** The error for a draft, or null when it can be sent (Epic 11 brief, "storage can only grow"). */
+export interface QuotaProblem {
+	message: string;
+	/** Whether the message is about this field. */
+	home: boolean;
+	docker: boolean;
+}
+
+/** The problem with a draft and the fields it is about, or null when it can be sent (Epic 11 brief, "storage can only grow"). */
 export function quotaError(
 	from: QuotaConfig,
 	home: string,
 	docker: string,
-): string | null {
-	const values = [home, docker].map((value) => value.trim());
-	if (!values.every((value) => /^\d+$/.test(value))) {
-		return "Enter whole numbers of GiB.";
+): QuotaProblem | null {
+	const [homeText, dockerText] = [home.trim(), docker.trim()];
+	const whole = (value: string) => /^\d+$/.test(value);
+	if (!whole(homeText) || !whole(dockerText)) {
+		return {
+			message: "Enter whole numbers of GiB.",
+			home: !whole(homeText),
+			docker: !whole(dockerText),
+		};
 	}
-	const to = { homeGiB: Number(values[0]), dockerGiB: Number(values[1]) };
+	const to = { homeGiB: Number(homeText), dockerGiB: Number(dockerText) };
 	if (to.homeGiB > MAX_QUOTA_GIB || to.dockerGiB > MAX_QUOTA_GIB) {
-		return `Each size can be at most ${MAX_QUOTA_GIB} GiB.`;
+		return {
+			message: `Each size can be at most ${MAX_QUOTA_GIB} GiB.`,
+			home: to.homeGiB > MAX_QUOTA_GIB,
+			docker: to.dockerGiB > MAX_QUOTA_GIB,
+		};
 	}
-	if (!isQuotaGrowOnly(from, to)) return QUOTA_SHRINK_MESSAGE;
+	if (!isQuotaGrowOnly(from, to)) {
+		return {
+			message: QUOTA_SHRINK_MESSAGE,
+			home: to.homeGiB < from.homeGiB,
+			docker: to.dockerGiB < from.dockerGiB,
+		};
+	}
 	if (to.homeGiB === from.homeGiB && to.dockerGiB === from.dockerGiB) {
-		return "Change at least one size.";
+		// No single culprit, so it points at Home.
+		return { message: "Change at least one size.", home: true, docker: false };
 	}
 	return null;
-}
-
-/** Which fields a draft's error belongs to; "Change at least one size" points at Home. */
-export function quotaFaults(
-	from: QuotaConfig,
-	home: string,
-	docker: string,
-): { home: boolean; docker: boolean } {
-	const bad = (value: string, was: number) => {
-		const text = value.trim();
-		if (!/^\d+$/.test(text)) return true;
-		const size = Number(text);
-		return size > MAX_QUOTA_GIB || size < was;
-	};
-	const faults = { home: bad(home, from.homeGiB), docker: bad(docker, from.dockerGiB) };
-	if (!faults.home && !faults.docker) return { home: true, docker: false };
-	return faults;
 }
 
 /** Grow a workspace's home and Docker volumes; the worker applies it (SPEC.md §20.1). */
@@ -66,13 +72,13 @@ export function QuotaDialog({
 }) {
 	const [home, setHome] = useState(String(current.homeGiB));
 	const [docker, setDocker] = useState(String(current.dockerGiB));
-	const [error, setError] = useState<string | null>(null);
-	const faults = error ? quotaFaults(current, home, docker) : null;
+	const [problem, setProblem] = useState<QuotaProblem | null>(null);
+	const error = problem?.message ?? null;
 
 	function save() {
-		const problem = quotaError(current, home, docker);
-		setError(problem);
-		if (problem) return;
+		const found = quotaError(current, home, docker);
+		setProblem(found);
+		if (found) return;
 		onSave({ homeGiB: Number(home.trim()), dockerGiB: Number(docker.trim()) });
 	}
 
@@ -103,7 +109,7 @@ export function QuotaDialog({
 						inputMode="numeric"
 						className="w-32"
 						data-testid="quota-home"
-						error={faults?.home ? announced(error) : undefined}
+						error={problem?.home ? announced(error) : undefined}
 						value={home}
 						onChange={(event) => setHome(event.target.value)}
 					/>
@@ -115,7 +121,7 @@ export function QuotaDialog({
 						data-testid="quota-docker"
 						// Announced once: only here when Home is not also at fault.
 						error={
-							faults?.docker ? (faults.home ? error : announced(error)) : undefined
+							problem?.docker ? (problem.home ? error : announced(error)) : undefined
 						}
 						value={docker}
 						onChange={(event) => setDocker(event.target.value)}

@@ -1,0 +1,16 @@
+# Installed by `make backup-install-timer`, which fills in the @...@ values
+# (docs/adr/0024-backups-pulled-to-host.md).
+[Unit]
+Description=Pull a Portikus backup from the platform VM
+Wants=network-online.target
+After=network-online.target libvirtd.service
+
+[Service]
+Type=oneshot
+# The operator's account: its SSH key reaches the VM, and it owns the sets.
+User=@USER@
+Environment=PORTIKUS_BACKUP_DIR=@BACKUP_DIR@
+Environment=PORTIKUS_BACKUP_RECIPIENTS=@RECIPIENTS@
+ExecStart=/usr/local/sbin/portikus-backup @VM_IP@
+Nice=10
+IOSchedulingClass=idle

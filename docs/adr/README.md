@@ -51,3 +51,4 @@ has four sections:
 | [0020](0020-recovery-archives-on-a-recovery-volume.md) | Recovery archives live on a recovery volume, made by the workspace agent |
 | [0021](0021-workspace-maintenance-operations.md) | Reset Docker and Rebuild are pending operations the worker drives |
 | [0022](0022-operational-metrics-in-postgres.md) | Operational metrics live in PostgreSQL, not OpenTelemetry |
+| [0024](0024-backups-pulled-to-host.md) | Backups are pulled to the host and encrypted there with age |

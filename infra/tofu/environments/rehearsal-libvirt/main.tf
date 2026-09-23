@@ -25,6 +25,7 @@ provider "libvirt" {
 module "platform_vm" {
   source = "../../modules/platform-vm"
 
+  libvirt_uri          = var.libvirt_uri
   vm_name              = var.vm_name
   vcpus                = var.vcpus
   memory_mb            = var.memory_mb
@@ -36,6 +37,7 @@ module "platform_vm" {
     hostname       = var.vm_name
     ssh_public_key = var.ssh_public_key
   })
+  mac_address  = var.mac_address
   network_name = var.network_name
   network_cidr = var.network_cidr
   pool_name    = var.pool_name

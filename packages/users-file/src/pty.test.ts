@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import bcrypt from "bcryptjs";
-import { spawn } from "node-pty";
+import { type IPty, spawn } from "node-pty";
 import { afterEach, beforeEach, expect, it } from "vitest";
 
 // Drives the real command under a pseudo-terminal, the way a person would.
@@ -12,20 +12,25 @@ const packageDir = fileURLToPath(new URL("..", import.meta.url));
 const PASSWORD = "pty-secret-password-42";
 
 let root: string;
+let child: IPty | undefined;
 beforeEach(async () => {
 	root = await mkdtemp(join(tmpdir(), "users-pty-"));
 });
 afterEach(async () => {
+	// A failed assertion must not leave the command running.
+	child?.kill();
+	child = undefined;
 	await rm(root, { recursive: true, force: true });
 });
 
 it("never echoes the password to the terminal", async () => {
 	const path = join(root, "users.json");
-	const child = spawn(
+	const pty = spawn(
 		process.execPath,
 		["--import", "tsx", "src/main.ts", "add", "carol", "--file", path],
 		{ cwd: packageDir, cols: 120, rows: 30, env: { PATH: process.env.PATH ?? "" } },
 	);
+	child = pty;
 	let output = "";
 	const answers: [string, string][] = [
 		["Email: ", "carol@example.edu"],
@@ -38,11 +43,11 @@ it("never echoes the password to the terminal", async () => {
 		["Password again: ", PASSWORD],
 	];
 	const exit = new Promise<number>((resolve) => {
-		child.onExit(({ exitCode }) => resolve(exitCode));
+		pty.onExit(({ exitCode }) => resolve(exitCode));
 	});
 	let next = 0;
 	let seen = 0;
-	child.onData((data) => {
+	pty.onData((data) => {
 		output += data;
 		while (next < answers.length) {
 			const [prompt, answer] = answers[next] as [string, string];
@@ -50,7 +55,7 @@ it("never echoes the password to the terminal", async () => {
 			if (at < 0) break;
 			seen = at + prompt.length;
 			next += 1;
-			if (prompt !== "try again") child.write(`${answer}\r`);
+			if (prompt !== "try again") pty.write(`${answer}\r`);
 		}
 	});
 	const code = await exit;
