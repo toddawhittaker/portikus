@@ -3,6 +3,7 @@ import {
 	InstanceName,
 	type InstanceStatus,
 	isSystemTimezone,
+	type RebuildInstanceResponse,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
 } from "@portikus/contracts";
@@ -12,7 +13,7 @@ import { type IncusClient, IncusError } from "./incus.js";
 export interface WorkspaceProvider {
 	create(
 		name: string,
-		sizes: { homeGiB: number; dockerGiB: number },
+		sizes: { homeGiB: number; dockerGiB: number; recoveryGiB: number },
 	): Promise<CreateInstanceResponse>;
 	start(
 		name: string,
@@ -22,11 +23,30 @@ export interface WorkspaceProvider {
 			hostname: string;
 			previewHostSuffix: string;
 			timezone: string;
+			recoveryGiB?: number;
 		},
 	): Promise<StartInstanceResponse>;
 	stop(name: string, opts: { timeoutSeconds: number }): Promise<StopInstanceResponse>;
 	list(): Promise<InstanceStatus[]>;
 	healthy(): Promise<boolean>;
+	/** Replace the Docker volume with a clean one; the instance must be stopped. */
+	resetDocker(name: string, opts: { dockerGiB: number }): Promise<void>;
+	/** Replace the root filesystem from the current image; the instance must be stopped. */
+	rebuild(
+		name: string,
+		opts: { resetDocker: boolean; dockerGiB: number },
+	): Promise<RebuildInstanceResponse>;
+}
+
+/**
+ * Refused because the instance is not stopped. The server answers 409, so
+ * the worker knows to stop it first (ADR 0021).
+ */
+export class InstanceNotStoppedError extends IncusError {
+	constructor(name: string, status: string) {
+		super("OPERATION_FAILED", `instance ${name} is ${status}; stop it first`);
+		this.name = "InstanceNotStoppedError";
+	}
 }
 
 /** Where the workspace agent reads its bearer token (ADR 0009). */
@@ -45,6 +65,30 @@ const DNS_NAME_PATTERN =
  * (issue #263, BROWSER-HANDLING.md section 14). It never holds a secret.
  */
 const PROFILE_PATH = "/etc/profile.d/portikus.sh";
+
+/** Where the recovery volume is mounted inside the container (ADR 0020). */
+export const RECOVERY_PATH = "/var/lib/portikus/recovery";
+
+/** How long to wait for Incus to replace a root filesystem. */
+const REBUILD_TIMEOUT_SECONDS = 600;
+
+/** The fields of an instance that Incus accepts back in a PUT. */
+interface InstanceConfig {
+	architecture: string;
+	config: Record<string, string>;
+	devices: Record<string, Record<string, string>>;
+	ephemeral: boolean;
+	profiles: string[];
+	stateful: boolean;
+	description: string;
+	status?: string;
+}
+
+function assertStopped(name: string, status: string | undefined): void {
+	if (status !== "Stopped") {
+		throw new InstanceNotStoppedError(name, status ?? "in an unknown state");
+	}
+}
 
 /**
  * How long the agent has to answer /health once the instance is running. This
@@ -99,29 +143,16 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	async create(
 		name: string,
-		sizes: { homeGiB: number; dockerGiB: number },
+		sizes: { homeGiB: number; dockerGiB: number; recoveryGiB: number },
 	): Promise<CreateInstanceResponse> {
 		validateName(name);
 
 		await this.ensureVolume(`${name}-home`, sizes.homeGiB);
 		await this.ensureVolume(`${name}-docker`, sizes.dockerGiB);
+		await this.ensureVolume(`${name}-recovery`, sizes.recoveryGiB);
 
-		let aliasData: { target: string };
-		try {
-			aliasData = (await this.client.request(
-				"GET",
-				`/1.0/images/aliases/${enc(this.imageAlias)}`,
-			)) as { target: string };
-		} catch (err) {
-			if (err instanceof IncusError && err.code === "NOT_FOUND") {
-				throw new IncusError(
-					"IMAGE_NOT_FOUND",
-					`image alias ${this.imageAlias} not found`,
-				);
-			}
-			throw err;
-		}
-		const imageFingerprint = aliasData.target;
+		const imageFingerprint = await this.imageFingerprint();
+		const quota = { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
 
 		try {
 			await this.client.request("POST", "/1.0/instances", {
@@ -135,26 +166,54 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 						source: `${name}-home`,
 						path: "/home/student",
 					},
-					docker: {
-						type: "disk",
-						pool: this.pool,
-						source: `${name}-docker`,
-						path: "/var/lib/docker",
-					},
+					docker: this.dockerDevice(name),
+					recovery: this.recoveryDevice(name),
 				},
 			});
 		} catch (err) {
 			if (err instanceof IncusError && err.code === "ALREADY_EXISTS") {
-				return {
-					created: false,
-					imageFingerprint,
-					quota: sizes,
-				};
+				return { created: false, imageFingerprint, quota };
 			}
 			throw err;
 		}
 
-		return { created: true, imageFingerprint, quota: sizes };
+		return { created: true, imageFingerprint, quota };
+	}
+
+	private async imageFingerprint(): Promise<string> {
+		try {
+			const alias = (await this.client.request(
+				"GET",
+				`/1.0/images/aliases/${enc(this.imageAlias)}`,
+			)) as { target: string };
+			return alias.target;
+		} catch (err) {
+			if (err instanceof IncusError && err.code === "NOT_FOUND") {
+				throw new IncusError(
+					"IMAGE_NOT_FOUND",
+					`image alias ${this.imageAlias} not found`,
+				);
+			}
+			throw err;
+		}
+	}
+
+	private dockerDevice(name: string): Record<string, string> {
+		return {
+			type: "disk",
+			pool: this.pool,
+			source: `${name}-docker`,
+			path: "/var/lib/docker",
+		};
+	}
+
+	private recoveryDevice(name: string): Record<string, string> {
+		return {
+			type: "disk",
+			pool: this.pool,
+			source: `${name}-recovery`,
+			path: RECOVERY_PATH,
+		};
 	}
 
 	async start(
@@ -165,6 +224,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			hostname: string;
 			previewHostSuffix: string;
 			timezone: string;
+			recoveryGiB?: number;
 		},
 	): Promise<StartInstanceResponse> {
 		validateName(name);
@@ -187,6 +247,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 
 		const signal = AbortSignal.timeout(opts.timeoutSeconds * 1000);
+
+		const recoveryAttached =
+			opts.recoveryGiB !== undefined &&
+			(await this.ensureRecoveryDevice(name, opts.recoveryGiB, signal));
 
 		await this.client.request(
 			"PUT",
@@ -225,9 +289,93 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			signal,
 		);
 
+		if (recoveryAttached) {
+			await this.prepareRecoveryMount(name, signal, opts.timeoutSeconds);
+		}
+
 		await this.waitForAgent(ipv4, opts.agentToken);
 
 		return { ipv4 };
+	}
+
+	/**
+	 * Give a workspace made before Epic 10 its recovery volume (ADR 0020).
+	 * Never fatal, so a new feature cannot lock a student out, and the only
+	 * volume it creates is `<name>-recovery`. Returns whether the device is on.
+	 */
+	private async ensureRecoveryDevice(
+		name: string,
+		sizeGiB: number,
+		signal: AbortSignal,
+	): Promise<boolean> {
+		try {
+			const inst = (await this.client.request(
+				"GET",
+				`/1.0/instances/${enc(name)}`,
+				undefined,
+				signal,
+			)) as InstanceConfig;
+			if (inst.devices?.recovery) {
+				return true;
+			}
+			await this.ensureVolume(`${name}-recovery`, sizeGiB);
+			// PATCH merges devices, so it adds this one and cannot drop another.
+			await this.client.request(
+				"PATCH",
+				`/1.0/instances/${enc(name)}`,
+				{ devices: { recovery: this.recoveryDevice(name) } },
+				signal,
+			);
+			this.log.info({ instance: name }, "recovery volume attached");
+			return true;
+		} catch (err) {
+			this.log.warn(
+				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				"could not attach the recovery volume; starting without it",
+			);
+			return false;
+		}
+	}
+
+	/**
+	 * A new volume's root belongs to root, and the agent runs as the student
+	 * (ADR 0020). Never fatal. chown and chmod fail when the mount is missing,
+	 * where `install -d` would quietly make a directory on the root filesystem.
+	 */
+	private async prepareRecoveryMount(
+		name: string,
+		signal: AbortSignal,
+		timeoutSeconds: number,
+	): Promise<void> {
+		for (const command of [
+			["chown", "1000:1000", RECOVERY_PATH],
+			["chmod", "0700", RECOVERY_PATH],
+		]) {
+			try {
+				const result = await this.client.request(
+					"POST",
+					`/1.0/instances/${enc(name)}/exec`,
+					{
+						command,
+						"wait-for-websocket": false,
+						"record-output": false,
+						interactive: false,
+					},
+					signal,
+					timeoutSeconds,
+				);
+				const status = execExitStatus(result);
+				if (status !== null && status !== 0) {
+					throw new Error(`${command[0]} exited ${status}`);
+				}
+			} catch (err) {
+				this.log.warn(
+					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					"could not prepare the recovery mount",
+				);
+				return;
+			}
+		}
 	}
 
 	/**
@@ -479,6 +627,109 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	async healthy(): Promise<boolean> {
 		return this.client.ping();
+	}
+
+	/**
+	 * Replace the Docker volume with a clean one (SPEC.md 16.4, ADR 0021).
+	 *
+	 * Each step can be repeated, so a retry finishes a half-done reset: take
+	 * the device off, delete the volume, make a new one, put the device back.
+	 * The only volume this ever deletes is exactly `<name>-docker`.
+	 */
+	async resetDocker(name: string, opts: { dockerGiB: number }): Promise<void> {
+		validateName(name);
+		const path = `/1.0/instances/${enc(name)}`;
+		const dockerVolume = `${name}-docker`;
+		const { metadata, etag } = await this.client.getWithEtag(path);
+		const inst = metadata as InstanceConfig;
+		assertStopped(name, inst.status);
+
+		// The PUT below writes back what was read; if home is not in it, what
+		// was read is not what we think it is, so touch nothing.
+		if (inst.devices?.home?.source !== `${name}-home`) {
+			throw new IncusError(
+				"OPERATION_FAILED",
+				`instance ${name} has no home device on ${name}-home; refusing to reset Docker`,
+			);
+		}
+
+		const docker = inst.devices.docker;
+		if (docker) {
+			if (docker.source !== dockerVolume || docker.pool !== this.pool) {
+				throw new IncusError(
+					"OPERATION_FAILED",
+					`instance ${name} has an unexpected docker device; refusing to reset Docker`,
+				);
+			}
+			// PATCH cannot remove a device (Incus merges the map), so write the
+			// rest back exactly as read, guarded by the ETag.
+			const { docker: _removed, ...devices } = inst.devices;
+			await this.client.putIfMatch(
+				path,
+				{
+					architecture: inst.architecture,
+					config: inst.config,
+					devices,
+					ephemeral: inst.ephemeral,
+					profiles: inst.profiles,
+					stateful: inst.stateful,
+					description: inst.description,
+				},
+				etag,
+			);
+		}
+
+		try {
+			await this.client.request(
+				"DELETE",
+				`/1.0/storage-pools/${enc(this.pool)}/volumes/custom/${enc(dockerVolume)}`,
+			);
+		} catch (err) {
+			if (!(err instanceof IncusError && err.code === "NOT_FOUND")) {
+				throw err;
+			}
+		}
+
+		await this.ensureVolume(dockerVolume, opts.dockerGiB);
+
+		await this.client.request("PATCH", path, {
+			devices: { docker: this.dockerDevice(name) },
+		});
+		this.log.info({ instance: name }, "docker volume replaced");
+	}
+
+	/**
+	 * Replace the root filesystem from the current image (SPEC.md 17.2,
+	 * 22.3). Incus keeps the instance's own devices, so home, Docker and
+	 * recovery stay attached.
+	 */
+	async rebuild(
+		name: string,
+		opts: { resetDocker: boolean; dockerGiB: number },
+	): Promise<RebuildInstanceResponse> {
+		validateName(name);
+		const inst = (await this.client.request(
+			"GET",
+			`/1.0/instances/${enc(name)}`,
+		)) as InstanceConfig;
+		assertStopped(name, inst.status);
+
+		const imageFingerprint = await this.imageFingerprint();
+
+		if (opts.resetDocker) {
+			await this.resetDocker(name, { dockerGiB: opts.dockerGiB });
+		}
+
+		await this.client.request(
+			"POST",
+			`/1.0/instances/${enc(name)}/rebuild`,
+			{ source: { type: "image", alias: this.imageAlias } },
+			undefined,
+			REBUILD_TIMEOUT_SECONDS,
+		);
+		this.log.info({ instance: name, imageFingerprint }, "instance rebuilt");
+
+		return { imageFingerprint };
 	}
 
 	private async ensureVolume(volName: string, sizeGiB: number): Promise<void> {
