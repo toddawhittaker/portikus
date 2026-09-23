@@ -8,9 +8,12 @@ summarizes them so a reader knows where to look.
 ## Current state
 
 `docs/STATUS.md` records what each epic and task has delivered and the
-gaps each one left. Epics 0 through 7 plus the live grace period and
-structured logging have landed and run on the pilot VM (Epic 7 as release
-0.1.163). Epic 7.1, the pilot fix batch, is in progress on its epic branch.
+gaps each one left. Epics 0 through 12a, with their fix batches, have
+landed on `main` and run on the pilot VM. Epic 12b, the last epic before
+the pilot, is in progress on its epic branch: sign-in through Dex from a
+users file, backups and restore, the load test, and the operations
+runbook (`docs/EPIC-12B.md`, `docs/OPERATIONS.md`). The pilot still signs
+in through the mock provider until the Dex cutover runs.
 
 ## Planned architecture
 

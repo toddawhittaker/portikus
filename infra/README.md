@@ -2,6 +2,8 @@
 
 End-to-end steps to create the platform VM from a fresh Pop!_OS host.
 See STACK.md sections 16 through 24 and 27 through 33 for design rationale.
+Running the pilot once it exists (deploys, users, the Dex cutover, backups,
+restore, the rehearsal VM, routine checks) is in `docs/OPERATIONS.md`.
 
 ## Prerequisites
 
