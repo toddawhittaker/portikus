@@ -124,7 +124,7 @@ Each cap is at least four times the busiest measurement, so normal load never re
 
 **Rehearsal results, 2026-09-23.** Rehearsal VM, 12 vCPUs and 24 GiB. `PORTIKUS_SECURITY_HEAVY=1 make security-test TOFU_ENV=rehearsal-libvirt`, with no other workspace on the VM. The heavy test makes workspace `a` allocate 4 326 MiB, 512 MiB past its limit, while a loop asks `/health` and workspace `b`'s agent every half second.
 
-| | Before (package 0.1.361+g5ef379c) | After (this change) |
+| | Before (package 0.1.361+g5ef379c) | After (package 0.1.366+gd72d501) |
 |---|---|---|
 | OOM adjustment, PostgreSQL | -900 (Debian's own) | -900 |
 | OOM adjustment, API, worker, controller, Dex, Caddy | 0 | -900 |
@@ -134,9 +134,11 @@ Each cap is at least four times the busiest measurement, so normal load never re
 | Kills counted in `a`'s own control group | 0, then 1 | 0, then 1 |
 | PostgreSQL and API main processes | unchanged | unchanged |
 | `/health` and `b`'s agent during the allocation | every sample within 2 s | every sample within 2 s |
-| Suite result | 179 passed, 6 failed | 184 passed, 1 failed |
+| Memory caps on the services | none | as in the table above |
+| Throwaway service with Dex's settings, 512 MiB | not tested | killed at its 256M cap |
+| Suite result | 179 passed, 6 failed | 192 passed, 0 failed |
 
-Before, the five platform services' adjustment checks failed, as expected. The one failure left in both runs is the `#408` marker. It reports `XPASS` because the rehearsal VM signs in through Dex, so the mock-provider gap it tracks is closed there.
+Before, the five platform services' adjustment checks failed, as expected. The sixth failure was the `#408` marker, which reported `XPASS` because the rehearsal VM signs in through Dex; the suite has since learned which provider it faces. The after run is on the Epic 12b head with this change, and it passed every check.
 
 With the caps in place, the security suite also checks that each service except PostgreSQL has a cap. The heavy tests start a throwaway service with Dex's settings (an adjustment of -900 and a 256M cap) that allocates 512 MiB. The kernel kills it at its cap, and systemd reports `oom-kill`.
 

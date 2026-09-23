@@ -213,10 +213,13 @@ if [ "$SEC_HEAVY" = "1" ]; then
     lim_watch_ok "$lim_mem_watch"
   # A protected service still dies at its own cap, so a flood against Dex
   # or the API cannot take the VM: a throwaway unit with Dex's settings.
+  # The output is captured first: grep -q would close the pipe early, and
+  # pipefail would count that against ssh.
   lim_capped() {
-    sec_ssh "sudo systemd-run --wait --collect --unit=portikus-sectest-${SEC_RUN_ID}-cap \
-      -p OOMScoreAdjust=-900 -p MemoryMax=256M python3 -c 'b = b\"x\" * (512 * 1048576)' 2>&1" \
-      | grep -qx 'Finished with result: oom-kill'
+    local said
+    said=$(sec_ssh "sudo systemd-run --wait --collect --unit=portikus-sectest-${SEC_RUN_ID}-cap \
+      -p OOMScoreAdjust=-900 -p MemoryMax=256M python3 -c 'b = b\"x\" * (512 * 1048576)' 2>&1")
+    [[ "$said" == *"Finished with result: oom-kill"* ]]
   }
   check "heavy: a service with the platform's OOM adjustment is killed at its memory cap" lim_capped
 fi
