@@ -63,34 +63,40 @@ export async function recoverySweep(
 	const sweepOne = async (ws: (typeof running)[number]): Promise<void> => {
 		const agent = agentFor(ws.agent_address, ws.agent_token);
 		const rebuilding = REBUILD_OPERATIONS.includes(ws.pending_operation ?? "");
+		// Rebuilds need every active project tried (SPEC.md §22.3); periodic
+		// points only the ones due.
+		let reason: RecoveryReason | null = null;
+		let projects: { id: string; slug: string }[] = [];
 		if (rebuilding) {
-			// Every active project gets a point before the root is replaced
-			// (SPEC.md §22.3). Reconcile stops the workspace once each is tried.
-			const projects = await activeProjects(db, ws.id);
-			for (const p of projects) {
-				if (
-					await makePoint(
-						db,
-						agent,
-						ws.id,
-						p,
-						"before-rebuild",
-						false,
-						config,
-						now,
-						log,
-					)
-				) {
-					created++;
-				}
-			}
+			reason = "before-rebuild";
+			projects = await activeProjects(db, ws.id);
 		} else if (ws.pending_operation === null) {
+			reason = "periodic";
 			const cutoff = new Date(now.getTime() - config.RECOVERY_INTERVAL_SECONDS * 1000);
-			const due = await activeProjects(db, ws.id, cutoff);
-			for (const p of due) {
-				if (await makePoint(db, agent, ws.id, p, "periodic", true, config, now, log)) {
-					created++;
-				}
+			projects = await activeProjects(db, ws.id, cutoff);
+		}
+		for (const [i, p] of projects.entries()) {
+			const outcome = await makePoint(
+				db,
+				agent,
+				ws.id,
+				p,
+				reason as RecoveryReason,
+				!rebuilding,
+				config,
+				now,
+				log,
+			);
+			if (outcome === "created") created++;
+			if (outcome === "unreachable") {
+				// One timeout is enough: the rest count as tried and wait for the
+				// next sweep, so a hung agent cannot hold a lane for hours.
+				await markChecked(
+					db,
+					projects.slice(i + 1).map((rest) => rest.id),
+					now,
+				);
+				return;
 			}
 		}
 		// Await first: `deleted += await` would read `deleted` before other lanes add to it.
@@ -142,8 +148,8 @@ async function activeProjects(
 /**
  * Ask the agent for a point and record it. `recovery_checked_at` is stamped
  * whatever happens, so a broken project is retried next interval, not every
- * sweep, and a pending rebuild can tell the attempt was made. Returns true
- * when a point was written.
+ * sweep, and a pending rebuild can tell the attempt was made. Says whether
+ * a point was written, or whether the agent could not be reached at all.
  */
 async function makePoint(
 	db: Kysely<Database>,
@@ -155,9 +161,9 @@ async function makePoint(
 	config: RecoveryConfig,
 	now: Date,
 	log: Logger,
-): Promise<boolean> {
+): Promise<"created" | "none" | "unreachable"> {
 	const pointId = randomUUID();
-	let written = false;
+	let outcome: "created" | "none" | "unreachable" = "none";
 	try {
 		const latest = skipUnchanged
 			? await db
@@ -193,7 +199,7 @@ async function makePoint(
 					).toISOString(),
 				})
 				.execute();
-			written = true;
+			outcome = "created";
 			// Ids, reason and size only: never file names (ADR 0012).
 			log.info(
 				{
@@ -207,6 +213,7 @@ async function makePoint(
 			);
 		}
 	} catch (e) {
+		if ((e as { code?: string }).code === "AGENT_UNAVAILABLE") outcome = "unreachable";
 		log.warn(
 			{
 				workspaceId,
@@ -217,12 +224,22 @@ async function makePoint(
 			"recovery point failed",
 		);
 	}
+	await markChecked(db, [project.id], now);
+	return outcome;
+}
+
+/** Stamp projects as tried for a point at `now`. */
+async function markChecked(
+	db: Kysely<Database>,
+	projectIds: string[],
+	now: Date,
+): Promise<void> {
+	if (projectIds.length === 0) return;
 	await db
 		.updateTable("projects")
 		.set({ recovery_checked_at: now.toISOString() })
-		.where("id", "=", project.id)
+		.where("id", "in", projectIds)
 		.execute();
-	return written;
 }
 
 /**

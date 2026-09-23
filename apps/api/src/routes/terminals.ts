@@ -341,20 +341,24 @@ export function registerTerminalRoutes(
 		// A coding agent's session gets a recovery point first, so the state
 		// before it can be restored (SPEC.md §10.9). It fails open.
 		let recoveryPointId: string | null = null;
-		if (
-			body.data.agent !== undefined &&
-			project &&
-			(await countProjectPoints(db, project.id)) < MAX_POINTS_PER_PROJECT
-		) {
+		if (body.data.agent !== undefined && project) {
 			try {
-				const point = await makeRecoveryPoint(db, config, agent, {
-					workspaceId: params.data.id,
-					project,
-					reason: "agent-session",
-					createdBy: user.id,
-					timeoutMs: AGENT_SESSION_POINT_TIMEOUT_MS,
-				});
-				recoveryPointId = point.id;
+				if ((await countProjectPoints(db, project.id)) >= MAX_POINTS_PER_PROJECT) {
+					// Ids only (ADR 0012); the student is not told (EPIC-10 decisions).
+					request.log.warn(
+						{ workspaceId: params.data.id, projectId: project.id },
+						"agent-session recovery point skipped: point cap",
+					);
+				} else {
+					const point = await makeRecoveryPoint(db, config, agent, {
+						workspaceId: params.data.id,
+						project,
+						reason: "agent-session",
+						createdBy: user.id,
+						timeoutMs: AGENT_SESSION_POINT_TIMEOUT_MS,
+					});
+					recoveryPointId = point.id;
+				}
 			} catch (error) {
 				request.log.warn(
 					{

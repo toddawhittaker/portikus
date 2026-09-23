@@ -169,6 +169,7 @@ export const AgentErrorCode = z.enum([
 	"STORAGE_FULL",
 	"RECOVERY_POINT_INVALID",
 	"RESTORE_INCOMPLETE",
+	"ROLLBACK_COPY_EXISTS",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 

@@ -94,6 +94,8 @@ export interface FakeAgent {
 	recoveryFull: Set<string>;
 	/** Workspace keys whose restores fail as RESTORE_INCOMPLETE. */
 	restoreIncomplete: Set<string>;
+	/** Workspace keys whose restores fail with this status and code. */
+	restoreFailure: Map<string, [number, string]>;
 	/** Storage figures `/usage` reports, by workspace key; absent means null. */
 	storage: Map<string, FakeStorage>;
 	/** Push one frame to every events subscriber of a project. */
@@ -1536,6 +1538,7 @@ export async function startFakeAgent(
 	const recoveryDeletes: string[] = [];
 	const recoveryFull = new Set<string>();
 	const restoreIncomplete = new Set<string>();
+	const restoreFailure = new Map<string, [number, string]>();
 	const storage = new Map<string, FakeStorage>();
 
 	function recoveryError(reply: FastifyReply, status: number, code: string) {
@@ -1614,6 +1617,8 @@ export async function startFakeAgent(
 			) {
 				return recoveryError(reply, 422, "RECOVERY_POINT_INVALID");
 			}
+			const failure = restoreFailure.get(keyOf(request));
+			if (failure) return recoveryError(reply, failure[0], failure[1]);
 			if (restoreIncomplete.has(keyOf(request))) {
 				return recoveryError(reply, 500, "RESTORE_INCOMPLETE");
 			}
@@ -1913,6 +1918,7 @@ export async function startFakeAgent(
 		recoveryDeletes,
 		recoveryFull,
 		restoreIncomplete,
+		restoreFailure,
 		storage,
 		get failForward() {
 			return state.failForward;

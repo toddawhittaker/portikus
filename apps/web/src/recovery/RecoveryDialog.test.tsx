@@ -149,3 +149,37 @@ test("any other restore failure is an alert and sends no second request", async 
 	expect(screen.queryByTestId("dialog-restore-without-safety")).toBeNull();
 	expect(posts(fetchMock, `/${POINT.id}/restore`)).toHaveLength(1);
 });
+
+test("a failed restore without the safety point shows the server's message", async () => {
+	const partial =
+		"The project may be partly restored. Your earlier files are kept in a folder named .portikus-aside-x in the projects folder; do not delete it.";
+	render((_url, init) => {
+		if (init?.method !== "POST") return json(200, LIST);
+		return JSON.parse(String(init.body)).skipSafetyPoint
+			? json(500, { code: "INTERNAL", message: partial })
+			: json(507, { code: "STORAGE_FULL", message: "Recovery storage is full." });
+	});
+
+	fireEvent.click(await screen.findByTestId(`recovery-restore-${POINT.id}`));
+	fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+	await screen.findByTestId("dialog-restore-without-safety");
+	fireEvent.click(
+		screen.getByRole("button", { name: "Restore without saving the current state" }),
+	);
+
+	await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(partial));
+});
+
+test("a leftover rollback copy is explained, not offered a skip", async () => {
+	const message =
+		"A previous restore's rollback copy is still in the projects folder. Deal with it before restoring again.";
+	render((_url, init) =>
+		init?.method === "POST" ? json(409, { code: "BUSY", message }) : json(200, LIST),
+	);
+
+	fireEvent.click(await screen.findByTestId(`recovery-restore-${POINT.id}`));
+	fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+
+	await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(message));
+	expect(screen.queryByTestId("dialog-restore-without-safety")).toBeNull();
+});

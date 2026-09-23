@@ -1,3 +1,4 @@
+import { Writable } from "node:stream";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -6,6 +7,7 @@ import {
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import { createLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
@@ -29,6 +31,7 @@ let app: FastifyInstance;
 let alice: CookieJar;
 let workspaceId: string;
 let projectId: string;
+let logLines: string[];
 
 beforeAll(async () => {
 	if (skip) return;
@@ -55,8 +58,20 @@ beforeEach(async () => {
 	agent.recoveryPoints.clear();
 	agent.recoveryFull.clear();
 	agent.restoreIncomplete.clear();
+	agent.restoreFailure.clear();
 	agent.recoveryDeletes.length = 0;
-	app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
+	logLines = [];
+	const logger = createLogger({
+		service: "api",
+		level: "info",
+		destination: new Writable({
+			write(chunk, _encoding, callback) {
+				logLines.push(String(chunk));
+				callback();
+			},
+		}),
+	});
+	app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port }, logger);
 	await app.listen({ port: 0, host: "127.0.0.1" });
 	alice = new CookieJar();
 	await loginAs(app, "alice", alice);
@@ -435,6 +450,12 @@ test.skipIf(skip)("a project at 200 points skips the agent-session point", async
 	expect(created.statusCode).toBe(201);
 	expect(created.json().recoveryPointId).toBe(null);
 	expect(agent.recoveryPoints.size).toBe(0);
+	// Operators see the skip by ids only (ADR 0012); the student sees nothing.
+	const warning = logLines
+		.map((line) => JSON.parse(line))
+		.find((line) => line.msg === "agent-session recovery point skipped: point cap");
+	expect(warning).toMatchObject({ workspaceId, projectId, level: "warn" });
+	expect(JSON.stringify(warning)).not.toContain(SLUG);
 });
 
 test.skipIf(skip)("create and restore wait out a pending operation", async () => {
@@ -461,5 +482,44 @@ test.skipIf(skip)("a partial restore tells the student how to undo it", async ()
 	expect(failed.statusCode).toBe(500);
 	expect(failed.json().message).toBe(
 		"The project may be partly restored. Restore the 'Before restore' point to undo.",
+	);
+});
+
+test.skipIf(skip)(
+	"a full home folder during the restore step is a plain failure",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		agent.restoreFailure.set("", [507, "STORAGE_FULL"]);
+		const failed = await restore(alice, pointId);
+		expect(failed.statusCode).toBe(500);
+		expect(failed.json()).toEqual({
+			code: "INTERNAL",
+			message:
+				"Your home folder is full, so nothing was restored. Free some space and try again.",
+		});
+	},
+);
+
+test.skipIf(skip)(
+	"a partial restore without a safety point names the aside folder",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		agent.recoveryFull.add("");
+		agent.restoreIncomplete.add("");
+		const failed = await restore(alice, pointId, { skipSafetyPoint: true });
+		expect(failed.statusCode).toBe(500);
+		expect(failed.json().message).toBe(
+			`The project may be partly restored. Your earlier files are kept in a folder named .portikus-aside-${pointId} in the projects folder; do not delete it.`,
+		);
+	},
+);
+
+test.skipIf(skip)("a leftover rollback copy refuses the restore", async () => {
+	const pointId = (await create(alice)).json().id;
+	agent.restoreFailure.set("", [409, "ROLLBACK_COPY_EXISTS"]);
+	const refused = await restore(alice, pointId);
+	expect(refused.statusCode).toBe(409);
+	expect(refused.json().message).toMatch(
+		/rollback copy is still in the projects folder/,
 	);
 });

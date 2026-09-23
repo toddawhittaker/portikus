@@ -6,9 +6,10 @@ import {
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { claimLongOperation, releaseLongOperation } from "./project-scope.js";
 
 /**
  * Reset Docker and Rebuild requests (SPEC.md §16.4, §17.2; ADR 0021). The
@@ -175,5 +176,26 @@ test.skipIf(skip)(
 			payload: { resetDocker: false },
 		});
 		expect(missing.statusCode).toBe(404);
+	},
+);
+
+test.skipIf(skip)(
+	"Reset Docker and Rebuild wait out a restore or other long operation",
+	async () => {
+		// The reply is only used when the claim fails, which it cannot here.
+		expect(claimLongOperation(workspaceId, {} as FastifyReply)).toBe(true);
+		try {
+			for (const response of [
+				await resetDocker(alice),
+				await rebuild(carol, { resetDocker: false }),
+			]) {
+				expect(response.statusCode).toBe(409);
+				expect(response.json().code).toBe("OPERATION_IN_PROGRESS");
+			}
+			expect((await workspaceRow()).pending_operation).toBeNull();
+		} finally {
+			releaseLongOperation(workspaceId);
+		}
+		expect((await resetDocker(alice)).statusCode).toBe(202);
 	},
 );
