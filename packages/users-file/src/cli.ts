@@ -154,6 +154,7 @@ async function add(
 		email = options.email ?? current?.email ?? "";
 		displayName = options.name ?? current?.displayName ?? "";
 		role = (options.role as Role | undefined) ?? current?.role ?? "student";
+		assertFirstIsAdministrator(file, username, role);
 		password = await readFirstLine(io.stdin);
 		const problem = passwordProblem(password);
 		if (problem) throw new UsersFileError(problem);
@@ -176,6 +177,8 @@ async function add(
 				io,
 				(options.role as Role | undefined) ?? current?.role ?? "student",
 			);
+			// Said before the password, so nobody types one for nothing.
+			assertFirstIsAdministrator(file, username, role);
 			password = await askPassword(prompter, io);
 		} finally {
 			prompter.close();
@@ -197,6 +200,17 @@ async function add(
 	await writeUsersFile(path, { version: 1, users });
 	io.stderr.write(`${current ? "updated" : "added"} ${username} in ${path}\n`);
 	return 0;
+}
+
+function assertFirstIsAdministrator(
+	file: UsersFile,
+	username: string,
+	role: Role,
+): void {
+	const others = file.users.filter((u) => u.username !== username);
+	if (others.length === 0 && role !== "administrator") {
+		throw new UsersFileError("the first user must be an administrator");
+	}
 }
 
 function isRole(value: string): value is Role {

@@ -1,0 +1,85 @@
+---
+# End the Portikus sessions of accounts this deploy removed, gave a new
+# password, or demoted; Dex alone would let those sessions run until they
+# expire.  Runs after Dex has the new file, so no old password still works.
+# The state file keeps usernames, user ids, roles and a SHA-256 of each
+# password hash, never the hash.  Safe to repeat: an unchanged file ends nothing.
+
+- name: Look for the session revoke command
+  ansible.builtin.stat:
+    path: "{{ dex_users_revoke_script }}"
+  register: dex_users_revoke_command
+
+# A fresh VM gets the package after this role, and has no sessions yet.
+- name: End the sessions of changed accounts
+  when: dex_users_revoke_command.stat.exists
+  block:
+    - name: Read the users deployed last time
+      ansible.builtin.slurp:
+        src: "{{ dex_users_state_file }}"
+      register: dex_users_state
+      failed_when: false
+
+    - name: Summarise the users deployed now
+      ansible.builtin.set_fact:
+        dex_users_deployed: >-
+          {% set ns = namespace(users=[]) -%}
+          {% for u in dex_users.users -%}
+          {% set ns.users = ns.users + [{'username': u.username, 'userId': u.userId,
+               'role': u.role, 'passwordFingerprint': u.passwordHash | hash('sha256')}] -%}
+          {% endfor -%}
+          {{ ns.users }}
+      no_log: true
+
+    - name: Write the session revoke input
+      ansible.builtin.copy:
+        dest: "{{ dex_users_revoke_input }}"
+        content: >-
+          {{ {
+            'issuer': portikus_dex_issuer,
+            'previous': (dex_users_state.content | b64decode | from_json)
+                        if dex_users_state.content is defined else None,
+            'next': dex_users_deployed
+          } | to_nice_json }}
+        owner: root
+        group: portikus
+        mode: "0640"
+      changed_when: false
+      no_log: true
+
+    - name: End the sessions
+      ansible.builtin.command:
+        argv:
+          - runuser
+          - -u
+          - portikus
+          - --
+          - /usr/bin/node
+          - "{{ dex_users_revoke_script }}"
+          - --input
+          - "{{ dex_users_revoke_input }}"
+      environment:
+        DATABASE_URL: "{{ portikus_database_url }}"
+      register: dex_users_revoke
+      changed_when: "'Sessions ended for:' in dex_users_revoke.stdout"
+
+    - name: Show which accounts lost their sessions
+      ansible.builtin.debug:
+        var: dex_users_revoke.stdout_lines
+
+    # Recorded only after the revoke succeeded, so a failed run is retried.
+    - name: Record the users deployed now
+      ansible.builtin.copy:
+        dest: "{{ dex_users_state_file }}"
+        content: "{{ dex_users_deployed | to_nice_json }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+  always:
+    - name: Remove the session revoke input
+      ansible.builtin.file:
+        path: "{{ dex_users_revoke_input }}"
+        state: absent
+      changed_when: false

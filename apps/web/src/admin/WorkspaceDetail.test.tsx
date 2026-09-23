@@ -2,7 +2,7 @@ import type { AdminWorkspaceDetail } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER, WORKSPACE } from "../test-utils.js";
-import { quotaError, quotaFaults } from "./QuotaDialog.js";
+import { quotaError } from "./QuotaDialog.js";
 import { capabilityNote, NOT_AVAILABLE_TEXT, quotaPending } from "./WorkspaceDetail.js";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -145,20 +145,32 @@ test("a quota is pending until the worker has applied the same sizes", () => {
 
 test("the quota form refuses a shrink, a non-number, and too much", () => {
 	const from = { homeGiB: 25, dockerGiB: 20 };
-	expect(quotaError(from, "20", "20")).toBe("Storage can only be increased.");
-	expect(quotaError(from, "big", "20")).toBe("Enter whole numbers of GiB.");
-	expect(quotaError(from, "2000", "20")).toBe("Each size can be at most 1024 GiB.");
-	expect(quotaError(from, "25", "20")).toBe("Change at least one size.");
+	expect(quotaError(from, "20", "20")?.message).toBe("Storage can only be increased.");
+	expect(quotaError(from, "big", "20")?.message).toBe("Enter whole numbers of GiB.");
+	expect(quotaError(from, "2000", "20")?.message).toBe(
+		"Each size can be at most 1024 GiB.",
+	);
+	expect(quotaError(from, "25", "20")?.message).toBe("Change at least one size.");
 	expect(quotaError(from, "30", "20")).toBeNull();
 });
 
 test("a quota error points at the field at fault (Gate E)", () => {
 	const from = { homeGiB: 25, dockerGiB: 20 };
-	expect(quotaFaults(from, "20", "20")).toEqual({ home: true, docker: false });
-	expect(quotaFaults(from, "25", "big")).toEqual({ home: false, docker: true });
-	expect(quotaFaults(from, "2000", "2000")).toEqual({ home: true, docker: true });
+	const fields = (home: string, docker: string) => {
+		const problem = quotaError(from, home, docker);
+		return problem ? { home: problem.home, docker: problem.docker } : null;
+	};
+	expect(fields("20", "20")).toEqual({ home: true, docker: false });
+	expect(fields("25", "big")).toEqual({ home: false, docker: true });
+	expect(fields("2000", "2000")).toEqual({ home: true, docker: true });
+	// The message is about the non-number, so only that field is marked.
+	expect(quotaError(from, "abc", "999999")).toEqual({
+		message: "Enter whole numbers of GiB.",
+		home: true,
+		docker: false,
+	});
 	// "Change at least one size" has no single culprit, so it points at Home.
-	expect(quotaFaults(from, "25", "20")).toEqual({ home: true, docker: false });
+	expect(fields("25", "20")).toEqual({ home: true, docker: false });
 });
 
 test("the capability note names what is missing", () => {
@@ -536,6 +548,7 @@ test("Stop keeps focus and ignores repeats while its request runs (Gate E)", asy
 	fireEvent.click(stop);
 	await waitFor(() => expect(stop.getAttribute("aria-busy")).toBe("true"));
 	expect(document.activeElement).toBe(stop);
+	expect(stop.hasAttribute("disabled")).toBe(false);
 	const start = within(panel).getByRole("button", {
 		name: "Start Alice Example's workspace",
 	});
@@ -546,7 +559,7 @@ test("Stop keeps focus and ignores repeats while its request runs (Gate E)", asy
 });
 
 test("Unarchive keeps focus while its request runs (Gate E)", async () => {
-	stubDetail(
+	const writes = stubDetail(
 		detail({ workspace: { ...WORKSPACE, archivedAt: "2026-09-20T10:00:00.000Z" } }),
 		{
 			hold: true,
@@ -562,6 +575,30 @@ test("Unarchive keeps focus while its request runs (Gate E)", async () => {
 	fireEvent.click(unarchive);
 	await waitFor(() => expect(unarchive.getAttribute("aria-busy")).toBe("true"));
 	expect(document.activeElement).toBe(unarchive);
+	expect(unarchive.hasAttribute("disabled")).toBe(false);
+	fireEvent.click(unarchive);
+	expect(writes.length).toBe(1);
+});
+
+test("Archive workspace cannot reopen its dialog while its request runs", async () => {
+	const writes = stubDetail(detail(), { hold: true });
+	const panel = await openAlice();
+
+	const archive = within(panel).getByRole("button", {
+		name: "Archive workspace for Alice Example",
+	});
+	fireEvent.click(archive);
+	fireEvent.click(
+		within(await screen.findByTestId("archive-dialog")).getByTestId("dialog-confirm"),
+	);
+	await waitFor(() => expect(writes.length).toBe(1));
+	fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+	await waitFor(() => expect(screen.queryByTestId("archive-dialog")).toBeNull());
+
+	expect(archive.getAttribute("aria-disabled")).toBe("true");
+	fireEvent.click(archive);
+	expect(screen.queryByTestId("archive-dialog")).toBeNull();
+	expect(writes.length).toBe(1);
 });
 
 test("Enable account keeps focus while its request runs (Gate E)", async () => {
@@ -578,6 +615,7 @@ test("Enable account keeps focus while its request runs (Gate E)", async () => {
 	fireEvent.click(enable);
 	await waitFor(() => expect(enable.getAttribute("aria-busy")).toBe("true"));
 	expect(document.activeElement).toBe(enable);
+	expect(enable.hasAttribute("disabled")).toBe(false);
 	fireEvent.click(enable);
 	expect(writes.length).toBe(1);
 });

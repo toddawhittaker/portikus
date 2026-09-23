@@ -199,6 +199,19 @@ cleanup() {
     [ "$instance" != "-" ] && instances+=("$instance")
   done <<<"$rows"
 
+  # Instances first, so a failed run never leaves an instance no row names.
+  for instance in "${instances[@]}"; do
+    if [[ ! "$instance" =~ ^ws-[0-9a-f]{24}$ ]]; then
+      echo "Not destroying ${instance}: not a workspace instance name."
+      continue
+    fi
+    if [ "$(psql_vm "SELECT count(*) FROM workspaces WHERE incus_instance_name = '${instance}' AND owner_user_id NOT IN (${owned})")" != "0" ]; then
+      echo "Not destroying ${instance}: another user's workspace row names it."
+      continue
+    fi
+    ssh_vm "bash ${WORKSPACE_SCRIPT} destroy ${instance}" >/dev/null 2>&1 || echo "Could not destroy ${instance}."
+  done
+  [ "${#instances[@]}" -gt 0 ] && echo "Destroyed ${#instances[@]} instance(s) and their volumes."
   if [ "${#ws_ids[@]}" -gt 0 ]; then
     ws_list=$(sql_list "${ws_ids[@]}")
     psql_vm "DELETE FROM audit_events WHERE target IN (SELECT id::text FROM projects WHERE workspace_id IN (${ws_list}) AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id IN (${owned})))" >/dev/null
@@ -207,18 +220,6 @@ cleanup() {
     psql_vm "DELETE FROM workspaces WHERE id IN (${ws_list}) AND owner_user_id IN (${owned})" >/dev/null
     echo "Deleted ${#ws_ids[@]} workspace row(s)."
   fi
-  for instance in "${instances[@]}"; do
-    if [[ ! "$instance" =~ ^ws-[0-9a-f]{24}$ ]]; then
-      echo "Not destroying ${instance}: not a workspace instance name."
-      continue
-    fi
-    if [ "$(psql_vm "SELECT count(*) FROM workspaces WHERE incus_instance_name = '${instance}'")" != "0" ]; then
-      echo "Not destroying ${instance}: a workspace row still names it."
-      continue
-    fi
-    ssh_vm "bash ${WORKSPACE_SCRIPT} destroy ${instance}" >/dev/null 2>&1 || echo "Could not destroy ${instance}."
-  done
-  [ "${#instances[@]}" -gt 0 ] && echo "Destroyed ${#instances[@]} instance(s) and their volumes."
   psql_vm "DELETE FROM audit_events WHERE target IN (SELECT id::text FROM users WHERE oidc_issuer = '${ISSUER}' AND oidc_subject IN (${subj_list}))" >/dev/null
   psql_vm "DELETE FROM users u WHERE u.oidc_issuer = '${ISSUER}' AND u.oidc_subject IN (${subj_list}) AND NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.owner_user_id = u.id)" >/dev/null
   echo "Deleted the load-test users."

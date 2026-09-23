@@ -84,7 +84,7 @@ rehearsal-up: ## Create the rehearsal VM beside the pilot and wait for first boo
 	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt rehearsal-preflight infra-apply wait-vm
 
 rehearsal-destroy: ## Destroy the rehearsal VM, its disks, network and pool (never the pilot)
-	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt tofu-destroy
+	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt TOFU_DESTROY_CALLER=rehearsal-destroy tofu-destroy
 
 # Refuses to start the VM when the host lacks its memory; a running VM is fine.
 rehearsal-preflight:
@@ -101,8 +101,10 @@ rehearsal-preflight:
 		echo "rehearsal-preflight: $$avail MiB available for a $(REHEARSAL_MEMORY_MB) MiB VM"; \
 	fi
 
-# Only rehearsal-destroy and destroy-pilot call this; each fixes TOFU_ENV.
+# Only rehearsal-destroy and destroy-pilot call this; each fixes TOFU_ENV
+# and sets the private TOFU_DESTROY_CALLER so a direct call is refused.
 tofu-destroy:
+	@test -n "$(TOFU_DESTROY_CALLER)" || { echo "tofu-destroy: use make destroy-pilot or make rehearsal-destroy"; exit 1; }
 	$(TOFU_BANNER)
 	cd $(TOFU_DIR) && tofu init -input=false $(TOFU_INIT_ARGS) && tofu destroy
 
@@ -178,13 +180,17 @@ USERS_FILE_FLAG = --file "$(abspath $(PORTIKUS_USERS_FILE))"
 # The users file is needed, and checked first, only when Dex is the provider.
 USERS_CHECK := $(if $(filter dex,$(PORTIKUS_IDP)),users-check,)
 
+# The client secret reaches Ansible through the environment, never a recipe
+# line, where make's echo and ps would show it.
+export PORTIKUS_OIDC_CLIENT_SECRET
+
 ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) \
 	PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) \
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
 	PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
 	PORTIKUS_USERS_FILE="$(abspath $(PORTIKUS_USERS_FILE))" \
 	PORTIKUS_OIDC_ISSUER=$(PORTIKUS_OIDC_ISSUER) PORTIKUS_OIDC_CLIENT_ID=$(PORTIKUS_OIDC_CLIENT_ID) \
-	PORTIKUS_OIDC_CLIENT_SECRET=$(PORTIKUS_OIDC_CLIENT_SECRET) PORTIKUS_OIDC_SCOPES="$(PORTIKUS_OIDC_SCOPES)" \
+	PORTIKUS_OIDC_SCOPES="$(PORTIKUS_OIDC_SCOPES)" \
 	PORTIKUS_OIDC_STUDENT_GROUP=$(PORTIKUS_OIDC_STUDENT_GROUP) \
 	PORTIKUS_OIDC_ADMIN_GROUP=$(PORTIKUS_OIDC_ADMIN_GROUP) \
 	PORTIKUS_API_IP_ALLOW="$(PORTIKUS_API_IP_ALLOW)"
@@ -230,9 +236,9 @@ security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an ear
 
 destroy-pilot: ## Destroy the pilot VM (irreversible)
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "destroy-pilot: acts on the pilot only; use make rehearsal-destroy for the rehearsal VM"; exit 1; }
-	@$(MAKE) --no-print-directory TOFU_ENV=dev-libvirt tofu-destroy
+	@$(MAKE) --no-print-directory TOFU_ENV=dev-libvirt TOFU_DESTROY_CALLER=destroy-pilot tofu-destroy
 
-rebuild-pilot: destroy-pilot infra-apply configure-vm publish-vm ## Destroy and recreate the platform VM
+rebuild-pilot: $(USERS_CHECK) destroy-pilot infra-apply configure-vm publish-vm ## Destroy and recreate the platform VM
 
 publish-vm: ## Forward port 8443 from the host's LAN address to the VM (rerun after a rebuild)
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "publish-vm: only the pilot is published; port 8443 belongs to it, not to $(TOFU_ENV)"; exit 1; }

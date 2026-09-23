@@ -32,7 +32,6 @@ const cfg: ReconcileConfig = {
 	WORKSPACE_DOCKER_SIZE_GIB: 20,
 	WORKSPACE_RECOVERY_SIZE_GIB: 3,
 	PREVIEW_SUFFIX: "preview.portikus.example.edu",
-	WORKER_START_CONCURRENCY: 6,
 };
 
 beforeAll(async () => {
@@ -1324,8 +1323,11 @@ test.skipIf(skip)(
 		const now = new Date();
 
 		const began = Date.now();
-		await reconcile(tdb.db, slow, cfg, now, now);
+		const result = await reconcile(tdb.db, slow, cfg, now, now);
 		const took = Date.now() - began;
+
+		// Every parallel start is counted, none lost to a read before the await.
+		expect(result.transitions).toBe(24);
 
 		expect(slow.maxInFlight).toBe(6);
 		expect(took).toBeGreaterThanOrEqual(2 * startMs);

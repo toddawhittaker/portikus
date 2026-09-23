@@ -23,8 +23,10 @@ export interface ReconcileConfig {
 	WORKSPACE_DOCKER_SIZE_GIB: number;
 	WORKSPACE_RECOVERY_SIZE_GIB: number;
 	PREVIEW_SUFFIX: string;
-	WORKER_START_CONCURRENCY: number;
 }
+
+/** How many creates, and then starts, one sweep runs at once. */
+const START_CONCURRENCY = 6;
 
 export interface SweepResult {
 	transitions: number;
@@ -301,7 +303,7 @@ export async function reconcile(
 		.where("state", "=", "provisioning")
 		.execute();
 
-	await forEachBounded(provisioning, config.WORKER_START_CONCURRENCY, async (ws) => {
+	await forEachBounded(provisioning, START_CONCURRENCY, async (ws) => {
 		if (!ws.incus_instance_name) return;
 		const outcome = await createWorkspace(
 			db,
@@ -328,9 +330,10 @@ export async function reconcile(
 		.where("archived_at", "is", null)
 		.execute();
 
-	await forEachBounded(toStart, config.WORKER_START_CONCURRENCY, async (ws) => {
+	await forEachBounded(toStart, START_CONCURRENCY, async (ws) => {
 		record(ws.id, "start");
-		transitions += await startWorkspace(db, controller, config, ws, "stopped", now);
+		const n = await startWorkspace(db, controller, config, ws, "stopped", now);
+		transitions += n;
 	});
 
 	// 3c: running -> stopping (desired stopped/restarting, or deadline passed)
@@ -428,9 +431,10 @@ export async function reconcile(
 		.where("archived_at", "is", null)
 		.execute();
 
-	await forEachBounded(errorRetryStart, config.WORKER_START_CONCURRENCY, async (ws) => {
+	await forEachBounded(errorRetryStart, START_CONCURRENCY, async (ws) => {
 		record(ws.id, "retry start");
-		transitions += await startWorkspace(db, controller, config, ws, "error", now);
+		const n = await startWorkspace(db, controller, config, ws, "error", now);
+		transitions += n;
 	});
 
 	// Note: error with desired=stopped is at rest (nothing to retry).
