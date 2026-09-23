@@ -9,9 +9,45 @@
 # is recorded as FAIL and the script continues to the end.
 #
 # Usage: ./infra/tests/smoke-test.sh <vm-ip>
+# Environment:
+#   PORTIKUS_IDP                dex (the default), mock or external: the sign-in
+#                               provider the VM was configured with.
+#   PORTIKUS_SMOKE_SIGNIN_FILE  with dex, a file of mode 0600 holding a test
+#                               user's email and password on two lines; the
+#                               run then does a full password sign-in.
+#   PORTIKUS_PUBLIC_HOST, PORTIKUS_PUBLIC_PORT as the VM was configured.
 set -uo pipefail
 
 VM="${1:?Usage: smoke-test.sh <vm-ip>}"
+
+if [ -n "${PORTIKUS_MOCK_IDP:-}" ]; then
+  echo "smoke-test: PORTIKUS_MOCK_IDP was renamed: use PORTIKUS_IDP=mock" >&2
+  exit 2
+fi
+IDP="${PORTIKUS_IDP:-dex}"
+case "$IDP" in
+  dex | mock | external) ;;
+  *) echo "smoke-test: PORTIKUS_IDP must be dex, mock or external (got: ${IDP})" >&2; exit 2 ;;
+esac
+# The password is read into this shell only.  It reaches the VM on an ssh
+# standard input, never in a command line.
+SIGNIN_EMAIL=""
+SIGNIN_PASSWORD=""
+if [ -n "${PORTIKUS_SMOKE_SIGNIN_FILE:-}" ]; then
+  if [ "$IDP" != "dex" ]; then
+    echo "smoke-test: PORTIKUS_SMOKE_SIGNIN_FILE is for PORTIKUS_IDP=dex only" >&2
+    exit 2
+  fi
+  if [ "$(stat -c %a "$PORTIKUS_SMOKE_SIGNIN_FILE" 2>/dev/null)" != "600" ]; then
+    echo "smoke-test: ${PORTIKUS_SMOKE_SIGNIN_FILE} must exist with mode 0600" >&2
+    exit 2
+  fi
+  { IFS= read -r SIGNIN_EMAIL; IFS= read -r SIGNIN_PASSWORD; } <"$PORTIKUS_SMOKE_SIGNIN_FILE"
+  if [ -z "$SIGNIN_EMAIL" ] || [ -z "$SIGNIN_PASSWORD" ]; then
+    echo "smoke-test: ${PORTIKUS_SMOKE_SIGNIN_FILE} must hold an email and a password on two lines" >&2
+    exit 2
+  fi
+fi
 
 pass=0
 fail=0
@@ -257,8 +293,16 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "/dev/incus absent"                     ws_exec test ! -e /dev/incus
   check "/dev/vdb absent"                       ws_exec test ! -e /dev/vdb
 
-  # 19. Management network is unreachable from workspace
-  check "management network blocked"            ws_exec '! ping -c1 -W2 10.100.0.1'
+  # 19. Management network is unreachable from workspace.  The VM's default
+  # gateway is the host on the management network, whichever one this VM is on.
+  mgmt_gateway=$(ssh_cmd "ip -4 route show default" | awk '{ print $3; exit }')
+  if [ -n "$mgmt_gateway" ]; then
+    check "the VM itself reaches ${mgmt_gateway} (control)" ssh_cmd "ping -c1 -W2 ${mgmt_gateway}"
+    check "management network (${mgmt_gateway}) blocked" ws_exec "! ping -c1 -W2 ${mgmt_gateway}"
+  else
+    printf '\033[1;31mFAIL\033[0m  management network: the VM has no default gateway to probe\n'
+    fail=$((fail + 1))
+  fi
 
   # 20. SSH to VM bridge address blocked from workspace
   check "SSH to VM bridge blocked"              ws_exec '! timeout 3 bash -c "echo >/dev/tcp/10.200.0.1/22" 2>/dev/null'
@@ -286,14 +330,12 @@ echo ""
 # ── Epic 3 and 4: authenticated control-plane lifecycle ──────────
 # These checks run only when the portikus-api service is active (i.e.
 # code has been deployed).  Everything goes through Caddy on the public
-# host name, with a session cookie obtained from the mock identity
-# provider, so the block also covers Epic 4: login, roles, ownership,
-# CSRF, and the authenticated presence WebSocket.
-#
-# The mock provider is off unless the VM was configured with
-# PORTIKUS_MOCK_IDP=true, and without it there is no way to sign in, so
-# the same variable selects which of the two blocks below runs.
-MOCK_IDP="${PORTIKUS_MOCK_IDP:-false}"
+# host name, with a session cookie for each of three users, so the block
+# also covers Epic 4: roles, ownership, CSRF, and the authenticated presence
+# WebSocket.  With the mock provider the users sign in through it.  With any
+# other provider they are made in PostgreSQL with a session, as the security
+# suite does, so the block needs no password and works with IT's provider too
+# (docs/EPIC-12B.md, "Other Part A decisions").
 PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${VM}.nip.io}"
 # The default name only works where Caddy was told to serve it, so say so
 # rather than letting every HTTPS check fail for a reason nobody can see.
@@ -376,25 +418,159 @@ echo ""
 
 if ! ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
   echo "portikus-api not active; skipping Epic 3 and 4 checks."
-elif [ "$MOCK_IDP" != "true" ]; then
-  # Flag-off run: the only assertions possible are that the mock provider
-  # really is absent.  Signing in needs a real identity provider.
-  echo "--- Epic 4: mock identity provider is off ---"
-  echo ""
-
-  check "mock identity provider unit is inactive" \
-    ssh_cmd '! systemctl is-active portikus-mock-idp'
-  check_output "/mock-idp is 404 through Caddy" "404" \
-    http_status - "${API}/mock-idp/.well-known/openid-configuration"
-  check "HSTS header on /" \
-    site_header_matches 'strict-transport-security: max-age=31536000'
-  check "frame-ancestors header on /" \
-    site_header_matches "content-security-policy: frame-ancestors 'none'"
-
-  echo ""
-  echo "Authenticated lifecycle checks need the mock provider."
-  echo "Configure the VM with PORTIKUS_MOCK_IDP=true and re-run with the same variable."
 else
+  # ── Epic 12b: the sign-in provider (docs/EPIC-12B.md, Part A) ──
+  echo "--- Epic 12b: sign-in provider (${IDP}) ---"
+  echo ""
+
+  # One line per key of api.env, which only root and the API can read.
+  api_env() {
+    ssh_cmd "sudo sed -n 's/^$1=//p' /etc/portikus/api.env"
+  }
+  discovered_issuer() {
+    vm_get - "${API}/$1/.well-known/openid-configuration" \
+      | python3 -c "import sys,json; print(json.load(sys.stdin).get('issuer',''))" 2>/dev/null || true
+  }
+
+  # Whatever the provider, no bcrypt hash may reach a journal.
+  # shellcheck disable=SC2016  # the pattern is for grep on the VM
+  check_zero_lines "no bcrypt hash in the Dex, API or Caddy journals" \
+    ssh_cmd 'sudo journalctl -u portikus-dex -u portikus-api -u caddy --no-pager -o cat | grep -E "[$]2[aby][$][0-9]{2}[$]"'
+
+  if [ "$IDP" != "mock" ]; then
+    check "mock identity provider unit is inactive" \
+      ssh_cmd '! systemctl is-active portikus-mock-idp'
+    check "mock identity provider unit is disabled" \
+      ssh_cmd '! systemctl is-enabled portikus-mock-idp'
+    check "the mock's env and secret files are gone" \
+      ssh_cmd 'sudo test ! -e /etc/portikus/mock-idp.env -a ! -e /etc/portikus/mock-client.secret'
+    check_output "/mock-idp is 404 through Caddy" "404" \
+      http_status - "${API}/mock-idp/.well-known/openid-configuration"
+  fi
+  if [ "$IDP" != "dex" ]; then
+    check "Dex unit is inactive" ssh_cmd '! systemctl is-active portikus-dex'
+    check_output "/dex is 404 through Caddy" "404" \
+      http_status - "${API}/dex/.well-known/openid-configuration"
+  fi
+
+  if [ "$IDP" = "mock" ]; then
+    # The mock identity provider answers through Caddy with the right issuer.
+    check "portikus-mock-idp is active"           ssh_cmd systemctl is-active portikus-mock-idp
+    check_output "mock discovery reports the public issuer" "${API}/mock-idp" \
+      discovered_issuer mock-idp
+    # A foreign redirect_uri must not be honoured, or an attacker could have
+    # the authorization code delivered to a site they control.
+    check_output "mock /authorize refuses a foreign redirect_uri" "400" \
+      http_status - "${API}/mock-idp/authorize?client_id=portikus-dev&response_type=code&scope=openid&state=smoke&redirect_uri=https%3A%2F%2Fattacker.example%2Fcallback"
+  fi
+
+  if [ "$IDP" = "dex" ]; then
+    check "portikus-dex is active"                ssh_cmd systemctl is-active portikus-dex
+    dex_listeners() {
+      ssh_cmd "ss -Hltn 'sport = :5556'" | awk '{ print $4 }' | sort -u | paste -sd' '
+    }
+    check_output "Dex listens on loopback only" "127.0.0.1:5556" dex_listeners
+    check_output "Dex discovery through Caddy reports the public issuer" "${API}/dex" \
+      discovered_issuer dex
+    check_output "api.env names the Dex issuer" "${API}/dex" api_env OIDC_ISSUER_URL
+    check_output "api.env names the client portikus" "portikus" api_env OIDC_CLIENT_ID
+    check "api.env asks for the groups scope" \
+      ssh_cmd "sudo grep -qE '^OIDC_SCOPES=(.* )?groups( |\$)' /etc/portikus/api.env"
+    # Compared on the VM, so the secret never leaves it.
+    # shellcheck disable=SC2016  # expanded by the shell on the VM
+    check "api.env holds the generated Dex client secret" \
+      ssh_cmd 'sudo sh -c '\''test -s /etc/portikus/dex-client.secret && test "$(sed -n "s/^OIDC_CLIENT_SECRET=//p" /etc/portikus/api.env)" = "$(cat /etc/portikus/dex-client.secret)"'\'''
+    check_output "dex-client.secret is root, mode 0600" "root:root 600" \
+      ssh_cmd "sudo stat -c '%U:%G %a' /etc/portikus/dex-client.secret"
+    check_output "the Dex config is root:portikus-dex, mode 0640" "root:portikus-dex 640" \
+      ssh_cmd "sudo stat -c '%U:%G %a' /etc/portikus-dex/config.yaml"
+    # The users file stays on the operator's machine, so the Dex config is
+    # the only place with a hash (docs/adr/0023).  /root/go holds the Dex
+    # source and module cache, whose examples carry sample hashes.
+    # shellcheck disable=SC2016  # the pattern is for grep on the VM
+    check_zero_lines "no bcrypt hash on the VM outside the Dex config" \
+      ssh_cmd 'sudo grep -rlsE --exclude-dir=go "[$]2[aby][$][0-9]{2}[$][./A-Za-z0-9]{53}" /etc /root /home /tmp /var/tmp | grep -vx /etc/portikus-dex/config.yaml'
+
+    # Each group of password posts comes from its own loopback address, so
+    # the per-address throttle counts only this run's attempts, and a rerun
+    # within ten minutes starts clean.  Caddy names that address to the API.
+    random_loopback() { echo "127.$((RANDOM % 250 + 1)).$((RANDOM % 250 + 1)).$((RANDOM % 250 + 1))"; }
+    SIGNIN_JAR="/tmp/portikus-smoke-dexsignin.jar"
+
+    # form_body EMAIL -- the password form's body, password on stdin.  Built
+    # here so the password is in no command line on either machine.
+    form_body() {
+      python3 -c '
+import sys, urllib.parse
+password = sys.stdin.readline().rstrip("\n")
+sys.stdout.write(urllib.parse.urlencode({"login": sys.argv[1], "password": password}))
+' "$1"
+    }
+
+    # dex_signin SOURCE -- the whole browser flow through Caddy: /auth/login
+    # to Dex's form, post it (body on stdin), follow Dex back through the
+    # callback.  Prints the status of the last page.
+    dex_signin() {
+      ssh_cmd_stdin "rm -f ${SIGNIN_JAR}; page=\$(${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' '${API}/auth/login') \
+        && ${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L --data-binary @- -o /dev/null -w '%{http_code}' \"\$page\""
+    }
+    signin_has_session() {
+      ssh_cmd "awk '\$6 == \"${SESSION_COOKIE_NAME}\"' ${SIGNIN_JAR} | grep -q ."
+    }
+    signin_has_no_session() { ! signin_has_session; }
+
+    # Dex answers a refused password with its form again and status 401.
+    signin_source=$(random_loopback)
+    if [ -n "$SIGNIN_EMAIL" ]; then
+      refused_label="a wrong password"
+    else
+      refused_label="an account Dex does not know"
+    fi
+    refused_status=$(printf '%s\n' "wrong-$(openssl rand -hex 12)" \
+      | form_body "${SIGNIN_EMAIL:-smoke-nobody@example.invalid}" | dex_signin "$signin_source" 2>/dev/null)
+    check_output "${refused_label} is refused at Dex's form" "401" echo "$refused_status"
+    check "${refused_label} gets no session" signin_has_no_session
+
+    if [ -n "$SIGNIN_EMAIL" ]; then
+      echo ""
+      echo "Signing in through Dex as the user in ${PORTIKUS_SMOKE_SIGNIN_FILE}..."
+      printf '%s\n' "$SIGNIN_PASSWORD" | form_body "$SIGNIN_EMAIL" | dex_signin "$signin_source" >/dev/null 2>&1
+      check "a full Dex password sign-in gets a session" signin_has_session
+      signin_me() {
+        ssh_cmd "${CURL} -b ${SIGNIN_JAR} '${API}/auth/me'" | python3 -c '
+import json, sys
+me = json.load(sys.stdin)
+print(me.get("email", "").lower(), me.get("role", "") in ("student", "administrator"))
+' 2>/dev/null || true
+      }
+      check_output "/auth/me after the Dex sign-in names the user and a role" \
+        "$(printf '%s' "$SIGNIN_EMAIL" | tr '[:upper:]' '[:lower:]') True" signin_me
+      ssh_cmd "${CURL} -b ${SIGNIN_JAR} -X POST -H 'Origin: ${API}' -o /dev/null '${API}/auth/logout'" >/dev/null 2>&1 || true
+    else
+      echo "No PORTIKUS_SMOKE_SIGNIN_FILE: skipping the full Dex password sign-in."
+    fi
+    ssh_cmd "rm -f ${SIGNIN_JAR}" >/dev/null 2>&1 || true
+
+    # The password form is limited per address (#398).  The limit is the
+    # packages/config default unless api.env raises it.
+    password_limit=$(api_env PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES)
+    password_limit="${password_limit:-30}"
+    throttle_source=$(random_loopback)
+    throttle_statuses() {
+      ssh_cmd "for i in \$(seq 1 $((password_limit + 1))); do ${CURL} --interface ${throttle_source} -o /dev/null -w '%{http_code}\n' \
+        --data 'login=smoke-throttle%40example.invalid&password=x' '${API}/dex/auth/local/login?back=&state=smoke-throttle'; done"
+    }
+    throttle_result() {
+      throttle_statuses | awk -v n="$((password_limit + 1))" \
+        'NR < n && $1 == 429 { early++ } NR == n { last = $1 } END { print (early ? "early 429" : "last " last) }'
+    }
+    check_output "the password form refuses attempt $((password_limit + 1)) from one address" \
+      "last 429" throttle_result
+    check_output "the refusal is audited once for that address" "1" \
+      ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT count(*) FROM audit_events WHERE action = 'auth.throttled' AND metadata::jsonb->>'ip' = '${throttle_source}'\""
+  fi
+
+  echo ""
   echo "--- Epic 3 and 4: authenticated lifecycle checks ---"
   echo ""
 
@@ -424,6 +600,31 @@ else
     ssh_cmd "rm -f ${jar}"
     page=$(ssh_cmd "${CURL} -c ${jar} -b ${jar} -L -o /dev/null -w '%{url_effective}' '${API}/auth/login'")
     ssh_cmd "${CURL} -c ${jar} -b ${jar} -L -o /dev/null -w '%{http_code}' '${page}&user=${user}'"
+  }
+
+  # Users made in PostgreSQL live under their own issuer, with subjects no
+  # person has, so the cleanup can never reach a real account.
+  SMOKE_ISSUER="urn:portikus:smoketest"
+  SMOKE_RUN_ID="$(date -u +%m%d%H%M%S)"
+
+  # mint_user NAME DISPLAY_NAME ROLE -- a user row and a one-hour session,
+  # with the cookie written to NAME's jar as login_as would.  The token goes
+  # over ssh standard input, never in a command line.
+  mint_user() {
+    local name="$1" display="$2" role="$3" subject token hash uid
+    subject="smoke-${SMOKE_RUN_ID}-${name}"
+    created_user_subjects+=("$subject")
+    token=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')
+    hash=$(printf '%s' "$token" | sha256sum | awk '{ print $1 }')
+    uid=$(printf '%s\n' "WITH u AS (INSERT INTO users (oidc_issuer, oidc_subject, display_name, preferred_username, role) VALUES ('${SMOKE_ISSUER}', '${subject}', '${display}', '${name}', '${role}') RETURNING id), s AS (INSERT INTO sessions (id, user_id, expires_at) SELECT '${hash}', id, now() + interval '1 hour' FROM u) SELECT id FROM u" \
+      | ssh_cmd_stdin "sudo -u postgres psql -X -q -t -A -v ON_ERROR_STOP=1 -d portikus" 2>/dev/null)
+    if [ -z "$uid" ]; then
+      printf '\033[1;31mFAIL\033[0m  make %s %s in PostgreSQL\n' "$role" "$subject"
+      fail=$((fail + 1))
+      return 1
+    fi
+    printf '#HttpOnly_%s\tFALSE\t/\tTRUE\t0\t%s\t%s\n' "$PUBLIC_HOST" "$SESSION_COOKIE_NAME" "$token" \
+      | ssh_cmd_stdin "umask 077; cat > /tmp/portikus-smoke-${name}.jar"
   }
 
   # The session cookie value, read from the Netscape jar curl wrote.  The
@@ -585,17 +786,7 @@ else
   check "frame-ancestors header on /" \
     site_header_matches "content-security-policy: frame-ancestors 'none'"
 
-  # 3. The mock identity provider answers through Caddy with the right issuer.
-  check "portikus-mock-idp is active"           ssh_cmd systemctl is-active portikus-mock-idp
-  mock_issuer() {
-    vm_get - "${API}/mock-idp/.well-known/openid-configuration" | json_field issuer
-  }
-  check_output "mock discovery reports the public issuer" "${API}/mock-idp" mock_issuer
-
-  # A foreign redirect_uri must not be honoured, or an attacker could have
-  # the authorization code delivered to a site they control.
-  check_output "mock /authorize refuses a foreign redirect_uri" "400" \
-    http_status - "${API}/mock-idp/authorize?client_id=portikus-dev&response_type=code&scope=openid&state=smoke&redirect_uri=https%3A%2F%2Fattacker.example%2Fcallback"
+  # 3. The provider was checked above, before this block.
 
   # 4. Nothing works without a session.
   check_output "/auth/me is 401 anonymously"    "401" http_status - "${API}/auth/me"
@@ -620,17 +811,25 @@ else
   else
     echo "None."
   fi
-  existing_users=$(ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT oidc_subject FROM users WHERE oidc_subject IN ('alice','bob','carol')\"" 2>/dev/null || true)
 
-  # 5. Log the mock users in.
+  # 5. Sign alice, bob, and carol in: through the mock when it is on,
+  #    otherwise as users this run makes in PostgreSQL.
   echo ""
-  echo "Logging in as alice, bob, and carol..."
-  for mock_user in alice bob carol; do
-    login_as "$mock_user" >/dev/null 2>&1 || true
-    if ! echo "$existing_users" | grep -qx "$mock_user"; then
-      created_user_subjects+=("$mock_user")
-    fi
-  done
+  if [ "$IDP" = "mock" ]; then
+    existing_users=$(ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT oidc_subject FROM users WHERE oidc_subject IN ('alice','bob','carol')\"" 2>/dev/null || true)
+    echo "Logging in as alice, bob, and carol through the mock provider..."
+    for mock_user in alice bob carol; do
+      login_as "$mock_user" >/dev/null 2>&1 || true
+      if ! echo "$existing_users" | grep -qx "$mock_user"; then
+        created_user_subjects+=("$mock_user")
+      fi
+    done
+  else
+    echo "Making alice, bob, and carol under ${SMOKE_ISSUER}, run ${SMOKE_RUN_ID}..."
+    mint_user alice "Alice Student" student
+    mint_user bob "Bob Student" student
+    mint_user carol "Carol Administrator" administrator
+  fi
   alice_me=$(vm_get alice "${API}/auth/me")
   alice_name=$(echo "$alice_me" | json_field displayName)
   alice_id=$(echo "$alice_me" | json_field id)
