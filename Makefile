@@ -6,7 +6,8 @@
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy \
        users-add users-remove users-list users-check users-deploy identity-carry-over-dry-run \
-       backup-setup backup backup-install-timer restore
+       backup-setup backup backup-install-timer restore \
+       mock-lms lti-mock-register lti-mock-unregister
 
 help: ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -134,6 +135,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/security-cleanup-scope-test.sh
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/caddy-preview-test.sh
+	bash infra/tests/lti-platforms-test.sh
 	ansible-playbook infra/tests/dex-render-test.yml
 	bash infra/tests/backup-scope-test.sh
 
@@ -203,7 +205,9 @@ ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR
 	PORTIKUS_OIDC_SCOPES="$(PORTIKUS_OIDC_SCOPES)" \
 	PORTIKUS_OIDC_STUDENT_GROUP=$(PORTIKUS_OIDC_STUDENT_GROUP) \
 	PORTIKUS_OIDC_ADMIN_GROUP=$(PORTIKUS_OIDC_ADMIN_GROUP) \
-	PORTIKUS_API_IP_ALLOW="$(PORTIKUS_API_IP_ALLOW)"
+	PORTIKUS_OIDC_INSTRUCTOR_GROUP=$(PORTIKUS_OIDC_INSTRUCTOR_GROUP) \
+	PORTIKUS_API_IP_ALLOW="$(PORTIKUS_API_IP_ALLOW)" \
+	PORTIKUS_LTI_PLATFORMS_FILE="$(abspath $(PORTIKUS_LTI_PLATFORMS_FILE))"
 
 users-add: ## Add or update a Dex account; asks for the password twice (USERNAME=<name>)
 	@test -n "$(USERNAME)" || { echo "users-add: USERNAME is required, e.g. make users-add USERNAME=alice"; exit 1; }
@@ -229,6 +233,32 @@ identity-carry-over-dry-run: users-check wait-vm ## Show which existing accounts
 
 configure-vm: $(USERS_CHECK) wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|mock|external picks the sign-in provider, PORTIKUS_USERS_FILE=<path> the Dex accounts)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml
+
+# ── LTI launch (docs/EPIC-13.md, rulings 14 and 26) ────────────────
+# The registered LMS platforms. Kept on this machine; configure-vm copies it to
+# the VM, and no file means LTI is off.
+PORTIKUS_LTI_PLATFORMS_FILE ?= $(HOME)/.config/portikus/lti-platforms.json
+# The mock LMS runs on this host, never on the VM. The VM's API reaches it at the
+# host's first address on the VM network, 10.100.0.1 for the pilot.
+MOCK_LMS_PORT ?= 8765
+MOCK_LMS_HOST ?= $(or $(shell python3 -c 'import ipaddress, sys; print(next(ipaddress.ip_network(sys.argv[1]).hosts()))' '$(MANAGEMENT_CIDR)' 2>/dev/null),10.100.0.1)
+MOCK_LMS_URL = http://$(MOCK_LMS_HOST):$(MOCK_LMS_PORT)
+# Loopback and the VM network only, so nobody on the LAN can launch as anyone.
+MOCK_LMS_BIND ?= 127.0.0.1 $(MOCK_LMS_HOST)
+PORTIKUS_PUBLIC_URL = https://$(PORTIKUS_PUBLIC_HOST)$(if $(filter 443,$(PORTIKUS_PUBLIC_PORT)),,:$(PORTIKUS_PUBLIC_PORT))
+LTI_MOCK_CLI = python3 infra/host/lti-mock-registration.py --file "$(abspath $(PORTIKUS_LTI_PLATFORMS_FILE))"
+
+mock-lms: ## Run the mock LMS on this host in the foreground (MOCK_LMS_BIND, MOCK_LMS_PORT); it is trusted only while lti-mock-register is in effect
+	pnpm --dir packages/mock-lms start -- --tool-url $(PORTIKUS_PUBLIC_URL) --port $(MOCK_LMS_PORT) \
+		$(foreach bind,$(MOCK_LMS_BIND),--bind $(bind)) --issuer $(MOCK_LMS_URL)
+
+lti-mock-register: $(USERS_CHECK) wait-vm ## Trust the mock LMS on the VM: add its registration to the platforms file and apply only the LTI tasks
+	$(LTI_MOCK_CLI) register --url $(MOCK_LMS_URL) --client-id portikus-mock --deployment-id mock-deployment-1
+	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti
+
+lti-mock-unregister: $(USERS_CHECK) wait-vm ## Stop trusting the mock LMS: remove its registration and apply only the LTI tasks
+	$(LTI_MOCK_CLI) unregister
+	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti
 
 smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_IDP=<provider> as configured; PORTIKUS_SMOKE_SIGNIN_FILE=<file> for a full Dex sign-in)
 	@test -n "$(VM_IP)" || { echo "smoke-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }

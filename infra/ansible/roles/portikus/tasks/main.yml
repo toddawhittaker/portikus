@@ -299,43 +299,55 @@
     mode: "0640"
   notify: Restart portikus-api
 
+# ── LTI launch (docs/EPIC-13.md) ─────────────────────────────────
+# After api.env, which names the files these tasks write.
+- name: Apply the LTI platforms file and tool key
+  ansible.builtin.import_tasks: lti.yml
+  tags: lti
+
 # The packaged API unit allows loopback and the workspace bridge only.  An
-# external provider's addresses are added here, so a later move to one is a
-# settings change rather than a package change.
-- name: Create the API unit drop-in directory
-  ansible.builtin.file:
-    path: /etc/systemd/system/portikus-api.service.d
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  when: portikus_api_ip_allow_extra | length > 0
+# external provider's addresses and the LMS keyset addresses are added here,
+# so a later move to one is a settings change rather than a package change.
+# Tagged lti too, because registering the mock LMS widens it (ruling 26).
+- name: Allow the API its extra addresses
+  vars:
+    portikus_api_ip_allow: "{{ (portikus_api_ip_allow_extra + portikus_lti_keyset_cidrs) | unique }}"
+  tags: lti
+  block:
+    - name: Create the API unit drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/portikus-api.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: portikus_api_ip_allow | length > 0
 
-- name: Allow the API to reach the external identity provider
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
-    content: |
-      # Managed by Ansible from PORTIKUS_API_IP_ALLOW.
-      [Service]
-      {% for cidr in portikus_api_ip_allow_extra %}
-      IPAddressAllow={{ cidr }}
-      {% endfor %}
-    owner: root
-    group: root
-    mode: "0644"
-  when: portikus_api_ip_allow_extra | length > 0
-  notify:
-    - Reload systemd
-    - Restart portikus-api
+    - name: Allow the API to reach the identity provider and LMS keysets
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
+        content: |
+          # Managed by Ansible from PORTIKUS_API_IP_ALLOW and the LTI keyset addresses.
+          [Service]
+          {% for cidr in portikus_api_ip_allow %}
+          IPAddressAllow={{ cidr }}
+          {% endfor %}
+        owner: root
+        group: root
+        mode: "0644"
+      when: portikus_api_ip_allow | length > 0
+      notify:
+        - Reload systemd
+        - Restart portikus-api
 
-- name: Remove the API egress drop-in when nothing is added
-  ansible.builtin.file:
-    path: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
-    state: absent
-  when: portikus_api_ip_allow_extra | length == 0
-  notify:
-    - Reload systemd
-    - Restart portikus-api
+    - name: Remove the API egress drop-in when nothing is added
+      ansible.builtin.file:
+        path: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
+        state: absent
+      when: portikus_api_ip_allow | length == 0
+      notify:
+        - Reload systemd
+        - Restart portikus-api
 
 - name: Deploy worker environment file
   ansible.builtin.template:

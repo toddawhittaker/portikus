@@ -1,0 +1,18 @@
+---
+# Runs the portikus role's LTI platforms guards on one file, with no VM.
+# infra/tests/lti-platforms-test.sh calls it once per case:
+#
+#   ansible-playbook infra/tests/lti-platforms-load.yml -e portikus_lti_platforms_file=<file>
+- name: Load an LTI platforms file through the role's guards
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Load the file
+      ansible.builtin.include_tasks: ../ansible/roles/portikus/tasks/lti_load.yml
+
+    - name: Print the result for the test script
+      ansible.builtin.debug:
+        msg: "LTI-RESULT {{ {'on': portikus_lti_platforms is not none, 'cidrs': portikus_lti_keyset_cidrs} | to_json }}"
