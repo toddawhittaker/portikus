@@ -297,6 +297,25 @@ describe("mock LMS", () => {
 			expect(logs[1]).toBe("launch person=sam defect=replayed_nonce");
 		});
 
+		it("replayed_nonce replays the last good token, never a defective one", async () => {
+			const good = await launchToken({ person: "sam", course: "cs101" });
+			await defective("expired", "page");
+			const replay = await launchToken(
+				{ person: "sam", course: "cs101", defect: "replayed_nonce" },
+				{ state: "state-3", nonce: "nonce-3" },
+			);
+			expect(replay.id_token).toBe(good.id_token);
+		});
+
+		it("replayed_nonce after only defective launches is refused", async () => {
+			await defective("wrong_aud", "query");
+			const login = await loginFor({ person: "sam", course: "cs101" });
+			const { status } = await authorize(
+				authorizeParams(login, { defect: "replayed_nonce" }),
+			);
+			expect(status).toBe(400);
+		});
+
 		it("replayed_nonce with no earlier launch is refused", async () => {
 			const login = await loginFor({ person: "sam", course: "cs101" });
 			const { status } = await authorize(

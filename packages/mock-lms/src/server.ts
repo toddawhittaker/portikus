@@ -54,7 +54,7 @@ export function createHandler(options: MockLmsOptions) {
 	const now = options.now ?? (() => Math.floor(Date.now() / 1000));
 	// Launches stay valid for the life of the process: the frame fallback re-submits the same hint.
 	const pending = new Map<string, PendingLaunch>();
-	let previousToken: string | undefined;
+	let previousToken: string | undefined; // the last good launch's token
 
 	function send(res: ServerResponse, status: number, type: string, body: string) {
 		res.writeHead(status, {
@@ -174,7 +174,8 @@ export function createHandler(options: MockLmsOptions) {
 				defect,
 			});
 			idToken = await signLaunch(signer, claims, defect);
-			previousToken = idToken;
+			// Replay only a good token, so the replay fails on its nonce and nothing else.
+			if (defect === undefined) previousToken = idToken;
 		}
 		// Never the token, and nothing about the person beyond the seed key.
 		log(`launch person=${launch.person.key} defect=${defect ?? "none"}`);
