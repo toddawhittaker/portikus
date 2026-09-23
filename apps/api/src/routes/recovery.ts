@@ -332,6 +332,24 @@ export function registerRecoveryRoutes(
 			if (!(error instanceof AgentCallError)) throw error;
 			result = "failed";
 			await auditRestore(request, input, safetyPointId, result);
+			// STORAGE_FULL here is the home folder, not recovery storage, so the
+			// browser must not offer to skip the safety point.
+			if (error.code === "STORAGE_FULL") {
+				return sendError(
+					reply,
+					500,
+					"INTERNAL",
+					"Your home folder is full, so nothing was restored. Free some space and try again.",
+				);
+			}
+			if (error.code === "RESTORE_INCOMPLETE" && safetyPointId === null) {
+				return sendError(
+					reply,
+					500,
+					"INTERNAL",
+					`The project may be partly restored. Your earlier files are kept in a folder named .portikus-aside-${point.id} in the projects folder; do not delete it.`,
+				);
+			}
 			return sendAgentError(reply, error);
 		}
 		await auditRestore(request, input, safetyPointId, result);

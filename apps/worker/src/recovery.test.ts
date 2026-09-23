@@ -257,6 +257,41 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"an unreachable agent costs one timeout per sweep, however many projects",
+	async () => {
+		const stuck = await insertWorkspace({ agent_address: "10.0.0.66" });
+		const stuckProjects: string[] = [];
+		for (let i = 0; i < 50; i++) stuckProjects.push(await insertProject(stuck));
+		const other = await insertProject(await insertWorkspace());
+		let calls = 0;
+		let deletes = 0;
+		const hanging: RecoveryAgent = {
+			createRecoveryPoint: async () => {
+				calls++;
+				throw new AgentCallError("AGENT_UNAVAILABLE", "timed out");
+			},
+			deleteRecoveryPoint: async () => {
+				deletes++;
+			},
+		};
+		const now = new Date();
+		const result = await recoverySweep(
+			tdb.db,
+			(address) => (address === "10.0.0.66" ? hanging : agent),
+			cfg,
+			now,
+		);
+
+		expect(calls).toBe(1);
+		expect(deletes).toBe(0);
+		expect(result.created).toBe(1);
+		expect(await points(other)).toHaveLength(1);
+		// Every project counts as tried, so a pending rebuild is not stuck forever.
+		expect(await rebuildPointsDone(tdb.db, stuck, now)).toBe(true);
+	},
+);
+
 test.skipIf(skip)("point sizes count as whole 4 KiB disk blocks", async () => {
 	const now = new Date();
 	const ws = await insertWorkspace();

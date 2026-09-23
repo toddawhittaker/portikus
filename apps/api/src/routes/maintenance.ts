@@ -3,7 +3,7 @@ import { type PendingOperation, RebuildWorkspaceRequest } from "@portikus/contra
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import type { ServerDeps } from "../server.js";
-import { sendError } from "./project-scope.js";
+import { longOperationRunning, sendError } from "./project-scope.js";
 import { findOwnedWorkspace } from "./workspace-view.js";
 
 const UuidParam = z.object({ id: z.string().uuid() });
@@ -28,6 +28,15 @@ export function registerMaintenanceRoutes(
 		action: string,
 		metadata: Record<string, unknown>,
 	): Promise<void> {
+		// A restore or copy holds the project folders; rebuilding under it would race.
+		if (longOperationRunning(workspaceId)) {
+			return sendError(
+				reply,
+				409,
+				"OPERATION_IN_PROGRESS",
+				"A project operation such as a restore is running on this workspace. Try again when it finishes.",
+			);
+		}
 		const now = new Date().toISOString();
 		const updated = await db
 			.updateTable("workspaces")
