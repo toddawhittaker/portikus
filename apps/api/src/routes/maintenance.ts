@@ -3,7 +3,12 @@ import { type PendingOperation, RebuildWorkspaceRequest } from "@portikus/contra
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import type { ServerDeps } from "../server.js";
-import { longOperationRunning, sendError } from "./project-scope.js";
+import {
+	claimLongOperation,
+	longOperationRunning,
+	releaseLongOperation,
+	sendError,
+} from "./project-scope.js";
 import { findOwnedWorkspace } from "./workspace-view.js";
 
 const UuidParam = z.object({ id: z.string().uuid() });
@@ -37,18 +42,26 @@ export function registerMaintenanceRoutes(
 				"A project operation such as a restore is running on this workspace. Try again when it finishes.",
 			);
 		}
-		const now = new Date().toISOString();
-		const updated = await db
-			.updateTable("workspaces")
-			.set({
-				pending_operation: operation,
-				pending_operation_at: now,
-				pending_operation_by: userId,
-				updated_at: now,
-			})
-			.where("id", "=", workspaceId)
-			.where("pending_operation", "is", null)
-			.executeTakeFirst();
+		// Held while the operation is set, so a restore cannot start in between.
+		// Nothing was awaited since the check above, so this claim succeeds.
+		claimLongOperation(workspaceId, reply);
+		let updated: { numUpdatedRows: bigint };
+		try {
+			const now = new Date().toISOString();
+			updated = await db
+				.updateTable("workspaces")
+				.set({
+					pending_operation: operation,
+					pending_operation_at: now,
+					pending_operation_by: userId,
+					updated_at: now,
+				})
+				.where("id", "=", workspaceId)
+				.where("pending_operation", "is", null)
+				.executeTakeFirst();
+		} finally {
+			releaseLongOperation(workspaceId);
+		}
 		if (updated.numUpdatedRows === 0n) {
 			return sendError(
 				reply,

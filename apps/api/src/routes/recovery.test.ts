@@ -12,6 +12,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { longOperationRunning } from "./project-scope.js";
 
 /**
  * Recovery points through the API (SPEC.md §15, ADR 0020): owner only,
@@ -475,6 +476,46 @@ test.skipIf(skip)("create and restore wait out a pending operation", async () =>
 	expect(await pointRows()).toHaveLength(1);
 });
 
+test.skipIf(skip)("refusing for a pending operation gives the slot back", async () => {
+	const pointId = (await create(alice)).json().id;
+	await testDb.db
+		.updateTable("workspaces")
+		.set({
+			pending_operation: "rebuild",
+			pending_operation_at: new Date().toISOString(),
+		})
+		.where("id", "=", workspaceId)
+		.execute();
+	expect((await create(alice)).statusCode).toBe(409);
+	expect(longOperationRunning(workspaceId)).toBe(false);
+	expect((await restore(alice, pointId)).statusCode).toBe(409);
+	expect(longOperationRunning(workspaceId)).toBe(false);
+});
+
+test.skipIf(skip)(
+	"a restore and a maintenance request never both go ahead",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		for (let i = 0; i < 20; i++) {
+			await testDb.db
+				.updateTable("workspaces")
+				.set({ pending_operation: null, pending_operation_at: null })
+				.where("id", "=", workspaceId)
+				.execute();
+			const [restored, reset] = await Promise.all([
+				restore(alice, pointId),
+				app.inject({
+					method: "POST",
+					url: `/workspaces/${workspaceId}/reset-docker`,
+					headers: csrfHeaders(alice, PUBLIC_URL),
+				}),
+			]);
+			expect([restored.statusCode, reset.statusCode]).not.toEqual([204, 202]);
+			expect(restored.statusCode === 204 || reset.statusCode === 202).toBe(true);
+		}
+	},
+);
+
 test.skipIf(skip)("a partial restore tells the student how to undo it", async () => {
 	const pointId = (await create(alice)).json().id;
 	agent.restoreIncomplete.add("");
@@ -519,7 +560,7 @@ test.skipIf(skip)("a leftover rollback copy refuses the restore", async () => {
 	agent.restoreFailure.set("", [409, "ROLLBACK_COPY_EXISTS"]);
 	const refused = await restore(alice, pointId);
 	expect(refused.statusCode).toBe(409);
-	expect(refused.json().message).toMatch(
-		/rollback copy is still in the projects folder/,
+	expect(refused.json().message).toBe(
+		`Files set aside by an earlier restore of this point are in the folder ~/projects/.portikus-aside-${pointId}. Copy back anything you need, delete that folder in a terminal, then restore again. You can restore a different point in the meantime.`,
 	);
 });

@@ -158,10 +158,8 @@ test.skipIf(skip)(
 		socket.ws.send(JSON.stringify({ type: "heartbeat" }));
 		expect(await closed).toBe(4401);
 
-		// The connection row is dropped after the close event fires the socket
-		// closes as soon as the server calls close(), but the row deletion is
-		// a separate awaited database call that follows it, so poll for it
-		// instead of assuming a fixed delay is always enough (SPEC.md §6.4).
+		// The socket closes as soon as the server calls close(), but the row is
+		// deleted by a later database call, so poll for it.
 		await vi.waitFor(
 			async () => {
 				const rows = await testDb.db
