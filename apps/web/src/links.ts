@@ -30,6 +30,9 @@ export type TerminalLink =
  */
 const PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+/** A UUID as the admin links carry it; the router and the audit tab share it. */
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Ports below this are reserved and are never previewed (SPEC.md §14.7). */
 export const MIN_PREVIEW_PORT = 1024;
 

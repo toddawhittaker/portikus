@@ -9,8 +9,7 @@ import {
 	useParams,
 } from "@tanstack/react-router";
 import { ADMIN_TABS, AdminPage } from "./admin/AdminPage.js";
-import { UUID } from "./admin/audit/AuditTab.js";
-import { MIN_PREVIEW_PORT } from "./links.js";
+import { MIN_PREVIEW_PORT, UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
 import { SignIn } from "./pages/SignIn.js";

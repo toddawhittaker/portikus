@@ -14,6 +14,7 @@ type Sizes = GrowVolumesRequest;
 
 // Only the two grown volumes are compared; quota_config may hold other keys (Epic 10's recoveryGiB).
 const wantedSizes = sql`jsonb_build_object('homeGiB', quota_config->'homeGiB', 'dockerGiB', quota_config->'dockerGiB')`;
+const appliedSizes = sql`jsonb_build_object('homeGiB', quota_applied->'homeGiB', 'dockerGiB', quota_applied->'dockerGiB')`;
 
 export interface QuotaSyncOptions {
 	db: Kysely<Database>;
@@ -70,7 +71,9 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 				.where("image_version", "is not", null)
 				.where("state", "<>", "provisioning")
 				.where("quota_config", "is not", null)
-				.where(sql<boolean>`${wantedSizes} is distinct from quota_applied`)
+				.where(
+					sql<boolean>`${wantedSizes} is distinct from case when quota_applied is null then null else ${appliedSizes} end`,
+				)
 				.execute();
 
 			for (const row of rows) {

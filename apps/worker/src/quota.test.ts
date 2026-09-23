@@ -180,6 +180,20 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"recoveryGiB in both quota_config and quota_applied triggers no grow and no audit",
+	async () => {
+		const ws = await insertWorkspace({
+			config: { homeGiB: 25, dockerGiB: 20, recoveryGiB: 10 } as Sizes,
+			applied: { homeGiB: 25, dockerGiB: 20, recoveryGiB: 10 } as Sizes,
+		});
+		const { tick, grows } = build();
+		await tick();
+		expect(grows()).toEqual([]);
+		expect(await audits(ws.id)).toEqual([]);
+	},
+);
+
+test.skipIf(skip)(
 	"a failed grow is audited once and retried after a rest",
 	async () => {
 		const ws = await insertWorkspace({

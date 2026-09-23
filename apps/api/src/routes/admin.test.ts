@@ -8,6 +8,7 @@ import {
 import type { AdminUser } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
@@ -675,19 +676,38 @@ test.skipIf(skip)(
 			.where("id", "=", aliceId)
 			.execute();
 
-		const [one, two] = await Promise.all([
-			app.inject({
-				method: "POST",
-				url: `/admin/users/${aliceId}/disable`,
-				headers: csrfHeaders(carol, PUBLIC_URL),
-			}),
-			app.inject({
-				method: "POST",
-				url: `/admin/users/${carolId}/disable`,
-				headers: csrfHeaders(alice, PUBLIC_URL),
-			}),
-		]);
-		expect([one.statusCode, two.statusCode].sort()).toEqual([200, 400]);
+		// Hold the users rows so both requests queue on the lock before either
+		// decides; without the lock both would see the other still enabled.
+		let pending: Promise<Awaited<ReturnType<typeof app.inject>>[]> | undefined;
+		let waited = 0;
+		await testDb.db.transaction().execute(async (trx) => {
+			await sql`select 1 from users for update`.execute(trx);
+			pending = Promise.all([
+				app.inject({
+					method: "POST",
+					url: `/admin/users/${aliceId}/disable`,
+					headers: csrfHeaders(carol, PUBLIC_URL),
+				}),
+				app.inject({
+					method: "POST",
+					url: `/admin/users/${carolId}/disable`,
+					headers: csrfHeaders(alice, PUBLIC_URL),
+				}),
+			]);
+			for (let i = 0; i < 200; i++) {
+				const waiting = await sql<{ n: number }>`
+					select count(*)::int as n from pg_stat_activity
+					where wait_event_type = 'Lock' and datname = current_database()`.execute(
+					testDb.db,
+				);
+				waited = waiting.rows[0]?.n ?? 0;
+				if (waited === 2) break;
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+		});
+		expect(waited).toBe(2);
+		const results = await (pending as NonNullable<typeof pending>);
+		expect(results.map((r) => r.statusCode).sort()).toEqual([200, 400]);
 		const enabledAdmins = await testDb.db
 			.selectFrom("users")
 			.select("id")

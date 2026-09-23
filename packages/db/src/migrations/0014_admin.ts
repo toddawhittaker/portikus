@@ -11,7 +11,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.alterTable("workspaces")
 		.addColumn("quota_applied", "jsonb")
 		.execute();
-	await sql`update workspaces set quota_applied = quota_config`.execute(db);
+	// Only the two grown volumes; quota_config may also hold Epic 10's recoveryGiB.
+	await sql`update workspaces set quota_applied = jsonb_build_object('homeGiB', quota_config->'homeGiB', 'dockerGiB', quota_config->'dockerGiB') where quota_config is not null`.execute(
+		db,
+	);
 
 	// One host snapshot a minute from the worker, kept 7 days (SPEC.md §25.6).
 	await db.schema

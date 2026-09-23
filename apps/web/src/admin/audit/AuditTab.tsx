@@ -3,10 +3,8 @@ import { Button, TextField } from "@portikus/ui";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
+import { UUID } from "../../links.js";
 import { type AuditFilters, useAuditPage } from "./queries.js";
-
-/** A UUID as the admin links carry it; the router and this tab share it. */
-export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function text(value: unknown): string {
 	return typeof value === "string" ? value : "";

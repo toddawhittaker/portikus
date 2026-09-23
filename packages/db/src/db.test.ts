@@ -641,48 +641,55 @@ describe("database migrations and schema", () => {
 
 	// --- migration 0014: admin columns, health samples, audit indexes (Epic 11) ---
 
-	test.skipIf(!hasTestDb())("0014 backfills quota_applied and rolls back", async () => {
-		const { Migrator } = await import("kysely/migration");
-		const { migrations } = await import("./migrations/index.js");
-		const rollback = new Error("rollback");
+	test.skipIf(!hasTestDb())(
+		"0014 backfills quota_applied with only home and docker and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
 
-		await expect(
-			t.db.transaction().execute(async (trx) => {
-				const migrator = new Migrator({
-					db: trx,
-					provider: { getMigrations: async () => migrations },
-				});
-				const down = await migrator.migrateDown();
-				expect(down.results?.[0]?.migrationName).toBe("0014_admin");
-				const gone = await sql<{ n: number }>`
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0014_admin");
+					const gone = await sql<{ n: number }>`
 					select count(*)::int as n from information_schema.tables
 					where table_name = 'health_samples'`.execute(trx);
-				expect(gone.rows[0]?.n).toBe(0);
+					expect(gone.rows[0]?.n).toBe(0);
 
-				const userId = await insertTestUser(trx);
-				await trx
-					.insertInto("workspaces")
-					.values({
-						label: testLabel(),
-						owner_user_id: userId,
-						state: "stopped",
-						quota_config: JSON.stringify({ homeGiB: 25, dockerGiB: 20 }),
-					} as never)
-					.execute();
+					const userId = await insertTestUser(trx);
+					await trx
+						.insertInto("workspaces")
+						.values({
+							label: testLabel(),
+							owner_user_id: userId,
+							state: "stopped",
+							quota_config: JSON.stringify({
+								homeGiB: 25,
+								dockerGiB: 20,
+								recoveryGiB: 10,
+							}),
+						} as never)
+						.execute();
 
-				const up = await migrator.migrateToLatest();
-				expect(up.error).toBeUndefined();
-				const row = await trx
-					.selectFrom("workspaces")
-					.select(["quota_applied", "archived_at"])
-					.where("owner_user_id", "=", userId)
-					.executeTakeFirstOrThrow();
-				expect(row.quota_applied).toEqual({ homeGiB: 25, dockerGiB: 20 });
-				expect(row.archived_at).toBeNull();
-				throw rollback;
-			}),
-		).rejects.toBe(rollback);
-	});
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+					const row = await trx
+						.selectFrom("workspaces")
+						.select(["quota_applied", "archived_at"])
+						.where("owner_user_id", "=", userId)
+						.executeTakeFirstOrThrow();
+					expect(row.quota_applied).toEqual({ homeGiB: 25, dockerGiB: 20 });
+					expect(row.archived_at).toBeNull();
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
 
 	test.skipIf(!hasTestDb())(
 		"health_samples stores a sample with a default time",
