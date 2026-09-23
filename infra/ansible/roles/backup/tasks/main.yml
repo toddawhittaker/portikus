@@ -15,8 +15,23 @@
   ansible.builtin.command:
     cmd: >-
       incus storage volume create {{ incus_storage_pool_name }} {{ backup_volume_name }}
-      size={{ backup_volume_size }}
+      size={{ backup_volume_size_gib }}GiB
   when: backup_volume_check.rc != 0
+  changed_when: true
+
+- name: Read the backups volume size
+  ansible.builtin.command:
+    cmd: incus storage volume get {{ incus_storage_pool_name }} {{ backup_volume_name }} size
+  register: backup_volume_current
+  changed_when: false
+
+# Grow only: an existing volume made smaller than a full home is enlarged.
+- name: Grow the backups volume to hold the largest volume
+  ansible.builtin.command:
+    cmd: >-
+      incus storage volume set {{ incus_storage_pool_name }} {{ backup_volume_name }}
+      size={{ backup_volume_size_gib }}GiB
+  when: backup_volume_current.stdout | trim | regex_replace('GiB$', '') | int < backup_volume_size_gib | int
   changed_when: true
 
 - name: Read where Incus stages exports

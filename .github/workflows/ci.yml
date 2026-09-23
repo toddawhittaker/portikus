@@ -367,10 +367,20 @@ jobs:
         run: pipx install ansible-lint && ansible-lint infra/ansible
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
-        run: sudo apt-get install -y shellcheck && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/*
+        # age is for the backup scope test below.
+        run: sudo apt-get install -y shellcheck age && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* infra/host/portikus-backup-export
       - name: Smoke test cleanup scope
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/cleanup-scope-test.sh
+      - name: Security test cleanup scope
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/security-cleanup-scope-test.sh
       - name: Clipboard shim
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/clipboard-shim-test.sh
+      - name: Caddy preview routes
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/caddy-preview-test.sh
+      - name: Backup scope
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/backup-scope-test.sh

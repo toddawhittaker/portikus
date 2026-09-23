@@ -11,6 +11,7 @@
 #   portikus-backup-export db             pg_dump -Fc of the portikus database
 #   portikus-backup-export counts         users, workspaces and projects rows
 #   portikus-backup-export workspaces     workspace id and instance name, one per line
+#   portikus-backup-export instances      the Incus instance names, one per line
 #   portikus-backup-export idmap VOL      the ID map the volume was last shifted to
 #   portikus-backup-export volume VOL     an Incus export of VOL, without its snapshots
 set -euo pipefail
@@ -67,6 +68,9 @@ case "${1:-}" in
     runuser -u postgres -- psql -X -q -t -A -F ' ' -d portikus -c \
       "SELECT id, COALESCE(incus_instance_name, '-') FROM workspaces ORDER BY id"
     ;;
+  instances)
+    incus_p list --format csv --columns n | sort
+    ;;
   idmap)
     valid_volume "${2:-}"
     incus_p storage volume get "$POOL" "$2" volatile.idmap.last || true
@@ -75,6 +79,6 @@ case "${1:-}" in
     export_volume "${2:-}"
     ;;
   *)
-    die "usage: portikus-backup-export volumes | db | counts | workspaces | idmap VOL | volume VOL"
+    die "usage: portikus-backup-export volumes | db | counts | workspaces | instances | idmap VOL | volume VOL"
     ;;
 esac
