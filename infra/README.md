@@ -399,8 +399,8 @@ make users-check                  # validate the file
 make users-deploy                 # apply the file to Dex on the VM
 ```
 
-`make users-add` asks for the email, display name and role (`student` or
-`administrator`), then for the password twice without echoing it. Passwords
+`make users-add` asks for the email, display name and role (`student`,
+`instructor` or `administrator`), then for the password twice without echoing it. Passwords
 need at least 12 characters. Students sign in with their email address and
 that password. Nobody can change their own password; to reset one, run
 `make users-add` again for that user and then `make users-deploy`.
@@ -420,8 +420,8 @@ once, without waiting for a deploy, disable the account in `/admin`.
 `make configure-vm` and `make users-deploy` run `make users-check` first
 and stop if it fails. Ansible reads the file on your machine and renders
 one Dex entry per user into `/etc/portikus-dex/config.yaml` on the VM
-(`root:portikus-dex`, mode 0640), with the group `portikus-students` or
-`portikus-administrators` from the role. That rendered file is the only
+(`root:portikus-dex`, mode 0640), with the group `portikus-students`,
+`instructor` or `portikus-administrators` from the role. That rendered file is the only
 place on the VM that holds the hashes; the users file itself is never
 copied there.
 
