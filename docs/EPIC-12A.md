@@ -69,7 +69,7 @@ Across every class: a refused request never reaches any workspace agent (the fak
 
 ### A route added later fails until it is classified
 
-The class table lives on the test side, in `apps/api/src/security/route-policy.ts`, keyed by `"<METHOD> <url pattern>"` with a `websocket` flag. `authz-matrix.test.ts` builds the server with `buildTestServer`, adds an `onRoute` hook before `app.ready()`, and checks both ways: every route the hook saw (including automatic `HEAD` twins and WebSocket routes) has a class, and every table entry still exists (`app.hasRoute`). `/health` is registered before the hook can be added, so `hasRoute` covers it. The agent gets the same check in `apps/workspace-agent/src/security/agent-auth-matrix.test.ts`: every agent route refuses no token and a wrong token, except `/__test/*` routes, which exist only on the fake agent.
+The class table lives on the test side, in `apps/api/src/security/route-policy.ts`, keyed by `"<METHOD> <url pattern>"` with a `websocket` flag. `authz-matrix.test.ts` builds the server with `buildTestServer`, adds an `onRoute` hook before `app.ready()`, and checks both ways: every route the hook saw (including automatic `HEAD` twins and WebSocket routes) has a class, and every table entry still exists (`app.hasRoute`). Every route, `/health` included, is registered inside the one routes plugin in `apps/api/src/server.ts`, so the hook sees them all; a route registered on the root instance would be missed. The agent gets the same check in `apps/workspace-agent/src/security/agent-auth-matrix.test.ts`: every agent route refuses no token and a wrong token, except `/__test/*` routes, which exist only on the fake agent.
 
 ## Where each test runs
 

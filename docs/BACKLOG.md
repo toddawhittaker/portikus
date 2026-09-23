@@ -397,19 +397,6 @@ with the rate-limiting work already in this backlog. Half a day.
 
 **Source.** Security review of Epic 7.
 
-## Keep `fake-agent.ts` out of the deployed build
-
-**What.** Exclude the test fake agent from the Debian package.
-
-**Why.** It ships today as dead code in the published package. It is not
-reachable, but a test double does not belong on a production machine.
-
-**What it would take.** Move it under a test directory the build excludes,
-or exclude the file in the package's file list, and assert its absence in
-the package test. An hour.
-
-**Source.** `docs/STATUS.md`, Epic 7.
-
 ## Short object id for a detached HEAD
 
 **What.** Show the short commit id when the repository is on a detached

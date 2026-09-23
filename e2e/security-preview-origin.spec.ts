@@ -13,7 +13,8 @@ import {
  * Preview code running in student A's own browser gets none of the control
  * plane's authority (Epic 12a, Done item 10; SPEC.md §24; BROWSER-HANDLING.md
  * §7, §12, §25.1). From inside the preview frame it cannot read `/auth/me`,
- * cannot change anything through the API, and cannot see the session cookie.
+ * cannot change anything through the API, and cannot see the session cookie,
+ * which is HttpOnly and host-only.
  *
  * Two hops are stood in for. Caddy, as in preview.spec.ts: a small gateway
  * on the page answers the preview host from the real API. And the cookie jar
@@ -230,20 +231,26 @@ test.describe("preview code in the student's own browser", () => {
 		expect((await page.request.get("/auth/me")).status()).toBe(200);
 	});
 
-	test("cannot see the session cookie", async ({ page }) => {
-		const { student, frame } = await openOwnPreview(page);
-		const seen = await frame.evaluate(async () => {
-			const store = (
-				globalThis as unknown as {
-					cookieStore?: { getAll(): Promise<{ name: string; value: string }[]> };
-				}
-			).cookieStore;
-			const listed = store ? await store.getAll() : [];
-			return [document.cookie, ...listed.map((one) => `${one.name}=${one.value}`)].join(
-				"; ",
-			);
+	test("cannot see the session cookie", async ({ request }) => {
+		// Script in any frame can read a cookie only when it lacks HttpOnly, and
+		// a Domain attribute would send it to preview hosts too. So the check is
+		// on the Set-Cookie header of a real sign-in.
+		const authorize = await request.get("/auth/login");
+		expect(authorize.url()).toContain("/authorize");
+		const chosen = await request.get(`${authorize.url()}&user=alice`, {
+			maxRedirects: 0,
 		});
-		expect(seen).not.toContain("portikus_session");
-		expect(seen).not.toContain(student.sessionToken);
+		const callback = chosen.headers().location;
+		expect(callback).toContain("/auth/callback");
+		const signedIn = await request.get(callback ?? "", { maxRedirects: 0 });
+		const session = signedIn
+			.headersArray()
+			.filter((header) => header.name.toLowerCase() === "set-cookie")
+			.map((header) => header.value)
+			.find((value) => /^(__Host-)?portikus_session=/.test(value));
+		expect(session).toBeDefined();
+		expect(session).toMatch(/;\s*HttpOnly/i);
+		expect(session).not.toMatch(/;\s*Domain=/i);
+		expect(session).toMatch(/;\s*SameSite=Lax/i);
 	});
 });

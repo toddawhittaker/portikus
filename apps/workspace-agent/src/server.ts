@@ -571,15 +571,18 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		instance.get("/projects/:slug/archive", async (request, reply) => {
 			const { slug } = request.params as { slug: string };
 			let archive: Readable;
+			// A download the browser gave up on must not leave zip running.
+			const controller = new AbortController();
+			reply.raw.once("close", () => controller.abort());
 			try {
 				const { path } = queryPath(request);
 				if (path === "") {
-					archive = await archiveProject(slug, options.homeDir);
+					archive = await archiveProject(slug, options.homeDir, controller.signal);
 				} else {
 					const target = await resolveInProject(options.homeDir, slug, path, {
 						mustExist: true,
 					});
-					archive = await archiveDir(target.path);
+					archive = await archiveDir(target.path, controller.signal);
 				}
 			} catch (error) {
 				return sendError(request, reply, error, "INTERNAL");

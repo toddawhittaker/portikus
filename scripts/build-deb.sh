@@ -70,6 +70,11 @@ prune_tree() {
 	find "$tree" -name '.env*' -prune -exec rm -rf {} +
 	find "$tree" -type f \( -name '.npmrc' -o -name '*.test.js' \
 		-o -name '*.test.d.ts' -o -name '*.js.map' -o -name '*.d.ts.map' \) -delete
+	# Test doubles and test helpers. @portikus/auth/dist/testing stays: the
+	# mock identity provider service runs from it (ADR 0008).
+	rm -rf "$tree"/dist/fake-* "$tree"/dist/test-support.* "$tree/dist/security"
+	find "$tree" \( -path '*/@portikus/db/dist/testing.*' \
+		-o -path '*/@portikus/observability/dist/testing.*' \) -delete
 	# The package ships read-only files owned by root.
 	chmod -R u=rwX,go=rX "$tree"
 }
@@ -93,5 +98,21 @@ PORTIKUS_VERSION="$version" "$nfpm_bin" package \
 	--config packaging/nfpm.yaml \
 	--packager deb \
 	--target "dist/deb/portikus_${version}_amd64.deb"
+
+# Fail the build if a test-only module reached the package. Only our own code
+# is checked: the app trees and the @portikus packages they depend on.
+deb="dist/deb/portikus_${version}_amd64.deb"
+listing="$(dpkg-deb -c "$deb" | awk '{ print $6 }')"
+ours="$({
+	grep -v 'node_modules/' <<<"$listing"
+	grep 'node_modules/@portikus/' <<<"$listing" | grep -v '/@portikus/auth/dist/testing/'
+} || true)"
+test_only='/dist/(fake-|test-support\.|security(/|$)|testing(/|\.|$))|\.test\.(js|d\.ts)$'
+found="$(grep -E "$test_only" <<<"$ours" || true)"
+if [ -n "$found" ]; then
+	echo "Test-only files are in the package:" >&2
+	echo "$found" >&2
+	exit 1
+fi
 
 echo "$version"

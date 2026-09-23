@@ -14,7 +14,6 @@ import {
 	unlink,
 	writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { Readable } from "node:stream";
 import { promisify } from "node:util";
@@ -392,25 +391,35 @@ export async function gitInitProject(
  * Zip the project. `-y` stores symlinks rather than following them, so a
  * link out of the project cannot leak its target.
  */
-export async function archiveProject(slug: string, homeDir: string): Promise<Readable> {
+export async function archiveProject(
+	slug: string,
+	homeDir: string,
+	signal: AbortSignal,
+): Promise<Readable> {
 	const target = await resolveProject(slug, homeDir);
 	if (!target.exists) {
 		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
 	}
-	return archiveDir(target.path);
+	return archiveDir(target.path, signal);
 }
 
 /**
  * Zip one directory from its parent, so the archive holds a single top-level
  * entry named after that directory (SPEC.md §11.2). zip writes to a private
  * temporary file, because it cannot store a symlink entry on a pipe (#400);
- * the returned stream deletes that file when it closes.
+ * the returned stream deletes that file when it closes. Aborting `signal`
+ * kills zip. The file goes under /var/tmp because /tmp is a tmpfs on
+ * Debian 13, and a large zip there would count against the memory limit.
  */
-export async function archiveDir(dir: string): Promise<Readable> {
-	const tempDir = await mkdtemp(join(tmpdir(), "portikus-archive-"));
+export async function archiveDir(
+	dir: string,
+	signal: AbortSignal,
+	tempBase = "/var/tmp",
+): Promise<Readable> {
+	const tempDir = await mkdtemp(join(tempBase, "portikus-archive-"));
 	const zipPath = join(tempDir, "archive.zip");
 	try {
-		await runZip(dir, zipPath);
+		await runZip(dir, zipPath, signal);
 		const stream = createReadStream(zipPath);
 		stream.once("close", () => {
 			void rm(tempDir, { recursive: true, force: true });
@@ -422,11 +431,12 @@ export async function archiveDir(dir: string): Promise<Readable> {
 	}
 }
 
-function runZip(dir: string, zipPath: string): Promise<void> {
+function runZip(dir: string, zipPath: string, signal: AbortSignal): Promise<void> {
 	return new Promise<void>((resolve, reject) => {
 		const child = spawn("zip", ["-r", "-y", "-q", zipPath, "--", basename(dir)], {
 			cwd: dirname(dir),
 			stdio: ["ignore", "ignore", "pipe"],
+			signal,
 		});
 		let stderr = "";
 		child.stderr.on("data", (chunk: Buffer) => {
@@ -435,13 +445,13 @@ function runZip(dir: string, zipPath: string): Promise<void> {
 		// An image without zip installed fails here, and an unhandled "error"
 		// event would take the whole agent down.
 		child.once("error", (error: Error) => {
-			reject(new AgentFailure("GIT_FAILED", `could not start zip: ${error.message}`));
+			reject(new AgentFailure("INTERNAL", `could not start zip: ${error.message}`));
 		});
 		child.once("close", (code) => {
 			if (code === 0) {
 				resolve();
 			} else {
-				reject(new AgentFailure("GIT_FAILED", `zip failed: ${stderr.trim()}`));
+				reject(new AgentFailure("INTERNAL", `zip failed: ${stderr.trim()}`));
 			}
 		});
 	});

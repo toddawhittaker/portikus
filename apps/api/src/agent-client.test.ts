@@ -1,7 +1,12 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, expect, test, vi } from "vitest";
-import { AGENT_TIMEOUT_MS, AgentCallError, AgentClient } from "./agent-client.js";
+import {
+	AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS,
+	AGENT_TIMEOUT_MS,
+	AgentCallError,
+	AgentClient,
+} from "./agent-client.js";
 
 /**
  * The agent lives inside the student's container, so the API must survive a
@@ -163,11 +168,34 @@ test("a download whose headers never arrive gives up", async () => {
 	// The header budget is an ordinary setTimeout, so fake timers can move it.
 	vi.useFakeTimers();
 	const pending = client.downloadProject("alpha").catch((caught) => caught);
-	await vi.advanceTimersByTimeAsync(5000);
+	await vi.advanceTimersByTimeAsync(AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS);
 	vi.useRealTimers();
 	const error = await pending;
 	expect(error).toBeInstanceOf(AgentCallError);
 	expect((error as AgentCallError).code).toBe("AGENT_UNAVAILABLE");
+}, 20_000);
+
+test("a download whose zip takes longer than five seconds still arrives", async () => {
+	let requestArrived: () => void = () => undefined;
+	const arrived = new Promise<void>((resolve) => {
+		requestArrived = resolve;
+	});
+	const port = await startUpstream((_request, response) => {
+		// The agent zips before it sends headers; this one takes six seconds.
+		setTimeout(() => {
+			response.writeHead(200, { "content-type": "application/zip" });
+			response.end("zip");
+		}, 6000);
+		requestArrived();
+	});
+	const client = new AgentClient("127.0.0.1", port, "token");
+
+	vi.useFakeTimers();
+	const pending = client.downloadProject("alpha");
+	await arrived;
+	await vi.advanceTimersByTimeAsync(6000);
+	vi.useRealTimers();
+	expect(await (await pending).text()).toBe("zip");
 }, 20_000);
 
 test("duplicate gets the long budget, not the ordinary five seconds", async () => {
