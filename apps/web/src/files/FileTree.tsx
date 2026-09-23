@@ -717,6 +717,11 @@ export function FileTreePane({
 							session && !reviewSession ? () => setReviewSession(true) : undefined
 						}
 						onShowGit={reviewSession ? () => setReviewSession(false) : undefined}
+						sessionRestore={
+							session?.recoveryPointId
+								? { workspaceId, project, pointId: session.recoveryPointId }
+								: undefined
+						}
 						onOpen={
 							reviewSession && session?.baselineObjectId
 								? (path) =>

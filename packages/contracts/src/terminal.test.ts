@@ -144,3 +144,18 @@ test("limits match the agreed transport budget", () => {
 	expect(MAX_ATTACHMENTS_PER_TERMINAL).toBe(4);
 	expect(MAX_INPUT_FRAME_BYTES).toBe(65536);
 });
+
+test("Terminal carries the recovery point made before its agent session", () => {
+	const withPoint = {
+		...sampleTerminal,
+		agent: "claude",
+		recoveryPointId: "550e8400-e29b-41d4-a716-446655440222",
+	};
+	expect(Terminal.parse(withPoint)).toEqual(withPoint);
+	expect(
+		Terminal.parse({ ...sampleTerminal, recoveryPointId: null }).recoveryPointId,
+	).toBe(null);
+	expect(Terminal.safeParse({ ...sampleTerminal, recoveryPointId: "x" }).success).toBe(
+		false,
+	);
+});

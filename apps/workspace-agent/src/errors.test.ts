@@ -44,6 +44,34 @@ test("an unexpected Error never puts its message on the body", () => {
 	expect(logged).toHaveLength(1);
 });
 
+test("an unexpected filesystem error logs its code and syscall, never the path", () => {
+	const { request, reply, logged } = stubs();
+	const error = Object.assign(
+		new Error("EACCES: permission denied, open '/home/u/projects/secret-plan.md'"),
+		{ code: "EACCES", syscall: "open", path: "/home/u/projects/secret-plan.md" },
+	);
+	sendError(request, reply, error, "INTERNAL");
+	expect(logged).toEqual([
+		[
+			{ errorCode: "EACCES", syscall: "open", errorName: "Error" },
+			"agent request failed",
+		],
+	]);
+	expect(JSON.stringify(logged)).not.toContain("secret-plan");
+});
+
+test("an unexpected programming error logs its class name, never its message", () => {
+	const { request, reply, logged } = stubs();
+	sendError(request, reply, new TypeError("cannot read secret-plan.md"), "INTERNAL");
+	expect(logged).toEqual([
+		[
+			{ errorCode: undefined, syscall: undefined, errorName: "TypeError" },
+			"agent request failed",
+		],
+	]);
+	expect(JSON.stringify(logged)).not.toContain("secret-plan");
+});
+
 test("a thrown value that is not an Error is still handled", () => {
 	const { request, reply, sent, logged } = stubs();
 	sendError(request, reply, { odd: true });

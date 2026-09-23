@@ -28,7 +28,8 @@ export function DeleteConfirm({
 				description={
 					<>
 						The folder <span className="pk-mono-small">{project.path}</span> and
-						everything in it is removed. This cannot be undone.
+						everything in it is removed, and so are its recovery points. This cannot be
+						undone.
 					</>
 				}
 				confirmText={project.slug}

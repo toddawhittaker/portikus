@@ -24,13 +24,14 @@ export function ArchiveConfirm({
 			<ConfirmDialog
 				testId="dialog-archive-project"
 				title={`Archive ${project.name}?`}
-				description="You can bring it back from Archived projects at any time."
+				description="You can bring it back from Archived projects at any time. A recovery point is made first when the workspace is running."
 				lost={["the project from your list"]}
 				survives={[
 					<span key="files">
 						all files in{" "}
 						<span className="pk-mono-small">~/projects/{project.slug}</span>
 					</span>,
+					"its recovery points",
 				]}
 				confirmLabel="Archive project"
 				pending={archive.isPending}

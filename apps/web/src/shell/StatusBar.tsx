@@ -1,4 +1,9 @@
-import type { Project, Workspace } from "@portikus/contracts";
+import type {
+	PendingOperation,
+	Project,
+	Workspace,
+	WorkspaceUsage,
+} from "@portikus/contracts";
 import {
 	Button,
 	ConfirmDialog,
@@ -12,6 +17,16 @@ import { useState } from "react";
 import { useWorkspaceAction } from "../api/workspace.js";
 import { gitBar } from "../files/gitStatus.js";
 import { useGitStatus } from "../files/useGitStatus.js";
+import { formatBytes } from "../monitor/format.js";
+import { STORAGE_POLL_MS, useWorkspaceUsage } from "../monitor/usage.js";
+import { DialogError } from "../projects/DialogError.js";
+import { useResetDocker } from "../recovery/queries.js";
+import {
+	STORAGE_CLASSES,
+	STORAGE_LABEL,
+	storageLevel,
+	storageWarning,
+} from "../recovery/storage.js";
 import { useCountdown } from "./useCountdown.js";
 
 const TONE_CLASS: Record<string, string> = {
@@ -22,6 +37,31 @@ const TONE_CLASS: Record<string, string> = {
 	stopped: "pk-tone-stopped",
 	error: "pk-tone-error",
 };
+
+/** What the status shows while a maintenance operation waits or runs (SPEC.md §27). */
+export const PENDING_LABEL: Record<PendingOperation, string> = {
+	"reset-docker": "Resetting Docker…",
+	rebuild: "Rebuilding…",
+	"rebuild-reset-docker": "Rebuilding…",
+};
+
+/** The workspace state, or the pending operation when there is one. */
+function resolveStatus(workspace: Workspace | null): {
+	tone: string;
+	label: string;
+	moving: boolean;
+} {
+	if (!workspace) return { tone: "starting", label: "Connecting", moving: true };
+	if (workspace.pendingOperation)
+		return {
+			tone: "starting",
+			label: PENDING_LABEL[workspace.pendingOperation],
+			moving: true,
+		};
+	return resolveWorkspaceState(workspace.state, workspace.desiredState);
+}
+
+type Confirming = "stop" | "restart" | "reset-docker" | null;
 
 /** Image fingerprints are 64 characters; a student only ever needs the head of one. */
 function shortImage(imageVersion: string | null): string {
@@ -40,9 +80,13 @@ export function StatusBar({
 	workspace: Workspace | null;
 }) {
 	const [statusOpen, setStatusOpen] = useState(false);
-	const resolved = workspace
-		? resolveWorkspaceState(workspace.state, workspace.desiredState)
-		: { tone: "starting" as const, label: "Connecting" };
+	// The confirmation open on top of the workspace dialog, if any.
+	const [confirming, setConfirming] = useState<Confirming>(null);
+	const resolved = resolveStatus(workspace);
+	const running = workspace?.state === "running";
+	const usage = useWorkspaceUsage(workspaceId, running, STORAGE_POLL_MS);
+	const storage = running ? usage.data?.storage : undefined;
+	const warning = storageWarning(storage);
 	const countdown = useCountdown(workspace?.shutdownDeadline ?? null);
 
 	return (
@@ -59,6 +103,21 @@ export function StatusBar({
 					Stopping in {countdown.clock}
 				</span>
 			)}
+			{/* Announces a class crossing a threshold (SPEC.md §19.2). */}
+			<span role="status" className="contents">
+				{warning ? (
+					<button
+						type="button"
+						className={`pk-statusbar-item ${warning.level === "critical" ? "pk-tone-error" : "pk-tone-warning"}`}
+						aria-haspopup="dialog"
+						data-testid="storage-warning"
+						data-level={warning.level}
+						onClick={() => setStatusOpen(true)}
+					>
+						{warning.text}
+					</button>
+				) : null}
+			</span>
 			<button
 				type="button"
 				className="pk-statusbar-item"
@@ -75,7 +134,18 @@ export function StatusBar({
 				</span>
 			</button>
 
-			<DialogRoot open={statusOpen} onOpenChange={setStatusOpen}>
+			<DialogRoot
+				open={statusOpen}
+				onOpenChange={(open) => {
+					// Escape in a confirmation can reach this dialog as well; it closes
+					// only the confirmation.
+					if (!open && confirming) {
+						setConfirming(null);
+						return;
+					}
+					setStatusOpen(open);
+				}}
+			>
 				{statusOpen && (
 					<Dialog
 						testId="dialog-workspace-status"
@@ -106,7 +176,26 @@ export function StatusBar({
 								{workspace.errorMessage}
 							</p>
 						) : null}
-						<WorkspaceControls workspaceId={workspaceId} workspace={workspace} />
+						<WorkspaceControls
+							workspaceId={workspaceId}
+							workspace={workspace}
+							confirming={confirming === "reset-docker" ? null : confirming}
+							setConfirming={setConfirming}
+						/>
+						<StorageSection storage={storage} warning={warning?.detail ?? null} />
+						<ResetDocker
+							workspaceId={workspaceId}
+							workspace={workspace}
+							confirming={confirming === "reset-docker"}
+							setConfirming={(open) => setConfirming(open ? "reset-docker" : null)}
+						/>
+						<p
+							className="pk-text-small mt-4 mb-0 text-ink-muted"
+							data-testid="rebuild-note"
+						>
+							An administrator can rebuild the workspace system. Your home folder and
+							projects are kept; programs installed with sudo apt are not.
+						</p>
 					</Dialog>
 				)}
 			</DialogRoot>
@@ -122,17 +211,18 @@ export function StatusBar({
 function WorkspaceControls({
 	workspaceId,
 	workspace,
+	confirming,
+	setConfirming,
 }: {
 	workspaceId: string;
 	workspace: Workspace | null;
+	confirming: "stop" | "restart" | null;
+	setConfirming: (next: "stop" | "restart" | null) => void;
 }) {
 	const action = useWorkspaceAction(workspaceId);
 	const toast = useToast();
-	const [confirming, setConfirming] = useState<"stop" | "restart" | null>(null);
 
-	const resolved = workspace
-		? resolveWorkspaceState(workspace.state, workspace.desiredState)
-		: null;
+	const resolved = workspace ? resolveStatus(workspace) : null;
 	// No workspace yet means the presence socket has not reported one.
 	const moving = resolved === null || resolved.moving || action.isPending;
 	const stopped = workspace?.state === "stopped" || workspace?.state === "error";
@@ -183,7 +273,9 @@ function WorkspaceControls({
 					className="pk-text-small text-ink-muted"
 					data-testid="workspace-transition"
 				>
-					{resolved.label} your workspace.
+					{workspace?.pendingOperation
+						? resolved.label
+						: `${resolved.label} your workspace.`}
 				</span>
 			) : null}
 
@@ -206,6 +298,119 @@ function WorkspaceControls({
 						pending={action.isPending}
 						onCancel={() => setConfirming(null)}
 						onConfirm={() => run(confirming)}
+					/>
+				) : null}
+			</ConfirmDialogRoot>
+		</div>
+	);
+}
+
+/** Used and total for each storage class (SPEC.md §18.3, §19.2). */
+function StorageSection({
+	storage,
+	warning,
+}: {
+	storage: WorkspaceUsage["storage"] | undefined;
+	warning: string | null;
+}) {
+	return (
+		<section className="mt-5" aria-labelledby="workspace-storage-title">
+			<h3
+				id="workspace-storage-title"
+				className="m-0 mb-1 text-sm font-semibold text-ink"
+			>
+				Storage
+			</h3>
+			{storage ? (
+				<dl className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1 text-[13px]">
+					{STORAGE_CLASSES.map((storageClass) => {
+						const figure = storage[storageClass];
+						const level = storageLevel(figure);
+						return (
+							<div key={storageClass} className="contents">
+								<dt className="text-ink-muted">{STORAGE_LABEL[storageClass]}</dt>
+								<dd
+									className={`m-0 ${level === "critical" ? "text-status-error" : level === "warning" ? "text-status-warning" : ""}`}
+									data-testid={`storage-${storageClass}`}
+								>
+									{figure
+										? `${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}`
+										: "Not available"}
+								</dd>
+							</div>
+						);
+					})}
+				</dl>
+			) : (
+				<p
+					className="pk-text-small m-0 text-ink-muted"
+					data-testid="storage-unavailable"
+				>
+					Available when the workspace is running.
+				</p>
+			)}
+			{warning ? (
+				<p className="pk-text-small mt-2 mb-0" data-testid="storage-warning-detail">
+					{warning}
+				</p>
+			) : null}
+		</section>
+	);
+}
+
+/**
+ * Reset Docker throws away Docker's storage and keeps everything else
+ * (SPEC.md §16.4). The worker stops, resets and restarts the workspace.
+ */
+function ResetDocker({
+	workspaceId,
+	workspace,
+	confirming,
+	setConfirming,
+}: {
+	workspaceId: string;
+	workspace: Workspace | null;
+	confirming: boolean;
+	setConfirming: (open: boolean) => void;
+}) {
+	const reset = useResetDocker(workspaceId);
+	const busy = !workspace || workspace.pendingOperation !== null || reset.isPending;
+
+	return (
+		<div className="mt-4">
+			<Button
+				disabled={busy}
+				data-testid="workspace-reset-docker"
+				onClick={() => setConfirming(true)}
+			>
+				Reset Docker…
+			</Button>
+			<DialogError error={reset.error} />
+			<ConfirmDialogRoot
+				open={confirming}
+				onOpenChange={(open) => !open && setConfirming(false)}
+			>
+				{confirming ? (
+					<ConfirmDialog
+						testId="dialog-reset-docker"
+						title="Reset Docker?"
+						description="Your workspace stops, Docker's storage is replaced with an empty one, and the workspace starts again if it was running."
+						lost={[
+							"Docker images",
+							"containers",
+							"volumes",
+							"build cache",
+							"programs running now, including terminals and servers",
+						]}
+						survives={["your projects", "your home folder", "recovery points"]}
+						confirmLabel="Reset Docker"
+						pending={reset.isPending}
+						onCancel={() => setConfirming(false)}
+						onConfirm={() => {
+							if (reset.isPending) return;
+							// An error shows in this dialog: a toast behind it would be hidden.
+							reset.mutate(undefined, { onSettled: () => setConfirming(false) });
+						}}
 					/>
 				) : null}
 			</ConfirmDialogRoot>

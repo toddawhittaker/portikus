@@ -26,11 +26,13 @@ const sampleWorkspace = {
 	incusInstanceName: "ws-abc123",
 	imageVersion: "1.0.0",
 	quotaConfig: { homeGiB: 25, dockerGiB: 20 },
+	pendingOperation: null,
 	errorCode: null,
 	errorMessage: null,
 	activeConnections: 2,
 	lastActiveConnectionAt: null,
 	shutdownDeadline: null,
+	archivedAt: null,
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -64,11 +66,13 @@ test("Workspace round-trips a complete response", () => {
 		incusInstanceName: "ws-abc123",
 		imageVersion: "1.0.0",
 		quotaConfig: { homeGiB: 25, dockerGiB: 20 },
+		pendingOperation: null,
 		errorCode: null,
 		errorMessage: null,
 		activeConnections: 2,
 		lastActiveConnectionAt: now,
 		shutdownDeadline: null,
+		archivedAt: null,
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -162,7 +166,7 @@ test("InstanceName rejects length 32 (exceeds 31 chars)", () => {
 });
 
 test("CreateInstanceRequest round-trips", () => {
-	const input = { name: "ws-abc123", homeGiB: 25, dockerGiB: 20 };
+	const input = { name: "ws-abc123", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 };
 	expect(CreateInstanceRequest.parse(input)).toEqual(input);
 });
 

@@ -773,3 +773,181 @@ Epic 12a explicitly.
 
 **Source.** `docs/SPEC.md` section 29; `docs/EPIC-12A.md`, "Where this
 epic sits" and "Out of this epic".
+
+## A shared point-insert helper for the API and the worker
+
+**What.** One function that creates a `recovery_points` row and writes
+its archive, called by both the API (manual points and restore's safety
+point) and the worker (periodic, before-archive, and before-rebuild
+points), instead of each keeping its own copy of the same sequence.
+
+**Why.** Epic 10 built the API and worker paths in separate task pull
+requests against a shared contract, so each ended up with its own
+version of "call the agent, then insert the row, then stamp the
+project". They agree today, but a future fix, such as the point-count
+cap or the retry-on-agent-unavailable behaviour, has to be made twice.
+
+**What it would take.** Pull the shared steps into a
+`packages/db`-adjacent helper or a small shared package, with the
+agent-calling part left to each caller. About half a day, including
+moving the existing tests.
+
+**Source.** `docs/STATUS.md`, Epic 10 known gaps.
+
+## Reconcile orphan recovery archives against their rows
+
+**What.** A periodic or on-demand check that lists the files under each
+workspace's recovery volume and compares them with the `recovery_points`
+rows, and handles every mismatch: an archive with no row (delete it), an
+archive that is deleted while a restore is reading it (retry or fail the
+restore cleanly, not silently), and old `.portikus-aside-*` and
+`.portikus-restore-*` folders left behind by an incomplete restore.
+
+**Why.** Epic 10 accepted an orphan archive as a known gap (`docs/EPIC-10.md`,
+risk 8): the API can crash between the agent writing an archive and the
+row being inserted. Rollback copies from a failed restore are also never
+cleaned up automatically today (`docs/STATUS.md`, Epic 10 known gaps).
+Left alone, both slowly eat the recovery quota.
+
+**What it would take.** A worker sweep, similar to the existing retention
+sweep, that lists each workspace's recovery directory through the agent
+and deletes anything with no matching row past some age, plus ages out
+`.portikus-aside-*` folders after a fixed period. One to two days,
+including the busy-delete race with an in-progress restore.
+
+**Source.** `docs/EPIC-10.md` risk 8; `docs/STATUS.md`, Epic 10 known gaps.
+
+## Recovery quota backfill should follow `WORKSPACE_RECOVERY_SIZE_GIB`
+
+**What.** Migration 0013's backfill of `quota_config.recoveryGiB` for
+existing workspaces should read the deployment's configured
+`WORKSPACE_RECOVERY_SIZE_GIB` instead of writing a hard-coded 3.
+
+**Why.** A deployment that has already changed the environment variable
+away from its default gets existing workspaces stamped with the wrong
+number, which then never matches what the controller actually
+provisions until each workspace is rebuilt.
+
+**What it would take.** A small follow-up migration that re-runs the
+backfill using the current environment value, or a one-off script run at
+deploy time. Half a day.
+
+**Source.** `docs/STATUS.md`, Epic 10 known gaps.
+
+## Let a student clear a kept rollback copy from the UI
+
+**What.** A button, most likely in the Recovery points dialog, that
+deletes a `.portikus-aside-<pointId>` folder a failed restore left
+behind, once the student has checked it and no longer needs it.
+
+**Why.** Epic 10's restore keeps this folder rather than lose files on a
+failed rollback, but today the only way to remove it is a terminal
+command, and a student who does not know it exists can slowly fill their
+project storage.
+
+**What it would take.** An agent route to list and delete a project's
+aside folders, and a small addition to the Recovery points dialog. About
+a day, including the confirmation copy explaining what the folder is.
+
+**Source.** `docs/STATUS.md`, Epic 10 known gaps; PR #431, #435.
+
+## A dedicated API error code for rate limits
+
+**What.** A new `ApiErrorCode` such as `RATE_LIMITED`, used wherever a
+request is refused only because the caller is going too fast, instead of
+reusing `BUSY`.
+
+**Why.** Epic 10 answers 429 with code `BUSY` when a project's manual
+recovery-point rate limit is hit (`docs/EPIC-10.md` task 5 review fixes),
+the same code the agent's per-project lock uses for "another operation
+on this project is already running". A client cannot tell "try again in
+a moment" from "wait for the other operation to finish" apart without
+also checking the HTTP status.
+
+**What it would take.** Add the error code to `packages/contracts`,
+switch the rate-limit responses to it, and update the handful of tests
+that assert on `BUSY` for a rate limit today. Half a day.
+
+**Source.** `docs/EPIC-10.md`, task 5 review fixes; PR #428.
+## OpenTelemetry export
+
+**What.** Export the operational metrics that today live only in
+PostgreSQL's `health_samples` table and `audit_events` counts to an
+OpenTelemetry collector, once there is somewhere for it to send them.
+
+**Why.** ADR 0022 chose PostgreSQL over an OpenTelemetry SDK because the
+pilot is one VM with nothing to scrape a metrics endpoint. A second VM, a
+managed database, or an external monitoring service would change that.
+
+**What it would take.** An OpenTelemetry SDK in the worker, a collector
+to send to, and a decision on whether `health_samples` keeps running
+alongside it or is replaced. About two days once a destination exists.
+
+**Source.** `docs/STATUS.md`, Epic 11; ADR 0022.
+
+## Audit retention policy
+
+**What.** A policy that ages out or archives old `audit_events` rows,
+rather than keeping every row forever.
+
+**Why.** SPEC.md section 25.10 asks for a retention policy, and Epic 11
+added several new, higher-volume audit sources (`preview.denied`,
+`user.role_changed`, and the workspace lifecycle actions) without adding
+one.
+
+**What it would take.** Decide a retention window per action type, a
+sweep job similar to the one that already prunes `health_samples` after
+7 days, and a decision on whether old rows are deleted or exported
+first. About a day.
+
+**Source.** SPEC.md section 25.10; `docs/EPIC-11.md`, "Out of this epic".
+
+## Per-workspace CPU, memory, and process limits
+
+**What.** Let an administrator set CPU, memory and process limits on one
+workspace, rather than every workspace sharing the limits in the one
+Incus profile that Ansible owns.
+
+**Why.** Epic 11's Health tab shows the profile's shared limits but does
+not let anyone change them per workspace; today a single misbehaving
+workspace is bounded only by the platform-wide profile.
+
+**What it would take.** A per-instance Incus limit override, a place to
+store the chosen values, and admin UI to set them. About two days.
+
+**Source.** `docs/EPIC-11.md`, "Out of this epic".
+
+## Egress allow-list (issue #284)
+
+**What.** Let an administrator restrict which external hosts a
+workspace's outbound network traffic can reach, beyond the private-range
+and host deny list.
+
+**Why.** SPEC.md and issue #284 ask for administrator control over
+egress. PR #424 already added a deny list that keeps workspace traffic
+off private network ranges and the platform host itself, which closes
+one class of risk (a workspace reaching the platform's own internal
+services) but is not the allow-list itself.
+
+**What it would take.** A policy store, an enforcement point (likely
+nftables rules per workspace, alongside the existing deny list), and
+admin UI in the Settings tab, which Epic 11 left a place for. About two
+days.
+
+**Source.** Issue #284; `docs/EPIC-11.md`, "Settings tab" and task 7.
+
+## Bulk admin actions
+
+**What.** Let an administrator act on more than one workspace or account
+at a time, for example disabling several stale accounts together.
+
+**Why.** Epic 11's Workspaces tab acts on one row at a time. A pilot with
+a few hundred students will have batches of accounts that need the same
+action, such as end-of-term disables.
+
+**What it would take.** Row selection in the Workspaces tab, a
+confirmation dialog naming every affected row, and either a bulk API
+route or a loop over the existing single-row ones with a shared audit
+row per action. About a day.
+
+**Source.** `docs/EPIC-11.md`, "Out of this epic".

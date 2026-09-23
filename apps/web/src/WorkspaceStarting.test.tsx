@@ -58,3 +58,27 @@ test("a workspace the student stopped offers a way to start it again", () => {
 	// Nothing is happening, so there is no spinner pretending otherwise.
 	expect(document.querySelector(".pk-spin")).toBeNull();
 });
+
+test("a pending Reset Docker or Rebuild says so instead of the phase", () => {
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "stopping", pendingOperation: "reset-docker" }}
+		/>,
+	);
+	expect(screen.getByRole("heading").textContent).toBe("Resetting Docker…");
+	expect(screen.getByTestId("workspace-progress").dataset.pending).toBe("reset-docker");
+});
+
+test("a pending rebuild reads Rebuilding and says projects are kept", () => {
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "stopped", pendingOperation: "rebuild" }}
+		/>,
+	);
+	expect(screen.getByRole("heading").textContent).toBe("Rebuilding…");
+	expect(screen.getByTestId("workspace-progress").textContent).toContain(
+		"Your projects and home folder are kept",
+	);
+});

@@ -720,6 +720,40 @@ test.skipIf(skip)("a preview cookie is worthless on another host", async () => {
 	expect((await authorize(token, `${label}-5173.evil.example`)).statusCode).toBe(403);
 });
 
+test.skipIf(skip)(
+	"a 403 refusal is audited as preview.denied, once a minute",
+	async () => {
+		const token = await openPreview(5173);
+		for (let i = 0; i < 3; i++) {
+			expect((await authorize(token, previewHostFor(3000))).statusCode).toBe(403);
+		}
+		// A refusal for a second reason gets its own row.
+		const bridged = await authorize(token, previewHostFor(5173), {
+			extra: { "x-forwarded-uri": "/__portikus/ports/nope/" },
+		});
+		expect(bridged.statusCode).toBe(403);
+		// 401 answers are the ordinary "sign in first" and are not audited.
+		expect((await authorize(null, previewHostFor(5173))).statusCode).toBe(401);
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "preview.denied")
+			.orderBy("id")
+			.execute();
+		expect(rows.map((row) => row.metadata)).toEqual([
+			{ reason: "host_mismatch", workspaceId, count: 3 },
+			{ reason: "invalid_bridge_path", workspaceId, count: 1 },
+		]);
+		expect(rows.every((row) => row.target === workspaceId)).toBe(true);
+		expect(rows.every((row) => row.result === "denied")).toBe(true);
+		// No cookie, ticket, host or path reaches the audit row (STACK.md §15).
+		const serialized = JSON.stringify(rows.map((row) => row.metadata));
+		expect(serialized).not.toContain(token);
+		expect(serialized).not.toContain(SUFFIX);
+	},
+);
+
 test.skipIf(skip)("a workspace that changed hands stops authorizing", async () => {
 	const token = await openPreview(5173);
 	const bobId = (

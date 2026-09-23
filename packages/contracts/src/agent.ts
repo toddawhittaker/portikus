@@ -164,6 +164,12 @@ export const AgentErrorCode = z.enum([
 	"LISTENER_NOT_FOUND",
 	"LISTENER_IS_SYSTEM",
 	"STOP_FAILED",
+	// Recovery points (SPEC.md §15, ADR 0020).
+	"BUSY",
+	"STORAGE_FULL",
+	"RECOVERY_POINT_INVALID",
+	"RESTORE_INCOMPLETE",
+	"ROLLBACK_COPY_EXISTS",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 

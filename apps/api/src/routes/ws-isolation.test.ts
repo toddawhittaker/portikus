@@ -158,12 +158,18 @@ test.skipIf(skip)(
 		socket.ws.send(JSON.stringify({ type: "heartbeat" }));
 		expect(await closed).toBe(4401);
 
-		await new Promise((resolve) => setTimeout(resolve, 300));
-		const rows = await testDb.db
-			.selectFrom("workspace_connections")
-			.selectAll()
-			.execute();
-		expect(rows).toHaveLength(0);
+		// The socket closes as soon as the server calls close(), but the row is
+		// deleted by a later database call, so poll for it.
+		await vi.waitFor(
+			async () => {
+				const rows = await testDb.db
+					.selectFrom("workspace_connections")
+					.selectAll()
+					.execute();
+				expect(rows).toHaveLength(0);
+			},
+			{ timeout: 3000, interval: 50 },
+		);
 	},
 );
 

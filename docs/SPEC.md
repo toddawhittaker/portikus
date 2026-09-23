@@ -1400,6 +1400,12 @@ P0 recovery points should be created:
 
 Default periodic interval should be configurable. Fifteen minutes is a reasonable initial default, but implementations may debounce or skip creation when no filesystem changes occurred.
 
+As built (Epic 10, §15.10): a point is also made before a restore, before an
+administrator rebuilds the workspace, and before a Claude Code or Codex
+session starts (§10.9). Reset Docker makes no point: it touches neither
+`~/projects` nor anything a point holds, so a point would protect nothing.
+A rebuild is the "platform-initiated destructive action" this list means.
+
 ### 15.7 Retention
 
 Retention must be configurable and bounded by quota.
@@ -1420,6 +1426,68 @@ Restoring a recovery point must:
 P1 may expose earlier versions of an individual file derived from project recovery points.
 
 This should allow a user to inspect or restore one file without rolling back the entire project. It must reuse the recovery system and must not create a separate hidden source-control mechanism.
+
+### 15.10 Recovery storage and operations
+
+Each workspace has a third Incus volume, `<instance>-recovery`, beside
+`-home` and `-docker`. It is sized from `WORKSPACE_RECOVERY_SIZE_GIB`
+(default 3, §19.1), mounted at `/var/lib/portikus/recovery`, and owned by
+uid 1000 with mode 0700. The controller adds it to an older workspace at
+that workspace's next start; if that step fails, the start still succeeds.
+Rebuilds and Reset Docker leave it alone (ADR 0020).
+
+A point is `/var/lib/portikus/recovery/<projectId>/<pointId>.tar.zst`,
+mode 0600, keyed by project id so a rename does not orphan it. Its
+`recovery_points` row (§26) holds the project, workspace, reason, time,
+creator, size, SHA-256, a fingerprint of the tree, and an expiry. The
+reasons are `periodic`, `manual`, `before-archive`, `before-restore`,
+`before-rebuild`, and `agent-session`.
+
+The workspace agent makes and restores archives, as it does every other
+filesystem operation (ADR 0010). It walks the project with `lstat`, never
+following a link, and passes an explicit file list to GNU `tar`, whose
+output goes through Node's built-in zstd compressor. An archive holds
+everything under the project, `.git`, `.env`, and Git-ignored files
+included, minus the §15.5 defaults and whatever `.workspaceignore` at the
+project root adds in `.gitignore` syntax; `!pattern` there re-includes a
+default. Making a point never runs a Git command that writes, so HEAD, refs,
+the stash, the reflog, and the index are untouched (§12.5). The agent holds
+one lock per project and answers 409 `BUSY` to a second operation on it.
+
+The fingerprint is a hash over the sorted path, type, size, mtime, mode,
+and link target of every included entry. A periodic check passes the
+latest point's fingerprint, and the agent writes nothing when the new one
+matches. The worker runs periodic checks in a loop of its own, every
+`RECOVERY_SWEEP_SECONDS` (default 60), over running workspaces and their
+active, non-missing projects; a project is due when
+`projects.recovery_checked_at` is older than `RECOVERY_INTERVAL_SECONDS`
+(default 900). Retention gives every point an expiry of
+`RECOVERY_RETENTION_DAYS` (default 14). After expiry, the worker deletes
+points oldest first until the workspace's stored total is at or below 90%
+of its allowance. The newest point of each project is never deleted.
+
+Restore checks the archive's SHA-256 against the row and refuses a
+mismatch, then lists the members and refuses any absolute or `..` path
+(§24.6). The agent extracts into `~/projects/.portikus-restore-<pointId>`,
+a name discovery ignores, deletes every non-excluded entry of the project
+without following links, moves the extracted entries in, and removes the
+staging directory. The project directory itself is never replaced, because
+its inode is the project's identity (§7.6). Excluded paths such as
+`node_modules` are left as they are. The safety point made first is
+required, except when it fails because recovery storage is full; then the
+student may confirm again and restore without it.
+
+The control plane exposes, for the workspace owner only,
+`GET` and `POST /workspaces/:id/projects/:projectId/recovery-points` and
+`POST .../recovery-points/:pointId/restore`. An administrator gets a 404,
+because restoring a student's files would be silent impersonation (§20.2).
+Listing works while the workspace is stopped; creating and restoring need
+it running. Archiving a project makes a best-effort point first; permanent
+delete removes the project's points. Launching Claude Code or Codex waits
+up to 30 seconds for an `agent-session` point, then launches anyway, and
+stores the point's id on the terminal. A restore is audited as
+`recovery.restored`; making a point is logged, not audited. File names and
+paths never go in logs or audit rows.
 
 ## 16. Docker behavior
 
@@ -1461,6 +1529,20 @@ The platform must provide an administrative or student-safe **Reset Docker** ope
 
 This action must use an application-styled confirmation and must be auditable.
 
+As built (Epic 10, ADR 0021): the owner or an administrator calls
+`POST /workspaces/:id/reset-docker`, which answers 202 and sets the
+workspace's pending operation to `reset-docker`. The worker stops the
+workspace if it is running, asks the controller to replace the Docker
+volume, clears the operation, and starts the workspace again if it should
+be running. With the instance stopped, the controller removes the `docker`
+device with an ETag-guarded update, deletes the volume named exactly
+`<instance>-docker`, creates a new one at `WORKSPACE_DOCKER_SIZE_GIB`, and
+puts the device back; each step can be retried. The home and recovery
+volumes are never touched. The request and its result are audited as
+`workspace.docker_reset_requested`, then `workspace.docker_reset` or
+`workspace.docker_reset_failed`. A second request while one is pending gets
+409 `OPERATION_PENDING`.
+
 ### 16.5 Docker status
 
 The UI should expose understandable Docker resource/status information without requiring the student to parse daemon internals.
@@ -1485,6 +1567,20 @@ A rebuild should:
 - reinstall/restore the workspace agent;
 - reapply platform-required configuration;
 - record the operation.
+
+As built (Epic 10, ADR 0021): an administrator calls
+`POST /admin/workspaces/:id/rebuild` with `{ "resetDocker": boolean }`. It
+answers 202 and sets the pending operation to `rebuild` or
+`rebuild-reset-docker`. If the workspace is running, the worker makes a
+`before-rebuild` recovery point of each active project, then stops it. The
+controller calls Incus's native rebuild from the current image alias; the
+instance keeps its own devices, so home, projects, and recovery survive, and
+Docker survives unless it was asked to be reset. The new image fingerprint
+is stored as the workspace's image version, and the next start pushes the
+agent token, hostname, timezone, and profile as any start does. A rebuild
+also runs from `error` when the instance exists. It is audited as
+`workspace.rebuild_requested`, then `workspace.rebuilt` or
+`workspace.rebuild_failed`. The guided student rebuild stays P1.
 
 ### 17.3 User-installed system packages
 
@@ -1598,6 +1694,16 @@ Near a hard limit, the UI should identify the major storage class involved, e.g.
 - Projects & home;
 - Docker;
 - Recovery.
+
+As built (Epic 10): the agent's usage sample reports `storage.home`,
+`storage.docker`, and `storage.recovery`, each used and total bytes from
+`statfs` on its mount, or null when the mount is missing. A stopped
+workspace has nothing to measure, and the UI says the figures are available
+when it runs. The status bar warns at 80% of any class and names it. At 95%
+the message also names a next step: Reset Docker or `docker system prune`
+for Docker, automatic removal of older points for Recovery, and deleting
+files for Projects & home. Quotas are environment configuration in this
+epic; changing them at runtime is Epic 11.
 
 ### 19.3 Denial behavior
 
@@ -2784,8 +2890,20 @@ Acceptance:
 - Git history is not modified by automatic recovery;
 - Docker can be reset without deleting projects.
 
+As built: `docs/EPIC-10.md` has the working brief; landed on
+`epic/10-recovery-quotas`. §15.10 describes recovery storage and
+operations, §16.4 Reset Docker, §17.2 rebuild, and §19.2 storage figures
+and warnings; ADR 0020 and ADR 0021 record the choices. Out of this epic:
+comparing against a recovery point (§12.6) and per-file history (§15.9),
+the guided student rebuild, changing quotas at runtime, re-creating a
+workspace whose instance is gone, and deleting, downloading, or restoring
+points into a new project by hand.
+
 ### Epic 11 — Administration and observability
 **Estimate:** 3–4 engineer-days
+
+See `docs/EPIC-11.md` for the working brief and decisions; landed on
+`epic/11-admin-observability`.
 
 Includes:
 

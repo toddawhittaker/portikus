@@ -34,6 +34,11 @@ export const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	LISTENER_NOT_FOUND: 404,
 	LISTENER_IS_SYSTEM: 403,
 	STOP_FAILED: 409,
+	BUSY: 409,
+	STORAGE_FULL: 507,
+	RECOVERY_POINT_INVALID: 422,
+	RESTORE_INCOMPLETE: 500,
+	ROLLBACK_COPY_EXISTS: 409,
 };
 
 /**
@@ -57,9 +62,16 @@ export function sendError(
 	}
 	// An expected failure needs no log call: its code and message are on the
 	// body, which the request logging hook reads. An unexpected one does,
-	// because its real message never reaches the body.
+	// because its real message never reaches the body. Only the code and
+	// syscall and the error's class name are logged, since a filesystem
+	// message carries a path (ADR 0012).
+	const { code, syscall, name } = (error ?? {}) as NodeJS.ErrnoException;
 	request.log.error(
-		{ error: error instanceof Error ? error.message : String(error) },
+		{
+			errorCode: typeof code === "string" ? code : undefined,
+			syscall,
+			errorName: typeof name === "string" ? name : undefined,
+		},
 		"agent request failed",
 	);
 	return reply.code(500).send({

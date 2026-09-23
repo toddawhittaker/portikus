@@ -28,6 +28,13 @@ ct_devices_a=$(ct_devices "$ct_a")
 check_output "a's home and Docker volumes are a's own" \
   "/home/student ${ct_a}-home|/var/lib/docker ${ct_a}-docker" \
   bash -c "grep -E '^/(home/student|var/lib/docker) ' <<<'${ct_devices_a}' | paste -sd'|'"
+# Epic 10 gives each workspace its own recovery volume (ADR 0020).
+check_output "a's recovery volume is a's own" \
+  "/var/lib/portikus/recovery ${ct_a}-recovery" \
+  bash -c "grep -E '^/var/lib/portikus/recovery ' <<<'${ct_devices_a}'"
+# A source starting with / is a host bind mount from the profile, not a volume.
+check_output "every storage volume attached to a is one of a's own" "0" \
+  bash -c "awk '\$2 != \"-\" && substr(\$2, 1, 1) != \"/\" && index(\$2, \"${ct_a}-\") != 1' <<<'${ct_devices_a}' | wc -l"
 check_output "no device of a names b's instance" "0" \
   bash -c "grep -c -F '${ct_b}' <<<'${ct_devices_a}'; true"
 check_output "nothing mounted in a names b's instance" "0" \

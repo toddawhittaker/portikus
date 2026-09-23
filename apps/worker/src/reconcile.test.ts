@@ -30,6 +30,7 @@ const cfg: ReconcileConfig = {
 	STATUS_REFRESH_SECONDS: 15,
 	WORKSPACE_HOME_SIZE_GIB: 25,
 	WORKSPACE_DOCKER_SIZE_GIB: 20,
+	WORKSPACE_RECOVERY_SIZE_GIB: 3,
 	PREVIEW_SUFFIX: "preview.portikus.example.edu",
 };
 
@@ -257,8 +258,29 @@ test.skipIf(skip)("provisioning -> create -> stopped", async () => {
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
 	expect(ws.image_version).toBe("abc123");
+	expect(ws.quota_config).toEqual({ homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	expect(ws.quota_applied).toEqual({ homeGiB: 25, dockerGiB: 20 });
 	expect(fake.calls.some((c) => c.method === "create")).toBe(true);
 });
+
+test.skipIf(skip)(
+	"an archived running workspace is stopped even when it wants to run",
+	async () => {
+		const id = await insertWorkspace({
+			state: "running",
+			desired_state: "running",
+			archived_at: new Date().toISOString(),
+		});
+		await insertConnection(id);
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(fake.calls.some((c) => c.method === "stop")).toBe(true);
+	},
+);
 
 test.skipIf(skip)("create failure -> error with user-terms message", async () => {
 	fake.createResult = new ControllerClientError("STORAGE_FULL", "no space");
@@ -945,3 +967,319 @@ test.skipIf(skip)("the debug snapshot query is not issued at info", async () => 
 	await reconcile(db, fake, cfg, new Date(), null, false, loud);
 	expect(counter.count).toBe(1);
 });
+
+// --- Maintenance operations (SPEC.md §16.4, §17.2, §22.3; ADR 0021) ---
+
+beforeEach(() => {
+	fake.resetDockerResult = null;
+	fake.rebuildResult = { imageFingerprint: "rebuilt456" };
+});
+
+/** A workspace row with a pending operation asked for by a real user. */
+async function insertPending(
+	operation: string,
+	overrides: Record<string, unknown> = {},
+): Promise<string> {
+	const by = await insertTestUser(tdb.db);
+	return insertWorkspace({
+		pending_operation: operation,
+		pending_operation_at: new Date(Date.now() - 1000).toISOString(),
+		pending_operation_by: by,
+		...overrides,
+	});
+}
+
+function methods(): string[] {
+	return fake.calls.map((c) => c.method);
+}
+
+test.skipIf(skip)(
+	"reset docker on a running workspace: stop, reset, then restart",
+	async () => {
+		const id = await insertPending("reset-docker", {
+			state: "running",
+			desired_state: "running",
+		});
+		await insertConnection(id);
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		expect(methods()).toEqual(["stop", "resetDocker"]);
+		expect(fake.calls[1]?.args[1]).toEqual({
+			dockerGiB: cfg.WORKSPACE_DOCKER_SIZE_GIB,
+		});
+		let ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(ws.desired_state).toBe("running");
+		expect(ws.pending_operation).toBeNull();
+		expect(ws.pending_operation_at).toBeNull();
+		const audit = (await getAudits(id)).find(
+			(a) => a.action === "workspace.docker_reset",
+		);
+		expect(audit?.result).toBe("ok");
+
+		await reconcile(tdb.db, fake, cfg, new Date(), now);
+		ws = await getWorkspace(id);
+		expect(ws.state).toBe("running");
+		expect(methods()).toEqual(["stop", "resetDocker", "start"]);
+	},
+);
+
+test.skipIf(skip)("no start while an operation is pending", async () => {
+	const id = await insertPending("reset-docker", { desired_state: "running" });
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+
+	// The start step runs before the operation step, so a start here would
+	// have come first.
+	expect(methods()).toEqual(["resetDocker"]);
+	expect((await getWorkspace(id)).state).toBe("stopped");
+});
+
+test.skipIf(skip)("a workspace that should stay stopped stays stopped", async () => {
+	const id = await insertPending("reset-docker");
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+	await reconcile(tdb.db, fake, cfg, new Date(), now);
+
+	expect(methods()).toEqual(["resetDocker"]);
+	expect((await getWorkspace(id)).state).toBe("stopped");
+});
+
+test.skipIf(skip)(
+	"an errored workspace runs its pending rebuild, not a start retry",
+	async () => {
+		const id = await insertPending("rebuild", {
+			state: "error",
+			desired_state: "running",
+			error_code: "OPERATION_FAILED",
+			error_message: "broken",
+			updated_at: new Date(Date.now() - 60_000).toISOString(),
+		});
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		expect(methods()).toEqual(["rebuild"]);
+		expect(fake.calls[0]?.args[1]).toEqual({
+			resetDocker: false,
+			dockerGiB: cfg.WORKSPACE_DOCKER_SIZE_GIB,
+		});
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(ws.error_code).toBeNull();
+		expect(ws.error_message).toBeNull();
+		expect(ws.image_version).toBe("rebuilt456");
+		expect(ws.pending_operation).toBeNull();
+		const audit = (await getAudits(id)).find((a) => a.action === "workspace.rebuilt");
+		expect(audit?.result).toBe("ok");
+		expect(audit?.metadata).toMatchObject({
+			operation: "rebuild",
+			imageFingerprint: "rebuilt456",
+		});
+
+		await reconcile(tdb.db, fake, cfg, new Date(), now);
+		expect((await getWorkspace(id)).state).toBe("running");
+	},
+);
+
+test.skipIf(skip)(
+	"rebuild with reset docker asks the controller for both",
+	async () => {
+		await insertPending("rebuild-reset-docker");
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		expect(fake.calls[0]).toEqual({
+			method: "rebuild",
+			args: [
+				expect.any(String),
+				{ resetDocker: true, dockerGiB: cfg.WORKSPACE_DOCKER_SIZE_GIB },
+			],
+		});
+	},
+);
+
+test.skipIf(skip)(
+	"a failed rebuild leaves error, a message, and an audit row",
+	async () => {
+		fake.rebuildResult = FakeControllerClient.error(
+			"OPERATION_FAILED",
+			"incus said no",
+		);
+		const id = await insertPending("rebuild", { desired_state: "running" });
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("error");
+		expect(ws.error_code).toBe("OPERATION_FAILED");
+		expect(ws.error_message).toMatch(/could not be rebuilt/);
+		expect(ws.pending_operation).toBeNull();
+		const audit = (await getAudits(id)).find(
+			(a) => a.action === "workspace.rebuild_failed",
+		);
+		expect(audit?.result).toBe("failed");
+		expect(audit?.metadata).toMatchObject({ errorCode: "OPERATION_FAILED" });
+	},
+);
+
+test.skipIf(skip)("a failed docker reset is audited as such", async () => {
+	fake.resetDockerResult = FakeControllerClient.error("TIMEOUT");
+	const id = await insertPending("reset-docker");
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("error");
+	expect(ws.error_message).toMatch(/Docker could not be reset/);
+	const actions = (await getAudits(id)).map((a) => a.action);
+	expect(actions).toContain("workspace.docker_reset_failed");
+});
+
+test.skipIf(skip)(
+	"a running rebuild waits until each active project was tried for a point",
+	async () => {
+		const id = await insertPending("rebuild", {
+			state: "running",
+			desired_state: "running",
+		});
+		await insertConnection(id);
+		const project = await tdb.db
+			.insertInto("projects")
+			.values({
+				workspace_id: id,
+				slug: "demo",
+				name: "demo",
+				path: "/home/student/projects/demo",
+				source: "new",
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+		expect(methods()).toEqual([]);
+		expect((await getWorkspace(id)).state).toBe("running");
+
+		// The recovery loop stamps the project once it has tried.
+		await tdb.db
+			.updateTable("projects")
+			.set({ recovery_checked_at: new Date().toISOString() })
+			.where("id", "=", project.id)
+			.execute();
+
+		await reconcile(tdb.db, fake, cfg, new Date(), now);
+		expect(methods()).toEqual(["stop", "rebuild"]);
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(ws.desired_state).toBe("running");
+	},
+);
+
+test.skipIf(skip)("create and start send the recovery volume size", async () => {
+	const id = await insertWorkspace({ state: "provisioning", desired_state: "running" });
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+	await reconcile(tdb.db, fake, cfg, new Date(), now);
+
+	const create = fake.calls.find((c) => c.method === "create");
+	expect(create?.args[0]).toMatchObject({ recoveryGiB: 3 });
+	const start = fake.calls.find((c) => c.method === "start");
+	expect(start?.args[1]).toMatchObject({ dockerGiB: 20, recoveryGiB: 3 });
+	const ws = await getWorkspace(id);
+	expect(ws.quota_config).toEqual({ homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+});
+test.skipIf(skip)(
+	"an archived workspace is never started, even when student presence set desired running",
+	async () => {
+		const now = new Date();
+		const archivedAt = new Date(now.getTime() - 60_000).toISOString();
+		// What a student's socket leaves behind: a connection and desired running.
+		const stopped = await insertWorkspace({
+			state: "stopped",
+			desired_state: "running",
+			archived_at: archivedAt,
+		});
+		await insertConnection(stopped);
+		const errored = await insertWorkspace({
+			state: "error",
+			desired_state: "restarting",
+			archived_at: archivedAt,
+			updated_at: new Date(now.getTime() - 3_600_000).toISOString(),
+		});
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		expect(fake.calls.filter((c) => c.method === "start")).toEqual([]);
+		expect((await getWorkspace(stopped)).state).toBe("stopped");
+		expect((await getWorkspace(errored)).state).toBe("error");
+	},
+);
+
+test.skipIf(skip)(
+	"reset docker and start use the Docker size an administrator grew to",
+	async () => {
+		const id = await insertPending("reset-docker", {
+			desired_state: "running",
+			quota_config: JSON.stringify({ homeGiB: 25, dockerGiB: 40, recoveryGiB: 3 }),
+		});
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+		await reconcile(tdb.db, fake, cfg, new Date(), now);
+
+		expect(methods()).toEqual(["resetDocker", "start"]);
+		expect(fake.calls[0]?.args[1]).toEqual({ dockerGiB: 40 });
+		expect(fake.calls[1]?.args[1]).toMatchObject({ dockerGiB: 40 });
+		expect((await getWorkspace(id)).state).toBe("running");
+	},
+);
+
+test.skipIf(skip)("rebuild uses the row's Docker size too", async () => {
+	await insertPending("rebuild-reset-docker", {
+		quota_config: JSON.stringify({ homeGiB: 25, dockerGiB: 40 }),
+	});
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+
+	expect(fake.calls[0]?.args[1]).toEqual({ resetDocker: true, dockerGiB: 40 });
+});
+
+test.skipIf(skip)(
+	"an archived workspace with a pending rebuild is rebuilt but never started",
+	async () => {
+		const now = new Date();
+		const archivedAt = new Date(now.getTime() - 60_000).toISOString();
+		const stopped = await insertPending("rebuild", {
+			desired_state: "running",
+			archived_at: archivedAt,
+		});
+		await insertConnection(stopped);
+		const running = await insertPending("rebuild", {
+			state: "running",
+			desired_state: "running",
+			archived_at: archivedAt,
+		});
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+		await reconcile(tdb.db, fake, cfg, new Date(), now);
+
+		expect(fake.calls.filter((c) => c.method === "start")).toEqual([]);
+		expect(fake.calls.filter((c) => c.method === "stop")).toHaveLength(1);
+		expect(fake.calls.filter((c) => c.method === "rebuild")).toHaveLength(2);
+		for (const id of [stopped, running]) {
+			const ws = await getWorkspace(id);
+			expect(ws.state).toBe("stopped");
+			expect(ws.pending_operation).toBeNull();
+		}
+	},
+);

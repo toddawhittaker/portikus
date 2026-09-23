@@ -14,10 +14,18 @@ import { loginAs, query, toast } from "./helpers";
 test.describe.configure({ mode: "serial" });
 
 test.describe("administration", () => {
-	async function openAdmin(page: Page): Promise<void> {
+	/** The grace period and log level live on the Settings tab (Epic 11). */
+	async function openAdmin(page: Page, tab = "settings"): Promise<void> {
 		await loginAs(page, "carol");
-		await page.goto("/admin");
+		await page.goto(`/admin?tab=${tab}`);
 		await expect(page.getByTestId("page-admin")).toBeVisible({ timeout: 15_000 });
+	}
+
+	/** A user's grace override is in their detail panel on the Workspaces tab. */
+	async function openAliceDetail(page: Page): Promise<void> {
+		await page.getByTestId("admin-filter-text").fill("Alice Student");
+		await page.getByRole("button", { name: "Show details for Alice Student" }).click();
+		await expect(page.getByRole("region", { name: "Alice Student" })).toBeVisible();
 	}
 
 	async function aliceId(): Promise<string> {
@@ -87,7 +95,8 @@ test.describe("administration", () => {
 		await page.getByTestId("me").click();
 		await page.getByTestId("signout").click();
 		await expect(page.getByTestId("signin")).toBeVisible();
-		await openAdmin(page);
+		await openAdmin(page, "workspaces");
+		await openAliceDetail(page);
 
 		const input = page.getByTestId(`user-grace-input-${alice}`);
 		await input.fill("30");
@@ -103,6 +112,7 @@ test.describe("administration", () => {
 			})
 			.toBe(30);
 		await page.reload();
+		await openAliceDetail(page);
 		await expect(page.getByTestId(`user-grace-input-${alice}`)).toHaveValue("30");
 
 		await page.getByTestId(`user-grace-input-${alice}`).fill("");
@@ -118,6 +128,7 @@ test.describe("administration", () => {
 			})
 			.toBe(null);
 		await page.reload();
+		await openAliceDetail(page);
 		await expect(page.getByTestId(`user-grace-input-${alice}`)).toHaveValue("");
 	});
 

@@ -1,3 +1,4 @@
+import { type Kysely, sql } from "kysely";
 import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import {
@@ -614,6 +615,10 @@ describe("database migrations and schema", () => {
 				expect(down11.error).toBeUndefined();
 				const down12 = await migrator.migrateDown();
 				expect(down12.error).toBeUndefined();
+				const down13 = await migrator.migrateDown();
+				expect(down13.error).toBeUndefined();
+				const down14 = await migrator.migrateDown();
+				expect(down14.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -629,11 +634,111 @@ describe("database migrations and schema", () => {
 					"0010_terminal_theme",
 					"0011_terminal_agent",
 					"0012_profile",
+					"0013_recovery",
+					"0014_admin",
 				]);
 				throw rollback;
 			}),
 		).rejects.toBe(rollback);
 	});
+
+	// --- migration 0014: admin columns, health samples, audit indexes (Epic 11) ---
+
+	test.skipIf(!hasTestDb())(
+		"0014 backfills quota_applied with only home and docker and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0014_admin");
+					const gone = await sql<{ n: number }>`
+					select count(*)::int as n from information_schema.tables
+					where table_name = 'health_samples'`.execute(trx);
+					expect(gone.rows[0]?.n).toBe(0);
+
+					const userId = await insertTestUser(trx);
+					await trx
+						.insertInto("workspaces")
+						.values({
+							label: testLabel(),
+							owner_user_id: userId,
+							state: "stopped",
+							quota_config: JSON.stringify({
+								homeGiB: 25,
+								dockerGiB: 20,
+								recoveryGiB: 10,
+							}),
+						} as never)
+						.execute();
+
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+					const row = await trx
+						.selectFrom("workspaces")
+						.select(["quota_applied", "archived_at"])
+						.where("owner_user_id", "=", userId)
+						.executeTakeFirstOrThrow();
+					expect(row.quota_applied).toEqual({ homeGiB: 25, dockerGiB: 20 });
+					expect(row.archived_at).toBeNull();
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"health_samples stores a sample with a default time",
+		async () => {
+			const row = await t.db
+				.insertInto("health_samples")
+				.values({ sample: JSON.stringify({ controller: { reachable: false } }) })
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			expect(row.observed_at).toBeInstanceOf(Date);
+			expect(row.sample).toEqual({ controller: { reachable: false } });
+			await t.db.deleteFrom("health_samples").execute();
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"a migration that arrives after a later one has applied still runs",
+		async () => {
+			const { migrateToLatest } = await import("./migrate.js");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+
+			// Stands in for Epic 10's 0013 landing after 0014 is already applied.
+			const late = {
+				...migrations,
+				"0013_standin": {
+					up: async (db: Kysely<unknown>) => {
+						await db.schema
+							.createTable("standin_0013")
+							.addColumn("id", "integer")
+							.execute();
+					},
+					down: async (db: Kysely<unknown>) => {
+						await db.schema.dropTable("standin_0013").execute();
+					},
+				},
+			};
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					expect(await migrateToLatest(trx, late)).toEqual(["0013_standin"]);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
 
 	// --- migration 0008: workspace label and preview tables ---
 	// SPEC.md Epic 8; BROWSER-HANDLING.md sections 8 and 17.
@@ -845,6 +950,161 @@ describe("database migrations and schema", () => {
 
 			const left = await t.db.selectFrom("preview_sessions").selectAll().execute();
 			expect(left).toHaveLength(0);
+		},
+	);
+
+	// --- migration 0013: recovery points and maintenance operations ---
+	// SPEC.md sections 15, 16.4, 17.2; ADR 0020 and 0021.
+
+	async function insertProject(): Promise<{ workspaceId: string; projectId: string }> {
+		const userId = await insertTestUser(t.db);
+		const ws = await t.db
+			.insertInto("workspaces")
+			.values({ label: testLabel(), owner_user_id: userId, state: "running" })
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		const project = await t.db
+			.insertInto("projects")
+			.values({
+				workspace_id: ws.id,
+				slug: "demo",
+				name: "Demo",
+				path: "/home/student/projects/demo",
+				source: "new",
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		return { workspaceId: ws.id, projectId: project.id };
+	}
+
+	function pointValues(workspaceId: string, projectId: string, reason = "periodic") {
+		return {
+			id: crypto.randomUUID(),
+			project_id: projectId,
+			workspace_id: workspaceId,
+			reason,
+			created_by: "worker",
+			size_bytes: 1234,
+			sha256: "a".repeat(64),
+			fingerprint: "f".repeat(64),
+			expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+		};
+	}
+
+	test.skipIf(!hasTestDb())(
+		"deleting a project removes its recovery points and clears the terminal link",
+		async () => {
+			const { workspaceId, projectId } = await insertProject();
+			const point = pointValues(workspaceId, projectId, "agent-session");
+			await t.db.insertInto("recovery_points").values(point).execute();
+			const terminal = await t.db
+				.insertInto("terminals")
+				.values({
+					workspace_id: workspaceId,
+					name: "claude",
+					cwd: "/home/student",
+					recovery_point_id: point.id,
+				})
+				.returning("id")
+				.executeTakeFirstOrThrow();
+
+			const stored = await t.db
+				.selectFrom("recovery_points")
+				.selectAll()
+				.executeTakeFirstOrThrow();
+			expect(stored.size_bytes).toBe("1234");
+
+			await t.db.deleteFrom("projects").where("id", "=", projectId).execute();
+
+			const left = await t.db.selectFrom("recovery_points").selectAll().execute();
+			expect(left).toHaveLength(0);
+			const row = await t.db
+				.selectFrom("terminals")
+				.select("recovery_point_id")
+				.where("id", "=", terminal.id)
+				.executeTakeFirstOrThrow();
+			expect(row.recovery_point_id).toBeNull();
+		},
+	);
+
+	test.skipIf(!hasTestDb())("a recovery point rejects an unknown reason", async () => {
+		const { workspaceId, projectId } = await insertProject();
+		await expect(
+			t.db
+				.insertInto("recovery_points")
+				.values(pointValues(workspaceId, projectId, "hourly"))
+				.execute(),
+		).rejects.toThrow(/check|violates/i);
+	});
+
+	test.skipIf(!hasTestDb())("recovery points are indexed by workspace", async () => {
+		const { rows } = await sql<{ indexdef: string }>`
+			SELECT indexdef FROM pg_indexes
+			WHERE tablename = 'recovery_points' AND indexname = 'recovery_points_workspace_idx'
+		`.execute(t.db);
+		expect(rows[0]?.indexdef).toMatch(/\(workspace_id\)/);
+	});
+
+	test.skipIf(!hasTestDb())(
+		"a workspace accepts only the three pending operations",
+		async () => {
+			const { workspaceId } = await insertProject();
+			for (const op of ["reset-docker", "rebuild", "rebuild-reset-docker"]) {
+				await t.db
+					.updateTable("workspaces")
+					.set({ pending_operation: op })
+					.where("id", "=", workspaceId)
+					.execute();
+			}
+			await expect(
+				t.db
+					.updateTable("workspaces")
+					.set({ pending_operation: "reinstall" })
+					.where("id", "=", workspaceId)
+					.execute(),
+			).rejects.toThrow(/check|violates/i);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"migration 0013 adds recoveryGiB to quotas that lack it",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const userId = await insertTestUser(t.db);
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					// Down past 0014 (Epic 11), then 0013.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await trx
+						.insertInto("workspaces")
+						.values({
+							label: testLabel(),
+							owner_user_id: userId,
+							state: "stopped",
+							quota_config: JSON.stringify({ homeGiB: 25, dockerGiB: 20 }),
+						})
+						.execute();
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					const row = await trx
+						.selectFrom("workspaces")
+						.select("quota_config")
+						.executeTakeFirstOrThrow();
+					expect(row.quota_config).toEqual({
+						homeGiB: 25,
+						dockerGiB: 20,
+						recoveryGiB: 3,
+					});
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
 		},
 	);
 });

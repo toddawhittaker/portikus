@@ -13,14 +13,19 @@ import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { registerAdminRoutes } from "./routes/admin.js";
+import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
+import { registerAdminHealthRoutes } from "./routes/admin-health.js";
+import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCheckRoutes } from "./routes/checks.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerGitSearchRoutes } from "./routes/git-search.js";
+import { registerMaintenanceRoutes } from "./routes/maintenance.js";
 import { registerMeRoutes } from "./routes/me.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectEventsSocket } from "./routes/project-events.js";
 import { registerProjectRoutes } from "./routes/projects.js";
+import { registerRecoveryRoutes } from "./routes/recovery.js";
 import { registerTerminalRoutes } from "./routes/terminals.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
@@ -174,6 +179,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerPreviewRoutes(instance, routeDeps);
 		registerTerminalRoutes(instance, deps);
 		registerProjectRoutes(instance, deps);
+		registerRecoveryRoutes(instance, deps);
 		registerFileRoutes(instance, deps);
 		registerGitSearchRoutes(instance, deps);
 		registerCheckRoutes(instance, deps);
@@ -181,6 +187,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerProjectEventsSocket(instance, deps);
 		registerMeRoutes(instance, deps);
 		registerAdminRoutes(instance, deps);
+		registerMaintenanceRoutes(instance, deps);
+		registerAdminWorkspaceRoutes(instance, routeDeps);
+		registerAdminAuditRoutes(instance, routeDeps);
+		registerAdminHealthRoutes(instance, routeDeps);
 	});
 
 	return app;
