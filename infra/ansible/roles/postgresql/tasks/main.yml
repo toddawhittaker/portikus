@@ -12,6 +12,30 @@
       - acl
     state: present
 
+# Debian's postgresql@ unit already sets -900; the drop-in keeps it if the
+# packaging ever drops it, so the kernel kills workspace processes first
+# when memory runs out (docs/CAPACITY.md).  The running server already has
+# that value, so only systemd reloads.  No memory cap: PostgreSQL's own
+# settings bound it, and only the API and worker reach it.
+- name: Create the PostgreSQL drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/postgresql@.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Protect PostgreSQL from the out-of-memory killer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/postgresql@.service.d/10-portikus-oom.conf
+    content: |
+      [Service]
+      OOMScoreAdjust=-900
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd for PostgreSQL
+
 - name: Enable and start PostgreSQL
   ansible.builtin.systemd:
     name: postgresql

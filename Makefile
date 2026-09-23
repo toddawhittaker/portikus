@@ -57,6 +57,7 @@ REHEARSAL_STATE ?= $(HOME)/.local/state/portikus/rehearsal-libvirt/terraform.tfs
 REHEARSAL_SSH_KEY ?= $(HOME)/.ssh/id_ed25519.pub
 REHEARSAL_VCPUS ?= 12
 REHEARSAL_MEMORY_MB ?= 24576
+REHEARSAL_DATA_DISK_GB ?= 100
 
 ifeq ($(TOFU_ENV),dev-libvirt)
 TOFU_STATE := $(TOFU_DIR)/terraform.tfstate
@@ -67,6 +68,7 @@ TOFU_INIT_ARGS := -backend-config=path=$(REHEARSAL_STATE)
 export TF_VAR_ssh_public_key := $(shell cat $(REHEARSAL_SSH_KEY) 2>/dev/null)
 export TF_VAR_vcpus := $(REHEARSAL_VCPUS)
 export TF_VAR_memory_mb := $(REHEARSAL_MEMORY_MB)
+export TF_VAR_data_disk_size_bytes := $(shell echo $$(( $(REHEARSAL_DATA_DISK_GB) * 1073741824 )))
 else
 $(error TOFU_ENV must be dev-libvirt or rehearsal-libvirt, not '$(TOFU_ENV)')
 endif
@@ -74,13 +76,15 @@ endif
 # Read straight from the state file, so no `tofu init` is needed to learn them.
 tofu_output = $(shell python3 -c 'import json, sys; v = json.load(open(sys.argv[1]))["outputs"][sys.argv[2]]["value"]; print(v[0] if isinstance(v, list) else v)' '$(TOFU_STATE)' $(1) 2>/dev/null)
 TOFU_VM_NAME = $(shell python3 -c 'import json, sys; print(next(r["instances"][0]["attributes"]["name"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == "libvirt_domain"))' '$(TOFU_STATE)' 2>/dev/null)
+# A replaced VM keeps its MAC address, which its network configuration matches.
+export TF_VAR_mac_address = $(shell python3 -c 'import json, sys; print(next(r["instances"][0]["attributes"]["network_interface"][0]["mac"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == "libvirt_domain"))' '$(TOFU_STATE)' 2>/dev/null)
 
 # First recipe line of every OpenTofu target: name the VM, and never let a
 # non-pilot environment act on a state file that holds the pilot.
 TOFU_BANNER = @echo "$@: OpenTofu environment $(TOFU_ENV), state $(TOFU_STATE), VM '$(or $(TOFU_VM_NAME),<none yet>)'"; \
 	test "$(TOFU_ENV)" = dev-libvirt || test "$(TOFU_VM_NAME)" != portikus || { echo "$@: that state holds the pilot VM; refusing"; exit 1; }
 
-rehearsal-up: ## Create the rehearsal VM beside the pilot and wait for first boot (REHEARSAL_VCPUS, REHEARSAL_MEMORY_MB size it)
+rehearsal-up: ## Create or update the rehearsal VM beside the pilot and wait for it (REHEARSAL_VCPUS, REHEARSAL_MEMORY_MB, REHEARSAL_DATA_DISK_GB size it)
 	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt rehearsal-preflight infra-apply wait-vm
 
 rehearsal-destroy: ## Destroy the rehearsal VM, its disks, network and pool (never the pilot)

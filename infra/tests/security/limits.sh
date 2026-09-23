@@ -4,9 +4,11 @@
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # a's cgroup limits match the profile, a bounded fork loop hits the process
 # limit, busy loops fill a's CPUs for 20 seconds, and fallocate past each
-# volume's size is refused for lack of space.  Meanwhile the API and
+# volume's size is refused for lack of space, and the platform services
+# carry a negative OOM score adjustment.  Meanwhile the API and
 # b's agent keep answering within two seconds.  The heavy tests, memory past
-# the limit, run only with PORTIKUS_SECURITY_HEAVY=1 on an otherwise empty VM.
+# the limit while PostgreSQL and the API keep running, run only with
+# PORTIKUS_SECURITY_HEAVY=1 on an otherwise empty VM.
 # shellcheck disable=SC2154  # pass, fail and the SEC_ globals come from lib.sh
 # shellcheck disable=SC2016  # the probe scripts expand inside the workspace
 
@@ -42,6 +44,23 @@ lim_cpu_count() {
 }
 check_output "a's CPU set has as many CPUs as the profile" "$lim_cpu" lim_cpu_count
 check_output "a's cpu.max sets no time quota beyond the CPU count" "max 100000" lim_cgroup cpu.max
+
+# ── The platform is protected from the out-of-memory killer ──────
+
+# Workspaces may together promise more memory than the VM has; when it runs
+# out, the kernel must kill workspace processes first (docs/CAPACITY.md).
+lim_platform_units="postgresql@17-main portikus-api portikus-worker portikus-controller caddy"
+if sec_ssh "systemctl is-active --quiet portikus-dex"; then lim_platform_units+=" portikus-dex"; fi
+for lim_unit in $lim_platform_units; do
+  check "${lim_unit} has a negative OOM score adjustment" \
+    sec_ssh "p=\$(systemctl show -p MainPID --value ${lim_unit}); [ \"\$p\" -gt 0 ] && [ \"\$(cat /proc/\$p/oom_score_adj)\" -lt 0 ]"
+done
+# A protected service that takes requests must not be able to take the VM
+# with it; PostgreSQL is bounded by its own settings instead.
+for lim_unit in ${lim_platform_units/postgresql@17-main/}; do
+  check "${lim_unit} has a memory cap" \
+    sec_ssh "[ \"\$(cat /sys/fs/cgroup/system.slice/${lim_unit}.service/memory.max)\" != max ]"
+done
 
 # ── The thin pool, reported only (Epic 12a risk 3) ───────────────
 
@@ -178,7 +197,31 @@ if [ "$SEC_HEAVY" = "1" ]; then
   lim_refuses_mem() {
     ! sec_exec a student "timeout 120 python3 -c 'b = b\"x\" * (${lim_over} * 1048576); print(len(b))'" >/dev/null 2>&1
   }
+  lim_oom_kills() { lim_cgroup memory.events | awk '$1 == "oom_kill" { print $2 }'; }
+  lim_main_pids() { sec_ssh "systemctl show -p MainPID --value postgresql@17-main portikus-api | grep . | paste -sd' '"; }
+  lim_pids_before=$(lim_main_pids)
+  lim_kills_before=$(lim_oom_kills)
+  lim_mark=$(lim_watch_count)
   check "heavy: allocating ${lim_over} MiB in a is stopped by the memory limit" lim_refuses_mem
+  lim_kills_after=$(lim_oom_kills)
+  lim_mem_watch=$(lim_watch_summary "$((${lim_mark:-0} + 1))")
+  echo "Memory past the limit in a: OOM kills in a's cgroup ${lim_kills_before:-?} before, ${lim_kills_after:-?} after; PostgreSQL and API main PIDs ${lim_pids_before} before, $(lim_main_pids) after; liveness meanwhile: ${lim_mem_watch}"
+  check "heavy: the kill came from a's own memory limit (memory.events oom_kill went up)" \
+    test "${lim_kills_after:-0}" -gt "${lim_kills_before:-0}"
+  check_output "heavy: PostgreSQL and the API kept running (same main PIDs)" "$lim_pids_before" lim_main_pids
+  check "heavy: the API and b's agent answered within two seconds while a ran out of memory" \
+    lim_watch_ok "$lim_mem_watch"
+  # A protected service still dies at its own cap, so a flood against Dex
+  # or the API cannot take the VM: a throwaway unit with Dex's settings.
+  # The output is captured first: grep -q would close the pipe early, and
+  # pipefail would count that against ssh.
+  lim_capped() {
+    local said
+    said=$(sec_ssh "sudo systemd-run --wait --collect --unit=portikus-sectest-${SEC_RUN_ID}-cap \
+      -p OOMScoreAdjust=-900 -p MemoryMax=256M python3 -c 'b = b\"x\" * (512 * 1048576)' 2>&1")
+    [[ "$said" == *"Finished with result: oom-kill"* ]]
+  }
+  check "heavy: a service with the platform's OOM adjustment is killed at its memory cap" lim_capped
 fi
 
 lim_watch=$(lim_watch_stop)
