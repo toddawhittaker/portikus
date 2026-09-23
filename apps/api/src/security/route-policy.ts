@@ -66,7 +66,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /workspaces/:id/stop": { access: "owner-or-admin" },
 	"POST /workspaces/:id/restart": { access: "owner-or-admin" },
 	"GET /workspaces/:id/ws": { access: "owner-or-admin", websocket: true },
-	"HEAD /workspaces/:id/ws": { access: "owner-or-admin", websocket: true },
 
 	"GET /workspaces/:id/usage": owner,
 	"HEAD /workspaces/:id/usage": owner,
@@ -84,7 +83,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"PATCH /workspaces/:id/terminals/:tid": owner,
 	"DELETE /workspaces/:id/terminals/:tid": owner,
 	"GET /workspaces/:id/terminals/:tid/ws": ownerSocket,
-	"HEAD /workspaces/:id/terminals/:tid/ws": ownerSocket,
 
 	"GET /workspaces/:id/projects": owner,
 	"HEAD /workspaces/:id/projects": owner,
@@ -101,7 +99,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /workspaces/:id/projects/:pid/layout": owner,
 	"PUT /workspaces/:id/projects/:pid/layout": owner,
 	"GET /workspaces/:id/projects/:pid/events": ownerSocket,
-	"HEAD /workspaces/:id/projects/:pid/events": ownerSocket,
 
 	"GET /workspaces/:id/projects/:pid/tree": owner,
 	"HEAD /workspaces/:id/projects/:pid/tree": owner,
@@ -128,7 +125,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /workspaces/:id/projects/:pid/checks/:checkId/runs": owner,
 	"DELETE /workspaces/:id/projects/:pid/checks/:checkId/runs/current": owner,
 	"GET /workspaces/:id/projects/:pid/checks/:checkId/runs/current": ownerSocket,
-	"HEAD /workspaces/:id/projects/:pid/checks/:checkId/runs/current": ownerSocket,
 
 	"GET /admin/workspaces": { access: "admin" },
 	"HEAD /admin/workspaces": { access: "admin" },

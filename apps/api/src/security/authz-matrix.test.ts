@@ -35,16 +35,7 @@ const PUBLIC_ORIGIN = new URL(PUBLIC_URL).origin;
  * Allowed-caller checks that fail today, with the issue that tracks each
  * (Epic 12a, Part 3). The refusal checks of these routes still run normally.
  */
-const KNOWN_VULN: Record<string, string> = {
-	"HEAD /workspaces/:id/ws":
-		"KNOWN-VULN #402: HEAD on a socket route answers 500, not a clean refusal",
-	"HEAD /workspaces/:id/terminals/:tid/ws":
-		"KNOWN-VULN #402: HEAD on a socket route answers 500, not a clean refusal",
-	"HEAD /workspaces/:id/projects/:pid/events":
-		"KNOWN-VULN #402: HEAD on a socket route answers 500, not a clean refusal",
-	"HEAD /workspaces/:id/projects/:pid/checks/:checkId/runs/current":
-		"KNOWN-VULN #402: HEAD on a socket route answers 500, not a clean refusal",
-};
+const KNOWN_VULN: Record<string, string> = {};
 
 // The smallest PNG: one transparent pixel.
 const PIXEL_PNG = Buffer.from(
