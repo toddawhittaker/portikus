@@ -257,8 +257,29 @@ test.skipIf(skip)("provisioning -> create -> stopped", async () => {
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
 	expect(ws.image_version).toBe("abc123");
+	expect(ws.quota_config).toEqual({ homeGiB: 25, dockerGiB: 20 });
+	expect(ws.quota_applied).toEqual({ homeGiB: 25, dockerGiB: 20 });
 	expect(fake.calls.some((c) => c.method === "create")).toBe(true);
 });
+
+test.skipIf(skip)(
+	"an archived running workspace is stopped even when it wants to run",
+	async () => {
+		const id = await insertWorkspace({
+			state: "running",
+			desired_state: "running",
+			archived_at: new Date().toISOString(),
+		});
+		await insertConnection(id);
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(fake.calls.some((c) => c.method === "stop")).toBe(true);
+	},
+);
 
 test.skipIf(skip)("create failure -> error with user-terms message", async () => {
 	fake.createResult = new ControllerClientError("STORAGE_FULL", "no space");
@@ -945,3 +966,30 @@ test.skipIf(skip)("the debug snapshot query is not issued at info", async () => 
 	await reconcile(db, fake, cfg, new Date(), null, false, loud);
 	expect(counter.count).toBe(1);
 });
+
+test.skipIf(skip)(
+	"an archived workspace is never started, even when student presence set desired running",
+	async () => {
+		const now = new Date();
+		const archivedAt = new Date(now.getTime() - 60_000).toISOString();
+		// What a student's socket leaves behind: a connection and desired running.
+		const stopped = await insertWorkspace({
+			state: "stopped",
+			desired_state: "running",
+			archived_at: archivedAt,
+		});
+		await insertConnection(stopped);
+		const errored = await insertWorkspace({
+			state: "error",
+			desired_state: "restarting",
+			archived_at: archivedAt,
+			updated_at: new Date(now.getTime() - 3_600_000).toISOString(),
+		});
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		expect(fake.calls.filter((c) => c.method === "start")).toEqual([]);
+		expect((await getWorkspace(stopped)).state).toBe("stopped");
+		expect((await getWorkspace(errored)).state).toBe("error");
+	},
+);

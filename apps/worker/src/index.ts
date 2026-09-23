@@ -3,7 +3,9 @@ import { createDb, type Database } from "@portikus/db";
 import { createLogger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { HttpControllerClient } from "./controller-client.js";
+import { startHealthSampling } from "./health.js";
 import { createLogLevelSync } from "./log-level.js";
+import { startQuotaSync } from "./quota.js";
 import { reconcile, type SweepResult } from "./reconcile.js";
 
 export const serviceName = "worker";
@@ -72,6 +74,10 @@ async function main(): Promise<void> {
 	// handling in place so systemd's SIGTERM stops the worker at once.
 	logLevelTimer.unref();
 	void syncLogLevel();
+
+	// Host samples and quota grows each run on their own timer, off the sweep.
+	startHealthSampling({ db, controller, logger });
+	startQuotaSync({ db, controller, logger });
 
 	let lastRefreshAt: Date | null = null;
 	let controllerUnreachable = false;

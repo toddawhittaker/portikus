@@ -10,6 +10,7 @@ import {
 	toast,
 	workspacePath,
 } from "./helpers";
+import { API_ORIGIN, WEB_ORIGIN } from "./ports";
 
 /**
  * What the browser itself must and must not do with a preview
@@ -31,7 +32,6 @@ import {
  * the upstream lookup are all the real API.
  */
 
-const API_ORIGIN = "http://127.0.0.1:3000";
 const PREVIEW_SUFFIX = ".preview.localhost";
 
 const PASSED_HEADERS = [
@@ -580,7 +580,7 @@ test.describe("the preview in a real browser", () => {
 		await popup.waitForLoadState();
 		const url = new URL(popup.url());
 		expect(url.hostname.endsWith(PREVIEW_SUFFIX)).toBe(true);
-		expect(url.origin).not.toBe("http://127.0.0.1:5173");
+		expect(url.origin).not.toBe(WEB_ORIGIN);
 		await expect(popup.locator("#title")).toHaveText("opened window");
 		await app.close();
 	});

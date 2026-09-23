@@ -252,3 +252,29 @@ test.skipIf(skip)(
 		expect((await post("/workspaces", alice)).json().label).toMatch(/^ws-[0-9a-f]{8}$/);
 	},
 );
+
+test.skipIf(skip)(
+	"an archived workspace refuses start and restart but still stops",
+	async () => {
+		const id = (await post("/workspaces", alice)).json().id;
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ archived_at: new Date().toISOString() })
+			.where("id", "=", id)
+			.execute();
+
+		for (const action of ["start", "restart"]) {
+			const res = await post(`/workspaces/${id}/${action}`, alice);
+			expect(res.statusCode).toBe(409);
+			expect(res.json().code).toBe("WORKSPACE_ARCHIVED");
+		}
+		expect((await post(`/workspaces/${id}/stop`, alice)).statusCode).toBe(202);
+
+		const row = await testDb.db
+			.selectFrom("workspaces")
+			.select("desired_state")
+			.where("id", "=", id)
+			.executeTakeFirstOrThrow();
+		expect(row.desired_state).toBe("stopped");
+	},
+);

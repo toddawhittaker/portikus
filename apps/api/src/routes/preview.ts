@@ -11,6 +11,10 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AgentCallError } from "../agent-client.js";
+import {
+	createPreviewDeniedAudit,
+	type PreviewDeniedReason,
+} from "../preview/audit-throttle.js";
 import { createBridgeForwards, parseBridgeUri } from "../preview/bridge.js";
 import { type EmbeddableVerdict, probeEmbeddable } from "../preview/embeddable.js";
 import {
@@ -105,6 +109,7 @@ export function registerPreviewRoutes(
 	const cookieName = previewCookieName(config);
 	const secure = config.PUBLIC_URL.startsWith("https:");
 	const bridge = createBridgeForwards({ registry, logger });
+	const deniedAudit = createPreviewDeniedAudit(db);
 
 	/** When each user's recent grants and probes were asked for, newest last. */
 	const requestTimes = new Map<string, number[]>();
@@ -587,20 +592,33 @@ export function registerPreviewRoutes(
 		const user = await loadMainSessionUser(db, session.session_id);
 		if (!user || user.id !== session.user_id) return page(reply, 401, signInPage());
 
-		if (session.preview_host !== host) return page(reply, 403, refusedPage());
-		if (session.port !== parsed.port) return page(reply, 403, refusedPage());
-		if (!portAllowed(config, session.port)) return page(reply, 403, refusedPage());
+		const { workspace_id: sessionWorkspaceId, user_id: sessionUserId } = session;
+		/** Refuse with 403 and audit it, throttled (SPEC.md §24.11). */
+		async function denied(reason: PreviewDeniedReason): Promise<FastifyReply> {
+			try {
+				await deniedAudit.record({
+					workspaceId: sessionWorkspaceId,
+					userId: sessionUserId,
+					reason,
+				});
+			} catch (error) {
+				request.log.warn({ err: error, reason }, "preview refusal was not audited");
+			}
+			return page(reply, 403, refusedPage());
+		}
+
+		if (session.preview_host !== host) return denied("host_mismatch");
+		if (session.port !== parsed.port) return denied("port_mismatch");
+		if (!portAllowed(config, session.port)) return denied("port_not_allowed");
 
 		const workspace = await db
 			.selectFrom("workspaces")
 			.select(["id", "label", "state", "owner_user_id", "agent_address"])
 			.where("id", "=", session.workspace_id)
 			.executeTakeFirst();
-		if (!workspace) return page(reply, 403, refusedPage());
-		if (workspace.owner_user_id !== session.user_id) {
-			return page(reply, 403, refusedPage());
-		}
-		if (workspace.label !== parsed.label) return page(reply, 403, refusedPage());
+		if (!workspace) return denied("workspace_missing");
+		if (workspace.owner_user_id !== session.user_id) return denied("not_owner");
+		if (workspace.label !== parsed.label) return denied("label_mismatch");
 		if (workspace.state !== "running") {
 			return page(reply, 503, stoppedWorkspacePage());
 		}
@@ -611,9 +629,9 @@ export function registerPreviewRoutes(
 		// session's own port.
 		const headers = request.headers as Record<string, unknown>;
 		const target = parseBridgeUri(headers["x-forwarded-uri"]);
-		if (target.kind === "invalid") return page(reply, 403, refusedPage());
+		if (target.kind === "invalid") return denied("invalid_bridge_path");
 		const port = target.kind === "port" ? target.port : session.port;
-		if (!portAllowed(config, port)) return page(reply, 403, refusedPage());
+		if (!portAllowed(config, port)) return denied("port_not_allowed");
 
 		if (!workspace.agent_address) {
 			return page(reply, 503, inactiveServicePage(port));

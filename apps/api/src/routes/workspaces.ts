@@ -176,6 +176,16 @@ export function registerWorkspaceRoutes(
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 
+		// Stopping an archived workspace is fine; starting it is not (SPEC.md §20.1).
+		if (desired !== "stopped" && row.archived_at) {
+			return sendError(
+				reply,
+				409,
+				"WORKSPACE_ARCHIVED",
+				"This workspace was archived by an administrator.",
+			);
+		}
+
 		await db
 			.updateTable("workspaces")
 			.set({

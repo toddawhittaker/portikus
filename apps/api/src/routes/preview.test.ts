@@ -1,3 +1,4 @@
+import { type AddressInfo, createServer } from "node:net";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -54,6 +55,15 @@ async function seedListening(
 		body: JSON.stringify({ key: workspaceId, services }),
 	});
 	expect(response.status).toBe(204);
+}
+
+/** A port that was free a moment ago and has nothing listening on it now. */
+async function closedPort(): Promise<number> {
+	const server = createServer();
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	const { port } = server.address() as AddressInfo;
+	await new Promise<void>((resolve) => server.close(() => resolve()));
+	return port;
 }
 
 function previewHostFor(port: number, name = label): string {
@@ -375,16 +385,17 @@ test.skipIf(skip)(
 test.skipIf(skip)("a second stop while one is running is refused", async () => {
 	await seedListening([{ port: 5173 }, { port: 5174 }]);
 	await untilPorts([5173, 5174]);
-	const [first, second] = await Promise.all([
-		stop(alice, workspaceId, 5173),
-		stop(alice, workspaceId, 5174),
-	]);
-	const codes = [first.statusCode, second.statusCode].sort();
-	expect(codes).toEqual([200, 409]);
-	const refused = first.statusCode === 409 ? first : second;
-	expect(refused.json().code).toBe("STOP_IN_PROGRESS");
+	// The fake agent holds the first stop, so the second arrives while it runs.
+	const hold = agent.holdNextStop();
+	const firstStop = stop(alice, workspaceId, 5173);
+	await hold.reached;
+	const second = await stop(alice, workspaceId, 5174);
+	hold.release();
+	const first = await firstStop;
+	expect([first.statusCode, second.statusCode]).toEqual([200, 409]);
+	expect(second.json().code).toBe("STOP_IN_PROGRESS");
 	// Once the first has answered, stopping works again.
-	const again = await stop(alice, workspaceId, refused === first ? 5173 : 5174);
+	const again = await stop(alice, workspaceId, 5174);
 	expect(again.statusCode).toBe(200);
 });
 
@@ -709,6 +720,40 @@ test.skipIf(skip)("a preview cookie is worthless on another host", async () => {
 	expect((await authorize(token, `${label}-5173.evil.example`)).statusCode).toBe(403);
 });
 
+test.skipIf(skip)(
+	"a 403 refusal is audited as preview.denied, once a minute",
+	async () => {
+		const token = await openPreview(5173);
+		for (let i = 0; i < 3; i++) {
+			expect((await authorize(token, previewHostFor(3000))).statusCode).toBe(403);
+		}
+		// A refusal for a second reason gets its own row.
+		const bridged = await authorize(token, previewHostFor(5173), {
+			extra: { "x-forwarded-uri": "/__portikus/ports/nope/" },
+		});
+		expect(bridged.statusCode).toBe(403);
+		// 401 answers are the ordinary "sign in first" and are not audited.
+		expect((await authorize(null, previewHostFor(5173))).statusCode).toBe(401);
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "preview.denied")
+			.orderBy("id")
+			.execute();
+		expect(rows.map((row) => row.metadata)).toEqual([
+			{ reason: "host_mismatch", workspaceId, count: 3 },
+			{ reason: "invalid_bridge_path", workspaceId, count: 1 },
+		]);
+		expect(rows.every((row) => row.target === workspaceId)).toBe(true);
+		expect(rows.every((row) => row.result === "denied")).toBe(true);
+		// No cookie, ticket, host or path reaches the audit row (STACK.md §15).
+		const serialized = JSON.stringify(rows.map((row) => row.metadata));
+		expect(serialized).not.toContain(token);
+		expect(serialized).not.toContain(SUFFIX);
+	},
+);
+
 test.skipIf(skip)("a workspace that changed hands stops authorizing", async () => {
 	const token = await openPreview(5173);
 	const bobId = (
@@ -911,8 +956,18 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)("an application that does not answer is unreachable", async () => {
-	// 5173 is seeded as listening, but no server ever bound the port.
-	const response = await embeddable(5173);
+	// A port this test bound and closed, so nothing else on the machine answers it.
+	const port = await closedPort();
+	await seedListening([{ port }]);
+	await until(async () => {
+		const seen = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/listening`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		return seen.json().services.some((one: { port: number }) => one.port === port);
+	});
+	const response = await embeddable(port);
 	expect(response.statusCode).toBe(200);
 	expect(response.json()).toEqual({ embeddable: false, reason: "unreachable" });
 });

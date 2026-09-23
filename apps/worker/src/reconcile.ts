@@ -286,6 +286,7 @@ export async function reconcile(
 					state: "stopped",
 					image_version: result.imageFingerprint,
 					quota_config: JSON.stringify(result.quota),
+					quota_applied: JSON.stringify(result.quota),
 					error_code: null,
 					error_message: null,
 				},
@@ -328,6 +329,7 @@ export async function reconcile(
 		.select(["id", "incus_instance_name", "label"])
 		.where("state", "=", "stopped")
 		.where("desired_state", "in", ["running", "restarting"])
+		.where("archived_at", "is", null)
 		.execute();
 
 	for (const ws of toStart) {
@@ -336,12 +338,17 @@ export async function reconcile(
 	}
 
 	// 3c: running -> stopping (desired stopped/restarting, or deadline passed)
-	// First: explicit desired stopped or restarting.
+	// First: explicit desired stopped or restarting, or archived whatever it wants.
 	const toStopExplicit = await db
 		.selectFrom("workspaces")
 		.select(["id", "incus_instance_name"])
 		.where("state", "=", "running")
-		.where("desired_state", "in", ["stopped", "restarting"])
+		.where((eb) =>
+			eb.or([
+				eb("desired_state", "in", ["stopped", "restarting"]),
+				eb("archived_at", "is not", null),
+			]),
+		)
 		.execute();
 
 	for (const ws of toStopExplicit) {
@@ -395,6 +402,7 @@ export async function reconcile(
 		.where("state", "=", "error")
 		.where("desired_state", "in", ["running", "restarting"])
 		.where("updated_at", "<", retryCutoff)
+		.where("archived_at", "is", null)
 		.execute();
 
 	for (const ws of errorRetryStart) {

@@ -1,3 +1,4 @@
+import { type Kysely, sql } from "kysely";
 import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import {
@@ -614,6 +615,8 @@ describe("database migrations and schema", () => {
 				expect(down11.error).toBeUndefined();
 				const down12 = await migrator.migrateDown();
 				expect(down12.error).toBeUndefined();
+				const down13 = await migrator.migrateDown();
+				expect(down13.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -629,11 +632,110 @@ describe("database migrations and schema", () => {
 					"0010_terminal_theme",
 					"0011_terminal_agent",
 					"0012_profile",
+					"0014_admin",
 				]);
 				throw rollback;
 			}),
 		).rejects.toBe(rollback);
 	});
+
+	// --- migration 0014: admin columns, health samples, audit indexes (Epic 11) ---
+
+	test.skipIf(!hasTestDb())(
+		"0014 backfills quota_applied with only home and docker and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0014_admin");
+					const gone = await sql<{ n: number }>`
+					select count(*)::int as n from information_schema.tables
+					where table_name = 'health_samples'`.execute(trx);
+					expect(gone.rows[0]?.n).toBe(0);
+
+					const userId = await insertTestUser(trx);
+					await trx
+						.insertInto("workspaces")
+						.values({
+							label: testLabel(),
+							owner_user_id: userId,
+							state: "stopped",
+							quota_config: JSON.stringify({
+								homeGiB: 25,
+								dockerGiB: 20,
+								recoveryGiB: 10,
+							}),
+						} as never)
+						.execute();
+
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+					const row = await trx
+						.selectFrom("workspaces")
+						.select(["quota_applied", "archived_at"])
+						.where("owner_user_id", "=", userId)
+						.executeTakeFirstOrThrow();
+					expect(row.quota_applied).toEqual({ homeGiB: 25, dockerGiB: 20 });
+					expect(row.archived_at).toBeNull();
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"health_samples stores a sample with a default time",
+		async () => {
+			const row = await t.db
+				.insertInto("health_samples")
+				.values({ sample: JSON.stringify({ controller: { reachable: false } }) })
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			expect(row.observed_at).toBeInstanceOf(Date);
+			expect(row.sample).toEqual({ controller: { reachable: false } });
+			await t.db.deleteFrom("health_samples").execute();
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"a migration that arrives after a later one has applied still runs",
+		async () => {
+			const { migrateToLatest } = await import("./migrate.js");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+
+			// Stands in for Epic 10's 0013 landing after 0014 is already applied.
+			const late = {
+				...migrations,
+				"0013_standin": {
+					up: async (db: Kysely<unknown>) => {
+						await db.schema
+							.createTable("standin_0013")
+							.addColumn("id", "integer")
+							.execute();
+					},
+					down: async (db: Kysely<unknown>) => {
+						await db.schema.dropTable("standin_0013").execute();
+					},
+				},
+			};
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					expect(await migrateToLatest(trx, late)).toEqual(["0013_standin"]);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
 
 	// --- migration 0008: workspace label and preview tables ---
 	// SPEC.md Epic 8; BROWSER-HANDLING.md sections 8 and 17.

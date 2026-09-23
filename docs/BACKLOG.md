@@ -491,25 +491,6 @@ student notices the drift on a long document.
 
 **Source.** `docs/STATUS.md`, Epic 7.1.
 
-## Per-run e2e ports and database
-
-**What.** Give each Playwright run its own set of ports and its own
-database, instead of the fixed ports and one shared `TEST_DATABASE_URL`
-several agents' local runs use today.
-
-**Why.** Epic 7.1 added a setup check that stops a run cleanly when the
-API under test reads a different database than the test helpers write to,
-which is what several agents running the suite on this host at once used
-to trip over. The check catches the collision instead of preventing it;
-two agents still cannot run the full suite on this host at the same time.
-
-**What it would take.** Pick each run's web, API, and worker ports from a
-free range instead of a fixed list, and give each run's Playwright
-workers a database name derived from the run's process id, the way the
-unit test suite already does for database test files. About half a day.
-
-**Source.** `docs/STATUS.md`, Epic 7.1.
-
 ## Reference-style Markdown links and images in the Rich view
 
 **What.** Support reference-style links and images, written as
@@ -719,3 +700,86 @@ fetch metadata at all once every supported browser sends it. Half a day
 of research, then a day to build.
 
 **Source.** Epic 8 security review; `docs/STATUS.md`, Epic 8 known gaps.
+
+## OpenTelemetry export
+
+**What.** Export the operational metrics that today live only in
+PostgreSQL's `health_samples` table and `audit_events` counts to an
+OpenTelemetry collector, once there is somewhere for it to send them.
+
+**Why.** ADR 0022 chose PostgreSQL over an OpenTelemetry SDK because the
+pilot is one VM with nothing to scrape a metrics endpoint. A second VM, a
+managed database, or an external monitoring service would change that.
+
+**What it would take.** An OpenTelemetry SDK in the worker, a collector
+to send to, and a decision on whether `health_samples` keeps running
+alongside it or is replaced. About two days once a destination exists.
+
+**Source.** `docs/STATUS.md`, Epic 11; ADR 0022.
+
+## Audit retention policy
+
+**What.** A policy that ages out or archives old `audit_events` rows,
+rather than keeping every row forever.
+
+**Why.** SPEC.md section 25.10 asks for a retention policy, and Epic 11
+added several new, higher-volume audit sources (`preview.denied`,
+`user.role_changed`, and the workspace lifecycle actions) without adding
+one.
+
+**What it would take.** Decide a retention window per action type, a
+sweep job similar to the one that already prunes `health_samples` after
+7 days, and a decision on whether old rows are deleted or exported
+first. About a day.
+
+**Source.** SPEC.md section 25.10; `docs/EPIC-11.md`, "Out of this epic".
+
+## Per-workspace CPU, memory, and process limits
+
+**What.** Let an administrator set CPU, memory and process limits on one
+workspace, rather than every workspace sharing the limits in the one
+Incus profile that Ansible owns.
+
+**Why.** Epic 11's Health tab shows the profile's shared limits but does
+not let anyone change them per workspace; today a single misbehaving
+workspace is bounded only by the platform-wide profile.
+
+**What it would take.** A per-instance Incus limit override, a place to
+store the chosen values, and admin UI to set them. About two days.
+
+**Source.** `docs/EPIC-11.md`, "Out of this epic".
+
+## Egress allow-list (issue #284)
+
+**What.** Let an administrator restrict which external hosts a
+workspace's outbound network traffic can reach, beyond the private-range
+and host deny list.
+
+**Why.** SPEC.md and issue #284 ask for administrator control over
+egress. PR #424 already added a deny list that keeps workspace traffic
+off private network ranges and the platform host itself, which closes
+one class of risk (a workspace reaching the platform's own internal
+services) but is not the allow-list itself.
+
+**What it would take.** A policy store, an enforcement point (likely
+nftables rules per workspace, alongside the existing deny list), and
+admin UI in the Settings tab, which Epic 11 left a place for. About two
+days.
+
+**Source.** Issue #284; `docs/EPIC-11.md`, "Settings tab" and task 7.
+
+## Bulk admin actions
+
+**What.** Let an administrator act on more than one workspace or account
+at a time, for example disabling several stale accounts together.
+
+**Why.** Epic 11's Workspaces tab acts on one row at a time. A pilot with
+a few hundred students will have batches of accounts that need the same
+action, such as end-of-term disables.
+
+**What it would take.** Row selection in the Workspaces tab, a
+confirmation dialog naming every affected row, and either a bulk API
+route or a loop over the existing single-row ones with a shared audit
+row per action. About a day.
+
+**Source.** `docs/EPIC-11.md`, "Out of this epic".

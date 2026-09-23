@@ -12,9 +12,11 @@ import {
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import type { Updateable } from "kysely";
+import { sql, type Updateable } from "kysely";
 import { z } from "zod";
+import { accountFlags, groupByEmail } from "../admin/markers.js";
 import type { ServerDeps } from "../server.js";
+import { loadImageFacts, toWorkspaceSummary } from "./admin-workspaces.js";
 import { countActive, toWorkspace } from "./workspace-view.js";
 
 const UuidParam = z.object({ id: z.string().uuid() });
@@ -40,7 +42,20 @@ function sendError(
 	reply.status(statusCode).send({ code, message });
 }
 
-/** Shape a users row as the administration pages want it (SPEC.md §5.2). */
+/** The users columns the administration pages read. */
+const USER_COLUMNS = [
+	"id",
+	"display_name",
+	"email",
+	"role",
+	"disabled_at",
+	"shutdown_grace_seconds",
+	"preferred_username",
+	"oidc_issuer",
+	"last_login_at",
+] as const;
+
+/** The users-row part of an AdminUser; markers and workspace are added by listAdminUsers. */
 function toAdminUser(row: {
 	id: string;
 	display_name: string;
@@ -48,7 +63,10 @@ function toAdminUser(row: {
 	role: string;
 	disabled_at: Date | null;
 	shutdown_grace_seconds: number | null;
-}): AdminUser {
+	preferred_username: string | null;
+	oidc_issuer: string;
+	last_login_at: Date | null;
+}): Omit<AdminUser, "markers" | "workspace"> {
 	return {
 		id: row.id,
 		displayName: row.display_name,
@@ -56,6 +74,9 @@ function toAdminUser(row: {
 		role: Role.parse(row.role),
 		disabledAt: row.disabled_at ? new Date(row.disabled_at).toISOString() : null,
 		shutdownGraceSeconds: row.shutdown_grace_seconds,
+		preferredUsername: row.preferred_username,
+		issuer: row.oidc_issuer,
+		lastLoginAt: row.last_login_at ? new Date(row.last_login_at).toISOString() : null,
 	};
 }
 
@@ -180,24 +201,198 @@ export function registerAdminRoutes(
 		return out;
 	});
 
-	// GET /admin/users
-	app.get("/admin/users", adminOnly, async () => {
-		const rows = await db
+	/** Every account with its markers and workspace (issue #302). */
+	async function listAdminUsers(): Promise<AdminUser[]> {
+		const users = await db
 			.selectFrom("users")
-			.select([
-				"id",
-				"display_name",
-				"email",
-				"role",
-				"disabled_at",
-				"shutdown_grace_seconds",
-			])
+			.select([...USER_COLUMNS, "created_at"])
 			.orderBy("display_name")
 			.orderBy("id")
 			.execute();
+		const workspaces = await db.selectFrom("workspaces").selectAll().execute();
+		const cutoff = new Date(Date.now() - config.PRESENCE_TTL_SECONDS * 1000);
+		const counts = await db
+			.selectFrom("workspace_connections")
+			.select(["workspace_id", sql<number>`count(*)::int`.as("count")])
+			.where("last_seen_at", ">", sql<Date>`${cutoff.toISOString()}::timestamptz`)
+			.groupBy("workspace_id")
+			.execute();
+		const active = new Map(counts.map((row) => [row.workspace_id, row.count]));
+		const byOwner = new Map(workspaces.map((row) => [row.owner_user_id, row]));
+		const facts = await loadImageFacts(db);
+		const defaults = {
+			homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
+			dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+		};
+		const flags = accountFlags(
+			users.map((user) => ({
+				id: user.id,
+				email: user.email,
+				lastLoginAt: user.last_login_at ? new Date(user.last_login_at) : null,
+			})),
+			new Date(),
+		);
 
-		const body: AdminUserList = { users: rows.map(toAdminUser) };
+		return groupByEmail(users).map((user) => {
+			const workspace = byOwner.get(user.id);
+			const flag = flags.get(user.id) ?? { duplicateEmail: false, stale: false };
+			return {
+				...toAdminUser(user),
+				markers: {
+					disabled: user.disabled_at !== null,
+					archived: Boolean(workspace?.archived_at),
+					...flag,
+				},
+				workspace: workspace
+					? toWorkspaceSummary(
+							workspace as Record<string, unknown>,
+							active.get(workspace.id) ?? 0,
+							facts,
+							defaults,
+						)
+					: null,
+			};
+		});
+	}
+
+	/** One account as the list shows it, or null when it does not exist. */
+	async function loadAdminUser(id: string): Promise<AdminUser | null> {
+		return (await listAdminUsers()).find((user) => user.id === id) ?? null;
+	}
+
+	// GET /admin/users -- every account with its markers and workspace (issue #302).
+	app.get("/admin/users", adminOnly, async () => {
+		const list = await listAdminUsers();
+		const body: AdminUserList = { users: list };
 		return body;
+	});
+
+	// POST /admin/users/:id/disable -- the one platform-side revocation (SPEC.md §20.1).
+	app.post("/admin/users/:id/disable", adminOnly, async (request, reply) => {
+		const actor = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const id = params.data.id;
+		if (id === actor.id) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"You cannot disable your own account.",
+			);
+		}
+		const before = await db
+			.selectFrom("users")
+			.select("disabled_at")
+			.where("id", "=", id)
+			.executeTakeFirst();
+		if (!before) {
+			return sendError(reply, 404, "NOT_FOUND", "User not found");
+		}
+
+		// Every effect and its audit row commit together (SPEC.md §24.11).
+		const updated = await db.transaction().execute(async (trx) => {
+			// Lock every enabled administrator plus the target, so two administrators
+			// disabling each other at once cannot both succeed.
+			const locked = await trx
+				.selectFrom("users")
+				.select(["id", "role", "disabled_at"])
+				.where((eb) =>
+					eb.or([
+						eb("id", "=", id),
+						eb.and([eb("role", "=", "administrator"), eb("disabled_at", "is", null)]),
+					]),
+				)
+				.orderBy("id")
+				.forUpdate()
+				.execute();
+			const target = locked.find((user) => user.id === id);
+			const otherAdmins = locked.filter(
+				(user) =>
+					user.id !== id && user.role === "administrator" && user.disabled_at === null,
+			);
+			if (
+				target?.role === "administrator" &&
+				target.disabled_at === null &&
+				otherAdmins.length === 0
+			) {
+				return null;
+			}
+			const now = new Date().toISOString();
+			const row = await trx
+				.updateTable("users")
+				.set({ disabled_at: before.disabled_at ? undefined : now, updated_at: now })
+				.where("id", "=", id)
+				.returning(USER_COLUMNS)
+				.executeTakeFirstOrThrow();
+			await trx.deleteFrom("sessions").where("user_id", "=", id).execute();
+			await trx
+				.updateTable("preview_sessions")
+				.set({ revoked_at: now })
+				.where("user_id", "=", id)
+				.where("revoked_at", "is", null)
+				.execute();
+			await trx
+				.updateTable("workspaces")
+				.set({ desired_state: "stopped", updated_at: now })
+				.where("owner_user_id", "=", id)
+				.execute();
+			await trx
+				.insertInto("audit_events")
+				.values({
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "user.disabled",
+					result: "ok",
+				})
+				.execute();
+			return row;
+		});
+		if (!updated) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"At least one other enabled administrator must remain.",
+			);
+		}
+		return loadAdminUser(updated.id);
+	});
+
+	// POST /admin/users/:id/enable -- sign-in works again; nothing else changes.
+	app.post("/admin/users/:id/enable", adminOnly, async (request, reply) => {
+		const actor = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const id = params.data.id;
+		const updated = await db.transaction().execute(async (trx) => {
+			const now = new Date().toISOString();
+			const row = await trx
+				.updateTable("users")
+				.set({ disabled_at: null, updated_at: now })
+				.where("id", "=", id)
+				.returning(USER_COLUMNS)
+				.executeTakeFirst();
+			if (!row) return null;
+			await trx
+				.insertInto("audit_events")
+				.values({
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "user.enabled",
+					result: "ok",
+				})
+				.execute();
+			return row;
+		});
+		if (!updated) {
+			return sendError(reply, 404, "NOT_FOUND", "User not found");
+		}
+		return loadAdminUser(updated.id);
 	});
 
 	// PUT /admin/users/:id/settings -- set or clear one user's override.
@@ -232,14 +427,7 @@ export function registerAdminRoutes(
 					updated_at: new Date().toISOString(),
 				})
 				.where("id", "=", params.data.id)
-				.returning([
-					"id",
-					"display_name",
-					"email",
-					"role",
-					"disabled_at",
-					"shutdown_grace_seconds",
-				])
+				.returning(USER_COLUMNS)
 				.executeTakeFirstOrThrow();
 			await trx
 				.insertInto("audit_events")
@@ -259,6 +447,6 @@ export function registerAdminRoutes(
 			return row;
 		});
 
-		return toAdminUser(updated);
+		return loadAdminUser(updated.id);
 	});
 }

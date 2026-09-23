@@ -31,6 +31,7 @@ const sampleWorkspace = {
 	activeConnections: 2,
 	lastActiveConnectionAt: null,
 	shutdownDeadline: null,
+	archivedAt: null,
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -69,6 +70,7 @@ test("Workspace round-trips a complete response", () => {
 		activeConnections: 2,
 		lastActiveConnectionAt: now,
 		shutdownDeadline: null,
+		archivedAt: null,
 		createdAt: now,
 		updatedAt: now,
 	};

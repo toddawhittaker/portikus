@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { createProject, createStudent, terminalIds, workspacePath } from "./helpers";
+import { FAKE_AGENT_URL } from "./ports";
 
 /**
  * Terminal copy and paste (SPEC.md §9, plan decisions "Clipboard in the
@@ -275,7 +276,6 @@ test.describe("terminal clipboard", () => {
 	});
 
 	/** The fake agent, which the end-to-end run puts on this port. */
-	const FAKE_AGENT_URL = `http://127.0.0.1:${process.env.FAKE_AGENT_PORT ?? "7400"}`;
 
 	/** How many browsers the agent has attached to a terminal. */
 	async function attachmentsOf(terminalId: string): Promise<number> {

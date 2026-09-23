@@ -151,10 +151,16 @@ jobs:
         env:
           PORTIKUS_VERSION: 0.0.0+ci
 
-  e2e:
-    name: Browser end-to-end tests
+  # The browser tests are the slowest part of CI, so they run in parallel
+  # shards, each with its own database and ports, alongside the app job.
+  e2e-shard:
+    name: Browser end-to-end tests (shard ${{ matrix.shard }} of 3)
     runs-on: ubuntu-latest
-    needs: [changes, app]
+    needs: changes
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     services:
       postgres:
         image: postgres:17
@@ -183,6 +189,13 @@ jobs:
           cache: pnpm
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
         run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      # With the browser cached this only installs the system libraries.
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
         run: pnpm exec playwright install --with-deps --only-shell chromium
       # The Playwright servers run the compiled output, and Vite serves the
@@ -191,16 +204,31 @@ jobs:
         run: pnpm typecheck && pnpm --filter @portikus/ui build
       - id: run
         if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
-        run: pnpm test:e2e
+        run: pnpm test:e2e --shard=${{ matrix.shard }}/3
         env:
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
       - name: Upload the Playwright report
         if: failure() && steps.run.outcome == 'failure'
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 7
+
+  # The branch rulesets require a check with this exact name, so it stays
+  # one job that passes only when every shard passed.
+  e2e:
+    name: Browser end-to-end tests
+    runs-on: ubuntu-latest
+    needs: e2e-shard
+    if: always()
+    steps:
+      - name: Check every shard passed
+        env:
+          RESULT: ${{ needs.e2e-shard.result }}
+        run: |
+          echo "Shards: $RESULT"
+          [ "$RESULT" = "success" ]
 
   infra:
     name: Infrastructure checks
