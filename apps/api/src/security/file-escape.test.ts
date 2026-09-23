@@ -75,6 +75,9 @@ async function startAgent(
 	const agentApp = buildAgentServer({ tokenPath, homeDir: home }) as FastifyInstance;
 	const agent: Agent = { app: agentApp, home, token, address, calls: [] };
 	agentApp.addHook("onRequest", async (request) => {
+		// The listening registry's own background socket is not a file
+		// operation; leave it out so it cannot be mistaken for one.
+		if (request.url.startsWith("/listening/events")) return;
 		agent.calls.push(request.url);
 	});
 	await agentApp.listen({ port, host: address });
