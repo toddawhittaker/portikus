@@ -61,11 +61,8 @@ change must respect.
 
 ## Status
 
-Epics 0 through 6 have landed, plus the live disconnect grace period and
-structured logging: the platform VM and workspace image, the workspace
-lifecycle, the Debian package, OIDC login and sessions, the workspace agent
-and terminal transport, and the three-pane shell with project management.
-Epic 7 (files, Monaco, search, and change review) is next.
+Epics 0 through 12a have landed and run on the pilot VM. Epic 12b, sign-in
+through Dex and pilot readiness, is the last epic before the pilot.
 
 `docs/STATUS.md` records what each epic delivered and the gaps it left.
 
@@ -112,6 +109,8 @@ a rollback is installing the previous version.
 
 `make help` lists the targets. See
 [infra/README.md](infra/README.md) and [docs/WORKFLOW.md](docs/WORKFLOW.md).
+Running the pilot day to day (deploys, users, backups, restore, routine
+checks) is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Repository layout
 
