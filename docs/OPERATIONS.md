@@ -109,8 +109,8 @@ make users-check                   # validate the file
 make users-deploy                  # apply the file to Dex on the VM
 ```
 
-- `users-add` asks for the email, display name and role (`student` or
-  `administrator`), then the password twice without showing it. Passwords
+- `users-add` asks for the email, display name and role (`student`,
+  `instructor` or `administrator`), then the password twice without showing it. Passwords
   need at least 12 characters. The first user must be an administrator.
 - Generate each password in the password manager (16 characters or more)
   and hand it over in person or by a private message in the learning
@@ -120,8 +120,7 @@ make users-deploy                  # apply the file to Dex on the VM
 - `users-remove` and `users-add` only change the file. Nothing reaches the
   VM until `make users-deploy` (or `make configure-vm`).
 - `users-deploy` ends the Portikus sessions and preview sessions of every
-  user who was removed, whose password changed, or who went from
-  administrator to student. It writes one `auth.sessions_revoked` audit
+  user who was removed, whose password changed, or whose role changed. It writes one `auth.sessions_revoked` audit
   event. To stop someone at once, disable the account in `/admin`.
 
 If the users file is lost, restore it from the newest backup set
@@ -229,6 +228,189 @@ that Ansible writes for an external provider.
 This was tested on the rehearsal VM on 2026-09-23. With a start limit of
 400, 160 starts from one address in a minute all got through, where the
 default refuses the last 10.
+
+## Signing in from a learning management system (LTI 1.3)
+
+A learning management system (LMS), such as Canvas or Moodle, can open
+Portikus from a course. LTI 1.3 (Learning Tools Interoperability) is the
+standard for this. The LMS signs a token that names the person, their
+role and the course. Portikus checks it and signs the person in with no
+second password. Students land in their own workspace. Instructors,
+teaching assistants and course designers land in their own workspace too,
+and also get a read-only **Course** page. The design is in ADR 0025 and
+`docs/EPIC-13.md`.
+
+LTI is off until at least one LMS is registered. Every `/lti/*` route then
+answers 404.
+
+### What Portikus tells the LMS
+
+Use the public URL of the site, shown here as `https://<site>`, for the
+pilot `https://portikus.192.168.10.48.nip.io:8443`.
+
+| What the LMS asks for | Value |
+|---|---|
+| Login initiation URL | `https://<site>/lti/login` |
+| Redirect URI and target link URI | `https://<site>/lti/launch` for the redirect, `https://<site>/` for the target link |
+| Public keyset URL (JWKS, the tool's public keys) | `https://<site>/lti/jwks` |
+
+**Canvas.** An administrator opens Admin, Developer Keys, and adds an
+**LTI Key**. Set:
+
+- Redirect URIs: `https://<site>/lti/launch`.
+- Target Link URI: `https://<site>/`.
+- OpenID Connect Initiation Url: `https://<site>/lti/login`.
+- JWK Method: **Public JWK URL**, with `https://<site>/lti/jwks`.
+- Placement: Course Navigation (or Link Selection), with the privacy level
+  at least "Public" so the name is sent.
+- Turn the key on, and note its client id (the number under Details).
+  Add the tool to the account or course by that client id, and note the
+  deployment id Canvas shows for it.
+- Ask Canvas to **open in a new window**: in the placement's settings, set
+  the window target to `_blank` (in the configuration JSON,
+  `"windowTarget": "_blank"`).
+
+For Canvas cloud, the platform values are always the issuer
+`https://canvas.instructure.com`, the auth login URL
+`https://sso.canvaslms.com/api/lti/authorize_redirect`, and the keyset URL
+`https://sso.canvaslms.com/api/lti/security/jwks`.
+
+**Moodle.** An administrator opens Site administration, Plugins, Activity
+modules, External tool, **Manage tools**, and configures a tool manually:
+
+- Tool URL: `https://<site>/`.
+- LTI version: **LTI 1.3**.
+- Public key type: **Keyset URL**, with Public keyset `https://<site>/lti/jwks`.
+- Initiate login URL: `https://<site>/lti/login`.
+- Redirection URI(s): `https://<site>/lti/launch`.
+- Default launch container: **New window**.
+- Under Privacy, share the launcher's name (and email if wanted) with the tool.
+
+After saving, the tool's "View configuration details" shows the platform
+ID (the issuer), client ID, deployment ID, public keyset URL and
+authentication request URL. Those go in the platforms file.
+
+"Open in a new window" matters. Inside a frame, the browser often blocks
+the cookie the launch needs. Portikus then shows a page with an **Open
+Portikus in a new tab** button, which works, but costs the student a click.
+
+### The platforms file
+
+The registered platforms live in `~/.config/portikus/lti-platforms.json`
+on the host (Makefile `PORTIKUS_LTI_PLATFORMS_FILE`). It holds no secret.
+
+```json
+{ "version": 1,
+  "platforms": [
+    { "name": "Canvas",
+      "issuer": "https://canvas.instructure.com",
+      "clientId": "10000000000001",
+      "authLoginUrl": "https://sso.canvaslms.com/api/lti/authorize_redirect",
+      "keysetUrl": "https://sso.canvaslms.com/api/lti/security/jwks",
+      "deploymentIds": ["1:8865aa05b4b79b64a91a86042e43af5ea8ae79eb"],
+      "mock": false } ] }
+```
+
+- `name` is 1 to 60 characters and unique. It shows on the Course page and
+  in audit rows.
+- `issuer`, `authLoginUrl` and `keysetUrl` must be HTTPS.
+- `deploymentIds` lists every deployment id the LMS may send. Re-adding
+  the tool in the LMS can make a new one.
+- Each issuer and client id pair appears once. Unknown keys and an empty
+  `platforms` list are refused.
+
+Apply it with `make configure-vm` (out of class hours, after "Before a
+change"). Ansible copies the file to `/etc/portikus/lti-platforms.json`
+and checks it with the API's own parser before installing it, so a bad
+file stops the run with the problem named. To turn LTI off, delete the
+file and run `make configure-vm` again.
+
+### Egress to the LMS
+
+The API may only reach the addresses it is allowed to (the API unit's IP
+allow list). Portikus fetches each platform's keyset to check signatures.
+When the keyset URL uses an IP address, Ansible allows that address by
+itself. When it uses a hostname, as every cloud LMS does, name the
+addresses with `PORTIKUS_API_IP_ALLOW`:
+
+```
+make configure-vm PORTIKUS_API_IP_ALLOW=198.51.100.0/24
+```
+
+Every range added here is a place the API can send requests to, so a
+compromised API could reach it too. Use the narrowest range the LMS
+publishes for its keyset host. A cloud LMS's addresses change, so a
+narrow range can go stale, and launches then fail with
+`keyset_unavailable`. Allowing `0.0.0.0/0` makes launches reliable but
+removes the API's egress limit altogether; do it only as a recorded
+decision in the threat model.
+
+### Roles and the Course page
+
+- LTI gives `instructor` for the LMS membership roles Instructor,
+  TeachingAssistant and ContentDeveloper (and their sub-roles), and for
+  Administrator under the institution, system or membership vocabularies.
+  A bare `Administrator` short form gives `student`, as does everything
+  else, including an institution-level Instructor. LTI never gives `administrator`.
+- The role is refreshed on every launch, and a change is audited.
+- A Dex account can be an instructor too: `make users-add` offers the
+  role, and Dex gives it the group `portikus-instructors`. `make
+  users-deploy` ends a user's sessions whenever their role changes.
+- An instructor sees a **Course** link in the header. The Course page lists
+  everyone who has opened Portikus from that course, with name, role, last
+  launch and whether their workspace is running. It is read-only. An
+  instructor cannot see anyone else's files and is refused on every
+  administrator page.
+- Someone removed from the course in the LMS stays on the Course page.
+- An LTI user and a Dex user are separate accounts, even with the same
+  email.
+
+### When a launch fails
+
+The student sees a refusal page. The reason is in the `auth.login` audit
+rows on the admin page (method `lti`, with a reason code such as
+`unknown_deployment` or `keyset_unavailable`), and in the API log:
+
+```
+sudo journalctl -u portikus-api -o cat --since -1h | grep -i lti
+```
+
+A missing state cookie or a framed launch is only in the log, not the
+audit. The usual fix for `unknown_deployment` is to add the new deployment
+id to the file. For `keyset_unavailable`, check the egress allow list.
+
+### Trying it with the mock LMS
+
+A mock LMS runs on the host, never on the VM. It listens on `127.0.0.1`
+and the host's address on the VM network (`10.100.0.1`), port 8765, so
+only this host and the VM can reach it. Anyone who can reach it can launch
+as anyone, so it is trusted only while it is registered.
+
+1. In one terminal, start it and leave it running:
+
+   ```
+   make mock-lms
+   ```
+
+2. In another, register it. This adds a `mock-lms` entry to the platforms
+   file and applies only the LTI tasks:
+
+   ```
+   make lti-mock-register
+   ```
+
+3. Open http://127.0.0.1:8765 on the host. Pick a person, a course and
+   whether to launch inside a frame, then launch. Launch as Sam Student,
+   then as Ivy Instructor, and open the Course page.
+4. When done, stop trusting it, then stop `make mock-lms` with Ctrl-C:
+
+   ```
+   make lti-mock-unregister
+   ```
+
+While the mock is registered, `make security-test` prints a warning
+naming it, and the smoke test reports it. Users created by mock launches
+stay in the database, under the issuer `lti:http://10.100.0.1:8765`.
 
 ## Backups
 

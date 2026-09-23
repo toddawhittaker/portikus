@@ -20,6 +20,7 @@
 		"build:deb": "bash scripts/build-deb.sh"
 	},
 	"devDependencies": {
+		"@axe-core/playwright": "4.13.0",
 		"@biomejs/biome": "2.5.14",
 		"@playwright/test": "1.63.0",
 		"@types/node": "24.9.2",

@@ -1,8 +1,9 @@
 import type { Role, UsersFile } from "./schema.js";
 
-// Group names Portikus maps through OIDC_ADMIN_GROUP and OIDC_STUDENT_GROUP.
+// The default group names of OIDC_ADMIN_GROUP, OIDC_INSTRUCTOR_GROUP and OIDC_STUDENT_GROUP.
 export const groupForRole: Record<Role, string> = {
 	student: "portikus-students",
+	instructor: "portikus-instructors",
 	administrator: "portikus-administrators",
 };
 

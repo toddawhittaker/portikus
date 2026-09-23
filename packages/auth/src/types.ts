@@ -1,5 +1,5 @@
 /** Platform roles (SPEC.md section 5.2). */
-export type Role = "student" | "administrator";
+export type Role = "student" | "instructor" | "administrator";
 
 export interface AuthUser {
 	id: string;
@@ -18,6 +18,8 @@ export interface AuthOptions {
 	groupsClaim: string;
 	studentGroup: string;
 	adminGroup: string;
+	/** OIDC_INSTRUCTOR_GROUP (docs/EPIC-13.md ruling 4). */
+	instructorGroup: string;
 	cookieSecret: string;
 	sessionTtlSeconds: number;
 }
@@ -27,7 +29,7 @@ export const LOGIN_COOKIE = "portikus_login";
 
 /**
  * Map the identity provider's group claim to a platform role. Returns
- * null when the user is in neither group; administrator wins if both.
+ * null when the user is in none of the groups; the highest role wins.
  */
 export function mapRole(
 	claims: Record<string, unknown>,
@@ -43,6 +45,9 @@ export function mapRole(
 
 	if (groups.includes(opts.adminGroup)) {
 		return "administrator";
+	}
+	if (groups.includes(opts.instructorGroup)) {
+		return "instructor";
 	}
 	if (groups.includes(opts.studentGroup)) {
 		return "student";

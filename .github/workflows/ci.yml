@@ -381,6 +381,9 @@ jobs:
       - name: Caddy preview routes
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/caddy-preview-test.sh
+      - name: LTI platforms file
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/lti-platforms-test.sh
       - name: Backup scope
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/backup-scope-test.sh

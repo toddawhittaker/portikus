@@ -1,8 +1,14 @@
+import { generateKeyPairSync } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import {
 	API_ORIGIN,
 	API_PORT,
 	FAKE_AGENT_PORT,
+	MOCK_LMS_ORIGIN,
+	MOCK_LMS_PORT,
 	MOCK_ISSUER as MOCK_OIDC_ISSUER,
 	OIDC_PORT,
 	WEB_PORT,
@@ -19,6 +25,37 @@ const FAKE_AGENT_TOKEN = "e2e-agent-token";
 const databaseUrl =
 	process.env.TEST_DATABASE_URL ??
 	"postgres://postgres:portikus@127.0.0.1:55432/portikus_test";
+
+// The mock LMS registration and the tool key for this run (docs/EPIC-13.md
+// rulings 14 and 15). Keyed by the mock's port so runs never share them; the
+// config loads more than once, so the writes are idempotent.
+const ltiDir = join(tmpdir(), `portikus-e2e-lti-${MOCK_LMS_PORT}`);
+const ltiPlatformsFile = join(ltiDir, "lti-platforms.json");
+const ltiToolKeyFile = join(ltiDir, "lti-tool-key.pem");
+mkdirSync(ltiDir, { recursive: true });
+writeFileSync(
+	ltiPlatformsFile,
+	JSON.stringify({
+		version: 1,
+		platforms: [
+			{
+				name: "mock-lms",
+				issuer: MOCK_LMS_ORIGIN,
+				clientId: "portikus-mock",
+				authLoginUrl: `${MOCK_LMS_ORIGIN}/authorize`,
+				keysetUrl: `${MOCK_LMS_ORIGIN}/.well-known/jwks.json`,
+				deploymentIds: ["mock-deployment-1"],
+				mock: true,
+			},
+		],
+	}),
+);
+if (!existsSync(ltiToolKeyFile)) {
+	const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+	writeFileSync(ltiToolKeyFile, privateKey.export({ type: "pkcs8", format: "pem" }), {
+		mode: 0o600,
+	});
+}
 
 export default defineConfig({
 	testDir: "./e2e",
@@ -66,6 +103,13 @@ export default defineConfig({
 			timeout: 120_000,
 		},
 		{
+			// The mock LMS (packages/mock-lms), trusted by the platforms file above.
+			command: `node packages/mock-lms/dist/main.js --tool-url ${WEB_URL} --port ${MOCK_LMS_PORT} --bind 127.0.0.1 --issuer ${MOCK_LMS_ORIGIN}`,
+			url: `${MOCK_LMS_ORIGIN}/.well-known/jwks.json`,
+			reuseExistingServer: !process.env.CI,
+			timeout: 120_000,
+		},
+		{
 			command: "node packages/db/dist/migrate.js && node apps/api/dist/index.js",
 			url: `${API_ORIGIN}/health`,
 			env: {
@@ -81,6 +125,8 @@ export default defineConfig({
 				OIDC_GROUPS_CLAIM: "groups",
 				OIDC_STUDENT_GROUP: "portikus-students",
 				OIDC_ADMIN_GROUP: "portikus-administrators",
+				LTI_PLATFORMS_FILE: ltiPlatformsFile,
+				LTI_TOOL_KEY_FILE: ltiToolKeyFile,
 				SESSION_COOKIE_SECRET: "e2e-session-secret-not-for-production-0000",
 				SESSION_TTL_SECONDS: "3600",
 				PRESENCE_TTL_SECONDS: "60",

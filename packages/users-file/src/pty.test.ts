@@ -35,7 +35,7 @@ it("never echoes the password to the terminal", async () => {
 	const answers: [string, string][] = [
 		["Email: ", "carol@example.edu"],
 		["Display name: ", "Carol Admin"],
-		["Role (student/administrator) [student]: ", "administrator"],
+		["Role (student/instructor/administrator) [student]: ", "administrator"],
 		["Password: ", PASSWORD],
 		["Password again: ", "a different password"],
 		["try again", ""],

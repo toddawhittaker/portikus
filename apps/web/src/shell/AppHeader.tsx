@@ -11,6 +11,7 @@ import {
 } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
+import { useCourses } from "../course/queries.js";
 import { clearLocalLayouts } from "../layout/local.js";
 import { useProfile } from "../settings/profileQueries.js";
 import { initials, SettingsDialog } from "../settings/SettingsDialog.js";
@@ -24,6 +25,7 @@ export function AppHeader({
 	workspaceId,
 	user,
 	project,
+	context = "Administration",
 }: {
 	/** Absent on the administration page, which belongs to no workspace. */
 	workspaceId?: string;
@@ -31,10 +33,13 @@ export function AppHeader({
 	/** Callers still pass the workspace. The status bar owns its dialog. */
 	workspace: Workspace | null;
 	project: Project | undefined;
+	/** What the bar names when there is no workspace, such as "Course". */
+	context?: string;
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const signOutForm = useRef<HTMLFormElement>(null);
 	const picture = useProfile().data?.picture ?? null;
+	const hasCourse = (useCourses().data?.length ?? 0) > 0;
 
 	return (
 		<header className="pk-appbar" data-testid="app-header">
@@ -47,10 +52,25 @@ export function AppHeader({
 				</span>
 			) : (
 				<span className="pk-appbar-context">
-					{workspaceId ? "Your workspace" : "Administration"}
+					{workspaceId ? "Your workspace" : context}
 				</span>
 			)}
 			<span className="pk-appbar-spacer" />
+
+			{hasCourse && workspaceId ? (
+				// A new tab, like Administration, so the workspace keeps its sockets.
+				<a
+					href="/course"
+					target="_blank"
+					rel="noopener"
+					className="pk-wsbutton"
+					data-testid="course-link"
+				>
+					Course
+					<Icon name="external" size="sm" />
+					<span className="sr-only"> (opens in a new tab)</span>
+				</a>
+			) : null}
 
 			{workspaceId ? null : (
 				<Link to="/" className="pk-wsbutton" data-testid="back-to-workspace">

@@ -15,7 +15,13 @@ const TEN_MINUTES_MS = 10 * MINUTE_MS;
 const PASSWORD_TOTAL_FACTOR = 10;
 /** The path Caddy asks about for Dex's sign-in pages and password form. */
 export const EDGE_THROTTLE_PATH = "/edge/signin-throttle";
-const START_ROUTES = new Set(["/auth/login", "/auth/callback"]);
+// An LTI launch is a sign-in start too (docs/EPIC-13.md ruling 21).
+const START_ROUTES = new Set([
+	"/auth/login",
+	"/auth/callback",
+	"/lti/login",
+	"/lti/launch",
+]);
 
 export interface ThrottleDecision {
 	allowed: boolean;

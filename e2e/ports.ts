@@ -12,8 +12,10 @@ export const WEB_PORT = port("PORTIKUS_WEB_PORT", 5173);
 export const API_PORT = port("PORTIKUS_API_PORT", 3000);
 export const OIDC_PORT = port("PORTIKUS_OIDC_PORT", 3002);
 export const FAKE_AGENT_PORT = port("FAKE_AGENT_PORT", 7400);
+export const MOCK_LMS_PORT = port("PORTIKUS_MOCK_LMS_PORT", 8765);
 
 export const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
 export const API_ORIGIN = `http://127.0.0.1:${API_PORT}`;
 export const MOCK_ISSUER = `http://127.0.0.1:${OIDC_PORT}`;
 export const FAKE_AGENT_URL = `http://127.0.0.1:${FAKE_AGENT_PORT}`;
+export const MOCK_LMS_ORIGIN = `http://127.0.0.1:${MOCK_LMS_PORT}`;

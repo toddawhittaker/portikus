@@ -1,8 +1,4 @@
-import {
-	MOCK_USERS,
-	type MockOidcProvider,
-	startMockOidcProvider,
-} from "@portikus/auth/testing";
+import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -10,7 +6,7 @@ import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import {
 	buildMatrixWorld,
 	buildTestServer,
-	DISABLED_MOCK_USER,
+	MATRIX_MOCK_USERS,
 	type MatrixWorld,
 	PUBLIC_URL,
 } from "../test-support.js";
@@ -53,7 +49,7 @@ beforeAll(async () => {
 	if (skip) return;
 	testDb = await createTestDb();
 	mock = await startMockOidcProvider({
-		users: { ...MOCK_USERS, [DISABLED_MOCK_USER.sub]: DISABLED_MOCK_USER },
+		users: MATRIX_MOCK_USERS,
 	});
 	agent = await startFakeAgent(AGENT_TOKEN);
 });
@@ -154,6 +150,7 @@ function sampleFor(
 		.replace(":pid", ids.projectId)
 		.replace(":tid", ids.terminalId)
 		.replace(":checkId", "lint")
+		.replace(":courseId", world.courseId)
 		.replace(":rpid", pointId)
 		.replace(":port", "5173")
 		.replace("*", "index.html");
@@ -191,6 +188,10 @@ function actorsOf(world: MatrixWorld) {
 		a: { name: "student A", headers: { cookie: world.a.jar.cookieHeader() } },
 		b: { name: "student B", headers: { cookie: world.b.jar.cookieHeader() } },
 		admin: { name: "administrator", headers: { cookie: world.admin.cookieHeader() } },
+		instructor: {
+			name: "instructor",
+			headers: { cookie: world.instructor.cookieHeader() },
+		},
 		disabled: {
 			name: "disabled user",
 			headers: { cookie: world.disabled.cookieHeader() },
@@ -368,8 +369,12 @@ const signedInOnly: AccessClass[] = [
 	"owner",
 	"owner-or-admin",
 	"admin",
+	"course-instructor",
 	"inert",
 ];
+
+/** The LMS posts these cross-site; the token, state and nonce guard them (ruling 7). */
+const CSRF_EXEMPT = new Set(["POST /lti/login", "POST /lti/launch"]);
 
 describe.skipIf(skip)("refused callers get the class's refusal", () => {
 	for (const key of httpKeys) {
@@ -380,7 +385,7 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 				const actors = actorsOf(world);
 				const own = sampleFor(key, world, world.a);
 
-				if (UNSAFE.has(splitKey(key).method)) {
+				if (UNSAFE.has(splitKey(key).method) && !CSRF_EXEMPT.has(key)) {
 					const cookie = world.a.jar.cookieHeader();
 					const preview = `https://${world.a.label}-5173.preview.localhost`;
 					const noOrigin = { name: "A with no Origin", headers: { cookie } };
@@ -401,8 +406,11 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 				const a = withOrigin(key, actors.a);
 				const b = withOrigin(key, actors.b);
 				const admin = withOrigin(key, actors.admin);
+				const instructor = withOrigin(key, actors.instructor);
 				if (access === "owner" || access === "owner-or-admin") {
 					await expectRefused(app, world, key, own, b, 404);
+					// Teaching A's course gives no way into A's workspace.
+					await expectRefused(app, world, key, own, instructor, 404);
 				}
 				if (access === "owner") {
 					await expectRefused(app, world, key, own, admin, 404);
@@ -410,9 +418,24 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 				if (access === "admin") {
 					await expectRefused(app, world, key, own, a, 403);
 					await expectRefused(app, world, key, own, b, 403);
+					await expectRefused(app, world, key, own, instructor, 403);
+				}
+				if (access === "course-instructor" && key.includes(":courseId")) {
+					// A is a student of the course; nobody but its instructor sees it.
+					for (const actor of [a, b, admin]) {
+						const { res } = await send(app, key, own, actor.headers);
+						expect(res.statusCode, `${key} for ${actor.name}`).toBe(404);
+					}
+				}
+				if (access === "course-instructor" && !key.includes(":courseId")) {
+					for (const actor of [a, b, admin]) {
+						const { res } = await send(app, key, own, actor.headers);
+						expect(res.statusCode, `${key} for ${actor.name}`).toBe(200);
+						if (key.startsWith("GET ")) expect(res.json()).toEqual([]);
+					}
 				}
 				if (access === "inert") {
-					for (const actor of [a, b, admin]) {
+					for (const actor of [a, b, admin, instructor]) {
 						const { res, calls } = await send(app, key, own, actor.headers);
 						expect(res.statusCode, `${key} for ${actor.name}`).toBe(501);
 						expect(calls).toEqual([]);
@@ -463,11 +486,12 @@ describe.skipIf(skip)("allowed callers get through", () => {
 					const a = withOrigin(key, actors.a);
 					const b = withOrigin(key, actors.b);
 					const admin = withOrigin(key, actors.admin);
+					const instructor = withOrigin(key, actors.instructor);
 
 					if (key.includes("/me/picture") && !key.startsWith("PUT ")) {
 						// Give every caller a picture of their own to read or remove.
 						const put = sampleFor("PUT /me/picture", world, world.a);
-						for (const actor of [a, b, admin]) {
+						for (const actor of [a, b, admin, instructor]) {
 							await send(
 								app,
 								"PUT /me/picture",
@@ -486,6 +510,8 @@ describe.skipIf(skip)("allowed callers get through", () => {
 							expectNoTraceOfA(world, forB.body, "student B");
 							const forAdmin = await expectAllowed(app, key, own, admin);
 							expectNoTraceOfA(world, forAdmin.body, "administrator");
+							const forInstructor = await expectAllowed(app, key, own, instructor);
+							expectNoTraceOfA(world, forInstructor.body, "instructor");
 							await expectAllowed(app, key, own, a);
 							break;
 						}
@@ -497,6 +523,9 @@ describe.skipIf(skip)("allowed callers get through", () => {
 							break;
 						case "admin":
 							await expectAllowed(app, key, own, admin);
+							break;
+						case "course-instructor":
+							await expectAllowed(app, key, own, instructor);
 							break;
 					}
 				});

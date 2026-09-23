@@ -263,6 +263,24 @@ echo ""
 echo "--- Application virtual host is unchanged ---"
 
 has "the control plane still refuses to be framed" "frame-ancestors 'none'" "${app}"
+
+echo ""
+echo "--- LTI launch and the Course page (docs/EPIC-13.md, rulings 17 and 23) ---"
+
+# Everything but /lti/* keeps frame-ancestors 'none'; the API sends the
+# platforms' own frame-ancestors on /lti/*, and two policies would conflict.
+has "only /lti/* is left out of the frame policy" \
+  '^[[:space:]]+@not_lti not path /lti/\*$' "${app}"
+has "the frame policy is applied through that matcher" \
+  "^[[:space:]]+header @not_lti Content-Security-Policy \"frame-ancestors 'none'\"\$" "${app}"
+if [ "$(grep -vE '^[[:space:]]*#' "${app}" | grep -c 'frame-ancestors')" = "$(grep -c 'header @not_lti Content-Security-Policy' "${app}")" ]; then
+  ok "no frame policy is set without the /lti/* exception"
+else
+  no "no frame policy is set without the /lti/* exception"
+fi
+has "/lti/* reaches the API" '^[[:space:]]+handle /lti/\* \{$' "${app}"
+has "the course list and members reach the API" '^[[:space:]]+handle /courses\* \{$' "${app}"
+lacks "the /course pages are not sent to the API" 'handle /course[^s]' "${app}"
 has "the control plane is still compressed" '^[[:space:]]+encode gzip$' "${app}"
 lacks "the control plane has no preview routes" '__portikus' "${app}"
 lacks "the control plane does not import the preview steps" 'import portikus_preview' "${app}"

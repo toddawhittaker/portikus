@@ -18,8 +18,10 @@ export type AccessClass =
 	| "owner"
 	/** The owner or an administrator; other students get 404. */
 	| "owner-or-admin"
-	/** Administrators only; students get 403. */
+	/** Administrators only; students and instructors get 403. */
 	| "admin"
+	/** A course's instructors; everyone else sees no course, or a 404. */
+	| "course-instructor"
 	/** Preview host paths: only a preview session counts, never a main cookie. */
 	| "preview-edge"
 	/** The old preview placeholder: 401 signed out, 501 signed in. */
@@ -48,6 +50,15 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	// Loopback only; Caddy asks it before Dex's password form (issue #398).
 	"GET /edge/signin-throttle": { access: "public" },
 	"HEAD /edge/signin-throttle": { access: "public" },
+
+	// LTI 1.3 login and launch; the two POSTs are CSRF-exempt (docs/EPIC-13.md
+	// ruling 7). With no platforms file every one answers 404.
+	"GET /lti/login": { access: "public" },
+	"HEAD /lti/login": { access: "public" },
+	"POST /lti/login": { access: "public" },
+	"POST /lti/launch": { access: "public" },
+	"GET /lti/jwks": { access: "public" },
+	"HEAD /lti/jwks": { access: "public" },
 
 	"GET /auth/me": { access: "self" },
 	"HEAD /auth/me": { access: "self" },
@@ -134,6 +145,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /workspaces/:id/projects/:pid/recovery-points": owner,
 	"POST /workspaces/:id/projects/:pid/recovery-points/:rpid/restore": owner,
 	"POST /workspaces/:id/reset-docker": { access: "owner-or-admin" },
+
+	"GET /courses": { access: "course-instructor" },
+	"HEAD /courses": { access: "course-instructor" },
+	"GET /courses/:courseId/members": { access: "course-instructor" },
+	"HEAD /courses/:courseId/members": { access: "course-instructor" },
 
 	"GET /admin/workspaces": { access: "admin" },
 	"HEAD /admin/workspaces": { access: "admin" },

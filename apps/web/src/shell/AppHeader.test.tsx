@@ -103,6 +103,44 @@ test("a student gets no Administration link", () => {
 	expect(screen.queryByTestId("admin-link")).toBeNull();
 });
 
+// `instructor` joins the contract's Role in Epic 13 T2; cast until then.
+const INSTRUCTOR: MeUser = { ...USER, role: "instructor" };
+const COURSE = {
+	id: "55555555-5555-4555-8555-555555555555",
+	title: "CS 101 Intro to Programming",
+	platformName: "canvas",
+};
+
+test("an instructor with a course gets a Course link and no Administration link", async () => {
+	stubFetch((url) => (url === "/courses" ? json(200, [COURSE]) : json(404, {})));
+	renderHeader(WORKSPACE, INSTRUCTOR);
+
+	const link = await screen.findByTestId("course-link");
+	expect(link.textContent).toBe("Course (opens in a new tab)");
+	expect(link.getAttribute("href")).toBe("/course");
+	expect(link.getAttribute("target")).toBe("_blank");
+	openAccountMenu();
+	expect(screen.queryByTestId("admin-link")).toBeNull();
+});
+
+test("with no course, the header has no Course link", async () => {
+	stubFetch((url) => (url === "/courses" ? json(200, []) : json(404, {})));
+	const client = renderWithQuery(
+		<AppHeader
+			workspaceId={WORKSPACE.id}
+			user={USER}
+			workspace={WORKSPACE}
+			project={project()}
+		/>,
+	);
+
+	// Wait for the answer, not just the request, before asserting absence.
+	await waitFor(() =>
+		expect(client.getQueryState(["courses"])?.status).toBe("success"),
+	);
+	expect(screen.queryByTestId("course-link")).toBeNull();
+});
+
 test("the header has no search button; find in files lives in the files pane (issue #241)", () => {
 	renderHeader();
 

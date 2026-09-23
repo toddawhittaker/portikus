@@ -80,7 +80,7 @@ sec_check_idp
 
 # Modules run in this order; one that is not there yet is skipped.  The
 # network module goes last because it briefly claims b's address from a.
-for module in cross-user container preview-edge limits network; do
+for module in cross-user container preview-edge lti limits network; do
   if [ -f "${here}/security/${module}.sh" ]; then
     # shellcheck source=/dev/null
     . "${here}/security/${module}.sh"

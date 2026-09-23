@@ -10,6 +10,7 @@ const opts: AuthOptions = {
 	groupsClaim: "groups",
 	studentGroup: "portikus-students",
 	adminGroup: "portikus-administrators",
+	instructorGroup: "portikus-instructors",
 	cookieSecret: "cookie-secret",
 	sessionTtlSeconds: 43200,
 };
@@ -37,6 +38,22 @@ describe("mapRole", () => {
 
 	test("denies a user in neither group", () => {
 		expect(mapRole({ groups: ["everyone"] }, opts)).toBeNull();
+	});
+
+	test("maps the instructor group, default and configured", () => {
+		expect(mapRole({ groups: ["portikus-instructors"] }, opts)).toBe("instructor");
+		const custom = { ...opts, instructorGroup: "teachers" };
+		expect(mapRole({ groups: ["teachers"] }, custom)).toBe("instructor");
+		expect(mapRole({ groups: ["portikus-instructors"] }, custom)).toBeNull();
+	});
+
+	test("the highest role wins", () => {
+		expect(
+			mapRole({ groups: ["portikus-students", "portikus-instructors"] }, opts),
+		).toBe("instructor");
+		expect(
+			mapRole({ groups: ["portikus-instructors", "portikus-administrators"] }, opts),
+		).toBe("administrator");
 	});
 
 	test("denies when the claim is missing or not strings", () => {

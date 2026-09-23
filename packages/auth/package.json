@@ -26,7 +26,8 @@
 		"fastify-plugin": "6.0.0",
 		"jose": "6.2.12",
 		"kysely": "0.29.6",
-		"openid-client": "6.8.8"
+		"openid-client": "6.8.8",
+		"zod": "4.6.5"
 	},
 	"devDependencies": {
 		"@types/node": "24.9.2",

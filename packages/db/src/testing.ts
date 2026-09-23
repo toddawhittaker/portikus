@@ -132,6 +132,9 @@ export async function createTestDb(): Promise<TestDb> {
 	await migrateToLatest(db);
 
 	const truncate = async () => {
+		await db.deleteFrom("lti_memberships").execute();
+		await db.deleteFrom("lti_contexts").execute();
+		await db.deleteFrom("lti_login_states").execute();
 		await db.deleteFrom("preview_sessions").execute();
 		await db.deleteFrom("preview_grants").execute();
 		await db.deleteFrom("terminals").execute();
@@ -228,4 +231,51 @@ export async function insertTestUser(
 		.returning("id")
 		.executeTakeFirstOrThrow();
 	return row.id;
+}
+
+/** Insert a user who arrived by LTI launch, as `lti:<issuer>`, and return its id. */
+export async function insertTestLtiUser(
+	db: Kysely<Database>,
+	issuer = "https://lms.test.invalid",
+	overrides: TestUserOverrides = {},
+): Promise<string> {
+	return insertTestUser(db, { oidc_issuer: `lti:${issuer}`, ...overrides });
+}
+
+/** Insert a course if missing and one membership in it; returns the course id. */
+export async function insertTestLtiMembership(
+	db: Kysely<Database>,
+	userId: string,
+	options: {
+		issuer?: string;
+		contextId?: string;
+		title?: string;
+		role?: "student" | "instructor";
+	} = {},
+): Promise<string> {
+	const course = await db
+		.insertInto("lti_contexts")
+		.values({
+			platform_issuer: options.issuer ?? "https://lms.test.invalid",
+			context_id: options.contextId ?? "course-1",
+			title: options.title ?? "Test Course",
+			platform_name: "Test LMS",
+		})
+		.onConflict((oc) =>
+			oc
+				.columns(["platform_issuer", "context_id"])
+				.doUpdateSet({ updated_at: new Date().toISOString() }),
+		)
+		.returning("id")
+		.executeTakeFirstOrThrow();
+	await db
+		.insertInto("lti_memberships")
+		.values({
+			context_id: course.id,
+			user_id: userId,
+			role: options.role ?? "student",
+			last_launch_at: new Date().toISOString(),
+		})
+		.execute();
+	return course.id;
 }

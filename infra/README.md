@@ -112,8 +112,8 @@ Gate C checks of section 30) against the VM. Unlike the smoke test, it is
 safe to run on the live pilot while students use it:
 
 - It makes its own users directly in PostgreSQL, under the issuer
-  `urn:portikus:sectest` with subjects `sectest-<run id>-a`, `-b` and
-  `-admin`. Their sessions expire after one hour. It never signs in as a
+  `urn:portikus:sectest` with subjects `sectest-<run id>-a`, `-b`,
+  `-admin` and `-inst` (an instructor). Their sessions expire after one hour. It never signs in as a
   mock account.
 - It creates two workspaces through the API as those users, keeps them
   running with a presence socket, and probes only those two.
@@ -139,6 +139,12 @@ which need a VM with no other workspace; the suite refuses to run them
 otherwise. They allocate memory past a workspace's limit and check that
 only that workspace's process is killed, while PostgreSQL and the API keep
 running and answering (docs/CAPACITY.md, "When memory runs out").
+
+The LTI checks work with or without a registered LMS. With none, every
+`/lti` route must answer 404. With one, the suite starts real logins for
+the first registered platform and posts tokens nobody signed; each must be
+refused and audited, and none may create a user or a session. While a mock
+LMS is registered, the run prints a warning naming it.
 
 A check marked `KNOWN-VULN #<issue>` is a known gap with an open issue. It
 does not fail the run. If such a check starts passing, the suite prints
@@ -399,8 +405,8 @@ make users-check                  # validate the file
 make users-deploy                 # apply the file to Dex on the VM
 ```
 
-`make users-add` asks for the email, display name and role (`student` or
-`administrator`), then for the password twice without echoing it. Passwords
+`make users-add` asks for the email, display name and role (`student`,
+`instructor` or `administrator`), then for the password twice without echoing it. Passwords
 need at least 12 characters. Students sign in with their email address and
 that password. Nobody can change their own password; to reset one, run
 `make users-add` again for that user and then `make users-deploy`.
@@ -420,8 +426,8 @@ once, without waiting for a deploy, disable the account in `/admin`.
 `make configure-vm` and `make users-deploy` run `make users-check` first
 and stop if it fails. Ansible reads the file on your machine and renders
 one Dex entry per user into `/etc/portikus-dex/config.yaml` on the VM
-(`root:portikus-dex`, mode 0640), with the group `portikus-students` or
-`portikus-administrators` from the role. That rendered file is the only
+(`root:portikus-dex`, mode 0640), with the group `portikus-students`,
+`portikus-instructors` or `portikus-administrators` from the role. That rendered file is the only
 place on the VM that holds the hashes; the users file itself is never
 copied there.
 
@@ -475,7 +481,7 @@ ranges (CIDRs, separated by commas) and adds them through the drop-in
 `/etc/systemd/system/portikus-api.service.d/10-idp-egress.conf`, so the API
 can reach the provider without a package change. Check it with
 `systemctl show portikus-api -p IPAddressAllow`. It is accepted only with
-`PORTIKUS_IDP=external`. Existing accounts need a carry-over to the new
+`PORTIKUS_IDP=external` or an LTI platforms file (see "LTI"). Existing accounts need a carry-over to the new
 provider's subjects, which is a separate task (docs/EPIC-12B.md, risk 7).
 
 #### The mock, for development
@@ -502,6 +508,71 @@ The session cookie secret is different: Ansible generates it on the VM
 once into `/etc/portikus/session.secret` and never regenerates it, the
 same way it handles the controller token, so re-running the playbook does
 not sign everyone out.
+
+### LTI
+
+LTI 1.3 (Learning Tools Interoperability) lets a student open Portikus
+from a course in a learning management system (LMS) such as Canvas or
+Moodle, without a second password (docs/EPIC-13.md). The LMS is called the
+platform. docs/OPERATIONS.md says which LMS fields to fill in.
+
+Platforms are registered in a file on the machine that runs Ansible, by
+default `~/.config/portikus/lti-platforms.json` (override with
+`PORTIKUS_LTI_PLATFORMS_FILE=<path>`). It holds no secret. `make
+configure-vm` checks it, copies it to `/etc/portikus/lti-platforms.json`
+(`root:portikus`, mode 0640) and restarts the API, which validates it in
+full and refuses to start on a bad file. With no file on your machine,
+Ansible removes the copy on the VM and LTI is off: every `/lti/*` route
+answers 404.
+
+Each LMS registration asks for the tool's keyset URL,
+`https://<public-host>:<port>/lti/jwks`. The key behind it is generated on
+the VM once, into `/etc/portikus/lti-tool-key.pem` (`root:portikus`, mode
+0640), and never replaced, because every registration pins it. A new
+key would mean updating every LMS.
+
+The API unit may reach only the addresses it is given. A keyset URL that
+names an IP address is allowed exactly, through the same drop-in as an
+external provider (`10-idp-egress.conf`). A keyset URL with a hostname,
+like every cloud LMS, needs its address ranges in `PORTIKUS_API_IP_ALLOW`;
+Ansible names such hosts when it runs.
+
+Caddy sends `frame-ancestors 'none'` on every control-plane page except
+`/lti/*`, where the API names the registered platforms instead, so an LMS
+can show the launch page inside a frame.
+
+#### Trying it with the mock LMS
+
+The mock LMS runs on this host, never on the VM, and signs a launch as any
+of its seeded people. It listens on loopback and on the host's address on
+the VM network (`10.100.0.1:8765` for the pilot), so nobody on the LAN can
+use it. The VM reaches that address without any extra firewall rule.
+
+```
+make mock-lms              # in its own terminal; runs in the foreground
+make lti-mock-register     # trust it on the VM
+# open http://10.100.0.1:8765/ in a browser on this host and launch
+make lti-mock-unregister   # stop trusting it
+```
+
+`make smoke-test` checks the LTI files and the keyset every time. With no
+LMS registered it checks that every `/lti` route answers 404. With the mock
+registered it launches as the student Sam and the instructor Ivy, and
+checks the session, the roles, the Course page and that a second post of
+the same launch is refused. If the mock is not running, the smoke test
+starts it for the run and stops it afterwards. It prints a warning while
+the mock is registered, and lists the accounts mock launches have made.
+
+`make lti-mock-register` adds a `mock: true` registration named
+`mock-lms` to the platforms file and runs only the play's `lti` tasks.
+Because its keyset URL is `http://10.100.0.1:8765/...`, the API is allowed
+to reach `10.100.0.1/32` for as long as it stays registered. `make
+lti-mock-unregister` removes the registration (and the file, if nothing
+else is registered) and runs the same tasks, which takes the address away
+again. Both need a VM configured once with `make configure-vm` after this
+change. Users created by mock launches stay in the database.
+
+`scripts/build-deb.sh` fails if the mock ends up in the Debian package.
 
 ## Bring your own Debian host
 

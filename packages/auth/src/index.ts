@@ -1,15 +1,25 @@
 /** OIDC login, server-side sessions, and authorization helpers (SPEC.md sections 5 and 24, STACK.md section 8). */
 
+export { isOnOrigin, type LtiLoginParams, startLtiLogin } from "./lti/login.js";
 export {
-	type CarryOverInput,
-	type CarryOverOutcome,
-	type CarryOverReport,
-	type CarryOverUser,
-	carryOver,
-	formatReport,
-	parseCarryOverInput,
-} from "./carry-over.js";
-export { dexLocalSubject } from "./dex-subject.js";
+	type LtiPlatform,
+	loadPlatformsFile,
+	PlatformsFileError,
+} from "./lti/platforms.js";
+export {
+	checkLaunchState,
+	consumeLoginState,
+	ltiStateCookieName,
+	ltiStateCookieOptions,
+	readLtiStateCookie,
+	saveLoginState,
+	staleLtiStateCookies,
+} from "./lti/state.js";
+export {
+	createKeySetSource,
+	type LtiLaunch,
+	validateLaunchToken,
+} from "./lti/validate.js";
 export {
 	createOidcClient,
 	type LoginState,
@@ -17,10 +27,7 @@ export {
 	OidcError,
 } from "./oidc.js";
 export {
-	type AuthPluginOptions,
 	authPlugin,
-	checkCsrf,
-	checkWsOrigin,
 	loginCookieName,
 	loginCookieOptions,
 	requireRole,
@@ -32,14 +39,6 @@ export {
 	createSession,
 	deleteSession,
 	loadSession,
-	type OidcIdentity,
 	upsertUser,
 } from "./sessions.js";
-export {
-	type AuthOptions,
-	type AuthUser,
-	LOGIN_COOKIE,
-	mapRole,
-	type Role,
-	SESSION_COOKIE,
-} from "./types.js";
+export { type AuthOptions, mapRole, type Role } from "./types.js";

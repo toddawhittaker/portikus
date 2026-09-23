@@ -114,22 +114,21 @@ test.skipIf(skip)("a heartbeat refreshes last_seen_at", async () => {
 	const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
 	await socket.next();
 
-	const before = await testDb.db
-		.selectFrom("workspace_connections")
-		.selectAll()
-		.executeTakeFirstOrThrow();
+	// Seed an hour back so a heartbeat in the same millisecond cannot tie.
+	const past = new Date(Date.now() - 60 * 60 * 1000);
+	await testDb.db
+		.updateTable("workspace_connections")
+		.set({ last_seen_at: past.toISOString() })
+		.execute();
 
-	await new Promise((resolve) => setTimeout(resolve, 50));
 	socket.ws.send(JSON.stringify({ type: "heartbeat" }));
-	await new Promise((resolve) => setTimeout(resolve, 300));
-
-	const after = await testDb.db
-		.selectFrom("workspace_connections")
-		.selectAll()
-		.executeTakeFirstOrThrow();
-	expect(new Date(after.last_seen_at).getTime()).toBeGreaterThan(
-		new Date(before.last_seen_at).getTime(),
-	);
+	await vi.waitFor(async () => {
+		const after = await testDb.db
+			.selectFrom("workspace_connections")
+			.selectAll()
+			.executeTakeFirstOrThrow();
+		expect(new Date(after.last_seen_at).getTime()).toBeGreaterThan(past.getTime());
+	});
 
 	await socket.close();
 });

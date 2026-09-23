@@ -1,9 +1,5 @@
 import type { AddressInfo } from "node:net";
-import {
-	MOCK_USERS,
-	type MockOidcProvider,
-	startMockOidcProvider,
-} from "@portikus/auth/testing";
+import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -12,7 +8,7 @@ import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import {
 	buildMatrixWorld,
 	buildTestServer,
-	DISABLED_MOCK_USER,
+	MATRIX_MOCK_USERS,
 	type MatrixWorld,
 	PUBLIC_URL,
 } from "../test-support.js";
@@ -40,7 +36,7 @@ beforeAll(async () => {
 	if (skip) return;
 	testDb = await createTestDb();
 	mock = await startMockOidcProvider({
-		users: { ...MOCK_USERS, [DISABLED_MOCK_USER.sub]: DISABLED_MOCK_USER },
+		users: MATRIX_MOCK_USERS,
 	});
 	agent = await startFakeAgent(AGENT_TOKEN);
 });
@@ -140,6 +136,11 @@ describe.skipIf(skip)("every browser socket refuses the wrong caller", () => {
 					[
 						"student B",
 						{ origin: PUBLIC_ORIGIN, cookie: world.b.jar.cookieHeader() },
+						404,
+					],
+					[
+						"an instructor of A's course",
+						{ origin: PUBLIC_ORIGIN, cookie: world.instructor.cookieHeader() },
 						404,
 					],
 					["A with no Origin", { cookie: cookieA }, 403],
