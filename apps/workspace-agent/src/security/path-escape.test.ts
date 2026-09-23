@@ -215,7 +215,7 @@ const SPELLINGS: Array<[string, string, boolean]> = [
 	["a double slash absolute path", "//etc/passwd", true],
 	["a nested encoded ..", "sub%2f..%2f..%2fbeta", true],
 	["a trailing ..", "sub/..", true],
-	["a trailing ../", "..%2f", true],
+	["an encoded ../ on its own", "..%2f", true],
 	["a NUL after a traversal", "..%2fbeta%00", true],
 	["a NUL before an extension", "notes.txt%00.png", true],
 	["a thousand ../ segments", "..%2f".repeat(300), true],
@@ -310,13 +310,19 @@ test.skipIf(!haveRg)("search never follows a symlink out of the project", async 
 	await symlink(join(homeDir, "outside"), join(project, "outside-dir"));
 	await symlink(join(homeDir, "outside.txt"), join(project, "outside-file"));
 	await symlink(join(homeDir, "projects", "beta"), join(project, "sibling"));
+	// A positive control: the same search does find a marker inside the project.
+	const marker = "inside-marker-5b1e";
+	await writeFile(join(project, "marker.txt"), `${marker}\n`);
+	const found = await call("GET", `/projects/alpha/search?q=${marker}`);
+	expect(found.status).toBe(200);
+	expect(JSON.parse(found.body.toString()).matches.length).toBeGreaterThan(0);
 	for (const hidden of ["false", "true"]) {
 		const answer = await call(
 			"GET",
 			`/projects/alpha/search?q=${SECRET}&hidden=${hidden}`,
 		);
 		expect(answer.status).toBe(200);
-		expect(JSON.parse(answer.body.toString()).results ?? []).toEqual([]);
+		expect(JSON.parse(answer.body.toString()).matches).toEqual([]);
 		expect(answer.body.includes(SECRET)).toBe(false);
 	}
 });

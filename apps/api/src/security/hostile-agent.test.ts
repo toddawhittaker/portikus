@@ -6,7 +6,11 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { MAX_UPLOAD_BYTES } from "@portikus/contracts";
+import {
+	MAX_CHECKS_PER_PROJECT,
+	MAX_SEARCH_MATCHES,
+	MAX_UPLOAD_BYTES,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
@@ -314,7 +318,7 @@ test.skipIf(skip)(
 	async () => {
 		const check = (n: number) => ({ id: `c${n}`, name: `Check ${n}`, command: "true" });
 		hostile.behaviour.checks = {
-			checks: Array.from({ length: 200 }, (_, n) => check(n)),
+			checks: Array.from({ length: MAX_CHECKS_PER_PROJECT + 1 }, (_, n) => check(n)),
 			error: null,
 			runs: [],
 		};
@@ -323,8 +327,9 @@ test.skipIf(skip)(
 			url: `/workspaces/${workspaceId}/projects/${projectId}/checks`,
 			headers: { cookie: alice.cookieHeader() },
 		});
-		const count = response.statusCode === 200 ? response.json().checks.length : 0;
-		expect(count).toBeLessThanOrEqual(32);
+		// More than MAX_CHECKS_PER_PROJECT fails the response schema, so the
+		// API refuses the whole answer rather than relaying it.
+		expect(response.statusCode).toBe(503);
 	},
 );
 
@@ -348,8 +353,9 @@ test.skipIf(skip)(
 			url: `/workspaces/${workspaceId}/projects/${projectId}/search?q=x`,
 			headers: { cookie: alice.cookieHeader() },
 		});
-		const count = response.statusCode === 200 ? response.json().matches.length : 0;
-		expect(count).toBeLessThanOrEqual(500);
+		expect(response.statusCode).toBe(200);
+		expect(response.json().matches).toHaveLength(MAX_SEARCH_MATCHES);
+		expect(response.json().truncated).toBe(true);
 	},
 );
 
@@ -503,7 +509,7 @@ test.skipIf(skip)(
 			payload: { port: 3000, presentation: "embedded" },
 		});
 		expect(hostile.calls.some((path) => path.startsWith("/forwards"))).toBe(true);
-		if (grant.statusCode !== 201) return;
+		expect(grant.statusCode).toBe(201);
 		const host = `tw7-3000.${SUFFIX}`;
 		const ticket = new URL(grant.json().bootstrapUrl).searchParams.get("t") ?? "";
 		const booted = await app.inject({
@@ -524,9 +530,8 @@ test.skipIf(skip)(
 				cookie: `portikus-preview=${cookie?.value}`,
 			},
 		});
-		if (authorized.statusCode === 200) {
-			expect(authorized.headers["x-portikus-upstream"]).toBe("127.0.0.1:3000");
-		}
+		expect(authorized.statusCode).toBe(200);
+		expect(authorized.headers["x-portikus-upstream"]).toBe("127.0.0.1:3000");
 	},
 );
 

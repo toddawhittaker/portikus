@@ -104,15 +104,6 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	// One megabyte is the largest frame a browser may send us (SPEC.md §9.7).
 	app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
-	app.get("/health", () => {
-		const body: HealthResponse = {
-			status: "ok",
-			service: "api",
-			uptimeSeconds: process.uptime(),
-		};
-		return HealthResponse.parse(body);
-	});
-
 	// Never let a driver or runtime message reach the client (SPEC.md §24, §27).
 	app.setErrorHandler((error, request, reply) => {
 		// Fastify's own client errors (too large, bad JSON, wrong type) keep
@@ -160,7 +151,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	const routeDeps = { ...deps, registry };
 
+	// Every route lives inside this plugin, so an onRoute hook added after
+	// buildServer returns still sees all of them (authz-matrix.test.ts).
 	app.register(async (instance) => {
+		instance.get("/health", () => {
+			const body: HealthResponse = {
+				status: "ok",
+				service: "api",
+				uptimeSeconds: process.uptime(),
+			};
+			return HealthResponse.parse(body);
+		});
 		registerAuthRoutes(instance, deps);
 		registerWorkspaceRoutes(instance, deps);
 		registerWorkspaceSocket(instance, routeDeps);

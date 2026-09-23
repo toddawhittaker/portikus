@@ -446,12 +446,22 @@ test.skipIf(skip)("search never follows a symlink out of the project", async () 
 	await symlink(join(agentA.home, "outside.txt"), join(alphaDir(), "outside-file"));
 	await symlink(join(agentA.home, "projects", "beta"), join(alphaDir(), "sibling"));
 	await symlink(join(agentB.home, "projects", "alpha"), join(alphaDir(), "other-home"));
+	// A positive control: the same search does find a marker inside the project.
+	const marker = "inside-marker-5b1e";
+	await writeFile(join(alphaDir(), "marker.txt"), `${marker}\n`);
+	const found = await call(
+		"GET",
+		`/workspaces/${workspaceA}/projects/${alphaA}/search?q=${marker}`,
+	);
+	expect(found.status).toBe(200);
+	expect(JSON.parse(found.body.toString()).matches.length).toBeGreaterThan(0);
 	for (const hidden of ["false", "true"]) {
 		const answer = await call(
 			"GET",
 			`/workspaces/${workspaceA}/projects/${alphaA}/search?q=${SECRET}&hidden=${hidden}`,
 		);
 		expect(answer.status).toBe(200);
+		expect(JSON.parse(answer.body.toString()).matches).toEqual([]);
 		expect(answer.body.includes(SECRET)).toBe(false);
 	}
 });
@@ -468,6 +478,8 @@ test.skipIf(skip)(
 			"GET",
 			`/workspaces/${workspaceA}/projects/${alphaA}/download`,
 		);
+		expect(answer.status).toBe(200);
+		expect(answer.body.includes("alpha/notes.txt")).toBe(true);
 		expect(answer.body.includes(SECRET)).toBe(false);
 		expect(answer.body.includes("other-home/secret.txt")).toBe(false);
 	},

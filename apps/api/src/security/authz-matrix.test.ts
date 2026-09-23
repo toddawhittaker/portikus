@@ -278,6 +278,26 @@ async function expectAllowed(
 	return res;
 }
 
+/**
+ * Every "METHOD url" in Fastify's printed route tree. Each line is one piece
+ * of the path, indented four columns per level; the pieces join with nothing
+ * between them, and a line that ends a route lists its methods.
+ */
+function printedRoutes(app: FastifyInstance): string[] {
+	const keys: string[] = [];
+	const parents: string[] = [];
+	for (const line of app.printRoutes().split("\n")) {
+		const match = /^(.*?)[├└]── (.*?)(?: \((.*)\))?$/.exec(line);
+		if (!match) continue;
+		const depth = (match[1] ?? "").length / 4;
+		parents.length = depth;
+		const url = parents.join("") + (match[2] ?? "");
+		parents.push(match[2] ?? "");
+		for (const method of match[3]?.split(", ") ?? []) keys.push(`${method} ${url}`);
+	}
+	return keys;
+}
+
 // --- Done item 1: every route is classified, every class names a route ----
 
 test.skipIf(skip)("every registered route has an access class, and back", async () => {
@@ -291,6 +311,15 @@ test.skipIf(skip)("every registered route has an access class, and back", async 
 	});
 	await app.ready();
 	try {
+		// The hook only sees routes registered after it was added. The printed
+		// route tree lists every route, so one registered on the root instance
+		// before the hook shows up here as unseen. Comparing both ways also
+		// checks that the tree was read correctly.
+		expect(
+			printedRoutes(app).sort(),
+			"routes registered outside the routes plugin in server.ts",
+		).toEqual([...seen.keys()].sort());
+
 		const unclassified = [...seen.keys()].filter((key) => !(key in ROUTE_POLICY));
 		expect(unclassified, "routes with no class in security/route-policy.ts").toEqual(
 			[],

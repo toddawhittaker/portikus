@@ -179,13 +179,18 @@ test.skipIf(skip)(
 		const withBody = jsonBodyRoutes();
 		expect(withBody.length).toBeGreaterThan(10);
 		const accepted: string[] = [];
+		const agentRequestsBefore = agent.requests.length;
 		for (const route of withBody) {
 			const response = await sendOversized(route);
 			if (response.statusCode < 400) accepted.push(`${route.method} ${route.url}`);
 		}
 		expect(accepted).toEqual([]);
-		// A refused body never reaches the workspace agent.
-		expect(agent.creates).toEqual([]);
+		// A refused body never reaches the workspace agent. The listening
+		// registry's own socket to the agent is not a relayed request.
+		const relayed = agent.requests
+			.slice(agentRequestsBefore)
+			.filter((request) => request.url !== "/listening/events");
+		expect(relayed).toEqual([]);
 		expect((await app.inject({ method: "GET", url: "/health" })).statusCode).toBe(200);
 	},
 );
