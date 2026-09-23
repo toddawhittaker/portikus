@@ -1,3 +1,4 @@
+import type { CourseMember } from "@portikus/contracts";
 import { Link, Navigate, useParams } from "@tanstack/react-router";
 import type * as React from "react";
 import { WorkspaceStateBadge } from "../admin/WorkspacesTab.js";
@@ -6,7 +7,6 @@ import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { useMe } from "../useMe.js";
 import { useCourseMembers, useCourses } from "./queries.js";
-import type { CourseMember } from "./types.js";
 
 const ROLE_LABEL: Record<CourseMember["role"], string> = {
 	student: "Student",

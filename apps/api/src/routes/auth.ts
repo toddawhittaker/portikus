@@ -1,5 +1,4 @@
 import {
-	createSession,
 	deleteSession,
 	type LoginState,
 	loginCookieName,
@@ -15,6 +14,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
 import { revokeSessionPreviewSessions } from "../preview/store.js";
 import type { ServerDeps } from "../server.js";
+import { startSession } from "./start-session.js";
 
 const DENIED_MESSAGE = "Your account is not authorized to use Portikus";
 
@@ -149,11 +149,7 @@ export function registerAuthRoutes(
 			return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		}
 
-		const session = await createSession(db, user.id, auth.sessionTtlSeconds);
-		reply.setCookie(sessionCookie, session.token, {
-			...sessionCookieOptions(auth),
-			expires: session.expiresAt,
-		});
+		await startSession(db, auth, reply, user.id);
 
 		await audit(request, "auth.login", `user:${user.id}`, user.id, "ok");
 		return reply.redirect("/", 302);

@@ -4,6 +4,7 @@ import { createDb } from "@portikus/db";
 import { createLogger } from "@portikus/observability";
 import { toAuthOptions } from "./auth-options.js";
 import { startLogLevelSync } from "./log-level.js";
+import { loadLtiDeps } from "./routes/lti.js";
 import { buildServer } from "./server.js";
 
 const config = loadConfig(ApiConfigSchema);
@@ -14,7 +15,9 @@ const logger = createLogger({
 });
 const db = createDb(config.DATABASE_URL);
 const oidc = createOidcClient(toAuthOptions(config));
-const app = buildServer({ db, config, logger, oidc });
+const lti = await loadLtiDeps(config);
+if (lti) logger.info({ platforms: lti.platforms.length }, "lti enabled");
+const app = buildServer({ db, config, logger, oidc, ...(lti ? { lti } : {}) });
 
 // Hooks must be added before listen; the first sweep runs after one
 // interval, so starting the sync here costs nothing at startup.

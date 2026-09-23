@@ -1,9 +1,5 @@
 import { Writable } from "node:stream";
-import {
-	MOCK_USERS,
-	type MockOidcProvider,
-	startMockOidcProvider,
-} from "@portikus/auth/testing";
+import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { createLogger } from "@portikus/observability";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -11,7 +7,7 @@ import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import {
 	buildMatrixWorld,
 	buildTestServer,
-	DISABLED_MOCK_USER,
+	MATRIX_MOCK_USERS,
 } from "../test-support.js";
 
 /** HEAD on a browser socket route is a clean 4xx, never a 500 (issue #402). */
@@ -27,7 +23,7 @@ beforeAll(async () => {
 	if (skip) return;
 	testDb = await createTestDb();
 	mock = await startMockOidcProvider({
-		users: { ...MOCK_USERS, [DISABLED_MOCK_USER.sub]: DISABLED_MOCK_USER },
+		users: MATRIX_MOCK_USERS,
 	});
 	agent = await startFakeAgent(AGENT_TOKEN);
 });
