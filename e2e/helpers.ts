@@ -517,3 +517,38 @@ function slugOf(name: string): string {
 export async function deleteSessions(userId: string): Promise<void> {
 	await query("delete from sessions where user_id = $1", [userId]);
 }
+
+type StorageFigure = { usedBytes: number; totalBytes: number } | null;
+
+/**
+ * Set the storage figures the fake agent reports in `/usage` for one
+ * workspace (SPEC.md §19.2). A class left out reports null.
+ */
+export async function seedStorage(
+	workspaceId: string,
+	figures: { home?: StorageFigure; docker?: StorageFigure; recovery?: StorageFigure },
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/storage`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, ...figures }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused the storage seed: ${response.status}`);
+	}
+}
+
+/** Make this workspace's next recovery points fail as full, or stop doing so. */
+export async function setRecoveryFull(
+	workspaceId: string,
+	full: boolean,
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/recovery`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, storageFull: full }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused the recovery seed: ${response.status}`);
+	}
+}
