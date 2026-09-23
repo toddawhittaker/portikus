@@ -29,10 +29,10 @@ async function failedLaunchReasons(since: Date): Promise<string[]> {
 	return rows.map((r) => r.reason);
 }
 
-async function expectRefused(page: Page, launched: Promise<Response>) {
+// Token failures answer 401, state problems 400.
+async function expectRefused(page: Page, launched: Promise<Response>, status: number) {
 	const response = await launched;
-	expect(response.status()).toBeGreaterThanOrEqual(400);
-	expect(response.status()).toBeLessThan(500);
+	expect(response.status()).toBe(status);
 	// A server-rendered page that says so, not the app and not a blank error.
 	await expect(page.getByRole("heading").first()).toBeVisible();
 	await expect(page.getByTestId("app-header")).toHaveCount(0);
@@ -61,7 +61,7 @@ for (const defect of Object.keys(REASONS) as Defect[]) {
 		const since = new Date(Date.now() - 1000);
 		const launched = launchResponse(page);
 		await startLaunch(page, { person: "lee", defect });
-		await expectRefused(page, launched);
+		await expectRefused(page, launched, 401);
 		await expect.poll(() => failedLaunchReasons(since)).toContain(REASONS[defect]);
 	});
 }
@@ -80,7 +80,7 @@ test("a launch that arrives without the state cookie is refused with the reopen 
 	);
 	const launched = launchResponse(page);
 	await page.getByRole("button", { name: "Post" }).click();
-	await expectRefused(page, launched);
+	await expectRefused(page, launched, 400);
 	await expect(page.getByText("Portikus could not finish opening here.")).toBeVisible();
 	await expect.poll(() => failedLaunchReasons(since)).toContain("state_missing");
 });

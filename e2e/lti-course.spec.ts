@@ -4,7 +4,7 @@
  */
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { WEB_ORIGIN } from "./helpers";
-import { type LaunchOptions, launchAs, ltiUsers } from "./lti-helpers";
+import { type LaunchOptions, launchAs, ltiUsers, openCourseTab } from "./lti-helpers";
 
 async function launchInNewContext(
 	browser: Browser,
@@ -27,13 +27,13 @@ test("an instructor sees the student who launched before on the Course page", as
 		const me = (await (await ivy.request.get("/auth/me")).json()) as { role: string };
 		expect(me.role).toBe("instructor");
 
-		await ivy.getByRole("link", { name: "Course" }).click();
-		await expect(ivy).toHaveURL(/\/course\/[^/]+$/);
+		const course = await openCourseTab(ivy);
+		await expect(course).toHaveURL(/\/course\/[^/]+$/);
 		await expect(
-			ivy.getByRole("heading", { level: 1, name: "CS 101 Intro to Programming" }),
+			course.getByRole("heading", { level: 1, name: "CS 101 Intro to Programming" }),
 		).toBeVisible();
 
-		const table = ivy.getByRole("table", {
+		const table = course.getByRole("table", {
 			name: "People who have opened Portikus from this course",
 		});
 		const samRow = table.getByRole("row", { name: /Sam Student/ });
@@ -81,7 +81,7 @@ test("a student gets no course list and a 404 for a course's members", async ({
 		await sam.goto(`/course/${courseId}`);
 		await expect(
 			sam.getByText("This course was not found, or you are not an instructor in it."),
-		).toBeVisible();
+		).toBeVisible({ timeout: 15_000 });
 	} finally {
 		await sam.context().close();
 	}

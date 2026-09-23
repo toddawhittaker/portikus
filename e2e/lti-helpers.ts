@@ -44,8 +44,9 @@ export async function startLaunch(page: Page, options: LaunchOptions): Promise<v
 /** A good launch: wait until the browser is back in the web app, signed in. */
 export async function launchAs(page: Page, options: LaunchOptions): Promise<void> {
 	await startLaunch(page, options);
-	await page.waitForURL(`${WEB_ORIGIN}/**`, { timeout: 15_000 });
-	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+	await page.waitForURL(`${WEB_ORIGIN}/**`, { timeout: 30_000 });
+	// The first load of the app under a full parallel run can be slow.
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 30_000 });
 }
 
 /** The platform issuer the API stores LTI users under (ruling 12). */
@@ -74,4 +75,13 @@ export async function ltiUsers(key: PersonKey): Promise<LtiUserRow[]> {
 export async function signedIn(page: Page): Promise<boolean> {
 	const me = await page.request.get(`${WEB_ORIGIN}/auth/me`);
 	return me.status() === 200;
+}
+
+/** The header's Course link opens a new tab, like Administration; return that tab. */
+export async function openCourseTab(page: Page): Promise<Page> {
+	const link = page.getByRole("link", { name: "Course" });
+	await expect(link).toHaveAttribute("target", "_blank");
+	const [tab] = await Promise.all([page.context().waitForEvent("page"), link.click()]);
+	await tab.waitForLoadState();
+	return tab;
 }

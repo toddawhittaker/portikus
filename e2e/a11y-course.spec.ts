@@ -5,7 +5,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
 import { WEB_ORIGIN } from "./helpers";
-import { launchAs, startLaunch } from "./lti-helpers";
+import { launchAs, openCourseTab, startLaunch } from "./lti-helpers";
 
 async function expectNoViolations(page: Page, include?: string) {
 	let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]);
@@ -25,9 +25,9 @@ test("the Course page has no automatic accessibility violations", async ({
 	try {
 		const page = await context.newPage();
 		await launchAs(page, { person: "tom", course: "cs240" });
-		await page.getByRole("link", { name: "Course" }).click();
-		await expect(page.getByRole("table")).toBeVisible();
-		await expectNoViolations(page);
+		const course = await openCourseTab(page);
+		await expect(course.getByRole("table")).toBeVisible();
+		await expectNoViolations(course);
 	} finally {
 		await context.close();
 	}
