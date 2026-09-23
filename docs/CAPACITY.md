@@ -7,7 +7,7 @@ This note records how Portikus behaves with many students working at once, and w
 - **Target:** 25 active workspaces (SPEC.md section 25.2).
 - **Recommended pilot VM:** 8 vCPUs and 16 GiB of RAM, with the 100 GiB data disk grown to 200 GiB. The pilot today has 4 vCPUs and 8 GiB, which cannot hold 25.
 - **Once workspaces are running, the target is met with a wide margin.** At 25 and at 40 workspaces, every steady-state latency was far inside its limit, and nothing failed.
-- **Starting many workspaces at once is not met, and a bigger VM will not fix it.** The worker starts workspaces one at a time, about 4.5 seconds each. When 25 students open their workspaces within a minute, the last one waits over a minute (start p95 77 seconds against a 10 second target). This is a code limit in `apps/worker/src/reconcile.ts`, described under "Limits observed".
+- **Starting many workspaces at once is much better, but still just over the target.** The first run found that the worker started workspaces one at a time, so the last of 25 waited over a minute (start p95 77 seconds). The worker now starts up to six at once (PR #464). The rerun on 2026-09-23 measured a start p95 of 12.6 seconds against the 10 second target, and a p50 of 8.9 seconds. See "Rerun after parallel starts" below.
 
 ## Method
 
@@ -65,6 +65,28 @@ The file event time includes the agent's deliberate 150 ms batching window (`FS_
 
 The N=25 run created its workspaces five at a time. The N=40 run created all 40 at the same moment, and every one provisioned without error.
 
+### Rerun after parallel starts (task B5)
+
+Rerun on 2026-09-23 on a freshly rebuilt rehearsal VM (12 vCPUs, 24 GiB), package `portikus 0.1.367+gc543a49`, which includes the worker's parallel starts and creates (PR #464). Same command and settings as the first N=25 run: `make load-test TOFU_ENV=rehearsal-libvirt N=25`, 48 second start ramp, 15 minutes steady. The only difference is that all 25 workspaces were now created at the same moment, not five at a time.
+
+| Measure (limit) | First run (0.1.361) | Rerun (0.1.367) |
+|---|---|---|
+| Start p50 | 39 056 | 8 926 |
+| Start p95 (10 000) | **76 643, fails** | **12 629, fails** |
+| Start max | not recorded | 12 717 |
+| Keystroke echo p95 (150) | 4 | 3 |
+| File event p95 (1 000) | 166 | 162 |
+| Git refresh p95 (2 000) | 16 | 13 |
+| `/health` worst (2 000) | 23 | 19 |
+| Failed operations (0) | 0 | 0 of about 30 000 |
+| Workspaces active | 25 of 25 | 25 of 25 |
+| Provisioning, slowest | 34 s (5 at a time) | 99 s (25 at once; p50 57 s) |
+| VM memory available, lowest | not recorded | 14.4 GiB of 23.5 GiB |
+| VM CPU busy at steady | 8.8% | 7.7% |
+| Highest 1-minute load | 6.8 | 3.8 |
+
+The whole run took 19 minutes 20 seconds, including the preflight and the cleanup. Every other criterion passed with the same wide margin as before. The start p95 is now within about 2.6 seconds of its target. With starts running side by side, a single start took 8.9 seconds at the median, against about 4.5 seconds for one start alone in the first run, so the starts slow each other down even though none waits in a queue. Closing the last gap would need more starts at once or faster single starts. That is code outside `infra/`, and it is recorded as a gap in `docs/STATUS.md`.
+
 ## Cost per workspace
 
 Measured with the stand-in agent, steady activity:
@@ -88,12 +110,12 @@ Resizing the pilot is Todd's decision (docs/EPIC-12B.md, risk 9). The steps are 
 
 ## Limits observed
 
-1. **Starts and provisioning run one at a time.** In `apps/worker/src/reconcile.ts`, each sweep walks the workspaces to provision and then those to start with `for ... await`. The controller log shows one "instance started" about every 4.5 seconds, in strict sequence. So:
+1. **Starts and provisioning ran one at a time (fixed in part).** Before PR #464, in `apps/worker/src/reconcile.ts`, each sweep walks the workspaces to provision and then those to start with `for ... await`. The controller log shows one "instance started" about every 4.5 seconds, in strict sequence. So:
    - a student waits about 4.5 seconds for each start queued ahead of theirs, so the 10 second target holds only when at most one other start is waiting;
    - the worker can start at most about 13 workspaces a minute, whatever the VM's size;
    - the first-day creation of a class takes about 7 seconds per workspace (281 seconds for 40).
 
-   The fix is a bounded number of starts and creates in parallel in the worker, which is code outside `infra/`. Once it lands, `make load-test` rechecks it.
+   The fix, a bounded number of starts and creates in parallel in the worker, landed in PR #464, which also retries a create when the controller is briefly unreachable. The rerun above measured it: start p95 12.6 seconds, down from 77, and 25 creates at once finished in 99 seconds.
 2. **A controller restart during a create leaves the workspace in `error`.** On 2026-09-23 at 04:00:30, a `configure-vm` restarted `portikus-controller` while the worker was creating a workspace. The worker recorded `workspace.provision_failed` with `INCUS_UNAVAILABLE: Controller is unreachable`, and the instance was left created but stopped. It was not a concurrency failure: the two creates before it succeeded, and the 40-at-once run had none. The worker retries starts in `error`, but not creates, so an operator has to deal with such a workspace. Run `configure-vm` when no workspace is being created.
 3. **Memory is the first resource limit.** Up to 40 workspaces on 24 GiB, no latency moved, and memory pressure barely registered. Memory ran out before CPU did. "When memory runs out" below says what protects the platform when it does.
 
@@ -115,7 +137,7 @@ Each workspace may use 4 GB (`workspace_memory_limit` in `infra/ansible/site.yml
 | Caddy | about 80 MiB | 1G |
 | PostgreSQL | about 25 MiB for the main process | none |
 
-Each cap is at least four times the busiest measurement, so normal load never reaches it. The API and Caddy get the most room because they carry every student's traffic, including file uploads and downloads. PostgreSQL has no cap: its own settings (`shared_buffers`, `work_mem`, and the connection limit) bound it, only the API and the worker connect to it, and a cap would turn a busy moment into a database restart. Dex sign-in also needs a rate limit, which is separate work. The cap only makes sure a flood costs a Dex restart, which ends in-progress sign-ins, rather than the VM.
+Each cap is at least four times the busiest measurement, so normal load never reaches it. The API and Caddy get the most room because they carry every student's traffic, including file uploads and downloads. PostgreSQL has no cap: its own settings (`shared_buffers`, `work_mem`, and the connection limit) bound it, only the API and the worker connect to it, and a cap would turn a busy moment into a database restart. The sign-in throttle (#398, `docs/OPERATIONS.md`, "The sign-in throttle") limits what reaches Dex. The cap only makes sure a flood costs a Dex restart, which ends in-progress sign-ins, rather than the VM.
 
 **What was not done, and why.**
 

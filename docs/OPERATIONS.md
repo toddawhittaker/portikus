@@ -181,20 +181,54 @@ person at the machine cannot sign in as the last one.
 Dex has no lockout, so the API slows repeated sign-ins from one address
 (#398, `apps/api/src/signin-throttle.ts`):
 
-- `/auth/login` and `/auth/callback`: 60 a minute per address.
+- Sign-in starts: 150 a minute per address. These are `/auth/login`,
+  `/auth/callback`, and every GET under `/dex/auth`. One sign-in makes
+  about five, so one address can complete about 30 sign-ins a minute,
+  enough for a lab behind one campus address.
 - Dex password posts: 30 per 10 minutes per address, and 300 per 10
   minutes for everyone together. Caddy asks the API before each post
   reaches Dex. Attempts one address has already had refused do not count
   toward the shared 300, so one address cannot lock out the class.
+
+Caddy also lets only the Dex paths a sign-in uses reach Dex: `/dex/auth*`,
+`/dex/token`, `/dex/userinfo`, `/dex/keys`, `/dex/.well-known/*`,
+`/dex/static/*`, `/dex/theme/*` and `/dex/callback*`. Anything else under
+`/dex` is a 404, a URI longer than 1024 bytes is a 414, and a method other
+than GET on `/dex/auth` is a 405, apart from the password post.
 
 A refusal answers 429 with `RATE_LIMITED` and writes one `auth.throttled`
 audit event per address per window. The counts live in the API's memory,
 so restarting `portikus-api` clears them.
 
 If many students share one address behind a campus network, raise the
-limits through `SIGNIN_START_LIMIT_PER_MINUTE` and
-`PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES` in the API's environment file,
-`/etc/portikus/api.env`.
+limits with `SIGNIN_START_LIMIT_PER_MINUTE` and
+`PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES`. Set them in a systemd drop-in, not
+in `/etc/portikus/api.env`: Ansible rewrites `api.env` on every
+`make configure-vm`, and it leaves a drop-in alone. On the VM:
+
+```sh
+sudo systemctl edit portikus-api
+```
+
+In the editor, add the values you need, then save:
+
+```ini
+[Service]
+Environment=SIGNIN_START_LIMIT_PER_MINUTE=300
+Environment=PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES=60
+```
+
+Then run `sudo systemctl restart portikus-api`. A value in an
+`EnvironmentFile` beats a drop-in's `Environment=`. That is not a problem
+here, because `api.env` does not set these two variables. Check the result
+with `sudo systemctl show portikus-api -p DropInPaths`. To go back to the
+defaults, delete `/etc/systemd/system/portikus-api.service.d/override.conf`,
+then run `sudo systemctl daemon-reload` and restart the API. Do not use
+`systemctl revert`: it would also delete the `10-idp-egress.conf` drop-in
+that Ansible writes for an external provider.
+This was tested on the rehearsal VM on 2026-09-23. With a start limit of
+400, 160 starts from one address in a minute all got through, where the
+default refuses the last 10.
 
 ## Backups
 
@@ -383,10 +417,101 @@ The journal is capped at 2 GB. On the host, the nightly backup logs to
 
 ## Rebuild from code (B5)
 
-TODO: task B5, the rebuild-from-code exercise, has not run yet. This
-section will record the steps and how long each took, from an empty
-rehearsal VM to a restored, working pilot copy.
+On 2026-09-23 the rehearsal VM was rebuilt twice from the repository,
+from nothing to a working platform, with package `0.1.367+gc543a49` (the
+Epic 12b head after PR #468). The pilot's newest backup was then restored
+into the second rebuild. Every step was a Make target. No step was done
+by hand on the VM.
 
-| Step | Time |
-|---|---|
-| TODO | TODO |
+**First rebuild, ending with the smoke test:**
+
+| Step | Command | Time |
+|---|---|---|
+| Destroy the old VM | `make rehearsal-destroy` | 3 s |
+| Create the VM (OpenTofu, cloud-init) | `make rehearsal-up` | 47 s |
+| Converge it (Ansible, Dex built from source) | `make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_IDP=dex PORTIKUS_DEB=<package> PORTIKUS_USERS_FILE=<file>` | 5 min 12 s |
+| Build the workspace image | `make build-workspace-image TOFU_ENV=rehearsal-libvirt` | 2 min 32 s |
+| Smoke test, with a full Dex sign-in | `make smoke-test TOFU_ENV=rehearsal-libvirt PORTIKUS_IDP=dex PORTIKUS_SMOKE_SIGNIN_FILE=<file>` | 6 min 10 s |
+| **From an empty host to a green smoke test** | | **14 min 41 s** |
+
+The smoke test passed all 209 checks. That includes the lifecycle block:
+sudo, nested Docker, `claude --version` and `codex --version`, reaching an
+application port in a workspace, the preview edge, Reset Docker and
+Rebuild, and a full Dex password sign-in. Building the package beforehand
+(`make build-deb`) took 12 s.
+
+**Second rebuild, then the restore drill:**
+
+| Step | Command | Time |
+|---|---|---|
+| Destroy, create, converge, build the image | as above | 8 min 48 s |
+| Prove the key opens the set | `restore.sh --check <set>` | 1 s |
+| Restore the pilot's newest set | `make restore TOFU_ENV=rehearsal-libvirt BACKUP=<set> START_CHECK=1` | 55 s |
+| Show the account pairings | `make identity-carry-over-dry-run TOFU_ENV=rehearsal-libvirt PORTIKUS_USERS_FILE=<file>` | under 1 min |
+| Carry the accounts over to Dex | `make configure-vm` as above | 48 s |
+| **From an empty host to restored students signing in** | | **about 10 min 30 s** |
+
+The set was `/var/backups/portikus/20260923T045452Z`, the pilot's newest
+complete set. It holds 3 users, 3 workspaces and 6 projects, from package
+`0.1.348+g001e10e`. It predates the per-VM directories, so it sits
+directly under `/var/backups/portikus/`, not under `portikus/`. Inside
+the 55 seconds, the restore:
+
+- checked every file against the MANIFEST (under 1 s);
+- loaded the database, marked every workspace stopped, and ended every
+  session (2 s);
+- imported the three home volumes (9 s);
+- recreated the three instances (18 s);
+- started the services (4 s);
+- matched the row counts, and matched 43 sampled files against the
+  backup's checksums (9 s);
+- started carol's workspace, and checked that her home belongs to the
+  student and that the sampled files and 3 Git commits match (13 s).
+
+What was checked afterwards:
+
+- Each of the three users has their workspace row, instance and home,
+  recovery and Docker volumes.
+- The `sessions` and `preview_sessions` tables were empty.
+- alice's and bob's workspaces also started, in 7 s and 4 s, each with
+  the home owned by the student.
+- The restored rows came from the mock provider. The carry-over moved
+  carol, alice and bob to their Dex identities by email, and wrote one
+  `user.identity_changed` audit row each. alice then signed in through
+  Dex with her password, and got her original user row and her original
+  workspace (same id and label). She could start and stop it through the
+  API, and bob's workspace answered 404 to her.
+
+**A restore needs one extra step while old backups hold mock accounts.**
+A backup taken before the Dex cutover holds users under the mock issuer.
+After restoring one onto a VM that signs in through Dex, run
+`make identity-carry-over-dry-run`, read it, then `make configure-vm`
+again, so the carry-over links the accounts. Without it, a student who
+signs in gets a new, empty account. Backups taken after the cutover
+already hold Dex identities and need no carry-over.
+
+**Removing an account ends its sessions (checked on a real VM).** With
+`a5smoke` signed in and its cookie held, the account was removed from a
+copy of the users file (`make users-remove`), and `make users-deploy
+TOFU_ENV=rehearsal-libvirt` deployed the copy in 12 s. The held cookie
+then got 401 from `/auth/me`, a new sign-in with the old password was
+refused, and an `auth.sessions_revoked` audit row recorded
+`{"reason": "users-deploy", "usernames": ["a5smoke"], "count": 1}`.
+alice's session stayed valid. The original users file was then deployed
+again (12 s), and the rehearsal VM was destroyed.
+
+**Load test on the rebuilt VM.** `make load-test TOFU_ENV=rehearsal-libvirt
+N=25` ran on the first rebuild. It took 19 min 20 s in all. Start p95 was
+12.6 s, down from 77 s before the worker started workspaces in parallel,
+still over the 10 s target. Every other criterion passed, with no failed
+operation (`docs/CAPACITY.md`, "Rerun after parallel starts").
+
+**Not covered by this exercise:**
+
+- There is no single `make rebuild-exercise` target yet. The steps above
+  were run one after another.
+- Installing the previous release again and checking `/health` and
+  sign-in (STACK.md section 33, the rollback step) was not part of this
+  run.
+- The smoke test was not run on the restored VM. Its lifecycle block
+  skips itself while student workspaces exist.

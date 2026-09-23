@@ -1864,13 +1864,15 @@ the #302 duplicates alone. The cutover always ends every session made
 while the mock was on, even when no account is carried (PR #461).
 `make identity-carry-over-dry-run` shows the pairings first.
 
-**Sign-in throttle (#398 fixed).** The API limits sign-in starts to 60 a
+**Sign-in throttle (#398 fixed).** The API limits sign-in starts to 150 a
 minute per address, and Dex password posts to 30 per 10 minutes per
 address and 300 in total, answering 429 with the new `RATE_LIMITED` code
 (PR #454). Caddy asks the API before each password post. A later fix
-stopped one address from using up the shared total, and made the check
-count encoded spellings of the password path. The same task capped the
-journal at 2 GB.
+(PR #468) stopped one address from using up the shared total, counted
+encoded spellings of the password path, let only the Dex paths a sign-in
+uses through Caddy, and raised the start limit from 60 so a lab of 30
+students behind one address can sign in within a minute. The same task
+capped the journal at 2 GB.
 
 **Download cap (#399 fixed).** Downloads are capped at 1 GiB. The agent
 refuses larger files and folders before zipping, the API cuts any relayed
@@ -1911,7 +1913,20 @@ each has its own memory cap. Growing the data disk now also grows the
 storage pool (PR #467, `docs/CAPACITY.md`, "When memory runs out" and
 "Resizing the pilot").
 
-**Rebuild from code (B5).** TODO: not run yet; results to follow.
+**Rebuild from code (B5).** On 2026-09-23 the rehearsal VM was rebuilt
+twice from the repository with Make targets only, and nothing was done by
+hand on the VM. From an empty host to a green smoke test (209 checks,
+including a full Dex sign-in and the lifecycle block) took 14 min 41 s.
+The pilot's newest backup was restored into the second rebuild in 55 s.
+Every user, workspace, instance and volume came back, the session tables
+were empty, all three workspaces started, and sampled files and Git
+commits matched the backup. After the carry-over, alice signed in through
+Dex and landed in her original workspace. From an empty host to that
+sign-in took about 10 min 30 s. Removing an account with
+`make users-deploy` ended its live session (401) and was audited. The
+load test rerun measured a start p95 of 12.6 s, down from 77 s. Timings
+are in `docs/OPERATIONS.md`, "Rebuild from code (B5)", and the load
+numbers in `docs/CAPACITY.md`.
 
 ### Gaps
 
@@ -1924,5 +1939,15 @@ storage pool (PR #467, `docs/CAPACITY.md`, "When memory runs out" and
   how to publish it.
 - **The confirming load test at 8 vCPUs and 16 GiB** has not run; the
   size is worked out from the 12 vCPU run.
+- **Workspace starts are still over target under load.** With 25 students
+  opening their workspaces within 48 seconds, start p95 was 12.6 s against
+  the 10 s target (SPEC.md section 25.1). Every other load criterion
+  passed.
+- **The rebuild exercise is not one command.** There is no
+  `make rebuild-exercise` yet, and the rollback step (install the previous
+  release, check `/health` and sign-in) was not run.
+- **A backup from before the Dex cutover needs the carry-over after a
+  restore.** The runbook says how (`docs/OPERATIONS.md`, "Rebuild from
+  code (B5)").
 - **Backups sit on the same physical disk as the VM.** A weekly copy to
   external storage is a manual step.
