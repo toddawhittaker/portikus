@@ -86,6 +86,15 @@ export function loginCookieOptions(auth: AuthOptions): CookieSerializeOptions {
 	};
 }
 
+/**
+ * The two cross-site POSTs an LMS makes during an LTI launch. The id_token
+ * signature, state and nonce protect them instead (docs/EPIC-13.md ruling 7).
+ */
+function isCsrfExempt(request: FastifyRequest): boolean {
+	const url = request.routeOptions.url;
+	return request.method === "POST" && (url === "/lti/login" || url === "/lti/launch");
+}
+
 function isExempt(request: FastifyRequest): boolean {
 	// Match the routed URL, not the raw one, so query strings or path
 	// tricks cannot widen the exemption.
@@ -95,6 +104,8 @@ function isExempt(request: FastifyRequest): boolean {
 	}
 	if (request.method === "GET" && url === "/health") return true;
 	if (url.startsWith("/auth/")) return true;
+	// An LTI launch is how an LMS user gets a session in the first place.
+	if (url === "/lti/login" || url === "/lti/launch" || url === "/lti/jwks") return true;
 	// The preview host never carries the main session cookie, and the edge
 	// authorization subrequest carries none at all: both authenticate with the
 	// preview session instead (BROWSER-HANDLING.md §9.2, §10).
@@ -133,7 +144,7 @@ export const authPlugin = fp<AuthPluginOptions>(
 						.send({ code: "FORBIDDEN", message: "origin not allowed" });
 					return;
 				}
-			} else if (STATE_CHANGING.has(request.method)) {
+			} else if (STATE_CHANGING.has(request.method) && !isCsrfExempt(request)) {
 				if (!checkCsrf(request.headers, publicOrigin)) {
 					await reply
 						.code(403)

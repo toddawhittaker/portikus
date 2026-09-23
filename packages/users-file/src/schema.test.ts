@@ -141,4 +141,11 @@ describe("toDexStaticPasswords", () => {
 			},
 		]);
 	});
+
+	it("gives an instructor the instructor group", () => {
+		const file = fixture();
+		(file.users[1] as User).role = "instructor";
+		expect(validateUsersFile(file).ok).toBe(true);
+		expect(toDexStaticPasswords(file)[1]?.groups).toEqual(["instructor"]);
+	});
 });

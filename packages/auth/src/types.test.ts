@@ -39,6 +39,22 @@ describe("mapRole", () => {
 		expect(mapRole({ groups: ["everyone"] }, opts)).toBeNull();
 	});
 
+	test("maps the instructor group, default and configured", () => {
+		expect(mapRole({ groups: ["instructor"] }, opts)).toBe("instructor");
+		const custom = { ...opts, instructorGroup: "teachers" };
+		expect(mapRole({ groups: ["teachers"] }, custom)).toBe("instructor");
+		expect(mapRole({ groups: ["instructor"] }, custom)).toBeNull();
+	});
+
+	test("the highest role wins", () => {
+		expect(mapRole({ groups: ["portikus-students", "instructor"] }, opts)).toBe(
+			"instructor",
+		);
+		expect(mapRole({ groups: ["instructor", "portikus-administrators"] }, opts)).toBe(
+			"administrator",
+		);
+	});
+
 	test("denies when the claim is missing or not strings", () => {
 		expect(mapRole({}, opts)).toBeNull();
 		expect(mapRole({ groups: [1, 2] }, opts)).toBeNull();

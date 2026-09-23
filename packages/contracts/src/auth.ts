@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-/** Platform roles in P0 (SPEC.md §5.2). */
-export const Role = z.enum(["student", "administrator"]);
+/** Platform roles (SPEC.md §5.2; `instructor` from docs/EPIC-13.md ruling 4). */
+export const Role = z.enum(["student", "instructor", "administrator"]);
 export type Role = z.infer<typeof Role>;
 
 /** The signed-in user as the API describes them (SPEC.md §5.1, §5.2). */
