@@ -13,6 +13,7 @@ import {
 	ltiStateCookieOptions,
 	readLtiStateCookie,
 	saveLoginState,
+	staleLtiStateCookies,
 	startLtiLogin,
 	validateLaunchToken,
 } from "@portikus/auth";
@@ -125,6 +126,16 @@ ${fields}
 		"Your course opened Portikus inside a frame, where it cannot run. Open it in its own tab to continue.",
 		form,
 	);
+}
+
+/**
+ * Only a top-level navigation may start a login. Any page can fire an image
+ * or fetch at it, and each would add a state cookie until the browser
+ * evicts the session cookie. No header means an older browser navigating.
+ */
+function isNavigation(request: FastifyRequest): boolean {
+	const dest = request.headers["sec-fetch-dest"];
+	return dest === undefined || dest === "document";
 }
 
 function isFramed(request: FastifyRequest): boolean {
@@ -293,6 +304,10 @@ export function registerLtiRoutes(
 		if (!lti) return notFound(reply);
 		const params = loginParams(request.method === "GET" ? request.query : request.body);
 		if (isFramed(request)) return html(reply, 200, newTabPage(params));
+		if (!isNavigation(request)) {
+			request.log.info({ reason: "not_navigation" }, "lti login refused");
+			return html(reply, 400, page("Portikus could not open", BAD_LOGIN));
+		}
 
 		const started = startLtiLogin(lti.platforms, publicUrl, params);
 		if (!started.ok) {
@@ -305,6 +320,9 @@ export function registerLtiRoutes(
 			platformIssuer: started.platform.issuer,
 			clientId: started.platform.clientId,
 		});
+		for (const name of staleLtiStateCookies(request.cookies)) {
+			reply.clearCookie(name, ltiStateCookieOptions());
+		}
 		reply.setCookie(
 			ltiStateCookieName(started.state),
 			started.state,

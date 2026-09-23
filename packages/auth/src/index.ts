@@ -13,6 +13,7 @@ export {
 	ltiStateCookieOptions,
 	readLtiStateCookie,
 	saveLoginState,
+	staleLtiStateCookies,
 } from "./lti/state.js";
 export {
 	createKeySetSource,

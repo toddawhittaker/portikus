@@ -81,7 +81,7 @@ export function usersToRevoke(
 		const after = now.get(before.userId);
 		if (!after) return true;
 		if (after.passwordFingerprint !== before.passwordFingerprint) return true;
-		// A session carries the role it was created with, so any change needs a new sign-in.
+		// The users row keeps the role from the last sign-in, so a changed role needs a new sign-in.
 		return after.role !== before.role;
 	});
 }

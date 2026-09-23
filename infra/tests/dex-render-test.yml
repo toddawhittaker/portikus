@@ -27,7 +27,7 @@
     dex_client_secret: portikus-ci-dex-client-secret-not-a-real-one
     portikus_oidc_student_group: portikus-students
     portikus_oidc_admin_group: portikus-administrators
-    portikus_oidc_instructor_group: instructor
+    portikus_oidc_instructor_group: portikus-instructors
     # Added to the fixture here, because the package tests count its users.
     dex_render_instructor:
       username: ivy
@@ -153,7 +153,7 @@
         that:
           - >-
             (dex_rendered.staticPasswords | selectattr('username', 'equalto', 'ivy') | first).groups
-            == ['instructor']
+            == [portikus_oidc_instructor_group]
           - dex_users.users | map(attribute='role') | unique | sort == ['administrator', 'instructor', 'student']
 
     # Before the package is installed there is no revoke command, and the

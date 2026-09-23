@@ -4,7 +4,13 @@
  */
 import { expect, type Page, type Response, test } from "@playwright/test";
 import { query, WEB_ORIGIN } from "./helpers";
-import { type Defect, launchAs, signedIn, startLaunch } from "./lti-helpers";
+import {
+	type Defect,
+	launchAs,
+	MOCK_LMS_ORIGIN,
+	signedIn,
+	startLaunch,
+} from "./lti-helpers";
 
 /** The reason code the API must record for each mock defect (ruling 19). */
 const REASONS: Record<Defect, string> = {
@@ -84,4 +90,34 @@ test("a launch that arrives without the state cookie is refused with the reopen 
 	await expect(page.getByText("Portikus could not finish opening here.")).toBeVisible();
 	// Anyone can post this, so it is logged but not audited.
 	expect(await failedLaunchReasons(since)).not.toContain("state_missing");
+});
+
+test("an image-style request to the login sets no state cookie", async ({ page }) => {
+	// Any page could fire these to pile up state cookies (docs/EPIC-13.md ruling 17).
+	const url = `${WEB_ORIGIN}/lti/login?${new URLSearchParams({
+		iss: MOCK_LMS_ORIGIN,
+		login_hint: "anyone",
+		target_link_uri: `${WEB_ORIGIN}/`,
+		client_id: "portikus-mock",
+	})}`;
+	const setsStateCookie = (headers: { name: string; value: string }[]) =>
+		headers.some(
+			(h) =>
+				h.name.toLowerCase() === "set-cookie" &&
+				h.value.startsWith("__Host-portikus_lti_state_"),
+		);
+	const image = await page.request.get(url, {
+		headers: { "sec-fetch-dest": "image" },
+		maxRedirects: 0,
+	});
+	expect(image.status()).toBe(400);
+	expect(setsStateCookie(image.headersArray())).toBe(false);
+
+	// The same request as a navigation does start the login.
+	const navigation = await page.request.get(url, {
+		headers: { "sec-fetch-dest": "document" },
+		maxRedirects: 0,
+	});
+	expect(navigation.status()).toBe(302);
+	expect(setsStateCookie(navigation.headersArray())).toBe(true);
 });
