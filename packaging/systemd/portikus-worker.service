@@ -14,6 +14,9 @@ EnvironmentFile=-/etc/portikus/worker.override.env
 ExecStart=/usr/bin/node /usr/lib/portikus/worker/dist/index.js
 Restart=on-failure
 RestartSec=5
+# Workspaces may together promise more memory than the VM has; when it runs
+# out, the kernel kills workspace processes first (docs/CAPACITY.md).
+OOMScoreAdjust=-900
 
 # Hardening (SPEC section 24)
 NoNewPrivileges=yes
