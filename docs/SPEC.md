@@ -2890,12 +2890,14 @@ Acceptance:
 - Git history is not modified by automatic recovery;
 - Docker can be reset without deleting projects.
 
-As built: §15.10 describes recovery storage and operations, §16.4 Reset
-Docker, §17.2 rebuild, and §19.2 storage figures and warnings; ADR 0020 and
-ADR 0021 record the choices. Out of this epic: comparing against a recovery
-point (§12.6) and per-file history (§15.9), the guided student rebuild,
-changing quotas at runtime, re-creating a workspace whose instance is gone,
-and deleting, downloading, or restoring points into a new project by hand.
+As built: `docs/EPIC-10.md` has the working brief; landed on
+`epic/10-recovery-quotas`. §15.10 describes recovery storage and
+operations, §16.4 Reset Docker, §17.2 rebuild, and §19.2 storage figures
+and warnings; ADR 0020 and ADR 0021 record the choices. Out of this epic:
+comparing against a recovery point (§12.6) and per-file history (§15.9),
+the guided student rebuild, changing quotas at runtime, re-creating a
+workspace whose instance is gone, and deleting, downloading, or restoring
+points into a new project by hand.
 
 ### Epic 11 — Administration and observability
 **Estimate:** 3–4 engineer-days

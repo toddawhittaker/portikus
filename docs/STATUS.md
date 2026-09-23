@@ -1423,3 +1423,162 @@ now answers 502 when the app it proxies to has closed, as Caddy does.
 Accepted residual: a stolen, already-revoked preview cookie can tell
 whether its owner's workspace is running until the sweep deletes revoked
 rows a day later.
+
+## Epic 10 — Recovery, quotas, and reset workflows
+
+Landed on `epic/10-recovery-quotas` (not yet merged to `main`; see Gaps).
+Working brief: `docs/EPIC-10.md`.
+
+**Recovery points.** Portikus now keeps compressed, `tar.zst` copies of
+each active project outside the project folder, on a fourth storage
+class. A point is made every 15 minutes while a project has changed,
+before the project is archived, before a restore, before an
+administrator rebuilds the workspace, before a Claude Code or Codex
+session starts, and on demand from a **Create recovery point now**
+button. No point ever touches Git: no commit, branch, tag, stash entry,
+index change, or ref move (SPEC.md section 12.5), and this is checked
+against real Git in both the unit tests and the smoke test. A student
+can add a `.workspaceignore` file at the project root, in `.gitignore`
+syntax, to leave extra paths out of points beyond the six default
+exclusions (`node_modules/`, `.venv/`, `dist/`, `build/`, `target/`,
+`__pycache__/`); `!pattern` can bring a default back. The Recovery points
+dialog, opened from the project's menu, lists each point's time, reason
+and size, and how much of the recovery allowance is in use.
+
+**Restore, with a safety point first.** Restoring a point replaces the
+project's files with an application-styled confirmation first: it names
+the project and the timestamp and says a point of the current state is
+made before anything changes. If that safety point fails only because
+recovery storage is full, a second confirmation offers to restore
+without it. Restore never replaces the project folder itself, so its
+inode, and anything a shell or watcher has open, survive. Excluded paths
+such as `node_modules` are left alone by both making and restoring a
+point.
+
+**Restore to before this session.** When a Claude Code or Codex session
+is under review, its header gains **Restore to before this session**,
+which restores the point made just before that session started, as long
+as it still exists.
+
+**Storage accounting and warnings.** The workspace dialog shows three
+storage classes with used and total: Projects & home, Docker, and
+Recovery. The status bar warns at 80% usage in any class, naming it, and
+at 95% calls it critical and names a next step: Reset Docker or `docker
+system prune` for Docker, "older points are removed automatically" for
+Recovery, and "delete files" for Projects & home.
+
+**Reset Docker and Rebuild.** A student or an administrator can reset
+Docker from the workspace dialog: it stops the workspace, replaces the
+Docker volume, and restarts it, keeping projects, home, and recovery
+points intact. Rebuild replaces the workspace's root filesystem with the
+current image, keeping home, projects, and recovery, and keeping Docker
+data unless the request asks to reset it too; only an administrator can
+rebuild. Both routes (`POST /workspaces/:id/reset-docker` and `POST
+/admin/workspaces/:id/rebuild`) live in Epic 10's own
+`apps/api/src/routes/maintenance.ts`, by an orchestrator ruling that
+settled the overlap with Epic 11. The buttons that call them are Epic
+11's admin page, which asks Fastify whether the routes exist so they turn
+on automatically once both epics are on the same branch.
+
+**Retention.** Every point expires after `RECOVERY_RETENTION_DAYS`
+(default 14). After expiry, and whenever a workspace's stored total is
+above 75% of its recovery allowance, the worker deletes points oldest
+first until usage is at or below that line; a project's newest point is
+never deleted by age or by size. The 75% target (revised down from an
+initial 90%, per review) leaves more headroom for filesystem overhead and
+in-flight archives.
+
+**Smoke block 15b.** `infra/tests/smoke-test.sh` gained an Epic 10 block
+in its lifecycle section, which only runs when no other workspace is on
+the VM and only against the student instance that same run created. It
+sets the grace period to 0 so a maintenance operation cannot race the
+stop timer, checks the recovery volume's ownership and mode, makes a
+point, mutates and restores a project, resets Docker, and rebuilds,
+checking along the way that Git state is untouched, markers survive or
+disappear as expected, and every action is audited.
+
+**Scratch-instance verification.** Because the pilot carries three
+student workspaces whose data must not be touched, the whole flow
+was instead run by hand against a throwaway Incus instance
+(`e10-scratch-a`) built and destroyed on the pilot VM, using the real
+provider, agent, and worker code from this branch. Measured timings: a
+point of a fresh Vite project with an 87 MB `node_modules` took 0.056
+seconds (0.75 seconds worst case, with `node_modules` forced in through
+`.workspaceignore`); an unchanged project's periodic check wrote nothing
+in 0.038 seconds; restores after `rm -rf .git`, a hard reset, and
+deleting every tracked file each completed in well under 0.15 seconds;
+Reset Docker took about 7 seconds end to end (stop 1.9s, reset 1.7s,
+start 3.4s) and Rebuild about 7.2 seconds, both well under the 10-second
+line that would have pulled "Parallel worker sweep" into Epic 11. `.env`
+and `.git` were archived and restored correctly; `node_modules` and
+`dist` were excluded; a wrong SHA-256 was refused. The scratch instance
+and its volumes were deleted afterward, and nothing from the exercise
+remains on the VM.
+
+**Shared per-run e2e ports and sharded CI.** Every epic branch first
+received a shared change: each `pnpm test:e2e` run now claims four free
+ports (web, API, mock identity provider, fake workspace agent) alongside
+its own per-run database, so parallel test runs on one machine, or in
+CI, no longer collide. CI now splits the browser tests into three
+parallel shards, each with its own database, with a final job that
+gates on all three; the Playwright browser download is cached. This took
+the browser test job from about 10 minutes to about 3.5.
+
+**Review rulings and fixes.** Several rounds of review and confirmation
+fixes landed on the branch:
+
+- API calls to a workspace agent, and worker calls to an agent, no longer
+  follow redirects; a redirect is treated as an unavailable agent, so a
+  replaced agent cannot steer a caller to loopback or the workspace
+  network. Worker replies are also capped at 1 MiB.
+- A project is limited to one manual recovery point every 30 seconds and
+  200 points in total, both enforced with plain error responses; a
+  coding-agent session point is skipped past the cap rather than blocking
+  the session.
+- Create and restore answer 409 while a maintenance operation is pending
+  or a long-operation slot is held, rather than racing it.
+- A restore that cannot finish (for example, a failed rollback) is
+  reported to the student in plain language, naming the kept
+  `.portikus-aside-<pointId>` folder that holds their prior files, rather
+  than a generic failure.
+- A restore keeps any entry excluded by either the point's own
+  `.workspaceignore` or today's, so a build tool cannot resurrect and
+  then remove an excluded directory during a restore.
+- A directory the student cannot read is left out of points and left
+  alone by restores, rather than failing the whole operation.
+- The worker's recovery sweep isolates one workspace's failure so it does
+  not stop the rest, and processes workspaces in small batches rather
+  than one at a time without limit.
+- The controller re-attaches a `-docker` volume and device that a
+  previous Reset Docker left detached after a partial failure.
+- Escape now closes only the top confirmation dialog, not the workspace
+  dialog underneath it, fixing a pre-existing bug in Stop and Restart
+  along the way.
+- Unexpected agent errors log only their code, syscall, and error class
+  name, never a message or a path (SPEC.md section 25.10, ADR 0012).
+
+### Gaps
+
+- **Epic 10 is not deployed to the pilot.** Deploying it needs, in order:
+  main to accept out-of-order database migrations (Epic 11 turns on
+  `allowUnorderedMigrations`, because Epic 10 used migration 0013 and
+  Epic 11 used 0014 while built in parallel); `pre-epic10` snapshots of
+  the three student home volumes plus a `pg_dump` of the platform
+  database; and the firewall hotfix in pull request #424 landing on
+  `main` before any `configure-vm` run touches this VM again.
+- The smoke block needs a VM with no student workspaces on it to run at
+  all; it has only been checked by `shellcheck` and by the scratch-instance
+  exercise above, never by the block's own script on a live VM.
+- The tar exit-code-1 guard, which accepts a file changing while it is
+  read, is only tested against a fake `tar` built to exit 1; it has not
+  been exercised against a real `tar` doing that.
+- Rollback copies, the `.portikus-aside-<pointId>` folders a restore
+  leaves behind when it cannot finish cleanly, are never deleted
+  automatically. A student or administrator has to remove one by hand.
+- Nothing reconciles an orphan archive, a file on the recovery volume
+  with no matching `recovery_points` row, against the database. This can
+  happen if the API crashes between the agent writing the archive and
+  the row being inserted.
+- The migration 0013 backfill that adds `recoveryGiB` to existing
+  workspaces' `quota_config` hard-codes 3 GiB rather than reading
+  `WORKSPACE_RECOVERY_SIZE_GIB`.
