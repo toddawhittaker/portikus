@@ -429,12 +429,16 @@ test("AgentConfigSchema coerces an overridden PORT", () => {
 	expect(loadConfig(AgentConfigSchema, { PORT: "7500" }).PORT).toBe(7500);
 });
 
-test("AGENT_PORT defaults to 7400 for the API and the controller", () => {
+test("AGENT_PORT defaults to 7400 for the API, the worker, and the controller", () => {
 	expect(
 		loadConfig(ApiConfigSchema, { DATABASE_URL: "postgres://localhost/portikus" })
 			.AGENT_PORT,
 	).toBe(7400);
 	expect(loadConfig(ControllerConfigSchema, {}).AGENT_PORT).toBe(7400);
+	expect(
+		loadConfig(WorkerConfigSchema, { DATABASE_URL: "postgres://localhost/portikus" })
+			.AGENT_PORT,
+	).toBe(7400);
 });
 
 // --- preview settings (BROWSER-HANDLING.md sections 8, 23) ---

@@ -258,6 +258,8 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	 * (issue #263). Must match the API's value.
 	 */
 	PREVIEW_SUFFIX: z.string().min(1).default(DEV_PREVIEW_SUFFIX),
+	/** The port every workspace agent listens on; must match the API value. */
+	AGENT_PORT: positiveInt.default(7400),
 })
 	.refine(
 		requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),

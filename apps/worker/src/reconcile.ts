@@ -3,6 +3,7 @@ import {
 	type ControllerErrorCode,
 	DEFAULT_TIMEZONE,
 	isSystemTimezone,
+	PendingOperation,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Logger, silentLogger } from "@portikus/observability";
@@ -465,7 +466,8 @@ export async function reconcile(
 				id: ws.id,
 				incus_instance_name: ws.incus_instance_name,
 				state: ws.state,
-				pending_operation: ws.pending_operation,
+				// The column has a check constraint, so this never throws.
+				pending_operation: PendingOperation.parse(ws.pending_operation),
 				pending_operation_by: ws.pending_operation_by,
 			},
 			now,
@@ -746,6 +748,7 @@ async function startWorkspace(
 			hostname: ws.label,
 			previewHostSuffix: config.PREVIEW_SUFFIX,
 			timezone: await ownerTimezone(db, ws.id),
+			dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
 			recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
 		});
 		const updated = await casUpdate(
@@ -838,7 +841,7 @@ export async function doStop(
 }
 
 /** What the student sees when a maintenance operation fails (SPEC.md §28). */
-const OPERATION_FAILED_MESSAGE: Record<string, string> = {
+const OPERATION_FAILED_MESSAGE: Record<PendingOperation, string> = {
 	"reset-docker":
 		"Docker could not be reset. Please try again or contact your administrator.",
 	rebuild: "The workspace could not be rebuilt. Please contact your administrator.",
@@ -860,7 +863,7 @@ async function runOperation(
 		id: string;
 		incus_instance_name: string;
 		state: string;
-		pending_operation: string;
+		pending_operation: PendingOperation;
 		pending_operation_by: string | null;
 	},
 	now: Date,
@@ -919,8 +922,7 @@ async function runOperation(
 				...clear,
 				state: "error",
 				error_code: err.code,
-				error_message:
-					OPERATION_FAILED_MESSAGE[ws.pending_operation] ?? userMessage(err.code),
+				error_message: OPERATION_FAILED_MESSAGE[ws.pending_operation],
 			},
 			now,
 		);

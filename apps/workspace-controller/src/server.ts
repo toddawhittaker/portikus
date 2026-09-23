@@ -163,6 +163,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 					hostname: bodyResult.data.hostname,
 					previewHostSuffix: bodyResult.data.previewHostSuffix,
 					timezone: bodyResult.data.timezone,
+					dockerGiB: bodyResult.data.dockerGiB,
 					recoveryGiB: bodyResult.data.recoveryGiB,
 				}),
 			);

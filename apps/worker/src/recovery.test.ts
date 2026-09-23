@@ -194,8 +194,86 @@ test.skipIf(skip)("a due project gets a periodic point with a full row", async (
 		fingerprint: FP_A,
 	});
 	expect(Number(row?.size_bytes)).toBe(1000);
-	expect(row?.expires_at.getTime()).toBe(daysFrom(now, 14).getTime());
+	// Stamped when the point is made, not when the sweep began.
+	expect(row?.created_at.getTime()).toBeGreaterThanOrEqual(now.getTime());
+	expect(row?.expires_at.getTime()).toBe(
+		daysFrom(row?.created_at as Date, 14).getTime(),
+	);
 	expect((await checkedAt(pid))?.getTime()).toBe(now.getTime());
+});
+
+test.skipIf(skip)(
+	"a point made late in a slow sweep is stamped when it is made",
+	async () => {
+		const ws = await insertWorkspace();
+		const pid = await insertProject(ws);
+		const sweepStart = new Date(Date.now() - 60 * 60_000);
+
+		await recoverySweep(tdb.db, agentFor, cfg, sweepStart);
+
+		const [row] = await points(pid);
+		expect(row?.created_at.getTime()).toBeGreaterThan(
+			sweepStart.getTime() + 30 * 60_000,
+		);
+	},
+);
+
+test.skipIf(skip)(
+	"one workspace with a hanging agent does not hold up the others",
+	async () => {
+		const stuck = await insertWorkspace({ agent_address: "10.0.0.66" });
+		await insertProject(stuck);
+		const others: string[] = [];
+		for (let i = 0; i < 5; i++) {
+			const ws = await insertWorkspace();
+			others.push(await insertProject(ws));
+		}
+		let release: () => void = () => {};
+		const hanging: RecoveryAgent = {
+			createRecoveryPoint: () =>
+				new Promise((_resolve, reject) => {
+					release = () => reject(new AgentCallError("AGENT_UNAVAILABLE", "timed out"));
+				}),
+			deleteRecoveryPoint: async () => {},
+		};
+
+		const sweep = recoverySweep(
+			tdb.db,
+			(address) => (address === "10.0.0.66" ? hanging : agent),
+			cfg,
+			new Date(),
+		);
+		await expect
+			.poll(async () => {
+				const counts = await Promise.all(
+					others.map(async (p) => (await points(p)).length),
+				);
+				return counts.every((n) => n === 1);
+			})
+			.toBe(true);
+		release();
+
+		expect(await sweep).toEqual({ created: 5, deleted: 0 });
+	},
+);
+
+test.skipIf(skip)("point sizes count as whole 4 KiB disk blocks", async () => {
+	const now = new Date();
+	const ws = await insertWorkspace();
+	const a = await insertProject(ws, { recovery_checked_at: now.toISOString() });
+	const far = daysFrom(now, 10);
+	// Ten points whose bytes sum to just under 75% of 1 GiB, but whose
+	// blocks sum to just over it, so exactly the oldest one goes.
+	const size = 80_530_636;
+	const ids = [];
+	for (let i = 10; i >= 1; i--) {
+		ids.push(await insertPoint(ws, a, minutesAgo(now, i), size, far));
+	}
+
+	const result = await recoverySweep(tdb.db, agentFor, cfg, now);
+
+	expect(result.deleted).toBe(1);
+	expect((await points(a)).map((p) => p.id)).toEqual(ids.slice(1));
 });
 
 test.skipIf(skip)("a project checked within the interval is not due", async () => {
@@ -332,7 +410,7 @@ test.skipIf(skip)("expired points go, the newest of each project stays", async (
 });
 
 test.skipIf(skip)(
-	"oldest points go until usage is at or below 90% of the allowance",
+	"oldest points go until usage is at or below 75% of the allowance",
 	async () => {
 		const now = new Date();
 		const ws = await insertWorkspace();

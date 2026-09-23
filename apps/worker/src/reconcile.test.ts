@@ -1172,7 +1172,7 @@ test.skipIf(skip)("create and start send the recovery volume size", async () => 
 	const create = fake.calls.find((c) => c.method === "create");
 	expect(create?.args[0]).toMatchObject({ recoveryGiB: 3 });
 	const start = fake.calls.find((c) => c.method === "start");
-	expect(start?.args[1]).toMatchObject({ recoveryGiB: 3 });
+	expect(start?.args[1]).toMatchObject({ dockerGiB: 20, recoveryGiB: 3 });
 	const ws = await getWorkspace(id);
 	expect(ws.quota_config).toEqual({ homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
 });

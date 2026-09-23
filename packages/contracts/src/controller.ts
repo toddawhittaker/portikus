@@ -70,6 +70,9 @@ export const StartInstanceRequest = z.object({
 	// The owner's timezone, set on the container at every start so shells,
 	// logs, and Git commits read in the student's own clock (issue #287).
 	timezone: Timezone,
+	// Size of the Docker volume to put back when a failed Reset Docker left
+	// it off (ADR 0021). When absent the controller skips that step.
+	dockerGiB: z.number().int().positive().optional(),
 	// Size of the recovery volume to add when it is missing (ADR 0020).
 	// When absent the controller skips that step.
 	recoveryGiB: z.number().int().positive().optional(),

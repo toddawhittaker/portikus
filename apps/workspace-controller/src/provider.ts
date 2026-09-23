@@ -23,6 +23,7 @@ export interface WorkspaceProvider {
 			hostname: string;
 			previewHostSuffix: string;
 			timezone: string;
+			dockerGiB?: number;
 			recoveryGiB?: number;
 		},
 	): Promise<StartInstanceResponse>;
@@ -224,6 +225,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			hostname: string;
 			previewHostSuffix: string;
 			timezone: string;
+			dockerGiB?: number;
 			recoveryGiB?: number;
 		},
 	): Promise<StartInstanceResponse> {
@@ -247,6 +249,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 
 		const signal = AbortSignal.timeout(opts.timeoutSeconds * 1000);
+
+		if (opts.dockerGiB !== undefined) {
+			await this.ensureDockerDevice(name, opts.dockerGiB, signal);
+		}
 
 		const recoveryAttached =
 			opts.recoveryGiB !== undefined &&
@@ -296,6 +302,36 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		await this.waitForAgent(ipv4, opts.agentToken);
 
 		return { ipv4 };
+	}
+
+	/**
+	 * Put back a Docker volume that a failed Reset Docker left off (ADR 0021).
+	 * Unlike recovery this is fatal: Docker without its volume would fill the
+	 * root filesystem. The only volume it creates is `<name>-docker`.
+	 */
+	private async ensureDockerDevice(
+		name: string,
+		sizeGiB: number,
+		signal: AbortSignal,
+	): Promise<void> {
+		const inst = (await this.client.request(
+			"GET",
+			`/1.0/instances/${enc(name)}`,
+			undefined,
+			signal,
+		)) as InstanceConfig;
+		if (inst.devices?.docker) {
+			return;
+		}
+		await this.ensureVolume(`${name}-docker`, sizeGiB);
+		// PATCH merges devices, so it adds this one and cannot drop another.
+		await this.client.request(
+			"PATCH",
+			`/1.0/instances/${enc(name)}`,
+			{ devices: { docker: this.dockerDevice(name) } },
+			signal,
+		);
+		this.log.info({ instance: name }, "docker volume re-attached");
 	}
 
 	/**
