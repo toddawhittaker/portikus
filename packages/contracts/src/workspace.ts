@@ -67,6 +67,8 @@ export const Workspace = z.object({
 	activeConnections: z.number().int().nonnegative(),
 	lastActiveConnectionAt: z.string().datetime().nullable(),
 	shutdownDeadline: z.string().datetime().nullable(),
+	/** Set when an administrator archived the workspace (SPEC.md §20.1). */
+	archivedAt: z.string().datetime().nullable(),
 	createdAt: z.string().datetime(),
 	updatedAt: z.string().datetime(),
 });
@@ -170,6 +172,7 @@ export const ApiErrorCode = z.enum([
 	"STORAGE_FULL",
 	"OPERATION_PENDING",
 	"BUSY",
+	"WORKSPACE_ARCHIVED",
 	"NOT_IMPLEMENTED",
 	"INTERNAL",
 ]);

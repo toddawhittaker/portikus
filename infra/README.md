@@ -406,7 +406,10 @@ host that was not built from a cloud image cannot do, so call the playbook
 directly. `PORTIKUS_MANAGEMENT_CIDR` is the subnet the host itself sits
 on; the firewall and the workspace network ACL use it to keep workspaces
 away from that network, and it defaults to the libvirt subnet
-`10.100.0.0/24`, which is wrong on your own host.
+`10.100.0.0/24`, which is wrong on your own host. Both also deny every
+range in `workspace_egress_denied_ranges` (`infra/ansible/site.yml`), the
+private and special address ranges; add your own infrastructure ranges to
+that list.
 
 ```
 cd infra/ansible

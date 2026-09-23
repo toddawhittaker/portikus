@@ -1,6 +1,9 @@
 import type {
 	CreateInstanceRequest,
 	CreateInstanceResponse,
+	GrowVolumesRequest,
+	GrowVolumesResponse,
+	HostSnapshot,
 	ListInstancesResponse,
 	LogLevel,
 	RebuildInstanceRequest,
@@ -81,6 +84,35 @@ export class FakeControllerClient implements ControllerClient {
 		this.calls.push({ method: "rebuild", args: [name, req] });
 		if (this.rebuildResult instanceof Error) throw this.rebuildResult;
 		return this.rebuildResult;
+	}
+
+	hostResult: HostSnapshot | Error = {
+		observedAt: "2026-09-22T12:00:00.000Z",
+		loadAverage: [0.5, 0.25, 0.1],
+		cpuCount: 4,
+		memory: { usedBytes: 2 * 2 ** 30, totalBytes: 8 * 2 ** 30 },
+		pool: { name: "workspace-data", usedBytes: 10 * 2 ** 30, totalBytes: 90 * 2 ** 30 },
+		profileLimits: { cpu: "2", memory: "4GB", processes: "2000" },
+		image: { fingerprint: "abc123", serial: "2026.09.9" },
+		instances: [],
+	};
+
+	async hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot> {
+		this.calls.push({ method: "hostSnapshot", args: [signal] });
+		if (this.hostResult instanceof Error) throw this.hostResult;
+		return this.hostResult;
+	}
+
+	/** Set to an Error to make grows fail; otherwise the request is echoed. */
+	growError: Error | null = null;
+
+	async growVolumes(
+		name: string,
+		req: GrowVolumesRequest,
+	): Promise<GrowVolumesResponse> {
+		this.calls.push({ method: "growVolumes", args: [name, req] });
+		if (this.growError) throw this.growError;
+		return { homeGiB: req.homeGiB, dockerGiB: req.dockerGiB };
 	}
 
 	/** Helper to make a ControllerClientError. */

@@ -258,8 +258,29 @@ test.skipIf(skip)("provisioning -> create -> stopped", async () => {
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
 	expect(ws.image_version).toBe("abc123");
+	expect(ws.quota_config).toEqual({ homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	expect(ws.quota_applied).toEqual({ homeGiB: 25, dockerGiB: 20 });
 	expect(fake.calls.some((c) => c.method === "create")).toBe(true);
 });
+
+test.skipIf(skip)(
+	"an archived running workspace is stopped even when it wants to run",
+	async () => {
+		const id = await insertWorkspace({
+			state: "running",
+			desired_state: "running",
+			archived_at: new Date().toISOString(),
+		});
+		await insertConnection(id);
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(fake.calls.some((c) => c.method === "stop")).toBe(true);
+	},
+);
 
 test.skipIf(skip)("create failure -> error with user-terms message", async () => {
 	fake.createResult = new ControllerClientError("STORAGE_FULL", "no space");
@@ -1176,3 +1197,89 @@ test.skipIf(skip)("create and start send the recovery volume size", async () => 
 	const ws = await getWorkspace(id);
 	expect(ws.quota_config).toEqual({ homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
 });
+test.skipIf(skip)(
+	"an archived workspace is never started, even when student presence set desired running",
+	async () => {
+		const now = new Date();
+		const archivedAt = new Date(now.getTime() - 60_000).toISOString();
+		// What a student's socket leaves behind: a connection and desired running.
+		const stopped = await insertWorkspace({
+			state: "stopped",
+			desired_state: "running",
+			archived_at: archivedAt,
+		});
+		await insertConnection(stopped);
+		const errored = await insertWorkspace({
+			state: "error",
+			desired_state: "restarting",
+			archived_at: archivedAt,
+			updated_at: new Date(now.getTime() - 3_600_000).toISOString(),
+		});
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		expect(fake.calls.filter((c) => c.method === "start")).toEqual([]);
+		expect((await getWorkspace(stopped)).state).toBe("stopped");
+		expect((await getWorkspace(errored)).state).toBe("error");
+	},
+);
+
+test.skipIf(skip)(
+	"reset docker and start use the Docker size an administrator grew to",
+	async () => {
+		const id = await insertPending("reset-docker", {
+			desired_state: "running",
+			quota_config: JSON.stringify({ homeGiB: 25, dockerGiB: 40, recoveryGiB: 3 }),
+		});
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+		await reconcile(tdb.db, fake, cfg, new Date(), now);
+
+		expect(methods()).toEqual(["resetDocker", "start"]);
+		expect(fake.calls[0]?.args[1]).toEqual({ dockerGiB: 40 });
+		expect(fake.calls[1]?.args[1]).toMatchObject({ dockerGiB: 40 });
+		expect((await getWorkspace(id)).state).toBe("running");
+	},
+);
+
+test.skipIf(skip)("rebuild uses the row's Docker size too", async () => {
+	await insertPending("rebuild-reset-docker", {
+		quota_config: JSON.stringify({ homeGiB: 25, dockerGiB: 40 }),
+	});
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+
+	expect(fake.calls[0]?.args[1]).toEqual({ resetDocker: true, dockerGiB: 40 });
+});
+
+test.skipIf(skip)(
+	"an archived workspace with a pending rebuild is rebuilt but never started",
+	async () => {
+		const now = new Date();
+		const archivedAt = new Date(now.getTime() - 60_000).toISOString();
+		const stopped = await insertPending("rebuild", {
+			desired_state: "running",
+			archived_at: archivedAt,
+		});
+		await insertConnection(stopped);
+		const running = await insertPending("rebuild", {
+			state: "running",
+			desired_state: "running",
+			archived_at: archivedAt,
+		});
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+		await reconcile(tdb.db, fake, cfg, new Date(), now);
+
+		expect(fake.calls.filter((c) => c.method === "start")).toEqual([]);
+		expect(fake.calls.filter((c) => c.method === "stop")).toHaveLength(1);
+		expect(fake.calls.filter((c) => c.method === "rebuild")).toHaveLength(2);
+		for (const id of [stopped, running]) {
+			const ws = await getWorkspace(id);
+			expect(ws.state).toBe("stopped");
+			expect(ws.pending_operation).toBeNull();
+		}
+	},
+);

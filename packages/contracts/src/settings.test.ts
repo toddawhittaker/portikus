@@ -117,6 +117,11 @@ const sampleAdminUser = {
 	role: "student",
 	disabledAt: null,
 	shutdownGraceSeconds: null,
+	preferredUsername: null,
+	issuer: null,
+	lastLoginAt: null,
+	markers: { disabled: false, archived: false, duplicateEmail: false, stale: false },
+	workspace: null,
 };
 
 test("AdminUser accepts a null email, null override and a null disabledAt", () => {

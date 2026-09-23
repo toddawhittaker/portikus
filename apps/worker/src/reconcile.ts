@@ -293,6 +293,7 @@ export async function reconcile(
 						...result.quota,
 						recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
 					}),
+					quota_applied: JSON.stringify(result.quota),
 					error_code: null,
 					error_message: null,
 				},
@@ -333,10 +334,11 @@ export async function reconcile(
 	// maintenance operation runs first (ADR 0021).
 	const toStart = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name", "label"])
+		.select(["id", "incus_instance_name", "label", "quota_config"])
 		.where("state", "=", "stopped")
 		.where("desired_state", "in", ["running", "restarting"])
 		.where("pending_operation", "is", null)
+		.where("archived_at", "is", null)
 		.execute();
 
 	for (const ws of toStart) {
@@ -345,12 +347,17 @@ export async function reconcile(
 	}
 
 	// 3c: running -> stopping (desired stopped/restarting, or deadline passed)
-	// First: explicit desired stopped or restarting.
+	// First: explicit desired stopped or restarting, or archived whatever it wants.
 	const toStopExplicit = await db
 		.selectFrom("workspaces")
 		.select(["id", "incus_instance_name"])
 		.where("state", "=", "running")
-		.where("desired_state", "in", ["stopped", "restarting"])
+		.where((eb) =>
+			eb.or([
+				eb("desired_state", "in", ["stopped", "restarting"]),
+				eb("archived_at", "is not", null),
+			]),
+		)
 		.execute();
 
 	for (const ws of toStopExplicit) {
@@ -426,11 +433,12 @@ export async function reconcile(
 	const retryCutoff = new Date(now.getTime() - ERROR_RETRY_SECONDS * 1000);
 	const errorRetryStart = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name", "label"])
+		.select(["id", "incus_instance_name", "label", "quota_config"])
 		.where("state", "=", "error")
 		.where("desired_state", "in", ["running", "restarting"])
 		.where("updated_at", "<", retryCutoff)
 		.where("pending_operation", "is", null)
+		.where("archived_at", "is", null)
 		.execute();
 
 	for (const ws of errorRetryStart) {
@@ -450,6 +458,7 @@ export async function reconcile(
 			"state",
 			"pending_operation",
 			"pending_operation_by",
+			"quota_config",
 		])
 		.where("state", "in", ["stopped", "error"])
 		.where("pending_operation", "is not", null)
@@ -461,7 +470,6 @@ export async function reconcile(
 		transitions += await runOperation(
 			db,
 			controller,
-			config,
 			{
 				id: ws.id,
 				incus_instance_name: ws.incus_instance_name,
@@ -469,6 +477,7 @@ export async function reconcile(
 				// The column has a check constraint, so this never throws.
 				pending_operation: PendingOperation.parse(ws.pending_operation),
 				pending_operation_by: ws.pending_operation_by,
+				dockerGiB: dockerGiBOf(ws.quota_config, config),
 			},
 			now,
 		);
@@ -704,6 +713,14 @@ async function ownerTimezone(
 	return isSystemTimezone(stored) ? stored : DEFAULT_TIMEZONE;
 }
 
+/** The Docker size an administrator set on the row, else the default (SPEC.md §20.1). */
+function dockerGiBOf(
+	quota: { dockerGiB?: number } | null,
+	config: ReconcileConfig,
+): number {
+	return quota?.dockerGiB ?? config.WORKSPACE_DOCKER_SIZE_GIB;
+}
+
 /**
  * Move a workspace from `fromState` into starting and start it. Returns
  * the number of state transitions made. Shared by the stopped->running
@@ -713,7 +730,12 @@ async function startWorkspace(
 	db: Kysely<Database>,
 	controller: ControllerClient,
 	config: ReconcileConfig,
-	ws: { id: string; incus_instance_name: string | null; label: string },
+	ws: {
+		id: string;
+		incus_instance_name: string | null;
+		label: string;
+		quota_config: { dockerGiB?: number } | null;
+	},
 	fromState: string,
 	now: Date,
 ): Promise<number> {
@@ -748,7 +770,7 @@ async function startWorkspace(
 			hostname: ws.label,
 			previewHostSuffix: config.PREVIEW_SUFFIX,
 			timezone: await ownerTimezone(db, ws.id),
-			dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+			dockerGiB: dockerGiBOf(ws.quota_config, config),
 			recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
 		});
 		const updated = await casUpdate(
@@ -858,13 +880,13 @@ const OPERATION_FAILED_MESSAGE: Record<PendingOperation, string> = {
 async function runOperation(
 	db: Kysely<Database>,
 	controller: ControllerClient,
-	config: ReconcileConfig,
 	ws: {
 		id: string;
 		incus_instance_name: string;
 		state: string;
 		pending_operation: PendingOperation;
 		pending_operation_by: string | null;
+		dockerGiB: number;
 	},
 	now: Date,
 ): Promise<number> {
@@ -882,12 +904,12 @@ async function runOperation(
 		let imageFingerprint: string | null = null;
 		if (isReset) {
 			await controller.resetDocker(ws.incus_instance_name, {
-				dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+				dockerGiB: ws.dockerGiB,
 			});
 		} else {
 			const result = await controller.rebuild(ws.incus_instance_name, {
 				resetDocker: ws.pending_operation === "rebuild-reset-docker",
-				dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+				dockerGiB: ws.dockerGiB,
 			});
 			imageFingerprint = result.imageFingerprint;
 		}

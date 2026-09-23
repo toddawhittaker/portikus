@@ -38,6 +38,7 @@ function signatureOf(workspace: Workspace): string {
 		workspace.activeConnections,
 		// A Reset Docker or Rebuild request must reach the browser at once (SPEC.md §27).
 		workspace.pendingOperation,
+		workspace.archivedAt,
 	]);
 }
 
@@ -50,6 +51,8 @@ export function registerWorkspaceSocket(
 	{ db, config, logger, registry }: ServerDeps & { registry: ListeningRegistry },
 ): void {
 	const watchers = new Map<string, Watcher>();
+	// Administrator sockets write no presence rows, so they are counted here.
+	const adminSockets = new Map<string, number>();
 
 	const { track, drain } = createPendingWork();
 
@@ -140,7 +143,7 @@ export function registerWorkspaceSocket(
 		"/workspaces/:id/ws",
 		{
 			websocket: true,
-			preHandler: workspaceUpgradeGuard(db, config, { ownerOnly: false }),
+			preHandler: workspaceUpgradeGuard(db, config, { ownerOnly: false, adminSockets }),
 		},
 		async (socket: WebSocket, request: FastifyRequest) => {
 			// Hold incoming frames until the listeners below are attached, so a
@@ -150,89 +153,130 @@ export function registerWorkspaceSocket(
 			const workspaceId = (request.params as { id: string }).id;
 			const connectionId = crypto.randomUUID();
 
-			await openPresence(db, workspaceId, connectionId);
-
-			if (socket.readyState !== socket.OPEN) {
-				// The browser gave up while we were writing presence.
-				track(dropConnection(connectionId).catch(() => {}));
-				socket.resume();
-				return;
+			// An administrator looking at a student's workspace is not presence: it
+			// must not start the workspace or hold it up (SPEC.md §20.2).
+			const present = request.workspaceRow?.owner_user_id === request.user?.id;
+			if (!present) {
+				adminSockets.set(workspaceId, (adminSockets.get(workspaceId) ?? 0) + 1);
 			}
-
-			const workspace = await readWorkspace(workspaceId);
-			if (workspace) send(socket, workspace);
-			// The current list first, then every change while the socket lives.
-			sendListening(socket, registry.services(workspaceId));
-			const unsubscribe = registry.subscribe(workspaceId, (services) => {
-				sendListening(socket, services);
-			});
-
-			const subscriber: Subscriber = {
-				socket,
-				connectionId,
-				sessionToken: request.sessionToken,
+			let released = present;
+			const releaseAdmin = (): void => {
+				if (released) return;
+				released = true;
+				const left = (adminSockets.get(workspaceId) ?? 1) - 1;
+				if (left > 0) adminSockets.set(workspaceId, left);
+				else adminSockets.delete(workspaceId);
 			};
-			const watcher =
-				watchers.get(workspaceId) ??
-				startWatcher(workspaceId, workspace ? signatureOf(workspace) : "");
-			watcher.sockets.add(subscriber);
 
-			request.log.debug(
-				{ workspaceId, connectionId, userId: request.user?.id },
-				"workspace socket opened",
-			);
-
-			async function onMessage(raw: Buffer | string): Promise<void> {
-				// An unhandled rejection in this listener would end the process.
-				try {
-					let parsed: unknown;
-					try {
-						parsed = JSON.parse(raw.toString());
-					} catch {
-						return; // Malformed frames are ignored.
-					}
-					if (!ClientMessage.safeParse(parsed).success) return;
-
-					// Revocation must take effect at once, so re-check the session
-					// on every heartbeat (SPEC.md §5.3).
-					const user = request.sessionToken
-						? await loadSession(db, request.sessionToken)
-						: null;
-					if (!user) {
-						socket.close(4401, "session expired");
-						return;
-					}
-
-					await touchPresence(db, connectionId);
-				} catch (error) {
-					request.log.error(
-						{ err: error, workspaceId },
-						"workspace socket message failed",
-					);
-					socket.close(1011, "internal error");
-				}
+			try {
+				await setUp();
+			} catch (error) {
+				request.log.error({ err: error, workspaceId }, "workspace socket setup failed");
+				releaseAdmin();
+				track(dropConnection(connectionId).catch(() => {}));
+				socket.close(1011, "internal error");
+				socket.resume();
 			}
 
-			async function onSocketClose(): Promise<void> {
-				unsubscribe();
-				leave(workspaceId, subscriber);
+			async function setUp(): Promise<void> {
+				if (present) await openPresence(db, workspaceId, connectionId);
+
+				if (socket.readyState !== socket.OPEN) {
+					// The browser gave up while we were writing presence.
+					track(dropConnection(connectionId).catch(() => {}));
+					releaseAdmin();
+					socket.resume();
+					return;
+				}
+
+				const workspace = await readWorkspace(workspaceId);
+				if (socket.readyState !== socket.OPEN) {
+					// The browser gave up while we were reading the workspace.
+					track(dropConnection(connectionId).catch(() => {}));
+					releaseAdmin();
+					socket.resume();
+					return;
+				}
+				if (workspace) send(socket, workspace);
+				// The current list first, then every change while the socket lives.
+				// Only the owner gets it: command lines, pids and container names can
+				// carry secrets an administrator must not see (SPEC.md §20.2).
+				let unsubscribe = (): void => {};
+				if (present) {
+					sendListening(socket, registry.services(workspaceId));
+					unsubscribe = registry.subscribe(workspaceId, (services) => {
+						sendListening(socket, services);
+					});
+				}
+
+				const subscriber: Subscriber = {
+					socket,
+					connectionId,
+					sessionToken: request.sessionToken,
+				};
+				const watcher =
+					watchers.get(workspaceId) ??
+					startWatcher(workspaceId, workspace ? signatureOf(workspace) : "");
+				watcher.sockets.add(subscriber);
+
 				request.log.debug(
 					{ workspaceId, connectionId, userId: request.user?.id },
-					"workspace socket closed",
+					"workspace socket opened",
 				);
-				try {
-					await dropConnection(connectionId);
-				} catch (error) {
-					request.log.error(
-						{ err: error, connectionId },
-						"failed to delete workspace connection",
-					);
-				}
-			}
 
-			socket.on("message", (raw: Buffer | string) => track(onMessage(raw)));
-			socket.on("close", () => track(onSocketClose()));
-			socket.resume();
+				async function onMessage(raw: Buffer | string): Promise<void> {
+					// An unhandled rejection in this listener would end the process.
+					try {
+						let parsed: unknown;
+						try {
+							parsed = JSON.parse(raw.toString());
+						} catch {
+							return; // Malformed frames are ignored.
+						}
+						if (!ClientMessage.safeParse(parsed).success) return;
+
+						// Revocation must take effect at once, so re-check the session
+						// on every heartbeat (SPEC.md §5.3).
+						const user = request.sessionToken
+							? await loadSession(db, request.sessionToken)
+							: null;
+						if (!user) {
+							socket.close(4401, "session expired");
+							return;
+						}
+
+						if (present) await touchPresence(db, connectionId);
+					} catch (error) {
+						request.log.error(
+							{ err: error, workspaceId },
+							"workspace socket message failed",
+						);
+						socket.close(1011, "internal error");
+					}
+				}
+
+				async function onSocketClose(): Promise<void> {
+					unsubscribe();
+					releaseAdmin();
+					leave(workspaceId, subscriber);
+					request.log.debug(
+						{ workspaceId, connectionId, userId: request.user?.id },
+						"workspace socket closed",
+					);
+					try {
+						await dropConnection(connectionId);
+					} catch (error) {
+						request.log.error(
+							{ err: error, connectionId },
+							"failed to delete workspace connection",
+						);
+					}
+				}
+
+				socket.on("message", (raw: Buffer | string) => track(onMessage(raw)));
+				socket.on("close", () => track(onSocketClose()));
+				socket.resume();
+			}
 		},
 	);
 

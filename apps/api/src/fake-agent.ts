@@ -67,6 +67,8 @@ export interface FakeAgent {
 	search: Map<string, SearchMatch[]>;
 	/** Searches the fake saw cancelled by the caller hanging up. */
 	readonly searchAborted: number;
+	/** How many `GET /health` calls the fake answered. */
+	readonly healthHits: number;
 	/** While true, the next events socket is refused as over the cap. */
 	eventLimit: boolean;
 	/** Projects whose watcher fails, keyed like the Git answers. */
@@ -383,6 +385,7 @@ export async function startFakeAgent(
 		openAttachments: 0,
 		failLogLevel: false,
 		searchAborted: 0,
+		healthHits: 0,
 		eventLimit: false,
 		eventsReceived: 0,
 		failForward: false,
@@ -542,7 +545,10 @@ export async function startFakeAgent(
 		}
 	});
 
-	app.get("/health", async () => ({ ok: true }));
+	app.get("/health", async () => {
+		state.healthHits += 1;
+		return { ok: true };
+	});
 
 	app.put("/log-level", async (request, reply) => {
 		if (state.failLogLevel) {
@@ -1887,6 +1893,9 @@ export async function startFakeAgent(
 		logLevels,
 		get searchAborted() {
 			return state.searchAborted;
+		},
+		get healthHits() {
+			return state.healthHits;
 		},
 		get eventsReceived() {
 			return state.eventsReceived;

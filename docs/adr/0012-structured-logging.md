@@ -58,5 +58,5 @@ and a rule people have to keep: hold no long-lived child loggers, because a
 child copies the level it was created with and would ignore the switch.
 Pushing the level out to agents and the controller is best effort; an agent
 that restarts inside a running workspace keeps the environment level until
-the next change. Metrics and tracing are not part of this decision; they
-arrive with Epic 11.
+the next change. Metrics and tracing are not part of this decision;
+ADR 0022 keeps operational metrics in PostgreSQL instead of OpenTelemetry.

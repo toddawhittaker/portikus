@@ -1,6 +1,9 @@
 import {
 	type ControllerErrorCode,
 	type CreateInstanceResponse,
+	type GrowVolumesRequest,
+	type GrowVolumesResponse,
+	type HostSnapshot,
 	InstanceName,
 	type InstanceStatus,
 	type RebuildInstanceResponse,
@@ -183,5 +186,44 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			throw new InstanceNotStoppedError(name, inst.status);
 		}
 		return inst;
+	}
+
+	async hostSnapshot(): Promise<HostSnapshot> {
+		this.checkError();
+		return {
+			observedAt: new Date().toISOString(),
+			loadAverage: [0.5, 0.25, 0.1],
+			cpuCount: 4,
+			memory: { usedBytes: 2 * 2 ** 30, totalBytes: 8 * 2 ** 30 },
+			pool: {
+				name: "workspace-data",
+				usedBytes: 10 * 2 ** 30,
+				totalBytes: 90 * 2 ** 30,
+			},
+			profileLimits: { cpu: "2", memory: "4GB", processes: "2000" },
+			image: { fingerprint: "abc123", serial: "2026.09.9" },
+			instances: [...this.instances.values()].map((inst) => ({
+				name: inst.name,
+				imageFingerprint: inst.imageFingerprint,
+				imageSerial: "2026.09.9",
+			})),
+		};
+	}
+
+	async growVolumes(
+		name: string,
+		sizes: GrowVolumesRequest,
+	): Promise<GrowVolumesResponse> {
+		this.validate(name);
+		this.checkError();
+		const inst = this.instances.get(name);
+		if (!inst) {
+			throw new IncusError("NOT_FOUND", `instance ${name} not found`);
+		}
+		if (sizes.homeGiB < inst.quota.homeGiB || sizes.dockerGiB < inst.quota.dockerGiB) {
+			throw new IncusError("BAD_REQUEST", "Storage can only be increased.");
+		}
+		inst.quota = { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
+		return { ...inst.quota };
 	}
 }

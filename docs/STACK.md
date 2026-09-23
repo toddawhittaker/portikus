@@ -783,17 +783,21 @@ If a framework/library requires ESLint-specific rules that materially improve sa
 
 ## 15. Observability
 
-Use **OpenTelemetry** for application-level tracing/metrics where practical.
+Operational metrics live in PostgreSQL, not in OpenTelemetry (ADR 0022). The
+worker writes one host snapshot a minute to `health_samples`, kept 7 days, and
+failures are counted from `audit_events`. `GET /admin/health` reads both and
+the administrator page shows them. There is no OpenTelemetry SDK and no
+metrics endpoint until a second VM or an external monitor needs one.
 
-At minimum, instrument:
+What is observed:
 
-- API requests;
-- workspace lifecycle operations;
-- workspace-controller calls;
-- workspace-agent connectivity;
-- preview authorization;
-- recovery operations;
-- job execution.
+- workspace lifecycle failures, forced stops and controller outages, from the
+  worker's audit rows;
+- workspace-agent connectivity, probed when the health page is read;
+- preview authorization refusals, audited as `preview.denied` at most once
+  per workspace and reason per minute;
+- sign-in failures and role changes, from the sign-in audit rows;
+- host load, memory and storage-pool use, from the snapshots.
 
 Structured logs are pino JSON lines carrying `service`, `level`, `time`, and
 `msg`, written by the shared logger in `packages/observability`. `LOG_LEVEL`
@@ -819,7 +823,9 @@ access log applies the same rule at the edge with its `filter` encoder, because
 a bootstrap ticket travels in a query string (`docs/BROWSER-HANDLING.md`
 section 16.5).
 
-A lightweight metrics/log stack may be added during pilot hardening, but application instrumentation should not depend on one specific monitoring vendor.
+Audit metadata follows the same rule as the logs: no tokens, command lines,
+prompts or file contents. Logs stay in journald, and the administrator page
+has no log viewer.
 
 # Part II — Infrastructure stack
 

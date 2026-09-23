@@ -510,8 +510,25 @@ test.skipIf(skip)(
 					headers: csrfHeaders(alice, PUBLIC_URL),
 				}),
 			]);
-			expect([restored.statusCode, reset.statusCode]).not.toEqual([204, 202]);
 			expect(restored.statusCode === 204 || reset.statusCode === 202).toBe(true);
+			if (restored.statusCode === 204 && reset.statusCode === 202) {
+				// Both is fine only when the restore had finished before the
+				// reset was requested; the unsafe order audits the reset first.
+				const rows = await testDb.db
+					.selectFrom("audit_events")
+					.select("action")
+					.where("action", "in", [
+						"recovery.restored",
+						"workspace.docker_reset_requested",
+					])
+					.orderBy("id", "desc")
+					.limit(2)
+					.execute();
+				expect(rows.map((row) => row.action)).toEqual([
+					"workspace.docker_reset_requested",
+					"recovery.restored",
+				]);
+			}
 		}
 	},
 );

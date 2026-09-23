@@ -1,5 +1,8 @@
 import {
 	type CreateInstanceResponse,
+	type GrowVolumesRequest,
+	type GrowVolumesResponse,
+	type HostSnapshot,
 	InstanceName,
 	type InstanceStatus,
 	isSystemTimezone,
@@ -8,6 +11,7 @@ import {
 	type StopInstanceResponse,
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
+import { growVolumes, readHostSnapshot } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
 
 export interface WorkspaceProvider {
@@ -37,6 +41,10 @@ export interface WorkspaceProvider {
 		name: string,
 		opts: { resetDocker: boolean; dockerGiB: number },
 	): Promise<RebuildInstanceResponse>;
+	/** One read-only look at the host for the admin Health tab (SPEC.md §25.6). */
+	hostSnapshot(): Promise<HostSnapshot>;
+	/** Grow the home and Docker volumes; a smaller size is refused (SPEC.md §20.1). */
+	growVolumes(name: string, sizes: GrowVolumesRequest): Promise<GrowVolumesResponse>;
 }
 
 /**
@@ -784,5 +792,21 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 			throw err;
 		}
+	}
+
+	async hostSnapshot(): Promise<HostSnapshot> {
+		return readHostSnapshot(this.client, {
+			pool: this.pool,
+			profile: this.profile,
+			imageAlias: this.imageAlias,
+		});
+	}
+
+	async growVolumes(
+		name: string,
+		sizes: GrowVolumesRequest,
+	): Promise<GrowVolumesResponse> {
+		validateName(name);
+		return growVolumes(this.client, this.pool, name, sizes);
 	}
 }

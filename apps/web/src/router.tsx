@@ -8,8 +8,8 @@ import {
 	type SearchSchemaInput,
 	useParams,
 } from "@tanstack/react-router";
-import { AdminPage } from "./admin/AdminPage.js";
-import { MIN_PREVIEW_PORT } from "./links.js";
+import { ADMIN_TABS, AdminPage } from "./admin/AdminPage.js";
+import { MIN_PREVIEW_PORT, UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
 import { SignIn } from "./pages/SignIn.js";
@@ -38,9 +38,28 @@ const notAuthorizedRoute = createRoute({
 	component: NotAuthorized,
 });
 
+function safeUuid(value: unknown): string | undefined {
+	return typeof value === "string" && UUID.test(value) ? value : undefined;
+}
+
+/**
+ * `tab` names the admin tab so it can be linked; `workspace`, `user` and
+ * `action` are the Audit tab's filters (SPEC.md §24.11).
+ */
 const adminRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/admin",
+	validateSearch: (search: Record<string, unknown> & SearchSchemaInput) => ({
+		tab: ADMIN_TABS.find((tab) => tab === search.tab),
+		workspace: safeUuid(search.workspace),
+		user: safeUuid(search.user),
+		action:
+			typeof search.action === "string" &&
+			search.action.length > 0 &&
+			search.action.length <= 100
+				? search.action
+				: undefined,
+	}),
 	component: AdminPage,
 });
 
