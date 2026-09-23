@@ -11,16 +11,16 @@ describe("createSigninThrottle", () => {
 	function fixture() {
 		let clock = 1_000_000;
 		const throttle = createSigninThrottle({
-			startLimitPerMinute: 60,
+			startLimitPerMinute: 150,
 			passwordLimitPer10Minutes: 30,
 			now: () => clock,
 		});
 		return { throttle, advance: (ms: number) => (clock += ms) };
 	}
 
-	test("refuses the 61st sign-in start in a minute, and only for that address", () => {
+	test("lets a lab of 30 sign in at five starts each, refuses the 151st start, and only for that address", () => {
 		const { throttle } = fixture();
-		for (let i = 0; i < 60; i += 1)
+		for (let i = 0; i < 150; i += 1)
 			expect(throttle.checkStart("198.51.100.1").allowed).toBe(true);
 		expect(throttle.checkStart("198.51.100.1").allowed).toBe(false);
 		expect(throttle.checkStart("198.51.100.2").allowed).toBe(true);
@@ -28,14 +28,14 @@ describe("createSigninThrottle", () => {
 
 	test("a new minute starts a new window", () => {
 		const { throttle, advance } = fixture();
-		for (let i = 0; i < 61; i += 1) throttle.checkStart("198.51.100.1");
+		for (let i = 0; i < 151; i += 1) throttle.checkStart("198.51.100.1");
 		advance(60_000);
 		expect(throttle.checkStart("198.51.100.1").allowed).toBe(true);
 	});
 
 	test("asks for an audit row once per address per window", () => {
 		const { throttle, advance } = fixture();
-		for (let i = 0; i < 60; i += 1) throttle.checkStart("198.51.100.1");
+		for (let i = 0; i < 150; i += 1) throttle.checkStart("198.51.100.1");
 		expect(throttle.checkStart("198.51.100.1")).toEqual({
 			allowed: false,
 			audit: true,
@@ -45,7 +45,7 @@ describe("createSigninThrottle", () => {
 			audit: false,
 		});
 		advance(60_000);
-		for (let i = 0; i < 60; i += 1) throttle.checkStart("198.51.100.1");
+		for (let i = 0; i < 150; i += 1) throttle.checkStart("198.51.100.1");
 		expect(throttle.checkStart("198.51.100.1")).toEqual({
 			allowed: false,
 			audit: true,
@@ -121,8 +121,8 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 			.execute();
 	}
 
-	test("the 61st GET /auth/login in a minute is 429 RATE_LIMITED; another address is unaffected", async () => {
-		for (let i = 0; i < 60; i += 1) {
+	test("the 151st GET /auth/login in a minute is 429 RATE_LIMITED; another address is unaffected", async () => {
+		for (let i = 0; i < 150; i += 1) {
 			const res = await app.inject({
 				url: "/auth/login",
 				remoteAddress: "203.0.113.7",
@@ -153,7 +153,7 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 	});
 
 	test("/auth/callback shares the sign-in start limit", async () => {
-		for (let i = 0; i < 60; i += 1) {
+		for (let i = 0; i < 150; i += 1) {
 			await app.inject({ url: "/auth/login", remoteAddress: "203.0.113.7" });
 		}
 		const res = await app.inject({
@@ -210,10 +210,10 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 					"x-forwarded-uri": "/dex/auth/local?state=x",
 				},
 			});
-		for (let i = 0; i < 30; i += 1) {
+		for (let i = 0; i < 75; i += 1) {
 			await app.inject({ url: "/auth/login", remoteAddress: "192.0.2.20" });
 		}
-		for (let i = 0; i < 30; i += 1) {
+		for (let i = 0; i < 75; i += 1) {
 			expect((await start("192.0.2.20")).statusCode).toBe(204);
 		}
 		const refused = await start("192.0.2.20");

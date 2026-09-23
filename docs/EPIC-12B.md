@@ -241,9 +241,9 @@ Part A lands first, and it can be deployed to the pilot on its own.
 - **Decision: one in-memory limiter in the API, keyed by client address, covering the Portikus sign-in routes and Dex's password form.**
   - Code: `apps/api/src/signin-throttle.ts`, registered as a plugin in `server.ts` with an `onRequest` hook.
   - Covered:
-    - `GET /auth/login` and `GET /auth/callback`: 60 per minute per address.
+    - `GET /auth/login`, `GET /auth/callback`, and every `/dex/auth*` request except the password post: 150 per minute per address. One sign-in takes five, so a lab of 30 behind one campus address can all sign in within a minute. There is no class-wide start limit.
     - Dex password form posts: 30 per 10 minutes per address, and 300 per 10 minutes in total. The total protects the VM's CPU from bcrypt checks. Only attempts the per-address limit lets through count toward the total, so one address cannot lock out the class.
-  - How Dex's posts are covered: Caddy adds a `forward_auth` in front of `POST /dex/auth/local/login*`, pointing at the API's new loopback-only route `GET /edge/signin-throttle`. The route answers 204, or 429. Caddy matches the decoded path, so the API counts every check it is asked and does not match the URI again. Every other `/dex/auth*` request goes through the same route with `?scope=start` and counts as a sign-in start, because Dex keeps each one in memory for ten minutes. Caddy also refuses a `/dex` URI over 4096 bytes with 414 and caps a `/dex` request body at 16 KB, which bounds what each stored request can hold. Students behind one shared public address share both per-address limits.
+  - How Dex's posts are covered: Caddy adds a `forward_auth` in front of `POST /dex/auth/local/login*`, pointing at the API's new loopback-only route `GET /edge/signin-throttle`. The route answers 204, or 429. Caddy matches the decoded path, so the API counts every check it is asked and does not match the URI again. Every other `/dex/auth*` request goes through the same route with `?scope=start` and counts as a sign-in start (150 a minute per address), because Dex keeps each one in memory for ten minutes. Caddy also refuses a `/dex` URI over 4096 bytes with 414 and caps a `/dex` request body at 16 KB, which bounds what each stored request can hold. Students behind one shared public address share both per-address limits.
     - Caddy never proxies `/edge*` on the public site, the same way `/preview/authorize` works today.
   - The client address comes from `request.ip`. `trustProxy` is already `127.0.0.1`, and `publish-vm` only rewrites the destination, so LAN addresses reach the VM unchanged.
   - A refusal:
@@ -375,7 +375,7 @@ Part A lands first, and it can be deployed to the pilot on its own.
    - it never touches rows outside `fromIssuers`, including `urn:portikus:sectest` and `urn:portikus:smoketest`;
    - all of this is proved by Vitest tests on a real test database, including a copy of the #302 case (two rows per email, both owning workspaces).
 9. Sign-in rate limit (#398):
-   - the 61st `GET /auth/login` in a minute from one address is a 429 with `RATE_LIMITED`, and another address is unaffected;
+   - the 151st `GET /auth/login` in a minute from one address is a 429 with `RATE_LIMITED`, and another address is unaffected;
    - `/edge/signin-throttle` refuses the 31st check in 10 minutes;
    - the #398 `test.fails` marker in `apps/api/src/security/limits.test.ts` is removed and the test passes;
    - the route is classified in `apps/api/src/security/route-policy.ts`;
