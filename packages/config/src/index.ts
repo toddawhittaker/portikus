@@ -126,6 +126,10 @@ export const ApiConfigSchema = BaseConfig.extend({
 	PREVIEW_DENIED_PORTS: z.string().default("22,2375,2376,5432"),
 	/** How long a single-use bootstrap ticket lives (BROWSER-HANDLING.md §9.1). */
 	PREVIEW_TICKET_TTL_SECONDS: positiveInt.default(30),
+	/** Sign-in starts (`/auth/login`, `/auth/callback`) per address per minute (#398). */
+	SIGNIN_START_LIMIT_PER_MINUTE: positiveInt.default(60),
+	/** Dex password posts per address per ten minutes; ten times this overall (#398). */
+	PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES: positiveInt.default(30),
 })
 	.refine(requireProductionHttps("PUBLIC_URL"), {
 		message: productionHttpsMessage("PUBLIC_URL"),
