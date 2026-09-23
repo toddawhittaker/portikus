@@ -2009,7 +2009,22 @@ token, the frame page and its new-tab button, administrator routes refused
 for an instructor, and axe on the new pages. The ordinary end-to-end CI shards
 run them against the mock and PostgreSQL (PR #488).
 
-Pilot deploy: pending.
+**Reviews.** Security, code and accessibility reviews ran over the epic,
+and their fixes landed as PR #489 to PR #491 and PR #493 to PR #494:
+roles only from the course membership vocabulary, a `__Host-` state
+cookie per login, no redirect off the site, no database transaction held
+across the keyset fetch, and `/lti/login` refusing anything but a
+top-level page load (images, fetches, prefetch and prerender). The
+confirmation reviews were clean.
+
+**Verified on a rehearsal VM** (PR #495). With Dex and the mock LMS
+registered, the smoke test passed 119 checks and the security test 225,
+with one expected warning that the mock is registered. After `make
+lti-mock-unregister`, they passed 103 and 221, and every `/lti` route
+answered 404. A bad platforms file was refused at install with the API's
+own message, and nothing reached the VM. Headless Chromium and Firefox
+both completed a cross-site launch, and a framed launch that went on in a
+new tab.
 
 ### Gaps
 
