@@ -1,7 +1,10 @@
 import {
 	type ControllerErrorCode,
 	CreateInstanceRequest,
+	GrowVolumesRequest,
 	InstanceName,
+	RebuildInstanceRequest,
+	ResetDockerRequest,
 	SetLogLevelRequest,
 	StartInstanceRequest,
 	StopInstanceRequest,
@@ -17,7 +20,7 @@ import {
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { tokenAuth } from "./auth.js";
 import { IncusError } from "./incus.js";
-import type { WorkspaceProvider } from "./provider.js";
+import { InstanceNotStoppedError, type WorkspaceProvider } from "./provider.js";
 
 const ERROR_STATUS: Record<ControllerErrorCode, number> = {
 	BAD_REQUEST: 400,
@@ -119,6 +122,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			const result = await provider.create(parsed.data.name, {
 				homeGiB: parsed.data.homeGiB,
 				dockerGiB: parsed.data.dockerGiB,
+				recoveryGiB: parsed.data.recoveryGiB,
 			});
 			request.log.info(
 				{
@@ -160,6 +164,8 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 					hostname: bodyResult.data.hostname,
 					previewHostSuffix: bodyResult.data.previewHostSuffix,
 					timezone: bodyResult.data.timezone,
+					dockerGiB: bodyResult.data.dockerGiB,
+					recoveryGiB: bodyResult.data.recoveryGiB,
 				}),
 			);
 			request.log.info(
@@ -209,9 +215,106 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		}
 	});
 
+	// Maintenance operations (ADR 0021). The worker stops the instance first;
+	// the provider refuses a running one and this answers 409.
+	app.post("/instances/:name/reset-docker", async (request, reply) => {
+		const params = request.params as { name: string };
+		if (!InstanceName.safeParse(params.name).success) {
+			return reply
+				.code(400)
+				.send({ code: "INVALID_NAME", message: "invalid instance name" });
+		}
+		const bodyResult = ResetDockerRequest.safeParse(request.body ?? {});
+		if (!bodyResult.success) {
+			return reply.code(400).send({
+				code: "BAD_REQUEST",
+				message: bodyResult.error.issues.map((i) => i.message).join("; "),
+			});
+		}
+		const started = Date.now();
+		try {
+			await singleFlight(`reset-docker:${params.name}`, () =>
+				provider.resetDocker(params.name, { dockerGiB: bodyResult.data.dockerGiB }),
+			);
+			request.log.info(
+				{ instance: params.name, durationMs: Date.now() - started },
+				"docker reset",
+			);
+			return reply.code(204).send();
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	app.post("/instances/:name/rebuild", async (request, reply) => {
+		const params = request.params as { name: string };
+		if (!InstanceName.safeParse(params.name).success) {
+			return reply
+				.code(400)
+				.send({ code: "INVALID_NAME", message: "invalid instance name" });
+		}
+		const bodyResult = RebuildInstanceRequest.safeParse(request.body ?? {});
+		if (!bodyResult.success) {
+			return reply.code(400).send({
+				code: "BAD_REQUEST",
+				message: bodyResult.error.issues.map((i) => i.message).join("; "),
+			});
+		}
+		const started = Date.now();
+		try {
+			const result = await singleFlight(`rebuild:${params.name}`, () =>
+				provider.rebuild(params.name, bodyResult.data),
+			);
+			request.log.info(
+				{
+					instance: params.name,
+					resetDocker: bodyResult.data.resetDocker,
+					durationMs: Date.now() - started,
+				},
+				"instance rebuilt",
+			);
+			return reply.code(200).send(result);
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
 	app.get("/instances", async (_request, reply) => {
 		try {
 			const result = await provider.list();
+			return reply.code(200).send(result);
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	// The worker samples this once a minute for the admin Health tab (SPEC.md §25.6).
+	app.get("/host", async (_request, reply) => {
+		try {
+			return reply.code(200).send(await provider.hostSnapshot());
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	app.post("/instances/:name/volumes", async (request, reply) => {
+		const params = request.params as { name: string };
+		if (!InstanceName.safeParse(params.name).success) {
+			return reply.code(400).send({
+				code: "INVALID_NAME",
+				message: "invalid instance name",
+			});
+		}
+		const bodyResult = GrowVolumesRequest.safeParse(request.body ?? {});
+		if (!bodyResult.success) {
+			return reply.code(400).send({
+				code: "BAD_REQUEST",
+				message: bodyResult.error.issues.map((i) => i.message).join("; "),
+			});
+		}
+		try {
+			const result = await provider.growVolumes(params.name, bodyResult.data);
+			request.log.info({ instance: params.name, ...result }, "volumes grown");
 			return reply.code(200).send(result);
 		} catch (err) {
 			return sendError(reply, err);
@@ -225,6 +328,9 @@ function sendError(
 	reply: { code: (n: number) => { send: (b: unknown) => unknown } },
 	err: unknown,
 ): unknown {
+	if (err instanceof InstanceNotStoppedError) {
+		return reply.code(409).send({ code: err.code, message: err.message });
+	}
 	if (err instanceof IncusError) {
 		const status = ERROR_STATUS[err.code] ?? 500;
 		return reply.code(status).send({ code: err.code, message: err.message });

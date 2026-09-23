@@ -2,8 +2,12 @@ import type {
 	ControllerErrorCode,
 	CreateInstanceRequest,
 	CreateInstanceResponse,
+	GrowVolumesRequest,
 	ListInstancesResponse,
 	LogLevel,
+	RebuildInstanceRequest,
+	RebuildInstanceResponse,
+	ResetDockerRequest,
 	StartInstanceRequest,
 	StartInstanceResponse,
 	StopInstanceResponse,
@@ -11,7 +15,10 @@ import type {
 import {
 	ControllerError,
 	CreateInstanceResponse as CreateInstanceResponseSchema,
+	GrowVolumesResponse,
+	HostSnapshot,
 	ListInstancesResponse as ListInstancesResponseSchema,
+	RebuildInstanceResponse as RebuildInstanceResponseSchema,
 	StartInstanceResponse as StartInstanceResponseSchema,
 	StopInstanceResponse as StopInstanceResponseSchema,
 } from "@portikus/contracts";
@@ -34,6 +41,14 @@ export interface ControllerClient {
 	list(): Promise<ListInstancesResponse>;
 	/** Relay the runtime log level to the controller (ADR 0012). */
 	setLogLevel(level: LogLevel | null): Promise<void>;
+	/** Replace the Docker volume of a stopped instance (SPEC.md §16.4, ADR 0021). */
+	resetDocker(name: string, req: ResetDockerRequest): Promise<void>;
+	/** Replace the root filesystem of a stopped instance (SPEC.md §17.2, ADR 0021). */
+	rebuild(name: string, req: RebuildInstanceRequest): Promise<RebuildInstanceResponse>;
+	/** One look at the host for the admin Health tab (SPEC.md §25.6). */
+	hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot>;
+	/** Grow a workspace's home and Docker volumes; never shrinks (SPEC.md §20.1). */
+	growVolumes(name: string, req: GrowVolumesRequest): Promise<GrowVolumesResponse>;
 }
 
 /**
@@ -81,10 +96,31 @@ export class HttpControllerClient implements ControllerClient {
 		await this.request("PUT", "/log-level", { level });
 	}
 
+	async resetDocker(name: string, req: ResetDockerRequest): Promise<void> {
+		await this.request(
+			"POST",
+			`/instances/${encodeURIComponent(name)}/reset-docker`,
+			req,
+		);
+	}
+
+	async rebuild(
+		name: string,
+		req: RebuildInstanceRequest,
+	): Promise<RebuildInstanceResponse> {
+		const res = await this.request(
+			"POST",
+			`/instances/${encodeURIComponent(name)}/rebuild`,
+			req,
+		);
+		return RebuildInstanceResponseSchema.parse(res);
+	}
+
 	private async request(
 		method: string,
 		path: string,
 		body?: unknown,
+		signal?: AbortSignal,
 	): Promise<unknown> {
 		let res: Response;
 		try {
@@ -95,6 +131,7 @@ export class HttpControllerClient implements ControllerClient {
 					...(body !== undefined ? { "Content-Type": "application/json" } : {}),
 				},
 				body: body !== undefined ? JSON.stringify(body) : undefined,
+				signal,
 			});
 		} catch {
 			throw new ControllerClientError("INCUS_UNAVAILABLE", "Controller is unreachable");
@@ -114,5 +151,21 @@ export class HttpControllerClient implements ControllerClient {
 		}
 
 		return json;
+	}
+
+	async hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot> {
+		return HostSnapshot.parse(await this.request("GET", "/host", undefined, signal));
+	}
+
+	async growVolumes(
+		name: string,
+		req: GrowVolumesRequest,
+	): Promise<GrowVolumesResponse> {
+		const res = await this.request(
+			"POST",
+			`/instances/${encodeURIComponent(name)}/volumes`,
+			req,
+		);
+		return GrowVolumesResponse.parse(res);
 	}
 }

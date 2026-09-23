@@ -306,3 +306,100 @@ test("pushFile maps a 404 to NOT_FOUND", async () => {
 		}),
 	).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
+
+// ETag-guarded update, used to take a device off an instance (ADR 0021).
+
+test("getWithEtag returns the metadata and the ETag header", async () => {
+	let url = "";
+	handler = (req, res) => {
+		url = req.url ?? "";
+		res.writeHead(200, { "Content-Type": "application/json", ETag: '"abc"' });
+		res.end(
+			JSON.stringify({
+				type: "sync",
+				status: "Success",
+				status_code: 200,
+				metadata: { a: 1 },
+			}),
+		);
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	const result = await client.getWithEtag("/1.0/instances/x");
+	expect(result).toEqual({ metadata: { a: 1 }, etag: '"abc"' });
+	expect(url).toBe("/1.0/instances/x?project=testproj");
+});
+
+test("getWithEtag refuses a response without an ETag", async () => {
+	handler = (_req, res) => {
+		respond(res, 200, {
+			type: "sync",
+			status: "Success",
+			status_code: 200,
+			metadata: {},
+		});
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(client.getWithEtag("/1.0/instances/x")).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+	});
+});
+
+test("putIfMatch sends If-Match and the JSON body, then waits for the operation", async () => {
+	const seen: Array<{ method: string; url: string; ifMatch: unknown; body: string }> =
+		[];
+	handler = (req, res) => {
+		const chunks: Buffer[] = [];
+		req.on("data", (c: Buffer) => chunks.push(c));
+		req.on("end", () => {
+			seen.push({
+				method: req.method ?? "",
+				url: req.url ?? "",
+				ifMatch: req.headers["if-match"],
+				body: Buffer.concat(chunks).toString(),
+			});
+			if (req.method === "PUT") {
+				respond(res, 202, {
+					type: "async",
+					status: "Operation created",
+					status_code: 100,
+					operation: "/1.0/operations/op2",
+				});
+			} else {
+				respond(res, 200, {
+					type: "sync",
+					status: "Success",
+					status_code: 200,
+					metadata: {},
+				});
+			}
+		});
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await client.putIfMatch("/1.0/instances/x", { devices: {} }, '"abc"');
+	expect(seen[0]).toEqual({
+		method: "PUT",
+		url: "/1.0/instances/x?project=testproj",
+		ifMatch: '"abc"',
+		body: '{"devices":{}}',
+	});
+	expect(seen[1]?.url).toContain("/1.0/operations/op2/wait");
+});
+
+test("putIfMatch maps a 412 stale ETag to OPERATION_FAILED", async () => {
+	handler = (_req, res) => {
+		respond(res, 412, {
+			type: "error",
+			status: "",
+			status_code: 0,
+			error_code: 412,
+			error: "ETag doesn't match",
+		});
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	const err = await client.putIfMatch("/1.0/instances/x", {}, '"old"').catch((e) => e);
+	expect(err).toBeInstanceOf(IncusError);
+	expect(err).toMatchObject({
+		code: "OPERATION_FAILED",
+		message: "ETag doesn't match",
+	});
+});

@@ -103,6 +103,7 @@ test("a repository offers rename, duplicate, download and archive", async () => 
 	expect(screen.getByTestId("project-duplicate")).toBeDefined();
 	expect(screen.getByTestId("project-download")).toBeDefined();
 	expect(screen.getByTestId("project-archive")).toBeDefined();
+	expect(screen.getByTestId("project-recovery").textContent).toBe("Recovery points…");
 	expect(screen.queryByTestId("project-git-init")).toBeNull();
 });
 
@@ -134,6 +135,7 @@ test("a missing project offers only Archive and Delete", async () => {
 	expect(screen.getByTestId(`project-delete-${GONE.id}`)).toBeDefined();
 	expect(screen.queryByTestId("project-rename")).toBeNull();
 	expect(screen.queryByTestId("project-download")).toBeNull();
+	expect(screen.queryByTestId("project-recovery")).toBeNull();
 });
 
 test("delete stays disabled until the folder name is typed exactly", async () => {
@@ -141,7 +143,10 @@ test("delete stays disabled until the folder name is typed exactly", async () =>
 	openMenu(TODO.id);
 	fireEvent.click(screen.getByTestId(`project-delete-${TODO.id}`));
 
-	const dialog = within(await screen.findByTestId("dialog-delete-project"));
+	const surface = await screen.findByTestId("dialog-delete-project");
+	// Permanent delete takes the project's recovery points with it (SPEC.md §15.7).
+	expect(surface.textContent).toContain("so are its recovery points");
+	const dialog = within(surface);
 	const button = dialog.getByTestId("dialog-confirm");
 	expect((button as HTMLButtonElement).disabled).toBe(true);
 

@@ -1,13 +1,17 @@
 import {
 	type ControllerErrorCode,
 	type CreateInstanceResponse,
+	type GrowVolumesRequest,
+	type GrowVolumesResponse,
+	type HostSnapshot,
 	InstanceName,
 	type InstanceStatus,
+	type RebuildInstanceResponse,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
 } from "@portikus/contracts";
 import { IncusError } from "./incus.js";
-import type { WorkspaceProvider } from "./provider.js";
+import { InstanceNotStoppedError, type WorkspaceProvider } from "./provider.js";
 
 interface FakeInstance {
 	name: string;
@@ -19,6 +23,10 @@ interface FakeInstance {
 	timezone: string | null;
 	imageFingerprint: string;
 	quota: { homeGiB: number; dockerGiB: number };
+	recoveryGiB: number | null;
+	/** Counts replacements, so a test can tell the Docker volume is new. */
+	dockerGeneration: number;
+	rebuilds: number;
 }
 
 export class FakeWorkspaceProvider implements WorkspaceProvider {
@@ -51,7 +59,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 
 	async create(
 		name: string,
-		sizes: { homeGiB: number; dockerGiB: number },
+		sizes: { homeGiB: number; dockerGiB: number; recoveryGiB: number },
 	): Promise<CreateInstanceResponse> {
 		this.validate(name);
 		this.checkError();
@@ -63,6 +71,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 				quota: existing.quota,
 			};
 		}
+		const quota = { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
 		const inst: FakeInstance = {
 			name,
 			status: "Stopped",
@@ -72,10 +81,13 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			previewHostSuffix: null,
 			timezone: null,
 			imageFingerprint: "abc123",
-			quota: sizes,
+			quota,
+			recoveryGiB: sizes.recoveryGiB,
+			dockerGeneration: 1,
+			rebuilds: 0,
 		};
 		this.instances.set(name, inst);
-		return { created: true, imageFingerprint: "abc123", quota: sizes };
+		return { created: true, imageFingerprint: "abc123", quota };
 	}
 
 	async start(
@@ -86,6 +98,8 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			hostname: string;
 			previewHostSuffix: string;
 			timezone: string;
+			dockerGiB?: number;
+			recoveryGiB?: number;
 		},
 	): Promise<StartInstanceResponse> {
 		this.validate(name);
@@ -102,6 +116,9 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 		inst.hostname = opts.hostname;
 		inst.previewHostSuffix = opts.previewHostSuffix;
 		inst.timezone = opts.timezone;
+		if (opts.recoveryGiB !== undefined && inst.recoveryGiB === null) {
+			inst.recoveryGiB = opts.recoveryGiB;
+		}
 		return { ipv4: "10.0.0.2" };
 	}
 
@@ -137,5 +154,76 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 
 	async healthy(): Promise<boolean> {
 		return true;
+	}
+
+	async resetDocker(name: string, opts: { dockerGiB: number }): Promise<void> {
+		const inst = this.stoppedInstance(name);
+		inst.dockerGeneration += 1;
+		inst.quota = { ...inst.quota, dockerGiB: opts.dockerGiB };
+	}
+
+	async rebuild(
+		name: string,
+		opts: { resetDocker: boolean; dockerGiB: number },
+	): Promise<RebuildInstanceResponse> {
+		const inst = this.stoppedInstance(name);
+		if (opts.resetDocker) {
+			await this.resetDocker(name, { dockerGiB: opts.dockerGiB });
+		}
+		inst.rebuilds += 1;
+		inst.imageFingerprint = "def456";
+		return { imageFingerprint: inst.imageFingerprint };
+	}
+
+	private stoppedInstance(name: string): FakeInstance {
+		this.validate(name);
+		this.checkError();
+		const inst = this.instances.get(name);
+		if (!inst) {
+			throw new IncusError("NOT_FOUND", `instance ${name} not found`);
+		}
+		if (inst.status !== "Stopped") {
+			throw new InstanceNotStoppedError(name, inst.status);
+		}
+		return inst;
+	}
+
+	async hostSnapshot(): Promise<HostSnapshot> {
+		this.checkError();
+		return {
+			observedAt: new Date().toISOString(),
+			loadAverage: [0.5, 0.25, 0.1],
+			cpuCount: 4,
+			memory: { usedBytes: 2 * 2 ** 30, totalBytes: 8 * 2 ** 30 },
+			pool: {
+				name: "workspace-data",
+				usedBytes: 10 * 2 ** 30,
+				totalBytes: 90 * 2 ** 30,
+			},
+			profileLimits: { cpu: "2", memory: "4GB", processes: "2000" },
+			image: { fingerprint: "abc123", serial: "2026.09.9" },
+			instances: [...this.instances.values()].map((inst) => ({
+				name: inst.name,
+				imageFingerprint: inst.imageFingerprint,
+				imageSerial: "2026.09.9",
+			})),
+		};
+	}
+
+	async growVolumes(
+		name: string,
+		sizes: GrowVolumesRequest,
+	): Promise<GrowVolumesResponse> {
+		this.validate(name);
+		this.checkError();
+		const inst = this.instances.get(name);
+		if (!inst) {
+			throw new IncusError("NOT_FOUND", `instance ${name} not found`);
+		}
+		if (sizes.homeGiB < inst.quota.homeGiB || sizes.dockerGiB < inst.quota.dockerGiB) {
+			throw new IncusError("BAD_REQUEST", "Storage can only be increased.");
+		}
+		inst.quota = { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
+		return { ...inst.quota };
 	}
 }

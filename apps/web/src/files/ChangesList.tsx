@@ -2,10 +2,12 @@
  * The Changes surface (SPEC.md §12.6): every path that differs from the last
  * commit, one row each, opening the file's diff when it is clicked.
  */
-import type { GitStatus } from "@portikus/contracts";
+import type { GitStatus, Project } from "@portikus/contracts";
 import { Icon } from "@portikus/ui";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
+import { useRecoveryPoints } from "../recovery/queries.js";
+import { RestoreConfirm } from "../recovery/RestoreConfirm.js";
 import { type ChangeRow, changeRows } from "./gitStatus.js";
 
 export function ChangesList({
@@ -16,6 +18,7 @@ export function ChangesList({
 	onReviewSession,
 	onShowGit,
 	onOpen,
+	sessionRestore,
 }: {
 	projectId: string;
 	status: GitStatus | undefined;
@@ -29,6 +32,8 @@ export function ChangesList({
 	onShowGit?: () => void;
 	/** Opens one row. The default opens the file's Git diff. */
 	onOpen?: (path: string) => void;
+	/** The session's recovery point, offered while the session is under review (SPEC.md §10.9). */
+	sessionRestore?: { workspaceId: string; project: Project; pointId: string };
 }) {
 	const [open, setOpen] = useState(true);
 	const reviewButton = useRef<HTMLButtonElement>(null);
@@ -104,6 +109,7 @@ export function ChangesList({
 					Show Git changes
 				</button>
 			) : null}
+			{sessionLabel && sessionRestore ? <SessionRestore {...sessionRestore} /> : null}
 			{open ? (
 				error ? (
 					<p className="pk-changes-empty" data-testid="changes-error">
@@ -155,5 +161,42 @@ export function ChangesList({
 				)
 			) : null}
 		</section>
+	);
+}
+
+/** "Restore to before this session", shown once the session's point is listed. */
+function SessionRestore({
+	workspaceId,
+	project,
+	pointId,
+}: {
+	workspaceId: string;
+	project: Project;
+	pointId: string;
+}) {
+	const list = useRecoveryPoints(workspaceId, project.id);
+	const [confirming, setConfirming] = useState(false);
+	const point = list.data?.points.find((candidate) => candidate.id === pointId);
+	if (!point) return null;
+	return (
+		<>
+			<button
+				type="button"
+				className="pk-changes-review"
+				data-testid="restore-session"
+				onClick={() => setConfirming(true)}
+			>
+				Restore to before this session
+			</button>
+			{confirming ? (
+				<RestoreConfirm
+					workspaceId={workspaceId}
+					project={project}
+					point={point}
+					onClose={() => setConfirming(false)}
+					onRestored={() => setConfirming(false)}
+				/>
+			) : null}
+		</>
 	);
 }

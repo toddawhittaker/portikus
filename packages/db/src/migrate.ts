@@ -1,17 +1,23 @@
 import type { Kysely } from "kysely";
-import { Migrator } from "kysely/migration";
+import { type Migration, Migrator } from "kysely/migration";
 import { createDb } from "./index.js";
 import { migrations } from "./migrations/index.js";
 import type { Database } from "./schema.js";
 
 /**
  * Run all pending migrations to the latest version.
- * Returns the list of migration names that were executed.
+ * Returns the list of migration names that were executed. `list` is
+ * replaceable so a test can add a late-arriving migration.
  */
-export async function migrateToLatest(db: Kysely<Database>): Promise<string[]> {
+export async function migrateToLatest(
+	db: Kysely<Database>,
+	list: Record<string, Migration> = migrations,
+): Promise<string[]> {
 	const migrator = new Migrator({
 		db,
-		provider: { getMigrations: async () => migrations },
+		provider: { getMigrations: async () => list },
+		// Epic 11's 0014 may be applied before Epic 10's 0013 arrives.
+		allowUnorderedMigrations: true,
 	});
 
 	const { results, error } = await migrator.migrateToLatest();

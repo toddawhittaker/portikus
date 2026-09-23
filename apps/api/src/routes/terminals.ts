@@ -29,6 +29,11 @@ import {
 	touchPresence,
 	workspaceUpgradeGuard,
 } from "./presence.js";
+import {
+	countProjectPoints,
+	MAX_POINTS_PER_PROJECT,
+	makeRecoveryPoint,
+} from "./recovery.js";
 import { findWorkspaceOwnedBy } from "./workspace-view.js";
 
 const WorkspaceParam = z.object({ id: z.string().uuid() });
@@ -61,11 +66,22 @@ const HIGH_WATER_BYTES = 1024 * 1024;
 /** Resume once the browser socket has drained back below this. */
 const LOW_WATER_BYTES = 256 * 1024;
 
+/**
+ * The largest frame the API accepts from a workspace agent's terminal. The
+ * agent's output chunks and its 256 KiB history replay are far smaller; the
+ * agent is student-controlled, so without a cap one frame could make the API
+ * buffer up to the `ws` default of 100 MiB (SPEC.md §24.1).
+ */
+const MAX_AGENT_FRAME_BYTES = 1024 * 1024;
+
 /** How often a paused pipe checks whether the browser socket has drained. */
 const DRAIN_POLL_MS = 50;
 
 /** Input a browser may send before the agent socket is open. */
 const MAX_QUEUED_BYTES = 64 * 1024;
+
+/** Longest a new agent session waits for its recovery point (ADR 0020). */
+const AGENT_SESSION_POINT_TIMEOUT_MS = 30_000;
 
 /** How long the agent socket may take to answer the upgrade. */
 const AGENT_HANDSHAKE_TIMEOUT_MS = 5000;
@@ -117,6 +133,7 @@ function toTerminal(row: {
 	agent: string | null;
 	baseline_object_id: string | null;
 	baseline_head: string | null;
+	recovery_point_id: string | null;
 	created_at: Date;
 	ended_at: Date | null;
 }): Terminal {
@@ -135,6 +152,7 @@ function toTerminal(row: {
 		agent,
 		baselineObjectId: gitObjectOrNull(row.baseline_object_id),
 		baselineHead: gitObjectOrNull(row.baseline_head),
+		recoveryPointId: row.recovery_point_id,
 	};
 }
 
@@ -303,11 +321,11 @@ export function registerTerminalRoutes(
 		}
 
 		// A terminal may belong to one project of this workspace (SPEC.md §7.5).
-		let project: { id: string; path: string } | null = null;
+		let project: { id: string; slug: string; path: string } | null = null;
 		if (body.data.projectId) {
 			const row = await db
 				.selectFrom("projects")
-				.select(["id", "path"])
+				.select(["id", "slug", "path"])
 				.where("id", "=", body.data.projectId)
 				.where("workspace_id", "=", params.data.id)
 				.executeTakeFirst();
@@ -328,6 +346,39 @@ export function registerTerminalRoutes(
 		const settings = await userTerminalSettings(db, user.id);
 		const theme = body.data.theme ?? settings.terminalTheme;
 
+		// A coding agent's session gets a recovery point first, so the state
+		// before it can be restored (SPEC.md §10.9). It fails open.
+		let recoveryPointId: string | null = null;
+		if (body.data.agent !== undefined && project) {
+			try {
+				if ((await countProjectPoints(db, project.id)) >= MAX_POINTS_PER_PROJECT) {
+					// Ids only (ADR 0012); the student is not told (EPIC-10 decisions).
+					request.log.warn(
+						{ workspaceId: params.data.id, projectId: project.id },
+						"agent-session recovery point skipped: point cap",
+					);
+				} else {
+					const point = await makeRecoveryPoint(db, config, agent, {
+						workspaceId: params.data.id,
+						project,
+						reason: "agent-session",
+						createdBy: user.id,
+						timeoutMs: AGENT_SESSION_POINT_TIMEOUT_MS,
+					});
+					recoveryPointId = point.id;
+				}
+			} catch (error) {
+				request.log.warn(
+					{
+						workspaceId: params.data.id,
+						projectId: project.id,
+						code: error instanceof AgentCallError ? error.code : "INTERNAL",
+					},
+					"agent-session recovery point failed",
+				);
+			}
+		}
+
 		await db
 			.insertInto("terminals")
 			.values({
@@ -339,6 +390,7 @@ export function registerTerminalRoutes(
 				project_id: project ? project.id : null,
 				theme,
 				agent: body.data.agent ?? null,
+				recovery_point_id: recoveryPointId,
 			})
 			.execute();
 
@@ -642,6 +694,7 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 		{
 			headers: { authorization: agent.authHeader() },
 			handshakeTimeout: AGENT_HANDSHAKE_TIMEOUT_MS,
+			maxPayload: MAX_AGENT_FRAME_BYTES,
 		},
 	);
 

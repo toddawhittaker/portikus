@@ -48,6 +48,7 @@ describe("users and sessions", () => {
 			const created = await upsertUser(t.db, identity, "student");
 			expect(created.displayName).toBe("Alice Student");
 			expect(created.role).toBe("student");
+			expect(created.previousRole).toBeNull();
 
 			const updated = await upsertUser(
 				t.db,
@@ -58,6 +59,7 @@ describe("users and sessions", () => {
 			expect(updated.displayName).toBe("Alice Admin");
 			expect(updated.email).toBe("alice@new.example.edu");
 			expect(updated.role).toBe("administrator");
+			expect(updated.previousRole).toBe("student");
 
 			const rows = await t.db
 				.selectFrom("users")
@@ -95,7 +97,11 @@ describe("users and sessions", () => {
 			expect(stored.id).not.toBe(token);
 			expect(stored.id).toMatch(/^[0-9a-f]{64}$/);
 
-			const { disabledAt: _disabledAt, ...expected } = user;
+			const {
+				disabledAt: _disabledAt,
+				previousRole: _previousRole,
+				...expected
+			} = user;
 			const loaded = await loadSession(t.db, token);
 			expect(loaded).toEqual(expected);
 		},

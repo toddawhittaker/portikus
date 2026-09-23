@@ -141,6 +141,7 @@ test("the Monitor tab sits with the others and shows usage", async () => {
 						disk: { usedBytes: 1024, totalBytes: 4096 },
 						network: { receiveBytesPerSecond: null, transmitBytesPerSecond: null },
 						processes: [],
+						storage: { home: null, docker: null, recovery: null },
 					}
 				: { entries: [], truncated: false };
 			return new Response(JSON.stringify(body), {

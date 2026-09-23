@@ -9,8 +9,21 @@ import {
 } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+
+// Lets one test make the socket's first workspace read throw.
+const failRead = vi.hoisted(() => ({ on: false }));
+vi.mock("./workspace-view.js", async (importOriginal) => {
+	const real = await importOriginal<typeof import("./workspace-view.js")>();
+	return {
+		...real,
+		countActive: async (...args: Parameters<typeof real.countActive>) => {
+			if (failRead.on) throw new Error("read failed");
+			return real.countActive(...args);
+		},
+	};
+});
 
 const skip = !hasTestDb();
 let testDb: TestDb;
@@ -196,6 +209,25 @@ test.skipIf(skip)("a state change is broadcast to open sockets", async () => {
 	await socket.close();
 });
 
+test.skipIf(skip)("archiving and unarchiving reach an open socket", async () => {
+	const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+	await socket.next();
+
+	for (const archivedAt of [new Date().toISOString(), null]) {
+		const update = socket.nextOf("workspace");
+		// Only archived_at changes, so nothing else could trigger the push.
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ archived_at: archivedAt })
+			.where("id", "=", workspaceId)
+			.execute();
+		const message = await update;
+		expect(message.workspace.archivedAt === null).toBe(archivedAt === null);
+	}
+
+	await socket.close();
+});
+
 test.skipIf(skip)("shutting the server down closes sockets with 1001", async () => {
 	const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
 	await socket.next();
@@ -240,3 +272,115 @@ test.skipIf(skip)("a workspace refuses more than sixteen connections", async () 
 		}
 	}
 });
+
+test.skipIf(skip)(
+	"an administrator's socket on a student's workspace is not presence",
+	async () => {
+		const carol = new CookieJar();
+		await loginAs(app, "carol", carol);
+		const socket = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+		const message = (await socket.next()) as Record<string, unknown>;
+		expect(message.type).toBe("workspace");
+		socket.ws.send(JSON.stringify({ type: "heartbeat" }));
+		await new Promise((resolve) => setTimeout(resolve, 200));
+
+		expect(await countConnections()).toBe(0);
+		const row = await testDb.db
+			.selectFrom("workspaces")
+			.select(["desired_state", "last_active_connection_at"])
+			.where("id", "=", workspaceId)
+			.executeTakeFirstOrThrow();
+		expect(row.desired_state).toBe("stopped");
+		expect(row.last_active_connection_at).toBeNull();
+
+		await socket.close();
+	},
+);
+
+test.skipIf(skip)("an administrator is capped at sixteen sockets too", async () => {
+	const carol = new CookieJar();
+	await loginAs(app, "carol", carol);
+	const open: OpenSocket[] = [];
+	try {
+		for (let i = 0; i < 16; i += 1) {
+			const socket = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+			await socket.next();
+			open.push(socket);
+		}
+		await expect(
+			openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL),
+		).rejects.toMatchObject({ status: 429 });
+
+		// Closing one frees a slot.
+		await open.pop()?.close();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		const again = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+		await again.next();
+		open.push(again);
+	} finally {
+		for (const socket of open) {
+			await socket.close();
+		}
+	}
+});
+
+test.skipIf(skip)(
+	"an administrator socket whose first read throws still releases its slot",
+	async () => {
+		const carol = new CookieJar();
+		await loginAs(app, "carol", carol);
+		failRead.on = true;
+		try {
+			for (let i = 0; i < 16; i += 1) {
+				const socket = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+				expect(await nextClose(socket)).toBe(1011);
+			}
+		} finally {
+			failRead.on = false;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		// Had any slot leaked, sixteen leaks would refuse this with 429.
+		const socket = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+		await socket.next();
+		await socket.close();
+	},
+);
+
+async function archive(state: string): Promise<void> {
+	await testDb.db
+		.updateTable("workspaces")
+		.set({ state, desired_state: "stopped", archived_at: new Date().toISOString() })
+		.where("id", "=", workspaceId)
+		.execute();
+}
+
+async function desiredState(): Promise<string> {
+	const row = await testDb.db
+		.selectFrom("workspaces")
+		.select("desired_state")
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+	return row.desired_state;
+}
+
+test.skipIf(skip)(
+	"a reconnect right after archive does not undo the stop",
+	async () => {
+		await archive("running");
+		const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+		await socket.next();
+		expect(await desiredState()).toBe("stopped");
+		await socket.close();
+	},
+);
+
+test.skipIf(skip)(
+	"opening a stopped archived workspace does not start it",
+	async () => {
+		await archive("stopped");
+		const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+		await socket.next();
+		expect(await desiredState()).toBe("stopped");
+		await socket.close();
+	},
+);

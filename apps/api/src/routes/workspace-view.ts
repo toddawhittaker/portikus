@@ -24,7 +24,9 @@ export function toWorkspace(
 		quotaConfig: quota ?? {
 			homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
 			dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+			recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
 		},
+		pendingOperation: (row.pending_operation as Workspace["pendingOperation"]) ?? null,
 		errorCode: (row.error_code as string) ?? null,
 		errorMessage: (row.error_message as string) ?? null,
 		activeConnections,
@@ -34,6 +36,7 @@ export function toWorkspace(
 		shutdownDeadline: row.shutdown_deadline
 			? (row.shutdown_deadline as Date).toISOString()
 			: null,
+		archivedAt: row.archived_at ? (row.archived_at as Date).toISOString() : null,
 		createdAt: (row.created_at as Date).toISOString(),
 		updatedAt: (row.updated_at as Date).toISOString(),
 	};

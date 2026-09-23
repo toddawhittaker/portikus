@@ -1,3 +1,4 @@
+import { HostSnapshot } from "@portikus/contracts";
 import type { LogLevel } from "@portikus/observability";
 import { collectingLogger, lineAt } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
@@ -29,7 +30,7 @@ test("401 without token", async () => {
 	const res = await app.inject({
 		method: "POST",
 		url: "/instances",
-		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	expect(res.statusCode).toBe(401);
 	expect(res.json().code).toBe("UNAUTHORIZED");
@@ -39,7 +40,7 @@ test("401 with wrong-length token", async () => {
 	const res = await app.inject({
 		method: "POST",
 		url: "/instances",
-		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 		headers: { authorization: "Bearer short" },
 	});
 	expect(res.statusCode).toBe(401);
@@ -49,7 +50,7 @@ test("401 with wrong token of same length", async () => {
 	const res = await app.inject({
 		method: "POST",
 		url: "/instances",
-		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 		headers: { authorization: "Bearer wrong-token-valu" },
 	});
 	expect(res.statusCode).toBe(401);
@@ -79,7 +80,7 @@ test("create instance happy path", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	expect(res.statusCode).toBe(201);
 	expect(res.json().created).toBe(true);
@@ -90,13 +91,13 @@ test("create instance already exists returns 200", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	const res = await app.inject({
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	expect(res.statusCode).toBe(200);
 	expect(res.json().created).toBe(false);
@@ -107,7 +108,7 @@ test("create with invalid name returns 400", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "INVALID!", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "INVALID!", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	expect(res.statusCode).toBe(400);
 	expect(res.json().code).toBe("INVALID_NAME");
@@ -120,7 +121,7 @@ test("start happy path", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	const res = await app.inject({
 		method: "POST",
@@ -143,7 +144,7 @@ test("start passes the agent token through to the provider", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	await app.inject({
 		method: "POST",
@@ -165,7 +166,7 @@ test("start passes the preview host suffix through to the provider", async () =>
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	await app.inject({
 		method: "POST",
@@ -227,7 +228,7 @@ test("stop happy path", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	await app.inject({
 		method: "POST",
@@ -255,7 +256,7 @@ test("stop with forced path", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	provider.setStopHangs(true);
 	const res = await app.inject({
@@ -275,7 +276,7 @@ test("list instances", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	const res = await app.inject({
 		method: "GET",
@@ -316,7 +317,7 @@ test("two concurrent starts cause one provider call", async () => {
 		method: "POST",
 		url: "/instances",
 		headers: auth(),
-		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+		payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 
 	const [r1, r2] = await Promise.all([
@@ -468,7 +469,7 @@ test("a request logs one line, and an Incus failure names the reason", async () 
 			method: "POST",
 			url: "/instances",
 			headers: auth(),
-			payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20 },
+			payload: { name: "ws-abc", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 		});
 		expect(failed.statusCode).toBe(503);
 		const line = requests()[1];
@@ -478,4 +479,277 @@ test("a request logs one line, and an Incus failure names the reason", async () 
 	} finally {
 		await logged.close();
 	}
+});
+
+// Maintenance operations (ADR 0021).
+
+async function createStopped(name = "ws-abc") {
+	await app.inject({
+		method: "POST",
+		url: "/instances",
+		headers: auth(),
+		payload: { name, homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
+	});
+}
+
+test("create and start pass the recovery size to the provider", async () => {
+	await createStopped();
+	expect(provider.instances.get("ws-abc")?.recoveryGiB).toBe(3);
+
+	const calls: Array<number | undefined> = [];
+	const original = provider.start.bind(provider);
+	provider.start = async (name, opts) => {
+		calls.push(opts.recoveryGiB);
+		return original(name, opts);
+	};
+	await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/start",
+		headers: auth(),
+		payload: {
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7",
+			previewHostSuffix: "preview.example.edu",
+			timezone: "America/New_York",
+			recoveryGiB: 4,
+		},
+	});
+	expect(calls).toEqual([4]);
+});
+
+test("reset-docker on a stopped instance answers 204 and replaces the volume", async () => {
+	await createStopped();
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/reset-docker",
+		headers: auth(),
+		payload: { dockerGiB: 30 },
+	});
+	expect(res.statusCode).toBe(204);
+	const inst = provider.instances.get("ws-abc");
+	expect(inst?.dockerGeneration).toBe(2);
+	expect(inst?.quota.dockerGiB).toBe(30);
+});
+
+test("reset-docker and rebuild answer 409 while the instance runs", async () => {
+	await createStopped();
+	const inst = provider.instances.get("ws-abc");
+	if (!inst) throw new Error("expected the instance");
+	inst.status = "Running";
+
+	const reset = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/reset-docker",
+		headers: auth(),
+		payload: { dockerGiB: 20 },
+	});
+	const rebuild = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/rebuild",
+		headers: auth(),
+		payload: { resetDocker: false, dockerGiB: 20 },
+	});
+	expect(reset.statusCode).toBe(409);
+	expect(rebuild.statusCode).toBe(409);
+	expect(rebuild.json().message).toContain("stop it first");
+	expect(inst.dockerGeneration).toBe(1);
+	expect(inst.rebuilds).toBe(0);
+});
+
+test("rebuild answers the new image fingerprint", async () => {
+	await createStopped();
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/rebuild",
+		headers: auth(),
+		payload: { resetDocker: true, dockerGiB: 20 },
+	});
+	expect(res.statusCode).toBe(200);
+	expect(res.json()).toEqual({ imageFingerprint: "def456" });
+	const inst = provider.instances.get("ws-abc");
+	expect(inst?.rebuilds).toBe(1);
+	expect(inst?.dockerGeneration).toBe(2);
+});
+
+test("maintenance routes check the name, the body, and the token", async () => {
+	await createStopped();
+	const badName = await app.inject({
+		method: "POST",
+		url: "/instances/BAD!/rebuild",
+		headers: auth(),
+		payload: { resetDocker: false, dockerGiB: 20 },
+	});
+	expect(badName.statusCode).toBe(400);
+	expect(badName.json().code).toBe("INVALID_NAME");
+
+	const badBody = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/reset-docker",
+		headers: auth(),
+		payload: { dockerGiB: -1 },
+	});
+	expect(badBody.statusCode).toBe(400);
+	expect(badBody.json().code).toBe("BAD_REQUEST");
+
+	const noRebuildFlag = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/rebuild",
+		headers: auth(),
+		payload: { dockerGiB: 20 },
+	});
+	expect(noRebuildFlag.statusCode).toBe(400);
+
+	const noToken = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/reset-docker",
+		payload: { dockerGiB: 20 },
+	});
+	expect(noToken.statusCode).toBe(401);
+
+	const missing = await app.inject({
+		method: "POST",
+		url: "/instances/ws-nope/reset-docker",
+		headers: auth(),
+		payload: { dockerGiB: 20 },
+	});
+	expect(missing.statusCode).toBe(404);
+});
+
+test("two concurrent resets cause one provider call", async () => {
+	await createStopped();
+	let resets = 0;
+	const original = provider.resetDocker.bind(provider);
+	provider.resetDocker = async (name, opts) => {
+		resets++;
+		await new Promise((r) => setTimeout(r, 50));
+		return original(name, opts);
+	};
+	const request = () =>
+		app.inject({
+			method: "POST",
+			url: "/instances/ws-abc/reset-docker",
+			headers: auth(),
+			payload: { dockerGiB: 20 },
+		});
+	const [a, b] = await Promise.all([request(), request()]);
+	expect(a.statusCode).toBe(204);
+	expect(b.statusCode).toBe(204);
+	expect(resets).toBe(1);
+});
+
+test("two concurrent rebuilds cause one provider call", async () => {
+	await createStopped();
+	let rebuilds = 0;
+	const original = provider.rebuild.bind(provider);
+	provider.rebuild = async (name, opts) => {
+		rebuilds++;
+		await new Promise((r) => setTimeout(r, 50));
+		return original(name, opts);
+	};
+	const request = () =>
+		app.inject({
+			method: "POST",
+			url: "/instances/ws-abc/rebuild",
+			headers: auth(),
+			payload: { resetDocker: false, dockerGiB: 20 },
+		});
+	const [a, b] = await Promise.all([request(), request()]);
+	expect(a.statusCode).toBe(200);
+	expect(b.json()).toEqual({ imageFingerprint: "def456" });
+	expect(rebuilds).toBe(1);
+});
+
+// Host snapshot and volume grow (Epic 11 task 2).
+
+test("GET /host needs the token", async () => {
+	const res = await app.inject({ method: "GET", url: "/host" });
+	expect(res.statusCode).toBe(401);
+});
+
+test("GET /host returns the provider's snapshot", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	const res = await app.inject({ method: "GET", url: "/host", headers: auth() });
+	expect(res.statusCode).toBe(200);
+	const body = HostSnapshot.parse(res.json());
+	expect(body.image.serial).toBe("2026.09.9");
+	expect(body.instances.map((i) => i.name)).toEqual(["ws-abc"]);
+});
+
+test("GET /host maps an Incus failure to its status", async () => {
+	provider.failNext("INCUS_UNAVAILABLE");
+	const res = await app.inject({ method: "GET", url: "/host", headers: auth() });
+	expect(res.statusCode).toBe(503);
+	expect(res.json().code).toBe("INCUS_UNAVAILABLE");
+});
+
+test("POST /instances/:name/volumes needs the token", async () => {
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/volumes",
+		payload: { homeGiB: 30, dockerGiB: 20 },
+	});
+	expect(res.statusCode).toBe(401);
+});
+
+test("POST /instances/:name/volumes grows the volumes", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/volumes",
+		headers: auth(),
+		payload: { homeGiB: 30, dockerGiB: 40 },
+	});
+	expect(res.statusCode).toBe(200);
+	expect(res.json()).toEqual({ homeGiB: 30, dockerGiB: 40 });
+	expect(provider.instances.get("ws-abc")?.quota).toEqual({
+		homeGiB: 30,
+		dockerGiB: 40,
+	});
+});
+
+test("POST /instances/:name/volumes refuses a shrink with 400", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/volumes",
+		headers: auth(),
+		payload: { homeGiB: 24, dockerGiB: 20 },
+	});
+	expect(res.statusCode).toBe(400);
+	expect(res.json()).toEqual({
+		code: "BAD_REQUEST",
+		message: "Storage can only be increased.",
+	});
+	expect(provider.instances.get("ws-abc")?.quota).toEqual({
+		homeGiB: 25,
+		dockerGiB: 20,
+	});
+});
+
+test("POST /instances/:name/volumes rejects a bad name, body, or unknown instance", async () => {
+	const badName = await app.inject({
+		method: "POST",
+		url: "/instances/Bad_Name/volumes",
+		headers: auth(),
+		payload: { homeGiB: 30, dockerGiB: 20 },
+	});
+	expect(badName.statusCode).toBe(400);
+	expect(badName.json().code).toBe("INVALID_NAME");
+
+	const badBody = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/volumes",
+		headers: auth(),
+		payload: { homeGiB: 2000, dockerGiB: 20 },
+	});
+	expect(badBody.statusCode).toBe(400);
+	expect(badBody.json().code).toBe("BAD_REQUEST");
+
+	const missing = await app.inject({
+		method: "POST",
+		url: "/instances/ws-nope/volumes",
+		headers: auth(),
+		payload: { homeGiB: 30, dockerGiB: 20 },
+	});
+	expect(missing.statusCode).toBe(404);
 });

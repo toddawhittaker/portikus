@@ -25,6 +25,22 @@
     # distrobuilder is built from source at this upstream commit (docs/adr/0004).
     image_builder_distrobuilder_commit: "86713967673400934b605a0a24f45ceb5c371082"
     management_cidr: "{{ lookup('env', 'PORTIKUS_MANAGEMENT_CIDR') | default('10.100.0.0/24', true) }}"
+    # Private and special ranges no workspace may reach (SPEC.md 23.2).  The
+    # firewall and the workspace network ACL both deny them.  A deployment
+    # adds its own infrastructure ranges by overriding this list.
+    workspace_egress_denied_ranges:
+      - 0.0.0.0/8
+      - 10.0.0.0/8
+      - 100.64.0.0/10
+      - 127.0.0.0/8
+      - 169.254.0.0/16
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 224.0.0.0/4
+      - 240.0.0.0/4
+      - ::1/128
+      - fc00::/7
+      - fe80::/10
 
     # ── Node.js runtime ──────────────────────────────────────────
     # NodeSource GPG signing checksum, verified 2026-09-16.
@@ -60,6 +76,8 @@
     portikus_agent_port: 7400
     portikus_workspace_home_size_gib: 25
     portikus_workspace_docker_size_gib: 20
+    # Each workspace's recovery-point volume (SPEC 19.1, ADR 0020).
+    portikus_workspace_recovery_size_gib: 3
 
     # ── Authentication (SPEC 5.3, ADR 0008) ───────────────────────
     # The in-repo mock identity provider is off unless it is asked for:

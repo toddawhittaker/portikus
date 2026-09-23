@@ -48,12 +48,20 @@ test("a javascript URL is refused and an https URL opens only after the click", 
 		brokerClass: "external",
 		requestedAt: "2026-01-01T00:00:00.000Z",
 	};
+	// A subscriber can be a socket that is already closing (React's development
+	// double mount opens one and drops it), so a frame it takes can be lost.
+	// Push again until the dialog shows; the page ignores a repeated requestId.
+	const dialog = page.getByTestId("browser-open-dialog");
 	await expect
-		.poll(async () => pushEvent(student.workspaceId, project.slug, javascript), {
-			timeout: 15_000,
-		})
-		.toBeGreaterThan(0);
-	await expect(page.getByTestId("browser-open-dialog")).toBeVisible();
+		.poll(
+			async () => {
+				await pushEvent(student.workspaceId, project.slug, javascript);
+				return dialog.isVisible();
+			},
+			{ timeout: 15_000 },
+		)
+		.toBe(true);
+	await expect(dialog).toBeVisible();
 	await expect(page.getByTestId("browser-open-confirm")).toHaveCount(0);
 	await page.getByTestId("browser-open-cancel").click();
 	await expect(page.getByTestId("browser-open-dialog")).toHaveCount(0);
@@ -68,10 +76,14 @@ test("a javascript URL is refused and an https URL opens only after the click", 
 		url: "https://example.com/login?code=secret",
 	};
 	await expect
-		.poll(async () => pushEvent(student.workspaceId, project.slug, https), {
-			timeout: 15_000,
-		})
-		.toBeGreaterThan(0);
+		.poll(
+			async () => {
+				await pushEvent(student.workspaceId, project.slug, https);
+				return dialog.isVisible();
+			},
+			{ timeout: 15_000 },
+		)
+		.toBe(true);
 	await expect(page.getByTestId("browser-open-origin")).toHaveText(
 		"https://example.com",
 	);

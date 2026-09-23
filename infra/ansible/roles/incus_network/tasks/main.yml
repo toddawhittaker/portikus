@@ -25,9 +25,9 @@
 # --- Peer-workspace isolation via Incus network ACL (section 29) ---
 # Containers share one bridge, so we use an ACL to deny traffic between
 # workspaces.  The ACL allows egress to the internet and the bridge
-# gateway (for DNS/DHCP), but denies the bridge subnet and management
-# CIDRs.  Default ingress is set to deny so containers cannot receive
-# unsolicited traffic from peers.
+# gateway (for DNS/DHCP), but denies the bridge subnet, the management
+# CIDR and workspace_egress_denied_ranges.  Default ingress is set to deny
+# so containers cannot receive unsolicited traffic from peers.
 
 - name: Check if workspace network ACL exists
   ansible.builtin.command:
@@ -35,6 +35,8 @@
   register: incus_network_acl_check
   changed_when: false
   failed_when: false
+  # Read-only, so a --check run can still show whether the rules would change.
+  check_mode: false
 
 - name: Create workspace network ACL
   ansible.builtin.command:
@@ -42,111 +44,28 @@
   when: incus_network_acl_check.rc != 0
   changed_when: true
 
-# Parse the current ACL rules so we can skip adds that already exist.
-- name: Parse current ACL rules
+# The rules come from templates/workspace-acl.yaml.j2 and replace the ACL's
+# rules as a whole, so a range dropped from workspace_egress_denied_ranges
+# also leaves the ACL.
+- name: Render the workspace network ACL rules
   ansible.builtin.set_fact:
-    incus_network_acl_yaml: >-
-      {{ (incus_network_acl_check.stdout | default('') | from_yaml) | default({}, true) }}
-  when: incus_network_acl_check.rc == 0
+    incus_network_acl_wanted: "{{ lookup('ansible.builtin.template', 'workspace-acl.yaml.j2') | from_yaml }}"
 
-- name: Set empty ACL when newly created
+- name: Parse the current workspace network ACL rules
   ansible.builtin.set_fact:
-    incus_network_acl_yaml: {}
-  when: incus_network_acl_check.rc != 0
-
-- name: Collect existing egress rule descriptions
-  ansible.builtin.set_fact:
-    incus_network_existing_egress_descriptions: >-
-      {{ (incus_network_acl_yaml.egress | default([])) | map(attribute='description') | list }}
-
-- name: Collect existing ingress rule descriptions
-  ansible.builtin.set_fact:
-    incus_network_existing_ingress_descriptions: >-
-      {{ (incus_network_acl_yaml.ingress | default([])) | map(attribute='description') | list }}
+    incus_network_acl_current: >-
+      {{ incus_network_acl_check.stdout | default('', true) | from_yaml | default({}, true) }}
 
 # Default actions are not ACL config keys in Incus. They are set on the
 # network below, in "Attach ACL to workspace network", as
 # security.acls.default.{ingress,egress}.action=drop.
-
-# Deny egress to the workspace bridge subnet (peer isolation).
-# A single rule with no protocol filter covers all IP protocols
-# including ICMP.  (The original ICMP-specific rule used the invalid
-# "icmp" protocol value and was silently rejected by Incus; "all
-# protocols" already covers it.)
-- name: Add ACL rule denying egress to workspace subnet
+- name: Replace the workspace network ACL rules
   ansible.builtin.command:
-    cmd: >-
-      incus network acl rule add {{ incus_network_name }}-acl egress
-      action=drop
-      destination={{ incus_network_cidr | ansible.utils.ipsubnet }}
-      description="Deny peer-workspace traffic (all protocols)"
-  when: "'Deny peer-workspace traffic (all protocols)' not in incus_network_existing_egress_descriptions"
-  changed_when: true
-
-# Deny egress to management network
-- name: Add ACL rule denying egress to management network
-  ansible.builtin.command:
-    cmd: >-
-      incus network acl rule add {{ incus_network_name }}-acl egress
-      action=drop
-      destination={{ management_cidr }}
-      description="Deny management network access"
-  when: "'Deny management network access' not in incus_network_existing_egress_descriptions"
-  changed_when: true
-
-# Deny egress to link-local / cloud metadata
-- name: Add ACL rule denying egress to link-local
-  ansible.builtin.command:
-    cmd: >-
-      incus network acl rule add {{ incus_network_name }}-acl egress
-      action=drop
-      destination=169.254.0.0/16
-      description="Deny link-local and cloud metadata"
-  when: "'Deny link-local and cloud metadata' not in incus_network_existing_egress_descriptions"
-  changed_when: true
-
-# Allow egress to the Internet (catch-all after denies)
-- name: Add ACL rule allowing general egress
-  ansible.builtin.command:
-    cmd: >-
-      incus network acl rule add {{ incus_network_name }}-acl egress
-      action=allow
-      destination=0.0.0.0/0
-      description="Allow internet egress"
-  when: "'Allow internet egress' not in incus_network_existing_egress_descriptions"
-  changed_when: true
-
-# Default ingress is drop, so the API on the VM needs one hole to reach the
-# workspace agent.  The source is the bridge gateway address, which is the
-# VM itself; workspaces cannot reach each other on this port.
-- name: Add ACL rule allowing the VM to reach the workspace agent
-  ansible.builtin.command:
-    cmd: >-
-      incus network acl rule add {{ incus_network_name }}-acl ingress
-      action=allow
-      protocol=tcp
-      source={{ incus_network_cidr | ansible.utils.ipaddr('address') }}/32
-      destination_port={{ portikus_agent_port }}
-      description="Allow control plane to reach the workspace agent"
-  when: "'Allow control plane to reach the workspace agent' not in incus_network_existing_ingress_descriptions"
-  changed_when: true
-
-# The preview gateway dials the student's own application inside the
-# workspace (BROWSER-HANDLING 10 and 16.3).  The source is again the bridge
-# gateway, so only the VM may open these ports and one workspace still
-# cannot reach another.  The range is the preview range packages/config
-# allows by default; which port is actually proxied is decided per request
-# by the API, not here.
-- name: Add ACL rule allowing the preview gateway to reach application ports
-  ansible.builtin.command:
-    cmd: >-
-      incus network acl rule add {{ incus_network_name }}-acl ingress
-      action=allow
-      protocol=tcp
-      source={{ incus_network_cidr | ansible.utils.ipaddr('address') }}/32
-      destination_port={{ portikus_preview_port_min }}-{{ portikus_preview_port_max }}
-      description="Allow the preview gateway to reach application ports"
-  when: "'Allow the preview gateway to reach application ports' not in incus_network_existing_ingress_descriptions"
+    cmd: incus network acl edit {{ incus_network_name }}-acl
+    stdin: "{{ incus_network_acl_wanted | to_nice_yaml }}"
+  when: >-
+    incus_network_acl_current.egress | default([]) != incus_network_acl_wanted.egress
+    or incus_network_acl_current.ingress | default([]) != incus_network_acl_wanted.ingress
   changed_when: true
 
 # Attach ACL to the workspace network (only when config differs)

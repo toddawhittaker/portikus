@@ -46,6 +46,8 @@ const PIXEL_PNG = Buffer.from(
 let testDb: TestDb;
 let mock: MockOidcProvider;
 let agent: FakeAgent;
+/** A recovery point of A's project, made fresh with each world. */
+let pointId: string;
 
 beforeAll(async () => {
 	if (skip) return;
@@ -71,7 +73,25 @@ async function withWorld(
 	const app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
 	await app.ready();
 	try {
-		await run(app, await buildMatrixWorld(app, testDb.db, AGENT_TOKEN));
+		const world = await buildMatrixWorld(app, testDb.db, AGENT_TOKEN);
+		pointId = crypto.randomUUID();
+		await testDb.db
+			.insertInto("recovery_points")
+			.values({
+				id: pointId,
+				project_id: world.a.projectId,
+				workspace_id: world.a.workspaceId,
+				reason: "manual",
+				created_by: `user:${world.a.userId}`,
+				size_bytes: 1,
+				sha256: "0".repeat(64),
+				fingerprint: "f",
+				// Old enough that "Create recovery point now" is not cooling down.
+				created_at: new Date(Date.now() - 3_600_000).toISOString(),
+				expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+			})
+			.execute();
+		await run(app, world);
 	} finally {
 		await app.close();
 	}
@@ -116,6 +136,8 @@ const PAYLOADS: Record<string, object> = {
 	"POST /workspaces/:id/projects/:pid/mkdir": { path: "made" },
 	"POST /workspaces/:id/projects/:pid/move": { from: "notes.txt", to: "moved.txt" },
 	"POST /workspaces/:id/preview-grants": { port: 5173, presentation: "embedded" },
+	"PUT /admin/workspaces/:id/quota": { homeGiB: 100, dockerGiB: 100 },
+	"POST /admin/workspaces/:id/rebuild": { resetDocker: false },
 };
 
 /**
@@ -132,6 +154,7 @@ function sampleFor(
 		.replace(":pid", ids.projectId)
 		.replace(":tid", ids.terminalId)
 		.replace(":checkId", "lint")
+		.replace(":rpid", pointId)
 		.replace(":port", "5173")
 		.replace("*", "index.html");
 	url = pattern.startsWith("/admin/users/:id")
@@ -429,53 +452,61 @@ describe.skipIf(skip)("allowed callers get through", () => {
 		const known = KNOWN_VULN[key];
 		const run = known ? test.fails : test;
 
-		run(known ? `${known} (${key})` : `${key} (${access})`, () =>
-			withWorld(async (app, world) => {
-				const actors = actorsOf(world);
-				const own = sampleFor(key, world, world.a);
-				const a = withOrigin(key, actors.a);
-				const b = withOrigin(key, actors.b);
-				const admin = withOrigin(key, actors.admin);
+		// One world per allowed caller, so one caller's change (a pending
+		// maintenance operation, say) cannot refuse the next.
+		const callers = access === "owner-or-admin" ? ["admin", "a"] : ["one"];
+		run(known ? `${known} (${key})` : `${key} (${access})`, async () => {
+			for (const caller of callers)
+				await withWorld(async (app, world) => {
+					const actors = actorsOf(world);
+					const own = sampleFor(key, world, world.a);
+					const a = withOrigin(key, actors.a);
+					const b = withOrigin(key, actors.b);
+					const admin = withOrigin(key, actors.admin);
 
-				if (key.includes("/me/picture") && !key.startsWith("PUT ")) {
-					// Give every caller a picture of their own to read or remove.
-					const put = sampleFor("PUT /me/picture", world, world.a);
-					for (const actor of [a, b, admin]) {
-						await send(app, "PUT /me/picture", put, withOrigin("PUT x", actor).headers);
+					if (key.includes("/me/picture") && !key.startsWith("PUT ")) {
+						// Give every caller a picture of their own to read or remove.
+						const put = sampleFor("PUT /me/picture", world, world.a);
+						for (const actor of [a, b, admin]) {
+							await send(
+								app,
+								"PUT /me/picture",
+								put,
+								withOrigin("PUT x", actor).headers,
+							);
+						}
 					}
-				}
 
-				if (key.includes("/listening/")) await seedListener(app, world);
+					if (key.includes("/listening/")) await seedListener(app, world);
 
-				switch (access) {
-					case "self": {
-						// Each caller acts on its own account and sees nothing of A.
-						const forB = await expectAllowed(app, key, own, b);
-						expectNoTraceOfA(world, forB.body, "student B");
-						const forAdmin = await expectAllowed(app, key, own, admin);
-						expectNoTraceOfA(world, forAdmin.body, "administrator");
-						await expectAllowed(app, key, own, a);
-						break;
+					switch (access) {
+						case "self": {
+							// Each caller acts on its own account and sees nothing of A.
+							const forB = await expectAllowed(app, key, own, b);
+							expectNoTraceOfA(world, forB.body, "student B");
+							const forAdmin = await expectAllowed(app, key, own, admin);
+							expectNoTraceOfA(world, forAdmin.body, "administrator");
+							await expectAllowed(app, key, own, a);
+							break;
+						}
+						case "owner":
+							await expectAllowed(app, key, own, a);
+							break;
+						case "owner-or-admin":
+							await expectAllowed(app, key, own, caller === "admin" ? admin : a);
+							break;
+						case "admin":
+							await expectAllowed(app, key, own, admin);
+							break;
 					}
-					case "owner":
-						await expectAllowed(app, key, own, a);
-						break;
-					case "owner-or-admin":
-						await expectAllowed(app, key, own, admin);
-						await expectAllowed(app, key, own, a);
-						break;
-					case "admin":
-						await expectAllowed(app, key, own, admin);
-						break;
-				}
-			}),
-		);
+				});
+		});
 	}
 });
 
 // --- Done item 3: A's workspace with B's child id is a 404 -----------------
 
-const childKeys = httpKeys.filter((key) => /:(pid|tid|checkId)/.test(key));
+const childKeys = httpKeys.filter((key) => /:(pid|tid|checkId|rpid)/.test(key));
 
 describe.skipIf(skip)("A's workspace id with B's child id is a 404", () => {
 	for (const key of childKeys) {

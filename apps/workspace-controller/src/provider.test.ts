@@ -4,7 +4,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import { IncusClient } from "./incus.js";
-import { AGENT_HEALTH_TIMEOUT_MS, IncusWorkspaceProvider } from "./provider.js";
+import {
+	AGENT_HEALTH_TIMEOUT_MS,
+	IncusWorkspaceProvider,
+	InstanceNotStoppedError,
+} from "./provider.js";
 
 let socketPath: string;
 let server: http.Server;
@@ -132,6 +136,7 @@ test("create sends both disk devices in one POST and returns created", async () 
 	const result = await provider.create("ws-test", {
 		homeGiB: 25,
 		dockerGiB: 20,
+		recoveryGiB: 3,
 	});
 	expect(result.created).toBe(true);
 	expect(result.imageFingerprint).toBe("sha256abc");
@@ -149,6 +154,21 @@ test("create sends both disk devices in one POST and returns created", async () 
 	const parsed = JSON.parse(instancePost.body);
 	expect(parsed.devices.home.path).toBe("/home/student");
 	expect(parsed.devices.docker.path).toBe("/var/lib/docker");
+	// The recovery volume is its own storage class (ADR 0020).
+	expect(parsed.devices.recovery).toEqual({
+		type: "disk",
+		pool: "mypool",
+		source: "ws-test-recovery",
+		path: "/var/lib/portikus/recovery",
+	});
+	const volumes = requests
+		.filter((r) => r.method === "POST" && r.url.includes("/volumes/custom"))
+		.map((r) => JSON.parse(r.body));
+	expect(volumes).toEqual([
+		{ name: "ws-test-home", config: { size: "25GiB" } },
+		{ name: "ws-test-docker", config: { size: "20GiB" } },
+		{ name: "ws-test-recovery", config: { size: "3GiB" } },
+	]);
 });
 
 test("create reuses existing volumes on 409", async () => {
@@ -171,6 +191,7 @@ test("create reuses existing volumes on 409", async () => {
 	const result = await provider.create("ws-test", {
 		homeGiB: 25,
 		dockerGiB: 20,
+		recoveryGiB: 3,
 	});
 	expect(result.created).toBe(true);
 });
@@ -462,7 +483,7 @@ test("a missing image alias reports IMAGE_NOT_FOUND", async () => {
 	};
 
 	await expect(
-		provider.create("ws-test", { homeGiB: 25, dockerGiB: 20 }),
+		provider.create("ws-test", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 }),
 	).rejects.toMatchObject({ code: "IMAGE_NOT_FOUND" });
 });
 
@@ -541,4 +562,499 @@ test("start refuses a timezone that is not a known zone", async () => {
 			}),
 		).rejects.toMatchObject({ code: "INVALID_NAME" });
 	}
+});
+
+// Recovery volume, Reset Docker and Rebuild (Epic 10, ADR 0020, ADR 0021).
+// A small stateful Incus: one instance, the pool's custom volumes, an ETag
+// that changes on every write, and PATCH that merges devices as Incus does.
+
+interface FakeIncus {
+	status: string;
+	devices: Record<string, Record<string, string>>;
+	config: Record<string, string>;
+	etagSeq: number;
+	volumes: Map<string, string>;
+	deleted: string[];
+	createdVolumes: string[];
+	puts: Array<{ ifMatch: string | undefined; body: Record<string, unknown> }>;
+	patches: Array<Record<string, unknown>>;
+	rebuilds: unknown[];
+	execs: string[][];
+	/** Fail the next volume create with a server error, once. */
+	failVolumeCreate: boolean;
+	/** Answer the next PUT with 412, as Incus does for a stale ETag. */
+	staleEtag: boolean;
+}
+
+function disk(source: string, diskPath: string): Record<string, string> {
+	return { type: "disk", pool: "mypool", source, path: diskPath };
+}
+
+function fakeIncus(): FakeIncus {
+	return {
+		status: "Stopped",
+		devices: {
+			home: disk("ws-test-home", "/home/student"),
+			docker: disk("ws-test-docker", "/var/lib/docker"),
+			recovery: disk("ws-test-recovery", "/var/lib/portikus/recovery"),
+		},
+		config: { "volatile.base_image": "old", "image.os": "debian" },
+		etagSeq: 1,
+		volumes: new Map([
+			["ws-test-home", "25GiB"],
+			["ws-test-docker", "20GiB"],
+			["ws-test-recovery", "3GiB"],
+		]),
+		deleted: [],
+		createdVolumes: [],
+		puts: [],
+		patches: [],
+		rebuilds: [],
+		execs: [],
+		failVolumeCreate: false,
+		staleEtag: false,
+	};
+}
+
+function incusError(res: http.ServerResponse, code: number, error: string): void {
+	respond(res, code, {
+		type: "error",
+		status: "Failure",
+		status_code: code,
+		error,
+		error_code: code,
+	});
+}
+
+function serveIncus(state: FakeIncus): void {
+	handler = async (req, res) => {
+		const body = await readBody(req);
+		const url = new URL(req.url ?? "/", "http://incus");
+		const p = url.pathname;
+		const method = req.method ?? "";
+		const etag = `"e${state.etagSeq}"`;
+		const volumePrefix = "/1.0/storage-pools/mypool/volumes/custom";
+
+		if (p === "/1.0/instances/ws-test" && method === "GET") {
+			res.writeHead(200, { "Content-Type": "application/json", ETag: etag });
+			res.end(
+				JSON.stringify(
+					sync({
+						name: "ws-test",
+						status: state.status,
+						architecture: "x86_64",
+						config: state.config,
+						devices: state.devices,
+						ephemeral: false,
+						profiles: ["workspace"],
+						stateful: false,
+						description: "",
+					}),
+				),
+			);
+		} else if (p === "/1.0/instances/ws-test" && method === "PUT") {
+			const parsed = JSON.parse(body);
+			state.puts.push({
+				ifMatch: req.headers["if-match"] as string | undefined,
+				body: parsed,
+			});
+			if (state.staleEtag || req.headers["if-match"] !== etag) {
+				state.staleEtag = false;
+				incusError(res, 412, "ETag doesn't match");
+				return;
+			}
+			state.devices = parsed.devices;
+			state.config = parsed.config;
+			state.etagSeq++;
+			respond(res, 200, sync({}));
+		} else if (p === "/1.0/instances/ws-test" && method === "PATCH") {
+			const parsed = JSON.parse(body);
+			state.patches.push(parsed);
+			state.devices = { ...state.devices, ...parsed.devices };
+			state.etagSeq++;
+			respond(res, 200, sync({}));
+		} else if (p === volumePrefix && method === "POST") {
+			const parsed = JSON.parse(body);
+			if (state.failVolumeCreate) {
+				state.failVolumeCreate = false;
+				incusError(res, 500, "lvcreate failed");
+				return;
+			}
+			if (state.volumes.has(parsed.name)) {
+				incusError(res, 409, "Volume by that name already exists");
+				return;
+			}
+			state.createdVolumes.push(parsed.name);
+			state.volumes.set(parsed.name, parsed.config.size);
+			respond(res, 200, sync({}));
+		} else if (p.startsWith(`${volumePrefix}/`) && method === "DELETE") {
+			const name = decodeURIComponent(p.slice(volumePrefix.length + 1));
+			if (!state.volumes.has(name)) {
+				incusError(res, 404, "Storage volume not found");
+				return;
+			}
+			if (Object.values(state.devices).some((d) => d.source === name)) {
+				incusError(res, 400, "The storage volume is still in use");
+				return;
+			}
+			state.deleted.push(name);
+			state.volumes.delete(name);
+			respond(res, 200, sync({}));
+		} else if (p === "/1.0/images/aliases/portikus") {
+			respond(res, 200, sync({ target: "newfingerprint" }));
+		} else if (p === "/1.0/instances/ws-test/rebuild" && method === "POST") {
+			if (state.status !== "Stopped") {
+				incusError(res, 400, "Instance must be stopped to be rebuilt");
+				return;
+			}
+			state.rebuilds.push(JSON.parse(body));
+			state.config = { ...state.config, "volatile.base_image": "newfingerprint" };
+			respond(res, 200, sync({}));
+		} else if (p === "/1.0/instances/ws-test/state" && method === "PUT") {
+			state.status = "Running";
+			respond(res, 200, sync({}));
+		} else if (p === "/1.0/instances/ws-test/state" && method === "GET") {
+			respond(res, 200, sync(runningWithAddress("127.0.0.1")));
+		} else if (p === "/1.0/instances/ws-test/exec") {
+			state.execs.push(JSON.parse(body).command);
+			respond(res, 200, sync({}));
+		} else if (p === "/1.0/instances/ws-test/files") {
+			respond(res, 200, sync({}));
+		} else {
+			incusError(res, 404, `unexpected ${method} ${p}`);
+		}
+	};
+}
+
+const START = {
+	timeoutSeconds: 10,
+	agentToken: AGENT_TOKEN,
+	hostname: "tw7",
+	previewHostSuffix: "preview.portikus.example.edu",
+	timezone: "America/New_York",
+};
+
+test("reset Docker puts back every other device exactly and replaces only the docker volume", async () => {
+	const state = fakeIncus();
+	serveIncus(state);
+	const before = structuredClone(state.devices);
+	const configBefore = structuredClone(state.config);
+
+	await provider.resetDocker("ws-test", { dockerGiB: 30 });
+
+	// The one PUT carries the ETag it read and every device but docker, as read.
+	expect(state.puts).toHaveLength(1);
+	const put = state.puts[0];
+	if (!put) throw new Error("expected a PUT");
+	expect(put.ifMatch).toBe('"e1"');
+	expect(put.body.devices).toEqual({ home: before.home, recovery: before.recovery });
+	expect(put.body.config).toEqual(configBefore);
+	expect(put.body.profiles).toEqual(["workspace"]);
+
+	expect(state.devices.home).toEqual(before.home);
+	expect(state.devices.recovery).toEqual(before.recovery);
+	expect(state.devices.docker).toEqual(before.docker);
+	expect(state.deleted).toEqual(["ws-test-docker"]);
+	expect(state.createdVolumes).toEqual(["ws-test-docker"]);
+	// A new volume picks up the current quota (EPIC-10 risk 9).
+	expect(state.volumes.get("ws-test-docker")).toBe("30GiB");
+	expect(state.volumes.get("ws-test-home")).toBe("25GiB");
+	expect(state.volumes.get("ws-test-recovery")).toBe("3GiB");
+});
+
+test("reset Docker refuses a running instance and changes nothing", async () => {
+	const state = fakeIncus();
+	state.status = "Running";
+	serveIncus(state);
+
+	await expect(
+		provider.resetDocker("ws-test", { dockerGiB: 20 }),
+	).rejects.toBeInstanceOf(InstanceNotStoppedError);
+	expect(state.puts).toHaveLength(0);
+	expect(state.deleted).toHaveLength(0);
+});
+
+test("reset Docker aborts when the home device is missing from what it read", async () => {
+	const state = fakeIncus();
+	const { home: _home, ...rest } = state.devices;
+	state.devices = rest;
+	serveIncus(state);
+
+	await expect(
+		provider.resetDocker("ws-test", { dockerGiB: 20 }),
+	).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+		message: expect.stringContaining("home"),
+	});
+	expect(state.puts).toHaveLength(0);
+	expect(state.deleted).toHaveLength(0);
+	expect(state.createdVolumes).toHaveLength(0);
+});
+
+test("reset Docker never deletes a volume the docker device does not name exactly", async () => {
+	const state = fakeIncus();
+	// Someone pointed the docker device at the home volume.
+	state.devices.docker = disk("ws-test-home", "/var/lib/docker");
+	serveIncus(state);
+
+	await expect(
+		provider.resetDocker("ws-test", { dockerGiB: 20 }),
+	).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+	});
+	expect(state.puts).toHaveLength(0);
+	expect(state.deleted).toHaveLength(0);
+	expect(state.volumes.has("ws-test-home")).toBe(true);
+});
+
+test("a stale ETag stops the reset before any volume is deleted", async () => {
+	const state = fakeIncus();
+	state.staleEtag = true;
+	serveIncus(state);
+
+	await expect(
+		provider.resetDocker("ws-test", { dockerGiB: 20 }),
+	).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+	});
+	expect(state.deleted).toHaveLength(0);
+	expect(Object.keys(state.devices).sort()).toEqual(["docker", "home", "recovery"]);
+});
+
+test("a reset interrupted after the delete finishes when retried", async () => {
+	const state = fakeIncus();
+	const before = structuredClone(state.devices);
+	state.failVolumeCreate = true;
+	serveIncus(state);
+
+	await expect(
+		provider.resetDocker("ws-test", { dockerGiB: 20 }),
+	).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+	});
+	// Half done: device off, old volume gone, no new one yet.
+	expect(state.devices.docker).toBeUndefined();
+	expect(state.volumes.has("ws-test-docker")).toBe(false);
+
+	await provider.resetDocker("ws-test", { dockerGiB: 20 });
+
+	expect(state.devices).toEqual(before);
+	expect(state.volumes.get("ws-test-docker")).toBe("20GiB");
+	// The retry does not PUT again, since there is no device to take off.
+	expect(state.puts).toHaveLength(1);
+	expect(state.deleted).toEqual(["ws-test-docker"]);
+});
+
+test("a reset interrupted after the new volume was made finishes when retried", async () => {
+	const state = fakeIncus();
+	const before = structuredClone(state.devices);
+	serveIncus(state);
+	const original = handler;
+	let failPatch = true;
+	handler = async (req, res) => {
+		if (failPatch && req.method === "PATCH") {
+			failPatch = false;
+			await readBody(req);
+			incusError(res, 500, "device add failed");
+			return;
+		}
+		original(req, res);
+	};
+
+	await expect(
+		provider.resetDocker("ws-test", { dockerGiB: 20 }),
+	).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+	});
+	await provider.resetDocker("ws-test", { dockerGiB: 20 });
+
+	expect(state.devices).toEqual(before);
+	expect(state.volumes.get("ws-test-docker")).toBe("20GiB");
+	expect(state.deleted.every((v) => v === "ws-test-docker")).toBe(true);
+});
+
+test("rebuild sends the image alias, keeps every device, and returns the fingerprint", async () => {
+	const state = fakeIncus();
+	const before = structuredClone(state.devices);
+	serveIncus(state);
+
+	const result = await provider.rebuild("ws-test", {
+		resetDocker: false,
+		dockerGiB: 20,
+	});
+
+	expect(result).toEqual({ imageFingerprint: "newfingerprint" });
+	expect(state.rebuilds).toEqual([{ source: { type: "image", alias: "portikus" } }]);
+	expect(state.devices).toEqual(before);
+	expect(state.deleted).toHaveLength(0);
+	expect(state.puts).toHaveLength(0);
+});
+
+test("rebuild refuses a running instance before asking Incus", async () => {
+	const state = fakeIncus();
+	state.status = "Running";
+	serveIncus(state);
+
+	await expect(
+		provider.rebuild("ws-test", { resetDocker: true, dockerGiB: 20 }),
+	).rejects.toBeInstanceOf(InstanceNotStoppedError);
+	expect(state.rebuilds).toHaveLength(0);
+	expect(state.deleted).toHaveLength(0);
+});
+
+test("rebuild with a Docker reset replaces only the docker volume", async () => {
+	const state = fakeIncus();
+	const before = structuredClone(state.devices);
+	serveIncus(state);
+
+	await provider.rebuild("ws-test", { resetDocker: true, dockerGiB: 20 });
+
+	expect(state.rebuilds).toHaveLength(1);
+	expect(state.deleted).toEqual(["ws-test-docker"]);
+	expect(state.devices).toEqual(before);
+});
+
+test("start gives an old workspace its recovery volume and never creates home", async () => {
+	const state = fakeIncus();
+	const { recovery: _r, ...rest } = state.devices;
+	state.devices = rest;
+	state.volumes.delete("ws-test-recovery");
+	serveIncus(state);
+
+	await provider.start("ws-test", { ...START, recoveryGiB: 3 });
+
+	expect(state.createdVolumes).toEqual(["ws-test-recovery"]);
+	expect(state.volumes.get("ws-test-recovery")).toBe("3GiB");
+	// Added by PATCH, which merges, so nothing else can drop.
+	expect(state.patches).toEqual([
+		{ devices: { recovery: disk("ws-test-recovery", "/var/lib/portikus/recovery") } },
+	]);
+	expect(state.puts).toHaveLength(0);
+	expect(state.execs).toContainEqual([
+		"chown",
+		"1000:1000",
+		"/var/lib/portikus/recovery",
+	]);
+	expect(state.execs).toContainEqual(["chmod", "0700", "/var/lib/portikus/recovery"]);
+});
+
+test("a reset that failed after taking Docker off is put back by the next start", async () => {
+	const state = fakeIncus();
+	const before = structuredClone(state.devices);
+	serveIncus(state);
+	const original = handler;
+	let failDelete = true;
+	handler = async (req, res) => {
+		if (failDelete && req.method === "DELETE") {
+			failDelete = false;
+			await readBody(req);
+			incusError(res, 500, "lvremove failed");
+			return;
+		}
+		original(req, res);
+	};
+
+	await expect(
+		provider.resetDocker("ws-test", { dockerGiB: 20 }),
+	).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+	expect(state.devices.docker).toBeUndefined();
+
+	await provider.start("ws-test", { ...START, dockerGiB: 20, recoveryGiB: 3 });
+
+	expect(state.devices).toEqual(before);
+	// The old volume was never deleted, so it is reused, not recreated.
+	expect(state.createdVolumes).toHaveLength(0);
+	expect(state.patches).toEqual([
+		{ devices: { docker: disk("ws-test-docker", "/var/lib/docker") } },
+	]);
+});
+
+test("a failed Docker re-attach fails the start", async () => {
+	const state = fakeIncus();
+	const { docker: _d, ...rest } = state.devices;
+	state.devices = rest;
+	state.volumes.delete("ws-test-docker");
+	state.failVolumeCreate = true;
+	serveIncus(state);
+
+	await expect(
+		provider.start("ws-test", { ...START, dockerGiB: 20 }),
+	).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+	expect(state.status).toBe("Stopped");
+});
+
+test("start with the Docker device on leaves it alone", async () => {
+	const state = fakeIncus();
+	serveIncus(state);
+
+	await provider.start("ws-test", { ...START, dockerGiB: 20 });
+
+	expect(state.createdVolumes).toHaveLength(0);
+	expect(state.patches).toHaveLength(0);
+});
+
+test("start with the recovery device already on only fixes the mount's owner", async () => {
+	const state = fakeIncus();
+	serveIncus(state);
+
+	await provider.start("ws-test", { ...START, recoveryGiB: 3 });
+
+	expect(state.createdVolumes).toHaveLength(0);
+	expect(state.patches).toHaveLength(0);
+	expect(state.execs).toContainEqual([
+		"chown",
+		"1000:1000",
+		"/var/lib/portikus/recovery",
+	]);
+});
+
+test("a failed recovery attach still starts the workspace", async () => {
+	const state = fakeIncus();
+	const { recovery: _r, ...rest } = state.devices;
+	state.devices = rest;
+	state.volumes.delete("ws-test-recovery");
+	state.failVolumeCreate = true;
+	serveIncus(state);
+
+	const result = await provider.start("ws-test", { ...START, recoveryGiB: 3 });
+
+	expect(result.ipv4).toBe("127.0.0.1");
+	expect(state.status).toBe("Running");
+	expect(state.devices.recovery).toBeUndefined();
+	// No mount to fix, and chown must not run against a missing path.
+	expect(state.execs.some((c) => c[0] === "chown")).toBe(false);
+});
+
+test("a failed chown of the recovery mount still starts the workspace", async () => {
+	const state = fakeIncus();
+	serveIncus(state);
+	const original = handler;
+	handler = async (req, res) => {
+		if (req.url?.includes("/exec")) {
+			const body = await readBody(req);
+			if (JSON.parse(body).command[0] === "chown") {
+				incusError(res, 500, "exec failed");
+				return;
+			}
+			respond(res, 200, sync({}));
+			return;
+		}
+		original(req, res);
+	};
+
+	const result = await provider.start("ws-test", { ...START, recoveryGiB: 3 });
+	expect(result.ipv4).toBe("127.0.0.1");
+});
+
+test("start without a recovery size skips the recovery step entirely", async () => {
+	const state = fakeIncus();
+	const { recovery: _r, ...rest } = state.devices;
+	state.devices = rest;
+	serveIncus(state);
+
+	await provider.start("ws-test", START);
+
+	expect(state.createdVolumes).toHaveLength(0);
+	expect(state.patches).toHaveLength(0);
+	expect(state.execs.some((c) => c[0] === "chown")).toBe(false);
 });

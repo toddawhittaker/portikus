@@ -86,6 +86,7 @@ export function registerWorkspaceRoutes(
 				quota_config: JSON.stringify({
 					homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
 					dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+					recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
 				}),
 			});
 		} catch (err: unknown) {
@@ -174,6 +175,16 @@ export function registerWorkspaceRoutes(
 		const row = await findOwnedWorkspace(db, user, params.data.id);
 		if (!row) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		}
+
+		// Stopping an archived workspace is fine; starting it is not (SPEC.md §20.1).
+		if (desired !== "stopped" && row.archived_at) {
+			return sendError(
+				reply,
+				409,
+				"WORKSPACE_ARCHIVED",
+				"This workspace was archived by an administrator.",
+			);
 		}
 
 		await db
