@@ -284,26 +284,50 @@ lacks "the throttle also catches an encoded post such as /dex/auth/loc%61l/login
 has "the throttle matcher is for POST only" '^[[:space:]]+method POST$' "${app}"
 has "a password post asks the API's sign-in throttle first" \
   "forward_auth @dex_password_post 127\.0\.0\.1:${API_PORT} \{" "${app}"
-has "the throttle is asked at /edge/signin-throttle" \
+# Caddy keeps the client's query when the forward_auth URI has none, so a
+# client could add ?scope=start to a password post.  Every ask names its scope.
+has "the password post is asked at /edge/signin-throttle?scope=password" \
+  '^[[:space:]]+uri /edge/signin-throttle\?scope=password$' "${app}"
+lacks "no throttle ask leaves the client's query in place" \
   '^[[:space:]]+uri /edge/signin-throttle$' "${app}"
 # Dex stores every /dex/auth request for ten minutes, so each one is counted
 # as a sign-in start and what it can store is capped (security review, 12b).
-has "every other /dex/auth request is matched as a sign-in start" \
-  '^[[:space:]]+path /dex/auth\*$' "${app}"
-has "the sign-in start matcher leaves out only the password post" \
-  '^[[:space:]]+not \{$' "${app}"
+has "a GET under /dex/auth is matched as a sign-in start" \
+  '^[[:space:]]+@dex_signin_start \{$' "${app}"
 has "a /dex/auth request asks the throttle as a sign-in start" \
   "forward_auth @dex_signin_start 127\.0\.0\.1:${API_PORT} \{" "${app}"
 has "the sign-in start is asked at /edge/signin-throttle?scope=start" \
   '^[[:space:]]+uri /edge/signin-throttle\?scope=start$' "${app}"
-has "a Dex URI longer than 4096 bytes is refused" \
-  '^[[:space:]]+@dex_long_uri expression \{http\.request\.uri\}\.size\(\) > 4096$' "${app}"
+has "a Dex URI longer than 1024 bytes is refused" \
+  '^[[:space:]]+@dex_long_uri expression \{http\.request\.uri\}\.size\(\) > 1024$' "${app}"
 has "the long-URI refusal is a 414" '^[[:space:]]+respond @dex_long_uri 414$' "${app}"
 has "a Dex request body is capped" '^[[:space:]]+max_size 16KB$' "${app}"
+# Dex reads an auth request from a POST body too, so /dex/auth takes only GET,
+# apart from the password post.
+has "/dex/auth takes other methods only for the password post" \
+  '^[[:space:]]+not method GET$' "${app}"
+has "any other method on /dex/auth is a 405" \
+  '^[[:space:]]+respond @dex_auth_other_method 405$' "${app}"
+# Dex serves more than Portikus uses; POST /dex/device/code stores 16 KB for five
+# minutes with no throttle.  Only the paths the sign-in flow uses get through.
+has "Dex paths Portikus does not use are a 404" \
+  '^[[:space:]]+respond @dex_unused 404$' "${app}"
+dex_allowed="$(grep -E '^[[:space:]]+@dex_unused not path ' "${app}" | head -1)"
+for used in '/dex/auth*' /dex/token /dex/userinfo /dex/keys '/dex/.well-known/*' \
+  '/dex/static/*' '/dex/theme/*' '/dex/callback*'; do
+  case " ${dex_allowed} " in
+    *" ${used} "*) ok "the sign-in flow's ${used} is let through" ;;
+    *) no "the sign-in flow's ${used} is let through" ;;
+  esac
+done
+case " ${dex_allowed} " in
+  "  "|*device*|*" /dex/* "*) no "/dex/device/code is not let through" ;;
+  *) ok "/dex/device/code is not let through" ;;
+esac
 line_of() { grep -n -- "$1" "${app}" | head -1 | cut -d: -f1; }
 dex_proxy_line="$(line_of 'reverse_proxy 127.0.0.1:5556')"
-for step in 'respond @dex_long_uri' 'max_size 16KB' \
-  'forward_auth @dex_password_post' 'forward_auth @dex_signin_start'; do
+for step in 'respond @dex_unused' 'respond @dex_long_uri' 'respond @dex_auth_other_method' \
+  'max_size 16KB' 'forward_auth @dex_password_post' 'forward_auth @dex_signin_start'; do
   step_line="$(line_of "${step}")"
   if [ -n "${step_line}" ] && [ -n "${dex_proxy_line}" ] && [ "${step_line}" -lt "${dex_proxy_line}" ]; then
     ok "${step} runs before the request reaches Dex"

@@ -229,6 +229,24 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 		});
 	});
 
+	test("/edge/signin-throttle counts anything but exactly scope=start as a password attempt", async () => {
+		const ask = (query: string) =>
+			app.inject({
+				url: `/edge/signin-throttle?${query}`,
+				headers: { "x-forwarded-for": "192.0.2.30" },
+			});
+		const queries = [
+			"scope=password",
+			"scope=Start",
+			"scope=start&scope=start",
+			"scope=",
+		];
+		for (let i = 0; i < 30; i += 1) {
+			expect((await ask(queries[i % queries.length] ?? "")).statusCode).toBe(204);
+		}
+		expect((await ask("scope=password")).statusCode).toBe(429);
+	});
+
 	test("/edge/signin-throttle answers only a loopback peer", async () => {
 		const res = await app.inject({
 			url: "/edge/signin-throttle",

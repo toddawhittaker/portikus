@@ -164,8 +164,9 @@ export function registerSigninThrottle(
 			return;
 		}
 		// Caddy has already matched the decoded path, so every ask counts;
-		// matching the raw URI again here let encoded paths by. Caddy adds
-		// scope=start for Dex's other sign-in pages, which each store a request.
+		// matching the raw URI again here let encoded paths by. Caddy sets
+		// scope=start for Dex's sign-in pages, which each store a request, and
+		// scope=password for the password post; anything else counts as a password.
 		// request.ip is the client Caddy named in X-Forwarded-For.
 		const { scope } = request.query as { scope?: string };
 		const decision =
