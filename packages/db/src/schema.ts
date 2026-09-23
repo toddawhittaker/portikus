@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, and 0014_admin
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, and 0015_lti
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -21,6 +21,9 @@ export interface Database {
 	preview_sessions: PreviewSessionsTable;
 	recovery_points: RecoveryPointsTable;
 	health_samples: HealthSamplesTable;
+	lti_login_states: LtiLoginStatesTable;
+	lti_contexts: LtiContextsTable;
+	lti_memberships: LtiMembershipsTable;
 }
 
 export interface UsersTable {
@@ -29,6 +32,7 @@ export interface UsersTable {
 	oidc_subject: string;
 	email: string | null;
 	display_name: string;
+	/** student, instructor, or administrator. */
 	role: string;
 	/** The `preferred_username` claim; the workspace label comes from it. */
 	preferred_username: string | null;
@@ -208,4 +212,32 @@ export interface HealthSamplesTable {
 	observed_at: ColumnType<Date, string | undefined, never>;
 	/** A HealthSample from @portikus/contracts. */
 	sample: ColumnType<Record<string, unknown>, string, never>;
+}
+
+/** Pending LTI third-party logins; `platform_issuer` is the plain issuer, without `lti:`. */
+export interface LtiLoginStatesTable {
+	state_hash: string;
+	nonce: string;
+	platform_issuer: string;
+	client_id: string;
+	expires_at: ColumnType<Date, string, string>;
+}
+
+/** An LMS course (LTI "context"). */
+export interface LtiContextsTable {
+	id: Generated<string>;
+	platform_issuer: string;
+	context_id: string;
+	title: ColumnType<string, string | undefined, string>;
+	platform_name: string;
+	created_at: ColumnType<Date, string | undefined, never>;
+	updated_at: ColumnType<Date, string | undefined, string>;
+}
+
+/** A user's role in one course, refreshed on every launch. */
+export interface LtiMembershipsTable {
+	context_id: string;
+	user_id: string;
+	role: string;
+	last_launch_at: ColumnType<Date, string, string>;
 }
