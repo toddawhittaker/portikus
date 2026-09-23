@@ -116,11 +116,22 @@ async function startHostileAgent(host: string, port = 0): Promise<HostileAgent> 
 	app.get("/projects/:slug/archive", async (_request, reply) =>
 		reply.header("content-type", "application/zip").send(Buffer.alloc(64 * MIB)),
 	);
-	app.post("/forwards", async (request) => ({
-		port: (request.body as { port: number }).port,
-		address: agent.behaviour.forwardAddress,
-		state: "open",
-	}));
+	app.post("/forwards", async (request) => {
+		// A real agent reports the port as forwarded from now on; repeating
+		// "unknown" would undo the registry's record of the forward.
+		const frame = agent.behaviour.listeningFrame;
+		if (frame !== null) {
+			agent.behaviour.listeningFrame = frame.replaceAll(
+				'"previewReachability":"unknown"',
+				'"previewReachability":"forwarded"',
+			);
+		}
+		return {
+			port: (request.body as { port: number }).port,
+			address: agent.behaviour.forwardAddress,
+			state: "open",
+		};
+	});
 	app.get("/terminals/:id/attach", { websocket: true }, (socket) => {
 		if (agent.behaviour.attachFrame !== null) socket.send(agent.behaviour.attachFrame);
 	});
@@ -520,16 +531,23 @@ test.skipIf(skip)(
 		const cookie = (booted.cookies as { name: string; value: string }[]).find(
 			(one) => one.name === "portikus-preview",
 		);
-		const authorized = await app.inject({
-			method: "GET",
-			url: "/preview/authorize",
-			remoteAddress: "127.0.0.1",
-			headers: {
-				"x-forwarded-host": host,
-				"x-forwarded-proto": "https",
-				cookie: `portikus-preview=${cookie?.value}`,
-			},
-		});
+		const authorize = () =>
+			app.inject({
+				method: "GET",
+				url: "/preview/authorize",
+				remoteAddress: "127.0.0.1",
+				headers: {
+					"x-forwarded-host": host,
+					"x-forwarded-proto": "https",
+					cookie: `portikus-preview=${cookie?.value}`,
+				},
+			});
+		// A listening frame sent before the forward opened may still land
+		// after it; the agent's next frame reports the forward again.
+		await expect
+			.poll(async () => (await authorize()).statusCode, { timeout: 5000 })
+			.toBe(200);
+		const authorized = await authorize();
 		expect(authorized.statusCode).toBe(200);
 		expect(authorized.headers["x-portikus-upstream"]).toBe("127.0.0.1:3000");
 	},
