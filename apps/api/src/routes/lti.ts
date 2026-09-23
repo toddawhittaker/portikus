@@ -132,10 +132,15 @@ ${fields}
  * Only a top-level navigation may start a login. Any page can fire an image
  * or fetch at it, and each would add a state cookie until the browser
  * evicts the session cookie. No header means an older browser navigating.
+ * A prefetch or prerender says `document` too, so it is refused by its
+ * purpose header.
  */
 function isNavigation(request: FastifyRequest): boolean {
 	const dest = request.headers["sec-fetch-dest"];
-	return dest === undefined || dest === "document";
+	if (dest !== undefined && dest !== "document") return false;
+	const secPurpose = String(request.headers["sec-purpose"] ?? "");
+	if (secPurpose.includes("prefetch") || secPurpose.includes("prerender")) return false;
+	return request.headers.purpose !== "prefetch";
 }
 
 function isFramed(request: FastifyRequest): boolean {

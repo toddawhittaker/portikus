@@ -676,6 +676,26 @@ describe.skipIf(skip)("login initiation", () => {
 		expect(rows).toEqual([]);
 	});
 
+	test("a prefetch or prerender is refused before any state", async () => {
+		const forms: Record<string, string>[] = [
+			{ "sec-purpose": "prefetch" },
+			{ "sec-purpose": "prefetch;prerender" },
+			{ "sec-purpose": "prefetch;anonymous-client-ip" },
+			{ purpose: "prefetch" },
+		];
+		for (const extra of forms) {
+			const res = await app.inject({
+				url: `/lti/login?${loginQuery}`,
+				headers: { "sec-fetch-dest": "document", ...extra },
+			});
+			expect(res.statusCode).toBe(400);
+			expect(res.headers["content-type"]).toContain("text/html");
+			expect(res.cookies).toEqual([]);
+		}
+		const rows = await testDb.db.selectFrom("lti_login_states").selectAll().execute();
+		expect(rows).toEqual([]);
+	});
+
 	test("a new login clears the oldest state cookies so at most four remain", async () => {
 		const old = ["s1", "s2", "s3", "s4", "s5", "s6"];
 		const res = await app.inject({
