@@ -69,7 +69,7 @@ export async function recoverySweep(
 		let projects: { id: string; slug: string }[] = [];
 		if (rebuilding) {
 			reason = "before-rebuild";
-			projects = await activeProjects(db, ws.id);
+			projects = await activeProjects(db, ws.id, undefined, true);
 		} else if (ws.pending_operation === null) {
 			reason = "periodic";
 			const cutoff = new Date(now.getTime() - config.RECOVERY_INTERVAL_SECONDS * 1000);
@@ -89,13 +89,16 @@ export async function recoverySweep(
 			);
 			if (outcome === "created") created++;
 			if (outcome === "unreachable") {
-				// One timeout is enough: the rest count as tried and wait for the
-				// next sweep, so a hung agent cannot hold a lane for hours.
-				await markChecked(
-					db,
-					projects.slice(i + 1).map((rest) => rest.id),
-					now,
-				);
+				// One timeout per sweep is enough, so a hung agent cannot hold a lane
+				// for hours. A rebuild leaves the rest untried; its query puts them
+				// first next sweep, so each gets a real attempt (SPEC.md §22.3).
+				if (!rebuilding) {
+					await markChecked(
+						db,
+						projects.slice(i + 1).map((rest) => rest.id),
+						now,
+					);
+				}
 				return;
 			}
 		}
@@ -128,6 +131,7 @@ async function activeProjects(
 	db: Kysely<Database>,
 	workspaceId: string,
 	cutoff?: Date,
+	leastRecentFirst = false,
 ): Promise<{ id: string; slug: string }[]> {
 	let query = db
 		.selectFrom("projects")
@@ -141,6 +145,9 @@ async function activeProjects(
 				eb("recovery_checked_at", "<", cutoff),
 			]),
 		);
+	}
+	if (leastRecentFirst) {
+		query = query.orderBy(sql`recovery_checked_at asc nulls first`);
 	}
 	return query.orderBy("created_at").execute();
 }

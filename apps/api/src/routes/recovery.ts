@@ -189,44 +189,50 @@ export function registerRecoveryRoutes(
 		const { scope, project } = found;
 		const agent = requireAgent(scope, reply);
 		if (!agent) return;
-		if (await refusePending(db, scope.workspaceId, reply)) return;
-
-		const latest = await db
-			.selectFrom("recovery_points")
-			.select("created_at")
-			.where("project_id", "=", project.id)
-			.where("reason", "=", "manual")
-			.orderBy("created_at", "desc")
-			.limit(1)
-			.executeTakeFirst();
-		if (latest && Date.now() - latest.created_at.getTime() < MANUAL_POINT_INTERVAL_MS) {
-			return sendError(
-				reply,
-				429,
-				"BUSY",
-				"A recovery point was made moments ago. Wait 30 seconds and try again.",
-			);
-		}
-		if ((await countProjectPoints(db, project.id)) >= MAX_POINTS_PER_PROJECT) {
-			return sendError(
-				reply,
-				409,
-				"BUSY",
-				`This project already has ${MAX_POINTS_PER_PROJECT} recovery points, the most it can keep. Older points expire on their own; try again later.`,
-			);
-		}
-
+		// Claimed before the pending check, so a maintenance request cannot slip
+		// in between them (it holds the same slot while it sets its operation).
 		if (!claimLongOperation(scope.workspaceId, reply)) return;
 		let row: RecoveryPointRow;
 		try {
-			row = await makeRecoveryPoint(db, config, agent, {
-				workspaceId: scope.workspaceId,
-				project,
-				reason: "manual",
-				createdBy: user.id,
-			});
-		} catch (error) {
-			return sendAgentError(reply, error);
+			if (await refusePending(db, scope.workspaceId, reply)) return;
+			const latest = await db
+				.selectFrom("recovery_points")
+				.select("created_at")
+				.where("project_id", "=", project.id)
+				.where("reason", "=", "manual")
+				.orderBy("created_at", "desc")
+				.limit(1)
+				.executeTakeFirst();
+			if (
+				latest &&
+				Date.now() - latest.created_at.getTime() < MANUAL_POINT_INTERVAL_MS
+			) {
+				return sendError(
+					reply,
+					429,
+					"BUSY",
+					"A recovery point was made moments ago. Wait 30 seconds and try again.",
+				);
+			}
+			if ((await countProjectPoints(db, project.id)) >= MAX_POINTS_PER_PROJECT) {
+				return sendError(
+					reply,
+					409,
+					"BUSY",
+					`This project already has ${MAX_POINTS_PER_PROJECT} recovery points, the most it can keep. Older points expire on their own; try again later.`,
+				);
+			}
+
+			try {
+				row = await makeRecoveryPoint(db, config, agent, {
+					workspaceId: scope.workspaceId,
+					project,
+					reason: "manual",
+					createdBy: user.id,
+				});
+			} catch (error) {
+				return sendAgentError(reply, error);
+			}
 		} finally {
 			releaseLongOperation(scope.workspaceId);
 		}
@@ -267,10 +273,10 @@ export function registerRecoveryRoutes(
 			}
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
-			if (await refusePending(db, scope.workspaceId, reply)) return;
-
+			// Claimed before the pending check; see the create route.
 			if (!claimLongOperation(scope.workspaceId, reply)) return;
 			try {
+				if (await refusePending(db, scope.workspaceId, reply)) return;
 				await restore(request, reply, {
 					agent,
 					userId: user.id,
@@ -340,6 +346,14 @@ export function registerRecoveryRoutes(
 					500,
 					"INTERNAL",
 					"Your home folder is full, so nothing was restored. Free some space and try again.",
+				);
+			}
+			if (error.code === "ROLLBACK_COPY_EXISTS") {
+				return sendError(
+					reply,
+					409,
+					"BUSY",
+					`Files set aside by an earlier restore of this point are in the folder ~/projects/.portikus-aside-${point.id}. Copy back anything you need, delete that folder in a terminal, then restore again. You can restore a different point in the meantime.`,
 				);
 			}
 			if (error.code === "RESTORE_INCOMPLETE" && safetyPointId === null) {

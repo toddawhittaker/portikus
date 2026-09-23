@@ -292,6 +292,52 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"a slow project costs a rebuild one timeout per sweep but denies no other project its point",
+	async () => {
+		const pendingAt = new Date(Date.now() - 60_000);
+		const ws = await insertWorkspace({
+			pending_operation: "rebuild",
+			pending_operation_at: pendingAt.toISOString(),
+		});
+		// Created first, so it would come first on every sweep if order were fixed.
+		const slow = await insertProject(ws);
+		const fast: string[] = [];
+		for (let i = 0; i < 5; i++) fast.push(await insertProject(ws));
+		let slowCalls = 0;
+		const slowSlug = (
+			await tdb.db
+				.selectFrom("projects")
+				.select("slug")
+				.where("id", "=", slow)
+				.executeTakeFirstOrThrow()
+		).slug;
+		const mixed: RecoveryAgent = {
+			createRecoveryPoint: async (slug, req) => {
+				if (slug === slowSlug) {
+					slowCalls++;
+					throw new AgentCallError("AGENT_UNAVAILABLE", "timed out");
+				}
+				return agent.createRecoveryPoint(slug, req);
+			},
+			deleteRecoveryPoint: async () => {},
+		};
+
+		await recoverySweep(tdb.db, () => mixed, cfg, new Date());
+		expect(slowCalls).toBe(1);
+		expect(await rebuildPointsDone(tdb.db, ws, pendingAt)).toBe(false);
+
+		for (let sweep = 0; sweep < 5; sweep++) {
+			if (await rebuildPointsDone(tdb.db, ws, pendingAt)) break;
+			await recoverySweep(tdb.db, () => mixed, cfg, new Date());
+		}
+		expect(await rebuildPointsDone(tdb.db, ws, pendingAt)).toBe(true);
+		for (const id of fast) {
+			expect((await points(id)).map((p) => p.reason)).toEqual(["before-rebuild"]);
+		}
+	},
+);
+
 test.skipIf(skip)("point sizes count as whole 4 KiB disk blocks", async () => {
 	const now = new Date();
 	const ws = await insertWorkspace();

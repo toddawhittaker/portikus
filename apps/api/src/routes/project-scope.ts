@@ -81,8 +81,6 @@ export const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>>
 const AGENT_ERROR_MESSAGE: Partial<Record<string, string>> = {
 	RESTORE_INCOMPLETE:
 		"The project may be partly restored. Restore the 'Before restore' point to undo.",
-	ROLLBACK_COPY_EXISTS:
-		"A previous restore's rollback copy is still in the projects folder. Deal with it before restoring again.",
 };
 
 /** Report an agent failure to the browser; anything else is a real error. */

@@ -572,6 +572,14 @@ describe("unreadable directories, changing files, and the point's own rules", ()
 		expect(await readFile(join(aside, "rollback.txt"), "utf8")).toBe("only copy\n");
 	});
 
+	test("an empty aside folder is removed and the restore goes ahead", async () => {
+		const { pointId, file } = await point();
+		const aside = join(paths.homeDir, "projects", `.portikus-aside-${pointId}`);
+		await mkdir(aside);
+		await restore(pointId, file);
+		await expect(lstat(aside)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
 	test("the point's own .workspaceignore decides what a restore keeps", async () => {
 		await writeFile(join(project, ".workspaceignore"), "scratch/\n");
 		const { pointId, file } = await point();

@@ -226,7 +226,11 @@ export async function restoreRecoveryPoint(
 	// These names fail the slug pattern, so project discovery never lists them.
 	const staging = join(projectsDir(paths.homeDir), `${STAGING_PREFIX}${input.pointId}`);
 	const aside = join(projectsDir(paths.homeDir), `${ASIDE_PREFIX}${input.pointId}`);
-	// An aside copy may be the only copy of a failed restore's files.
+	// An aside copy may be the only copy of a failed restore's files. An
+	// empty one holds nothing, and rmdir refuses a folder that is not empty.
+	if (await exists(aside)) {
+		await rmdir(aside).catch(() => undefined);
+	}
 	if (await exists(aside)) {
 		throw new AgentFailure(
 			"ROLLBACK_COPY_EXISTS",
