@@ -100,18 +100,25 @@ test.describe("admin and standalone page accessibility", () => {
 		await expect(page).toHaveTitle("Administration, Portikus", { timeout: 15_000 });
 
 		// Other tests add students with repeated names, so compare two known rows.
-		const table = page.getByTestId("admin-users");
+		// Each row's details button is named after its user (Epic 11).
+		const table = page.getByTestId("admin-accounts");
 		await expect(
-			table.getByRole("button", { name: "Save Carol Admin", exact: true }),
+			table.getByRole("button", { name: "Show details for Carol Admin", exact: true }),
 		).toBeVisible();
+		await table
+			.getByRole("button", { name: "Show details for Alice Student", exact: true })
+			.click();
+
+		// The grace override moved into the detail panel and keeps its names.
+		const panel = page.getByRole("region", { name: "Alice Student" });
 		await expect(
-			table.getByRole("textbox", {
+			panel.getByRole("textbox", {
 				name: "Grace period for Alice Student, in seconds",
 				exact: true,
 			}),
 		).toBeVisible();
 		await expect(
-			table.getByRole("button", { name: "Save Alice Student", exact: true }),
+			panel.getByRole("button", { name: "Save Alice Student", exact: true }),
 		).toBeVisible();
 	});
 
