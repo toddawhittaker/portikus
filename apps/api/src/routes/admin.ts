@@ -55,7 +55,7 @@ const USER_COLUMNS = [
 	"last_login_at",
 ] as const;
 
-/** Shape a users row as the administration pages want it (SPEC.md §5.2). */
+/** The users-row part of an AdminUser; markers and workspace are added by listAdminUsers. */
 function toAdminUser(row: {
 	id: string;
 	display_name: string;
@@ -66,7 +66,7 @@ function toAdminUser(row: {
 	preferred_username: string | null;
 	oidc_issuer: string;
 	last_login_at: Date | null;
-}): AdminUser {
+}): Omit<AdminUser, "markers" | "workspace"> {
 	return {
 		id: row.id,
 		displayName: row.display_name,
@@ -201,8 +201,8 @@ export function registerAdminRoutes(
 		return out;
 	});
 
-	// GET /admin/users -- every account with its markers and workspace (issue #302).
-	app.get("/admin/users", adminOnly, async () => {
+	/** Every account with its markers and workspace (issue #302). */
+	async function listAdminUsers(): Promise<AdminUser[]> {
 		const users = await db
 			.selectFrom("users")
 			.select([...USER_COLUMNS, "created_at"])
@@ -233,7 +233,7 @@ export function registerAdminRoutes(
 			new Date(),
 		);
 
-		const list: AdminUser[] = groupByEmail(users).map((user) => {
+		return groupByEmail(users).map((user) => {
 			const workspace = byOwner.get(user.id);
 			const flag = flags.get(user.id) ?? { duplicateEmail: false, stale: false };
 			return {
@@ -253,6 +253,16 @@ export function registerAdminRoutes(
 					: null,
 			};
 		});
+	}
+
+	/** One account as the list shows it, or null when it does not exist. */
+	async function loadAdminUser(id: string): Promise<AdminUser | null> {
+		return (await listAdminUsers()).find((user) => user.id === id) ?? null;
+	}
+
+	// GET /admin/users -- every account with its markers and workspace (issue #302).
+	app.get("/admin/users", adminOnly, async () => {
+		const list = await listAdminUsers();
 		const body: AdminUserList = { users: list };
 		return body;
 	});
@@ -284,6 +294,32 @@ export function registerAdminRoutes(
 
 		// Every effect and its audit row commit together (SPEC.md §24.11).
 		const updated = await db.transaction().execute(async (trx) => {
+			// Lock every enabled administrator plus the target, so two administrators
+			// disabling each other at once cannot both succeed.
+			const locked = await trx
+				.selectFrom("users")
+				.select(["id", "role", "disabled_at"])
+				.where((eb) =>
+					eb.or([
+						eb("id", "=", id),
+						eb.and([eb("role", "=", "administrator"), eb("disabled_at", "is", null)]),
+					]),
+				)
+				.orderBy("id")
+				.forUpdate()
+				.execute();
+			const target = locked.find((user) => user.id === id);
+			const otherAdmins = locked.filter(
+				(user) =>
+					user.id !== id && user.role === "administrator" && user.disabled_at === null,
+			);
+			if (
+				target?.role === "administrator" &&
+				target.disabled_at === null &&
+				otherAdmins.length === 0
+			) {
+				return null;
+			}
 			const now = new Date().toISOString();
 			const row = await trx
 				.updateTable("users")
@@ -314,7 +350,15 @@ export function registerAdminRoutes(
 				.execute();
 			return row;
 		});
-		return toAdminUser(updated);
+		if (!updated) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"At least one other enabled administrator must remain.",
+			);
+		}
+		return loadAdminUser(updated.id);
 	});
 
 	// POST /admin/users/:id/enable -- sign-in works again; nothing else changes.
@@ -348,7 +392,7 @@ export function registerAdminRoutes(
 		if (!updated) {
 			return sendError(reply, 404, "NOT_FOUND", "User not found");
 		}
-		return toAdminUser(updated);
+		return loadAdminUser(updated.id);
 	});
 
 	// PUT /admin/users/:id/settings -- set or clear one user's override.
@@ -403,6 +447,6 @@ export function registerAdminRoutes(
 			return row;
 		});
 
-		return toAdminUser(updated);
+		return loadAdminUser(updated.id);
 	});
 }

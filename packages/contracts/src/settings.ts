@@ -61,12 +61,12 @@ export const AdminUser = z.object({
 	disabledAt: z.string().datetime().nullable(),
 	/** Per-user override; null means use the platform-wide value. */
 	shutdownGraceSeconds: graceSeconds.nullable(),
-	// Epic 11 (issue #302). Optional until GET /admin/users fills them in.
-	preferredUsername: z.string().nullable().optional(),
-	issuer: z.string().nullable().optional(),
-	lastLoginAt: z.string().datetime().nullable().optional(),
-	markers: AdminAccountMarkers.optional(),
-	workspace: AdminWorkspaceSummary.nullable().optional(),
+	// Epic 11 (issue #302).
+	preferredUsername: z.string().nullable(),
+	issuer: z.string().nullable(),
+	lastLoginAt: z.string().datetime().nullable(),
+	markers: AdminAccountMarkers,
+	workspace: AdminWorkspaceSummary.nullable(),
 });
 export type AdminUser = z.infer<typeof AdminUser>;
 

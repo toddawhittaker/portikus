@@ -3,11 +3,13 @@ import {
 	csrfHeaders,
 	loginAs,
 	type MockOidcProvider,
+	openWorkspaceSocket,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
 import { type HealthSample, QUOTA_SHRINK_MESSAGE } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
@@ -272,12 +274,64 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"an administrator's workspace socket never carries listening services",
+	async () => {
+		await start();
+		await markRunning();
+		agent.listening.set(workspaceId, [
+			{
+				port: 3000,
+				addresses: ["0.0.0.0"],
+				protocolHint: "http",
+				process: { pid: 9, command: "node", commandLine: "node s.js --token=hunter2" },
+				container: { id: "abc", name: "secret-db" },
+				previewReachability: "reachable",
+				system: false,
+				observedAt: new Date().toISOString(),
+			},
+		]);
+		const admin = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+		const owner = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+		// The owner seeing the list proves the registry has it.
+		for (let i = 0; i < 100; i++) {
+			const seen = owner.messages.some(
+				(m) => m.type === "listening-services" && m.services.length > 0,
+			);
+			if (seen) break;
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+		expect(
+			owner.messages.some(
+				(m) => m.type === "listening-services" && m.services.length > 0,
+			),
+		).toBe(true);
+		expect(admin.messages.some((m) => m.type === "listening-services")).toBe(false);
+		const text = JSON.stringify(admin.messages);
+		for (const key of ["commandLine", "hunter2", "secret-db", "pid"]) {
+			expect(text).not.toContain(key);
+		}
+		await admin.close();
+		await owner.close();
+	},
+);
+
 test.skipIf(skip)("a running workspace whose agent is down says so", async () => {
 	await start({ AGENT_PORT: 1 });
 	await markRunning();
 	const body = (await detail()).json();
 	expect(body.agent).toBe("not_answering");
 	expect(body.usage).toBeNull();
+});
+
+test.skipIf(skip)("the detail asks the agent once, through /usage only", async () => {
+	await start();
+	await markRunning();
+	const before = agent.healthHits;
+	const body = (await detail()).json();
+	expect(body.agent).toBe("answering");
+	expect(body.usage).not.toBeNull();
+	expect(agent.healthHits).toBe(before);
 });
 
 test.skipIf(skip)("capabilities turn on once Epic 10's routes exist", async () => {
@@ -408,7 +462,10 @@ test.skipIf(skip)("storage grows, is audited, and shows as pending", async () =>
 	// As the worker records it once the volumes exist.
 	await testDb.db
 		.updateTable("workspaces")
-		.set({ quota_applied: JSON.stringify({ homeGiB: 25, dockerGiB: 20 }) })
+		.set({
+			state: "stopped",
+			quota_applied: JSON.stringify({ homeGiB: 25, dockerGiB: 20 }),
+		})
 		.where("id", "=", workspaceId)
 		.execute();
 	const res = await putQuota({ homeGiB: 40, dockerGiB: 20 });
@@ -437,8 +494,86 @@ test.skipIf(skip)("storage grows, is audited, and shows as pending", async () =>
 	expect(rows).toHaveLength(1);
 });
 
+/** Put the workspace past provisioning with the given stored quota. */
+async function setStoredQuota(quota: Record<string, number>): Promise<void> {
+	await testDb.db
+		.updateTable("workspaces")
+		.set({ state: "stopped", quota_config: JSON.stringify(quota) })
+		.where("id", "=", workspaceId)
+		.execute();
+}
+
+async function storedQuota(): Promise<unknown> {
+	const row = await testDb.db
+		.selectFrom("workspaces")
+		.select("quota_config")
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+	return row.quota_config;
+}
+
+test.skipIf(skip)("a quota change keeps recoveryGiB", async () => {
+	await start();
+	await setStoredQuota({ homeGiB: 25, dockerGiB: 20, recoveryGiB: 10 });
+	const res = await putQuota({ homeGiB: 40, dockerGiB: 20 });
+	expect(res.statusCode).toBe(200);
+	expect(await storedQuota()).toEqual({ homeGiB: 40, dockerGiB: 20, recoveryGiB: 10 });
+});
+
+test.skipIf(skip)(
+	"a quota change is refused while the workspace is provisioning",
+	async () => {
+		await start();
+		const res = await putQuota({ homeGiB: 40, dockerGiB: 20 });
+		expect(res.statusCode).toBe(409);
+		expect(res.json().code).toBe("OPERATION_IN_PROGRESS");
+	},
+);
+
+test.skipIf(skip)(
+	"two administrators changing a quota at once: only one lands",
+	async () => {
+		await start();
+		await setStoredQuota({ homeGiB: 25, dockerGiB: 20 });
+		// Hold the row so both requests read the old sizes and queue on the update.
+		let pending: Promise<Awaited<ReturnType<typeof putQuota>>[]> | undefined;
+		let waited = 0;
+		await testDb.db.transaction().execute(async (trx) => {
+			await sql`select 1 from workspaces where id = ${workspaceId} for update`.execute(
+				trx,
+			);
+			pending = Promise.all([
+				putQuota({ homeGiB: 40, dockerGiB: 20 }),
+				putQuota({ homeGiB: 30, dockerGiB: 20 }),
+			]);
+			for (let i = 0; i < 200; i++) {
+				const waiting = await sql<{ n: number }>`
+					select count(*)::int as n from pg_stat_activity
+					where wait_event_type = 'Lock' and datname = current_database()`.execute(
+					testDb.db,
+				);
+				waited = waiting.rows[0]?.n ?? 0;
+				if (waited === 2) break;
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+		});
+		expect(waited).toBe(2);
+		const results = await (pending as NonNullable<typeof pending>);
+		expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409]);
+		const loser = results.find((r) => r.statusCode === 409);
+		expect(loser?.json().code).toBe("OPERATION_IN_PROGRESS");
+		const rows = (await auditActions()).filter(
+			(r) => r.action === "workspace.quota_updated",
+		);
+		expect(rows).toHaveLength(1);
+		const winner = rows[0]?.metadata as { to: unknown } | undefined;
+		expect(await storedQuota()).toEqual(winner?.to);
+	},
+);
+
 test.skipIf(skip)("storage cannot shrink or pass the cap", async () => {
 	await start();
+	await setStoredQuota({ homeGiB: 25, dockerGiB: 20 });
 	const shrink = await putQuota({ homeGiB: 10, dockerGiB: 20 });
 	expect(shrink.statusCode).toBe(400);
 	expect(shrink.json()).toEqual({

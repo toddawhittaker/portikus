@@ -50,6 +50,9 @@ const ADMIN_ROW = {
 	role: "administrator" as const,
 	disabledAt: null,
 	shutdownGraceSeconds: null,
+	preferredUsername: null,
+	issuer: null,
+	lastLoginAt: null,
 	markers: NONE,
 	workspace: null,
 };

@@ -35,6 +35,8 @@ export async function openPresence(
 			updated_at: now,
 		})
 		.where("id", "=", workspaceId)
+		// An archived workspace stays stopped; a reconnect must not undo the archive.
+		.where("archived_at", "is", null)
 		.execute();
 }
 
@@ -82,7 +84,7 @@ const UpgradeParams = z.object({ id: z.string().uuid() });
 export function workspaceUpgradeGuard(
 	db: Kysely<Database>,
 	config: ApiConfig,
-	options: { ownerOnly: boolean },
+	options: { ownerOnly: boolean; adminSockets?: Map<string, number> },
 ): preHandlerAsyncHookHandler {
 	return async (request, reply) => {
 		const user = requireUser(request);
@@ -100,7 +102,11 @@ export function workspaceUpgradeGuard(
 				.status(404)
 				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
 		}
-		const active = await countActive(db, params.data.id, config);
+		// An administrator's socket is not presence, so it is capped by its own count.
+		const active =
+			options.adminSockets && row.owner_user_id !== user.id
+				? (options.adminSockets.get(params.data.id) ?? 0)
+				: await countActive(db, params.data.id, config);
 		if (active >= MAX_CONNECTIONS_PER_WORKSPACE) {
 			return reply.status(429).send({
 				code: "TOO_MANY_CONNECTIONS",

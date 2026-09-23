@@ -19,6 +19,11 @@ const STUDENT_ROW = {
 	role: "student" as const,
 	disabledAt: null,
 	shutdownGraceSeconds: 30,
+	preferredUsername: null,
+	issuer: null,
+	lastLoginAt: null,
+	markers: { disabled: false, archived: false, duplicateEmail: false, stale: false },
+	workspace: null,
 };
 
 const ADMIN_ROW = {
@@ -28,6 +33,11 @@ const ADMIN_ROW = {
 	role: "administrator" as const,
 	disabledAt: "2026-01-01T00:00:00.000Z",
 	shutdownGraceSeconds: null,
+	preferredUsername: null,
+	issuer: null,
+	lastLoginAt: null,
+	markers: { disabled: true, archived: false, duplicateEmail: false, stale: false },
+	workspace: null,
 };
 
 /** Answers the admin reads; `onWrite` sees every PUT body. */
@@ -375,7 +385,7 @@ test("the Audit tab's filters survive in the address, and bad values are dropped
 	const workspace = "22222222-2222-4222-8222-222222222222";
 
 	const { router } = renderApp(
-		`/admin?tab=audit&workspace=${workspace}&user=not-a-uuid&action=workspace.&before=50`,
+		`/admin?tab=audit&workspace=${workspace}&user=not-a-uuid&action=workspace.`,
 	);
 
 	await screen.findByTestId("page-admin");
@@ -384,6 +394,5 @@ test("the Audit tab's filters survive in the address, and bad values are dropped
 		workspace,
 		user: undefined,
 		action: "workspace.",
-		before: 50,
 	});
 });

@@ -264,3 +264,69 @@ test.skipIf(skip)(
 		await socket.close();
 	},
 );
+
+test.skipIf(skip)("an administrator is capped at sixteen sockets too", async () => {
+	const carol = new CookieJar();
+	await loginAs(app, "carol", carol);
+	const open: OpenSocket[] = [];
+	try {
+		for (let i = 0; i < 16; i += 1) {
+			const socket = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+			await socket.next();
+			open.push(socket);
+		}
+		await expect(
+			openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL),
+		).rejects.toMatchObject({ status: 429 });
+
+		// Closing one frees a slot.
+		await open.pop()?.close();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		const again = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+		await again.next();
+		open.push(again);
+	} finally {
+		for (const socket of open) {
+			await socket.close();
+		}
+	}
+});
+
+async function archive(state: string): Promise<void> {
+	await testDb.db
+		.updateTable("workspaces")
+		.set({ state, desired_state: "stopped", archived_at: new Date().toISOString() })
+		.where("id", "=", workspaceId)
+		.execute();
+}
+
+async function desiredState(): Promise<string> {
+	const row = await testDb.db
+		.selectFrom("workspaces")
+		.select("desired_state")
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+	return row.desired_state;
+}
+
+test.skipIf(skip)(
+	"a reconnect right after archive does not undo the stop",
+	async () => {
+		await archive("running");
+		const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+		await socket.next();
+		expect(await desiredState()).toBe("stopped");
+		await socket.close();
+	},
+);
+
+test.skipIf(skip)(
+	"opening a stopped archived workspace does not start it",
+	async () => {
+		await archive("stopped");
+		const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+		await socket.next();
+		expect(await desiredState()).toBe("stopped");
+		await socket.close();
+	},
+);

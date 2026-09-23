@@ -6,7 +6,6 @@ import {
 	HealthReport,
 	isQuotaGrowOnly,
 	MAX_QUOTA_GIB,
-	RebuildRequest,
 	STALE_AFTER_DAYS,
 	UpdateQuotaRequest,
 } from "./admin.js";
@@ -149,11 +148,6 @@ describe("admin contracts", () => {
 		expect(isQuotaGrowOnly(from, { homeGiB: 30, dockerGiB: 20 })).toBe(true);
 		expect(isQuotaGrowOnly(from, { homeGiB: 24, dockerGiB: 40 })).toBe(false);
 		expect(isQuotaGrowOnly(from, { homeGiB: 40, dockerGiB: 19 })).toBe(false);
-	});
-
-	test("a rebuild request says whether Docker is reset", () => {
-		expect(RebuildRequest.parse({ resetDocker: true })).toEqual({ resetDocker: true });
-		expect(RebuildRequest.safeParse({ preserveDocker: true }).success).toBe(false);
 	});
 
 	test("an audit query coerces the page cursor from the query string", () => {

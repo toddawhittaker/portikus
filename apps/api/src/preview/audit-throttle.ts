@@ -1,7 +1,7 @@
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 
-/** One `preview.denied` row per workspace and reason per this window. */
+/** One `preview.denied` row per workspace, user and reason per this window. */
 export const PREVIEW_DENIED_WINDOW_MS = 60_000;
 
 /** Why the edge check refused a preview request with 403. */
@@ -40,7 +40,7 @@ export function createPreviewDeniedAudit(
 			for (const [key, window] of windows) {
 				if (at - window.startedAt >= PREVIEW_DENIED_WINDOW_MS) windows.delete(key);
 			}
-			const key = `${workspaceId}:${reason}`;
+			const key = `${workspaceId}:${userId}:${reason}`;
 			const open = windows.get(key);
 			if (open) {
 				const id = await open.rowId;

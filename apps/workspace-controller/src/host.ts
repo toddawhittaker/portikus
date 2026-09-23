@@ -170,7 +170,15 @@ export async function growVolumes(
 		const info = (await client.request("GET", path(volume))) as {
 			config?: Record<string, unknown>;
 		};
-		const bytes = parseIncusSize(info.config?.size);
+		const size = info.config?.size;
+		const bytes = parseIncusSize(size);
+		// A size we cannot read might be larger than the request, so do not risk a shrink.
+		if (size !== undefined && size !== "" && bytes === null) {
+			throw new IncusError(
+				"OPERATION_FAILED",
+				`The current size of ${volume} could not be read.`,
+			);
+		}
 		if (bytes !== null && gib * 2 ** 30 < bytes) {
 			throw new IncusError("BAD_REQUEST", "Storage can only be increased.");
 		}

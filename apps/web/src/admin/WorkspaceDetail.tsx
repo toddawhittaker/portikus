@@ -373,7 +373,7 @@ function WorkspaceActions({
 	const quota = useUpdateQuota();
 	const [dialog, setDialog] = useState<DialogName | null>(null);
 	const [preserveDocker, setPreserveDocker] = useState(true);
-	const archived = workspace.archivedAt !== null && workspace.archivedAt !== undefined;
+	const archived = workspace.archivedAt !== null;
 	const note = capabilityNote(capabilities);
 	const noteId = `capability-note-${workspace.id}`;
 

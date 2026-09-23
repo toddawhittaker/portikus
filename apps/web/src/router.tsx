@@ -9,6 +9,7 @@ import {
 	useParams,
 } from "@tanstack/react-router";
 import { ADMIN_TABS, AdminPage } from "./admin/AdminPage.js";
+import { UUID } from "./admin/audit/AuditTab.js";
 import { MIN_PREVIEW_PORT } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
@@ -38,21 +39,13 @@ const notAuthorizedRoute = createRoute({
 	component: NotAuthorized,
 });
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 function safeUuid(value: unknown): string | undefined {
 	return typeof value === "string" && UUID.test(value) ? value : undefined;
 }
 
-/** The Audit tab's keyset paging position: an audit row id. */
-function safeBefore(value: unknown): number | undefined {
-	const id = Number(value);
-	return Number.isSafeInteger(id) && id >= 1 ? id : undefined;
-}
-
 /**
- * `tab` names the admin tab so it can be linked; `workspace`, `user`,
- * `action` and `before` are the Audit tab's filters and page (SPEC.md §24.11).
+ * `tab` names the admin tab so it can be linked; `workspace`, `user` and
+ * `action` are the Audit tab's filters (SPEC.md §24.11).
  */
 const adminRoute = createRoute({
 	getParentRoute: () => rootRoute,
@@ -67,7 +60,6 @@ const adminRoute = createRoute({
 			search.action.length <= 100
 				? search.action
 				: undefined,
-		before: safeBefore(search.before),
 	}),
 	component: AdminPage,
 });

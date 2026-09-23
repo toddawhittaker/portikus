@@ -53,10 +53,8 @@ export function filterAccounts(
 ): AdminUser[] {
 	const needle = filters.text.trim().toLowerCase();
 	return users.filter((user) => {
-		const workspace = user.workspace ?? null;
-		if (!filters.showArchived && (user.markers?.archived || workspace?.archivedAt)) {
-			return false;
-		}
+		const workspace = user.workspace;
+		if (!filters.showArchived && user.markers.archived) return false;
 		if (filters.state === "none" && workspace) return false;
 		if (filters.state !== "all" && filters.state !== "none") {
 			if (workspace?.state !== filters.state) return false;
@@ -286,7 +284,7 @@ function AccountRow({
 	selected: boolean;
 	onSelect: () => void;
 }) {
-	const workspace = user.workspace ?? null;
+	const workspace = user.workspace;
 	const labels = markerLabels(user.markers);
 	return (
 		<tr

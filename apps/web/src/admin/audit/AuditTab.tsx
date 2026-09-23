@@ -5,7 +5,8 @@ import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { type AuditFilters, useAuditPage } from "./queries.js";
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A UUID as the admin links carry it; the router and this tab share it. */
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function text(value: unknown): string {
 	return typeof value === "string" ? value : "";

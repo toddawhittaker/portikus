@@ -18,7 +18,11 @@ function account(
 		role: "student",
 		disabledAt: null,
 		shutdownGraceSeconds: null,
+		preferredUsername: null,
+		issuer: null,
+		lastLoginAt: null,
 		markers,
+		workspace: null,
 	};
 }
 

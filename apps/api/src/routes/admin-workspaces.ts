@@ -129,36 +129,29 @@ export function toWorkspaceSummary(
 	};
 }
 
-/** Does the agent answer `/health` within the probe budget? */
-async function agentAnswers(agent: AgentClient): Promise<boolean> {
-	try {
-		const response = await agent.fetchRaw("GET", "/health", {
-			signal: AbortSignal.timeout(AGENT_PROBE_TIMEOUT_MS),
-		});
-		await response.body?.cancel();
-		return response.ok;
-	} catch {
-		return false;
-	}
-}
-
-/** The agent's usage sample without its process list, or null on any failure. */
-async function liveUsage(agent: AgentClient): Promise<AdminWorkspaceDetail["usage"]> {
+/**
+ * One `/usage` call: a success means the agent answers, and its sample
+ * without the process list is the live usage.
+ */
+async function probeAgent(agent: AgentClient): Promise<{
+	agent: AdminWorkspaceDetail["agent"];
+	usage: AdminWorkspaceDetail["usage"];
+}> {
 	try {
 		const response = await agent.fetchRaw("GET", "/usage", {
 			signal: AbortSignal.timeout(AGENT_PROBE_TIMEOUT_MS),
 		});
 		if (!response.ok) {
 			await response.body?.cancel();
-			return null;
+			return { agent: "not_answering", usage: null };
 		}
 		const parsed = WorkspaceUsage.safeParse(await readJson(response));
-		if (!parsed.success) return null;
+		if (!parsed.success) return { agent: "answering", usage: null };
 		// Aggregates only: the process list stays behind (SPEC.md §20.2).
 		const { cpuPercent, memory, disk } = parsed.data;
-		return { cpuPercent, memory, disk };
+		return { agent: "answering", usage: { cpuPercent, memory, disk } };
 	} catch {
-		return null;
+		return { agent: "not_answering", usage: null };
 	}
 }
 
@@ -248,8 +241,8 @@ export function registerAdminWorkspaceRoutes(
 		let usage: AdminWorkspaceDetail["usage"] = null;
 		if (row.state === "running") {
 			const client = agentClientFor(row, config.AGENT_PORT);
-			agent = client && (await agentAnswers(client)) ? "answering" : "not_answering";
-			if (client && agent === "answering") usage = await liveUsage(client);
+			agent = "not_answering";
+			if (client) ({ agent, usage } = await probeAgent(client));
 		}
 
 		const sessions = await db
@@ -369,19 +362,41 @@ export function registerAdminWorkspaceRoutes(
 		if (!row) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
-		const from = toQuota(row.quota_config) ?? defaults;
+		if (row.state === "provisioning") {
+			return sendError(
+				reply,
+				409,
+				"OPERATION_IN_PROGRESS",
+				"This workspace is still being created. Try again in a moment.",
+			);
+		}
+		const stored = toQuota(row.quota_config);
+		const from = stored
+			? { homeGiB: stored.homeGiB, dockerGiB: stored.dockerGiB }
+			: defaults;
 		const to = body.data;
 		if (!isQuotaGrowOnly(from, to)) {
 			return sendError(reply, 400, "VALIDATION_FAILED", QUOTA_SHRINK_MESSAGE);
 		}
 		if (from.homeGiB !== to.homeGiB || from.dockerGiB !== to.dockerGiB) {
 			const now = new Date().toISOString();
-			await db.transaction().execute(async (trx) => {
-				await trx
+			const changed = await db.transaction().execute(async (trx) => {
+				// Merge, so other keys (Epic 10's recoveryGiB) survive, and land only
+				// if nobody changed the sizes since we read them.
+				const updated = await trx
 					.updateTable("workspaces")
-					.set({ quota_config: JSON.stringify(to), updated_at: now })
+					.set({
+						quota_config: sql`coalesce(quota_config, '{}'::jsonb) || ${JSON.stringify(to)}::jsonb`,
+						updated_at: now,
+					})
 					.where("id", "=", id)
-					.execute();
+					.where(
+						stored
+							? sql<boolean>`quota_config->'homeGiB' = ${String(from.homeGiB)}::jsonb and quota_config->'dockerGiB' = ${String(from.dockerGiB)}::jsonb`
+							: sql<boolean>`quota_config is null`,
+					)
+					.executeTakeFirst();
+				if (Number(updated.numUpdatedRows) === 0) return false;
 				await trx
 					.insertInto("audit_events")
 					.values({
@@ -392,7 +407,16 @@ export function registerAdminWorkspaceRoutes(
 						metadata: JSON.stringify({ from, to }),
 					})
 					.execute();
+				return true;
 			});
+			if (!changed) {
+				return sendError(
+					reply,
+					409,
+					"OPERATION_IN_PROGRESS",
+					"Another administrator changed this quota. Reload and try again.",
+				);
+			}
 		}
 		const updated = (await loadRow(id)) as Record<string, unknown>;
 		return toWorkspace(updated, await countActive(db, id, config), config);

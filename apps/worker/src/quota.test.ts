@@ -147,17 +147,35 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
-	"a new row with nothing applied yet is filled in from quota_config without a grow",
+	"a quota_config that also holds recoveryGiB still grows and records only home and docker",
 	async () => {
 		const ws = await insertWorkspace({
-			config: { homeGiB: 25, dockerGiB: 20 },
-			applied: null,
+			config: { homeGiB: 30, dockerGiB: 20, recoveryGiB: 10 } as Sizes,
+			applied: { homeGiB: 25, dockerGiB: 20 },
+		});
+		const { tick, grows } = build();
+		await tick();
+		await tick();
+		expect(grows().map((c) => c.args)).toEqual([
+			[ws.instance, { homeGiB: 30, dockerGiB: 20 }],
+		]);
+		expect(await applied(ws.id)).toEqual({ homeGiB: 30, dockerGiB: 20 });
+		expect((await audits(ws.id)).map((a) => a.action)).toEqual([
+			"workspace.quota_applied",
+		]);
+	},
+);
+
+test.skipIf(skip)(
+	"a row whose home and docker match is left alone even with recoveryGiB set",
+	async () => {
+		await insertWorkspace({
+			config: { homeGiB: 25, dockerGiB: 20, recoveryGiB: 10 } as Sizes,
+			applied: { homeGiB: 25, dockerGiB: 20 },
 		});
 		const { tick, grows } = build();
 		await tick();
 		expect(grows()).toEqual([]);
-		expect(await applied(ws.id)).toEqual({ homeGiB: 25, dockerGiB: 20 });
-		expect(await audits(ws.id)).toEqual([]);
 	},
 );
 

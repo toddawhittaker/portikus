@@ -257,8 +257,29 @@ test.skipIf(skip)("provisioning -> create -> stopped", async () => {
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
 	expect(ws.image_version).toBe("abc123");
+	expect(ws.quota_config).toEqual({ homeGiB: 25, dockerGiB: 20 });
+	expect(ws.quota_applied).toEqual({ homeGiB: 25, dockerGiB: 20 });
 	expect(fake.calls.some((c) => c.method === "create")).toBe(true);
 });
+
+test.skipIf(skip)(
+	"an archived running workspace is stopped even when it wants to run",
+	async () => {
+		const id = await insertWorkspace({
+			state: "running",
+			desired_state: "running",
+			archived_at: new Date().toISOString(),
+		});
+		await insertConnection(id);
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(fake.calls.some((c) => c.method === "stop")).toBe(true);
+	},
+);
 
 test.skipIf(skip)("create failure -> error with user-terms message", async () => {
 	fake.createResult = new ControllerClientError("STORAGE_FULL", "no space");

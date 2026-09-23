@@ -77,8 +77,8 @@ export class FakeControllerClient implements ControllerClient {
 		instances: [],
 	};
 
-	async hostSnapshot(): Promise<HostSnapshot> {
-		this.calls.push({ method: "hostSnapshot", args: [] });
+	async hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot> {
+		this.calls.push({ method: "hostSnapshot", args: [signal] });
 		if (this.hostResult instanceof Error) throw this.hostResult;
 		return this.hostResult;
 	}

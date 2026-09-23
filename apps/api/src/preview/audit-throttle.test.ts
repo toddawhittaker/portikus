@@ -87,3 +87,16 @@ test.skipIf(skip)("a new minute, reason or workspace starts a new row", async ()
 		[first, "host_mismatch", 1],
 	]);
 });
+
+test.skipIf(skip)("another user's refusal gets its own row and actor", async () => {
+	const audit = createPreviewDeniedAudit(testDb.db, () => 1_000_000);
+	const workspaceId = randomUUID();
+	const alice = randomUUID();
+	const mallory = randomUUID();
+
+	await audit.record({ workspaceId, userId: alice, reason: "not_owner" });
+	await audit.record({ workspaceId, userId: mallory, reason: "not_owner" });
+
+	const rows = await deniedRows();
+	expect(rows.map((row) => row.actor)).toEqual([`user:${alice}`, `user:${mallory}`]);
+});

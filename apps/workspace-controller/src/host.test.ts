@@ -246,6 +246,14 @@ test("grow refuses a shrink before changing either volume", async () => {
 	expect(requests.filter((r) => r.method === "PATCH")).toEqual([]);
 });
 
+test("grow refuses when a current size is set but cannot be read", async () => {
+	volumeRoutes("25GiB", "20 lots");
+	await expect(
+		provider().growVolumes("ws-aaaaaaaaaaaa", { homeGiB: 30, dockerGiB: 30 }),
+	).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+	expect(requests.filter((r) => r.method === "PATCH")).toEqual([]);
+});
+
 test("grow to the current sizes changes nothing", async () => {
 	volumeRoutes("25GiB", "20GiB");
 	await provider().growVolumes("ws-aaaaaaaaaaaa", { homeGiB: 25, dockerGiB: 20 });

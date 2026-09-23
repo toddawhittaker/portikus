@@ -38,7 +38,7 @@ export interface ControllerClient {
 	/** Relay the runtime log level to the controller (ADR 0012). */
 	setLogLevel(level: LogLevel | null): Promise<void>;
 	/** One look at the host for the admin Health tab (SPEC.md §25.6). */
-	hostSnapshot(): Promise<HostSnapshot>;
+	hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot>;
 	/** Grow a workspace's home and Docker volumes; never shrinks (SPEC.md §20.1). */
 	growVolumes(name: string, req: GrowVolumesRequest): Promise<GrowVolumesResponse>;
 }
@@ -92,6 +92,7 @@ export class HttpControllerClient implements ControllerClient {
 		method: string,
 		path: string,
 		body?: unknown,
+		signal?: AbortSignal,
 	): Promise<unknown> {
 		let res: Response;
 		try {
@@ -102,6 +103,7 @@ export class HttpControllerClient implements ControllerClient {
 					...(body !== undefined ? { "Content-Type": "application/json" } : {}),
 				},
 				body: body !== undefined ? JSON.stringify(body) : undefined,
+				signal,
 			});
 		} catch {
 			throw new ControllerClientError("INCUS_UNAVAILABLE", "Controller is unreachable");
@@ -123,8 +125,8 @@ export class HttpControllerClient implements ControllerClient {
 		return json;
 	}
 
-	async hostSnapshot(): Promise<HostSnapshot> {
-		return HostSnapshot.parse(await this.request("GET", "/host"));
+	async hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot> {
+		return HostSnapshot.parse(await this.request("GET", "/host", undefined, signal));
 	}
 
 	async growVolumes(
