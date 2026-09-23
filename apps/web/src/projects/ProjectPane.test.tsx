@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import {
 	FakeWebSocket,
 	json,
@@ -108,15 +108,51 @@ test("a repository offers rename, duplicate, download and archive", async () => 
 });
 
 /** Issue #361: Enter on the download item must start the download itself. */
-test("the zip download is the menu item itself, a link", async () => {
+test("Enter on Download as zip checks the size and then starts the download", async () => {
 	await mount();
+	const click = vi
+		.spyOn(HTMLAnchorElement.prototype, "click")
+		.mockImplementation(() => {});
+	onTestFinished(() => click.mockRestore());
 	openMenu(TODO.id);
 
 	const item = screen.getByRole("menuitem", { name: "Download as zip" });
-	expect(item.tagName).toBe("A");
 	expect(item.getAttribute("data-testid")).toBe("project-download");
-	expect(item.getAttribute("href")).toContain(`/projects/${TODO.id}/`);
-	expect(item.getAttribute("download")).toBe(`${TODO.slug}.zip`);
+	fireEvent.keyDown(item, { key: "Enter" });
+
+	await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+	const link = click.mock.contexts[0] as HTMLAnchorElement;
+	expect(link.getAttribute("href")).toBe(
+		`/workspaces/${WORKSPACE.id}/projects/${TODO.id}/download`,
+	);
+	expect(link.download).toBe(`${TODO.slug}.zip`);
+	const calls = (fetch as unknown as { mock: { calls: [string][] } }).mock.calls;
+	expect(
+		calls.some(([url]) => url.endsWith(`/projects/${TODO.id}/download?path=&check=1`)),
+	).toBe(true);
+});
+
+/** Issue #399: a project over the download cap is explained, not downloaded. */
+test("a project over the download cap shows the limit instead of downloading", async () => {
+	await mount();
+	const click = vi
+		.spyOn(HTMLAnchorElement.prototype, "click")
+		.mockImplementation(() => {});
+	onTestFinished(() => click.mockRestore());
+	stubFetch((url) => {
+		if (url.includes("check=1")) {
+			return json(413, { code: "FILE_TOO_LARGE", message: "too large" });
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	openMenu(TODO.id);
+	fireEvent.click(screen.getByRole("menuitem", { name: "Download as zip" }));
+
+	expect(await screen.findByText("Downloads are limited to 1 GB")).toBeDefined();
+	expect(
+		screen.getByText(/Download a smaller folder, leave out node_modules/),
+	).toBeDefined();
+	expect(click).not.toHaveBeenCalled();
 });
 
 test("a folder that is not a repository offers Initialize Git", async () => {

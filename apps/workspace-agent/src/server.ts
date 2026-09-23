@@ -53,6 +53,7 @@ import { listeningRoutes } from "./listening-route.js";
 import {
 	archiveDir,
 	archiveProject,
+	checkDownloadSize,
 	createProject,
 	deleteProject,
 	duplicateProject,
@@ -82,12 +83,14 @@ const PathQuery = z.object({
 	path: z.string().max(1024).optional(),
 	download: z.string().optional(),
 	upload: z.string().optional(),
+	check: z.string().optional(),
 });
 
 function queryPath(request: FastifyRequest): {
 	path: string;
 	download: boolean;
 	upload: boolean;
+	check: boolean;
 } {
 	const parsed = PathQuery.safeParse(request.query ?? {});
 	if (!parsed.success) {
@@ -97,6 +100,7 @@ function queryPath(request: FastifyRequest): {
 		path: parsed.data.path ?? "",
 		download: parsed.data.download === "1",
 		upload: parsed.data.upload === "1",
+		check: parsed.data.check === "1",
 	};
 }
 
@@ -580,7 +584,16 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			const controller = new AbortController();
 			reply.raw.once("close", () => controller.abort());
 			try {
-				const { path } = queryPath(request);
+				const { path, check } = queryPath(request);
+				if (check) {
+					// Only the size check, so the browser can explain a refusal
+					// before it starts a download (#399).
+					const target = await resolveInProject(options.homeDir, slug, path, {
+						mustExist: true,
+					});
+					await checkDownloadSize(target.path);
+					return reply.code(204).send();
+				}
 				if (path === "") {
 					archive = await archiveProject(slug, options.homeDir, controller.signal);
 				} else {

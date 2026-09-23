@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import websocket from "@fastify/websocket";
 import {
 	CookieJar,
@@ -8,8 +9,9 @@ import {
 } from "@portikus/auth/testing";
 import {
 	MAX_CHECKS_PER_PROJECT,
+	MAX_DOWNLOAD_BYTES,
 	MAX_SEARCH_MATCHES,
-	MAX_UPLOAD_BYTES,
+	ZIP_OVERHEAD_BYTES,
 } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -113,9 +115,16 @@ async function startHostileAgent(host: string, port = 0): Promise<HostileAgent> 
 		return reply.header("content-type", "application/json").send(body);
 	});
 	app.get("/projects/:slug/search", async () => agent.behaviour.search);
-	app.get("/projects/:slug/archive", async (_request, reply) =>
-		reply.header("content-type", "application/zip").send(Buffer.alloc(64 * MIB)),
-	);
+	// An archive that never ends, as an agent lying about the size cap would send.
+	app.get("/projects/:slug/archive", async (_request, reply) => {
+		const chunk = Buffer.alloc(MIB);
+		async function* endless() {
+			for (;;) yield chunk;
+		}
+		return reply
+			.header("content-type", "application/zip")
+			.send(Readable.from(endless()));
+	});
 	app.post("/forwards", async (request) => {
 		// A real agent reports the port as forwarded from now on; repeating
 		// "unknown" would undo the registry's record of the forward.
@@ -588,13 +597,30 @@ test.skipIf(skip)(
 	},
 );
 
-test.fails("KNOWN-VULN #399: a download past the size cap is not relayed in full (SPEC.md §24.1)", async () => {
-	if (skip) throw new Error("needs a test database");
-	const response = await app.inject({
-		method: "GET",
-		url: `/workspaces/${workspaceId}/projects/${projectId}/download`,
-		headers: { cookie: alice.cookieHeader() },
-	});
-	// No download cap is chosen yet; the upload cap stands in for one.
-	expect(response.rawPayload.length).toBeLessThanOrEqual(MAX_UPLOAD_BYTES);
-});
+test.skipIf(skip)(
+	"a download is cut off at the size cap whatever the agent sends (#399, SPEC.md §24.1)",
+	{ timeout: 120_000 },
+	async () => {
+		const address = app.server.address();
+		const port = typeof address === "object" && address ? address.port : 0;
+		const response = await fetch(
+			`http://127.0.0.1:${port}/workspaces/${workspaceId}/projects/${projectId}/download`,
+			{ headers: { cookie: alice.cookieHeader() } },
+		);
+		expect(response.status).toBe(200);
+		// Count the bytes without holding them, then expect the cut.
+		let received = 0;
+		const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+		await expect(
+			(async () => {
+				for (;;) {
+					const { done, value } = await reader.read();
+					if (done) return;
+					received += value.length;
+				}
+			})(),
+		).rejects.toThrow();
+		expect(received).toBeLessThanOrEqual(MAX_DOWNLOAD_BYTES + ZIP_OVERHEAD_BYTES);
+		expect(received).toBeGreaterThan(MAX_DOWNLOAD_BYTES);
+	},
+);

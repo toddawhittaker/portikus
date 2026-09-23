@@ -6,8 +6,8 @@
  */
 import { EmptyState } from "@portikus/ui";
 import { lazy, type ReactNode, Suspense, useEffect } from "react";
+import { DownloadFileButton } from "../files/DownloadFileButton.js";
 import { DIFF_KIND, LETTER, WORD } from "../files/gitStatus.js";
-import { fileDownloadUrl } from "../files/queries.js";
 import { useGitDiff } from "../files/useGitDiff.js";
 
 // Monaco is large, so it is its own chunk and is only fetched when a diff tab
@@ -53,7 +53,6 @@ export function DiffLeaf({
 	}, [visible, refetch]);
 
 	const data = diff.data;
-	const download = fileDownloadUrl(workspaceId, projectId, path);
 
 	function body() {
 		// A failed refresh of a diff already on screen is a banner, not a
@@ -75,13 +74,12 @@ export function DiffLeaf({
 					title={deleted ? "Binary file deleted" : "Binary file changed"}
 					actions={
 						deleted ? undefined : (
-							<a
-								className="pk-file-download"
-								href={download}
-								data-testid={`diff-download-${path}`}
-							>
-								Download
-							</a>
+							<DownloadFileButton
+								workspaceId={workspaceId}
+								projectId={projectId}
+								path={path}
+								testId={`diff-download-${path}`}
+							/>
 						)
 					}
 				>
@@ -97,13 +95,12 @@ export function DiffLeaf({
 					icon="file"
 					title="This diff is too large to show here"
 					actions={
-						<a
-							className="pk-file-download"
-							href={download}
-							data-testid={`diff-download-${path}`}
-						>
-							Download
-						</a>
+						<DownloadFileButton
+							workspaceId={workspaceId}
+							projectId={projectId}
+							path={path}
+							testId={`diff-download-${path}`}
+						/>
 					}
 				>
 					{path} has more changes than the diff view can hold. Switch to Edit above to

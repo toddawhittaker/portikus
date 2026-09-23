@@ -313,7 +313,7 @@ test.describe("projects", () => {
 		await page.goto(workspacePath(student.workspaceId, project.id));
 
 		const downloadPromise = page.waitForEvent("download");
-		// The menu item is a plain link, so the browser streams the zip itself.
+		// After the size check, the browser streams the zip to disk itself.
 		await page.getByTestId(`project-menu-${project.id}`).click();
 		await page.getByTestId("project-download").click();
 		const download = await downloadPromise;
