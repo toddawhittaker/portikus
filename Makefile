@@ -171,3 +171,6 @@ workspace-destroy: ## Destroy a test workspace (NAME=<name>)
 	@test -n "$(NAME)" || { echo "workspace-destroy: NAME is required, e.g. make workspace-destroy NAME=alice"; exit 1; }
 	@test -n "$(VM_IP)" || { echo "workspace-destroy: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	ssh -n deploy@$(VM_IP) bash /var/lib/portikus/incus/workspace.sh destroy $(NAME)
+
+# Fragments that add targets of their own (load test, rebuild exercise).
+-include mk/*.mk

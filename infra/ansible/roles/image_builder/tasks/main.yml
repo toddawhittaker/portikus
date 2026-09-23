@@ -113,3 +113,13 @@
     owner: deploy
     group: deploy
     mode: "0755"
+
+# Every converge brings the VM's copy in step with the repository, so a
+# rebuilt or long-lived VM never runs a stale workspace.sh (Epic 12b B1).
+- name: Sync the Incus helper scripts
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../incus/"
+    dest: /var/lib/portikus/incus/
+    owner: deploy
+    group: deploy
+    mode: "0755"
