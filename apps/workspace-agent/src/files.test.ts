@@ -10,6 +10,7 @@ import {
 	rm,
 	stat,
 	symlink,
+	truncate,
 	writeFile as writeFileFs,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,6 +18,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
 import {
+	MAX_DOWNLOAD_BYTES,
 	MAX_EDITOR_FILE_BYTES,
 	MAX_TREE_ENTRIES,
 	MAX_UPLOAD_BYTES,
@@ -230,6 +232,15 @@ test("a file past the editor limit is refused unless it is a download", async ()
 	expect(download.headers["content-disposition"]).toBe(
 		"attachment; filename=\"big.txt\"; filename*=UTF-8''big.txt",
 	);
+});
+
+test("a file past the download cap is refused before any byte is sent (#399)", async () => {
+	// A sparse file has the apparent size without using the disk.
+	await writeFileFs(join(project, "huge.bin"), "");
+	await truncate(join(project, "huge.bin"), MAX_DOWNLOAD_BYTES + 1);
+	const download = await readFile("huge.bin", "&download=1");
+	expect(download.statusCode).toBe(413);
+	expect(download.json().error.code).toBe("FILE_TOO_LARGE");
 });
 
 test("reading a directory is a bad request and a missing file is a 404", async () => {

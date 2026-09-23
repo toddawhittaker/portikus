@@ -1,13 +1,15 @@
 import { basename } from "node:path";
-import { Readable, Transform } from "node:stream";
+import { pipeline, Readable, Transform } from "node:stream";
 import {
 	contentDisposition,
+	MAX_DOWNLOAD_BYTES,
 	MAX_UPLOAD_BYTES,
 	MkdirRequest,
 	MoveRequest,
 	ProjectPath,
 	TreeResponse,
 	WriteFileResponse,
+	ZIP_OVERHEAD_BYTES,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { AGENT_TIMEOUT_MS, readAgentError, readJson } from "../agent-client.js";
@@ -27,6 +29,31 @@ function headersDeadline() {
 		abort: () => controller.abort(),
 		clear: () => clearTimeout(timer),
 	};
+}
+
+/** The most bytes the API relays for one download, whatever the agent sends (#399). */
+export const DOWNLOAD_RELAY_LIMIT = MAX_DOWNLOAD_BYTES + ZIP_OVERHEAD_BYTES;
+
+/**
+ * A download body cut off at DOWNLOAD_RELAY_LIMIT. The agent refuses a
+ * download over the cap before sending anything, so only a misbehaving
+ * agent reaches this; the browser then sees a failed download (#399).
+ */
+export function cappedDownload(body: ReadableStream<Uint8Array>): Readable {
+	let sent = 0;
+	const counter = new Transform({
+		transform(chunk: Buffer, _encoding, done) {
+			sent += chunk.length;
+			if (sent > DOWNLOAD_RELAY_LIMIT) {
+				done(new Error("download passed the size cap"));
+				return;
+			}
+			done(null, chunk);
+		},
+	});
+	// pipeline tears down the agent's stream too, so the fetch is cancelled.
+	pipeline(Readable.fromWeb(body as never), counter, () => {});
+	return counter;
 }
 
 /**
@@ -165,6 +192,15 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 			// with (issue #157, SPEC.md §13.5).
 			reply.header("cache-control", "no-transform");
 			const length = response.headers.get("content-length");
+			if (Number(length) > DOWNLOAD_RELAY_LIMIT) {
+				await response.body.cancel();
+				return sendError(
+					reply,
+					413,
+					"FILE_TOO_LARGE",
+					"That file is larger than the download limit.",
+				);
+			}
 			if (length) reply.header("content-length", length);
 			if (download) {
 				// The name comes from the path the student asked for, quoted and
@@ -172,7 +208,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 				reply.header("content-disposition", contentDisposition(basename(path)));
 			}
 			reply.type(pinnedType(response.headers.get("content-type")));
-			return reply.send(Readable.fromWeb(response.body as never));
+			return reply.send(cappedDownload(response.body));
 		});
 
 		// PUT file -- a conditional write, streamed through (SPEC.md §13.5). It

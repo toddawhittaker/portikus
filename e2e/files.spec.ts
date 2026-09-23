@@ -195,19 +195,17 @@ test.describe("file tree", () => {
 		);
 	});
 
-	test("a file's download link points at the download route", async ({
-		page,
-		context,
-	}) => {
+	test("a file's Download item saves the file", async ({ page, context }) => {
 		const student = await createStudent(context);
-		const project = await openProject(page, student.workspaceId, "Downloads");
+		await openProject(page, student.workspaceId, "Downloads");
 
 		await page.getByTestId("file-menu-README.md").click();
+		const downloadPromise = page.waitForEvent("download");
+		await page.getByTestId("row-download-README.md").click();
+		const download = await downloadPromise;
 
-		await expect(page.getByTestId("row-download-README.md")).toHaveAttribute(
-			"href",
-			`/workspaces/${student.workspaceId}/projects/${project.id}/file?path=README.md&download=1`,
-		);
+		expect(download.suggestedFilename()).toBe("README.md");
+		expect(download.url()).toContain("/file?path=README.md&download=1");
 	});
 
 	test("a full tab strip still opens another file (issue #240)", async ({

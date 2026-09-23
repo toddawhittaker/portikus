@@ -1,7 +1,15 @@
 import { ToastProvider } from "@portikus/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store.js";
 import { json, project, stubFetch, WORKSPACE } from "../test-utils.js";
@@ -69,6 +77,7 @@ beforeEach(() => {
 		if (init?.method === "DELETE") return json(204, null);
 		if (url.includes("/terminals")) return json(200, { terminals: [] });
 		if (url.includes("/git/status")) return json(200, gitStatus);
+		if (url.includes("check=1")) return new Response(null, { status: 204 });
 		if (url.includes("/tree?path=src")) return json(200, SRC);
 		if (url.includes("/tree?path=")) return json(200, ROOT);
 		throw new Error(`unexpected request: ${url}`);
@@ -477,16 +486,23 @@ describe("the file tree", () => {
 		expect(field.selectionEnd).toBe("README.md".length);
 	});
 
-	it("offers a download link for each file", async () => {
+	it("downloads a file from its menu after the size check (#399)", async () => {
 		renderPane();
+		const click = vi
+			.spyOn(HTMLAnchorElement.prototype, "click")
+			.mockImplementation(() => {});
+		onTestFinished(() => click.mockRestore());
 		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {
 			key: "Enter",
 		});
+		fireEvent.click(await screen.findByTestId("row-download-README.md"));
 
-		const link = await screen.findByTestId("row-download-README.md");
+		await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+		const link = click.mock.contexts[0] as HTMLAnchorElement;
 		expect(link.getAttribute("href")).toBe(
 			`/workspaces/${WORKSPACE.id}/projects/${PROJECT.id}/file?path=README.md&download=1`,
 		);
+		expect(link.download).toBe("README.md");
 	});
 
 	/** Issue #361: Show hidden is a menu item, so the keyboard can reach it. */

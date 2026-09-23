@@ -7,9 +7,12 @@ import {
 	MenuRoot,
 	MenuSeparator,
 	MenuTrigger,
+	useToast,
 } from "@portikus/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { downloadErrorToast } from "../files/errors.js";
+import { downloadCheckUrl, startDownload } from "../files/queries.js";
 import { RecoveryDialog } from "../recovery/RecoveryDialog.js";
 import { ArchiveConfirm } from "./ArchiveConfirm.js";
 import { type CreateMode, CreateProjectDialog } from "./CreateProjectDialog.js";
@@ -48,6 +51,7 @@ export function ProjectPane({
 	const gitInit = useGitInitProject(workspaceId);
 	const unarchive = useUnarchiveProject(workspaceId);
 	const [open, setOpen] = useState<Open>({ kind: "none" });
+	const toast = useToast();
 	const [showArchived, setShowArchived] = useState(false);
 
 	const projects = active.data ?? [];
@@ -57,6 +61,14 @@ export function ProjectPane({
 			to: "/workspaces/$id/projects/$projectId",
 			params: { id: workspaceId, projectId: project.id },
 		});
+	}
+
+	function download(project: Project) {
+		startDownload(
+			projectDownloadUrl(workspaceId, project.id),
+			downloadCheckUrl(workspaceId, project.id, ""),
+			`${project.slug}.zip`,
+		).catch((error: unknown) => toast.show(downloadErrorToast(error)));
 	}
 
 	/** After a project leaves the list, move off it if it was the one in view. */
@@ -154,10 +166,10 @@ export function ProjectPane({
 												>
 													<span data-testid="project-duplicate">Duplicate…</span>
 												</MenuItem>
-												{/* The item is the link, so Enter downloads (issue #361). */}
+												{/* Selecting the item, by click or Enter, starts the download
+												    after the size check (issues #361, #399). */}
 												<MenuItem
-													href={projectDownloadUrl(workspaceId, project.id)}
-													download={`${project.slug}.zip`}
+													onSelect={() => download(project)}
 													testId="project-download"
 												>
 													Download as zip

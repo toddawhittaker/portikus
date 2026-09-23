@@ -11,6 +11,7 @@ import {
 	type GitDiff,
 	type GitStatus,
 	GitStatusQuery,
+	MAX_DOWNLOAD_BYTES,
 	MAX_EDITOR_FILE_BYTES,
 	MAX_UPLOAD_BYTES,
 	ProjectPath,
@@ -136,7 +137,10 @@ export interface FakeStorage {
 }
 
 /** One entry of the fake filesystem. Paths are `<slug>/<path inside it>`. */
-export type FakeNode = { type: "file"; content: Buffer } | { type: "dir" };
+/** `apparentSize` stands in for a file too large to hold, for the download cap. */
+export type FakeNode =
+	| { type: "file"; content: Buffer; apparentSize?: number }
+	| { type: "dir" };
 
 /** CRC-32 of a buffer, which a zip entry header must carry. */
 function crc32(data: Buffer): number {
@@ -713,8 +717,28 @@ export async function startFakeAgent(
 	app.get("/projects/:slug/archive", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
 		if (!dirs(request).has(slug)) return projectNotFound(reply);
-		const path = (request.query as { path?: string }).path ?? "";
-		if (path !== "" && fsOf(request).get(nodeKey(slug, path))?.type !== "dir") {
+		const query = request.query as { path?: string; check?: string };
+		const path = query.path ?? "";
+		const key = nodeKey(slug, path);
+		const tree = fsOf(request);
+		if (path !== "" && !tree.has(key)) {
+			return fileError(reply, new FakeFileError("FILE_NOT_FOUND", "no such file"));
+		}
+		// The same size check as the real agent, before any zipping (#399).
+		let total = 0;
+		for (const [name, node] of tree) {
+			if ((name === key || name.startsWith(`${key}/`)) && node.type === "file") {
+				total += node.apparentSize ?? node.content.length;
+			}
+		}
+		if (total > MAX_DOWNLOAD_BYTES) {
+			return fileError(
+				reply,
+				new FakeFileError("FILE_TOO_LARGE", "that download is over the size limit"),
+			);
+		}
+		if (query.check === "1") return reply.status(204).send();
+		if (path !== "" && tree.get(key)?.type !== "dir") {
 			return fileError(reply, new FakeFileError("FILE_NOT_FOUND", "no such directory"));
 		}
 		const name = path === "" ? slug : path.split("/").slice(-1)[0];
@@ -1347,7 +1371,12 @@ export async function startFakeAgent(
 	// Test-only hooks for the filesystem. The path carries the project slug,
 	// so seeding is the same shape as the map key.
 	app.post("/__test/files", async (request, reply) => {
-		const body = request.body as { key?: string; path: string; content: string };
+		const body = request.body as {
+			key?: string;
+			path: string;
+			content: string;
+			apparentSize?: number;
+		};
 		const tree = filesForKey(body.key ?? "");
 		const [slug, ...rest] = body.path.split("/");
 		if (!slug || rest.length === 0) {
@@ -1356,7 +1385,11 @@ export async function startFakeAgent(
 				.send({ error: { code: "PATH_INVALID", message: "need <slug>/<path>" } });
 		}
 		addParents(tree, slug, rest.join("/"));
-		tree.set(body.path, { type: "file", content: Buffer.from(body.content, "utf8") });
+		tree.set(body.path, {
+			type: "file",
+			content: Buffer.from(body.content, "utf8"),
+			...(body.apparentSize === undefined ? {} : { apparentSize: body.apparentSize }),
+		});
 		noteFsChange(body.key ?? "", slug, [rest.join("/")]);
 		return reply.status(204).send();
 	});
