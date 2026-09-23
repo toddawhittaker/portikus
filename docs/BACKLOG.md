@@ -397,19 +397,6 @@ with the rate-limiting work already in this backlog. Half a day.
 
 **Source.** Security review of Epic 7.
 
-## Keep `fake-agent.ts` out of the deployed build
-
-**What.** Exclude the test fake agent from the Debian package.
-
-**Why.** It ships today as dead code in the published package. It is not
-reachable, but a test double does not belong on a production machine.
-
-**What it would take.** Move it under a test directory the build excludes,
-or exclude the file in the package's file list, and assert its absence in
-the package test. An hour.
-
-**Source.** `docs/STATUS.md`, Epic 7.
-
 ## Short object id for a detached HEAD
 
 **What.** Show the short commit id when the repository is on a detached
@@ -700,6 +687,92 @@ fetch metadata at all once every supported browser sends it. Half a day
 of research, then a day to build.
 
 **Source.** Epic 8 security review; `docs/STATUS.md`, Epic 8 known gaps.
+
+## Zip-slip tests for archive extraction
+
+**What.** Traversal tests for any code path that extracts an archive a
+student provides, checking that an entry named like `../../etc/passwd`
+or an absolute path cannot write outside the intended directory.
+
+**Why.** Epic 12a's filesystem escape suite covers every path a student
+can name directly, but nothing in the platform extracts an archive
+today, so there was nothing to point the tests at. Epic 10's recovery
+restore is expected to add the first such path.
+
+**What it would take.** Once Epic 10 lands an extraction routine, add
+traversal and symlink cases to its test suite, following the pattern in
+`apps/workspace-agent/src/security/path-escape.test.ts`. Half a day.
+
+**Source.** `docs/EPIC-12A.md`, decisions; `docs/STATUS.md`, Epic 12a.
+
+## Optional content-length on downloads
+
+**What.** Send a `Content-Length` header on a project, folder, or file
+download when its size is already known, instead of always chunking.
+
+**Why.** Streaming a zip through a pipe means the size is not known in
+advance, but a single file, or a zip written to a temporary file first,
+does have a known size, and a known length lets a browser show a
+progress bar and lets a client detect a truncated download.
+
+**What it would take.** Send the header when the size is available and
+fall back to chunked transfer otherwise. About half a day, after
+deciding whether it is worth a special case for the single-file path.
+
+**Source.** `docs/STATUS.md`, Epic 12a (PR #440, the temporary-file zip).
+
+## Group the security harness's connection lines by workspace
+
+**What.** In the VM security suite's before-and-after snapshot, list each
+other workspace's presence and other live connections together under
+that workspace, instead of as one flat count.
+
+**Why.** The snapshot already proves nothing changed, but a flat count
+makes a failure harder to read: an operator has to guess which
+workspace's connections moved.
+
+**What it would take.** Group the snapshot's connection lines by
+workspace id when building the fingerprint and the diff. About half a
+day, in `infra/tests/security/lib.sh`.
+
+**Source.** `docs/STATUS.md`, Epic 12a (PR #440).
+
+## A run lock for the security suite across machines
+
+**What.** `make security-test` already refuses to run twice from one
+machine at once. Extend the lock so two different machines running it
+against the same VM at the same time are also refused, rather than
+relying on the live-process check alone.
+
+**Why.** The current lock is a local `flock` plus a check that no
+`/tmp/portikus-sectest-<id>` directory has a live process on the VM. That
+check works today, but it depends on process liveness rather than an
+explicit lock the VM itself holds, so a race at the moment a run starts
+is still conceivable.
+
+**What it would take.** A lock file or advisory row taken on the VM
+itself at the start of a run, checked before minting any user. About half
+a day.
+
+**Source.** `docs/EPIC-12A.md`, "Rules for the VM suite"; `docs/STATUS.md`,
+Epic 12a (PR #440).
+
+## Epic 12b — load, backup and restore, rebuild, deployment docs, threat model
+
+**What.** The second half of SPEC.md section 29 Epic 12: concurrent-
+workspace load tests, backup and restore, the destructive infrastructure
+rebuild exercise, deployment documentation, and the threat-model review.
+
+**Why.** Epic 12a covered the tests of code that already exists. This is
+the operational half, and SPEC.md section 30's remaining milestone
+conditions depend on it.
+
+**What it would take.** See SPEC.md section 29, Epic 12, for the
+estimate and acceptance criteria; `docs/EPIC-12A.md` scopes it out of
+Epic 12a explicitly.
+
+**Source.** `docs/SPEC.md` section 29; `docs/EPIC-12A.md`, "Where this
+epic sits" and "Out of this epic".
 
 ## A shared point-insert helper for the API and the worker
 

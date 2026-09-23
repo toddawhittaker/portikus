@@ -796,9 +796,12 @@ export function registerProjectRoutes(
 		if (!claimLongOperation(scope.workspaceId, reply)) return;
 		const release = () => releaseLongOperation(scope.workspaceId);
 
+		// A browser that gives up must not leave the agent zipping.
+		const cancel = new AbortController();
+		reply.raw.once("close", () => cancel.abort());
 		let upstream: Response;
 		try {
-			upstream = await agent.downloadProject(row.slug, subPath);
+			upstream = await agent.downloadProject(row.slug, subPath, cancel.signal);
 		} catch (error) {
 			release();
 			return sendAgentError(reply, error);

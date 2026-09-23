@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { FastifyInstance, InjectOptions } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { removeStaleTemporaries } from "./projects.js";
+import { archiveDir, removeStaleTemporaries } from "./projects.js";
 import { buildServer } from "./server.js";
 
 const run = promisify(execFile);
@@ -489,6 +489,65 @@ test.skipIf(!haveZip)("archive streams a zip that unzip accepts", async () => {
 	await rm(archive, { force: true });
 });
 
+test.skipIf(!haveZip)("a finished archive leaves no temporary zip behind", async () => {
+	const tempBase = await mkdtemp(join(tmpdir(), "portikus-archive-base-"));
+	const alpha = join(projectsRoot, "alpha");
+	await mkdir(alpha, { recursive: true });
+	await writeFile(join(alpha, "file.txt"), "content\n");
+	try {
+		const stream = await archiveDir(alpha, new AbortController().signal, tempBase);
+		for await (const _chunk of stream) {
+			// Drain it, as a download would.
+		}
+		// The removal runs on close without being awaited, so poll for it.
+		await expect.poll(() => readdir(tempBase)).toEqual([]);
+	} finally {
+		await rm(tempBase, { recursive: true, force: true });
+	}
+});
+
+test("an aborted archive kills zip and leaves no temporary zip behind", async () => {
+	const tempBase = await mkdtemp(join(tmpdir(), "portikus-archive-base-"));
+	const fakeBin = await mkdtemp(join(tmpdir(), "portikus-fakebin-"));
+	// A zip that takes far longer than any test, and records its process id.
+	const pidFile = join(fakeBin, "pid");
+	await writeFile(
+		join(fakeBin, "zip"),
+		`#!/bin/sh\necho $$ > ${pidFile}\nexec sleep 60\n`,
+		{
+			mode: 0o755,
+		},
+	);
+	const alpha = join(projectsRoot, "alpha");
+	await mkdir(alpha, { recursive: true });
+	const realPath = process.env.PATH;
+	process.env.PATH = `${fakeBin}:${realPath}`;
+	try {
+		const controller = new AbortController();
+		const pending = archiveDir(alpha, controller.signal, tempBase).catch((e) => e);
+		await expect.poll(() => readFile(pidFile, "utf8").catch(() => "")).not.toBe("");
+		expect(await readdir(tempBase)).toHaveLength(1);
+		controller.abort();
+		expect(await pending).toBeInstanceOf(Error);
+		expect(await readdir(tempBase)).toEqual([]);
+		const pid = Number((await readFile(pidFile, "utf8")).trim());
+		await expect
+			.poll(() => {
+				try {
+					process.kill(pid, 0);
+					return true;
+				} catch {
+					return false;
+				}
+			})
+			.toBe(false);
+	} finally {
+		process.env.PATH = realPath;
+		await rm(fakeBin, { recursive: true, force: true });
+		await rm(tempBase, { recursive: true, force: true });
+	}
+});
+
 test("archiving a project that does not exist is a 404", async () => {
 	const response = await app.inject({
 		method: "GET",
@@ -571,7 +630,7 @@ test("the agent survives an image with no zip installed", async () => {
 			headers: auth(),
 		});
 		expect(response.statusCode).toBe(500);
-		expect(response.json().error.code).toBe("GIT_FAILED");
+		expect(response.json().error.code).toBe("INTERNAL");
 	} finally {
 		process.env.PATH = realPath;
 		await rm(emptyBin, { recursive: true, force: true });

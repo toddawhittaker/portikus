@@ -154,6 +154,8 @@ export function registerCheckRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		"/workspaces/:id/projects/:pid/checks/:checkId/runs/current",
 		{
 			websocket: true,
+			// A HEAD twin would reach the socket handler and crash (issue #402).
+			exposeHeadRoute: false,
 			preHandler: [
 				workspaceUpgradeGuard(db, config, { ownerOnly: true }),
 				async (request, reply) => {

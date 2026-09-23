@@ -52,8 +52,11 @@ export const AGENT_RECOVERY_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 /** Most bytes the API will buffer from an agent JSON body. */
 const AGENT_JSON_LIMIT_BYTES = 1024 * 1024;
 
-/** How long the agent has to send response headers for a download. */
-const AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS = 5000;
+/**
+ * How long the agent has to send response headers for a download. The agent
+ * zips the whole project before its headers go out, so this is minutes.
+ */
+export const AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * The control plane's side of the workspace agent API (ADR 0009, SPEC.md §9.7).
@@ -234,11 +237,16 @@ export class AgentClient {
 	}
 
 	/**
-	 * The upstream zip response, still streaming. The agent gets a short budget
-	 * to send headers; once bytes are flowing there is no further cap, because
-	 * archiving a large project legitimately takes a while.
+	 * The upstream zip response, still streaming. The agent builds the zip
+	 * before it sends headers, so the header budget is long; once bytes are
+	 * flowing there is no further cap. Aborting `cancel` drops the upstream
+	 * request, which makes the agent stop zipping.
 	 */
-	async downloadProject(slug: string, relPath = ""): Promise<Response> {
+	async downloadProject(
+		slug: string,
+		relPath = "",
+		cancel?: AbortSignal,
+	): Promise<Response> {
 		const controller = new AbortController();
 		const headersTimer = setTimeout(
 			() => controller.abort(),
@@ -252,7 +260,9 @@ export class AgentClient {
 				{
 					method: "GET",
 					headers: { authorization: this.authHeader() },
-					signal: controller.signal,
+					signal: cancel
+						? AbortSignal.any([controller.signal, cancel])
+						: controller.signal,
 					redirect: "manual",
 				},
 			);

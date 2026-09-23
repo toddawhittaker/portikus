@@ -43,6 +43,11 @@ export interface FakeAgent {
 			institutionalEnv?: Record<string, string>;
 		}
 	>;
+	/**
+	 * Every request the agent routes received, token or not, in order. The
+	 * /__test hooks are left out, since the agent proper never sees them.
+	 */
+	readonly requests: Array<{ method: string; url: string }>;
 	/** Bodies of POST /terminals, in order, so a test can see what was forwarded. */
 	readonly creates: Array<Record<string, unknown>>;
 	/** What the next create answers for the review baseline (SPEC.md §10.9). */
@@ -318,6 +323,7 @@ export async function startFakeAgent(
 		}
 	>();
 	const creates: Array<Record<string, unknown>> = [];
+	const requests: Array<{ method: string; url: string }> = [];
 	let baselineReply: { baselineObjectId: string | null; baselineHead: string | null } =
 		{
 			baselineObjectId: null,
@@ -538,6 +544,7 @@ export async function startFakeAgent(
 		// The /__test hooks exist only on the fake and need no token, so an
 		// end-to-end test can seed a directory the way a student would.
 		if (request.url.startsWith("/__test/")) return;
+		requests.push({ method: request.method, url: request.url });
 		if (!authorized(request)) {
 			return reply
 				.status(401)
@@ -1875,6 +1882,7 @@ export async function startFakeAgent(
 		},
 		terminals,
 		creates,
+		requests,
 		get baselineReply() {
 			return baselineReply;
 		},

@@ -168,6 +168,18 @@ test.skipIf(!haveTmux)("every route needs the bearer token", async () => {
 	expect(ok.json()).toEqual({ ok: true });
 });
 
+test.skipIf(!haveTmux)("a refused POST /terminals creates no terminal", async () => {
+	const id = makeId();
+	const refused = await app.inject({
+		method: "POST",
+		url: "/terminals",
+		headers: auth("b".repeat(64)),
+		payload: { id, cwd: homeDir, theme: "dark", timezone: "America/New_York" },
+	});
+	expect(refused.statusCode).toBe(401);
+	expect(await hasSession(id, SOCKET_NAME)).toBe(false);
+});
+
 test.skipIf(!haveTmux)("the upgrade is rejected without a valid token", async () => {
 	const id = makeId();
 	const created = await app.inject({
@@ -481,6 +493,15 @@ test("PUT /log-level needs the token and a known level", async () => {
 			payload: { level: "debug" },
 		});
 		expect(noToken.statusCode).toBe(401);
+		expect(logger.level).toBe("info");
+
+		const wrongToken = await server.inject({
+			method: "PUT",
+			url: "/log-level",
+			headers: auth("b".repeat(64)),
+			payload: { level: "debug" },
+		});
+		expect(wrongToken.statusCode).toBe(401);
 		expect(logger.level).toBe("info");
 
 		const bad = await server.inject({

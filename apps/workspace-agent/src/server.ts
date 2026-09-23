@@ -51,7 +51,6 @@ import {
 } from "./listening.js";
 import { listeningRoutes } from "./listening-route.js";
 import {
-	type ArchiveProcess,
 	archiveDir,
 	archiveProject,
 	createProject,
@@ -219,8 +218,9 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// is buffered (SPEC.md §9.7).
 	app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
-	// Every route, the upgrade included, needs the token (SPEC.md §23.5).
-	app.addHook("preHandler", tokenAuth(options.tokenPath));
+	// Every route, the upgrade included, needs the token (SPEC.md §23.5). It
+	// runs on request, so a caller without it never gets a body parsed.
+	app.addHook("onRequest", tokenAuth(options.tokenPath));
 
 	// A refused upgrade is answered over a socket Fastify does not track, so
 	// close it here or shutdown waits for it forever.
@@ -575,36 +575,25 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 
 		instance.get("/projects/:slug/archive", async (request, reply) => {
 			const { slug } = request.params as { slug: string };
-			let child: ArchiveProcess;
+			let archive: Readable;
+			// A download the browser gave up on must not leave zip running.
+			const controller = new AbortController();
+			reply.raw.once("close", () => controller.abort());
 			try {
 				const { path } = queryPath(request);
 				if (path === "") {
-					child = await archiveProject(slug, options.homeDir);
+					archive = await archiveProject(slug, options.homeDir, controller.signal);
 				} else {
 					const target = await resolveInProject(options.homeDir, slug, path, {
 						mustExist: true,
 					});
-					child = await archiveDir(target.path);
+					archive = await archiveDir(target.path, controller.signal);
 				}
 			} catch (error) {
 				return sendError(request, reply, error, "INTERNAL");
 			}
 			request.log.debug({ slug, operation: "archive" }, "project operation");
-			// zip's messages name student files, so they are drained, never logged (ADR 0012).
-			child.stderr.resume();
-			// The process is already running, so the response is on its way;
-			// a late failure ends the stream rather than the agent.
-			child.on("error", (error: NodeJS.ErrnoException) => {
-				request.log.error({ slug, errorCode: error.code }, "project archive failed");
-				child.stdout.destroy(new Error("zip failed"));
-			});
-			child.on("close", (code) => {
-				if (code !== 0) {
-					request.log.error({ slug, code }, "project archive failed");
-					child.stdout.destroy(new Error("zip failed"));
-				}
-			});
-			return reply.type("application/zip").send(child.stdout);
+			return reply.type("application/zip").send(archive);
 		});
 
 		registerGitRoutes(instance, { homeDir: options.homeDir });

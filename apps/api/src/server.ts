@@ -109,23 +109,42 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	// One megabyte is the largest frame a browser may send us (SPEC.md §9.7).
 	app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
-	app.get("/health", () => {
-		const body: HealthResponse = {
-			status: "ok",
-			service: "api",
-			uptimeSeconds: process.uptime(),
-		};
-		return HealthResponse.parse(body);
-	});
-
 	// Never let a driver or runtime message reach the client (SPEC.md §24, §27).
 	app.setErrorHandler((error, request, reply) => {
+		// Fastify's own client errors (too large, bad JSON, wrong type) keep
+		// their 4xx status; they are the caller's fault, not ours (issue #401).
+		const status = (error as { statusCode?: unknown }).statusCode;
+		const code = (error as { code?: unknown }).code;
+		if (
+			typeof status === "number" &&
+			status >= 400 &&
+			status < 500 &&
+			typeof code === "string" &&
+			code.startsWith("FST_")
+		) {
+			request.log.info({ code }, "request refused by fastify");
+			const body: ApiError = {
+				code: "VALIDATION_FAILED",
+				message:
+					status === 413
+						? "The request body is too large."
+						: "The request was not valid.",
+			};
+			reply.status(status).send(body);
+			return;
+		}
 		request.log.error({ err: error }, "unhandled request error");
 		const body: ApiError = {
 			code: "INTERNAL",
 			message: "An unexpected error occurred. Please try again.",
 		};
 		reply.status(500).send(body);
+	});
+
+	// Unmatched routes answer in the same shape as every other error.
+	app.setNotFoundHandler((_request, reply) => {
+		const body: ApiError = { code: "NOT_FOUND", message: "Not found." };
+		reply.status(404).send(body);
 	});
 
 	// One websocket per running workspace tells the control plane what is
@@ -143,7 +162,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	const routeDeps = { ...deps, registry };
 
+	// Every route lives inside this plugin, so an onRoute hook added after
+	// buildServer returns still sees all of them (authz-matrix.test.ts).
 	app.register(async (instance) => {
+		instance.get("/health", () => {
+			const body: HealthResponse = {
+				status: "ok",
+				service: "api",
+				uptimeSeconds: process.uptime(),
+			};
+			return HealthResponse.parse(body);
+		});
 		registerAuthRoutes(instance, deps);
 		registerWorkspaceRoutes(instance, deps);
 		registerWorkspaceSocket(instance, routeDeps);
