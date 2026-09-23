@@ -504,6 +504,16 @@ importers:
         specifier: 24.9.2
         version: 24.9.2
 
+  packages/mock-lms:
+    dependencies:
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
+    devDependencies:
+      '@types/node':
+        specifier: 24.9.2
+        version: 24.9.2
+
   packages/observability:
     dependencies:
       '@portikus/contracts':

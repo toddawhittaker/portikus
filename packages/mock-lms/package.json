@@ -1,0 +1,17 @@
+{
+	"name": "@portikus/mock-lms",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc -b",
+		"build": "tsc -b",
+		"start": "tsc -b && node dist/main.js"
+	},
+	"dependencies": {
+		"jose": "6.2.12"
+	},
+	"devDependencies": {
+		"@types/node": "24.9.2"
+	}
+}
