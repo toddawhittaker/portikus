@@ -276,6 +276,11 @@ has "Dex keeps the /dex prefix and listens on loopback" \
   '^[[:space:]]+reverse_proxy 127\.0\.0\.1:5556$' "${app}"
 has "only password form posts are matched for the throttle" \
   '^[[:space:]]+path /dex/auth/local/login\*$' "${app}"
+# Caddy matches a path pattern without escapes against the decoded path, so
+# POST /dex/auth/loc%61l/login is caught too.  A % in the pattern would switch
+# Caddy to matching the raw path and let encoded spellings past.
+lacks "the throttle also catches an encoded post such as /dex/auth/loc%61l/login" \
+  '^[[:space:]]+path /dex/.*%' "${app}"
 has "the throttle matcher is for POST only" '^[[:space:]]+method POST$' "${app}"
 has "a password post asks the API's sign-in throttle first" \
   "forward_auth @dex_password_post 127\.0\.0\.1:${API_PORT} \{" "${app}"

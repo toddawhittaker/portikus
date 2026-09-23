@@ -242,8 +242,8 @@ Part A lands first, and it can be deployed to the pilot on its own.
   - Code: `apps/api/src/signin-throttle.ts`, registered as a plugin in `server.ts` with an `onRequest` hook.
   - Covered:
     - `GET /auth/login` and `GET /auth/callback`: 60 per minute per address.
-    - Dex password form posts: 30 per 10 minutes per address, and 300 per 10 minutes in total. The total protects the VM's CPU from bcrypt checks.
-  - How Dex's posts are covered: Caddy adds a `forward_auth` in front of `POST /dex/auth/local/login*`, pointing at the API's new loopback-only route `GET /edge/signin-throttle`. The route answers 204, or 429.
+    - Dex password form posts: 30 per 10 minutes per address, and 300 per 10 minutes in total. The total protects the VM's CPU from bcrypt checks. Only attempts the per-address limit lets through count toward the total, so one address cannot lock out the class.
+  - How Dex's posts are covered: Caddy adds a `forward_auth` in front of `POST /dex/auth/local/login*`, pointing at the API's new loopback-only route `GET /edge/signin-throttle`. The route answers 204, or 429. Caddy matches the decoded path, so the API counts every check it is asked and does not match the URI again.
     - Caddy never proxies `/edge*` on the public site, the same way `/preview/authorize` works today.
   - The client address comes from `request.ip`. `trustProxy` is already `127.0.0.1`, and `publish-vm` only rewrites the destination, so LAN addresses reach the VM unchanged.
   - A refusal:
@@ -485,7 +485,7 @@ Once security-reviewer and code-reviewer have reviewed Part A, the orchestrator 
 
 Two interfaces are fixed here so tasks can build against each other without waiting:
 
-- `GET /edge/signin-throttle` answers 204 or 429 and reads `X-Forwarded-For` and `X-Forwarded-Uri`.
+- `GET /edge/signin-throttle` answers 204 or 429 and reads `X-Forwarded-For`; it counts every check, since Caddy already matched the path.
 - The carry-over input JSON has the shape `{toIssuer, fromIssuers[], users[{email, username, userId}]}`, and the command's flags are `--input <path>` and `--apply`.
 
 ### A6 procedure, out of class hours

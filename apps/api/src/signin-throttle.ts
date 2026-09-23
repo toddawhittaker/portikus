@@ -15,7 +15,6 @@ const TEN_MINUTES_MS = 10 * MINUTE_MS;
 const PASSWORD_TOTAL_FACTOR = 10;
 /** The path Caddy asks about for Dex's password form. */
 export const EDGE_THROTTLE_PATH = "/edge/signin-throttle";
-const PASSWORD_FORM_PREFIX = "/dex/auth/local/login";
 const START_ROUTES = new Set(["/auth/login", "/auth/callback"]);
 
 export interface ThrottleDecision {
@@ -93,11 +92,11 @@ export function createSigninThrottle(options: {
 		},
 		checkPassword(ip: string): ThrottleDecision {
 			const window = passwords.hit(ip);
+			if (window.count > passwords.limit) return decide(window, true);
+			// Only attempts the address limit let through count class-wide, so
+			// one address cannot use up everyone's allowance.
 			const total = allPasswords.hit("all");
-			return decide(
-				window,
-				window.count > passwords.limit || total.count > allPasswords.limit,
-			);
+			return decide(window, total.count > allPasswords.limit);
 		},
 	};
 }
@@ -105,10 +104,6 @@ export function createSigninThrottle(options: {
 function fromLoopback(request: FastifyRequest): boolean {
 	const address = request.raw.socket.remoteAddress ?? "";
 	return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
-}
-
-function headerValue(value: string | string[] | undefined): string {
-	return (Array.isArray(value) ? value[0] : value) ?? "";
 }
 
 /**
@@ -168,14 +163,13 @@ export function registerSigninThrottle(
 			await reply.status(403).send(body);
 			return;
 		}
-		const uri = headerValue(request.headers["x-forwarded-uri"]);
-		if (uri.startsWith(PASSWORD_FORM_PREFIX)) {
-			// request.ip is the client Caddy named in X-Forwarded-For.
-			const decision = throttle.checkPassword(request.ip);
-			if (!decision.allowed) {
-				await refuse(request, reply, decision, "password");
-				return;
-			}
+		// Caddy asks only for password posts, matched on the decoded path, so
+		// every ask counts. Matching the raw URI again here let encoded paths by.
+		// request.ip is the client Caddy named in X-Forwarded-For.
+		const decision = throttle.checkPassword(request.ip);
+		if (!decision.allowed) {
+			await refuse(request, reply, decision, "password");
+			return;
 		}
 		await reply.status(204).send();
 	});

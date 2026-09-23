@@ -74,6 +74,12 @@ describe("createSigninThrottle", () => {
 		});
 	});
 
+	test("one address making 400 password attempts does not stop another address", () => {
+		const { throttle } = fixture();
+		for (let i = 0; i < 400; i += 1) throttle.checkPassword("198.51.100.1");
+		expect(throttle.checkPassword("198.51.100.2").allowed).toBe(true);
+	});
+
 	test("password attempts and sign-in starts are counted apart", () => {
 		const { throttle } = fixture();
 		for (let i = 0; i < 30; i += 1) throttle.checkPassword("198.51.100.1");
@@ -178,11 +184,21 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 		expect(rows[0]?.metadata).toMatchObject({ ip: "192.0.2.10", scope: "password" });
 	});
 
-	test("/edge/signin-throttle does not count a URI outside the password form", async () => {
-		for (let i = 0; i < 40; i += 1) {
-			expect((await edgeCheck("192.0.2.10", "/dex/auth")).statusCode).toBe(204);
+	test("/edge/signin-throttle counts every check, even with an encoded password-form URI", async () => {
+		// Caddy matched the decoded path already; the raw URI can differ.
+		for (let i = 0; i < 30; i += 1) {
+			const uri = i % 2 ? "/dex/auth/loc%61l/login?state=x" : "/dex/auth/%6cocal/login";
+			expect((await edgeCheck("192.0.2.10", uri)).statusCode).toBe(204);
 		}
-		expect((await edgeCheck("192.0.2.10")).statusCode).toBe(204);
+		expect((await edgeCheck("192.0.2.10", "/dex/auth/loc%61l/login")).statusCode).toBe(
+			429,
+		);
+		expect((await edgeCheck("192.0.2.10")).statusCode).toBe(429);
+	});
+
+	test("/edge/signin-throttle: one address's 400 checks do not lock out another", async () => {
+		for (let i = 0; i < 400; i += 1) await edgeCheck("192.0.2.10");
+		expect((await edgeCheck("192.0.2.11")).statusCode).toBe(204);
 	});
 
 	test("/edge/signin-throttle answers only a loopback peer", async () => {

@@ -170,6 +170,8 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# lockout, so every password form post first asks the API's sign-in
 	# throttle (#398); a 429 goes back to the browser unchanged.
 	handle /dex/* {
+		# No % in the pattern: Caddy then matches the decoded path, which
+		# also catches encoded spellings such as /dex/auth/loc%61l/login.
 		@dex_password_post {
 			method POST
 			path /dex/auth/local/login*
