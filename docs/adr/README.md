@@ -46,5 +46,7 @@ has four sections:
 | [0015](0015-editor-stack.md) | Editor stack: bundled Monaco and react-markdown (in force again: 0017 was reversed) |
 | [0016](0016-automatic-task-merges-with-epic-level-review.md) | Automatic task merges with epic-level review |
 | [0017](0017-rich-markdown-editor.md) | Rich Markdown editing with MDXEditor (reversed by issue #218) |
+| [0018](0018-preview-deployment-shape-upstream-and-iframe-policy.md) | Preview deployment shape, Caddy upstream resolution, and iframe policy |
+| [0019](0019-session-baseline.md) | Session baseline is a dangling git stash object |
 | [0020](0020-recovery-archives-on-a-recovery-volume.md) | Recovery archives live on a recovery volume, made by the workspace agent |
 | [0021](0021-workspace-maintenance-operations.md) | Reset Docker and Rebuild are pending operations the worker drives |
