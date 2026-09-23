@@ -3,7 +3,7 @@
 
 .PHONY: help install check typecheck lint format test test-coverage build test-e2e dev clean \
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
-       publish-vm unpublish-vm \
+       publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy
 
 help: ## Show the available targets
@@ -45,7 +45,64 @@ clean: ## Remove build output
 
 # ── Infrastructure targets (STACK.md section 31) ─────────────────
 
-TOFU_DIR := infra/tofu/environments/dev-libvirt
+# TOFU_ENV picks the OpenTofu environment: dev-libvirt is the live pilot,
+# rehearsal-libvirt the throwaway VM beside it (docs/EPIC-12B.md).
+TOFU_ENV ?= dev-libvirt
+TOFU_DIR := infra/tofu/environments/$(TOFU_ENV)
+
+# The rehearsal state lives outside the repository so every worktree shares it.
+REHEARSAL_STATE ?= $(HOME)/.local/state/portikus/rehearsal-libvirt/terraform.tfstate
+REHEARSAL_SSH_KEY ?= $(HOME)/.ssh/id_ed25519.pub
+REHEARSAL_VCPUS ?= 12
+REHEARSAL_MEMORY_MB ?= 24576
+
+ifeq ($(TOFU_ENV),dev-libvirt)
+TOFU_STATE := $(TOFU_DIR)/terraform.tfstate
+TOFU_INIT_ARGS :=
+else ifeq ($(TOFU_ENV),rehearsal-libvirt)
+TOFU_STATE := $(REHEARSAL_STATE)
+TOFU_INIT_ARGS := -backend-config=path=$(REHEARSAL_STATE)
+export TF_VAR_ssh_public_key := $(shell cat $(REHEARSAL_SSH_KEY) 2>/dev/null)
+export TF_VAR_vcpus := $(REHEARSAL_VCPUS)
+export TF_VAR_memory_mb := $(REHEARSAL_MEMORY_MB)
+else
+$(error TOFU_ENV must be dev-libvirt or rehearsal-libvirt, not '$(TOFU_ENV)')
+endif
+
+# Read straight from the state file, so no `tofu init` is needed to learn them.
+tofu_output = $(shell python3 -c 'import json, sys; v = json.load(open(sys.argv[1]))["outputs"][sys.argv[2]]["value"]; print(v[0] if isinstance(v, list) else v)' '$(TOFU_STATE)' $(1) 2>/dev/null)
+TOFU_VM_NAME = $(shell python3 -c 'import json, sys; print(next(r["instances"][0]["attributes"]["name"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == "libvirt_domain"))' '$(TOFU_STATE)' 2>/dev/null)
+
+# First recipe line of every OpenTofu target: name the VM, and never let a
+# non-pilot environment act on a state file that holds the pilot.
+TOFU_BANNER = @echo "$@: OpenTofu environment $(TOFU_ENV), state $(TOFU_STATE), VM '$(or $(TOFU_VM_NAME),<none yet>)'"; \
+	test "$(TOFU_ENV)" = dev-libvirt || test "$(TOFU_VM_NAME)" != portikus || { echo "$@: that state holds the pilot VM; refusing"; exit 1; }
+
+rehearsal-up: ## Create the rehearsal VM beside the pilot and wait for first boot (REHEARSAL_VCPUS, REHEARSAL_MEMORY_MB size it)
+	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt rehearsal-preflight infra-apply wait-vm
+
+rehearsal-destroy: ## Destroy the rehearsal VM, its disks, network and pool (never the pilot)
+	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt tofu-destroy
+
+# Refuses to start the VM when the host lacks its memory; a running VM is fine.
+rehearsal-preflight:
+	@test "$(TOFU_ENV)" = rehearsal-libvirt || { echo "rehearsal-preflight: TOFU_ENV must be rehearsal-libvirt"; exit 1; }
+	@test -n "$(TF_VAR_ssh_public_key)" || { echo "rehearsal-preflight: no SSH public key at $(REHEARSAL_SSH_KEY); set REHEARSAL_SSH_KEY=<file>"; exit 1; }
+	@mkdir -p "$(dir $(REHEARSAL_STATE))"
+	@if [ "$$(virsh -c qemu:///system domstate portikus-rehearsal 2>/dev/null)" = running ]; then \
+		echo "rehearsal-preflight: portikus-rehearsal is already running"; \
+	else \
+		avail=$$(free -m | awk '/^Mem:/ {print $$7}'); \
+		if [ "$$avail" -lt $(REHEARSAL_MEMORY_MB) ]; then \
+			echo "rehearsal-preflight: the host has $$avail MiB available, less than the VM's $(REHEARSAL_MEMORY_MB) MiB; lower REHEARSAL_MEMORY_MB or free memory"; exit 1; \
+		fi; \
+		echo "rehearsal-preflight: $$avail MiB available for a $(REHEARSAL_MEMORY_MB) MiB VM"; \
+	fi
+
+# Only rehearsal-destroy and destroy-pilot call this; each fixes TOFU_ENV.
+tofu-destroy:
+	$(TOFU_BANNER)
+	cd $(TOFU_DIR) && tofu init -input=false $(TOFU_INIT_ARGS) && tofu destroy
 
 # Mirrors the "Infrastructure checks" job in .github/workflows/ci.yml.
 infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansible-lint, shellcheck
@@ -53,7 +110,9 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 		command -v $$t >/dev/null || { echo "infra-check: $$t is not installed (see docs/WORKFLOW.md, Local development)"; exit 1; }; \
 	done
 	tofu fmt -check -recursive infra/tofu
-	cd $(TOFU_DIR) && tofu init -backend=false -input=false >/dev/null && tofu validate
+	for env in dev-libvirt rehearsal-libvirt; do \
+		(cd infra/tofu/environments/$$env && tofu init -backend=false -input=false >/dev/null && tofu validate) || exit 1; \
+	done
 	ansible-galaxy collection install --force -r infra/ansible/requirements.yml
 	ansible-lint infra/ansible
 	find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/*
@@ -66,14 +125,16 @@ bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, 
 	bash infra/host/dev-libvirt/bootstrap.sh
 
 infra-plan: ## Show what OpenTofu would change in the platform VM
-	cd $(TOFU_DIR) && tofu init -input=false && tofu plan
+	$(TOFU_BANNER)
+	cd $(TOFU_DIR) && tofu init -input=false $(TOFU_INIT_ARGS) && tofu plan
 
-infra-apply: ## Create or update the platform VM and disks
-	cd $(TOFU_DIR) && tofu init -input=false && tofu apply
+infra-apply: ## Create or update the platform VM and disks (TOFU_ENV=rehearsal-libvirt for the rehearsal VM)
+	$(TOFU_BANNER)
+	cd $(TOFU_DIR) && tofu init -input=false $(TOFU_INIT_ARGS) && tofu apply
 
 # The VM address comes from OpenTofu state; override with VM_IP=<ip>.
-VM_IP ?= $(shell cd $(TOFU_DIR) 2>/dev/null && tofu output -json vm_ip 2>/dev/null | python3 -c 'import json,sys; print((json.load(sys.stdin) or [""])[0])')
-MANAGEMENT_CIDR ?= $(shell cd $(TOFU_DIR) 2>/dev/null && tofu output -raw management_cidr 2>/dev/null)
+VM_IP ?= $(call tofu_output,vm_ip)
+MANAGEMENT_CIDR ?= $(call tofu_output,management_cidr)
 
 # The host's own LAN address, taken from its default route.
 HOST_IP ?= $(shell ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($$i == "src") { print $$(i + 1); exit }}')
@@ -125,12 +186,14 @@ security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an ear
 		PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
 		bash infra/tests/security-test.sh $(VM_IP) $(if $(SWEEP),--sweep,)
 
-destroy-pilot: ## Destroy the platform VM (irreversible)
-	cd $(TOFU_DIR) && tofu destroy
+destroy-pilot: ## Destroy the pilot VM (irreversible)
+	@test "$(TOFU_ENV)" = dev-libvirt || { echo "destroy-pilot: acts on the pilot only; use make rehearsal-destroy for the rehearsal VM"; exit 1; }
+	@$(MAKE) --no-print-directory TOFU_ENV=dev-libvirt tofu-destroy
 
 rebuild-pilot: destroy-pilot infra-apply configure-vm publish-vm ## Destroy and recreate the platform VM
 
 publish-vm: ## Forward port 8443 from the host's LAN address to the VM (rerun after a rebuild)
+	@test "$(TOFU_ENV)" = dev-libvirt || { echo "publish-vm: only the pilot is published; port 8443 belongs to it, not to $(TOFU_ENV)"; exit 1; }
 	@test -n "$(VM_IP)" || { echo "publish-vm: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	bash infra/host/publish-vm.sh $(VM_IP)
 
