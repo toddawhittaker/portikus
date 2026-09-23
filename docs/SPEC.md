@@ -297,11 +297,11 @@ Authorization may be based on:
 P0 roles:
 
 - `student`;
+- `instructor` (added by Epic 13: a student's rights plus a read-only Course page; never any administrator route);
 - `administrator`.
 
 P2 roles may include:
 
-- `instructor`;
 - `developer`;
 - `support`.
 
@@ -2948,6 +2948,24 @@ Acceptance:
 - rebuild-from-code exercise passes;
 - backup restore passes;
 - pilot concurrency target is tested.
+
+### Epic 13 — LTI 1.3 launch and an instructor role
+
+See `docs/EPIC-13.md` for the working brief and rulings, and `docs/adr/0025-lti-launch.md` for the design; landed on `epic/13-lti-launch`.
+
+Includes:
+
+- LTI 1.3 core resource-link launch (third-party login, id_token validation, state and nonce);
+- LMS platforms registered in an operator file applied by Ansible;
+- the `instructor` role, from LTI or from the Dex users file;
+- a read-only Course page for instructors;
+- a mock LMS on the operator's host for trying and testing launches.
+
+Acceptance:
+
+- a student and an instructor launched from a registered LMS land in their own workspace with no second password;
+- every invalid launch is refused with its own reason code;
+- an instructor is refused on every administrator route and cannot reach another user's workspace.
 
 ### Estimated total
 

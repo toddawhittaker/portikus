@@ -1,6 +1,6 @@
 # Epic 13: LTI 1.3 launch and an instructor role
 
-This is the working brief for Epic 13. SPEC.md section 29 does not list an Epic 13 yet; the docs task (T7) adds the entry. Until then, this file is the requirement an agent implements against. Where this file is silent, `docs/SPEC.md` wins on behavior and `docs/STACK.md` wins on technology.
+This is the working brief for Epic 13. SPEC.md section 29 lists Epic 13 and points here; this file is the requirement an agent implements against. Rulings marked "amended after review" were changed by the epic-level reviews; ADR 0025 describes the final behaviour. Where this file is silent, `docs/SPEC.md` wins on behavior and `docs/STACK.md` wins on technology.
 
 - **Base commit:** `main` at `ed17115`.
 - **Epic branch:** `epic/13-lti-launch`. Builders reset to `origin/epic/13-lti-launch` and branch `task/13-<name>` from it.
@@ -54,10 +54,10 @@ Rulings 1 to 11 were made by the orchestrator. Rulings from 12 on were made in t
 
 4. **Roles.**
    - A new platform role, `instructor`.
-   - LTI membership roles `Instructor`, `TeachingAssistant` or `ContentDeveloper` map to `instructor`. `Learner` maps to `student`. Anything else maps to `student`.
-   - An institution-level `Administrator` role maps to `instructor`. **LTI never grants `administrator`.**
+   - `instructor` comes only from the LIS membership vocabulary: `Instructor`, `TeachingAssistant` and `ContentDeveloper`, their sub-roles under `Instructor` or `ContentDeveloper`, and the bare short forms. `Learner` and anything else map to `student`. (Amended after review: the institution role `Instructor` and `Learner#Instructor` map to `student`.)
+   - `Administrator` under the institution, system or membership vocabulary maps to `instructor`. **LTI never grants `administrator`.**
    - The role is refreshed on every launch. A user an administrator has disabled stays disabled, and the launch is refused the way `/auth/callback` refuses one today.
-   - The Dex users file also accepts `instructor`: `make users-add` offers it, `users-check` accepts it, the Dex rendering gives it the group `instructor`, and `mapRole` maps the new `OIDC_INSTRUCTOR_GROUP` (default `instructor`) to it.
+   - The Dex users file also accepts `instructor`: `make users-add` offers it, `users-check` accepts it, the Dex rendering gives it the group `instructor`, and `mapRole` maps the new `OIDC_INSTRUCTOR_GROUP` (default `portikus-instructors`, amended after review; Ansible `portikus_oidc_instructor_group`) to it. `make users-deploy` ends a user's sessions on any role change (amended after review).
 
 5. **What an instructor can do in this epic:** everything a student can (their own workspace), plus a read-only Course page for each course they have launched from as an instructor. No access to anyone else's workspace or files (SPEC.md section 31 keeps that for later). Instructors are never administrators: every administrator route refuses them, and the security suite's authorization matrix proves it.
 
@@ -102,25 +102,25 @@ Rulings 1 to 11 were made by the orchestrator. Rulings from 12 on were made in t
     - `issuer`, `authLoginUrl`, `keysetUrl`: HTTPS URLs. `http://` is allowed only when `mock` is `true`.
     - `deploymentIds`: at least one.
     - (`issuer`, `clientId`) is unique. Unknown keys are refused.
-    - The API validates the file with Zod at start and refuses to start on a bad file, naming the problem. No file, or no `LTI_PLATFORMS_FILE`, means LTI is off and every `/lti/*` route answers 404.
+    - The API validates the file with Zod at start and refuses to start on a bad file, naming the problem. (Amended after review: an empty `platforms` list is refused, and Ansible runs the API's own parser on the file at install time, through `validate:`, so there is one parser.) No file, or no `LTI_PLATFORMS_FILE`, means LTI is off and every `/lti/*` route answers 404.
 
 15. **The tool publishes a JWKS at `GET /lti/jwks`.** Canvas's developer-key form and Moodle's tool form both ask for a tool key or keyset URL, so a registration needs one even though this epic never signs anything with it. Ansible generates an RSA 2048 key once on the VM (`openssl genpkey`, `/etc/portikus/lti-tool-key.pem`, root:portikus, 0640, `no_log`), like the other generated secrets, and sets `LTI_TOOL_KEY_FILE`. The route serves only the public part, with a `kid` that is the key's SHA-256 thumbprint.
 
 16. **State: a server-side row plus a cookie that carries it.**
-    - `/lti/login` creates a random 32-byte `state` and `nonce`, stores a row in `lti_login_states` keyed by the SHA-256 of the state (with the nonce, the registration, and an expiry 10 minutes out), and sets the cookie `__Secure-portikus_lti_state` = the state, `HttpOnly; Secure; SameSite=None; Path=/lti; Max-Age=600`.
-    - `/lti/launch` requires the form's `state` to equal the cookie's, and a matching unexpired row. It deletes the row in the same transaction that uses it, so the state, and the nonce with it, are single use. The id_token's `nonce` must equal the row's.
+    - `/lti/login` creates a random 32-byte `state` and `nonce`, stores a row in `lti_login_states` keyed by the SHA-256 of the state (with the nonce, the registration, and an expiry 10 minutes out), and sets the cookie `__Host-portikus_lti_state_<first 16 hex characters of sha256(state)>` = the state, `HttpOnly; Secure; SameSite=None; Path=/; Max-Age=600`. (Amended after review: a `__Secure-` cookie can be planted from a preview subdomain, SPEC.md section 14.3, and `__Host-` cannot. One cookie per login, so two launches in the same browser do not clash.)
+    - `/lti/launch` requires the form's `state` to equal the cookie's, and a matching unexpired row. It deletes the row when it uses it, so the state, and the nonce with it, are single use. The id_token's `nonce` must equal the row's.
     - Why both: the row makes the nonce single use and survives nothing but its own expiry; the cookie binds the state to the browser that started the login, which is what stops a login-CSRF launch. `SameSite=None` is needed because the platform's form post is a cross-site top-level POST, which never carries a `Lax` cookie. A signed cookie with no row was rejected: it cannot make the nonce single use without a table anyway.
     - Expired rows are cleared when a new row is written, the way sessions are today.
-    - On a plain-HTTP development site (e2e), the cookie drops the `__Secure-` prefix and `Secure`, the same rule `sessionCookieName` follows, and uses `SameSite=Lax`; the mock LMS posts from the same site in that setup (both on `localhost`), so Lax still arrives.
+    - On a plain-HTTP development site (e2e), the cookie drops the `__Host-` prefix and `Secure`, the same rule `sessionCookieName` follows, and uses `SameSite=Lax`; the mock LMS posts from the same site in that setup (both on `localhost`), so Lax still arrives.
 
 17. **Frames.** Caddy today sends `frame-ancestors 'none'` on every control-plane response, and that stays for everything except `/lti/*`.
-    - For `/lti/*`, Caddy does not add the header, and the API sends `Content-Security-Policy: frame-ancestors <the origins of every registered platform's authLoginUrl>`.
+    - For `/lti/*`, Caddy does not add the header. (Amended after review:) `/lti/login` and `/lti/launch` send `frame-ancestors *`, because Canvas cloud frames the tool from the school's own host while its auth URL is `sso.canvaslms.com`, so the auth URL's origin is not the framing origin. When framed, those two routes only ever render the new-tab page or the refusal page. `/lti/jwks` keeps `frame-ancestors 'none'`.
     - `/lti/login` checks `Sec-Fetch-Dest`. When it is `iframe` (or `frame`), it does not start the flow. It answers 200 with the fallback page: a heading, one sentence, and an "Open Portikus in a new tab" button. The button is a form with `target="_blank"` that re-submits the same login-initiation parameters (`iss`, `login_hint`, `target_link_uri`, `lti_message_hint`, `client_id`, `lti_deployment_id`) to `/lti/login` as a top-level request. Those parameters are not secrets; the platform checks its own session when it receives them back.
     - If `/lti/launch` itself arrives in a frame, or arrives without the state cookie, the launch is refused with the same page, reworded: "Portikus could not finish opening here. Open it again from your course; if this keeps happening, ask your instructor to set Portikus to open in a new window." There is nothing to re-submit at that point.
     - Why this beats a hand-off token after the launch: nothing that grants a session ever travels in a URL or a second tab, and no cookie is ever needed inside the frame.
     - The fallback page is server-rendered HTML from the API (it must render inside the LMS frame, outside the SPA), uses the design tokens' colours and font by inline CSS, and needs no JavaScript.
 
-18. **After a good launch**, the API sets the session cookie and answers `303` to the path of `target_link_uri` (only its path and query; anything that fails to parse, or is not on our origin, becomes `/`). The web app routes `/` into the workspace as it does today.
+18. **After a good launch**, the API sets the session cookie and answers `303` to the path of `target_link_uri` (only its path and query; anything that fails to parse, is not on our origin, or whose path does not start with exactly one `/`, becomes `/`; the last clause was added after review to close an open redirect). The web app routes `/` into the workspace as it does today.
 
 19. **Validation.** `/lti/launch` refuses the launch unless every check passes, and each refusal has its own reason code (for the audit row and for tests):
     - the id_token's header `alg` is `RS256` (`alg_not_allowed`);
@@ -145,6 +145,8 @@ Rulings 1 to 11 were made by the orchestrator. Rulings from 12 on were made in t
     - Every launch writes an `auth.login` row, the action the admin health page already counts, with metadata `{method: "lti", platform: <registration name>, role}` and result `ok`, `denied` (disabled user) or `failed`. A failure's metadata carries only `{method: "lti", platform?, reason}` with a reason code from ruling 19. No token, claim values, name, email or context title.
     - A role change on launch writes the existing `user.role_changed` row, with `source: "lti"`.
     - The API's own log line for a refusal carries the reason code only.
+    - (Amended after review:) LTI audit rows carry `ip` and `userAgent` like other sign-in rows. `state_missing` and `framed` refusals are logged but not audited, since anyone can cause them without a token.
+    - No database transaction is held open while the keyset is fetched.
 
 23. **Course page API.** Two routes, access class `course-instructor` (new in `route-policy.ts`):
     - `GET /courses`: the courses in which the caller's membership role is `instructor`, as `[{id, title, platformName}]`. An empty list for everyone else, including administrators.
@@ -158,7 +160,7 @@ Rulings 1 to 11 were made by the orchestrator. Rulings from 12 on were made in t
     - Why not `packages/auth/src/testing`, where the mock IdP lives: that directory ships in the Debian package, and this mock must never be installed on the VM. `packages/users-file` already shows the pattern of a package no app depends on, which `pnpm deploy` therefore leaves out. `scripts/build-deb.sh` gains a guard that fails if `mock-lms` appears in the package.
     - It uses `jose` (already pinned in `packages/auth`) and `node:http`. No new dependency.
 
-26. **Registering the mock on the pilot.** The pilot's API reaches the mock at `http://10.100.0.1:<port>`, the host's address on the VM network. `make lti-mock-register` adds a `mock: true` registration named `mock-lms` to the host platforms file, adds `10.100.0.1/32` to the API's allowed addresses (`portikus_api_ip_allow_extra`), and runs the play limited to the LTI tasks. `make lti-mock-unregister` removes both. While a `mock: true` registration exists, `make security-test` prints a warning naming it, and the smoke test reports it.
+26. **Registering the mock on the pilot.** The pilot's API reaches the mock at `http://10.100.0.1:<port>`, the host's address on the VM network. The mock's launch form carries a token made fresh for each process, and `replayed_nonce` refuses an expired token (amended after review). `make lti-mock-register` adds a `mock: true` registration named `mock-lms` to the host platforms file, adds `10.100.0.1/32` to the API's allowed addresses (`portikus_api_ip_allow_extra`), and runs the play limited to the LTI tasks. `make lti-mock-unregister` removes both. While a `mock: true` registration exists, `make security-test` prints a warning naming it, and the smoke test reports it.
 
 27. **Membership is only ever added or refreshed.** A person removed from a course in the LMS stays on the Course page with their old last-launch time. Roster sync is NRPS, which is out.
 
@@ -176,7 +178,7 @@ The claim names, for builders:
 | roles | `https://purl.imsglobal.org/spec/lti/claim/roles` |
 | context | `https://purl.imsglobal.org/spec/lti/claim/context` (`id`, `title`) |
 
-Role URIs are matched on their last segment after `#`, for both `http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor` and the short forms. `TeachingAssistant` also appears as `membership/Instructor#TeachingAssistant`; both map to `instructor`. The authorization request to the platform carries `scope=openid`, `response_type=id_token`, `response_mode=form_post`, `prompt=none`, `client_id`, `redirect_uri=<public url>/lti/launch`, `login_hint`, `lti_message_hint` when given, `state` and `nonce`.
+Role URIs are matched in full against the LIS vocabularies, as ruling 4 says (the earlier "last segment" rule was dropped after review). `TeachingAssistant` appears both as `membership#TeachingAssistant` and as `membership/Instructor#TeachingAssistant`; both map to `instructor`. The authorization request to the platform carries `scope=openid`, `response_type=id_token`, `response_mode=form_post`, `prompt=none`, `client_id`, `redirect_uri=<public url>/lti/launch`, `login_hint`, `lti_message_hint` when given, `state` and `nonce`.
 
 ## The data model (migration `0015_lti`)
 
