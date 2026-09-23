@@ -1,0 +1,22 @@
+{
+	"version": 1,
+	"users": [
+		{
+			"username": "carol",
+			"email": "carol@example.edu",
+			"displayName": "Carol Administrator",
+			"role": "administrator",
+			"userId": "f671d6f5-6742-494d-bedb-3c88e9a63bf4",
+			"passwordHash": "$2b$12$MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEFfG",
+			"passwordChangedAt": "2026-09-22T00:00:00.000Z"
+		},
+		{
+			"username": "alice",
+			"email": "alice@example.edu",
+			"displayName": "Alice Student",
+			"role": "student",
+			"userId": "b463e705-b096-4d17-b28b-b92e2b0157fd",
+			"passwordHash": "$2b$12$MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEFfG"
+		}
+	]
+}
