@@ -57,7 +57,10 @@ REHEARSAL_STATE ?= $(HOME)/.local/state/portikus/rehearsal-libvirt/terraform.tfs
 REHEARSAL_SSH_KEY ?= $(HOME)/.ssh/id_ed25519.pub
 REHEARSAL_VCPUS ?= 12
 REHEARSAL_MEMORY_MB ?= 24576
-REHEARSAL_DATA_DISK_GB ?= 100
+
+# tofu_attr TYPE,NAME,PATH -- one attribute of a resource, read straight from
+# the state file so no `tofu init` is needed; PATH is dot-separated.
+tofu_attr = $(shell python3 -c 'import functools, json, sys; a = next(r["instances"][0]["attributes"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == sys.argv[2] and r["name"] == sys.argv[3]); print(functools.reduce(lambda v, k: v[int(k)] if k.isdigit() else v[k], sys.argv[4].split("."), a))' '$(TOFU_STATE)' $(1) $(2) $(3) 2>/dev/null)
 
 ifeq ($(TOFU_ENV),dev-libvirt)
 TOFU_STATE := $(TOFU_DIR)/terraform.tfstate
@@ -68,16 +71,19 @@ TOFU_INIT_ARGS := -backend-config=path=$(REHEARSAL_STATE)
 export TF_VAR_ssh_public_key := $(shell cat $(REHEARSAL_SSH_KEY) 2>/dev/null)
 export TF_VAR_vcpus := $(REHEARSAL_VCPUS)
 export TF_VAR_memory_mb := $(REHEARSAL_MEMORY_MB)
+# The disk never shrinks, so the default is the size it was last grown to.
+rehearsal_disk_bytes := $(call tofu_attr,terraform_data,data_disk_size,triggers_replace.value)
+REHEARSAL_DATA_DISK_GB ?= $(if $(rehearsal_disk_bytes),$(shell echo $$(( $(rehearsal_disk_bytes) / 1073741824 ))),100)
 export TF_VAR_data_disk_size_bytes := $(shell echo $$(( $(REHEARSAL_DATA_DISK_GB) * 1073741824 )))
 else
 $(error TOFU_ENV must be dev-libvirt or rehearsal-libvirt, not '$(TOFU_ENV)')
 endif
 
-# Read straight from the state file, so no `tofu init` is needed to learn them.
+# Read straight from the state file, so no `tofu init` is needed to learn it.
 tofu_output = $(shell python3 -c 'import json, sys; v = json.load(open(sys.argv[1]))["outputs"][sys.argv[2]]["value"]; print(v[0] if isinstance(v, list) else v)' '$(TOFU_STATE)' $(1) 2>/dev/null)
-TOFU_VM_NAME = $(shell python3 -c 'import json, sys; print(next(r["instances"][0]["attributes"]["name"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == "libvirt_domain"))' '$(TOFU_STATE)' 2>/dev/null)
+TOFU_VM_NAME = $(call tofu_attr,libvirt_domain,vm,name)
 # A replaced VM keeps its MAC address, which its network configuration matches.
-export TF_VAR_mac_address = $(shell python3 -c 'import json, sys; print(next(r["instances"][0]["attributes"]["network_interface"][0]["mac"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == "libvirt_domain"))' '$(TOFU_STATE)' 2>/dev/null)
+export TF_VAR_mac_address = $(call tofu_attr,libvirt_domain,vm,network_interface.0.mac)
 
 # First recipe line of every OpenTofu target: name the VM, and never let a
 # non-pilot environment act on a state file that holds the pilot.
@@ -242,7 +248,14 @@ destroy-pilot: ## Destroy the pilot VM (irreversible)
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "destroy-pilot: acts on the pilot only; use make rehearsal-destroy for the rehearsal VM"; exit 1; }
 	@$(MAKE) --no-print-directory TOFU_ENV=dev-libvirt TOFU_DESTROY_CALLER=destroy-pilot tofu-destroy
 
-rebuild-pilot: $(USERS_CHECK) destroy-pilot infra-apply configure-vm publish-vm ## Destroy and recreate the platform VM
+# Sub-makes, not prerequisites, so make -j cannot destroy the VM while the
+# users check or the apply is still running.
+rebuild-pilot: ## Destroy and recreate the platform VM
+	$(if $(USERS_CHECK),@$(MAKE) --no-print-directory users-check)
+	@$(MAKE) --no-print-directory destroy-pilot
+	@$(MAKE) --no-print-directory infra-apply
+	@$(MAKE) --no-print-directory configure-vm
+	@$(MAKE) --no-print-directory publish-vm
 
 publish-vm: ## Forward port 8443 from the host's LAN address to the VM (rerun after a rebuild)
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "publish-vm: only the pilot is published; port 8443 belongs to it, not to $(TOFU_ENV)"; exit 1; }
@@ -274,17 +287,19 @@ backup-setup:
 # Only reads from the VM, so it is safe on the live pilot.
 backup: backup-setup ## Pull an encrypted backup of the VM to the host (CHECK_STATE=1 also proves workspaces and settings did not change)
 	@test -n "$(VM_IP)" || { echo "backup: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	@echo "backup: reading from VM '$(or $(TOFU_VM_NAME),unknown)' at $(VM_IP)"
+	@test -n "$(TOFU_VM_NAME)" || { echo "backup: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
+	@echo "backup: reading from VM '$(TOFU_VM_NAME)' at $(VM_IP)"
 	PORTIKUS_BACKUP_DIR=$(PORTIKUS_BACKUP_DIR) PORTIKUS_BACKUP_RECIPIENTS=$(PORTIKUS_BACKUP_RECIPIENTS) \
-		bash infra/host/backup.sh $(if $(CHECK_STATE),--check-state,) $(VM_IP)
+		bash infra/host/backup.sh $(if $(CHECK_STATE),--check-state,) --vm-name "$(TOFU_VM_NAME)" $(VM_IP)
 
 backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pilot as a host systemd timer (rerun after changing backup.sh)
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "backup-install-timer: the timer backs up the pilot only"; exit 1; }
 	@test -n "$(VM_IP)" || { echo "backup-install-timer: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-timer: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
 	sudo install -m 0755 infra/host/backup.sh /usr/local/sbin/portikus-backup
 	sudo install -m 0644 infra/host/portikus-backup-export /usr/local/sbin/portikus-backup-export
 	sed -e "s|@USER@|$$(id -un)|" -e "s|@BACKUP_DIR@|$(PORTIKUS_BACKUP_DIR)|" \
-		-e "s|@RECIPIENTS@|$(abspath $(PORTIKUS_BACKUP_RECIPIENTS))|" -e "s|@VM_IP@|$(VM_IP)|" \
+		-e "s|@RECIPIENTS@|$(abspath $(PORTIKUS_BACKUP_RECIPIENTS))|" -e "s|@VM_IP@|$(VM_IP)|" -e "s|@VM_NAME@|$(TOFU_VM_NAME)|" \
 		infra/host/systemd/portikus-backup.service | sudo tee /etc/systemd/system/portikus-backup.service >/dev/null
 	sudo install -m 0644 infra/host/systemd/portikus-backup.timer /etc/systemd/system/portikus-backup.timer
 	sudo systemctl daemon-reload

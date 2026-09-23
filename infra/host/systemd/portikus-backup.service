@@ -11,6 +11,7 @@ Type=oneshot
 User=@USER@
 Environment=PORTIKUS_BACKUP_DIR=@BACKUP_DIR@
 Environment=PORTIKUS_BACKUP_RECIPIENTS=@RECIPIENTS@
-ExecStart=/usr/local/sbin/portikus-backup @VM_IP@
+# The name comes from the OpenTofu state; the VM's own hostname must match it.
+ExecStart=/usr/local/sbin/portikus-backup --vm-name @VM_NAME@ @VM_IP@
 Nice=10
 IOSchedulingClass=idle

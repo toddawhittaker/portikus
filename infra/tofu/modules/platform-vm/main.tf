@@ -157,8 +157,8 @@ resource "libvirt_domain" "vm" {
 
   network_interface {
     network_id = libvirt_network.portikus.id
-    # A replaced domain must keep its MAC address: the guest's network
-    # configuration and the DHCP reservation both match it.
+    # A replaced domain must keep its MAC address: cloud-init's network
+    # configuration matches it.
     mac            = var.mac_address != "" ? var.mac_address : null
     wait_for_lease = true
   }

@@ -36,10 +36,14 @@ are not kept. The Dex users file on the host
 (`~/.config/portikus/users.json`) is copied into each set when it exists.
 
 **Where it goes.** The host pulls everything over SSH as the `deploy` user
-and writes it to `/var/backups/portikus/<VM hostname>/<UTC timestamp>/`.
+and writes it to `/var/backups/portikus/<VM name>/<UTC timestamp>/`.
 Each VM has its own directory, so backups of the rehearsal VM
 (`portikus-rehearsal`) never push the pilot's (`portikus`) out of
-retention. That directory is outside the libvirt pool, so `make
+retention. The name comes from the OpenTofu state, never from the VM:
+`make backup` and the timer pass it as `--vm-name`, and `backup.sh` stops
+before writing anything unless the VM's own hostname matches it. A rooted
+rehearsal VM that renamed itself `portikus` therefore cannot write into,
+or prune, the pilot's sets. That directory is outside the libvirt pool, so `make
 destroy-pilot` never touches it. A set is written under
 `.partial-<timestamp>` and renamed into place only once it is written; a
 run that fails before then leaves nothing.
@@ -108,10 +112,11 @@ only has to hold the largest one. Its size is the home quota plus the
 recovery quota plus 2 GiB for tar and gzip overhead, read from
 `portikus_workspace_home_size_gib` and
 `portikus_workspace_recovery_size_gib` in `site.yml` (30 GiB today). The
-role grows an existing smaller volume and never shrinks one. The volume is
-thin, so its size costs pool space only while an export is staged. A home
-an administrator has raised above the default quota can still outgrow it;
-that volume's export then fails on its own, as described below. Until the role has run on a VM, Incus
+role grows an existing smaller volume and never shrinks one. Before each
+export, the VM half also grows it to that volume's size plus 2 GiB when it
+is smaller, because an administrator can raise one home quota up to 1024
+GiB. The volume is thin, so its size costs pool space only while an export
+is staged. Until the role has run on a VM, Incus
 stages on the OS disk under `/var/lib/incus/backups`; the pilot's first
 backup (172 MB in all) fitted there easily, but a full class would not.
 
@@ -158,7 +163,7 @@ have no volumes, because the API names the instance when it adds the row,
 before the worker creates it.
 
 **One volume does not stop the rest.** When one volume's export fails,
-for example because it is larger than the staging volume, the run records
+for example because the pool runs short of space, the run records
 it, carries on with the other volumes, keeps the set, and exits non-zero
 at the end so the timer shows the failure. A failed database dump still
 stops the run and keeps nothing.
@@ -168,9 +173,11 @@ runs the backup at 02:30 host time every night. The service runs as the
 operator's account, whose SSH key reaches the VM. It is not `Persistent`:
 a host that was off at 02:30 must not start a backup during the next
 day's class. Retention works in each VM's directory on its own. The 14
-newest complete sets are kept, and so is any incomplete set newer than the
-oldest of them; everything older is deleted at the end of a run. Nights of
-failed exports therefore never push out the last good copy of a volume.
+newest complete sets are kept, and so are the 14 newest incomplete sets
+newer than the oldest of them; everything else is deleted at the end of a
+run. Complete and incomplete sets are counted apart, so nights of failed
+exports never push out the last good copy of a volume, and cannot fill the
+disk either.
 Nothing else in the directory is touched.
 `make backup-install-timer` installs the scripts under `/usr/local/sbin`
 and the units under `/etc/systemd/system`, the same way `publish-vm`
@@ -193,9 +200,12 @@ the script refuses any VM whose hostname is not the one in the state. It:
 3. stops `portikus-api` and `portikus-worker`; the controller stays up;
 4. runs `pg_restore --create --clean --if-exists`, which drops and
    recreates the whole database, so no table a newer release added can
-   survive and confuse the migrations. It then marks every workspace
-   stopped, in both its state and its desired state, so the restored
-   workspaces do not all start at once;
+   survive and confuse the migrations. In one transaction it then marks
+   every workspace stopped, in both its state and its desired state, so
+   the restored workspaces do not all start at once, and deletes every
+   sign-in session and preview session, so a cookie stolen before the
+   backup does not work on the restored VM. Everyone signs in again after
+   a restore;
 5. imports each volume under its original name and sets its
    `volatile.idmap.last` to the ID map recorded at backup time, so Incus
    shifts the files to the new instance's map at first start;
@@ -249,8 +259,9 @@ database with an empty one; it refuses a VM named
   allows. The rehearsal VM must be emptied (`REMOVE=1`, or a rebuild)
   before a restore drill on it.
 - A volume that keeps failing to export makes every nightly set
-  incomplete. All of them are kept until a complete one arrives, so the
-  backup directory grows until someone acts on the failed timer.
+  incomplete. The 14 newest are kept beside the last complete set, so a
+  failure that lasts more than two weeks loses the older incomplete sets;
+  the failed timer is what should make someone act first.
 - Setting `volatile.idmap.last` by hand relies on Incus shifting a volume
   whose recorded map differs from the instance's. The rehearsal restore
   proved it with Incus 7.4; an Incus upgrade that changes this would show

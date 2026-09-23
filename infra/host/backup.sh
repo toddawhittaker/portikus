@@ -3,19 +3,21 @@
 # (docs/adr/0024-backups-pulled-to-host.md).  It only reads from the VM:
 # a pg_dump, and an export of each workspace's home and recovery volume.
 #
-# Sets go to <backup dir>/<VM hostname>/<UTC timestamp>, so the rehearsal
-# VM's sets never push out the pilot's.  A volume whose export fails is named
+# Sets go to <backup dir>/<VM name>/<UTC timestamp>, so the rehearsal VM's
+# sets never push out the pilot's.  The name comes from the caller, never
+# from the VM, and the run stops unless the VM's hostname matches it.  A volume whose export fails is named
 # on a "failed" line of the MANIFEST and in a plain FAILED file; the other
 # volumes are still saved, and the run exits non-zero.
 #
-# Usage: backup.sh [--check-state] <vm-ip>
+# Usage: backup.sh [--check-state] --vm-name <name> <vm-ip>
 #   --check-state  compare workspaces, users and settings before and after,
 #                  with the security suite's snapshot helper (repository only)
+#   --vm-name      the VM's name in the OpenTofu state, such as portikus
 #
 # Environment:
 #   PORTIKUS_BACKUP_DIR         holds one directory of sets per VM (default /var/backups/portikus)
 #   PORTIKUS_BACKUP_RECIPIENTS  age recipients file (default ~/.config/portikus/backup-recipients.txt)
-#   PORTIKUS_BACKUP_KEEP        complete sets kept per VM (default 14)
+#   PORTIKUS_BACKUP_KEEP        complete sets, and incomplete ones, kept per VM (default 14)
 #   PORTIKUS_USERS_FILE         the Dex users file, copied into the set when present
 set -euo pipefail
 umask 077
@@ -100,8 +102,17 @@ must() { [[ "$3" =~ $2 ]] || die "the VM sent a ${1} that is not in the expected
 lines() { [ -z "$1" ] || printf '%s\n' "$1"; }
 
 check_state=no
-if [ "${1:-}" = "--check-state" ]; then check_state=yes; shift; fi
-VM="${1:?Usage: backup.sh [--check-state] <vm-ip>}"
+expected_name=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check-state) check_state=yes; shift ;;
+    --vm-name) expected_name="${2:?--vm-name needs a value}"; shift 2 ;;
+    *) break ;;
+  esac
+done
+VM="${1:?Usage: backup.sh [--check-state] --vm-name <name> <vm-ip>}"
+[ -n "$expected_name" ] || die "--vm-name is required, so one VM can never write into another's sets"
+[[ "$expected_name" =~ $HOSTNAME_PATTERN ]] || die "--vm-name '${expected_name}' is not a hostname"
 
 command -v age >/dev/null || die "age is not installed (make bootstrap-host)"
 command -v python3 >/dev/null || die "python3 is not installed"
@@ -118,7 +129,8 @@ remote_export() { vm "sudo bash -c \"\$(echo ${export_b64} | base64 -d)\" portik
 
 vm_name=$(vm hostname)
 must "hostname" "$HOSTNAME_PATTERN" "$vm_name"
-HOST_DIR="${BACKUP_DIR}/${vm_name}"
+[ "$vm_name" = "$expected_name" ] || die "${VM} calls itself '${vm_name}', not '${expected_name}'; nothing was kept"
+HOST_DIR="${BACKUP_DIR}/${expected_name}"
 install -d -m 0700 "$HOST_DIR"
 
 # One run per VM at a time; the lock goes with the process.
@@ -239,18 +251,24 @@ if [ "$check_state" = yes ]; then
   info "workspaces, users and settings are the same before and after"
 fi
 
-# Retention, in this VM's directory only: the newest KEEP complete sets stay,
-# and so does any incomplete set newer than the oldest of them, so nights of
-# failed exports never push out the last good copy of a volume.
+# Retention, in this VM's directory only: the newest KEEP complete sets
+# stay, and the newest KEEP incomplete sets newer than the oldest of those.
+# Complete sets are counted apart, so nights of failed exports never push
+# out the last good copy of a volume, and cannot fill the disk either.
 mapfile -t sets < <(find "$HOST_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -E "$SET_PATTERN" | sort -r)
 complete=0
+incomplete=0
 for set in "${sets[@]}"; do
-  if [ "$complete" -ge "$KEEP" ]; then
-    info "removing old set ${set}"
-    rm -rf "${HOST_DIR:?}/${set}"
-  elif [ ! -e "${HOST_DIR}/${set}/FAILED" ]; then
+  if [ "$complete" -lt "$KEEP" ] && [ ! -e "${HOST_DIR}/${set}/FAILED" ]; then
     complete=$((complete + 1))
+    continue
   fi
+  if [ "$complete" -lt "$KEEP" ] && [ "$incomplete" -lt "$KEEP" ]; then
+    incomplete=$((incomplete + 1))
+    continue
+  fi
+  info "removing old set ${set}"
+  rm -rf "${HOST_DIR:?}/${set}"
 done
 
 info "set ${HOST_DIR}/${stamp}: ${#volumes[@]} volumes, $(du -sh "${HOST_DIR}/${stamp}" | cut -f1), $(($(date +%s) - started)) s"
