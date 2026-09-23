@@ -246,9 +246,10 @@ different times:
   by the merger agent as soon as its CI is green. No one reviews it by
   hand; review happens once, later, over the whole epic.
 - An epic pull request, from an epic branch into `main`, is opened only
-  after every task pull request for that epic has landed, security-reviewer
-  (when the epic touches auth, the preview gateway, the workspace agent,
-  file APIs, Incus, or nested Docker) and code-reviewer have run over the
+  after every task pull request for that epic has landed, code-reviewer,
+  security-reviewer (when the epic touches auth, the preview gateway, the
+  workspace agent, file APIs, Incus, or nested Docker) and a11y-reviewer
+  (when the epic touches `apps/web` or `packages/ui`) have run over the
   epic branch's head, every finding they required has been fixed or
   explicitly deferred, and the full local battery (`make check` plus
   Playwright against a fresh database) is green. Only the user merges an

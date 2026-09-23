@@ -73,6 +73,7 @@ It does the work itself only for a one-line lookup or edit. Agents live in
 | tester | Designing tests that pin SPEC.md invariants, then running them. |
 | security-reviewer | Read-only review against SPEC.md section 24 trust boundaries. |
 | code-reviewer | Read-only review for correctness, then YAGNI/KISS/DRY/SOLID quality. |
+| a11y-reviewer | Read-only accessibility review of UI against SPEC.md section 25.8. |
 | infra | Anything under `infra/`: OpenTofu, Ansible, cloud-init, Incus, images. |
 | merger | Landing a list of task PRs into an epic branch: CI wait, update, squash-merge, flake reruns; escalates conflicts and real failures. Cheap. |
 
@@ -122,18 +123,16 @@ Orchestration rules:
 - A task pull request into an epic branch has no human review. Once its
   CI is green, merger squash-merges it and deletes the branch. The user's
   review happens once, at the epic level.
-- After every task PR for an epic has landed, run security-reviewer over
-  the epic head (when the epic touches auth, the preview gateway, the
-  workspace agent, file APIs, Incus, or nested Docker) and code-reviewer
-  over the epic head. Fix or explicitly defer every finding through
-  further task PRs, also landed by merger without review, then run a
-  confirmation review.
-- `main` changes only by pull request, and only the user merges it. The
-  pull request from the epic branch cites the SPEC.md and STACK.md
-  sections it serves and says how it was verified (WORKFLOW.md, "Pull
-  requests").
-- Merging into `main` is the user's decision. Prepare the pull request,
-  report, and stop.
+- After every task PR for an epic has landed, run code-reviewer over the
+  epic head, security-reviewer when the epic touches auth, the preview
+  gateway, the workspace agent, file APIs, Incus, or nested Docker, and
+  a11y-reviewer when it touches `apps/web` or `packages/ui`. Fix or defer
+  every finding through further task PRs, also landed by merger without
+  review, then run a confirmation review with each reviewer that ran.
+- `main` changes only by pull request, and merging it is the user's
+  decision. Prepare the epic pull request, citing the SPEC.md and STACK.md
+  sections it serves and how it was verified (WORKFLOW.md, "Pull
+  requests"), then report and stop.
 
 ## Design defaults
 
