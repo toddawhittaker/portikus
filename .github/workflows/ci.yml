@@ -284,7 +284,8 @@ jobs:
         if: steps.dex-cache.outputs.cache-hit != 'true'
         with:
           go-version-file: ${{ env.DEX_DIR }}/src/go.mod
-          cache-dependency-path: ${{ env.DEX_DIR }}/src/go.sum
+          # The Dex build cache above covers reruns.
+          cache: false
       # The same flags as the dex role (infra/ansible/roles/dex/tasks/main.yml).
       - name: Build Dex
         if: steps.dex-cache.outputs.cache-hit != 'true'
