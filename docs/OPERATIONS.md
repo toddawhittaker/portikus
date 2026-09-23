@@ -36,12 +36,12 @@ Names used throughout:
 
 ## Before a change: snapshots and a database dump
 
-Take an Incus snapshot of each workspace's home and recovery volume, and
+Take an Incus snapshot of each workspace's home, Docker and recovery volume, and
 a `pg_dump` (a PostgreSQL export) of the platform database to the host.
 Name the snapshots after the change, for example `pre-epic12b`.
 
 ```
-ssh deploy@10.100.0.120 'for v in $(sudo incus storage volume list workspace-data --project portikus -f csv -c n | grep -E "^ws-.*-(home|recovery)$"); do sudo incus storage volume snapshot create workspace-data "$v" pre-CHANGE --project portikus; done'
+ssh deploy@10.100.0.120 'for v in $(sudo incus storage volume list workspace-data --project portikus -f csv -c n | grep -E "^ws-.*-(home|docker|recovery)$"); do sudo incus storage volume snapshot create workspace-data "$v" pre-CHANGE --project portikus; done'
 ssh deploy@10.100.0.120 'sudo runuser -u postgres -- pg_dump -Fc portikus' > ~/portikus-pre-CHANGE-$(date +%F).dump
 ```
 
@@ -136,7 +136,7 @@ the pilot yet. Do it out of class hours, and only once the Part A code is
 merged to `main` and published.
 
 1. Record `dpkg -s portikus` on the pilot.
-2. Take `pre-epic12b` snapshots of each `-home` and `-recovery` volume and
+2. Take `pre-epic12b` snapshots of each `-home`, `-docker` and `-recovery` volume and
    a `pg_dump` to the host, as above.
 3. Run `make users-add` for carol (administrator), alice and bob, using the
    emails their accounts already have (`carol@example.edu` and so on).
