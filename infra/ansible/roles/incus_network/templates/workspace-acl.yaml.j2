@@ -1,0 +1,50 @@
+{#
+  Rules of the workspace network ACL.  Incus applies every drop rule before
+  any allow rule, whatever their order here.  Incus itself allows DHCP, DNS
+  and neighbour discovery to the bridge before these rules.
+#}
+{% set denied_v4 = workspace_egress_denied_ranges | ansible.utils.ipv4 | ansible.utils.cidr_merge %}
+{% set denied_v6 = workspace_egress_denied_ranges | ansible.utils.ipv6 | ansible.utils.cidr_merge %}
+egress:
+  # One rule with no protocol covers every protocol, ICMP included.
+  - action: drop
+    destination: "{{ incus_network_cidr | ansible.utils.ipsubnet }}"
+    description: Deny peer-workspace traffic (all protocols)
+    state: enabled
+  - action: drop
+    destination: "{{ management_cidr }}"
+    description: Deny management network access
+    state: enabled
+{% if denied_v4 %}
+  - action: drop
+    destination: "{{ denied_v4 | join(',') }}"
+    description: Deny private and special IPv4 ranges
+    state: enabled
+{% endif %}
+{% if denied_v6 %}
+  - action: drop
+    destination: "{{ denied_v6 | join(',') }}"
+    description: Deny private and special IPv6 ranges
+    state: enabled
+{% endif %}
+  - action: allow
+    destination: 0.0.0.0/0
+    description: Allow internet egress
+    state: enabled
+ingress:
+  # Default ingress is drop, so the API on the VM needs one hole to reach the
+  # workspace agent.  The source is the bridge gateway, which is the VM.
+  - action: allow
+    source: "{{ incus_network_cidr | ansible.utils.ipaddr('address') }}/32"
+    protocol: tcp
+    destination_port: "{{ portikus_agent_port }}"
+    description: Allow control plane to reach the workspace agent
+    state: enabled
+  # The preview gateway dials the student's own application inside the
+  # workspace (BROWSER-HANDLING 10 and 16.3); the API picks the port per request.
+  - action: allow
+    source: "{{ incus_network_cidr | ansible.utils.ipaddr('address') }}/32"
+    protocol: tcp
+    destination_port: "{{ portikus_preview_port_min }}-{{ portikus_preview_port_max }}"
+    description: Allow the preview gateway to reach application ports
+    state: enabled

@@ -1422,3 +1422,16 @@ now answers 502 when the app it proxies to has closed, as Caddy does.
 Accepted residual: a stolen, already-revoked preview cookie can tell
 whether its owner's workspace is running until the sweep deletes revoked
 rows a day later.
+
+## Workspace egress to private ranges
+
+The platform VM's firewall and the workspace network ACL (access control
+list) now drop workspace traffic to private and special address ranges:
+10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16,
+127.0.0.0/8, 0.0.0.0/8, 224.0.0.0/4 and 240.0.0.0/4, and for IPv6
+fc00::/7, fe80::/10 and ::1 (SPEC.md sections 23.2 and 24). The list is
+the `workspace_egress_denied_ranges` variable in
+`infra/ansible/site.yml`. DNS and DHCP from the bridge gateway, the VM's
+path to the workspace agent and preview ports, and Internet egress are
+unchanged. The ACL is now written whole from a template, so a range taken
+off the list also leaves the ACL.
