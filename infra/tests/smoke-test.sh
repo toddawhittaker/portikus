@@ -435,7 +435,7 @@ else
   # Whatever the provider, no bcrypt hash may reach a journal.
   # shellcheck disable=SC2016  # the pattern is for grep on the VM
   check_zero_lines "no bcrypt hash in the Dex, API or Caddy journals" \
-    ssh_cmd 'sudo journalctl -u portikus-dex -u portikus-api -u caddy --no-pager -o cat | grep -E "\$2[aby]\$[0-9]{2}\$"'
+    ssh_cmd 'sudo journalctl -u portikus-dex -u portikus-api -u caddy --no-pager -o cat | grep -E "[$]2[aby][$][0-9]{2}[$]"'
 
   if [ "$IDP" != "mock" ]; then
     check "mock identity provider unit is inactive" \
@@ -484,9 +484,12 @@ else
       ssh_cmd "sudo stat -c '%U:%G %a' /etc/portikus/dex-client.secret"
     check_output "the Dex config is root:portikus-dex, mode 0640" "root:portikus-dex 640" \
       ssh_cmd "sudo stat -c '%U:%G %a' /etc/portikus-dex/config.yaml"
-    # The users file stays on the operator's machine (docs/adr/0023).
-    check_zero_lines "no users file on the VM" \
-      ssh_cmd "sudo grep -rlsF '\"passwordHash\"' /etc /root /home /tmp /var/tmp"
+    # The users file stays on the operator's machine, so the Dex config is
+    # the only place with a hash (docs/adr/0023).  /root/go holds the Dex
+    # source and module cache, whose examples carry sample hashes.
+    # shellcheck disable=SC2016  # the pattern is for grep on the VM
+    check_zero_lines "no bcrypt hash on the VM outside the Dex config" \
+      ssh_cmd 'sudo grep -rlsE --exclude-dir=go "[$]2[aby][$][0-9]{2}[$][./A-Za-z0-9]{53}" /etc /root /home /tmp /var/tmp | grep -vx /etc/portikus-dex/config.yaml'
 
     # Each group of password posts comes from its own loopback address, so
     # the per-address throttle counts only this run's attempts, and a rerun
