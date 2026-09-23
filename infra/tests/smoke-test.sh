@@ -16,6 +16,13 @@
 #                               user's email and password on two lines; the
 #                               run then does a full password sign-in.
 #   PORTIKUS_PUBLIC_HOST, PORTIKUS_PUBLIC_PORT as the VM was configured.
+#   PORTIKUS_SMOKE_RESTORED_SET a backup set just restored onto this VM (the
+#                               rebuild exercise sets it).  Adds the
+#                               restored-data and Incus script checks, and
+#                               lets the lifecycle block run beside the
+#                               restored workspaces.  Refused on the pilot.
+#   PORTIKUS_BACKUP_IDENTITY    the age key that opens that set
+#                               (default ~/.config/portikus/backup-age-key.txt).
 set -uo pipefail
 
 VM="${1:?Usage: smoke-test.sh <vm-ip>}"
@@ -47,6 +54,13 @@ if [ -n "${PORTIKUS_SMOKE_SIGNIN_FILE:-}" ]; then
     echo "smoke-test: ${PORTIKUS_SMOKE_SIGNIN_FILE} must hold an email and a password on two lines" >&2
     exit 2
   fi
+fi
+
+RESTORED_SET="${PORTIKUS_SMOKE_RESTORED_SET:-}"
+BACKUP_IDENTITY="${PORTIKUS_BACKUP_IDENTITY:-${HOME}/.config/portikus/backup-age-key.txt}"
+if [ -n "$RESTORED_SET" ] && [ ! -f "${RESTORED_SET}/MANIFEST.age" ]; then
+  echo "smoke-test: ${RESTORED_SET} is not a backup set (no MANIFEST.age)" >&2
+  exit 2
 fi
 
 pass=0
@@ -134,6 +148,16 @@ echo "--- Portikus pilot smoke test ---"
 echo "Target: ${VM}"
 echo ""
 
+# The restored-data run also lets the lifecycle block work beside other
+# people's workspaces, which is only safe on a copy, never on the pilot.
+if [ -n "$RESTORED_SET" ]; then
+  vm_hostname=$(ssh_cmd hostname 2>/dev/null || true)
+  if [ -z "$vm_hostname" ] || [ "$vm_hostname" = portikus ]; then
+    echo "smoke-test: PORTIKUS_SMOKE_RESTORED_SET is for a rehearsal copy; ${VM} is '${vm_hostname:-unreachable}'" >&2
+    exit 2
+  fi
+fi
+
 # 1. SSH reachability
 check "SSH to platform VM"                    ssh_cmd true
 
@@ -167,6 +191,18 @@ check "IPv4 forwarding"                       ssh_cmd 'test "$(/usr/sbin/sysctl 
 
 # 11. Data disk is a PV
 check "Data disk is an LVM PV"               ssh_cmd sudo pvs /dev/vdb
+
+# 12. configure-vm keeps the VM's Incus script in step with the repository
+#     (docs/EPIC-12B.md, item 17).
+repo_script_sum=$(sha256sum "$(dirname "$0")/../incus/workspace.sh" | cut -d' ' -f1)
+vm_script_sum=$(ssh_cmd "sha256sum /var/lib/portikus/incus/workspace.sh" 2>/dev/null | cut -d' ' -f1)
+if [ -n "$repo_script_sum" ] && [ "$vm_script_sum" = "$repo_script_sum" ]; then
+  printf '\033[1;32mPASS\033[0m  %s\n' "the VM's workspace.sh matches this checkout's"
+  pass=$((pass + 1))
+else
+  printf '\033[1;31mFAIL\033[0m  %s\n' "the VM's workspace.sh (${vm_script_sum:-missing}) differs from this checkout's; run make configure-vm from this checkout"
+  fail=$((fail + 1))
+fi
 
 echo ""
 echo "--- Epic 1 results: ${pass} passed, ${fail} failed ---"
@@ -327,6 +363,110 @@ fi
 
 echo ""
 
+# ── Epic 12b: restored data (docs/EPIC-12B.md, items 19 and 20) ──
+# Only when PORTIKUS_SMOKE_RESTORED_SET names the set restored onto this VM.
+# Everything read from the set is matched against a strict form before it
+# reaches a command, as restore.sh does.
+restored_ids=()
+if [ -n "$RESTORED_SET" ]; then
+  echo "--- Epic 12b: restored data from $(basename "$RESTORED_SET") ---"
+  echo ""
+  psql_vm() { ssh_cmd "sudo -u postgres psql -q -t -A -d portikus -c \"$1\""; }
+  restored_file_sum() { # VOLUME PATH
+    ssh_cmd "incus storage volume file pull workspace-data $(printf '%q' "$1/$2") - --project portikus" | sha256sum | cut -d' ' -f1
+  }
+  restored_fail() {
+    printf '\033[1;31mFAIL\033[0m  %s\n' "$1"
+    fail=$((fail + 1))
+  }
+  # restored_sample INDEX -- three files spread evenly through the backup's
+  # file list, as restore.sh samples, each from the middle of its stretch so
+  # the first file (often .bash_history, which a started workspace may
+  # change) is not picked.  Only plain relative paths are used.
+  restored_sample() {
+    python3 - "$1" <<'EOF_SAMPLE'
+import json, re, sys
+files = [r for r in map(json.loads, open(sys.argv[1])) if "f" in r
+         and re.fullmatch(r"[A-Za-z0-9._@+/-]+", r["f"]) and not r["f"].startswith("/")
+         and ".." not in r["f"].split("/") and re.fullmatch(r"[0-9a-f]{64}", r.get("sha256", ""))]
+step = max(1, len(files) // 3)
+for r in files[step // 2::step][:3]:
+    print(r["sha256"], r["f"])
+EOF_SAMPLE
+  }
+
+  restore_tmp=$(mktemp -d)
+  if ! age -d -i "$BACKUP_IDENTITY" "${RESTORED_SET}/MANIFEST.age" >"${restore_tmp}/MANIFEST"; then
+    restored_fail "decrypt the MANIFEST of ${RESTORED_SET} with ${BACKUP_IDENTITY}"
+  else
+    # Every workspace row, including one whose instance was never created.
+    while read -r _ id instance; do
+      if ! [[ "$id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        restored_fail "a MANIFEST workspace line is not in the expected form"
+        continue
+      fi
+      restored_ids+=("$id")
+      if [ "$instance" = "-" ]; then
+        check_output "restored workspace ${id} is there, with no instance yet" "1" \
+          psql_vm "SELECT count(*) FROM workspaces WHERE id = '${id}' AND incus_instance_name IS NULL"
+      elif [[ "$instance" =~ ^ws-[0-9a-f]{24}$ ]]; then
+        check_output "restored workspace ${id} keeps instance ${instance}" "$instance" \
+          psql_vm "SELECT incus_instance_name FROM workspaces WHERE id = '${id}'"
+        check "restored instance ${instance} exists" \
+          ssh_cmd "incus info ${instance} --project portikus"
+      else
+        restored_fail "the MANIFEST instance for ${id} is not in the expected form"
+      fi
+    done < <(awk '$1 == "workspace"' "${restore_tmp}/MANIFEST")
+    [ "${#restored_ids[@]}" -gt 0 ] || restored_fail "the MANIFEST lists no workspace"
+
+    while read -r _ volume _; do
+      if ! [[ "$volume" =~ ^ws-[0-9a-f]{24}-(home|recovery)$ ]]; then
+        restored_fail "a MANIFEST volume line is not in the expected form"
+        continue
+      fi
+      check "restored volume ${volume} exists" \
+        ssh_cmd "incus storage volume show workspace-data ${volume} --project portikus"
+      if ! age -d -i "$BACKUP_IDENTITY" "${RESTORED_SET}/${volume}.index.age" >"${restore_tmp}/index"; then
+        restored_fail "decrypt the file list of ${volume}"
+        continue
+      fi
+      sampled=0
+      while read -r sum path; do
+        sampled=$((sampled + 1))
+        check_output "restored ${volume}: sampled file ${sampled} matches the backup" "$sum" \
+          restored_file_sum "$volume" "$path"
+      done < <(restored_sample "${restore_tmp}/index")
+      # A home always holds files, so an empty sample means the check is broken.
+      if [ "$sampled" -eq 0 ] && [[ "$volume" == *-home ]]; then
+        restored_fail "no file of ${volume} could be sampled from the backup"
+      fi
+    done < <(awk '$1 == "volume"' "${restore_tmp}/MANIFEST")
+
+    projects=$(awk '$1 == "counts" && $6 == "projects" { print $7 }' "${restore_tmp}/MANIFEST")
+    if [[ "$projects" =~ ^[0-9]+$ ]]; then
+      check "at least the backup's ${projects} projects are on the VM" \
+        test "$(psql_vm 'SELECT count(*) FROM projects')" -ge "$projects"
+    else
+      restored_fail "the MANIFEST has no counts line"
+    fi
+
+    # restore.sh ends every sign-in; nothing made before the backup survives.
+    created=$(awk '$1 == "created" { print $2 }' "${restore_tmp}/MANIFEST")
+    if [[ "$created" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})T([0-9]{2})([0-9]{2})([0-9]{2})Z$ ]]; then
+      at="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]} ${BASH_REMATCH[4]}:${BASH_REMATCH[5]}:${BASH_REMATCH[6]}+00"
+      check_output "no session from before the backup survived" "0" \
+        psql_vm "SELECT count(*) FROM sessions WHERE created_at < '${at}'"
+      check_output "no preview session from before the backup survived" "0" \
+        psql_vm "SELECT count(*) FROM preview_sessions WHERE created_at < '${at}'"
+    else
+      restored_fail "the MANIFEST has no created line"
+    fi
+  fi
+  rm -rf "$restore_tmp"
+  echo ""
+fi
+
 # ── Epic 3 and 4: authenticated control-plane lifecycle ──────────
 # These checks run only when the portikus-api service is active (i.e.
 # code has been deployed).  Everything goes through Caddy on the public
@@ -418,6 +558,10 @@ echo ""
 
 if ! ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
   echo "portikus-api not active; skipping Epic 3 and 4 checks."
+  if [ -n "$RESTORED_SET" ]; then
+    printf '\033[1;31mFAIL\033[0m  %s\n' "the lifecycle checks were skipped on the restored VM (portikus-api is not active)"
+    fail=$((fail + 1))
+  fi
 else
   # ── Epic 12b: the sign-in provider (docs/EPIC-12B.md, Part A) ──
   echo "--- Epic 12b: sign-in provider (${IDP}) ---"
@@ -808,6 +952,15 @@ print(me.get("email", "").lower(), me.get("role", "") in ("student", "administra
     skip_lifecycle=yes
     echo "These workspaces already exist and this run will not touch them:"
     echo "$existing_workspaces" | awk '{ print "  " $0 }'
+    # On a restored rehearsal copy every restored workspace is stopped, and
+    # this run's own users cannot be handed one, so the lifecycle still runs.
+    if [ -n "$RESTORED_SET" ] && [ "$IDP" != mock ] && [ "${#restored_ids[@]}" -gt 0 ]; then
+      unrestored=$(echo "$existing_workspaces" | awk '{ print $2 }' | grep -cvxF -f <(printf '%s\n' "${restored_ids[@]}") || true)
+      if [ "$unrestored" = 0 ]; then
+        skip_lifecycle=no
+        echo "They are all from the restored set, so the lifecycle checks run beside them."
+      fi
+    fi
   else
     echo "None."
   fi
@@ -886,6 +1039,11 @@ print(me.get("email", "").lower(), me.get("role", "") in ("student", "administra
     echo "A workspace this run did not create is already on this VM."
     echo "Skipping the lifecycle, terminal, and project checks, and leaving it alone."
     echo "Run them against a VM nobody is using."
+    # After a restore, the lifecycle block is the point of the run.
+    if [ -n "$RESTORED_SET" ]; then
+      printf '\033[1;31mFAIL\033[0m  %s\n' "the lifecycle checks were skipped on the restored VM"
+      fail=$((fail + 1))
+    fi
   elif [ -z "$ws_id" ]; then
     printf '\033[1;31mFAIL\033[0m  POST /workspaces returned no id: %s\n' "$ws_response"
     fail=$((fail + 1))
