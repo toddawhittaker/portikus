@@ -29,7 +29,11 @@ import {
 	touchPresence,
 	workspaceUpgradeGuard,
 } from "./presence.js";
-import { makeRecoveryPoint } from "./recovery.js";
+import {
+	countProjectPoints,
+	MAX_POINTS_PER_PROJECT,
+	makeRecoveryPoint,
+} from "./recovery.js";
 import { findWorkspaceOwnedBy } from "./workspace-view.js";
 
 const WorkspaceParam = z.object({ id: z.string().uuid() });
@@ -337,7 +341,11 @@ export function registerTerminalRoutes(
 		// A coding agent's session gets a recovery point first, so the state
 		// before it can be restored (SPEC.md §10.9). It fails open.
 		let recoveryPointId: string | null = null;
-		if (body.data.agent !== undefined && project) {
+		if (
+			body.data.agent !== undefined &&
+			project &&
+			(await countProjectPoints(db, project.id)) < MAX_POINTS_PER_PROJECT
+		) {
 			try {
 				const point = await makeRecoveryPoint(db, config, agent, {
 					workspaceId: params.data.id,

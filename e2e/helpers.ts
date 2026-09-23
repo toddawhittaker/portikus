@@ -552,3 +552,15 @@ export async function setRecoveryFull(
 		throw new Error(`the fake agent refused the recovery seed: ${response.status}`);
 	}
 }
+
+/** Make this workspace's restores fail as partly done (RESTORE_INCOMPLETE). */
+export async function setRestoreIncomplete(workspaceId: string): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/recovery`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, restoreIncomplete: true }),
+	});
+	if (!response.ok) {
+		throw new Error(`the fake agent refused the recovery seed: ${response.status}`);
+	}
+}

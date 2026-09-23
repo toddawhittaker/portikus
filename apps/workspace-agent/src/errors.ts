@@ -37,6 +37,7 @@ export const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	BUSY: 409,
 	STORAGE_FULL: 507,
 	RECOVERY_POINT_INVALID: 422,
+	RESTORE_INCOMPLETE: 500,
 };
 
 /**
