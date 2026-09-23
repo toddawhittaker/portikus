@@ -179,6 +179,7 @@ test("WorkerConfig applies all timer defaults", () => {
 	expect(config.SHUTDOWN_GRACE_SECONDS).toBe(600);
 	expect(config.SWEEP_INTERVAL_SECONDS).toBe(1);
 	expect(config.START_TIMEOUT_SECONDS).toBe(60);
+	expect(config.WORKER_START_CONCURRENCY).toBe(6);
 	expect(config.STOP_TIMEOUT_SECONDS).toBe(30);
 	expect(config.STATUS_REFRESH_SECONDS).toBe(15);
 	expect(config.PRESENCE_TTL_SECONDS).toBe(60);
