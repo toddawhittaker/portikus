@@ -1,0 +1,65 @@
+---
+# Load the users file from the machine that runs Ansible and apply the cheap
+# guards.  `make users-check` is the full validation; this catches anyone who
+# runs ansible-playbook directly.  The file is never copied to the VM.
+
+- name: Look at the users file
+  ansible.builtin.stat:
+    path: "{{ portikus_users_file }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: dex_users_file_stat
+
+- name: Require the users file, readable by its owner only
+  ansible.builtin.assert:
+    that:
+      - dex_users_file_stat.stat.exists
+      - dex_users_file_stat.stat.mode == '0600'
+    fail_msg: >-
+      The users file {{ portikus_users_file }} must exist with mode 0600.
+      Create it with `make users-add USERNAME=<name>`, or fix its mode with
+      `chmod 600 {{ portikus_users_file }}`.
+  run_once: true
+
+- name: Read the users file
+  run_once: true
+  block:
+    - name: Parse the users file
+      ansible.builtin.set_fact:
+        dex_users: "{{ lookup('ansible.builtin.file', portikus_users_file) | from_json }}"
+      no_log: true
+  rescue:
+    - name: Explain an unreadable users file
+      ansible.builtin.fail:
+        msg: >-
+          The users file {{ portikus_users_file }} is not valid JSON.
+          Run `make users-check` for details.
+
+# Only usernames reach the messages below, never an entry with its hash.
+- name: Require a version 1 users file with valid hashes and roles
+  ansible.builtin.assert:
+    that:
+      - dex_users.version | default(0) == 1
+      - dex_users.users | default([]) | length > 0
+      - dex_bad_hashes | length == 0
+      - dex_bad_roles | length == 0
+    fail_msg: >-
+      The users file {{ portikus_users_file }} must be version 1, hold at least
+      one user, and every entry needs a bcrypt hash of cost 10 to 16 and the
+      role student or administrator.
+      Bad hashes: {{ dex_bad_hashes | join(', ') or 'none' }}.
+      Bad roles: {{ dex_bad_roles | join(', ') or 'none' }}.
+      Run `make users-check` for details.
+  vars:
+    dex_bad_hashes: >-
+      {{ dex_users.users | default([])
+         | rejectattr('passwordHash', 'defined') | map(attribute='username') | list
+         + dex_users.users | default([]) | selectattr('passwordHash', 'defined')
+           | rejectattr('passwordHash', 'match', dex_bcrypt_pattern)
+           | map(attribute='username') | list }}
+    dex_bad_roles: >-
+      {{ dex_users.users | default([])
+         | rejectattr('role', 'in', ['student', 'administrator'])
+         | map(attribute='username') | list }}
+  run_once: true

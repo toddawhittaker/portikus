@@ -1,0 +1,9 @@
+---
+- name: Reload systemd for Dex
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart portikus-dex
+  ansible.builtin.systemd:
+    name: portikus-dex
+    state: restarted

@@ -1,4 +1,9 @@
 ---
+# Listed first so a changed drop-in is loaded before the restart below.
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
 - name: Restart portikus-api
   ansible.builtin.systemd:
     name: portikus-api

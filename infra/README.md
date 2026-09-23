@@ -63,9 +63,12 @@ Alternatively, wait for the SSH port to open.
 ## 5. Configure the VM with Ansible
 
 The VM address is read from the OpenTofu output automatically; pass
-`VM_IP=<ip>` only to override it.
+`VM_IP=<ip>` only to override it. People sign in through Dex with accounts
+from a users file on this machine, so create at least one administrator
+first (see "Identity provider" under section 9):
 
 ```
+make users-add USERNAME=carol
 make configure-vm
 ```
 
@@ -280,10 +283,13 @@ The VM address changes when the VM is rebuilt, so run `make publish-vm`
 again after `make rebuild-pilot` (that target already calls it).
 
 Then configure the VM, which names the site after the host's LAN address
-so browsers on the LAN reach it through the forward:
+so browsers on the LAN reach it through the forward. Sign-in goes through
+Dex, so add at least one administrator account first (see "Identity
+provider" below):
 
 ```
-make configure-vm PORTIKUS_MOCK_IDP=true
+make users-add USERNAME=carol
+make configure-vm
 ```
 
 The site name defaults to `portikus.<host-lan-ip>.nip.io`. nip.io is a
@@ -333,9 +339,9 @@ The certificate is generated on the VM, so destroying and recreating the
 VM produces a new one. Import the new copy after a rebuild and remove the
 old one.
 
-While the VM is published with the mock sign-in on, every device on the
-LAN can sign in as any mock account, including the administrator. Only do
-this on a network you trust, and withdraw it when you are finished:
+Never publish a VM configured with `PORTIKUS_IDP=mock`: while the mock
+sign-in is on, every device on the LAN can sign in as any mock account,
+including the administrator. To take the site off the LAN:
 
 ```
 make unpublish-vm
@@ -346,59 +352,128 @@ leaves libvirt's own rules alone, so the VM keeps its outbound access.
 
 ### Identity provider
 
-The in-repo mock identity provider (ADR 0008) is off unless you turn it
-on. It is a pilot convenience, not a login system: while it is on, anyone
-who can reach the site's port on the VM can sign in as any mock account,
-including the administrator. Turn it on only on a pilot VM you control,
-and only on a network you trust.
+`PORTIKUS_IDP` picks how people sign in (ADR 0023):
+
+- `dex`, the default: Dex runs on the VM, and accounts come from a users
+  file you keep on your own machine. This is what the pilot uses.
+- `external`: a real identity provider, such as the institution's.
+- `mock`: the in-repo test provider (ADR 0008), where anyone who reaches the
+  site can pick any account, the administrator included. For development
+  and tests only; never on a VM others can reach.
+
+Only the chosen provider runs. Ansible stops and disables the others and
+removes their configuration and secrets, and Caddy answers `/dex` and
+`/mock-idp` with 404 when they are not the provider. The old
+`PORTIKUS_MOCK_IDP=true` is refused with a message; use `PORTIKUS_IDP=mock`.
+
+#### Dex and the users file
+
+Dex has no Debian package and publishes no binaries, so the `dex` role
+builds it on the VM from the upstream commit pinned in `site.yml`
+(`dex_version` and `dex_commit`), the same way distrobuilder is built. The
+first run needs GitHub and the Go module proxy and takes a few minutes. A
+later run builds nothing unless the pin changed, and a failed build leaves
+the running binary in place. Dex listens on `127.0.0.1:5556` and Caddy
+serves it at `https://<public-host>:<port>/dex`, which is also its issuer.
+It keeps nothing on disk, so it has nothing to back up. Before a password
+form post reaches Dex, Caddy asks the API's sign-in throttle, because Dex
+has no lockout of its own (#398).
+
+Accounts live in a users file on the machine that runs Ansible, outside any
+repository checkout, by default `~/.config/portikus/users.json` (override
+with `PORTIKUS_USERS_FILE=<path>`). It holds each user's email, display
+name, role, a fixed random id, and a bcrypt hash of the password, never the
+password itself. Keep a copy in your password manager.
 
 ```
-make configure-vm PORTIKUS_MOCK_IDP=true
-make smoke-test PORTIKUS_MOCK_IDP=true
+make users-add USERNAME=alice     # create or update; asks for the password twice
+make users-remove USERNAME=alice
+make users-list                   # never shows hashes
+make users-check                  # validate the file
+make users-deploy                 # apply the file to Dex on the VM
 ```
 
-The smoke test needs the same variable, because the sign-in checks have no
-way to sign in without the mock provider.
+`make users-add` asks for the email, display name and role (`student` or
+`administrator`), then for the password twice without echoing it. Passwords
+need at least 12 characters. Students sign in with their email address and
+that password. Nobody can change their own password; to reset one, run
+`make users-add` again for that user and then `make users-deploy`.
 
-The provider ships in the Debian package but the package never enables it;
-Ansible does, and only when `portikus_mock_idp` is true. It listens on
-loopback and is reachable only through Caddy at `/mock-idp`. Its accounts
-are `alice` and `bob` (students), `carol` (administrator), and `dave` (no
-groups, so login is refused). Signing in shows a page listing them; pick
-one.
+`make configure-vm` and `make users-deploy` run `make users-check` first
+and stop if it fails. Ansible reads the file on your machine and renders
+one Dex entry per user into `/etc/portikus-dex/config.yaml` on the VM
+(`root:portikus-dex`, mode 0640), with the group `portikus-students` or
+`portikus-administrators` from the role. That rendered file is the only
+place on the VM that holds the hashes; the users file itself is never
+copied there.
 
-Its client secret is generated on the VM into
-`/etc/portikus/mock-client.secret` the first time the playbook runs with
-the mock on, the same way the controller token and the session secret are,
-and written into both the API and the mock provider environment files. No
-secret published in this repository is ever a working credential on a
-host. Turning the mock off removes that file along with the environment
-file.
+Dex's client secret is generated on the VM into
+`/etc/portikus/dex-client.secret` (root, mode 0600) the first time, the
+same way the controller token and session secret are, and written into
+the API's environment file and Dex's configuration.
 
-To point the VM at a real identity provider instead:
+#### Moving existing accounts to Dex
+
+Accounts made through the mock have the mock as their issuer, so after the
+switch the same people would get new, empty accounts. Before the API
+switches to Dex, the playbook carries each users-file account over to the
+row its mock account already has, matching by email, so the person keeps
+their workspace. It audits every change and signs everyone out once. It is
+safe to repeat: an account already carried over is left alone.
+
+To see what it would do without changing anything, run this against a VM
+whose installed release already has the carry-over command:
 
 ```
-make configure-vm \
+make identity-carry-over-dry-run
+```
+
+Each account is reported as already linked, carried (or would carry), new
+(it gets an account at first sign-in), or left behind (an older duplicate,
+issue #302, which is not touched).
+
+#### An external provider
+
+```
+make configure-vm PORTIKUS_IDP=external \
   PORTIKUS_OIDC_ISSUER=https://idp.example.edu \
   PORTIKUS_OIDC_CLIENT_ID=portikus \
   PORTIKUS_OIDC_CLIENT_SECRET=<secret> \
   PORTIKUS_OIDC_STUDENT_GROUP=portikus-students \
-  PORTIKUS_OIDC_ADMIN_GROUP=portikus-administrators
+  PORTIKUS_OIDC_ADMIN_GROUP=portikus-administrators \
+  PORTIKUS_API_IP_ALLOW=198.51.100.0/24
 ```
 
-Ansible stops and disables the mock unit and removes its environment file
-when the flag is false, and refuses to run if the issuer, client id, or
-client secret is missing. Register `https://<public-host>/auth/callback`
-as the client's redirect URI at the provider, and make sure the provider
-puts group names in a `groups` claim.
+Ansible refuses to run if the issuer, client id, or client secret is
+missing. Register `https://<public-host>:<port>/auth/callback` as the
+client's redirect URI at the provider, and make sure the provider puts
+group names in a `groups` claim. The scopes default to
+`openid profile email`; set `PORTIKUS_OIDC_SCOPES` if the provider needs
+another scope for groups.
 
-A real identity provider will not work end to end yet. The systemd units
-are hardened to allow loopback network traffic only
-(`IPAddressAllow=127.0.0.0/8`), so the API cannot call out to an issuer on
-the internet. The settings above exist so the switch is ready and the
-configuration is tested; widening the API unit's allow-list for a named
-issuer address is a follow-up, and the hardening stays as it is until
-then.
+The API's systemd unit allows network traffic to loopback and the
+workspace bridge only. `PORTIKUS_API_IP_ALLOW` takes the provider's address
+ranges (CIDRs, separated by commas) and adds them through the drop-in
+`/etc/systemd/system/portikus-api.service.d/10-idp-egress.conf`, so the API
+can reach the provider without a package change. Check it with
+`systemctl show portikus-api -p IPAddressAllow`. It is accepted only with
+`PORTIKUS_IDP=external`. Existing accounts need a carry-over to the new
+provider's subjects, which is a separate task (docs/EPIC-12B.md, risk 7).
+
+#### The mock, for development
+
+```
+make configure-vm PORTIKUS_IDP=mock
+make smoke-test PORTIKUS_IDP=mock
+```
+
+The mock ships in the Debian package, disabled; Ansible enables it only
+with `PORTIKUS_IDP=mock`. It listens on loopback and is reachable only
+through Caddy at `/mock-idp`. Its accounts are `alice` and `bob`
+(students), `carol` (administrator), and `dave` (no groups, so login is
+refused). Its client secret is generated on the VM into
+`/etc/portikus/mock-client.secret`, and any other provider removes that
+file along with the mock's environment file.
 
 Passing the client secret through the environment is a known gap: it
 belongs in the SOPS-encrypted secrets under `infra/secrets`, which is not
@@ -458,7 +533,8 @@ ansible-galaxy collection install -r requirements.yml
 export PORTIKUS_VM_IP=192.0.2.10
 export PORTIKUS_MANAGEMENT_CIDR=192.0.2.0/24
 export PORTIKUS_PUBLIC_HOST=portikus.192.0.2.10.nip.io
-PORTIKUS_MOCK_IDP=true ansible-playbook site.yml
+export PORTIKUS_USERS_FILE=~/.config/portikus/users.json
+ansible-playbook site.yml
 ```
 
 Then build the workspace image, deploy a development build of the control
@@ -468,14 +544,14 @@ address, so `VM_IP=` is enough:
 ```
 make build-workspace-image VM_IP=192.0.2.10
 make deploy-app VM_IP=192.0.2.10
-make smoke-test VM_IP=192.0.2.10 PORTIKUS_MOCK_IDP=true \
+make smoke-test VM_IP=192.0.2.10 \
   PORTIKUS_PUBLIC_HOST=portikus.192.0.2.10.nip.io PORTIKUS_PUBLIC_PORT=443
 ```
 
 The playbook already installed the newest published release, so `make
 deploy-app` is only for testing a local build. Trust Caddy's certificate
-as described under "Browser access", and read the identity provider
-warning above before leaving the mock sign-in on.
+as described under "Browser access", and create the users file with
+`make users-add` before running the playbook (see "Identity provider").
 
 ### Limits today
 
