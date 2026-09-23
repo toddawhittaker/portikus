@@ -16,6 +16,13 @@
 #                               user's email and password on two lines; the
 #                               run then does a full password sign-in.
 #   PORTIKUS_PUBLIC_HOST, PORTIKUS_PUBLIC_PORT as the VM was configured.
+#   PORTIKUS_SMOKE_RESTORED_SET a backup set just restored onto this VM (the
+#                               rebuild exercise sets it).  Adds the
+#                               restored-data and Incus script checks, and
+#                               lets the lifecycle block run beside the
+#                               restored workspaces.  Refused on the pilot.
+#   PORTIKUS_BACKUP_IDENTITY    the age key that opens that set
+#                               (default ~/.config/portikus/backup-age-key.txt).
 set -uo pipefail
 
 VM="${1:?Usage: smoke-test.sh <vm-ip>}"
@@ -47,6 +54,13 @@ if [ -n "${PORTIKUS_SMOKE_SIGNIN_FILE:-}" ]; then
     echo "smoke-test: ${PORTIKUS_SMOKE_SIGNIN_FILE} must hold an email and a password on two lines" >&2
     exit 2
   fi
+fi
+
+RESTORED_SET="${PORTIKUS_SMOKE_RESTORED_SET:-}"
+BACKUP_IDENTITY="${PORTIKUS_BACKUP_IDENTITY:-${HOME}/.config/portikus/backup-age-key.txt}"
+if [ -n "$RESTORED_SET" ] && [ ! -f "${RESTORED_SET}/MANIFEST.age" ]; then
+  echo "smoke-test: ${RESTORED_SET} is not a backup set (no MANIFEST.age)" >&2
+  exit 2
 fi
 
 pass=0
@@ -133,6 +147,16 @@ workspace_ip() {
 echo "--- Portikus pilot smoke test ---"
 echo "Target: ${VM}"
 echo ""
+
+# The restored-data run also lets the lifecycle block work beside other
+# people's workspaces, which is only safe on a copy, never on the pilot.
+if [ -n "$RESTORED_SET" ]; then
+  vm_hostname=$(ssh_cmd hostname 2>/dev/null || true)
+  if [ -z "$vm_hostname" ] || [ "$vm_hostname" = portikus ]; then
+    echo "smoke-test: PORTIKUS_SMOKE_RESTORED_SET is for a rehearsal copy; ${VM} is '${vm_hostname:-unreachable}'" >&2
+    exit 2
+  fi
+fi
 
 # 1. SSH reachability
 check "SSH to platform VM"                    ssh_cmd true
@@ -326,6 +350,81 @@ else
 fi
 
 echo ""
+
+# ── Epic 12b: restored data (docs/EPIC-12B.md, items 17, 19 and 20) ──
+# Only when PORTIKUS_SMOKE_RESTORED_SET names the set restored onto this VM.
+# Everything read from the set is matched against a strict form before it
+# reaches a command, as restore.sh does.
+restored_ids=()
+if [ -n "$RESTORED_SET" ]; then
+  echo "--- Epic 12b: restored data from $(basename "$RESTORED_SET") ---"
+  echo ""
+  psql_vm() { ssh_cmd "sudo -u postgres psql -q -t -A -d portikus -c \"$1\""; }
+  restored_file_sum() { # VOLUME PATH
+    ssh_cmd "incus storage volume file pull workspace-data $(printf '%q' "$1/$2") - --project portikus" | sha256sum | cut -d' ' -f1
+  }
+
+  # configure-vm keeps the VM's Incus script in step with the repository.
+  repo_script="$(dirname "$0")/../incus/workspace.sh"
+  check_output "the VM's workspace.sh matches the repository's copy" \
+    "$(sha256sum "$repo_script" | cut -d' ' -f1)" \
+    ssh_cmd "sha256sum /var/lib/portikus/incus/workspace.sh | cut -d' ' -f1"
+
+  restore_tmp=$(mktemp -d)
+  if ! age -d -i "$BACKUP_IDENTITY" "${RESTORED_SET}/MANIFEST.age" >"${restore_tmp}/MANIFEST" 2>/dev/null; then
+    printf '\033[1;31mFAIL\033[0m  decrypt the MANIFEST of %s with %s\n' "$RESTORED_SET" "$BACKUP_IDENTITY"
+    fail=$((fail + 1))
+  else
+    while read -r _ id instance; do
+      [[ "$id" =~ ^[0-9a-f-]{36}$ && "$instance" =~ ^ws-[0-9a-f]{24}$ ]] || continue
+      restored_ids+=("$id")
+      check_output "restored workspace ${id} keeps instance ${instance}" "$instance" \
+        psql_vm "SELECT incus_instance_name FROM workspaces WHERE id = '${id}'"
+      check "restored instance ${instance} exists" \
+        ssh_cmd "incus info ${instance} --project portikus"
+    done < <(awk '$1 == "workspace" && $3 != "-"' "${restore_tmp}/MANIFEST")
+
+    while read -r _ volume _; do
+      [[ "$volume" =~ ^ws-[0-9a-f]{24}-(home|recovery)$ ]] || continue
+      check "restored volume ${volume} exists" \
+        ssh_cmd "incus storage volume show workspace-data ${volume} --project portikus"
+      [ -f "${RESTORED_SET}/${volume}.index.age" ] || continue
+      age -d -i "$BACKUP_IDENTITY" "${RESTORED_SET}/${volume}.index.age" >"${restore_tmp}/index" 2>/dev/null || true
+      # Three plain relative paths from the backup's file list.
+      sampled=0
+      while read -r sum path; do
+        sampled=$((sampled + 1))
+        check_output "restored ${volume}: sampled file ${sampled} matches the backup" "$sum" \
+          restored_file_sum "$volume" "$path"
+      done < <(python3 -c '
+import json, re, sys
+n = 0
+for line in open(sys.argv[1]):
+    r = json.loads(line)
+    p = r.get("f", "")
+    if n < 3 and re.fullmatch(r"[A-Za-z0-9._@+/-]+", p) and not p.startswith("/") and ".." not in p.split("/") and re.fullmatch(r"[0-9a-f]{64}", r.get("sha256", "")):
+        print(r["sha256"], p); n += 1
+' "${restore_tmp}/index" 2>/dev/null)
+    done < <(awk '$1 == "volume"' "${restore_tmp}/MANIFEST")
+
+    projects=$(awk '$1 == "counts" { print $7 }' "${restore_tmp}/MANIFEST")
+    [[ "$projects" =~ ^[0-9]+$ ]] || projects=0
+    check "at least the backup's ${projects} projects are on the VM" \
+      test "$(psql_vm 'SELECT count(*) FROM projects')" -ge "$projects"
+
+    # restore.sh ends every sign-in; nothing made before the backup survives.
+    created=$(awk '$1 == "created" { print $2 }' "${restore_tmp}/MANIFEST")
+    if [[ "$created" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})T([0-9]{2})([0-9]{2})([0-9]{2})Z$ ]]; then
+      at="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]} ${BASH_REMATCH[4]}:${BASH_REMATCH[5]}:${BASH_REMATCH[6]}+00"
+      check_output "no session from before the backup survived" "0" \
+        psql_vm "SELECT count(*) FROM sessions WHERE created_at < '${at}'"
+      check_output "no preview session from before the backup survived" "0" \
+        psql_vm "SELECT count(*) FROM preview_sessions WHERE created_at < '${at}'"
+    fi
+  fi
+  rm -rf "$restore_tmp"
+  echo ""
+fi
 
 # ── Epic 3 and 4: authenticated control-plane lifecycle ──────────
 # These checks run only when the portikus-api service is active (i.e.
@@ -808,6 +907,15 @@ print(me.get("email", "").lower(), me.get("role", "") in ("student", "administra
     skip_lifecycle=yes
     echo "These workspaces already exist and this run will not touch them:"
     echo "$existing_workspaces" | awk '{ print "  " $0 }'
+    # On a restored rehearsal copy every restored workspace is stopped, and
+    # this run's own users cannot be handed one, so the lifecycle still runs.
+    if [ -n "$RESTORED_SET" ] && [ "$IDP" != mock ] && [ "${#restored_ids[@]}" -gt 0 ]; then
+      unrestored=$(echo "$existing_workspaces" | awk '{ print $2 }' | grep -cvxF -f <(printf '%s\n' "${restored_ids[@]}") || true)
+      if [ "$unrestored" = 0 ]; then
+        skip_lifecycle=no
+        echo "They are all from the restored set, so the lifecycle checks run beside them."
+      fi
+    fi
   else
     echo "None."
   fi
