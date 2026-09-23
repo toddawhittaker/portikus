@@ -1,0 +1,97 @@
+---
+# Renders the dex role's real configuration template from a users file and
+# checks the result, with no VM (docs/EPIC-12B.md, Part A items 6 and 12).
+# `make infra-check` runs it; the CI dex-signin job runs it to get a config
+# it can start Dex with:
+#
+#   ansible-playbook infra/tests/dex-render-test.yml -e dex_render_dest=/tmp/dex.yaml
+#
+# Every value below can be overridden with -e.
+- name: Render and check the Dex configuration
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    dex_render_users_file: "{{ playbook_dir }}/fixtures/users.sample.json"
+    dex_render_dest: "{{ dex_render_workdir.path }}/config.yaml"
+    portikus_public_url: http://127.0.0.1:3000
+    portikus_dex_issuer: http://127.0.0.1:5556/dex
+    dex_port: 5556
+    # A test value; Ansible generates the real one on the VM.
+    dex_client_secret: portikus-ci-dex-client-secret-not-a-real-one
+    portikus_oidc_student_group: portikus-students
+    portikus_oidc_admin_group: portikus-administrators
+
+  tasks:
+    - name: Make a working directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: dex_render_workdir
+
+    # A checkout does not keep file modes, so the fixture is copied to the
+    # 0600 file the role insists on rather than relaxing the check.
+    - name: Copy the users file with the mode the role requires
+      ansible.builtin.copy:
+        src: "{{ dex_render_users_file }}"
+        dest: "{{ dex_render_workdir.path }}/users.json"
+        mode: "0600"
+
+    - name: Load the users file through the role's own guards
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../ansible/roles/dex"
+        tasks_from: users
+      vars:
+        portikus_users_file: "{{ dex_render_workdir.path }}/users.json"
+
+    - name: Render the configuration template
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../ansible/roles/dex/templates/config.yaml.j2"
+        dest: "{{ dex_render_dest }}"
+        mode: "0600"
+
+    - name: Read the rendered configuration
+      ansible.builtin.set_fact:
+        dex_rendered: "{{ lookup('ansible.builtin.file', dex_render_dest) | from_yaml }}"
+
+    - name: Check the provider settings
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_rendered.issuer == portikus_dex_issuer
+          - dex_rendered.storage.type == 'memory'
+          - dex_rendered.web.http == '127.0.0.1:' ~ dex_port
+          - dex_rendered.enablePasswordDB
+          - dex_rendered.oauth2.skipApprovalScreen
+          - dex_rendered.oauth2.passwordConnector is not defined
+          - dex_rendered.staticClients | length == 1
+          - dex_rendered.staticClients[0].id == 'portikus'
+          - dex_rendered.staticClients[0].secret == dex_client_secret
+          - dex_rendered.staticClients[0].redirectURIs == [portikus_public_url ~ '/auth/callback']
+
+    - name: Check one entry per user, with groups following the role
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_rendered.staticPasswords | length == dex_users.users | length
+          - entry.email == item.email
+          - entry.hash == item.passwordHash
+          - entry.username == item.username
+          - entry.preferredUsername == item.username
+          - entry.name == item.displayName
+          - entry.userID == item.userId
+          - entry.emailVerified
+          - entry.groups == [portikus_oidc_admin_group if item.role == 'administrator'
+                             else portikus_oidc_student_group]
+      vars:
+        entry: "{{ dex_rendered.staticPasswords | selectattr('userID', 'equalto', item.userId) | first }}"
+      loop: "{{ dex_users.users }}"
+      loop_control:
+        label: "{{ item.username }}"
+
+    - name: Remove the working directory
+      ansible.builtin.file:
+        path: "{{ dex_render_workdir.path }}"
+        state: absent
+      when: dex_render_dest.startswith(dex_render_workdir.path)

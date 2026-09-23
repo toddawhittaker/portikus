@@ -163,7 +163,33 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	handle /health {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
-{% if portikus_mock_idp %}
+{% if portikus_idp == 'dex' %}
+
+	# Dex, the sign-in provider (ADR 0023). It mounts its routes under the
+	# issuer's path, so the prefix is passed through unchanged. Dex has no
+	# lockout, so every password form post first asks the API's sign-in
+	# throttle (#398); a 429 goes back to the browser unchanged.
+	handle /dex/* {
+		@dex_password_post {
+			method POST
+			path /dex/auth/local/login*
+		}
+		route {
+			forward_auth @dex_password_post 127.0.0.1:{{ portikus_api_port }} {
+				uri /edge/signin-throttle
+			}
+			reverse_proxy 127.0.0.1:{{ dex_port }}
+		}
+	}
+{% else %}
+
+	# Dex is off, so nothing under its prefix may fall through to the
+	# single-page application and answer 200.
+	handle /dex* {
+		respond 404
+	}
+{% endif %}
+{% if portikus_idp == 'mock' %}
 
 	# Test identity provider (ADR 0008). Its routes are mounted under this
 	# prefix, so the prefix is passed through unchanged.

@@ -2,3 +2,10 @@
 # The log level every control-plane service starts at; an administrator can
 # change it at runtime from the admin page (ADR 0012).
 portikus_log_level: info
+
+# The Dex carry-over (docs/EPIC-12B.md).  False makes it a dry run.
+portikus_carry_over_apply: true
+portikus_carry_over_script: /usr/lib/portikus/api/node_modules/@portikus/auth/dist/carry-over-main.js
+portikus_carry_over_input: /run/portikus-carry-over.json
+# The report line for a row that was rewritten (packages/auth carry-over formatReport).
+portikus_carry_over_changed_pattern: ': carried row '

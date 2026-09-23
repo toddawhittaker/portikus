@@ -115,4 +115,16 @@ if [ -n "$found" ]; then
 	exit 1
 fi
 
+# Dex password hashes live only in the users file and the VM's rendered Dex
+# config (docs/adr/0023). Fail if anything in the package holds one.
+unpacked="$(mktemp -d)"
+trap 'rm -rf "$unpacked"' EXIT
+dpkg-deb -x "$deb" "$unpacked"
+leaked="$(grep -rlE 'staticPasswords|\$2[aby]\$[0-9]{2}\$' "$unpacked" || true)"
+if [ -n "$leaked" ]; then
+	echo "Files in the package hold Dex users or a bcrypt hash:" >&2
+	echo "${leaked//$unpacked/}" >&2
+	exit 1
+fi
+
 echo "$version"

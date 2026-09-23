@@ -131,6 +131,14 @@
     group: root
     mode: "0755"
 
+# ── Carry accounts over to Dex (docs/EPIC-12B.md) ────────────────
+# Runs after the package install and before api.env changes, so the API is
+# still on the old provider and no Dex identity can make a row first.
+- name: Carry existing accounts over to Dex
+  ansible.builtin.import_tasks: carry_over.yml
+  when: portikus_idp == 'dex'
+  tags: carry_over
+
 # ── Controller token (generated once) ────────────────────────────
 
 - name: Generate controller token
@@ -217,16 +225,28 @@
   when: portikus_mock_idp
   no_log: true
 
-# The mock provider is served by Caddy under /mock-idp on the public host,
-# so the API reaches it over loopback with a certificate it trusts.
+# The dex role generates this secret; it is read again here so a run limited
+# to this role still has it.
+- name: Read the Dex client secret
+  ansible.builtin.slurp:
+    src: /etc/portikus/dex-client.secret
+  register: portikus_dex_client_secret_file
+  when: portikus_idp == 'dex'
+  no_log: true
+
+# Dex and the mock are served by Caddy on the public host, so the API
+# reaches either over loopback with a certificate it trusts.
 - name: Set the effective identity provider settings
   ansible.builtin.set_fact:
     portikus_effective_oidc_issuer: >-
-      {{ (portikus_public_url ~ '/mock-idp') if portikus_mock_idp else portikus_oidc_issuer }}
+      {{ {'dex': portikus_dex_issuer,
+          'mock': portikus_public_url ~ '/mock-idp'}.get(portikus_idp, portikus_oidc_issuer) }}
     portikus_effective_oidc_client_id: >-
-      {{ 'portikus-dev' if portikus_mock_idp else portikus_oidc_client_id }}
+      {{ {'dex': 'portikus', 'mock': 'portikus-dev'}.get(portikus_idp, portikus_oidc_client_id) }}
     portikus_effective_oidc_client_secret: >-
-      {{ portikus_mock_client_secret if portikus_mock_idp else portikus_oidc_client_secret }}
+      {{ (portikus_dex_client_secret_file.content | b64decode | trim) if portikus_idp == 'dex'
+         else portikus_mock_client_secret if portikus_idp == 'mock'
+         else portikus_oidc_client_secret }}
   no_log: true
 
 - name: Deploy mock identity provider environment file
@@ -277,6 +297,44 @@
     group: portikus
     mode: "0640"
   notify: Restart portikus-api
+
+# The packaged API unit allows loopback and the workspace bridge only.  An
+# external provider's addresses are added here, so a later move to one is a
+# settings change rather than a package change.
+- name: Create the API unit drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/portikus-api.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: portikus_api_ip_allow_extra | length > 0
+
+- name: Allow the API to reach the external identity provider
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
+    content: |
+      # Managed by Ansible from PORTIKUS_API_IP_ALLOW.
+      [Service]
+      {% for cidr in portikus_api_ip_allow_extra %}
+      IPAddressAllow={{ cidr }}
+      {% endfor %}
+    owner: root
+    group: root
+    mode: "0644"
+  when: portikus_api_ip_allow_extra | length > 0
+  notify:
+    - Reload systemd
+    - Restart portikus-api
+
+- name: Remove the API egress drop-in when nothing is added
+  ansible.builtin.file:
+    path: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
+    state: absent
+  when: portikus_api_ip_allow_extra | length == 0
+  notify:
+    - Reload systemd
+    - Restart portikus-api
 
 - name: Deploy worker environment file
   ansible.builtin.template:

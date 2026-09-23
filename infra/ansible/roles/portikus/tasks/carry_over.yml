@@ -1,0 +1,81 @@
+---
+# Link each users-file account to the Portikus row its mock-issuer account
+# already has, by email, so its workspace stays attached.  A dry run unless
+# portikus_carry_over_apply is true (`make identity-carry-over-dry-run` sets
+# it false).  Safe to repeat: an account already linked is left alone.
+
+- name: Look for the carry-over command
+  ansible.builtin.stat:
+    path: "{{ portikus_carry_over_script }}"
+  register: portikus_carry_over_command
+
+- name: Require a package that has the carry-over command
+  ansible.builtin.assert:
+    that:
+      - portikus_carry_over_command.stat.exists
+    fail_msg: >-
+      The installed portikus package has no carry-over command. Install a
+      release that has it first, for example with
+      `make configure-vm PORTIKUS_IDP=mock`, then run this again.
+
+# A fresh VM has no tables until the API first starts; the API unit runs
+# the same migration on every start, so running it here changes nothing else.
+- name: Bring the database schema up to date
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - portikus
+      - --
+      - /usr/bin/node
+      - /usr/lib/portikus/api/node_modules/@portikus/db/dist/migrate.js
+  environment:
+    DATABASE_URL: "{{ portikus_database_url }}"
+  register: portikus_migrate
+  changed_when: "'Applied migrations' in portikus_migrate.stdout"
+  when: portikus_carry_over_apply | bool
+
+- name: Run the carry-over
+  block:
+    # Emails, usernames and user ids only; never a hash.
+    - name: Write the carry-over input
+      ansible.builtin.copy:
+        dest: "{{ portikus_carry_over_input }}"
+        content: >-
+          {{ {
+            'toIssuer': portikus_dex_issuer,
+            'fromIssuers': [portikus_public_url ~ '/mock-idp',
+                            'https://' ~ portikus_public_host ~ '/mock-idp'] | unique,
+            'users': dex_users.users
+                     | map('dict2items')
+                     | map('selectattr', 'key', 'in', ['email', 'username', 'userId'])
+                     | map('list') | map('items2dict') | list
+          } | to_nice_json }}
+        owner: root
+        group: portikus
+        mode: "0640"
+      changed_when: false
+
+    - name: Carry accounts over
+      ansible.builtin.command:
+        argv: >-
+          {{ ['runuser', '-u', 'portikus', '--', '/usr/bin/node', portikus_carry_over_script,
+              '--input', portikus_carry_over_input]
+             + (['--apply'] if portikus_carry_over_apply | bool else []) }}
+      environment:
+        DATABASE_URL: "{{ portikus_database_url }}"
+      register: portikus_carry_over
+      changed_when: >-
+        portikus_carry_over_apply | bool
+        and portikus_carry_over_changed_pattern in portikus_carry_over.stdout
+
+    - name: Show the carry-over report
+      ansible.builtin.debug:
+        var: portikus_carry_over.stdout_lines
+
+  always:
+    - name: Remove the carry-over input
+      ansible.builtin.file:
+        path: "{{ portikus_carry_over_input }}"
+        state: absent
+      changed_when: false

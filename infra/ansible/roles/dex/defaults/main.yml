@@ -1,0 +1,11 @@
+---
+# Dex, the pilot's sign-in provider (docs/adr/0023-dex-static-users.md).
+# dex_version, dex_commit, dex_port and portikus_users_file are set in site.yml.
+dex_config_dir: /etc/portikus-dex
+dex_client_secret_file: /etc/portikus/dex-client.secret
+dex_src_dir: /root/go/src/dex
+dex_marker: /usr/local/share/portikus/dex-commit
+# A separate build cache, so clearing it after a build leaves distrobuilder's alone.
+dex_gocache: /root/go/dex-cache
+# The bcrypt shape Dex accepts: cost 10 to 16 (docs/EPIC-12B.md, the users file).
+dex_bcrypt_pattern: '^\$2[aby]\$1[0-6]\$[./A-Za-z0-9]{53}$'

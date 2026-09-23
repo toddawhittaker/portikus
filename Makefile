@@ -4,7 +4,8 @@
 .PHONY: help install check typecheck lint format test test-coverage build test-e2e dev clean \
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm \
-       build-deb deploy-app build-workspace-image workspace-create workspace-destroy
+       build-deb deploy-app build-workspace-image workspace-create workspace-destroy \
+       users-add users-remove users-list users-check users-deploy identity-carry-over-dry-run
 
 help: ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -61,6 +62,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/security-cleanup-scope-test.sh
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/caddy-preview-test.sh
+	ansible-playbook infra/tests/dex-render-test.yml
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
 	bash infra/host/dev-libvirt/bootstrap.sh
@@ -101,20 +103,58 @@ wait-vm: ## Wait for the platform VM to finish first boot
 # Ansible runs from infra/ansible, so a local package path has to be absolute.
 PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
 
-configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_MOCK_IDP=true turns on the pilot mock sign-in, PORTIKUS_OIDC_* points at a real identity provider)
-	cd infra/ansible && PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) \
-		PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) \
-		PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
-		PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
-		PORTIKUS_OIDC_ISSUER=$(PORTIKUS_OIDC_ISSUER) PORTIKUS_OIDC_CLIENT_ID=$(PORTIKUS_OIDC_CLIENT_ID) \
-		PORTIKUS_OIDC_CLIENT_SECRET=$(PORTIKUS_OIDC_CLIENT_SECRET) \
-		PORTIKUS_OIDC_STUDENT_GROUP=$(PORTIKUS_OIDC_STUDENT_GROUP) \
-		PORTIKUS_OIDC_ADMIN_GROUP=$(PORTIKUS_OIDC_ADMIN_GROUP) ansible-playbook site.yml
+# ── Sign-in provider and accounts (docs/adr/0023) ──────────────────
+# PORTIKUS_IDP picks the provider: dex (the default), mock (test only: anyone
+# can sign in as anyone), or external (a real provider named by the
+# PORTIKUS_OIDC_* settings, reachable through PORTIKUS_API_IP_ALLOW=<cidr>).
+PORTIKUS_IDP ?= dex
+# Dex accounts. Kept on this machine, outside any work tree; never on the VM.
+PORTIKUS_USERS_FILE ?= $(HOME)/.config/portikus/users.json
+USERS_CLI = pnpm --silent --filter @portikus/users-file users
+USERS_FILE_FLAG = --file "$(abspath $(PORTIKUS_USERS_FILE))"
+# The users file is needed, and checked first, only when Dex is the provider.
+USERS_CHECK := $(if $(filter dex,$(PORTIKUS_IDP)),users-check,)
 
-smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_MOCK_IDP=true if the VM was configured with the mock sign-in, which the login checks need)
+ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) \
+	PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) \
+	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
+	PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
+	PORTIKUS_USERS_FILE="$(abspath $(PORTIKUS_USERS_FILE))" \
+	PORTIKUS_OIDC_ISSUER=$(PORTIKUS_OIDC_ISSUER) PORTIKUS_OIDC_CLIENT_ID=$(PORTIKUS_OIDC_CLIENT_ID) \
+	PORTIKUS_OIDC_CLIENT_SECRET=$(PORTIKUS_OIDC_CLIENT_SECRET) PORTIKUS_OIDC_SCOPES="$(PORTIKUS_OIDC_SCOPES)" \
+	PORTIKUS_OIDC_STUDENT_GROUP=$(PORTIKUS_OIDC_STUDENT_GROUP) \
+	PORTIKUS_OIDC_ADMIN_GROUP=$(PORTIKUS_OIDC_ADMIN_GROUP) \
+	PORTIKUS_API_IP_ALLOW="$(PORTIKUS_API_IP_ALLOW)"
+
+users-add: ## Add or update a Dex account; asks for the password twice (USERNAME=<name>)
+	@test -n "$(USERNAME)" || { echo "users-add: USERNAME is required, e.g. make users-add USERNAME=alice"; exit 1; }
+	@$(USERS_CLI) add "$(USERNAME)" $(USERS_FILE_FLAG)
+
+users-remove: ## Remove a Dex account (USERNAME=<name>); users-deploy applies it
+	@test -n "$(USERNAME)" || { echo "users-remove: USERNAME is required, e.g. make users-remove USERNAME=alice"; exit 1; }
+	@$(USERS_CLI) remove "$(USERNAME)" $(USERS_FILE_FLAG)
+
+users-list: ## List the Dex accounts (never shows password hashes)
+	@$(USERS_CLI) list $(USERS_FILE_FLAG)
+
+users-check: ## Validate the users file
+	@$(USERS_CLI) check $(USERS_FILE_FLAG)
+
+users-deploy: users-check wait-vm ## Apply the users file to Dex on the VM
+	@test "$(PORTIKUS_IDP)" = dex || { echo "users-deploy: only for PORTIKUS_IDP=dex"; exit 1; }
+	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags dex
+
+identity-carry-over-dry-run: users-check wait-vm ## Show which existing accounts the move to Dex would carry over; changes nothing
+	@test "$(PORTIKUS_IDP)" = dex || { echo "identity-carry-over-dry-run: only for PORTIKUS_IDP=dex"; exit 1; }
+	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags carry_over -e portikus_carry_over_apply=false
+
+configure-vm: $(USERS_CHECK) wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|mock|external picks the sign-in provider, PORTIKUS_USERS_FILE=<path> the Dex accounts)
+	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml
+
+smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_IDP=<provider> as configured)
 	@test -n "$(VM_IP)" || { echo "smoke-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
-		PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
+		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_MOCK_IDP=$(if $(filter mock,$(PORTIKUS_IDP)),true,false) \
 		bash infra/tests/smoke-test.sh $(VM_IP)
 
 # Safe on the live pilot: it creates and removes only its own users and two

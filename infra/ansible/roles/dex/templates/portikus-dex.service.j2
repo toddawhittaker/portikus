@@ -1,0 +1,24 @@
+# Dex, the Portikus sign-in provider — managed by Ansible (docs/adr/0023).
+[Unit]
+Description=Portikus sign-in provider (Dex)
+After=network.target
+ConditionPathExists={{ dex_config_dir }}/config.yaml
+
+[Service]
+Type=simple
+User=portikus-dex
+Group=portikus-dex
+ExecStart=/usr/local/bin/dex serve {{ dex_config_dir }}/config.yaml
+Restart=on-failure
+RestartSec=5
+
+# Hardening, the same as the Portikus units (SPEC section 24).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+IPAddressAllow=127.0.0.0/8
+IPAddressDeny=any
+
+[Install]
+WantedBy=multi-user.target

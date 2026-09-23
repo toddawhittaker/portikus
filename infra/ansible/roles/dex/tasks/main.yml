@@ -1,0 +1,254 @@
+---
+# Dex, the pilot's sign-in provider (docs/adr/0023-dex-static-users.md).
+# Built from source at a pinned commit, the way distrobuilder is (ADR 0004),
+# because Dex publishes no binaries and Debian has no package for it.
+
+- name: Install and run Dex
+  when: portikus_idp == 'dex'
+  block:
+    # The role installs its own toolchain so it does not depend on image_builder
+    # running first.  Dex links SQLite through cgo, hence build-essential.
+    - name: Install the Dex build prerequisites
+      ansible.builtin.apt:
+        name:
+          - golang-go
+          - git
+          - build-essential
+        state: present
+
+    - name: Create the portikus-dex group
+      ansible.builtin.group:
+        name: portikus-dex
+        system: true
+
+    - name: Create the portikus-dex user
+      ansible.builtin.user:
+        name: portikus-dex
+        group: portikus-dex
+        system: true
+        shell: /usr/sbin/nologin
+        home: /nonexistent
+        create_home: false
+
+    # ── Build at the pinned commit ───────────────────────────────
+
+    - name: Read the installed Dex commit marker
+      ansible.builtin.slurp:
+        src: "{{ dex_marker }}"
+      register: dex_marker_file
+      failed_when: false
+
+    - name: Look for the Dex binary
+      ansible.builtin.stat:
+        path: /usr/local/bin/dex
+      register: dex_binary
+
+    - name: Decide whether Dex needs building
+      ansible.builtin.set_fact:
+        dex_needs_build: >-
+          {{ not dex_binary.stat.exists
+             or (dex_marker_file.content | default('') | b64decode | trim) != dex_commit }}
+
+    - name: Build Dex
+      when: dex_needs_build | bool
+      block:
+        - name: Check out Dex at the pinned commit
+          ansible.builtin.git:
+            repo: https://github.com/dexidp/dex.git
+            dest: "{{ dex_src_dir }}"
+            version: "{{ dex_commit }}"
+            depth: 1
+            force: true
+
+        # Git names a commit by the hash of its contents, so this proves the
+        # tree is exactly the pinned source.
+        - name: Read the checked-out commit
+          ansible.builtin.command:
+            cmd: git rev-parse HEAD
+            chdir: "{{ dex_src_dir }}"
+          register: dex_checked_out
+          changed_when: false
+
+        - name: Require the pinned commit
+          ansible.builtin.assert:
+            that:
+              - dex_checked_out.stdout | trim == dex_commit
+            fail_msg: "Checked out {{ dex_checked_out.stdout }}, expected {{ dex_commit }}."
+
+        - name: Remove a half-built binary from an earlier failed run
+          ansible.builtin.file:
+            path: /usr/local/bin/dex.new
+            state: absent
+
+        # The same environment as distrobuilder (ADR 0004).  GOTOOLCHAIN=auto
+        # fetches the Go version go.mod names, verified against Go's checksum
+        # database; go.sum verifies every module.  A failure here stops the
+        # play with the old binary and marker still in place.
+        - name: Compile Dex
+          ansible.builtin.command:
+            cmd: >-
+              go build -trimpath
+              -ldflags "-w -X main.version={{ dex_version }}"
+              -o /usr/local/bin/dex.new ./cmd/dex
+            chdir: "{{ dex_src_dir }}"
+          environment:
+            GOPATH: /root/go
+            GOCACHE: "{{ dex_gocache }}"
+            GOMODCACHE: /root/go/pkg/mod
+            GOFLAGS: -buildvcs=false
+            GOTOOLCHAIN: auto
+          changed_when: true
+
+        - name: Check that the new binary reports the pinned version
+          ansible.builtin.command:
+            cmd: /usr/local/bin/dex.new version
+          register: dex_new_version
+          changed_when: false
+          failed_when: ("Dex Version: " ~ dex_version) not in dex_new_version.stdout
+
+        - name: Put the new Dex binary in place
+          ansible.builtin.copy:
+            src: /usr/local/bin/dex.new
+            dest: /usr/local/bin/dex
+            remote_src: true
+            owner: root
+            group: root
+            mode: "0755"
+          notify: Restart portikus-dex
+
+        - name: Remove the staging binary
+          ansible.builtin.file:
+            path: /usr/local/bin/dex.new
+            state: absent
+
+        - name: Create the marker directory
+          ansible.builtin.file:
+            path: "{{ dex_marker | dirname }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Record the installed Dex commit
+          ansible.builtin.copy:
+            dest: "{{ dex_marker }}"
+            content: "{{ dex_commit }}\n"
+            owner: root
+            group: root
+            mode: "0644"
+
+        # About a gigabyte on a 20 GiB disk; the module cache stays for the next build.
+        - name: Clear the Dex build cache
+          ansible.builtin.file:
+            path: "{{ dex_gocache }}"
+            state: absent
+
+    # ── Client secret (generated once) ───────────────────────────
+
+    - name: Create the portikus configuration directory
+      ansible.builtin.file:
+        path: /etc/portikus
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Generate the Dex client secret
+      ansible.builtin.shell:
+        cmd: umask 077 && openssl rand -hex 32 > {{ dex_client_secret_file }}
+        creates: "{{ dex_client_secret_file }}"
+      no_log: true
+
+    - name: Set the Dex client secret file permissions
+      ansible.builtin.file:
+        path: "{{ dex_client_secret_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Read the Dex client secret
+      ansible.builtin.slurp:
+        src: "{{ dex_client_secret_file }}"
+      register: dex_client_secret_file_content
+      no_log: true
+
+    - name: Set the Dex client secret fact
+      ansible.builtin.set_fact:
+        dex_client_secret: "{{ dex_client_secret_file_content.content | b64decode | trim }}"
+      no_log: true
+
+    # ── Configuration and service ────────────────────────────────
+
+    - name: Create the Dex configuration directory
+      ansible.builtin.file:
+        path: "{{ dex_config_dir }}"
+        state: directory
+        owner: root
+        group: portikus-dex
+        mode: "0750"
+
+    # Holds every password hash, so nothing about it may reach the output.
+    - name: Deploy the Dex configuration
+      ansible.builtin.template:
+        src: config.yaml.j2
+        dest: "{{ dex_config_dir }}/config.yaml"
+        owner: root
+        group: portikus-dex
+        mode: "0640"
+      no_log: true
+      notify: Restart portikus-dex
+
+    - name: Deploy the Dex unit
+      ansible.builtin.template:
+        src: portikus-dex.service.j2
+        dest: /etc/systemd/system/portikus-dex.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - Reload systemd for Dex
+        - Restart portikus-dex
+
+    - name: Apply Dex changes now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start Dex
+      ansible.builtin.systemd:
+        name: portikus-dex
+        enabled: true
+        state: started
+
+    - name: Wait for Dex to publish its discovery document
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ dex_port }}{{ portikus_dex_issuer | urlsplit('path') }}/.well-known/openid-configuration"
+        return_content: true
+      register: dex_discovery
+      until: dex_discovery.status == 200
+      retries: 15
+      delay: 2
+
+    - name: Require Dex to name the public issuer
+      ansible.builtin.assert:
+        that:
+          - dex_discovery.json.issuer == portikus_dex_issuer
+        fail_msg: "Dex reports issuer {{ dex_discovery.json.issuer }}, expected {{ portikus_dex_issuer }}."
+
+- name: Turn Dex off
+  when: portikus_idp != 'dex'
+  block:
+    - name: Look for the Dex unit
+      ansible.builtin.stat:
+        path: /etc/systemd/system/portikus-dex.service
+      register: dex_unit
+
+    - name: Stop and disable Dex
+      ansible.builtin.systemd:
+        name: portikus-dex
+        enabled: false
+        state: stopped
+      when: dex_unit.stat.exists
+
+    - name: Remove the Dex configuration
+      ansible.builtin.file:
+        path: "{{ dex_config_dir }}"
+        state: absent
