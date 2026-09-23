@@ -584,6 +584,22 @@ importers:
         specifier: 19.3.0
         version: 19.3.0(@types/react@19.3.0)
 
+  packages/users-file:
+    dependencies:
+      bcryptjs:
+        specifier: 3.0.3
+        version: 3.0.3
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@types/node':
+        specifier: 24.9.2
+        version: 24.9.2
+      node-pty:
+        specifier: 1.1.0
+        version: 1.1.0
+
 packages:
 
   '@asamuzakjp/css-color@7.0.1':
@@ -1889,6 +1905,10 @@ packages:
 
   bail@2.0.2:
     resolution: {integrity: sha512-0xO6mYd7JB2YesxDKplafRpsiOzPt9V02ddPCLbY1xYGPOX24NTyN50qnUxgCPcSoYMhKpAuBTjQoRZCAkUDRw==}
+
+  bcryptjs@3.0.3:
+    resolution: {integrity: sha512-GlF5wPWnSa/X5LKM1o0wz0suXIINz1iHRLvTS+sLyi7XPbe5ycmYI3DlZqVGZZtDgl4DmasFg7gOB3JYbphV5g==}
+    hasBin: true
 
   bidi-js@1.1.0:
     resolution: {integrity: sha512-fX1Onk0tdVPC7obPWB5EbJ1z7NVhLq4m2xZLq2YXBkxzMXIGRpNMU88n0EPgWseKl12J7zXs7qrDxPK4sRs2fg==}
@@ -4180,6 +4200,8 @@ snapshots:
       fastq: 1.20.3
 
   bail@2.0.2: {}
+
+  bcryptjs@3.0.3: {}
 
   bidi-js@1.1.0:
     dependencies:

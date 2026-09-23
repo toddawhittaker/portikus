@@ -61,8 +61,35 @@ test.skipIf(skip)("a student can sign in and see themselves", async () => {
 	expect(me.statusCode).toBe(200);
 	expect(me.json().role).toBe("student");
 	expect(me.json().displayName).toBeTruthy();
-	expect(me.json().oidcSubject).toBe("alice");
+	expect(me.json().signInName).toBe("alice");
 });
+
+test.skipIf(skip)(
+	"the sign-in name is the username, or the subject when there is none",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "alice", jar);
+		const me = () =>
+			app.inject({
+				method: "GET",
+				url: "/auth/me",
+				headers: { cookie: jar.cookieHeader() },
+			});
+
+		// A Dex subject is an opaque blob, so the username is what a student recognises.
+		await testDb.db
+			.updateTable("users")
+			.set({ oidc_subject: "CiQwOGE4Njg0Yi1kYjg4", preferred_username: "alice7" })
+			.execute();
+		expect((await me()).json().signInName).toBe("alice7");
+
+		await testDb.db.updateTable("users").set({ preferred_username: "" }).execute();
+		expect((await me()).json().signInName).toBe("CiQwOGE4Njg0Yi1kYjg4");
+
+		await testDb.db.updateTable("users").set({ preferred_username: null }).execute();
+		expect((await me()).json().signInName).toBe("CiQwOGE4Njg0Yi1kYjg4");
+	},
+);
 
 test.skipIf(skip)("the admin group maps to the administrator role", async () => {
 	const jar = new CookieJar();

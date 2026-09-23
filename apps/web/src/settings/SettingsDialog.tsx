@@ -693,7 +693,7 @@ function ProfilePane({
 		if (controlId === "display-name")
 			return saved?.displayName ?? user?.displayName ?? "";
 		if (controlId === "email") return saved?.email ?? "Not provided";
-		if (controlId === "sign-in-name") return user?.oidcSubject ?? "Not provided";
+		if (controlId === "sign-in-name") return user?.signInName ?? "Not provided";
 		if (controlId === "workspace-label")
 			return saved?.workspaceLabel ?? "Not created yet";
 		return "";
