@@ -2806,6 +2806,8 @@ Acceptance:
 ### Epic 12 — Security, load, recovery, and pilot hardening
 **Estimate:** 5–7 engineer-days
 
+Epic 12a (security test suites): see docs/EPIC-12A.md; landed on epic/12a-security-tests.
+
 Includes:
 
 - authorization test matrix;

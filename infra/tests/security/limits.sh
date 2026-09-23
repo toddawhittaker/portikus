@@ -124,6 +124,7 @@ check "the refusal came from a's container limit (pids.events max went up)" \
 
 # ── CPU ──────────────────────────────────────────────────────────
 
+# This fully loads the test workspace's CPUs for 20 seconds; run the suite outside class hours.
 # One busy loop per CPU a has, as the student, for 20 seconds under timeout.
 # a's cgroup CPU time over the stretch shows the loops really ran (control).
 lim_cpu_usec() { lim_cgroup cpu.stat | awk '$1 == "usage_usec" { print $2 }'; }
