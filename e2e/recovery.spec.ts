@@ -12,6 +12,7 @@ import {
 	readSeededFile,
 	seedFile,
 	setRecoveryFull,
+	setRestoreIncomplete,
 	type TestProject,
 	workspacePath,
 	workTabs,
@@ -200,4 +201,24 @@ test("the recovery dialogs work from the keyboard alone and return focus", async
 	await page.keyboard.press("Escape");
 	await expect(dialog).toHaveCount(0);
 	await expect(menuButton).toBeFocused();
+});
+
+test("a partly done restore says so and how to undo it", async ({ page, context }) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Half Done" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+
+	await openRecovery(page, project);
+	const dialog = page.getByTestId("dialog-recovery-points");
+	await dialog.getByTestId("recovery-create").click();
+	await expect(dialog.locator("[data-testid^=recovery-row-]")).toHaveCount(1);
+	await setRestoreIncomplete(student.workspaceId);
+
+	await dialog.getByRole("button", { name: /^Restore to / }).click();
+	const confirm = page.getByTestId("dialog-restore-point");
+	await confirm.getByRole("button", { name: "Restore", exact: true }).click();
+	await expect(confirm.getByTestId("restore-error")).toHaveText(
+		"The project may be partly restored. Restore the 'Before restore' point to undo.",
+	);
+	await expect(confirm).not.toContainText("was not restored");
 });

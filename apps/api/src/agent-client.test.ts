@@ -244,3 +244,24 @@ test("a caller cannot override the bearer token on fetchRaw", async () => {
 	});
 	expect(seen).toBe("Bearer real-token");
 });
+
+test("an agent that answers with a redirect is treated as unavailable", async () => {
+	let followed = false;
+	const port = await startUpstream((request, response) => {
+		if (request.url === "/elsewhere") followed = true;
+		response.writeHead(307, { location: "/elsewhere" });
+		response.end();
+	});
+	const client = new AgentClient("127.0.0.1", port, "token");
+
+	for (const attempt of [
+		client.listProjects(),
+		client.fetchRaw("GET", "/projects/p/files"),
+		client.downloadProject("p"),
+	]) {
+		const error = await attempt.catch((caught: unknown) => caught);
+		expect(error).toBeInstanceOf(AgentCallError);
+		expect((error as AgentCallError).code).toBe("AGENT_UNAVAILABLE");
+	}
+	expect(followed).toBe(false);
+});

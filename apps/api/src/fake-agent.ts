@@ -92,6 +92,8 @@ export interface FakeAgent {
 	readonly recoveryDeletes: string[];
 	/** Workspace keys whose next recovery point fails with STORAGE_FULL. */
 	recoveryFull: Set<string>;
+	/** Workspace keys whose restores fail as RESTORE_INCOMPLETE. */
+	restoreIncomplete: Set<string>;
 	/** Storage figures `/usage` reports, by workspace key; absent means null. */
 	storage: Map<string, FakeStorage>;
 	/** Push one frame to every events subscriber of a project. */
@@ -1533,6 +1535,7 @@ export async function startFakeAgent(
 	const recoveryPoints = new Map<string, FakeRecoveryPoint>();
 	const recoveryDeletes: string[] = [];
 	const recoveryFull = new Set<string>();
+	const restoreIncomplete = new Set<string>();
 	const storage = new Map<string, FakeStorage>();
 
 	function recoveryError(reply: FastifyReply, status: number, code: string) {
@@ -1611,6 +1614,9 @@ export async function startFakeAgent(
 			) {
 				return recoveryError(reply, 422, "RECOVERY_POINT_INVALID");
 			}
+			if (restoreIncomplete.has(keyOf(request))) {
+				return recoveryError(reply, 500, "RESTORE_INCOMPLETE");
+			}
 			const tree = fsOf(request);
 			removeTree(tree, slug);
 			for (const [rest, node] of point.entries) {
@@ -1643,12 +1649,18 @@ export async function startFakeAgent(
 		return reply.status(204).send();
 	});
 
-	/** Make the recovery points of a workspace fail as full, or stop doing so. */
+	/** Make a workspace's recovery points fail as full, or its restores as partial. */
 	app.post("/__test/recovery", async (request, reply) => {
-		const body = (request.body ?? {}) as { key?: string; storageFull?: boolean };
+		const body = (request.body ?? {}) as {
+			key?: string;
+			storageFull?: boolean;
+			restoreIncomplete?: boolean;
+		};
 		const key = body.key ?? "";
 		if (body.storageFull) recoveryFull.add(key);
 		else recoveryFull.delete(key);
+		if (body.restoreIncomplete) restoreIncomplete.add(key);
+		else restoreIncomplete.delete(key);
 		return reply.status(204).send();
 	});
 
@@ -1900,6 +1912,7 @@ export async function startFakeAgent(
 		recoveryPoints,
 		recoveryDeletes,
 		recoveryFull,
+		restoreIncomplete,
 		storage,
 		get failForward() {
 			return state.failForward;

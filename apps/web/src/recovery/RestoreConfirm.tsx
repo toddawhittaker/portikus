@@ -57,8 +57,11 @@ export function RestoreConfirm({
 						setStorageFull(true);
 						return;
 					}
+					// The server says what happened; a partial restore is not "not restored".
 					setFailure(
-						`The project was not restored. ${error instanceof Error ? error.message : ""}`.trim(),
+						error instanceof ApiError
+							? error.message
+							: "The restore failed. Check your connection and try again.",
 					);
 				},
 			},

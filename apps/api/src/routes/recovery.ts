@@ -30,6 +30,43 @@ const PointParam = ProjectParam.extend({ rpid: z.string().uuid() });
 
 const GIB = 1024 ** 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** At most one manual point per project this often, and this many in all. */
+const MANUAL_POINT_INTERVAL_MS = 30_000;
+export const MAX_POINTS_PER_PROJECT = 200;
+
+/** How many recovery points one project holds now. */
+export async function countProjectPoints(
+	db: Kysely<Database>,
+	projectId: string,
+): Promise<number> {
+	const row = await db
+		.selectFrom("recovery_points")
+		.select(sql<string>`count(*)::text`.as("n"))
+		.where("project_id", "=", projectId)
+		.executeTakeFirstOrThrow();
+	return Number(row.n);
+}
+
+/** Answer 409 while a maintenance operation waits on the workspace. */
+async function refusePending(
+	db: Kysely<Database>,
+	workspaceId: string,
+	reply: FastifyReply,
+): Promise<boolean> {
+	const row = await db
+		.selectFrom("workspaces")
+		.select("pending_operation")
+		.where("id", "=", workspaceId)
+		.executeTakeFirst();
+	if (!row?.pending_operation) return false;
+	sendError(
+		reply,
+		409,
+		"OPERATION_PENDING",
+		"A maintenance operation is waiting on this workspace. Try again when it is done.",
+	);
+	return true;
+}
 
 function toRecoveryPoint(row: RecoveryPointRow): RecoveryPoint {
 	return {
@@ -152,6 +189,32 @@ export function registerRecoveryRoutes(
 		const { scope, project } = found;
 		const agent = requireAgent(scope, reply);
 		if (!agent) return;
+		if (await refusePending(db, scope.workspaceId, reply)) return;
+
+		const latest = await db
+			.selectFrom("recovery_points")
+			.select("created_at")
+			.where("project_id", "=", project.id)
+			.where("reason", "=", "manual")
+			.orderBy("created_at", "desc")
+			.limit(1)
+			.executeTakeFirst();
+		if (latest && Date.now() - latest.created_at.getTime() < MANUAL_POINT_INTERVAL_MS) {
+			return sendError(
+				reply,
+				429,
+				"BUSY",
+				"A recovery point was made moments ago. Wait 30 seconds and try again.",
+			);
+		}
+		if ((await countProjectPoints(db, project.id)) >= MAX_POINTS_PER_PROJECT) {
+			return sendError(
+				reply,
+				409,
+				"BUSY",
+				`This project already has ${MAX_POINTS_PER_PROJECT} recovery points, the most it can keep. Older points expire on their own; try again later.`,
+			);
+		}
 
 		if (!claimLongOperation(scope.workspaceId, reply)) return;
 		let row: RecoveryPointRow;
@@ -204,6 +267,7 @@ export function registerRecoveryRoutes(
 			}
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
+			if (await refusePending(db, scope.workspaceId, reply)) return;
 
 			if (!claimLongOperation(scope.workspaceId, reply)) return;
 			try {

@@ -54,6 +54,7 @@ beforeEach(async () => {
 	agent.terminals.clear();
 	agent.recoveryPoints.clear();
 	agent.recoveryFull.clear();
+	agent.restoreIncomplete.clear();
 	agent.recoveryDeletes.length = 0;
 	app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
 	await app.listen({ port: 0, host: "127.0.0.1" });
@@ -387,4 +388,78 @@ test.skipIf(skip)("a plain terminal makes no point", async () => {
 	expect(created.statusCode).toBe(201);
 	expect(created.json().recoveryPointId).toBe(null);
 	expect(await pointRows()).toHaveLength(0);
+});
+
+test.skipIf(skip)("a second manual point within 30 seconds is refused", async () => {
+	expect((await create(alice)).statusCode).toBe(201);
+	const refused = await create(alice);
+	expect(refused.statusCode).toBe(429);
+	expect(refused.json().code).toBe("BUSY");
+	expect(refused.json().message).toMatch(/30 seconds/);
+	expect(await pointRows()).toHaveLength(1);
+});
+
+/** Fill the project to the cap with minute-old agent-session rows. */
+async function fillPoints(count: number) {
+	const old = new Date(Date.now() - 60_000).toISOString();
+	await testDb.db
+		.insertInto("recovery_points")
+		.values(
+			Array.from({ length: count }, () => ({
+				id: crypto.randomUUID(),
+				project_id: projectId,
+				workspace_id: workspaceId,
+				reason: "agent-session",
+				created_at: old,
+				created_by: "worker",
+				size_bytes: 1,
+				sha256: "0".repeat(64),
+				fingerprint: "f",
+				expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+			})),
+		)
+		.execute();
+}
+
+test.skipIf(skip)("a project at 200 points refuses a manual point", async () => {
+	await fillPoints(200);
+	const refused = await create(alice);
+	expect(refused.statusCode).toBe(409);
+	expect(refused.json().message).toMatch(/200 recovery points/);
+	expect(agent.recoveryPoints.size).toBe(0);
+});
+
+test.skipIf(skip)("a project at 200 points skips the agent-session point", async () => {
+	await fillPoints(200);
+	const created = await createTerminal({ projectId, agent: "claude" });
+	expect(created.statusCode).toBe(201);
+	expect(created.json().recoveryPointId).toBe(null);
+	expect(agent.recoveryPoints.size).toBe(0);
+});
+
+test.skipIf(skip)("create and restore wait out a pending operation", async () => {
+	const pointId = (await create(alice)).json().id;
+	await testDb.db
+		.updateTable("workspaces")
+		.set({
+			pending_operation: "rebuild",
+			pending_operation_at: new Date().toISOString(),
+		})
+		.where("id", "=", workspaceId)
+		.execute();
+	for (const response of [await create(alice), await restore(alice, pointId)]) {
+		expect(response.statusCode).toBe(409);
+		expect(response.json().code).toBe("OPERATION_PENDING");
+	}
+	expect(await pointRows()).toHaveLength(1);
+});
+
+test.skipIf(skip)("a partial restore tells the student how to undo it", async () => {
+	const pointId = (await create(alice)).json().id;
+	agent.restoreIncomplete.add("");
+	const failed = await restore(alice, pointId);
+	expect(failed.statusCode).toBe(500);
+	expect(failed.json().message).toBe(
+		"The project may be partly restored. Restore the 'Before restore' point to undo.",
+	);
 });

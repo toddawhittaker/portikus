@@ -253,6 +253,7 @@ export class AgentClient {
 					method: "GET",
 					headers: { authorization: this.authHeader() },
 					signal: controller.signal,
+					redirect: "manual",
 				},
 			);
 		} catch {
@@ -263,6 +264,7 @@ export class AgentClient {
 		} finally {
 			clearTimeout(headersTimer);
 		}
+		throwOnRedirect(response);
 		if (!response.ok) {
 			const parsed = AgentErrorBody.safeParse(await readJson(response));
 			throw new AgentCallError(
@@ -288,8 +290,9 @@ export class AgentClient {
 			signal?: AbortSignal;
 		} = {},
 	): Promise<Response> {
+		let response: Response;
 		try {
-			return await fetch(`http://${this.address}:${this.port}${path}`, {
+			response = await fetch(`http://${this.address}:${this.port}${path}`, {
 				method,
 				// The token goes on last: a caller cannot override it.
 				headers: { ...options.headers, authorization: this.authHeader() },
@@ -297,6 +300,7 @@ export class AgentClient {
 				...(options.signal ? { signal: options.signal } : {}),
 				// Required by undici whenever the request body is a stream.
 				duplex: "half",
+				redirect: "manual",
 			} as RequestInit);
 		} catch {
 			throw new AgentCallError(
@@ -304,6 +308,8 @@ export class AgentClient {
 				"The workspace agent could not be reached",
 			);
 		}
+		throwOnRedirect(response);
+		return response;
 	}
 
 	private async call(
@@ -322,6 +328,7 @@ export class AgentClient {
 				},
 				body: body === undefined ? undefined : JSON.stringify(body),
 				signal: AbortSignal.timeout(timeoutMs),
+				redirect: "manual",
 			});
 		} catch {
 			throw new AgentCallError(
@@ -330,6 +337,7 @@ export class AgentClient {
 			);
 		}
 
+		throwOnRedirect(response);
 		const payload = await readJson(response);
 		if (!response.ok) {
 			const parsed = AgentErrorBody.safeParse(payload);
@@ -398,4 +406,16 @@ export function agentClientFor(
 	if (typeof address !== "string" || typeof token !== "string") return null;
 	if (address === "" || token === "") return null;
 	return new AgentClient(address, agentPort, token);
+}
+
+/**
+ * Every agent fetch uses `redirect: "manual"`: a replaced agent must not
+ * steer the API to loopback or the workspace network, so a redirect is a
+ * failed agent.
+ */
+function throwOnRedirect(response: Response): void {
+	if (response.status >= 300 && response.status < 400) {
+		void response.body?.cancel();
+		throw new AgentCallError("AGENT_UNAVAILABLE", "The workspace agent redirected");
+	}
 }
