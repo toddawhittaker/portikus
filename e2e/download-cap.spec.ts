@@ -75,4 +75,26 @@ test.describe("download size cap", () => {
 		await page.getByTestId("row-download-src").click();
 		expect((await downloadPromise).suggestedFilename()).toBe("src.zip");
 	});
+
+	test("a file tab's Download button over the cap shows the limit", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Tab" });
+		await seedHugeFile(student.workspaceId, project.slug, "data/big.bin");
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await page.getByTestId("file-row-data").click();
+		await page.getByTestId("file-row-data/big.bin").click();
+		await expect(page.getByText("This file is too large to edit here")).toBeVisible();
+
+		let downloads = 0;
+		page.on("download", () => {
+			downloads += 1;
+		});
+		await page.getByRole("button", { name: "Download big.bin" }).press("Enter");
+
+		await expect(toast(page, LIMIT)).toContainText(ADVICE);
+		expect(downloads).toBe(0);
+	});
 });

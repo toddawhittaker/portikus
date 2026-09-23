@@ -821,7 +821,8 @@ export async function startFakeAgent(
 			if (node.type !== "file") {
 				throw new FakeFileError("BAD_REQUEST", "that path is a directory");
 			}
-			if (query.download !== "1" && node.content.length > MAX_EDITOR_FILE_BYTES) {
+			const size = node.apparentSize ?? node.content.length;
+			if (query.download !== "1" && size > MAX_EDITOR_FILE_BYTES) {
 				throw new FakeFileError(
 					"FILE_TOO_LARGE",
 					"that file is too large to open here",

@@ -139,7 +139,7 @@ test.describe("diff tab", () => {
 	}) => {
 		const student = await createStudent(context);
 		const binaryPath = "assets/logo.png";
-		const project = await openDiffTab(
+		await openDiffTab(
 			page,
 			student,
 			"Binary",
@@ -148,10 +148,9 @@ test.describe("diff tab", () => {
 		);
 
 		await expect(page.getByText("Binary file changed")).toBeVisible();
-		await expect(page.getByTestId(`diff-download-${binaryPath}`)).toHaveAttribute(
-			"href",
-			`/workspaces/${student.workspaceId}/projects/${project.id}/file?path=assets%2Flogo.png&download=1`,
-		);
+		await expect(
+			page.getByRole("button", { name: "Download logo.png" }),
+		).toHaveAttribute("data-testid", `diff-download-${binaryPath}`);
 		await expect(page.getByTestId(`diff-editor-${binaryPath}`)).toHaveCount(0);
 	});
 
