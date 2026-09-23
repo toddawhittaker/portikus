@@ -136,6 +136,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		reply.status(500).send(body);
 	});
 
+	// Unmatched routes answer in the same shape as every other error.
+	app.setNotFoundHandler((_request, reply) => {
+		const body: ApiError = { code: "NOT_FOUND", message: "Not found." };
+		reply.status(404).send(body);
+	});
+
 	// One websocket per running workspace tells the control plane what is
 	// listening inside it (BROWSER-HANDLING.md §11.1).
 	const registry = createListeningRegistry({
