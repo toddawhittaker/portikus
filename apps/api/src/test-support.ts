@@ -8,6 +8,7 @@ import {
 } from "@portikus/auth/testing";
 import type { ApiConfig } from "@portikus/config";
 import type { Database } from "@portikus/db";
+import { insertTestLtiMembership } from "@portikus/db/testing";
 import { type Logger, silentLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
@@ -97,6 +98,9 @@ export interface MatrixWorld {
 	b: MatrixStudent;
 	admin: CookieJar;
 	disabled: CookieJar;
+	/** Teaches `courseId`, in which A is a student; owns nothing. */
+	instructor: CookieJar;
+	courseId: string;
 }
 
 /** A mock user the matrix signs in and then disables. */
@@ -105,6 +109,21 @@ export const DISABLED_MOCK_USER: MockUser = {
 	email: "erin@example.edu",
 	name: "Erin Disabled",
 	groups: ["portikus-students"],
+};
+
+/** A mock user in the instructor group (docs/EPIC-13.md ruling 4). */
+export const INSTRUCTOR_MOCK_USER: MockUser = {
+	sub: "ivy",
+	email: "ivy@example.edu",
+	name: "Ivy Instructor",
+	groups: ["instructor"],
+};
+
+/** Every mock user `buildMatrixWorld` signs in. */
+export const MATRIX_MOCK_USERS: Record<string, MockUser> = {
+	...MOCK_USERS,
+	[DISABLED_MOCK_USER.sub]: DISABLED_MOCK_USER,
+	[INSTRUCTOR_MOCK_USER.sub]: INSTRUCTOR_MOCK_USER,
 };
 
 let matrixWorlds = 0;
@@ -178,7 +197,7 @@ async function matrixStudent(
  * and B, each with a running workspace on the fake agent, a project, and a
  * terminal; an administrator who owns nothing; and a disabled user whose
  * session row is still there. The mock provider must know
- * `DISABLED_MOCK_USER`, and the app's AGENT_PORT must be the fake agent's,
+ * `MATRIX_MOCK_USERS`, and the app's AGENT_PORT must be the fake agent's,
  * started with `agentToken`.
  */
 export async function buildMatrixWorld(
@@ -205,5 +224,16 @@ export async function buildMatrixWorld(
 		.set({ disabled_at: new Date().toISOString() })
 		.where("oidc_subject", "=", DISABLED_MOCK_USER.sub)
 		.execute();
-	return { a, b, admin, disabled };
+	const instructor = new CookieJar();
+	await loginAs(app, INSTRUCTOR_MOCK_USER.sub, instructor);
+	const instructorRow = await db
+		.selectFrom("users")
+		.select("id")
+		.where("oidc_subject", "=", INSTRUCTOR_MOCK_USER.sub)
+		.executeTakeFirstOrThrow();
+	const courseId = await insertTestLtiMembership(db, instructorRow.id, {
+		role: "instructor",
+	});
+	await insertTestLtiMembership(db, a.userId);
+	return { a, b, admin, disabled, instructor, courseId };
 }

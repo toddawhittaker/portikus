@@ -12,6 +12,7 @@ export function toAuthOptions(config: ApiConfig): AuthOptions {
 		groupsClaim: config.OIDC_GROUPS_CLAIM,
 		studentGroup: config.OIDC_STUDENT_GROUP,
 		adminGroup: config.OIDC_ADMIN_GROUP,
+		instructorGroup: config.OIDC_INSTRUCTOR_GROUP,
 		cookieSecret: config.SESSION_COOKIE_SECRET,
 		sessionTtlSeconds: config.SESSION_TTL_SECONDS,
 	};

@@ -163,6 +163,20 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 		expect(res.statusCode).toBe(429);
 	});
 
+	test("/lti/login and /lti/launch share the sign-in start limit", async () => {
+		for (let i = 0; i < 149; i += 1) {
+			await app.inject({ url: "/auth/login", remoteAddress: "203.0.113.9" });
+		}
+		const login = await app.inject({ url: "/lti/login", remoteAddress: "203.0.113.9" });
+		expect(login.statusCode).not.toBe(429);
+		const launch = await app.inject({
+			method: "POST",
+			url: "/lti/launch",
+			remoteAddress: "203.0.113.9",
+		});
+		expect(launch.statusCode).toBe(429);
+	});
+
 	function edgeCheck(clientIp: string, uri = "/dex/auth/local/login?back=&state=x") {
 		return app.inject({
 			url: "/edge/signin-throttle",

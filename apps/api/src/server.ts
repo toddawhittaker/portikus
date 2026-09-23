@@ -18,8 +18,10 @@ import { registerAdminHealthRoutes } from "./routes/admin-health.js";
 import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCheckRoutes } from "./routes/checks.js";
+import { registerCourseRoutes } from "./routes/courses.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerGitSearchRoutes } from "./routes/git-search.js";
+import { type LtiDeps, registerLtiRoutes } from "./routes/lti.js";
 import { registerMaintenanceRoutes } from "./routes/maintenance.js";
 import { registerMeRoutes } from "./routes/me.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
@@ -42,6 +44,8 @@ export interface ServerDeps {
 	logger: Logger;
 	/** Tests inject a client bound to the mock provider. */
 	oidc?: OidcClient;
+	/** The registered LMS platforms; absent means LTI is off and /lti/* is 404. */
+	lti?: LtiDeps;
 	/** How often the listening registry looks for workspaces; tests go faster. */
 	previewPollIntervalMs?: number;
 }
@@ -77,12 +81,13 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		}
 	});
 
-	// The sign-out button is a plain HTML form, which browsers post as
-	// urlencoded; no route reads its fields, so accept and discard the body.
+	// Browser forms post urlencoded: the sign-out button, whose fields no
+	// route reads, and the LTI login and launch (docs/EPIC-13.md ruling 1).
 	app.addContentTypeParser(
 		"application/x-www-form-urlencoded",
 		{ parseAs: "string" },
-		(_request, _body, done) => done(null, {}),
+		(_request, body, done) =>
+			done(null, Object.fromEntries(new URLSearchParams(body as string))),
 	);
 
 	// Before the auth plugin, so its hook runs first (issue #398).
@@ -182,6 +187,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		});
 		registerAuthRoutes(instance, deps);
 		registerSigninThrottleRoute(instance);
+		registerLtiRoutes(instance, deps);
+		registerCourseRoutes(instance, deps);
 		registerWorkspaceRoutes(instance, deps);
 		registerWorkspaceSocket(instance, routeDeps);
 		registerPreviewRoutes(instance, routeDeps);

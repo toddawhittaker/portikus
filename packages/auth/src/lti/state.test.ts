@@ -1,5 +1,5 @@
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
-import { type Kysely, sql } from "kysely";
+import type { Kysely } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import {
 	checkLaunchState,
@@ -68,13 +68,6 @@ describe("login state store", () => {
 		if (!hasTestDb()) return;
 		t = await createTestDb();
 		db = t.db as unknown as Kysely<LtiLoginStatesTable>;
-		// Until migration 0015_lti lands (task T1), create the table it defines.
-		await sql`CREATE TABLE IF NOT EXISTS lti_login_states (
-			state_hash text PRIMARY KEY,
-			nonce text NOT NULL,
-			platform_issuer text NOT NULL,
-			client_id text NOT NULL,
-			expires_at timestamptz NOT NULL)`.execute(db);
 	});
 
 	afterAll(async () => {
