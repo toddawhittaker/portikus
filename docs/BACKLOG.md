@@ -47,34 +47,6 @@ PostgreSQL 16, so supporting it means external repositories for both.
 **Source.** Todd, 2026-09-17, during the structured logging task. Schedule
 after Epic 7; the pilot does not need it.
 
-## Request rate limiting and journal sizing
-
-**What.** A rate limit in Caddy for the API, and explicit journald
-`SystemMaxUse` and per-service `RateLimit*` settings in the Ansible
-`portikus` role.
-
-**Why.** Nothing rate-limits login (known gap since Epic 4), and since
-structured logging every 4xx writes a warn line, so a flood of bad
-requests can evict older journal entries. Both fixes are small and belong
-together.
-
-**Source.** Security review of the structured logging task, 2026-09-17.
-
-## Parallel worker sweep
-
-**What.** Start and stop operations run with a bounded concurrency, and each
-workspace's timers are computed independently of any start in flight.
-
-**Why.** The sweep is serial today, so one slow workspace start delays every
-other workspace's timers. The spec says to revisit this before the
-25-concurrent-workspace target of §25.2.
-
-**What it would take.** Split the sweep into timer work, which stays
-in-line and cheap, and operations, which go through a small concurrency
-limit. Half a day plus a test that a slow start does not delay a timer.
-
-**Source.** `docs/SPEC.md` around line 2223, Epic 3 known gaps, §25.2.
-
 ## Re-provision after a failed create
 
 **What.** An administrator action that retries a workspace stuck in `error`.
@@ -143,19 +115,6 @@ directory is then discovered as a second project.
 **What it would take.** Write the new row as pending first, move the
 directory, then commit the row, with discovery ignoring pending rows and a
 sweep clearing stale ones. About a day.
-
-**Source.** `docs/STATUS.md`, Epic 6 known gaps.
-
-## Size cap on zip downloads
-
-**What.** A configured limit on the size of a project download, with a clear
-error above it.
-
-**Why.** Downloads stream with no cap, so one large project can tie up the
-agent and the browser gets a very long transfer.
-
-**What it would take.** The agent measures the tree before streaming and
-refuses over the limit; the web app shows the message. Half a day.
 
 **Source.** `docs/STATUS.md`, Epic 6 known gaps.
 
@@ -695,12 +654,12 @@ student provides, checking that an entry named like `../../etc/passwd`
 or an absolute path cannot write outside the intended directory.
 
 **Why.** Epic 12a's filesystem escape suite covers every path a student
-can name directly, but nothing in the platform extracts an archive
-today, so there was nothing to point the tests at. Epic 10's recovery
-restore is expected to add the first such path.
+can name directly. Epic 10's recovery restore now extracts an archive,
+and its tests cover symlinks, but no test yet feeds it an archive with a
+hostile entry name. Epic 12b did not add one.
 
-**What it would take.** Once Epic 10 lands an extraction routine, add
-traversal and symlink cases to its test suite, following the pattern in
+**What it would take.** Add traversal and absolute-path entries to the
+tests of `apps/workspace-agent/src/recovery.ts`, following the pattern in
 `apps/workspace-agent/src/security/path-escape.test.ts`. Half a day.
 
 **Source.** `docs/EPIC-12A.md`, decisions; `docs/STATUS.md`, Epic 12a.
@@ -756,23 +715,6 @@ a day.
 
 **Source.** `docs/EPIC-12A.md`, "Rules for the VM suite"; `docs/STATUS.md`,
 Epic 12a (PR #440).
-
-## Epic 12b — load, backup and restore, rebuild, deployment docs, threat model
-
-**What.** The second half of SPEC.md section 29 Epic 12: concurrent-
-workspace load tests, backup and restore, the destructive infrastructure
-rebuild exercise, deployment documentation, and the threat-model review.
-
-**Why.** Epic 12a covered the tests of code that already exists. This is
-the operational half, and SPEC.md section 30's remaining milestone
-conditions depend on it.
-
-**What it would take.** See SPEC.md section 29, Epic 12, for the
-estimate and acceptance criteria; `docs/EPIC-12A.md` scopes it out of
-Epic 12a explicitly.
-
-**Source.** `docs/SPEC.md` section 29; `docs/EPIC-12A.md`, "Where this
-epic sits" and "Out of this epic".
 
 ## A shared point-insert helper for the API and the worker
 
@@ -864,9 +806,9 @@ on this project is already running". A client cannot tell "try again in
 a moment" from "wait for the other operation to finish" apart without
 also checking the HTTP status.
 
-**What it would take.** Add the error code to `packages/contracts`,
-switch the rate-limit responses to it, and update the handful of tests
-that assert on `BUSY` for a rate limit today. Half a day.
+**What it would take.** Epic 12b added `RATE_LIMITED` for the sign-in
+throttle, so what is left is to switch Epic 10's recovery-point
+rate-limit responses to it and update the handful of tests that assert on `BUSY` for a rate limit today. Half a day.
 
 **Source.** `docs/EPIC-10.md`, task 5 review fixes; PR #428.
 ## OpenTelemetry export

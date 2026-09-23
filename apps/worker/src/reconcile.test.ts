@@ -1283,3 +1283,159 @@ test.skipIf(skip)(
 		}
 	},
 );
+
+/** A fake whose starts take `startMs` and which tracks how many overlap. */
+class SlowStartController extends FakeControllerClient {
+	inFlight = 0;
+	maxInFlight = 0;
+	failNames = new Set<string>();
+	constructor(private readonly startMs: number) {
+		super();
+	}
+	override async start(
+		name: string,
+		req: Parameters<FakeControllerClient["start"]>[1],
+	): Promise<{ ipv4: string }> {
+		this.calls.push({ method: "start", args: [name, req] });
+		this.inFlight++;
+		this.maxInFlight = Math.max(this.maxInFlight, this.inFlight);
+		try {
+			await new Promise((resolve) => setTimeout(resolve, this.startMs));
+			if (this.failNames.has(name)) {
+				throw new ControllerClientError("OPERATION_FAILED", "boom");
+			}
+			return { ipv4: "10.0.0.2" };
+		} finally {
+			this.inFlight--;
+		}
+	}
+}
+
+test.skipIf(skip)(
+	"12 queued starts run six at a time and finish in about two start times",
+	async () => {
+		const startMs = 400;
+		const slow = new SlowStartController(startMs);
+		const ids: string[] = [];
+		for (let i = 0; i < 12; i++) {
+			ids.push(await insertWorkspace({ state: "stopped", desired_state: "running" }));
+		}
+		const now = new Date();
+
+		const began = Date.now();
+		const result = await reconcile(tdb.db, slow, cfg, now, now);
+		const took = Date.now() - began;
+
+		// Every parallel start is counted, none lost to a read before the await.
+		expect(result.transitions).toBe(24);
+
+		expect(slow.maxInFlight).toBe(6);
+		expect(took).toBeGreaterThanOrEqual(2 * startMs);
+		expect(took).toBeLessThan(3 * startMs);
+		for (const id of ids) {
+			expect((await getWorkspace(id)).state).toBe("running");
+		}
+		// No workspace was started twice.
+		const names = slow.calls.filter((c) => c.method === "start").map((c) => c.args[0]);
+		expect(new Set(names).size).toBe(12);
+		expect(names).toHaveLength(12);
+	},
+);
+
+test.skipIf(skip)("a failing start leaves the parallel others unaffected", async () => {
+	const slow = new SlowStartController(50);
+	const bad = await insertWorkspace({
+		state: "stopped",
+		desired_state: "running",
+		incus_instance_name: "ws-failing",
+	});
+	slow.failNames.add("ws-failing");
+	const good: string[] = [];
+	for (let i = 0; i < 5; i++) {
+		good.push(await insertWorkspace({ state: "stopped", desired_state: "running" }));
+	}
+	const now = new Date();
+
+	await reconcile(tdb.db, slow, cfg, now, now);
+
+	expect((await getWorkspace(bad)).state).toBe("error");
+	for (const id of good) {
+		expect((await getWorkspace(id)).state).toBe("running");
+	}
+});
+
+test.skipIf(skip)(
+	"a create that meets an unreachable controller once is retried and the workspace runs",
+	async () => {
+		const flaky = new FakeControllerClient();
+		let failures = 1;
+		const realCreate = flaky.create.bind(flaky);
+		flaky.create = async (req) => {
+			if (failures-- > 0) {
+				flaky.calls.push({ method: "create", args: [req] });
+				throw new ControllerClientError(
+					"INCUS_UNAVAILABLE",
+					"Controller is unreachable",
+				);
+			}
+			return realCreate(req);
+		};
+		const id = await insertWorkspace({
+			state: "provisioning",
+			desired_state: "running",
+		});
+		const now = new Date();
+
+		// The create lands in step 3a and the start follows in 3b of the same sweep.
+		await reconcile(tdb.db, flaky, cfg, now, now, false, undefined, [10, 10]);
+		expect((await getWorkspace(id)).state).toBe("running");
+		expect(flaky.calls.filter((c) => c.method === "create")).toHaveLength(2);
+	},
+);
+
+test.skipIf(skip)(
+	"a create that stays unreachable ends in error after the retries",
+	async () => {
+		fake.createResult = new ControllerClientError("INCUS_UNAVAILABLE", "unreachable");
+		const id = await insertWorkspace({ state: "provisioning" });
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now, false, undefined, [5, 5]);
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("error");
+		expect(ws.error_code).toBe("INCUS_UNAVAILABLE");
+		expect(fake.calls.filter((c) => c.method === "create")).toHaveLength(3);
+	},
+);
+
+test.skipIf(skip)(
+	"a create does not retry a failure that is not transient",
+	async () => {
+		fake.createResult = new ControllerClientError("STORAGE_FULL", "no space");
+		await insertWorkspace({ state: "provisioning" });
+		const now = new Date();
+
+		await reconcile(tdb.db, fake, cfg, now, now, false, undefined, [5, 5]);
+
+		expect(fake.calls.filter((c) => c.method === "create")).toHaveLength(1);
+	},
+);
+
+test.skipIf(skip)("an instance that already exists is adopted", async () => {
+	fake.createResult = {
+		created: false,
+		imageFingerprint: "existing789",
+		quota: { homeGiB: 25, dockerGiB: 20 },
+	};
+	const id = await insertWorkspace({ state: "provisioning" });
+	const now = new Date();
+
+	await reconcile(tdb.db, fake, cfg, now, now);
+
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("stopped");
+	expect(ws.image_version).toBe("existing789");
+	const audits = await getAudits(id);
+	expect(audits.some((a) => a.action === "workspace.provisioned")).toBe(true);
+});

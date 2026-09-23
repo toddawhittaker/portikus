@@ -1,0 +1,6 @@
+---
+# Incus stages each export here before streaming it to the host (ADR 0024).
+backup_volume_name: portikus-backups
+# The starting size: a default home plus the recovery quota, and 2 GiB for
+# tar and gzip.  portikus-backup-export grows it for any larger volume.
+backup_volume_size_gib: "{{ portikus_workspace_home_size_gib + portikus_workspace_recovery_size_gib + 2 }}"

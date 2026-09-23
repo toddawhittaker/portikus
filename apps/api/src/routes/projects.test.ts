@@ -5,6 +5,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import { MAX_DOWNLOAD_BYTES } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -626,6 +627,38 @@ test.skipIf(skip)("download streams a zip named after the slug", async () => {
 	// "PK" is the zip magic number.
 	expect(downloaded.rawPayload.subarray(0, 2).toString()).toBe("PK");
 });
+
+test.skipIf(skip)(
+	"a size check answers 204 under the cap and FILE_TOO_LARGE over it (#399)",
+	async () => {
+		const project = (
+			await createProject(alice, workspaceId, { name: "big", source: "new" })
+		).json();
+		agent.files.set("big/small", { type: "dir" });
+		agent.files.set("big/small/a.txt", { type: "file", content: Buffer.from("a") });
+		agent.files.set("big/huge.bin", {
+			type: "file",
+			content: Buffer.alloc(0),
+			apparentSize: MAX_DOWNLOAD_BYTES + 1,
+		});
+		const check = (query: string) =>
+			app.inject({
+				method: "GET",
+				url: `/workspaces/${workspaceId}/projects/${project.id}/download?check=1${query}`,
+				headers: { cookie: alice.cookieHeader() },
+			});
+		expect((await check("&path=small")).statusCode).toBe(204);
+		const whole = await check("");
+		expect(whole.statusCode).toBe(413);
+		expect(whole.json().code).toBe("FILE_TOO_LARGE");
+		const download = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/projects/${project.id}/download`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(download.statusCode).toBe(413);
+	},
+);
 
 test.skipIf(skip)("a layout is stored and read back", async () => {
 	const project = (

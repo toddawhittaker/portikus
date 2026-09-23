@@ -101,7 +101,7 @@ test("AuthUser round-trips and allows a null email", () => {
 		role: "student" as const,
 	};
 	expect(AuthUser.parse(input)).toEqual(input);
-	const withSubject = { ...input, oidcSubject: "alice" };
+	const withSubject = { ...input, signInName: "alice" };
 	expect(AuthUser.parse(withSubject)).toEqual(withSubject);
 });
 
@@ -111,7 +111,7 @@ test("AuthUser rejects an empty sign-in name", () => {
 		email: null,
 		displayName: "Alice",
 		role: "student",
-		oidcSubject: "",
+		signInName: "",
 	});
 	expect(result.success).toBe(false);
 });

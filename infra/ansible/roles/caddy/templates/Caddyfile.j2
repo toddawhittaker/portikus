@@ -163,7 +163,69 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	handle /health {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
-{% if portikus_mock_idp %}
+{% if portikus_idp == 'dex' %}
+
+	# Dex, the sign-in provider (ADR 0023). It mounts its routes under the
+	# issuer's path, so the prefix is passed through unchanged. Dex has no
+	# lockout, so every password form post first asks the API's sign-in
+	# throttle (#398), and every other /dex/auth request counts as a sign-in
+	# start, because Dex keeps each one in memory for ten minutes. A 429 goes
+	# back to the browser unchanged.
+	handle /dex/* {
+		# Only the paths the sign-in flow and the API use reach Dex; the rest,
+		# such as the unthrottled /dex/device/code, would store data for nothing.
+		# /dex/callback* is for upstream connectors.
+		@dex_unused not path /dex/auth* /dex/token /dex/userinfo /dex/keys /dex/.well-known/* /dex/static/* /dex/theme/* /dex/callback*
+		# What Dex keeps comes from the URI, so it is capped. The longest real
+		# sign-in URI is about 360 bytes.
+		@dex_long_uri expression {http.request.uri}.size() > 1024
+		# No % in the patterns: Caddy then matches the decoded path, which
+		# also catches encoded spellings such as /dex/auth/loc%61l/login.
+		@dex_password_post {
+			method POST
+			path /dex/auth/local/login*
+		}
+		# Dex also reads an auth request from a POST body, so /dex/auth takes
+		# only GET, apart from the password post.
+		@dex_auth_other_method {
+			path /dex/auth*
+			not method GET
+			not {
+				method POST
+				path /dex/auth/local/login*
+			}
+		}
+		@dex_signin_start {
+			method GET
+			path /dex/auth*
+		}
+		route {
+			respond @dex_unused 404
+			respond @dex_long_uri 414
+			respond @dex_auth_other_method 405
+			request_body {
+				max_size 16KB
+			}
+			# Each ask names its scope, so Caddy replaces the client's query
+			# instead of passing on a ?scope=start the client added.
+			forward_auth @dex_password_post 127.0.0.1:{{ portikus_api_port }} {
+				uri /edge/signin-throttle?scope=password
+			}
+			forward_auth @dex_signin_start 127.0.0.1:{{ portikus_api_port }} {
+				uri /edge/signin-throttle?scope=start
+			}
+			reverse_proxy 127.0.0.1:{{ dex_port }}
+		}
+	}
+{% else %}
+
+	# Dex is off, so nothing under its prefix may fall through to the
+	# single-page application and answer 200.
+	handle /dex* {
+		respond 404
+	}
+{% endif %}
+{% if portikus_idp == 'mock' %}
 
 	# Test identity provider (ADR 0008). Its routes are mounted under this
 	# prefix, so the prefix is passed through unchanged.

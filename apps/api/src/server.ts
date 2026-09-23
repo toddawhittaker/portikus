@@ -30,6 +30,10 @@ import { registerTerminalRoutes } from "./routes/terminals.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerWorkspaceSocket } from "./routes/ws.js";
+import {
+	registerSigninThrottle,
+	registerSigninThrottleRoute,
+} from "./signin-throttle.js";
 
 export interface ServerDeps {
 	db: Kysely<Database>;
@@ -80,6 +84,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		{ parseAs: "string" },
 		(_request, _body, done) => done(null, {}),
 	);
+
+	// Before the auth plugin, so its hook runs first (issue #398).
+	registerSigninThrottle(app, deps);
 
 	app.register(authPlugin, { db: deps.db, auth: toAuthOptions(deps.config) });
 
@@ -174,6 +181,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 			return HealthResponse.parse(body);
 		});
 		registerAuthRoutes(instance, deps);
+		registerSigninThrottleRoute(instance);
 		registerWorkspaceRoutes(instance, deps);
 		registerWorkspaceSocket(instance, routeDeps);
 		registerPreviewRoutes(instance, routeDeps);

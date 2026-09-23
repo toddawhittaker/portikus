@@ -40,6 +40,8 @@ export interface StorageWarning {
 	text: string;
 	/** The longer text, with the next step when critical. */
 	detail: string;
+	/** Fixed text for the live region, so a changing percentage is not re-announced. */
+	announcement: string;
 }
 
 /** The fullest class that has reached a threshold, or null when none has. */
@@ -63,6 +65,7 @@ export function storageWarning(
 			storageClass: worst.storageClass,
 			level: "critical",
 			text: `${label} storage is nearly full`,
+			announcement: `${label} storage is nearly full`,
 			detail: `${label} storage is ${percent}% full. ${NEXT_STEP[worst.storageClass]}`,
 		};
 	}
@@ -70,6 +73,7 @@ export function storageWarning(
 		storageClass: worst.storageClass,
 		level: "warning",
 		text: `${label} storage is ${percent}% full`,
+		announcement: `${label} storage is over ${Math.round(WARN_AT * 100)}% full`,
 		detail: `${label} storage is ${percent}% full.`,
 	};
 }

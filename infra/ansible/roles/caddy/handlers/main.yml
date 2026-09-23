@@ -1,4 +1,14 @@
 ---
+- name: Reload systemd for Caddy
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+# OOMScoreAdjust applies only to a newly started process.
+- name: Restart caddy
+  ansible.builtin.systemd:
+    name: caddy
+    state: restarted
+
 - name: Reload caddy
   ansible.builtin.systemd:
     name: caddy

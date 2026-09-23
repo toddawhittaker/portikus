@@ -139,9 +139,11 @@ test("a stale worker shows a banner with the sample's age", () => {
 		/>,
 	);
 
-	expect(screen.getByRole("alert").textContent).toBe(
+	expect(screen.getByTestId("health-worker-stale").textContent).toBe(
 		"Worker not reporting. The last health sample was taken 3 minutes ago.",
 	);
+	// Only fixed text is live, so a refresh does not re-announce the age.
+	expect(screen.getByRole("alert").textContent).toBe("Worker not reporting.");
 });
 
 test("with no sample at all the banner says so", () => {
@@ -152,7 +154,7 @@ test("with no sample at all the banner says so", () => {
 		/>,
 	);
 
-	expect(screen.getByRole("alert").textContent).toBe(
+	expect(screen.getByTestId("health-worker-stale").textContent).toBe(
 		"Worker not reporting. No health sample has been taken yet.",
 	);
 	expect(screen.getByText("No host figures in the newest sample.")).toBeDefined();

@@ -1,4 +1,15 @@
 /** OIDC login, server-side sessions, and authorization helpers (SPEC.md sections 5 and 24, STACK.md section 8). */
+
+export {
+	type CarryOverInput,
+	type CarryOverOutcome,
+	type CarryOverReport,
+	type CarryOverUser,
+	carryOver,
+	formatReport,
+	parseCarryOverInput,
+} from "./carry-over.js";
+export { dexLocalSubject } from "./dex-subject.js";
 export {
 	createOidcClient,
 	type LoginState,

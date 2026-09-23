@@ -11,9 +11,9 @@ import { ApiError } from "../api/request.js";
 import type { CodeEditorHandle } from "../editor/CodeEditor.js";
 import { lineForTop, readBlocks, topForLine } from "../editor/scrollSync.js";
 import { useEditorSettings } from "../editor/settingsQueries.js";
+import { DownloadFileButton } from "../files/DownloadFileButton.js";
 import {
 	FileConflictError,
-	fileDownloadUrl,
 	flushWrite,
 	useFile,
 	useSaveFile,
@@ -527,13 +527,12 @@ export function FileLeaf({
 						data.tooLarge ? "This file is too large to edit here" : "Not a text file"
 					}
 					actions={
-						<a
-							className="pk-file-download"
-							href={fileDownloadUrl(workspaceId, projectId, path)}
-							data-testid="file-download"
-						>
-							Download
-						</a>
+						<DownloadFileButton
+							workspaceId={workspaceId}
+							projectId={projectId}
+							path={path}
+							testId="file-download"
+						/>
 					}
 				>
 					{data.size > 0

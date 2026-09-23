@@ -183,13 +183,15 @@ export function registerAuthRoutes(
 		// The session user has no sign-in name; it lives on the user row.
 		const row = await db
 			.selectFrom("users")
-			.select("oidc_subject")
+			.select(["oidc_subject", "preferred_username"])
 			.where("id", "=", request.user.id)
 			.executeTakeFirst();
 		if (!row) {
 			return fail(reply, 401, "UNAUTHORIZED", "Sign in to continue");
 		}
-		const body: MeResponse = { ...request.user, oidcSubject: row.oidc_subject };
+		// A Dex subject is an opaque blob, so prefer the username.
+		const signInName = row.preferred_username || row.oidc_subject;
+		const body: MeResponse = { ...request.user, signInName };
 		return reply.send(body);
 	});
 }

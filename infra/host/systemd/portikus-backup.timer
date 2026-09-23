@@ -1,0 +1,11 @@
+# Nightly, outside class hours.  Not Persistent: a host that was off at
+# 02:30 must not start a backup during the next day's class.
+[Unit]
+Description=Nightly Portikus backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -25,6 +25,9 @@ export interface ReconcileConfig {
 	PREVIEW_SUFFIX: string;
 }
 
+/** How many creates, and then starts, one sweep runs at once. */
+const START_CONCURRENCY = 6;
+
 export interface SweepResult {
 	transitions: number;
 	lastRefreshAt: Date | null;
@@ -36,6 +39,32 @@ export interface SweepResult {
 
 /** How long an errored workspace rests before the sweep retries a start. */
 const ERROR_RETRY_SECONDS = 10;
+
+/**
+ * Waits between create attempts when the controller is unreachable, so a
+ * controller restart during a deploy does not leave a workspace in error.
+ */
+export const CREATE_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000, 8000];
+
+/**
+ * Run `task` on every item, at most `limit` at a time. Each task must catch
+ * its own errors, so one failure never stops the others.
+ */
+async function forEachBounded<T>(
+	items: readonly T[],
+	limit: number,
+	task: (item: T) => Promise<void>,
+): Promise<void> {
+	let next = 0;
+	const runner = async (): Promise<void> => {
+		while (next < items.length) {
+			const item = items[next++] as T;
+			await task(item);
+		}
+	};
+	const runners = Array.from({ length: Math.min(limit, items.length) }, runner);
+	await Promise.all(runners);
+}
 
 const INSTANCE_MISSING_MESSAGE =
 	"Your workspace instance no longer exists. Please contact your administrator.";
@@ -165,6 +194,7 @@ export async function reconcile(
 	lastRefreshAt: Date | null = null,
 	controllerUnreachable = false,
 	log: Logger = silentLogger(),
+	createRetryDelaysMs: readonly number[] = CREATE_RETRY_DELAYS_MS,
 ): Promise<SweepResult> {
 	let transitions = 0;
 	// What this sweep decided per workspace, written out as debug lines at the
@@ -273,62 +303,21 @@ export async function reconcile(
 		.where("state", "=", "provisioning")
 		.execute();
 
-	for (const ws of provisioning) {
-		if (!ws.incus_instance_name) continue;
-		try {
-			const result = await controller.create({
-				name: ws.incus_instance_name,
-				homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
-				dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
-				recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
-			});
-			const updated = await casUpdate(
-				db,
-				ws.id,
-				"provisioning",
-				{
-					state: "stopped",
-					image_version: result.imageFingerprint,
-					quota_config: JSON.stringify({
-						...result.quota,
-						recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
-					}),
-					quota_applied: JSON.stringify(result.quota),
-					error_code: null,
-					error_message: null,
-				},
-				now,
-			);
-			if (updated) {
-				transitions++;
-				record(ws.id, "created");
-				await audit(db, ws.id, "workspace.provisioned", "ok", {
-					imageFingerprint: result.imageFingerprint,
-				});
-			}
-		} catch (e) {
-			const err = toControllerError(e);
-			const updated = await casUpdate(
-				db,
-				ws.id,
-				"provisioning",
-				{
-					state: "error",
-					error_code: err.code,
-					error_message: userMessage(err.code),
-				},
-				now,
-			);
-			if (updated) {
-				transitions++;
-				record(ws.id, "create failed");
-				await audit(db, ws.id, "workspace.provision_failed", "failed", {
-					errorCode: err.code,
-					message: err.message,
-				});
-			}
+	await forEachBounded(provisioning, START_CONCURRENCY, async (ws) => {
+		if (!ws.incus_instance_name) return;
+		const outcome = await createWorkspace(
+			db,
+			controller,
+			config,
+			{ id: ws.id, incus_instance_name: ws.incus_instance_name },
+			now,
+			createRetryDelaysMs,
+		);
+		if (outcome) {
+			transitions++;
+			record(ws.id, outcome);
 		}
-	}
+	});
 
 	// 3b: stopped with desired running (or restarting) -> start. A pending
 	// maintenance operation runs first (ADR 0021).
@@ -341,10 +330,11 @@ export async function reconcile(
 		.where("archived_at", "is", null)
 		.execute();
 
-	for (const ws of toStart) {
+	await forEachBounded(toStart, START_CONCURRENCY, async (ws) => {
 		record(ws.id, "start");
-		transitions += await startWorkspace(db, controller, config, ws, "stopped", now);
-	}
+		const n = await startWorkspace(db, controller, config, ws, "stopped", now);
+		transitions += n;
+	});
 
 	// 3c: running -> stopping (desired stopped/restarting, or deadline passed)
 	// First: explicit desired stopped or restarting, or archived whatever it wants.
@@ -441,10 +431,11 @@ export async function reconcile(
 		.where("archived_at", "is", null)
 		.execute();
 
-	for (const ws of errorRetryStart) {
+	await forEachBounded(errorRetryStart, START_CONCURRENCY, async (ws) => {
 		record(ws.id, "retry start");
-		transitions += await startWorkspace(db, controller, config, ws, "error", now);
-	}
+		const n = await startWorkspace(db, controller, config, ws, "error", now);
+		transitions += n;
+	});
 
 	// Note: error with desired=stopped is at rest (nothing to retry).
 
@@ -719,6 +710,88 @@ function dockerGiBOf(
 	config: ReconcileConfig,
 ): number {
 	return quota?.dockerGiB ?? config.WORKSPACE_DOCKER_SIZE_GIB;
+}
+
+/** True for a failure that a later attempt may not hit: the controller was unreachable. */
+function isTransient(err: ControllerClientError): boolean {
+	return err.code === "INCUS_UNAVAILABLE";
+}
+
+/**
+ * Create the Incus instance for a provisioning workspace and move it to
+ * stopped, or to error if the create fails (SPEC.md §6.3). The controller
+ * answers an existing instance with `created: false`, which is adopted like
+ * a fresh one. Unreachable-controller failures are retried with backoff.
+ * Returns what happened for the debug line, or null if the row moved on.
+ */
+async function createWorkspace(
+	db: Kysely<Database>,
+	controller: ControllerClient,
+	config: ReconcileConfig,
+	ws: { id: string; incus_instance_name: string },
+	now: Date,
+	retryDelaysMs: readonly number[],
+): Promise<string | null> {
+	const request = {
+		name: ws.incus_instance_name,
+		homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
+		dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+		recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
+	};
+	for (let attempt = 0; ; attempt++) {
+		try {
+			const result = await controller.create(request);
+			const updated = await casUpdate(
+				db,
+				ws.id,
+				"provisioning",
+				{
+					state: "stopped",
+					image_version: result.imageFingerprint,
+					quota_config: JSON.stringify({
+						...result.quota,
+						recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
+					}),
+					quota_applied: JSON.stringify(result.quota),
+					error_code: null,
+					error_message: null,
+				},
+				now,
+			);
+			if (!updated) return null;
+			await audit(db, ws.id, "workspace.provisioned", "ok", {
+				imageFingerprint: result.imageFingerprint,
+				created: result.created,
+				attempts: attempt + 1,
+			});
+			return result.created ? "created" : "adopted existing instance";
+		} catch (e) {
+			const err = toControllerError(e);
+			const delay = retryDelaysMs[attempt];
+			if (isTransient(err) && delay !== undefined) {
+				await new Promise((resolve) => setTimeout(resolve, delay));
+				continue;
+			}
+			const updated = await casUpdate(
+				db,
+				ws.id,
+				"provisioning",
+				{
+					state: "error",
+					error_code: err.code,
+					error_message: userMessage(err.code),
+				},
+				now,
+			);
+			if (!updated) return null;
+			await audit(db, ws.id, "workspace.provision_failed", "failed", {
+				errorCode: err.code,
+				message: err.message,
+				attempts: attempt + 1,
+			});
+			return "create failed";
+		}
+	}
 }
 
 /**

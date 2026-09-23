@@ -25,23 +25,22 @@ export function filtersFromSearch(search: Record<string, unknown>): AuditFilters
  */
 export function AuditTab() {
 	const search = useSearch({ strict: false }) as Record<string, unknown>;
-	const initial = filtersFromSearch(search);
-	// A new link (for example "All events" from a workspace) starts afresh.
-	return <AuditView key={JSON.stringify(initial)} initial={initial} />;
-}
-
-function AuditView({ initial }: { initial: AuditFilters }) {
+	const filters = filtersFromSearch(search);
+	const key = JSON.stringify(filters);
 	const navigate = useNavigate();
-	const [draft, setDraft] = useState(initial);
-	const filters = initial;
-	const [invalid, setInvalid] = useState(false);
-	// The `before` cursor of every page shown so far; the last one is current.
-	const [cursors, setCursors] = useState<(number | null)[]>([null]);
-	const before = cursors[cursors.length - 1] ?? null;
-	const page = useAuditPage(filters, before);
+	const [draft, setDraft] = useState(filters);
+	const [draftKey, setDraftKey] = useState(key);
+	const [invalid, setInvalid] = useState<{ workspace: boolean; user: boolean }>({
+		workspace: false,
+		user: false,
+	});
+	// A new link (for example "All events" from a workspace) refills the form.
+	if (draftKey !== key) {
+		setDraftKey(key);
+		setDraft(filters);
+	}
 
-	// Filters live in the URL so a filtered view can be linked; a change
-	// re-keys this view, which starts again from the newest page.
+	// Filters live in the URL so a filtered view can be linked.
 	function show(next: AuditFilters) {
 		void navigate({
 			to: "/admin",
@@ -62,22 +61,19 @@ function AuditView({ initial }: { initial: AuditFilters }) {
 			action: draft.action.trim(),
 		};
 		// The router drops an ID that is not a UUID, so say so instead.
-		if (
-			(next.workspace && !UUID.test(next.workspace)) ||
-			(next.user && !UUID.test(next.user))
-		) {
-			setInvalid(true);
-			return;
-		}
+		const bad = {
+			workspace: next.workspace !== "" && !UUID.test(next.workspace),
+			user: next.user !== "" && !UUID.test(next.user),
+		};
+		setInvalid(bad);
+		if (bad.workspace || bad.user) return;
 		show(next);
 	}
 
 	function clear() {
+		setInvalid({ workspace: false, user: false });
 		show({ workspace: "", user: "", action: "" });
 	}
-
-	const nextBefore = page.data?.nextBefore ?? null;
-	const events = page.data?.events ?? [];
 
 	return (
 		<section className="pk-card mt-6 p-6" aria-labelledby="audit-title">
@@ -91,6 +87,7 @@ function AuditView({ initial }: { initial: AuditFilters }) {
 					className="w-80"
 					data-testid="audit-filter-workspace"
 					value={draft.workspace}
+					error={invalid.workspace ? INVALID_ID_TEXT : undefined}
 					onChange={(event) => setDraft({ ...draft, workspace: event.target.value })}
 				/>
 				<TextField
@@ -99,6 +96,7 @@ function AuditView({ initial }: { initial: AuditFilters }) {
 					className="w-80"
 					data-testid="audit-filter-user"
 					value={draft.user}
+					error={invalid.user ? INVALID_ID_TEXT : undefined}
 					onChange={(event) => setDraft({ ...draft, user: event.target.value })}
 				/>
 				<TextField
@@ -117,12 +115,28 @@ function AuditView({ initial }: { initial: AuditFilters }) {
 					Clear
 				</Button>
 			</form>
-			{invalid ? (
-				<p className="pk-error mt-4 text-status-error" role="alert">
-					A workspace or user ID must be a full ID, as shown in the workspace detail
-					panel.
-				</p>
-			) : null}
+			{/* Only the results re-key on new filters, so the focused form button stays. */}
+			<AuditResults key={key} filters={filters} />
+		</section>
+	);
+}
+
+export const INVALID_ID_TEXT =
+	"Enter a full ID, as shown in the workspace detail panel.";
+
+function AuditResults({ filters }: { filters: AuditFilters }) {
+	// The `before` cursor of every page shown so far; the last one is current.
+	const [cursors, setCursors] = useState<(number | null)[]>([null]);
+	const before = cursors[cursors.length - 1] ?? null;
+	const page = useAuditPage(filters, before);
+
+	const nextBefore = page.data?.nextBefore ?? null;
+	const events = page.data?.events ?? [];
+	const atNewest = cursors.length < 2;
+	const atOldest = nextBefore === null;
+
+	return (
+		<>
 			{page.isError ? (
 				<p className="pk-error mt-4 text-status-error" role="alert">
 					{page.error instanceof ApiError
@@ -157,26 +171,38 @@ function AuditView({ initial }: { initial: AuditFilters }) {
 			{page.isSuccess && events.length === 0 ? (
 				<p className="pk-text-body pk-muted mt-4">No audit events match.</p>
 			) : null}
-			<div className="pk-actions mt-4">
+			<div className="pk-actions mt-4 items-center">
+				{/* Unavailable buttons stay focusable so paging never drops focus. */}
 				<Button
 					data-testid="audit-newer"
 					aria-label="Newer audit events"
-					disabled={cursors.length < 2}
-					onClick={() => setCursors(cursors.slice(0, -1))}
+					aria-disabled={atNewest ? true : undefined}
+					onClick={() => (atNewest ? undefined : setCursors(cursors.slice(0, -1)))}
 				>
 					Newer
 				</Button>
 				<Button
 					data-testid="audit-older"
 					aria-label="Older audit events"
-					disabled={nextBefore === null}
-					onClick={() => setCursors([...cursors, nextBefore])}
+					aria-disabled={atOldest ? true : undefined}
+					onClick={() => (atOldest ? undefined : setCursors([...cursors, nextBefore]))}
 				>
 					Older
 				</Button>
+				<span
+					className="pk-text-compact pk-muted"
+					role="status"
+					data-testid="audit-page"
+				>
+					{page.isSuccess ? pageText(cursors.length, events.length) : ""}
+				</span>
 			</div>
-		</section>
+		</>
 	);
+}
+
+export function pageText(pageNumber: number, count: number): string {
+	return `Page ${pageNumber}, ${count} ${count === 1 ? "event" : "events"}`;
 }
 
 function AuditRow({ event }: { event: AuditEvent }) {

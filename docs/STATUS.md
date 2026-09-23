@@ -1830,10 +1830,132 @@ place.
 - **Zip-slip has no tests yet.** Nothing in the platform extracts an
   archive a student provides today, so there is nothing to test; Epic
   10's restore work will need its own traversal tests when it lands.
-- **The heavy limit tests** (memory past 4 GiB, an untimed fork bomb)
-  have never run on a VM with no other workspace present, because the
-  pilot always has student workspaces on it. They stay opt-in behind
-  `PORTIKUS_SECURITY_HEAVY=1`.
+- **The heavy limit tests** stay opt-in behind
+  `PORTIKUS_SECURITY_HEAVY=1`, because they need a VM with no other
+  workspace. The memory test first ran on the rehearsal VM on 2026-09-23
+  in Epic 12b and passed (docs/CAPACITY.md, "When memory runs out"). An
+  untimed fork bomb is not among them.
 - **Epic 12b** (load and concurrency, backup and restore, the destructive
   infrastructure rebuild exercise, deployment documentation, and the
-  threat-model review) has not started.
+  threat-model review) followed as its own epic, below.
+
+## Epic 12b — Dex sign-in and pilot readiness
+
+The requirement is `docs/EPIC-12B.md`. This is the second half of SPEC.md
+section 29 Epic 12, and the last epic before the pilot. The operator's
+runbook is `docs/OPERATIONS.md`.
+
+**Sign-in through Dex, from a users file.** Dex, an open-source sign-in
+server, now runs on the VM as the default provider, built from a pinned
+upstream commit (PR #459, ADR 0023). `PORTIKUS_IDP` picks `dex`, `mock` or
+`external`, and only the chosen one runs. Accounts live in a users file on
+the operator's machine, `~/.config/portikus/users.json` (mode 0600), which
+holds bcrypt hashes and never passwords. `make users-add`, `users-remove`,
+`users-list`, `users-check` and `users-deploy` manage it (PR #453), and
+`users-deploy` ends the sessions of removed users, reset passwords and
+demoted administrators (PR #465). A CI job signs in through a real Dex at
+the pinned commit (PR #460).
+
+**Carrying accounts over.** Portikus computes the subject Dex will give
+each user, so a carry-over command can move each existing mock account to
+its Dex identity by email before the switch, keeping the same workspace
+(PR #452). It is a dry run unless applied, audits each change, and leaves
+the #302 duplicates alone. The cutover always ends every session made
+while the mock was on, even when no account is carried (PR #461).
+`make identity-carry-over-dry-run` shows the pairings first.
+
+**Sign-in throttle (#398 fixed).** The API limits sign-in starts to 150 a
+minute per address, and Dex password posts to 30 per 10 minutes per
+address and 300 in total, answering 429 with the new `RATE_LIMITED` code
+(PR #454). Caddy asks the API before each password post. A later fix
+(PR #468) stopped one address from using up the shared total, counted
+encoded spellings of the password path, let only the Dex paths a sign-in
+uses through Caddy, and raised the start limit from 60 so a lab of 30
+students behind one address can sign in within a minute. The same task
+capped the journal at 2 GB.
+
+**Download cap (#399 fixed).** Downloads are capped at 1 GiB. The agent
+refuses larger files and folders before zipping, the API cuts any relayed
+body at the cap plus 64 MiB, and the browser explains the limit (PR #456).
+
+**Gate E accessibility fixes.** The twelve findings on the recovery,
+admin and download screens are fixed: busy buttons stay focusable, focus
+is kept or moved sensibly, errors are tied to their fields, and live
+regions hold only fixed text (PR #458, with follow-up test fixes in
+PR #465).
+
+**#402 closed.** HEAD on a browser socket route no longer answers 500.
+The fix landed on the epic branch before its task PRs.
+
+**Backups and restore.** A nightly host timer at 02:30 pulls a backup of
+the pilot to the host and encrypts it with age: a `pg_dump` and an export
+of every workspace's home and recovery volume. Sets go to
+`/var/backups/portikus/<hostname>/<timestamp>`, and 14 are kept per VM
+(PR #463, PR #466, ADR 0024). A restore onto the rehearsal VM was tested,
+including starting a restored workspace and checking its files and
+commits. A restore refuses any target that already holds users or
+workspace volumes. `make configure-vm` also keeps the VM's Incus scripts
+in step now (PR #455), and a rehearsal VM beside the pilot runs every
+exercise that must not touch it (PR #457).
+
+**Load test and capacity.** `make load-test` ran 25 and 40 workspaces on
+the rehearsal VM (PR #462, `docs/CAPACITY.md`). Once running, every
+latency was far inside its limit, with no failed operation. For 100
+provisioned and 25 active workspaces, the pilot needs 8 vCPUs, 16 GiB of
+memory and a 200 GiB data disk; Todd resizes it in a window he chooses.
+The test found that the worker started workspaces one at a time, so the
+worker now starts and creates up to six at once, and retries a create
+when the controller is briefly unreachable (PR #464).
+
+**Memory protection and pool growth.** The platform services are ranked
+below every workspace process for the kernel's out-of-memory killer, and
+each has its own memory cap. Growing the data disk now also grows the
+storage pool (PR #467, `docs/CAPACITY.md`, "When memory runs out" and
+"Resizing the pilot").
+
+**Rebuild from code (B5).** On 2026-09-23 the rehearsal VM was rebuilt
+twice from the repository with Make targets only, and nothing was done by
+hand on the VM. From an empty host to a green smoke test (209 checks,
+including a full Dex sign-in and the lifecycle block) took 14 min 41 s.
+The pilot's newest backup was restored into the second rebuild in 55 s.
+Every user, workspace, instance and volume came back, the session tables
+were empty, all three workspaces started, and sampled files and Git
+commits matched the backup. After the carry-over, alice signed in through
+Dex and landed in her original workspace. From an empty host to that
+sign-in took about 10 min 30 s. Removing an account with
+`make users-deploy` ended its live session (401) and was audited. The
+load test rerun measured a start p95 of 12.6 s, down from 77 s. Timings
+are in `docs/OPERATIONS.md`, "Rebuild from code (B5)", and the load
+numbers in `docs/CAPACITY.md`. `make rebuild-exercise` (PR #471) now
+runs every STACK.md section 33 step in one command, including the
+rollback to the previous package, and passed end to end in 17 min 48 s.
+The smoke test gained checks for restored data, and it now compares the
+VM's Incus script with the checkout's on every run. Ruling: STACK.md
+section 33 step 6 says to install the newest release. The exercise
+installs a package built from the checkout instead, so it tests what is
+about to ship, and this was accepted.
+
+### Gaps
+
+- **The Dex cutover has not been run on the pilot.** The pilot still
+  signs in through the mock provider, so #408 stays open until it does.
+  The steps are in `docs/OPERATIONS.md`, "The Dex cutover".
+- **The VM replacement for a memory and CPU resize was not rehearsed**,
+  because the rehearsal VM was shared at the time. The disk growth was.
+- **The threat model is kept private** for Todd to decide whether and
+  how to publish it.
+- **The confirming load test at 8 vCPUs and 16 GiB** has not run; the
+  size is worked out from the 12 vCPU run.
+- **Workspace starts are still over target under load.** With 25 students
+  opening their workspaces within 48 seconds, start p95 was 12.6 s against
+  the 10 s target (SPEC.md section 25.1). Every other load criterion
+  passed.
+- **The rollback step needs a package with Dex.** No published release
+  has Dex yet, so the exercise rolled back to a local build of the
+  previous epic head. Once this epic's release is out, the exercise rolls
+  back to a published release (`PREVIOUS_VERSION`).
+- **A backup from before the Dex cutover needs the carry-over after a
+  restore.** The runbook says how (`docs/OPERATIONS.md`, "Rebuild from
+  code (B5)").
+- **Backups sit on the same physical disk as the VM.** A weekly copy to
+  external storage is a manual step.

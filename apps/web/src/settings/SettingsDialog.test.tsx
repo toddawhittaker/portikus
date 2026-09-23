@@ -397,7 +397,7 @@ test("a failed settings request explains why the zone cannot be changed", async 
 	);
 });
 
-const ACCOUNT_USER = { ...USER, oidcSubject: "university-alice" };
+const ACCOUNT_USER = { ...USER, signInName: "university-alice" };
 
 test("settings opens on Preferences, with Profile first in the list", async () => {
 	stubSettings();

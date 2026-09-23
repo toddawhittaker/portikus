@@ -8,6 +8,7 @@
 		{ "path": "packages/events" },
 		{ "path": "packages/observability" },
 		{ "path": "packages/ui" },
+		{ "path": "packages/users-file" },
 		{ "path": "apps/api" },
 		{ "path": "apps/web" },
 		{ "path": "apps/worker" },

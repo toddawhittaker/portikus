@@ -230,6 +230,107 @@ jobs:
           echo "Shards: $RESULT"
           [ "$RESULT" = "success" ]
 
+  # Sign-in through a real Dex at the commit site.yml pins, configured by the
+  # role's own template (docs/EPIC-12B.md, Part A item 12). Not a required
+  # check, so a Dex upgrade shows its failure here without blocking merges.
+  dex-signin:
+    name: Dex sign-in
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.app == 'true' || needs.changes.outputs.infra == 'true'
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: portikus
+          POSTGRES_DB: portikus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DEX_DIR: /tmp/dex
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read the pinned Dex version and commit
+        id: pin
+        run: |
+          set -euo pipefail
+          version=$(awk '$1 == "dex_version:" { print $2 }' infra/ansible/site.yml)
+          commit=$(awk '$1 == "dex_commit:" { print $2 }' infra/ansible/site.yml)
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] && [ -n "$version" ]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      # The binary and the pages it serves, from the pinned source.
+      - name: Cache the Dex build
+        id: dex-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.DEX_DIR }}/out
+          key: dex-${{ runner.os }}-${{ steps.pin.outputs.commit }}
+      - name: Fetch Dex at the pinned commit
+        if: steps.dex-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          git init -q "$DEX_DIR/src"
+          cd "$DEX_DIR/src"
+          git fetch -q --depth 1 https://github.com/dexidp/dex.git "${{ steps.pin.outputs.commit }}"
+          git checkout -q FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+      - uses: actions/setup-go@v7
+        if: steps.dex-cache.outputs.cache-hit != 'true'
+        with:
+          go-version-file: ${{ env.DEX_DIR }}/src/go.mod
+          # The Dex build cache above covers reruns.
+          cache: false
+      # The same flags as the dex role (infra/ansible/roles/dex/tasks/main.yml).
+      - name: Build Dex
+        if: steps.dex-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ env.DEX_DIR }}/src
+        env:
+          GOFLAGS: -buildvcs=false
+          GOTOOLCHAIN: auto
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEX_DIR/out"
+          go build -trimpath -ldflags "-w -X main.version=${{ steps.pin.outputs.version }}" -o "$DEX_DIR/out/dex" ./cmd/dex
+          cp -r web "$DEX_DIR/out/web"
+      - name: Check the Dex version
+        run: '"$DEX_DIR/out/dex" version | grep -F "Dex Version: ${{ steps.pin.outputs.version }}"'
+      # The role's real template and guards, with the published test users.
+      - name: Render the Dex configuration from the users fixture
+        run: >-
+          ansible-playbook infra/tests/dex-render-test.yml
+          -e dex_render_dest="$DEX_DIR/config.yaml"
+          -e dex_web_dir="$DEX_DIR/out/web"
+      - name: Start Dex
+        run: |
+          set -euo pipefail
+          "$DEX_DIR/out/dex" serve "$DEX_DIR/config.yaml" >"$DEX_DIR/dex.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:5556/dex/.well-known/openid-configuration >/dev/null && exit 0
+            sleep 1
+          done
+          cat "$DEX_DIR/dex.log"
+          exit 1
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Sign in through Dex
+        run: pnpm exec vitest run packages/auth/src/dex.integration.test.ts
+        env:
+          DEX_TEST_ISSUER: http://127.0.0.1:5556/dex
+          TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
+      - name: Show the Dex log
+        if: failure()
+        run: cat "$DEX_DIR/dex.log" || true
+
   infra:
     name: Infrastructure checks
     runs-on: ubuntu-latest
@@ -246,7 +347,12 @@ jobs:
       - uses: opentofu/setup-opentofu@v2
         if: steps.detect.outputs.tofu == 'true' && needs.changes.outputs.infra == 'true'
       - if: steps.detect.outputs.tofu == 'true' && needs.changes.outputs.infra == 'true'
-        run: tofu fmt -check -recursive infra/tofu && cd infra/tofu/environments/dev-libvirt && tofu init -backend=false && tofu validate
+        run: |
+          set -euo pipefail
+          tofu fmt -check -recursive infra/tofu
+          for env in dev-libvirt rehearsal-libvirt; do
+            (cd "infra/tofu/environments/$env" && tofu init -backend=false && tofu validate)
+          done
       - name: Cache Ansible collections
         id: collections
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
@@ -261,10 +367,20 @@ jobs:
         run: pipx install ansible-lint && ansible-lint infra/ansible
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
-        run: sudo apt-get install -y shellcheck && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/*
+        # age is for the backup scope test below.
+        run: sudo apt-get install -y shellcheck age && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* infra/host/portikus-backup-export
       - name: Smoke test cleanup scope
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/cleanup-scope-test.sh
+      - name: Security test cleanup scope
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/security-cleanup-scope-test.sh
       - name: Clipboard shim
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/clipboard-shim-test.sh
+      - name: Caddy preview routes
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/caddy-preview-test.sh
+      - name: Backup scope
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/backup-scope-test.sh

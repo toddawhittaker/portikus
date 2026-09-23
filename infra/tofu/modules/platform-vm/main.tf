@@ -96,6 +96,29 @@ resource "libvirt_volume" "data_disk" {
   pool   = libvirt_pool.portikus.name
   size   = var.data_disk_size_bytes
   format = "qcow2"
+
+  # The provider replaces a volume whose size changes, which would erase
+  # every workspace.  data_disk_size below grows it in place instead.
+  lifecycle {
+    ignore_changes = [size]
+  }
+}
+
+# Grows the data disk in place when data_disk_size_bytes goes up, and fails
+# rather than shrink it.  Ansible's lvm role then grows the pool onto it.
+resource "terraform_data" "data_disk_size" {
+  triggers_replace = var.data_disk_size_bytes
+
+  provisioner "local-exec" {
+    command = "bash ${path.module}/grow-data-disk.sh"
+    environment = {
+      LIBVIRT_URI = var.libvirt_uri
+      DOMAIN      = libvirt_domain.vm.name
+      POOL        = libvirt_pool.portikus.name
+      VOLUME      = libvirt_volume.data_disk.name
+      SIZE_BYTES  = var.data_disk_size_bytes
+    }
+  }
 }
 
 # ── cloud-init ISO ──────────────────────────────────────────────
@@ -133,7 +156,10 @@ resource "libvirt_domain" "vm" {
   }
 
   network_interface {
-    network_id     = libvirt_network.portikus.id
+    network_id = libvirt_network.portikus.id
+    # A replaced domain must keep its MAC address: cloud-init's network
+    # configuration matches it.
+    mac            = var.mac_address != "" ? var.mac_address : null
     wait_for_lease = true
   }
 

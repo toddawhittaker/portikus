@@ -16,7 +16,7 @@ import { buildTestServer, PUBLIC_URL } from "../test-support.js";
  * The API's size and rate limits at its own edge (SPEC.md §9.7, §24;
  * Epic 12a Done item 8): the 1 MiB frame limit on every browser socket, the
  * JSON body limit on every route that takes a body, and the documented
- * sign-in rate-limit gap.
+ * sign-in rate limit (issue #398).
  */
 
 vi.setConfig({ testTimeout: 20_000, hookTimeout: 20_000 });
@@ -229,7 +229,7 @@ test.skipIf(skip)(
 	},
 );
 
-test.fails("KNOWN-VULN #398: repeated sign-in attempts from one address are rate limited (SPEC.md §24)", async () => {
+test("repeated sign-in attempts from one address are rate limited (SPEC.md §24)", async () => {
 	if (skip) throw new Error("needs a test database");
 	const statuses = new Set<number>();
 	for (let attempt = 0; attempt < 200; attempt += 1) {

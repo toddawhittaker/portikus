@@ -1,5 +1,4 @@
 import { basename } from "node:path";
-import { Readable } from "node:stream";
 import { requireUser } from "@portikus/auth";
 import {
 	CreateProjectRequest,
@@ -21,9 +20,16 @@ import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { z } from "zod";
-import { AgentCallError, type AgentClient } from "../agent-client.js";
-import type { ServerDeps } from "../server.js";
 import {
+	AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS,
+	AgentCallError,
+	type AgentClient,
+	readAgentError,
+} from "../agent-client.js";
+import type { ServerDeps } from "../server.js";
+import { cappedDownload } from "./files.js";
+import {
+	agentUrl,
 	claimLongOperation,
 	ownedProject as ownedProjectRow,
 	ownedScope,
@@ -791,6 +797,24 @@ export function registerProjectRoutes(
 			subPath = parsed.data;
 		}
 
+		// `check=1` asks only whether the download is under the size cap, so
+		// the browser can explain a refusal before it starts a download (#399).
+		if ((request.query as { check?: unknown }).check === "1") {
+			let checked: Response;
+			try {
+				checked = await agent.fetchRaw(
+					"GET",
+					agentUrl(row.slug, "archive", { path: subPath, check: "1" }),
+					{ signal: AbortSignal.timeout(AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS) },
+				);
+			} catch (error) {
+				return sendAgentError(reply, error);
+			}
+			if (!checked.ok) return sendAgentError(reply, await readAgentError(checked));
+			await checked.body?.cancel();
+			return reply.status(204).send();
+		}
+
 		// Zipping runs while the response streams, so the slot is held until the
 		// response is done, not just until the headers come back.
 		if (!claimLongOperation(scope.workspaceId, reply)) return;
@@ -811,7 +835,7 @@ export function registerProjectRoutes(
 			return sendError(reply, 503, "AGENT_UNAVAILABLE", "The archive was empty.");
 		}
 
-		const stream = Readable.fromWeb(upstream.body as never);
+		const stream = cappedDownload(upstream.body);
 		stream.on("close", release);
 		stream.on("error", release);
 

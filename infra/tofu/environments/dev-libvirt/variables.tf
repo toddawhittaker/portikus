@@ -58,6 +58,12 @@ variable "base_image_sha512" {
   default = "a733e7d49442a03e70d03e4eb5aaf3967f3efc69ef70952f9bb10fc1ee2c4876eb95956b5ad2d31350e5fada768feb651352535fb8cd1233f61998a5a7d2e93c"
 }
 
+variable "mac_address" {
+  description = "MAC address of the VM's network interface. make passes the one in the state, so a replaced VM keeps it; empty on a new VM."
+  type        = string
+  default     = ""
+}
+
 variable "network_name" {
   description = "Libvirt network name"
   type        = string

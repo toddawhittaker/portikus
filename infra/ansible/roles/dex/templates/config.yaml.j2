@@ -1,0 +1,37 @@
+# Dex configuration — managed by Ansible from the users file (docs/adr/0023).
+# Holds every password hash: root:portikus-dex, mode 0640.
+issuer: {{ portikus_dex_issuer | to_json }}
+storage:
+  type: memory
+web:
+  http: 127.0.0.1:{{ dex_port }}
+logger:
+  level: info
+  format: json
+frontend:
+  issuer: Portikus
+  dir: {{ dex_web_dir }}
+oauth2:
+  skipApprovalScreen: true
+expiry:
+  authRequests: 10m
+  idTokens: 10m
+enablePasswordDB: true
+staticClients:
+  - id: portikus
+    name: Portikus
+    secret: {{ dex_client_secret | to_json }}
+    redirectURIs:
+      - {{ (portikus_public_url ~ '/auth/callback') | to_json }}
+staticPasswords:
+{% for user in dex_users.users %}
+  - email: {{ user.email | to_json }}
+    hash: {{ user.passwordHash | to_json }}
+    username: {{ user.username | to_json }}
+    name: {{ user.displayName | to_json }}
+    preferredUsername: {{ user.username | to_json }}
+    userID: {{ user.userId | to_json }}
+    emailVerified: true
+    groups:
+      - {{ (portikus_oidc_admin_group if user.role == 'administrator' else portikus_oidc_student_group) | to_json }}
+{% endfor %}

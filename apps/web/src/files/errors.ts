@@ -4,7 +4,7 @@
  * message is never shown, because it is written for an administrator and can
  * carry paths the student has no use for (SPEC.md §24.6).
  */
-import { MAX_UPLOAD_BYTES } from "@portikus/contracts";
+import { MAX_DOWNLOAD_BYTES, MAX_UPLOAD_BYTES } from "@portikus/contracts";
 import type { ToastProps } from "@portikus/ui";
 import { ApiError } from "../api/request.js";
 
@@ -16,6 +16,22 @@ export function tooLargeToast(): ToastProps {
 		tone: "danger",
 		title: `Files must be ${MAX_UPLOAD_MB} MB or smaller`,
 	};
+}
+
+/** The download cap in whole gigabytes, for the message that names it. */
+export const MAX_DOWNLOAD_GB = Math.floor(MAX_DOWNLOAD_BYTES / (1024 * 1024 * 1024));
+
+/** Why a download did not start: over the cap gets its own advice (#399). */
+export function downloadErrorToast(error: unknown): ToastProps {
+	if (error instanceof ApiError && error.code === "FILE_TOO_LARGE") {
+		return {
+			tone: "danger",
+			title: `Downloads are limited to ${MAX_DOWNLOAD_GB} GB`,
+			children:
+				"Download a smaller folder, leave out node_modules, or use Git to move the project.",
+		};
+	}
+	return fileErrorToast(error);
 }
 
 /** The sentence for each error code the file routes return. */

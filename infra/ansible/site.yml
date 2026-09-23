@@ -10,7 +10,9 @@
     data_disk_device: /dev/vdb
     lvm_vg_name: portikus-data
     lvm_thinpool_name: thinpool
-    lvm_thinpool_size: "90%FREE"
+    # The thin pool's share of the data disk, metadata and its spare included.
+    # The rest stays free so the metadata can grow (docs/CAPACITY.md).
+    lvm_thinpool_percent: 90
     incus_storage_pool_name: workspace-data
     incus_network_name: portikus-ws
     incus_network_cidr: "10.200.0.1/24"
@@ -79,23 +81,47 @@
     # Each workspace's recovery-point volume (SPEC 19.1, ADR 0020).
     portikus_workspace_recovery_size_gib: 3
 
-    # ── Authentication (SPEC 5.3, ADR 0008) ───────────────────────
-    # The in-repo mock identity provider is off unless it is asked for:
-    # while it is on, anyone who can reach the site can sign in as any mock
-    # account, including the administrator.  A pilot VM passes
-    # PORTIKUS_MOCK_IDP=true; otherwise set the PORTIKUS_OIDC_* variables
-    # below to point at a real identity provider.
-    portikus_mock_idp: "{{ lookup('env', 'PORTIKUS_MOCK_IDP') | default('false', true) | bool }}"
+    # ── Authentication (SPEC 5.3, ADR 0008, ADR 0023) ─────────────
+    # PORTIKUS_IDP picks the sign-in provider:
+    #   dex       Dex on this VM, accounts from the users file (the default);
+    #   mock      the in-repo test provider, where anyone who reaches the site
+    #             can sign in as any account, the administrator included;
+    #   external  a real provider named by the PORTIKUS_OIDC_* settings.
+    portikus_idp: "{{ lookup('env', 'PORTIKUS_IDP') | default('dex', true) }}"
+    portikus_mock_idp: "{{ portikus_idp == 'mock' }}"
     portikus_mock_idp_port: 3002
+    # Dex is built from source at this upstream commit (docs/adr/0023).
+    # Bump both together, after reading the upstream release notes.
+    dex_version: v2.45.1
+    dex_commit: 11d2eeb52b42e1980e14cb91e69dd9e3faab2076
+    portikus_dex_issuer: "{{ portikus_public_url }}/dex"
+    # Loopback only; Caddy serves it at /dex.
+    dex_port: 5556
+    # On the machine that runs Ansible, outside any work tree.  It is read
+    # there and never copied to the VM.
+    portikus_users_file: >-
+      {{ lookup('env', 'PORTIKUS_USERS_FILE')
+         | default(lookup('env', 'HOME') ~ '/.config/portikus/users.json', true)
+         | expanduser }}
     portikus_oidc_issuer: "{{ lookup('env', 'PORTIKUS_OIDC_ISSUER') }}"
     portikus_oidc_client_id: "{{ lookup('env', 'PORTIKUS_OIDC_CLIENT_ID') }}"
     portikus_oidc_client_secret: "{{ lookup('env', 'PORTIKUS_OIDC_CLIENT_SECRET') }}"
+    # Dex puts groups in the token only when asked; some providers refuse
+    # scopes they do not know.
+    portikus_oidc_scopes: >-
+      {{ lookup('env', 'PORTIKUS_OIDC_SCOPES')
+         | default('openid profile email groups' if portikus_idp == 'dex'
+                   else 'openid profile email', true) }}
     portikus_oidc_groups_claim: groups
     portikus_oidc_student_group: >-
       {{ lookup('env', 'PORTIKUS_OIDC_STUDENT_GROUP') | default('portikus-students', true) }}
     portikus_oidc_admin_group: >-
       {{ lookup('env', 'PORTIKUS_OIDC_ADMIN_GROUP') | default('portikus-administrators', true) }}
     portikus_session_ttl_seconds: 43200
+    # Extra ranges the API may reach, such as an external provider's
+    # address: CIDRs separated by commas or spaces, for PORTIKUS_IDP=external.
+    portikus_api_ip_allow_extra: >-
+      {{ lookup('env', 'PORTIKUS_API_IP_ALLOW') | replace(',', ' ') | split | select | list }}
 
     # ── Browser access (Caddy) ────────────────────────────────────
     # nip.io resolves portikus.<ip>.nip.io to <ip>, so a fresh VM has a
@@ -135,8 +161,23 @@
   # Checked before any role runs, so bad identity-provider settings change
   # nothing on the VM.  The secret rules match packages/config: portikus-api
   # refuses to start in production on a short or default secret.
+  # The guards are tagged always, so a run limited with --tags (such as
+  # `make users-deploy`) is checked the same way.
   pre_tasks:
-    - name: Require identity provider settings when the mock is off
+    - name: Refuse the old mock sign-in switch
+      ansible.builtin.fail:
+        msg: "PORTIKUS_MOCK_IDP was renamed: use PORTIKUS_IDP=mock."
+      when: lookup('env', 'PORTIKUS_MOCK_IDP') | length > 0
+      tags: always
+
+    - name: Require a known identity provider
+      ansible.builtin.assert:
+        that:
+          - portikus_idp in ['dex', 'mock', 'external']
+        fail_msg: "PORTIKUS_IDP must be dex, mock or external, not '{{ portikus_idp }}'."
+      tags: always
+
+    - name: Require identity provider settings for an external provider
       ansible.builtin.assert:
         that:
           - portikus_oidc_issuer | default('', true) | length > 0
@@ -144,11 +185,31 @@
           - portikus_oidc_client_secret | default('', true) | length >= 32
           - portikus_oidc_client_secret | default('', true) != 'portikus-dev-secret'
         fail_msg: >-
-          With PORTIKUS_MOCK_IDP=false, set PORTIKUS_OIDC_ISSUER,
+          With PORTIKUS_IDP=external, set PORTIKUS_OIDC_ISSUER,
           PORTIKUS_OIDC_CLIENT_ID and PORTIKUS_OIDC_CLIENT_SECRET.
           The client secret must be at least 32 characters and must not be
           the development default, or portikus-api will refuse to start.
-      when: not portikus_mock_idp
+      when: portikus_idp == 'external'
+      tags: always
+
+    - name: Allow extra API address ranges only for an external provider
+      ansible.builtin.assert:
+        that:
+          - portikus_idp == 'external' or portikus_api_ip_allow_extra | length == 0
+          - portikus_api_ip_allow_extra | reject('match', '^[0-9a-fA-F:.]+/[0-9]{1,3}$') | list | length == 0
+        fail_msg: >-
+          PORTIKUS_API_IP_ALLOW takes CIDRs such as 192.0.2.10/32, and only
+          with PORTIKUS_IDP=external: Dex and the mock are on loopback.
+      tags: always
+
+    - name: Load the users file for Dex
+      ansible.builtin.include_role:
+        name: dex
+        tasks_from: users
+        apply:
+          tags: always
+      when: portikus_idp == 'dex'
+      tags: always
 
     # BROWSER-HANDLING 23: start-up must fail when the application and
     # preview hosts are the same, or when the preview wildcard would also
@@ -167,6 +228,7 @@
           separate namespace from the application host
           ({{ portikus_public_host }}), and the wildcard *.{{
           portikus_preview_suffix }} must not match that host.
+      tags: always
 
   # Each role carries its own name as a tag, so a single part of the VM
   # can be converged on its own with --tags <role>.
@@ -191,5 +253,9 @@
       tags: node
     - role: caddy
       tags: caddy
+    - role: dex
+      tags: dex
     - role: portikus
       tags: portikus
+    - role: backup
+      tags: backup

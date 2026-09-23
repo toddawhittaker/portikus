@@ -7,4 +7,6 @@ description = "Files that legitimately contain secret-shaped strings"
 paths = [
   '''\.env\.example$''',
   '''pnpm-lock\.yaml$''',
+  # Hashes a test password published on purpose: sample-password-not-secret.
+  '''infra/tests/fixtures/users\.sample\.json$''',
 ]

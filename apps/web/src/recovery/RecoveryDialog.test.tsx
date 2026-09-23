@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, project, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
-import { RecoveryDialog } from "./RecoveryDialog.js";
+import { REASON_LABEL, RecoveryDialog } from "./RecoveryDialog.js";
 import { pointTime } from "./RestoreConfirm.js";
 
 afterEach(() => {
@@ -49,7 +49,9 @@ test("lists each point with its reason and size, and the allowance in use", asyn
 	);
 	// The row action is named for its row.
 	expect(
-		screen.getByRole("button", { name: `Restore to ${pointTime(POINT.createdAt)}` }),
+		screen.getByRole("button", {
+			name: `Restore to ${pointTime(POINT.createdAt)}, ${REASON_LABEL[POINT.reason]}`,
+		}),
 	).toBeDefined();
 });
 
@@ -73,6 +75,23 @@ test("Create recovery point now posts and announces the result", async () => {
 			"Recovery point created.",
 		),
 	);
+	expect(posts(fetchMock, "")).toHaveLength(1);
+});
+
+test("Create keeps focus and ignores repeats while it runs (Gate E)", async () => {
+	const { fetchMock } = render((_url, init) =>
+		init?.method === "POST"
+			? (new Promise<Response>(() => undefined) as unknown as Response)
+			: json(200, LIST),
+	);
+
+	const create = await screen.findByTestId("recovery-create");
+	create.focus();
+	fireEvent.click(create);
+	await waitFor(() => expect(create.getAttribute("aria-busy")).toBe("true"));
+	expect(create.hasAttribute("disabled")).toBe(false);
+	expect(document.activeElement).toBe(create);
+	fireEvent.click(create);
 	expect(posts(fetchMock, "")).toHaveLength(1);
 });
 

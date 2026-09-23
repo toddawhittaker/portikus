@@ -228,10 +228,11 @@ test.describe("file editor", () => {
 
 		await expect(page.getByTestId("file-download")).toBeVisible({ timeout: 15_000 });
 		await expect(page.getByTestId(`editor-${path}`)).toHaveCount(0);
-		await expect(page.getByTestId("file-download")).toHaveAttribute(
-			"href",
-			/download=1/,
-		);
+		const downloadPromise = page.waitForEvent("download");
+		await page.getByRole("button", { name: "Download logo.png" }).press("Enter");
+		const download = await downloadPromise;
+		expect(download.suggestedFilename()).toBe("logo.png");
+		expect(download.url()).toContain("download=1");
 	});
 
 	test("a conflict can be put aside and the file saved later", async ({

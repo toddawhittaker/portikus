@@ -3,7 +3,8 @@
 # (docs/BROWSER-HANDLING.md sections 7.1, 8, 10, 12, 13, 14, 16.2 and 16.5).
 #
 # It renders infra/ansible/roles/caddy/templates/Caddyfile.j2 with the
-# pilot's variables and asserts the properties the preview edge depends on.
+# pilot's variables and asserts the properties the preview edge and the
+# sign-in provider routes depend on.
 # Needs no VM.  When the caddy binary happens to be installed, the rendered
 # file is also run through `caddy validate`.
 set -uo pipefail
@@ -56,19 +57,28 @@ command -v ansible >/dev/null || {
   exit 1
 }
 
-rendered="${work}/Caddyfile"
-ansible localhost -c local -m ansible.builtin.template \
-  -a "src=${TEMPLATE} dest=${rendered} mode=0644" \
-  -e "portikus_public_host=${PUBLIC_HOST}" \
-  -e "portikus_preview_suffix=${PREVIEW_SUFFIX}" \
-  -e "portikus_public_port=${PUBLIC_PORT}" \
-  -e "portikus_api_port=${API_PORT}" \
-  -e '{"portikus_mock_idp": false}' \
-  -e "portikus_mock_idp_port=3002" >"${work}/render.log" 2>&1 || {
-  echo "error: rendering ${TEMPLATE} failed" >&2
-  cat "${work}/render.log" >&2
-  exit 1
+# render IDP DEST — the template as site.yml would render it for that
+# sign-in provider (dex, mock or external).
+render() {
+  ansible localhost -c local -m ansible.builtin.template \
+    -a "src=${TEMPLATE} dest=${2} mode=0644" \
+    -e "portikus_public_host=${PUBLIC_HOST}" \
+    -e "portikus_preview_suffix=${PREVIEW_SUFFIX}" \
+    -e "portikus_public_port=${PUBLIC_PORT}" \
+    -e "portikus_api_port=${API_PORT}" \
+    -e "portikus_idp=${1}" \
+    -e "dex_port=5556" \
+    -e "portikus_mock_idp_port=3002" >"${work}/render.log" 2>&1 || {
+    echo "error: rendering ${TEMPLATE} for ${1} failed" >&2
+    cat "${work}/render.log" >&2
+    exit 1
+  }
 }
+
+rendered="${work}/Caddyfile"
+render dex "${rendered}"
+render mock "${work}/Caddyfile.mock"
+render external "${work}/Caddyfile.external"
 
 # Split the rendered file into the application block and the preview block,
 # so each set of assertions can only see its own virtual host.  The snippets
@@ -258,6 +268,87 @@ lacks "the control plane has no preview routes" '__portikus' "${app}"
 lacks "the control plane does not import the preview steps" 'import portikus_preview' "${app}"
 
 echo ""
+echo "--- Sign-in provider routes (docs/adr/0023, #398) ---"
+
+has "Dex is served under /dex on the application host" \
+  '^[[:space:]]+handle /dex/\* \{$' "${app}"
+has "Dex keeps the /dex prefix and listens on loopback" \
+  '^[[:space:]]+reverse_proxy 127\.0\.0\.1:5556$' "${app}"
+has "only password form posts are matched for the throttle" \
+  '^[[:space:]]+path /dex/auth/local/login\*$' "${app}"
+# Caddy matches a path pattern without escapes against the decoded path, so
+# POST /dex/auth/loc%61l/login is caught too.  A % in the pattern would switch
+# Caddy to matching the raw path and let encoded spellings past.
+lacks "the throttle also catches an encoded post such as /dex/auth/loc%61l/login" \
+  '^[[:space:]]+path /dex/.*%' "${app}"
+has "the throttle matcher is for POST only" '^[[:space:]]+method POST$' "${app}"
+has "a password post asks the API's sign-in throttle first" \
+  "forward_auth @dex_password_post 127\.0\.0\.1:${API_PORT} \{" "${app}"
+# Caddy keeps the client's query when the forward_auth URI has none, so a
+# client could add ?scope=start to a password post.  Every ask names its scope.
+has "the password post is asked at /edge/signin-throttle?scope=password" \
+  '^[[:space:]]+uri /edge/signin-throttle\?scope=password$' "${app}"
+lacks "no throttle ask leaves the client's query in place" \
+  '^[[:space:]]+uri /edge/signin-throttle$' "${app}"
+# Dex stores every /dex/auth request for ten minutes, so each one is counted
+# as a sign-in start and what it can store is capped (security review, 12b).
+has "a GET under /dex/auth is matched as a sign-in start" \
+  '^[[:space:]]+@dex_signin_start \{$' "${app}"
+has "a /dex/auth request asks the throttle as a sign-in start" \
+  "forward_auth @dex_signin_start 127\.0\.0\.1:${API_PORT} \{" "${app}"
+has "the sign-in start is asked at /edge/signin-throttle?scope=start" \
+  '^[[:space:]]+uri /edge/signin-throttle\?scope=start$' "${app}"
+has "a Dex URI longer than 1024 bytes is refused" \
+  '^[[:space:]]+@dex_long_uri expression \{http\.request\.uri\}\.size\(\) > 1024$' "${app}"
+has "the long-URI refusal is a 414" '^[[:space:]]+respond @dex_long_uri 414$' "${app}"
+has "a Dex request body is capped" '^[[:space:]]+max_size 16KB$' "${app}"
+# Dex reads an auth request from a POST body too, so /dex/auth takes only GET,
+# apart from the password post.
+has "/dex/auth takes other methods only for the password post" \
+  '^[[:space:]]+not method GET$' "${app}"
+has "any other method on /dex/auth is a 405" \
+  '^[[:space:]]+respond @dex_auth_other_method 405$' "${app}"
+# Dex serves more than Portikus uses; POST /dex/device/code stores 16 KB for five
+# minutes with no throttle.  Only the paths the sign-in flow uses get through.
+has "Dex paths Portikus does not use are a 404" \
+  '^[[:space:]]+respond @dex_unused 404$' "${app}"
+dex_allowed="$(grep -E '^[[:space:]]+@dex_unused not path ' "${app}" | head -1)"
+for used in '/dex/auth*' /dex/token /dex/userinfo /dex/keys '/dex/.well-known/*' \
+  '/dex/static/*' '/dex/theme/*' '/dex/callback*'; do
+  case " ${dex_allowed} " in
+    *" ${used} "*) ok "the sign-in flow's ${used} is let through" ;;
+    *) no "the sign-in flow's ${used} is let through" ;;
+  esac
+done
+case " ${dex_allowed} " in
+  "  "|*device*|*" /dex/* "*) no "/dex/device/code is not let through" ;;
+  *) ok "/dex/device/code is not let through" ;;
+esac
+line_of() { grep -n -- "$1" "${app}" | head -1 | cut -d: -f1; }
+dex_proxy_line="$(line_of 'reverse_proxy 127.0.0.1:5556')"
+for step in 'respond @dex_unused' 'respond @dex_long_uri' 'respond @dex_auth_other_method' \
+  'max_size 16KB' 'forward_auth @dex_password_post' 'forward_auth @dex_signin_start'; do
+  step_line="$(line_of "${step}")"
+  if [ -n "${step_line}" ] && [ -n "${dex_proxy_line}" ] && [ "${step_line}" -lt "${dex_proxy_line}" ]; then
+    ok "${step} runs before the request reaches Dex"
+  else
+    no "${step} runs before the request reaches Dex"
+  fi
+done
+has "with Dex, the mock provider's prefix is a 404" 'handle /mock-idp\* \{' "${app}"
+lacks "with Dex, nothing proxies to the mock provider" '127\.0\.0\.1:3002' "${app}"
+lacks "the /edge routes are never proxied on the public site" 'handle /edge' "${rendered}"
+
+has "with the mock, /dex is a 404" 'handle /dex\* \{' "${work}/Caddyfile.mock"
+lacks "with the mock, nothing proxies to Dex" '127\.0\.0\.1:5556' "${work}/Caddyfile.mock"
+has "with the mock, the mock provider is served" \
+  'reverse_proxy 127\.0\.0\.1:3002' "${work}/Caddyfile.mock"
+has "with an external provider, /dex is a 404" 'handle /dex\* \{' "${work}/Caddyfile.external"
+has "with an external provider, /mock-idp is a 404" 'handle /mock-idp\* \{' "${work}/Caddyfile.external"
+lacks "with an external provider, nothing proxies to Dex" '127\.0\.0\.1:5556' "${work}/Caddyfile.external"
+lacks "with an external provider, nothing proxies to the mock" '127\.0\.0\.1:3002' "${work}/Caddyfile.external"
+
+echo ""
 echo "--- The API is told which suffix Caddy serves ---"
 
 has "PREVIEW_SUFFIX is written beside PUBLIC_URL" \
@@ -266,12 +357,16 @@ has "PREVIEW_SUFFIX is written beside PUBLIC_URL" \
 
 if command -v caddy >/dev/null; then
   echo ""
-  if caddy validate --adapter caddyfile --config "${rendered}" >"${work}/validate.log" 2>&1; then
-    ok "caddy validate accepts the rendered configuration"
-  else
-    no "caddy validate accepts the rendered configuration"
-    cat "${work}/validate.log" >&2
-  fi
+  for idp in dex mock external; do
+    config="${rendered}"
+    [ "${idp}" = dex ] || config="${rendered}.${idp}"
+    if caddy validate --adapter caddyfile --config "${config}" >"${work}/validate.log" 2>&1; then
+      ok "caddy validate accepts the configuration for ${idp}"
+    else
+      no "caddy validate accepts the configuration for ${idp}"
+      cat "${work}/validate.log" >&2
+    fi
+  done
 fi
 
 echo ""

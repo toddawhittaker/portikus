@@ -9,15 +9,17 @@ import {
 	rename,
 	rm,
 	symlink,
+	truncate,
 	writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { MAX_DOWNLOAD_BYTES } from "@portikus/contracts";
 import type { FastifyInstance, InjectOptions } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { archiveDir, removeStaleTemporaries } from "./projects.js";
+import { archiveDir, checkDownloadSize, removeStaleTemporaries } from "./projects.js";
 import { buildServer } from "./server.js";
 
 const run = promisify(execFile);
@@ -690,4 +692,84 @@ test("every project route needs the bearer token", async () => {
 		expect(response.statusCode).toBe(401);
 		expect(response.json().error.code).toBe("UNAUTHORIZED");
 	}
+});
+
+/** A sparse file: the apparent size, without using the disk. */
+async function sparse(path: string, size: number) {
+	await writeFile(path, "");
+	await truncate(path, size);
+}
+
+test("a folder past the download cap is refused before zip runs (#399)", async () => {
+	const tempBase = await mkdtemp(join(tmpdir(), "portikus-archive-base-"));
+	const alpha = join(projectsRoot, "alpha");
+	await mkdir(join(alpha, "src"), { recursive: true });
+	await sparse(join(alpha, "a.bin"), MAX_DOWNLOAD_BYTES / 2);
+	await sparse(join(alpha, "src", "b.bin"), MAX_DOWNLOAD_BYTES / 2 + 1);
+	try {
+		await expect(
+			archiveDir(alpha, new AbortController().signal, tempBase),
+		).rejects.toMatchObject({ code: "FILE_TOO_LARGE" });
+		expect(await readdir(tempBase)).toEqual([]);
+	} finally {
+		await rm(tempBase, { recursive: true, force: true });
+	}
+});
+
+test("a symlink to a file past the download cap is refused (#399)", async () => {
+	const alpha = join(projectsRoot, "alpha");
+	await mkdir(alpha, { recursive: true });
+	await sparse(join(alpha, "big.bin"), MAX_DOWNLOAD_BYTES + 1);
+	await symlink("big.bin", join(alpha, "link.bin"));
+	await expect(checkDownloadSize(join(alpha, "link.bin"))).rejects.toMatchObject({
+		code: "FILE_TOO_LARGE",
+	});
+});
+
+test("the project archive route refuses a project past the cap with FILE_TOO_LARGE", async () => {
+	await mkdir(join(projectsRoot, "alpha"), { recursive: true });
+	await sparse(join(projectsRoot, "alpha", "big.bin"), MAX_DOWNLOAD_BYTES + 1);
+	const response = await app.inject({
+		method: "GET",
+		url: "/projects/alpha/archive",
+		headers: auth(),
+	});
+	expect(response.statusCode).toBe(413);
+	expect(response.json().error.code).toBe("FILE_TOO_LARGE");
+});
+
+test("the size check does not follow a symlink out of the folder", async () => {
+	const outside = await mkdtemp(join(tmpdir(), "portikus-outside-"));
+	await sparse(join(outside, "big.bin"), MAX_DOWNLOAD_BYTES + 1);
+	await mkdir(join(projectsRoot, "alpha"), { recursive: true });
+	await symlink(outside, join(projectsRoot, "alpha", "link"));
+	await symlink(join(outside, "big.bin"), join(projectsRoot, "alpha", "file-link"));
+	try {
+		const response = await app.inject({
+			method: "GET",
+			url: "/projects/alpha/archive?check=1",
+			headers: auth(),
+		});
+		expect(response.statusCode).toBe(204);
+	} finally {
+		await rm(outside, { recursive: true, force: true });
+	}
+});
+
+test("a size check answers for a file, a folder, or the project without zipping", async () => {
+	await mkdir(join(projectsRoot, "alpha", "small"), { recursive: true });
+	await writeFile(join(projectsRoot, "alpha", "small", "a.txt"), "a\n");
+	await sparse(join(projectsRoot, "alpha", "big.bin"), MAX_DOWNLOAD_BYTES + 1);
+	const check = (query: string) =>
+		app.inject({
+			method: "GET",
+			url: `/projects/alpha/archive?check=1${query}`,
+			headers: auth(),
+		});
+	expect((await check("&path=small")).statusCode).toBe(204);
+	expect((await check("&path=small%2Fa.txt")).statusCode).toBe(204);
+	const file = await check("&path=big.bin");
+	expect(file.statusCode).toBe(413);
+	expect(file.json().error.code).toBe("FILE_TOO_LARGE");
+	expect((await check("")).statusCode).toBe(413);
 });

@@ -57,7 +57,12 @@ import { useLayout, useLayoutStore } from "../layout/store.js";
 import { useTerminals } from "../useTerminals.js";
 import { BrowserOpenDialog } from "./BrowserOpenDialog.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
-import { fileErrorToast, isFileExists, tooLargeToast } from "./errors.js";
+import {
+	downloadErrorToast,
+	fileErrorToast,
+	isFileExists,
+	tooLargeToast,
+} from "./errors.js";
 import "./files.css";
 import { ChangesList } from "./ChangesList.js";
 import { fileIconName } from "./fileIcon.js";
@@ -83,8 +88,10 @@ import {
 } from "./paths.js";
 import {
 	directoryDownloadUrl,
+	downloadCheckUrl,
 	type FileMutations,
 	fileDownloadUrl,
+	startDownload,
 	useFileMutations,
 	useTree,
 } from "./queries.js";
@@ -353,23 +360,23 @@ export function FileTreePane({
 	/**
 	 * Download a selection. The download endpoint takes one path, so several
 	 * rows become one zip each, a moment apart so the browser keeps them all.
+	 * Each is checked against the size cap first (#399).
 	 */
 	const download = useCallback(
 		(nodes: readonly FileNode[]) => {
 			nodes.forEach((node, index) => {
 				setTimeout(() => {
-					const link = document.createElement("a");
-					link.href = node.isDir
-						? directoryDownloadUrl(workspaceId, project.id, node.path)
-						: fileDownloadUrl(workspaceId, project.id, node.path);
-					link.download = node.isDir ? `${node.name}.zip` : node.name;
-					document.body.append(link);
-					link.click();
-					link.remove();
+					startDownload(
+						node.isDir
+							? directoryDownloadUrl(workspaceId, project.id, node.path)
+							: fileDownloadUrl(workspaceId, project.id, node.path),
+						downloadCheckUrl(workspaceId, project.id, node.path),
+						node.isDir ? `${node.name}.zip` : node.name,
+					).catch((error: unknown) => toast.show(downloadErrorToast(error)));
 				}, index * 150);
 			});
 		},
-		[project.id, workspaceId],
+		[project.id, workspaceId, toast],
 	);
 
 	const uploadOne: (dir: string, file: File, replace: boolean) => Promise<void> =
@@ -599,10 +606,10 @@ export function FileTreePane({
 								<MenuItem onSelect={() => api.pickUpload("")}>
 									<span data-testid="files-upload">Upload files…</span>
 								</MenuItem>
-								{/* A link, so the browser streams the download to disk. */}
 								<MenuItem
-									href={directoryDownloadUrl(workspaceId, project.id, "")}
-									download={`${project.slug}.zip`}
+									onSelect={() =>
+										download([{ path: "", name: project.slug, isDir: true }])
+									}
 									testId="files-download-project"
 								>
 									Download project
@@ -1276,14 +1283,8 @@ function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 					</span>
 				</MenuItem>
 			) : (
-				/* A link, so the browser streams the download to disk. */
 				<MenuItem
-					href={
-						node.isDir
-							? directoryDownloadUrl(api.workspaceId, api.projectId, node.path)
-							: fileDownloadUrl(api.workspaceId, api.projectId, node.path)
-					}
-					download={node.isDir ? `${node.name}.zip` : node.name}
+					onSelect={() => api.download([node])}
 					testId={`row-download-${node.path}`}
 				>
 					Download

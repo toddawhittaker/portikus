@@ -1,6 +1,6 @@
 # 0008. Server-side sessions and an in-repo mock identity provider
 
-- **Status**: Accepted
+- **Status**: Accepted; superseded in part by 0023 (Dex replaces the mock on the pilot)
 - **Date**: 2026-09-16
 - **References**: STACK.md §8, §12, §27; SPEC.md §5, §24
 

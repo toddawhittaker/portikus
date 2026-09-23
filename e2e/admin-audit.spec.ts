@@ -39,17 +39,25 @@ test.describe("admin audit", () => {
 		await expect(rows.first()).toContainText("n:55");
 		await expect(table).not.toContainText(otherId);
 
-		await page.getByRole("button", { name: "Older audit events" }).click();
+		const pageStatus = page.getByTestId("audit-page");
+		await expect(pageStatus).toHaveText("Page 1, 50 events");
+
+		// Paging by keyboard keeps focus on the button, even when it becomes
+		// unavailable on the last page (Gate E).
+		const older = page.getByRole("button", { name: "Older audit events" });
+		await older.focus();
+		await page.keyboard.press("Enter");
 		await expect(rows).toHaveCount(5);
 		await expect(rows.first()).toContainText("n:5");
 		await expect(rows.last()).toContainText("n:1");
-		await expect(
-			page.getByRole("button", { name: "Older audit events" }),
-		).toBeDisabled();
+		await expect(older).toBeDisabled();
+		await expect(older).toBeFocused();
+		await expect(pageStatus).toHaveText("Page 2, 5 events");
 
 		await page.getByRole("button", { name: "Newer audit events" }).click();
 		await expect(rows).toHaveCount(50);
 		await expect(rows.first()).toContainText("n:55");
+		await expect(pageStatus).toHaveText("Page 1, 50 events");
 	});
 
 	test("typing a workspace filter narrows the list", async ({ page }) => {
@@ -62,7 +70,8 @@ test.describe("admin audit", () => {
 		await expect(table).toBeVisible({ timeout: 15_000 });
 
 		await page.getByLabel("Workspace ID").fill(workspaceId);
-		await page.getByRole("button", { name: "Apply filters" }).click();
+		const apply = page.getByRole("button", { name: "Apply filters" });
+		await apply.click();
 		// The filter is in the address, so the view can be linked.
 		await expect(page).toHaveURL(new RegExp(`workspace=${workspaceId}`));
 
@@ -70,5 +79,7 @@ test.describe("admin audit", () => {
 		await expect(rows).toHaveCount(2);
 		await expect(rows.first()).toContainText(workspaceId);
 		await expect(rows.first()).toContainText("n:2");
+		// Only the results re-render, so Apply keeps focus (Gate E).
+		await expect(apply).toBeFocused();
 	});
 });

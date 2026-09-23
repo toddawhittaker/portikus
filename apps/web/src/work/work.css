@@ -327,9 +327,18 @@
 }
 
 .pk-file-download {
+	background: none;
+	border: 0;
+	padding: 0;
+	font: inherit;
+	cursor: pointer;
 	color: var(--accent-text);
 	font-weight: 600;
 	text-decoration: underline;
+}
+.pk-file-download:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
 }
 
 /* The Diff control on a Markdown tab (SPEC.md §13.4, issue #218), and the

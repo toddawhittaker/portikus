@@ -206,7 +206,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 			<div className="flex items-start gap-4">
 				<div className="min-w-0 flex-1 overflow-x-auto">
 					<table className="w-full text-left text-[13px]" data-testid="admin-accounts">
-						<caption className="sr-only">
+						<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
 							Accounts and their workspaces. Choose a name to see details.
 						</caption>
 						<thead>
@@ -260,7 +260,11 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 						isSelf={selected.id === currentUserId}
 						onClose={() => {
 							setSelectedId(null);
-							document.getElementById(rowButtonId(selected.id))?.focus();
+							// An archived row may be filtered out; fall back to the caption.
+							(
+								document.getElementById(rowButtonId(selected.id)) ??
+								document.getElementById("admin-accounts-caption")
+							)?.focus();
 						}}
 					/>
 				) : null}
@@ -293,12 +297,19 @@ function AccountRow({
 			data-testid={`account-row-${user.id}`}
 			data-markers={labels.join(",")}
 		>
-			<td className="py-2 pr-4">
+			<td
+				className="py-2 pr-4 pl-2"
+				// The ink bar marks the selected row without relying on colour (issue #369).
+				style={selected ? { boxShadow: "var(--row-current-bar)" } : undefined}
+				data-testid={`account-cell-${user.id}`}
+			>
 				<button
 					type="button"
 					id={rowButtonId(user.id)}
-					className="pk-focus-ring cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink"
-					aria-label={`Show details for ${user.displayName}`}
+					className="pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink"
+					aria-label={`Show details for ${user.displayName}, ${user.email ?? user.preferredUsername ?? user.id}`}
+					aria-expanded={selected}
+					aria-controls={selected ? "workspace-detail" : undefined}
 					onClick={onSelect}
 				>
 					{user.displayName}

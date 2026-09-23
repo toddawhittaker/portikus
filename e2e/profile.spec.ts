@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, WEB_ORIGIN, workspacePath } from "./helpers";
+import { createStudent, query, WEB_ORIGIN, workspacePath } from "./helpers";
 import { API_ORIGIN } from "./ports";
 
 /**
@@ -23,6 +23,23 @@ async function openProfile(page: Page) {
 	await expect(dialog.getByLabel("GitHub")).toBeVisible();
 	return dialog;
 }
+
+test("the sign-in name is the username, not the identity provider's subject", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	// A Dex subject is an opaque base64 blob (Epic 12b).
+	await query(
+		"update users set oidc_subject = $1, preferred_username = $2 where id = $3",
+		[`CiQ${student.userId}`, "e2e-name", student.userId],
+	);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+
+	const dialog = await openProfile(page);
+	await expect(dialog.getByLabel("Sign-in name")).toHaveValue("e2e-name");
+});
 
 test("a profile link is saved and shown as a plain anchor; a bad one is refused", async ({
 	page,
