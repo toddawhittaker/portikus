@@ -1,5 +1,6 @@
 import { expect, type Frame, type Page, test } from "@playwright/test";
 import {
+	API_ORIGIN,
 	createProject,
 	createStudent,
 	query,
@@ -23,7 +24,6 @@ import {
  * checks are what must refuse the request.
  */
 
-const API_ORIGIN = "http://127.0.0.1:3000";
 const PREVIEW_SUFFIX = ".preview.localhost";
 
 /** Stand in for Caddy for the browser's requests to preview hosts. */

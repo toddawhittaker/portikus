@@ -1,5 +1,6 @@
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import {
+	API_ORIGIN,
 	createProject,
 	createStudent,
 	newTerminal,
@@ -22,7 +23,6 @@ import {
  * project names, and that A's preview host shows a Portikus refusal.
  */
 
-const API_ORIGIN = "http://127.0.0.1:3000";
 const PREVIEW_SUFFIX = ".preview.localhost";
 
 const PROJECT_NAME = "Zanzibar Secret Project";
