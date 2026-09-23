@@ -110,7 +110,7 @@ PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
 PORTIKUS_IDP ?= dex
 # Dex accounts. Kept on this machine, outside any work tree; never on the VM.
 PORTIKUS_USERS_FILE ?= $(HOME)/.config/portikus/users.json
-USERS_CLI = pnpm --silent --filter @portikus/users-file users
+USERS_CLI = pnpm --silent --dir packages/users-file exec tsx src/main.ts
 USERS_FILE_FLAG = --file "$(abspath $(PORTIKUS_USERS_FILE))"
 # The users file is needed, and checked first, only when Dex is the provider.
 USERS_CHECK := $(if $(filter dex,$(PORTIKUS_IDP)),users-check,)
