@@ -17,6 +17,7 @@
     owner: root
     group: root
     mode: "0644"
+    validate: nft -c -f %s
   notify: Reload nftables
 
 - name: Enable and start nftables

@@ -2902,6 +2902,9 @@ points into a new project by hand.
 ### Epic 11 — Administration and observability
 **Estimate:** 3–4 engineer-days
 
+See `docs/EPIC-11.md` for the working brief and decisions; landed on
+`epic/11-admin-observability`.
+
 Includes:
 
 - admin workspace list;

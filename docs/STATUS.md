@@ -1559,13 +1559,14 @@ fixes landed on the branch:
 
 ### Gaps
 
-- **Epic 10 is not deployed to the pilot.** Deploying it needs, in order:
-  main to accept out-of-order database migrations (Epic 11 turns on
-  `allowUnorderedMigrations`, because Epic 10 used migration 0013 and
-  Epic 11 used 0014 while built in parallel); `pre-epic10` snapshots of
-  the three student home volumes plus a `pg_dump` of the platform
-  database; and the firewall hotfix in pull request #424 landing on
-  `main` before any `configure-vm` run touches this VM again.
+- **Epic 10 is not deployed to the pilot.** Main is now merged into this
+  branch, so out-of-order migrations (Epic 11's
+  `allowUnorderedMigrations`) and the firewall hotfix in pull request
+  #424 are both here. Deploying still needs `pre-epic10` snapshots of the
+  three student home volumes plus a `pg_dump` of the platform database.
+- Reset Docker, Rebuild and start now send the workspace's own
+  `quota_config.dockerGiB`, so a Docker size an administrator grew is
+  kept; they fall back to `WORKSPACE_DOCKER_SIZE_GIB` when it is missing.
 - The smoke block needs a VM with no student workspaces on it to run at
   all; it has only been checked by `shellcheck` and by the scratch-instance
   exercise above, never by the block's own script on a live VM.
@@ -1582,3 +1583,141 @@ fixes landed on the branch:
 - The migration 0013 backfill that adds `recoveryGiB` to existing
   workspaces' `quota_config` hard-codes 3 GiB rather than reading
   `WORKSPACE_RECOVERY_SIZE_GIB`.
+## Epic 11 — Administration and observability
+
+**Four tabs.** `/admin` is now a page with four tabs: Workspaces, Audit,
+Health and Settings (SPEC.md section 20.1, DESIGN.md section 4). The
+chosen tab, and the Audit tab's filters, live in the page's search
+parameters, so a link such as `/admin?tab=audit&workspace=<id>` opens
+straight to it.
+
+**Account list and the #302 markers.** The Workspaces tab lists one row
+per user, with that user's workspace next to them. Each row can carry
+four markers: Disabled, Archived, Duplicate email (issue #302, for
+accounts that share an email, sorted next to each other), and Stale (no
+sign-in in 30 days, or a same-email account that signed in more
+recently). The list refreshes every 5 seconds rather than pushing
+updates.
+
+**Disable and enable.** Disable deletes the user's sessions, revokes
+their preview sessions, requests a stop of their workspace, and writes
+one `user.disabled` audit row, all in one transaction. Enable clears the
+flag and writes `user.enabled`. An administrator cannot disable their
+own account, and disabling the last enabled administrator is refused
+with 400, checked with the users rows locked so two disables racing each
+other cannot both succeed.
+
+**Archive and unarchive.** Archive sets `workspaces.archived_at` and
+requests a stop; the worker never starts an archived workspace again,
+including through presence, and Start or Restart answer 409
+`WORKSPACE_ARCHIVED` for the owner and an administrator alike. Presence
+cannot undo an archive, because the workspace socket no longer sets
+`desired_state` at all when it belongs to an administrator looking at
+someone else's workspace (see "socket" below), and the worker's own
+start queries now exclude archived rows outright. Unarchive clears
+everything and the row reappears.
+
+**Grow-only storage.** An administrator can only raise the home and
+Docker sizes, capped at 1024 GiB each; a smaller value is refused with
+400 ("Storage can only be increased."). The API records the wanted size
+in `quota_config`; a worker loop, on its own 10-second timer, grows the
+Incus volumes through the controller and records `quota_applied`, or
+`workspace.quota_apply_failed` with the error code on a retry backoff of
+5 minutes. A live grow on LVM thin storage was confirmed on a scratch
+volume and instance on the pilot host before this was built into the
+worker (task 2's real-host spike).
+
+**Image version.** The version shown against each workspace comes from
+`image.serial` on the Incus image, read by the controller and carried
+into `health_samples` by the worker every 60 seconds. An instance with no
+serial falls back to the first 12 characters of its fingerprint.
+
+**Live usage and port facts only.** The detail panel shows CPU, memory
+and home-disk usage while the agent answers, and four safe port facts
+per listener: the port, a short process name, preview reachability, and
+whether it is a system listener. It never carries `commandLine`,
+`processes`, `agent_token` or `agentToken`; a test collects every new
+admin route and asserts those keys are absent from its responses. A
+security-review fix also closed a leak in the other direction: an
+administrator's socket on a student's workspace now gets no
+`listening-services` frames at all, so even a second unsafe view was
+removed, not just the summary one. The same socket no longer registers
+presence or holds the workspace's `desired_state` up by being open, and a
+failure partway through the socket's setup releases the administrator's
+slot instead of leaking it.
+
+**Audit tab and new sources.** Newest first, 50 rows per page with
+keyset paging (`before=<id>`), filterable by workspace, user and action
+prefix, administrators only. Beyond the actions already recorded, this
+epic adds `preview.denied` (a 403 from `/preview/authorize`, throttled to
+one row per workspace, reason and user per minute, with a `count`;
+401 and 503 are not audited because there is no workspace to attribute
+an anonymous refusal to), `user.role_changed` (actor `identity-provider`,
+because the change comes from identity-provider groups rather than a
+person), `user.disabled`, `user.enabled`, `workspace.archived`,
+`workspace.unarchived`, `workspace.quota_updated` and
+`workspace.quota_applied`.
+
+**Health tab and health samples.** The worker writes one `health_samples`
+row every 60 seconds, even when the controller cannot be reached (then
+with `controller.reachable = false` and the error code), and deletes rows
+older than 7 days. The Health tab shows load, memory, the storage pool
+with an 80 percent warning, the profile's limits, the current image,
+whether the controller answered, a "Worker not reporting" banner once the
+newest sample is older than 2 minutes, how many agents answer, workspaces
+by state, and a 24-hour count of failures and refusals, with a small
+inline SVG sparkline (no new charting dependency) for the pool, memory
+and load trend.
+
+**Out-of-order migrations.** Migration 0014 (this epic) can apply before
+Epic 10's 0013, because `packages/db/src/migrate.ts` now allows
+unordered migrations. A database test applies 0014, then a stand-in
+0013, then rolls 0014 back and reapplies it, to prove the order does not
+matter.
+
+**ADR 0022.** Operational metrics live in the `health_samples` table and
+counts over `audit_events`, in PostgreSQL, not in an OpenTelemetry SDK or
+a scraped metrics endpoint. STACK.md section 15 and ADR 0012 point to it.
+There is one pilot VM and nowhere to scrape from; the admin page is
+already where an operator looks.
+
+**Review rulings and fixes.** Two review rounds (security and code, then
+a confirmation pass) found and fixed: the worker comparing quota keys
+that included Epic 10's future `recoveryGiB` and re-growing storage every
+tick; a new workspace never getting its first `quota_applied` filled in;
+an archived workspace surviving a stop request made through presence; a
+health-tab query that could not use its index; the administrator socket
+leaking service names and having no per-workspace cap; a lost-update race
+on a quota change; a host-snapshot call with no timeout; the
+preview-denied throttle key missing the user id, so one student's refusal
+could suppress another's audit row; and health samples keeping a stale
+per-instance list on every row instead of only the newest one.
+
+Gaps:
+
+- Resolved on `epic/10-recovery-quotas` by the main-into-Epic-10 merge:
+  Rebuild and Reset Docker are on in the admin detail, off while an
+  operation is pending, and the detail's `storage` comes from Epic 10's
+  per-class figures (null unless the agent measured all three classes).
+- Issue #284, the egress allow-list, is deferred; PR #424 already added a
+  deny list for private network ranges and the host itself, which is a
+  different, narrower control.
+- Epic 11 has not been deployed to the pilot.
+- The admin page does not wait for the saved appearance to load before
+  rendering, so it uses the browser's local copy on first paint.
+- Administrator-socket accounting (the per-workspace cap on open
+  administrator sockets) is kept in memory and assumes a single API
+  process; a second API process would not share the count.
+
+## Workspace egress to private ranges
+
+The platform VM's firewall and the workspace network ACL (access control
+list) now drop workspace traffic to private and special address ranges:
+10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16,
+127.0.0.0/8, 0.0.0.0/8, 224.0.0.0/4 and 240.0.0.0/4, and for IPv6
+fc00::/7, fe80::/10 and ::1 (SPEC.md sections 23.2 and 24). The list is
+the `workspace_egress_denied_ranges` variable in
+`infra/ansible/site.yml`. DNS and DHCP from the bridge gateway, the VM's
+path to the workspace agent and preview ports, and Internet egress are
+unchanged. The ACL is now written whole from a template, so a range taken
+off the list also leaves the ACL.

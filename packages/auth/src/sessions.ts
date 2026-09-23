@@ -19,14 +19,21 @@ function hashToken(token: string): string {
 
 /**
  * Create the user on first login, otherwise refresh the profile and role
- * snapshot taken from the identity provider.
+ * snapshot taken from the identity provider. `previousRole` is the role before
+ * this login, or null for a new user, so a role change can be audited.
  */
 export async function upsertUser(
 	db: Kysely<Database>,
 	identity: OidcIdentity,
 	role: Role,
-): Promise<AuthUser & { disabledAt: string | null }> {
+): Promise<AuthUser & { disabledAt: string | null; previousRole: Role | null }> {
 	const now = new Date().toISOString();
+	const previous = await db
+		.selectFrom("users")
+		.select("role")
+		.where("oidc_issuer", "=", identity.issuer)
+		.where("oidc_subject", "=", identity.subject)
+		.executeTakeFirst();
 	const row = await db
 		.insertInto("users")
 		.values({
@@ -59,6 +66,7 @@ export async function upsertUser(
 		role: row.role as Role,
 		disabledAt:
 			row.disabled_at === null ? null : new Date(row.disabled_at).toISOString(),
+		previousRole: previous ? (previous.role as Role) : null,
 	};
 }
 

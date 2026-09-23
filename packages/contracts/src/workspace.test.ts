@@ -90,6 +90,7 @@ const SAMPLE_WORKSPACE = {
 	imageVersion: null,
 	quotaConfig: { homeGiB: 25, dockerGiB: 20 },
 	pendingOperation: null,
+	archivedAt: null,
 	errorCode: null,
 	errorMessage: null,
 	activeConnections: 0,

@@ -1,3 +1,4 @@
+import { HostSnapshot } from "@portikus/contracts";
 import type { LogLevel } from "@portikus/observability";
 import { collectingLogger, lineAt } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
@@ -656,4 +657,99 @@ test("two concurrent rebuilds cause one provider call", async () => {
 	expect(a.statusCode).toBe(200);
 	expect(b.json()).toEqual({ imageFingerprint: "def456" });
 	expect(rebuilds).toBe(1);
+});
+
+// Host snapshot and volume grow (Epic 11 task 2).
+
+test("GET /host needs the token", async () => {
+	const res = await app.inject({ method: "GET", url: "/host" });
+	expect(res.statusCode).toBe(401);
+});
+
+test("GET /host returns the provider's snapshot", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	const res = await app.inject({ method: "GET", url: "/host", headers: auth() });
+	expect(res.statusCode).toBe(200);
+	const body = HostSnapshot.parse(res.json());
+	expect(body.image.serial).toBe("2026.09.9");
+	expect(body.instances.map((i) => i.name)).toEqual(["ws-abc"]);
+});
+
+test("GET /host maps an Incus failure to its status", async () => {
+	provider.failNext("INCUS_UNAVAILABLE");
+	const res = await app.inject({ method: "GET", url: "/host", headers: auth() });
+	expect(res.statusCode).toBe(503);
+	expect(res.json().code).toBe("INCUS_UNAVAILABLE");
+});
+
+test("POST /instances/:name/volumes needs the token", async () => {
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/volumes",
+		payload: { homeGiB: 30, dockerGiB: 20 },
+	});
+	expect(res.statusCode).toBe(401);
+});
+
+test("POST /instances/:name/volumes grows the volumes", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/volumes",
+		headers: auth(),
+		payload: { homeGiB: 30, dockerGiB: 40 },
+	});
+	expect(res.statusCode).toBe(200);
+	expect(res.json()).toEqual({ homeGiB: 30, dockerGiB: 40 });
+	expect(provider.instances.get("ws-abc")?.quota).toEqual({
+		homeGiB: 30,
+		dockerGiB: 40,
+	});
+});
+
+test("POST /instances/:name/volumes refuses a shrink with 400", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/volumes",
+		headers: auth(),
+		payload: { homeGiB: 24, dockerGiB: 20 },
+	});
+	expect(res.statusCode).toBe(400);
+	expect(res.json()).toEqual({
+		code: "BAD_REQUEST",
+		message: "Storage can only be increased.",
+	});
+	expect(provider.instances.get("ws-abc")?.quota).toEqual({
+		homeGiB: 25,
+		dockerGiB: 20,
+	});
+});
+
+test("POST /instances/:name/volumes rejects a bad name, body, or unknown instance", async () => {
+	const badName = await app.inject({
+		method: "POST",
+		url: "/instances/Bad_Name/volumes",
+		headers: auth(),
+		payload: { homeGiB: 30, dockerGiB: 20 },
+	});
+	expect(badName.statusCode).toBe(400);
+	expect(badName.json().code).toBe("INVALID_NAME");
+
+	const badBody = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/volumes",
+		headers: auth(),
+		payload: { homeGiB: 2000, dockerGiB: 20 },
+	});
+	expect(badBody.statusCode).toBe(400);
+	expect(badBody.json().code).toBe("BAD_REQUEST");
+
+	const missing = await app.inject({
+		method: "POST",
+		url: "/instances/ws-nope/volumes",
+		headers: auth(),
+		payload: { homeGiB: 30, dockerGiB: 20 },
+	});
+	expect(missing.statusCode).toBe(404);
 });

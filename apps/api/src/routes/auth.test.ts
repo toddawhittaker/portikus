@@ -94,6 +94,52 @@ test.skipIf(skip)("a user in neither group is refused with 403", async () => {
 	expect(denied).toHaveLength(1);
 });
 
+test.skipIf(skip)(
+	"a role change at sign-in is audited as user.role_changed",
+	async () => {
+		const alice = mock.users.alice;
+		if (!alice) throw new Error("mock user alice is missing");
+		const groups = alice.groups;
+		await loginAs(app, "alice", new CookieJar());
+		try {
+			alice.groups = ["portikus-administrators"];
+			const jar = new CookieJar();
+			await loginAs(app, "alice", jar);
+			// Signing in again with the same groups changes nothing.
+			await loginAs(app, "alice", new CookieJar());
+		} finally {
+			alice.groups = groups;
+		}
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "user.role_changed")
+			.execute();
+		expect(rows).toHaveLength(1);
+		const user = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.where("oidc_subject", "=", "alice")
+			.executeTakeFirstOrThrow();
+		expect(rows[0]?.target).toBe(user.id);
+		expect(rows[0]?.actor).toBe("identity-provider");
+		expect(rows[0]?.metadata).toEqual({ from: "student", to: "administrator" });
+		// Nothing secret leaves (STACK.md §15): only these keys, all short values.
+		expect(Object.keys(rows[0]?.metadata ?? {}).sort()).toEqual(["from", "to"]);
+	},
+);
+
+test.skipIf(skip)("a first sign-in is not a role change", async () => {
+	await loginAs(app, "alice", new CookieJar());
+	const rows = await testDb.db
+		.selectFrom("audit_events")
+		.select("id")
+		.where("action", "=", "user.role_changed")
+		.execute();
+	expect(rows).toHaveLength(0);
+});
+
 test.skipIf(skip)("a successful login writes an ok audit event", async () => {
 	const jar = new CookieJar();
 	await loginAs(app, "alice", jar);

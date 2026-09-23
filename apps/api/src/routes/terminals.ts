@@ -66,6 +66,14 @@ const HIGH_WATER_BYTES = 1024 * 1024;
 /** Resume once the browser socket has drained back below this. */
 const LOW_WATER_BYTES = 256 * 1024;
 
+/**
+ * The largest frame the API accepts from a workspace agent's terminal. The
+ * agent's output chunks and its 256 KiB history replay are far smaller; the
+ * agent is student-controlled, so without a cap one frame could make the API
+ * buffer up to the `ws` default of 100 MiB (SPEC.md §24.1).
+ */
+const MAX_AGENT_FRAME_BYTES = 1024 * 1024;
+
 /** How often a paused pipe checks whether the browser socket has drained. */
 const DRAIN_POLL_MS = 50;
 
@@ -684,6 +692,7 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 		{
 			headers: { authorization: agent.authHeader() },
 			handshakeTimeout: AGENT_HANDSHAKE_TIMEOUT_MS,
+			maxPayload: MAX_AGENT_FRAME_BYTES,
 		},
 	);
 

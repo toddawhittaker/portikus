@@ -1,6 +1,7 @@
 import {
 	type ControllerErrorCode,
 	CreateInstanceRequest,
+	GrowVolumesRequest,
 	InstanceName,
 	RebuildInstanceRequest,
 	ResetDockerRequest,
@@ -281,6 +282,39 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	app.get("/instances", async (_request, reply) => {
 		try {
 			const result = await provider.list();
+			return reply.code(200).send(result);
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	// The worker samples this once a minute for the admin Health tab (SPEC.md §25.6).
+	app.get("/host", async (_request, reply) => {
+		try {
+			return reply.code(200).send(await provider.hostSnapshot());
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	app.post("/instances/:name/volumes", async (request, reply) => {
+		const params = request.params as { name: string };
+		if (!InstanceName.safeParse(params.name).success) {
+			return reply.code(400).send({
+				code: "INVALID_NAME",
+				message: "invalid instance name",
+			});
+		}
+		const bodyResult = GrowVolumesRequest.safeParse(request.body ?? {});
+		if (!bodyResult.success) {
+			return reply.code(400).send({
+				code: "BAD_REQUEST",
+				message: bodyResult.error.issues.map((i) => i.message).join("; "),
+			});
+		}
+		try {
+			const result = await provider.growVolumes(params.name, bodyResult.data);
+			request.log.info({ instance: params.name, ...result }, "volumes grown");
 			return reply.code(200).send(result);
 		} catch (err) {
 			return sendError(reply, err);
