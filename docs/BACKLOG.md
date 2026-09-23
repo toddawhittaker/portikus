@@ -893,3 +893,104 @@ route or a loop over the existing single-row ones with a shared audit
 row per action. About a day.
 
 **Source.** `docs/EPIC-11.md`, "Out of this epic".
+
+## Course profiles and a language-aware editor
+
+**What.** Two changes that would make Portikus suit a traditional
+programming course, one where students write the code themselves rather
+than directing a coding agent:
+
+1. A *course profile* that switches parts of the interface off to make
+   it simpler for beginners, for example the Docker controls,
+   coding-agent launchers, and the system rows in the Running pane.
+2. An editor closer to VS Code, but still simpler: completion that
+   understands the code (IntelliSense), hover help, errors as you type,
+   go to definition, rename, format, and a Problems list.
+
+**Why.** A colleague of Todd's suggested it after a demo. The editor
+today has Monaco's editing features (folding, bracket matching, multiple
+cursors, find and replace, the command palette; see
+`apps/web/src/editor/features.ts`) but no language intelligence. ADR 0015
+left that out on purpose, with the coding agent as the answer. A course
+that does not use an agent loses that answer.
+
+**Documents this would change first.** VISION.md says Portikus "should
+not turn software development into a simulated or simplified exercise";
+a profile needs that reworded as one environment in which a course
+chooses how much to show. SPEC.md section 13.2 says Portikus is not a
+VS Code clone, and section 32 rules out an IDE extension ecosystem and a
+graphical debugger. A new ADR would supersede the language-service part
+of ADR 0015.
+
+**What it would take.**
+
+*Course profile.*
+
+- Hiding features is cheap. One setting is read by the web app and set
+  on the admin page, and it switches panes and menu items on and off.
+  About one small epic.
+- Preventing features is not cheap. A student with a terminal can still
+  install and run an agent, so a real block needs the egress allow-list
+  (issue #284), and perhaps a workspace image without the agent tools.
+  That is roughly three times the work of hiding.
+- Courses do not exist yet (SPEC.md section 31; see the LTI 1.3 entry
+  above). The first version would be one profile per deployment, or one
+  set on each user by an administrator.
+
+*Editor, cheap step (a day or two).*
+
+- Load Monaco's suggestion widget, hover, parameter hints and snippets,
+  with suggestions drawn from words in the file for every language. This
+  is word matching, not IntelliSense, but it helps beginners type.
+- Turn on Monaco's built-in TypeScript, JavaScript, CSS and HTML
+  services. They run in the browser and see only the open files, not
+  `tsconfig.json` or `node_modules`, so they report errors on imports
+  that actually work. The simplest mitigation is to keep completion and
+  hover and switch their diagnostics off. The cost is about 9 MB more to
+  download the first time an editor opens.
+- Python, Java, C and other languages get syntax colouring only from
+  Monaco. There is no in-browser shortcut for them.
+
+*Editor, real IntelliSense (one large epic, plus a task per language).*
+
+1. The workspace image installs language servers for the course's
+   languages: `pyright` for Python and `typescript-language-server` are
+   easy; `clangd` for C and C++ is moderate; `jdtls` for Java is heavy.
+2. The workspace agent starts one language server per project and
+   language on demand, confines it to `~/projects/<slug>`, and stops it
+   when idle.
+3. The API relays the Language Server Protocol over a WebSocket route,
+   authorized the same way terminal WebSockets are (SPEC.md section 9).
+4. The web app connects Monaco to the server. The preferred route is a
+   thin client of our own covering about six features (completion,
+   hover, diagnostics, definition, rename, format), each wired straight
+   to a Monaco provider. `monaco-languageclient` is fuller, but it
+   replaces most of our Monaco setup with VS Code's service layer, which
+   touches the diff editor and themes.
+5. Around the editor: a Problems list, format on save, and an outline.
+
+Memory is the hidden cost. A language server takes roughly 100 to
+500 MB per active student, and Java takes more. Thirty students on one
+VM needs a load test before this is promised to a course, and probably
+the per-workspace limits entry above.
+
+**Rejected for now.** Running the real VS Code server (openvscode-server)
+in each workspace and showing it through the preview gateway would give
+IntelliSense and a debugger almost for free. It was rejected because it
+is the opposite of simpler: students get all of VS Code, the product has
+two editors, only the Open VSX extension registry is available, and each
+student uses even more memory.
+
+**Likely next request.** A debugger (stepping through code). It follows
+the same pattern as language servers, through the Debug Adapter
+Protocol, but needs much more interface. SPEC.md section 32 excludes it
+today.
+
+**Decisions needed before it becomes an epic.**
+
+1. Which languages. This sets most of the cost.
+2. Whether the profile hides features or blocks them.
+3. One profile per deployment, or per user.
+4. Whether a debugger is in scope.
+
+**Source.** Todd and a colleague, after a demo, 2026-09-23.
