@@ -36,6 +36,26 @@ test("with no courses, the list says how a course appears", async () => {
 	expect(document.title).toBe("Courses, Portikus");
 });
 
+test("one status region says loading, then the answer, without being replaced", async () => {
+	let answer: (response: Response) => void = () => {};
+	serve({ "/courses": () => json(200, []) });
+	const fetch = globalThis.fetch;
+	vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+		String(input) === "/courses"
+			? new Promise<Response>((resolve) => {
+					answer = resolve;
+				})
+			: fetch(input, init),
+	);
+	renderApp("/course");
+
+	const status = await screen.findByRole("status");
+	await waitFor(() => expect(status.textContent).toBe("Loading courses…"));
+	answer(json(200, []));
+	await waitFor(() => expect(status.textContent).toContain("as an instructor"));
+	expect(screen.getByRole("status")).toBe(status);
+});
+
 test("with one course, the list opens it directly", async () => {
 	serve({
 		"/courses": () => json(200, [CS101]),

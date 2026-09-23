@@ -4,7 +4,7 @@
  */
 import { expect, test } from "@playwright/test";
 import { query, WEB_ORIGIN } from "./helpers";
-import { launchAs, ltiUsers, signedIn } from "./lti-helpers";
+import { launchAs, ltiUsers, signedIn, startLaunch } from "./lti-helpers";
 
 test("a student launch lands in the student's own workspace, signed in", async ({
 	page,
@@ -67,4 +67,48 @@ test("an LTI user is stored under the lti: issuer with no username", async ({
 		["sam@mock-lms.test"],
 	);
 	expect(row?.preferred_username ?? null).toBeNull();
+});
+
+test("two LTI links opened at once both sign in, whichever launch lands first", async ({
+	page,
+	context,
+}) => {
+	// Hold each launch post back so both logins finish before either launch.
+	const held: string[] = [];
+	await context.route(`${WEB_ORIGIN}/lti/launch`, async (route) => {
+		held.push(route.request().postData() ?? "");
+		await route.abort();
+	});
+	const second = await context.newPage();
+	for (const tab of [page, second]) {
+		await startLaunch(tab, { person: "sam" });
+		await expect.poll(() => held.length).toBe(tab === page ? 1 : 2);
+	}
+	await context.unroute(`${WEB_ORIGIN}/lti/launch`);
+
+	// Each login set its own state cookie.
+	// Unfiltered: a URL filter hides Secure cookies on plain-http 127.0.0.1.
+	const states = (await context.cookies()).filter((c) =>
+		c.name.startsWith("__Host-portikus_lti_state_"),
+	);
+	expect(states).toHaveLength(2);
+
+	// Now post them in reverse order, each as the platform's form would.
+	for (const body of [...held].reverse()) {
+		const fields = new URLSearchParams(body);
+		const inputs = [...fields]
+			.map(([name, value]) => `<input type="hidden" name="${name}" value="${value}">`)
+			.join("");
+		await page.setContent(
+			`<form method="post" action="${WEB_ORIGIN}/lti/launch">${inputs}<button type="submit">Post</button></form>`,
+		);
+		const launched = page.waitForResponse(
+			(r) => r.url() === `${WEB_ORIGIN}/lti/launch` && r.request().method() === "POST",
+		);
+		await page.getByRole("button", { name: "Post" }).click();
+		expect((await launched).status()).toBe(303);
+		await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 30_000 });
+		expect(await signedIn(page)).toBe(true);
+	}
+	await second.close();
 });

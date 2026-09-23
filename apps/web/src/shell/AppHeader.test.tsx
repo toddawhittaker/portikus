@@ -104,7 +104,7 @@ test("a student gets no Administration link", () => {
 });
 
 // `instructor` joins the contract's Role in Epic 13 T2; cast until then.
-const INSTRUCTOR = { ...USER, role: "instructor" } as unknown as MeUser;
+const INSTRUCTOR: MeUser = { ...USER, role: "instructor" };
 const COURSE = {
 	id: "55555555-5555-4555-8555-555555555555",
 	title: "CS 101 Intro to Programming",
@@ -116,7 +116,7 @@ test("an instructor with a course gets a Course link and no Administration link"
 	renderHeader(WORKSPACE, INSTRUCTOR);
 
 	const link = await screen.findByTestId("course-link");
-	expect(link.textContent).toBe("Course");
+	expect(link.textContent).toBe("Course (opens in a new tab)");
 	expect(link.getAttribute("href")).toBe("/course");
 	expect(link.getAttribute("target")).toBe("_blank");
 	openAccountMenu();
@@ -124,13 +124,19 @@ test("an instructor with a course gets a Course link and no Administration link"
 });
 
 test("with no course, the header has no Course link", async () => {
-	const fetch = stubFetch((url) =>
-		url === "/courses" ? json(200, []) : json(404, {}),
+	stubFetch((url) => (url === "/courses" ? json(200, []) : json(404, {})));
+	const client = renderWithQuery(
+		<AppHeader
+			workspaceId={WORKSPACE.id}
+			user={USER}
+			workspace={WORKSPACE}
+			project={project()}
+		/>,
 	);
-	renderHeader();
 
+	// Wait for the answer, not just the request, before asserting absence.
 	await waitFor(() =>
-		expect(fetch.mock.calls.some(([url]) => String(url) === "/courses")).toBe(true),
+		expect(client.getQueryState(["courses"])?.status).toBe("success"),
 	);
 	expect(screen.queryByTestId("course-link")).toBeNull();
 });
