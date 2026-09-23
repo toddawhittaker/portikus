@@ -6,6 +6,8 @@ import {
 	createTestDb,
 	hasTestDb,
 	hostId,
+	insertTestLtiMembership,
+	insertTestLtiUser,
 	insertTestUser,
 	type TestDb,
 } from "./testing.js";
@@ -619,6 +621,8 @@ describe("database migrations and schema", () => {
 				expect(down13.error).toBeUndefined();
 				const down14 = await migrator.migrateDown();
 				expect(down14.error).toBeUndefined();
+				const down15 = await migrator.migrateDown();
+				expect(down15.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -636,11 +640,144 @@ describe("database migrations and schema", () => {
 					"0012_profile",
 					"0013_recovery",
 					"0014_admin",
+					"0015_lti",
 				]);
 				throw rollback;
 			}),
 		).rejects.toBe(rollback);
 	});
+
+	// --- migration 0015: LTI launch and the instructor role (Epic 13) ---
+
+	test.skipIf(!hasTestDb())(
+		"the role check accepts instructor and refuses others",
+		async () => {
+			const id = await insertTestUser(t.db, { role: "instructor" });
+			expect(id).toBeTruthy();
+			await expect(insertTestUser(t.db, { role: "teacher" })).rejects.toThrow(
+				/users_role_check/,
+			);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"a membership role is student or instructor only",
+		async () => {
+			const userId = await insertTestLtiUser(t.db);
+			await expect(
+				insertTestLtiMembership(t.db, userId, { role: "administrator" as never }),
+			).rejects.toThrow(/check constraint/);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"a course is unique per platform and context id",
+		async () => {
+			const values = {
+				platform_issuer: "https://lms.x",
+				context_id: "c1",
+				platform_name: "X",
+			};
+			const row = await t.db
+				.insertInto("lti_contexts")
+				.values(values)
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			expect(row.title).toBe("");
+			await expect(
+				t.db.insertInto("lti_contexts").values(values).execute(),
+			).rejects.toThrow(/lti_contexts_platform_context_key/);
+			await t.db
+				.insertInto("lti_contexts")
+				.values({ ...values, platform_issuer: "https://lms.y" })
+				.execute();
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"deleting a user or a course removes its memberships",
+		async () => {
+			const a = await insertTestLtiUser(t.db);
+			const b = await insertTestLtiUser(t.db);
+			const courseId = await insertTestLtiMembership(t.db, a, { role: "instructor" });
+			expect(await insertTestLtiMembership(t.db, b)).toBe(courseId);
+
+			await t.db.deleteFrom("users").where("id", "=", a).execute();
+			const left = await t.db.selectFrom("lti_memberships").select("user_id").execute();
+			expect(left).toEqual([{ user_id: b }]);
+
+			await t.db.deleteFrom("lti_contexts").where("id", "=", courseId).execute();
+			expect(await t.db.selectFrom("lti_memberships").selectAll().execute()).toEqual(
+				[],
+			);
+		},
+	);
+
+	test.skipIf(!hasTestDb())("lti_login_states stores a pending login", async () => {
+		await t.db
+			.insertInto("lti_login_states")
+			.values({
+				state_hash: "h1",
+				nonce: "n1",
+				platform_issuer: "https://lms.x",
+				client_id: "cid",
+				expires_at: new Date(Date.now() + 60_000).toISOString(),
+			})
+			.execute();
+		await expect(
+			t.db
+				.insertInto("lti_login_states")
+				.values({
+					state_hash: "h1",
+					nonce: "n2",
+					platform_issuer: "https://lms.x",
+					client_id: "cid",
+					expires_at: new Date().toISOString(),
+				})
+				.execute(),
+		).rejects.toThrow(/duplicate key/);
+	});
+
+	test.skipIf(!hasTestDb())(
+		"0015 down drops the LTI tables and turns instructors into students",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const userId = await insertTestUser(trx, { role: "instructor" });
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const down = await migrator.migrateDown();
+					expect(down.error).toBeUndefined();
+					expect(down.results?.[0]?.migrationName).toBe("0015_lti");
+					const gone = await sql<{ n: number }>`
+					select count(*)::int as n from information_schema.tables
+					where table_name like 'lti\_%'`.execute(trx);
+					expect(gone.rows[0]?.n).toBe(0);
+					const row = await trx
+						.selectFrom("users")
+						.select("role")
+						.where("id", "=", userId)
+						.executeTakeFirstOrThrow();
+					expect(row.role).toBe("student");
+					await sql`savepoint s`.execute(trx);
+					await expect(insertTestUser(trx, { role: "instructor" })).rejects.toThrow(
+						/users_role_check/,
+					);
+					await sql`rollback to savepoint s`.execute(trx);
+
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
 
 	// --- migration 0014: admin columns, health samples, audit indexes (Epic 11) ---
 
@@ -657,6 +794,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					const down15 = await migrator.migrateDown();
+					expect(down15.results?.[0]?.migrationName).toBe("0015_lti");
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0014_admin");
 					const gone = await sql<{ n: number }>`
@@ -1080,7 +1219,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Down past 0014 (Epic 11), then 0013.
+					// Down past 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					await trx
