@@ -58,16 +58,16 @@ export function HealthView({ report, now }: { report: HealthReport; now: number 
 	return (
 		<div className="mt-6 flex flex-col gap-6" data-testid="health">
 			{report.workerStale ? (
-				<p
+				<div
 					className="pk-card border-status-warning bg-status-warning-soft p-4 text-status-warning"
-					role="alert"
 					data-testid="health-worker-stale"
 				>
-					<strong>Worker not reporting.</strong>{" "}
+					{/* Only the fixed text is live, so each refresh does not repeat the age. */}
+					<strong role="alert">Worker not reporting.</strong>{" "}
 					{report.sampledAt
 						? `The last health sample was taken ${sampleAge(report.sampledAt, now)}.`
 						: "No health sample has been taken yet."}
-				</p>
+				</div>
 			) : null}
 
 			<section className="pk-card p-6" aria-labelledby="health-platform-title">

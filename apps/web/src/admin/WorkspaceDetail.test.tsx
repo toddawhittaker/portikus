@@ -2,7 +2,7 @@ import type { AdminWorkspaceDetail } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER, WORKSPACE } from "../test-utils.js";
-import { quotaError } from "./QuotaDialog.js";
+import { quotaError, quotaFaults } from "./QuotaDialog.js";
 import { capabilityNote, NOT_AVAILABLE_TEXT, quotaPending } from "./WorkspaceDetail.js";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -97,17 +97,27 @@ function detail(overrides: Partial<AdminWorkspaceDetail> = {}): AdminWorkspaceDe
 	};
 }
 
-/** Answers the admin reads with one detail; every POST and PUT lands in `writes`. */
-function stubDetail(body: AdminWorkspaceDetail) {
+/**
+ * Answers the admin reads with one detail; every POST and PUT lands in
+ * `writes`. With `hold`, writes never answer, so a request stays in flight.
+ */
+function stubDetail(
+	body: AdminWorkspaceDetail,
+	{
+		hold = false,
+		users = [ALICE_ROW, ADMIN_ROW],
+	}: { hold?: boolean; users?: unknown[] } = {},
+) {
 	const writes: { url: string; body: unknown }[] = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users") return json(200, { users: [ALICE_ROW, ADMIN_ROW] });
+		if (url === "/admin/users") return json(200, { users });
 		if (url === "/admin/settings") {
 			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
 		}
 		if (init?.method === "POST" || init?.method === "PUT") {
 			writes.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
+			if (hold) return new Promise<Response>(() => undefined) as unknown as Response;
 			return json(204, null);
 		}
 		if (url === `/admin/workspaces/${WORKSPACE.id}`) return json(200, body);
@@ -119,7 +129,7 @@ function stubDetail(body: AdminWorkspaceDetail) {
 async function openAlice() {
 	renderApp("/admin");
 	fireEvent.click(
-		await screen.findByRole("button", { name: "Show details for Alice Example" }),
+		await screen.findByRole("button", { name: /^Show details for Alice Example, / }),
 	);
 	const panel = await screen.findByRole("region", { name: "Alice Example" });
 	await within(panel).findByTestId("detail-quota");
@@ -140,6 +150,15 @@ test("the quota form refuses a shrink, a non-number, and too much", () => {
 	expect(quotaError(from, "2000", "20")).toBe("Each size can be at most 1024 GiB.");
 	expect(quotaError(from, "25", "20")).toBe("Change at least one size.");
 	expect(quotaError(from, "30", "20")).toBeNull();
+});
+
+test("a quota error points at the field at fault (Gate E)", () => {
+	const from = { homeGiB: 25, dockerGiB: 20 };
+	expect(quotaFaults(from, "20", "20")).toEqual({ home: true, docker: false });
+	expect(quotaFaults(from, "25", "big")).toEqual({ home: false, docker: true });
+	expect(quotaFaults(from, "2000", "2000")).toEqual({ home: true, docker: true });
+	// "Change at least one size" has no single culprit, so it points at Home.
+	expect(quotaFaults(from, "25", "20")).toEqual({ home: true, docker: false });
 });
 
 test("the capability note names what is missing", () => {
@@ -167,9 +186,13 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 	expect(within(panel).queryByTestId("detail-quota-pending")).toBeNull();
 	expect(within(panel).getByRole("table", { name: "Listening ports" })).toBeDefined();
 	expect(within(panel).getByText("workspace.stop_requested")).toBeDefined();
-	expect(within(panel).getByTestId("detail-all-events").getAttribute("href")).toBe(
+	const allEvents = within(panel).getByTestId("detail-all-events");
+	expect(allEvents.getAttribute("href")).toBe(
 		`/admin?tab=audit&workspace=${WORKSPACE.id}`,
 	);
+	// Styled as a link, not body text (Gate E).
+	expect(allEvents.className).toContain("underline");
+	expect(allEvents.className).toContain("text-[var(--accent-text)]");
 	// The selected row is marked as the current one.
 	expect(
 		screen.getByTestId(`account-row-${USER.id}`).getAttribute("aria-current"),
@@ -220,13 +243,13 @@ test("without the capability, Rebuild and Reset Docker are off and say why", asy
 	const panel = await openAlice();
 
 	const rebuild = within(panel).getByRole("button", {
-		name: "Rebuild Alice Example's workspace",
+		name: "Rebuild workspace for Alice Example",
 	}) as HTMLButtonElement;
 	const reset = within(panel).getByRole("button", {
-		name: "Reset Docker in Alice Example's workspace",
+		name: "Reset Docker for Alice Example",
 	}) as HTMLButtonElement;
-	expect(rebuild.disabled).toBe(true);
-	expect(reset.disabled).toBe(true);
+	expect(rebuild.getAttribute("aria-disabled")).toBe("true");
+	expect(reset.getAttribute("aria-disabled")).toBe("true");
 	const note = within(panel).getByTestId("capability-note");
 	expect(note.textContent).toBe(NOT_AVAILABLE_TEXT);
 	expect(rebuild.getAttribute("aria-describedby")).toBe(note.id);
@@ -243,16 +266,25 @@ test("a pending operation turns Rebuild and Reset Docker off and says so", async
 	const panel = await openAlice();
 
 	const rebuild = within(panel).getByRole("button", {
-		name: "Rebuild Alice Example's workspace",
+		name: "Rebuild workspace for Alice Example",
 	}) as HTMLButtonElement;
 	const reset = within(panel).getByRole("button", {
-		name: "Reset Docker in Alice Example's workspace",
+		name: "Reset Docker for Alice Example",
 	}) as HTMLButtonElement;
-	expect(rebuild.disabled).toBe(true);
-	expect(reset.disabled).toBe(true);
+	expect(rebuild.getAttribute("aria-disabled")).toBe("true");
+	expect(reset.getAttribute("aria-disabled")).toBe("true");
 	expect(within(panel).getByTestId("pending-operation").textContent).toMatch(
 		/^Rebuilding…/,
 	);
+	// Still focusable, pointed at the note, and a click opens nothing (Gate E).
+	expect(rebuild.disabled).toBe(false);
+	expect(rebuild.getAttribute("aria-describedby")).toBe(
+		within(panel).getByTestId("pending-operation").id,
+	);
+	rebuild.focus();
+	fireEvent.click(rebuild);
+	expect(screen.queryByTestId("rebuild-dialog")).toBeNull();
+	expect(document.activeElement).toBe(rebuild);
 });
 
 test("the detail shows per-class storage meters when the agent measured them", async () => {
@@ -283,7 +315,7 @@ test("Rebuild asks for the exact workspace label before it calls the route", asy
 	expect(within(panel).queryByTestId("capability-note")).toBeNull();
 
 	fireEvent.click(
-		within(panel).getByRole("button", { name: "Rebuild Alice Example's workspace" }),
+		within(panel).getByRole("button", { name: "Rebuild workspace for Alice Example" }),
 	);
 	const dialog = await screen.findByTestId("rebuild-dialog");
 	const confirm = within(dialog).getByTestId("dialog-confirm") as HTMLButtonElement;
@@ -313,7 +345,7 @@ test("Reset Docker asks for the label and calls the owner route", async () => {
 
 	fireEvent.click(
 		within(panel).getByRole("button", {
-			name: "Reset Docker in Alice Example's workspace",
+			name: "Reset Docker for Alice Example",
 		}),
 	);
 	const dialog = await screen.findByTestId("reset-docker-dialog");
@@ -331,7 +363,7 @@ test("focus returns to the button that opened a dialog", async () => {
 	const panel = await openAlice();
 
 	const opener = within(panel).getByRole("button", {
-		name: "Archive Alice Example's workspace",
+		name: "Archive workspace for Alice Example",
 	});
 	opener.focus();
 	fireEvent.click(opener);
@@ -352,7 +384,7 @@ test("closing the panel returns focus to the row", async () => {
 
 	await waitFor(() =>
 		expect(document.activeElement).toBe(
-			screen.getByRole("button", { name: "Show details for Alice Example" }),
+			screen.getByRole("button", { name: /^Show details for Alice Example, / }),
 		),
 	);
 });
@@ -374,7 +406,7 @@ test("archive and disable confirm first, then call their routes", async () => {
 	const panel = await openAlice();
 
 	fireEvent.click(
-		within(panel).getByRole("button", { name: "Archive Alice Example's workspace" }),
+		within(panel).getByRole("button", { name: "Archive workspace for Alice Example" }),
 	);
 	fireEvent.click(
 		within(await screen.findByTestId("archive-dialog")).getByTestId("dialog-confirm"),
@@ -383,7 +415,7 @@ test("archive and disable confirm first, then call their routes", async () => {
 	expect(writes[0]?.url).toBe(`/admin/workspaces/${WORKSPACE.id}/archive`);
 
 	fireEvent.click(
-		within(panel).getByRole("button", { name: "Disable Alice Example's account" }),
+		within(panel).getByRole("button", { name: "Disable account for Alice Example" }),
 	);
 	fireEvent.click(
 		within(await screen.findByTestId("disable-dialog")).getByTestId("dialog-confirm"),
@@ -409,6 +441,15 @@ test("a shrink is refused in the dialog, and a grow is sent", async () => {
 	expect((await within(dialog).findByRole("alert")).textContent).toBe(
 		"Storage can only be increased.",
 	);
+	// The error belongs to the field at fault (Gate E).
+	const homeField = within(dialog).getByRole("textbox", { name: "Home (GiB)" });
+	expect(homeField.getAttribute("aria-invalid")).toBe("true");
+	expect(homeField.getAttribute("aria-describedby")).toBe("quota-home-err");
+	expect(
+		within(dialog)
+			.getByRole("textbox", { name: "Docker (GiB)" })
+			.getAttribute("aria-invalid"),
+	).toBe(null);
 	expect(writes.length).toBe(0);
 
 	fireEvent.change(within(dialog).getByTestId("quota-home"), {
@@ -426,14 +467,143 @@ test("an administrator cannot disable their own account", async () => {
 	stubDetail(detail());
 	renderApp("/admin");
 	fireEvent.click(
-		await screen.findByRole("button", { name: "Show details for Carol Admin" }),
+		await screen.findByRole("button", { name: /^Show details for Carol Admin, / }),
 	);
 	const panel = await screen.findByRole("region", { name: "Carol Admin" });
 
 	const button = within(panel).getByRole("button", {
-		name: "Disable Carol Admin's account",
+		name: "Disable account for Carol Admin",
 	}) as HTMLButtonElement;
-	expect(button.disabled).toBe(true);
+	expect(button.getAttribute("aria-disabled")).toBe("true");
 	expect(within(panel).getByText("You cannot disable your own account.")).toBeDefined();
 	expect(within(panel).getByText("This account has no workspace.")).toBeDefined();
+});
+
+test("opening a panel focuses its heading and marks the row (Gate E)", async () => {
+	stubDetail(detail());
+	const panel = await openAlice();
+
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			within(panel).getByRole("heading", { name: "Alice Example" }),
+		),
+	);
+	const rowButton = screen.getByRole("button", {
+		name: /^Show details for Alice Example, /,
+	});
+	expect(rowButton.getAttribute("aria-expanded")).toBe("true");
+	expect(rowButton.getAttribute("aria-controls")).toBe(panel.id);
+	expect(rowButton.className).toContain("pk-focus-inset");
+	// The selected row carries the ink bar, not only a background colour.
+	expect(screen.getByTestId(`account-cell-${USER.id}`).style.boxShadow).toBe(
+		"var(--row-current-bar)",
+	);
+	const carol = screen.getByRole("button", { name: /^Show details for Carol Admin, / });
+	expect(carol.getAttribute("aria-expanded")).toBe("false");
+	expect(carol.hasAttribute("aria-controls")).toBe(false);
+});
+
+test("row buttons add the email so repeated names stay distinct (Gate E)", async () => {
+	stubDetail(detail());
+	renderApp("/admin");
+	expect(
+		await screen.findByRole("button", {
+			name: `Show details for Alice Example, ${USER.email}`,
+		}),
+	).toBeDefined();
+});
+
+test("each action's name starts with its visible text (WCAG 2.5.3)", async () => {
+	stubDetail(detail({ capabilities: { rebuild: true, resetDocker: true } }));
+	const panel = await openAlice();
+
+	for (const button of within(panel).getAllByRole("button")) {
+		const visible = (button.textContent ?? "").replace(/…$/, "").trim();
+		const name = button.getAttribute("aria-label");
+		if (visible === "" || name === null) continue;
+		expect(name.startsWith(visible.replace(/…$/, ""))).toBe(true);
+	}
+});
+
+test("Stop keeps focus and ignores repeats while its request runs (Gate E)", async () => {
+	const writes = stubDetail(detail(), { hold: true });
+	const panel = await openAlice();
+
+	const stop = within(panel).getByRole("button", {
+		name: "Stop Alice Example's workspace",
+	});
+	stop.focus();
+	fireEvent.click(stop);
+	await waitFor(() => expect(stop.getAttribute("aria-busy")).toBe("true"));
+	expect(document.activeElement).toBe(stop);
+	const start = within(panel).getByRole("button", {
+		name: "Start Alice Example's workspace",
+	});
+	expect(start.getAttribute("aria-disabled")).toBe("true");
+	fireEvent.click(stop);
+	fireEvent.click(start);
+	expect(writes.length).toBe(1);
+});
+
+test("Unarchive keeps focus while its request runs (Gate E)", async () => {
+	stubDetail(
+		detail({ workspace: { ...WORKSPACE, archivedAt: "2026-09-20T10:00:00.000Z" } }),
+		{
+			hold: true,
+			users: [{ ...ALICE_ROW, markers: NONE }, ADMIN_ROW],
+		},
+	);
+	const panel = await openAlice();
+
+	const unarchive = within(panel).getByRole("button", {
+		name: "Unarchive workspace for Alice Example",
+	});
+	unarchive.focus();
+	fireEvent.click(unarchive);
+	await waitFor(() => expect(unarchive.getAttribute("aria-busy")).toBe("true"));
+	expect(document.activeElement).toBe(unarchive);
+});
+
+test("Enable account keeps focus while its request runs (Gate E)", async () => {
+	const writes = stubDetail(detail(), {
+		hold: true,
+		users: [{ ...ALICE_ROW, disabledAt: "2026-09-20T10:00:00.000Z" }, ADMIN_ROW],
+	});
+	const panel = await openAlice();
+
+	const enable = within(panel).getByRole("button", {
+		name: "Enable account for Alice Example",
+	});
+	enable.focus();
+	fireEvent.click(enable);
+	await waitFor(() => expect(enable.getAttribute("aria-busy")).toBe("true"));
+	expect(document.activeElement).toBe(enable);
+	fireEvent.click(enable);
+	expect(writes.length).toBe(1);
+});
+
+test("closing a panel whose row is filtered out focuses the table caption (Gate E)", async () => {
+	stubDetail(detail());
+	const panel = await openAlice();
+
+	fireEvent.change(screen.getByRole("searchbox", { name: "Search" }), {
+		target: { value: "nobody-matches" },
+	});
+	expect(screen.queryByTestId(`account-row-${USER.id}`)).toBeNull();
+	fireEvent.click(
+		within(panel).getByRole("button", { name: "Close details for Alice Example" }),
+	);
+
+	await waitFor(() =>
+		expect(document.activeElement?.id).toBe("admin-accounts-caption"),
+	);
+});
+
+test("the grace field is named by its visible label (WCAG 2.5.3)", async () => {
+	stubDetail(detail());
+	const panel = await openAlice();
+	const field = within(panel).getByRole("textbox", {
+		name: "Grace period override (seconds)",
+	});
+	expect(field.hasAttribute("aria-label")).toBe(false);
 });

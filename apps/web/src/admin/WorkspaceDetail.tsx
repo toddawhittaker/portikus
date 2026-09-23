@@ -15,7 +15,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatBytes, formatCpu } from "../monitor/format.js";
 import { PENDING_LABEL } from "../shell/StatusBar.js";
 import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
@@ -71,16 +71,29 @@ export function WorkspaceDetail({
 	const workspaceId = user.workspace?.id ?? null;
 	const detail = useAdminWorkspace(workspaceId);
 	const data = detail.data ?? null;
+	const headingRef = useRef<HTMLHeadingElement>(null);
+	const userId = user.id;
+
+	// Opening a panel moves focus to its heading so the change is announced.
+	useEffect(() => {
+		if (userId) headingRef.current?.focus();
+	}, [userId]);
 
 	return (
 		<section
+			id="workspace-detail"
 			className="pk-card flex w-[400px] flex-none flex-col gap-4 p-5"
 			aria-labelledby="detail-title"
 			data-testid="workspace-detail"
 		>
 			<div className="flex items-start gap-3">
 				<div className="flex min-w-0 flex-col gap-0.5">
-					<h2 id="detail-title" className="pk-text-heading m-0">
+					<h2
+						id="detail-title"
+						ref={headingRef}
+						tabIndex={-1}
+						className="pk-text-heading m-0 outline-none"
+					>
 						{user.displayName}
 					</h2>
 					<span className="pk-mono-small pk-muted">
@@ -251,7 +264,7 @@ function WorkspaceSections({
 				<Link
 					to="/admin"
 					search={{ tab: "audit", workspace: workspace.id }}
-					className="pk-link text-[13px]"
+					className="pk-link text-[13px] text-[var(--accent-text)] underline"
 					data-testid="detail-all-events"
 				>
 					All events for this workspace
@@ -386,6 +399,7 @@ function WorkspaceActions({
 	}
 
 	function runLifecycle(action: "start" | "stop" | "restart") {
+		if (lifecycle.isPending) return;
 		lifecycle.mutate(
 			{ workspaceId: workspace.id, action },
 			{
@@ -400,6 +414,24 @@ function WorkspaceActions({
 	}
 
 	const close = () => setDialog(null);
+	const rebuildOff = !capabilities.rebuild || operationPending;
+	const resetOff = !capabilities.resetDocker || operationPending;
+	const pendingId = `pending-operation-${workspace.id}`;
+	const offReason = (available: boolean) =>
+		[available ? null : noteId, operationPending ? pendingId : null]
+			.filter(Boolean)
+			.join(" ") || undefined;
+
+	function unarchive() {
+		if (archive.isPending) return;
+		archive.mutate(
+			{ workspaceId: workspace.id, archived: false },
+			{
+				onSuccess: () => toast.show({ tone: "success", title: "Workspace unarchived" }),
+				onError: fail("Could not unarchive the workspace"),
+			},
+		);
+	}
 
 	return (
 		<section aria-labelledby="detail-actions" className="flex flex-col gap-2">
@@ -413,7 +445,8 @@ function WorkspaceActions({
 						size="sm"
 						data-testid={`detail-${action}`}
 						aria-label={`${ACTION_LABEL[action]} ${ownerName}'s workspace`}
-						disabled={lifecycle.isPending}
+						loading={lifecycle.isPending && lifecycle.variables?.action === action}
+						aria-disabled={lifecycle.isPending ? true : undefined}
 						onClick={() => runLifecycle(action)}
 					>
 						{ACTION_LABEL[action]}
@@ -430,46 +463,39 @@ function WorkspaceActions({
 				<Button
 					size="sm"
 					data-testid="detail-archive"
-					aria-label={`${archived ? "Unarchive" : "Archive"} ${ownerName}'s workspace`}
-					disabled={archive.isPending}
-					onClick={() =>
-						archived
-							? archive.mutate(
-									{ workspaceId: workspace.id, archived: false },
-									{
-										onSuccess: () =>
-											toast.show({ tone: "success", title: "Workspace unarchived" }),
-										onError: fail("Could not unarchive the workspace"),
-									},
-								)
-							: setDialog("archive")
-					}
+					aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
+					loading={archived && archive.isPending}
+					onClick={() => (archived ? unarchive() : setDialog("archive"))}
 				>
 					{archived ? "Unarchive" : "Archive workspace…"}
 				</Button>
 				<Button
 					size="sm"
 					data-testid="detail-rebuild"
-					aria-label={`Rebuild ${ownerName}'s workspace`}
-					aria-describedby={capabilities.rebuild ? undefined : noteId}
-					disabled={!capabilities.rebuild || operationPending}
-					onClick={() => setDialog("rebuild")}
+					aria-label={`Rebuild workspace for ${ownerName}`}
+					aria-describedby={offReason(capabilities.rebuild)}
+					aria-disabled={rebuildOff ? true : undefined}
+					onClick={() => (rebuildOff ? undefined : setDialog("rebuild"))}
 				>
 					Rebuild workspace…
 				</Button>
 				<Button
 					size="sm"
 					data-testid="detail-reset-docker"
-					aria-label={`Reset Docker in ${ownerName}'s workspace`}
-					aria-describedby={capabilities.resetDocker ? undefined : noteId}
-					disabled={!capabilities.resetDocker || operationPending}
-					onClick={() => setDialog("reset")}
+					aria-label={`Reset Docker for ${ownerName}`}
+					aria-describedby={offReason(capabilities.resetDocker)}
+					aria-disabled={resetOff ? true : undefined}
+					onClick={() => (resetOff ? undefined : setDialog("reset"))}
 				>
 					Reset Docker…
 				</Button>
 			</div>
 			{workspace.pendingOperation ? (
-				<p className="pk-muted m-0 text-[13px]" data-testid="pending-operation">
+				<p
+					id={pendingId}
+					className="pk-muted m-0 text-[13px]"
+					data-testid="pending-operation"
+				>
 					{PENDING_LABEL[workspace.pendingOperation]} Rebuild and Reset Docker are off
 					until it finishes.
 				</p>
@@ -611,6 +637,7 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 	const selfNoteId = `self-note-${user.id}`;
 
 	function run(next: boolean) {
+		if (setDisabled.isPending) return;
 		setDisabled.mutate(
 			{ userId: user.id, disabled: next },
 			{
@@ -644,10 +671,15 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 				<Button
 					size="sm"
 					data-testid="detail-disable"
-					aria-label={`${disabled ? "Enable" : "Disable"} ${user.displayName}'s account`}
+					aria-label={`${disabled ? "Enable" : "Disable"} account for ${user.displayName}`}
 					aria-describedby={isSelf ? selfNoteId : undefined}
-					disabled={isSelf || setDisabled.isPending}
-					onClick={() => (disabled ? run(false) : setConfirming(true))}
+					aria-disabled={isSelf ? true : undefined}
+					loading={disabled && setDisabled.isPending}
+					onClick={() => {
+						if (isSelf) return;
+						if (disabled) run(false);
+						else setConfirming(true);
+					}}
 				>
 					{disabled ? "Enable account" : "Disable account…"}
 				</Button>
@@ -712,8 +744,6 @@ function UserGrace({ user }: { user: AdminUser }) {
 			<TextField
 				id={`user-grace-${user.id}`}
 				label="Grace period override (seconds)"
-				// Named after the user, as the old per-row field was (issue #371).
-				aria-label={`Grace period for ${user.displayName}, in seconds`}
 				className="w-48"
 				inputMode="numeric"
 				placeholder={globalSeconds === null ? undefined : defaultLabel(globalSeconds)}

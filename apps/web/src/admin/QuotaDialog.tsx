@@ -6,6 +6,7 @@ import {
 } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
+import { announced } from "./SettingsTab.js";
 
 /** The error for a draft, or null when it can be sent (Epic 11 brief, "storage can only grow"). */
 export function quotaError(
@@ -26,6 +27,23 @@ export function quotaError(
 		return "Change at least one size.";
 	}
 	return null;
+}
+
+/** Which fields a draft's error belongs to; "Change at least one size" points at Home. */
+export function quotaFaults(
+	from: QuotaConfig,
+	home: string,
+	docker: string,
+): { home: boolean; docker: boolean } {
+	const bad = (value: string, was: number) => {
+		const text = value.trim();
+		if (!/^\d+$/.test(text)) return true;
+		const size = Number(text);
+		return size > MAX_QUOTA_GIB || size < was;
+	};
+	const faults = { home: bad(home, from.homeGiB), docker: bad(docker, from.dockerGiB) };
+	if (!faults.home && !faults.docker) return { home: true, docker: false };
+	return faults;
 }
 
 /** Grow a workspace's home and Docker volumes; the worker applies it (SPEC.md §20.1). */
@@ -49,7 +67,7 @@ export function QuotaDialog({
 	const [home, setHome] = useState(String(current.homeGiB));
 	const [docker, setDocker] = useState(String(current.dockerGiB));
 	const [error, setError] = useState<string | null>(null);
-	const shown = error ?? serverError;
+	const faults = error ? quotaFaults(current, home, docker) : null;
 
 	function save() {
 		const problem = quotaError(current, home, docker);
@@ -85,6 +103,7 @@ export function QuotaDialog({
 						inputMode="numeric"
 						className="w-32"
 						data-testid="quota-home"
+						error={faults?.home ? announced(error) : undefined}
 						value={home}
 						onChange={(event) => setHome(event.target.value)}
 					/>
@@ -94,13 +113,17 @@ export function QuotaDialog({
 						inputMode="numeric"
 						className="w-32"
 						data-testid="quota-docker"
+						// Announced once: only here when Home is not also at fault.
+						error={
+							faults?.docker ? (faults.home ? error : announced(error)) : undefined
+						}
 						value={docker}
 						onChange={(event) => setDocker(event.target.value)}
 					/>
 				</div>
-				{shown ? (
+				{!error && serverError ? (
 					<p className="m-0 mt-3 text-[13px] text-status-error" role="alert">
-						{shown}
+						{serverError}
 					</p>
 				) : null}
 			</Dialog>

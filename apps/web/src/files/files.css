@@ -243,6 +243,10 @@
 	color: var(--ink-muted);
 	cursor: pointer;
 }
+.pk-changes-review:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
 .pk-changes-empty {
 	margin: 0;
 	padding: var(--space-1) var(--space-3) var(--space-2);

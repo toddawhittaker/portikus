@@ -66,8 +66,45 @@ test("a workspace in transition shows it and disables the buttons", () => {
 	expect(screen.getByTestId("workspace-transition").textContent).toBe(
 		"Stopping your workspace.",
 	);
-	expect(screen.getByTestId("workspace-stop").hasAttribute("disabled")).toBe(true);
-	expect(screen.getByTestId("workspace-restart").hasAttribute("disabled")).toBe(true);
+	// Unavailable, but still focusable so focus is never dropped (Gate E).
+	expect(screen.getByTestId("workspace-stop").getAttribute("aria-disabled")).toBe(
+		"true",
+	);
+	expect(screen.getByTestId("workspace-restart").getAttribute("aria-disabled")).toBe(
+		"true",
+	);
+	fireEvent.click(screen.getByTestId("workspace-stop"));
+	expect(screen.queryByTestId("dialog-workspace-stop")).toBeNull();
+});
+
+test("the dialog keeps a status region mounted for transitions (Gate E)", () => {
+	renderBar();
+	openStatus();
+
+	const region = screen.getByTestId("workspace-transition");
+	expect(region.getAttribute("role")).toBe("status");
+	expect(region.textContent).toBe("");
+});
+
+test("Start keeps focus while its request runs (Gate E)", async () => {
+	let finish: (response: Response) => void = () => undefined;
+	stubFetch((url) =>
+		url.endsWith("/start")
+			? // Held open so the button stays busy; stubFetch awaits the handler.
+				(new Promise<Response>((resolve) => {
+					finish = resolve;
+				}) as unknown as Response)
+			: json(200, usage({})),
+	);
+	renderBar({ ...WORKSPACE, state: "stopped", desiredState: "stopped" });
+	openStatus();
+
+	const start = screen.getByTestId("workspace-start");
+	start.focus();
+	fireEvent.click(start);
+	await waitFor(() => expect(start.getAttribute("aria-busy")).toBe("true"));
+	expect(document.activeElement).toBe(start);
+	finish(json(202, { ok: true }));
 });
 
 test("stopping asks for confirmation, then posts to the stop route", async () => {
@@ -159,7 +196,14 @@ test("at 80% the status bar names the class", async () => {
 	const warning = await screen.findByTestId("storage-warning");
 	expect(warning.textContent).toBe("Recovery storage is 80% full");
 	expect(warning.dataset.level).toBe("warning");
-	expect(warning.closest('[role="status"]')).not.toBeNull();
+	// The live region holds fixed text; the percentage sits outside it.
+	expect(warning.closest('[role="status"]')).toBeNull();
+	expect(screen.getByTestId("storage-warning-announce").textContent).toBe(
+		"Recovery storage is over 80% full",
+	);
+	expect(screen.getByTestId("storage-warning-announce").getAttribute("role")).toBe(
+		"status",
+	);
 });
 
 test("at 95% the dialog names the class and a next step", async () => {
@@ -186,6 +230,18 @@ test("the dialog lists the three storage classes, and a missing one says so", as
 	expect(screen.getByText("Docker")).toBeDefined();
 	expect(screen.getByText("Recovery")).toBeDefined();
 	expect(screen.getByTestId("storage-docker").textContent).toBe("Not available");
+	expect(screen.getByTestId("storage-home").textContent).not.toContain("nearly full");
+});
+
+test("a class over 80% says nearly full in words, not only colour (Gate E)", async () => {
+	stubUsage({ home: percent(85), docker: percent(10), recovery: percent(1) });
+	renderBar();
+	openStatus();
+
+	await waitFor(() =>
+		expect(screen.getByTestId("storage-home").textContent).toContain(", nearly full"),
+	);
+	expect(screen.getByTestId("storage-docker").textContent).not.toContain("nearly full");
 });
 
 test("a stopped workspace asks for no usage and says when storage is shown", () => {
@@ -240,9 +296,11 @@ test("a pending operation shows its label and disables Reset Docker", () => {
 
 	expect(screen.getByTestId("workspace-state").textContent).toBe("Resetting Docker…");
 	openStatus();
-	expect(screen.getByTestId("workspace-reset-docker").hasAttribute("disabled")).toBe(
-		true,
-	);
+	const reset = screen.getByTestId("workspace-reset-docker");
+	expect(reset.getAttribute("aria-disabled")).toBe("true");
+	expect(reset.hasAttribute("disabled")).toBe(false);
+	fireEvent.click(reset);
+	expect(screen.queryByTestId("dialog-reset-docker")).toBeNull();
 	expect(screen.getByTestId("workspace-transition").textContent).toBe(
 		"Resetting Docker…",
 	);
