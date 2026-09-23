@@ -61,9 +61,11 @@ export function sendError(
 	}
 	// An expected failure needs no log call: its code and message are on the
 	// body, which the request logging hook reads. An unexpected one does,
-	// because its real message never reaches the body.
+	// because its real message never reaches the body. Only the code and
+	// syscall are logged, since a filesystem message carries a path (ADR 0012).
+	const { code, syscall } = (error ?? {}) as NodeJS.ErrnoException;
 	request.log.error(
-		{ error: error instanceof Error ? error.message : String(error) },
+		{ errorCode: typeof code === "string" ? code : undefined, syscall },
 		"agent request failed",
 	);
 	return reply.code(500).send({
