@@ -6,7 +6,9 @@
 #   restore.sh --check <set-dir>
 #       decrypt and verify every file of the set; touches no VM
 #   restore.sh [--start-check] --target-name <vm-name> <vm-ip> <set-dir>
-#       replace the VM's database and import the workspace volumes
+#       load the database and import the workspace volumes onto a VM with no
+#       workspace volumes and no users, workspaces or projects yet, such as a
+#       freshly rebuilt pilot; every restored workspace is left stopped
 #   restore.sh --remove --target-name <vm-name> <vm-ip> <set-dir>
 #       after a rehearsal: delete the set's instances and volumes from the
 #       VM and leave it an empty database; refuses the pilot
@@ -30,7 +32,7 @@ SAMPLE=20
 INSTANCE_PATTERN='^ws-[0-9a-f]{24}$'
 UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 # Every line backup.sh writes, and nothing else.
-MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|seconds [0-9]+)$'
+MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|failed ws-[0-9a-f]{24}-(home|recovery)|seconds [0-9]+)$'
 
 info() { printf '[restore %s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf '[restore] FAIL: %s\n' "$*" >&2; exit 1; }
@@ -77,21 +79,27 @@ for b in iter(lambda: sys.stdin.buffer.read(1 << 20), b""):
 print(n, h.hexdigest())'
 }
 
-# Paths in an index come from a student's home: they must stay relative,
-# with no ".." part and no control characters, before they reach a command.
+# check_index IN OUT -- paths in an index come from a student's home.  An
+# absolute path or a ".." part cannot come from an export, so the set is
+# refused.  A name with a control character is legal, so it is only left out
+# of OUT, the copy of the index the checks sample.
 check_index() {
-  python3 - "$1" <<'EOF'
+  python3 - "$1" "$2" <<'EOF'
 import json, sys
-def safe(p):
-    return (isinstance(p, str) and p and not p.startswith("/")
-            and ".." not in p.split("/") and not any(ord(c) < 32 or ord(c) == 127 for c in p))
-for n, line in enumerate(open(sys.argv[1]), 1):
-    r = json.loads(line)
-    ok = (("f" in r and safe(r["f"]) and len(r.get("sha256", "")) == 64)
-          or ("git" in r and (r["git"] == "." or safe(r["git"]))
-              and (r["head"] is None or (isinstance(r["head"], str) and len(r["head"]) == 40 and r["head"].isalnum()))))
-    if not ok:
-        sys.exit(f"index line {n} is not in the expected form")
+def relative(p):
+    return isinstance(p, str) and p and not p.startswith("/") and ".." not in p.split("/")
+def plain(p):
+    return not any(ord(c) < 32 or ord(c) == 127 for c in p)
+with open(sys.argv[2], "w") as out:
+    for n, line in enumerate(open(sys.argv[1]), 1):
+        r = json.loads(line)
+        ok = (("f" in r and relative(r["f"]) and len(r.get("sha256", "")) == 64)
+              or ("git" in r and (r["git"] == "." or relative(r["git"]))
+                  and (r["head"] is None or (isinstance(r["head"], str) and len(r["head"]) == 40 and r["head"].isalnum()))))
+        if not ok:
+            sys.exit(f"index line {n} is not in the expected form")
+        if plain(r.get("f", r.get("git"))):
+            out.write(line)
 EOF
 }
 
@@ -115,11 +123,18 @@ while read -r kind name size sum _; do
   got=$(decrypt "$name" | size_sum)
   [ "$got" = "$size $sum" ] || die "${name}: ${got}, the MANIFEST says ${size} ${sum}"
   if [ "$kind" = volume ]; then
-    decrypt "${name}.index" >"${scratch}/${name}.index"
-    check_index "${scratch}/${name}.index" || die "${name}.index is not in the expected form; refusing the set"
+    decrypt "${name}.index" >"${scratch}/${name}.index.raw"
+    check_index "${scratch}/${name}.index.raw" "${scratch}/${name}.index" \
+      || die "${name}.index is not in the expected form; refusing the set"
   fi
 done <"$manifest"
 step "every file decrypts and matches the MANIFEST"
+mapfile -t failed < <(awk '$1 == "failed" { print $2 }' "$manifest")
+if [ "${#failed[@]}" -gt 0 ]; then
+  info "incomplete set: ${failed[*]} failed to export at backup time"
+  # Restoring it would give those workspaces empty volumes without a word.
+  [ "$mode" != restore ] || die "a restore needs a complete set; use an older one. Nothing was changed"
+fi
 [ "$mode" = check ] && exit 0
 
 # ── 2. The right VM ───────────────────────────────────────────────
@@ -144,14 +159,18 @@ start_services() {
 if [ "$mode" = remove ]; then
   [ "$actual_name" != "$PILOT_NAME" ] || die "--remove never runs on the pilot"
   vm sudo systemctl stop portikus-api portikus-worker
+  # The set's volumes, and all three volumes of each of its instances.
+  doomed=("${volumes[@]}")
   for inst in "${instances[@]}"; do
     [[ "$inst" =~ $INSTANCE_PATTERN ]] || die "bad instance name ${inst}"
     vm "incus delete --force ${inst} --project ${PROJECT} 2>/dev/null || true"
-    for suffix in home recovery docker; do
-      vm "incus storage volume delete ${POOL} ${inst}-${suffix} --project ${PROJECT} 2>/dev/null || true"
-    done
-    info "removed ${inst} and its volumes"
+    info "removed instance ${inst}"
+    doomed+=("${inst}-home" "${inst}-recovery" "${inst}-docker")
   done
+  for vol in $(printf '%s\n' "${doomed[@]}" | sort -u); do
+    vm "incus storage volume delete ${POOL} ${vol} --project ${PROJECT} 2>/dev/null || true"
+  done
+  info "removed ${#volumes[@]} imported volumes and the instances' own volumes"
   # The restored rows go with a fresh, empty database.
   vm "sudo runuser -u postgres -- dropdb --if-exists portikus && sudo runuser -u postgres -- createdb -O portikus portikus"
   start_services
@@ -166,12 +185,16 @@ dpkg --compare-versions "$target_version" ge "$backup_version" \
   || die "${target_name} runs portikus ${target_version}, older than the backup's ${backup_version}"
 vm "incus image show portikus --project ${PROJECT} >/dev/null" \
   || die "${target_name} has no workspace image; run make build-workspace-image first"
+# A restore replaces the whole database, so the target must hold nothing a
+# restore could destroy: a freshly configured VM has no workspace volumes and
+# no users, workspaces or projects.  This is what keeps it off a live pilot.
 existing=$(vm "incus storage volume list ${POOL} --project ${PROJECT} --format csv --columns n")
-for vol in "${volumes[@]}"; do
-  if grep -qx "$vol" <<<"$existing"; then
-    die "${target_name} already has volume ${vol}; restore onto a VM without this set's workspaces"
-  fi
-done
+if grep -qE '^ws-' <<<"$existing"; then
+  die "${target_name} already has workspace volumes ($(grep -cE '^ws-' <<<"$existing")); restore only onto a VM without any. Nothing was changed"
+fi
+rows=$(psql_vm "SELECT (SELECT count(*) FROM users) + (SELECT count(*) FROM workspaces) + (SELECT count(*) FROM projects)") \
+  || die "cannot count the rows on ${target_name}; nothing was changed"
+[ "$rows" = 0 ] || die "${target_name} already has ${rows:-unknown} users, workspaces and projects; restore only onto an empty VM. Nothing was changed"
 info "target ${target_name} (${VM}), portikus ${target_version}"
 
 # ── 4. Database ───────────────────────────────────────────────────
@@ -181,7 +204,9 @@ info "portikus-api and portikus-worker stopped; they stay stopped if the restore
 # --create --clean drops and recreates the whole database, so no table a
 # newer release added survives to confuse the migrations.
 decrypt db.dump | vm_in "sudo runuser -u postgres -- pg_restore --create --clean --if-exists --exit-on-error -d postgres"
-step "database restored"
+# Otherwise every workspace running at backup time starts at once.
+psql_vm "UPDATE workspaces SET state = 'stopped', desired_state = 'stopped'"
+step "database restored, every workspace marked stopped"
 
 # ── 5. Volumes ────────────────────────────────────────────────────
 for vol in "${volumes[@]}"; do
@@ -264,8 +289,11 @@ if [ "$start_check" = yes ]; then
   conn=$(psql_vm "WITH c AS (INSERT INTO workspace_connections (workspace_id) VALUES ('${ws}') RETURNING id) UPDATE workspaces SET desired_state = 'running', last_active_connection_at = now(), updated_at = now() WHERE id = '${ws}' RETURNING (SELECT id FROM c)")
   [[ "$conn" =~ $UUID_PATTERN ]] || die "could not add a presence row for ${ws}"
   release() {
+    trap 'rm -rf "$scratch"' EXIT
     psql_vm "DELETE FROM workspace_connections WHERE id = '${conn}'; UPDATE workspaces SET desired_state = 'stopped', updated_at = now() WHERE id = '${ws}'" || true
   }
+  # However the check ends, the workspace is let go so it stops again.
+  trap 'release; rm -rf "$scratch"' EXIT
   state=""
   for _ in $(seq 1 90); do
     psql_vm "UPDATE workspace_connections SET last_seen_at = now() WHERE id = '${conn}'"
@@ -273,7 +301,7 @@ if [ "$start_check" = yes ]; then
     [ "$state" = running ] && break
     sleep 2
   done
-  [ "$state" = running ] || { release; die "workspace ${ws} did not start (state ${state})"; }
+  [ "$state" = running ] || die "workspace ${ws} did not start (state ${state})"
   step "workspace ${ws} (${instance}) started"
   in_ws() { vm "incus exec ${instance} --project ${PROJECT} --user 1000 --group 1000 --env HOME=/home/student -- $1"; }
   owner=$(in_ws "stat -c %u:%g /home/student")

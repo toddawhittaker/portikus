@@ -3,14 +3,19 @@
 # (docs/adr/0024-backups-pulled-to-host.md).  It only reads from the VM:
 # a pg_dump, and an export of each workspace's home and recovery volume.
 #
+# Sets go to <backup dir>/<VM hostname>/<UTC timestamp>, so the rehearsal
+# VM's sets never push out the pilot's.  A volume whose export fails is named
+# on a "failed" line of the MANIFEST and in a plain FAILED file; the other
+# volumes are still saved, and the run exits non-zero.
+#
 # Usage: backup.sh [--check-state] <vm-ip>
 #   --check-state  compare workspaces, users and settings before and after,
 #                  with the security suite's snapshot helper (repository only)
 #
 # Environment:
-#   PORTIKUS_BACKUP_DIR         where sets go (default /var/backups/portikus)
+#   PORTIKUS_BACKUP_DIR         holds one directory of sets per VM (default /var/backups/portikus)
 #   PORTIKUS_BACKUP_RECIPIENTS  age recipients file (default ~/.config/portikus/backup-recipients.txt)
-#   PORTIKUS_BACKUP_KEEP        complete sets kept (default 14)
+#   PORTIKUS_BACKUP_KEEP        complete sets kept per VM (default 14)
 #   PORTIKUS_USERS_FILE         the Dex users file, copied into the set when present
 set -euo pipefail
 umask 077
@@ -28,6 +33,8 @@ VOLUME_PATTERN='^ws-[0-9a-f]{24}-(home|recovery)$'
 WORKSPACE_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} (ws-[0-9a-f]{24}|-)$'
 COUNTS_PATTERN='^users [0-9]+ workspaces [0-9]+ projects [0-9]+$'
 VERSION_PATTERN='^[0-9A-Za-z.+~:-]+$'
+HOSTNAME_PATTERN='^[a-z0-9][a-z0-9-]{0,62}$'
+INSTANCE_PATTERN='^ws-[0-9a-f]{24}$'
 IDMAP_PATTERN='^\[[][{}":,A-Za-z0-9]*\]$'
 
 # Reads a stream on stdin and copies it to stdout unchanged, writing its size
@@ -87,6 +94,10 @@ with open(sum_path, "w") as f:
 
 info() { printf '[backup] %s\n' "$*"; }
 die() { printf '[backup] FAIL: %s\n' "$*" >&2; exit 1; }
+# must NAME PATTERN VALUE -- stop unless the VM's answer has the expected form.
+must() { [[ "$3" =~ $2 ]] || die "the VM sent a ${1} that is not in the expected form; nothing was kept"; }
+# lines TEXT -- TEXT one line at a time, and nothing at all when it is empty.
+lines() { [ -z "$1" ] || printf '%s\n' "$1"; }
 
 check_state=no
 if [ "${1:-}" = "--check-state" ]; then check_state=yes; shift; fi
@@ -105,18 +116,23 @@ vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 "deploy@${VM}" "$@"; }
 export_b64=$(base64 -w0 "$EXPORT_SCRIPT")
 remote_export() { vm "sudo bash -c \"\$(echo ${export_b64} | base64 -d)\" portikus-backup-export $*"; }
 
-# One run at a time; the lock goes with the process.
-exec {lock}>"${BACKUP_DIR}/.lock"
-flock -n "$lock" || die "another backup is running"
+vm_name=$(vm hostname)
+must "hostname" "$HOSTNAME_PATTERN" "$vm_name"
+HOST_DIR="${BACKUP_DIR}/${vm_name}"
+install -d -m 0700 "$HOST_DIR"
+
+# One run per VM at a time; the lock goes with the process.
+exec {lock}>"${HOST_DIR}/.lock"
+flock -n "$lock" || die "another backup of ${vm_name} is running"
 
 started=$(date +%s)
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
-work="${BACKUP_DIR}/.partial-${stamp}"
+work="${HOST_DIR}/.partial-${stamp}"
 scratch=$(mktemp -d)
 # A set is renamed into place only when complete; anything else is removed.
 trap 'rm -rf "$scratch" "$work"' EXIT
 # Leftovers of a run that was killed; the lock proves none is live.
-find "$BACKUP_DIR" -maxdepth 1 -name '.partial-*' -exec rm -rf {} +
+find "$HOST_DIR" -maxdepth 1 -name '.partial-*' -exec rm -rf {} +
 install -d -m 0700 "$work"
 manifest="${scratch}/MANIFEST"
 
@@ -132,14 +148,35 @@ if [ "$check_state" = yes ]; then
   sec_snapshot_others >"${scratch}/state-before"
 fi
 
-# must NAME PATTERN VALUE -- stop unless the VM's answer has the expected form.
-must() { [[ "$3" =~ $2 ]] || die "the VM sent a ${1} that is not in the expected form; nothing was kept"; }
-
+# Each listing is read with $(...), not through a pipe, so a failed listing
+# stops the run instead of reading as an empty one.
 version=$(vm "dpkg-query -W -f='\${Version}' portikus")
 must "package version" "$VERSION_PATTERN" "$version"
 counts=$(remote_export counts)
 must "row count" "$COUNTS_PATTERN" "$counts"
-mapfile -t workspaces < <(remote_export workspaces)
+workspace_list=$(remote_export workspaces)
+volume_list=$(remote_export volumes)
+instance_list=$(remote_export instances)
+mapfile -t workspaces < <(lines "$workspace_list")
+mapfile -t volumes < <(lines "$volume_list")
+mapfile -t instances < <(lines "$instance_list")
+for ws in "${workspaces[@]}"; do
+  must "workspace line" "$WORKSPACE_PATTERN" "$ws"
+done
+for vol in "${volumes[@]}"; do
+  must "volume name" "$VOLUME_PATTERN" "$vol"
+done
+if [ "${#workspaces[@]}" != "$(awk '{ print $4 }' <<<"$counts")" ]; then
+  die "the VM listed ${#workspaces[@]} workspaces but counted $(awk '{ print $4 }' <<<"$counts"); nothing was kept"
+fi
+# A workspace row gets its instance name before the instance exists, so only
+# a workspace whose instance is there must have a home volume in the listing.
+for inst in "${instances[@]}"; do
+  [[ "$inst" =~ $INSTANCE_PATTERN ]] || continue
+  if grep -q " ${inst}\$" <<<"$workspace_list" && ! grep -qx "${inst}-home" <<<"$volume_list"; then
+    die "workspace instance ${inst} exists but the volume listing has no ${inst}-home; nothing was kept"
+  fi
+done
 {
   echo "portikus-backup 1"
   echo "created ${stamp}"
@@ -147,34 +184,35 @@ mapfile -t workspaces < <(remote_export workspaces)
   echo "package ${version}"
   echo "counts ${counts}"
   for ws in "${workspaces[@]}"; do
-    must "workspace line" "$WORKSPACE_PATTERN" "$ws"
     echo "workspace ${ws}"
   done
 } >"$manifest"
 
 # pull NAME MODE COMMAND... -- stream COMMAND's output from the VM into NAME.age.
 pull() {
-  local name=$1 mode=$2 sum
+  local name=$1 mode=$2
   shift 2
-  sum="${scratch}/${name}.sum"
-  remote_export "$@" \
-    | python3 -c "$INDEXER" "$mode" "$sum" "${scratch}/${name}.index" \
-    | age -R "$RECIPIENTS" -o "${work}/${name}.age"
-  local status=("${PIPESTATUS[@]}")
-  [ "${status[*]}" = "0 0 0" ] || die "${name}: the pipeline failed (ssh, index, age: ${status[*]})"
+  if ! remote_export "$@" \
+    | python3 -c "$INDEXER" "$mode" "${scratch}/${name}.sum" "${scratch}/${name}.index" \
+    | age -R "$RECIPIENTS" -o "${work}/${name}.age"; then
+    rm -f "${work}/${name}.age"
+    return 1
+  fi
 }
 
 info "database"
-pull db.dump plain db
+pull db.dump plain db || die "db.dump: the pipeline failed (ssh, index or age)"
 echo "file db.dump $(cat "${scratch}/db.dump.sum")" >>"$manifest"
 
-mapfile -t volumes < <(remote_export volumes)
-for vol in "${volumes[@]}"; do
-  must "volume name" "$VOLUME_PATTERN" "$vol"
-done
+failed=()
 for vol in "${volumes[@]}"; do
   info "volume ${vol}"
-  pull "$vol" tar volume "$vol"
+  if ! pull "$vol" tar volume "$vol"; then
+    printf '[backup] FAIL: %s: the export failed; carrying on with the other volumes\n' "$vol" >&2
+    failed+=("$vol")
+    echo "failed ${vol}" >>"$manifest"
+    continue
+  fi
   idmap=$(remote_export idmap "$vol")
   [ -z "$idmap" ] || must "volume ID map" "$IDMAP_PATTERN" "$idmap"
   age -R "$RECIPIENTS" -o "${work}/${vol}.index.age" "${scratch}/${vol}.index"
@@ -188,7 +226,10 @@ fi
 
 echo "seconds $(($(date +%s) - started))" >>"$manifest"
 age -R "$RECIPIENTS" -o "${work}/MANIFEST.age" "$manifest"
-mv "$work" "${BACKUP_DIR}/${stamp}"
+# Also in plain text, so retention can tell an incomplete set without the key.
+if [ "${#failed[@]}" -gt 0 ]; then printf '%s\n' "${failed[@]}" >"${work}/FAILED"; fi
+# -T: a set of the same second is never nested inside another.
+mv -T "$work" "${HOST_DIR}/${stamp}"
 
 if [ "$check_state" = yes ]; then
   sec_snapshot_others >"${scratch}/state-after"
@@ -198,11 +239,21 @@ if [ "$check_state" = yes ]; then
   info "workspaces, users and settings are the same before and after"
 fi
 
-# Retention: the newest complete sets stay; nothing else in the directory is touched.
-mapfile -t sets < <(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -E "$SET_PATTERN" | sort -r)
-for old in "${sets[@]:$KEEP}"; do
-  info "removing old set ${old}"
-  rm -rf "${BACKUP_DIR:?}/${old}"
+# Retention, in this VM's directory only: the newest KEEP complete sets stay,
+# and so does any incomplete set newer than the oldest of them, so nights of
+# failed exports never push out the last good copy of a volume.
+mapfile -t sets < <(find "$HOST_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -E "$SET_PATTERN" | sort -r)
+complete=0
+for set in "${sets[@]}"; do
+  if [ "$complete" -ge "$KEEP" ]; then
+    info "removing old set ${set}"
+    rm -rf "${HOST_DIR:?}/${set}"
+  elif [ ! -e "${HOST_DIR}/${set}/FAILED" ]; then
+    complete=$((complete + 1))
+  fi
 done
 
-info "set ${BACKUP_DIR}/${stamp}: ${#volumes[@]} volumes, $(du -sh "${BACKUP_DIR}/${stamp}" | cut -f1), $(($(date +%s) - started)) s"
+info "set ${HOST_DIR}/${stamp}: ${#volumes[@]} volumes, $(du -sh "${HOST_DIR}/${stamp}" | cut -f1), $(($(date +%s) - started)) s"
+if [ "${#failed[@]}" -gt 0 ]; then
+  die "${#failed[@]} of ${#volumes[@]} volumes failed to export (${failed[*]}); the set is kept and marked incomplete"
+fi
