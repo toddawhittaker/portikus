@@ -9,6 +9,7 @@ import {
 	useParams,
 } from "@tanstack/react-router";
 import { ADMIN_TABS, AdminPage } from "./admin/AdminPage.js";
+import { CourseListPage, CourseMembersPage } from "./course/CoursePage.js";
 import { MIN_PREVIEW_PORT, UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
@@ -61,6 +62,19 @@ const adminRoute = createRoute({
 				: undefined,
 	}),
 	component: AdminPage,
+});
+
+/** An instructor's read-only Course page (Epic 13 ruling 24). */
+const courseRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/course",
+	component: CourseListPage,
+});
+
+const courseMembersRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/course/$courseId",
+	component: CourseMembersPage,
 });
 
 /** The shell: header, three panes and status bar. Its children fill the centre. */
@@ -178,6 +192,8 @@ export const routeTree = rootRoute.addChildren([
 	sessionEndedRoute,
 	notAuthorizedRoute,
 	adminRoute,
+	courseRoute,
+	courseMembersRoute,
 	workspaceRoute.addChildren([workspaceIndexRoute, projectRoute]),
 	filesRoute,
 	previewRoute,
