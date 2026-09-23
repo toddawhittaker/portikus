@@ -16,10 +16,12 @@ let server: Server;
 let base: string;
 let signer: Signer;
 let logs: string[];
+let clock: number;
 
 beforeEach(async () => {
 	signer = await createSigner();
 	logs = [];
+	clock = NOW;
 	server = createServer((req, res) => {
 		void handler(req, res);
 	});
@@ -28,7 +30,7 @@ beforeEach(async () => {
 		toolUrl: TOOL,
 		signer,
 		log: (line) => logs.push(line),
-		now: () => NOW,
+		now: () => clock,
 	});
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 	base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -48,10 +50,15 @@ function hiddenFields(html: string): Record<string, string> {
 	return fields;
 }
 
+async function formToken(): Promise<string> {
+	const html = await (await fetch(`${base}/`)).text();
+	return hiddenFields(html).form_token as string;
+}
+
 async function start(form: Record<string, string>) {
 	const res = await fetch(`${base}/start`, {
 		method: "POST",
-		body: new URLSearchParams(form),
+		body: new URLSearchParams({ form_token: await formToken(), ...form }),
 	});
 	return { status: res.status, html: await res.text() };
 }
@@ -316,6 +323,17 @@ describe("mock LMS", () => {
 			expect(status).toBe(400);
 		});
 
+		it("replayed_nonce refuses to replay an expired token", async () => {
+			await launchToken({ person: "sam", course: "cs101" });
+			clock = NOW + 301;
+			const login = await loginFor({ person: "sam", course: "cs101" });
+			const { status, html } = await authorize(
+				authorizeParams(login, { defect: "replayed_nonce" }),
+			);
+			expect(status).toBe(400);
+			expect(html).toContain("Launch once more without a defect, then replay.");
+		});
+
 		it("replayed_nonce with no earlier launch is refused", async () => {
 			const login = await loginFor({ person: "sam", course: "cs101" });
 			const { status } = await authorize(
@@ -323,6 +341,23 @@ describe("mock LMS", () => {
 			);
 			expect(status).toBe(400);
 		});
+	});
+
+	it("refuses a start without the launch page's form token", async () => {
+		const token = await formToken();
+		expect(token.length).toBeGreaterThan(20);
+		for (const body of [
+			{ person: "sam", course: "cs101" },
+			{ person: "sam", course: "cs101", form_token: "wrong" },
+			{ person: "sam", course: "cs101", form_token: `${token}x` },
+		]) {
+			const res = await fetch(`${base}/start`, {
+				method: "POST",
+				body: new URLSearchParams(body),
+			});
+			expect(res.status).toBe(403);
+		}
+		expect(logs.join("\n")).not.toContain(token);
 	});
 
 	it("never logs a token", async () => {
