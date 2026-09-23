@@ -1,9 +1,9 @@
 ---
-# Runs the portikus role's LTI platforms guards on one file, with no VM.
+# Reads one LTI platforms file as the portikus role does, with no VM.
 # infra/tests/lti-platforms-test.sh calls it once per case:
 #
 #   ansible-playbook infra/tests/lti-platforms-load.yml -e portikus_lti_platforms_file=<file>
-- name: Load an LTI platforms file through the role's guards
+- name: Load an LTI platforms file as the role does
   hosts: localhost
   connection: local
   gather_facts: false
