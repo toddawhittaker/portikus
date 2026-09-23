@@ -282,21 +282,75 @@ test("storage can only grow, and a grow shows as pending", async ({
 	await expect(panel.getByTestId("detail-quota-pending")).toBeVisible();
 });
 
-test("without Epic 10, Rebuild and Reset Docker are off and say why", async ({
-	page,
-	browser,
-}) => {
-	const student = await studentIn(browser);
-	await openAdmin(page);
-	const panel = await openDetail(page, student.name);
-
-	await expect(
-		panel.getByRole("button", { name: `Rebuild ${student.name}'s workspace` }),
-	).toBeDisabled();
-	await expect(
-		panel.getByRole("button", { name: `Reset Docker in ${student.name}'s workspace` }),
-	).toBeDisabled();
-	await expect(panel.getByTestId("capability-note")).toHaveText(
-		"Rebuild and Reset Docker are not available in this release.",
+async function workspaceLabel(workspaceId: string): Promise<string> {
+	const [row] = await query<{ label: string }>(
+		"select label from workspaces where id = $1",
+		[workspaceId],
 	);
-});
+	if (!row) throw new Error("no workspace");
+	return row.label;
+}
+
+async function pendingOperation(workspaceId: string): Promise<string | null> {
+	const [row] = await query<{ pending_operation: string | null }>(
+		"select pending_operation from workspaces where id = $1",
+		[workspaceId],
+	);
+	return row?.pending_operation ?? null;
+}
+
+// The worker does not run here, so a requested operation stays pending.
+for (const { name, button, dialogId, confirmLabel, done, operation, action } of [
+	{
+		name: "Rebuild",
+		button: (student: string) => `Rebuild ${student}'s workspace`,
+		dialogId: "rebuild-dialog",
+		confirmLabel: "Rebuild",
+		done: "Rebuild requested",
+		operation: "rebuild",
+		action: "workspace.rebuild_requested",
+	},
+	{
+		name: "Reset Docker",
+		button: (student: string) => `Reset Docker in ${student}'s workspace`,
+		dialogId: "reset-docker-dialog",
+		confirmLabel: "Reset Docker",
+		done: "Docker reset requested",
+		operation: "reset-docker",
+		action: "workspace.docker_reset_requested",
+	},
+]) {
+	test(`${name} from the admin detail asks for the label, then shows it pending and audited`, async ({
+		page,
+		browser,
+	}) => {
+		const student = await studentIn(browser);
+		const label = await workspaceLabel(student.workspaceId);
+		await openAdmin(page);
+		const panel = await openDetail(page, student.name);
+		await expect(panel.getByTestId("capability-note")).toHaveCount(0);
+
+		await panel.getByRole("button", { name: button(student.name) }).click();
+		const dialog = page.getByTestId(dialogId);
+		const confirm = dialog.getByTestId("dialog-confirm");
+		await expect(confirm).toHaveText(confirmLabel);
+		await expect(confirm).toBeDisabled();
+		await dialog.getByRole("textbox").fill(label.toUpperCase());
+		await expect(confirm).toBeDisabled();
+		await dialog.getByRole("textbox").fill(label);
+		await confirm.click();
+		await expect(toast(page, done)).toBeVisible();
+
+		await expect.poll(() => pendingOperation(student.workspaceId)).toBe(operation);
+		await expect(panel.getByTestId("pending-operation")).toBeVisible();
+		await expect(
+			panel.getByRole("button", { name: `Rebuild ${student.name}'s workspace` }),
+		).toBeDisabled();
+		await expect(
+			panel.getByRole("button", {
+				name: `Reset Docker in ${student.name}'s workspace`,
+			}),
+		).toBeDisabled();
+		await expect(panel.getByText(action)).toBeVisible();
+	});
+}

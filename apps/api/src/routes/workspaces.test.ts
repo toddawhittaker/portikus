@@ -81,7 +81,7 @@ test.skipIf(skip)(
 		expect(body.state).toBe("provisioning");
 		expect(body.desiredState).toBe("stopped");
 		expect(body.incusInstanceName).toMatch(/^ws-[a-f0-9]{24}$/);
-		expect(body.quotaConfig).toEqual({ homeGiB: 25, dockerGiB: 20 });
+		expect(body.quotaConfig).toEqual({ homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
 	},
 );
 

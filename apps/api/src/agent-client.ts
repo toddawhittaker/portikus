@@ -1,5 +1,7 @@
 import {
 	AgentCreateProjectRequest,
+	AgentCreateRecoveryPointRequest,
+	AgentCreateRecoveryPointResponse,
 	AgentCreateTerminalRequest,
 	AgentCreateTerminalResponse,
 	AgentDuplicateProjectRequest,
@@ -8,6 +10,7 @@ import {
 	AgentProject,
 	AgentProjectList,
 	AgentRenameProjectRequest,
+	AgentRestoreRecoveryPointRequest,
 	type LogLevel,
 	LoopbackForward,
 	LoopbackForwardRequest,
@@ -42,6 +45,9 @@ const AGENT_CREATE_PROJECT_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Copying a whole project tree is as slow as a clone, so it gets the same budget. */
 const AGENT_DUPLICATE_PROJECT_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
+
+/** Archiving or restoring a project walks the whole tree, as a copy does. */
+export const AGENT_RECOVERY_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 
 /** Most bytes the API will buffer from an agent JSON body. */
 const AGENT_JSON_LIMIT_BYTES = 1024 * 1024;
@@ -193,6 +199,40 @@ export class AgentClient {
 		await this.call("POST", `/projects/${slug}/git-init`);
 	}
 
+	/** Archive a project into a recovery point (SPEC.md §15, ADR 0020). */
+	async createRecoveryPoint(
+		slug: string,
+		input: AgentCreateRecoveryPointRequest,
+		timeoutMs: number = AGENT_RECOVERY_TIMEOUT_MS,
+	): Promise<AgentCreateRecoveryPointResponse> {
+		const payload = await this.call(
+			"POST",
+			`/projects/${encodeURIComponent(slug)}/recovery-points`,
+			AgentCreateRecoveryPointRequest.parse(input),
+			timeoutMs,
+		);
+		return AgentCreateRecoveryPointResponse.parse(payload);
+	}
+
+	/** Put a project back to a recovery point (SPEC.md §15.8). */
+	async restoreRecoveryPoint(
+		slug: string,
+		pointId: string,
+		input: AgentRestoreRecoveryPointRequest,
+	): Promise<void> {
+		await this.call(
+			"POST",
+			`/projects/${encodeURIComponent(slug)}/recovery-points/${encodeURIComponent(pointId)}/restore`,
+			AgentRestoreRecoveryPointRequest.parse(input),
+			AGENT_RECOVERY_TIMEOUT_MS,
+		);
+	}
+
+	/** Remove every archive of a deleted project (SPEC.md §15.7). */
+	async deleteProjectRecoveryPoints(projectId: string): Promise<void> {
+		await this.call("DELETE", `/recovery-points/${encodeURIComponent(projectId)}`);
+	}
+
 	/**
 	 * The upstream zip response, still streaming. The agent gets a short budget
 	 * to send headers; once bytes are flowing there is no further cap, because
@@ -213,6 +253,7 @@ export class AgentClient {
 					method: "GET",
 					headers: { authorization: this.authHeader() },
 					signal: controller.signal,
+					redirect: "manual",
 				},
 			);
 		} catch {
@@ -223,6 +264,7 @@ export class AgentClient {
 		} finally {
 			clearTimeout(headersTimer);
 		}
+		throwOnRedirect(response);
 		if (!response.ok) {
 			const parsed = AgentErrorBody.safeParse(await readJson(response));
 			throw new AgentCallError(
@@ -248,8 +290,9 @@ export class AgentClient {
 			signal?: AbortSignal;
 		} = {},
 	): Promise<Response> {
+		let response: Response;
 		try {
-			return await fetch(`http://${this.address}:${this.port}${path}`, {
+			response = await fetch(`http://${this.address}:${this.port}${path}`, {
 				method,
 				// The token goes on last: a caller cannot override it.
 				headers: { ...options.headers, authorization: this.authHeader() },
@@ -257,6 +300,7 @@ export class AgentClient {
 				...(options.signal ? { signal: options.signal } : {}),
 				// Required by undici whenever the request body is a stream.
 				duplex: "half",
+				redirect: "manual",
 			} as RequestInit);
 		} catch {
 			throw new AgentCallError(
@@ -264,6 +308,8 @@ export class AgentClient {
 				"The workspace agent could not be reached",
 			);
 		}
+		throwOnRedirect(response);
+		return response;
 	}
 
 	private async call(
@@ -282,6 +328,7 @@ export class AgentClient {
 				},
 				body: body === undefined ? undefined : JSON.stringify(body),
 				signal: AbortSignal.timeout(timeoutMs),
+				redirect: "manual",
 			});
 		} catch {
 			throw new AgentCallError(
@@ -290,6 +337,7 @@ export class AgentClient {
 			);
 		}
 
+		throwOnRedirect(response);
 		const payload = await readJson(response);
 		if (!response.ok) {
 			const parsed = AgentErrorBody.safeParse(payload);
@@ -358,4 +406,16 @@ export function agentClientFor(
 	if (typeof address !== "string" || typeof token !== "string") return null;
 	if (address === "" || token === "") return null;
 	return new AgentClient(address, agentPort, token);
+}
+
+/**
+ * Every agent fetch uses `redirect: "manual"`: a replaced agent must not
+ * steer the API to loopback or the workspace network, so a redirect is a
+ * failed agent.
+ */
+function throwOnRedirect(response: Response): void {
+	if (response.status >= 300 && response.status < 400) {
+		void response.body?.cancel();
+		throw new AgentCallError("AGENT_UNAVAILABLE", "The workspace agent redirected");
+	}
 }

@@ -64,10 +64,23 @@ export const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>>
 	CHECK_NOT_FOUND: [404, "CHECK_NOT_FOUND"],
 	CHECK_RUNNING: [409, "CHECK_RUNNING"],
 	CHECK_NOT_RUNNING: [404, "CHECK_NOT_RUNNING"],
+	// Recovery points (SPEC.md §15, ADR 0020). There is no API code for a
+	// refused archive, so it reads as a request that cannot be carried out.
+	BUSY: [409, "BUSY"],
+	STORAGE_FULL: [507, "STORAGE_FULL"],
+	RECOVERY_POINT_INVALID: [422, "VALIDATION_FAILED"],
+	RESTORE_INCOMPLETE: [500, "INTERNAL"],
+	ROLLBACK_COPY_EXISTS: [409, "BUSY"],
 	// The agent answers these with a 500 of its own, so the control plane is
 	// reporting a failure upstream of it rather than one of its own.
 	SEARCH_FAILED: [502, "SEARCH_FAILED"],
 	WATCH_FAILED: [502, "WATCH_FAILED"],
+};
+
+/** A student-facing message that replaces the agent's own, by agent code. */
+const AGENT_ERROR_MESSAGE: Partial<Record<string, string>> = {
+	RESTORE_INCOMPLETE:
+		"The project may be partly restored. Restore the 'Before restore' point to undo.",
 };
 
 /** Report an agent failure to the browser; anything else is a real error. */
@@ -75,7 +88,12 @@ export function sendAgentError(reply: FastifyReply, error: unknown): void {
 	if (!(error instanceof AgentCallError)) throw error;
 	const mapped = AGENT_ERROR_STATUS[error.code];
 	if (mapped) {
-		sendError(reply, mapped[0], mapped[1], error.message);
+		sendError(
+			reply,
+			mapped[0],
+			mapped[1],
+			AGENT_ERROR_MESSAGE[error.code] ?? error.message,
+		);
 		return;
 	}
 	sendError(
@@ -110,6 +128,11 @@ export function claimLongOperation(workspaceId: string, reply: FastifyReply): bo
 	}
 	longOperations.add(workspaceId);
 	return true;
+}
+
+/** Whether the workspace's long-operation slot is held right now. */
+export function longOperationRunning(workspaceId: string): boolean {
+	return longOperations.has(workspaceId);
 }
 
 /** Give the long-operation slot back. */

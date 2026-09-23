@@ -233,6 +233,48 @@ test("without the capability, Rebuild and Reset Docker are off and say why", asy
 	expect(reset.getAttribute("aria-describedby")).toBe(note.id);
 });
 
+test("a pending operation turns Rebuild and Reset Docker off and says so", async () => {
+	stubDetail(
+		detail({
+			workspace: { ...WORKSPACE, archivedAt: null, pendingOperation: "rebuild" },
+			capabilities: { rebuild: true, resetDocker: true },
+		}),
+	);
+	const panel = await openAlice();
+
+	const rebuild = within(panel).getByRole("button", {
+		name: "Rebuild Alice Example's workspace",
+	}) as HTMLButtonElement;
+	const reset = within(panel).getByRole("button", {
+		name: "Reset Docker in Alice Example's workspace",
+	}) as HTMLButtonElement;
+	expect(rebuild.disabled).toBe(true);
+	expect(reset.disabled).toBe(true);
+	expect(within(panel).getByTestId("pending-operation").textContent).toMatch(
+		/^Rebuilding…/,
+	);
+});
+
+test("the detail shows per-class storage meters when the agent measured them", async () => {
+	const gib = 1024 ** 3;
+	stubDetail(
+		detail({
+			storage: {
+				home: { usedBytes: 5 * gib, limitBytes: 25 * gib },
+				docker: { usedBytes: 19 * gib, limitBytes: 20 * gib },
+				recovery: { usedBytes: 1 * gib, limitBytes: 3 * gib },
+			},
+		}),
+	);
+	const panel = await openAlice();
+
+	expect(within(panel).getByLabelText("Projects and home")).toBeTruthy();
+	expect(within(panel).getByLabelText("Recovery")).toBeTruthy();
+	expect(within(panel).getByLabelText("Docker").getAttribute("aria-valuetext")).toMatch(
+		/nearly full$/,
+	);
+});
+
 test("Rebuild asks for the exact workspace label before it calls the route", async () => {
 	const writes = stubDetail(
 		detail({ capabilities: { rebuild: true, resetDocker: true } }),

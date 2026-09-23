@@ -17,6 +17,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { formatBytes, formatCpu } from "../monitor/format.js";
+import { PENDING_LABEL } from "../shell/StatusBar.js";
 import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
 import { defaultLabel, graceText } from "./graceText.js";
 import { logCommand } from "./logCommand.js";
@@ -374,6 +375,8 @@ function WorkspaceActions({
 	const [dialog, setDialog] = useState<DialogName | null>(null);
 	const [preserveDocker, setPreserveDocker] = useState(true);
 	const archived = workspace.archivedAt !== null;
+	// A second request would only answer 409 OPERATION_PENDING (ADR 0021).
+	const operationPending = workspace.pendingOperation !== null;
 	const note = capabilityNote(capabilities);
 	const noteId = `capability-note-${workspace.id}`;
 
@@ -449,7 +452,7 @@ function WorkspaceActions({
 					data-testid="detail-rebuild"
 					aria-label={`Rebuild ${ownerName}'s workspace`}
 					aria-describedby={capabilities.rebuild ? undefined : noteId}
-					disabled={!capabilities.rebuild}
+					disabled={!capabilities.rebuild || operationPending}
 					onClick={() => setDialog("rebuild")}
 				>
 					Rebuild workspace…
@@ -459,12 +462,18 @@ function WorkspaceActions({
 					data-testid="detail-reset-docker"
 					aria-label={`Reset Docker in ${ownerName}'s workspace`}
 					aria-describedby={capabilities.resetDocker ? undefined : noteId}
-					disabled={!capabilities.resetDocker}
+					disabled={!capabilities.resetDocker || operationPending}
 					onClick={() => setDialog("reset")}
 				>
 					Reset Docker…
 				</Button>
 			</div>
+			{workspace.pendingOperation ? (
+				<p className="pk-muted m-0 text-[13px]" data-testid="pending-operation">
+					{PENDING_LABEL[workspace.pendingOperation]} Rebuild and Reset Docker are off
+					until it finishes.
+				</p>
+			) : null}
 			{note ? (
 				<p
 					id={noteId}

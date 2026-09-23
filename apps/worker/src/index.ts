@@ -2,11 +2,13 @@ import { loadConfig, WorkerConfigSchema } from "@portikus/config";
 import { createDb, type Database } from "@portikus/db";
 import { createLogger } from "@portikus/observability";
 import type { Kysely } from "kysely";
+import { httpAgentFactory } from "./agent-client.js";
 import { HttpControllerClient } from "./controller-client.js";
 import { startHealthSampling } from "./health.js";
 import { createLogLevelSync } from "./log-level.js";
 import { startQuotaSync } from "./quota.js";
 import { reconcile, type SweepResult } from "./reconcile.js";
+import { recoverySweep } from "./recovery.js";
 
 export const serviceName = "worker";
 
@@ -29,6 +31,19 @@ export async function seedSettings(
 		.onConflict((oc) => oc.doNothing())
 		.executeTakeFirst();
 	return Number(result?.numInsertedOrUpdatedRows ?? 0n) > 0;
+}
+
+/**
+ * Run `task` now and again `intervalMs` after each run finishes. Each loop
+ * made this way is independent, so a slow task in one never delays another
+ * (ADR 0006, ADR 0020). `task` must catch its own errors.
+ */
+export function loopEvery(task: () => Promise<void>, intervalMs: number): void {
+	const run = async (): Promise<void> => {
+		await task();
+		setTimeout(run, intervalMs);
+	};
+	void run();
 }
 
 /** How often the worker re-reads the log level an administrator chose. */
@@ -82,7 +97,7 @@ async function main(): Promise<void> {
 	let lastRefreshAt: Date | null = null;
 	let controllerUnreachable = false;
 
-	const loop = async (): Promise<void> => {
+	const sweep = async (): Promise<void> => {
 		try {
 			const now = new Date();
 			const result: SweepResult = await reconcile(
@@ -111,10 +126,31 @@ async function main(): Promise<void> {
 				"sweep error",
 			);
 		}
-		setTimeout(loop, config.SWEEP_INTERVAL_SECONDS * 1000);
 	};
 
-	await loop();
+	// Recovery points run on their own timer: an archive can take minutes.
+	const recovery = async (): Promise<void> => {
+		try {
+			const result = await recoverySweep(
+				db,
+				httpAgentFactory(config.AGENT_PORT),
+				config,
+				new Date(),
+				logger,
+			);
+			if (result.created > 0 || result.deleted > 0) {
+				logger.info(result, "recovery sweep");
+			}
+		} catch (e) {
+			logger.error(
+				{ error: e instanceof Error ? e.message : String(e) },
+				"recovery sweep error",
+			);
+		}
+	};
+
+	loopEvery(sweep, config.SWEEP_INTERVAL_SECONDS * 1000);
+	loopEvery(recovery, config.RECOVERY_SWEEP_SECONDS * 1000);
 }
 
 if (process.argv[1]?.endsWith("index.ts") || process.argv[1]?.endsWith("index.js")) {

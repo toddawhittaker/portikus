@@ -25,6 +25,7 @@ const USAGE = {
 	disk: { usedBytes: 1024, totalBytes: 4096 },
 	network: { receiveBytesPerSecond: 0, transmitBytesPerSecond: 0 },
 	processes: [{ pid: 7, cpuPercent: 1, residentBytes: 4096, command: "node" }],
+	storage: { home: null, docker: null, recovery: null },
 };
 
 let client: QueryClient;

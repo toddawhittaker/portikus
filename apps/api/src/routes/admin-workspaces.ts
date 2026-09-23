@@ -9,6 +9,7 @@ import {
 	isQuotaGrowOnly,
 	QUOTA_SHRINK_MESSAGE,
 	type QuotaConfig,
+	type StorageFigure,
 	UpdateQuotaRequest,
 	WorkspaceUsage,
 } from "@portikus/contracts";
@@ -31,7 +32,7 @@ const AGENT_PROBE_TIMEOUT_MS = 2000;
 /** How many audit rows the detail panel shows. */
 const RECENT_AUDIT_LIMIT = 10;
 
-/** Epic 10's routes; the admin buttons turn on once they exist. */
+/** Epic 10's routes; the admin buttons are on when they are registered. */
 const REBUILD_ROUTE = "/admin/workspaces/:id/rebuild";
 const RESET_DOCKER_ROUTE = "/workspaces/:id/reset-docker";
 
@@ -136,6 +137,7 @@ export function toWorkspaceSummary(
 async function probeAgent(agent: AgentClient): Promise<{
 	agent: AdminWorkspaceDetail["agent"];
 	usage: AdminWorkspaceDetail["usage"];
+	storage: AdminWorkspaceDetail["storage"];
 }> {
 	try {
 		const response = await agent.fetchRaw("GET", "/usage", {
@@ -143,16 +145,33 @@ async function probeAgent(agent: AgentClient): Promise<{
 		});
 		if (!response.ok) {
 			await response.body?.cancel();
-			return { agent: "not_answering", usage: null };
+			return { agent: "not_answering", usage: null, storage: null };
 		}
 		const parsed = WorkspaceUsage.safeParse(await readJson(response));
-		if (!parsed.success) return { agent: "answering", usage: null };
+		if (!parsed.success) return { agent: "answering", usage: null, storage: null };
 		// Aggregates only: the process list stays behind (SPEC.md §20.2).
 		const { cpuPercent, memory, disk } = parsed.data;
-		return { agent: "answering", usage: { cpuPercent, memory, disk } };
+		return {
+			agent: "answering",
+			usage: { cpuPercent, memory, disk },
+			storage: toAdminStorage(parsed.data.storage),
+		};
 	} catch {
-		return { agent: "not_answering", usage: null };
+		return { agent: "not_answering", usage: null, storage: null };
 	}
+}
+
+/** Epic 10's per-class figures, or null unless the agent measured all three. */
+function toAdminStorage(
+	storage: WorkspaceUsage["storage"],
+): AdminWorkspaceDetail["storage"] {
+	const { home, docker, recovery } = storage;
+	if (!home || !docker || !recovery) return null;
+	const use = (figure: StorageFigure) => ({
+		usedBytes: figure.usedBytes,
+		limitBytes: figure.totalBytes,
+	});
+	return { home: use(home), docker: use(docker), recovery: use(recovery) };
 }
 
 /** The last audit rows about a workspace and its owner, actors resolved. */
@@ -239,10 +258,11 @@ export function registerAdminWorkspaceRoutes(
 
 		let agent: AdminWorkspaceDetail["agent"] = "stopped";
 		let usage: AdminWorkspaceDetail["usage"] = null;
+		let storage: AdminWorkspaceDetail["storage"] = null;
 		if (row.state === "running") {
 			const client = agentClientFor(row, config.AGENT_PORT);
 			agent = "not_answering";
-			if (client) ({ agent, usage } = await probeAgent(client));
+			if (client) ({ agent, usage, storage } = await probeAgent(client));
 		}
 
 		const sessions = await db
@@ -271,8 +291,7 @@ export function registerAdminWorkspaceRoutes(
 			),
 			agent,
 			usage,
-			// Epic 10's per-class storage accounting fills this in.
-			storage: null,
+			storage,
 			// Only these four facts: never the command line (SPEC.md §20.2).
 			ports: registry.services(id).map((service) => ({
 				port: service.port,

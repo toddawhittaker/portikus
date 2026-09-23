@@ -91,6 +91,10 @@ export const ApiConfigSchema = BaseConfig.extend({
 	PRESENCE_TTL_SECONDS: positiveInt.default(60),
 	WORKSPACE_HOME_SIZE_GIB: positiveInt.default(25),
 	WORKSPACE_DOCKER_SIZE_GIB: positiveInt.default(20),
+	/** Recovery allowance per workspace (SPEC.md §19.1, ADR 0020). */
+	WORKSPACE_RECOVERY_SIZE_GIB: positiveInt.default(3),
+	/** How long a recovery point is kept before retention may remove it (SPEC.md §15.7). */
+	RECOVERY_RETENTION_DAYS: positiveInt.default(14),
 	PUBLIC_URL: z.string().url().default("http://127.0.0.1:5173"),
 	OIDC_ISSUER_URL: z.string().url().default("http://127.0.0.1:3002"),
 	OIDC_CLIENT_ID: z.string().min(1).default("portikus-dev"),
@@ -240,12 +244,22 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	STATUS_REFRESH_SECONDS: positiveInt.default(15),
 	WORKSPACE_HOME_SIZE_GIB: positiveInt.default(25),
 	WORKSPACE_DOCKER_SIZE_GIB: positiveInt.default(20),
+	/** Recovery allowance per workspace (SPEC.md §19.1, ADR 0020). */
+	WORKSPACE_RECOVERY_SIZE_GIB: positiveInt.default(3),
+	/** A project is due a periodic point after this long (SPEC.md §15.6). */
+	RECOVERY_INTERVAL_SECONDS: positiveInt.default(900),
+	/** How long a recovery point is kept before retention may remove it (SPEC.md §15.7). */
+	RECOVERY_RETENTION_DAYS: positiveInt.default(14),
+	/** How often the recovery loop looks for due projects (ADR 0020). */
+	RECOVERY_SWEEP_SECONDS: positiveInt.default(60),
 	/**
 	 * The preview suffix the worker hands to the controller, which writes it
 	 * into every workspace so shells and dev servers know the preview host
 	 * (issue #263). Must match the API's value.
 	 */
 	PREVIEW_SUFFIX: z.string().min(1).default(DEV_PREVIEW_SUFFIX),
+	/** The port every workspace agent listens on; must match the API value. */
+	AGENT_PORT: positiveInt.default(7400),
 })
 	.refine(
 		requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),
@@ -286,6 +300,8 @@ export const AgentConfigSchema = BaseConfig.extend({
 	PORT: positiveInt.default(7400),
 	TOKEN_PATH: z.string().min(1).default("/etc/portikus/agent.token"),
 	HOME_DIR: z.string().min(1).default("/home/student"),
+	/** Mount point of the recovery volume (ADR 0020). */
+	RECOVERY_ROOT: z.string().min(1).default("/var/lib/portikus/recovery"),
 	// Set only in tests, so they get a tmux server of their own.
 	TMUX_SOCKET_NAME: z.string().optional(),
 });

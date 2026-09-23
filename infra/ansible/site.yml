@@ -76,6 +76,8 @@
     portikus_agent_port: 7400
     portikus_workspace_home_size_gib: 25
     portikus_workspace_docker_size_gib: 20
+    # Each workspace's recovery-point volume (SPEC 19.1, ADR 0020).
+    portikus_workspace_recovery_size_gib: 3
 
     # ── Authentication (SPEC 5.3, ADR 0008) ───────────────────────
     # The in-repo mock identity provider is off unless it is asked for:

@@ -190,8 +190,59 @@ test.skipIf(skip)("a stopped workspace shows Stopped and no live usage", async (
 	expect(body.usage).toBeNull();
 	expect(body.storage).toBeNull();
 	expect(body.ports).toEqual([]);
-	expect(body.capabilities).toEqual({ rebuild: false, resetDocker: false });
+	// Epic 10's maintenance routes are registered, so both buttons are on.
+	expect(body.capabilities).toEqual({ rebuild: true, resetDocker: true });
 });
+
+test.skipIf(skip)(
+	"the detail fills storage from the agent's per-class figures",
+	async () => {
+		await start();
+		await markRunning();
+		const gib = 1024 ** 3;
+		agent.storage.set(workspaceId, {
+			home: { usedBytes: 5 * gib, totalBytes: 25 * gib },
+			docker: { usedBytes: 2 * gib, totalBytes: 20 * gib },
+			recovery: { usedBytes: gib, totalBytes: 3 * gib },
+		});
+		try {
+			const body = (await detail()).json();
+			expect(body.storage).toEqual({
+				home: { usedBytes: 5 * gib, limitBytes: 25 * gib },
+				docker: { usedBytes: 2 * gib, limitBytes: 20 * gib },
+				recovery: { usedBytes: gib, limitBytes: 3 * gib },
+			});
+
+			// A class the agent could not measure leaves the whole figure null.
+			agent.storage.set(workspaceId, {
+				home: { usedBytes: 5 * gib, totalBytes: 25 * gib },
+				docker: null,
+				recovery: { usedBytes: gib, totalBytes: 3 * gib },
+			});
+			expect((await detail()).json().storage).toBeNull();
+		} finally {
+			agent.storage.delete(workspaceId);
+		}
+	},
+);
+
+test.skipIf(skip)(
+	"an administrator's rebuild shows as the detail's pending operation",
+	async () => {
+		await start();
+		const res = await app.inject({
+			method: "POST",
+			url: `/admin/workspaces/${workspaceId}/rebuild`,
+			headers: csrfHeaders(carol, PUBLIC_URL),
+			payload: { resetDocker: false },
+		});
+		expect(res.statusCode).toBe(202);
+		expect((await detail()).json().workspace.pendingOperation).toBe("rebuild");
+		expect((await auditActions()).map((a) => a.action)).toContain(
+			"workspace.rebuild_requested",
+		);
+	},
+);
 
 test.skipIf(skip)("an unknown workspace is 404", async () => {
 	await start();
@@ -334,23 +385,6 @@ test.skipIf(skip)("the detail asks the agent once, through /usage only", async (
 	expect(agent.healthHits).toBe(before);
 });
 
-test.skipIf(skip)("capabilities turn on once Epic 10's routes exist", async () => {
-	app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
-	app.post("/admin/workspaces/:id/rebuild", async () => ({}));
-	app.post("/workspaces/:id/reset-docker", async () => ({}));
-	await app.ready();
-	carol = new CookieJar();
-	await loginAs(app, "carol", carol);
-	alice = new CookieJar();
-	await loginAs(app, "alice", alice);
-	workspaceId = (await post(alice, "/workspaces")).json().id;
-
-	expect((await detail()).json().capabilities).toEqual({
-		rebuild: true,
-		resetDocker: true,
-	});
-});
-
 test.skipIf(skip)("the image version comes from the newest health sample", async () => {
 	await start();
 	const row = await testDb.db
@@ -470,7 +504,12 @@ test.skipIf(skip)("storage grows, is audited, and shows as pending", async () =>
 		.execute();
 	const res = await putQuota({ homeGiB: 40, dockerGiB: 20 });
 	expect(res.statusCode).toBe(200);
-	expect(res.json().quotaConfig).toEqual({ homeGiB: 40, dockerGiB: 20 });
+	// Epic 10's recovery size rides along untouched.
+	expect(res.json().quotaConfig).toEqual({
+		homeGiB: 40,
+		dockerGiB: 20,
+		recoveryGiB: 3,
+	});
 
 	const row = (await auditActions()).find(
 		(r) => r.action === "workspace.quota_updated",
@@ -483,7 +522,11 @@ test.skipIf(skip)("storage grows, is audited, and shows as pending", async () =>
 
 	// The worker has not applied it yet, so applied and wanted differ.
 	const body = (await detail()).json();
-	expect(body.workspace.quotaConfig).toEqual({ homeGiB: 40, dockerGiB: 20 });
+	expect(body.workspace.quotaConfig).toEqual({
+		homeGiB: 40,
+		dockerGiB: 20,
+		recoveryGiB: 3,
+	});
 	expect(body.quotaApplied).toEqual({ homeGiB: 25, dockerGiB: 20 });
 
 	// The same sizes again change nothing and write no row.

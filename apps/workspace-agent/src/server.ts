@@ -61,8 +61,8 @@ import {
 	gitInitProject,
 	listProjects,
 	renameProject,
-	STDERR_LIMIT,
 } from "./projects.js";
+import { registerRecoveryRoutes } from "./recovery-routes.js";
 import { registerSearchRoutes } from "./search-routes.js";
 import { TerminalRegistry } from "./terminals.js";
 import {
@@ -127,6 +127,8 @@ export interface ServerOptions {
 	workspaceId?: string;
 	/** Overrides where usage is read. For tests. */
 	usage?: UsageSamplerOptions;
+	/** Mount point of the recovery volume (ADR 0020). */
+	recoveryRoot?: string;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -201,8 +203,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	});
 	monitor.start();
 
+	const recoveryRoot = options.recoveryRoot ?? "/var/lib/portikus/recovery";
 	const usage = new UsageSampler({
 		homePath: options.homeDir,
+		recoveryPath: recoveryRoot,
 		...options.usage,
 	});
 
@@ -586,20 +590,17 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				return sendError(request, reply, error, "INTERNAL");
 			}
 			request.log.debug({ slug, operation: "archive" }, "project operation");
-			let stderr = "";
-			child.stderr.on("data", (chunk: Buffer) => {
-				// zip can be noisy; keep only as much as the student needs.
-				stderr = (stderr + chunk.toString()).slice(-STDERR_LIMIT);
-			});
+			// zip's messages name student files, so they are drained, never logged (ADR 0012).
+			child.stderr.resume();
 			// The process is already running, so the response is on its way;
 			// a late failure ends the stream rather than the agent.
-			child.on("error", (error: Error) => {
-				request.log.error({ slug, error: error.message }, "project archive failed");
+			child.on("error", (error: NodeJS.ErrnoException) => {
+				request.log.error({ slug, errorCode: error.code }, "project archive failed");
 				child.stdout.destroy(new Error("zip failed"));
 			});
 			child.on("close", (code) => {
 				if (code !== 0) {
-					request.log.error({ slug, code, stderr }, "project archive failed");
+					request.log.error({ slug, code }, "project archive failed");
 					child.stdout.destroy(new Error("zip failed"));
 				}
 			});
@@ -607,6 +608,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		});
 
 		registerGitRoutes(instance, { homeDir: options.homeDir });
+		registerRecoveryRoutes(instance, { homeDir: options.homeDir, recoveryRoot });
 		instance.register(checksRoute, { homeDir: options.homeDir });
 		instance.register(listeningRoutes, { monitor, forwards });
 		instance.register(eventsRoute, {

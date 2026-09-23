@@ -66,7 +66,7 @@ export type AdminCapabilities = z.infer<typeof AdminCapabilities>;
 
 const StorageUse = z.object({ usedBytes: bytes, limitBytes: bytes });
 
-/** Per-class storage. Null until Epic 10's accounting fills it in. */
+/** Per-class storage from Epic 10's accounting; null unless the agent measured all three. */
 export const AdminStorage = z.object({
 	home: StorageUse,
 	docker: StorageUse,

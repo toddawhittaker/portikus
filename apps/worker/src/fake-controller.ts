@@ -6,6 +6,9 @@ import type {
 	HostSnapshot,
 	ListInstancesResponse,
 	LogLevel,
+	RebuildInstanceRequest,
+	RebuildInstanceResponse,
+	ResetDockerRequest,
 	StartInstanceRequest,
 	StartInstanceResponse,
 	StopInstanceResponse,
@@ -64,6 +67,23 @@ export class FakeControllerClient implements ControllerClient {
 		this.calls.push({ method: "list", args: [] });
 		if (this.listResult instanceof Error) throw this.listResult;
 		return this.listResult;
+	}
+
+	resetDockerResult: Error | null = null;
+	rebuildResult: RebuildInstanceResponse | Error = { imageFingerprint: "rebuilt456" };
+
+	async resetDocker(name: string, req: ResetDockerRequest): Promise<void> {
+		this.calls.push({ method: "resetDocker", args: [name, req] });
+		if (this.resetDockerResult) throw this.resetDockerResult;
+	}
+
+	async rebuild(
+		name: string,
+		req: RebuildInstanceRequest,
+	): Promise<RebuildInstanceResponse> {
+		this.calls.push({ method: "rebuild", args: [name, req] });
+		if (this.rebuildResult instanceof Error) throw this.rebuildResult;
+		return this.rebuildResult;
 	}
 
 	hostResult: HostSnapshot | Error = {

@@ -24,6 +24,25 @@ export const DesiredState = z.enum(["running", "stopped", "restarting"]);
 export type DesiredState = z.infer<typeof DesiredState>;
 
 /**
+ * A maintenance operation the API asked for and the worker drives
+ * (SPEC.md §16.4, §17.2; ADR 0021).
+ */
+export const PendingOperation = z.enum([
+	"reset-docker",
+	"rebuild",
+	"rebuild-reset-docker",
+]);
+export type PendingOperation = z.infer<typeof PendingOperation>;
+
+/** Request body for `POST /admin/workspaces/:id/rebuild` (SPEC.md §17.2). */
+export const RebuildWorkspaceRequest = z
+	.object({
+		resetDocker: z.boolean(),
+	})
+	.strict();
+export type RebuildWorkspaceRequest = z.infer<typeof RebuildWorkspaceRequest>;
+
+/**
  * Workspace response body returned by the API (SPEC.md §26, §27).
  */
 export const Workspace = z.object({
@@ -38,7 +57,11 @@ export const Workspace = z.object({
 	quotaConfig: z.object({
 		homeGiB: z.number().int().positive(),
 		dockerGiB: z.number().int().positive(),
+		/** Absent on rows written before Epic 10. */
+		recoveryGiB: z.number().int().positive().optional(),
 	}),
+	/** Set while a Reset Docker or Rebuild is waiting or running. */
+	pendingOperation: PendingOperation.nullable(),
 	errorCode: z.string().nullable(),
 	errorMessage: z.string().nullable(),
 	activeConnections: z.number().int().nonnegative(),
@@ -145,6 +168,10 @@ export const ApiErrorCode = z.enum([
 	"CHECK_RUNNING",
 	"CHECK_NOT_RUNNING",
 	"OPERATION_IN_PROGRESS",
+	// Recovery and maintenance operations (SPEC.md §15, §16.4, §17.2).
+	"STORAGE_FULL",
+	"OPERATION_PENDING",
+	"BUSY",
 	"WORKSPACE_ARCHIVED",
 	"NOT_IMPLEMENTED",
 	"INTERNAL",

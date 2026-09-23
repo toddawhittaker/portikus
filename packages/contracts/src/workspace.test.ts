@@ -80,24 +80,40 @@ describe("deriveWorkspaceLabel", () => {
 	});
 });
 
+const SAMPLE_WORKSPACE = {
+	id: "22222222-2222-4222-8222-222222222222",
+	ownerUserId: "11111111-1111-4111-8111-111111111111",
+	label: "tw7",
+	state: "running",
+	desiredState: "running",
+	incusInstanceName: "ws-abc",
+	imageVersion: null,
+	quotaConfig: { homeGiB: 25, dockerGiB: 20 },
+	pendingOperation: null,
+	archivedAt: null,
+	errorCode: null,
+	errorMessage: null,
+	activeConnections: 0,
+	lastActiveConnectionAt: null,
+	shutdownDeadline: null,
+	createdAt: "2026-09-21T00:00:00.000Z",
+	updatedAt: "2026-09-21T00:00:00.000Z",
+};
+
 test("the Workspace contract carries the label", () => {
-	const parsed = Workspace.safeParse({
-		id: "22222222-2222-4222-8222-222222222222",
-		ownerUserId: "11111111-1111-4111-8111-111111111111",
-		label: "tw7",
-		state: "running",
-		desiredState: "running",
-		incusInstanceName: "ws-abc",
-		imageVersion: null,
-		quotaConfig: { homeGiB: 25, dockerGiB: 20 },
-		errorCode: null,
-		errorMessage: null,
-		activeConnections: 0,
-		lastActiveConnectionAt: null,
-		shutdownDeadline: null,
-		archivedAt: null,
-		createdAt: "2026-09-21T00:00:00.000Z",
-		updatedAt: "2026-09-21T00:00:00.000Z",
-	});
-	expect(parsed.success).toBe(true);
+	expect(Workspace.safeParse(SAMPLE_WORKSPACE).success).toBe(true);
+});
+
+test("the Workspace contract carries a pending operation and a recovery quota", () => {
+	const workspace = {
+		...SAMPLE_WORKSPACE,
+		quotaConfig: { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
+		pendingOperation: "rebuild-reset-docker",
+	};
+	expect(Workspace.parse(workspace)).toEqual(workspace);
+	expect(
+		Workspace.safeParse({ ...SAMPLE_WORKSPACE, pendingOperation: "reinstall" }).success,
+	).toBe(false);
+	const { pendingOperation: _op, ...withoutOperation } = SAMPLE_WORKSPACE;
+	expect(Workspace.safeParse(withoutOperation).success).toBe(false);
 });

@@ -27,6 +27,7 @@ export const WORKSPACE = {
 	incusInstanceName: "ws-alice",
 	imageVersion: "2026.09.3",
 	quotaConfig: { homeGiB: 10, dockerGiB: 10 },
+	pendingOperation: null,
 	errorCode: null,
 	errorMessage: null,
 	activeConnections: 1,

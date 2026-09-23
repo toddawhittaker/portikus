@@ -36,6 +36,8 @@ function signatureOf(workspace: Workspace): string {
 		workspace.errorCode,
 		workspace.shutdownDeadline,
 		workspace.activeConnections,
+		// A Reset Docker or Rebuild request must reach the browser at once (SPEC.md §27).
+		workspace.pendingOperation,
 		workspace.archivedAt,
 	]);
 }

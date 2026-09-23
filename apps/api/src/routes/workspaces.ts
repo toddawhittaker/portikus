@@ -86,6 +86,7 @@ export function registerWorkspaceRoutes(
 				quota_config: JSON.stringify({
 					homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
 					dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
+					recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
 				}),
 			});
 		} catch (err: unknown) {
