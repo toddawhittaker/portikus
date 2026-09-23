@@ -131,14 +131,6 @@
     group: root
     mode: "0755"
 
-# ── Carry accounts over to Dex (docs/EPIC-12B.md) ────────────────
-# Runs after the package install and before api.env changes, so the API is
-# still on the old provider and no Dex identity can make a row first.
-- name: Carry existing accounts over to Dex
-  ansible.builtin.import_tasks: carry_over.yml
-  when: portikus_idp == 'dex'
-  tags: carry_over
-
 # ── Controller token (generated once) ────────────────────────────
 
 - name: Generate controller token
@@ -286,6 +278,15 @@
     path: /etc/portikus/mock-client.secret
     state: absent
   when: not portikus_mock_idp
+
+# ── Carry accounts over to Dex (docs/EPIC-12B.md) ────────────────
+# After the package install and the mock is stopped, and before api.env
+# changes: no mock sign-in can make a session after the carry-over revokes
+# them all, and no Dex identity can make a row before its account is linked.
+- name: Carry existing accounts over to Dex
+  ansible.builtin.import_tasks: carry_over.yml
+  when: portikus_idp == 'dex'
+  tags: carry_over
 
 # ── Environment files ────────────────────────────────────────────
 
