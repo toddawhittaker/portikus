@@ -385,6 +385,9 @@ running the load test on the rehearsal VM at that size:
 `make rehearsal-up REHEARSAL_VCPUS=<n> REHEARSAL_MEMORY_MB=<MiB>`, then
 `make load-test TOFU_ENV=rehearsal-libvirt N=25`.
 
+To rent a host instead of buying one, docs/HOSTING.md compares providers
+and prices for this size, dated 2026-09-23.
+
 **Never run `make infra-apply` for the pilot from a checkout older than
 the one that grew the data disk.** An older checkout replaces a data disk
 whose size changed, so it would plan to swap the grown disk for an empty
