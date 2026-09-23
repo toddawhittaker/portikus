@@ -16,13 +16,15 @@
 #   sec_http KEY|- METHOD URL [curl args]
 #                                  a request through the real Caddy; prints the
 #                                  status and leaves the body in $SEC_LAST_BODY
-#   sec_ws_upgrade KEY|- URL ORIGIN
-#                                  a WebSocket upgrade; prints the status (101 = opened)
+#   sec_ws_upgrade KEY|- URL ORIGIN [curl args]
+#                                  a WebSocket upgrade; prints the status (101 = opened);
+#                                  KEY names a cookie file in the run's remote directory
 #   sec_exec KEY student|root CMD  CMD in KEY's workspace
 #   sec_docker_exec KEY [--network host] CMD
 #                                  CMD under sh in an inner Docker container of KEY's workspace
 #   sec_ws_ip KEY, sec_agent_token KEY, sec_ws_id KEY, sec_instance KEY
 #   check LABEL CMD..., check_output LABEL EXPECTED CMD..., known_vuln ISSUE LABEL CMD...
+#   sec_na LABEL REASON            a check that cannot prove anything here, listed in the summary
 # shellcheck disable=SC2034  # globals are read by the runner and the modules
 
 SEC_ISSUER="urn:portikus:sectest"
@@ -50,6 +52,7 @@ pass=0
 fail=0
 sec_known=()
 sec_xpass=()
+sec_not_applicable=()
 
 # ── Output and checks ────────────────────────────────────────────
 
@@ -87,9 +90,19 @@ known_vuln() {
   fi
 }
 
+# sec_na LABEL REASON -- neither a pass nor a failure; the summary says why.
+sec_na() {
+  printf '\033[1;36mN/A\033[0m   %s (%s)\n' "$1" "$2"
+  sec_not_applicable+=("$1: $2")
+}
+
 sec_summary() {
   local item
   echo ""
+  if [ "${#sec_not_applicable[@]}" -gt 0 ]; then
+    echo "Not applicable on this host (not counted as passed):"
+    for item in "${sec_not_applicable[@]}"; do echo "  ${item}"; done
+  fi
   if [ "${#sec_known[@]}" -gt 0 ]; then
     echo "Expected failures (KNOWN-VULN):"
     for item in "${sec_known[@]}"; do echo "  ${item}"; done
@@ -149,6 +162,8 @@ sec_init() {
     SEC_API="https://${SEC_PUBLIC_HOST}:${SEC_PUBLIC_PORT}"
   fi
   SEC_REMOTE_DIR="/tmp/portikus-sectest-${SEC_RUN_ID}"
+  # Survives a workspace restart inside a; the container module uses it.
+  SEC_REMOTE_VARDIR="/var/tmp/portikus-sectest-${SEC_RUN_ID}"
   SEC_LOCAL_DIR="$(mktemp -d)"
   SEC_LAST_BODY="${SEC_LOCAL_DIR}/last-body"
   SEC_START_EPOCH="$(date +%s)"
@@ -160,6 +175,7 @@ sec_preflight() {
   local version mem_kib pool meta size data free_gib leftovers
   echo "--- Portikus VM security suite ---"
   echo "Target: ${SEC_VM}  site: ${SEC_API}  run: ${SEC_RUN_ID}"
+  sec_lock || return 1
   version=$(sec_ssh "dpkg-query -W -f='\${Version}' portikus" 2>/dev/null)
   echo "Deployed package: portikus ${version:-(not installed)}"
   if ! sec_ssh systemctl is-active portikus-api portikus-worker portikus-controller caddy >/dev/null 2>&1; then
@@ -199,7 +215,29 @@ sec_preflight() {
     return 1
   fi
 
+  # Audit rows up to here existed before the run; the snapshot counts them.
+  SEC_AUDIT_MAX=$(sec_psql "SELECT COALESCE(max(id), 0) FROM audit_events")
   sec_ssh "install -d -m 0700 ${SEC_REMOTE_DIR}"
+}
+
+# One run at a time against a VM.  The local lock is released when this
+# process exits, however it exits.  A run from another machine shows on the
+# VM as a process under its remote directory, and that blocks too, so a
+# sweep never removes a live run's users and workspaces.
+sec_lock() {
+  local lockfile="${TMPDIR:-/tmp}/portikus-sectest-${SEC_VM}.lock" live
+  exec {SEC_LOCK_FD}>>"$lockfile"
+  if ! flock -n "$SEC_LOCK_FD"; then
+    echo "preflight: another security run against ${SEC_VM} holds ${lockfile}; nothing was created or swept." >&2
+    return 1
+  fi
+  # The brackets keep the pattern from matching this command's own shell.
+  live=$(sec_ssh "pgrep -af '[/]tmp/portikus-sectest-[0-9]'; true")
+  if [ -n "$live" ]; then
+    echo "preflight: another security run is live on the VM; nothing was created or swept:" >&2
+    printf '%s\n' "$live" | awk '{ print "  " $0 }' >&2
+    return 1
+  fi
 }
 
 # sec_sweep LINES -- LINES are "subject workspace-id instance" from the
@@ -213,8 +251,10 @@ sec_sweep() {
     [ "$ws" != "-" ] && sec_created_workspace_ids+=("$ws")
     [ "$instance" != "-" ] && sec_created_instances+=("$instance")
   done <<<"$1"
-  echo "Sweeping earlier sectest rows and instances..."
+  echo "Sweeping earlier sectest rows, instances and directories..."
   sec_cleanup
+  # sec_lock proved no run is live, so every run directory is a leftover.
+  sec_ssh "sudo find /tmp /var/tmp -maxdepth 1 -regextype posix-extended -regex '/(var/)?tmp/portikus-sectest-[0-9]+' -exec rm -rf {} +" 2>/dev/null || true
   sec_created_subjects=()
   sec_created_workspace_ids=()
   sec_created_instances=()
@@ -226,12 +266,23 @@ sec_sweep() {
 # instance), every other user's role, disabled flag and grace override, and
 # the settings row.  Instances no workspace row names, such as another
 # builder's scratch instance, are not workspaces and are left out.
+#
+# Also the rows a careless delete could take: the audit rows that existed
+# before the run (counted by id, so new ones written meanwhile do not
+# count), and the presence connections and sessions of other users that
+# existed at the start.  Sessions are listed only if they expire at least
+# two hours after the start, so one expiring meanwhile is not a difference.
+# A student who signs out during the run does show here; run outside class
+# hours.
 sec_snapshot_others() {
-  local theirs
+  local theirs start="to_timestamp(${SEC_START_EPOCH})"
   theirs=$(sec_psql "SELECT w.incus_instance_name FROM workspaces w JOIN users u ON u.id = w.owner_user_id WHERE u.oidc_issuer <> '${SEC_ISSUER}' AND w.incus_instance_name IS NOT NULL")
   sec_psql "SELECT 'workspace ' || w.id || ' ' || COALESCE(w.incus_instance_name, '-') || ' state=' || w.state || ' desired=' || w.desired_state || ' deadline=' || COALESCE(w.shutdown_deadline::text, '-') FROM workspaces w JOIN users u ON u.id = w.owner_user_id WHERE u.oidc_issuer <> '${SEC_ISSUER}' ORDER BY w.id"
   sec_psql "SELECT 'user ' || id || ' role=' || role || ' disabled=' || COALESCE(disabled_at::text, '-') || ' grace=' || COALESCE(shutdown_grace_seconds::text, '-') FROM users WHERE oidc_issuer <> '${SEC_ISSUER}' ORDER BY id"
   sec_psql "SELECT 'settings ' || row_to_json(s)::text FROM settings s ORDER BY id"
+  sec_psql "SELECT 'audit rows up to id ${SEC_AUDIT_MAX:-0}: ' || count(*) FROM audit_events WHERE id <= ${SEC_AUDIT_MAX:-0}"
+  sec_psql "SELECT 'connection ' || c.id || ' workspace ' || c.workspace_id FROM workspace_connections c JOIN workspaces w ON w.id = c.workspace_id JOIN users u ON u.id = w.owner_user_id WHERE u.oidc_issuer <> '${SEC_ISSUER}' AND c.connected_at < ${start} ORDER BY c.id"
+  sec_psql "SELECT 'sessions user ' || s.user_id || ': ' || count(*) FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.oidc_issuer <> '${SEC_ISSUER}' AND s.created_at < ${start} AND s.expires_at > ${start} + interval '2 hours' GROUP BY s.user_id ORDER BY s.user_id"
   sec_ssh "incus list --project ${SEC_PROJECT} -c ns --format csv" \
     | awk -F, -v keep="${theirs//$'\n'/ }" \
       'BEGIN { n = split(keep, a, " "); for (i = 1; i <= n; i++) theirs[a[i]] = 1 }
@@ -370,9 +421,10 @@ sec_http() {
     | { IFS= read -r status; cat >"$SEC_LAST_BODY"; printf '%s' "$status"; }
 }
 
-# sec_ws_upgrade KEY|- URL ORIGIN -- ORIGIN "-" sends none.
+# sec_ws_upgrade KEY|- URL ORIGIN [curl args] -- ORIGIN "-" sends none.
 sec_ws_upgrade() {
   local key="$1" url="$2" origin="$3" args=()
+  shift 3
   [[ "$url" == /* ]] && url="${SEC_API}${url}"
   url="${url/#wss:/https:}"
   args=(-s --cacert "$SEC_CA" --http1.1 --max-time 4 -o /dev/null -w '%{http_code}'
@@ -380,7 +432,7 @@ sec_ws_upgrade() {
     -H "Sec-WebSocket-Key: $(openssl rand -base64 16)")
   [ "$key" != "-" ] && args+=(-H "@${SEC_REMOTE_DIR}/${key}.cookie")
   [ "$origin" != "-" ] && args+=(-H "Origin: ${origin}")
-  sec_ssh "curl $(sec_quote "${args[@]}" "$url")"
+  sec_ssh "curl $(sec_quote "${args[@]}" "$@" "$url")"
 }
 
 # ── Commands inside the suite's own workspaces ───────────────────
@@ -414,8 +466,11 @@ sec_cleanup() {
   echo ""
   echo "Cleaning up: ${#sec_created_workspace_ids[@]} workspace row(s), ${#sec_created_instances[@]} instance(s), ${#sec_created_subjects[@]} user(s). Nothing else is deleted."
 
+  # Stop files end the presence clients and the liveness loop on the VM.
+  if [[ "${SEC_REMOTE_DIR:-}" =~ ^/tmp/portikus-sectest-[0-9]+$ ]]; then
+    sec_ssh "test -d ${SEC_REMOTE_DIR} && touch ${SEC_REMOTE_DIR}/stop-all ${SEC_REMOTE_DIR}/watch.stop; true" 2>/dev/null || true
+  fi
   if [ "${#sec_presence_pids[@]}" -gt 0 ]; then
-    sec_ssh "touch ${SEC_REMOTE_DIR}/stop-all" 2>/dev/null || true
     for pid in "${sec_presence_pids[@]}"; do
       for ((i = 0; i < 10; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
       kill "$pid" 2>/dev/null || true
@@ -449,12 +504,17 @@ sec_cleanup() {
   if [ "${#sec_created_subjects[@]}" -gt 0 ]; then
     subj_list=$(sec_sql_list "${sec_created_subjects[@]}")
     echo "Deleting user rows: ${sec_created_subjects[*]}"
-    sec_psql "DELETE FROM audit_events WHERE actor IN (SELECT 'user:' || id FROM users WHERE oidc_issuer = '${SEC_ISSUER}' AND oidc_subject IN (${subj_list}))" >/dev/null 2>&1 || true
+    # Rows about these users go; what they did to anything else stays on record.
+    sec_psql "DELETE FROM audit_events WHERE target IN (SELECT id::text FROM users WHERE oidc_issuer = '${SEC_ISSUER}' AND oidc_subject IN (${subj_list}))" >/dev/null 2>&1 || true
     # A user who still owns a workspace stays, and so does its session.
     sec_psql "DELETE FROM users u WHERE u.oidc_issuer = '${SEC_ISSUER}' AND u.oidc_subject IN (${subj_list}) AND NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.owner_user_id = u.id)" >/dev/null 2>&1 || true
   fi
 
   if [[ "${SEC_REMOTE_DIR:-}" =~ ^/tmp/portikus-sectest-[0-9]+$ ]]; then
     sec_ssh "rm -rf ${SEC_REMOTE_DIR}" 2>/dev/null || true
+  fi
+  # Root may have written here if a link was followed on the VM, hence sudo.
+  if [[ "${SEC_REMOTE_VARDIR:-}" =~ ^/var/tmp/portikus-sectest-[0-9]+$ ]]; then
+    sec_ssh "sudo rm -rf ${SEC_REMOTE_VARDIR}" 2>/dev/null || true
   fi
 }

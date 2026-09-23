@@ -4,9 +4,9 @@
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # Each workspace serves a page naming itself on one port.  a's preview host
-# must refuse anonymous callers and b, forged forwarding headers must not
-# choose the upstream, the edge-only paths must not answer on the main site,
-# and denied ports never get an upstream.
+# must refuse anonymous callers and b, for pages and WebSocket upgrades alike.
+# Forged forwarding headers must not choose the upstream, the edge-only paths
+# must not answer on the main site, and denied ports never get an upstream.
 # shellcheck disable=SC2154  # pass, fail and the SEC_ globals come from lib.sh
 
 echo ""
@@ -15,9 +15,28 @@ echo "--- Preview edge ---"
 pe_port=5180
 pe_b_ip=$(sec_ws_ip b)
 
+# The page server also accepts WebSocket upgrades, so an upgrade through the
+# preview host has a positive control.
+pe_server_py='import base64, functools, hashlib, http.server, sys
+class H(http.server.SimpleHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    def do_GET(self):
+        if self.headers.get("Upgrade", "").lower() != "websocket":
+            return super().do_GET()
+        key = self.headers.get("Sec-WebSocket-Key", "") + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+        self.send_response(101)
+        self.send_header("Upgrade", "websocket")
+        self.send_header("Connection", "Upgrade")
+        self.send_header("Sec-WebSocket-Accept", base64.b64encode(hashlib.sha1(key.encode()).digest()).decode())
+        self.end_headers()
+        self.close_connection = True
+handler = functools.partial(H, directory=sys.argv[2])
+http.server.ThreadingHTTPServer(("0.0.0.0", int(sys.argv[1])), handler).serve_forever()'
+pe_server_b64=$(printf '%s\n' "$pe_server_py" | base64 -w0)
 for key in a b; do
   sec_exec "$key" student "mkdir -p /tmp/sectest-pe && echo sectest-pe-${key} > /tmp/sectest-pe/index.html && \
-    (setsid nohup python3 -m http.server ${pe_port} --bind 0.0.0.0 --directory /tmp/sectest-pe >/dev/null 2>&1 &) ; sleep 1" >/dev/null 2>&1
+    echo ${pe_server_b64} | base64 -d > /tmp/sectest-pe-server.py && \
+    (setsid nohup python3 /tmp/sectest-pe-server.py ${pe_port} /tmp/sectest-pe >/dev/null 2>&1 &) ; sleep 1" >/dev/null 2>&1
 done
 
 # The listening registry polls every two seconds; a grant needs it to know the port.
@@ -106,6 +125,19 @@ else
   pe_refused "b's main session is refused on a's preview host" 401 - "${pe_a_origin}/" \
     -H "@${SEC_REMOTE_DIR}/b.cookie"
   pe_refused "b's own preview session is refused on a's preview host" 403 pe-b.cookie "${pe_a_origin}/"
+
+  # The same callers asking for a WebSocket upgrade on a's preview host.
+  pe_upgrade() { # COOKIE-KEY|- ORIGIN
+    sec_ws_upgrade "$1" "${pe_a_origin}/" "$2" --resolve "${pe_a_host}:${SEC_PUBLIC_PORT}:127.0.0.1"
+  }
+  check_output "a opens a WebSocket through its own preview host (control)" "101" \
+    pe_upgrade pe-a "$pe_a_origin"
+  check_output "anonymous gets 401 upgrading on a's preview host" "401" pe_upgrade - "$pe_a_origin"
+  check_output "b's main session gets 401 upgrading on a's preview host" "401" pe_upgrade b "$pe_a_origin"
+  check_output "b's own preview session gets 403 upgrading on a's preview host" "403" \
+    pe_upgrade pe-b "$pe_a_origin"
+  check_output "b's own preview session with b's origin gets 403 upgrading on a's preview host" "403" \
+    pe_upgrade pe-b "$pe_b_origin"
   check_output "b gets a second grant (control)" "201" pe_grant b "$pe_port"
   pe_b_boot2=$(jq -r '.bootstrapUrl // empty' "$SEC_LAST_BODY" 2>/dev/null)
   pe_b_ticket="${pe_b_boot2#*/__portikus/bootstrap}"
@@ -166,6 +198,6 @@ else
 fi
 
 for key in a b; do
-  sec_exec "$key" student "pkill -f 'http.server ${pe_port}'; rm -rf /tmp/sectest-pe" >/dev/null 2>&1
+  sec_exec "$key" student "pkill -f 'sectest-pe-server.py ${pe_port}'; rm -rf /tmp/sectest-pe /tmp/sectest-pe-server.py" >/dev/null 2>&1
 done
 sec_ssh "rm -f ${SEC_REMOTE_DIR}/pe-*.cookie" 2>/dev/null

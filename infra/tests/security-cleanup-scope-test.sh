@@ -20,7 +20,8 @@ log="${work}/commands.log"
 count_reply=0
 
 # Stubs for everything that would reach the VM.  SQL arrives on stdin.
-sec_ssh() { printf 'ssh %s\n' "$*" >>"$log"; }
+ssh_reply=""
+sec_ssh() { printf 'ssh %s\n' "$*" >>"$log"; [ -z "$ssh_reply" ] || echo "$ssh_reply"; }
 sec_ssh_stdin() {
   local sql
   sql=$(cat)
@@ -29,6 +30,7 @@ sec_ssh_stdin() {
 }
 
 SEC_REMOTE_DIR="/tmp/portikus-sectest-0922120000"
+SEC_REMOTE_VARDIR="/var/tmp/portikus-sectest-0922120000"
 ours_ws="11111111-1111-1111-1111-111111111111"
 ours_instance="ws-111111111111111111111111"
 theirs_ws="22222222-2222-2222-2222-222222222222"
@@ -88,6 +90,20 @@ assert_not_logged "leaves an instance it did not record" "$theirs_instance"
 assert_not_logged "never names a mock account" "'alice'"
 assert_not_logged "never deletes by owner alone" "owner_user_id IN ('"
 assert_not_logged "never changes a setting" "settings"
+assert_not_logged "never deletes audit rows by who acted, only by what they are about" \
+  "DELETE FROM audit_events WHERE actor"
+assert_logged "deletes audit rows about its own users" \
+  "DELETE FROM audit_events WHERE target IN (SELECT id::text FROM users WHERE oidc_issuer = 'urn:portikus:sectest' AND oidc_subject IN ("
+# Every audit delete names its target through a sectest-owned row.
+audit_unscoped=$(grep -F "DELETE FROM audit_events" "$log" | grep -vF "oidc_issuer = 'urn:portikus:sectest'" | grep -c . || true)
+if [ "$audit_unscoped" = "0" ] && grep -F "DELETE FROM audit_events" "$log" | grep -q "WHERE target IN"; then
+  ok "every audit delete is chosen by a sectest workspace, project or user target"
+else
+  bad "every audit delete is chosen by a sectest workspace, project or user target"
+fi
+assert_logged "stops the liveness loop and presence clients on the VM" \
+  "touch /tmp/portikus-sectest-0922120000/stop-all /tmp/portikus-sectest-0922120000/watch.stop"
+assert_logged "removes its own /var/tmp directory" "sudo rm -rf /var/tmp/portikus-sectest-0922120000"
 if grep -q "Deleting workspace rows: ${ours_ws}" "${work}/out.txt"; then
   ok "prints what it is about to delete"
 else
@@ -116,9 +132,12 @@ assert_not_logged "a name that is not ws-<hex> is never destroyed" "destroy"
 # Case 5: a remote directory outside the pattern is not removed.
 reset
 SEC_REMOTE_DIR="/tmp"
+SEC_REMOTE_VARDIR="/var/tmp"
 sec_cleanup >/dev/null
 assert_not_logged "a remote directory outside the pattern is not removed" "rm -rf"
+assert_not_logged "no stop file is written outside the pattern" "touch"
 SEC_REMOTE_DIR="/tmp/portikus-sectest-0922120000"
+SEC_REMOTE_VARDIR="/var/tmp/portikus-sectest-0922120000"
 
 # Case 6: the sweep takes only sectest subjects from the leftover list.
 reset
@@ -134,6 +153,31 @@ if grep -F "LIKE 'sectest-%'" "${here}/security/lib.sh" | grep -qF "u.oidc_issue
   ok "the leftover query is limited to the sectest issuer"
 else
   bad "the leftover query is limited to the sectest issuer"
+fi
+
+# Case 8: the run lock.  A second run, sweep or not, refuses while the lock is
+# held here or while a run's process is alive on the VM.
+SEC_VM="scope-test-$$"
+TMPDIR="$work"
+reset
+if sec_lock 2>/dev/null; then ok "a run takes the lock when nothing else holds it"; else bad "a run takes the lock when nothing else holds it"; fi
+exec {SEC_LOCK_FD}>&-
+flock "${work}/portikus-sectest-${SEC_VM}.lock" sleep 5 &
+holder=$!
+sleep 0.5
+if sec_lock 2>/dev/null; then bad "a second run refuses while the lock is held"; else ok "a second run refuses while the lock is held"; fi
+exec {SEC_LOCK_FD}>&-
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
+ssh_reply="4242 node /tmp/portikus-sectest-0922110000/presence.mjs"
+if sec_lock 2>/dev/null; then bad "a run refuses while another run's process lives on the VM"; else ok "a run refuses while another run's process lives on the VM"; fi
+exec {SEC_LOCK_FD}>&-
+ssh_reply=""
+if grep -q "sec_lock || return 1" "${here}/security/lib.sh" \
+  && awk '/^sec_preflight\(\)/, /^}/' "${here}/security/lib.sh" | grep -n . | grep -m1 -e 'sec_lock' -e 'sec_sweep' | grep -q sec_lock; then
+  ok "the preflight takes the lock before it can sweep"
+else
+  bad "the preflight takes the lock before it can sweep"
 fi
 
 echo ""
