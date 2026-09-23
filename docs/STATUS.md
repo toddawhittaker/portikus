@@ -606,8 +606,9 @@ strip, reviving both ended panes, and the two conflict-diff tests before
 auto-save was turned off in their setup) and are worth watching rather
 than fixing blind. Relative image paths in the Markdown
 preview resolve against the app origin and show as broken images. Parallel local
-end-to-end runs still collide on fixed ports and one shared database;
-per-run e2e ports and database are tracked in `docs/BACKLOG.md`.
+end-to-end runs collided on fixed ports and one shared database; each
+`pnpm test:e2e` run now has its own database and ports
+(`docs/WORKFLOW.md`, "Local PostgreSQL for database tests").
 
 ## Epic 8 — Verification, running services, and authenticated preview
 

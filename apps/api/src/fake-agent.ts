@@ -43,6 +43,11 @@ export interface FakeAgent {
 			institutionalEnv?: Record<string, string>;
 		}
 	>;
+	/**
+	 * Every request the agent routes received, token or not, in order. The
+	 * /__test hooks are left out, since the agent proper never sees them.
+	 */
+	readonly requests: Array<{ method: string; url: string }>;
 	/** Bodies of POST /terminals, in order, so a test can see what was forwarded. */
 	readonly creates: Array<Record<string, unknown>>;
 	/** What the next create answers for the review baseline (SPEC.md §10.9). */
@@ -81,6 +86,11 @@ export interface FakeAgent {
 	forwards: Map<string, Set<number>>;
 	/** While true, `POST /forwards` fails so the grant route's 409 shows. */
 	failForward: boolean;
+	/**
+	 * Hold the next listener stop until `release` is called; `reached`
+	 * resolves once that stop has arrived at the fake.
+	 */
+	holdNextStop: () => { reached: Promise<void>; release: () => void };
 	/** Push one frame to every events subscriber of a project. */
 	pushEvent: (key: string, slug: string, frame: unknown) => number;
 	/** Push one frame larger than the control plane's 1 MiB cap. */
@@ -282,6 +292,7 @@ export async function startFakeAgent(
 		}
 	>();
 	const creates: Array<Record<string, unknown>> = [];
+	const requests: Array<{ method: string; url: string }> = [];
 	let baselineReply: { baselineObjectId: string | null; baselineHead: string | null } =
 		{
 			baselineObjectId: null,
@@ -342,6 +353,7 @@ export async function startFakeAgent(
 	const eventSockets = new Map<string, Set<WebSocket>>();
 	const watchFailures = new Set<string>();
 	const eventCloses: Array<{ code: number; reason: string }> = [];
+	let stopHold: { arrived: () => void; released: Promise<void> } | null = null;
 
 	const state = {
 		failCreateWith: null as string | null,
@@ -500,6 +512,7 @@ export async function startFakeAgent(
 		// The /__test hooks exist only on the fake and need no token, so an
 		// end-to-end test can seed a directory the way a student would.
 		if (request.url.startsWith("/__test/")) return;
+		requests.push({ method: request.method, url: request.url });
 		if (!authorized(request)) {
 			return reply
 				.status(401)
@@ -1534,6 +1547,12 @@ export async function startFakeAgent(
 	 */
 	app.post("/listening/:port/stop", async (request, reply) => {
 		const port = Number.parseInt((request.params as { port: string }).port, 10);
+		const hold = stopHold;
+		stopHold = null;
+		if (hold) {
+			hold.arrived();
+			await hold.released;
+		}
 		const key = keyOf(request);
 		const service = listeningFor(key).find((one) => one.port === port);
 		if (!service) {
@@ -1661,8 +1680,21 @@ export async function startFakeAgent(
 		port: address.port,
 		token,
 		appHits,
+		holdNextStop() {
+			let arrived = () => {};
+			let release = () => {};
+			const reached = new Promise<void>((resolve) => {
+				arrived = resolve;
+			});
+			const released = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			stopHold = { arrived, released };
+			return { reached, release };
+		},
 		terminals,
 		creates,
+		requests,
 		get baselineReply() {
 			return baselineReply;
 		},

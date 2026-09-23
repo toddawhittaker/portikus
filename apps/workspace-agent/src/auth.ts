@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 /**
- * Fastify preHandler requiring the per-workspace bearer token on every route,
+ * Fastify onRequest hook requiring the per-workspace bearer token on every route,
  * `/health` and the WebSocket upgrade included (SPEC.md §23.5, §9.7).
  *
  * The token file is re-read on each request so that the control plane can

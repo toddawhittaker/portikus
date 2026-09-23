@@ -94,6 +94,47 @@ make smoke-test
 The Epic 2 and Epic 3 blocks of the smoke test need the workspace image,
 so build it first; without it those blocks are skipped, not failed.
 
+### Security test
+
+```
+make security-test
+```
+
+This runs the Epic 12a security suite (SPEC.md sections 23 and 24, and the
+Gate C checks of section 30) against the VM. Unlike the smoke test, it is
+safe to run on the live pilot while students use it:
+
+- It makes its own users directly in PostgreSQL, under the issuer
+  `urn:portikus:sectest` with subjects `sectest-<run id>-a`, `-b` and
+  `-admin`. Their sessions expire after one hour. It never signs in as a
+  mock account.
+- It creates two workspaces through the API as those users, keeps them
+  running with a presence socket, and probes only those two.
+- It changes no setting and restarts no service.
+- Before it creates anything, it checks that the VM has the memory and
+  thin-pool space for two more workspaces, and stops if not.
+- Before and after, it records every other workspace (database state and
+  Incus status), every other user's role and grace override, and the
+  settings row. Any difference fails the run and prints the difference.
+- At the end, it deletes only the rows and instances it recorded, and only
+  rows owned by a `sectest` user. `make infra-check` proves this with
+  `infra/tests/security-cleanup-scope-test.sh`, which runs the cleanup
+  against a stubbed connection.
+
+Run it from the libvirt host: the network checks probe the host's own
+addresses, which only the host itself knows. A run takes about two
+minutes.
+
+If a run is interrupted before it cleans up, the next run lists the
+leftover `sectest` users and workspaces. `make security-test SWEEP=1`
+removes them. `PORTIKUS_SECURITY_HEAVY=1` adds the heavy resource tests,
+which need a VM with no other workspace; the suite refuses to run them
+otherwise.
+
+A check marked `KNOWN-VULN #<issue>` is a known gap with an open issue. It
+does not fail the run. If such a check starts passing, the suite prints
+`XPASS` and fails, so the marker is removed with the fix.
+
 ## 8. Create a test workspace
 
 ```
