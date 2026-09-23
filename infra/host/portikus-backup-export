@@ -3,8 +3,8 @@
 # backup.sh sends this script with every command, so it is never installed
 # on the VM and cannot drift from the host's copy.  Every command writes its
 # data to standard output for the host to encrypt; nothing is kept on the VM.
-# It only reads: the one thing it creates and deletes is its own snapshot
-# and temporary copy, named below.
+# It only reads, except for its own snapshot and temporary copy, named
+# below, and growing the staging volume to fit the volume being exported.
 #
 # Usage (as root on the VM):
 #   portikus-backup-export volumes        one workspace volume name per line
@@ -37,10 +37,35 @@ remove_leftovers() {
   incus_p storage volume snapshot delete "$POOL" "$vol" "$SNAPSHOT" >/dev/null 2>&1 || true
 }
 
+# gib SIZE -- an Incus size (100GiB, 3GiB, or plain bytes) in whole GiB, rounded up.
+gib() {
+  local bytes
+  [ -n "$1" ] || return 1
+  bytes=$(numfmt --from=auto "${1%B}") || return 1
+  echo $(((bytes + 1073741823) / 1073741824))
+}
+
+# An administrator may raise one home far above the default quota, so the
+# staging volume grows to the volume plus 2 GiB for tar and gzip.  It is
+# thin, so the size costs nothing until written; it never shrinks.
+grow_staging() {
+  local vol=$1 staging want have
+  staging=$(incus config get storage.backups_volume)
+  # Unset means Incus stages on the OS disk, which this cannot grow.
+  [[ "$staging" == "${POOL}/"* ]] || return 0
+  staging=${staging#*/}
+  want=$(gib "$(incus_p storage volume get "$POOL" "$vol" size)") || return 0
+  have=$(gib "$(incus --project default storage volume get "$POOL" "$staging" size)") || have=0
+  want=$((want + 2))
+  [ "$want" -gt "$have" ] || return 0
+  incus --project default storage volume set "$POOL" "$staging" size="${want}GiB" >/dev/null
+}
+
 export_volume() {
   vol=$1
   valid_volume "$vol"
   remove_leftovers "$vol"
+  grow_staging "$vol"
   # vol is global: the trap runs after this function has returned.
   trap 'remove_leftovers "$vol"' EXIT
   # The snapshot fixes one moment of a volume a running workspace may be

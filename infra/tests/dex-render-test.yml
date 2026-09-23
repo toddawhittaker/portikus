@@ -92,6 +92,29 @@
       loop_control:
         label: "{{ item.username }}"
 
+    # Before the package is installed there is no revoke command, and the
+    # users must still be recorded, or the next deploy revokes nothing.
+    # Check mode, because the real tasks chown to root.
+    - name: Run the session revoke tasks with no revoke command
+      ansible.builtin.include_tasks:
+        file: ../ansible/roles/dex/tasks/revoke.yml
+        apply:
+          check_mode: true
+      vars:
+        dex_users_revoke_script: "{{ dex_render_workdir.path }}/no-such-revoke.js"
+        dex_users_state_file: "{{ dex_render_workdir.path }}/deployed-users.json"
+        dex_users_revoke_input: "{{ dex_render_workdir.path }}/revoke-input.json"
+        portikus_database_url: postgresql://unused
+
+    - name: Check the users were recorded anyway
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_users_recorded is not skipped
+          - dex_users_recorded is changed
+          - dex_users_deployed | map(attribute='username') | list == dex_users.users | map(attribute='username') | list
+        fail_msg: "revoke.yml did not record the deployed users when the revoke command was missing"
+
     - name: Remove the working directory
       ansible.builtin.file:
         path: "{{ dex_render_workdir.path }}"

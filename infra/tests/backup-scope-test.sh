@@ -53,6 +53,10 @@ case "\$*" in
     printf '%s\n' container,${INST} custom,${HOME_VOL} custom,${REC_VOL} \\
       custom,${INST}-docker custom,backup-${HOME_VOL} custom,portikus-backups image,abc ;;
   *"storage volume export"*) [ -n "\${FAKE_EXPORT_FAILS:-}" ] && exit 1; printf 'tarball' ;;
+  *"config get storage.backups_volume"*) echo workspace-data/portikus-backups ;;
+  *"storage volume get workspace-data portikus-backups size"*) echo 30GiB ;;
+  *"storage volume get workspace-data ${HOME_VOL} size"*) echo "\${FAKE_HOME_SIZE:-100GiB}" ;;
+  *"storage volume get workspace-data ${REC_VOL} size"*) echo 3GiB ;;
 esac
 exit 0
 EOF
@@ -77,7 +81,16 @@ expect "every volume delete names the temporary copy" \
 expect "every snapshot delete names portikus-backup" \
   "! grep 'snapshot delete' '$log' | grep -v 'snapshot delete workspace-data ${HOME_VOL} portikus-backup\$'"
 expect "nothing names pre-epic10-11" "! grep -q pre-epic10-11 '$log'"
-expect "every call is in the portikus project" "! grep -v -- '--project portikus' '$log' | grep -q ."
+expect "every call but the staging volume's is in the portikus project" \
+  "! grep -v -- '--project portikus' '$log' | grep -vE '^incus (config get storage.backups_volume|--project default storage volume (get|set) workspace-data portikus-backups size.*)\$' | grep -q ."
+expect "a home larger than the staging volume grows it to the home plus 2 GiB, before the export" \
+  "grep -n 'storage volume set workspace-data portikus-backups size=102GiB\$' '$log' | grep -q . && [ \$(grep -n 'portikus-backups size=' '$log' | cut -d: -f1) -lt \$(grep -n 'storage volume export' '$log' | cut -d: -f1) ]"
+: >"$log"
+run_export volume "$REC_VOL" >/dev/null
+expect "a volume that fits never changes the staging volume" "! grep -q 'volume set' '$log'"
+: >"$log"
+FAKE_HOME_SIZE=1073741824000 run_export volume "$HOME_VOL" >/dev/null
+expect "a size in bytes is read too, and rounded up" "grep -q 'portikus-backups size=1002GiB\$' '$log'"
 
 : >"$log"
 if FAKE_EXPORT_FAILS=1 run_export volume "$HOME_VOL" >/dev/null 2>&1; then
@@ -176,7 +189,7 @@ mkdir "${mine}/keep-me" "${sets}/portikus/20250101T000000Z" "${sets}/20250101T00
 
 run_backup() {
   PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
-    PORTIKUS_USERS_FILE="${work}/no-users.json" bash "${repo}/infra/host/backup.sh" 10.101.0.210
+    PORTIKUS_USERS_FILE="${work}/no-users.json" bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210
 }
 set_count() { find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | wc -l; }
 all_sets() { find "$sets" -mindepth 1 | sort; }
@@ -209,7 +222,7 @@ no_set() {
   shift
   before=$(all_sets)
   if env "$@" PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
-    PORTIKUS_USERS_FILE="${work}/no-users.json" bash "${repo}/infra/host/backup.sh" 10.101.0.210 >"${work}/refusal" 2>&1; then
+    PORTIKUS_USERS_FILE="${work}/no-users.json" bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/refusal" 2>&1; then
     bad "$label"
   elif [ "$(all_sets)" != "$before" ]; then
     bad "${label} (it left a set or a partial directory)"
@@ -222,6 +235,25 @@ no_set "a failed volume listing fails the backup and leaves no set" FAKE_VOLUMES
 no_set "an empty volume listing, while a workspace's instance exists, leaves no set" FAKE_VOLUMES_EMPTY=1
 expect "the refusal names the workspace with no home volume" "grep -q 'no ${HOME_VOL}' '${work}/refusal'"
 no_set "a workspace listing that disagrees with the row count leaves no set" FAKE_WORKSPACES_EMPTY=1
+
+# The VM names itself, and it is not trusted: a rooted rehearsal VM calling
+# itself portikus must not write into, or prune, the pilot's sets.
+before=$(all_sets)
+if FAKE_HOSTNAME=portikus run_backup >"${work}/refusal" 2>&1; then
+  bad "backup refuses a VM whose hostname is not the expected name"
+elif [ "$(all_sets)" != "$before" ] || [ -e "${sets}/portikus/.lock" ]; then
+  bad "backup refuses a VM whose hostname is not the expected name (it wrote something)"
+elif ! grep -q "calls itself 'portikus'" "${work}/refusal"; then
+  bad "backup refuses a VM whose hostname is not the expected name (refused for another reason: $(tail -1 "${work}/refusal"))"
+else
+  ok "backup refuses a VM whose hostname is not the expected name"
+fi
+if PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
+  bash "${repo}/infra/host/backup.sh" 10.101.0.210 >/dev/null 2>&1; then
+  bad "backup requires --vm-name"
+else
+  ok "backup requires --vm-name"
+fi
 
 # Only the home volume's export fails.  Set names have one-second resolution.
 sleep 1
@@ -241,6 +273,19 @@ age -d -i "${work}/key.txt" "${partial}/MANIFEST.age" >"${work}/partial-manifest
 expect "the MANIFEST records the failure" "grep -qx 'failed ${HOME_VOL}' '${work}/partial-manifest' && ! grep -q '^volume ${HOME_VOL}' '${work}/partial-manifest'"
 expect "the run says which volume failed" "grep -q 'failed to export (${HOME_VOL})' '${work}/backup.out'"
 expect "an incomplete set does not count toward the fourteen" "[ \$(set_count) = 15 ] && [ -d '${mine}/20260103T000000Z' ]"
+
+# A VM whose export fails every night: incomplete sets are capped at the
+# newest fourteen too, and the last complete set is never removed.
+flaky="${sets}/portikus-flaky"
+mkdir -m 0700 "$flaky" "${flaky}/20250101T000000Z"
+for i in $(seq -w 1 20); do mkdir "${flaky}/202601${i}T000000Z" && echo x >"${flaky}/202601${i}T000000Z/FAILED"; done
+FAKE_HOSTNAME=portikus-flaky FAKE_VOLUME_FAILS="$HOME_VOL" PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" \
+  PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" PORTIKUS_USERS_FILE="${work}/no-users.json" \
+  bash "${repo}/infra/host/backup.sh" --vm-name portikus-flaky 10.101.0.210 >/dev/null 2>&1
+flaky_incomplete=$(find "$flaky" -mindepth 2 -maxdepth 2 -name FAILED | wc -l)
+expect "only the newest fourteen incomplete sets are kept" "[ '$flaky_incomplete' = 14 ]"
+expect "the oldest incomplete sets are the ones removed" "[ ! -d '${flaky}/20260107T000000Z' ] && [ -d '${flaky}/20260108T000000Z' ]"
+expect "the only complete set is kept, however old" "[ -d '${flaky}/20250101T000000Z' ]"
 
 echo "--- restore ---"
 run_restore() {
@@ -287,8 +332,12 @@ if run_restore --target-name portikus-rehearsal 10.101.0.210 "$newest" >"${work}
 else
   bad "restore completes onto an empty VM"; cat "${work}/restore.out"
 fi
+# shellcheck disable=SC2034  # read inside expect's eval
+restore_sql=$(grep -A2 'pg_restore' "$log" | grep '^sql ' | head -1)
 expect "restore marks every workspace stopped right after pg_restore" \
-  "grep -A2 'pg_restore' '$log' | grep -q \"UPDATE workspaces SET state = 'stopped', desired_state = 'stopped'\$\""
+  "[[ \"\$restore_sql\" == *\"UPDATE workspaces SET state = 'stopped', desired_state = 'stopped';\"* ]]"
+expect "restore ends every session and preview session in the same transaction" \
+  "[[ \"\$restore_sql\" == 'sql BEGIN; '*'DELETE FROM preview_sessions; DELETE FROM sessions; COMMIT;' ]]"
 expect "restore samples the plainly named file" "grep -q 'file pull .*projects/demo/a.txt' '$log'"
 expect "restore leaves the names with a tab or a newline out of the sample" "! grep -qE 'tab|line\\.txt' '$log'"
 
@@ -298,7 +347,7 @@ lying_vm() { # LABEL ENV...
   shift
   before_sets=$(all_sets)
   if env "$@" PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
-    PORTIKUS_USERS_FILE="${work}/no-users.json" bash "${repo}/infra/host/backup.sh" 10.101.0.210 >"${work}/refusal" 2>&1; then
+    PORTIKUS_USERS_FILE="${work}/no-users.json" bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/refusal" 2>&1; then
     bad "$label"
   elif [ "$(all_sets)" != "$before_sets" ] || [ -e "${work}/evil" ]; then
     bad "${label} (it wrote something)"
