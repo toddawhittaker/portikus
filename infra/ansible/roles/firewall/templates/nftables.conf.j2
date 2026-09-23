@@ -55,8 +55,17 @@ table inet filter {
     # Block workspace traffic to the VM's own management address
     iifname "{{ incus_network_name }}" ip daddr {{ incus_network_cidr | ansible.utils.ipaddr('address') }} drop
 
-    # Block cloud metadata endpoint and all link-local (section 28)
-    iifname "{{ incus_network_name }}" ip daddr 169.254.0.0/16 drop
+    # Block private and special ranges: the host, the LAN, link-local and
+    # cloud metadata (SPEC.md 23.2).  Neighbour discovery is never forwarded,
+    # so denying fe80::/10 here does not affect it.
+{% set denied_v4 = workspace_egress_denied_ranges | ansible.utils.ipv4 | ansible.utils.cidr_merge %}
+{% set denied_v6 = workspace_egress_denied_ranges | ansible.utils.ipv6 | ansible.utils.cidr_merge %}
+{% if denied_v4 %}
+    iifname "{{ incus_network_name }}" ip daddr { {{ denied_v4 | join(', ') }} } drop
+{% endif %}
+{% if denied_v6 %}
+    iifname "{{ incus_network_name }}" ip6 daddr { {{ denied_v6 | join(', ') }} } drop
+{% endif %}
 
     # --- General egress (after all denies) ---
     iifname "{{ incus_network_name }}" accept
