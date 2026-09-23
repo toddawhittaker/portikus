@@ -192,7 +192,7 @@ if [ "$SEC_HEAVY" = "1" ]; then
     ! sec_exec a student "timeout 120 python3 -c 'b = b\"x\" * (${lim_over} * 1048576); print(len(b))'" >/dev/null 2>&1
   }
   lim_oom_kills() { lim_cgroup memory.events | awk '$1 == "oom_kill" { print $2 }'; }
-  lim_main_pids() { sec_ssh "systemctl show -p MainPID --value postgresql@17-main portikus-api | paste -sd' '"; }
+  lim_main_pids() { sec_ssh "systemctl show -p MainPID --value postgresql@17-main portikus-api | grep . | paste -sd' '"; }
   lim_pids_before=$(lim_main_pids)
   lim_kills_before=$(lim_oom_kills)
   lim_mark=$(lim_watch_count)
