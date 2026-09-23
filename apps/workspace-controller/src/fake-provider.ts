@@ -95,6 +95,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			hostname: string;
 			previewHostSuffix: string;
 			timezone: string;
+			dockerGiB?: number;
 			recoveryGiB?: number;
 		},
 	): Promise<StartInstanceResponse> {

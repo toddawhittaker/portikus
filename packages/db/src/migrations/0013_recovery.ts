@@ -32,6 +32,12 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`CREATE INDEX recovery_points_project_created_idx ON recovery_points (project_id, created_at DESC)`.execute(
 		db,
 	);
+	// Retention reads every point of one workspace (ADR 0020).
+	await db.schema
+		.createIndex("recovery_points_workspace_idx")
+		.on("recovery_points")
+		.column("workspace_id")
+		.execute();
 
 	await db.schema
 		.alterTable("projects")

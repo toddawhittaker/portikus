@@ -18,7 +18,13 @@ export interface RecoverySweepResult {
 }
 
 /** Retention keeps each workspace at or below this share of its allowance (ADR 0020). */
-const RETENTION_TARGET = 0.9;
+const RETENTION_TARGET = 0.75;
+
+/** Sizes count as whole filesystem blocks, so many tiny archives are counted fairly. */
+const BLOCK_BYTES = 4096;
+
+/** Workspaces swept at once, so one slow agent cannot hold up the rest. */
+const SWEEP_CONCURRENCY = 4;
 
 const GIB = 1024 ** 3;
 
@@ -54,7 +60,7 @@ export async function recoverySweep(
 		.where("agent_token", "is not", null)
 		.execute()) as (RunningWorkspace & { pending_operation: string | null })[];
 
-	for (const ws of running) {
+	const sweepOne = async (ws: (typeof running)[number]): Promise<void> => {
 		const agent = agentFor(ws.agent_address, ws.agent_token);
 		const rebuilding = REBUILD_OPERATIONS.includes(ws.pending_operation ?? "");
 		if (rebuilding) {
@@ -87,8 +93,26 @@ export async function recoverySweep(
 				}
 			}
 		}
-		deleted += await applyRetention(db, agent, ws.id, config, now, log);
-	}
+		// Await first: `deleted += await` would read `deleted` before other lanes add to it.
+		const removed = await applyRetention(db, agent, ws.id, config, now, log);
+		deleted += removed;
+	};
+
+	let next = 0;
+	const lane = async (): Promise<void> => {
+		while (next < running.length) {
+			const ws = running[next++] as (typeof running)[number];
+			try {
+				await sweepOne(ws);
+			} catch (e) {
+				log.warn(
+					{ workspaceId: ws.id, error: e instanceof Error ? e.message : String(e) },
+					"recovery sweep of workspace failed",
+				);
+			}
+		}
+	};
+	await Promise.all(Array.from({ length: SWEEP_CONCURRENCY }, lane));
 
 	return { created, deleted };
 }
@@ -150,6 +174,8 @@ async function makePoint(
 			...(latest ? { skipIfFingerprint: latest.fingerprint } : {}),
 		});
 		if (result.created) {
+			// The archive may take minutes, so the point is stamped when it exists.
+			const madeAt = new Date();
 			await db
 				.insertInto("recovery_points")
 				.values({
@@ -157,13 +183,13 @@ async function makePoint(
 					project_id: project.id,
 					workspace_id: workspaceId,
 					reason,
-					created_at: now.toISOString(),
+					created_at: madeAt.toISOString(),
 					created_by: "worker",
 					size_bytes: result.sizeBytes,
 					sha256: result.sha256,
 					fingerprint: result.fingerprint,
 					expires_at: new Date(
-						now.getTime() + config.RECOVERY_RETENTION_DAYS * 86_400_000,
+						madeAt.getTime() + config.RECOVERY_RETENTION_DAYS * 86_400_000,
 					).toISOString(),
 				})
 				.execute();
@@ -201,7 +227,7 @@ async function makePoint(
 
 /**
  * Delete expired points, then the oldest points until the workspace is at or
- * below 90% of its allowance. The newest point of each project is never
+ * below 75% of its allowance. The newest point of each project is never
  * deleted (SPEC.md §15.7, ADR 0020). The file goes first, then the row, so a
  * failed delete leaves the row that accounts for the file.
  */
@@ -232,7 +258,7 @@ async function applyRetention(
 	const newest = new Map<string, string>();
 	for (const p of points) newest.set(p.project_id, p.id);
 
-	let total = points.reduce((sum, p) => sum + Number(p.size_bytes), 0);
+	let total = points.reduce((sum, p) => sum + allocated(p.size_bytes), 0);
 	const target = quotaBytes * RETENTION_TARGET;
 	let deleted = 0;
 
@@ -256,10 +282,15 @@ async function applyRetention(
 			return deleted;
 		}
 		await db.deleteFrom("recovery_points").where("id", "=", p.id).execute();
-		total -= Number(p.size_bytes);
+		total -= allocated(p.size_bytes);
 		deleted++;
 	}
 	return deleted;
+}
+
+/** A point's on-disk size: its bytes rounded up to a whole block. */
+function allocated(sizeBytes: number | string | bigint): number {
+	return Math.ceil(Number(sizeBytes) / BLOCK_BYTES) * BLOCK_BYTES;
 }
 
 /**

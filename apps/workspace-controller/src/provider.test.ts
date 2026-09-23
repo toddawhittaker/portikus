@@ -938,6 +938,61 @@ test("start gives an old workspace its recovery volume and never creates home", 
 	expect(state.execs).toContainEqual(["chmod", "0700", "/var/lib/portikus/recovery"]);
 });
 
+test("a reset that failed after taking Docker off is put back by the next start", async () => {
+	const state = fakeIncus();
+	const before = structuredClone(state.devices);
+	serveIncus(state);
+	const original = handler;
+	let failDelete = true;
+	handler = async (req, res) => {
+		if (failDelete && req.method === "DELETE") {
+			failDelete = false;
+			await readBody(req);
+			incusError(res, 500, "lvremove failed");
+			return;
+		}
+		original(req, res);
+	};
+
+	await expect(
+		provider.resetDocker("ws-test", { dockerGiB: 20 }),
+	).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+	expect(state.devices.docker).toBeUndefined();
+
+	await provider.start("ws-test", { ...START, dockerGiB: 20, recoveryGiB: 3 });
+
+	expect(state.devices).toEqual(before);
+	// The old volume was never deleted, so it is reused, not recreated.
+	expect(state.createdVolumes).toHaveLength(0);
+	expect(state.patches).toEqual([
+		{ devices: { docker: disk("ws-test-docker", "/var/lib/docker") } },
+	]);
+});
+
+test("a failed Docker re-attach fails the start", async () => {
+	const state = fakeIncus();
+	const { docker: _d, ...rest } = state.devices;
+	state.devices = rest;
+	state.volumes.delete("ws-test-docker");
+	state.failVolumeCreate = true;
+	serveIncus(state);
+
+	await expect(
+		provider.start("ws-test", { ...START, dockerGiB: 20 }),
+	).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+	expect(state.status).toBe("Stopped");
+});
+
+test("start with the Docker device on leaves it alone", async () => {
+	const state = fakeIncus();
+	serveIncus(state);
+
+	await provider.start("ws-test", { ...START, dockerGiB: 20 });
+
+	expect(state.createdVolumes).toHaveLength(0);
+	expect(state.patches).toHaveLength(0);
+});
+
 test("start with the recovery device already on only fixes the mount's owner", async () => {
 	const state = fakeIncus();
 	serveIncus(state);

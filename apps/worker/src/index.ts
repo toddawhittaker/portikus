@@ -127,7 +127,7 @@ async function main(): Promise<void> {
 		try {
 			const result = await recoverySweep(
 				db,
-				httpAgentFactory,
+				httpAgentFactory(config.AGENT_PORT),
 				config,
 				new Date(),
 				logger,

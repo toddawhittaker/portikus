@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import {
@@ -933,6 +934,14 @@ describe("database migrations and schema", () => {
 				.values(pointValues(workspaceId, projectId, "hourly"))
 				.execute(),
 		).rejects.toThrow(/check|violates/i);
+	});
+
+	test.skipIf(!hasTestDb())("recovery points are indexed by workspace", async () => {
+		const { rows } = await sql<{ indexdef: string }>`
+			SELECT indexdef FROM pg_indexes
+			WHERE tablename = 'recovery_points' AND indexname = 'recovery_points_workspace_idx'
+		`.execute(t.db);
+		expect(rows[0]?.indexdef).toMatch(/\(workspace_id\)/);
 	});
 
 	test.skipIf(!hasTestDb())(
