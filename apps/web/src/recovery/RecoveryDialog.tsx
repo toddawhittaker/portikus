@@ -56,10 +56,10 @@ export function RecoveryDialog({
 				<div className="flex flex-wrap items-center gap-3">
 					<Button
 						variant="primary"
-						disabled={create.isPending}
 						loading={create.isPending}
 						data-testid="recovery-create"
 						onClick={() => {
+							if (create.isPending) return;
 							setAnnounce("");
 							create.mutate(undefined, {
 								onSuccess: () => setAnnounce("Recovery point created."),
@@ -111,7 +111,7 @@ export function RecoveryDialog({
 										<td className="py-1 text-right">
 											<Button
 												size="sm"
-												aria-label={`Restore to ${when}`}
+												aria-label={`Restore to ${when}, ${REASON_LABEL[point.reason]}`}
 												data-testid={`recovery-restore-${point.id}`}
 												onClick={() => setRestoring(point)}
 											>

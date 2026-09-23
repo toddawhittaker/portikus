@@ -44,6 +44,30 @@ test("Enter on the button checks the size, then downloads the file (#399)", asyn
 	expect(link.download).toBe("big.bin");
 });
 
+test("the button is busy during the size check and ignores repeats (Gate E)", async () => {
+	let finish: (response: Response) => void = () => undefined;
+	const fetch = stubFetch(
+		() =>
+			new Promise<Response>((resolve) => {
+				finish = resolve;
+			}) as unknown as Response,
+	);
+	const click = renderButton();
+
+	const button = screen.getByRole("button", { name: "Download big.bin" });
+	button.focus();
+	fireEvent.click(button);
+	await waitFor(() => expect(button.getAttribute("aria-busy")).toBe("true"));
+	expect(button.getAttribute("aria-disabled")).toBe("true");
+	expect(document.activeElement).toBe(button);
+	fireEvent.click(button);
+	expect(fetch).toHaveBeenCalledTimes(1);
+
+	finish(new Response(null, { status: 204 }));
+	await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+	await waitFor(() => expect(button.hasAttribute("aria-busy")).toBe(false));
+});
+
 test("a file over the cap shows the limit and does not download (#399)", async () => {
 	stubFetch(() => json(413, { code: "FILE_TOO_LARGE", message: "too large" }));
 	const click = renderButton();

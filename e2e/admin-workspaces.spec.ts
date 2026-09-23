@@ -167,7 +167,7 @@ test("disabling an account signs the student out, and enabling lets them back", 
 
 	await openAdmin(page);
 	const panel = await openDetail(page, name);
-	await panel.getByRole("button", { name: `Disable ${name}'s account` }).click();
+	await panel.getByRole("button", { name: `Disable account for ${name}` }).click();
 	await page.getByTestId("disable-dialog").getByTestId("dialog-confirm").click();
 	await expect(toast(page, `${name} disabled`)).toBeVisible();
 	await expect(
@@ -186,7 +186,7 @@ test("disabling an account signs the student out, and enabling lets them back", 
 	).toBeVisible({ timeout: 15_000 });
 	await context.close();
 
-	await panel.getByRole("button", { name: `Enable ${name}'s account` }).click();
+	await panel.getByRole("button", { name: `Enable account for ${name}` }).click();
 	await expect(toast(page, `${name} enabled`)).toBeVisible();
 	await expect
 		.poll(async () => {
@@ -206,9 +206,11 @@ test("archive hides the row, refuses a start, and unarchive brings it back", asy
 	const student = await studentIn(browser);
 	await openAdmin(page);
 	const panel = await openDetail(page, student.name);
+	// Opening the panel moves focus to its heading (Gate E).
+	await expect(panel.getByRole("heading", { name: student.name })).toBeFocused();
 
 	const archive = panel.getByRole("button", {
-		name: `Archive ${student.name}'s workspace`,
+		name: `Archive workspace for ${student.name}`,
 	});
 	// Cancelling puts focus back on the button that opened the dialog.
 	await archive.click();
@@ -235,10 +237,13 @@ test("archive hides the row, refuses a start, and unarchive brings it back", asy
 		toast(page, "This workspace was archived by an administrator."),
 	).toBeVisible();
 
-	await panel
-		.getByRole("button", { name: `Unarchive ${student.name}'s workspace` })
-		.click();
+	const unarchive = panel.getByRole("button", {
+		name: `Unarchive workspace for ${student.name}`,
+	});
+	await unarchive.click();
 	await expect(toast(page, "Workspace unarchived")).toBeVisible();
+	// The button swaps to Archive in place; focus stays on it (Gate E).
+	await expect(archive).toBeFocused();
 	await page.getByText("Show archived").click();
 	await expect(row).toBeVisible();
 	await expect(row.getByText("Archived", { exact: true })).toHaveCount(0);
@@ -303,7 +308,7 @@ async function pendingOperation(workspaceId: string): Promise<string | null> {
 for (const { name, button, dialogId, confirmLabel, done, operation, action } of [
 	{
 		name: "Rebuild",
-		button: (student: string) => `Rebuild ${student}'s workspace`,
+		button: (student: string) => `Rebuild workspace for ${student}`,
 		dialogId: "rebuild-dialog",
 		confirmLabel: "Rebuild",
 		done: "Rebuild requested",
@@ -312,7 +317,7 @@ for (const { name, button, dialogId, confirmLabel, done, operation, action } of 
 	},
 	{
 		name: "Reset Docker",
-		button: (student: string) => `Reset Docker in ${student}'s workspace`,
+		button: (student: string) => `Reset Docker for ${student}`,
 		dialogId: "reset-docker-dialog",
 		confirmLabel: "Reset Docker",
 		done: "Docker reset requested",
@@ -344,11 +349,11 @@ for (const { name, button, dialogId, confirmLabel, done, operation, action } of 
 		await expect.poll(() => pendingOperation(student.workspaceId)).toBe(operation);
 		await expect(panel.getByTestId("pending-operation")).toBeVisible();
 		await expect(
-			panel.getByRole("button", { name: `Rebuild ${student.name}'s workspace` }),
+			panel.getByRole("button", { name: `Rebuild workspace for ${student.name}` }),
 		).toBeDisabled();
 		await expect(
 			panel.getByRole("button", {
-				name: `Reset Docker in ${student.name}'s workspace`,
+				name: `Reset Docker for ${student.name}`,
 			}),
 		).toBeDisabled();
 		await expect(panel.getByText(action)).toBeVisible();

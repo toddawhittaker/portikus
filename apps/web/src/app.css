@@ -16,6 +16,14 @@ body,
 	height: 100%;
 }
 
+/* A button kept focusable while unavailable looks like a disabled one. */
+.pk-btn[aria-disabled="true"]:not([aria-busy="true"]) {
+	cursor: not-allowed;
+	background: var(--surface-sunken);
+	color: var(--ink-faint);
+	border-color: var(--line);
+}
+
 body {
 	margin: 0;
 	background: var(--surface);
@@ -82,7 +90,15 @@ body {
 	line-height: 22px;
 	font-weight: 600;
 }
-.pk-text-body {
+.pk-text- /* A button kept focusable while unavailable looks like a disabled one. */
+.pk-btn[aria-disabled="true"]:not([aria-busy="true"]) {
+	cursor: not-allowed;
+	background: var(--surface-sunken);
+	color: var(--ink-faint);
+	border-color: var(--line);
+}
+
+body {
 	margin: 0;
 	font-size: 14px;
 	line-height: 20px;
@@ -541,7 +557,15 @@ button.pk-statusbar-item:hover {
 	line-height: 20px;
 	font-weight: 600;
 }
-.pk-notice-body {
+.pk-notice- /* A button kept focusable while unavailable looks like a disabled one. */
+.pk-btn[aria-disabled="true"]:not([aria-busy="true"]) {
+	cursor: not-allowed;
+	background: var(--surface-sunken);
+	color: var(--ink-faint);
+	border-color: var(--line);
+}
+
+body {
 	margin: 0;
 	font-size: 14px;
 	line-height: 20px;

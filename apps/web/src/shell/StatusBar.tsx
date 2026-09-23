@@ -104,20 +104,21 @@ export function StatusBar({
 				</span>
 			)}
 			{/* Announces a class crossing a threshold (SPEC.md §19.2). */}
-			<span role="status" className="contents">
-				{warning ? (
-					<button
-						type="button"
-						className={`pk-statusbar-item ${warning.level === "critical" ? "pk-tone-error" : "pk-tone-warning"}`}
-						aria-haspopup="dialog"
-						data-testid="storage-warning"
-						data-level={warning.level}
-						onClick={() => setStatusOpen(true)}
-					>
-						{warning.text}
-					</button>
-				) : null}
+			<span role="status" className="sr-only" data-testid="storage-warning-announce">
+				{warning?.announcement ?? ""}
 			</span>
+			{warning ? (
+				<button
+					type="button"
+					className={`pk-statusbar-item ${warning.level === "critical" ? "pk-tone-error" : "pk-tone-warning"}`}
+					aria-haspopup="dialog"
+					data-testid="storage-warning"
+					data-level={warning.level}
+					onClick={() => setStatusOpen(true)}
+				>
+					{warning.text}
+				</button>
+			) : null}
 			<button
 				type="button"
 				className="pk-statusbar-item"
@@ -229,6 +230,7 @@ function WorkspaceControls({
 
 	function run(next: "start" | "stop" | "restart") {
 		setConfirming(null);
+		if (moving) return;
 		action.mutate(next, {
 			onError: (error) =>
 				toast.show({
@@ -244,7 +246,8 @@ function WorkspaceControls({
 			{stopped ? (
 				<Button
 					variant="primary"
-					disabled={moving}
+					loading={action.isPending}
+					aria-disabled={moving ? true : undefined}
 					data-testid="workspace-start"
 					onClick={() => run("start")}
 				>
@@ -253,31 +256,33 @@ function WorkspaceControls({
 			) : (
 				<>
 					<Button
-						disabled={moving}
+						aria-disabled={moving ? true : undefined}
 						data-testid="workspace-restart"
-						onClick={() => setConfirming("restart")}
+						onClick={() => (moving ? undefined : setConfirming("restart"))}
 					>
 						Restart workspace
 					</Button>
 					<Button
-						disabled={moving}
+						aria-disabled={moving ? true : undefined}
 						data-testid="workspace-stop"
-						onClick={() => setConfirming("stop")}
+						onClick={() => (moving ? undefined : setConfirming("stop"))}
 					>
 						Stop workspace
 					</Button>
 				</>
 			)}
-			{resolved?.moving ? (
-				<span
-					className="pk-text-small text-ink-muted"
-					data-testid="workspace-transition"
-				>
-					{workspace?.pendingOperation
+			{/* Always mounted, so a new transition is announced inside the dialog. */}
+			<span
+				className="pk-text-small text-ink-muted"
+				role="status"
+				data-testid="workspace-transition"
+			>
+				{resolved?.moving
+					? workspace?.pendingOperation
 						? resolved.label
-						: `${resolved.label} your workspace.`}
-				</span>
-			) : null}
+						: `${resolved.label} your workspace.`
+					: ""}
+			</span>
 
 			<ConfirmDialogRoot
 				open={confirming !== null}
@@ -334,7 +339,11 @@ function StorageSection({
 									data-testid={`storage-${storageClass}`}
 								>
 									{figure
-										? `${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}`
+										? `${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}${
+												level === "warning" || level === "critical"
+													? ", nearly full"
+													: ""
+											}`
 										: "Not available"}
 								</dd>
 							</div>
@@ -379,9 +388,10 @@ function ResetDocker({
 	return (
 		<div className="mt-4">
 			<Button
-				disabled={busy}
+				loading={reset.isPending}
+				aria-disabled={busy ? true : undefined}
 				data-testid="workspace-reset-docker"
-				onClick={() => setConfirming(true)}
+				onClick={() => (busy ? undefined : setConfirming(true))}
 			>
 				Reset Docker…
 			</Button>

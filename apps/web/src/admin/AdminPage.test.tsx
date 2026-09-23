@@ -78,7 +78,9 @@ function stubAdmin(
 /** Opens one account's detail panel from the Workspaces tab. */
 async function openDetail(name: string): Promise<void> {
 	fireEvent.click(
-		await screen.findByRole("button", { name: `Show details for ${name}` }),
+		await screen.findByRole("button", {
+			name: new RegExp(`^Show details for ${name}, `),
+		}),
 	);
 	await screen.findByRole("region", { name });
 }
@@ -301,21 +303,21 @@ test("the grace form still sends only the seconds", async () => {
 	expect(writes[0]?.body).toEqual({ shutdownGraceSeconds: 900 });
 });
 
-test("each account's grace field and button are named after the user (issue #371)", async () => {
+test("the grace field is named by its visible label and Save after the user (WCAG 2.5.3, issue #371)", async () => {
 	stubAdmin(600);
 
 	renderApp("/admin");
 	await openDetail("Alice Example");
 
-	expect(
-		screen.getByRole("textbox", { name: "Grace period for Alice Example, in seconds" }),
-	).toBe(screen.getByTestId(`user-grace-input-${USER.id}`));
+	expect(screen.getByRole("textbox", { name: "Grace period override (seconds)" })).toBe(
+		screen.getByTestId(`user-grace-input-${USER.id}`),
+	);
 	expect(screen.getByRole("button", { name: "Save Alice Example" })).toBe(
 		screen.getByTestId(`user-grace-save-${USER.id}`),
 	);
 	// Each row's details button says whose row it is.
 	expect(
-		screen.getByRole("button", { name: "Show details for Carol Admin" }),
+		screen.getByRole("button", { name: /^Show details for Carol Admin, / }),
 	).toBeDefined();
 });
 

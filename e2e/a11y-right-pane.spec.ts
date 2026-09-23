@@ -103,17 +103,17 @@ test.describe("admin and standalone page accessibility", () => {
 		// Each row's details button is named after its user (Epic 11).
 		const table = page.getByTestId("admin-accounts");
 		await expect(
-			table.getByRole("button", { name: "Show details for Carol Admin", exact: true }),
+			table.getByRole("button", { name: /^Show details for Carol Admin, / }),
 		).toBeVisible();
 		await table
-			.getByRole("button", { name: "Show details for Alice Student", exact: true })
+			.getByRole("button", { name: /^Show details for Alice Student, / })
 			.click();
 
 		// The grace override moved into the detail panel and keeps its names.
 		const panel = page.getByRole("region", { name: "Alice Student" });
 		await expect(
 			panel.getByRole("textbox", {
-				name: "Grace period for Alice Student, in seconds",
+				name: "Grace period override (seconds)",
 				exact: true,
 			}),
 		).toBeVisible();

@@ -102,16 +102,30 @@ test("Older and Newer page by id", async () => {
 	await screen.findByTestId("audit-row-60");
 	const newer = screen.getByRole("button", { name: "Newer audit events" });
 	const older = screen.getByRole("button", { name: "Older audit events" });
-	expect((newer as HTMLButtonElement).disabled).toBe(true);
+	expect(newer.getAttribute("aria-disabled")).toBe("true");
 
+	await waitFor(() =>
+		expect(screen.getByTestId("audit-page").textContent).toBe("Page 1, 2 events"),
+	);
+	expect(screen.getByTestId("audit-page").getAttribute("role")).toBe("status");
+
+	// A paging button that becomes unavailable keeps focus (Gate E).
+	older.focus();
 	fireEvent.click(older);
 	await screen.findByTestId("audit-row-3");
 	expect(screen.queryByTestId("audit-row-60")).toBeNull();
-	await waitFor(() => expect((older as HTMLButtonElement).disabled).toBe(true));
-	expect((newer as HTMLButtonElement).disabled).toBe(false);
+	await waitFor(() => expect(older.getAttribute("aria-disabled")).toBe("true"));
+	expect(newer.getAttribute("aria-disabled")).toBe(null);
+	expect(document.activeElement).toBe(older);
+	expect(screen.getByTestId("audit-page").textContent).toBe("Page 2, 1 event");
 
+	// Clicking the unavailable button does nothing.
+	fireEvent.click(older);
+
+	newer.focus();
 	fireEvent.click(newer);
 	await screen.findByTestId("audit-row-60");
+	expect(document.activeElement).toBe(newer);
 	expect(fetch.mock.calls.map((call) => String(call[0]))).toEqual([
 		"/admin/audit",
 		"/admin/audit?before=59",
@@ -146,17 +160,22 @@ test("applying filters starts again from the newest page", async () => {
 	fireEvent.change(screen.getByTestId("audit-filter-action"), {
 		target: { value: "user." },
 	});
-	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+	const apply = screen.getByRole("button", { name: "Apply filters" });
+	apply.focus();
+	fireEvent.click(apply);
 
 	await screen.findByText("user.disabled");
+	// Only the results re-key, so the focused Apply button is the same node.
+	expect(document.activeElement).toBe(apply);
 	expect(fetch).toHaveBeenLastCalledWith(
 		`/admin/audit?user=${USER_ID}&action=user.`,
 		expect.anything(),
 	);
 	expect(
-		(screen.getByRole("button", { name: "Newer audit events" }) as HTMLButtonElement)
-			.disabled,
-	).toBe(true);
+		screen
+			.getByRole("button", { name: "Newer audit events" })
+			.getAttribute("aria-disabled"),
+	).toBe("true");
 });
 
 test("an ID that is not a full ID is refused before any request", async () => {
@@ -169,8 +188,22 @@ test("an ID that is not a full ID is refused before any request", async () => {
 	});
 	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
 
-	expect((await screen.findByRole("alert")).textContent).toContain("must be a full ID");
+	// The error is tied to the field at fault.
+	const field = screen.getByRole("textbox", { name: "Workspace ID" });
+	await waitFor(() => expect(field.getAttribute("aria-invalid")).toBe("true"));
+	const described = document.getElementById(
+		field.getAttribute("aria-describedby") ?? "",
+	);
+	expect(described?.textContent).toContain("Enter a full ID");
+	expect(
+		screen.getByRole("textbox", { name: "User ID" }).getAttribute("aria-invalid"),
+	).toBe(null);
 	expect(fetch).toHaveBeenCalledTimes(1);
+
+	// A fixed value clears the error at the start of the next Apply.
+	fireEvent.change(field, { target: { value: "" } });
+	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+	await waitFor(() => expect(field.getAttribute("aria-invalid")).toBe(null));
 });
 
 test("an API error is announced", async () => {
