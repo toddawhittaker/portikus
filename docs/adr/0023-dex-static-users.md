@@ -31,6 +31,10 @@ Ansible role `dex`.
   against Go's checksum database. `go.sum` verifies every module. A marker
   file records the installed commit, so a run whose marker matches builds
   nothing. A failed build leaves the old binary running.
+- **Pages.** Dex's sign-in pages come from the same pinned source, copied to
+  `/usr/local/share/portikus/dex-web` and served through `frontend.dir`, with
+  two accessibility fixes and no restyling: the page declares
+  `lang="en"`, and the failed sign-in message has `role="alert"`.
 - **Storage.** `storage: memory`. Every account comes from the static
   configuration, and Portikus reads the ID token once at sign-in and keeps
   its own server-side session (ADR 0008). A restart loses only sign-ins in
