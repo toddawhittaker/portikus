@@ -1,5 +1,9 @@
-import { describe, expect, test } from "vitest";
+import type { Database } from "@portikus/db";
+import Fastify, { type FastifyInstance } from "fastify";
+import type { Kysely } from "kysely";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
+	authPlugin,
 	checkCsrf,
 	checkWsOrigin,
 	loginCookieName,
@@ -91,5 +95,63 @@ describe("cookie options", () => {
 		expect(login.signed).toBe(true);
 		expect(login.maxAge).toBe(600);
 		expect(login.httpOnly).toBe(true);
+	});
+});
+
+describe("the LTI exemptions", () => {
+	const CROSS_SITE = {
+		"sec-fetch-site": "cross-site",
+		origin: "https://lms.example.edu",
+	};
+	let app: FastifyInstance;
+
+	beforeAll(async () => {
+		app = Fastify();
+		// No request here carries a session cookie, so the database is never touched.
+		await app.register(authPlugin, { db: {} as Kysely<Database>, auth: opts });
+		for (const url of ["/lti/login", "/lti/launch", "/lti/launchx", "/lti/jwks"]) {
+			app.get(url, async () => "ok");
+			app.post(url, async () => "ok");
+		}
+		await app.ready();
+	});
+
+	afterAll(async () => {
+		await app.close();
+	});
+
+	test.each(["/lti/login", "/lti/launch"])(
+		"a cross-site POST %s passes the CSRF check without a session",
+		async (url) => {
+			const res = await app.inject({ method: "POST", url, headers: CROSS_SITE });
+			expect(res.statusCode).toBe(200);
+		},
+	);
+
+	test.each(["/lti/jwks", "/lti/launchx"])(
+		"a cross-site POST %s is still refused",
+		async (url) => {
+			const res = await app.inject({ method: "POST", url, headers: CROSS_SITE });
+			expect(res.statusCode).toBe(403);
+		},
+	);
+
+	test("a query string cannot widen the exemption", async () => {
+		const res = await app.inject({
+			method: "POST",
+			url: "/lti/launchx?x=/lti/launch",
+			headers: CROSS_SITE,
+		});
+		expect(res.statusCode).toBe(403);
+	});
+
+	test.each(["/lti/login", "/lti/jwks"])("GET %s needs no session", async (url) => {
+		expect((await app.inject({ method: "GET", url })).statusCode).toBe(200);
+	});
+
+	test("any other /lti path still needs a session", async () => {
+		expect((await app.inject({ method: "GET", url: "/lti/launchx" })).statusCode).toBe(
+			401,
+		);
 	});
 });

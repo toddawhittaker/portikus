@@ -121,7 +121,7 @@ test("AuthUser rejects an unknown role", () => {
 		id: "550e8400-e29b-41d4-a716-446655440111",
 		email: "a@example.com",
 		displayName: "Alice",
-		role: "instructor",
+		role: "teacher",
 	});
 	expect(result.success).toBe(false);
 });

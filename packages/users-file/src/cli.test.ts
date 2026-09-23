@@ -133,6 +133,17 @@ describe("add", () => {
 		expect(await bcrypt.compare(PASSWORD, (user as User).passwordHash)).toBe(true);
 	});
 
+	it("accepts the instructor role and offers it in the prompt", async () => {
+		await addCarol();
+		const { input } = terminal(
+			`ivy@example.edu\rIvy Instructor\rinstructor\r${PASSWORD}\r${PASSWORD}\r`,
+		);
+		const result = await run(["add", "ivy"], input);
+		expect(result.code).toBe(0);
+		expect(result.stderr).toContain("Role (student/instructor/administrator)");
+		expect(readFile().users[1]).toMatchObject({ username: "ivy", role: "instructor" });
+	});
+
 	it("offers current values on an update and keeps the userId", async () => {
 		await addCarol();
 		const before = readFile().users[0] as User;

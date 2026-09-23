@@ -4,7 +4,7 @@ export const USERNAME_PATTERN = /^[a-z][a-z0-9._-]{0,31}$/;
 // Costs 10 to 12 only: a higher cost lets counted attempts burn the VM's CPU. 60 characters in all.
 export const HASH_PATTERN = /^\$2[aby]\$1[0-2]\$[./A-Za-z0-9]{53}$/;
 
-export const roles = ["student", "administrator"] as const;
+export const roles = ["student", "instructor", "administrator"] as const;
 export type Role = (typeof roles)[number];
 
 const userSchema = z.strictObject({

@@ -1,8 +1,9 @@
 import type { Role, UsersFile } from "./schema.js";
 
-// Group names Portikus maps through OIDC_ADMIN_GROUP and OIDC_STUDENT_GROUP.
+// Group names Portikus maps through OIDC_ADMIN_GROUP, OIDC_INSTRUCTOR_GROUP and OIDC_STUDENT_GROUP.
 export const groupForRole: Record<Role, string> = {
 	student: "portikus-students",
+	instructor: "instructor",
 	administrator: "portikus-administrators",
 };
 

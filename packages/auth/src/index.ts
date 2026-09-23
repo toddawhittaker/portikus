@@ -11,6 +11,41 @@ export {
 } from "./carry-over.js";
 export { dexLocalSubject } from "./dex-subject.js";
 export {
+	isOnOrigin,
+	type LtiLoginParams,
+	type LtiLoginRefusal,
+	type LtiLoginResult,
+	startLtiLogin,
+} from "./lti/login.js";
+export {
+	findPlatform,
+	type LtiPlatform,
+	loadPlatformsFile,
+	PlatformsFileError,
+	parsePlatformsFile,
+} from "./lti/platforms.js";
+export { type LtiRole, mapLtiRoles } from "./lti/roles.js";
+export {
+	checkLaunchState,
+	consumeLoginState,
+	hashState,
+	LTI_STATE_TTL_SECONDS,
+	type LtiLoginState,
+	type LtiLoginStatesTable,
+	ltiStateCookieName,
+	ltiStateCookieOptions,
+	saveLoginState,
+} from "./lti/state.js";
+export {
+	createKeySetSource,
+	type KeySetSource,
+	type LtiLaunch,
+	type LtiLaunchResult,
+	type LtiRefusal,
+	type ValidateLaunchInput,
+	validateLaunchToken,
+} from "./lti/validate.js";
+export {
 	createOidcClient,
 	type LoginState,
 	type OidcClient,
