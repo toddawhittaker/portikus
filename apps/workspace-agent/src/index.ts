@@ -1,6 +1,7 @@
 import { AgentConfigSchema, loadConfig } from "@portikus/config";
 import { createLogger } from "@portikus/observability";
 import { removeStaleTemporaries } from "./projects.js";
+import { removeRestoreLeftovers } from "./recovery.js";
 import { buildServer } from "./server.js";
 
 const config = loadConfig(AgentConfigSchema);
@@ -13,6 +14,12 @@ const logger = createLogger({
 // A workspace stopped mid-clone leaves a half-finished directory behind.
 for (const name of await removeStaleTemporaries(config.HOME_DIR)) {
 	logger.info({ name }, "removed a stale project temporary directory");
+}
+
+// A restore cut off by a crash leaves its staging and aside directories.
+const leftovers = await removeRestoreLeftovers(config.HOME_DIR);
+if (leftovers > 0) {
+	logger.info({ count: leftovers }, "removed leftover restore directories");
 }
 
 const workspaceFromEnv = process.env.PORTIKUS_WORKSPACE_ID ?? "";

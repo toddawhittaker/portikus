@@ -44,14 +44,20 @@ export function registerRecoveryRoutes(
 			return reply.code(400).send(badRequest());
 		}
 		const { projectId, pointId, skipIfFingerprint } = body.data;
+		// A caller that gives up stops tar, which removes the partial file and
+		// frees the project's lock.
+		const abort = new AbortController();
+		const onClose = () => {
+			if (!reply.raw.writableFinished) abort.abort();
+		};
+		reply.raw.once("close", onClose);
 		try {
 			const result = await locks.run(projectId, () =>
-				createRecoveryPoint(paths, {
-					slug: params.data.slug,
-					projectId,
-					pointId,
-					skipIfFingerprint,
-				}),
+				createRecoveryPoint(
+					paths,
+					{ slug: params.data.slug, projectId, pointId, skipIfFingerprint },
+					abort.signal,
+				),
 			);
 			if (!result.created) {
 				request.log.debug({ projectId }, "recovery point skipped, project unchanged");
@@ -63,7 +69,16 @@ export function registerRecoveryRoutes(
 			);
 			return reply.code(201).send(result);
 		} catch (error) {
+			if (abort.signal.aborted) {
+				request.log.info(
+					{ projectId, pointId },
+					"recovery point abandoned by the caller",
+				);
+				return reply;
+			}
 			return sendError(request, reply, error, "INTERNAL");
+		} finally {
+			reply.raw.off("close", onClose);
 		}
 	});
 

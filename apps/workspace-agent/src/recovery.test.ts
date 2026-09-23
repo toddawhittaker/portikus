@@ -5,6 +5,8 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
+	appendFile,
+	chmod,
 	lstat,
 	mkdir,
 	mkdtemp,
@@ -28,6 +30,7 @@ import {
 	deleteRecoveryPoint,
 	RecoveryLocks,
 	type RecoveryPaths,
+	removeRestoreLeftovers,
 	restoreRecoveryPoint,
 	safeMemberName,
 	walkProject,
@@ -502,4 +505,97 @@ test("a second operation on the same project is BUSY, another project is not", a
 	release();
 	await held;
 	await expect(locks.run("p1", async () => 3)).resolves.toBe(3);
+});
+
+describe("unreadable directories, changing files, and the point's own rules", () => {
+	async function restore(pointId: string, file: string) {
+		await restoreRecoveryPoint(paths, {
+			slug: "alpha",
+			projectId,
+			pointId,
+			sha256: await sha(file),
+		});
+	}
+
+	test("an unreadable directory is left out of a point and kept by a restore", async () => {
+		await mkdir(join(project, "pgdata"));
+		await writeFile(join(project, "pgdata", "PG_VERSION"), "16\n");
+		await chmod(join(project, "pgdata"), 0o000);
+		try {
+			const walk = await walkProject(project, recoveryMatcher(""));
+			expect(walk.paths).not.toContain("pgdata");
+			const { pointId, file } = await point();
+			await writeFile(join(project, "src", "app.js"), "damaged\n");
+			await restore(pointId, file);
+			expect(await readFile(join(project, "src", "app.js"), "utf8")).toBe(
+				"console.log(2);\n",
+			);
+			expect((await lstat(join(project, "pgdata"))).mode & 0o777).toBe(0);
+		} finally {
+			await chmod(join(project, "pgdata"), 0o700);
+		}
+		expect(await readFile(join(project, "pgdata", "PG_VERSION"), "utf8")).toBe("16\n");
+	});
+
+	test("a file growing while it is archived still makes a point", async () => {
+		const growing = join(project, "server.log");
+		await writeFile(growing, Buffer.alloc(32 * 1024 * 1024, 97));
+		let writing = true;
+		const writer = (async () => {
+			while (writing) await appendFile(growing, "more log\n".repeat(1000));
+		})();
+		try {
+			const { result } = await point();
+			expect(result.created).toBe(true);
+		} finally {
+			writing = false;
+			await writer;
+		}
+	});
+
+	test("the point's own .workspaceignore decides what a restore keeps", async () => {
+		await writeFile(join(project, ".workspaceignore"), "scratch/\n");
+		const { pointId, file } = await point();
+		// The rule is dropped after the point; the directory must still be kept.
+		await rm(join(project, ".workspaceignore"));
+		await mkdir(join(project, "scratch"));
+		await writeFile(join(project, "scratch", "data.csv"), "keep me\n");
+		await restore(pointId, file);
+		expect(await readFile(join(project, "scratch", "data.csv"), "utf8")).toBe(
+			"keep me\n",
+		);
+		expect(await readFile(join(project, ".workspaceignore"), "utf8")).toBe(
+			"scratch/\n",
+		);
+	});
+
+	test("an archived build file never replaces a kept, excluded build/ directory", async () => {
+		await writeFile(join(project, ".workspaceignore"), "build/\n");
+		await writeFile(join(project, "build"), "a file then\n");
+		const { pointId, file } = await point();
+		await rm(join(project, "build"));
+		await mkdir(join(project, "build"));
+		await writeFile(join(project, "build", "out.js"), "built\n");
+		await restore(pointId, file);
+		expect(await readFile(join(project, "build", "out.js"), "utf8")).toBe("built\n");
+		expect(await readdir(join(paths.homeDir, "projects"))).toEqual(["alpha"]);
+	});
+
+	test("leftover staging and aside directories are removed, nothing else", async () => {
+		const root = join(paths.homeDir, "projects");
+		const id = randomUUID();
+		const linkName = `.portikus-restore-${randomUUID()}`;
+		await mkdir(join(root, `.portikus-restore-${id}`));
+		await mkdir(join(root, `.portikus-aside-${id}`));
+		await symlink(outside, join(root, `.portikus-aside-${id}`, "out"));
+		await symlink(outside, join(root, linkName));
+		await mkdir(join(root, ".portikus-aside-not-a-uuid"));
+		expect(await removeRestoreLeftovers(paths.homeDir)).toBe(2);
+		expect((await readdir(root)).sort()).toEqual(
+			[".portikus-aside-not-a-uuid", "alpha", linkName].sort(),
+		);
+		expect(await readFile(join(outside, "target.txt"), "utf8")).toBe(
+			"OUTSIDE-SECRET\n",
+		);
+	});
 });

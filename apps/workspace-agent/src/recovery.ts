@@ -9,7 +9,7 @@
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, type Dirent } from "node:fs";
 import {
 	chmod,
 	lstat,
@@ -20,10 +20,9 @@ import {
 	rename,
 	rm,
 	rmdir,
-	unlink,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { Transform } from "node:stream";
+import { Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createZstdCompress, createZstdDecompress } from "node:zlib";
 import type { AgentCreateRecoveryPointResponse } from "@portikus/contracts";
@@ -80,15 +79,7 @@ export async function walkProject(
 ): Promise<ProjectWalk> {
 	const paths: string[] = [];
 	const lines: string[] = [];
-	const visit = async (dirRel: string): Promise<void> => {
-		let names: string[];
-		try {
-			names = await readdir(dirRel === "" ? projectPath : join(projectPath, dirRel));
-		} catch (error) {
-			// A directory removed while walking is simply not in this point.
-			if (isMissing(error)) return;
-			throw error;
-		}
+	const visit = async (dirRel: string, names: string[]): Promise<void> => {
 		names.sort();
 		for (const name of names) {
 			const rel = dirRel === "" ? name : `${dirRel}/${name}`;
@@ -96,13 +87,18 @@ export async function walkProject(
 			try {
 				info = await lstat(join(projectPath, rel));
 			} catch (error) {
-				if (isMissing(error)) continue;
+				if (isMissing(error) || isDenied(error)) continue;
 				throw error;
 			}
 			let type: "dir" | "file" | "link";
 			let target: string | null = null;
+			let children: string[] | null = null;
 			if (info.isDirectory()) {
 				if (matcher.excludes(`${rel}/`)) continue;
+				// Unreadable (say a database's 0700 data directory) or removed while
+				// walking: left out, as tar --ignore-failed-read leaves out a file.
+				children = await readdirOrNull(join(projectPath, rel));
+				if (children === null) continue;
 				type = "dir";
 			} else if (info.isSymbolicLink()) {
 				if (matcher.excludes(rel)) continue;
@@ -125,10 +121,12 @@ export async function walkProject(
 					target,
 				]),
 			);
-			if (type === "dir") await visit(rel);
+			if (children !== null) await visit(rel, children);
 		}
 	};
-	await visit("");
+	const top = await readdirOrNull(projectPath);
+	if (top === null) throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
+	await visit("", top);
 	lines.sort();
 	const hash = createHash("sha256");
 	for (const line of lines) hash.update(`${line}\n`);
@@ -151,6 +149,7 @@ export interface CreatePointInput {
 export async function createRecoveryPoint(
 	paths: RecoveryPaths,
 	input: CreatePointInput,
+	signal?: AbortSignal,
 ): Promise<AgentCreateRecoveryPointResponse> {
 	assertId(input.projectId);
 	assertId(input.pointId);
@@ -163,11 +162,12 @@ export async function createRecoveryPoint(
 	if (input.skipIfFingerprint === walk.fingerprint) {
 		return { created: false, fingerprint: walk.fingerprint };
 	}
+	signal?.throwIfAborted();
 	const dir = await pointDirectory(paths.recoveryRoot, input.projectId, true);
 	const final = join(dir, `${input.pointId}.tar.zst`);
 	const partial = `${final}.partial`;
 	try {
-		const written = await writeArchive(project.path, walk.paths, partial);
+		const written = await writeArchive(project.path, walk.paths, partial, signal);
 		await rename(partial, final);
 		return { created: true, ...written, fingerprint: walk.fingerprint };
 	} catch (error) {
@@ -222,12 +222,11 @@ export async function restoreRecoveryPoint(
 		}
 	}
 
-	// The name fails the slug pattern, so project discovery never lists it.
-	const staging = join(
-		projectsDir(paths.homeDir),
-		`.portikus-restore-${input.pointId}`,
-	);
+	// These names fail the slug pattern, so project discovery never lists them.
+	const staging = join(projectsDir(paths.homeDir), `${STAGING_PREFIX}${input.pointId}`);
+	const aside = join(projectsDir(paths.homeDir), `${ASIDE_PREFIX}${input.pointId}`);
 	await rm(staging, { recursive: true, force: true });
+	await rm(aside, { recursive: true, force: true });
 	await mkdir(staging, { mode: 0o700 });
 	try {
 		const extracted = await readArchive(archive, [
@@ -245,9 +244,9 @@ export async function restoreRecoveryPoint(
 				"the recovery point does not match its record",
 			);
 		}
-		const matcher = await loadRecoveryMatcher(project.path);
-		await clearIncluded(project.path, "", matcher);
-		await moveInto(staging, project.path);
+		// The rules the point was made with decide what is replaced and kept.
+		const matcher = await loadRecoveryMatcher(staging);
+		await swapIn(project.path, staging, aside, matcher);
 	} finally {
 		await rm(staging, { recursive: true, force: true });
 	}
@@ -274,6 +273,34 @@ export async function deleteProjectRecoveryPoints(
 ): Promise<void> {
 	assertId(projectId);
 	await rm(join(recoveryRoot, projectId), { recursive: true, force: true });
+}
+
+const STAGING_PREFIX = ".portikus-restore-";
+const ASIDE_PREFIX = ".portikus-aside-";
+const LEFTOVER =
+	/^\.portikus-(restore|aside)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Remove staging and aside directories a crashed restore left in
+ * `~/projects`: only real directories with exactly those names, and `rm`
+ * never follows a link inside them. Returns how many were removed.
+ */
+export async function removeRestoreLeftovers(homeDir: string): Promise<number> {
+	const root = projectsDir(homeDir);
+	let entries: Dirent[];
+	try {
+		entries = await readdir(root, { withFileTypes: true });
+	} catch (error) {
+		if (isMissing(error)) return 0;
+		throw error;
+	}
+	let removed = 0;
+	for (const entry of entries) {
+		if (!entry.isDirectory() || !LEFTOVER.test(entry.name)) continue;
+		await rm(join(root, entry.name), { recursive: true, force: true });
+		removed += 1;
+	}
+	return removed;
 }
 
 /** A member name that stays inside the extraction directory. */
@@ -330,6 +357,7 @@ async function writeArchive(
 	cwd: string,
 	entries: string[],
 	destination: string,
+	signal?: AbortSignal,
 ): Promise<{ sizeBytes: number; sha256: string }> {
 	const handle = await open(destination, "wx", 0o600);
 	const child = spawn(
@@ -347,7 +375,7 @@ async function writeArchive(
 			"--ignore-failed-read",
 			"--files-from=-",
 		],
-		{ stdio: ["pipe", "pipe", "ignore"] },
+		{ stdio: ["pipe", "pipe", "ignore"], signal },
 	);
 	const tap = hashingTap();
 	child.stdin.on("error", () => {
@@ -367,7 +395,9 @@ async function writeArchive(
 		child.kill();
 		throw written.reason;
 	}
-	if (exited.status === "rejected" || exited.value !== 0) {
+	signal?.throwIfAborted();
+	// GNU tar exits 1 when a file changed while it was read; the point is still whole.
+	if (exited.status === "rejected" || exited.value > 1) {
 		throw new AgentFailure("INTERNAL", "could not write the recovery point");
 	}
 	return { sizeBytes: tap.size(), sha256: tap.digest() };
@@ -393,24 +423,43 @@ async function readArchive(
 		throw new AgentFailure("RECOVERY_POINT_INVALID", "no such recovery point");
 	}
 	const child = spawn("tar", [...tarArgs, "--file=-"], {
-		stdio: ["pipe", "pipe", "ignore"],
+		stdio: ["pipe", "pipe", "pipe"],
+		env: { ...process.env, LC_ALL: "C" },
 	});
 	let stdout = "";
+	let stderr = "";
 	child.stdout.setEncoding("utf8");
 	child.stdout.on("data", (chunk: string) => {
 		stdout += chunk;
 	});
+	child.stderr.setEncoding("utf8");
+	child.stderr.on("data", (chunk: string) => {
+		// Only searched for the no-space message and never logged.
+		stderr = (stderr + chunk).slice(-4096);
+	});
 	child.stdin.on("error", () => {
 		// tar exiting early is reported by its exit code.
 	});
+	// tar may stop reading at the end-of-archive blocks, before the padding
+	// after them. What it does not read is still hashed, then dropped.
+	const toTar = new Writable({
+		write(chunk: Buffer, _encoding, callback) {
+			if (child.stdin.destroyed || child.stdin.writableEnded) return callback();
+			child.stdin.write(chunk, () => callback());
+		},
+		final(callback) {
+			child.stdin.end();
+			callback();
+		},
+		destroy(error, callback) {
+			// A stream that failed must still let tar see the end of its input.
+			child.stdin.destroy();
+			callback(error);
+		},
+	});
 	const tap = hashingTap();
 	const [streamed, exited] = await Promise.allSettled([
-		pipeline(
-			handle.createReadStream(),
-			tap.stream,
-			createZstdDecompress(),
-			child.stdin,
-		),
+		pipeline(handle.createReadStream(), tap.stream, createZstdDecompress(), toTar),
 		exitCode(child),
 	]);
 	if (streamed.status === "rejected") child.kill();
@@ -419,6 +468,9 @@ async function readArchive(
 		exited.status === "rejected" ||
 		exited.value !== 0
 	) {
+		if (/No space left on device|Disk quota exceeded/.test(stderr)) {
+			throw new AgentFailure("STORAGE_FULL", "there is not enough space to restore");
+		}
 		throw new AgentFailure(
 			"RECOVERY_POINT_INVALID",
 			"the recovery point could not be read",
@@ -447,55 +499,147 @@ function exitCode(child: ChildProcess): Promise<number> {
 	});
 }
 
+/** One undoable step of a restore; undone in reverse order. */
+type Step =
+	| { kind: "moved"; from: string; to: string }
+	| { kind: "removedDir"; path: string; mode: number }
+	| { kind: "chmod"; path: string; mode: number };
+
 /**
- * Delete every entry a point would hold: files and links are unlinked, never
- * followed, and a directory that still has excluded children is kept.
+ * Replace the project's included entries with the staged ones. Current
+ * entries are moved into `aside` (same filesystem), staged ones moved in,
+ * and on any failure every step is undone. When the undo itself fails the
+ * aside directory is kept and the error is `RESTORE_INCOMPLETE`.
  */
-async function clearIncluded(
+async function swapIn(
 	projectPath: string,
-	dirRel: string,
+	staging: string,
+	aside: string,
 	matcher: RecoveryMatcher,
 ): Promise<void> {
-	const dir = dirRel === "" ? projectPath : join(projectPath, dirRel);
-	for (const name of await readdir(dir)) {
+	const steps: Step[] = [];
+	try {
+		await mkdir(aside, { mode: 0o700 });
+		await moveAside(projectPath, aside, "", matcher, steps);
+		await moveInto(staging, projectPath, steps);
+	} catch (error) {
+		try {
+			for (const step of steps.reverse()) await undo(step);
+		} catch {
+			throw new AgentFailure(
+				"RESTORE_INCOMPLETE",
+				"the project may be partly restored",
+			);
+		}
+		await rm(aside, { recursive: true, force: true });
+		if (isNoSpace(error)) {
+			throw new AgentFailure("STORAGE_FULL", "there is not enough space to restore");
+		}
+		throw error;
+	}
+	await rm(aside, { recursive: true, force: true });
+}
+
+async function undo(step: Step): Promise<void> {
+	if (step.kind === "moved") await rename(step.to, step.from);
+	else if (step.kind === "removedDir") await mkdir(step.path, { mode: step.mode });
+	else await chmod(step.path, step.mode);
+}
+
+/**
+ * Move every entry a point would hold into `aside`. Files and links are
+ * renamed, never followed. A directory that is excluded or unreadable is
+ * kept as it is, and one that still has kept children stays in place.
+ */
+async function moveAside(
+	projectPath: string,
+	aside: string,
+	dirRel: string,
+	matcher: RecoveryMatcher,
+	steps: Step[],
+): Promise<void> {
+	const names = await readdirOrNull(
+		dirRel === "" ? projectPath : join(projectPath, dirRel),
+	);
+	if (names === null) return;
+	for (const name of names) {
 		const rel = dirRel === "" ? name : `${dirRel}/${name}`;
 		const path = join(projectPath, rel);
-		const info = await lstat(path);
+		let info: Awaited<ReturnType<typeof lstat>>;
+		try {
+			info = await lstat(path);
+		} catch (error) {
+			if (isMissing(error) || isDenied(error)) continue;
+			throw error;
+		}
 		if (info.isDirectory()) {
 			if (matcher.excludes(`${rel}/`)) continue;
-			await clearIncluded(projectPath, rel, matcher);
+			if ((await readdirOrNull(path)) === null) continue;
+			await mkdir(join(aside, rel), { mode: 0o700 });
+			await moveAside(projectPath, aside, rel, matcher, steps);
 			try {
 				await rmdir(path);
+				steps.push({ kind: "removedDir", path, mode: info.mode & 0o7777 });
 			} catch (error) {
 				const code = (error as NodeJS.ErrnoException).code;
 				if (code !== "ENOTEMPTY" && code !== "EEXIST") throw error;
 			}
 		} else if (info.isFile() || info.isSymbolicLink()) {
 			if (matcher.excludes(rel)) continue;
-			await unlink(path);
+			const to = join(aside, rel);
+			await rename(path, to);
+			steps.push({ kind: "moved", from: path, to });
 		}
 	}
 }
 
 /**
- * Move extracted entries into the project. A directory that exists on both
- * sides is merged, checked with `lstat` so a link is never entered; anything
- * else in the way is replaced by the archived entry.
+ * Move staged entries into the project. A directory on both sides is
+ * merged, checked with `lstat` so a link is never entered. Anything else
+ * still in the project was kept on purpose (excluded or unreadable), so it
+ * wins over a same-named staged entry, such as a `build` file against an
+ * excluded `build/` directory.
  */
-async function moveInto(from: string, to: string): Promise<void> {
+async function moveInto(from: string, to: string, steps: Step[]): Promise<void> {
 	for (const name of await readdir(from)) {
 		const source = join(from, name);
 		const target = join(to, name);
 		const sourceInfo = await lstat(source);
-		const targetInfo = await lstat(target).catch(() => null);
+		let targetInfo: Awaited<ReturnType<typeof lstat>> | null = null;
+		try {
+			targetInfo = await lstat(target);
+		} catch (error) {
+			if (!isMissing(error)) continue;
+		}
 		if (sourceInfo.isDirectory() && targetInfo?.isDirectory()) {
-			await moveInto(source, target);
-			await chmod(target, sourceInfo.mode & 0o7777);
+			await moveInto(source, target, steps);
+			const mode = sourceInfo.mode & 0o7777;
+			const was = targetInfo.mode & 0o7777;
+			if (mode !== was) {
+				await chmod(target, mode);
+				steps.push({ kind: "chmod", path: target, mode: was });
+			}
 			continue;
 		}
-		if (targetInfo) await rm(target, { recursive: true, force: true });
+		if (targetInfo) continue;
 		await rename(source, target);
+		steps.push({ kind: "moved", from: source, to: target });
 	}
+}
+
+/** A directory's names, or null when it is unreadable or gone. */
+async function readdirOrNull(path: string): Promise<string[] | null> {
+	try {
+		return await readdir(path);
+	} catch (error) {
+		if (isMissing(error) || isDenied(error)) return null;
+		throw error;
+	}
+}
+
+function isDenied(error: unknown): boolean {
+	const code = (error as NodeJS.ErrnoException).code;
+	return code === "EACCES" || code === "EPERM";
 }
 
 function isMissing(error: unknown): boolean {
