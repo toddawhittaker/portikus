@@ -160,6 +160,10 @@ to two weeks; a post-pilot epic candidate.
 
 **Source.** Todd, 2026-09-17.
 
+**Shipped** as Epic 13 (`docs/EPIC-13.md`, ADR 0025): the core launch, the
+`instructor` role and a read-only Course page. What it left out is listed
+in the LTI entries at the end of this file.
+
 ## Student processes in their own cgroup, with a kill-all action
 
 **What.** Run the student's shells and programs in a cgroup separate from
@@ -994,3 +998,94 @@ today.
 4. Whether a debugger is in scope.
 
 **Source.** Todd and a colleague, after a demo, 2026-09-23.
+
+## LTI grade passback (AGS)
+
+**What.** Send a score from Portikus back to the LMS gradebook through
+the LTI Assignment and Grade Services (AGS).
+
+**Why.** Instructors could grade work done in Portikus without copying
+scores by hand.
+
+**What it would take.** A tool key that signs service tokens (the key
+already exists), an OAuth client-credentials call to the platform, and a
+decision on what a score even is in Portikus. Days, after that decision.
+
+**Source.** Left out of Epic 13.
+
+## LTI roster sync (NRPS)
+
+**What.** Read the course roster from the LMS through the Names and Role
+Provisioning Services (NRPS), and remove members who have left the course.
+
+**Why.** Today the Course page lists only people who have launched, and
+never drops anyone who left.
+
+**What it would take.** A service call per course with the tool key, a
+worker job to refresh rosters, and removing memberships no longer on the
+roster. About two days.
+
+**Source.** Left out of Epic 13.
+
+## LTI Deep Linking
+
+**What.** Let an instructor pick a specific Portikus target, such as a
+starter project, when adding the link in the LMS.
+
+**Why.** A link could open a set exercise rather than just the workspace.
+
+**What it would take.** The Deep Linking message type, a small picker
+page, and a signed response to the LMS. Depends on course templates.
+
+**Source.** Left out of Epic 13.
+
+## Link an LTI account to a Dex account
+
+**What.** Let one person who signs in both from the LMS and through Dex
+have one account and one workspace.
+
+**Why.** Today they get two accounts and two workspaces.
+
+**What it would take.** A linking step that proves control of both
+identities (sign in with one while signed in with the other), never a
+match by email. A day or two plus a security review.
+
+**Source.** Left out of Epic 13 (ruling 3).
+
+## Per-course instructor views of student workspaces
+
+**What.** Let an instructor look into a student's workspace from the
+Course page, read-only at first (SPEC.md section 31).
+
+**Why.** Helping a student today means asking them to share their screen.
+
+**What it would take.** An access class tied to course membership,
+audited reads through the file routes, and a clear notice to the student.
+Needs a security review. About a week.
+
+**Source.** Left out of Epic 13.
+
+## Remove course memberships
+
+**What.** Drop people from the Course page when they leave the course.
+
+**Why.** The page keeps everyone who ever launched, with their old last
+launch time.
+
+**What it would take.** Roster sync (above), or an instructor-side remove
+button as a stopgap. Half a day for the button.
+
+**Source.** Left out of Epic 13 (ruling 27).
+
+## StateBadge without role=status inside tables
+
+**What.** An option on the StateBadge component to leave out
+`role="status"` when it sits in a table cell.
+
+**Why.** On the Course page, every row's badge is a live region, so a
+screen reader may announce many rows at once.
+
+**What it would take.** A prop on the component and passing it from the
+tables that list many rows. An hour, plus tests.
+
+**Source.** Epic 13 accessibility review.
