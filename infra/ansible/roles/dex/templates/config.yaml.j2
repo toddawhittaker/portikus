@@ -33,5 +33,6 @@ staticPasswords:
     userID: {{ user.userId | to_json }}
     emailVerified: true
     groups:
-      - {{ (portikus_oidc_admin_group if user.role == 'administrator' else portikus_oidc_student_group) | to_json }}
+      - {{ {'administrator': portikus_oidc_admin_group,
+            'instructor': portikus_oidc_instructor_group}.get(user.role, portikus_oidc_student_group) | to_json }}
 {% endfor %}

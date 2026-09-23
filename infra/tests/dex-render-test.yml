@@ -27,6 +27,15 @@
     dex_client_secret: portikus-ci-dex-client-secret-not-a-real-one
     portikus_oidc_student_group: portikus-students
     portikus_oidc_admin_group: portikus-administrators
+    portikus_oidc_instructor_group: instructor
+    # Added to the fixture here, because the package tests count its users.
+    dex_render_instructor:
+      username: ivy
+      email: ivy@example.edu
+      displayName: Ivy Instructor
+      role: instructor
+      userId: 6f0c1d2e-8a4b-4c3d-9e5f-7a6b5c4d3e2f
+      passwordHash: "$2b$12$MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEFfG"
 
   tasks:
     - name: Make a working directory
@@ -36,11 +45,42 @@
 
     # A checkout does not keep file modes, so the fixture is copied to the
     # 0600 file the role insists on rather than relaxing the check.
-    - name: Copy the users file with the mode the role requires
+    - name: Copy the users file, with an instructor, with the mode the role requires
       ansible.builtin.copy:
-        src: "{{ dex_render_users_file }}"
+        content: "{{ dex_render_fixture | combine({'users': dex_render_fixture.users + [dex_render_instructor]}) | to_nice_json }}"
         dest: "{{ dex_render_workdir.path }}/users.json"
         mode: "0600"
+      vars:
+        dex_render_fixture: "{{ lookup('ansible.builtin.file', dex_render_users_file) | from_json }}"
+
+    # Ruling 4 of docs/EPIC-13.md adds instructor; any other role stays refused.
+    - name: Check the role refuses an unknown role
+      block:
+        - name: Write a users file with an unknown role
+          ansible.builtin.copy:
+            content: "{{ {'version': 1, 'users': [dex_render_instructor | combine({'role': 'teacher'})]} | to_json }}"
+            dest: "{{ dex_render_workdir.path }}/bad-role.json"
+            mode: "0600"
+
+        - name: Load it through the role's guards
+          ansible.builtin.include_tasks: ../ansible/roles/dex/tasks/users.yml
+          vars:
+            portikus_users_file: "{{ dex_render_workdir.path }}/bad-role.json"
+
+        - name: Note that the guards accepted it
+          ansible.builtin.set_fact:
+            dex_render_bad_role_accepted: true
+      rescue:
+        - name: Note the refusal
+          ansible.builtin.set_fact:
+            dex_render_bad_role_accepted: false
+
+    - name: Require the unknown role to have been refused
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - not dex_render_bad_role_accepted
+        fail_msg: "users.yml accepted the role 'teacher'"
 
     - name: Load the users file through the role's own guards
       ansible.builtin.include_tasks: ../ansible/roles/dex/tasks/users.yml
@@ -97,13 +137,24 @@
           - entry.name == item.displayName
           - entry.userID == item.userId
           - entry.emailVerified
-          - entry.groups == [portikus_oidc_admin_group if item.role == 'administrator'
-                             else portikus_oidc_student_group]
+          - >-
+            entry.groups == [{'administrator': portikus_oidc_admin_group,
+                              'instructor': portikus_oidc_instructor_group,
+                              'student': portikus_oidc_student_group}[item.role]]
       vars:
         entry: "{{ dex_rendered.staticPasswords | selectattr('userID', 'equalto', item.userId) | first }}"
       loop: "{{ dex_users.users }}"
       loop_control:
         label: "{{ item.username }}"
+
+    - name: Check the instructor has the instructor group
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - >-
+            (dex_rendered.staticPasswords | selectattr('username', 'equalto', 'ivy') | first).groups
+            == ['instructor']
+          - dex_users.users | map(attribute='role') | unique | sort == ['administrator', 'instructor', 'student']
 
     # Before the package is installed there is no revoke command, and the
     # users must still be recorded, or the next deploy revokes nothing.
