@@ -1,0 +1,196 @@
+import { LogLevel } from "@portikus/contracts";
+import {
+	Button,
+	CONTROL_CLASS,
+	FIELD_CLASS,
+	LABEL_CLASS,
+	TextField,
+	useToast,
+} from "@portikus/ui";
+import { useState } from "react";
+import { ApiError } from "../api/request.js";
+import { graceText } from "./graceText.js";
+import { usePlatformSettings, useUpdatePlatformSettings } from "./queries.js";
+
+/**
+ * Reads a seconds input, or null when it is not a whole number at or above 0.
+ * The upper bound is the largest value the API's 32-bit integer column takes.
+ */
+const MAX_SECONDS = 2147483647;
+
+export function parseSeconds(value: string): number | null {
+	if (!/^\d+$/.test(value.trim())) return null;
+	const seconds = Number(value.trim());
+	return seconds > MAX_SECONDS ? null : seconds;
+}
+
+export function errorText(error: unknown): string {
+	if (error instanceof ApiError) return error.message;
+	return "Something went wrong. Please try again.";
+}
+
+/** A field error, announced when it appears (issue #363). */
+export function announced(error: string | null) {
+	return error ? <span role="alert">{error}</span> : null;
+}
+
+/** The platform-wide settings: grace period and log level (SPEC.md §6.4). */
+export function SettingsTab() {
+	return (
+		<>
+			<GraceSection />
+			<LogLevelSection />
+		</>
+	);
+}
+
+function GraceSection() {
+	const settings = usePlatformSettings();
+	const update = useUpdatePlatformSettings();
+	const toast = useToast();
+	const [draft, setDraft] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
+
+	const current = settings.data?.shutdownGraceSeconds;
+	const value = draft ?? (current === undefined ? "" : String(current));
+	const seconds = parseSeconds(value);
+
+	function save() {
+		if (seconds === null) {
+			setError("Enter a whole number of seconds, 0 or more.");
+			return;
+		}
+		setError(null);
+		update.mutate(
+			{ shutdownGraceSeconds: seconds },
+			{
+				onSuccess: () => {
+					setDraft(null);
+					toast.show({ tone: "success", title: "Grace period saved" });
+				},
+				onError: (failure) => setError(errorText(failure)),
+			},
+		);
+	}
+
+	return (
+		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="grace-title">
+			<h2 className="pk-text-heading m-0" id="grace-title">
+				Disconnect grace period
+			</h2>
+			<p className="pk-text-body pk-muted mt-1">
+				How long a workspace keeps running after the last browser disconnects.
+			</p>
+			<div className="pk-actions mt-4 items-end">
+				<TextField
+					id="grace-seconds"
+					label="Seconds"
+					className="w-48"
+					inputMode="numeric"
+					data-testid="grace-input"
+					value={value}
+					hint={seconds === null ? undefined : graceText(seconds)}
+					error={announced(
+						error ?? (settings.isError ? errorText(settings.error) : null),
+					)}
+					disabled={settings.isLoading}
+					onChange={(event) => setDraft(event.target.value)}
+				/>
+				<Button
+					variant="primary"
+					data-testid="grace-save"
+					loading={update.isPending}
+					onClick={save}
+				>
+					Save
+				</Button>
+			</div>
+		</section>
+	);
+}
+
+/** The value the select uses for "no override"; the API takes null. */
+const SERVICE_DEFAULT = "default";
+
+/**
+ * The runtime log level every service follows (ADR 0012). "Use service
+ * default" clears the override, so each service falls back to its own
+ * LOG_LEVEL from the environment.
+ */
+function LogLevelSection() {
+	const settings = usePlatformSettings();
+	const update = useUpdatePlatformSettings();
+	const toast = useToast();
+	const [draft, setDraft] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
+
+	const saved = settings.data?.logLevel ?? null;
+	const value = draft ?? (saved === null ? SERVICE_DEFAULT : saved);
+
+	function save() {
+		setError(null);
+		const parsed = LogLevel.safeParse(value);
+		update.mutate(
+			{ logLevel: parsed.success ? parsed.data : null },
+			{
+				onSuccess: () => {
+					setDraft(null);
+					toast.show({ tone: "success", title: "Log level saved" });
+				},
+				onError: (failure) => setError(errorText(failure)),
+			},
+		);
+	}
+
+	return (
+		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="log-level-title">
+			<h2 className="pk-text-heading m-0" id="log-level-title">
+				Log level
+			</h2>
+			<p className="pk-text-body pk-muted mt-1">
+				How much every service logs. Takes effect within a few seconds.
+			</p>
+			<div className="pk-actions mt-4 items-end">
+				<div className={FIELD_CLASS}>
+					<label className={LABEL_CLASS} htmlFor="log-level">
+						Level
+					</label>
+					<select
+						id="log-level"
+						className={`${CONTROL_CLASS} w-48 cursor-pointer disabled:border-line disabled:bg-surface-sunken disabled:text-ink-faint`}
+						data-testid="log-level-select"
+						value={value}
+						disabled={settings.isLoading}
+						aria-invalid={error ? true : undefined}
+						aria-describedby={error ? "log-level-err" : undefined}
+						onChange={(event) => setDraft(event.target.value)}
+					>
+						<option value={SERVICE_DEFAULT}>Use service default</option>
+						{LogLevel.options.map((level) => (
+							<option key={level} value={level}>
+								{level}
+							</option>
+						))}
+					</select>
+					{error ? (
+						<p
+							className="pk-error m-0 text-[12px] leading-4 text-status-error"
+							id="log-level-err"
+							role="alert"
+						>
+							{error}
+						</p>
+					) : null}
+				</div>
+				<Button
+					variant="primary"
+					data-testid="log-level-save"
+					loading={update.isPending}
+					onClick={save}
+				>
+					Save
+				</Button>
+			</div>
+		</section>
+	);
+}
