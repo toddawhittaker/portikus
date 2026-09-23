@@ -71,6 +71,21 @@ test("the agent registers routes, and none is a test hook", () => {
 	expect(routes.filter((route) => route.url.startsWith("/__test"))).toEqual([]);
 });
 
+test("a caller without the token is refused before its body is parsed", async () => {
+	const posts = routes.filter((route) => route.method === "POST" && !route.websocket);
+	expect(posts.length).toBeGreaterThan(0);
+	for (const route of posts) {
+		// Malformed JSON would be a 400 if it were parsed; the token check comes first.
+		const res = await app.inject({
+			method: "POST",
+			url: concrete(route.url),
+			headers: { "content-type": "application/json" },
+			payload: `{${"x".repeat(900 * 1024)}`,
+		});
+		expect(res.statusCode, `POST ${route.url}`).toBe(401);
+	}
+});
+
 describe("every HTTP route refuses a caller without this workspace's token", () => {
 	test("each route and caller", async () => {
 		const failures: string[] = [];
