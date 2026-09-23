@@ -1,4 +1,4 @@
-import { GrowVolumesRequest } from "@portikus/contracts";
+import { type GrowVolumesRequest, QuotaConfig } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
@@ -11,6 +11,9 @@ export const QUOTA_SYNC_SECONDS = 10;
 export const QUOTA_RETRY_SECONDS = 300;
 
 type Sizes = GrowVolumesRequest;
+
+// Only the two grown volumes are compared; quota_config may hold other keys (Epic 10's recoveryGiB).
+const wantedSizes = sql`jsonb_build_object('homeGiB', quota_config->'homeGiB', 'dockerGiB', quota_config->'dockerGiB')`;
 
 export interface QuotaSyncOptions {
 	db: Kysely<Database>;
@@ -44,7 +47,8 @@ async function audit(
  * compares it with `quota_applied`, asks the controller to grow, and records
  * the result. Growing works while the instance runs (Epic 11 task 2 spike),
  * so any state is applied except `provisioning`. A row whose instance was
- * never created has no image version and is skipped.
+ * never created has no image version and is skipped. Create records
+ * quota_applied itself, so every row here already has one.
  *
  * A failure is audited once for each wanted size and retried after
  * QUOTA_RETRY_SECONDS, so a broken controller is not hammered.
@@ -66,13 +70,17 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 				.where("image_version", "is not", null)
 				.where("state", "<>", "provisioning")
 				.where("quota_config", "is not", null)
-				.where(sql<boolean>`quota_config is distinct from quota_applied`)
+				.where(sql<boolean>`${wantedSizes} is distinct from quota_applied`)
 				.execute();
 
 			for (const row of rows) {
-				const wanted = GrowVolumesRequest.safeParse(row.quota_config);
-				if (!wanted.success || !row.incus_instance_name) continue;
-				const key = JSON.stringify(wanted.data);
+				const parsed = QuotaConfig.safeParse(row.quota_config);
+				if (!parsed.success || !row.incus_instance_name) continue;
+				const wanted = {
+					homeGiB: parsed.data.homeGiB,
+					dockerGiB: parsed.data.dockerGiB,
+				};
+				const key = JSON.stringify(wanted);
 				const failed = failures.get(row.id);
 				if (
 					failed?.wanted === key &&
@@ -80,7 +88,7 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 				) {
 					continue;
 				}
-				await applyOne(row.id, row.incus_instance_name, wanted.data, row.quota_applied);
+				await applyOne(row.id, row.incus_instance_name, wanted, row.quota_applied);
 			}
 		} catch (e) {
 			logger.warn(
@@ -99,17 +107,6 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 		applied: Sizes | null,
 	): Promise<void> {
 		const key = JSON.stringify(wanted);
-		// A null means create made the volumes at quota_config: record it, grow nothing.
-		if (applied === null) {
-			await db
-				.updateTable("workspaces")
-				.set({ quota_applied: key })
-				.where("id", "=", id)
-				.where("quota_applied", "is", null)
-				.where(sql<boolean>`quota_config = ${key}::jsonb`)
-				.execute();
-			return;
-		}
 		try {
 			await controller.growVolumes(instance, wanted);
 		} catch (e) {
@@ -133,7 +130,7 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 			.updateTable("workspaces")
 			.set({ quota_applied: key })
 			.where("id", "=", id)
-			.where(sql<boolean>`quota_config = ${key}::jsonb`)
+			.where(sql<boolean>`${wantedSizes} = ${key}::jsonb`)
 			.executeTakeFirst();
 		if (Number(updated.numUpdatedRows) === 0) return;
 

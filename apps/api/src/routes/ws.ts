@@ -48,6 +48,8 @@ export function registerWorkspaceSocket(
 	{ db, config, logger, registry }: ServerDeps & { registry: ListeningRegistry },
 ): void {
 	const watchers = new Map<string, Watcher>();
+	// Administrator sockets write no presence rows, so they are counted here.
+	const adminSockets = new Map<string, number>();
 
 	const { track, drain } = createPendingWork();
 
@@ -138,7 +140,7 @@ export function registerWorkspaceSocket(
 		"/workspaces/:id/ws",
 		{
 			websocket: true,
-			preHandler: workspaceUpgradeGuard(db, config, { ownerOnly: false }),
+			preHandler: workspaceUpgradeGuard(db, config, { ownerOnly: false, adminSockets }),
 		},
 		async (socket: WebSocket, request: FastifyRequest) => {
 			// Hold incoming frames until the listeners below are attached, so a
@@ -152,10 +154,18 @@ export function registerWorkspaceSocket(
 			// must not start the workspace or hold it up (SPEC.md §20.2).
 			const present = request.workspaceRow?.owner_user_id === request.user?.id;
 			if (present) await openPresence(db, workspaceId, connectionId);
+			else adminSockets.set(workspaceId, (adminSockets.get(workspaceId) ?? 0) + 1);
+			const releaseAdmin = (): void => {
+				if (present) return;
+				const left = (adminSockets.get(workspaceId) ?? 1) - 1;
+				if (left > 0) adminSockets.set(workspaceId, left);
+				else adminSockets.delete(workspaceId);
+			};
 
 			if (socket.readyState !== socket.OPEN) {
 				// The browser gave up while we were writing presence.
 				track(dropConnection(connectionId).catch(() => {}));
+				releaseAdmin();
 				socket.resume();
 				return;
 			}
@@ -163,10 +173,15 @@ export function registerWorkspaceSocket(
 			const workspace = await readWorkspace(workspaceId);
 			if (workspace) send(socket, workspace);
 			// The current list first, then every change while the socket lives.
-			sendListening(socket, registry.services(workspaceId));
-			const unsubscribe = registry.subscribe(workspaceId, (services) => {
-				sendListening(socket, services);
-			});
+			// Only the owner gets it: command lines, pids and container names can
+			// carry secrets an administrator must not see (SPEC.md §20.2).
+			let unsubscribe = (): void => {};
+			if (present) {
+				sendListening(socket, registry.services(workspaceId));
+				unsubscribe = registry.subscribe(workspaceId, (services) => {
+					sendListening(socket, services);
+				});
+			}
 
 			const subscriber: Subscriber = {
 				socket,
@@ -216,6 +231,7 @@ export function registerWorkspaceSocket(
 
 			async function onSocketClose(): Promise<void> {
 				unsubscribe();
+				releaseAdmin();
 				leave(workspaceId, subscriber);
 				request.log.debug(
 					{ workspaceId, connectionId, userId: request.user?.id },

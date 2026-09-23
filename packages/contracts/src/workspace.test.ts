@@ -95,6 +95,7 @@ test("the Workspace contract carries the label", () => {
 		activeConnections: 0,
 		lastActiveConnectionAt: null,
 		shutdownDeadline: null,
+		archivedAt: null,
 		createdAt: "2026-09-21T00:00:00.000Z",
 		updatedAt: "2026-09-21T00:00:00.000Z",
 	});

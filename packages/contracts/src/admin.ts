@@ -143,10 +143,6 @@ export function isQuotaGrowOnly(from: QuotaConfig, to: QuotaConfig): boolean {
 	return to.homeGiB >= from.homeGiB && to.dockerGiB >= from.dockerGiB;
 }
 
-/** Body of `POST /admin/workspaces/:id/rebuild` (Epic 10's route). */
-export const RebuildRequest = z.object({ resetDocker: z.boolean() }).strict();
-export type RebuildRequest = z.infer<typeof RebuildRequest>;
-
 /** Query string of `GET /admin/audit`. */
 export const AuditQuery = z
 	.object({

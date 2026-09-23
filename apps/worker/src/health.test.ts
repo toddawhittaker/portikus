@@ -67,6 +67,36 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)("the host snapshot is asked with a 20 second timeout", async () => {
+	const controller = new FakeControllerClient();
+	const timeout = vi.spyOn(AbortSignal, "timeout");
+	const { logger } = collectingLogger();
+	await createHealthSampler({ db: tdb.db, controller, logger })();
+	expect(timeout).toHaveBeenCalledWith(20_000);
+	const call = controller.calls.find((c) => c.method === "hostSnapshot");
+	expect(call?.args[0]).toBeInstanceOf(AbortSignal);
+	timeout.mockRestore();
+});
+
+test.skipIf(skip)("only the newest sample keeps the instance list", async () => {
+	const controller = new FakeControllerClient();
+	const host = controller.hostResult as Exclude<typeof controller.hostResult, Error>;
+	controller.hostResult = {
+		...host,
+		instances: [{ name: "ws-a", imageFingerprint: "abc123", imageSerial: "2026.09.9" }],
+	};
+	const { logger } = collectingLogger();
+	const tick = createHealthSampler({ db: tdb.db, controller, logger });
+	await tick();
+	await tick();
+	await tick();
+
+	const lists = (await samples()).map(
+		(r) => HealthSample.parse(r.sample).host?.instances.length,
+	);
+	expect(lists).toEqual([0, 0, 1]);
+});
+
 test.skipIf(skip)(
 	"an unreachable controller still writes a row with the error code",
 	async () => {

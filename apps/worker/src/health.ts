@@ -1,11 +1,14 @@
 import type { HealthSample } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
 
 /** How often the worker samples the host (Epic 11, "Decisions"). */
 export const HEALTH_SAMPLE_SECONDS = 60;
+
+/** How long one host snapshot may take before the sample records a failure. */
+export const HOST_SNAPSHOT_TIMEOUT_MS = 20_000;
 
 /** How long samples are kept. */
 export const HEALTH_RETENTION_DAYS = 7;
@@ -38,7 +41,9 @@ export function createHealthSampler(
 			try {
 				sample = {
 					controller: { reachable: true, errorCode: null },
-					host: await controller.hostSnapshot(),
+					host: await controller.hostSnapshot(
+						AbortSignal.timeout(HOST_SNAPSHOT_TIMEOUT_MS),
+					),
 				};
 			} catch (e) {
 				const errorCode =
@@ -47,9 +52,17 @@ export function createHealthSampler(
 				sample = { controller: { reachable: false, errorCode }, host: null };
 			}
 			const at = now();
-			await db
+			const inserted = await db
 				.insertInto("health_samples")
 				.values({ observed_at: at.toISOString(), sample: JSON.stringify(sample) })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			// Only the newest sample keeps the per-instance list, so the series stays small.
+			await db
+				.updateTable("health_samples")
+				.set({ sample: sql`jsonb_set(sample, '{host,instances}', '[]'::jsonb)` })
+				.where("id", "<>", inserted.id)
+				.where(sql<boolean>`jsonb_array_length(sample->'host'->'instances') > 0`)
 				.execute();
 			const cutoff = new Date(at.getTime() - HEALTH_RETENTION_DAYS * 86_400_000);
 			await db.deleteFrom("health_samples").where("observed_at", "<", cutoff).execute();

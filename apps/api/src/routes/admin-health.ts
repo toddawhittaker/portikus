@@ -2,7 +2,7 @@ import { requireRole } from "@portikus/auth";
 import { type HealthReport, HealthSample } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
-import type { ListeningRegistry } from "../preview/registry.js";
+import { type AgentClient, agentClientFor } from "../agent-client.js";
 import type { ServerDeps } from "../server.js";
 
 /** The worker samples every minute; older than this means it stopped. */
@@ -12,15 +12,9 @@ export const WORKER_STALE_AFTER_MS = 2 * 60_000;
 export const AGENT_PROBE_TIMEOUT_MS = 2000;
 
 /** Ask one agent whether it answers. Never throws. */
-async function agentAnswers(
-	address: string,
-	port: number,
-	token: string,
-): Promise<boolean> {
+async function agentAnswers(agent: AgentClient): Promise<boolean> {
 	try {
-		const response = await fetch(`http://${address}:${port}/health`, {
-			// The token is the workspace's secret and is never logged.
-			headers: { authorization: `Bearer ${token}` },
+		const response = await agent.fetchRaw("GET", "/health", {
 			signal: AbortSignal.timeout(AGENT_PROBE_TIMEOUT_MS),
 		});
 		await response.body?.cancel();
@@ -30,6 +24,32 @@ async function agentAnswers(
 	}
 }
 
+/** The last day's failure counts for the health page (SPEC.md §25.6). */
+export function healthCountsQuery() {
+	return sql<Record<string, string>>`
+		select
+			count(*) filter (where action = 'workspace.start_failed') as start_failures,
+			count(*) filter (where action = 'workspace.stop_failed') as stop_failures,
+			count(*) filter (where action = 'workspace.force_stop') as forced_stops,
+			count(*) filter (where action = 'workspace.provision_failed') as provision_failures,
+			count(*) filter (where action = 'controller.unreachable') as controller_outages,
+			count(*) filter (
+				where action = 'auth.login' and result in ('failed', 'denied')
+			) as sign_in_failures,
+			-- One preview.denied row stands for up to a minute of refusals.
+			coalesce(sum(coalesce((metadata->>'count')::int, 1))
+				filter (where action = 'preview.denied'), 0) as preview_refusals
+		from audit_events
+		where at > now() - interval '24 hours'
+			-- Naming the actions lets PostgreSQL use the (action, at) index.
+			and action in (
+				'workspace.start_failed', 'workspace.stop_failed', 'workspace.force_stop',
+				'workspace.provision_failed', 'controller.unreachable', 'auth.login',
+				'preview.denied'
+			)
+	`;
+}
+
 /**
  * `GET /admin/health` (SPEC.md §25.6). Host facts come from the newest
  * `health_samples` row the worker wrote; the rest are counts over the
@@ -37,7 +57,7 @@ async function agentAnswers(
  */
 export function registerAdminHealthRoutes(
 	app: FastifyInstance,
-	{ db, config }: ServerDeps & { registry: ListeningRegistry },
+	{ db, config }: ServerDeps,
 ): void {
 	app.get(
 		"/admin/health",
@@ -82,22 +102,7 @@ export function registerAdminHealthRoutes(
 				.groupBy("state")
 				.execute();
 
-			const counts = await sql<Record<string, string>>`
-				select
-					count(*) filter (where action = 'workspace.start_failed') as start_failures,
-					count(*) filter (where action = 'workspace.stop_failed') as stop_failures,
-					count(*) filter (where action = 'workspace.force_stop') as forced_stops,
-					count(*) filter (where action = 'workspace.provision_failed') as provision_failures,
-					count(*) filter (where action = 'controller.unreachable') as controller_outages,
-					count(*) filter (
-						where action = 'auth.login' and result in ('failed', 'denied')
-					) as sign_in_failures,
-					-- One preview.denied row stands for up to a minute of refusals.
-					coalesce(sum(coalesce((metadata->>'count')::int, 1))
-						filter (where action = 'preview.denied'), 0) as preview_refusals
-				from audit_events
-				where at > now() - interval '24 hours'
-			`.execute(db);
+			const counts = await healthCountsQuery().execute(db);
 			const count = (name: string) => Number(counts.rows[0]?.[name] ?? 0);
 
 			const running = await db
@@ -106,11 +111,10 @@ export function registerAdminHealthRoutes(
 				.where("state", "=", "running")
 				.execute();
 			const answers = await Promise.all(
-				running.map((row) =>
-					row.agent_address && row.agent_token
-						? agentAnswers(row.agent_address, config.AGENT_PORT, row.agent_token)
-						: Promise.resolve(false),
-				),
+				running.map((row) => {
+					const agent = agentClientFor(row, config.AGENT_PORT);
+					return agent ? agentAnswers(agent) : Promise.resolve(false);
+				}),
 			);
 
 			const host = sampled?.host ?? null;

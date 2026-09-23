@@ -661,3 +661,39 @@ test.skipIf(skip)("disable and enable answer 404 and 400 for bad ids", async () 
 		expect(bad.statusCode).toBe(400);
 	}
 });
+
+test.skipIf(skip)(
+	"two administrators disabling each other at once leave one enabled",
+	async () => {
+		const carol = await adminJar();
+		const alice = await studentJar();
+		const carolId = await userId("Carol");
+		const aliceId = await userId("Alice");
+		await testDb.db
+			.updateTable("users")
+			.set({ role: "administrator" })
+			.where("id", "=", aliceId)
+			.execute();
+
+		const [one, two] = await Promise.all([
+			app.inject({
+				method: "POST",
+				url: `/admin/users/${aliceId}/disable`,
+				headers: csrfHeaders(carol, PUBLIC_URL),
+			}),
+			app.inject({
+				method: "POST",
+				url: `/admin/users/${carolId}/disable`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+			}),
+		]);
+		expect([one.statusCode, two.statusCode].sort()).toEqual([200, 400]);
+		const enabledAdmins = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.where("role", "=", "administrator")
+			.where("disabled_at", "is", null)
+			.execute();
+		expect(enabledAdmins).toHaveLength(1);
+	},
+);

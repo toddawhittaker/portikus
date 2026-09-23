@@ -35,6 +35,8 @@ function account(
 		disabledAt: null,
 		shutdownGraceSeconds: null,
 		preferredUsername: displayName.toLowerCase(),
+		issuer: null,
+		lastLoginAt: null,
 		markers: NONE,
 		workspace,
 		...extra,

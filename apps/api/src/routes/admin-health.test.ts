@@ -8,9 +8,11 @@ import {
 import { HealthReport, type HealthSample } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { healthCountsQuery } from "./admin-health.js";
 
 const skip = !hasTestDb();
 const AGENT_TOKEN = "health-agent-token";
@@ -263,4 +265,18 @@ test.skipIf(skip)("counts the last day's failures from the audit log", async () 
 		signInFailures: 2,
 		previewRefusals: 12,
 	});
+});
+
+test.skipIf(skip)("the health counts can use the (action, at) index", async () => {
+	const compiled = healthCountsQuery().compile(testDb.db);
+	// A tiny table favours a sequential scan, so rule that out to see the choice.
+	const plan = await testDb.db.transaction().execute(async (trx) => {
+		await sql`set local enable_seqscan = off`.execute(trx);
+		const result = await trx.executeQuery<{ "QUERY PLAN": string }>({
+			...compiled,
+			sql: `explain ${compiled.sql}`,
+		});
+		return result.rows.map((row) => row["QUERY PLAN"]).join("\n");
+	});
+	expect(plan).toContain("audit_events_action_at_idx");
 });

@@ -7,7 +7,6 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
-import type { ListeningRegistry } from "../preview/registry.js";
 import type { ServerDeps } from "../server.js";
 
 /**
@@ -17,7 +16,7 @@ import type { ServerDeps } from "../server.js";
  */
 export function registerAdminAuditRoutes(
 	app: FastifyInstance,
-	{ db }: ServerDeps & { registry: ListeningRegistry },
+	{ db }: ServerDeps,
 ): void {
 	app.get(
 		"/admin/audit",
