@@ -7,24 +7,21 @@ import {
 	isOnOrigin,
 	type LtiLaunch,
 	type LtiLoginParams,
-	type LtiLoginStatesTable,
 	type LtiPlatform,
 	loadPlatformsFile,
 	ltiStateCookieName,
 	ltiStateCookieOptions,
-	type Role,
+	readLtiStateCookie,
 	saveLoginState,
 	startLtiLogin,
-	upsertUser,
 	validateLaunchToken,
 } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import type { ApiError } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { Kysely } from "kysely";
 import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../server.js";
-import { startSession } from "./start-session.js";
+import { completeSignIn, requestMetadata } from "./start-session.js";
 
 /** What the API loaded at start for LTI (docs/EPIC-13.md rulings 14 and 15). */
 export interface LtiDeps {
@@ -158,11 +155,16 @@ export function toolJwks(pem: string | null): { keys: Record<string, string>[] }
 	return { keys: [{ kty, n, e, kid, alg: "RS256", use: "sig" }] };
 }
 
-/** Only the path and query of `target_link_uri`, and only on our origin (ruling 18). */
-function targetPath(uri: string, publicUrl: string): string {
+/**
+ * Only the path and query of `target_link_uri`, and only on our origin
+ * (ruling 18). A path like `//host` or `/\host` would leave the origin as a
+ * Location header, so anything but one `/` then a path character is `/`.
+ */
+export function targetPath(uri: string, publicUrl: string): string {
 	if (!isOnOrigin(uri, publicUrl)) return "/";
 	const url = new URL(uri);
-	return `${url.pathname}${url.search}`;
+	const path = `${url.pathname}${url.search}`;
+	return /^\/[^/\\]/.test(path) ? path : "/";
 }
 
 /** LTI 1.3 login initiation, launch, and the tool keyset (docs/EPIC-13.md). */
@@ -172,23 +174,25 @@ export function registerLtiRoutes(
 ): void {
 	const auth = toAuthOptions(config);
 	const publicUrl = config.PUBLIC_URL;
-	const stateCookie = ltiStateCookieName(publicUrl);
 	const keySets = createKeySetSource();
 	const jwks = toolJwks(lti?.toolKeyPem ?? null);
 
-	// Only the registered platforms may frame these pages; the login form
-	// then redirects to their authorization endpoints (ruling 17).
+	// Any page may frame login and launch: framed, they only render the
+	// new-tab or refusal page and grant nothing. The login form posts only
+	// to us or a registered platform's authorization endpoint (ruling 17).
 	const origins = [
 		...new Set(lti?.platforms.map((p) => new URL(p.authLoginUrl).origin)),
 	];
-	const ancestors = origins.length > 0 ? origins.join(" ") : "'none'";
-	const csp = [
-		"default-src 'none'",
-		"style-src 'unsafe-inline'",
-		`form-action 'self' ${origins.join(" ")}`.trim(),
-		"base-uri 'none'",
-		`frame-ancestors ${ancestors}`,
-	].join("; ");
+	const cspFor = (ancestors: string) =>
+		[
+			"default-src 'none'",
+			"style-src 'unsafe-inline'",
+			`form-action 'self' ${origins.join(" ")}`.trim(),
+			"base-uri 'none'",
+			`frame-ancestors ${ancestors}`,
+		].join("; ");
+	const csp = cspFor("*");
+	const jwksCsp = cspFor("'none'");
 
 	function notFound(reply: FastifyReply) {
 		const body: ApiError = { code: "NOT_FOUND", message: "Not found." };
@@ -212,7 +216,11 @@ export function registerLtiRoutes(
 			.execute();
 	}
 
-	/** Refuse a launch: an audit row and a log line with the reason code only. */
+	/**
+	 * Refuse a launch with a log line carrying the reason code only. A frame
+	 * or a missing state is anyone's unauthenticated request, so it is not
+	 * audited; every other refusal is.
+	 */
 	async function refuseLaunch(
 		request: FastifyRequest,
 		reply: FastifyReply,
@@ -220,11 +228,14 @@ export function registerLtiRoutes(
 		platform: LtiPlatform | null,
 	) {
 		request.log.info({ reason }, "lti launch refused");
-		await audit("auth.login", "unknown", "unknown", "failed", {
-			method: "lti",
-			...(platform ? { platform: platform.name } : {}),
-			reason,
-		});
+		if (reason !== "framed" && reason !== "state_missing") {
+			await audit("auth.login", "unknown", "unknown", "failed", {
+				method: "lti",
+				...(platform ? { platform: platform.name } : {}),
+				reason,
+				...requestMetadata(request),
+			});
+		}
 		const stateProblem =
 			reason === "framed" || reason === "state_missing" || reason === "state_mismatch";
 		return html(
@@ -294,7 +305,11 @@ export function registerLtiRoutes(
 			platformIssuer: started.platform.issuer,
 			clientId: started.platform.clientId,
 		});
-		reply.setCookie(stateCookie, started.state, ltiStateCookieOptions(publicUrl));
+		reply.setCookie(
+			ltiStateCookieName(started.state),
+			started.state,
+			ltiStateCookieOptions(),
+		);
 		return reply.redirect(started.redirectUrl, 302);
 	}
 
@@ -311,67 +326,56 @@ export function registerLtiRoutes(
 		const form = (request.body ?? {}) as Record<string, unknown>;
 		const formState = typeof form.state === "string" ? form.state : undefined;
 		const idToken = typeof form.id_token === "string" ? form.id_token : "";
-		const cookieState = request.cookies[stateCookie];
-		reply.clearCookie(stateCookie, ltiStateCookieOptions(publicUrl));
+		// Each login has its own cookie; read and clear only this one.
+		const cookieState = formState
+			? readLtiStateCookie(request.cookies, formState)
+			: undefined;
+		if (formState)
+			reply.clearCookie(ltiStateCookieName(formState), ltiStateCookieOptions());
 		const stateProblem = checkLaunchState(formState, cookieState);
 		if (stateProblem) return refuseLaunch(request, reply, stateProblem, null);
 
-		// The state row is deleted in the same transaction that checks the
-		// token against it, so the state and its nonce are single use (ruling 16).
-		const result = await db.transaction().execute(async (trx) => {
-			const loginState = await consumeLoginState(
-				// The db schema types expires_at as a column type, the store as a Date.
-				trx as unknown as Kysely<LtiLoginStatesTable>,
-				formState ?? "",
-			);
-			if (!loginState) {
-				return { ok: false as const, reason: "state_missing" as const, platform: null };
-			}
-			return validateLaunchToken({
-				idToken,
-				loginState,
-				platforms,
-				publicUrl,
-				keySets,
-			});
+		// Deleting the row first makes the state and its nonce single use
+		// (ruling 16); no transaction is held open over the keyset fetch.
+		const loginState = await consumeLoginState(db, formState ?? "");
+		if (!loginState) return refuseLaunch(request, reply, "state_missing", null);
+		const result = await validateLaunchToken({
+			idToken,
+			loginState,
+			platforms,
+			publicUrl,
+			keySets,
 		});
 		if (!result.ok) return refuseLaunch(request, reply, result.reason, result.platform);
 
 		const { launch } = result;
-		const role: Role = launch.role;
-		const user = await upsertUser(
-			db,
-			{
+		const signedIn = await completeSignIn(db, auth, reply, {
+			identity: {
 				issuer: `lti:${launch.platform.issuer}`,
 				subject: launch.subject,
 				email: launch.email,
 				displayName: launch.displayName,
 				preferredUsername: null,
 			},
-			role,
-		);
-		if (user.previousRole !== null && user.previousRole !== role) {
-			await audit("user.role_changed", "identity-provider", user.id, "ok", {
-				from: user.previousRole,
-				to: role,
-				source: "lti",
-			});
-		}
-		const metadata = { method: "lti", platform: launch.platform.name, role };
-		if (user.disabledAt) {
+			role: launch.role,
+			loginMetadata: {
+				method: "lti",
+				platform: launch.platform.name,
+				role: launch.role,
+				...requestMetadata(request),
+			},
+			roleChangeMetadata: { source: "lti" },
+		});
+		if (!signedIn.ok) {
 			request.log.info({ reason: "disabled" }, "lti launch refused");
-			await audit("auth.login", `user:${user.id}`, user.id, "denied", metadata);
 			return html(reply, 403, page("Portikus could not open", NOT_AUTHORIZED));
 		}
-
-		await recordMembership(launch, user.id, new Date().toISOString());
-		await startSession(db, auth, reply, user.id);
-		await audit("auth.login", `user:${user.id}`, user.id, "ok", metadata);
+		await recordMembership(launch, signedIn.userId, new Date().toISOString());
 		return reply.redirect(targetPath(launch.targetLinkUri, publicUrl), 303);
 	});
 
 	app.get("/lti/jwks", async (_request, reply) => {
-		reply.header("content-security-policy", csp);
+		reply.header("content-security-policy", jwksCsp);
 		if (!lti) return notFound(reply);
 		return reply.send(jwks);
 	});

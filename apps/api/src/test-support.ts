@@ -41,6 +41,7 @@ export function testConfig(
 		OIDC_GROUPS_CLAIM: "groups",
 		OIDC_STUDENT_GROUP: "portikus-students",
 		OIDC_ADMIN_GROUP: "portikus-administrators",
+		OIDC_INSTRUCTOR_GROUP: "portikus-instructors",
 		SESSION_COOKIE_SECRET: "test-session-secret",
 		SESSION_TTL_SECONDS: 43200,
 		PROJECT_TEMPLATES: "",
@@ -116,7 +117,7 @@ export const INSTRUCTOR_MOCK_USER: MockUser = {
 	sub: "ivy",
 	email: "ivy@example.edu",
 	name: "Ivy Instructor",
-	groups: ["instructor"],
+	groups: ["portikus-instructors"],
 };
 
 /** Every mock user `buildMatrixWorld` signs in. */

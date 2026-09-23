@@ -67,6 +67,8 @@ export function AppHeader({
 					data-testid="course-link"
 				>
 					Course
+					<Icon name="external" size="sm" />
+					<span className="sr-only"> (opens in a new tab)</span>
 				</a>
 			) : null}
 

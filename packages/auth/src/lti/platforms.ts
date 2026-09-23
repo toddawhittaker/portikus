@@ -24,7 +24,7 @@ const platformSchema = z.strictObject({
 
 const fileSchema = z.strictObject({
 	version: z.literal(1),
-	platforms: z.array(platformSchema),
+	platforms: z.array(platformSchema).min(1),
 });
 
 const URL_FIELDS = ["issuer", "authLoginUrl", "keysetUrl"] as const;

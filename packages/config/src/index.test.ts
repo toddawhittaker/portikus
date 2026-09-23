@@ -326,6 +326,7 @@ test("ApiConfig applies the auth and session defaults", () => {
 	expect(config.OIDC_GROUPS_CLAIM).toBe("groups");
 	expect(config.OIDC_STUDENT_GROUP).toBe("portikus-students");
 	expect(config.OIDC_ADMIN_GROUP).toBe("portikus-administrators");
+	expect(config.OIDC_INSTRUCTOR_GROUP).toBe("portikus-instructors");
 	expect(config.SESSION_COOKIE_SECRET).toBe("dev-session-secret-not-for-production");
 	expect(config.SESSION_TTL_SECONDS).toBe(43200);
 });

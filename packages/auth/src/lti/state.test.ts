@@ -1,3 +1,4 @@
+import type { Database } from "@portikus/db";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { Kysely } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
@@ -5,9 +6,9 @@ import {
 	checkLaunchState,
 	consumeLoginState,
 	hashState,
-	type LtiLoginStatesTable,
 	ltiStateCookieName,
 	ltiStateCookieOptions,
+	readLtiStateCookie,
 	saveLoginState,
 } from "./state.js";
 
@@ -25,25 +26,28 @@ describe("checkLaunchState", () => {
 });
 
 describe("the state cookie", () => {
-	test("over https it is __Secure-, SameSite=None, Path=/lti, ten minutes", () => {
-		const url = "https://portikus.example.edu";
-		expect(ltiStateCookieName(url)).toBe("__Secure-portikus_lti_state");
-		expect(ltiStateCookieOptions(url)).toEqual({
+	test("is a __Host- cookie named from the state's hash", () => {
+		expect(ltiStateCookieName("abc")).toBe(
+			"__Host-portikus_lti_state_ba7816bf8f01cfea",
+		);
+		expect(ltiStateCookieOptions()).toEqual({
 			httpOnly: true,
 			secure: true,
 			sameSite: "none",
-			path: "/lti",
+			path: "/",
 			maxAge: 600,
 		});
 	});
 
-	test("on plain http it drops the prefix and Secure and uses Lax", () => {
-		const url = "http://localhost:5173";
-		expect(ltiStateCookieName(url)).toBe("portikus_lti_state");
-		expect(ltiStateCookieOptions(url)).toMatchObject({
-			secure: false,
-			sameSite: "lax",
-		});
+	test("two states get two cookies, and each launch reads only its own", () => {
+		const cookies = {
+			[ltiStateCookieName("one")]: "one",
+			[ltiStateCookieName("two")]: "two",
+		};
+		expect(ltiStateCookieName("one")).not.toBe(ltiStateCookieName("two"));
+		expect(readLtiStateCookie(cookies, "one")).toBe("one");
+		expect(readLtiStateCookie(cookies, "two")).toBe("two");
+		expect(readLtiStateCookie(cookies, "three")).toBeUndefined();
 	});
 });
 
@@ -55,7 +59,7 @@ test("hashState is SHA-256 hex, never the state itself", () => {
 
 describe("login state store", () => {
 	let t: TestDb;
-	let db: Kysely<LtiLoginStatesTable>;
+	let db: Kysely<Database>;
 	const now = new Date("2026-09-23T12:00:00Z");
 	const input = {
 		state: "state-1",
@@ -67,7 +71,7 @@ describe("login state store", () => {
 	beforeAll(async () => {
 		if (!hasTestDb()) return;
 		t = await createTestDb();
-		db = t.db as unknown as Kysely<LtiLoginStatesTable>;
+		db = t.db;
 	});
 
 	afterAll(async () => {

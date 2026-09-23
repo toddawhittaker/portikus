@@ -16,6 +16,7 @@ const auth: AuthOptions = {
 	groupsClaim: "groups",
 	studentGroup: "portikus-students",
 	adminGroup: "portikus-administrators",
+	instructorGroup: "portikus-instructors",
 	cookieSecret: "a-test-cookie-secret-value",
 	sessionTtlSeconds: 3600,
 };

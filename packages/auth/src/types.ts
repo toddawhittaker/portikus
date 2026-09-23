@@ -18,8 +18,8 @@ export interface AuthOptions {
 	groupsClaim: string;
 	studentGroup: string;
 	adminGroup: string;
-	/** OIDC_INSTRUCTOR_GROUP; "instructor" when unset (docs/EPIC-13.md ruling 4). */
-	instructorGroup?: string;
+	/** OIDC_INSTRUCTOR_GROUP (docs/EPIC-13.md ruling 4). */
+	instructorGroup: string;
 	cookieSecret: string;
 	sessionTtlSeconds: number;
 }
@@ -46,7 +46,7 @@ export function mapRole(
 	if (groups.includes(opts.adminGroup)) {
 		return "administrator";
 	}
-	if (groups.includes(opts.instructorGroup ?? "instructor")) {
+	if (groups.includes(opts.instructorGroup)) {
 		return "instructor";
 	}
 	if (groups.includes(opts.studentGroup)) {

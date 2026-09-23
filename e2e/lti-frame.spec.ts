@@ -3,7 +3,7 @@
  * new tab (docs/EPIC-13.md rulings 16 and 17).
  */
 import { expect, test } from "@playwright/test";
-import { WEB_ORIGIN } from "./helpers";
+import { query, WEB_ORIGIN } from "./helpers";
 import { MOCK_LMS_ORIGIN, signedIn, startLaunch } from "./lti-helpers";
 
 test("a launch in a frame offers a new tab, and the new tab signs in", async ({
@@ -17,12 +17,12 @@ test("a launch in a frame offers a new tab, and the new tab signs in", async ({
 	await startLaunch(page, { person: "sam", frame: true });
 	const response = await loginInFrame;
 
-	// The frame may be the platform's origin only, never anyone else's.
+	// Any page may frame it, since framed it only offers a new tab; its
+	// form may post only to us or the platform.
 	expect(response.status()).toBe(200);
 	const csp = response.headers()["content-security-policy"] ?? "";
-	expect(csp).toContain("frame-ancestors");
-	expect(csp).toContain(MOCK_LMS_ORIGIN);
-	expect(csp).not.toContain("*");
+	expect(csp).toContain("frame-ancestors *");
+	expect(csp).toContain(`form-action 'self' ${MOCK_LMS_ORIGIN}`);
 	// The flow did not start: no state cookie, no redirect to the platform.
 	expect(response.headers()["set-cookie"] ?? "").not.toContain("lti_state");
 
@@ -40,4 +40,45 @@ test("a launch in a frame offers a new tab, and the new tab signs in", async ({
 	expect(((await me.json()) as { displayName: string }).displayName).toBe(
 		"Sam Student",
 	);
+});
+
+test("a launch posted inside a frame is refused and writes no audit row", async ({
+	page,
+}) => {
+	const since = new Date(Date.now() - 1000);
+	const launched = page.waitForResponse(
+		(r) => r.url() === `${WEB_ORIGIN}/lti/launch` && r.request().method() === "POST",
+	);
+	// A frame that posts a launch straight to Portikus, as a hostile page could.
+	const form = `<form method="post" action="${WEB_ORIGIN}/lti/launch">
+		<input type="hidden" name="id_token" value="not.a.token">
+		<input type="hidden" name="state" value="framed-state">
+		<button type="submit">Post</button></form>`;
+	// A real web origin as the parent; an opaque about:blank one matches no
+	// frame-ancestors source.
+	await page.goto(`${MOCK_LMS_ORIGIN}/`);
+	await page.setContent(`<iframe title="host" srcdoc='${form}'></iframe>`);
+	await page
+		.frameLocator('iframe[title="host"]')
+		.getByRole("button", { name: "Post" })
+		.click();
+	const response = await launched;
+
+	expect(response.status()).toBe(400);
+	expect(response.headers()["content-security-policy"] ?? "").toContain(
+		"frame-ancestors *",
+	);
+	await expect(
+		page
+			.frameLocator('iframe[title="host"]')
+			.getByText("Portikus could not finish opening here."),
+	).toBeVisible();
+	expect(await signedIn(page)).toBe(false);
+	const rows = await query(
+		`select id from audit_events
+		 where action = 'auth.login' and metadata->>'method' = 'lti'
+		   and metadata->>'reason' = 'framed' and at >= $1`,
+		[since],
+	);
+	expect(rows).toEqual([]);
 });

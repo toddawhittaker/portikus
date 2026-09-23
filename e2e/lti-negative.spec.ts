@@ -82,5 +82,6 @@ test("a launch that arrives without the state cookie is refused with the reopen 
 	await page.getByRole("button", { name: "Post" }).click();
 	await expectRefused(page, launched, 400);
 	await expect(page.getByText("Portikus could not finish opening here.")).toBeVisible();
-	await expect.poll(() => failedLaunchReasons(since)).toContain("state_missing");
+	// Anyone can post this, so it is logged but not audited.
+	expect(await failedLaunchReasons(since)).not.toContain("state_missing");
 });

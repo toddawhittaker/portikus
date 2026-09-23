@@ -7,14 +7,13 @@ import {
 	OidcError,
 	sessionCookieName,
 	sessionCookieOptions,
-	upsertUser,
 } from "@portikus/auth";
 import type { ApiError, MeResponse } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
 import { revokeSessionPreviewSessions } from "../preview/store.js";
 import type { ServerDeps } from "../server.js";
-import { startSession } from "./start-session.js";
+import { completeSignIn, requestMetadata } from "./start-session.js";
 
 const DENIED_MESSAGE = "Your account is not authorized to use Portikus";
 
@@ -41,10 +40,7 @@ export function registerAuthRoutes(
 				target,
 				action,
 				result,
-				metadata: JSON.stringify({
-					ip: request.ip,
-					userAgent: request.headers["user-agent"] ?? null,
-				}),
+				metadata: JSON.stringify(requestMetadata(request)),
 			})
 			.execute();
 	}
@@ -129,29 +125,12 @@ export function registerAuthRoutes(
 			return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		}
 
-		const user = await upsertUser(db, identity, role);
-		if (user.previousRole !== null && user.previousRole !== role) {
-			// Roles come from identity-provider groups (SPEC.md §24.11).
-			await db
-				.insertInto("audit_events")
-				.values({
-					actor: "identity-provider",
-					target: user.id,
-					action: "user.role_changed",
-					result: "ok",
-					metadata: JSON.stringify({ from: user.previousRole, to: role }),
-				})
-				.execute();
-		}
-
-		if (user.disabledAt) {
-			await audit(request, "auth.login", `user:${user.id}`, user.id, "denied");
-			return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
-		}
-
-		await startSession(db, auth, reply, user.id);
-
-		await audit(request, "auth.login", `user:${user.id}`, user.id, "ok");
+		const signedIn = await completeSignIn(db, auth, reply, {
+			identity,
+			role,
+			loginMetadata: requestMetadata(request),
+		});
+		if (!signedIn.ok) return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		return reply.redirect("/", 302);
 	});
 

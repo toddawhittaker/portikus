@@ -70,7 +70,7 @@ export function parseUsersRevokeInput(raw: unknown): UsersRevokeInput {
 	};
 }
 
-/** The previously deployed users who were removed, got a new password, or lost administrator. */
+/** The previously deployed users who were removed, got a new password, or changed role. */
 export function usersToRevoke(
 	previous: DeployedUser[],
 	next: DeployedUser[],
@@ -81,7 +81,8 @@ export function usersToRevoke(
 		const after = now.get(before.userId);
 		if (!after) return true;
 		if (after.passwordFingerprint !== before.passwordFingerprint) return true;
-		return before.role === "administrator" && after.role !== "administrator";
+		// A session carries the role it was created with, so any change needs a new sign-in.
+		return after.role !== before.role;
 	});
 }
 

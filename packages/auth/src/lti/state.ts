@@ -1,21 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { CookieSerializeOptions } from "@fastify/cookie";
+import type { Database } from "@portikus/db";
 import type { Kysely } from "kysely";
-
-/**
- * The one table this module touches, as migration 0015_lti defines it
- * (docs/EPIC-13.md, "The data model"). Declared here so the store does not
- * depend on the db package's schema.
- */
-export interface LtiLoginStatesTable {
-	lti_login_states: {
-		state_hash: string;
-		nonce: string;
-		platform_issuer: string;
-		client_id: string;
-		expires_at: Date;
-	};
-}
 
 /** What a consumed state row gives back to the launch. */
 export interface LtiLoginState {
@@ -27,7 +13,7 @@ export interface LtiLoginState {
 /** How long a login may take between `/lti/login` and `/lti/launch` (ruling 16). */
 export const LTI_STATE_TTL_SECONDS = 600;
 
-const STATE_COOKIE = "portikus_lti_state";
+const STATE_COOKIE_PREFIX = "__Host-portikus_lti_state_";
 
 /** The row key: the state itself is never stored. */
 export function hashState(state: string): string {
@@ -35,12 +21,11 @@ export function hashState(state: string): string {
 }
 
 /** Store a new login state, clearing expired rows first as sessions do. */
-export async function saveLoginState<DB extends LtiLoginStatesTable>(
-	database: Kysely<DB>,
+export async function saveLoginState(
+	db: Kysely<Database>,
 	input: { state: string; nonce: string; platformIssuer: string; clientId: string },
 	now: Date = new Date(),
 ): Promise<void> {
-	const db = database as unknown as Kysely<LtiLoginStatesTable>;
 	await db.deleteFrom("lti_login_states").where("expires_at", "<=", now).execute();
 	await db
 		.insertInto("lti_login_states")
@@ -49,7 +34,7 @@ export async function saveLoginState<DB extends LtiLoginStatesTable>(
 			nonce: input.nonce,
 			platform_issuer: input.platformIssuer,
 			client_id: input.clientId,
-			expires_at: new Date(now.getTime() + LTI_STATE_TTL_SECONDS * 1000),
+			expires_at: new Date(now.getTime() + LTI_STATE_TTL_SECONDS * 1000).toISOString(),
 		})
 		.execute();
 }
@@ -60,12 +45,11 @@ export async function saveLoginState<DB extends LtiLoginStatesTable>(
  * both succeed: the state and its nonce are single use. Pass the launch's
  * transaction to tie the delete to the rest of the launch.
  */
-export async function consumeLoginState<DB extends LtiLoginStatesTable>(
-	database: Kysely<DB>,
+export async function consumeLoginState(
+	db: Kysely<Database>,
 	state: string,
 	now: Date = new Date(),
 ): Promise<LtiLoginState | null> {
-	const db = database as unknown as Kysely<LtiLoginStatesTable>;
 	const row = await db
 		.deleteFrom("lti_login_states")
 		.where("state_hash", "=", hashState(state))
@@ -95,26 +79,34 @@ export function checkLaunchState(
 	return null;
 }
 
-function isSecure(publicUrl: string): boolean {
-	return publicUrl.startsWith("https:");
-}
-
-/** `__Secure-portikus_lti_state` over https, the bare name on plain http (ruling 16). */
-export function ltiStateCookieName(publicUrl: string): string {
-	return isSecure(publicUrl) ? `__Secure-${STATE_COOKIE}` : STATE_COOKIE;
+/**
+ * One cookie per login, named from the state's hash, so two launches in
+ * flight at once do not overwrite each other's cookie. `__Host-` pins it to
+ * this host with Path=/ and Secure (security review #3).
+ */
+export function ltiStateCookieName(state: string): string {
+	return STATE_COOKIE_PREFIX + hashState(state).slice(0, 16);
 }
 
 /**
- * SameSite=None over https, because the platform's form post is a
- * cross-site top-level POST; Lax on plain-http development sites (ruling 16).
+ * SameSite=None because the platform's form post is a cross-site top-level
+ * POST. Browsers accept Secure cookies on http://localhost, so development
+ * needs no exception.
  */
-export function ltiStateCookieOptions(publicUrl: string): CookieSerializeOptions {
-	const secure = isSecure(publicUrl);
+export function ltiStateCookieOptions(): CookieSerializeOptions {
 	return {
 		httpOnly: true,
-		secure,
-		sameSite: secure ? "none" : "lax",
-		path: "/lti",
+		secure: true,
+		sameSite: "none",
+		path: "/",
 		maxAge: LTI_STATE_TTL_SECONDS,
 	};
+}
+
+/** The state cookie belonging to this form's state, if the browser sent it. */
+export function readLtiStateCookie(
+	cookies: Record<string, string | undefined>,
+	formState: string,
+): string | undefined {
+	return cookies[ltiStateCookieName(formState)];
 }

@@ -8,6 +8,7 @@ import {
 	createOidcClient,
 	createSession,
 	type LtiPlatform,
+	ltiStateCookieName,
 	PlatformsFileError,
 } from "@portikus/auth";
 import {
@@ -22,7 +23,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 import { toAuthOptions } from "../auth-options.js";
 import { buildServer } from "../server.js";
 import { PUBLIC_URL, testConfig } from "../test-support.js";
-import { loadLtiDeps, toolJwks } from "./lti.js";
+import { loadLtiDeps, targetPath, toolJwks } from "./lti.js";
 
 /**
  * LTI 1.3 login and launch against a real database and a local keyset
@@ -34,7 +35,6 @@ const ISSUER = "https://lms.test.invalid";
 const CLIENT_ID = "client-1";
 const CLAIM = "https://purl.imsglobal.org/spec/lti/claim/";
 const ROLE = "http://purl.imsglobal.org/vocab/lis/v2/membership#";
-const STATE_COOKIE = "portikus_lti_state";
 const LOGIN_HINT = "login-hint-9d2f";
 
 const signing = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -164,11 +164,19 @@ async function startLogin(): Promise<{ state: string; nonce: string }> {
 	expect(location.origin + location.pathname).toBe(platform.authLoginUrl);
 	const state = location.searchParams.get("state") ?? "";
 	const nonce = location.searchParams.get("nonce") ?? "";
-	const cookie = res.cookies.find((one) => one.name === STATE_COOKIE);
+	const cookie = res.cookies.find((one) => one.name === ltiStateCookieName(state));
 	expect(cookie?.value).toBe(state);
-	expect(cookie?.path).toBe("/lti");
+	expect(cookie?.path).toBe("/");
 	return { state, nonce };
 }
+
+/** The Cookie header a browser sends back for this login's state. */
+function stateCookie(state: string, value = state): string {
+	return `${ltiStateCookieName(state)}=${value}`;
+}
+
+/** Every LTI audit row carries the client address and browser too. */
+const client = { ip: expect.any(String), userAgent: expect.any(String) };
 
 function postLaunch(
 	fields: Record<string, string>,
@@ -201,7 +209,7 @@ async function launch(
 	const token = edit.sign ? edit.sign(claims) : mint(claims);
 	const res = await postLaunch(
 		{ id_token: token, state },
-		{ cookie: `${STATE_COOKIE}=${state}` },
+		{ cookie: stateCookie(state) },
 	);
 	return { res, token, state, nonce };
 }
@@ -268,6 +276,7 @@ describe.skipIf(skip)("a good launch", () => {
 			method: "lti",
 			platform: "Test LMS",
 			role: "student",
+			...client,
 		});
 
 		// Nothing secret or personal reaches the log (ruling 9).
@@ -309,6 +318,61 @@ describe.skipIf(skip)("a good launch", () => {
 		);
 		expect(res.headers.location).toBe("/workspace?tab=2");
 	});
+
+	test("a target that could leave our origin redirects to /", async () => {
+		for (const [path, expected] of [
+			["//evil.example/x", "/"],
+			["/\\evil.example", "/"],
+			// Encoded, these stay one path segment on our origin.
+			["/%5Cevil.example", "/%5Cevil.example"],
+			["/%2F%2Fevil", "/%2F%2Fevil"],
+		] as const) {
+			const { res } = await launch(
+				{ sub: "student-1" },
+				{
+					claims: (claims) => {
+						claims[`${CLAIM}target_link_uri`] = `${PUBLIC_URL}${path}`;
+					},
+				},
+			);
+			expect(res.statusCode, path).toBe(303);
+			expect(res.headers.location, path).toBe(expected);
+		}
+	});
+
+	test("targetPath keeps only a single-slash path on our origin", () => {
+		expect(targetPath(`${PUBLIC_URL}/a?b=1`, PUBLIC_URL)).toBe("/a?b=1");
+		expect(targetPath(`${PUBLIC_URL}//evil.example/x`, PUBLIC_URL)).toBe("/");
+		expect(targetPath(`${PUBLIC_URL}/\\evil.example`, PUBLIC_URL)).toBe("/");
+		expect(targetPath("https://evil.example/", PUBLIC_URL)).toBe("/");
+	});
+
+	for (const order of ["in order", "in reverse order"]) {
+		test(`two logins then two launches ${order} both sign in`, async () => {
+			const first = await startLogin();
+			const second = await startLogin();
+			const both = [first, second];
+			if (order === "in reverse order") both.reverse();
+			// The browser holds both state cookies and sends both each time.
+			const cookie = [stateCookie(first.state), stateCookie(second.state)].join("; ");
+			for (const login of both) {
+				const res = await postLaunch(
+					{
+						id_token: mint(claimsFor({ sub: "student-1" }, login.nonce)),
+						state: login.state,
+					},
+					{ cookie },
+				);
+				expect(res.statusCode).toBe(303);
+				expect(sessionCookie(res)).toBeTruthy();
+				// Only this launch's cookie is cleared.
+				const cleared = res.cookies.filter((one) => one.name.startsWith("__Host-"));
+				expect(cleared.map((one) => [one.name, one.path])).toEqual([
+					[ltiStateCookieName(login.state), "/"],
+				]);
+			}
+		});
+	}
 
 	test("a launch with no context signs in and records no membership", async () => {
 		const { res } = await launch({ sub: "student-1", context: null });
@@ -384,6 +448,7 @@ describe.skipIf(skip)("a good launch", () => {
 			method: "lti",
 			platform: "Test LMS",
 			role: "student",
+			...client,
 		});
 	});
 
@@ -424,13 +489,18 @@ describe.skipIf(skip)("refused launches", () => {
 		const users = await testDb.db.selectFrom("users").select("id").execute();
 		expect(users).toEqual([]);
 		const audits = await loginAudits();
-		expect(audits.at(-1)).toMatchObject({ result: "failed", actor: "unknown" });
-		const metadata = audits.at(-1)?.metadata as Record<string, unknown>;
-		expect(metadata.reason).toBe(reason);
-		expect(metadata.method).toBe("lti");
-		expect(Object.keys(metadata).sort()).toEqual(
-			metadata.platform ? ["method", "platform", "reason"] : ["method", "reason"],
-		);
+		if (reason === "framed" || reason === "state_missing") {
+			// Anyone can send these; they are logged, not audited.
+			expect(audits).toEqual([]);
+		} else {
+			expect(audits.at(-1)).toMatchObject({ result: "failed", actor: "unknown" });
+			const metadata = audits.at(-1)?.metadata as Record<string, unknown>;
+			expect(metadata.reason).toBe(reason);
+			expect(metadata.method).toBe("lti");
+			const keys = ["ip", "method", "reason", "userAgent"];
+			if (metadata.platform) keys.push("platform");
+			expect(Object.keys(metadata).sort()).toEqual(keys.sort());
+		}
 		const logged = JSON.stringify(lines);
 		expect(logged).toContain(reason);
 		expect(logged).not.toContain("Sam Student");
@@ -496,7 +566,7 @@ describe.skipIf(skip)("refused launches", () => {
 		const { state, nonce } = await startLogin();
 		const res = await postLaunch(
 			{ id_token: mint(claimsFor({ sub: "student-1" }, nonce)), state },
-			{ cookie: `${STATE_COOKIE}=someone-elses-state` },
+			{ cookie: stateCookie(state, "someone-elses-state") },
 		);
 		await expectRefused(res, "state_mismatch", 400);
 	});
@@ -504,7 +574,7 @@ describe.skipIf(skip)("refused launches", () => {
 	test("a state with no row is state_missing", async () => {
 		const res = await postLaunch(
 			{ id_token: "x.y.z", state: "never-issued" },
-			{ cookie: `${STATE_COOKIE}=never-issued` },
+			{ cookie: stateCookie("never-issued") },
 		);
 		await expectRefused(res, "state_missing", 400);
 	});
@@ -514,20 +584,24 @@ describe.skipIf(skip)("refused launches", () => {
 		expect(res.statusCode).toBe(303);
 		const again = await postLaunch(
 			{ id_token: token, state },
-			{ cookie: `${STATE_COOKIE}=${state}` },
+			{ cookie: stateCookie(state) },
 		);
 		expect(again.statusCode).toBe(400);
 		expect(sessionCookie(again)).toBeUndefined();
 		const audits = await loginAudits();
-		expect(audits.at(-1)?.metadata).toMatchObject({ reason: "state_missing" });
+		expect(audits.map((row) => row.result)).toEqual(["ok"]);
+		expect(JSON.stringify(lines)).toContain("state_missing");
 	});
 
 	test("a launch inside a frame is refused and leaves the state for a new tab", async () => {
 		const { state, nonce } = await startLogin();
 		const fields = { id_token: mint(claimsFor({ sub: "student-1" }, nonce)), state };
-		const cookie = `${STATE_COOKIE}=${state}`;
+		const cookie = stateCookie(state);
 		const framed = await postLaunch(fields, { cookie, "sec-fetch-dest": "iframe" });
 		await expectRefused(framed, "framed", 400);
+		expect(framed.cookies).toEqual([]);
+		const rows = await testDb.db.selectFrom("lti_login_states").selectAll().execute();
+		expect(rows).toHaveLength(1);
 		const top = await postLaunch(fields, { cookie, "sec-fetch-dest": "document" });
 		expect(top.statusCode).toBe(303);
 	});
@@ -541,9 +615,9 @@ describe.skipIf(skip)("login initiation", () => {
 		});
 		expect(res.statusCode).toBe(200);
 		expect(res.headers["content-type"]).toContain("text/html");
-		expect(res.headers["content-security-policy"]).toContain(
-			"frame-ancestors https://lms.test.invalid",
-		);
+		const csp = res.headers["content-security-policy"];
+		expect(csp).toContain("frame-ancestors *");
+		expect(csp).toContain("form-action 'self' https://lms.test.invalid");
 		expect(res.body).toContain('target="_blank"');
 		expect(res.body).toContain('action="/lti/login"');
 		expect(res.body).toContain(`name="login_hint" value="${LOGIN_HINT}"`);
@@ -572,11 +646,13 @@ describe.skipIf(skip)("login initiation", () => {
 		}
 	});
 
-	test("every /lti response names only the registered platforms as frame ancestors", async () => {
-		const res = await app.inject({ url: "/lti/jwks" });
-		expect(res.headers["content-security-policy"]).toContain(
-			"frame-ancestors https://lms.test.invalid",
-		);
+	test("login and launch may be framed by anyone; the keyset by no one", async () => {
+		const login = await app.inject({ url: `/lti/login?${loginQuery}` });
+		expect(login.headers["content-security-policy"]).toContain("frame-ancestors *");
+		const launched = await postLaunch({ state: "x" });
+		expect(launched.headers["content-security-policy"]).toContain("frame-ancestors *");
+		const keys = await app.inject({ url: "/lti/jwks" });
+		expect(keys.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
 	});
 });
 

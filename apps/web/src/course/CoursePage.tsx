@@ -1,7 +1,7 @@
 import type { CourseMember } from "@portikus/contracts";
+import { StateBadge } from "@portikus/ui";
 import { Link, Navigate, useParams } from "@tanstack/react-router";
 import type * as React from "react";
-import { WorkspaceStateBadge } from "../admin/WorkspacesTab.js";
 import { ApiError } from "../api/request.js";
 import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
@@ -36,9 +36,13 @@ function CourseFrame({ children }: { children: React.ReactNode }) {
 	);
 }
 
-function Message({ testId, children }: { testId: string; children: React.ReactNode }) {
+/**
+ * One live region that stays mounted under the heading, so a screen reader
+ * hears the loading text change to the error or empty text.
+ */
+function Status({ children }: { children: React.ReactNode }) {
 	return (
-		<p className="pk-text-body pk-muted mt-4" data-testid={testId} role="status">
+		<p className="pk-text-body pk-muted mt-4" role="status">
 			{children}
 		</p>
 	);
@@ -67,25 +71,28 @@ function CourseList() {
 			<h1 className="pk-text-title" id="course-title">
 				Courses
 			</h1>
-			{courses.isError ? (
-				<Message testId="course-error">
-					Portikus could not load your courses. Reload the page to try again.
-				</Message>
-			) : !list ? (
-				<div aria-busy="true" />
-			) : list.length === 0 ? (
-				<Message testId="course-empty">
-					You have no courses here yet. A course appears after you open Portikus from it
-					in your learning management system as an instructor.
-				</Message>
-			) : (
+			<Status>
+				{courses.isError ? (
+					<span data-testid="course-error">
+						Portikus could not load your courses. Reload the page to try again.
+					</span>
+				) : !list ? (
+					"Loading courses…"
+				) : list.length === 0 ? (
+					<span data-testid="course-empty">
+						You have no courses here yet. A course appears after you open Portikus from
+						it in your learning management system as an instructor.
+					</span>
+				) : null}
+			</Status>
+			{list && list.length > 0 ? (
 				<ul className="mt-4 flex flex-col gap-2" data-testid="course-list">
 					{list.map((course) => (
 						<li key={course.id}>
 							<Link
 								to="/course/$courseId"
 								params={{ courseId: course.id }}
-								className="pk-focus-ring rounded-sm font-semibold text-ink"
+								className="pk-focus-ring rounded-sm font-semibold text-accent-text"
 							>
 								{course.title}
 							</Link>{" "}
@@ -93,7 +100,7 @@ function CourseList() {
 						</li>
 					))}
 				</ul>
-			)}
+			) : null}
 		</>
 	);
 }
@@ -129,19 +136,22 @@ function CourseMembers() {
 			{data ? (
 				<p className="pk-muted mt-1 text-[13px]">{data.course.platformName}</p>
 			) : null}
-			{members.isError ? (
-				<Message testId="course-error">
-					{notFound
-						? "This course was not found, or you are not an instructor in it."
-						: "Portikus could not load this course. Reload the page to try again."}
-				</Message>
-			) : !data ? (
-				<div aria-busy="true" />
-			) : data.members.length === 0 ? (
-				<Message testId="course-members-empty">
-					Nobody has opened Portikus from this course yet.
-				</Message>
-			) : (
+			<Status>
+				{members.isError ? (
+					<span data-testid="course-error">
+						{notFound
+							? "This course was not found, or you are not an instructor in it."
+							: "Portikus could not load this course. Reload the page to try again."}
+					</span>
+				) : !data ? (
+					"Loading this course…"
+				) : data.members.length === 0 ? (
+					<span data-testid="course-members-empty">
+						Nobody has opened Portikus from this course yet.
+					</span>
+				) : null}
+			</Status>
+			{data && data.members.length > 0 ? (
 				<table
 					className="mt-4 w-full text-left text-[13px]"
 					data-testid="course-members"
@@ -177,10 +187,7 @@ function CourseMembers() {
 								<td className="py-2 pr-4">{launchText(member.lastLaunchAt)}</td>
 								<td className="py-2">
 									{member.workspaceState ? (
-										<WorkspaceStateBadge
-											state={member.workspaceState}
-											desiredState=""
-										/>
+										<StateBadge state={member.workspaceState} />
 									) : (
 										"No workspace"
 									)}
@@ -189,7 +196,7 @@ function CourseMembers() {
 						))}
 					</tbody>
 				</table>
-			)}
+			) : null}
 		</>
 	);
 }

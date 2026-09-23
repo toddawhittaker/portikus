@@ -14,5 +14,7 @@ export function useCourseMembers(courseId: string) {
 	return useQuery({
 		queryKey: ["courses", courseId, "members"],
 		queryFn: () => request(CourseMembersResponse, `/courses/${courseId}/members`),
+		// Instructors switch tabs a lot; a read-only roster need not refetch each time.
+		refetchOnWindowFocus: false,
 	});
 }
