@@ -22,14 +22,27 @@ export interface AuthOptions {
 	instructorGroup: string;
 	cookieSecret: string;
 	sessionTtlSeconds: number;
+	/** OIDC_PROVIDER (docs/EPIC-14.md); absent means generic OIDC. */
+	provider?: OidcProvider;
+	/** OIDC_ALLOWED_TENANT: the one Entra tenant ID (ruling 8). */
+	allowedTenant?: string | null;
+	/** OIDC_ALLOWED_DOMAINS, lowercased: the Google `hd` values (ruling 3). */
+	allowedDomains?: readonly string[];
+	/** OIDC_DEFAULT_ROLE: the role when no group matches (ruling 11); absent means none. */
+	defaultRole?: "none" | "student";
+	/** OUTBOUND_PROXY_URL (ruling 27); absent means direct. */
+	outboundProxyUrl?: string | null;
 }
+
+export type OidcProvider = "oidc" | "entra" | "google";
 
 export const SESSION_COOKIE = "portikus_session";
 export const LOGIN_COOKIE = "portikus_login";
 
 /**
- * Map the identity provider's group claim to a platform role. Returns
- * null when the user is in none of the groups; the highest role wins.
+ * Map the identity provider's group claim to a platform role; the highest
+ * role wins. With none of the groups the answer is OIDC_DEFAULT_ROLE:
+ * null (refused) or student (docs/EPIC-14.md ruling 11).
  */
 export function mapRole(
 	claims: Record<string, unknown>,
@@ -52,5 +65,5 @@ export function mapRole(
 	if (groups.includes(opts.studentGroup)) {
 		return "student";
 	}
-	return null;
+	return opts.defaultRole === "student" ? "student" : null;
 }

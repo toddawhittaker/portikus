@@ -99,3 +99,22 @@ describe("mapRole", () => {
 		).toBe("student");
 	});
 });
+
+describe("mapRole with OIDC_DEFAULT_ROLE (docs/EPIC-14.md ruling 11)", () => {
+	test("none refuses a user with no matching group", () => {
+		expect(mapRole({ groups: [] }, { ...opts, defaultRole: "none" })).toBeNull();
+	});
+
+	test("student admits a user with no matching group as a student, never more", () => {
+		expect(mapRole({}, { ...opts, defaultRole: "student" })).toBe("student");
+	});
+
+	test("a matching group still wins", () => {
+		expect(
+			mapRole(
+				{ groups: ["portikus-instructors"] },
+				{ ...opts, defaultRole: "student" },
+			),
+		).toBe("instructor");
+	});
+});

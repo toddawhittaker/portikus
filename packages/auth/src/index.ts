@@ -44,6 +44,7 @@ export {
 	validateLaunchToken,
 } from "./lti/validate.js";
 export {
+	type AdmissionRefusal,
 	createOidcClient,
 	type LoginState,
 	type OidcClient,
@@ -69,4 +70,4 @@ export {
 	sessionOrigin,
 	upsertUser,
 } from "./sessions.js";
-export { type AuthOptions, mapRole, type Role } from "./types.js";
+export { type AuthOptions, mapRole, type OidcProvider, type Role } from "./types.js";
