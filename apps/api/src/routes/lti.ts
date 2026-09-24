@@ -12,6 +12,7 @@ import {
 	ltiStateCookieName,
 	ltiStateCookieOptions,
 	readLtiStateCookie,
+	resolveIdentity,
 	saveLoginState,
 	staleLtiStateCookies,
 	startLtiLogin,
@@ -22,7 +23,7 @@ import type { ApiError } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../server.js";
-import { completeSignIn, requestMetadata } from "./start-session.js";
+import { completeSignIn, requestMetadata, startSession } from "./start-session.js";
 
 /** What the API loaded at start for LTI (docs/EPIC-13.md rulings 14 and 15). */
 export interface LtiDeps {
@@ -62,6 +63,8 @@ const COULD_NOT_FINISH =
 const COULD_NOT_SIGN_IN =
 	"Portikus could not sign you in from your course. Open it again from your course; if this keeps happening, ask your instructor.";
 const NOT_AUTHORIZED = "Your account is not authorized to use Portikus.";
+const ADMIN_BY_SSO =
+	"This account is an administrator account. Administrators sign in with SSO, not from a course.";
 const BAD_LOGIN =
 	"Portikus did not recognise this link from your course. Ask your instructor to check how Portikus is set up.";
 
@@ -372,6 +375,20 @@ export function registerLtiRoutes(
 		if (!result.ok) return refuseLaunch(request, reply, result.reason, result.platform);
 
 		const { launch } = result;
+		const identity = await resolveIdentity(
+			db,
+			`lti:${launch.platform.issuer}`,
+			launch.subject,
+		);
+		if (identity?.courseUserId)
+			return linkedLaunch(
+				request,
+				reply,
+				launch,
+				identity.userId,
+				identity.courseUserId,
+			);
+
 		const signedIn = await completeSignIn(db, auth, reply, {
 			identity: {
 				issuer: `lti:${launch.platform.issuer}`,
@@ -381,6 +398,7 @@ export function registerLtiRoutes(
 				preferredUsername: null,
 			},
 			role: launch.role,
+			method: "lti",
 			loginMetadata: {
 				method: "lti",
 				platform: launch.platform.name,
@@ -396,6 +414,64 @@ export function registerLtiRoutes(
 		await recordMembership(launch, signedIn.userId, new Date().toISOString());
 		return reply.redirect(targetPath(launch.targetLinkUri, publicUrl), 303);
 	});
+
+	/**
+	 * A launch from a linked course identity signs into the SSO account and
+	 * refreshes only its membership: name, email and roles stay as they are
+	 * (docs/EPIC-13-1.md, "The flow" step 6). It never starts an
+	 * administrator session (ruling 21).
+	 */
+	async function linkedLaunch(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		launch: LtiLaunch,
+		userId: string,
+		courseUserId: string,
+	) {
+		const user = await db
+			.selectFrom("users")
+			.select(["role", "disabled_at"])
+			.where("id", "=", userId)
+			.executeTakeFirstOrThrow();
+		const base = { method: "lti", platform: launch.platform.name };
+		const actor = `user:${userId}`;
+		if (user.disabled_at !== null) {
+			await audit("auth.login", actor, userId, "denied", {
+				...base,
+				reason: "disabled",
+				linked: true,
+				...requestMetadata(request),
+			});
+			request.log.info({ reason: "disabled" }, "lti launch refused");
+			return html(reply, 403, page("Portikus could not open", NOT_AUTHORIZED));
+		}
+		const now = new Date().toISOString();
+		await recordMembership(launch, userId, now);
+		if (user.role === "administrator") {
+			await audit("auth.login", actor, userId, "denied", {
+				...base,
+				reason: "administrator",
+				...requestMetadata(request),
+			});
+			request.log.info({ reason: "administrator" }, "lti launch refused");
+			const link = `<p><a href="/auth/login" target="_top">Sign in with SSO</a></p>
+`;
+			return html(
+				reply,
+				403,
+				page("Administrators sign in with SSO", ADMIN_BY_SSO, link),
+			);
+		}
+		// The course identity is kept so this session may unlink it (review S2).
+		await startSession(db, auth, reply, userId, { method: "lti", courseUserId });
+		await audit("auth.login", actor, userId, "ok", {
+			...base,
+			role: launch.role,
+			linked: true,
+			...requestMetadata(request),
+		});
+		return reply.redirect(targetPath(launch.targetLinkUri, publicUrl), 303);
+	}
 
 	app.get("/lti/jwks", async (_request, reply) => {
 		reply.header("content-security-policy", jwksCsp);

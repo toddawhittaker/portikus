@@ -1,12 +1,13 @@
 import type { CourseMember } from "@portikus/contracts";
-import { StateBadge } from "@portikus/ui";
+import { Button, StateBadge } from "@portikus/ui";
 import { Link, Navigate, useParams } from "@tanstack/react-router";
-import type * as React from "react";
+import * as React from "react";
 import { ApiError } from "../api/request.js";
 import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { useMe } from "../useMe.js";
 import { useCourseMembers, useCourses } from "./queries.js";
+import { RemoveMemberConfirm } from "./RemoveMemberConfirm.js";
 
 const ROLE_LABEL: Record<CourseMember["role"], string> = {
 	student: "Student",
@@ -112,7 +113,23 @@ function launchText(iso: string): string {
 	return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-/** `/course/:courseId`: who has opened Portikus from this course. Read-only. */
+/** The member whose Remove button takes focus after one is removed: the next, else the previous. */
+export function nextRemovable(
+	members: CourseMember[],
+	removedId: string,
+	myId: string | null,
+): string | null {
+	const index = members.findIndex((member) => member.userId === removedId);
+	const others = (list: CourseMember[]) =>
+		list.find((member) => member.userId !== myId)?.userId ?? null;
+	return (
+		others(members.slice(index + 1)) ??
+		others(members.slice(0, index).reverse()) ??
+		null
+	);
+}
+
+/** `/course/:courseId`: who has opened Portikus from this course, and removing them. */
 export function CourseMembersPage() {
 	return (
 		<CourseFrame>
@@ -124,13 +141,18 @@ export function CourseMembersPage() {
 function CourseMembers() {
 	const { courseId } = useParams({ from: "/course/$courseId" });
 	const members = useCourseMembers(courseId);
+	const me = useMe();
+	const myId = me.status === "authenticated" ? me.user.id : null;
+	const [removing, setRemoving] = React.useState<CourseMember | null>(null);
+	const [removedText, setRemovedText] = React.useState("");
+	const headingRef = React.useRef<HTMLHeadingElement>(null);
 	const data = members.data;
 	const notFound = members.error instanceof ApiError && members.error.status === 404;
 	usePageTitle(data?.course.title ?? "Course");
 
 	return (
 		<>
-			<h1 className="pk-text-title" id="course-title">
+			<h1 className="pk-text-title" id="course-title" ref={headingRef} tabIndex={-1}>
 				{data?.course.title ?? "Course"}
 			</h1>
 			{data ? (
@@ -151,6 +173,9 @@ function CourseMembers() {
 					</span>
 				) : null}
 			</Status>
+			<span className="sr-only" role="status" data-testid="course-removed">
+				{removedText}
+			</span>
 			{data && data.members.length > 0 ? (
 				<table
 					className="mt-4 w-full text-left text-[13px]"
@@ -170,32 +195,66 @@ function CourseMembers() {
 							<th scope="col" className="py-2 pr-4 font-medium">
 								Last launch
 							</th>
-							<th scope="col" className="py-2 font-medium">
+							<th scope="col" className="py-2 pr-4 font-medium">
 								Workspace
+							</th>
+							<th scope="col" className="py-2 font-medium">
+								<span className="sr-only">Actions</span>
 							</th>
 						</tr>
 					</thead>
 					<tbody>
-						{data.members.map((member, index) => (
-							// Members carry no id; the API's order is stable.
-							// biome-ignore lint/suspicious/noArrayIndexKey: see above
-							<tr key={index} className="border-line border-t">
+						{data.members.map((member) => (
+							<tr key={member.userId} className="border-line border-t">
 								<th scope="row" className="py-2 pr-4 font-normal">
 									{member.displayName}
 								</th>
 								<td className="py-2 pr-4">{ROLE_LABEL[member.role]}</td>
 								<td className="py-2 pr-4">{launchText(member.lastLaunchAt)}</td>
-								<td className="py-2">
+								<td className="py-2 pr-4">
 									{member.workspaceState ? (
-										<StateBadge state={member.workspaceState} />
+										<StateBadge state={member.workspaceState} statusRole={false} />
 									) : (
 										"No workspace"
+									)}
+								</td>
+								<td className="py-2">
+									{member.userId === myId ? null : (
+										<Button
+											size="sm"
+											data-remove-id={member.userId}
+											onClick={() => setRemoving(member)}
+										>
+											Remove{" "}
+											<span className="sr-only">{member.displayName} from course</span>
+										</Button>
 									)}
 								</td>
 							</tr>
 						))}
 					</tbody>
 				</table>
+			) : null}
+			{data && removing ? (
+				<RemoveMemberConfirm
+					courseId={courseId}
+					courseTitle={data.course.title}
+					member={removing}
+					onClose={() => setRemoving(null)}
+					onRemoved={() => {
+						const next = nextRemovable(data.members, removing.userId, myId);
+						setRemoving(null);
+						setRemovedText(`Removed ${removing.displayName} from ${data.course.title}`);
+						// Wait for the row and the dialog to unmount, then land on what is left.
+						requestAnimationFrame(() => {
+							const button = next
+								? document.querySelector<HTMLElement>(`[data-remove-id="${next}"]`)
+								: null;
+							// With only yourself left, the heading, not the hidden caption (review A3).
+							(button ?? headingRef.current)?.focus();
+						});
+					}}
+				/>
 			) : null}
 		</>
 	);

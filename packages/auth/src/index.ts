@@ -1,5 +1,28 @@
 /** OIDC login, server-side sessions, and authorization helpers (SPEC.md sections 5 and 24, STACK.md section 8). */
 
+export {
+	bindLinkIntent,
+	consumeLinkIntent,
+	courseLinkWindow,
+	findLinkIntent,
+	grantAdministrator,
+	isCourseIssuer,
+	LINK_INTENT_TTL_SECONDS,
+	LINK_WINDOW_SECONDS,
+	type LinkIntent,
+	type LinkRefusal,
+	type LinkWindow,
+	linkAccounts,
+	listLinks,
+	pendingLinkIntent,
+	platformIssuerOf,
+	type RoleChange,
+	resolveIdentity,
+	revokeAdministrator,
+	saveLinkIntent,
+	sessionLinkState,
+	unlinkAccount,
+} from "./links.js";
 export { isOnOrigin, type LtiLoginParams, startLtiLogin } from "./lti/login.js";
 export {
 	type LtiPlatform,
@@ -38,7 +61,12 @@ export {
 export {
 	createSession,
 	deleteSession,
+	hashSessionToken,
 	loadSession,
+	loadSessionById,
+	type SessionMethod,
+	type SessionOrigin,
+	sessionOrigin,
 	upsertUser,
 } from "./sessions.js";
 export { type AuthOptions, mapRole, type Role } from "./types.js";

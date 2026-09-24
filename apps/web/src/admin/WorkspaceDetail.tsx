@@ -21,7 +21,7 @@ import { PENDING_LABEL } from "../shell/StatusBar.js";
 import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
 import { defaultLabel, graceText } from "./graceText.js";
 import { logCommand } from "./logCommand.js";
-import { imageText } from "./markers.js";
+import { imageText, isCourseAccount, roleText, sourceText } from "./markers.js";
 import { QuotaDialog } from "./QuotaDialog.js";
 import {
 	useAdminWorkspace,
@@ -31,6 +31,7 @@ import {
 	useResetDocker,
 	useSetArchived,
 	useSetDisabled,
+	useSetGrantedAdmin,
 	useUpdateQuota,
 	useUpdateUserSettings,
 } from "./queries.js";
@@ -157,6 +158,7 @@ function WorkspaceSections({
 					<WorkspaceStateBadge
 						state={workspace.state}
 						desiredState={workspace.desiredState}
+						statusRole={false}
 					/>
 				</span>
 				{workspace.archivedAt ? <span className="pk-tag">Archived</span> : null}
@@ -634,6 +636,102 @@ const ACTION_DONE = {
 	restart: "Asked to restart",
 } as const;
 
+/** Why Promote or Demote is off for this account, or null when it is on (EPIC-13-1 ruling 23). */
+export function roleChangeNote(user: AdminUser, isSelf: boolean): string | null {
+	if (user.role !== "administrator") {
+		return isCourseAccount(user.issuer)
+			? "Only SSO accounts can be administrators."
+			: null;
+	}
+	if (isSelf) return "You cannot demote your own account.";
+	if (user.grantedRole !== "administrator") {
+		return "This administrator comes from the SSO provider's groups.";
+	}
+	return null;
+}
+
+/** Promote to administrator, or demote a granted one (EPIC-13-1 ruling 23). */
+function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
+	const toast = useToast();
+	const change = useSetGrantedAdmin();
+	const [confirming, setConfirming] = useState(false);
+	const promote = user.role !== "administrator";
+	const note = roleChangeNote(user, isSelf);
+	const noteId = `role-note-${user.id}`;
+	const name = user.displayName;
+
+	function open(next: boolean) {
+		change.reset();
+		setConfirming(next);
+	}
+
+	function run() {
+		if (change.isPending) return;
+		change.mutate(
+			{ userId: user.id, admin: promote },
+			{
+				onSuccess: () => {
+					toast.show({
+						tone: "success",
+						title: promote
+							? `${name} is now an administrator`
+							: `${name} is no longer an administrator`,
+					});
+					setConfirming(false);
+				},
+			},
+		);
+	}
+
+	return (
+		<>
+			<Button
+				size="sm"
+				data-testid={promote ? "detail-promote" : "detail-demote"}
+				aria-label={promote ? `Promote ${name} to administrator` : `Demote ${name}`}
+				aria-describedby={note ? noteId : undefined}
+				aria-disabled={note ? true : undefined}
+				onClick={() => (note ? undefined : open(true))}
+			>
+				{promote ? "Promote…" : "Demote…"}
+			</Button>
+			{note ? (
+				<p id={noteId} className="pk-muted m-0 w-full text-[13px]">
+					{note}
+				</p>
+			) : null}
+			<ConfirmDialogRoot open={confirming} onOpenChange={open}>
+				<ConfirmDialog
+					id={promote ? "promote-dialog" : "demote-dialog"}
+					testId={promote ? "promote-dialog" : "demote-dialog"}
+					title={promote ? `Make ${name} an administrator?` : `Demote ${name}?`}
+					description={
+						<>
+							<span className="block">
+								{promote
+									? "They can see every account and workspace and change platform settings, from their next page load."
+									: `They go back to ${roleText({ role: user.providerRole, grantedRole: null })}, from their next page load.`}
+							</span>
+							{change.error ? (
+								<span
+									className="mt-2 block text-status-error"
+									role="alert"
+									data-testid="role-change-error"
+								>
+									{errorText(change.error)}
+								</span>
+							) : null}
+						</>
+					}
+					confirmLabel={promote ? "Promote" : "Demote"}
+					pending={change.isPending}
+					onConfirm={run}
+				/>
+			</ConfirmDialogRoot>
+		</>
+	);
+}
+
 /** Disable or enable the account, and its grace override (SPEC.md §6.4, §20.1). */
 function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 	const toast = useToast();
@@ -673,7 +771,21 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 			<h3 id="detail-account" className="pk-text-label m-0">
 				Account
 			</h3>
-			<div>
+			<dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 text-[13px]">
+				<dt className="pk-muted">Role</dt>
+				<dd className="m-0" data-testid="detail-role">
+					{roleText(user)}
+				</dd>
+				<dt className="pk-muted">Source</dt>
+				<dd className="m-0">{sourceText(user.issuer)}</dd>
+				<dt className="pk-muted">Issuer</dt>
+				<dd className="pk-mono-small m-0 break-all" data-testid="detail-issuer">
+					{user.issuer ?? "—"}
+				</dd>
+				<dt className="pk-muted">Username</dt>
+				<dd className="pk-mono-small m-0">{user.preferredUsername ?? "—"}</dd>
+			</dl>
+			<div className="flex flex-wrap gap-2">
 				<Button
 					size="sm"
 					data-testid="detail-disable"
@@ -689,6 +801,7 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 				>
 					{disabled ? "Enable account" : "Disable account…"}
 				</Button>
+				<RoleChange user={user} isSelf={isSelf} />
 			</div>
 			{isSelf ? (
 				<p id={selfNoteId} className="pk-muted m-0 text-[13px]">

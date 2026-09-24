@@ -69,6 +69,40 @@ export const PEOPLE: readonly Person[] = [
 		email: "ada@mock-lms.test",
 		role: "Administrator",
 	},
+	{
+		key: "rex",
+		sub: "5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a1601",
+		givenName: "Rex",
+		familyName: "Remover",
+		email: "rex@mock-lms.test",
+		role: "Instructor",
+	},
+	{
+		key: "una",
+		sub: "5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a1602",
+		givenName: "Una",
+		familyName: "Unenrolled",
+		email: "una@mock-lms.test",
+		role: "Learner",
+	},
+	// Linking tests only (docs/EPIC-13-1.md): a link changes where every launch
+	// of a person lands, so no other spec may launch these two.
+	{
+		key: "lin",
+		sub: "5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a1006",
+		givenName: "Lin",
+		familyName: "Linker",
+		email: "lin@mock-lms.test",
+		role: "Learner",
+	},
+	{
+		key: "max",
+		sub: "5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a1007",
+		givenName: "Max",
+		familyName: "Linker",
+		email: "max@mock-lms.test",
+		role: "Learner",
+	},
 ];
 
 export const COURSES: readonly Course[] = [
@@ -83,6 +117,12 @@ export const COURSES: readonly Course[] = [
 		id: "mock-course-cs240",
 		label: "CS 240",
 		title: "CS 240 Data Structures",
+	},
+	{
+		key: "cs350",
+		id: "mock-course-cs350",
+		label: "CS 350",
+		title: "CS 350 Software Engineering",
 	},
 ];
 

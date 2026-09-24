@@ -171,7 +171,13 @@ describe.skipIf(!ISSUER)("sign-in through a real Dex", () => {
 			const role = mapRole(completed.claims, auth);
 			if (!role) throw new Error(`${login} has no Portikus role`);
 			const user = await upsertUser(t.db, completed.identity, role);
-			return { user, session: await createSession(t.db, user.id, 3600) };
+			return {
+				user,
+				session: await createSession(t.db, user.id, 3600, {
+					method: "oidc",
+					courseUserId: null,
+				}),
+			};
 		}
 
 		test("a signed-in user's row carries the Dex subject and the session loads", async () => {

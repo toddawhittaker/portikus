@@ -17,12 +17,20 @@ const STUDENT_ROW = {
 	displayName: USER.displayName,
 	email: USER.email,
 	role: "student" as const,
+	providerRole: "student" as const,
+	grantedRole: null,
 	disabledAt: null,
 	shutdownGraceSeconds: 30,
 	preferredUsername: null,
 	issuer: null,
 	lastLoginAt: null,
-	markers: { disabled: false, archived: false, duplicateEmail: false, stale: false },
+	markers: {
+		disabled: false,
+		archived: false,
+		duplicateEmail: false,
+		stale: false,
+		linked: false,
+	},
 	workspace: null,
 };
 
@@ -31,12 +39,20 @@ const ADMIN_ROW = {
 	displayName: ADMIN.displayName,
 	email: ADMIN.email,
 	role: "administrator" as const,
+	providerRole: "administrator" as const,
+	grantedRole: null,
 	disabledAt: "2026-01-01T00:00:00.000Z",
 	shutdownGraceSeconds: null,
 	preferredUsername: null,
 	issuer: null,
 	lastLoginAt: null,
-	markers: { disabled: true, archived: false, duplicateEmail: false, stale: false },
+	markers: {
+		disabled: true,
+		archived: false,
+		duplicateEmail: false,
+		stale: false,
+		linked: false,
+	},
 	workspace: null,
 };
 
@@ -85,14 +101,16 @@ async function openDetail(name: string): Promise<void> {
 	await screen.findByRole("region", { name });
 }
 
-test("the page opens on the Workspaces tab and each tab is a link", async () => {
+test("the page opens on the Users tab and each tab is a link", async () => {
 	stubAdmin(600);
 
 	renderApp("/admin");
 
 	const nav = await screen.findByRole("navigation", { name: "Administration" });
 	const current = within(nav).getByRole("link", { current: "page" });
-	expect(current.textContent).toBe("Workspaces");
+	// Relabelled Users; the address stays ?tab=workspaces (EPIC-13-1 ruling 24).
+	expect(current.textContent).toBe("Users");
+	expect(current.getAttribute("href")).toBe("/admin?tab=workspaces");
 	expect(within(nav).getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
 		"/admin?tab=settings",
 	);
@@ -114,7 +132,7 @@ test("the tab comes from the address", async () => {
 	expect(screen.queryByTestId("admin-accounts")).toBeNull();
 });
 
-test("an unknown tab falls back to Workspaces", async () => {
+test("an unknown tab falls back to Users", async () => {
 	stubAdmin(600);
 
 	renderApp("/admin?tab=nonsense");

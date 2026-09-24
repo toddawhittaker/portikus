@@ -1,4 +1,9 @@
-import { requireRole, requireUser } from "@portikus/auth";
+import {
+	grantAdministrator,
+	requireRole,
+	requireUser,
+	revokeAdministrator,
+} from "@portikus/auth";
 import {
 	type AdminUser,
 	type AdminUserList,
@@ -17,6 +22,7 @@ import { z } from "zod";
 import { accountFlags, groupByEmail } from "../admin/markers.js";
 import type { ServerDeps } from "../server.js";
 import { loadImageFacts, toWorkspaceSummary } from "./admin-workspaces.js";
+import { audit, requestMetadata } from "./start-session.js";
 import { countActive, toWorkspace } from "./workspace-view.js";
 
 const UuidParam = z.object({ id: z.string().uuid() });
@@ -48,6 +54,8 @@ const USER_COLUMNS = [
 	"display_name",
 	"email",
 	"role",
+	"provider_role",
+	"granted_role",
 	"disabled_at",
 	"shutdown_grace_seconds",
 	"preferred_username",
@@ -61,6 +69,8 @@ function toAdminUser(row: {
 	display_name: string;
 	email: string | null;
 	role: string;
+	provider_role: string;
+	granted_role: string | null;
 	disabled_at: Date | null;
 	shutdown_grace_seconds: number | null;
 	preferred_username: string | null;
@@ -72,6 +82,9 @@ function toAdminUser(row: {
 		displayName: row.display_name,
 		email: row.email,
 		role: Role.parse(row.role),
+		providerRole: Role.parse(row.provider_role),
+		// The database check allows only these two values.
+		grantedRole: row.granted_role as AdminUser["grantedRole"],
 		disabledAt: row.disabled_at ? new Date(row.disabled_at).toISOString() : null,
 		shutdownGraceSeconds: row.shutdown_grace_seconds,
 		preferredUsername: row.preferred_username,
@@ -210,6 +223,11 @@ export function registerAdminRoutes(
 			.orderBy("id")
 			.execute();
 		const workspaces = await db.selectFrom("workspaces").selectAll().execute();
+		const links = await db
+			.selectFrom("account_links")
+			.select("course_user_id")
+			.execute();
+		const linked = new Set(links.map((row) => row.course_user_id));
 		const cutoff = new Date(Date.now() - config.PRESENCE_TTL_SECONDS * 1000);
 		const counts = await db
 			.selectFrom("workspace_connections")
@@ -241,6 +259,7 @@ export function registerAdminRoutes(
 				markers: {
 					disabled: user.disabled_at !== null,
 					archived: Boolean(workspace?.archived_at),
+					linked: linked.has(user.id),
 					...flag,
 				},
 				workspace: workspace
@@ -359,6 +378,101 @@ export function registerAdminRoutes(
 			);
 		}
 		return loadAdminUser(updated.id);
+	});
+
+	// POST /admin/users/:id/promote -- grant administrator to an SSO account (ruling 23).
+	app.post("/admin/users/:id/promote", adminOnly, async (request, reply) => {
+		const actor = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const id = params.data.id;
+		const result = await db.transaction().execute(async (trx) => {
+			const granted = await grantAdministrator(trx, id);
+			if (granted.ok && granted.changed) {
+				await audit(trx, "user.role_changed", `user:${actor.id}`, id, "ok", {
+					from: granted.from,
+					to: granted.to,
+					source: "admin",
+					...requestMetadata(request),
+				});
+			}
+			return granted;
+		});
+		if (!result.ok && result.reason === "not_found") {
+			return sendError(reply, 404, "NOT_FOUND", "User not found");
+		}
+		if (!result.ok) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"Only SSO accounts can be administrators.",
+			);
+		}
+		return loadAdminUser(id);
+	});
+
+	// POST /admin/users/:id/demote -- remove a granted administrator role (ruling 23).
+	app.post("/admin/users/:id/demote", adminOnly, async (request, reply) => {
+		const actor = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const id = params.data.id;
+		const result = await db.transaction().execute(async (trx) => {
+			const revoked = await revokeAdministrator(trx, {
+				actorId: actor.id,
+				targetId: id,
+			});
+			// A provider administrator with a grant too keeps the role: nothing to audit.
+			if (revoked.ok && revoked.from !== revoked.to) {
+				await audit(trx, "user.role_changed", `user:${actor.id}`, id, "ok", {
+					from: revoked.from,
+					to: revoked.to,
+					source: "admin",
+					...requestMetadata(request),
+				});
+			}
+			return revoked;
+		});
+		if (!result.ok) {
+			switch (result.reason) {
+				case "not_found":
+					return sendError(reply, 404, "NOT_FOUND", "User not found");
+				case "self":
+					return sendError(
+						reply,
+						400,
+						"VALIDATION_FAILED",
+						"You cannot demote your own account.",
+					);
+				case "provider_administrator":
+					return sendError(
+						reply,
+						400,
+						"VALIDATION_FAILED",
+						"This administrator comes from the SSO provider's groups.",
+					);
+				case "not_administrator":
+					return sendError(
+						reply,
+						400,
+						"VALIDATION_FAILED",
+						"This account is not an administrator.",
+					);
+				case "last_administrator":
+					return sendError(
+						reply,
+						400,
+						"VALIDATION_FAILED",
+						"At least one other enabled administrator must remain.",
+					);
+			}
+		}
+		return loadAdminUser(id);
 	});
 
 	// POST /admin/users/:id/enable -- sign-in works again; nothing else changes.
