@@ -169,12 +169,7 @@ test("there is no demote for oneself or for an administrator from the provider",
 	).toBeVisible();
 });
 
-// The acting administrator is always another enabled administrator, so one
-// administrator cannot reach this refusal alone. It needs two granted
-// administrators demoting each other with no provider administrator enabled,
-// which means disabling carol while other specs run as her. Left to the
-// orchestrator (see the T4 report); the API test in T2 covers the refusal.
-test.fixme("demoting the last enabled administrator is refused", async () => {});
+// The last-admin refusal: apps/api/src/routes/admin.test.ts, "two granted administrators demoting each other at once leave one administrator".
 
 test("promote is refused for a course account, in the page and by the API", async ({
 	page,
