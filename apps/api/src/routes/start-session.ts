@@ -54,11 +54,12 @@ export async function completeSignIn(
 ): Promise<{ ok: boolean; userId: string }> {
 	const { identity, role, loginMetadata } = input;
 	const user = await upsertUser(db, identity, role);
-	if (user.previousRole !== null && user.previousRole !== role) {
+	// `role` is what the provider gave; the audit follows the effective role (ruling 20).
+	if (user.previousRole !== null && user.previousRole !== user.role) {
 		// Roles come from identity-provider groups or LTI roles (SPEC.md §24.11).
 		await audit(db, "user.role_changed", "identity-provider", user.id, "ok", {
 			from: user.previousRole,
-			to: role,
+			to: user.role,
 			...input.roleChangeMetadata,
 		});
 	}
@@ -71,7 +72,8 @@ export async function completeSignIn(
 	return { ok: true, userId: user.id };
 }
 
-async function audit(
+/** Write one audit row; the caller keeps secrets and personal data out of `metadata`. */
+export async function audit(
 	db: Kysely<Database>,
 	action: string,
 	actor: string,
