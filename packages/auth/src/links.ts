@@ -281,12 +281,6 @@ export async function linkAccounts(
 		where excluded.last_launch_at > lti_memberships.last_launch_at`.execute(trx);
 	await trx.deleteFrom("lti_memberships").where("user_id", "=", course.id).execute();
 
-	await trx
-		.updateTable("preview_sessions")
-		.set({ revoked_at: now })
-		.where("user_id", "=", course.id)
-		.where("revoked_at", "is", null)
-		.execute();
 	await trx.deleteFrom("sessions").where("user_id", "=", course.id).execute();
 
 	return { ok: true, platformIssuer, archivedWorkspaceId: archived?.id ?? null };
@@ -311,18 +305,7 @@ export async function unlinkAccount(
 		.returning(["platform_issuer", "archived_at"])
 		.executeTakeFirst();
 	if (!link) return null;
-	// Revoke first: deleting a session cascades to its preview rows.
-	const launched = trx
-		.selectFrom("sessions")
-		.select("id")
-		.where("user_id", "=", input.userId)
-		.where("course_user_id", "=", input.courseUserId);
-	await trx
-		.updateTable("preview_sessions")
-		.set({ revoked_at: new Date().toISOString() })
-		.where("session_id", "in", launched)
-		.where("revoked_at", "is", null)
-		.execute();
+	// Deleting a session cascades to its preview rows.
 	await trx
 		.deleteFrom("sessions")
 		.where("user_id", "=", input.userId)

@@ -163,6 +163,20 @@ export async function loadSessionById(
 				),
 			),
 		)
+		// A launch session dies with its link, even one resolved just before an unlink.
+		.where((eb) =>
+			eb.or([
+				eb("sessions.method", "<>", "lti"),
+				eb("sessions.course_user_id", "is", null),
+				eb.exists(
+					eb
+						.selectFrom("account_links as own_link")
+						.select("own_link.course_user_id")
+						.whereRef("own_link.course_user_id", "=", "sessions.course_user_id")
+						.whereRef("own_link.user_id", "=", "sessions.user_id"),
+				),
+			]),
+		)
 		.executeTakeFirst();
 
 	if (!row) {
