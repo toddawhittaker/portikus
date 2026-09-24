@@ -305,49 +305,17 @@
   ansible.builtin.import_tasks: lti.yml
   tags: lti
 
-# The packaged API unit allows loopback and the workspace bridge only.  An
-# external provider's addresses and the LMS keyset addresses are added here,
-# so a later move to one is a settings change rather than a package change.
-# Tagged lti too, because registering the mock LMS widens it (ruling 26).
-- name: Allow the API its extra addresses
-  vars:
-    portikus_api_ip_allow: "{{ (portikus_api_ip_allow_extra + portikus_lti_keyset_cidrs) | unique }}"
+# The API reaches the internet only through the egress proxy now (ADR 0027),
+# so the packaged unit's loopback and bridge limit is all it gets.  This
+# removes the address drop-in older plays wrote.
+- name: Remove the old API address allow drop-in
+  ansible.builtin.file:
+    path: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
+    state: absent
   tags: lti
-  block:
-    - name: Create the API unit drop-in directory
-      ansible.builtin.file:
-        path: /etc/systemd/system/portikus-api.service.d
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      when: portikus_api_ip_allow | length > 0
-
-    - name: Allow the API to reach the identity provider and LMS keysets
-      ansible.builtin.copy:
-        dest: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
-        content: |
-          # Managed by Ansible from PORTIKUS_API_IP_ALLOW and the LTI keyset addresses.
-          [Service]
-          {% for cidr in portikus_api_ip_allow %}
-          IPAddressAllow={{ cidr }}
-          {% endfor %}
-        owner: root
-        group: root
-        mode: "0644"
-      when: portikus_api_ip_allow | length > 0
-      notify:
-        - Reload systemd
-        - Restart portikus-api
-
-    - name: Remove the API egress drop-in when nothing is added
-      ansible.builtin.file:
-        path: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
-        state: absent
-      when: portikus_api_ip_allow | length == 0
-      notify:
-        - Reload systemd
-        - Restart portikus-api
+  notify:
+    - Reload systemd
+    - Restart portikus-api
 
 - name: Deploy worker environment file
   ansible.builtin.template:
@@ -379,3 +347,57 @@
     - portikus-api
     - portikus-worker
     - portikus-controller
+
+# ── First administrator (docs/EPIC-14.md, rulings 15 and 16) ─────
+# While no enabled administrator exists, print a one-time setup code that
+# the first person to enter it at /setup claims.  A package from before the
+# command existed skips this.
+- name: Look for the setup-code command
+  ansible.builtin.stat:
+    path: "{{ portikus_setup_code_script }}"
+  register: portikus_setup_code_command
+
+- name: Issue a setup code when there is no administrator
+  when: portikus_setup_code_command.stat.exists
+  block:
+    # The API applies migrations when it restarts, which a handler may still owe.
+    - name: Bring the database schema up to date for the setup code
+      ansible.builtin.command:
+        argv: [runuser, -u, portikus, --, /usr/bin/node, /usr/lib/portikus/api/node_modules/@portikus/db/dist/migrate.js]
+      environment:
+        DATABASE_URL: "{{ portikus_database_url }}"
+      register: portikus_setup_migrate
+      changed_when: "'Applied migrations' in portikus_setup_migrate.stdout"
+
+    - name: Count the enabled administrators
+      ansible.builtin.command:
+        argv:
+          - runuser
+          - -u
+          - postgres
+          - --
+          - psql
+          - -X
+          - -tA
+          - -d
+          - portikus
+          - -c
+          - "SELECT count(*) FROM users WHERE role = 'administrator' AND disabled_at IS NULL"
+      register: portikus_admin_count
+      changed_when: false
+
+    - name: Issue the setup code
+      ansible.builtin.command:
+        argv: [runuser, -u, portikus, --, /usr/bin/node, "{{ portikus_setup_code_script }}"]
+      environment:
+        DATABASE_URL: "{{ portikus_database_url }}"
+      register: portikus_setup_code
+      changed_when: true
+      when: portikus_admin_count.stdout | trim == '0'
+
+    - name: Show the setup code
+      ansible.builtin.debug:
+        msg: >-
+          No administrator exists yet.  Open {{ portikus_public_url }}/setup
+          and enter this setup code within the hour: {{ portikus_setup_code.stdout }}
+      when: portikus_setup_code is not skipped

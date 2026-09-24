@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests how the portikus role reads the LTI platforms file and the API
-# egress it derives (docs/EPIC-13.md, rulings 14 and 26), and the mock
+# Tests how the portikus role reads the LTI platforms file and the proxy
+# entries it derives (docs/EPIC-14.md, ruling 28), and the mock
 # registration helper the Makefile uses.  Needs no VM.  The file's rules
 # are tested with the API's own parser in packages/auth.
 set -uo pipefail
@@ -54,25 +54,24 @@ file() { # NAME PLATFORM-JSON...
   echo "${work}/${name}.json"
 }
 
-echo "--- Reading the platforms file and deriving the API egress ---"
+echo "--- Reading the platforms file and deriving the egress proxy entries ---"
 
-accepts "no file means LTI is off" "${work}/absent.json" '{"on": false, "cidrs": []}'
-accepts "the mock registration's keyset address is allowed exactly" \
+accepts "no file means LTI is off" "${work}/absent.json" '{"on": false, "egress": []}'
+accepts "the mock registration's keyset address and port are allowed" \
   "$(file mock "$(platform mock-lms http://10.100.0.1:8765 http://10.100.0.1:8765/.well-known/jwks.json true)")" \
-  '{"on": true, "cidrs": ["10.100.0.1/32"]}'
-accepts "a hostname keyset adds no address" \
+  '{"on": true, "egress": ["10.100.0.1:8765"]}'
+accepts "a hostname keyset is allowed by name on 443" \
   "$(file canvas "$(platform Canvas https://canvas.instructure.com https://sso.canvaslms.com/api/lti/security/jwks false)")" \
-  '{"on": true, "cidrs": []}'
-accepts "an IPv6 keyset address is allowed exactly" \
-  "$(file v6 "$(platform v6 https://lms.example "https://[2001:db8::5]/jwks" false)")" \
-  '{"on": true, "cidrs": ["2001:db8::5/128"]}'
-accepts "a keyset address shared by two platforms is allowed once" \
+  '{"on": true, "egress": ["sso.canvaslms.com:443"]}'
+refuses "an IPv6 keyset address is refused" \
+  "$(file v6 "$(platform v6 https://lms.example "https://[2001:db8::5]/jwks" false)")"
+accepts "a keyset host shared by two platforms is allowed once" \
   "$(file shared "$(platform a https://one.example https://192.0.2.7/jwks false)" \
     "$(platform b https://two.example https://192.0.2.7/jwks false)")" \
-  '{"on": true, "cidrs": ["192.0.2.7/32"]}'
+  '{"on": true, "egress": ["192.0.2.7:443"]}'
 # The API's parser refuses a malformed file at install; reading must not trip on it first.
 printf '{"version":1,"platforms":[{"name":"a"},"x"]}' >"${work}/malformed.json"
-accepts "a malformed file is left for the API's parser" "${work}/malformed.json" '{"on": true, "cidrs": []}'
+accepts "a malformed file is left for the API's parser" "${work}/malformed.json" '{"on": true, "egress": []}'
 printf '{"version":1,' >"${work}/broken.json"
 refuses "a file that is not JSON is refused" "${work}/broken.json"
 
@@ -102,14 +101,14 @@ register() { helper register --url http://10.100.0.1:8765; }
 
 register && register
 check "registering twice leaves one mock registration" [ "$(grep -c '"name": "mock-lms"' "${reg}")" = 1 ]
-accepts "the helper's file allows the mock's address" "${reg}" '{"on": true, "cidrs": ["10.100.0.1/32"]}'
+accepts "the helper's file allows the mock's address" "${reg}" '{"on": true, "egress": ["10.100.0.1:8765"]}'
 
 helper unregister
 check "unregistering the only platform removes the file" [ ! -e "${reg}" ]
 
 cp "$(file keep "$(platform Canvas https://canvas.instructure.com https://sso.canvaslms.com/jwks false)")" "${reg}"
 register && helper unregister
-accepts "unregistering keeps every other platform" "${reg}" '{"on": true, "cidrs": []}'
+accepts "unregistering keeps every other platform" "${reg}" '{"on": true, "egress": ["sso.canvaslms.com:443"]}'
 
 # The mock LMS signs as this registration, so the two must agree.
 ids_match() {

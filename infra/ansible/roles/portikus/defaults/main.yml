@@ -16,3 +16,6 @@ portikus_carry_over_changed_pattern: ': carried row '
 # platforms file and the tool key on the VM.
 portikus_lti_platforms_path: /etc/portikus/lti-platforms.json
 portikus_lti_tool_key_path: /etc/portikus/lti-tool-key.pem
+
+# The first administrator's one-time setup code (docs/EPIC-14.md, ruling 16).
+portikus_setup_code_script: /usr/lib/portikus/api/node_modules/@portikus/auth/dist/setup-code-main.js

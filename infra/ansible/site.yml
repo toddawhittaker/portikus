@@ -82,12 +82,19 @@
     portikus_workspace_recovery_size_gib: 3
 
     # ── Authentication (SPEC 5.3, ADR 0008, ADR 0023) ─────────────
-    # PORTIKUS_IDP picks the sign-in provider:
+    # PORTIKUS_IDP picks the sign-in provider (docs/EPIC-14.md):
     #   dex       Dex on this VM, accounts from the users file (the default);
+    #   entra     Microsoft Entra ID, one tenant (PORTIKUS_ENTRA_TENANT_ID);
+    #   google    Google Workspace, the listed domains (PORTIKUS_GOOGLE_DOMAINS);
+    #   external  any other OIDC provider named by the PORTIKUS_OIDC_* settings;
     #   mock      the in-repo test provider, where anyone who reaches the site
-    #             can sign in as any account, the administrator included;
-    #   external  a real provider named by the PORTIKUS_OIDC_* settings.
+    #             can sign in as any account, the administrator included.
     portikus_idp: "{{ lookup('env', 'PORTIKUS_IDP') | default('dex', true) }}"
+    portikus_entra_tenant_id: "{{ lookup('env', 'PORTIKUS_ENTRA_TENANT_ID') }}"
+    portikus_google_domains: >-
+      {{ lookup('env', 'PORTIKUS_GOOGLE_DOMAINS') | replace(',', ' ') | split | select | list }}
+    # Dex's upstream connector, which the dex role sets up: none, ldap, microsoft or google.
+    portikus_dex_upstream: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM') | default('none', true) }}"
     portikus_mock_idp: "{{ portikus_idp == 'mock' }}"
     portikus_mock_idp_port: 3002
     # Dex is built from source at this upstream commit (docs/adr/0023).
@@ -103,7 +110,18 @@
       {{ lookup('env', 'PORTIKUS_USERS_FILE')
          | default(lookup('env', 'HOME') ~ '/.config/portikus/users.json', true)
          | expanduser }}
-    portikus_oidc_issuer: "{{ lookup('env', 'PORTIKUS_OIDC_ISSUER') }}"
+    # Derived for Entra and Google, so the API needs no provider-specific URLs.
+    portikus_entra_issuer: "https://login.microsoftonline.com/{{ portikus_entra_tenant_id }}/v2.0"
+    portikus_google_issuer: https://accounts.google.com
+    portikus_oidc_issuer: >-
+      {{ portikus_entra_issuer if portikus_idp == 'entra'
+         else portikus_google_issuer if portikus_idp == 'google'
+         else lookup('env', 'PORTIKUS_OIDC_ISSUER') }}
+    # The API's OIDC_PROVIDER and OIDC_DEFAULT_ROLE (docs/EPIC-14.md, ruling
+    # 11): Entra and other providers refuse a person no role claim matches;
+    # Google and Dex make them a student.
+    portikus_oidc_provider: "{{ portikus_idp if portikus_idp in ['entra', 'google'] else 'oidc' }}"
+    portikus_oidc_default_role: "{{ 'student' if portikus_idp in ['google', 'dex'] else 'none' }}"
     portikus_oidc_client_id: "{{ lookup('env', 'PORTIKUS_OIDC_CLIENT_ID') }}"
     portikus_oidc_client_secret: "{{ lookup('env', 'PORTIKUS_OIDC_CLIENT_SECRET') }}"
     # Dex puts groups in the token only when asked; some providers refuse
@@ -112,13 +130,17 @@
       {{ lookup('env', 'PORTIKUS_OIDC_SCOPES')
          | default('openid profile email groups' if portikus_idp == 'dex'
                    else 'openid profile email', true) }}
-    portikus_oidc_groups_claim: groups
+    # Entra's roles are the app roles on the Portikus registration.
+    portikus_oidc_groups_claim: "{{ 'roles' if portikus_idp == 'entra' else 'groups' }}"
     portikus_oidc_student_group: >-
-      {{ lookup('env', 'PORTIKUS_OIDC_STUDENT_GROUP') | default('portikus-students', true) }}
+      {{ lookup('env', 'PORTIKUS_OIDC_STUDENT_GROUP')
+         | default('Portikus.Student' if portikus_idp == 'entra' else 'portikus-students', true) }}
     portikus_oidc_admin_group: >-
-      {{ lookup('env', 'PORTIKUS_OIDC_ADMIN_GROUP') | default('portikus-administrators', true) }}
+      {{ lookup('env', 'PORTIKUS_OIDC_ADMIN_GROUP')
+         | default('Portikus.Administrator' if portikus_idp == 'entra' else 'portikus-administrators', true) }}
     portikus_oidc_instructor_group: >-
-      {{ lookup('env', 'PORTIKUS_OIDC_INSTRUCTOR_GROUP') | default('portikus-instructors', true) }}
+      {{ lookup('env', 'PORTIKUS_OIDC_INSTRUCTOR_GROUP')
+         | default('Portikus.Instructor' if portikus_idp == 'entra' else 'portikus-instructors', true) }}
     portikus_session_ttl_seconds: 43200
 
     # ── LTI launch (docs/EPIC-13.md, rulings 14 and 26) ──────────
@@ -128,10 +150,14 @@
       {{ lookup('env', 'PORTIKUS_LTI_PLATFORMS_FILE')
          | default(lookup('env', 'HOME') ~ '/.config/portikus/lti-platforms.json', true)
          | expanduser }}
-    # Extra ranges the API may reach, such as an external provider's or an
-    # LMS keyset's addresses: CIDRs separated by commas or spaces.
-    portikus_api_ip_allow_extra: >-
-      {{ lookup('env', 'PORTIKUS_API_IP_ALLOW') | replace(',', ' ') | split | select | list }}
+
+    # ── API egress (ADR 0027, docs/EPIC-14.md rulings 26 to 29) ──
+    # The API reaches the internet only through the egress proxy, which
+    # allows the provider's discovery hosts, the LMS keyset hosts, and these:
+    # `host` or `host:port`, separated by commas or spaces.
+    portikus_egress_extra_hosts: >-
+      {{ lookup('env', 'PORTIKUS_EGRESS_EXTRA_HOSTS') | replace(',', ' ') | split | select | list }}
+    portikus_outbound_proxy_url: "http://127.0.0.1:3128"
 
     # ── Browser access (Caddy) ────────────────────────────────────
     # nip.io resolves portikus.<ip>.nip.io to <ip>, so a fresh VM has a
@@ -180,14 +206,27 @@
       when: lookup('env', 'PORTIKUS_MOCK_IDP') | length > 0
       tags: always
 
+    - name: Refuse the removed API address allow list
+      ansible.builtin.fail:
+        msg: >-
+          PORTIKUS_API_IP_ALLOW was removed: the API now reaches the internet
+          by host name through the egress proxy.  List extra hosts in
+          PORTIKUS_EGRESS_EXTRA_HOSTS instead (ADR 0027).
+      when: lookup('env', 'PORTIKUS_API_IP_ALLOW') | length > 0
+      tags: always
+
     - name: Require a known identity provider
       ansible.builtin.assert:
         that:
-          - portikus_idp in ['dex', 'mock', 'external']
-        fail_msg: "PORTIKUS_IDP must be dex, mock or external, not '{{ portikus_idp }}'."
+          - portikus_idp in ['dex', 'entra', 'google', 'external', 'mock']
+          - portikus_dex_upstream in ['none', 'ldap', 'microsoft', 'google']
+        fail_msg: >-
+          PORTIKUS_IDP must be dex, entra, google, external or mock (got
+          '{{ portikus_idp }}'), and PORTIKUS_DEX_UPSTREAM none, ldap,
+          microsoft or google (got '{{ portikus_dex_upstream }}').
       tags: always
 
-    - name: Require identity provider settings for an external provider
+    - name: Require identity provider settings for an outside provider
       ansible.builtin.assert:
         that:
           - portikus_oidc_issuer | default('', true) | length > 0
@@ -195,35 +234,48 @@
           - portikus_oidc_client_secret | default('', true) | length >= 32
           - portikus_oidc_client_secret | default('', true) != 'portikus-dev-secret'
         fail_msg: >-
-          With PORTIKUS_IDP=external, set PORTIKUS_OIDC_ISSUER,
-          PORTIKUS_OIDC_CLIENT_ID and PORTIKUS_OIDC_CLIENT_SECRET.
+          With PORTIKUS_IDP={{ portikus_idp }}, set PORTIKUS_OIDC_CLIENT_ID and
+          PORTIKUS_OIDC_CLIENT_SECRET{{ ', and PORTIKUS_OIDC_ISSUER' if portikus_idp == 'external' else '' }}.
           The client secret must be at least 32 characters and must not be
           the development default, or portikus-api will refuse to start.
-      when: portikus_idp == 'external'
+      when: portikus_idp in ['entra', 'google', 'external']
       tags: always
 
-    # Read before the address rule below, which depends on it.  A file that
-    # is not JSON changes nothing on the VM; the API's parser checks the
-    # rest when the portikus role installs it.
+    # One tenant per site (ruling 8); its ID is part of the issuer.
+    - name: Require the Entra tenant ID
+      ansible.builtin.assert:
+        that:
+          - portikus_entra_tenant_id is match('^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$')
+        fail_msg: "Set PORTIKUS_ENTRA_TENANT_ID to the tenant's ID, a GUID."
+      when: portikus_idp == 'entra' or (portikus_idp == 'dex' and portikus_dex_upstream == 'microsoft')
+      tags: always
+
+    - name: Require the Google Workspace domains
+      ansible.builtin.assert:
+        that:
+          - portikus_google_domains | length > 0
+          - portikus_google_domains | reject('match', '^([a-z0-9-]+[.])+[a-z]{2,}$') | list | length == 0
+        fail_msg: "Set PORTIKUS_GOOGLE_DOMAINS to the site's Google Workspace domains, such as example.edu, separated by commas."
+      when: portikus_idp == 'google' or (portikus_idp == 'dex' and portikus_dex_upstream == 'google')
+      tags: always
+
+    - name: Require extra egress hosts of the form host or host:port
+      ansible.builtin.assert:
+        that:
+          - portikus_egress_extra_hosts | reject('match', '^[A-Za-z0-9.-]+(:[0-9]{1,5})?$') | list | length == 0
+        fail_msg: >-
+          PORTIKUS_EGRESS_EXTRA_HOSTS takes host names or IPv4 addresses, each
+          with an optional port, such as keys.example.edu or 192.0.2.10:8443.
+      tags: always
+
+    # A file that is not JSON changes nothing on the VM; the API's parser
+    # checks the rest when the portikus role installs it.
     - name: Load the LTI platforms file
       ansible.builtin.include_role:
         name: portikus
         tasks_from: lti_load
         apply:
           tags: always
-      tags: always
-
-    - name: Allow extra API address ranges only for an external provider or an LMS
-      ansible.builtin.assert:
-        that:
-          - >-
-            portikus_idp == 'external' or portikus_lti_platforms is not none
-            or portikus_api_ip_allow_extra | length == 0
-          - portikus_api_ip_allow_extra | reject('match', '^[0-9a-fA-F:.]+/[0-9]{1,3}$') | list | length == 0
-        fail_msg: >-
-          PORTIKUS_API_IP_ALLOW takes CIDRs such as 192.0.2.10/32, and only
-          with PORTIKUS_IDP=external or an LTI platforms file: Dex and the
-          mock are on loopback.
       tags: always
 
     - name: Load the users file for Dex
@@ -277,6 +329,24 @@
       tags: node
     - role: caddy
       tags: caddy
+    # After caddy, which pins the site's name to loopback.  Tagged lti too,
+    # because registering an LMS changes the allow list.
+    - role: egress_proxy
+      tags: [egress_proxy, lti]
+      vars:
+        egress_proxy_hosts: "{{ portikus_egress_extra_hosts + portikus_lti_keyset_egress }}"
+        egress_proxy_discovery: >-
+          {{ [{'issuer': portikus_oidc_issuer, 'userinfo': portikus_idp == 'external'}]
+               if portikus_idp in ['entra', 'google', 'external']
+             else [{'issuer': portikus_entra_issuer, 'userinfo': true}]
+               if portikus_idp == 'dex' and portikus_dex_upstream == 'microsoft'
+             else [{'issuer': portikus_google_issuer, 'userinfo': true}]
+               if portikus_idp == 'dex' and portikus_dex_upstream == 'google'
+             else [] }}
+        # Dex and the mock are served by Caddy on this VM under the site's name.
+        egress_proxy_site_host: "{{ portikus_public_host if portikus_idp in ['dex', 'mock'] else '' }}"
+        egress_proxy_site_port: "{{ portikus_public_port }}"
+        egress_proxy_denied_ranges: "{{ workspace_egress_denied_ranges }}"
     - role: dex
       tags: dex
     - role: portikus

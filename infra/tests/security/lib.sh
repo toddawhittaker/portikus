@@ -198,8 +198,8 @@ sec_init() {
   fi
   SEC_IDP="${PORTIKUS_IDP:-dex}"
   case "$SEC_IDP" in
-    dex | mock | external) ;;
-    *) echo "security-test: PORTIKUS_IDP must be dex, mock or external (got: ${SEC_IDP})" >&2; exit 2 ;;
+    dex | entra | google | external | mock) ;;
+    *) echo "security-test: PORTIKUS_IDP must be dex, entra, google, external or mock (got: ${SEC_IDP})" >&2; exit 2 ;;
   esac
   SEC_RUN_ID="$(date -u +%m%d%H%M%S)"
   SEC_PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${SEC_VM}.nip.io}"

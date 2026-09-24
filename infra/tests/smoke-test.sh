@@ -10,7 +10,7 @@
 #
 # Usage: ./infra/tests/smoke-test.sh <vm-ip>
 # Environment:
-#   PORTIKUS_IDP                dex (the default), mock or external: the sign-in
+#   PORTIKUS_IDP                dex (the default), entra, google, external or mock: the sign-in
 #                               provider the VM was configured with.
 #   PORTIKUS_SMOKE_SIGNIN_FILE  with dex, a file of mode 0600 holding a test
 #                               user's email and password on two lines; the
@@ -37,8 +37,8 @@ if [ -n "${PORTIKUS_MOCK_IDP:-}" ]; then
 fi
 IDP="${PORTIKUS_IDP:-dex}"
 case "$IDP" in
-  dex | mock | external) ;;
-  *) echo "smoke-test: PORTIKUS_IDP must be dex, mock or external (got: ${IDP})" >&2; exit 2 ;;
+  dex | entra | google | external | mock) ;;
+  *) echo "smoke-test: PORTIKUS_IDP must be dex, entra, google, external or mock (got: ${IDP})" >&2; exit 2 ;;
 esac
 # The password is read into this shell only.  It reaches the VM on an ssh
 # standard input, never in a command line.
@@ -558,6 +558,35 @@ unauthorized_preview_is_refused() {
   [ "$(preview_status /)" != "200" ]
 }
 check "an unauthorized preview request is never served" unauthorized_preview_is_refused
+echo ""
+
+# --- Epic 14: the egress proxy (ADR 0027) ----------------------------
+# Every SSO sign-in and LMS launch depends on it (EPIC-14 risk 1).
+echo "--- Epic 14: egress proxy ---"
+echo ""
+check "squid is active"  ssh_cmd systemctl is-active squid
+check "squid is enabled" ssh_cmd systemctl is-enabled squid
+check_output "squid restarts when it fails" "Restart=on-failure" \
+  ssh_cmd "systemctl show squid -p Restart"
+proxy_listeners() {
+  ssh_cmd "ss -Hltn 'sport = :3128'" | awk '{ print $4 }' | sort -u | paste -sd' '
+}
+check_output "the proxy listens on loopback only" "127.0.0.1:3128" proxy_listeners
+check_output "api.env sends the API's outbound requests through the proxy" "http://127.0.0.1:3128" \
+  ssh_cmd "sudo sed -n 's/^OUTBOUND_PROXY_URL=//p' /etc/portikus/api.env"
+check "the old API address allow drop-in is gone" \
+  ssh_cmd "test ! -e /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf"
+check_output "the API unit may reach loopback and the workspace bridge only" \
+  "IPAddressAllow=10.200.0.0/24 127.0.0.0/8" ssh_cmd "systemctl show portikus-api -p IPAddressAllow"
+# proxy_connect URL -- the status of the proxy's answer to CONNECT for URL.
+proxy_connect() {
+  ssh_cmd "${CURL} -o /dev/null -w '%{http_connect}' -x http://127.0.0.1:3128 '$1'"
+}
+if [ "$IDP" = dex ] || [ "$IDP" = mock ]; then
+  # Dex and the mock are the API's issuer on the site's own name.
+  check_output "the proxy reaches the site's own issuer" "200" proxy_connect "${API}/"
+fi
+check_output "the proxy refuses a host that is not listed" "403" proxy_connect "https://example.com/"
 echo ""
 
 if ! ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then

@@ -137,6 +137,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/caddy-preview-test.sh
 	bash infra/tests/lti-platforms-test.sh
 	ansible-playbook infra/tests/dex-render-test.yml
+	ansible-playbook infra/tests/egress-proxy-render-test.yml
 	bash infra/tests/backup-scope-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
@@ -181,9 +182,10 @@ wait-vm: ## Wait for the platform VM to finish first boot
 PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
 
 # ── Sign-in provider and accounts (docs/adr/0023) ──────────────────
-# PORTIKUS_IDP picks the provider: dex (the default), mock (test only: anyone
-# can sign in as anyone), or external (a real provider named by the
-# PORTIKUS_OIDC_* settings, reachable through PORTIKUS_API_IP_ALLOW=<cidr>).
+# PORTIKUS_IDP picks the provider: dex (the default), entra, google, external
+# (any other OIDC provider named by the PORTIKUS_OIDC_* settings), or mock
+# (test only: anyone can sign in as anyone).  The API reaches an outside
+# provider through the egress proxy; PORTIKUS_EGRESS_EXTRA_HOSTS adds hosts.
 PORTIKUS_IDP ?= dex
 # Dex accounts. Kept on this machine, outside any work tree; never on the VM.
 PORTIKUS_USERS_FILE ?= $(HOME)/.config/portikus/users.json
@@ -195,6 +197,13 @@ USERS_CHECK := $(if $(filter dex,$(PORTIKUS_IDP)),users-check,)
 # The client secret reaches Ansible through the environment, never a recipe
 # line, where make's echo and ps would show it.
 export PORTIKUS_OIDC_CLIENT_SECRET
+# The provider settings of docs/EPIC-14.md, exported as they are, so an LDAP
+# filter's parentheses and the two secrets never pass through a recipe line.
+export PORTIKUS_ENTRA_TENANT_ID PORTIKUS_GOOGLE_DOMAINS PORTIKUS_EGRESS_EXTRA_HOSTS
+export PORTIKUS_DEX_UPSTREAM PORTIKUS_DEX_UPSTREAM_CLIENT_ID PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
+export PORTIKUS_LDAP_HOST PORTIKUS_LDAP_SCHEMA PORTIKUS_LDAP_BIND_DN PORTIKUS_LDAP_BIND_PASSWORD
+export PORTIKUS_LDAP_USER_BASE_DN PORTIKUS_LDAP_USER_FILTER PORTIKUS_LDAP_GROUP_BASE_DN
+export PORTIKUS_LDAP_ROOT_CA PORTIKUS_LDAP_IP_ALLOW
 
 ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) \
 	PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) \
@@ -231,7 +240,7 @@ identity-carry-over-dry-run: users-check wait-vm ## Show which existing accounts
 	@test "$(PORTIKUS_IDP)" = dex || { echo "identity-carry-over-dry-run: only for PORTIKUS_IDP=dex"; exit 1; }
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags carry_over -e portikus_carry_over_apply=false
 
-configure-vm: $(USERS_CHECK) wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|mock|external picks the sign-in provider, PORTIKUS_USERS_FILE=<path> the Dex accounts)
+configure-vm: $(USERS_CHECK) wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|entra|google|external|mock picks the sign-in provider, PORTIKUS_USERS_FILE=<path> the Dex accounts)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml
 
 # ── LTI launch (docs/EPIC-13.md, rulings 14 and 26) ────────────────
