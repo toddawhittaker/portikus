@@ -1,0 +1,10 @@
+---
+- name: Reload systemd for squid
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+# Restart rather than reconfigure, so a changed listener is picked up too.
+- name: Restart squid
+  ansible.builtin.systemd:
+    name: squid
+    state: restarted

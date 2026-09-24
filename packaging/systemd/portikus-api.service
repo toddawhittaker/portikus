@@ -26,6 +26,8 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+# Loopback includes the egress proxy on 127.0.0.1:3128, the API's only way
+# to a sign-in provider or LMS keyset; nothing else outside is allowed (ADR 0027).
 IPAddressAllow=127.0.0.0/8
 # The workspace bridge: the agent inside each container (SPEC.md 23.5).
 IPAddressAllow=10.200.0.0/24

@@ -1,0 +1,21 @@
+---
+# The API's only way to the internet (ADR 0027, docs/EPIC-14.md rulings 26 to 28).
+egress_proxy_port: 3128
+
+# Hosts the proxy lets through, as `host` (port 443) or `host:port`.  A
+# hostname is reached by CONNECT only and never at a private address; an
+# IPv4 address is allowed exactly, private or not, for GET and CONNECT.
+egress_proxy_hosts: []
+
+# Providers whose discovery document names more hosts to allow, fetched at
+# play time: a list of {issuer, userinfo}.  userinfo false leaves the
+# userinfo endpoint's host out, for a client that never calls it.
+egress_proxy_discovery: []
+
+# The site's own name and port, which /etc/hosts pins to loopback, for an
+# issuer served by Caddy on this VM (Dex or the mock).  Empty means none.
+egress_proxy_site_host: ""
+egress_proxy_site_port: 443
+
+# Destinations no hostname may resolve to.
+egress_proxy_denied_ranges: []

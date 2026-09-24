@@ -15,4 +15,4 @@
 
     - name: Print the result for the test script
       ansible.builtin.debug:
-        msg: "LTI-RESULT {{ {'on': portikus_lti_platforms is not none, 'cidrs': portikus_lti_keyset_cidrs} | to_json }}"
+        msg: "LTI-RESULT {{ {'on': portikus_lti_platforms is not none, 'egress': portikus_lti_keyset_egress} | to_json }}"

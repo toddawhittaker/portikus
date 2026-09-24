@@ -1,0 +1,72 @@
+---
+# Renders the egress proxy's squid configuration from a sample allow list and
+# checks the rules and their order, with no VM (ADR 0027).  `make infra-check`
+# runs it.  The rehearsal VM checks the same rules against a running squid.
+- name: Render and check the egress proxy configuration
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    egress_proxy_port: 3128
+    egress_proxy_allowed:
+      - login.microsoftonline.com:443
+      - sso.canvaslms.com:443
+      - keys.example.edu:8443
+      - 192.168.10.48:8765
+    egress_proxy_site_host: portikus.192.168.10.48.nip.io
+    egress_proxy_site_port: "8443"
+    egress_proxy_denied_ranges: [10.0.0.0/8, 127.0.0.0/8, 192.168.0.0/16, fc00::/7]
+
+  tasks:
+    - name: Render the configuration
+      ansible.builtin.set_fact:
+        egress_render: "{{ lookup('ansible.builtin.template', '../ansible/roles/egress_proxy/templates/squid.conf.j2') }}"
+
+    - name: Keep only the rule lines, in order
+      ansible.builtin.set_fact:
+        egress_rules: "{{ egress_render.splitlines() | reject('match', '^(#|$)') | list }}"
+
+    - name: Check the rules
+      ansible.builtin.assert:
+        that:
+          - "'http_port 127.0.0.1:3128' in egress_rules"
+          - "'cache deny all' in egress_rules"
+          - "'acl portikus_private dst 10.0.0.0/8 127.0.0.0/8 192.168.0.0/16 fc00::/7' in egress_rules"
+          # Loopback clients only, first; nothing but the listed rules after; deny last.
+          - egress_rules | select('match', '^http_access') | first == 'http_access deny !localhost'
+          - egress_rules | select('match', '^http_access') | last == 'http_access deny all'
+          # The site is reached by name at loopback, on its own port.
+          - "'acl portikus_site dstdomain portikus.192.168.10.48.nip.io' in egress_rules"
+          - "'acl portikus_site_port port 8443' in egress_rules"
+          - "'http_access allow portikus_connect portikus_site portikus_site_port portikus_site_address' in egress_rules"
+          # A listed address is allowed exactly, on its port, before the private rule.
+          - "'acl portikus_address_1 dst 192.168.10.48' in egress_rules"
+          - "'acl portikus_address_1_port port 8765' in egress_rules"
+          - egress_rules.index('http_access allow portikus_fetch portikus_address_1 portikus_address_1_port')
+            < egress_rules.index('http_access deny portikus_private')
+          # Host names on 443 are allowed by CONNECT only, after the private rule.
+          - "'acl portikus_hosts_443 dstdomain login.microsoftonline.com sso.canvaslms.com' in egress_rules"
+          - "'acl portikus_hosts_8443 dstdomain keys.example.edu' in egress_rules"
+          - egress_rules.index('http_access deny portikus_private')
+            < egress_rules.index('http_access allow portikus_connect portikus_hosts_443 portikus_port_443')
+          # A host listed with its own port may also get plain HTTP there.
+          - egress_rules.index('http_access deny portikus_private')
+            < egress_rules.index('http_access allow portikus_fetch portikus_hosts_8443 portikus_port_8443')
+          # No address rule names a host, and no host rule names an address.
+          - egress_rules | select('search', 'dstdomain .*192\.168\.10\.48( |$)') | list | length == 0
+        fail_msg: "{{ egress_render }}"
+
+    - name: Render with no site and no listed hosts
+      ansible.builtin.set_fact:
+        egress_empty: >-
+          {{ lookup('ansible.builtin.template', '../ansible/roles/egress_proxy/templates/squid.conf.j2',
+                    template_vars={'egress_proxy_allowed': [], 'egress_proxy_site_host': ''})
+             .splitlines() | select('match', '^http_access') | list }}
+
+    - name: Check that an empty list lets nothing out
+      ansible.builtin.assert:
+        that:
+          - egress_empty == ['http_access deny !localhost', 'http_access deny portikus_private', 'http_access deny all']
+        fail_msg: "{{ egress_empty }}"
