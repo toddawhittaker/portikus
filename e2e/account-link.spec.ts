@@ -8,23 +8,12 @@
  * link never sends another spec's launch into the wrong account.
  */
 import { type Browser, expect, type Page, test } from "@playwright/test";
-import { PEOPLE } from "../packages/mock-lms/src/seed";
-import { MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
-import { LTI_ISSUER, MOCK_LMS_ORIGIN } from "./lti-helpers";
+import { apiLoginAs, MOCK_ISSUER, type MockUser, query, WEB_ORIGIN } from "./helpers";
+import { launchAs, ltiUsers, type PersonKey } from "./lti-helpers";
 
-const PERSON = "lin";
-const TARGET = "erin";
-const NO_ACCOUNT = "frank";
-
-/** lti-helpers' launchAs, for a person its PersonKey type does not list. */
-async function launchPerson(page: Page, person: string) {
-	await page.goto(`${MOCK_LMS_ORIGIN}/`);
-	await page.getByLabel("Person").selectOption(person);
-	await page.getByLabel("Course").selectOption("cs101");
-	await page.getByRole("button", { name: "Launch Portikus" }).click();
-	await page.waitForURL(`${WEB_ORIGIN}/**`, { timeout: 30_000 });
-	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 30_000 });
-}
+const PERSON: PersonKey = "lin";
+const TARGET: MockUser = "erin";
+const NO_ACCOUNT: MockUser = "frank";
 
 async function me(page: Page): Promise<{ id: string }> {
 	const response = await page.request.get(`${WEB_ORIGIN}/auth/me`);
@@ -43,7 +32,7 @@ async function openLinkedAccounts(page: Page) {
 }
 
 /** From a fresh course session, start a link and pick `user` on the mock provider. */
-async function linkAs(page: Page, user: string) {
+async function linkAs(page: Page, user: MockUser) {
 	const region = await openLinkedAccounts(page);
 	await region.getByRole("button", { name: "Link to my SSO account" }).click();
 	await page.waitForURL(`${MOCK_ISSUER}/authorize**`);
@@ -51,12 +40,11 @@ async function linkAs(page: Page, user: string) {
 	await page.waitForURL(`${WEB_ORIGIN}/link**`);
 }
 
-/** helpers' apiLoginAs, for a mock user its MockUser type does not list; returns the account id. */
-async function ssoLogin(browser: Browser, user: string): Promise<string> {
+/** Sign `user` in once so the account exists; returns its id. */
+async function ssoLogin(browser: Browser, user: MockUser): Promise<string> {
 	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
 	try {
-		const authorize = await context.request.get("/auth/login");
-		await context.request.get(`${authorize.url()}&user=${user}`);
+		await apiLoginAs(context.request, user);
 		const response = await context.request.get("/auth/me");
 		return ((await response.json()) as { id: string }).id;
 	} finally {
@@ -65,10 +53,7 @@ async function ssoLogin(browser: Browser, user: string): Promise<string> {
 }
 
 async function courseUserId(): Promise<string> {
-	const [row] = await query<{ id: string }>(
-		"select id from users where oidc_issuer = $1 and oidc_subject = $2",
-		[LTI_ISSUER, PEOPLE.find((p) => p.key === PERSON)?.sub],
-	);
+	const [row] = await ltiUsers(PERSON);
 	if (!row) throw new Error("Lin has not launched yet");
 	return row.id;
 }
@@ -84,7 +69,7 @@ test("a course account links to an SSO account, relaunches into it, and unlinks"
 	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
 	try {
 		const page = await context.newPage();
-		await launchPerson(page, PERSON);
+		await launchAs(page, { person: PERSON });
 		const courseId = await courseUserId();
 		expect((await me(page)).id).toBe(courseId);
 		const oldCookies = await context.cookies();
@@ -119,7 +104,7 @@ test("a course account links to an SSO account, relaunches into it, and unlinks"
 		for (const row of courseWorkspaces) expect(row.archived_at).not.toBeNull();
 
 		// A relaunch from the course lands in erin's account.
-		await launchPerson(page, PERSON);
+		await launchAs(page, { person: PERSON });
 		expect((await me(page)).id).toBe(erinId);
 
 		// erin sees the link and unlinks it.
@@ -129,7 +114,7 @@ test("a course account links to an SSO account, relaunches into it, and unlinks"
 		await expect(region).toContainText("No course sign-ins are linked");
 
 		// The next launch signs into the course account again.
-		await launchPerson(page, PERSON);
+		await launchAs(page, { person: PERSON });
 		expect((await me(page)).id).toBe(courseId);
 	} finally {
 		await context.close();
@@ -141,7 +126,7 @@ test("a link to an SSO identity with no account is refused", async ({ browser })
 	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
 	try {
 		const page = await context.newPage();
-		await launchPerson(page, PERSON);
+		await launchAs(page, { person: PERSON });
 		const courseId = await courseUserId();
 
 		await linkAs(page, NO_ACCOUNT);

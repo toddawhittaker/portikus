@@ -5,8 +5,8 @@
  */
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
-import { MOCK_ISSUER, WEB_ORIGIN } from "./helpers";
-import { MOCK_LMS_ORIGIN } from "./lti-helpers";
+import { apiLoginAs, MOCK_ISSUER, WEB_ORIGIN } from "./helpers";
+import { launchAs } from "./lti-helpers";
 
 async function expectNoViolations(page: Page, include?: string) {
 	let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]);
@@ -22,15 +22,10 @@ test("the Profile link section and the /link page have no automatic violations",
 	test.setTimeout(120_000);
 	// gail needs an account to reach the confirmation page.
 	const gail = await browser.newContext({ baseURL: WEB_ORIGIN });
-	const authorize = await gail.request.get("/auth/login");
-	await gail.request.get(`${authorize.url()}&user=gail`);
+	await apiLoginAs(gail.request, "gail");
 	await gail.close();
 
-	await page.goto(`${MOCK_LMS_ORIGIN}/`);
-	await page.getByLabel("Person").selectOption("max");
-	await page.getByLabel("Course").selectOption("cs101");
-	await page.getByRole("button", { name: "Launch Portikus" }).click();
-	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 30_000 });
+	await launchAs(page, { person: "max" });
 
 	await page.getByTestId("me").click();
 	await page.getByRole("menuitem", { name: "Settings" }).click();
