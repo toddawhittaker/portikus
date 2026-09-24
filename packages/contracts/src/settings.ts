@@ -71,7 +71,7 @@ export const AdminUser = z.object({
 	issuer: z.string().nullable(),
 	lastLoginAt: z.string().datetime().nullable(),
 	/** `linked`: a course account retired by a link to an SSO account. */
-	markers: AdminAccountMarkers.extend({ linked: z.boolean() }),
+	markers: AdminAccountMarkers,
 	workspace: AdminWorkspaceSummary.nullable(),
 });
 export type AdminUser = z.infer<typeof AdminUser>;

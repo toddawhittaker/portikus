@@ -1,14 +1,19 @@
 import {
 	consumeLinkIntent,
 	courseLinkWindow,
+	deleteSession,
 	hashSessionToken,
 	linkAccounts,
 	listLinks,
 	loginCookieName,
 	loginCookieOptions,
 	pendingLinkIntent,
+	platformIssuerOf,
 	requireUser,
 	saveLinkIntent,
+	sessionCookieName,
+	sessionCookieOptions,
+	sessionOrigin,
 	unlinkAccount,
 } from "@portikus/auth";
 import type {
@@ -16,10 +21,12 @@ import type {
 	MyLinks,
 	PendingLink,
 	StartLinkResponse,
+	UnlinkResponse,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { toAuthOptions } from "../auth-options.js";
+import { revokeSessionPreviewSessions } from "../preview/store.js";
 import type { ServerDeps } from "../server.js";
 import { audit, requestMetadata, startSession } from "./start-session.js";
 
@@ -61,17 +68,24 @@ export function registerLinkRoutes(
 
 	async function myLinks(request: FastifyRequest): Promise<MyLinks> {
 		const user = requireUser(request);
-		const row = await db
-			.selectFrom("users")
-			.select("oidc_issuer")
-			.where("id", "=", user.id)
-			.executeTakeFirstOrThrow();
-		const course = row.oidc_issuer.startsWith("lti:");
-		const window = course ? await courseLinkWindow(db, sessionId(request)) : null;
-		const links = course ? [] : await listLinks(db, user.id);
+		const id = sessionId(request);
+		// Only an unlinked course account has a window; a linked one cannot sign in.
+		const window = await courseLinkWindow(db, id);
+		const links = window ? [] : await listLinks(db, user.id);
+		const origin = await sessionOrigin(db, id);
+		const launched =
+			origin?.method === "lti"
+				? links.find((link) => link.courseUserId === origin.courseUserId)
+				: undefined;
 		return {
-			source: course ? "course" : "sso",
+			source: window ? "course" : "sso",
 			linkUntil: window ? window.linkUntil.toISOString() : null,
+			launch: launched
+				? {
+						courseUserId: launched.courseUserId,
+						platformName: platformName(launched.platformIssuer),
+					}
+				: null,
 			links: links.map((link) => ({
 				courseUserId: link.courseUserId,
 				platformName: platformName(link.platformIssuer),
@@ -126,7 +140,7 @@ export function registerLinkRoutes(
 		const body: PendingLink = {
 			course: {
 				displayName: course.display_name,
-				platformName: platformName(course.oidc_issuer.replace(/^lti:/, "")),
+				platformName: platformName(platformIssuerOf(course.oidc_issuer)),
 			},
 			sso: {
 				displayName: sso.display_name,
@@ -190,7 +204,10 @@ export function registerLinkRoutes(
 			return fail(reply, 400, "VALIDATION_FAILED", message);
 		}
 
-		await startSession(db, auth, reply, intent.userId);
+		await startSession(db, auth, reply, intent.userId, {
+			method: "link",
+			courseUserId: null,
+		});
 		await audit(db, "auth.login", `user:${intent.userId}`, intent.userId, "ok", {
 			method: "link",
 			...requestMetadata(request),
@@ -198,7 +215,9 @@ export function registerLinkRoutes(
 		return {};
 	});
 
-	// Step 7: the SSO account removes one of its links (ruling 15).
+	// Step 7: the SSO account removes one of its links (ruling 15). A session
+	// launched through a linked course identity may remove that link too, and
+	// then ends, since it now belongs to a course account again (review S2).
 	app.post("/me/links/:courseUserId/unlink", async (request, reply) => {
 		const user = requireUser(request);
 		const params = CourseUserParam.safeParse(request.params);
@@ -206,13 +225,16 @@ export function registerLinkRoutes(
 			return fail(reply, 400, "VALIDATION_FAILED", params.error.message);
 		}
 		const courseUserId = params.data.courseUserId;
+		const origin = await sessionOrigin(db, sessionId(request));
+		const courseSide = origin?.method === "lti" && origin.courseUserId === courseUserId;
 		const done = await db.transaction().execute(async (trx) => {
 			const unlinked = await unlinkAccount(trx, { userId: user.id, courseUserId });
 			if (!unlinked) return false;
-			const actor = `user:${user.id}`;
+			const actor = courseSide ? `user:${courseUserId}` : `user:${user.id}`;
 			await audit(trx, "user.unlinked", actor, user.id, "ok", {
 				platform: platformName(unlinked.platformIssuer),
 				courseUserId,
+				side: courseSide ? "course" : "sso",
 				...requestMetadata(request),
 			});
 			if (unlinked.unarchivedWorkspaceId) {
@@ -228,6 +250,13 @@ export function registerLinkRoutes(
 			return true;
 		});
 		if (!done) return fail(reply, 404, "NOT_FOUND", "Link not found");
-		return {};
+		if (courseSide) {
+			const token = request.sessionToken ?? "";
+			await revokeSessionPreviewSessions(db, token);
+			await deleteSession(db, token);
+			reply.clearCookie(sessionCookieName(auth), sessionCookieOptions(auth));
+		}
+		const body: UnlinkResponse = { signedOut: courseSide };
+		return body;
 	});
 }

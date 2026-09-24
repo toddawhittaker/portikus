@@ -1,4 +1,4 @@
-import { requireUser } from "@portikus/auth";
+import { hashSessionToken, requireUser } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import {
 	type ListeningService,
@@ -30,7 +30,6 @@ import {
 	consumeGrant,
 	createGrant,
 	createPreviewSession,
-	hashToken,
 	loadMainSessionUser,
 	loadPreviewSession,
 	revokedForStoppedWorkspace,
@@ -683,5 +682,5 @@ export function registerPreviewRoutes(
 function sessionIdOf(request: FastifyRequest): string {
 	const token = request.sessionToken;
 	if (!token) throw new Error("preview grant reached without a session");
-	return hashToken(token);
+	return hashSessionToken(token);
 }

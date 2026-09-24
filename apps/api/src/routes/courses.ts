@@ -117,19 +117,36 @@ export function registerCourseRoutes(app: FastifyInstance, { db }: ServerDeps): 
 		}
 
 		const removed = await db.transaction().execute(async (trx) => {
-			const result = await trx
+			// Only students are removed; an instructor's membership is the LMS's to change.
+			const target = await trx
+				.selectFrom("lti_memberships")
+				.select("role")
+				.where("context_id", "=", courseId)
+				.where("user_id", "=", userId)
+				.forUpdate()
+				.executeTakeFirst();
+			if (!target) return "not_found";
+			if (target.role !== "student") return "instructor";
+			await trx
 				.deleteFrom("lti_memberships")
 				.where("context_id", "=", courseId)
 				.where("user_id", "=", userId)
-				.executeTakeFirst();
-			if (result.numDeletedRows === 0n) return false;
+				.execute();
 			// Ids only: no names, emails or subjects (ADR 0012).
 			await audit(trx, "course.member_removed", `user:${user.id}`, userId, "ok", {
 				contextId: courseId,
 			});
-			return true;
+			return "removed";
 		});
-		if (!removed) return reply.status(404).send(notFound);
+		if (removed === "not_found") return reply.status(404).send(notFound);
+		if (removed === "instructor") {
+			const refusal: ApiError = {
+				code: "VALIDATION_FAILED",
+				message:
+					"Only students can be removed from a course. Instructors are managed in the LMS.",
+			};
+			return reply.status(400).send(refusal);
+		}
 		return reply.send({});
 	});
 }

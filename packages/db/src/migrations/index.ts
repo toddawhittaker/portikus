@@ -15,6 +15,7 @@ import { down as down0013, up as up0013 } from "./0013_recovery.js";
 import { down as down0014, up as up0014 } from "./0014_admin.js";
 import { down as down0015, up as up0015 } from "./0015_lti.js";
 import { down as down0016, up as up0016 } from "./0016_account_links.js";
+import { down as down0017, up as up0017 } from "./0017_session_method.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -37,4 +38,5 @@ export const migrations: Record<string, Migration> = {
 	"0014_admin": { up: up0014, down: down0014 },
 	"0015_lti": { up: up0015, down: down0015 },
 	"0016_account_links": { up: up0016, down: down0016 },
+	"0017_session_method": { up: up0017, down: down0017 },
 };

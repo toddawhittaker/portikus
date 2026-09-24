@@ -9,6 +9,7 @@ import {
 	loginCookieOptions,
 	mapRole,
 	OidcError,
+	platformIssuerOf,
 	sessionCookieName,
 	sessionCookieOptions,
 } from "@portikus/auth";
@@ -81,19 +82,20 @@ export function registerAuthRoutes(
 
 		const raw = request.cookies[loginCookie];
 		const unsigned = raw ? request.unsignCookie(raw) : null;
-		if (!unsigned?.valid || !unsigned.value) {
-			return fail(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"The login request expired. Please sign in again.",
-			);
+		let loginState: LoginState | null = null;
+		if (unsigned?.valid && unsigned.value) {
+			try {
+				loginState = JSON.parse(unsigned.value) as LoginState;
+			} catch {
+				loginState = null;
+			}
 		}
-
-		let loginState: LoginState;
-		try {
-			loginState = JSON.parse(unsigned.value) as LoginState;
-		} catch {
+		if (!loginState) {
+			// A link attempt whose cookie is gone still belongs on the link page (ruling 18).
+			const { state } = request.query as { state?: unknown };
+			if (typeof state === "string" && (await findLinkIntent(db, state))) {
+				return reply.redirect("/link?error=expired", 302);
+			}
 			return fail(
 				reply,
 				400,
@@ -143,6 +145,7 @@ export function registerAuthRoutes(
 		const signedIn = await completeSignIn(db, auth, reply, {
 			identity,
 			role,
+			method: "oidc",
 			loginMetadata: requestMetadata(request),
 			roleChangeMetadata: { source: "oidc" },
 		});
@@ -212,7 +215,7 @@ export function registerAuthRoutes(
 			.select("oidc_issuer")
 			.where("id", "=", intent.courseUserId)
 			.executeTakeFirstOrThrow();
-		const platformIssuer = course.oidc_issuer.replace(/^lti:/, "");
+		const platformIssuer = platformIssuerOf(course.oidc_issuer);
 		const taken = await db
 			.selectFrom("account_links")
 			.select("course_user_id")
@@ -223,7 +226,7 @@ export function registerAuthRoutes(
 
 		const bound = await bindLinkIntent(db, {
 			state: loginState.state,
-			sessionId,
+			sessionId: intent.sessionId,
 			userId: sso.id,
 		});
 		if (bound) return refuse(bound, "failed", sso.id);

@@ -46,7 +46,10 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 	});
 
 	async function sessionFor(userId: string) {
-		const { token } = await createSession(db, userId, 3600);
+		const { token } = await createSession(db, userId, 3600, {
+			method: "oidc",
+			courseUserId: null,
+		});
 		return { token, id: hashSessionToken(token) };
 	}
 
@@ -101,7 +104,7 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 					course_user_id: course,
 					user_id: sso,
 					platform_issuer: LMS,
-					archived_workspace: false,
+					archived_at: null,
 				})
 				.execute();
 			expect(await courseLinkWindow(db, s.id)).toBeNull();
@@ -136,6 +139,25 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 			});
 		});
 
+		test("a new start replaces a bound intent with an unbound one", async () => {
+			const course = await insertTestLtiUser(db, LMS);
+			const sso = await insertTestUser(db);
+			const s = await sessionFor(course);
+			await saveLinkIntent(db, {
+				state: "first",
+				sessionId: s.id,
+				courseUserId: course,
+			});
+			await bindLinkIntent(db, { state: "first", sessionId: s.id, userId: sso });
+			await saveLinkIntent(db, {
+				state: "second",
+				sessionId: s.id,
+				courseUserId: course,
+			});
+			expect(await pendingLinkIntent(db, s.id)).toBeNull();
+			expect((await findLinkIntent(db, "second"))?.userId).toBeNull();
+		});
+
 		test("saving clears expired rows of other sessions", async () => {
 			const a = await insertTestLtiUser(db, LMS);
 			const b = await insertTestLtiUser(db, LMS);
@@ -158,15 +180,13 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 			const other = await sessionFor(sso);
 			await saveLinkIntent(db, { state: "st", sessionId: s.id, courseUserId: course });
 
+			// No row matches: another session, or an unknown state, binds nothing.
 			expect(
 				await bindLinkIntent(db, { state: "st", sessionId: other.id, userId: sso }),
-			).toBe("session_changed");
-			expect(
-				await bindLinkIntent(db, { state: "st", sessionId: null, userId: sso }),
-			).toBe("session_changed");
+			).toBe("expired");
 			expect(
 				await bindLinkIntent(db, { state: "nope", sessionId: s.id, userId: sso }),
-			).toBe("session_changed");
+			).toBe("expired");
 			expect(await pendingLinkIntent(db, s.id)).toBeNull();
 
 			expect(
@@ -265,7 +285,7 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 					course_user_id: course,
 					user_id: sso,
 					platform_issuer: LMS,
-					archived_workspace: true,
+					archived_at: expect.any(Date),
 				},
 			]);
 			const ws = await db
@@ -299,7 +319,12 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 					.selectAll()
 					.execute(),
 			).toEqual([]);
-			expect(await db.selectFrom("preview_sessions").selectAll().execute()).toEqual([]);
+			const livePreviews = await db
+				.selectFrom("preview_sessions")
+				.select("token_hash")
+				.where("revoked_at", "is", null)
+				.execute();
+			expect(livePreviews).toEqual([]);
 			expect(await loadSession(db, s.token)).toBeNull();
 			expect(await resolveIdentity(db, `lti:${LMS}`, await subjectOf(course))).toEqual({
 				userId: sso,
@@ -334,9 +359,9 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 			expect(result).toMatchObject({ ok: true, archivedWorkspaceId: null });
 			const row = await db
 				.selectFrom("account_links")
-				.select("archived_workspace")
+				.select("archived_at")
 				.executeTakeFirstOrThrow();
-			expect(row.archived_workspace).toBe(false);
+			expect(row.archived_at).toBeNull();
 			const ws = await db
 				.selectFrom("workspaces")
 				.select("archived_at")
@@ -388,6 +413,13 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 			});
 			expect(await db.selectFrom("account_links").selectAll().execute()).toEqual([]);
 		});
+
+		test("refuses a disabled SSO account", async () => {
+			const sso = await insertTestUser(db, { disabled_at: new Date().toISOString() });
+			const course = await insertTestLtiUser(db, LMS);
+			expect(await link(course, sso)).toEqual({ ok: false, reason: "not_authorized" });
+			expect(await db.selectFrom("account_links").selectAll().execute()).toEqual([]);
+		});
 	});
 
 	describe("unlinkAccount", () => {
@@ -436,6 +468,25 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 				.select("archived_at")
 				.executeTakeFirstOrThrow();
 			expect(ws.archived_at).not.toBeNull();
+		});
+
+		test("a workspace archived again after the link keeps the later archive", async () => {
+			const sso = await insertTestUser(db);
+			const course = await insertTestLtiUser(db, LMS);
+			await workspaceFor(course);
+			await link(course, sso);
+			// An administrator unarchives and archives again while the link stands.
+			const later = "2030-01-01T00:00:00.000Z";
+			await db.updateTable("workspaces").set({ archived_at: later }).execute();
+			const result = await db
+				.transaction()
+				.execute((trx) => unlinkAccount(trx, { userId: sso, courseUserId: course }));
+			expect(result).toEqual({ platformIssuer: LMS, unarchivedWorkspaceId: null });
+			const ws = await db
+				.selectFrom("workspaces")
+				.select("archived_at")
+				.executeTakeFirstOrThrow();
+			expect(ws.archived_at?.toISOString()).toBe(later);
 		});
 	});
 
@@ -538,7 +589,12 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 			expect(await revoke(granted, granted)).toEqual({ ok: false, reason: "self" });
 			expect(await revoke(granted, provider)).toEqual({
 				ok: false,
-				reason: "not_granted",
+				reason: "provider_administrator",
+			});
+			const student = await insertTestUser(db, { role: "student" });
+			expect(await revoke(granted, student)).toEqual({
+				ok: false,
+				reason: "not_administrator",
 			});
 
 			// Disable the provider administrator: the granted one is now the last enabled one.

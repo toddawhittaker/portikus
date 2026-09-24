@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import { hashSessionToken } from "@portikus/auth";
 import type { AuthUser, PreviewPresentation } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
@@ -8,10 +9,6 @@ import { type Kysely, sql } from "kysely";
  * §17). Only the hash of a ticket or a preview token is ever stored, the same
  * way the main session does it.
  */
-export function hashToken(token: string): string {
-	return crypto.createHash("sha256").update(token).digest("hex");
-}
-
 function newToken(): string {
 	return crypto.randomBytes(32).toString("base64url");
 }
@@ -49,7 +46,7 @@ export async function createGrant(
 			port: input.port,
 			preview_host: input.previewHost,
 			presentation: input.presentation,
-			ticket_hash: hashToken(ticket),
+			ticket_hash: hashSessionToken(ticket),
 			expires_at: expiresAt.toISOString(),
 		})
 		.execute();
@@ -104,7 +101,7 @@ export async function consumeGrant(
 	const row = await db
 		.updateTable("preview_grants")
 		.set({ consumed_at: new Date().toISOString() })
-		.where("ticket_hash", "=", hashToken(ticket))
+		.where("ticket_hash", "=", hashSessionToken(ticket))
 		.where("consumed_at", "is", null)
 		.where("expires_at", ">", sql<Date>`now()`)
 		.where("preview_host", "=", previewHost)
@@ -146,7 +143,7 @@ export async function createPreviewSession(
 	await db
 		.insertInto("preview_sessions")
 		.values({
-			token_hash: hashToken(token),
+			token_hash: hashSessionToken(token),
 			user_id: input.userId,
 			session_id: input.sessionId,
 			workspace_id: input.workspaceId,
@@ -196,7 +193,7 @@ export async function loadPreviewSession(
 	const row = await db
 		.selectFrom("preview_sessions")
 		.select(["id", "user_id", "session_id", "workspace_id", "port", "preview_host"])
-		.where("token_hash", "=", hashToken(token))
+		.where("token_hash", "=", hashSessionToken(token))
 		.where("revoked_at", "is", null)
 		.executeTakeFirst();
 	return row ?? null;
@@ -216,7 +213,7 @@ export async function revokedForStoppedWorkspace(
 		.selectFrom("preview_sessions")
 		.innerJoin("workspaces", "workspaces.id", "preview_sessions.workspace_id")
 		.select(["preview_sessions.user_id", "preview_sessions.session_id"])
-		.where("preview_sessions.token_hash", "=", hashToken(token))
+		.where("preview_sessions.token_hash", "=", hashSessionToken(token))
 		.where("preview_sessions.preview_host", "=", host)
 		.where("preview_sessions.revoked_at", "is not", null)
 		.whereRef("workspaces.owner_user_id", "=", "preview_sessions.user_id")
@@ -295,7 +292,7 @@ export async function revokeSessionPreviewSessions(
 	await db
 		.updateTable("preview_sessions")
 		.set({ revoked_at: new Date().toISOString() })
-		.where("session_id", "=", hashToken(sessionToken))
+		.where("session_id", "=", hashSessionToken(sessionToken))
 		.where("revoked_at", "is", null)
 		.execute();
 }

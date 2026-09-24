@@ -381,7 +381,13 @@ export function registerLtiRoutes(
 			launch.subject,
 		);
 		if (identity?.courseUserId)
-			return linkedLaunch(request, reply, launch, identity.userId);
+			return linkedLaunch(
+				request,
+				reply,
+				launch,
+				identity.userId,
+				identity.courseUserId,
+			);
 
 		const signedIn = await completeSignIn(db, auth, reply, {
 			identity: {
@@ -392,6 +398,7 @@ export function registerLtiRoutes(
 				preferredUsername: null,
 			},
 			role: launch.role,
+			method: "lti",
 			loginMetadata: {
 				method: "lti",
 				platform: launch.platform.name,
@@ -419,6 +426,7 @@ export function registerLtiRoutes(
 		reply: FastifyReply,
 		launch: LtiLaunch,
 		userId: string,
+		courseUserId: string,
 	) {
 		const user = await db
 			.selectFrom("users")
@@ -430,6 +438,7 @@ export function registerLtiRoutes(
 		if (user.disabled_at !== null) {
 			await audit("auth.login", actor, userId, "denied", {
 				...base,
+				reason: "disabled",
 				linked: true,
 				...requestMetadata(request),
 			});
@@ -453,7 +462,8 @@ export function registerLtiRoutes(
 				page("Administrators sign in with SSO", ADMIN_BY_SSO, link),
 			);
 		}
-		await startSession(db, auth, reply, userId);
+		// The course identity is kept so this session may unlink it (review S2).
+		await startSession(db, auth, reply, userId, { method: "lti", courseUserId });
 		await audit("auth.login", actor, userId, "ok", {
 			...base,
 			role: launch.role,

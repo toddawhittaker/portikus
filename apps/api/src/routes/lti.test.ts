@@ -496,7 +496,7 @@ describe.skipIf(skip)("a launch from a linked course identity", () => {
 				course_user_id: course.id,
 				user_id: ssoId,
 				platform_issuer: ISSUER,
-				archived_workspace: false,
+				archived_at: null,
 			})
 			.execute();
 		return { courseId: course.id, ssoId };
@@ -590,6 +590,82 @@ describe.skipIf(skip)("a launch from a linked course identity", () => {
 		const { res } = await launch({ sub: "student-1" });
 		expect(res.statusCode).toBe(403);
 		expect(sessionCookie(res)).toBeUndefined();
+		const audits = await loginAudits();
+		expect(audits.at(-1)).toMatchObject({ actor: `user:${ssoId}`, result: "denied" });
+		expect(audits.at(-1)?.metadata).toMatchObject({ reason: "disabled", linked: true });
+	});
+
+	/** A linked launch that lands, and its session cookie header. */
+	async function linkedSession() {
+		const ids = await linked("student");
+		const { res } = await launch({ sub: "student-1" });
+		expect(res.statusCode).toBe(303);
+		return { ...ids, cookie: `portikus_session=${sessionCookie(res)}` };
+	}
+
+	const origin = new URL(PUBLIC_URL).origin;
+
+	test("a launch session dies once its account is promoted (review S1)", async () => {
+		const { ssoId, cookie } = await linkedSession();
+		const session = await testDb.db
+			.selectFrom("sessions")
+			.select(["method", "course_user_id"])
+			.where("user_id", "=", ssoId)
+			.executeTakeFirstOrThrow();
+		expect(session.method).toBe("lti");
+		const admin = await insertTestUser(testDb.db, { role: "administrator" });
+		const adminSession = await createSession(testDb.db, admin, 60, {
+			method: "oidc",
+			courseUserId: null,
+		});
+		const promote = await app.inject({
+			method: "POST",
+			url: `/admin/users/${ssoId}/promote`,
+			headers: { cookie: `portikus_session=${adminSession.token}`, origin },
+		});
+		expect(promote.statusCode).toBe(200);
+		const refused = await app.inject({ url: "/admin/users", headers: { cookie } });
+		expect(refused.statusCode).toBe(401);
+		const me = await app.inject({ url: "/auth/me", headers: { cookie } });
+		expect(me.statusCode).toBe(401);
+	});
+
+	test("GET /me/links names the course identity that launched this session (review S2)", async () => {
+		const { courseId, cookie } = await linkedSession();
+		const res = await app.inject({ url: "/me/links", headers: { cookie } });
+		expect(res.json()).toMatchObject({
+			source: "sso",
+			launch: { courseUserId: courseId, platformName: "Test LMS" },
+		});
+	});
+
+	test("the launch session can unlink its own course identity, and then ends (review S2)", async () => {
+		const { courseId, ssoId, cookie } = await linkedSession();
+		const res = await app.inject({
+			method: "POST",
+			url: `/me/links/${courseId}/unlink`,
+			headers: { cookie, origin },
+		});
+		expect(res.statusCode).toBe(200);
+		expect(res.json()).toEqual({ signedOut: true });
+		const cleared = res.cookies.find((one) => one.name === "portikus_session");
+		expect(cleared?.value).toBe("");
+		const me = await app.inject({ url: "/auth/me", headers: { cookie } });
+		expect(me.statusCode).toBe(401);
+		const audit = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "user.unlinked")
+			.executeTakeFirstOrThrow();
+		expect(audit).toMatchObject({ actor: `user:${courseId}`, target: ssoId });
+		expect(audit.metadata).toMatchObject({ side: "course", courseUserId: courseId });
+		// The next launch signs into the course account again.
+		const again = await launch({ sub: "student-1" });
+		const back = await app.inject({
+			url: "/auth/me",
+			headers: { cookie: `portikus_session=${sessionCookie(again.res)}` },
+		});
+		expect(back.json().id).toBe(courseId);
 	});
 });
 
@@ -904,6 +980,7 @@ describe.skipIf(skip)("with LTI off", () => {
 				testDb.db,
 				await insertTestUser(testDb.db),
 				60,
+				{ method: "oidc", courseUserId: null },
 			);
 			const courses = await off.inject({
 				url: "/courses",

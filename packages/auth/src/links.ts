@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
-import { effectiveRole } from "./sessions.js";
 import type { Role } from "./types.js";
 
 /**
@@ -23,8 +22,14 @@ function hashState(state: string): string {
 	return createHash("sha256").update(state).digest("hex");
 }
 
-function isCourseIssuer(issuer: string): boolean {
+/** True for a course account's issuer, `lti:<platform issuer>` (EPIC-13 ruling 12). */
+export function isCourseIssuer(issuer: string): boolean {
 	return issuer.startsWith(LTI_PREFIX);
+}
+
+/** The plain platform issuer of a course account's issuer. */
+export function platformIssuerOf(issuer: string): string {
+	return issuer.slice(LTI_PREFIX.length);
 }
 
 /**
@@ -64,27 +69,18 @@ export async function saveLinkIntent(
 	input: { state: string; sessionId: string; courseUserId: string },
 	now: Date = new Date(),
 ): Promise<void> {
-	await db.transaction().execute(async (trx) => {
-		await trx
-			.deleteFrom("account_link_intents")
-			.where("expires_at", "<=", now)
-			.execute();
-		await trx
-			.deleteFrom("account_link_intents")
-			.where("session_id", "=", input.sessionId)
-			.execute();
-		await trx
-			.insertInto("account_link_intents")
-			.values({
-				state_hash: hashState(input.state),
-				session_id: input.sessionId,
-				course_user_id: input.courseUserId,
-				expires_at: new Date(
-					now.getTime() + LINK_INTENT_TTL_SECONDS * 1000,
-				).toISOString(),
-			})
-			.execute();
-	});
+	await db.deleteFrom("account_link_intents").where("expires_at", "<=", now).execute();
+	const row = {
+		state_hash: hashState(input.state),
+		course_user_id: input.courseUserId,
+		user_id: null,
+		expires_at: new Date(now.getTime() + LINK_INTENT_TTL_SECONDS * 1000).toISOString(),
+	};
+	await db
+		.insertInto("account_link_intents")
+		.values({ ...row, session_id: input.sessionId })
+		.onConflict((oc) => oc.column("session_id").doUpdateSet(row))
+		.execute();
 }
 
 export interface LinkIntent {
@@ -116,16 +112,15 @@ export async function findLinkIntent(
 
 /**
  * Bind the SSO account to an intent, only for the session that made it,
- * only once, and only before it expires. Returns the refusal code the
- * callback shows (ruling 18), or null when bound.
+ * only once, and only before it expires. Returns `expired` when no such
+ * intent is left (ruling 18), or null when bound. The callback has already
+ * refused a different session with `session_changed`.
  */
 export async function bindLinkIntent(
 	db: Kysely<Database>,
-	input: { state: string; sessionId: string | null; userId: string },
+	input: { state: string; sessionId: string; userId: string },
 	now: Date = new Date(),
-): Promise<"session_changed" | "expired" | null> {
-	const intent = await findLinkIntent(db, input.state);
-	if (!intent || intent.sessionId !== input.sessionId) return "session_changed";
+): Promise<"expired" | null> {
 	const bound = await db
 		.updateTable("account_link_intents")
 		.set({ user_id: input.userId })
@@ -178,6 +173,7 @@ export type LinkRefusal =
 	| "not_found"
 	| "not_course_account"
 	| "not_sso_account"
+	| "not_authorized"
 	| "already_linked";
 
 /**
@@ -196,7 +192,7 @@ export async function linkAccounts(
 > {
 	const users = await trx
 		.selectFrom("users")
-		.select(["id", "oidc_issuer"])
+		.select(["id", "oidc_issuer", "disabled_at"])
 		.where("id", "in", [input.courseUserId, input.userId])
 		.orderBy("id")
 		.forUpdate()
@@ -208,7 +204,8 @@ export async function linkAccounts(
 	if (!isCourseIssuer(course.oidc_issuer))
 		return { ok: false, reason: "not_course_account" };
 	if (isCourseIssuer(sso.oidc_issuer)) return { ok: false, reason: "not_sso_account" };
-	const platformIssuer = course.oidc_issuer.slice(LTI_PREFIX.length);
+	if (sso.disabled_at !== null) return { ok: false, reason: "not_authorized" };
+	const platformIssuer = platformIssuerOf(course.oidc_issuer);
 
 	const existing = await trx
 		.selectFrom("account_links")
@@ -232,7 +229,7 @@ export async function linkAccounts(
 		.set({ archived_at: now, desired_state: "stopped", updated_at: now })
 		.where("owner_user_id", "=", course.id)
 		.where("archived_at", "is", null)
-		.returning("id")
+		.returning(["id", "archived_at"])
 		.executeTakeFirst();
 
 	await trx
@@ -241,7 +238,10 @@ export async function linkAccounts(
 			course_user_id: course.id,
 			user_id: sso.id,
 			platform_issuer: platformIssuer,
-			archived_workspace: archived !== undefined,
+			// The exact stamp, so unlink undoes only this archive (ruling 15).
+			archived_at: archived?.archived_at
+				? new Date(archived.archived_at).toISOString()
+				: null,
 		})
 		.execute();
 
@@ -253,7 +253,12 @@ export async function linkAccounts(
 		where excluded.last_launch_at > lti_memberships.last_launch_at`.execute(trx);
 	await trx.deleteFrom("lti_memberships").where("user_id", "=", course.id).execute();
 
-	await trx.deleteFrom("preview_sessions").where("user_id", "=", course.id).execute();
+	await trx
+		.updateTable("preview_sessions")
+		.set({ revoked_at: now })
+		.where("user_id", "=", course.id)
+		.where("revoked_at", "is", null)
+		.execute();
 	await trx.deleteFrom("sessions").where("user_id", "=", course.id).execute();
 
 	return { ok: true, platformIssuer, archivedWorkspaceId: archived?.id ?? null };
@@ -261,7 +266,8 @@ export async function linkAccounts(
 
 /**
  * Remove the caller's link to a course account (ruling 15). When the link
- * archived the course workspace, unarchive it, leaving it stopped. Returns
+ * archived the course workspace, unarchive it, leaving it stopped, but only
+ * while the workspace still carries that archive and not a later one. Returns
  * null when the link does not exist or belongs to someone else.
  */
 export async function unlinkAccount(
@@ -272,17 +278,17 @@ export async function unlinkAccount(
 		.deleteFrom("account_links")
 		.where("course_user_id", "=", input.courseUserId)
 		.where("user_id", "=", input.userId)
-		.returning(["platform_issuer", "archived_workspace"])
+		.returning(["platform_issuer", "archived_at"])
 		.executeTakeFirst();
 	if (!link) return null;
 	let unarchivedWorkspaceId: string | null = null;
-	if (link.archived_workspace) {
+	if (link.archived_at !== null) {
 		const now = new Date().toISOString();
 		const row = await trx
 			.updateTable("workspaces")
 			.set({ archived_at: null, updated_at: now })
 			.where("owner_user_id", "=", input.courseUserId)
-			.where("archived_at", "is not", null)
+			.where("archived_at", "=", new Date(link.archived_at))
 			.returning("id")
 			.executeTakeFirst();
 		unarchivedWorkspaceId = row?.id ?? null;
@@ -360,7 +366,7 @@ export async function grantAdministrator(
 > {
 	const target = await trx
 		.selectFrom("users")
-		.select(["oidc_issuer", "role", "provider_role"])
+		.select(["oidc_issuer", "role"])
 		.where("id", "=", targetId)
 		.forUpdate()
 		.executeTakeFirst();
@@ -369,7 +375,7 @@ export async function grantAdministrator(
 		return { ok: false, reason: "course_account" };
 	const from = target.role as Role;
 	if (from === "administrator") return { ok: true, changed: false, from, to: from };
-	const to = effectiveRole(target.provider_role as Role, "administrator");
+	const to: Role = "administrator";
 	await trx
 		.updateTable("users")
 		.set({
@@ -392,7 +398,15 @@ export async function revokeAdministrator(
 	input: { actorId: string; targetId: string },
 ): Promise<
 	| ({ ok: true } & RoleChange)
-	| { ok: false; reason: "not_found" | "self" | "not_granted" | "last_administrator" }
+	| {
+			ok: false;
+			reason:
+				| "not_found"
+				| "self"
+				| "provider_administrator"
+				| "not_administrator"
+				| "last_administrator";
+	  }
 > {
 	if (input.actorId === input.targetId) return { ok: false, reason: "self" };
 	const locked = await trx
@@ -409,8 +423,11 @@ export async function revokeAdministrator(
 		.execute();
 	const target = locked.find((u) => u.id === input.targetId);
 	if (!target) return { ok: false, reason: "not_found" };
-	if (target.granted_role !== "administrator")
-		return { ok: false, reason: "not_granted" };
+	if (target.granted_role !== "administrator") {
+		const reason =
+			target.role === "administrator" ? "provider_administrator" : "not_administrator";
+		return { ok: false, reason };
+	}
 	const others = locked.filter(
 		(u) =>
 			u.id !== input.targetId && u.role === "administrator" && u.disabled_at === null,

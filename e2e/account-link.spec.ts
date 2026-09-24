@@ -58,8 +58,18 @@ async function courseUserId(): Promise<string> {
 	return row.id;
 }
 
-// Both tests launch Lin; the first links and unlinks her.
+// Every test launches Lin; the first two link and unlink her.
 test.describe.configure({ mode: "serial" });
+
+// A failed or retried run must not leave Lin linked or her workspace archived.
+test.beforeEach(async () => {
+	for (const row of await ltiUsers(PERSON)) {
+		await query("delete from account_links where course_user_id = $1", [row.id]);
+		await query("update workspaces set archived_at = null where owner_user_id = $1", [
+			row.id,
+		]);
+	}
+});
 
 test("a course account links to an SSO account, relaunches into it, and unlinks", async ({
 	browser,
@@ -101,19 +111,64 @@ test("a course account links to an SSO account, relaunches into it, and unlinks"
 			"select archived_at from workspaces where owner_user_id = $1",
 			[courseId],
 		);
+		expect(courseWorkspaces).toHaveLength(1);
 		for (const row of courseWorkspaces) expect(row.archived_at).not.toBeNull();
 
 		// A relaunch from the course lands in erin's account.
 		await launchAs(page, { person: PERSON });
 		expect((await me(page)).id).toBe(erinId);
 
-		// erin sees the link and unlinks it.
+		// erin, signed in with SSO, sees the link and unlinks it. Unlinking from
+		// the relaunched session itself ends that session (review S2), which the
+		// API tests cover.
+		await apiLoginAs(context.request, TARGET);
+		await page.goto("/");
 		const region = await openLinkedAccounts(page);
 		await region.getByRole("button", { name: /^Unlink Lin Linker/ }).click();
 		await expect(region.getByRole("status")).toContainText("Unlinked.");
 		await expect(region).toContainText("No course sign-ins are linked");
 
 		// The next launch signs into the course account again.
+		await launchAs(page, { person: PERSON });
+		expect((await me(page)).id).toBe(courseId);
+	} finally {
+		await context.close();
+	}
+});
+
+test("a launch into a linked account can unlink it from the course side", async ({
+	browser,
+}) => {
+	test.setTimeout(120_000);
+	const erinId = await ssoLogin(browser, TARGET);
+	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
+	try {
+		const page = await context.newPage();
+		await launchAs(page, { person: PERSON });
+		const courseId = await courseUserId();
+		await linkAs(page, TARGET);
+		await page.getByRole("button", { name: "Link accounts" }).click();
+		await page.waitForURL(`${WEB_ORIGIN}/workspaces/**`, { timeout: 30_000 });
+
+		await launchAs(page, { person: PERSON });
+		expect((await me(page)).id).toBe(erinId);
+		const notice = page.getByRole("region", { name: "Course sign-in" });
+		await expect(notice.getByRole("status")).toHaveText(
+			/^Opened from .+ as Erin Student\. Not you\?$/,
+		);
+
+		await notice.getByRole("button", { name: "Unlink" }).click();
+		await page
+			.getByTestId("launch-unlink-confirm")
+			.getByTestId("dialog-confirm")
+			.click();
+		const unlinked = page.getByTestId("page-unlinked");
+		await expect(unlinked).toContainText(
+			"Open Portikus again from your course to continue with your course account.",
+		);
+		await expect(unlinked.getByRole("link")).toHaveCount(0);
+		expect((await page.request.get("/auth/me")).status()).toBe(401);
+
 		await launchAs(page, { person: PERSON });
 		expect((await me(page)).id).toBe(courseId);
 	} finally {

@@ -98,7 +98,10 @@ async function courseAccount(
 		})
 		.returning("id")
 		.executeTakeFirstOrThrow();
-	const session = await createSession(testDb.db, id, 43200);
+	const session = await createSession(testDb.db, id, 43200, {
+		method: "lti",
+		courseUserId: null,
+	});
 	if (options.ageSeconds) {
 		await ageSessions(id, options.ageSeconds);
 	}
@@ -184,7 +187,12 @@ describe.skipIf(skip)("GET /me/links", () => {
 	test("an SSO session has no window and lists nothing yet", async () => {
 		const alice = await ssoAccount("alice");
 		const res = await get("/me/links", alice.jar);
-		expect(res.json()).toEqual({ source: "sso", linkUntil: null, links: [] });
+		expect(res.json()).toEqual({
+			source: "sso",
+			linkUntil: null,
+			links: [],
+			launch: null,
+		});
 	});
 });
 
@@ -266,6 +274,8 @@ describe.skipIf(skip)("the whole link, then unlink", () => {
 
 		const unlink = await post(`/me/links/${course.id}/unlink`, course.jar);
 		expect(unlink.statusCode).toBe(200);
+		// A link-method session unlinks from the SSO side and stays signed in.
+		expect(unlink.json()).toEqual({ signedOut: false });
 		expect((await get("/me/links", course.jar)).json().links).toEqual([]);
 		const back = await testDb.db
 			.selectFrom("workspaces")
@@ -279,6 +289,7 @@ describe.skipIf(skip)("the whole link, then unlink", () => {
 			target: alice.id,
 			result: "ok",
 		});
+		expect((await audits("user.unlinked"))[0]?.metadata).toMatchObject({ side: "sso" });
 		expect((await audits("workspace.unarchived"))[0]?.metadata).toEqual({
 			reason: "account_unlinked",
 		});
@@ -430,6 +441,27 @@ describe.skipIf(skip)("the callback's refusals go to /link", () => {
 		);
 	});
 
+	test("expired: a link callback whose login cookie is gone goes back to /link", async () => {
+		await ssoAccount("alice");
+		const course = await courseAccount();
+		const path = await startAndPick(course.jar, "alice");
+		const bare = new CookieJar();
+		bare.capture(`portikus_session=${course.jar.get("portikus_session")}`);
+		const res = await callback(path, bare);
+		expect(res.statusCode).toBe(302);
+		expect(res.headers.location).toBe("/link?error=expired");
+		// A tampered cookie is treated the same way.
+		bare.capture("portikus_login=tampered");
+		expect((await callback(path, bare)).headers.location).toBe("/link?error=expired");
+
+		// With no intent behind the state it stays the ordinary sign-in answer.
+		const plain = await callback(
+			"/auth/callback?state=unknown&code=x",
+			new CookieJar(),
+		);
+		expect(plain.statusCode).toBe(400);
+	});
+
 	test("already_linked: one course identity per platform on an SSO account", async () => {
 		const alice = await ssoAccount("alice");
 		const first = await courseAccount({ subject: "course-sub-1" });
@@ -468,6 +500,25 @@ describe.skipIf(skip)("confirming", () => {
 		expect(res.statusCode).toBe(400);
 		const links = await testDb.db.selectFrom("account_links").selectAll().execute();
 		expect(links).toEqual([]);
+		expect((await get("/auth/me", course.jar)).json().id).toBe(course.id);
+	});
+
+	test("an SSO account disabled after the callback cannot be linked (review S3)", async () => {
+		const alice = await ssoAccount("alice");
+		const course = await courseAccount();
+		await callback(await startAndPick(course.jar, "alice"), course.jar);
+		await testDb.db
+			.updateTable("users")
+			.set({ disabled_at: new Date().toISOString() })
+			.where("id", "=", alice.id)
+			.execute();
+		const res = await post("/me/links/confirm", course.jar);
+		expect(res.statusCode).toBe(400);
+		expect(await testDb.db.selectFrom("account_links").selectAll().execute()).toEqual(
+			[],
+		);
+		const denied = (await audits("user.linked")).filter((r) => r.result === "denied");
+		expect(denied.at(-1)?.metadata).toMatchObject({ reason: "not_authorized" });
 		expect((await get("/auth/me", course.jar)).json().id).toBe(course.id);
 	});
 

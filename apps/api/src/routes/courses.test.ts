@@ -37,7 +37,10 @@ beforeEach(async () => {
 });
 
 async function cookieFor(userId: string): Promise<string> {
-	const session = await createSession(testDb.db, userId, 3600);
+	const session = await createSession(testDb.db, userId, 3600, {
+		method: "oidc",
+		courseUserId: null,
+	});
 	return `portikus_session=${session.token}`;
 }
 
@@ -234,7 +237,7 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
-	"removing is refused for students, other courses, yourself, non-members and without CSRF",
+	"removing is refused for students, other courses, yourself, instructors, non-members and without CSRF",
 	async () => {
 		const { ivy, sam, tom, lee, admin, cs101, cs240 } = await seed();
 		const before101 = await memberIds(cs101);
@@ -251,6 +254,8 @@ test.skipIf(skip)(
 			// Ivy is only a student in CS 240.
 			["a student elsewhere", await remove(cs240, lee, await cookieFor(ivy)), 404],
 			["yourself", await remove(cs101, ivy, await cookieFor(ivy)), 400],
+			// Tom co-teaches CS 101: instructors are the LMS's to manage (review S4).
+			["another instructor", await remove(cs101, tom, await cookieFor(ivy)), 400],
 			["a non-member", await remove(cs101, lee, await cookieFor(ivy)), 404],
 			[
 				"an unknown user",
@@ -267,6 +272,10 @@ test.skipIf(skip)(
 		for (const [name, res, status] of cases) {
 			expect(res.statusCode, name).toBe(status);
 		}
+		const instructor = cases.find(([name]) => name === "another instructor")?.[1];
+		expect(instructor?.json().message).toBe(
+			"Only students can be removed from a course. Instructors are managed in the LMS.",
+		);
 		const anonymous = await app.inject({
 			method: "POST",
 			url: `/courses/${cs101}/members/${sam}/remove`,

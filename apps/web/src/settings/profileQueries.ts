@@ -4,10 +4,10 @@ import {
 	PICTURE_TOO_LARGE_MESSAGE,
 	Profile,
 	StartLinkResponse,
+	UnlinkResponse,
 	type UpdateProfileRequest,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { z } from "zod";
 import { request } from "../api/request.js";
 
 export const profileKey = ["me", "profile"] as const;
@@ -86,9 +86,13 @@ export function useUnlink() {
 	const client = useQueryClient();
 	return useMutation({
 		mutationFn: (courseUserId: string) =>
-			request(z.unknown(), `/me/links/${encodeURIComponent(courseUserId)}/unlink`, {
+			request(UnlinkResponse, `/me/links/${encodeURIComponent(courseUserId)}/unlink`, {
 				method: "POST",
 			}),
-		onSuccess: () => client.invalidateQueries({ queryKey: linksKey }),
+		onSuccess: ({ signedOut }) => {
+			// This session is gone, so a full load drops every cached answer.
+			if (signedOut) location.assign("/unlinked");
+			else void client.invalidateQueries({ queryKey: linksKey });
+		},
 	});
 }

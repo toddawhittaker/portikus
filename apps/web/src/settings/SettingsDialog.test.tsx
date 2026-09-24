@@ -64,7 +64,7 @@ function stubSettings(
 				...myLinks,
 				links: myLinks.links.filter((link) => !url.includes(link.courseUserId)),
 			};
-			return json(204, null);
+			return json(200, { signedOut: unlinkSignsOut });
 		}
 		if (url === "/me/picture") {
 			return json(413, { code: "FILE_TOO_LARGE", message: "The picture is too big" });
@@ -98,14 +98,17 @@ let myLinks: {
 	source: string;
 	linkUntil: string | null;
 	links: { courseUserId: string; [key: string]: unknown }[];
-} = { source: "sso", linkUntil: null, links: [] };
+	launch: null;
+} = { source: "sso", linkUntil: null, links: [], launch: null };
 let startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
 let linkWrites: string[] = [];
+let unlinkSignsOut = false;
 
 afterEach(() => {
-	myLinks = { source: "sso", linkUntil: null, links: [] };
+	myLinks = { source: "sso", linkUntil: null, links: [], launch: null };
 	startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
 	linkWrites = [];
+	unlinkSignsOut = false;
 });
 
 function checkbox(name: RegExp) {
@@ -739,7 +742,12 @@ function minutesFromNow(minutes: number): string {
 test("a fresh course session offers Link to my SSO account and goes to the SSO sign-in", async () => {
 	const assign = vi.fn();
 	vi.stubGlobal("location", { ...window.location, assign });
-	myLinks = { source: "course", linkUntil: minutesFromNow(10), links: [] };
+	myLinks = {
+		source: "course",
+		linkUntil: minutesFromNow(10),
+		links: [],
+		launch: null,
+	};
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	const region = await openLinked();
 
@@ -757,7 +765,12 @@ test("a fresh course session offers Link to my SSO account and goes to the SSO s
 });
 
 test("a refused start is announced as an alert", async () => {
-	myLinks = { source: "course", linkUntil: minutesFromNow(10), links: [] };
+	myLinks = {
+		source: "course",
+		linkUntil: minutesFromNow(10),
+		links: [],
+		launch: null,
+	};
 	startAnswer = json(403, {
 		code: "FORBIDDEN",
 		message: "Open Portikus again from your course to link it.",
@@ -775,7 +788,12 @@ test("a refused start is announced as an alert", async () => {
 });
 
 test("a course session past the 15-minute window is told to open Portikus again", async () => {
-	myLinks = { source: "course", linkUntil: minutesFromNow(-1), links: [] };
+	myLinks = {
+		source: "course",
+		linkUntil: minutesFromNow(-1),
+		links: [],
+		launch: null,
+	};
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	const region = await openLinked();
 
@@ -808,6 +826,7 @@ test("an SSO account lists its links and unlinks one", async () => {
 				linkedAt: "2026-09-24T12:00:00.000Z",
 			},
 		],
+		launch: null,
 	};
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	const region = await openLinked();
@@ -829,6 +848,35 @@ test("an SSO account lists its links and unlinks one", async () => {
 	);
 });
 
+test("an unlink that ends this session goes to the unlinked page", async () => {
+	const assign = vi.fn();
+	vi.stubGlobal("location", { ...window.location, assign });
+	unlinkSignsOut = true;
+	myLinks = {
+		source: "sso",
+		linkUntil: null,
+		links: [
+			{
+				courseUserId: "33333333-3333-4333-8333-333333333333",
+				platformName: "mock-lms",
+				displayName: "Sam Student",
+				linkedAt: "2026-09-24T12:00:00.000Z",
+			},
+		],
+		launch: null,
+	};
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", {
+			name: "Unlink Sam Student from mock-lms",
+		}),
+	);
+
+	await waitFor(() => expect(assign).toHaveBeenCalledWith("/unlinked"));
+});
+
 test("after an unlink, focus moves to the next Unlink button", async () => {
 	const first = "33333333-3333-4333-8333-333333333333";
 	const second = "44444444-4444-4444-8444-444444444444";
@@ -842,6 +890,7 @@ test("after an unlink, focus moves to the next Unlink button", async () => {
 		source: "sso",
 		linkUntil: null,
 		links: [row(first, "Sam Student"), row(second, "Sam Other")],
+		launch: null,
 	};
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	const region = await openLinked();

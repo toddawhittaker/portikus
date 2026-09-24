@@ -7,6 +7,7 @@ import {
 	useTerminalThemeAttribute,
 } from "./editor/settingsQueries.js";
 import { LayoutStoreContext, useLayoutStore } from "./layout/store.js";
+import { LaunchNotice } from "./link/LaunchNotice.js";
 import { usePageTitle } from "./pageTitle.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
@@ -94,6 +95,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 							workspace={workspace}
 							project={project}
 						/>
+						<LaunchNotice displayName={user.displayName} />
 						<Group
 							className="pk-shell"
 							orientation="horizontal"

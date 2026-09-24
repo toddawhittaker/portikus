@@ -27,6 +27,8 @@ export const AdminAccountMarkers = z.object({
 	archived: z.boolean(),
 	duplicateEmail: z.boolean(),
 	stale: z.boolean(),
+	/** A course account retired by a link to an SSO account. */
+	linked: z.boolean(),
 });
 export type AdminAccountMarkers = z.infer<typeof AdminAccountMarkers>;
 
