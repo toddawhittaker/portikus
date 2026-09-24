@@ -2127,7 +2127,7 @@ launch notice is announced through a status region mounted in advance;
 and removing the last other course member focuses the page heading.
 Rulings S1 to S5, N1, N2 and N4 in `docs/EPIC-13-1.md` record them.
 
-**Pilot rehearsal:** pending.
+**Pilot rehearsal:** 2026-09-24, epic head ad10dac deployed to the pilot as 0.1.404+gad10dac (pg_dump and `pre-epic13-1b` snapshots taken first; migration 0017 applied). Smoke test 117 passed, security test 225 passed, plus the expected mock LMS warning. By headless browser through the mock LMS: a course launch, then "Link to my SSO account", reaches the Dex password page with `prompt=login`; an instructor removes a student in a course of their own, has no Remove button on their own row, and the student reappears after launching again. Not yet run on the pilot, for lack of a Dex test account: confirming a link with a real Dex sign-in, the relaunch into the SSO account with its "Not you? Unlink" notice, unlinking, and promote and demote in the Users view. CI's Playwright suite covers each of these against the mock identity provider.
 
 ### Gaps
 
