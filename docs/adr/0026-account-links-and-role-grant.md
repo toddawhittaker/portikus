@@ -1,8 +1,8 @@
 # 0026. Linking a course account to an SSO account, and a stored role grant
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-09-24
-- **References**: SPEC.md sections 5.2, 12.5, 20.1, 24; docs/EPIC-13-1.md;
+- **References**: SPEC.md sections 5.2, 12.5, 20.1, 24, 25.8, 29; docs/EPIC-13-1.md;
   ADR 0025
 
 ## Context
@@ -49,6 +49,16 @@ and its undo, demote. A grant is refused on a course account. A launch
 never starts a session for an administrator, because an LMS
 administrator can act as any user in the LMS.
 
+**The Users view.** The admin Workspaces tab is relabelled Users (its
+address, `?tab=workspaces`, is unchanged) and gains a Role column, a role
+filter, and a Source column showing "SSO" or "Course: <platform host>".
+Rows can be ticked for bulk Disable, Enable, Archive and Unarchive, each
+calling the existing single-row route once per row in the browser; there
+is no new bulk route. `StateBadge` gained an `inCell` option that drops
+`role="status"` inside a table cell, so a list of many rows is not many
+live regions (SPEC.md section 25.8); the Users view and the Course page
+both use it.
+
 ## Consequences
 
 - Promotion works whatever the provider's groups look like, and a later
@@ -58,6 +68,10 @@ administrator can act as any user in the LMS.
   session check reads `users.role` every time.
 - A fresh, stolen course session could link the victim's course identity
   to the thief's SSO account within 15 minutes of a launch. Accepted.
+- Entra sends group object IDs and, past about 200 groups, an overage
+  claim instead of the list, so `mapRole` cannot place students or
+  instructors under Entra; a stored grant still reaches administrator.
+  Left for a later epic (docs/EPIC-13-1.md ruling 25).
 - Rejected: matching by email (proves nothing); refusing to link when the
   course workspace holds work (no honest cheap test, and the student
   could not fix it); a general identities table (moves every sign-in

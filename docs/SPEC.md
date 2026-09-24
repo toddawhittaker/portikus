@@ -300,6 +300,17 @@ P0 roles:
 - `instructor` (added by Epic 13: a student's rights plus a read-only Course page; never any administrator route);
 - `administrator`.
 
+Added by Epic 13.1: a course account (created by an LTI launch) can be
+linked to a single-sign-on (SSO) account, so one person launching from a
+course and signing in through SSO reaches the same account and workspace.
+An account's effective role is the higher of the role its own sign-in
+gave last time and an optional role, `instructor` or `administrator`,
+stored by Portikus (a "grant"); an administrator grants and revokes it
+from the Users view. A grant is refused on a course account, so LTI can
+never make anyone an administrator, and a launch never starts a session
+for an account whose effective role is administrator. See
+`docs/EPIC-13-1.md` and ADR 0026.
+
 P2 roles may include:
 
 - `developer`;
@@ -2966,6 +2977,24 @@ Acceptance:
 - a student and an instructor launched from a registered LMS land in their own workspace with no second password;
 - every invalid launch is refused with its own reason code;
 - an instructor is refused on every administrator route and cannot reach another user's workspace.
+
+### Epic 13.1 — Link a course account to an SSO account, and promote administrators
+
+See `docs/EPIC-13-1.md` for the working brief and rulings, and `docs/adr/0026-account-links-and-role-grant.md` for the design; landed on `epic/13-1-account-linking`.
+
+Includes:
+
+- linking one LTI course account to one OIDC (SSO) account, proved by a full sign-in on each side, never by matching email;
+- the linked course account's workspace archived, not deleted, and restored on unlink;
+- a stored role grant (`instructor` or `administrator`), separate from the role a provider's group claim gives, so an administrator can promote and demote without a later sign-in overwriting it;
+- an admin Users view: search, a role filter and column, a sign-in source column, promote and demote with confirmation, and bulk Disable, Enable, Archive and Unarchive;
+- an instructor removing one member from their Course page.
+
+Acceptance:
+
+- a person who launches from a course and also signs in through SSO can link the two and always land in the SSO account and workspace afterward;
+- a launch never starts a session for an account whose effective role is administrator;
+- an administrator can promote an SSO account and demote one they promoted, and can never demote the last administrator.
 
 ### Estimated total
 
