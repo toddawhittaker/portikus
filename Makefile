@@ -238,17 +238,19 @@ configure-vm: $(USERS_CHECK) wait-vm ## Run Ansible to converge the platform VM 
 # The registered LMS platforms. Kept on this machine; configure-vm copies it to
 # the VM, and no file means LTI is off.
 PORTIKUS_LTI_PLATFORMS_FILE ?= $(HOME)/.config/portikus/lti-platforms.json
-# The mock LMS runs on this host, never on the VM. The VM's API reaches it at the
-# host's first address on the VM network, 10.100.0.1 for the pilot.
+# The mock LMS runs on this host, never on the VM. Its URL must be reachable by
+# the user's browser (login redirect) and by the API on the VM (keyset fetch), so
+# it defaults to the host's LAN address, the same one the public site uses.
 MOCK_LMS_PORT ?= 8765
-MOCK_LMS_HOST ?= $(or $(shell python3 -c 'import ipaddress, sys; print(next(ipaddress.ip_network(sys.argv[1]).hosts()))' '$(MANAGEMENT_CIDR)' 2>/dev/null),10.100.0.1)
+MOCK_LMS_HOST ?= $(HOST_IP)
 MOCK_LMS_URL = http://$(MOCK_LMS_HOST):$(MOCK_LMS_PORT)
-# Loopback and the VM network only, so nobody on the LAN can launch as anyone.
-MOCK_LMS_BIND ?= 127.0.0.1 $(MOCK_LMS_HOST)
+# The host's first address on the VM network, 10.100.0.1 for the pilot.
+MOCK_LMS_BRIDGE_IP ?= $(or $(shell python3 -c 'import ipaddress, sys; print(next(ipaddress.ip_network(sys.argv[1]).hosts()))' '$(MANAGEMENT_CIDR)' 2>/dev/null),10.100.0.1)
+MOCK_LMS_BIND ?= 127.0.0.1 $(MOCK_LMS_BRIDGE_IP) $(MOCK_LMS_HOST)
 PORTIKUS_PUBLIC_URL = https://$(PORTIKUS_PUBLIC_HOST)$(if $(filter 443,$(PORTIKUS_PUBLIC_PORT)),,:$(PORTIKUS_PUBLIC_PORT))
 LTI_MOCK_CLI = python3 infra/host/lti-mock-registration.py --file "$(abspath $(PORTIKUS_LTI_PLATFORMS_FILE))"
 
-mock-lms: ## Run the mock LMS on this host in the foreground (MOCK_LMS_BIND, MOCK_LMS_PORT); it is trusted only while lti-mock-register is in effect
+mock-lms: ## Run the mock LMS on this host in the foreground at the LAN address (MOCK_LMS_HOST, MOCK_LMS_BIND, MOCK_LMS_PORT); it is trusted only while lti-mock-register is in effect
 	pnpm --dir packages/mock-lms start -- --tool-url $(PORTIKUS_PUBLIC_URL) --port $(MOCK_LMS_PORT) \
 		$(foreach bind,$(MOCK_LMS_BIND),--bind $(bind)) --issuer $(MOCK_LMS_URL)
 
