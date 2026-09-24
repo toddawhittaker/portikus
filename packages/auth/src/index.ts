@@ -11,6 +11,7 @@ export {
 	LINK_WINDOW_SECONDS,
 	type LinkIntent,
 	type LinkRefusal,
+	type LinkWindow,
 	linkAccounts,
 	listLinks,
 	pendingLinkIntent,
@@ -19,6 +20,7 @@ export {
 	resolveIdentity,
 	revokeAdministrator,
 	saveLinkIntent,
+	sessionLinkState,
 	unlinkAccount,
 } from "./links.js";
 export { isOnOrigin, type LtiLoginParams, startLtiLogin } from "./lti/login.js";
@@ -61,6 +63,7 @@ export {
 	deleteSession,
 	hashSessionToken,
 	loadSession,
+	loadSessionById,
 	type SessionMethod,
 	type SessionOrigin,
 	sessionOrigin,

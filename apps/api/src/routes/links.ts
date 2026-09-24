@@ -1,7 +1,6 @@
 import {
 	consumeLinkIntent,
 	courseLinkWindow,
-	deleteSession,
 	hashSessionToken,
 	linkAccounts,
 	listLinks,
@@ -13,7 +12,7 @@ import {
 	saveLinkIntent,
 	sessionCookieName,
 	sessionCookieOptions,
-	sessionOrigin,
+	sessionLinkState,
 	unlinkAccount,
 } from "@portikus/auth";
 import type {
@@ -26,7 +25,6 @@ import type {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { toAuthOptions } from "../auth-options.js";
-import { revokeSessionPreviewSessions } from "../preview/store.js";
 import type { ServerDeps } from "../server.js";
 import { audit, requestMetadata, startSession } from "./start-session.js";
 
@@ -68,11 +66,11 @@ export function registerLinkRoutes(
 
 	async function myLinks(request: FastifyRequest): Promise<MyLinks> {
 		const user = requireUser(request);
-		const id = sessionId(request);
+		const state = await sessionLinkState(db, sessionId(request));
 		// Only an unlinked course account has a window; a linked one cannot sign in.
-		const window = await courseLinkWindow(db, id);
+		const window = state?.window ?? null;
+		const origin = state?.origin;
 		const links = window ? [] : await listLinks(db, user.id);
-		const origin = await sessionOrigin(db, id);
 		const launched =
 			origin?.method === "lti"
 				? links.find((link) => link.courseUserId === origin.courseUserId)
@@ -216,8 +214,9 @@ export function registerLinkRoutes(
 	});
 
 	// Step 7: the SSO account removes one of its links (ruling 15). A session
-	// launched through a linked course identity may remove that link too, and
-	// then ends, since it now belongs to a course account again (review S2).
+	// launched through a linked course identity may remove only that link
+	// (review N2), and then ends with every other session that came through
+	// the identity (review N1).
 	app.post("/me/links/:courseUserId/unlink", async (request, reply) => {
 		const user = requireUser(request);
 		const params = CourseUserParam.safeParse(request.params);
@@ -225,8 +224,11 @@ export function registerLinkRoutes(
 			return fail(reply, 400, "VALIDATION_FAILED", params.error.message);
 		}
 		const courseUserId = params.data.courseUserId;
-		const origin = await sessionOrigin(db, sessionId(request));
-		const courseSide = origin?.method === "lti" && origin.courseUserId === courseUserId;
+		const origin = (await sessionLinkState(db, sessionId(request)))?.origin;
+		const courseSide = origin?.method === "lti";
+		if (courseSide && origin.courseUserId !== courseUserId) {
+			return fail(reply, 404, "NOT_FOUND", "Link not found");
+		}
 		const done = await db.transaction().execute(async (trx) => {
 			const unlinked = await unlinkAccount(trx, { userId: user.id, courseUserId });
 			if (!unlinked) return false;
@@ -250,10 +252,8 @@ export function registerLinkRoutes(
 			return true;
 		});
 		if (!done) return fail(reply, 404, "NOT_FOUND", "Link not found");
+		// The unlink already ended this session with the others from the identity.
 		if (courseSide) {
-			const token = request.sessionToken ?? "";
-			await revokeSessionPreviewSessions(db, token);
-			await deleteSession(db, token);
 			reply.clearCookie(sessionCookieName(auth), sessionCookieOptions(auth));
 		}
 		const body: UnlinkResponse = { signedOut: courseSide };

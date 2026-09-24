@@ -667,6 +667,90 @@ describe.skipIf(skip)("a launch from a linked course identity", () => {
 		});
 		expect(back.json().id).toBe(courseId);
 	});
+
+	test("an unlink from the SSO side ends every session that came through the identity (review N1)", async () => {
+		const { courseId, ssoId, cookie } = await linkedSession();
+		const second = await launch({ sub: "student-1" });
+		const secondCookie = `portikus_session=${sessionCookie(second.res)}`;
+		const sso = await createSession(testDb.db, ssoId, 600, {
+			method: "oidc",
+			courseUserId: null,
+		});
+		const ssoCookie = `portikus_session=${sso.token}`;
+		const workspace = await testDb.db
+			.insertInto("workspaces")
+			.values({ owner_user_id: ssoId, label: "ws-n1", state: "running" })
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		const launched = await testDb.db
+			.selectFrom("sessions")
+			.select("id")
+			.where("course_user_id", "=", courseId)
+			.execute();
+		expect(launched).toHaveLength(2);
+		for (const [index, row] of launched.entries()) {
+			await testDb.db
+				.insertInto("preview_sessions")
+				.values({
+					token_hash: `preview-${index}`,
+					user_id: ssoId,
+					session_id: row.id,
+					workspace_id: workspace.id,
+					port: 3000,
+					preview_host: `p${index}.preview.test.invalid`,
+				})
+				.execute();
+		}
+
+		const res = await app.inject({
+			method: "POST",
+			url: `/me/links/${courseId}/unlink`,
+			headers: { cookie: ssoCookie, origin },
+		});
+		expect(res.json()).toEqual({ signedOut: false });
+		for (const one of [cookie, secondCookie]) {
+			const me = await app.inject({ url: "/auth/me", headers: { cookie: one } });
+			expect(me.statusCode).toBe(401);
+		}
+		const live = await testDb.db
+			.selectFrom("preview_sessions")
+			.select("id")
+			.where("revoked_at", "is", null)
+			.execute();
+		expect(live).toEqual([]);
+		const still = await app.inject({ url: "/auth/me", headers: { cookie: ssoCookie } });
+		expect(still.json().id).toBe(ssoId);
+	});
+
+	test("a launch session cannot unlink another course identity (review N2)", async () => {
+		const { ssoId, cookie } = await linkedSession();
+		const other = await insertTestUser(testDb.db, {
+			oidc_issuer: "lti:https://other.test.invalid",
+		});
+		await testDb.db
+			.insertInto("account_links")
+			.values({
+				course_user_id: other,
+				user_id: ssoId,
+				platform_issuer: "https://other.test.invalid",
+				archived_at: null,
+			})
+			.execute();
+		const res = await app.inject({
+			method: "POST",
+			url: `/me/links/${other}/unlink`,
+			headers: { cookie, origin },
+		});
+		expect(res.statusCode).toBe(404);
+		const links = await testDb.db
+			.selectFrom("account_links")
+			.select("course_user_id")
+			.where("course_user_id", "=", other)
+			.execute();
+		expect(links).toHaveLength(1);
+		const me = await app.inject({ url: "/auth/me", headers: { cookie } });
+		expect(me.json().id).toBe(ssoId);
+	});
 });
 
 describe.skipIf(skip)("refused launches", () => {

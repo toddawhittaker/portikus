@@ -42,11 +42,11 @@ R1 to R9 and P1 to P6 were made by the orchestrator. Rulings from 10 on were mad
 12. **The data model keeps identities in one place.** `users (oidc_issuer, oidc_subject)` stays the only place an identity lives, still unique. A link row maps a course account's `users` row to an SSO account's row; it copies no issuer or subject. An identity therefore resolves to exactly one row, and that row is either a live account or retired (it has a link row).
 13. **Retired means refused at the session check.** `loadSession` returns null for a user who has a link row. This covers the race where a launch passes the link check just before a link commits. It is one indexed `not exists` on the hot path.
 14. **R5: archive, not refuse.** Linking archives the course account's workspace (sets `archived_at` and `desired_state = 'stopped'`, as `POST /admin/workspaces/:id/archive` does), unless it is already archived. Why not refuse when the workspace holds work: "has work" has no cheap, honest test (it needs the workspace running and a judgement about files), and a refused student can do nothing about it but push their work themselves. Archiving keeps every byte, an administrator can unarchive it, and unlink undoes it (ruling 15).
-15. **R6: after unlink, the course account comes back as it was.** Unlink deletes the link row and, when the link archived the course workspace (`account_links.archived_workspace`), unarchives it (left stopped). The next launch signs into the course account exactly as before the link. Memberships moved to the SSO account at link time stay there (ruling 16); the next launch adds the course account's membership again.
+15. **R6: after unlink, the course account comes back as it was.** Unlink deletes the link row and, when the link archived the course workspace, unarchives it (left stopped). The link stores the exact archive time it wrote in `account_links.archived_at` (migration 0017 replaced the earlier `archived_workspace` boolean), and unlink clears the archive only while the workspace still carries that time, so a later archive by an administrator stays (review S5). The next launch signs into the course account exactly as before the link. Memberships moved to the SSO account at link time stay there (ruling 16); the next launch adds the course account's membership again.
 16. **Course memberships move at link time.** The course account's `lti_memberships` rows move to the SSO account (on conflict keep the later `last_launch_at` and its role), so the Course page lists one person, not two, and the instructor sees their courses before the next launch.
 17. **Only the confirmation signs in.** The callback in link mode never starts a session. Confirm ends every session and preview session of the course account, including the current one, and starts a session for the SSO account.
 18. **Refusals are shown on the link page.** Every link-mode callback outcome redirects to `/link`, with `?error=<code>` on failure: `no_account`, `not_authorized` (no role from the provider's groups, or disabled), `session_changed`, `expired`, `already_linked`, `failed`.
-19. **Audit rows.** `user.linked` and `user.unlinked`, actor `user:<SSO account id>`, target the SSO account id, metadata `{platform: <registration name>, courseUserId, ip, userAgent}`. A refused link writes `user.linked` with result `failed` or `denied` and `{reason}` instead. The archive writes `workspace.archived` with `{reason: "account_linked"}`; unlink's unarchive writes `workspace.unarchived` with `{reason: "account_unlinked"}`. The confirmation's new session writes `auth.login` with `{method: "link"}`. No names, emails, subjects or tokens.
+19. **Audit rows.** `user.linked` and `user.unlinked`, actor `user:<SSO account id>`, target the SSO account id, with `side: "sso"` on an unlink. An unlink started from a launch session (step 7) has actor `user:<courseUserId>` and `side: "course"`. Each row carries metadata `{platform: <registration name>, courseUserId, ip, userAgent}`. A refused link writes `user.linked` with result `failed` or `denied` and `{reason}` instead. The archive writes `workspace.archived` with `{reason: "account_linked"}`; unlink's unarchive writes `workspace.unarchived` with `{reason: "account_unlinked"}`. The confirmation's new session writes `auth.login` with `{method: "link"}`. No names, emails, subjects or tokens.
 
 ### Users, roles and promotion
 
@@ -81,9 +81,15 @@ P6. Unit tests, Playwright for search, promote, demote and the last-admin guard,
 
 - `users.provider_role text not null`, backfilled from `role`, with the same check as `role`.
 - `users.granted_role text null`, with `check (granted_role in ('instructor','administrator'))` and `check (granted_role is null or oidc_issuer not like 'lti:%')`.
-- `account_links`: `course_user_id uuid primary key references users on delete cascade`, `user_id uuid not null references users on delete cascade`, `platform_issuer text not null` (plain, no prefix), `archived_workspace boolean not null`, `created_at timestamptz not null default now()`; unique (`user_id`, `platform_issuer`); check `course_user_id <> user_id`; index on `user_id`.
+- `account_links`: `course_user_id uuid primary key references users on delete cascade`, `user_id uuid not null references users on delete cascade`, `platform_issuer text not null` (plain, no prefix), `archived_at timestamptz null` (the archive time the link wrote; migration 0017 replaced the `archived_workspace boolean` of 0016), `created_at timestamptz not null default now()`; unique (`user_id`, `platform_issuer`); check `course_user_id <> user_id`; index on `user_id`.
 - `account_link_intents`: `state_hash text primary key` (SHA-256 of the OIDC `state`), `session_id text not null unique references sessions on delete cascade`, `course_user_id uuid not null references users on delete cascade`, `user_id uuid references users on delete cascade` (the SSO account, set by the callback), `expires_at timestamptz not null` (10 minutes); index on `expires_at`. Expired rows are cleared when a new row is written.
 - The `down` drops both tables and both columns.
+
+Migration `0017_session_method` adds:
+
+- `sessions.method text not null default 'oidc'`, one of `oidc`, `lti` or `link`: how the session started.
+- `sessions.course_user_id uuid null references users on delete cascade`: the linked course identity behind a launch session, allowed only when `method = 'lti'`.
+- Its `up` ends every session of a user on either side of a link, since those cannot be classified, marks the remaining sessions of `lti:` accounts as `lti`, and fills `account_links.archived_at` from the workspace only when its archive time is within 5 seconds of the link's `created_at`. A later archive is not the link's to undo, so it stays null there.
 
 That a link's `course_user_id` is an `lti:` row and its `user_id` is not, is checked in code and tested; SQL cannot check it across rows.
 
@@ -95,7 +101,7 @@ That a link's `course_user_id` is an `lti:` row and its `user_id` is not, is che
 4. **`/link`** (web) calls **`GET /me/links/pending`**: `{course: {displayName, platformName}, sso: {displayName, signInName, email}}`, or 404. It shows both and a **Link accounts** button, and Cancel, which returns to the workspace and leaves the row to expire.
 5. **`POST /me/links/confirm`** (self, CSRF-checked). In one transaction: delete this session's intent row with a `user_id` (single use; 404 if none), re-check ruling 10 and `already_linked`, lock both users rows, insert the link, archive the course workspace (ruling 14), move memberships (ruling 16), end the course account's sessions and preview sessions, write the audit rows. After commit, start the SSO session. Answers 200; the web app goes to `/`.
 6. **Later launches** (`POST /lti/launch`, after validation): if the (issuer, `sub`) row has a link, then the SSO account is refused if disabled, ruling 21 applies if it is an administrator, and otherwise the SSO account gets a session and a membership refresh, with `auth.login` `{method: "lti", platform, role, linked: true}`. Its name, email and roles are not touched.
-7. **`POST /me/links/:courseUserId/unlink`** (self, CSRF-checked): 404 unless the link belongs to the caller. Deletes it, unarchives per ruling 15, audits.
+7. **`POST /me/links/:courseUserId/unlink`** (self, CSRF-checked): 404 unless the link belongs to the caller. It can start from either side. From an SSO session it removes any of the caller's links. From a launch session through a linked identity it removes only that identity's link, and any other course identity is 404 (ruling N2). In one transaction it deletes the link, unarchives per ruling 15, ends every session that came through the identity with their preview sessions (ruling N1), and audits (ruling 19). It answers `{signedOut}`: true when the calling session was one of those ended, in which case the cookie is cleared and the web app goes to `/unlinked`.
 
 ## Security invariants to test
 
@@ -152,6 +158,24 @@ After every task has landed: code-reviewer over the epic head, security-reviewer
 - A smoke-test or security-test block for linking (ruling 22).
 - An instructor grant in the UI or API. The `granted_role` column already accepts `instructor`, ready for the Entra and Google epic.
 - A dedicated Playwright test for the last-administrator guard (ruling P11).
+
+## Rulings made after the brief: review fixes
+
+S1. **A launch session of an administrator is refused on every request.** `loadSession` refuses a session with `method = 'lti'` whose account's effective role is administrator, however the role arrived, so ruling 21 holds after a promotion too. The preview gateway reads the main session by id through the same rule (`loadSessionById`), and so also refuses a retired course account (ruling 13).
+
+S2. **The launch notice and `/unlinked`.** After a launch into a linked account, the workspace shows a dismissible notice naming the course platform and the account, with Unlink behind a confirmation. A screen reader hears it through a status region that is mounted before the text arrives. An unlink that ends the session goes to `/unlinked`, a page with no sign-in button that says to open Portikus again from the course.
+
+S3. **Confirm re-checks the SSO account.** A disabled SSO account is refused at confirm (`not_authorized`), even if it was enabled at the callback.
+
+S4. **Instructors remove students only.** The member-removal route of P10 refuses to remove an instructor.
+
+S5. **Unlink undoes only the link's own archive** (ruling 15 and migration 0017).
+
+N1. **Every unlink ends every session through the identity.** Whichever side starts it, unlink deletes every session whose `user_id` is the SSO account and whose `course_user_id` is the unlinked identity, and revokes their preview sessions, inside the unlink transaction. Otherwise a second launch session on another device would keep acting as the SSO account through an identity that no longer maps to it.
+
+N2. **A launch session unlinks only its own identity.** A session with `method = 'lti'` may unlink only its `course_user_id`; any other course identity answers 404, the same as a link that does not exist.
+
+N4. **An administrator SSO account cannot be linked.** Confirm refuses it with `not_authorized` (the existing code, so the link page needs no new message), because every later launch would be refused by ruling 21 anyway. A student whose SSO account is disabled or promoted after linking is locked out of launches until an administrator-side unlink exists (BACKLOG.md, "Administrator-side account linking").
 
 ## Rulings made after the brief: additions
 

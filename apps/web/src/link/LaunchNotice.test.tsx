@@ -38,10 +38,24 @@ test("a launch into a linked account names the platform and the account", async 
 	renderWithQuery(<LaunchNotice displayName="Erin Student" />);
 
 	const notice = await screen.findByRole("region", { name: "Course sign-in" });
-	expect(within(notice).getByRole("status").textContent).toBe(
+	expect(notice.textContent).toContain(
 		"Opened from mock-lms as Erin Student. Not you?",
 	);
-	expect(within(notice).getByRole("button", { name: "Unlink" })).toBeTruthy();
+	expect(
+		within(notice).getByRole("button", { name: "Unlink this course sign-in" }),
+	).toBeTruthy();
+});
+
+test("the status region is there before the launch is known, then filled (review A1)", async () => {
+	stubLinks(LAUNCH);
+	renderWithQuery(<LaunchNotice displayName="Erin Student" />);
+
+	const status = screen.getByRole("status");
+	expect(status.textContent).toBe("");
+	await waitFor(() =>
+		expect(status.textContent).toBe("Opened from mock-lms as Erin Student. Not you?"),
+	);
+	expect(screen.getByRole("status")).toBe(status);
 });
 
 test("no notice without a launch", async () => {
@@ -79,7 +93,9 @@ test("Unlink asks first, then unlinks this course sign-in and signs out", async 
 	const { posts, assign } = stubLinks(LAUNCH);
 	renderWithQuery(<LaunchNotice displayName="Erin Student" />);
 
-	fireEvent.click(await screen.findByRole("button", { name: "Unlink" }));
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Unlink this course sign-in" }),
+	);
 	const dialog = await screen.findByTestId("launch-unlink-confirm");
 	expect(posts).toEqual([]);
 

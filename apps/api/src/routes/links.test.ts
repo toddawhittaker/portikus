@@ -522,6 +522,24 @@ describe.skipIf(skip)("confirming", () => {
 		expect((await get("/auth/me", course.jar)).json().id).toBe(course.id);
 	});
 
+	test("an administrator SSO account cannot be linked (review N4)", async () => {
+		const alice = await ssoAccount("alice");
+		const course = await courseAccount();
+		await callback(await startAndPick(course.jar, "alice"), course.jar);
+		await testDb.db
+			.updateTable("users")
+			.set({ role: "administrator", granted_role: "administrator" })
+			.where("id", "=", alice.id)
+			.execute();
+		const res = await post("/me/links/confirm", course.jar);
+		expect(res.statusCode).toBe(400);
+		expect(await testDb.db.selectFrom("account_links").selectAll().execute()).toEqual(
+			[],
+		);
+		const denied = (await audits("user.linked")).filter((r) => r.result === "denied");
+		expect(denied.at(-1)?.metadata).toMatchObject({ reason: "not_authorized" });
+	});
+
 	test("confirm without an Origin is refused by the CSRF check", async () => {
 		const course = await courseAccount();
 		const res = await app.inject({

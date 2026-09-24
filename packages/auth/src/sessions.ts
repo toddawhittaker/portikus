@@ -125,7 +125,17 @@ export async function loadSession(
 	db: Kysely<Database>,
 	token: string,
 ): Promise<AuthUser | null> {
-	const id = hashSessionToken(token);
+	return loadSessionById(db, hashSessionToken(token));
+}
+
+/**
+ * `loadSession` by the session's id, the token's hash. The preview gateway
+ * holds only the id, and must apply the same rules (review N5).
+ */
+export async function loadSessionById(
+	db: Kysely<Database>,
+	id: string,
+): Promise<AuthUser | null> {
 	const row = await db
 		.selectFrom("sessions")
 		.innerJoin("users", "users.id", "sessions.user_id")

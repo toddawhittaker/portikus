@@ -979,7 +979,7 @@ function LinkedAccounts() {
 									const index = rows.indexOf(row);
 									const next = rows[index + 1] ?? rows[index - 1];
 									unlink.mutate(row.courseUserId, {
-										// The list has refetched by now, so the row is gone.
+										// Runs after useUnlink's refetch, so the row is gone; the frame lets React render.
 										onSuccess: () =>
 											requestAnimationFrame(() => {
 												const button = next

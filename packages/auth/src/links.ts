@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
+import type { SessionMethod, SessionOrigin } from "./sessions.js";
 import type { Role } from "./types.js";
 
 /**
@@ -32,15 +33,22 @@ export function platformIssuerOf(issuer: string): string {
 	return issuer.slice(LTI_PREFIX.length);
 }
 
+export interface LinkWindow {
+	courseUserId: string;
+	linkUntil: Date;
+	open: boolean;
+}
+
 /**
- * The link window of a session: set only when the session belongs to an
- * unlinked course account. `open` is false once the window has passed.
+ * How a session started and its link window, from one read of the session
+ * row. The window is set only when the session belongs to an unlinked
+ * course account; `open` is false once it has passed.
  */
-export async function courseLinkWindow(
+export async function sessionLinkState(
 	db: Kysely<Database>,
 	sessionId: string,
 	now: Date = new Date(),
-): Promise<{ courseUserId: string; linkUntil: Date; open: boolean } | null> {
+): Promise<{ origin: SessionOrigin; window: LinkWindow | null } | null> {
 	const row = await db
 		.selectFrom("sessions")
 		.innerJoin("users", "users.id", "sessions.user_id")
@@ -49,15 +57,33 @@ export async function courseLinkWindow(
 			"users.id",
 			"users.oidc_issuer",
 			"sessions.created_at",
+			"sessions.method",
+			"sessions.course_user_id",
 			"account_links.course_user_id as linked",
 		])
 		.where("sessions.id", "=", sessionId)
 		.executeTakeFirst();
-	if (!row || !isCourseIssuer(row.oidc_issuer) || row.linked !== null) return null;
+	if (!row) return null;
+	const origin: SessionOrigin = {
+		method: row.method as SessionMethod,
+		courseUserId: row.course_user_id,
+	};
+	if (!isCourseIssuer(row.oidc_issuer) || row.linked !== null) {
+		return { origin, window: null };
+	}
 	const linkUntil = new Date(
 		new Date(row.created_at).getTime() + LINK_WINDOW_SECONDS * 1000,
 	);
-	return { courseUserId: row.id, linkUntil, open: now < linkUntil };
+	return { origin, window: { courseUserId: row.id, linkUntil, open: now < linkUntil } };
+}
+
+/** The link window of a session; see `sessionLinkState`. */
+export async function courseLinkWindow(
+	db: Kysely<Database>,
+	sessionId: string,
+	now: Date = new Date(),
+): Promise<LinkWindow | null> {
+	return (await sessionLinkState(db, sessionId, now))?.window ?? null;
 }
 
 /**
@@ -192,7 +218,7 @@ export async function linkAccounts(
 > {
 	const users = await trx
 		.selectFrom("users")
-		.select(["id", "oidc_issuer", "disabled_at"])
+		.select(["id", "oidc_issuer", "disabled_at", "role"])
 		.where("id", "in", [input.courseUserId, input.userId])
 		.orderBy("id")
 		.forUpdate()
@@ -204,7 +230,9 @@ export async function linkAccounts(
 	if (!isCourseIssuer(course.oidc_issuer))
 		return { ok: false, reason: "not_course_account" };
 	if (isCourseIssuer(sso.oidc_issuer)) return { ok: false, reason: "not_sso_account" };
-	if (sso.disabled_at !== null) return { ok: false, reason: "not_authorized" };
+	// An administrator is never reachable from a launch (review N4).
+	if (sso.disabled_at !== null || sso.role === "administrator")
+		return { ok: false, reason: "not_authorized" };
 	const platformIssuer = platformIssuerOf(course.oidc_issuer);
 
 	const existing = await trx
@@ -267,8 +295,10 @@ export async function linkAccounts(
 /**
  * Remove the caller's link to a course account (ruling 15). When the link
  * archived the course workspace, unarchive it, leaving it stopped, but only
- * while the workspace still carries that archive and not a later one. Returns
- * null when the link does not exist or belongs to someone else.
+ * while the workspace still carries that archive and not a later one. Ends
+ * every session that came through the course identity, with its preview
+ * sessions (review N1). Returns null when the link does not exist or
+ * belongs to someone else.
  */
 export async function unlinkAccount(
 	trx: Kysely<Database>,
@@ -281,6 +311,23 @@ export async function unlinkAccount(
 		.returning(["platform_issuer", "archived_at"])
 		.executeTakeFirst();
 	if (!link) return null;
+	// Revoke first: deleting a session cascades to its preview rows.
+	const launched = trx
+		.selectFrom("sessions")
+		.select("id")
+		.where("user_id", "=", input.userId)
+		.where("course_user_id", "=", input.courseUserId);
+	await trx
+		.updateTable("preview_sessions")
+		.set({ revoked_at: new Date().toISOString() })
+		.where("session_id", "in", launched)
+		.where("revoked_at", "is", null)
+		.execute();
+	await trx
+		.deleteFrom("sessions")
+		.where("user_id", "=", input.userId)
+		.where("course_user_id", "=", input.courseUserId)
+		.execute();
 	let unarchivedWorkspaceId: string | null = null;
 	if (link.archived_at !== null) {
 		const now = new Date().toISOString();

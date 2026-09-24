@@ -145,7 +145,6 @@ function CourseMembers() {
 	const myId = me.status === "authenticated" ? me.user.id : null;
 	const [removing, setRemoving] = React.useState<CourseMember | null>(null);
 	const [removedText, setRemovedText] = React.useState("");
-	const captionRef = React.useRef<HTMLTableCaptionElement>(null);
 	const headingRef = React.useRef<HTMLHeadingElement>(null);
 	const data = members.data;
 	const notFound = members.error instanceof ApiError && members.error.status === 404;
@@ -182,7 +181,7 @@ function CourseMembers() {
 					className="mt-4 w-full text-left text-[13px]"
 					data-testid="course-members"
 				>
-					<caption className="sr-only" ref={captionRef} tabIndex={-1}>
+					<caption className="sr-only">
 						People who have opened Portikus from this course
 					</caption>
 					<thead>
@@ -251,7 +250,8 @@ function CourseMembers() {
 							const button = next
 								? document.querySelector<HTMLElement>(`[data-remove-id="${next}"]`)
 								: null;
-							(button ?? captionRef.current ?? headingRef.current)?.focus();
+							// With only yourself left, the heading, not the hidden caption (review A3).
+							(button ?? headingRef.current)?.focus();
 						});
 					}}
 				/>

@@ -1089,6 +1089,10 @@ else's behalf, for a person who cannot complete the self-service flow
 (EPIC-13-1.md).
 
 **Why.** Today only the account holder can start and confirm a link.
+A student whose course sign-in is linked to an SSO account that is later
+disabled or promoted to administrator is locked out of launches: every launch lands
+in that account and is refused, and only an administrator-side unlink
+would bring the course account back (EPIC-13-1.md rulings 21 and N4).
 
 **What it would take.** An admin route that skips the "recent launch"
 proof and instead requires the administrator to pick both accounts

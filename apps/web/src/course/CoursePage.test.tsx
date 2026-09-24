@@ -283,6 +283,38 @@ test("after a removal, focus moves to the next row's Remove button", async () =>
 	);
 });
 
+test("when only the caller is left, focus moves to the page heading (review A3)", async () => {
+	let members = [
+		{
+			...samMember(),
+			userId: USER.id,
+			displayName: USER.displayName,
+			role: "instructor" as const,
+		},
+		samMember(),
+	];
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, USER);
+		if (url === `/courses/${CS101.id}/members`)
+			return json(200, { course: CS101, members });
+		if (url === `/courses/${CS101.id}/members/${SAM_ID}/remove`) {
+			members = members.filter((member) => member.userId !== SAM_ID);
+			return json(200, {});
+		}
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Remove Sam Student from course" }),
+	);
+	const dialog = await screen.findByTestId("dialog-remove-member");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Remove from course" }));
+
+	await waitFor(() => expect(document.activeElement?.id).toBe("course-title"));
+	expect(screen.getByTestId("course-members")).toBeTruthy();
+});
+
 test("the next Remove button skips the caller's own row and falls back to the previous", () => {
 	const member = (userId: string) => ({ ...samMember(), userId });
 	const list = [member("a"), member("b"), member("me"), member("c")];

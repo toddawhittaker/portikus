@@ -25,7 +25,7 @@ import {
 	sortAccounts,
 	sourceText,
 } from "./markers.js";
-import { useAdminUsers } from "./queries.js";
+import { adminActionUrl, useAdminUsers } from "./queries.js";
 import { errorText } from "./SettingsTab.js";
 import { WorkspaceDetail } from "./WorkspaceDetail.js";
 
@@ -173,7 +173,7 @@ const BULK: Record<BulkAction, BulkCopy> = {
 		done: "Disabled",
 		consequence:
 			"They are signed out everywhere, their previews close, and their workspaces stop. Nothing is deleted.",
-		url: (user) => `/admin/users/${user.id}/disable`,
+		url: (user) => adminActionUrl("users", user.id, "disable"),
 	},
 	enable: {
 		button: "Enable…",
@@ -182,7 +182,7 @@ const BULK: Record<BulkAction, BulkCopy> = {
 		confirm: "Enable",
 		done: "Enabled",
 		consequence: "They can sign in again.",
-		url: (user) => `/admin/users/${user.id}/enable`,
+		url: (user) => adminActionUrl("users", user.id, "enable"),
 	},
 	archive: {
 		button: "Archive workspace…",
@@ -192,7 +192,7 @@ const BULK: Record<BulkAction, BulkCopy> = {
 		done: "Archived the workspace of",
 		consequence:
 			"Each workspace stops and cannot be started until it is unarchived. Its files stay where they are.",
-		url: (user) => `/admin/workspaces/${user.workspace?.id}/archive`,
+		url: (user) => adminActionUrl("workspaces", user.workspace?.id ?? "", "archive"),
 	},
 	unarchive: {
 		button: "Unarchive workspace…",
@@ -201,7 +201,7 @@ const BULK: Record<BulkAction, BulkCopy> = {
 		confirm: "Unarchive",
 		done: "Unarchived the workspace of",
 		consequence: "Each workspace stays stopped until someone starts it.",
-		url: (user) => `/admin/workspaces/${user.workspace?.id}/unarchive`,
+		url: (user) => adminActionUrl("workspaces", user.workspace?.id ?? "", "unarchive"),
 	},
 };
 
