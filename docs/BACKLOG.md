@@ -8,6 +8,13 @@ it is rejected, and record the rejection in `docs/STACK.md` section 35.
 
 ## `apt install portikus` on a bring-your-own Debian 13 host
 
+**Scheduled as Epic 15.** `docs/EPIC-15.md` is now the plan, after Epic 14
+(`docs/EPIC-14.md`); it keeps this entry's shape (Debian 13 only, the
+Ansible roles shipped in the package, a signed apt repository, the image
+as a release asset, a fresh-install test) and adds debconf questions and
+an admin Workspace image section. Remove this entry when Epic 15 lands.
+The text below is the original proposal.
+
 **What.** An operator with their own Debian 13 machine, virtual or bare
 metal, runs one `apt install portikus`, edits a config file, and runs one
 `portikus configure` command to get a working platform. Today the control
@@ -996,6 +1003,11 @@ today.
 2. Whether the profile hides features or blocks them.
 3. One profile per deployment, or per user.
 4. Whether a debugger is in scope.
+
+**Related.** Per-course or per-project tool versions (a version manager
+such as mise, so one course gets a different Node or Python) belong here
+too. Epic 15's Workspace image section only picks one Node and Python
+for the whole site (docs/EPIC-15.md, ruling 29).
 
 **Source.** Todd and a colleague, after a demo, 2026-09-23.
 
