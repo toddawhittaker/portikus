@@ -76,6 +76,8 @@ export interface StateBadgeProps {
 	plain?: boolean;
 	/** Announce changes politely. */
 	live?: boolean;
+	/** Leaves out `role="status"`, so a long table is not many live regions. */
+	inCell?: boolean;
 	label?: string;
 	className?: string;
 }
@@ -85,6 +87,7 @@ export function StateBadge({
 	desiredState,
 	plain,
 	live,
+	inCell,
 	label,
 	className,
 }: StateBadgeProps): React.ReactElement {
@@ -109,7 +112,7 @@ export function StateBadge({
 				plain ? "px-0" : cx(TONE_FILL[resolved.tone], "px-2"),
 				className,
 			)}
-			role="status"
+			role={inCell ? undefined : "status"}
 			aria-live={live ? "polite" : undefined}
 			data-state={state}
 			data-desired-state={desiredState}
