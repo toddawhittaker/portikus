@@ -2040,3 +2040,88 @@ new tab.
   person.
 - Grade passback, roster sync, Deep Linking and instructor views of
   student workspaces are left out; they are in `docs/BACKLOG.md`.
+
+## Epic 13.1 — Link a course account to an SSO account, and promote administrators
+
+The requirement is `docs/EPIC-13-1.md` with its rulings, and the design is
+ADR 0026. It serves SPEC.md sections 5.2 and the new section 29 entry.
+The operator's steps are in `docs/OPERATIONS.md`, "Linking a course
+account to an SSO account".
+
+**Linking.** A person who launches from a course (Epic 13) and also signs
+in through single sign-on (SSO) can link the two from Settings, Profile,
+within 15 minutes of a launch (PR #501, PR #502, PR #503). Linking starts
+on the course side and completes with a full OIDC sign-in on the SSO side,
+`prompt=login`, and a confirmation page naming both accounts; it never
+matches by email and never creates or updates a user in link mode. The
+course account is retired: its sessions end, `loadSession` refuses it, and
+its workspace is archived through the existing archive path, unarchived
+automatically on unlink. Course memberships move to the SSO account at
+link time, so an instructor keeps their Course page. A later launch from
+the linked course identity signs into the SSO account and refreshes its
+membership, never its role.
+
+**A stored role grant.** Each account's effective role is now the higher
+of `provider_role` (what the account's own sign-in gave last time) and an
+optional `granted_role` (`instructor` or `administrator`) stored by
+Portikus (migration `0016_account_links`, PR #501). An administrator can
+promote an SSO account to administrator and demote one they granted, each
+behind a confirmation dialog; demoting oneself, a provider-given
+administrator, or the last enabled administrator is refused, including
+two concurrent mutual demotions (PR #502). A grant is refused on a course
+account, and a launch never starts a session for an account whose
+effective role is administrator, because an LMS administrator can act as
+any user in the LMS.
+
+**The Users view.** The admin Workspaces tab is now Users (`?tab=workspaces`
+is unchanged): a Role column and filter, a Source column ("SSO" or
+"Course: <platform host>"), search over the source, Promote and Demote in
+the account section, and ticked-row bulk Disable, Enable, Archive and
+Unarchive over the existing single-row routes (PR #504). `StateBadge`
+gained an `inCell` option so a table of many rows is not many live
+regions (SPEC.md section 25.8), used here and on the Course page. The
+account section shows the full issuer and username, closing issue #302.
+
+**Instructors remove a course member.** `POST
+/courses/:courseId/members/:userId/remove` deletes one `lti_memberships`
+row and writes a `course.member_removed` audit row with ids only; a later
+launch adds the membership back (`#506`, amending Epic 13 rulings 23 and
+27). This closes the "someone removed from a course stays on the Course
+page" gap above as a stopgap; roster sync (NRPS) is still left out.
+
+**Verified.** Unit and database tests cover the migration up and down
+with the backfill, every function in `links.ts` including a single-use
+intent, an expired intent, per-platform uniqueness, `loadSession`
+refusing a retired account, and the effective-role rule. Route tests
+cover every step and every `?error=` code, an old course session refused
+at start and confirm, a linked launch landing in the SSO account with its
+role untouched, the administrator-launch refusal, promote and demote with
+every refusal, and the authorization matrix for every new route. Component
+tests cover the Profile link states, the `/link` page's pending and error
+states, and the Users view's search, role filter, role labels, and
+Promote and Demote dialogs. Playwright covers linking from the mock LMS
+to a mock OIDC account, relaunch landing in the linked account, unlink and
+relaunch landing back in the course account, a link to an unknown SSO
+identity refused, search and promote and demote in the Users view
+including the last-administrator refusal, bulk actions, and member
+removal on the Course page, plus axe on the new pages. `pnpm typecheck`,
+`pnpm lint` and `pnpm test` are green on the epic branch.
+
+**Pilot rehearsal:** pending.
+
+### Gaps
+
+- **No real LMS or production OIDC provider has tried linking yet.** Only
+  the mock LMS and the mock OIDC provider have.
+- **Entra's group overage limit** (past about 200 groups, Entra sends an
+  overage claim instead of group names) means `mapRole` cannot place
+  students or instructors under Entra past that point; a stored grant
+  still reaches administrator. Left for a later epic (ruling 25).
+- **No server-side search or paging** for the Users list; it is fine for
+  one pilot's account count and left for when a list passes about 1,000
+  accounts (ruling 24).
+- **No administrator UI to link or unlink on someone else's behalf.**
+- **Moving or merging workspaces, files or projects between accounts** is
+  out of scope; a link only changes where a later launch or sign-in lands.
+- **No `instructor` grant in the UI or API yet**, though the column
+  accepts it, ready for the Entra and Google epic.

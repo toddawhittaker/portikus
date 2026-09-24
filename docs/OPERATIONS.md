@@ -358,12 +358,16 @@ decision in the threat model.
   users-deploy` ends a user's sessions whenever their role changes.
 - An instructor sees a **Course** link in the header. The Course page lists
   everyone who has opened Portikus from that course, with name, role, last
-  launch and whether their workspace is running. It is read-only. An
-  instructor cannot see anyone else's files and is refused on every
-  administrator page.
-- Someone removed from the course in the LMS stays on the Course page.
-- An LTI user and a Dex user are separate accounts, even with the same
-  email.
+  launch and whether their workspace is running. An instructor can remove
+  one member, which deletes only that membership row; a later launch from
+  the LMS adds it back. An instructor cannot see anyone else's files and
+  is refused on every administrator page.
+- Someone removed from the course in the LMS, and not also removed from
+  the Course page by the instructor, stays there with their old last-launch
+  time.
+- An LTI user and an SSO user are separate accounts, even with the same
+  email, unless someone links them (see "Linking a course account to an
+  SSO account", below).
 
 ### When a launch fails
 
@@ -417,6 +421,45 @@ as anyone, so it is trusted only while it is registered.
 While the mock is registered, `make security-test` prints a warning
 naming it, and the smoke test reports it. Users created by mock launches
 stay in the database, under the issuer `lti:http://<MOCK_LMS_HOST>:8765`.
+
+## Linking a course account to an SSO account
+
+A person who signs in both by an LTI launch and through single sign-on
+(SSO) can link the two from Settings, Profile, so every later launch lands
+in the SSO account. The design is `docs/EPIC-13-1.md` and ADR 0026. There
+is no operator step to make linking available; it works once both an LMS
+and the OIDC provider are configured.
+
+- **The course account's workspace is archived, not deleted**, when it
+  links, and unarchived automatically if the person unlinks. If it stays
+  linked, an administrator who needs the old files back can unarchive it
+  by hand from the account's page in the Users view, the same **Unarchive**
+  button used for any other archived workspace; the account itself stays
+  retired (it cannot sign in), only its workspace becomes reachable again.
+- **A role grant is not in the users file.** `make users-add` sets the
+  role a Dex account's own sign-in gives (`provider_role`); promoting
+  someone to administrator from the Users view sets a separate stored
+  grant (`granted_role`) that a later sign-in cannot overwrite. `make
+  users-deploy` changes only the users file's role and cannot remove a
+  grant, and does not end sessions for a grant change; only demote does,
+  and only on the target's next request. To find out which is in play for
+  an administrator account, open it in the Users view: the Role column
+  says "Administrator (from SSO)" for a group-claim role and
+  "Administrator (granted)" for a stored grant.
+- **Under Microsoft Entra ID, a stored grant is the only way to
+  `instructor` or `administrator` past a point.** Entra sends group
+  membership as object IDs, and past about 200 groups an overage claim
+  instead of the list, so the group-name mapping Dex and a small Entra
+  tenant use can silently stop finding a person's groups. A stored grant
+  does not depend on the claim, so promoting an administrator by hand
+  still works; there is no equivalent for `instructor` yet (Epic 13.1
+  ruling 25, left for a later epic).
+- **Bulk actions and instructor member removal need no operator step.**
+  The Users view's ticked-row Disable, Enable, Archive and Unarchive call
+  the same single-row routes as clicking each one, so nothing here differs
+  operationally. An instructor removing someone from their Course page
+  writes an audit row (`course.member_removed`) and does not touch the
+  account or its workspace; a later launch adds the membership back.
 
 ## Backups
 

@@ -8,13 +8,16 @@ summarizes them so a reader knows where to look.
 ## Current state
 
 `docs/STATUS.md` records what each epic and task has delivered and the
-gaps each one left. Epics 0 through 12b, with their fix batches, have
+gaps each one left. Epics 0 through 13, with their fix batches, have
 landed on `main` and run on the pilot VM, including sign-in through Dex
-from a users file, backups and restore, and the operations runbook
-(`docs/OPERATIONS.md`). Epic 13 is in progress on its epic branch: signing
-in by an LTI 1.3 launch from a learning management system, and an
-`instructor` role with a read-only Course page (`docs/EPIC-13.md`, ADR
-0025).
+from a users file, backups and restore, the operations runbook
+(`docs/OPERATIONS.md`), and signing in by an LTI 1.3 launch from a
+learning management system with an `instructor` role and a read-only
+Course page (`docs/EPIC-13.md`, ADR 0025). Epic 13.1 is in progress on its
+epic branch: linking a course account to a single-sign-on (SSO) account so
+the two share one workspace, a stored role grant so an administrator can
+promote and demote without a later sign-in overwriting it, and an admin
+Users view (`docs/EPIC-13-1.md`, ADR 0026).
 
 ## Planned architecture
 

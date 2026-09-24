@@ -1039,19 +1039,6 @@ page, and a signed response to the LMS. Depends on course templates.
 
 **Source.** Left out of Epic 13.
 
-## Link an LTI account to a Dex account
-
-**What.** Let one person who signs in both from the LMS and through Dex
-have one account and one workspace.
-
-**Why.** Today they get two accounts and two workspaces.
-
-**What it would take.** A linking step that proves control of both
-identities (sign in with one while signed in with the other), never a
-match by email. A day or two plus a security review.
-
-**Source.** Left out of Epic 13 (ruling 3).
-
 ## Per-course instructor views of student workspaces
 
 **What.** Let an instructor look into a student's workspace from the
@@ -1064,3 +1051,63 @@ audited reads through the file routes, and a clear notice to the student.
 Needs a security review. About a week.
 
 **Source.** Left out of Epic 13.
+
+## Group-ID and overage handling for Microsoft Entra ID
+
+**What.** Map Entra's group object IDs, and its overage claim past about
+200 groups, to roles, instead of the group-name claim `mapRole` reads
+today.
+
+**Why.** Past the overage limit Entra sends no group list at all, so
+`mapRole` cannot place a student or instructor; a stored role grant still
+reaches administrator, but there is no equivalent for `instructor` yet.
+
+**What it would take.** A Microsoft Graph call to resolve group IDs (and
+page through an overage), or a stored `instructor` grant exposed in the
+Users view as a stopgap. A few days plus a security review of the new
+Graph credential.
+
+**Source.** Left out of Epic 13.1 (ruling 25).
+
+## Server-side search and paging for the Users view
+
+**What.** Move the Users view's search and role filter to the server, and
+page the list, instead of filtering the whole fetched list in the browser.
+
+**Why.** Fine for one pilot's account count; a list past about 1,000
+accounts would fetch and filter too much in the browser.
+
+**What it would take.** A search and paging API on `GET /admin/users` and
+the matching web changes. A day or two.
+
+**Source.** Left out of Epic 13.1 (ruling 24).
+
+## Administrator-side account linking
+
+**What.** Let an administrator link or unlink two accounts on someone
+else's behalf, for a person who cannot complete the self-service flow
+(EPIC-13-1.md).
+
+**Why.** Today only the account holder can start and confirm a link.
+
+**What it would take.** An admin route that skips the "recent launch"
+proof and instead requires the administrator to pick both accounts
+explicitly, with its own audit trail. Needs a security review, since it
+removes one of the two proofs of control ordinary linking requires.
+
+**Source.** Left out of Epic 13.1.
+
+## An `instructor` grant in the Users view
+
+**What.** Let an administrator grant the `instructor` role, not only
+`administrator`, from the Users view.
+
+**Why.** Today `granted_role` accepts `instructor` in the database, but
+only promote-to-administrator is exposed in the API and UI. Under a
+provider that sends no groups claim (Google), a grant would be the only
+way to `instructor` too.
+
+**What it would take.** A route and a UI action, mirroring promote and
+demote. Half a day.
+
+**Source.** Left out of Epic 13.1.
