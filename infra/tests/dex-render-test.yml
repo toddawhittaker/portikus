@@ -1,8 +1,10 @@
 ---
-# Renders the dex role's real configuration template from a users file and
-# checks the result, with no VM (docs/EPIC-12B.md, Part A items 6 and 12).
-# `make infra-check` runs it; the CI dex-signin job runs it to get a config
-# it can start Dex with:
+# Renders the dex role's real configuration and unit templates and checks
+# them, with no VM: PostgreSQL storage, the gRPC API behind mutual TLS, each
+# upstream connector, and the guards on the settings and the users file
+# (docs/EPIC-14.md rulings 11, 13, 19, 20, 23 and 28).  `make infra-check`
+# runs it; the CI dex-signin job runs it to get a configuration it can
+# start Dex with:
 #
 #   ansible-playbook infra/tests/dex-render-test.yml -e dex_render_dest=/tmp/dex.yaml
 #
@@ -13,7 +15,7 @@
   gather_facts: false
   become: false
 
-  # The role's defaults hold the hash pattern its guards use.
+  # The role's defaults hold the hash pattern and the LDAP attribute names.
   vars_files:
     - ../ansible/roles/dex/defaults/main.yml
 
@@ -22,13 +24,45 @@
     dex_render_dest: "{{ dex_render_workdir.path }}/config.yaml"
     portikus_public_url: http://127.0.0.1:3000
     portikus_dex_issuer: http://127.0.0.1:5556/dex
+    portikus_outbound_proxy_url: http://127.0.0.1:3128
     dex_port: 5556
+    dex_grpc_addr: 127.0.0.1:5557
+    dex_grpc_dir: /etc/portikus/dex-grpc
     # A test value; Ansible generates the real one on the VM.
     dex_client_secret: portikus-ci-dex-client-secret-not-a-real-one
-    portikus_oidc_student_group: portikus-students
-    portikus_oidc_admin_group: portikus-administrators
-    portikus_oidc_instructor_group: portikus-instructors
-    # Added to the fixture here, because the package tests count its users.
+    portikus_dex_upstream: none
+    portikus_entra_tenant_id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+    portikus_google_domains: [example.edu, example.org]
+    dex_render_upstream_client:
+      portikus_dex_upstream_client_id: dex-upstream-client
+      portikus_dex_upstream_client_secret: not-a-real-upstream-secret
+    dex_render_ldap:
+      portikus_ldap_host: ldap.example.edu:636
+      portikus_ldap_schema: ad
+      portikus_ldap_bind_dn: CN=portikus,OU=Services,DC=example,DC=edu
+      portikus_ldap_bind_password: not-a-real-bind-password
+      portikus_ldap_user_base_dn: OU=People,DC=example,DC=edu
+      portikus_ldap_user_filter: (memberOf=CN=portikus,OU=Groups,DC=example,DC=edu)
+      portikus_ldap_group_base_dn: OU=Groups,DC=example,DC=edu
+      portikus_ldap_root_ca: ""
+      portikus_ldap_ip_allow: [192.0.2.10/32, 198.51.100.0/28]
+    dex_render_upstreams:
+      - {name: ad, upstream: ldap, schema: ad}
+      - {name: openldap, upstream: ldap, schema: openldap, group_base_dn: "", root_ca: /srv/ldap-ca.crt}
+      - {name: microsoft, upstream: microsoft}
+      - {name: google, upstream: google}
+    # Each is the working settings with one change; only the first is accepted.
+    dex_render_guards:
+      - {name: complete LDAP settings, accept: true, upstream: ldap, change: {}}
+      - {name: LDAP without a user filter, accept: false, upstream: ldap, change: {portikus_ldap_user_filter: ""}}
+      - {name: an LDAP filter without parentheses, accept: false, upstream: ldap, change: {portikus_ldap_user_filter: "memberOf=x"}}
+      - {name: an unknown LDAP schema, accept: false, upstream: ldap, change: {portikus_ldap_schema: novell}}
+      - {name: LDAP without the directory's addresses, accept: false, upstream: ldap, change: {portikus_ldap_ip_allow: []}}
+      - {name: an LDAP address that is a host name, accept: false, upstream: ldap, change: {portikus_ldap_ip_allow: [ldap.example.edu]}}
+      - {name: LDAP without a bind password, accept: false, upstream: ldap, change: {portikus_ldap_bind_password: ""}}
+      - {name: an LDAP root certificate file that is missing, accept: false, upstream: ldap, change: {portikus_ldap_root_ca: /nonexistent/ca.crt}}
+      - {name: Microsoft without a client secret, accept: false, upstream: microsoft, change: {portikus_dex_upstream_client_secret: ""}}
+      - {name: Google without a client ID, accept: false, upstream: google, change: {portikus_dex_upstream_client_id: ""}}
     dex_render_instructor:
       username: ivy
       email: ivy@example.edu
@@ -43,6 +77,20 @@
         state: directory
       register: dex_render_workdir
 
+    # ── The users file, loaded only for the one-time import ────
+
+    - name: Load the settings with no users file
+      ansible.builtin.include_tasks: ../ansible/roles/dex/tasks/settings.yml
+      vars:
+        portikus_users_file: "{{ dex_render_workdir.path }}/no-such-users.json"
+
+    - name: Check that no users file means nothing to import
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_users is not defined
+        fail_msg: "settings.yml loaded users from a file that does not exist"
+
     # A checkout does not keep file modes, so the fixture is copied to the
     # 0600 file the role insists on rather than relaxing the check.
     - name: Copy the users file, with an instructor, with the mode the role requires
@@ -53,8 +101,7 @@
       vars:
         dex_render_fixture: "{{ lookup('ansible.builtin.file', dex_render_users_file) | from_json }}"
 
-    # Ruling 4 of docs/EPIC-13.md adds instructor; any other role stays refused.
-    - name: Check the role refuses an unknown role
+    - name: Check the guards refuse an unknown role
       block:
         - name: Write a users file with an unknown role
           ansible.builtin.copy:
@@ -63,7 +110,7 @@
             mode: "0600"
 
         - name: Load it through the role's guards
-          ansible.builtin.include_tasks: ../ansible/roles/dex/tasks/users.yml
+          ansible.builtin.include_tasks: ../ansible/roles/dex/tasks/settings.yml
           vars:
             portikus_users_file: "{{ dex_render_workdir.path }}/bad-role.json"
 
@@ -80,12 +127,19 @@
         quiet: true
         that:
           - not dex_render_bad_role_accepted
-        fail_msg: "users.yml accepted the role 'teacher'"
+        fail_msg: "settings.yml accepted the role 'teacher'"
 
     - name: Load the users file through the role's own guards
-      ansible.builtin.include_tasks: ../ansible/roles/dex/tasks/users.yml
+      ansible.builtin.include_tasks: ../ansible/roles/dex/tasks/settings.yml
       vars:
         portikus_users_file: "{{ dex_render_workdir.path }}/users.json"
+
+    - name: Check the users file was loaded whole
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_users.users | map(attribute='username') | list == ['carol', 'alice', 'ivy']
+          - dex_users.users | map(attribute='role') | unique | sort == ['administrator', 'instructor', 'student']
 
     # Cost 16 would let the 300 counted attempts burn about 20 CPU-minutes.
     - name: Check the role accepts bcrypt costs 10 to 12 and nothing higher
@@ -99,6 +153,8 @@
       vars:
         prefix: "$2b$"
         salt: MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEFfG
+
+    # ── Standalone Dex: the configuration CI starts Dex with ───
 
     - name: Render the configuration template
       ansible.builtin.template:
@@ -115,7 +171,6 @@
         quiet: true
         that:
           - dex_rendered.issuer == portikus_dex_issuer
-          - dex_rendered.storage.type == 'memory'
           - dex_rendered.web.http == '127.0.0.1:' ~ dex_port
           - dex_rendered.enablePasswordDB
           - dex_rendered.oauth2.skipApprovalScreen
@@ -124,60 +179,164 @@
           - dex_rendered.staticClients[0].id == 'portikus'
           - dex_rendered.staticClients[0].secret == dex_client_secret
           - dex_rendered.staticClients[0].redirectURIs == [portikus_public_url ~ '/auth/callback']
+          - dex_rendered.connectors is not defined
 
-    - name: Check one entry per user, with groups following the role
+    # Accounts come from the Users view now, never the configuration.
+    - name: Check the accounts live in PostgreSQL, not in the configuration
       ansible.builtin.assert:
         quiet: true
         that:
-          - dex_rendered.staticPasswords | length == dex_users.users | length
-          - entry.email == item.email
-          - entry.hash == item.passwordHash
-          - entry.username == item.username
-          - entry.preferredUsername == item.username
-          - entry.name == item.displayName
-          - entry.userID == item.userId
-          - entry.emailVerified
-          - >-
-            entry.groups == [{'administrator': portikus_oidc_admin_group,
-                              'instructor': portikus_oidc_instructor_group,
-                              'student': portikus_oidc_student_group}[item.role]]
+          - dex_rendered.staticPasswords is not defined
+          - dex_rendered.storage.type == 'postgres'
+          - dex_rendered.storage.config.host == '/var/run/postgresql'
+          - dex_rendered.storage.config.database == 'dex'
+          - dex_rendered.storage.config.user == 'portikus-dex'
+          - dex_rendered.storage.config.password is not defined
+          - dex_rendered.storage.config.ssl.mode == 'disable'
+
+    - name: Check the gRPC API is on loopback and requires a client certificate
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_rendered.grpc.addr == '127.0.0.1:5557'
+          - dex_rendered.grpc.tlsCert == dex_grpc_dir ~ '/server.crt'
+          - dex_rendered.grpc.tlsKey == dex_grpc_dir ~ '/server.key'
+          - dex_rendered.grpc.tlsClientCA == dex_grpc_dir ~ '/ca.crt'
+          - not dex_rendered.grpc.reflection
+
+    - name: Render the unit for standalone Dex
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../ansible/roles/dex/templates/portikus-dex.service.j2"
+        dest: "{{ dex_render_workdir.path }}/none.service"
+        mode: "0600"
+
+    - name: Check standalone Dex reaches loopback only and uses no proxy
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - "'IPAddressAllow=127.0.0.0/8\nIPAddressDeny=any' in unit"
+          - "'HTTPS_PROXY' not in unit"
       vars:
-        entry: "{{ dex_rendered.staticPasswords | selectattr('userID', 'equalto', item.userId) | first }}"
-      loop: "{{ dex_users.users }}"
+        unit: "{{ lookup('ansible.builtin.file', dex_render_workdir.path ~ '/none.service') }}"
+
+    # ── Upstream connectors (rulings 11, 13 and 28) ────────────
+
+    - name: Render each upstream connector
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../ansible/roles/dex/templates/{{ item.1 }}.j2"
+        dest: "{{ dex_render_workdir.path }}/{{ item.0.name }}-{{ item.1 }}"
+        mode: "0600"
+      vars:
+        portikus_dex_upstream: "{{ item.0.upstream }}"
+        portikus_dex_upstream_client_id: "{{ dex_render_upstream_client.portikus_dex_upstream_client_id }}"
+        portikus_dex_upstream_client_secret: "{{ dex_render_upstream_client.portikus_dex_upstream_client_secret }}"
+        portikus_ldap_host: "{{ dex_render_ldap.portikus_ldap_host }}"
+        portikus_ldap_schema: "{{ item.0.schema | default('ad') }}"
+        portikus_ldap_bind_dn: "{{ dex_render_ldap.portikus_ldap_bind_dn }}"
+        portikus_ldap_bind_password: "{{ dex_render_ldap.portikus_ldap_bind_password }}"
+        portikus_ldap_user_base_dn: "{{ dex_render_ldap.portikus_ldap_user_base_dn }}"
+        portikus_ldap_user_filter: "{{ dex_render_ldap.portikus_ldap_user_filter }}"
+        portikus_ldap_group_base_dn: "{{ item.0.group_base_dn | default(dex_render_ldap.portikus_ldap_group_base_dn) }}"
+        portikus_ldap_root_ca: "{{ item.0.root_ca | default('') }}"
+        portikus_ldap_ip_allow: "{{ dex_render_ldap.portikus_ldap_ip_allow }}"
+      loop: "{{ dex_render_upstreams | product(['config.yaml', 'portikus-dex.service']) | list }}"
       loop_control:
-        label: "{{ item.username }}"
+        label: "{{ item.0.name }} {{ item.1 }}"
 
-    - name: Check the instructor has the instructor group
+    - name: Read the rendered upstream configurations
+      ansible.builtin.set_fact:
+        dex_up: >-
+          {{ dex_up | default({}) | combine({item.name: {
+               'config': lookup('ansible.builtin.file', dex_render_workdir.path ~ '/' ~ item.name ~ '-config.yaml') | from_yaml,
+               'unit': lookup('ansible.builtin.file', dex_render_workdir.path ~ '/' ~ item.name ~ '-portikus-dex.service')} }) }}
+      loop: "{{ dex_render_upstreams }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Check every upstream sits beside local passwords, one connector each
       ansible.builtin.assert:
         quiet: true
         that:
-          - >-
-            (dex_rendered.staticPasswords | selectattr('username', 'equalto', 'ivy') | first).groups
-            == [portikus_oidc_instructor_group]
-          - dex_users.users | map(attribute='role') | unique | sort == ['administrator', 'instructor', 'student']
+          - dex_up[item.name].config.enablePasswordDB
+          - dex_up[item.name].config.connectors | length == 1
+          - dex_up[item.name].config.connectors[0].type == item.upstream
+          - dex_up[item.name].config.connectors[0].id == item.upstream
+          - dex_up[item.name].config.storage.type == 'postgres'
+      loop: "{{ dex_render_upstreams }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-    # Before the package is installed there is no revoke command, and the
-    # users must still be recorded, or the next deploy revokes nothing.
-    # Check mode, because the real tasks chown to root.
-    - name: Run the session revoke tasks with no revoke command
-      ansible.builtin.include_tasks:
-        file: ../ansible/roles/dex/tasks/revoke.yml
-        apply:
-          check_mode: true
+    - name: Check the Active Directory connector
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - ad.host == dex_render_ldap.portikus_ldap_host
+          - ad.rootCA is not defined
+          - ad.insecureNoSSL is not defined
+          - ad.insecureSkipVerify is not defined
+          - ad.startTLS is not defined
+          - ad.bindDN == dex_render_ldap.portikus_ldap_bind_dn
+          - ad.bindPW == dex_render_ldap.portikus_ldap_bind_password
+          - ad.userSearch.baseDN == dex_render_ldap.portikus_ldap_user_base_dn
+          - ad.userSearch.filter == dex_render_ldap.portikus_ldap_user_filter
+          - ad.userSearch.username == 'sAMAccountName'
+          - ad.userSearch.idAttr == 'sAMAccountName'
+          - ad.userSearch.emailAttr == 'mail'
+          - ad.userSearch.nameAttr == 'displayName'
+          - ad.groupSearch.baseDN == dex_render_ldap.portikus_ldap_group_base_dn
+          - ad.groupSearch.filter == '(objectClass=group)'
+          - "ad.groupSearch.userMatchers == [{'userAttr': 'DN', 'groupAttr': 'member'}]"
+          - ad.groupSearch.nameAttr == 'cn'
+          - "'IPAddressAllow=127.0.0.0/8 192.0.2.10/32 198.51.100.0/28\nIPAddressDeny=any' in dex_up.ad.unit"
+          - "'HTTPS_PROXY' not in dex_up.ad.unit"
       vars:
-        dex_users_revoke_script: "{{ dex_render_workdir.path }}/no-such-revoke.js"
-        dex_users_state_file: "{{ dex_render_workdir.path }}/deployed-users.json"
-        dex_users_revoke_input: "{{ dex_render_workdir.path }}/revoke-input.json"
-        portikus_database_url: postgresql://unused
+        ad: "{{ dex_up.ad.config.connectors[0].config }}"
 
-    - name: Check the users were recorded anyway
+    - name: Check the OpenLDAP connector, with a root certificate and no group search
       ansible.builtin.assert:
         quiet: true
         that:
-          - dex_users_recorded is not skipped
-          - dex_users_recorded is changed
-          - dex_users_deployed | map(attribute='username') | list == dex_users.users | map(attribute='username') | list
-        fail_msg: "revoke.yml did not record the deployed users when the revoke command was missing"
+          - ol.rootCA == dex_ldap_root_ca_path
+          - ol.userSearch.username == 'uid'
+          - ol.userSearch.idAttr == 'uid'
+          - ol.userSearch.nameAttr == 'cn'
+          - ol.userSearch.filter == dex_render_ldap.portikus_ldap_user_filter
+          - ol.groupSearch is not defined
+      vars:
+        ol: "{{ dex_up.openldap.config.connectors[0].config }}"
+
+    - name: Check the Microsoft connector is held to the tenant and goes through the proxy
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - ms.clientID == 'dex-upstream-client'
+          - ms.clientSecret == 'not-a-real-upstream-secret'
+          - ms.redirectURI == portikus_dex_issuer ~ '/callback'
+          - ms.tenant == portikus_entra_tenant_id
+          - ms.groups is not defined
+          - "'Environment=HTTPS_PROXY=http://127.0.0.1:3128' in dex_up.microsoft.unit"
+          - "'IPAddressAllow=127.0.0.0/8\nIPAddressDeny=any' in dex_up.microsoft.unit"
+      vars:
+        ms: "{{ dex_up.microsoft.config.connectors[0].config }}"
+
+    - name: Check the Google connector is held to the domains and goes through the proxy
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - gg.redirectURI == portikus_dex_issuer ~ '/callback'
+          - gg.hostedDomains == ['example.edu', 'example.org']
+          - "'Environment=HTTPS_PROXY=http://127.0.0.1:3128' in dex_up.google.unit"
+      vars:
+        gg: "{{ dex_up.google.config.connectors[0].config }}"
+
+    # ── The settings guards ─────────────────────────────────────
+
+    - name: Check the settings guards
+      ansible.builtin.include_tasks: dex-render-guard.yml
+      loop: "{{ dex_render_guards }}"
+      loop_control:
+        loop_var: dex_guard
+        label: "{{ dex_guard.name }}"
 
     - name: Remove the working directory
       ansible.builtin.file:

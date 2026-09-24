@@ -1,0 +1,37 @@
+---
+# One case of dex-render-test.yml's settings guards: settings.yml with the
+# working upstream settings and one change, accepted or refused as expected.
+- name: Try the settings for {{ dex_guard.name }}
+  vars:
+    given: "{{ dex_render_ldap | combine(dex_render_upstream_client) | combine(dex_guard.change) }}"
+  block:
+    - name: Load the settings for {{ dex_guard.name }}
+      ansible.builtin.include_tasks: ../ansible/roles/dex/tasks/settings.yml
+      vars:
+        portikus_users_file: "{{ dex_render_workdir.path }}/no-such-users.json"
+        portikus_dex_upstream: "{{ dex_guard.upstream }}"
+        portikus_dex_upstream_client_id: "{{ given.portikus_dex_upstream_client_id }}"
+        portikus_dex_upstream_client_secret: "{{ given.portikus_dex_upstream_client_secret }}"
+        portikus_ldap_host: "{{ given.portikus_ldap_host }}"
+        portikus_ldap_schema: "{{ given.portikus_ldap_schema }}"
+        portikus_ldap_bind_dn: "{{ given.portikus_ldap_bind_dn }}"
+        portikus_ldap_bind_password: "{{ given.portikus_ldap_bind_password }}"
+        portikus_ldap_user_base_dn: "{{ given.portikus_ldap_user_base_dn }}"
+        portikus_ldap_user_filter: "{{ given.portikus_ldap_user_filter }}"
+        portikus_ldap_root_ca: "{{ given.portikus_ldap_root_ca }}"
+        portikus_ldap_ip_allow: "{{ given.portikus_ldap_ip_allow }}"
+
+    - name: Note that it was accepted, for {{ dex_guard.name }}
+      ansible.builtin.set_fact:
+        dex_guard_accepted: true
+  rescue:
+    - name: Note that it was refused, for {{ dex_guard.name }}
+      ansible.builtin.set_fact:
+        dex_guard_accepted: false
+
+- name: Require the expected answer for {{ dex_guard.name }}
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - dex_guard_accepted == dex_guard.accept
+    fail_msg: "settings.yml {{ 'refused' if dex_guard.accept else 'accepted' }} {{ dex_guard.name }}"

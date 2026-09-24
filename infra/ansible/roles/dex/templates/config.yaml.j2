@@ -1,10 +1,27 @@
-# Dex configuration — managed by Ansible from the users file (docs/adr/0023).
-# Holds every password hash: root:portikus-dex, mode 0640.
+# Dex configuration — managed by Ansible (ADR 0023, ADR 0028).
+# Holds client secrets and any LDAP bind password: root:portikus-dex, mode 0640.
 issuer: {{ portikus_dex_issuer | to_json }}
+# Accounts live in their own database, so a restart keeps them and the
+# nightly backup carries them (docs/EPIC-14.md ruling 19).  The postgresql
+# role makes it; peer authentication over the socket admits only Dex's user.
 storage:
-  type: memory
+  type: postgres
+  config:
+    host: /var/run/postgresql
+    database: dex
+    user: portikus-dex
+    ssl:
+      mode: disable
 web:
   http: 127.0.0.1:{{ dex_port }}
+# The API manages local passwords here; only a client certificate from this
+# site's authority is accepted (ruling 20).
+grpc:
+  addr: {{ dex_grpc_addr | to_json }}
+  tlsCert: {{ (dex_grpc_dir ~ '/server.crt') | to_json }}
+  tlsKey: {{ (dex_grpc_dir ~ '/server.key') | to_json }}
+  tlsClientCA: {{ (dex_grpc_dir ~ '/ca.crt') | to_json }}
+  reflection: false
 logger:
   level: info
   format: json
@@ -16,6 +33,7 @@ oauth2:
 expiry:
   authRequests: 10m
   idTokens: 10m
+# Local passwords, managed from the Users view; guests beside an upstream.
 enablePasswordDB: true
 staticClients:
   - id: portikus
@@ -23,16 +41,57 @@ staticClients:
     secret: {{ dex_client_secret | to_json }}
     redirectURIs:
       - {{ (portikus_public_url ~ '/auth/callback') | to_json }}
-staticPasswords:
-{% for user in dex_users.users %}
-  - email: {{ user.email | to_json }}
-    hash: {{ user.passwordHash | to_json }}
-    username: {{ user.username | to_json }}
-    name: {{ user.displayName | to_json }}
-    preferredUsername: {{ user.username | to_json }}
-    userID: {{ user.userId | to_json }}
-    emailVerified: true
-    groups:
-      - {{ {'administrator': portikus_oidc_admin_group,
-            'instructor': portikus_oidc_instructor_group}.get(user.role, portikus_oidc_student_group) | to_json }}
-{% endfor %}
+{% if portikus_dex_upstream != 'none' %}
+{% set dex_callback = portikus_dex_issuer ~ '/callback' %}
+# One upstream connector per site (ruling 13).
+connectors:
+{% if portikus_dex_upstream == 'ldap' %}
+{% set attrs = dex_ldap_attributes[portikus_ldap_schema] %}
+  - type: ldap
+    id: ldap
+    name: {{ ('Active Directory' if portikus_ldap_schema == 'ad' else 'LDAP') | to_json }}
+    config:
+      host: {{ portikus_ldap_host | to_json }}
+{% if portikus_ldap_root_ca | length > 0 %}
+      rootCA: {{ dex_ldap_root_ca_path | to_json }}
+{% endif %}
+      bindDN: {{ portikus_ldap_bind_dn | to_json }}
+      bindPW: {{ portikus_ldap_bind_password | to_json }}
+      usernamePrompt: Username
+      userSearch:
+        baseDN: {{ portikus_ldap_user_base_dn | to_json }}
+        filter: {{ portikus_ldap_user_filter | to_json }}
+        username: {{ attrs.username | to_json }}
+        idAttr: {{ attrs.id | to_json }}
+        emailAttr: mail
+        nameAttr: {{ attrs.name | to_json }}
+        preferredUsernameAttr: {{ attrs.username | to_json }}
+{% if portikus_ldap_group_base_dn | length > 0 %}
+      groupSearch:
+        baseDN: {{ portikus_ldap_group_base_dn | to_json }}
+        filter: {{ attrs.group_filter | to_json }}
+        userMatchers:
+          - userAttr: DN
+            groupAttr: member
+        nameAttr: cn
+{% endif %}
+{% elif portikus_dex_upstream == 'microsoft' %}
+  - type: microsoft
+    id: microsoft
+    name: Microsoft
+    config:
+      clientID: {{ portikus_dex_upstream_client_id | to_json }}
+      clientSecret: {{ portikus_dex_upstream_client_secret | to_json }}
+      redirectURI: {{ dex_callback | to_json }}
+      tenant: {{ portikus_entra_tenant_id | to_json }}
+{% elif portikus_dex_upstream == 'google' %}
+  - type: google
+    id: google
+    name: Google
+    config:
+      clientID: {{ portikus_dex_upstream_client_id | to_json }}
+      clientSecret: {{ portikus_dex_upstream_client_secret | to_json }}
+      redirectURI: {{ dex_callback | to_json }}
+      hostedDomains: {{ portikus_google_domains | to_json }}
+{% endif %}
+{% endif %}

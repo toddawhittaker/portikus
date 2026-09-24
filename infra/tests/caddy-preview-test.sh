@@ -280,6 +280,8 @@ else
 fi
 has "/lti/* reaches the API" '^[[:space:]]+handle /lti/\* \{$' "${app}"
 has "the course list and members reach the API" '^[[:space:]]+handle /courses\* \{$' "${app}"
+has "the setup-code routes reach the API" '^[[:space:]]+handle /setup/\* \{$' "${app}"
+lacks "the /setup page is not sent to the API" 'handle /setup[^/]' "${app}"
 lacks "the /course pages are not sent to the API" 'handle /course[^s]' "${app}"
 has "the control plane is still compressed" '^[[:space:]]+encode gzip$' "${app}"
 lacks "the control plane has no preview routes" '__portikus' "${app}"
@@ -292,8 +294,8 @@ has "Dex is served under /dex on the application host" \
   '^[[:space:]]+handle /dex/\* \{$' "${app}"
 has "Dex keeps the /dex prefix and listens on loopback" \
   '^[[:space:]]+reverse_proxy 127\.0\.0\.1:5556$' "${app}"
-has "only password form posts are matched for the throttle" \
-  '^[[:space:]]+path /dex/auth/local/login\*$' "${app}"
+has "only password form posts, local and LDAP, are matched for the throttle" \
+  '^[[:space:]]+path /dex/auth/local/login\* /dex/auth/ldap/login\*$' "${app}"
 # Caddy matches a path pattern without escapes against the decoded path, so
 # POST /dex/auth/loc%61l/login is caught too.  A % in the pattern would switch
 # Caddy to matching the raw path and let encoded spellings past.

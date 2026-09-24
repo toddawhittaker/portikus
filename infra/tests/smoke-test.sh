@@ -685,10 +685,13 @@ sys.stdout.write(urllib.parse.urlencode({"login": sys.argv[1], "password": passw
     }
 
     # dex_signin SOURCE -- the whole browser flow through Caddy: /auth/login
-    # to Dex's form, post it (body on stdin), follow Dex back through the
-    # callback.  Prints the status of the last page.
+    # to Dex's password form, post it (body on stdin), follow Dex back
+    # through the callback.  Prints the status of the last page.  With an
+    # upstream connector Dex first shows a choice; the sed picks its own
+    # passwords, and changes nothing when there is no choice.
     dex_signin() {
       ssh_cmd_stdin "rm -f ${SIGNIN_JAR}; page=\$(${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' '${API}/auth/login') \
+        && page=\$(${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' \"\$(printf '%s' \"\$page\" | sed 's|/dex/auth?|/dex/auth/local?|')\") \
         && ${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L --data-binary @- -o /dev/null -w '%{http_code}' \"\$page\""
     }
     signin_has_session() {

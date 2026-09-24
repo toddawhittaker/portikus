@@ -1,6 +1,7 @@
 ---
-# Dex, the pilot's sign-in provider (docs/adr/0023-dex-static-users.md).
-# dex_version, dex_commit, dex_port and portikus_users_file are set in site.yml.
+# Dex, the site's own sign-in provider (ADR 0023, ADR 0028).
+# dex_version, dex_commit, dex_port, the dex_grpc_* paths and
+# portikus_users_file are set in site.yml.
 dex_config_dir: /etc/portikus-dex
 dex_client_secret_file: /etc/portikus/dex-client.secret
 dex_src_dir: /root/go/src/dex
@@ -13,7 +14,26 @@ dex_gocache: /root/go/dex-cache
 # password attempts burn the VM's CPU (docs/EPIC-12B.md, the users file).
 dex_bcrypt_pattern: '^\$2[aby]\$1[0-2]\$[./A-Za-z0-9]{53}$'
 
-# Ending sessions after a users deploy (tasks/revoke.yml).
-dex_users_revoke_script: /usr/lib/portikus/api/node_modules/@portikus/auth/dist/users-revoke-main.js
-dex_users_revoke_input: /run/portikus-users-revoke.json
-dex_users_state_file: "{{ dex_config_dir }}/deployed-users.json"
+# The gRPC API (dex_grpc_addr and dex_grpc_dir, set in site.yml).
+# Certificates are reissued when they have less than this many days left.
+dex_grpc_renew_days: 30
+
+# The one-time import of the users file (ruling 23), run by the portikus
+# role once the package is installed.
+dex_import_script: /usr/lib/portikus/api/node_modules/@portikus/auth/dist/dex-import-main.js
+dex_import_input: /run/portikus-dex-import.json
+
+# The upstream connector's settings (portikus_ldap_* and
+# portikus_dex_upstream_client_*) are set in site.yml.
+dex_ldap_root_ca_path: "{{ dex_config_dir }}/ldap-ca.crt"
+dex_ldap_attributes:
+  ad:
+    username: sAMAccountName
+    id: sAMAccountName
+    name: displayName
+    group_filter: (objectClass=group)
+  openldap:
+    username: uid
+    id: uid
+    name: cn
+    group_filter: (objectClass=groupOfNames)
