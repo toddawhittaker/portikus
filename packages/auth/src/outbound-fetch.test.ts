@@ -116,6 +116,18 @@ describe("OIDC through the outbound proxy", () => {
 	});
 });
 
+test("a proxied fetch leaves the process-wide fetch dispatcher alone", async () => {
+	const key = Symbol.for("undici.globalDispatcher.1");
+	const slots = globalThis as unknown as Record<symbol, unknown>;
+	const before = slots[key];
+	const getKey = createKeySetSource(proxyUrl)(`${ISSUER}/jwks`);
+	await getKey({ alg: "RS256", kid: "mock-key-1" }, {
+		payload: "",
+		signature: "",
+	} as never);
+	expect(slots[key]).toBe(before);
+});
+
 describe("LTI keysets through the outbound proxy", () => {
 	const header = { alg: "RS256", kid: "mock-key-1" };
 	const token = { payload: "", signature: "" } as never;
