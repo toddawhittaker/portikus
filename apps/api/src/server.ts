@@ -30,6 +30,7 @@ import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectEventsSocket } from "./routes/project-events.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerRecoveryRoutes } from "./routes/recovery.js";
+import { registerSetupRoutes } from "./routes/setup.js";
 import { registerTerminalRoutes } from "./routes/terminals.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
@@ -208,6 +209,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerLinkRoutes(instance, deps);
 		registerAdminRoutes(instance, deps);
 		registerAdminDexUserRoutes(instance, deps);
+		registerSetupRoutes(instance, deps);
 		registerMaintenanceRoutes(instance, deps);
 		registerAdminWorkspaceRoutes(instance, routeDeps);
 		registerAdminAuditRoutes(instance, routeDeps);

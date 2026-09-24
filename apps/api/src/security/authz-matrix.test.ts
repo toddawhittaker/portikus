@@ -51,6 +51,7 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/dex-users": 404,
 	"POST /admin/dex-users/:id/reset-password": 404,
 	"POST /admin/dex-users/:id/remove": 404,
+	"POST /setup/claim": 400,
 };
 
 // The smallest PNG: one transparent pixel.

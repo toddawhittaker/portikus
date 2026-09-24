@@ -627,6 +627,8 @@ describe("database migrations and schema", () => {
 				expect(down16.error).toBeUndefined();
 				const down17 = await migrator.migrateDown();
 				expect(down17.error).toBeUndefined();
+				const down18 = await migrator.migrateDown();
+				expect(down18.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -647,6 +649,7 @@ describe("database migrations and schema", () => {
 					"0015_lti",
 					"0016_account_links",
 					"0017_session_method",
+					"0018_setup_codes",
 				]);
 				throw rollback;
 			}),
@@ -668,6 +671,9 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0018_setup_codes",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0017_session_method",
 					);
@@ -714,6 +720,32 @@ describe("database migrations and schema", () => {
 		},
 	);
 
+	// --- migration 0018: setup codes (Epic 14, rulings 16 and 17) ---
+
+	test.skipIf(!hasTestDb())(
+		"0018 keeps one row per code hash and outlives the account that used it",
+		async () => {
+			const userId = await insertTestUser(t.db);
+			const expires = new Date(Date.now() + 3_600_000).toISOString();
+			await t.db
+				.insertInto("setup_codes")
+				.values({ code_hash: "h1", expires_at: expires, used_by: userId })
+				.execute();
+			await expect(
+				t.db
+					.insertInto("setup_codes")
+					.values({ code_hash: "h1", expires_at: expires })
+					.execute(),
+			).rejects.toThrow();
+			await t.db.deleteFrom("users").where("id", "=", userId).execute();
+			const row = await t.db
+				.selectFrom("setup_codes")
+				.select("used_by")
+				.executeTakeFirstOrThrow();
+			expect(row.used_by).toBeNull();
+		},
+	);
+
 	// --- migration 0017: session method and the link's archive stamp (Epic 13.1 review) ---
 
 	test.skipIf(!hasTestDb())(
@@ -754,6 +786,9 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0018_setup_codes",
+					);
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0017_session_method");
@@ -1093,6 +1128,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0018_setup_codes",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0017_session_method",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1140,6 +1178,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
 					const down15 = await migrator.migrateDown();
@@ -1567,7 +1606,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Down past 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					// Down past 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();

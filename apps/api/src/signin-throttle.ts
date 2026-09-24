@@ -196,3 +196,14 @@ export function registerSigninThrottle(
 export function registerSigninThrottleRoute(app: FastifyInstance): void {
 	app.get(EDGE_THROTTLE_PATH, async (_request, reply) => reply.status(204).send());
 }
+
+/** Setup-code attempts: ten per address in ten minutes (docs/EPIC-14.md ruling 17). */
+export function createSetupThrottle(now: () => number = Date.now) {
+	const attempts = createCounter(10, TEN_MINUTES_MS, now);
+	return {
+		check(ip: string): ThrottleDecision {
+			const window = attempts.hit(ip);
+			return decide(window, window.count > attempts.limit);
+		},
+	};
+}
