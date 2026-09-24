@@ -24,11 +24,12 @@ import {
 	Select,
 	TextField,
 } from "@portikus/ui";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
 	useEditorSettings,
 	useUpdateEditorSettings,
 } from "../editor/settingsQueries.js";
+import { LINK_CHANNEL, type LinkMessage } from "../link/channel.js";
 import {
 	readThemePreference,
 	rememberThemePreference,
@@ -39,7 +40,6 @@ import {
 	useMyLinks,
 	useProfile,
 	useRemovePicture,
-	useStartLink,
 	useUnlink,
 	useUpdateProfile,
 	useUploadPicture,
@@ -899,8 +899,41 @@ function ProfilePane({
  */
 function LinkedAccounts() {
 	const links = useMyLinks();
-	const start = useStartLink();
 	const unlink = useUnlink();
+	const [waiting, setWaiting] = useState(false);
+	const startButton = useRef<HTMLButtonElement>(null);
+	const reopenButton = useRef<HTMLButtonElement>(null);
+
+	// The link finishes in its own tab (docs/EPIC-13-1.md, "The flow" steps 2 and 4).
+	useEffect(() => {
+		const channel = new BroadcastChannel(LINK_CHANNEL);
+		channel.onmessage = (event: MessageEvent<LinkMessage>) => {
+			// Confirming ended this course session; the shared cookie now holds the SSO one.
+			if (event.data?.type === "linked") location.assign("/");
+			if (event.data?.type === "cancelled") setWaiting(false);
+		};
+		return () => channel.close();
+	}, []);
+
+	// Keep focus on a control when the button under it is swapped out.
+	const wasWaiting = useRef(false);
+	useEffect(() => {
+		if (waiting) reopenButton.current?.focus();
+		else if (wasWaiting.current) startButton.current?.focus();
+		wasWaiting.current = waiting;
+	}, [waiting]);
+
+	function openLinkTab() {
+		// Opened synchronously in the click so it is not blocked; opener is cut by hand
+		// because "noopener" would hide whether a pop-up blocker stopped it.
+		const tab = window.open("/link/start", "_blank");
+		if (tab === null) {
+			location.assign("/link/start");
+			return;
+		}
+		tab.opener = null;
+		setWaiting(true);
+	}
 
 	if (links.isPending) {
 		return <p className="pk-text-body m-0 text-ink-muted">Loading linked accounts…</p>;
@@ -924,30 +957,33 @@ function LinkedAccounts() {
 					account, link the two so your course opens that account and its workspace.
 					This course account's workspace is archived, not deleted.
 				</p>
-				{open ? (
+				{open && !waiting ? (
 					<div>
 						<Button
+							ref={startButton}
 							variant="primary"
 							data-testid="link-start"
-							loading={start.isPending || start.isSuccess}
-							onClick={() => start.mutate()}
+							onClick={openLinkTab}
 						>
 							Link to my SSO account
 						</Button>
 					</div>
-				) : (
+				) : null}
+				{open && waiting ? (
+					<div>
+						<Button ref={reopenButton} variant="secondary" onClick={openLinkTab}>
+							Open the sign-in tab again
+						</Button>
+					</div>
+				) : null}
+				{open ? null : (
 					<p className="pk-text-body m-0 text-ink" data-testid="link-too-late">
 						Open Portikus again from your course to link it.
 					</p>
 				)}
 				<p role="status" className="pk-text-compact m-0 text-ink-muted">
-					{start.isPending || start.isSuccess ? "Opening the SSO sign-in…" : ""}
+					{waiting ? "Finish signing in in the new tab." : ""}
 				</p>
-				{start.error ? (
-					<p className="pk-text-body m-0 text-status-error" role="alert">
-						{start.error.message}
-					</p>
-				) : null}
 			</div>
 		);
 	}

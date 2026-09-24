@@ -3,7 +3,6 @@ import {
 	MyLinks,
 	PICTURE_TOO_LARGE_MESSAGE,
 	Profile,
-	StartLinkResponse,
 	UnlinkResponse,
 	type UpdateProfileRequest,
 } from "@portikus/contracts";
@@ -70,14 +69,6 @@ export function useMyLinks() {
 	return useQuery({
 		queryKey: linksKey,
 		queryFn: () => request(MyLinks, "/me/links"),
-	});
-}
-
-/** Step 2: the server answers with the SSO sign-in address, and the browser goes there. */
-export function useStartLink() {
-	return useMutation({
-		mutationFn: () => request(StartLinkResponse, "/me/links/start", { method: "POST" }),
-		onSuccess: ({ redirectUrl }) => location.assign(redirectUrl),
 	});
 }
 

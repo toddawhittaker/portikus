@@ -35,16 +35,25 @@ test("the Profile link section and the /link page have no automatic violations",
 	await expect(start).toBeVisible();
 	await expectNoViolations(page, '[data-testid="dialog-editor-settings"]');
 
-	// The confirmation page, reached the real way; nothing is confirmed.
-	await start.click();
-	await page.waitForURL(`${MOCK_ISSUER}/authorize**`);
-	await page.getByTestId("mock-user-gail").click();
-	await page.waitForURL(`${WEB_ORIGIN}/link**`);
-	await expect(page.getByRole("button", { name: "Link accounts" })).toBeVisible();
-	await expectNoViolations(page);
+	// The SSO sign-in opens in a new tab; this one waits with a named control in focus.
+	const [tab] = await Promise.all([page.context().waitForEvent("page"), start.click()]);
+	const reopen = dialog.getByRole("button", { name: "Open the sign-in tab again" });
+	await expect(reopen).toBeFocused();
+	await expectNoViolations(page, '[data-testid="dialog-editor-settings"]');
 
-	// Link, then unlink as gail: focus must not fall back to the page body.
-	await page.getByRole("button", { name: "Link accounts" }).click();
+	// The confirmation page, reached the real way.
+	await tab.waitForURL(`${MOCK_ISSUER}/authorize**`);
+	await tab.getByTestId("mock-user-gail").click();
+	await tab.waitForURL(`${WEB_ORIGIN}/link**`);
+	await expect(tab.getByRole("button", { name: "Link accounts" })).toBeVisible();
+	await expectNoViolations(tab);
+
+	// Link in the new tab, which reloads this one; then unlink as gail: focus
+	// must not fall back to the page body.
+	await Promise.all([
+		page.waitForEvent("load", { timeout: 30_000 }),
+		tab.getByRole("button", { name: "Link accounts" }).click(),
+	]);
 	await page.waitForURL(`${WEB_ORIGIN}/workspaces/**`, { timeout: 30_000 });
 	await page.getByTestId("me").click();
 	await page.getByRole("menuitem", { name: "Settings" }).click();

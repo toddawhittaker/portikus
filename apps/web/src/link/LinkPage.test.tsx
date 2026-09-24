@@ -30,8 +30,19 @@ function stubLink(confirm: () => Response) {
 	return { posts, assign };
 }
 
-test("a pending link names both accounts and confirming goes home", async () => {
+/** Collects what this page tells the tab that started the link. */
+function listen() {
+	const heard: unknown[] = [];
+	const channel = new BroadcastChannel("portikus-link");
+	channel.onmessage = (event) => heard.push(event.data);
+	return heard;
+}
+
+test("confirming names both accounts, tells the waiting tab, and closes this one", async () => {
 	const { posts, assign } = stubLink(() => json(200, {}));
+	const close = vi.fn();
+	vi.stubGlobal("close", close);
+	const heard = listen();
 	renderApp("/link");
 
 	const accounts = await screen.findByTestId("link-accounts");
@@ -43,17 +54,30 @@ test("a pending link names both accounts and confirming goes home", async () => 
 
 	fireEvent.click(screen.getByRole("button", { name: "Link accounts" }));
 
-	await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
+	expect((await screen.findByTestId("link-done")).textContent).toBe(
+		"Linked. You can close this tab.",
+	);
+	expect(
+		screen.getByRole("link", { name: "Go to Portikus" }).getAttribute("href"),
+	).toBe("/");
+	await waitFor(() => expect(heard).toEqual([{ type: "linked" }]));
+	expect(close).toHaveBeenCalled();
+	expect(assign).not.toHaveBeenCalled();
 	expect(posts).toEqual(["/me/links/confirm"]);
-	expect(screen.getByRole("status").textContent).toBe("Linking your accounts…");
 });
 
-test("Cancel goes home without confirming", async () => {
+test("Cancel tells the waiting tab and leaves without confirming", async () => {
 	const { posts, assign } = stubLink(() => json(200, {}));
+	const close = vi.fn();
+	vi.stubGlobal("close", close);
+	const heard = listen();
 	renderApp("/link");
 
 	fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
 
+	await waitFor(() => expect(heard).toEqual([{ type: "cancelled" }]));
+	expect(close).toHaveBeenCalled();
+	// jsdom will not close a window, so the fallback goes home.
 	expect(assign).toHaveBeenCalledWith("/");
 	expect(posts).toEqual([]);
 });

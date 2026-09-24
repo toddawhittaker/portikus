@@ -54,10 +54,6 @@ function stubSettings(
 			return json(200, profile);
 		}
 		if (url === "/me/links") return json(200, myLinks);
-		if (url === "/me/links/start") {
-			linkWrites.push(url);
-			return startAnswer;
-		}
 		if (url.startsWith("/me/links/") && url.endsWith("/unlink")) {
 			linkWrites.push(url);
 			myLinks = {
@@ -100,13 +96,11 @@ let myLinks: {
 	links: { courseUserId: string; [key: string]: unknown }[];
 	launch: null;
 } = { source: "sso", linkUntil: null, links: [], launch: null };
-let startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
 let linkWrites: string[] = [];
 let unlinkSignsOut = false;
 
 afterEach(() => {
 	myLinks = { source: "sso", linkUntil: null, links: [], launch: null };
-	startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
 	linkWrites = [];
 	unlinkSignsOut = false;
 });
@@ -739,9 +733,7 @@ function minutesFromNow(minutes: number): string {
 	return new Date(Date.now() + minutes * 60_000).toISOString();
 }
 
-test("a fresh course session offers Link to my SSO account and goes to the SSO sign-in", async () => {
-	const assign = vi.fn();
-	vi.stubGlobal("location", { ...window.location, assign });
+function courseLinks() {
 	myLinks = {
 		source: "course",
 		linkUntil: minutesFromNow(10),
@@ -749,42 +741,79 @@ test("a fresh course session offers Link to my SSO account and goes to the SSO s
 		launch: null,
 	};
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+}
+
+function tell(message: { type: string }) {
+	const channel = new BroadcastChannel("portikus-link");
+	channel.postMessage(message);
+	channel.close();
+}
+
+test("Link to my SSO account opens the start page in a new tab and waits", async () => {
+	const tab = { opener: {} as unknown };
+	const open = vi.fn(() => tab);
+	vi.stubGlobal("open", open);
+	courseLinks();
 	const region = await openLinked();
 
 	fireEvent.click(
 		await within(region).findByRole("button", { name: "Link to my SSO account" }),
 	);
 
-	await waitFor(() =>
-		expect(assign).toHaveBeenCalledWith("https://sso.example.edu/authorize?x=1"),
-	);
-	expect(linkWrites).toEqual(["/me/links/start"]);
+	expect(open).toHaveBeenCalledWith("/link/start", "_blank");
+	expect(tab.opener).toBeNull();
+	expect(linkWrites).toEqual([]);
 	expect(within(region).getByRole("status").textContent).toBe(
-		"Opening the SSO sign-in…",
+		"Finish signing in in the new tab.",
 	);
+	const reopen = within(region).getByRole("button", {
+		name: "Open the sign-in tab again",
+	});
+	expect(document.activeElement).toBe(reopen);
+	fireEvent.click(reopen);
+	expect(open).toHaveBeenCalledTimes(2);
 });
 
-test("a refused start is announced as an alert", async () => {
-	myLinks = {
-		source: "course",
-		linkUntil: minutesFromNow(10),
-		links: [],
-		launch: null,
-	};
-	startAnswer = json(403, {
-		code: "FORBIDDEN",
-		message: "Open Portikus again from your course to link it.",
-	});
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+test("a blocked pop-up falls back to the start page in this tab", async () => {
+	vi.stubGlobal(
+		"open",
+		vi.fn(() => null),
+	);
+	const assign = vi.fn();
+	vi.stubGlobal("location", { ...window.location, assign });
+	courseLinks();
 	const region = await openLinked();
 
 	fireEvent.click(
 		await within(region).findByRole("button", { name: "Link to my SSO account" }),
 	);
 
-	expect((await within(region).findByRole("alert")).textContent).toBe(
-		"Open Portikus again from your course to link it.",
+	expect(assign).toHaveBeenCalledWith("/link/start");
+});
+
+test("the waiting tab reloads when the new tab links, and stops waiting when it cancels", async () => {
+	vi.stubGlobal(
+		"open",
+		vi.fn(() => ({ opener: null })),
 	);
+	const assign = vi.fn();
+	vi.stubGlobal("location", { ...window.location, assign });
+	courseLinks();
+	const region = await openLinked();
+	fireEvent.click(
+		await within(region).findByRole("button", { name: "Link to my SSO account" }),
+	);
+
+	tell({ type: "cancelled" });
+	const start = await within(region).findByRole("button", {
+		name: "Link to my SSO account",
+	});
+	await waitFor(() => expect(document.activeElement).toBe(start));
+	expect(within(region).getByRole("status").textContent).toBe("");
+
+	fireEvent.click(start);
+	tell({ type: "linked" });
+	await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
 });
 
 test("a course session past the 15-minute window is told to open Portikus again", async () => {

@@ -11,6 +11,7 @@ import {
 import { ADMIN_TABS, AdminPage } from "./admin/AdminPage.js";
 import { CourseListPage, CourseMembersPage } from "./course/CoursePage.js";
 import { LinkPage } from "./link/LinkPage.js";
+import { LinkStartPage } from "./link/LinkStartPage.js";
 import { MIN_PREVIEW_PORT, UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
@@ -57,6 +58,13 @@ const linkRoute = createRoute({
 	component: function LinkScreen() {
 		return <LinkPage error={linkRoute.useSearch().error} />;
 	},
+});
+
+/** Settings opens this in a new tab to start a link (docs/EPIC-13-1.md, "The flow" step 2). */
+const linkStartRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/link/start",
+	component: LinkStartPage,
 });
 
 function safeUuid(value: unknown): string | undefined {
@@ -213,6 +221,7 @@ export const routeTree = rootRoute.addChildren([
 	notAuthorizedRoute,
 	unlinkedRoute,
 	linkRoute,
+	linkStartRoute,
 	adminRoute,
 	courseRoute,
 	courseMembersRoute,
