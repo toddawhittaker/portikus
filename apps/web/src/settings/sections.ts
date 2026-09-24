@@ -51,6 +51,10 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 					{ id: "website", label: "Personal site" },
 				],
 			},
+			{
+				title: "Linked accounts",
+				controls: [{ id: "sso-link", label: "Link to my SSO account" }],
+			},
 		],
 	},
 	{

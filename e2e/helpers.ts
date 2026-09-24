@@ -19,7 +19,7 @@ export function toast(page: Page, text: string): Locator {
 }
 
 /** The mock identity provider's users (packages/auth testing). */
-export type MockUser = "alice" | "bob" | "carol" | "dave";
+export type MockUser = "alice" | "bob" | "carol" | "dave" | "erin" | "frank" | "gail";
 
 /**
  * Log in through the browser: click Sign in, pick a user on the mock
