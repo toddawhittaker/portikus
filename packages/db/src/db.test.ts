@@ -623,6 +623,10 @@ describe("database migrations and schema", () => {
 				expect(down14.error).toBeUndefined();
 				const down15 = await migrator.migrateDown();
 				expect(down15.error).toBeUndefined();
+				const down16 = await migrator.migrateDown();
+				expect(down16.error).toBeUndefined();
+				const down17 = await migrator.migrateDown();
+				expect(down17.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -641,10 +645,337 @@ describe("database migrations and schema", () => {
 					"0013_recovery",
 					"0014_admin",
 					"0015_lti",
+					"0016_account_links",
+					"0017_session_method",
 				]);
 				throw rollback;
 			}),
 		).rejects.toBe(rollback);
+	});
+
+	// --- migration 0016: account links and the role grant (Epic 13.1) ---
+
+	test.skipIf(!hasTestDb())(
+		"0016 backfills provider_role from role and rolls back cleanly",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0017_session_method",
+					);
+					const down = await migrator.migrateDown();
+					expect(down.error).toBeUndefined();
+					expect(down.results?.[0]?.migrationName).toBe("0016_account_links");
+					const gone = await sql<{ n: number }>`
+					select count(*)::int as n from information_schema.tables
+					where table_name in ('account_links', 'account_link_intents')`.execute(trx);
+					expect(gone.rows[0]?.n).toBe(0);
+					const columns = await sql<{ n: number }>`
+					select count(*)::int as n from information_schema.columns
+					where table_name = 'users' and column_name in ('provider_role', 'granted_role')`.execute(
+						trx,
+					);
+					expect(columns.rows[0]?.n).toBe(0);
+
+					const ids: Record<string, string> = {};
+					for (const role of ["student", "instructor", "administrator"]) {
+						const { rows } = await sql<{ id: string }>`
+						insert into users (oidc_issuer, oidc_subject, display_name, role)
+						values ('https://idp.test', ${role}, 'Someone', ${role}) returning id`.execute(
+							trx,
+						);
+						ids[role] = rows[0]?.id as string;
+					}
+
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+					const rows = await trx
+						.selectFrom("users")
+						.select(["id", "role", "provider_role", "granted_role"])
+						.execute();
+					for (const role of ["student", "instructor", "administrator"]) {
+						expect(rows.find((r) => r.id === ids[role])).toMatchObject({
+							role,
+							provider_role: role,
+							granted_role: null,
+						});
+					}
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+
+	// --- migration 0017: session method and the link's archive stamp (Epic 13.1 review) ---
+
+	test.skipIf(!hasTestDb())(
+		"0017 backfills session methods and the link's archive stamp, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const plain = await insertTestUser(trx);
+					const sso = await insertTestUser(trx);
+					const unlinkedCourse = await insertTestLtiUser(
+						trx,
+						"https://third.test.invalid",
+					);
+					const course = await insertTestLtiUser(trx);
+					const lateCourse = await insertTestLtiUser(trx, "https://other.test.invalid");
+					const linkedAt = "2026-09-20T10:00:00.000Z";
+					const stamp = "2026-09-20T10:00:02.000Z";
+					const laterStamp = "2026-09-21T10:00:00.000Z";
+					for (const [owner, archivedAt] of [
+						[course, stamp],
+						[lateCourse, laterStamp],
+					] as const) {
+						await trx
+							.insertInto("workspaces")
+							.values({
+								label: testLabel(),
+								owner_user_id: owner,
+								state: "stopped",
+								archived_at: archivedAt,
+							})
+							.execute();
+					}
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const down = await migrator.migrateDown();
+					expect(down.error).toBeUndefined();
+					expect(down.results?.[0]?.migrationName).toBe("0017_session_method");
+					await sql`insert into sessions (id, user_id, expires_at) values
+						('plain', ${plain}, now() + interval '1 hour'),
+						('launch', ${unlinkedCourse}, now() + interval '1 hour'),
+						('sso', ${sso}, now() + interval '1 hour'),
+						('course', ${course}, now() + interval '1 hour')`.execute(trx);
+					await sql`insert into account_links (course_user_id, user_id, platform_issuer, archived_workspace, created_at)
+						values (${course}, ${sso}, 'https://lms.test.invalid', true, ${linkedAt}),
+						       (${lateCourse}, ${sso}, 'https://other.test.invalid', true, ${linkedAt})`.execute(
+						trx,
+					);
+
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+					const sessions = await trx
+						.selectFrom("sessions")
+						.select(["id", "method", "course_user_id"])
+						.orderBy("id")
+						.execute();
+					// Both sides of a link lose their sessions; the rest are classified.
+					expect(sessions).toEqual([
+						{ id: "launch", method: "lti", course_user_id: null },
+						{ id: "plain", method: "oidc", course_user_id: null },
+					]);
+					const links = await trx
+						.selectFrom("account_links")
+						.select(["course_user_id", "archived_at"])
+						.execute();
+					const archived = links.find((l) => l.course_user_id === course);
+					expect(new Date(archived?.archived_at ?? 0).toISOString()).toBe(stamp);
+					// An archive written a day after the link is not the link's.
+					expect(
+						links.find((l) => l.course_user_id === lateCourse)?.archived_at,
+					).toBeNull();
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"sessions refuse an unknown method and a course user on a non-launch session",
+		async () => {
+			const user = await insertTestUser(t.db);
+			const course = await insertTestLtiUser(t.db);
+			const row = (id: string) => ({
+				id,
+				user_id: user,
+				expires_at: new Date(Date.now() + 60_000).toISOString(),
+			});
+			await expect(
+				t.db
+					.insertInto("sessions")
+					.values({ ...row("a"), method: "password" })
+					.execute(),
+			).rejects.toThrow(/sessions_method_check/);
+			await expect(
+				t.db
+					.insertInto("sessions")
+					.values({ ...row("b"), method: "oidc", course_user_id: course })
+					.execute(),
+			).rejects.toThrow(/sessions_course_user_check/);
+			await t.db
+				.insertInto("sessions")
+				.values({ ...row("c"), method: "lti", course_user_id: course })
+				.execute();
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"a user inserted with only a role gets it as provider_role",
+		async () => {
+			const id = await insertTestUser(t.db, { role: "administrator" });
+			const row = await t.db
+				.selectFrom("users")
+				.select(["provider_role", "granted_role"])
+				.where("id", "=", id)
+				.executeTakeFirstOrThrow();
+			expect(row).toEqual({ provider_role: "administrator", granted_role: null });
+		},
+	);
+
+	test.skipIf(!hasTestDb())("granted_role accepts only the two grants", async () => {
+		const id = await insertTestUser(t.db);
+		for (const grant of ["instructor", "administrator", null]) {
+			await t.db
+				.updateTable("users")
+				.set({ granted_role: grant })
+				.where("id", "=", id)
+				.execute();
+		}
+		for (const grant of ["student", "owner"]) {
+			await expect(
+				t.db
+					.updateTable("users")
+					.set({ granted_role: grant })
+					.where("id", "=", id)
+					.execute(),
+			).rejects.toThrow(/users_granted_role_check/);
+		}
+		await expect(
+			t.db
+				.updateTable("users")
+				.set({ provider_role: "owner" })
+				.where("id", "=", id)
+				.execute(),
+		).rejects.toThrow(/users_provider_role_check/);
+	});
+
+	test.skipIf(!hasTestDb())("a course account can never hold a grant", async () => {
+		const id = await insertTestLtiUser(t.db);
+		for (const grant of ["instructor", "administrator"]) {
+			await expect(
+				t.db
+					.updateTable("users")
+					.set({ granted_role: grant })
+					.where("id", "=", id)
+					.execute(),
+			).rejects.toThrow(/users_granted_role_sso_check/);
+		}
+		await expect(
+			insertTestLtiUser(t.db, "https://lms.test.invalid", {
+				granted_role: "administrator",
+			}),
+		).rejects.toThrow(/users_granted_role_sso_check/);
+	});
+
+	test.skipIf(!hasTestDb())(
+		"account_links: one per platform per SSO account, one per course account",
+		async () => {
+			const sso = await insertTestUser(t.db);
+			const otherSso = await insertTestUser(t.db);
+			const course = await insertTestLtiUser(t.db);
+			const secondCourse = await insertTestLtiUser(t.db);
+			const link = {
+				course_user_id: course,
+				user_id: sso,
+				platform_issuer: "https://lms.test.invalid",
+				archived_at: null,
+			};
+			await t.db.insertInto("account_links").values(link).execute();
+			await expect(
+				t.db
+					.insertInto("account_links")
+					.values({ ...link, course_user_id: secondCourse })
+					.execute(),
+			).rejects.toThrow(/account_links_user_platform_key/);
+			await expect(
+				t.db
+					.insertInto("account_links")
+					.values({ ...link, user_id: otherSso })
+					.execute(),
+			).rejects.toThrow(/account_links_pkey/);
+			await expect(
+				t.db
+					.insertInto("account_links")
+					.values({ ...link, course_user_id: sso, user_id: sso })
+					.execute(),
+			).rejects.toThrow(/account_links_distinct_check/);
+			// Another platform may link to the same SSO account.
+			await t.db
+				.insertInto("account_links")
+				.values({
+					...link,
+					course_user_id: secondCourse,
+					platform_issuer: "https://other.lms",
+				})
+				.execute();
+
+			await t.db.deleteFrom("users").where("id", "=", course).execute();
+			const left = await t.db
+				.selectFrom("account_links")
+				.select("course_user_id")
+				.execute();
+			expect(left).toEqual([{ course_user_id: secondCourse }]);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"account_link_intents: one per session, removed with the session",
+		async () => {
+			const course = await insertTestLtiUser(t.db);
+			await t.db
+				.insertInto("sessions")
+				.values({
+					id: "session-hash",
+					user_id: course,
+					expires_at: "2999-01-01T00:00:00Z",
+				})
+				.execute();
+			const intent = {
+				state_hash: "state-1",
+				session_id: "session-hash",
+				course_user_id: course,
+				expires_at: "2999-01-01T00:00:00Z",
+			};
+			await t.db.insertInto("account_link_intents").values(intent).execute();
+			await expect(
+				t.db
+					.insertInto("account_link_intents")
+					.values({ ...intent, state_hash: "state-2" })
+					.execute(),
+			).rejects.toThrow(/account_link_intents_session_id_key/);
+			await t.db.deleteFrom("sessions").where("id", "=", "session-hash").execute();
+			expect(
+				await t.db.selectFrom("account_link_intents").selectAll().execute(),
+			).toEqual([]);
+		},
+	);
+
+	test.skipIf(!hasTestDb())("the new tables carry their indexes", async () => {
+		const { rows } = await sql<{ indexname: string; indexdef: string }>`
+			SELECT indexname, indexdef FROM pg_indexes
+			WHERE indexname IN ('account_links_user_id_idx', 'account_link_intents_expires_at_idx')
+			ORDER BY indexname
+		`.execute(t.db);
+		expect(rows.map((r) => r.indexname)).toEqual([
+			"account_link_intents_expires_at_idx",
+			"account_links_user_id_idx",
+		]);
 	});
 
 	// --- migration 0015: LTI launch and the instructor role (Epic 13) ---
@@ -654,8 +985,9 @@ describe("database migrations and schema", () => {
 		async () => {
 			const id = await insertTestUser(t.db, { role: "instructor" });
 			expect(id).toBeTruthy();
+			// Since 0016 the copied provider_role check may fire first; either refuses.
 			await expect(insertTestUser(t.db, { role: "teacher" })).rejects.toThrow(
-				/users_role_check/,
+				/users_(provider_)?role_check/,
 			);
 		},
 	);
@@ -760,6 +1092,12 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0017_session_method",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0016_account_links",
+					);
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0015_lti");
@@ -802,6 +1140,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					await migrator.migrateDown();
+					await migrator.migrateDown();
 					const down15 = await migrator.migrateDown();
 					expect(down15.results?.[0]?.migrationName).toBe("0015_lti");
 					const down = await migrator.migrateDown();
@@ -1227,7 +1567,9 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Down past 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					// Down past 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();

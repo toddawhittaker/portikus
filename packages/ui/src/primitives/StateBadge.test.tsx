@@ -40,4 +40,10 @@ describe("StateBadge", () => {
 		render(<StateBadge state="running" live={true} />);
 		expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
 	});
+
+	it("has no status role in a table cell", () => {
+		render(<StateBadge state="running" statusRole={false} />);
+		expect(screen.queryByRole("status")).toBeNull();
+		expect(screen.getByText("Running")).toBeTruthy();
+	});
 });

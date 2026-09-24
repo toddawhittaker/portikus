@@ -1,7 +1,10 @@
 import {
 	MAX_PROFILE_PICTURE_BYTES,
+	MyLinks,
 	PICTURE_TOO_LARGE_MESSAGE,
 	Profile,
+	StartLinkResponse,
+	UnlinkResponse,
 	type UpdateProfileRequest,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -58,4 +61,36 @@ export function useRemovePicture() {
 	return useProfileMutation(() =>
 		request(Profile, "/me/picture", { method: "DELETE" }),
 	);
+}
+
+export const linksKey = ["me", "links"] as const;
+
+/** Whether this is a course or an SSO account, and its links (docs/EPIC-13-1.md, "The flow" step 1). */
+export function useMyLinks() {
+	return useQuery({
+		queryKey: linksKey,
+		queryFn: () => request(MyLinks, "/me/links"),
+	});
+}
+
+/** Step 2: the server answers with the SSO sign-in address. */
+export function startLink() {
+	return request(StartLinkResponse, "/me/links/start", { method: "POST" });
+}
+
+/** Step 7. */
+export function useUnlink() {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: (courseUserId: string) =>
+			request(UnlinkResponse, `/me/links/${encodeURIComponent(courseUserId)}/unlink`, {
+				method: "POST",
+			}),
+		// Returning the refetch makes a caller's onSuccess wait until the row is gone.
+		onSuccess: ({ signedOut }) =>
+			// This session is gone, so a full load drops every cached answer.
+			signedOut
+				? location.assign("/unlinked")
+				: client.invalidateQueries({ queryKey: linksKey }),
+	});
 }

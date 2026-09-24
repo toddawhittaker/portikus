@@ -42,12 +42,45 @@ describe("ConfirmDialog", () => {
 		expect(onConfirm).toHaveBeenCalledTimes(1);
 	});
 
-	it("disables the confirm button while pending", () => {
-		render(<Fixture pending />);
+	it("keeps the confirm button focusable but inert while pending", () => {
+		const onConfirm = vi.fn();
+		render(<Fixture pending onConfirm={onConfirm} />);
 
 		const confirm = screen.getByRole("button", { name: "Archive project…" });
-		expect(confirm.hasAttribute("disabled")).toBe(true);
+		expect(confirm.hasAttribute("disabled")).toBe(false);
+		expect(confirm.getAttribute("aria-disabled")).toBe("true");
 		expect(confirm.getAttribute("aria-busy")).toBe("true");
+		fireEvent.click(confirm);
+		expect(onConfirm).not.toHaveBeenCalled();
+	});
+
+	it("keeps focus on the confirm button through a failed request", async () => {
+		function Failing() {
+			const [pending, setPending] = React.useState(false);
+			return (
+				<ConfirmDialogRoot defaultOpen>
+					<ConfirmDialog
+						title="Archive todo-api?"
+						confirmLabel="Archive project"
+						pending={pending}
+						onConfirm={() => {
+							setPending(true);
+							// The request fails a moment later.
+							Promise.reject(new Error("503"))
+								.catch(() => undefined)
+								.finally(() => setPending(false));
+						}}
+					/>
+				</ConfirmDialogRoot>
+			);
+		}
+		render(<Failing />);
+		const confirm = screen.getByTestId("dialog-confirm");
+		confirm.focus();
+		fireEvent.click(confirm);
+		expect(confirm.getAttribute("aria-busy")).toBe("true");
+		await waitFor(() => expect(confirm.getAttribute("aria-busy")).toBeNull());
+		expect(document.activeElement).toBe(confirm);
 	});
 
 	it("keeps the confirm button disabled until the text matches", () => {

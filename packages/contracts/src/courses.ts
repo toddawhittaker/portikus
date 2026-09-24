@@ -17,8 +17,12 @@ export type CoursesResponse = z.infer<typeof CoursesResponse>;
 export const CourseMemberRole = z.enum(["student", "instructor"]);
 export type CourseMemberRole = z.infer<typeof CourseMemberRole>;
 
-/** One row of the Course page; never an email, user id, subject or workspace id. */
+/**
+ * One row of the Course page; never an email, subject or workspace id. The
+ * user id is there so the instructor can remove the member.
+ */
 export const CourseMember = z.object({
+	userId: z.string().uuid(),
 	displayName: z.string().min(1),
 	role: CourseMemberRole,
 	lastLaunchAt: z.string().datetime({ offset: true }),

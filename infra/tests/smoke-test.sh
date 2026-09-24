@@ -827,8 +827,9 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
         json_field "$instructor" course_titles
       lti_has_sam() { json_field "$instructor" member_names | tr ',' '\n' | grep -qx 'Sam Student'; }
       check "the course lists the student who launched before" lti_has_sam
-      check_output "members carry only name, role, last launch and workspace state" \
-        "displayName,lastLaunchAt,role,workspaceState" json_field "$instructor" member_fields
+      # Epic 13 ruling 23 is amended: members carry their user id for removal (#506).
+      check_output "members carry only name, role, last launch, user id and workspace state" \
+        "displayName,lastLaunchAt,role,userId,workspaceState" json_field "$instructor" member_fields
       check_output "the instructor gets 403 from the admin routes" "403" json_field "$instructor" admin
 
       # The accounts mock launches made stay; the operator decides what to do with them.

@@ -1,19 +1,28 @@
 import {
+	bindLinkIntent,
 	deleteSession,
+	findLinkIntent,
+	hashSessionToken,
+	type LinkIntent,
 	type LoginState,
 	loginCookieName,
 	loginCookieOptions,
 	mapRole,
 	OidcError,
+	platformIssuerOf,
 	sessionCookieName,
 	sessionCookieOptions,
 } from "@portikus/auth";
-import type { ApiError, MeResponse } from "@portikus/contracts";
+import type { ApiError, LinkError, MeResponse } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
 import { revokeSessionPreviewSessions } from "../preview/store.js";
 import type { ServerDeps } from "../server.js";
-import { completeSignIn, requestMetadata } from "./start-session.js";
+import {
+	completeSignIn,
+	requestMetadata,
+	audit as writeAudit,
+} from "./start-session.js";
 
 const DENIED_MESSAGE = "Your account is not authorized to use Portikus";
 
@@ -73,19 +82,20 @@ export function registerAuthRoutes(
 
 		const raw = request.cookies[loginCookie];
 		const unsigned = raw ? request.unsignCookie(raw) : null;
-		if (!unsigned?.valid || !unsigned.value) {
-			return fail(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"The login request expired. Please sign in again.",
-			);
+		let loginState: LoginState | null = null;
+		if (unsigned?.valid && unsigned.value) {
+			try {
+				loginState = JSON.parse(unsigned.value) as LoginState;
+			} catch {
+				loginState = null;
+			}
 		}
-
-		let loginState: LoginState;
-		try {
-			loginState = JSON.parse(unsigned.value) as LoginState;
-		} catch {
+		if (!loginState) {
+			// A link attempt whose cookie is gone still belongs on the link page (ruling 18).
+			const { state } = request.query as { state?: unknown };
+			if (typeof state === "string" && (await findLinkIntent(db, state))) {
+				return reply.redirect("/link?error=expired", 302);
+			}
 			return fail(
 				reply,
 				400,
@@ -97,6 +107,13 @@ export function registerAuthRoutes(
 		reply.clearCookie(loginCookie, loginCookieOptions(auth));
 
 		const callbackUrl = new URL(request.url, auth.publicUrl);
+
+		// A stored intent under this state means the course account asked to
+		// link (docs/EPIC-13-1.md, "The flow" step 3); otherwise a sign-in.
+		const intent = await findLinkIntent(db, loginState.state);
+		if (intent) {
+			return linkCallback(request, reply, callbackUrl, loginState, intent);
+		}
 
 		let identity: Awaited<ReturnType<typeof oidc.completeLogin>>["identity"];
 		let claims: Record<string, unknown>;
@@ -128,11 +145,93 @@ export function registerAuthRoutes(
 		const signedIn = await completeSignIn(db, auth, reply, {
 			identity,
 			role,
+			method: "oidc",
 			loginMetadata: requestMetadata(request),
+			roleChangeMetadata: { source: "oidc" },
 		});
 		if (!signedIn.ok) return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		return reply.redirect("/", 302);
 	});
+
+	/**
+	 * The callback in link mode (ruling 3 and 18): it never creates, updates
+	 * or signs in a user. It only binds the SSO account to the intent, and
+	 * every outcome goes to /link.
+	 */
+	async function linkCallback(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		callbackUrl: URL,
+		loginState: LoginState,
+		intent: LinkIntent,
+	) {
+		if (!oidc) return fail(reply, 500, "INTERNAL", "Login is not configured");
+		const refuse = async (
+			code: LinkError,
+			result: "failed" | "denied",
+			ssoUserId: string | null,
+		) => {
+			const who = ssoUserId ?? intent.courseUserId;
+			await writeAudit(db, "user.linked", `user:${who}`, who, result, {
+				reason: code,
+				courseUserId: intent.courseUserId,
+				...requestMetadata(request),
+			});
+			return reply.redirect(`/link?error=${code}`, 302);
+		};
+
+		const sessionId = request.sessionToken
+			? hashSessionToken(request.sessionToken)
+			: null;
+		if (intent.sessionId !== sessionId)
+			return refuse("session_changed", "failed", null);
+		if (intent.userId !== null || intent.expiresAt <= new Date()) {
+			return refuse("expired", "failed", null);
+		}
+
+		let completed: Awaited<ReturnType<typeof oidc.completeLogin>>;
+		try {
+			completed = await oidc.completeLogin(callbackUrl, loginState);
+		} catch (error) {
+			if (error instanceof OidcError) return refuse("failed", "failed", null);
+			throw error;
+		}
+		if (!mapRole(completed.claims, auth)) {
+			return refuse("not_authorized", "denied", null);
+		}
+
+		// Only the issuer and subject find the account, never email or username.
+		const sso = await db
+			.selectFrom("users")
+			.select(["id", "disabled_at"])
+			.where("oidc_issuer", "=", completed.identity.issuer)
+			.where("oidc_subject", "=", completed.identity.subject)
+			.executeTakeFirst();
+		if (!sso) return refuse("no_account", "denied", null);
+		if (sso.disabled_at !== null) return refuse("not_authorized", "denied", sso.id);
+
+		const course = await db
+			.selectFrom("users")
+			.select("oidc_issuer")
+			.where("id", "=", intent.courseUserId)
+			.executeTakeFirstOrThrow();
+		const platformIssuer = platformIssuerOf(course.oidc_issuer);
+		const taken = await db
+			.selectFrom("account_links")
+			.select("course_user_id")
+			.where("user_id", "=", sso.id)
+			.where("platform_issuer", "=", platformIssuer)
+			.executeTakeFirst();
+		if (taken) return refuse("already_linked", "denied", sso.id);
+
+		const bound = await bindLinkIntent(db, {
+			state: loginState.state,
+			sessionId: intent.sessionId,
+			userId: sso.id,
+		});
+		if (bound) return refuse(bound, "failed", sso.id);
+		return reply.redirect("/link", 302);
+	}
 
 	app.post("/auth/logout", async (request, reply) => {
 		const user = request.user;

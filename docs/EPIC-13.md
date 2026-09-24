@@ -152,7 +152,7 @@ Rulings 1 to 11 were made by the orchestrator. Rulings from 12 on were made in t
 23. **Course page API.** Two routes, access class `course-instructor` (new in `route-policy.ts`):
     - `GET /courses`: the courses in which the caller's membership role is `instructor`, as `[{id, title, platformName}]`. An empty list for everyone else, including administrators.
     - `GET /courses/:courseId/members`: `{course: {id, title, platformName}, members: [{displayName, role, lastLaunchAt, workspaceState}]}`, sorted by role then name. `workspaceState` is the workspace's `state`, or `null` when the member has none. It answers 404 unless the caller is an `instructor` member of that course (the same "not yours looks like nothing" rule as workspaces).
-    - The response never contains emails, user ids, subjects or workspace ids.
+    - The response never contains emails, user ids, subjects or workspace ids. (Amended in Epic 13.1 T6: each member carries its `userId`, so an instructor can remove them through `POST /courses/:courseId/members/:userId/remove`. Emails, subjects and workspace ids still never appear.)
     - Administrators do not get the Course page; the admin page already shows every user. That can change later.
 
 24. **Web.** The header shows a "Course" link when `GET /courses` returns at least one course. `/course` lists the courses (and opens the only one directly), `/course/:courseId` shows the members table. Instructors see no admin link. `/auth/me`'s `role` can now be `instructor`, and nothing in the web app treats "not administrator" as "student" for access.
@@ -163,7 +163,7 @@ Rulings 1 to 11 were made by the orchestrator. Rulings from 12 on were made in t
 
 26. **Registering the mock on the pilot.** The pilot's API reaches the mock at `http://10.100.0.1:<port>`, the host's address on the VM network. (Amended after the pilot: the default is now the host's LAN address, which both the browser and the VM can reach.) The mock's launch form carries a token made fresh for each process, and `replayed_nonce` refuses an expired token (amended after review). `make lti-mock-register` adds a `mock: true` registration named `mock-lms` to the host platforms file, and runs the play limited to the LTI tasks. `make lti-mock-unregister` removes both. (Amended in the confirmation review:) the mock's address reaches the API's egress allow-list the same way a real LMS does, through the keyset addresses `lti_load.yml` derives from the platforms file (`portikus_lti_keyset_cidrs`), not through `portikus_api_ip_allow_extra`. While a `mock: true` registration exists, `make security-test` prints a warning naming it, and the smoke test reports it.
 
-27. **Membership is only ever added or refreshed.** A person removed from a course in the LMS stays on the Course page with their old last-launch time. Roster sync is NRPS, which is out.
+27. **Membership is only ever added or refreshed.** A person removed from a course in the LMS stays on the Course page with their old last-launch time. Roster sync is NRPS, which is out. (Amended in Epic 13.1 T6: an instructor can remove a member from the Course page. That deletes only the one membership row and writes a `course.member_removed` audit row. A later launch from the LMS adds the membership back.)
 
 ## Validation reference
 

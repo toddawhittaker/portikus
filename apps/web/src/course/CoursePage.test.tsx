@@ -1,6 +1,8 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import type { CourseMember, CourseMembersResponse } from "@portikus/contracts";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
+import { nextRemovable } from "./CoursePage.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -9,6 +11,7 @@ const CS101 = {
 	title: "CS 101 Intro to Programming",
 	platformName: "canvas",
 };
+const SAM_ID = "77777777-7777-4777-8777-777777777777";
 const CS240 = {
 	id: "66666666-6666-4666-8666-666666666666",
 	title: "CS 240 Data Structures",
@@ -97,12 +100,14 @@ test("the members table shows name, role, last launch and workspace state", asyn
 				course: CS101,
 				members: [
 					{
+						userId: USER.id,
 						displayName: "Ivy Instructor",
 						role: "instructor",
 						lastLaunchAt: "2026-09-23T14:05:00.000Z",
 						workspaceState: "running",
 					},
 					{
+						userId: SAM_ID,
 						displayName: "Sam Student",
 						role: "student",
 						lastLaunchAt: "2026-09-22T09:00:00.000Z",
@@ -117,7 +122,7 @@ test("the members table shows name, role, last launch and workspace state", asyn
 	const headers = within(table)
 		.getAllByRole("columnheader")
 		.map((cell) => cell.textContent);
-	expect(headers).toEqual(["Name", "Role", "Last launch", "Workspace"]);
+	expect(headers).toEqual(["Name", "Role", "Last launch", "Workspace", "Actions"]);
 	const rows = within(table).getAllByRole("row").slice(1);
 	expect(rows).toHaveLength(2);
 	expect(within(rows[0] as HTMLElement).getByRole("rowheader").textContent).toBe(
@@ -128,8 +133,13 @@ test("the members table shows name, role, last launch and workspace state", asyn
 	expect(rows[0]?.textContent?.toLowerCase()).toContain("running");
 	expect(rows[1]?.textContent).toContain("Student");
 	expect(rows[1]?.textContent).toContain("No workspace");
-	// Read-only: nothing in the table can be pressed.
-	expect(within(table).queryByRole("button")).toBeNull();
+	// Only the other person can be removed, and no cell is a live region.
+	expect(
+		within(table)
+			.getAllByRole("button")
+			.map((b) => b.textContent),
+	).toEqual(["Remove Sam Student from course"]);
+	expect(within(table).queryByRole("status")).toBeNull();
 	expect(document.title).toBe(`${CS101.title}, Portikus`);
 });
 
@@ -160,4 +170,156 @@ test("signed out, the Course page goes to sign-in", async () => {
 	const { router } = renderApp("/course");
 
 	await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+});
+
+function samMember(): CourseMember {
+	return {
+		userId: SAM_ID,
+		displayName: "Sam Student",
+		role: "student",
+		lastLaunchAt: "2026-09-22T09:00:00.000Z",
+		workspaceState: null,
+	};
+}
+
+function roster(): CourseMembersResponse {
+	return { course: CS101, members: [samMember()] };
+}
+
+test("removing asks first, naming the person and the course, then the row goes", async () => {
+	const removeUrl = `/courses/${CS101.id}/members/${SAM_ID}/remove`;
+	const calls: string[] = [];
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, USER);
+		if (url === `/courses/${CS101.id}/members`) return json(200, roster());
+		if (url === removeUrl) {
+			calls.push(init?.method ?? "GET");
+			return json(200, {});
+		}
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Remove Sam Student from course" }),
+	);
+	const dialog = await screen.findByTestId("dialog-remove-member");
+	expect(dialog.textContent).toContain(`Remove Sam Student from ${CS101.title}?`);
+	expect(dialog.textContent).toContain(
+		"They reappear if they open Portikus from the course again.",
+	);
+
+	// Cancel leaves the row and sends nothing.
+	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	await waitFor(() => expect(screen.queryByTestId("dialog-remove-member")).toBeNull());
+	expect(calls).toEqual([]);
+
+	fireEvent.click(
+		screen.getByRole("button", { name: "Remove Sam Student from course" }),
+	);
+	const again = await screen.findByTestId("dialog-remove-member");
+	fireEvent.click(within(again).getByRole("button", { name: "Remove from course" }));
+
+	await waitFor(() =>
+		expect(screen.queryByRole("rowheader", { name: "Sam Student" })).toBeNull(),
+	);
+	expect(calls).toEqual(["POST"]);
+	expect(screen.getByTestId("course-removed").textContent).toBe(
+		`Removed Sam Student from ${CS101.title}`,
+	);
+	// Nobody is left, so focus lands on the heading rather than the page body.
+	await waitFor(() => expect(document.activeElement?.id).toBe("course-title"));
+	expect(screen.queryByTestId("dialog-remove-member")).toBeNull();
+});
+
+test("a failed removal keeps the row and says so in the dialog", async () => {
+	serve({
+		[`/courses/${CS101.id}/members`]: () => json(200, roster()),
+		[`/courses/${CS101.id}/members/${SAM_ID}/remove`]: () =>
+			json(500, { code: "INTERNAL", message: "boom" }),
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Remove Sam Student from course" }),
+	);
+	const dialog = await screen.findByTestId("dialog-remove-member");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Remove from course" }));
+
+	expect((await within(dialog).findByRole("alert")).textContent).toBe(
+		"Portikus could not remove them. Try again.",
+	);
+	expect(
+		within(screen.getByTestId("course-members")).getByText("Sam Student"),
+	).toBeDefined();
+});
+
+test("after a removal, focus moves to the next row's Remove button", async () => {
+	const PAT_ID = "88888888-8888-4888-8888-888888888888";
+	let members = [
+		...roster().members,
+		{ ...samMember(), userId: PAT_ID, displayName: "Pat Student" },
+	];
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, USER);
+		if (url === `/courses/${CS101.id}/members`)
+			return json(200, { course: CS101, members });
+		if (url === `/courses/${CS101.id}/members/${SAM_ID}/remove`) {
+			members = members.filter((member) => member.userId !== SAM_ID);
+			return json(200, {});
+		}
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Remove Sam Student from course" }),
+	);
+	const dialog = await screen.findByTestId("dialog-remove-member");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Remove from course" }));
+
+	await waitFor(() =>
+		expect(document.activeElement?.textContent).toBe("Remove Pat Student from course"),
+	);
+});
+
+test("when only the caller is left, focus moves to the page heading (review A3)", async () => {
+	let members = [
+		{
+			...samMember(),
+			userId: USER.id,
+			displayName: USER.displayName,
+			role: "instructor" as const,
+		},
+		samMember(),
+	];
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, USER);
+		if (url === `/courses/${CS101.id}/members`)
+			return json(200, { course: CS101, members });
+		if (url === `/courses/${CS101.id}/members/${SAM_ID}/remove`) {
+			members = members.filter((member) => member.userId !== SAM_ID);
+			return json(200, {});
+		}
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Remove Sam Student from course" }),
+	);
+	const dialog = await screen.findByTestId("dialog-remove-member");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Remove from course" }));
+
+	await waitFor(() => expect(document.activeElement?.id).toBe("course-title"));
+	expect(screen.getByTestId("course-members")).toBeTruthy();
+});
+
+test("the next Remove button skips the caller's own row and falls back to the previous", () => {
+	const member = (userId: string) => ({ ...samMember(), userId });
+	const list = [member("a"), member("b"), member("me"), member("c")];
+	expect(nextRemovable(list, "a", "me")).toBe("b");
+	expect(nextRemovable(list, "b", "me")).toBe("c");
+	expect(nextRemovable(list, "c", "me")).toBe("b");
+	expect(nextRemovable([member("a"), member("me")], "a", "me")).toBeNull();
 });

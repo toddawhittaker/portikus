@@ -66,7 +66,10 @@ describe.skipIf(!hasTestDb())("authPlugin", () => {
 			},
 			role,
 		);
-		const { token } = await createSession(t.db, user.id, 3600);
+		const { token } = await createSession(t.db, user.id, 3600, {
+			method: "oidc",
+			courseUserId: null,
+		});
 		return token;
 	}
 

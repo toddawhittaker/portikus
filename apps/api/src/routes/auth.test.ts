@@ -151,9 +151,17 @@ test.skipIf(skip)(
 			.executeTakeFirstOrThrow();
 		expect(rows[0]?.target).toBe(user.id);
 		expect(rows[0]?.actor).toBe("identity-provider");
-		expect(rows[0]?.metadata).toEqual({ from: "student", to: "administrator" });
+		expect(rows[0]?.metadata).toEqual({
+			from: "student",
+			to: "administrator",
+			source: "oidc",
+		});
 		// Nothing secret leaves (STACK.md §15): only these keys, all short values.
-		expect(Object.keys(rows[0]?.metadata ?? {}).sort()).toEqual(["from", "to"]);
+		expect(Object.keys(rows[0]?.metadata ?? {}).sort()).toEqual([
+			"from",
+			"source",
+			"to",
+		]);
 	},
 );
 

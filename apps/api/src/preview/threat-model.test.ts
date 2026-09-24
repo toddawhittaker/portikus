@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import { hashSessionToken } from "@portikus/auth";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -13,7 +14,6 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
-import { hashToken } from "./store.js";
 
 /**
  * The preview threat model (BROWSER-HANDLING.md §16, §25.1, §26; SPEC.md
@@ -310,7 +310,7 @@ test.skipIf(skip)("a planted cookie never authenticates as someone else", async 
 			await testDb.db
 				.insertInto("sessions")
 				.values({
-					id: hashToken(token),
+					id: hashSessionToken(token),
 					user_id: userId,
 					expires_at: new Date(Date.now() + 3_600_000).toISOString(),
 				})
