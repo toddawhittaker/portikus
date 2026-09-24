@@ -791,13 +791,11 @@ test("a blocked pop-up falls back to the start page in this tab", async () => {
 	expect(assign).toHaveBeenCalledWith("/link/start");
 });
 
-test("the waiting tab reloads when the new tab links, and stops waiting when it cancels", async () => {
+test("the waiting tab stops waiting when the new tab cancels", async () => {
 	vi.stubGlobal(
 		"open",
 		vi.fn(() => ({ opener: null })),
 	);
-	const assign = vi.fn();
-	vi.stubGlobal("location", { ...window.location, assign });
 	courseLinks();
 	const region = await openLinked();
 	fireEvent.click(
@@ -810,10 +808,6 @@ test("the waiting tab reloads when the new tab links, and stops waiting when it 
 	});
 	await waitFor(() => expect(document.activeElement).toBe(start));
 	expect(within(region).getByRole("status").textContent).toBe("");
-
-	fireEvent.click(start);
-	tell({ type: "linked" });
-	await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
 });
 
 test("a course session past the 15-minute window is told to open Portikus again", async () => {

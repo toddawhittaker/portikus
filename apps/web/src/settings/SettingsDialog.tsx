@@ -904,12 +904,10 @@ function LinkedAccounts() {
 	const startButton = useRef<HTMLButtonElement>(null);
 	const reopenButton = useRef<HTMLButtonElement>(null);
 
-	// The link finishes in its own tab (docs/EPIC-13-1.md, "The flow" steps 2 and 4).
+	// The link finishes in its own tab; the app root reloads on "linked" (useLinkedReload).
 	useEffect(() => {
 		const channel = new BroadcastChannel(LINK_CHANNEL);
 		channel.onmessage = (event: MessageEvent<LinkMessage>) => {
-			// Confirming ended this course session; the shared cookie now holds the SSO one.
-			if (event.data?.type === "linked") location.assign("/");
 			if (event.data?.type === "cancelled") setWaiting(false);
 		};
 		return () => channel.close();

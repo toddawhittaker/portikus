@@ -26,7 +26,7 @@ function stubLink(confirm: () => Response) {
 		throw new Error(`unexpected request: ${url}`);
 	});
 	const assign = vi.fn();
-	vi.stubGlobal("location", { ...window.location, assign });
+	vi.stubGlobal("location", { ...window.location, pathname: "/link", assign });
 	return { posts, assign };
 }
 

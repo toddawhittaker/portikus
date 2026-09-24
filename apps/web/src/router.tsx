@@ -12,6 +12,7 @@ import { ADMIN_TABS, AdminPage } from "./admin/AdminPage.js";
 import { CourseListPage, CourseMembersPage } from "./course/CoursePage.js";
 import { LinkPage } from "./link/LinkPage.js";
 import { LinkStartPage } from "./link/LinkStartPage.js";
+import { useLinkedReload } from "./link/useLinkedReload.js";
 import { MIN_PREVIEW_PORT, UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
@@ -22,7 +23,12 @@ import { useProjects } from "./projects/queries.js";
 import { WorkspacePage } from "./WorkspacePage.js";
 import { WorkArea } from "./work/WorkArea.js";
 
-const rootRoute = createRootRoute({ component: () => <Outlet /> });
+const rootRoute = createRootRoute({
+	component: function Root() {
+		useLinkedReload();
+		return <Outlet />;
+	},
+});
 
 const indexRoute = createRoute({
 	getParentRoute: () => rootRoute,
