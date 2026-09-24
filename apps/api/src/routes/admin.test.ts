@@ -6,7 +6,12 @@ import {
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
 import type { AdminUser } from "@portikus/contracts";
-import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import {
+	createTestDb,
+	hasTestDb,
+	insertTestLtiUser,
+	type TestDb,
+} from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -502,6 +507,7 @@ test.skipIf(skip)(
 			archived: false,
 			duplicateEmail: true,
 			stale: false,
+			linked: false,
 		});
 		expect(byName.get("Zed Bob Old")?.markers).toMatchObject({
 			duplicateEmail: true,
@@ -715,5 +721,52 @@ test.skipIf(skip)(
 			.where("disabled_at", "is", null)
 			.execute();
 		expect(enabledAdmins).toHaveLength(1);
+	},
+);
+
+test.skipIf(skip)(
+	"the user list carries the provider role, the grant and the linked marker",
+	async () => {
+		const student = new CookieJar();
+		await loginAs(app, "alice", student);
+		const jar = await adminJar();
+		const alice = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.where("display_name", "=", "Alice Student")
+			.executeTakeFirstOrThrow();
+		await testDb.db
+			.updateTable("users")
+			.set({ granted_role: "administrator", role: "administrator" })
+			.where("id", "=", alice.id)
+			.execute();
+		const course = await insertTestLtiUser(testDb.db);
+		await testDb.db
+			.insertInto("account_links")
+			.values({
+				course_user_id: course,
+				user_id: alice.id,
+				platform_issuer: "https://lms.test.invalid",
+				archived_workspace: false,
+			})
+			.execute();
+
+		const list = await app.inject({
+			method: "GET",
+			url: "/admin/users",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		const users = list.json().users as AdminUser[];
+		expect(users.find((u) => u.id === alice.id)).toMatchObject({
+			role: "administrator",
+			providerRole: "student",
+			grantedRole: "administrator",
+			markers: { linked: false },
+		});
+		expect(users.find((u) => u.id === course)).toMatchObject({
+			providerRole: "student",
+			grantedRole: null,
+			markers: { linked: true },
+		});
 	},
 );

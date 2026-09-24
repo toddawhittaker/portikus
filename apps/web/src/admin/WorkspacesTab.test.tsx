@@ -2,7 +2,13 @@ import type { AdminUser, AdminWorkspaceSummary } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import { filterAccounts, lastActivity, NO_FILTERS, timeAgo } from "./WorkspacesTab.js";
 
-const NONE = { disabled: false, archived: false, duplicateEmail: false, stale: false };
+const NONE = {
+	disabled: false,
+	archived: false,
+	duplicateEmail: false,
+	stale: false,
+	linked: false,
+};
 
 function summary(
 	overrides: Partial<AdminWorkspaceSummary> = {},
@@ -32,6 +38,8 @@ function account(
 		displayName,
 		email: `${displayName.toLowerCase()}@example.edu`,
 		role: "student",
+		providerRole: "student",
+		grantedRole: null,
 		disabledAt: null,
 		shutdownGraceSeconds: null,
 		preferredUsername: displayName.toLowerCase(),
