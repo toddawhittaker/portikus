@@ -475,6 +475,124 @@ describe.skipIf(skip)("a good launch", () => {
 	});
 });
 
+describe.skipIf(skip)("a launch from a linked course identity", () => {
+	/** A course account from a first launch, linked to a new SSO account. */
+	async function linked(ssoRole: "student" | "instructor" | "administrator") {
+		await launch({ sub: "student-1" });
+		const course = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.executeTakeFirstOrThrow();
+		const ssoId = await insertTestUser(testDb.db, {
+			display_name: "Sso Person",
+			email: "sso@example.edu",
+			role: ssoRole,
+			provider_role: ssoRole === "administrator" ? "student" : ssoRole,
+			granted_role: ssoRole === "administrator" ? "administrator" : null,
+		});
+		await testDb.db
+			.insertInto("account_links")
+			.values({
+				course_user_id: course.id,
+				user_id: ssoId,
+				platform_issuer: ISSUER,
+				archived_workspace: false,
+			})
+			.execute();
+		return { courseId: course.id, ssoId };
+	}
+
+	test("signs into the SSO account, refreshes only the membership, and leaves its role alone", async () => {
+		const { courseId, ssoId } = await linked("student");
+		const { res } = await launch({
+			sub: "student-1",
+			name: "Renamed In LMS",
+			roles: [`${ROLE}Instructor`],
+		});
+		expect(res.statusCode).toBe(303);
+		const me = await app.inject({
+			url: "/auth/me",
+			headers: { cookie: `portikus_session=${sessionCookie(res)}` },
+		});
+		expect(me.json()).toMatchObject({ id: ssoId, role: "student" });
+
+		const sso = await testDb.db
+			.selectFrom("users")
+			.select(["display_name", "email", "role", "provider_role", "granted_role"])
+			.where("id", "=", ssoId)
+			.executeTakeFirstOrThrow();
+		expect(sso).toEqual({
+			display_name: "Sso Person",
+			email: "sso@example.edu",
+			role: "student",
+			provider_role: "student",
+			granted_role: null,
+		});
+		const memberships = await testDb.db
+			.selectFrom("lti_memberships")
+			.select(["user_id", "role"])
+			.execute();
+		expect(memberships).toContainEqual({ user_id: ssoId, role: "instructor" });
+		const course = await testDb.db
+			.selectFrom("users")
+			.select("display_name")
+			.where("id", "=", courseId)
+			.executeTakeFirstOrThrow();
+		expect(course.display_name).toBe("Sam Student");
+
+		const audits = await loginAudits();
+		expect(audits.at(-1)).toMatchObject({ actor: `user:${ssoId}`, result: "ok" });
+		expect(audits.at(-1)?.metadata).toEqual({
+			method: "lti",
+			platform: "Test LMS",
+			role: "instructor",
+			linked: true,
+			...client,
+		});
+	});
+
+	test("never starts an administrator session (ruling 21)", async () => {
+		const { ssoId } = await linked("administrator");
+		const { res } = await launch({ sub: "student-1" });
+		expect(res.statusCode).toBe(403);
+		expect(res.body).toContain("Administrators sign in with SSO");
+		expect(res.body).toContain('href="/auth/login"');
+		expect(sessionCookie(res)).toBeUndefined();
+		const memberships = await testDb.db
+			.selectFrom("lti_memberships")
+			.select("user_id")
+			.where("user_id", "=", ssoId)
+			.execute();
+		expect(memberships).toHaveLength(1);
+		const audits = await loginAudits();
+		expect(audits.at(-1)).toMatchObject({ actor: `user:${ssoId}`, result: "denied" });
+		expect(audits.at(-1)?.metadata).toEqual({
+			method: "lti",
+			platform: "Test LMS",
+			reason: "administrator",
+			...client,
+		});
+		const sso = await testDb.db
+			.selectFrom("users")
+			.select(["role", "granted_role"])
+			.where("id", "=", ssoId)
+			.executeTakeFirstOrThrow();
+		expect(sso).toEqual({ role: "administrator", granted_role: "administrator" });
+	});
+
+	test("a disabled SSO account is refused with no session", async () => {
+		const { ssoId } = await linked("student");
+		await testDb.db
+			.updateTable("users")
+			.set({ disabled_at: new Date().toISOString() })
+			.where("id", "=", ssoId)
+			.execute();
+		const { res } = await launch({ sub: "student-1" });
+		expect(res.statusCode).toBe(403);
+		expect(sessionCookie(res)).toBeUndefined();
+	});
+});
+
 describe.skipIf(skip)("refused launches", () => {
 	async function expectRefused(
 		res: LightMyRequestResponse,

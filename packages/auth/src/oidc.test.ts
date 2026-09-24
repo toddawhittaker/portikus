@@ -83,6 +83,15 @@ describe("createOidcClient against the mock provider", () => {
 		expect(claims.groups).toEqual(["portikus-students"]);
 	});
 
+	test("prompt=login is sent only when asked for", async () => {
+		const oidc = createOidcClient(authOptions(mock.issuer));
+		const plain = new URL((await oidc.buildLoginRedirect()).url);
+		expect(plain.searchParams.has("prompt")).toBe(false);
+		const again = new URL((await oidc.buildLoginRedirect({ prompt: "login" })).url);
+		expect(again.searchParams.get("prompt")).toBe("login");
+		expect(again.searchParams.get("code_challenge_method")).toBe("S256");
+	});
+
 	test("an authorization code can only be used once", async () => {
 		const oidc = createOidcClient(authOptions(mock.issuer));
 		const { url, state } = await oidc.buildLoginRedirect();

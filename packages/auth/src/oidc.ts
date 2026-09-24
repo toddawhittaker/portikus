@@ -21,7 +21,13 @@ export interface LoginState {
 }
 
 export interface OidcClient {
-	buildLoginRedirect(): Promise<{ url: string; state: LoginState }>;
+	/**
+	 * `prompt: "login"` asks the provider to re-authenticate the user, the
+	 * standard OIDC way; linking an account uses it (docs/EPIC-13-1.md ruling 11).
+	 */
+	buildLoginRedirect(options?: {
+		prompt?: "login";
+	}): Promise<{ url: string; state: LoginState }>;
 	completeLogin(
 		callbackUrl: URL,
 		state: LoginState,
@@ -65,7 +71,7 @@ export function createOidcClient(opts: AuthOptions): OidcClient {
 	};
 
 	return {
-		async buildLoginRedirect() {
+		async buildLoginRedirect(options = {}) {
 			const config = await getConfig();
 			const verifier = client.randomPKCECodeVerifier();
 			const challenge = await client.calculatePKCECodeChallenge(verifier);
@@ -79,6 +85,7 @@ export function createOidcClient(opts: AuthOptions): OidcClient {
 				code_challenge_method: "S256",
 				state,
 				nonce,
+				...(options.prompt ? { prompt: options.prompt } : {}),
 			});
 
 			return { url: url.href, state: { verifier, state, nonce } };

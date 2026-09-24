@@ -73,6 +73,14 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"PUT /me/picture": { access: "self" },
 	"DELETE /me/picture": { access: "self" },
 	"POST /workspaces": { access: "self" },
+	// Account linking (docs/EPIC-13-1.md, "The flow"); each checks its own state.
+	"GET /me/links": { access: "self" },
+	"HEAD /me/links": { access: "self" },
+	"POST /me/links/start": { access: "self" },
+	"GET /me/links/pending": { access: "self" },
+	"HEAD /me/links/pending": { access: "self" },
+	"POST /me/links/confirm": { access: "self" },
+	"POST /me/links/:courseUserId/unlink": { access: "self" },
 
 	"GET /workspaces/:id": { access: "owner-or-admin" },
 	"HEAD /workspaces/:id": { access: "owner-or-admin" },
@@ -161,6 +169,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"PUT /admin/users/:id/settings": { access: "admin" },
 	"POST /admin/users/:id/disable": { access: "admin" },
 	"POST /admin/users/:id/enable": { access: "admin" },
+	"POST /admin/users/:id/promote": { access: "admin" },
+	"POST /admin/users/:id/demote": { access: "admin" },
 	"GET /admin/workspaces/:id": { access: "admin" },
 	"HEAD /admin/workspaces/:id": { access: "admin" },
 	"POST /admin/workspaces/:id/archive": { access: "admin" },

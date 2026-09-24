@@ -33,6 +33,21 @@ const PUBLIC_ORIGIN = new URL(PUBLIC_URL).origin;
  */
 const KNOWN_VULN: Record<string, string> = {};
 
+/**
+ * Routes whose allowed callers still get this refusal in the matrix world,
+ * because the route needs state the world has none of: a recent course
+ * session, a pending or existing link, or a granted administrator. The gate
+ * let them through; the route's own tests cover the success.
+ */
+const REFUSED_BY_STATE: Record<string, number> = {
+	"POST /me/links/start": 400,
+	"GET /me/links/pending": 404,
+	"HEAD /me/links/pending": 404,
+	"POST /me/links/confirm": 404,
+	"POST /me/links/:courseUserId/unlink": 404,
+	"POST /admin/users/:id/demote": 400,
+};
+
 // The smallest PNG: one transparent pixel.
 const PIXEL_PNG = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
@@ -151,6 +166,7 @@ function sampleFor(
 		.replace(":tid", ids.terminalId)
 		.replace(":checkId", "lint")
 		.replace(":courseId", world.courseId)
+		.replace(":courseUserId", world.a.userId)
 		.replace(":rpid", pointId)
 		.replace(":port", "5173")
 		.replace("*", "index.html");
@@ -289,6 +305,10 @@ async function expectAllowed(
 	const { res, calls } = await send(app, key, sample, actor.headers);
 	const why = `${key} for ${actor.name} answered ${res.statusCode} ${res.body.slice(0, 200)}`;
 	expect([401, 403], why).not.toContain(res.statusCode);
+	if (REFUSED_BY_STATE[key] !== undefined) {
+		expect(res.statusCode, why).toBe(REFUSED_BY_STATE[key]);
+		return res;
+	}
 	expect(res.statusCode < 400 || calls.length > 0, why).toBe(true);
 	return res;
 }

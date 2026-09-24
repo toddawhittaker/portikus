@@ -1,4 +1,9 @@
-import { requireRole, requireUser } from "@portikus/auth";
+import {
+	grantAdministrator,
+	requireRole,
+	requireUser,
+	revokeAdministrator,
+} from "@portikus/auth";
 import {
 	type AdminUser,
 	type AdminUserList,
@@ -372,6 +377,121 @@ export function registerAdminRoutes(
 			);
 		}
 		return loadAdminUser(updated.id);
+	});
+
+	// POST /admin/users/:id/promote -- grant administrator to an SSO account (ruling 23).
+	app.post("/admin/users/:id/promote", adminOnly, async (request, reply) => {
+		const actor = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const id = params.data.id;
+		const result = await db.transaction().execute(async (trx) => {
+			const granted = await grantAdministrator(trx, id);
+			if (granted.ok && granted.changed) {
+				await trx
+					.insertInto("audit_events")
+					.values({
+						actor: `user:${actor.id}`,
+						target: id,
+						action: "user.role_changed",
+						result: "ok",
+						metadata: JSON.stringify({
+							from: granted.from,
+							to: granted.to,
+							source: "admin",
+							ip: request.ip,
+							userAgent: request.headers["user-agent"] ?? null,
+						}),
+					})
+					.execute();
+			}
+			return granted;
+		});
+		if (!result.ok && result.reason === "not_found") {
+			return sendError(reply, 404, "NOT_FOUND", "User not found");
+		}
+		if (!result.ok) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"Only SSO accounts can be administrators.",
+			);
+		}
+		return loadAdminUser(id);
+	});
+
+	// POST /admin/users/:id/demote -- remove a granted administrator role (ruling 23).
+	app.post("/admin/users/:id/demote", adminOnly, async (request, reply) => {
+		const actor = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const id = params.data.id;
+		const result = await db.transaction().execute(async (trx) => {
+			const revoked = await revokeAdministrator(trx, {
+				actorId: actor.id,
+				targetId: id,
+			});
+			if (revoked.ok) {
+				await trx
+					.insertInto("audit_events")
+					.values({
+						actor: `user:${actor.id}`,
+						target: id,
+						action: "user.role_changed",
+						result: "ok",
+						metadata: JSON.stringify({
+							from: revoked.from,
+							to: revoked.to,
+							source: "admin",
+							ip: request.ip,
+							userAgent: request.headers["user-agent"] ?? null,
+						}),
+					})
+					.execute();
+			}
+			return revoked;
+		});
+		if (!result.ok) {
+			switch (result.reason) {
+				case "not_found":
+					return sendError(reply, 404, "NOT_FOUND", "User not found");
+				case "self":
+					return sendError(
+						reply,
+						400,
+						"VALIDATION_FAILED",
+						"You cannot demote your own account.",
+					);
+				case "not_granted": {
+					const target = await db
+						.selectFrom("users")
+						.select("role")
+						.where("id", "=", id)
+						.executeTakeFirst();
+					return sendError(
+						reply,
+						400,
+						"VALIDATION_FAILED",
+						target?.role === "administrator"
+							? "This administrator comes from the SSO provider's groups."
+							: "This account is not an administrator.",
+					);
+				}
+				case "last_administrator":
+					return sendError(
+						reply,
+						400,
+						"VALIDATION_FAILED",
+						"At least one other enabled administrator must remain.",
+					);
+			}
+		}
+		return loadAdminUser(id);
 	});
 
 	// POST /admin/users/:id/enable -- sign-in works again; nothing else changes.
