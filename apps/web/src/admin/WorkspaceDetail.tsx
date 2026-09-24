@@ -158,7 +158,7 @@ function WorkspaceSections({
 					<WorkspaceStateBadge
 						state={workspace.state}
 						desiredState={workspace.desiredState}
-						inCell
+						statusRole={false}
 					/>
 				</span>
 				{workspace.archivedAt ? <span className="pk-tag">Archived</span> : null}

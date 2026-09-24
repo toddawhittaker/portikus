@@ -128,7 +128,7 @@ export function ConfirmDialog({
 					<Button
 						data-testid="dialog-confirm"
 						variant="danger"
-						disabled={!ready || pending}
+						disabled={!ready}
 						loading={pending}
 						onClick={onConfirm}
 					>

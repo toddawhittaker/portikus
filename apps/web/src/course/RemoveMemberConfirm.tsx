@@ -8,21 +8,36 @@ export function RemoveMemberConfirm({
 	courseTitle,
 	member,
 	onClose,
+	onRemoved,
 }: {
 	courseId: string;
 	courseTitle: string;
 	member: CourseMember;
 	onClose: () => void;
+	/** Called after a removal succeeds, instead of onClose. */
+	onRemoved: () => void;
 }) {
 	const remove = useRemoveMember(courseId);
-	const failed = remove.isError ? " Portikus could not remove them. Try again." : "";
 
 	return (
 		<ConfirmDialogRoot open onOpenChange={(open) => !open && onClose()}>
 			<ConfirmDialog
 				testId="dialog-remove-member"
 				title={`Remove ${member.displayName} from ${courseTitle}?`}
-				description={`They reappear if they open Portikus from the course again.${failed}`}
+				description={
+					<>
+						They reappear if they open Portikus from the course again.
+						{remove.isError ? (
+							<span
+								className="mt-2 block text-status-error"
+								role="alert"
+								data-testid="remove-member-error"
+							>
+								Portikus could not remove them. Try again.
+							</span>
+						) : null}
+					</>
+				}
 				lost={["their row on this Course page"]}
 				survives={["their account", "their workspace and files", "their other courses"]}
 				confirmLabel="Remove from course"
@@ -30,7 +45,7 @@ export function RemoveMemberConfirm({
 				onCancel={onClose}
 				onConfirm={() => {
 					if (remove.isPending) return;
-					remove.mutate(member.userId, { onSuccess: onClose });
+					remove.mutate(member.userId, { onSuccess: onRemoved });
 				}}
 			/>
 		</ConfirmDialogRoot>

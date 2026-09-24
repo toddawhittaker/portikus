@@ -1,6 +1,8 @@
+import type { CourseMember, CourseMembersResponse } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
+import { nextRemovable } from "./CoursePage.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -170,19 +172,18 @@ test("signed out, the Course page goes to sign-in", async () => {
 	await waitFor(() => expect(router.state.location.pathname).toBe("/"));
 });
 
-function roster() {
+function samMember(): CourseMember {
 	return {
-		course: CS101,
-		members: [
-			{
-				userId: SAM_ID,
-				displayName: "Sam Student",
-				role: "student",
-				lastLaunchAt: "2026-09-22T09:00:00.000Z",
-				workspaceState: null,
-			},
-		],
+		userId: SAM_ID,
+		displayName: "Sam Student",
+		role: "student",
+		lastLaunchAt: "2026-09-22T09:00:00.000Z",
+		workspaceState: null,
 	};
+}
+
+function roster(): CourseMembersResponse {
+	return { course: CS101, members: [samMember()] };
 }
 
 test("removing asks first, naming the person and the course, then the row goes", async () => {
@@ -219,8 +220,15 @@ test("removing asks first, naming the person and the course, then the row goes",
 	const again = await screen.findByTestId("dialog-remove-member");
 	fireEvent.click(within(again).getByRole("button", { name: "Remove from course" }));
 
-	await waitFor(() => expect(screen.queryByText("Sam Student")).toBeNull());
+	await waitFor(() =>
+		expect(screen.queryByRole("rowheader", { name: "Sam Student" })).toBeNull(),
+	);
 	expect(calls).toEqual(["POST"]);
+	expect(screen.getByTestId("course-removed").textContent).toBe(
+		`Removed Sam Student from ${CS101.title}`,
+	);
+	// Nobody is left, so focus lands on the heading rather than the page body.
+	await waitFor(() => expect(document.activeElement?.id).toBe("course-title"));
 	expect(screen.queryByTestId("dialog-remove-member")).toBeNull();
 });
 
@@ -238,10 +246,48 @@ test("a failed removal keeps the row and says so in the dialog", async () => {
 	const dialog = await screen.findByTestId("dialog-remove-member");
 	fireEvent.click(within(dialog).getByRole("button", { name: "Remove from course" }));
 
-	await waitFor(() =>
-		expect(dialog.textContent).toContain("Portikus could not remove them."),
+	expect((await within(dialog).findByRole("alert")).textContent).toBe(
+		"Portikus could not remove them. Try again.",
 	);
 	expect(
 		within(screen.getByTestId("course-members")).getByText("Sam Student"),
 	).toBeDefined();
+});
+
+test("after a removal, focus moves to the next row's Remove button", async () => {
+	const PAT_ID = "88888888-8888-4888-8888-888888888888";
+	let members = [
+		...roster().members,
+		{ ...samMember(), userId: PAT_ID, displayName: "Pat Student" },
+	];
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, USER);
+		if (url === `/courses/${CS101.id}/members`)
+			return json(200, { course: CS101, members });
+		if (url === `/courses/${CS101.id}/members/${SAM_ID}/remove`) {
+			members = members.filter((member) => member.userId !== SAM_ID);
+			return json(200, {});
+		}
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Remove Sam Student from course" }),
+	);
+	const dialog = await screen.findByTestId("dialog-remove-member");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Remove from course" }));
+
+	await waitFor(() =>
+		expect(document.activeElement?.textContent).toBe("Remove Pat Student from course"),
+	);
+});
+
+test("the next Remove button skips the caller's own row and falls back to the previous", () => {
+	const member = (userId: string) => ({ ...samMember(), userId });
+	const list = [member("a"), member("b"), member("me"), member("c")];
+	expect(nextRemovable(list, "a", "me")).toBe("b");
+	expect(nextRemovable(list, "b", "me")).toBe("c");
+	expect(nextRemovable(list, "c", "me")).toBe("b");
+	expect(nextRemovable([member("a"), member("me")], "a", "me")).toBeNull();
 });

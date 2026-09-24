@@ -27,4 +27,15 @@ describe("Button", () => {
 		render(<Button loading={true}>Starting…</Button>);
 		expect(screen.getByRole("button").getAttribute("aria-busy")).toBe("true");
 	});
+
+	it("ignores clicks while loading", () => {
+		const onClick = vi.fn();
+		render(
+			<Button loading onClick={onClick}>
+				Link accounts
+			</Button>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Link accounts" }));
+		expect(onClick).not.toHaveBeenCalled();
+	});
 });

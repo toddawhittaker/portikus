@@ -12,7 +12,10 @@ import {
 	TextField,
 	type WorkspaceState,
 } from "@portikus/ui";
-import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useRef, useState } from "react";
+import { z } from "zod";
+import { request } from "../api/request.js";
 import {
 	imageText,
 	Markers,
@@ -22,7 +25,7 @@ import {
 	sortAccounts,
 	sourceText,
 } from "./markers.js";
-import { useAdminUsers, useSetArchived, useSetDisabled } from "./queries.js";
+import { useAdminUsers } from "./queries.js";
 import { errorText } from "./SettingsTab.js";
 import { WorkspaceDetail } from "./WorkspaceDetail.js";
 
@@ -111,18 +114,18 @@ export function storageText(quota: { homeGiB: number; dockerGiB: number }): stri
 export function WorkspaceStateBadge({
 	state,
 	desiredState,
-	inCell,
+	statusRole,
 }: {
 	state: string;
 	desiredState: string;
 	/** In a table cell or inside a status wrapper, so it is not its own live region. */
-	inCell?: boolean;
+	statusRole?: boolean;
 }) {
 	if (!KNOWN_STATES.includes(state)) return <span className="pk-tag">{state}</span>;
 	return (
 		<StateBadge
 			state={state as WorkspaceState}
-			inCell={inCell}
+			statusRole={statusRole}
 			desiredState={
 				KNOWN_DESIRED.includes(desiredState)
 					? (desiredState as DesiredState)
@@ -149,48 +152,57 @@ export const BULK_ACTIONS: readonly BulkAction[] = [
 	"unarchive",
 ];
 
-const BULK_BUTTON: Record<BulkAction, string> = {
-	disable: "Disable…",
-	enable: "Enable…",
-	archive: "Archive workspace…",
-	unarchive: "Unarchive workspace…",
-};
+interface BulkCopy {
+	button: string;
+	/** Fits "Could not <verb> <name>". */
+	verb: string;
+	title: string;
+	confirm: string;
+	done: string;
+	consequence: string;
+	/** The existing single-row route for one account. */
+	url: (user: AdminUser) => string;
+}
 
-const BULK_VERB: Record<BulkAction, string> = {
-	disable: "disable",
-	enable: "enable",
-	archive: "archive the workspace of",
-	unarchive: "unarchive the workspace of",
-};
-
-const BULK_TITLE: Record<BulkAction, string> = {
-	disable: "Disable",
-	enable: "Enable",
-	archive: "Archive the workspaces of",
-	unarchive: "Unarchive the workspaces of",
-};
-
-const BULK_CONFIRM: Record<BulkAction, string> = {
-	disable: "Disable",
-	enable: "Enable",
-	archive: "Archive",
-	unarchive: "Unarchive",
-};
-
-const BULK_DONE: Record<BulkAction, string> = {
-	disable: "Disabled",
-	enable: "Enabled",
-	archive: "Archived the workspace of",
-	unarchive: "Unarchived the workspace of",
-};
-
-const BULK_CONSEQUENCE: Record<BulkAction, string> = {
-	disable:
-		"They are signed out everywhere, their previews close, and their workspaces stop. Nothing is deleted.",
-	enable: "They can sign in again.",
-	archive:
-		"Each workspace stops and cannot be started until it is unarchived. Its files stay where they are.",
-	unarchive: "Each workspace stays stopped until someone starts it.",
+const BULK: Record<BulkAction, BulkCopy> = {
+	disable: {
+		button: "Disable…",
+		verb: "disable",
+		title: "Disable",
+		confirm: "Disable",
+		done: "Disabled",
+		consequence:
+			"They are signed out everywhere, their previews close, and their workspaces stop. Nothing is deleted.",
+		url: (user) => `/admin/users/${user.id}/disable`,
+	},
+	enable: {
+		button: "Enable…",
+		verb: "enable",
+		title: "Enable",
+		confirm: "Enable",
+		done: "Enabled",
+		consequence: "They can sign in again.",
+		url: (user) => `/admin/users/${user.id}/enable`,
+	},
+	archive: {
+		button: "Archive workspace…",
+		verb: "archive the workspace of",
+		title: "Archive the workspaces of",
+		confirm: "Archive",
+		done: "Archived the workspace of",
+		consequence:
+			"Each workspace stops and cannot be started until it is unarchived. Its files stay where they are.",
+		url: (user) => `/admin/workspaces/${user.workspace?.id}/archive`,
+	},
+	unarchive: {
+		button: "Unarchive workspace…",
+		verb: "unarchive the workspace of",
+		title: "Unarchive the workspaces of",
+		confirm: "Unarchive",
+		done: "Unarchived the workspace of",
+		consequence: "Each workspace stays stopped until someone starts it.",
+		url: (user) => `/admin/workspaces/${user.workspace?.id}/unarchive`,
+	},
 };
 
 /** Whether one bulk action does anything for one account. Nobody disables themselves. */
@@ -220,7 +232,7 @@ export function joinNames(names: string[]): string {
 interface BulkResult {
 	action: BulkAction;
 	done: string[];
-	failed: { name: string; reason: string }[];
+	failed: { id: string; name: string; reason: string }[];
 }
 
 /** One row per account, with its workspace beside it (SPEC.md §20.1, issue #302). */
@@ -356,6 +368,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 									<Checkbox
 										label={<span className="sr-only">Select all shown accounts</span>}
 										checked={allChecked}
+										indeterminate={checkedRows.length > 0 && !allChecked}
 										onChange={(event) =>
 											setChecked(
 												event.target.checked
@@ -445,8 +458,8 @@ function BulkActions({
 	currentUserId: string;
 	onDone: () => void;
 }) {
-	const setDisabled = useSetDisabled();
-	const setArchived = useSetArchived();
+	const client = useQueryClient();
+	const resultRef = useRef<HTMLDivElement>(null);
 	// The targets are fixed when the dialog opens, so a refetch cannot change them.
 	const [confirming, setConfirming] = useState<{
 		action: BulkAction;
@@ -459,20 +472,6 @@ function BulkActions({
 		rows.filter((user) => bulkApplies(action, user, currentUserId));
 	const offered = BULK_ACTIONS.filter((action) => targets(action).length > 0);
 
-	async function runOne(action: BulkAction, user: AdminUser) {
-		if (action === "disable" || action === "enable") {
-			await setDisabled.mutateAsync({
-				userId: user.id,
-				disabled: action === "disable",
-			});
-		} else if (user.workspace) {
-			await setArchived.mutateAsync({
-				workspaceId: user.workspace.id,
-				archived: action === "archive",
-			});
-		}
-	}
-
 	async function run(action: BulkAction, users: AdminUser[]) {
 		if (running) return;
 		setRunning(true);
@@ -480,16 +479,24 @@ function BulkActions({
 		// One at a time, so each refusal is tied to its row.
 		for (const user of users) {
 			try {
-				await runOne(action, user);
+				await request(z.unknown(), BULK[action].url(user), { method: "POST" });
 				outcome.done.push(user.displayName);
 			} catch (error) {
-				outcome.failed.push({ name: user.displayName, reason: errorText(error) });
+				outcome.failed.push({
+					id: user.id,
+					name: user.displayName,
+					reason: errorText(error),
+				});
 			}
 		}
 		setRunning(false);
 		setConfirming(null);
 		setResult(outcome);
 		onDone();
+		// Refetch once for the whole run, not once per row.
+		void client.invalidateQueries({ queryKey: ["admin"] });
+		// The bar and the dialog are gone, so focus lands on the summary.
+		requestAnimationFrame(() => resultRef.current?.focus());
 	}
 
 	return (
@@ -509,12 +516,16 @@ function BulkActions({
 							data-testid={`bulk-${action}`}
 							onClick={() => setConfirming({ action, users: targets(action) })}
 						>
-							{BULK_BUTTON[action]}
+							{BULK[action].button}
 						</Button>
 					))}
 				</fieldset>
 			) : null}
-			<div role="status" data-testid="bulk-result">
+			{/* Stays mounted, so each change to the count is announced. */}
+			<span className="sr-only" aria-live="polite" data-testid="bulk-count">
+				{rows.length > 0 ? `${rows.length} selected` : ""}
+			</span>
+			<div role="status" data-testid="bulk-result" ref={resultRef} tabIndex={-1}>
 				{result ? <BulkSummary result={result} /> : null}
 			</div>
 			<ConfirmDialogRoot
@@ -525,16 +536,16 @@ function BulkActions({
 					<ConfirmDialog
 						id="bulk-dialog"
 						testId="bulk-dialog"
-						title={`${BULK_TITLE[confirming.action]} ${confirming.users.length} ${confirming.users.length === 1 ? "account" : "accounts"}?`}
+						title={`${BULK[confirming.action].title} ${confirming.users.length} ${confirming.users.length === 1 ? "account" : "accounts"}?`}
 						description={
 							<>
 								<span className="block" data-testid="bulk-dialog-names">
 									{joinNames(confirming.users.map((user) => user.displayName))}.
 								</span>
-								<span className="block">{BULK_CONSEQUENCE[confirming.action]}</span>
+								<span className="block">{BULK[confirming.action].consequence}</span>
 							</>
 						}
-						confirmLabel={BULK_CONFIRM[confirming.action]}
+						confirmLabel={BULK[confirming.action].confirm}
 						pending={running}
 						onConfirm={() => void run(confirming.action, confirming.users)}
 					/>
@@ -545,19 +556,19 @@ function BulkActions({
 }
 
 function BulkSummary({ result }: { result: BulkResult }) {
-	const verb = BULK_VERB[result.action];
+	const copy = BULK[result.action];
 	return (
 		<div className="pk-text-compact flex flex-col gap-1">
 			{result.done.length > 0 ? (
 				<p className="m-0">
-					{BULK_DONE[result.action]} {joinNames(result.done)}.
+					{copy.done} {joinNames(result.done)}.
 				</p>
 			) : null}
 			{result.failed.length > 0 ? (
 				<ul className="m-0 list-none p-0 text-status-error">
 					{result.failed.map((failure) => (
-						<li key={failure.name}>
-							Could not {verb} {failure.name}: {failure.reason}
+						<li key={failure.id}>
+							Could not {copy.verb} {failure.name}: {failure.reason}
 						</li>
 					))}
 				</ul>
@@ -641,7 +652,7 @@ function AccountRow({
 						<WorkspaceStateBadge
 							state={workspace.state}
 							desiredState={workspace.desiredState}
-							inCell
+							statusRole={false}
 						/>
 					</div>
 				) : (

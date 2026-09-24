@@ -60,6 +60,11 @@ test("an administrator disables two accounts at once", async ({ page }) => {
 	await expect(page.getByTestId("bulk-result")).toHaveText(
 		`Disabled ${first} and ${second}.`,
 	);
+	// The bar and dialog are gone, so focus sits on the summary, not the page body.
+	await expect(page.getByTestId("bulk-result")).toBeFocused();
+	expect(await page.evaluate(() => document.activeElement === document.body)).toBe(
+		false,
+	);
 	const rows = await query<{ disabled_at: Date | null }>(
 		"select disabled_at from users where id = any($1)",
 		[ids],
