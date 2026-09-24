@@ -101,14 +101,16 @@ async function openDetail(name: string): Promise<void> {
 	await screen.findByRole("region", { name });
 }
 
-test("the page opens on the Workspaces tab and each tab is a link", async () => {
+test("the page opens on the Users tab and each tab is a link", async () => {
 	stubAdmin(600);
 
 	renderApp("/admin");
 
 	const nav = await screen.findByRole("navigation", { name: "Administration" });
 	const current = within(nav).getByRole("link", { current: "page" });
-	expect(current.textContent).toBe("Workspaces");
+	// Relabelled Users; the address stays ?tab=workspaces (EPIC-13-1 ruling 24).
+	expect(current.textContent).toBe("Users");
+	expect(current.getAttribute("href")).toBe("/admin?tab=workspaces");
 	expect(within(nav).getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
 		"/admin?tab=settings",
 	);
@@ -130,7 +132,7 @@ test("the tab comes from the address", async () => {
 	expect(screen.queryByTestId("admin-accounts")).toBeNull();
 });
 
-test("an unknown tab falls back to Workspaces", async () => {
+test("an unknown tab falls back to Users", async () => {
 	stubAdmin(600);
 
 	renderApp("/admin?tab=nonsense");

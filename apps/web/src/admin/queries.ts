@@ -132,6 +132,14 @@ export function useSetArchived() {
 	);
 }
 
+/** Promote grants administrator; demote clears the grant (EPIC-13-1 ruling 23). */
+export function useSetGrantedAdmin() {
+	return useAdminWrite(({ userId, admin }: { userId: string; admin: boolean }) => ({
+		url: `/admin/users/${userId}/${admin ? "promote" : "demote"}`,
+		init: { method: "POST" },
+	}));
+}
+
 export function useUpdateQuota() {
 	return useAdminWrite(
 		({ workspaceId, quota }: { workspaceId: string; quota: QuotaConfig }) => ({

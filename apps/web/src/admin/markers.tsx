@@ -1,31 +1,31 @@
-import type {
-	AdminAccountMarkers,
-	AdminImageVersion,
-	AdminUser,
-} from "@portikus/contracts";
+import type { AdminImageVersion, AdminUser } from "@portikus/contracts";
 
-const MARKER_LABEL: Record<keyof AdminAccountMarkers, string> = {
+type AccountMarkers = AdminUser["markers"];
+
+const MARKER_LABEL: Record<keyof AccountMarkers, string> = {
 	disabled: "Disabled",
 	archived: "Archived",
+	linked: "Linked",
 	duplicateEmail: "Duplicate email",
 	stale: "Stale",
 };
 
-const MARKER_ORDER: (keyof AdminAccountMarkers)[] = [
+const MARKER_ORDER: (keyof AccountMarkers)[] = [
 	"disabled",
 	"archived",
+	"linked",
 	"duplicateEmail",
 	"stale",
 ];
 
-/** The marker labels an account carries, in a fixed order (issue #302). */
-export function markerLabels(markers: AdminAccountMarkers | undefined): string[] {
+/** The marker labels an account carries, in a fixed order (issue #302, EPIC-13-1 ruling 24). */
+export function markerLabels(markers: AccountMarkers | undefined): string[] {
 	if (!markers) return [];
 	return MARKER_ORDER.filter((key) => markers[key]).map((key) => MARKER_LABEL[key]);
 }
 
 /** The tags beside a name in the Workspaces table. */
-export function Markers({ markers }: { markers: AdminAccountMarkers | undefined }) {
+export function Markers({ markers }: { markers: AccountMarkers | undefined }) {
 	const labels = markerLabels(markers);
 	if (labels.length === 0) return null;
 	return (
@@ -47,6 +47,31 @@ export function imageText(image: AdminImageVersion): string {
 	const label = image.label ?? "Unknown";
 	if (image.current === null) return label;
 	return `${label} · ${image.current ? "current" : "older"}`;
+}
+
+const LTI_PREFIX = "lti:";
+
+/** True for a course account, made by an LTI launch (EPIC-13 ruling 12). */
+export function isCourseAccount(issuer: string | null | undefined): boolean {
+	return issuer?.startsWith(LTI_PREFIX) ?? false;
+}
+
+/** "SSO", or "Course: <platform host>" for a course account (EPIC-13-1 ruling 24). */
+export function sourceText(issuer: string | null | undefined): string {
+	if (!issuer || !isCourseAccount(issuer)) return "SSO";
+	return `Course: ${shortIssuer(issuer.slice(LTI_PREFIX.length))}`;
+}
+
+export const ROLE_FILTERS = ["administrator", "instructor", "student"] as const;
+
+/** The Role column: an administrator says where the role came from (EPIC-13-1 ruling 24). */
+export function roleText(user: Pick<AdminUser, "role" | "grantedRole">): string {
+	if (user.role === "administrator") {
+		return user.grantedRole === "administrator"
+			? "Administrator (granted)"
+			: "Administrator (from SSO)";
+	}
+	return user.role === "instructor" ? "Instructor" : "Student";
 }
 
 /** The first part of an issuer URL, for a narrow column. The full value goes in the title. */
