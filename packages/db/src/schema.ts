@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, and 0015_lti
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, and 0017_session_method
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -24,6 +24,8 @@ export interface Database {
 	lti_login_states: LtiLoginStatesTable;
 	lti_contexts: LtiContextsTable;
 	lti_memberships: LtiMembershipsTable;
+	account_links: AccountLinksTable;
+	account_link_intents: AccountLinkIntentsTable;
 }
 
 export interface UsersTable {
@@ -32,8 +34,12 @@ export interface UsersTable {
 	oidc_subject: string;
 	email: string | null;
 	display_name: string;
-	/** student, instructor, or administrator. */
+	/** The effective role every check reads: the higher of the two below. */
 	role: string;
+	/** The role this account's own sign-in gave last time; defaults to `role` on insert. */
+	provider_role: ColumnType<string, string | undefined, string>;
+	/** Null, instructor or administrator, stored by Portikus; never on an `lti:` account. */
+	granted_role: ColumnType<string | null, string | null | undefined, string | null>;
 	/** The `preferred_username` claim; the workspace label comes from it. */
 	preferred_username: string | null;
 	disabled_at: ColumnType<Date | null, string | null, string | null>;
@@ -58,6 +64,10 @@ export interface SessionsTable {
 	user_id: string;
 	created_at: ColumnType<Date, string | undefined, never>;
 	expires_at: ColumnType<Date, string, string>;
+	/** How the session started: 'oidc', 'lti' or 'link'. */
+	method: ColumnType<string, string | undefined, never>;
+	/** The linked course identity that launched this session; only for 'lti'. */
+	course_user_id: ColumnType<string | null, string | null | undefined, never>;
 }
 
 export interface WorkspacesTable {
@@ -240,4 +250,25 @@ export interface LtiMembershipsTable {
 	user_id: string;
 	role: string;
 	last_launch_at: ColumnType<Date, string, string>;
+}
+
+/** A retired course account and the SSO account its launches now sign into. */
+export interface AccountLinksTable {
+	course_user_id: string;
+	user_id: string;
+	/** The plain LTI platform issuer, without `lti:`. */
+	platform_issuer: string;
+	/** The `archived_at` this link wrote on the course workspace, or null when it archived nothing. */
+	archived_at: ColumnType<Date | null, string | null, string | null>;
+	created_at: ColumnType<Date, string | undefined, never>;
+}
+
+/** A pending link: single use, bound to one course session. */
+export interface AccountLinkIntentsTable {
+	state_hash: string;
+	session_id: string;
+	course_user_id: string;
+	/** The SSO account, set by the OIDC callback. */
+	user_id: string | null;
+	expires_at: ColumnType<Date, string, string>;
 }

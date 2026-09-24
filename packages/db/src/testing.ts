@@ -132,6 +132,8 @@ export async function createTestDb(): Promise<TestDb> {
 	await migrateToLatest(db);
 
 	const truncate = async () => {
+		await db.deleteFrom("account_link_intents").execute();
+		await db.deleteFrom("account_links").execute();
 		await db.deleteFrom("lti_memberships").execute();
 		await db.deleteFrom("lti_contexts").execute();
 		await db.deleteFrom("lti_login_states").execute();
@@ -210,6 +212,8 @@ export interface TestUserOverrides {
 	email?: string | null;
 	display_name?: string;
 	role?: string;
+	provider_role?: string;
+	granted_role?: string | null;
 	disabled_at?: string | null;
 	shutdown_grace_seconds?: number | null;
 }

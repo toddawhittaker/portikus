@@ -9,13 +9,19 @@ import {
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ServerDeps } from "../server.js";
+import { audit } from "./start-session.js";
 
 const CourseParam = z.object({ courseId: z.string().uuid() });
+const MemberParam = z.object({
+	courseId: z.string().uuid(),
+	userId: z.string().uuid(),
+});
 
 /**
  * The read-only Course page (docs/EPIC-13.md ruling 23). Only a course's
  * instructors see it; for anyone else it does not exist. No email, user id,
- * subject or workspace id ever leaves here.
+ * subject or workspace id ever leaves here; the member's user id does, so an
+ * instructor can remove them.
  */
 export function registerCourseRoutes(app: FastifyInstance, { db }: ServerDeps): void {
 	app.get("/courses", async (request, reply) => {
@@ -58,6 +64,7 @@ export function registerCourseRoutes(app: FastifyInstance, { db }: ServerDeps): 
 			.innerJoin("users", "users.id", "lti_memberships.user_id")
 			.leftJoin("workspaces", "workspaces.owner_user_id", "users.id")
 			.select([
+				"users.id",
 				"users.display_name",
 				"lti_memberships.role",
 				"lti_memberships.last_launch_at",
@@ -75,6 +82,7 @@ export function registerCourseRoutes(app: FastifyInstance, { db }: ServerDeps): 
 				platformName: course.platform_name,
 			},
 			members: members.map((row) => ({
+				userId: row.id,
 				displayName: row.display_name,
 				role: CourseMemberRole.parse(row.role),
 				lastLaunchAt: new Date(row.last_launch_at).toISOString(),
@@ -82,5 +90,63 @@ export function registerCourseRoutes(app: FastifyInstance, { db }: ServerDeps): 
 			})),
 		};
 		return reply.send(body);
+	});
+
+	// Deletes one membership row and nothing else; a relaunch from the LMS adds it back.
+	app.post("/courses/:courseId/members/:userId/remove", async (request, reply) => {
+		const user = requireUser(request);
+		const notFound: ApiError = { code: "NOT_FOUND", message: "Not found." };
+		const params = MemberParam.safeParse(request.params);
+		if (!params.success) return reply.status(404).send(notFound);
+		const { courseId, userId } = params.data;
+
+		const teaches = await db
+			.selectFrom("lti_memberships")
+			.select("user_id")
+			.where("context_id", "=", courseId)
+			.where("user_id", "=", user.id)
+			.where("role", "=", "instructor")
+			.executeTakeFirst();
+		if (!teaches) return reply.status(404).send(notFound);
+		if (userId === user.id) {
+			const self: ApiError = {
+				code: "VALIDATION_FAILED",
+				message: "You cannot remove yourself from a course.",
+			};
+			return reply.status(400).send(self);
+		}
+
+		const removed = await db.transaction().execute(async (trx) => {
+			// Only students are removed; an instructor's membership is the LMS's to change.
+			const target = await trx
+				.selectFrom("lti_memberships")
+				.select("role")
+				.where("context_id", "=", courseId)
+				.where("user_id", "=", userId)
+				.forUpdate()
+				.executeTakeFirst();
+			if (!target) return "not_found";
+			if (target.role !== "student") return "instructor";
+			await trx
+				.deleteFrom("lti_memberships")
+				.where("context_id", "=", courseId)
+				.where("user_id", "=", userId)
+				.execute();
+			// Ids only: no names, emails or subjects (ADR 0012).
+			await audit(trx, "course.member_removed", `user:${user.id}`, userId, "ok", {
+				contextId: courseId,
+			});
+			return "removed";
+		});
+		if (removed === "not_found") return reply.status(404).send(notFound);
+		if (removed === "instructor") {
+			const refusal: ApiError = {
+				code: "VALIDATION_FAILED",
+				message:
+					"Only students can be removed from a course. Instructors are managed in the LMS.",
+			};
+			return reply.status(400).send(refusal);
+		}
+		return reply.send({});
 	});
 }

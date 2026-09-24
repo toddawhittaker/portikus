@@ -6,7 +6,12 @@ import {
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
 import type { AdminUser } from "@portikus/contracts";
-import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import {
+	createTestDb,
+	hasTestDb,
+	insertTestLtiUser,
+	type TestDb,
+} from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -408,6 +413,8 @@ test.skipIf(skip)("a student gets 403 on every /admin route", async () => {
 			"PUT /admin/users/:id/settings",
 			"POST /admin/users/:id/disable",
 			"POST /admin/users/:id/enable",
+			"POST /admin/users/:id/promote",
+			"POST /admin/users/:id/demote",
 			"GET /admin/workspaces/:id",
 			"POST /admin/workspaces/:id/archive",
 			"POST /admin/workspaces/:id/unarchive",
@@ -502,6 +509,7 @@ test.skipIf(skip)(
 			archived: false,
 			duplicateEmail: true,
 			stale: false,
+			linked: false,
 		});
 		expect(byName.get("Zed Bob Old")?.markers).toMatchObject({
 			duplicateEmail: true,
@@ -715,5 +723,254 @@ test.skipIf(skip)(
 			.where("disabled_at", "is", null)
 			.execute();
 		expect(enabledAdmins).toHaveLength(1);
+	},
+);
+
+test.skipIf(skip)(
+	"the user list carries the provider role, the grant and the linked marker",
+	async () => {
+		const student = new CookieJar();
+		await loginAs(app, "alice", student);
+		const jar = await adminJar();
+		const alice = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.where("display_name", "=", "Alice Student")
+			.executeTakeFirstOrThrow();
+		await testDb.db
+			.updateTable("users")
+			.set({ granted_role: "administrator", role: "administrator" })
+			.where("id", "=", alice.id)
+			.execute();
+		const course = await insertTestLtiUser(testDb.db);
+		await testDb.db
+			.insertInto("account_links")
+			.values({
+				course_user_id: course,
+				user_id: alice.id,
+				platform_issuer: "https://lms.test.invalid",
+				archived_at: null,
+			})
+			.execute();
+
+		const list = await app.inject({
+			method: "GET",
+			url: "/admin/users",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		const users = list.json().users as AdminUser[];
+		expect(users.find((u) => u.id === alice.id)).toMatchObject({
+			role: "administrator",
+			providerRole: "student",
+			grantedRole: "administrator",
+			markers: { linked: false },
+		});
+		expect(users.find((u) => u.id === course)).toMatchObject({
+			providerRole: "student",
+			grantedRole: null,
+			markers: { linked: true },
+		});
+	},
+);
+
+// --- Promote and demote (docs/EPIC-13-1.md ruling 23) ---
+
+function adminPost(jar: CookieJar, url: string) {
+	return app.inject({ method: "POST", url, headers: csrfHeaders(jar, PUBLIC_URL) });
+}
+
+async function roleAudits() {
+	return testDb.db
+		.selectFrom("audit_events")
+		.select(["actor", "target", "metadata"])
+		.where("action", "=", "user.role_changed")
+		.orderBy("id")
+		.execute();
+}
+
+test.skipIf(skip)(
+	"promote grants administrator once, audited with the actor",
+	async () => {
+		const carol = await adminJar();
+		await studentJar();
+		const carolId = await userId("Carol");
+		const aliceId = await userId("Alice");
+
+		const res = await adminPost(carol, `/admin/users/${aliceId}/promote`);
+		expect(res.statusCode).toBe(200);
+		expect(res.json() as AdminUser).toMatchObject({
+			id: aliceId,
+			role: "administrator",
+			providerRole: "student",
+			grantedRole: "administrator",
+		});
+		const again = await adminPost(carol, `/admin/users/${aliceId}/promote`);
+		expect(again.statusCode).toBe(200);
+		expect(await roleAudits()).toEqual([
+			{
+				actor: `user:${carolId}`,
+				target: aliceId,
+				metadata: {
+					from: "student",
+					to: "administrator",
+					source: "admin",
+					ip: expect.any(String),
+					userAgent: expect.any(String),
+				},
+			},
+		]);
+		// The grant survives alice's next sign-in.
+		const alice = new CookieJar();
+		await loginAs(app, "alice", alice);
+		const me = await app.inject({
+			url: "/auth/me",
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(me.json().role).toBe("administrator");
+	},
+);
+
+test.skipIf(skip)(
+	"promote refuses a course account; bad ids are 404 and 400",
+	async () => {
+		const carol = await adminJar();
+		const courseId = await insertTestLtiUser(testDb.db);
+		const res = await adminPost(carol, `/admin/users/${courseId}/promote`);
+		expect(res.statusCode).toBe(400);
+		expect(res.json().message).toBe("Only SSO accounts can be administrators.");
+		for (const action of ["promote", "demote"]) {
+			const missing = await adminPost(
+				carol,
+				`/admin/users/${crypto.randomUUID()}/${action}`,
+			);
+			expect(missing.statusCode).toBe(404);
+			const bad = await adminPost(carol, `/admin/users/not-a-uuid/${action}`);
+			expect(bad.statusCode).toBe(400);
+		}
+		expect(await roleAudits()).toEqual([]);
+	},
+);
+
+test.skipIf(skip)("demote removes a grant and returns the provider role", async () => {
+	const carol = await adminJar();
+	await studentJar();
+	const carolId = await userId("Carol");
+	const aliceId = await userId("Alice");
+	await adminPost(carol, `/admin/users/${aliceId}/promote`);
+	const res = await adminPost(carol, `/admin/users/${aliceId}/demote`);
+	expect(res.statusCode).toBe(200);
+	expect(res.json()).toMatchObject({ role: "student", grantedRole: null });
+	expect((await roleAudits())[1]).toMatchObject({
+		actor: `user:${carolId}`,
+		target: aliceId,
+		metadata: { from: "administrator", to: "student", source: "admin" },
+	});
+});
+
+test.skipIf(skip)(
+	"demote refuses oneself, a provider administrator, and a non-administrator",
+	async () => {
+		const carol = await adminJar();
+		await studentJar();
+		const carolId = await userId("Carol");
+		const aliceId = await userId("Alice");
+
+		const self = await adminPost(carol, `/admin/users/${carolId}/demote`);
+		expect(self.statusCode).toBe(400);
+		expect(self.json().message).toBe("You cannot demote your own account.");
+
+		const student = await adminPost(carol, `/admin/users/${aliceId}/demote`);
+		expect(student.statusCode).toBe(400);
+
+		await adminPost(carol, `/admin/users/${aliceId}/promote`);
+		const alice = new CookieJar();
+		await loginAs(app, "alice", alice);
+		const provider = await adminPost(alice, `/admin/users/${carolId}/demote`);
+		expect(provider.statusCode).toBe(400);
+		expect(provider.json().message).toBe(
+			"This administrator comes from the SSO provider's groups.",
+		);
+	},
+);
+
+test.skipIf(skip)(
+	"demoting a provider administrator who also holds a grant changes no role and writes no audit",
+	async () => {
+		const carol = await adminJar();
+		await studentJar();
+		const carolId = await userId("Carol");
+		const aliceId = await userId("Alice");
+		await adminPost(carol, `/admin/users/${aliceId}/promote`);
+		await testDb.db
+			.updateTable("users")
+			.set({ granted_role: "administrator" })
+			.where("id", "=", carolId)
+			.execute();
+		const alice = new CookieJar();
+		await loginAs(app, "alice", alice);
+		const res = await adminPost(alice, `/admin/users/${carolId}/demote`);
+		expect(res.statusCode).toBe(200);
+		expect(res.json()).toMatchObject({ role: "administrator", grantedRole: null });
+		// Only alice's promotion is on record.
+		expect(await roleAudits()).toHaveLength(1);
+	},
+);
+
+test.skipIf(skip)(
+	"two granted administrators demoting each other at once leave one administrator",
+	async () => {
+		await adminJar();
+		await studentJar();
+		await loginAs(app, "bob", new CookieJar());
+		const aliceId = await userId("Alice");
+		const bobId = await userId("Bob");
+		await testDb.db
+			.updateTable("users")
+			.set({ granted_role: "administrator", role: "administrator" })
+			.where("id", "in", [aliceId, bobId])
+			.execute();
+		// Only the two granted administrators remain.
+		await testDb.db
+			.updateTable("users")
+			.set({ role: "student", provider_role: "student" })
+			.where("display_name", "like", "Carol%")
+			.execute();
+		const alice = new CookieJar();
+		await loginAs(app, "alice", alice);
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+
+		let pending: Promise<Awaited<ReturnType<typeof app.inject>>[]> | undefined;
+		let waited = 0;
+		await testDb.db.transaction().execute(async (trx) => {
+			await sql`select 1 from users for update`.execute(trx);
+			pending = Promise.all([
+				adminPost(alice, `/admin/users/${bobId}/demote`),
+				adminPost(bob, `/admin/users/${aliceId}/demote`),
+			]);
+			for (let i = 0; i < 200; i++) {
+				const waiting = await sql<{ n: number }>`
+					select count(*)::int as n from pg_stat_activity
+					where wait_event_type = 'Lock' and datname = current_database()`.execute(
+					testDb.db,
+				);
+				waited = waiting.rows[0]?.n ?? 0;
+				if (waited === 2) break;
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+		});
+		expect(waited).toBe(2);
+		const results = await (pending as NonNullable<typeof pending>);
+		expect(results.map((r) => r.statusCode).sort()).toEqual([200, 400]);
+		const refused = results.find((r) => r.statusCode === 400);
+		expect(refused?.json().message).toBe(
+			"At least one other enabled administrator must remain.",
+		);
+		const admins = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.where("role", "=", "administrator")
+			.execute();
+		expect(admins).toHaveLength(1);
 	},
 );

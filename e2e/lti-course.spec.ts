@@ -42,7 +42,8 @@ test("an instructor sees the student who launched before on the Course page", as
 		const ivyRow = table.getByRole("row", { name: /Ivy Instructor/ });
 		await expect(ivyRow.getByRole("cell").first()).toHaveText("Instructor");
 
-		// Read-only: no emails, ids or subjects reach the browser (ruling 23).
+		// No emails or subjects reach the browser (ruling 23). The user id does,
+		// so the instructor can remove a member (Epic 13.1 T6).
 		const courses = (await (await ivy.request.get("/courses")).json()) as {
 			id: string;
 		}[];
@@ -54,7 +55,7 @@ test("an instructor sees the student who launched before on the Course page", as
 		expect(text).not.toContain("@mock-lms.test");
 		expect(text).not.toContain("5d0c1c7e-");
 		const [samUser] = await ltiUsers("sam");
-		expect(text).not.toContain(samUser?.id ?? "no-such-id");
+		expect(text).toContain(samUser?.id ?? "no-such-id");
 	} finally {
 		await ivy.context().close();
 	}

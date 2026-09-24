@@ -1,4 +1,4 @@
-import { ProjectPath } from "@portikus/contracts";
+import { LinkError, ProjectPath } from "@portikus/contracts";
 import {
 	createRootRoute,
 	createRoute,
@@ -10,16 +10,25 @@ import {
 } from "@tanstack/react-router";
 import { ADMIN_TABS, AdminPage } from "./admin/AdminPage.js";
 import { CourseListPage, CourseMembersPage } from "./course/CoursePage.js";
+import { LinkPage } from "./link/LinkPage.js";
+import { LinkStartPage } from "./link/LinkStartPage.js";
+import { useLinkedReload } from "./link/useLinkedReload.js";
 import { MIN_PREVIEW_PORT, UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
 import { SignIn } from "./pages/SignIn.js";
+import { Unlinked } from "./pages/Unlinked.js";
 import { ProjectIndex } from "./projects/ProjectIndex.js";
 import { useProjects } from "./projects/queries.js";
 import { WorkspacePage } from "./WorkspacePage.js";
 import { WorkArea } from "./work/WorkArea.js";
 
-const rootRoute = createRootRoute({ component: () => <Outlet /> });
+const rootRoute = createRootRoute({
+	component: function Root() {
+		useLinkedReload();
+		return <Outlet />;
+	},
+});
 
 const indexRoute = createRoute({
 	getParentRoute: () => rootRoute,
@@ -33,10 +42,35 @@ const sessionEndedRoute = createRoute({
 	component: SessionEnded,
 });
 
+const unlinkedRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/unlinked",
+	component: Unlinked,
+});
+
 const notAuthorizedRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/not-authorized",
 	component: NotAuthorized,
+});
+
+/** The SSO sign-in lands here to confirm a link (docs/EPIC-13-1.md, "The flow" step 4). */
+const linkRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/link",
+	validateSearch: (search: Record<string, unknown> & SearchSchemaInput) => ({
+		error: LinkError.safeParse(search.error).data,
+	}),
+	component: function LinkScreen() {
+		return <LinkPage error={linkRoute.useSearch().error} />;
+	},
+});
+
+/** Settings opens this in a new tab to start a link (docs/EPIC-13-1.md, "The flow" step 2). */
+const linkStartRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/link/start",
+	component: LinkStartPage,
 });
 
 function safeUuid(value: unknown): string | undefined {
@@ -191,6 +225,9 @@ export const routeTree = rootRoute.addChildren([
 	indexRoute,
 	sessionEndedRoute,
 	notAuthorizedRoute,
+	unlinkedRoute,
+	linkRoute,
+	linkStartRoute,
 	adminRoute,
 	courseRoute,
 	courseMembersRoute,

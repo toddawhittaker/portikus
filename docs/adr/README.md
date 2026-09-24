@@ -53,3 +53,4 @@ has four sections:
 | [0022](0022-operational-metrics-in-postgres.md) | Operational metrics live in PostgreSQL, not OpenTelemetry |
 | [0024](0024-backups-pulled-to-host.md) | Backups are pulled to the host and encrypted there with age |
 | [0025](0025-lti-launch.md) | LTI 1.3 launch: state row and per-login cookie, file-registered platforms, and the instructor role |
+| [0026](0026-account-links-and-role-grant.md) | Linking a course account to an SSO account, and a stored role grant (proposed) |

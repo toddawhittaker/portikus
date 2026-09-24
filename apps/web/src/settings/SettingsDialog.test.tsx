@@ -53,6 +53,19 @@ function stubSettings(
 			}
 			return json(200, profile);
 		}
+		if (url === "/me/links") return json(200, myLinks);
+		if (url === "/me/links/start") {
+			linkWrites.push(url);
+			return startAnswer;
+		}
+		if (url.startsWith("/me/links/") && url.endsWith("/unlink")) {
+			linkWrites.push(url);
+			myLinks = {
+				...myLinks,
+				links: myLinks.links.filter((link) => !url.includes(link.courseUserId)),
+			};
+			return json(200, { signedOut: unlinkSignsOut });
+		}
 		if (url === "/me/picture") {
 			return json(413, { code: "FILE_TOO_LARGE", message: "The picture is too big" });
 		}
@@ -79,6 +92,24 @@ const PROFILE = {
 
 /** Profile writes seen by the last stubSettings. */
 let profileWrites: Sent[] = [];
+
+/** What GET /me/links answers; an SSO account with no links unless a test says otherwise. */
+let myLinks: {
+	source: string;
+	linkUntil: string | null;
+	links: { courseUserId: string; [key: string]: unknown }[];
+	launch: null;
+} = { source: "sso", linkUntil: null, links: [], launch: null };
+let startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
+let linkWrites: string[] = [];
+let unlinkSignsOut = false;
+
+afterEach(() => {
+	myLinks = { source: "sso", linkUntil: null, links: [], launch: null };
+	startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
+	linkWrites = [];
+	unlinkSignsOut = false;
+});
 
 function checkbox(name: RegExp) {
 	return screen.getByRole("checkbox", { name });
@@ -695,6 +726,291 @@ test("searching for keyboard finds the help section", async () => {
 	expect(
 		screen.getByRole("button", { name: "Keyboard and screen readers" }),
 	).toBeTruthy();
+});
+
+/** docs/EPIC-13-1.md, "The flow" steps 1, 2 and 7. */
+async function openLinked() {
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await openProfile();
+	return await screen.findByRole("region", { name: "Linked accounts" });
+}
+
+function minutesFromNow(minutes: number): string {
+	return new Date(Date.now() + minutes * 60_000).toISOString();
+}
+
+function courseLinks() {
+	myLinks = {
+		source: "course",
+		linkUntil: minutesFromNow(10),
+		links: [],
+		launch: null,
+	};
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+}
+
+function tell(message: { type: string }) {
+	const channel = new BroadcastChannel("portikus-link");
+	channel.postMessage(message);
+	channel.close();
+}
+
+function fakeTab() {
+	return { opener: {} as unknown, location: { href: "" }, close: vi.fn() };
+}
+
+test("Link to my SSO account starts the link here and sends a new tab to the SSO sign-in", async () => {
+	const tab = fakeTab();
+	const open = vi.fn(() => tab);
+	vi.stubGlobal("open", open);
+	courseLinks();
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", { name: "Link to my SSO account" }),
+	);
+
+	expect(open).toHaveBeenCalledWith("", "_blank");
+	expect(tab.opener).toBeNull();
+	await waitFor(() =>
+		expect(tab.location.href).toBe("https://sso.example.edu/authorize?x=1"),
+	);
+	expect(linkWrites).toEqual(["/me/links/start"]);
+	expect(within(region).getByRole("status").textContent).toBe(
+		"Finish signing in in the new tab.",
+	);
+	const reopen = within(region).getByRole("button", {
+		name: "Open the sign-in tab again",
+	});
+	expect(document.activeElement).toBe(reopen);
+	fireEvent.click(reopen);
+	expect(open).toHaveBeenCalledTimes(2);
+});
+
+test("a refused start closes the new tab and is announced in Settings", async () => {
+	const tab = fakeTab();
+	vi.stubGlobal(
+		"open",
+		vi.fn(() => tab),
+	);
+	startAnswer = json(403, {
+		code: "FORBIDDEN",
+		message: "Open Portikus again from your course to link it.",
+	});
+	courseLinks();
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", { name: "Link to my SSO account" }),
+	);
+
+	expect((await within(region).findByRole("alert")).textContent).toBe(
+		"Open Portikus again from your course to link it.",
+	);
+	expect(tab.close).toHaveBeenCalled();
+	expect(tab.location.href).toBe("");
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			within(region).getByRole("button", { name: "Link to my SSO account" }),
+		),
+	);
+});
+
+test("a blocked pop-up falls back to the start page in this tab", async () => {
+	vi.stubGlobal(
+		"open",
+		vi.fn(() => null),
+	);
+	const assign = vi.fn();
+	vi.stubGlobal("location", { ...window.location, assign });
+	courseLinks();
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", { name: "Link to my SSO account" }),
+	);
+
+	expect(assign).toHaveBeenCalledWith("/link/start");
+});
+
+test("the waiting tab stops waiting when the new tab cancels", async () => {
+	vi.stubGlobal(
+		"open",
+		vi.fn(() => fakeTab()),
+	);
+	courseLinks();
+	const region = await openLinked();
+	fireEvent.click(
+		await within(region).findByRole("button", { name: "Link to my SSO account" }),
+	);
+
+	tell({ type: "cancelled" });
+	const start = await within(region).findByRole("button", {
+		name: "Link to my SSO account",
+	});
+	await waitFor(() => expect(document.activeElement).toBe(start));
+	expect(within(region).getByRole("status").textContent).toBe("");
+});
+
+test("a course session past the 15-minute window is told to open Portikus again", async () => {
+	myLinks = {
+		source: "course",
+		linkUntil: minutesFromNow(-1),
+		links: [],
+		launch: null,
+	};
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	expect((await within(region).findByTestId("link-too-late")).textContent).toBe(
+		"Open Portikus again from your course to link it.",
+	);
+	expect(
+		within(region).queryByRole("button", { name: "Link to my SSO account" }),
+	).toBeNull();
+});
+
+test("an SSO account with no links says how to link one and offers no button", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	expect(await within(region).findByText(/No course sign-ins are linked/)).toBeTruthy();
+	expect(within(region).queryByRole("button")).toBeNull();
+});
+
+test("an SSO account lists its links and unlinks one", async () => {
+	const courseUserId = "33333333-3333-4333-8333-333333333333";
+	myLinks = {
+		source: "sso",
+		linkUntil: null,
+		links: [
+			{
+				courseUserId,
+				platformName: "mock-lms",
+				displayName: "Sam Student",
+				linkedAt: "2026-09-24T12:00:00.000Z",
+			},
+		],
+		launch: null,
+	};
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", {
+			name: "Unlink Sam Student from mock-lms",
+		}),
+	);
+
+	await waitFor(() =>
+		expect(within(region).getByRole("status").textContent).toMatch(/^Unlinked\./),
+	);
+	expect(linkWrites).toEqual([`/me/links/${courseUserId}/unlink`]);
+	expect(await within(region).findByText(/No course sign-ins are linked/)).toBeTruthy();
+	// The last row is gone, so focus lands on the section heading.
+	await waitFor(() =>
+		expect(document.activeElement?.id).toBe("settings-profile-linked"),
+	);
+});
+
+test("an unlink that ends this session goes to the unlinked page", async () => {
+	const assign = vi.fn();
+	vi.stubGlobal("location", { ...window.location, assign });
+	unlinkSignsOut = true;
+	myLinks = {
+		source: "sso",
+		linkUntil: null,
+		links: [
+			{
+				courseUserId: "33333333-3333-4333-8333-333333333333",
+				platformName: "mock-lms",
+				displayName: "Sam Student",
+				linkedAt: "2026-09-24T12:00:00.000Z",
+			},
+		],
+		launch: null,
+	};
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", {
+			name: "Unlink Sam Student from mock-lms",
+		}),
+	);
+
+	await waitFor(() => expect(assign).toHaveBeenCalledWith("/unlinked"));
+});
+
+test("after an unlink, focus moves to the next Unlink button", async () => {
+	const first = "33333333-3333-4333-8333-333333333333";
+	const second = "44444444-4444-4444-8444-444444444444";
+	const row = (courseUserId: string, displayName: string) => ({
+		courseUserId,
+		platformName: "mock-lms",
+		displayName,
+		linkedAt: "2026-09-24T12:00:00.000Z",
+	});
+	myLinks = {
+		source: "sso",
+		linkUntil: null,
+		links: [row(first, "Sam Student"), row(second, "Sam Other")],
+		launch: null,
+	};
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", {
+			name: "Unlink Sam Student from mock-lms",
+		}),
+	);
+	await waitFor(() =>
+		expect(document.activeElement?.getAttribute("aria-label")).toBe(
+			"Unlink Sam Other from mock-lms",
+		),
+	);
+});
+
+test("focus moves only after the refetch has removed the unlinked row (review C2)", async () => {
+	const courseUserId = "33333333-3333-4333-8333-333333333333";
+	myLinks = {
+		source: "sso",
+		linkUntil: null,
+		links: [
+			{
+				courseUserId,
+				platformName: "mock-lms",
+				displayName: "Sam Student",
+				linkedAt: "2026-09-24T12:00:00.000Z",
+			},
+		],
+		launch: null,
+	};
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	// A slow refetch, so focus code that does not wait for it sees the old row.
+	const inner = globalThis.fetch;
+	vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+		if (String(input) === "/me/links" && linkWrites.length > 0) {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		return inner(input, init);
+	});
+	const region = await openLinked();
+	const button = await within(region).findByRole("button", {
+		name: "Unlink Sam Student from mock-lms",
+	});
+	const rowPresentAtFocus: boolean[] = [];
+	const heading = document.getElementById("settings-profile-linked") as HTMLElement;
+	const focus = heading.focus.bind(heading);
+	heading.focus = (options?: FocusOptions) => {
+		rowPresentAtFocus.push(screen.queryByTestId(`link-row-${courseUserId}`) !== null);
+		focus(options);
+	};
+
+	fireEvent.click(button);
+
+	await waitFor(() => expect(rowPresentAtFocus).toEqual([false]));
 });
 
 /** Issue #363: a failed save is announced, not only shown. */
