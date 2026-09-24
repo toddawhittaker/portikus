@@ -37,6 +37,7 @@ import {
 } from "../shell/theme.js";
 import { useMe } from "../useMe.js";
 import {
+	startLink,
 	useMyLinks,
 	useProfile,
 	useRemovePicture,
@@ -901,6 +902,7 @@ function LinkedAccounts() {
 	const links = useMyLinks();
 	const unlink = useUnlink();
 	const [waiting, setWaiting] = useState(false);
+	const [startError, setStartError] = useState<string | null>(null);
 	const startButton = useRef<HTMLButtonElement>(null);
 	const reopenButton = useRef<HTMLButtonElement>(null);
 
@@ -924,13 +926,27 @@ function LinkedAccounts() {
 	function openLinkTab() {
 		// Opened synchronously in the click so it is not blocked; opener is cut by hand
 		// because "noopener" would hide whether a pop-up blocker stopped it.
-		const tab = window.open("/link/start", "_blank");
+		const tab = window.open("", "_blank");
 		if (tab === null) {
 			location.assign("/link/start");
 			return;
 		}
 		tab.opener = null;
+		setStartError(null);
 		setWaiting(true);
+		// The start is posted from this tab, where the click happened (security review of #515).
+		startLink().then(
+			({ redirectUrl }) => {
+				tab.location.href = redirectUrl;
+			},
+			(failure: unknown) => {
+				tab.close();
+				setWaiting(false);
+				setStartError(
+					failure instanceof Error ? failure.message : "The link could not be started.",
+				);
+			},
+		);
 	}
 
 	if (links.isPending) {
@@ -982,6 +998,11 @@ function LinkedAccounts() {
 				<p role="status" className="pk-text-compact m-0 text-ink-muted">
 					{waiting ? "Finish signing in in the new tab." : ""}
 				</p>
+				{startError ? (
+					<p className="pk-text-body m-0 text-status-error" role="alert">
+						{startError}
+					</p>
+				) : null}
 			</div>
 		);
 	}

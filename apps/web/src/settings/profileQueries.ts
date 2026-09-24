@@ -3,6 +3,7 @@ import {
 	MyLinks,
 	PICTURE_TOO_LARGE_MESSAGE,
 	Profile,
+	StartLinkResponse,
 	UnlinkResponse,
 	type UpdateProfileRequest,
 } from "@portikus/contracts";
@@ -70,6 +71,11 @@ export function useMyLinks() {
 		queryKey: linksKey,
 		queryFn: () => request(MyLinks, "/me/links"),
 	});
+}
+
+/** Step 2: the server answers with the SSO sign-in address. */
+export function startLink() {
+	return request(StartLinkResponse, "/me/links/start", { method: "POST" });
 }
 
 /** Step 7. */

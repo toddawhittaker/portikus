@@ -54,6 +54,10 @@ function stubSettings(
 			return json(200, profile);
 		}
 		if (url === "/me/links") return json(200, myLinks);
+		if (url === "/me/links/start") {
+			linkWrites.push(url);
+			return startAnswer;
+		}
 		if (url.startsWith("/me/links/") && url.endsWith("/unlink")) {
 			linkWrites.push(url);
 			myLinks = {
@@ -96,11 +100,13 @@ let myLinks: {
 	links: { courseUserId: string; [key: string]: unknown }[];
 	launch: null;
 } = { source: "sso", linkUntil: null, links: [], launch: null };
+let startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
 let linkWrites: string[] = [];
 let unlinkSignsOut = false;
 
 afterEach(() => {
 	myLinks = { source: "sso", linkUntil: null, links: [], launch: null };
+	startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
 	linkWrites = [];
 	unlinkSignsOut = false;
 });
@@ -749,8 +755,12 @@ function tell(message: { type: string }) {
 	channel.close();
 }
 
-test("Link to my SSO account opens the start page in a new tab and waits", async () => {
-	const tab = { opener: {} as unknown };
+function fakeTab() {
+	return { opener: {} as unknown, location: { href: "" }, close: vi.fn() };
+}
+
+test("Link to my SSO account starts the link here and sends a new tab to the SSO sign-in", async () => {
+	const tab = fakeTab();
 	const open = vi.fn(() => tab);
 	vi.stubGlobal("open", open);
 	courseLinks();
@@ -760,9 +770,12 @@ test("Link to my SSO account opens the start page in a new tab and waits", async
 		await within(region).findByRole("button", { name: "Link to my SSO account" }),
 	);
 
-	expect(open).toHaveBeenCalledWith("/link/start", "_blank");
+	expect(open).toHaveBeenCalledWith("", "_blank");
 	expect(tab.opener).toBeNull();
-	expect(linkWrites).toEqual([]);
+	await waitFor(() =>
+		expect(tab.location.href).toBe("https://sso.example.edu/authorize?x=1"),
+	);
+	expect(linkWrites).toEqual(["/me/links/start"]);
 	expect(within(region).getByRole("status").textContent).toBe(
 		"Finish signing in in the new tab.",
 	);
@@ -772,6 +785,35 @@ test("Link to my SSO account opens the start page in a new tab and waits", async
 	expect(document.activeElement).toBe(reopen);
 	fireEvent.click(reopen);
 	expect(open).toHaveBeenCalledTimes(2);
+});
+
+test("a refused start closes the new tab and is announced in Settings", async () => {
+	const tab = fakeTab();
+	vi.stubGlobal(
+		"open",
+		vi.fn(() => tab),
+	);
+	startAnswer = json(403, {
+		code: "FORBIDDEN",
+		message: "Open Portikus again from your course to link it.",
+	});
+	courseLinks();
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", { name: "Link to my SSO account" }),
+	);
+
+	expect((await within(region).findByRole("alert")).textContent).toBe(
+		"Open Portikus again from your course to link it.",
+	);
+	expect(tab.close).toHaveBeenCalled();
+	expect(tab.location.href).toBe("");
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			within(region).getByRole("button", { name: "Link to my SSO account" }),
+		),
+	);
 });
 
 test("a blocked pop-up falls back to the start page in this tab", async () => {
@@ -794,7 +836,7 @@ test("a blocked pop-up falls back to the start page in this tab", async () => {
 test("the waiting tab stops waiting when the new tab cancels", async () => {
 	vi.stubGlobal(
 		"open",
-		vi.fn(() => ({ opener: null })),
+		vi.fn(() => fakeTab()),
 	);
 	courseLinks();
 	const region = await openLinked();
