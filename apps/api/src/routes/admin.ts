@@ -48,6 +48,8 @@ const USER_COLUMNS = [
 	"display_name",
 	"email",
 	"role",
+	"provider_role",
+	"granted_role",
 	"disabled_at",
 	"shutdown_grace_seconds",
 	"preferred_username",
@@ -61,6 +63,8 @@ function toAdminUser(row: {
 	display_name: string;
 	email: string | null;
 	role: string;
+	provider_role: string;
+	granted_role: string | null;
 	disabled_at: Date | null;
 	shutdown_grace_seconds: number | null;
 	preferred_username: string | null;
@@ -72,6 +76,9 @@ function toAdminUser(row: {
 		displayName: row.display_name,
 		email: row.email,
 		role: Role.parse(row.role),
+		providerRole: Role.parse(row.provider_role),
+		// The database check allows only these two values.
+		grantedRole: row.granted_role as AdminUser["grantedRole"],
 		disabledAt: row.disabled_at ? new Date(row.disabled_at).toISOString() : null,
 		shutdownGraceSeconds: row.shutdown_grace_seconds,
 		preferredUsername: row.preferred_username,
@@ -210,6 +217,11 @@ export function registerAdminRoutes(
 			.orderBy("id")
 			.execute();
 		const workspaces = await db.selectFrom("workspaces").selectAll().execute();
+		const links = await db
+			.selectFrom("account_links")
+			.select("course_user_id")
+			.execute();
+		const linked = new Set(links.map((row) => row.course_user_id));
 		const cutoff = new Date(Date.now() - config.PRESENCE_TTL_SECONDS * 1000);
 		const counts = await db
 			.selectFrom("workspace_connections")
@@ -241,6 +253,7 @@ export function registerAdminRoutes(
 				markers: {
 					disabled: user.disabled_at !== null,
 					archived: Boolean(workspace?.archived_at),
+					linked: linked.has(user.id),
 					...flag,
 				},
 				workspace: workspace

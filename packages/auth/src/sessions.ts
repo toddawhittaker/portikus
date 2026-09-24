@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import type { Database } from "@portikus/db";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import type { AuthUser, Role } from "./types.js";
 
 export interface OidcIdentity {
@@ -12,15 +12,27 @@ export interface OidcIdentity {
 	preferredUsername: string | null;
 }
 
-/** The cookie holds the token; the database only ever sees this hash. */
-function hashToken(token: string): string {
+/** The cookie holds the token; the database only ever sees this hash, the session's id. */
+export function hashSessionToken(token: string): string {
 	return crypto.createHash("sha256").update(token).digest("hex");
 }
 
+const hashToken = hashSessionToken;
+
+const RANK: Record<Role, number> = { student: 0, instructor: 1, administrator: 2 };
+
+/** The role rule (docs/EPIC-13-1.md ruling 20): the higher of the provider's role and the grant. */
+export function effectiveRole(providerRole: Role, grantedRole: Role | null): Role {
+	if (grantedRole === null) return providerRole;
+	return RANK[grantedRole] > RANK[providerRole] ? grantedRole : providerRole;
+}
+
 /**
- * Create the user on first login, otherwise refresh the profile and role
- * snapshot taken from the identity provider. `previousRole` is the role before
- * this login, or null for a new user, so a role change can be audited.
+ * Create the user on first login, otherwise refresh the profile and the
+ * provider's role. `role` is the role this sign-in gave; it is stored as
+ * `provider_role`, and `users.role` becomes the effective role with any
+ * stored grant (ruling 20). `previousRole` is the effective role before this
+ * login, or null for a new user, so a role change can be audited.
  */
 export async function upsertUser(
 	db: Kysely<Database>,
@@ -43,6 +55,7 @@ export async function upsertUser(
 			display_name: identity.displayName,
 			preferred_username: identity.preferredUsername,
 			role,
+			provider_role: role,
 			last_login_at: now,
 			updated_at: now,
 		})
@@ -51,7 +64,12 @@ export async function upsertUser(
 				email: identity.email,
 				display_name: identity.displayName,
 				preferred_username: identity.preferredUsername,
-				role,
+				provider_role: role,
+				// In SQL so a grant written concurrently is never overwritten by a stale read.
+				role: sql<string>`case
+					when users.granted_role = 'administrator' or excluded.provider_role = 'administrator' then 'administrator'
+					when users.granted_role = 'instructor' or excluded.provider_role = 'instructor' then 'instructor'
+					else 'student' end`,
 				last_login_at: now,
 				updated_at: now,
 			}),
@@ -95,7 +113,8 @@ export async function createSession(
 
 /**
  * Resolve a session token to its user. Returns null when the session is
- * unknown or expired, or when the account has been disabled, so that
+ * unknown or expired, when the account has been disabled, or when it is a
+ * course account retired by a link (docs/EPIC-13-1.md ruling 13), so that
  * revoking access takes effect on the next request (SPEC.md section 5.3).
  */
 export async function loadSession(
@@ -115,6 +134,15 @@ export async function loadSession(
 			"users.disabled_at",
 		])
 		.where("sessions.id", "=", id)
+		.where(({ not, exists, selectFrom }) =>
+			not(
+				exists(
+					selectFrom("account_links")
+						.select("account_links.course_user_id")
+						.whereRef("account_links.course_user_id", "=", "users.id"),
+				),
+			),
+		)
 		.executeTakeFirst();
 
 	if (!row) {

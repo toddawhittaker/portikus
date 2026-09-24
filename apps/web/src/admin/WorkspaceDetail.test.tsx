@@ -15,7 +15,13 @@ const ADMIN = {
 	role: "administrator" as const,
 };
 
-const NONE = { disabled: false, archived: false, duplicateEmail: false, stale: false };
+const NONE = {
+	disabled: false,
+	archived: false,
+	duplicateEmail: false,
+	stale: false,
+	linked: false,
+};
 const IMAGE = { label: "2026.09.9", fingerprint: "abc", current: true };
 
 const ALICE_ROW = {
@@ -23,6 +29,8 @@ const ALICE_ROW = {
 	displayName: USER.displayName,
 	email: USER.email,
 	role: "student" as const,
+	providerRole: "student" as const,
+	grantedRole: null,
 	disabledAt: null,
 	shutdownGraceSeconds: null,
 	preferredUsername: "alice",
@@ -48,6 +56,8 @@ const ADMIN_ROW = {
 	displayName: ADMIN.displayName,
 	email: ADMIN.email,
 	role: "administrator" as const,
+	providerRole: "administrator" as const,
+	grantedRole: null,
 	disabledAt: null,
 	shutdownGraceSeconds: null,
 	preferredUsername: null,

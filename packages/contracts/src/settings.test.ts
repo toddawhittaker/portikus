@@ -115,12 +115,20 @@ const sampleAdminUser = {
 	displayName: "Ada Lovelace",
 	email: "ada@example.edu",
 	role: "student",
+	providerRole: "student",
+	grantedRole: null,
 	disabledAt: null,
 	shutdownGraceSeconds: null,
 	preferredUsername: null,
 	issuer: null,
 	lastLoginAt: null,
-	markers: { disabled: false, archived: false, duplicateEmail: false, stale: false },
+	markers: {
+		disabled: false,
+		archived: false,
+		duplicateEmail: false,
+		stale: false,
+		linked: false,
+	},
 	workspace: null,
 };
 
@@ -140,6 +148,11 @@ test("AdminUser accepts an override of zero", () => {
 test("AdminUser rejects a bad id, a bad role and a negative override", () => {
 	expect(() => AdminUser.parse({ ...sampleAdminUser, id: "not-a-uuid" })).toThrow();
 	expect(() => AdminUser.parse({ ...sampleAdminUser, role: "teacher" })).toThrow();
+	expect(() =>
+		AdminUser.parse({ ...sampleAdminUser, grantedRole: "student" }),
+	).toThrow();
+	const { linked: _linked, ...oldMarkers } = sampleAdminUser.markers;
+	expect(() => AdminUser.parse({ ...sampleAdminUser, markers: oldMarkers })).toThrow();
 	expect(() =>
 		AdminUser.parse({ ...sampleAdminUser, shutdownGraceSeconds: -1 }),
 	).toThrow();

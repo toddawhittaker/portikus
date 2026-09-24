@@ -3,7 +3,13 @@ import { expect, test } from "vitest";
 import { logCommand } from "./logCommand.js";
 import { imageText, markerLabels, shortIssuer, sortAccounts } from "./markers.js";
 
-const NONE = { disabled: false, archived: false, duplicateEmail: false, stale: false };
+const NONE = {
+	disabled: false,
+	archived: false,
+	duplicateEmail: false,
+	stale: false,
+	linked: false,
+};
 
 function account(
 	id: string,
@@ -16,6 +22,8 @@ function account(
 		displayName,
 		email,
 		role: "student",
+		providerRole: "student",
+		grantedRole: null,
 		disabledAt: null,
 		shutdownGraceSeconds: null,
 		preferredUsername: null,

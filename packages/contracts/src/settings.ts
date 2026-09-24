@@ -57,7 +57,12 @@ export const AdminUser = z.object({
 	id: z.string().uuid(),
 	displayName: z.string().min(1),
 	email: z.string().nullable(),
+	/** The effective role: the higher of the two below (docs/EPIC-13-1.md ruling 20). */
 	role: Role,
+	/** The role the account's own sign-in gave last time. */
+	providerRole: Role,
+	/** A role stored by Portikus; only `administrator` is written in Epic 13.1. */
+	grantedRole: z.enum(["instructor", "administrator"]).nullable(),
 	disabledAt: z.string().datetime().nullable(),
 	/** Per-user override; null means use the platform-wide value. */
 	shutdownGraceSeconds: graceSeconds.nullable(),
@@ -65,7 +70,8 @@ export const AdminUser = z.object({
 	preferredUsername: z.string().nullable(),
 	issuer: z.string().nullable(),
 	lastLoginAt: z.string().datetime().nullable(),
-	markers: AdminAccountMarkers,
+	/** `linked`: a course account retired by a link to an SSO account. */
+	markers: AdminAccountMarkers.extend({ linked: z.boolean() }),
 	workspace: AdminWorkspaceSummary.nullable(),
 });
 export type AdminUser = z.infer<typeof AdminUser>;

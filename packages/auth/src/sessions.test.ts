@@ -3,10 +3,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 import {
 	createSession,
 	deleteSession,
+	effectiveRole,
+	hashSessionToken,
 	loadSession,
 	type OidcIdentity,
 	upsertUser,
 } from "./sessions.js";
+import type { Role } from "./types.js";
 
 if (!hasTestDb()) {
 	console.log(
@@ -41,6 +44,27 @@ describe("users and sessions", () => {
 			await t.truncate();
 		}
 	});
+
+	async function roles(id: string) {
+		return t.db
+			.selectFrom("users")
+			.select(["role", "provider_role", "granted_role"])
+			.where("id", "=", id)
+			.executeTakeFirstOrThrow();
+	}
+
+	/** Store a grant as promote does: the grant and the effective role together. */
+	async function grant(id: string, role: "instructor" | "administrator") {
+		const row = await roles(id);
+		await t.db
+			.updateTable("users")
+			.set({
+				granted_role: role,
+				role: effectiveRole(row.provider_role as Role, role),
+			})
+			.where("id", "=", id)
+			.execute();
+	}
 
 	test.skipIf(!hasTestDb())(
 		"upsertUser creates then updates the same user",
@@ -132,6 +156,107 @@ describe("users and sessions", () => {
 			.execute();
 
 		expect(await loadSession(t.db, token)).toBeNull();
+	});
+
+	test.skipIf(!hasTestDb())(
+		"sign-in with no grant: role and provider_role are the provider's role",
+		async () => {
+			const user = await upsertUser(t.db, identity, "instructor");
+			expect(user.role).toBe("instructor");
+			expect(await roles(user.id)).toEqual({
+				role: "instructor",
+				provider_role: "instructor",
+				granted_role: null,
+			});
+			const again = await upsertUser(t.db, identity, "student");
+			expect(again.role).toBe("student");
+			expect(again.previousRole).toBe("instructor");
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"an instructor grant lifts a student but not an administrator",
+		async () => {
+			const user = await upsertUser(t.db, identity, "student");
+			await grant(user.id, "instructor");
+
+			const asStudent = await upsertUser(t.db, identity, "student");
+			expect(asStudent.role).toBe("instructor");
+			expect(await roles(user.id)).toEqual({
+				role: "instructor",
+				provider_role: "student",
+				granted_role: "instructor",
+			});
+
+			const asAdmin = await upsertUser(t.db, identity, "administrator");
+			expect(asAdmin.role).toBe("administrator");
+			expect(await roles(user.id)).toEqual({
+				role: "administrator",
+				provider_role: "administrator",
+				granted_role: "instructor",
+			});
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"an administrator grant survives a sign-in whose groups say student",
+		async () => {
+			const user = await upsertUser(t.db, identity, "student");
+			await grant(user.id, "administrator");
+			const signedIn = await upsertUser(t.db, identity, "student");
+			expect(signedIn.role).toBe("administrator");
+			expect(signedIn.previousRole).toBe("administrator");
+			expect(await roles(user.id)).toEqual({
+				role: "administrator",
+				provider_role: "student",
+				granted_role: "administrator",
+			});
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"a course account retired by a link cannot load a session",
+		async () => {
+			const sso = await upsertUser(t.db, identity, "student");
+			const course = await upsertUser(
+				t.db,
+				{ ...identity, issuer: "lti:https://lms.example.edu", subject: "c-1" },
+				"student",
+			);
+			const { token } = await createSession(t.db, course.id, 3600);
+			const { token: ssoToken } = await createSession(t.db, sso.id, 3600);
+			expect(await loadSession(t.db, token)).not.toBeNull();
+
+			await t.db
+				.insertInto("account_links")
+				.values({
+					course_user_id: course.id,
+					user_id: sso.id,
+					platform_issuer: "https://lms.example.edu",
+					archived_workspace: false,
+				})
+				.execute();
+
+			expect(await loadSession(t.db, token)).toBeNull();
+			expect((await loadSession(t.db, ssoToken))?.id).toBe(sso.id);
+		},
+	);
+
+	test("hashSessionToken gives the stored session id", () => {
+		expect(hashSessionToken("abc")).toBe(
+			"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+		);
+	});
+
+	test.each([
+		["student", null, "student"],
+		["student", "instructor", "instructor"],
+		["student", "administrator", "administrator"],
+		["instructor", "instructor", "instructor"],
+		["administrator", "instructor", "administrator"],
+		["instructor", null, "instructor"],
+	] as const)("effectiveRole(%s, %s) is %s", (provider, granted, expected) => {
+		expect(effectiveRole(provider, granted)).toBe(expected);
 	});
 
 	test.skipIf(!hasTestDb())("deleteSession logs the user out", async () => {

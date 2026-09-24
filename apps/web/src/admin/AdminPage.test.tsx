@@ -17,12 +17,20 @@ const STUDENT_ROW = {
 	displayName: USER.displayName,
 	email: USER.email,
 	role: "student" as const,
+	providerRole: "student" as const,
+	grantedRole: null,
 	disabledAt: null,
 	shutdownGraceSeconds: 30,
 	preferredUsername: null,
 	issuer: null,
 	lastLoginAt: null,
-	markers: { disabled: false, archived: false, duplicateEmail: false, stale: false },
+	markers: {
+		disabled: false,
+		archived: false,
+		duplicateEmail: false,
+		stale: false,
+		linked: false,
+	},
 	workspace: null,
 };
 
@@ -31,12 +39,20 @@ const ADMIN_ROW = {
 	displayName: ADMIN.displayName,
 	email: ADMIN.email,
 	role: "administrator" as const,
+	providerRole: "administrator" as const,
+	grantedRole: null,
 	disabledAt: "2026-01-01T00:00:00.000Z",
 	shutdownGraceSeconds: null,
 	preferredUsername: null,
 	issuer: null,
 	lastLoginAt: null,
-	markers: { disabled: true, archived: false, duplicateEmail: false, stale: false },
+	markers: {
+		disabled: true,
+		archived: false,
+		duplicateEmail: false,
+		stale: false,
+		linked: false,
+	},
 	workspace: null,
 };
 
