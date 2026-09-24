@@ -58,7 +58,7 @@ async function courseUserId(): Promise<string> {
 	return row.id;
 }
 
-// Both tests launch Lin; the first links and unlinks her.
+// Every test launches Lin; the first two link and unlink her.
 test.describe.configure({ mode: "serial" });
 
 // A failed or retried run must not leave Lin linked or her workspace archived.
@@ -129,6 +129,46 @@ test("a course account links to an SSO account, relaunches into it, and unlinks"
 		await expect(region).toContainText("No course sign-ins are linked");
 
 		// The next launch signs into the course account again.
+		await launchAs(page, { person: PERSON });
+		expect((await me(page)).id).toBe(courseId);
+	} finally {
+		await context.close();
+	}
+});
+
+test("a launch into a linked account can unlink it from the course side", async ({
+	browser,
+}) => {
+	test.setTimeout(120_000);
+	const erinId = await ssoLogin(browser, TARGET);
+	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
+	try {
+		const page = await context.newPage();
+		await launchAs(page, { person: PERSON });
+		const courseId = await courseUserId();
+		await linkAs(page, TARGET);
+		await page.getByRole("button", { name: "Link accounts" }).click();
+		await page.waitForURL(`${WEB_ORIGIN}/workspaces/**`, { timeout: 30_000 });
+
+		await launchAs(page, { person: PERSON });
+		expect((await me(page)).id).toBe(erinId);
+		const notice = page.getByRole("region", { name: "Course sign-in" });
+		await expect(notice.getByRole("status")).toHaveText(
+			/^Opened from .+ as Erin Student\. Not you\?$/,
+		);
+
+		await notice.getByRole("button", { name: "Unlink" }).click();
+		await page
+			.getByTestId("launch-unlink-confirm")
+			.getByTestId("dialog-confirm")
+			.click();
+		const unlinked = page.getByTestId("page-unlinked");
+		await expect(unlinked).toContainText(
+			"Open Portikus again from your course to continue with your course account.",
+		);
+		await expect(unlinked.getByRole("link")).toHaveCount(0);
+		expect((await page.request.get("/auth/me")).status()).toBe(401);
+
 		await launchAs(page, { person: PERSON });
 		expect((await me(page)).id).toBe(courseId);
 	} finally {

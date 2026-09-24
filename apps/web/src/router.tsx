@@ -15,6 +15,7 @@ import { MIN_PREVIEW_PORT, UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
 import { SignIn } from "./pages/SignIn.js";
+import { Unlinked } from "./pages/Unlinked.js";
 import { ProjectIndex } from "./projects/ProjectIndex.js";
 import { useProjects } from "./projects/queries.js";
 import { WorkspacePage } from "./WorkspacePage.js";
@@ -32,6 +33,12 @@ const sessionEndedRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/session-ended",
 	component: SessionEnded,
+});
+
+const unlinkedRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/unlinked",
+	component: Unlinked,
 });
 
 const notAuthorizedRoute = createRoute({
@@ -204,6 +211,7 @@ export const routeTree = rootRoute.addChildren([
 	indexRoute,
 	sessionEndedRoute,
 	notAuthorizedRoute,
+	unlinkedRoute,
 	linkRoute,
 	adminRoute,
 	courseRoute,
