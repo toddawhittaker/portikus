@@ -9,6 +9,7 @@ export type OutboundFetch = (url: string, init: RequestInit) => Promise<Response
 // loads, which would change every other fetch in the process (such as the
 // agent client's). The ProxyAgent and request modules on their own do not,
 // so only they are loaded, and requests go through them rather than a fetch.
+// Internal paths of undici 8.10.2, pinned; outbound-fetch tests fail if a bump moves them.
 const requireUndici = createRequire(import.meta.url);
 const ProxyAgent = requireUndici(
 	"undici/lib/dispatcher/proxy-agent.js",
