@@ -28,12 +28,14 @@ test("CourseMembersResponse accepts a member without a workspace", () => {
 		course,
 		members: [
 			{
+				userId: "650e8400-e29b-41d4-a716-446655440001",
 				displayName: "Sam Student",
 				role: "student",
 				lastLaunchAt: "2026-09-23T12:00:00.000Z",
 				workspaceState: null,
 			},
 			{
+				userId: "650e8400-e29b-41d4-a716-446655440002",
 				displayName: "Ivy Instructor",
 				role: "instructor",
 				lastLaunchAt: "2026-09-23T12:00:00+00:00",
@@ -49,6 +51,7 @@ test("a course member is never an administrator", () => {
 		course,
 		members: [
 			{
+				userId: "650e8400-e29b-41d4-a716-446655440003",
 				displayName: "Ada",
 				role: "administrator",
 				lastLaunchAt: "2026-09-23T12:00:00Z",

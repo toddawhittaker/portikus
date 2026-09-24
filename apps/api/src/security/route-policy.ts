@@ -158,6 +158,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /courses": { access: "course-instructor" },
 	"GET /courses/:courseId/members": { access: "course-instructor" },
 	"HEAD /courses/:courseId/members": { access: "course-instructor" },
+	"POST /courses/:courseId/members/:userId/remove": { access: "course-instructor" },
 
 	"GET /admin/workspaces": { access: "admin" },
 	"HEAD /admin/workspaces": { access: "admin" },

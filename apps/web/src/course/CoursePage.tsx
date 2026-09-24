@@ -1,12 +1,13 @@
 import type { CourseMember } from "@portikus/contracts";
-import { StateBadge } from "@portikus/ui";
+import { Button, StateBadge } from "@portikus/ui";
 import { Link, Navigate, useParams } from "@tanstack/react-router";
-import type * as React from "react";
+import * as React from "react";
 import { ApiError } from "../api/request.js";
 import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { useMe } from "../useMe.js";
 import { useCourseMembers, useCourses } from "./queries.js";
+import { RemoveMemberConfirm } from "./RemoveMemberConfirm.js";
 
 const ROLE_LABEL: Record<CourseMember["role"], string> = {
 	student: "Student",
@@ -112,7 +113,7 @@ function launchText(iso: string): string {
 	return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-/** `/course/:courseId`: who has opened Portikus from this course. Read-only. */
+/** `/course/:courseId`: who has opened Portikus from this course, and removing them. */
 export function CourseMembersPage() {
 	return (
 		<CourseFrame>
@@ -124,6 +125,9 @@ export function CourseMembersPage() {
 function CourseMembers() {
 	const { courseId } = useParams({ from: "/course/$courseId" });
 	const members = useCourseMembers(courseId);
+	const me = useMe();
+	const myId = me.status === "authenticated" ? me.user.id : null;
+	const [removing, setRemoving] = React.useState<CourseMember | null>(null);
 	const data = members.data;
 	const notFound = members.error instanceof ApiError && members.error.status === 404;
 	usePageTitle(data?.course.title ?? "Course");
@@ -170,32 +174,49 @@ function CourseMembers() {
 							<th scope="col" className="py-2 pr-4 font-medium">
 								Last launch
 							</th>
-							<th scope="col" className="py-2 font-medium">
+							<th scope="col" className="py-2 pr-4 font-medium">
 								Workspace
+							</th>
+							<th scope="col" className="py-2 font-medium">
+								<span className="sr-only">Actions</span>
 							</th>
 						</tr>
 					</thead>
 					<tbody>
-						{data.members.map((member, index) => (
-							// Members carry no id; the API's order is stable.
-							// biome-ignore lint/suspicious/noArrayIndexKey: see above
-							<tr key={index} className="border-line border-t">
+						{data.members.map((member) => (
+							<tr key={member.userId} className="border-line border-t">
 								<th scope="row" className="py-2 pr-4 font-normal">
 									{member.displayName}
 								</th>
 								<td className="py-2 pr-4">{ROLE_LABEL[member.role]}</td>
 								<td className="py-2 pr-4">{launchText(member.lastLaunchAt)}</td>
-								<td className="py-2">
+								<td className="py-2 pr-4">
 									{member.workspaceState ? (
-										<StateBadge state={member.workspaceState} />
+										<StateBadge state={member.workspaceState} inCell />
 									) : (
 										"No workspace"
+									)}
+								</td>
+								<td className="py-2">
+									{member.userId === myId ? null : (
+										<Button size="sm" onClick={() => setRemoving(member)}>
+											Remove{" "}
+											<span className="sr-only">{member.displayName} from course</span>
+										</Button>
 									)}
 								</td>
 							</tr>
 						))}
 					</tbody>
 				</table>
+			) : null}
+			{data && removing ? (
+				<RemoveMemberConfirm
+					courseId={courseId}
+					courseTitle={data.course.title}
+					member={removing}
+					onClose={() => setRemoving(null)}
+				/>
 			) : null}
 		</>
 	);
