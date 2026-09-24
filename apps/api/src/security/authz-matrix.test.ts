@@ -167,6 +167,7 @@ function sampleFor(
 		.replace(":checkId", "lint")
 		.replace(":courseId", world.courseId)
 		.replace(":courseUserId", world.a.userId)
+		.replace(":userId", world.a.userId)
 		.replace(":rpid", pointId)
 		.replace(":port", "5173")
 		.replace("*", "index.html");

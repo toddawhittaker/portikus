@@ -11,8 +11,17 @@ import { MOCK_LMS_ORIGIN, WEB_ORIGIN } from "./ports";
 
 export { MOCK_LMS_ORIGIN };
 
-export type PersonKey = "ivy" | "tom" | "sam" | "lee" | "ada" | "lin" | "max";
-export type CourseKey = "cs101" | "cs240";
+export type PersonKey =
+	| "ivy"
+	| "tom"
+	| "sam"
+	| "lee"
+	| "ada"
+	| "lin"
+	| "max"
+	| "rex"
+	| "una";
+export type CourseKey = "cs101" | "cs240" | "cs350";
 export type Defect =
 	| "bad_signature"
 	| "wrong_aud"

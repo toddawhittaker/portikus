@@ -1064,28 +1064,3 @@ audited reads through the file routes, and a clear notice to the student.
 Needs a security review. About a week.
 
 **Source.** Left out of Epic 13.
-
-## Remove course memberships
-
-**What.** Drop people from the Course page when they leave the course.
-
-**Why.** The page keeps everyone who ever launched, with their old last
-launch time.
-
-**What it would take.** Roster sync (above), or an instructor-side remove
-button as a stopgap. Half a day for the button.
-
-**Source.** Left out of Epic 13 (ruling 27).
-
-## StateBadge without role=status inside tables
-
-**What.** An option on the StateBadge component to leave out
-`role="status"` when it sits in a table cell.
-
-**Why.** On the Course page, every row's badge is a live region, so a
-screen reader may announce many rows at once.
-
-**What it would take.** A prop on the component and passing it from the
-tables that list many rows. An hour, plus tests.
-
-**Source.** Epic 13 accessibility review.
