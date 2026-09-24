@@ -717,7 +717,7 @@ describe("database migrations and schema", () => {
 	// --- migration 0017: session method and the link's archive stamp (Epic 13.1 review) ---
 
 	test.skipIf(!hasTestDb())(
-		"0017 backfills sessions as oidc and the link's archive stamp, and rolls back",
+		"0017 backfills session methods and the link's archive stamp, and rolls back",
 		async () => {
 			const { Migrator } = await import("kysely/migration");
 			const { migrations } = await import("./migrations/index.js");
@@ -725,22 +725,31 @@ describe("database migrations and schema", () => {
 
 			await expect(
 				t.db.transaction().execute(async (trx) => {
+					const plain = await insertTestUser(trx);
 					const sso = await insertTestUser(trx);
-					const course = await insertTestLtiUser(trx);
-					const otherCourse = await insertTestLtiUser(
+					const unlinkedCourse = await insertTestLtiUser(
 						trx,
-						"https://other.test.invalid",
+						"https://third.test.invalid",
 					);
-					const stamp = "2026-09-20T10:00:00.000Z";
-					await trx
-						.insertInto("workspaces")
-						.values({
-							label: testLabel(),
-							owner_user_id: course,
-							state: "stopped",
-							archived_at: stamp,
-						})
-						.execute();
+					const course = await insertTestLtiUser(trx);
+					const lateCourse = await insertTestLtiUser(trx, "https://other.test.invalid");
+					const linkedAt = "2026-09-20T10:00:00.000Z";
+					const stamp = "2026-09-20T10:00:02.000Z";
+					const laterStamp = "2026-09-21T10:00:00.000Z";
+					for (const [owner, archivedAt] of [
+						[course, stamp],
+						[lateCourse, laterStamp],
+					] as const) {
+						await trx
+							.insertInto("workspaces")
+							.values({
+								label: testLabel(),
+								owner_user_id: owner,
+								state: "stopped",
+								archived_at: archivedAt,
+							})
+							.execute();
+					}
 					const migrator = new Migrator({
 						db: trx,
 						provider: { getMigrations: async () => migrations },
@@ -748,30 +757,38 @@ describe("database migrations and schema", () => {
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0017_session_method");
-					await sql`insert into sessions (id, user_id, expires_at)
-						values ('old-session', ${sso}, now() + interval '1 hour')`.execute(trx);
-					await sql`insert into account_links (course_user_id, user_id, platform_issuer, archived_workspace)
-						values (${course}, ${sso}, 'https://lms.test.invalid', true),
-						       (${otherCourse}, ${sso}, 'https://other.test.invalid', false)`.execute(
+					await sql`insert into sessions (id, user_id, expires_at) values
+						('plain', ${plain}, now() + interval '1 hour'),
+						('launch', ${unlinkedCourse}, now() + interval '1 hour'),
+						('sso', ${sso}, now() + interval '1 hour'),
+						('course', ${course}, now() + interval '1 hour')`.execute(trx);
+					await sql`insert into account_links (course_user_id, user_id, platform_issuer, archived_workspace, created_at)
+						values (${course}, ${sso}, 'https://lms.test.invalid', true, ${linkedAt}),
+						       (${lateCourse}, ${sso}, 'https://other.test.invalid', true, ${linkedAt})`.execute(
 						trx,
 					);
 
 					const up = await migrator.migrateToLatest();
 					expect(up.error).toBeUndefined();
-					const session = await trx
+					const sessions = await trx
 						.selectFrom("sessions")
-						.select(["method", "course_user_id"])
-						.where("id", "=", "old-session")
-						.executeTakeFirstOrThrow();
-					expect(session).toEqual({ method: "oidc", course_user_id: null });
+						.select(["id", "method", "course_user_id"])
+						.orderBy("id")
+						.execute();
+					// Both sides of a link lose their sessions; the rest are classified.
+					expect(sessions).toEqual([
+						{ id: "launch", method: "lti", course_user_id: null },
+						{ id: "plain", method: "oidc", course_user_id: null },
+					]);
 					const links = await trx
 						.selectFrom("account_links")
 						.select(["course_user_id", "archived_at"])
 						.execute();
 					const archived = links.find((l) => l.course_user_id === course);
 					expect(new Date(archived?.archived_at ?? 0).toISOString()).toBe(stamp);
+					// An archive written a day after the link is not the link's.
 					expect(
-						links.find((l) => l.course_user_id === otherCourse)?.archived_at,
+						links.find((l) => l.course_user_id === lateCourse)?.archived_at,
 					).toBeNull();
 					throw rollback;
 				}),

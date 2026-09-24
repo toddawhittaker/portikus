@@ -907,6 +907,47 @@ test("after an unlink, focus moves to the next Unlink button", async () => {
 	);
 });
 
+test("focus moves only after the refetch has removed the unlinked row (review C2)", async () => {
+	const courseUserId = "33333333-3333-4333-8333-333333333333";
+	myLinks = {
+		source: "sso",
+		linkUntil: null,
+		links: [
+			{
+				courseUserId,
+				platformName: "mock-lms",
+				displayName: "Sam Student",
+				linkedAt: "2026-09-24T12:00:00.000Z",
+			},
+		],
+		launch: null,
+	};
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	// A slow refetch, so focus code that does not wait for it sees the old row.
+	const inner = globalThis.fetch;
+	vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+		if (String(input) === "/me/links" && linkWrites.length > 0) {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		return inner(input, init);
+	});
+	const region = await openLinked();
+	const button = await within(region).findByRole("button", {
+		name: "Unlink Sam Student from mock-lms",
+	});
+	const rowPresentAtFocus: boolean[] = [];
+	const heading = document.getElementById("settings-profile-linked") as HTMLElement;
+	const focus = heading.focus.bind(heading);
+	heading.focus = (options?: FocusOptions) => {
+		rowPresentAtFocus.push(screen.queryByTestId(`link-row-${courseUserId}`) !== null);
+		focus(options);
+	};
+
+	fireEvent.click(button);
+
+	await waitFor(() => expect(rowPresentAtFocus).toEqual([false]));
+});
+
 /** Issue #363: a failed save is announced, not only shown. */
 test("a failed save is shown as an alert", async () => {
 	stubFetch((url, init) => {

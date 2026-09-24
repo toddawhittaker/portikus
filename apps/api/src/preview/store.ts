@@ -1,5 +1,5 @@
 import * as crypto from "node:crypto";
-import { hashSessionToken } from "@portikus/auth";
+import { hashSessionToken, loadSessionById } from "@portikus/auth";
 import type { AuthUser, PreviewPresentation } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
@@ -228,34 +228,13 @@ export async function revokedForStoppedWorkspace(
 /**
  * The user behind a main session row, found by its id rather than its token:
  * the preview host never sees the main session cookie, so the preview session
- * carries the id instead. Mirrors `loadSession` (SPEC.md §5.3).
+ * carries the id instead. The same rules as `loadSession` (SPEC.md §5.3).
  */
 export async function loadMainSessionUser(
 	db: Kysely<Database>,
 	sessionId: string,
 ): Promise<AuthUser | null> {
-	const row = await db
-		.selectFrom("sessions")
-		.innerJoin("users", "users.id", "sessions.user_id")
-		.select([
-			"sessions.expires_at",
-			"users.id as user_id",
-			"users.email",
-			"users.display_name",
-			"users.role",
-			"users.disabled_at",
-		])
-		.where("sessions.id", "=", sessionId)
-		.executeTakeFirst();
-	if (!row) return null;
-	if (new Date(row.expires_at).getTime() <= Date.now()) return null;
-	if (row.disabled_at !== null) return null;
-	return {
-		id: row.user_id,
-		email: row.email,
-		displayName: row.display_name,
-		role: row.role as AuthUser["role"],
-	};
+	return loadSessionById(db, sessionId);
 }
 
 /** End one preview session. */

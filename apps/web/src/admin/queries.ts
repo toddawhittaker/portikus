@@ -114,10 +114,19 @@ export function useLifecycleAction() {
 	);
 }
 
+/** The single-row admin route for one account or workspace action. */
+export function adminActionUrl(
+	resource: "users" | "workspaces",
+	id: string,
+	action: "disable" | "enable" | "archive" | "unarchive",
+): string {
+	return `/admin/${resource}/${id}/${action}`;
+}
+
 export function useSetDisabled() {
 	return useAdminWrite(
 		({ userId, disabled }: { userId: string; disabled: boolean }) => ({
-			url: `/admin/users/${userId}/${disabled ? "disable" : "enable"}`,
+			url: adminActionUrl("users", userId, disabled ? "disable" : "enable"),
 			init: { method: "POST" },
 		}),
 	);
@@ -126,7 +135,11 @@ export function useSetDisabled() {
 export function useSetArchived() {
 	return useAdminWrite(
 		({ workspaceId, archived }: { workspaceId: string; archived: boolean }) => ({
-			url: `/admin/workspaces/${workspaceId}/${archived ? "archive" : "unarchive"}`,
+			url: adminActionUrl(
+				"workspaces",
+				workspaceId,
+				archived ? "archive" : "unarchive",
+			),
 			init: { method: "POST" },
 		}),
 	);

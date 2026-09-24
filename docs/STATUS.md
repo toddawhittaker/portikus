@@ -2107,6 +2107,26 @@ including the last-administrator refusal, bulk actions, and member
 removal on the Course page, plus axe on the new pages. `pnpm typecheck`,
 `pnpm lint` and `pnpm test` are green on the epic branch.
 
+**Review rounds.** A code review, a security review and an
+accessibility review ran over the epic head after T5. Their fixes landed
+as PR #508 (web and accessibility: focus after unlink, labelled buttons,
+live regions) and PR #509 (server: sessions record how they started in
+migration `0017_session_method`, a launch session of an administrator is
+refused, a disabled SSO account is refused at confirm, instructors remove
+only students, unlink undoes only the link's own archive, and the launch
+notice with its course-side Unlink and the `/unlinked` page). A
+confirmation review then found more, fixed in the "Epic 13.1
+confirmation-review fixes" PR: every unlink ends every session that came
+through the course identity, with its preview sessions; a launch session
+may unlink only its own identity; migration 0017 (not yet deployed
+anywhere, so edited in place) classifies existing sessions and fills the
+archive time only when it matches the link; an administrator SSO account
+cannot be linked; the preview gateway applies the same session rule as
+the API; Settings moves focus only after the unlinked row is gone; the
+launch notice is announced through a status region mounted in advance;
+and removing the last other course member focuses the page heading.
+Rulings S1 to S5, N1, N2 and N4 in `docs/EPIC-13-1.md` record them.
+
 **Pilot rehearsal:** pending.
 
 ### Gaps
@@ -2120,7 +2140,9 @@ removal on the Course page, plus axe on the new pages. `pnpm typecheck`,
 - **No server-side search or paging** for the Users list; it is fine for
   one pilot's account count and left for when a list passes about 1,000
   accounts (ruling 24).
-- **No administrator UI to link or unlink on someone else's behalf.**
+- **No administrator UI to link or unlink on someone else's behalf.** So
+  a student whose linked SSO account is later disabled or promoted is
+  locked out of launches until one exists (ruling N4, BACKLOG.md).
 - **Moving or merging workspaces, files or projects between accounts** is
   out of scope; a link only changes where a later launch or sign-in lands.
 - **No `instructor` grant in the UI or API yet**, though the column

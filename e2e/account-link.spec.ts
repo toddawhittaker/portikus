@@ -153,11 +153,13 @@ test("a launch into a linked account can unlink it from the course side", async 
 		await launchAs(page, { person: PERSON });
 		expect((await me(page)).id).toBe(erinId);
 		const notice = page.getByRole("region", { name: "Course sign-in" });
-		await expect(notice.getByRole("status")).toHaveText(
+		await expect(notice).toContainText(/Opened from .+ as Erin Student\. Not you\?/);
+		// The status region outside the notice, mounted before the text, announces it.
+		await expect(page.getByTestId("launch-notice-status")).toHaveText(
 			/^Opened from .+ as Erin Student\. Not you\?$/,
 		);
 
-		await notice.getByRole("button", { name: "Unlink" }).click();
+		await notice.getByRole("button", { name: "Unlink this course sign-in" }).click();
 		await page
 			.getByTestId("launch-unlink-confirm")
 			.getByTestId("dialog-confirm")

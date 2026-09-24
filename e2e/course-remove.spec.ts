@@ -49,8 +49,8 @@ test("an instructor removes a student, who reappears after a relaunch", async ({
 		await expect(course.getByTestId("course-removed")).toHaveText(
 			"Removed Una Unenrolled from CS 350 Software Engineering",
 		);
-		// Nobody else can be removed, so focus lands on the table caption.
-		await expect(table.locator("caption")).toBeFocused();
+		// Nobody else can be removed, so focus lands on the page heading.
+		await expect(course.getByRole("heading", { level: 1 })).toBeFocused();
 		expect(await course.evaluate(() => document.activeElement === document.body)).toBe(
 			false,
 		);

@@ -89,10 +89,11 @@ export function useUnlink() {
 			request(UnlinkResponse, `/me/links/${encodeURIComponent(courseUserId)}/unlink`, {
 				method: "POST",
 			}),
-		onSuccess: ({ signedOut }) => {
+		// Returning the refetch makes a caller's onSuccess wait until the row is gone.
+		onSuccess: ({ signedOut }) =>
 			// This session is gone, so a full load drops every cached answer.
-			if (signedOut) location.assign("/unlinked");
-			else void client.invalidateQueries({ queryKey: linksKey });
-		},
+			signedOut
+				? location.assign("/unlinked")
+				: client.invalidateQueries({ queryKey: linksKey }),
 	});
 }

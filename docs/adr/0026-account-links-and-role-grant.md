@@ -34,7 +34,19 @@ with no account is refused.
 unique by (issuer, `sub`). Later launches from the linked identity sign
 into the SSO account. The course account is retired: its sessions end,
 `loadSession` refuses it, and its workspace is archived through the
-existing archive path. Unlink deletes the row and undoes that archive.
+existing archive path. Unlink deletes the row and undoes that archive,
+only while the workspace still carries the archive time the link stored
+in `account_links.archived_at`. An administrator SSO account cannot be
+linked.
+
+**Sessions know how they started.** Each session stores its `method`
+(`oidc`, `lti` or `link`) and, for a launch through a linked identity,
+that `course_user_id`. A launch session whose account is an administrator
+is refused on every request, in the API and in the preview gateway,
+which applies the same session rule by id. Unlink can start from either
+side: an SSO session removes any of its links, and a launch session only
+its own identity's. Either way, every session that came through the
+identity ends, with its preview sessions, in the unlink transaction.
 At most one course identity per LTI platform issuer links to an SSO
 account.
 
