@@ -85,4 +85,10 @@ export {
 	sessionOrigin,
 	upsertUser,
 } from "./sessions.js";
+export {
+	claimSetupCode,
+	hasEnabledAdministrator,
+	issueSetupCode,
+	normalizeSetupCode,
+} from "./setup-code.js";
 export { type AuthOptions, mapRole, type OidcProvider, type Role } from "./types.js";

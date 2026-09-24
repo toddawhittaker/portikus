@@ -20,6 +20,7 @@ import { SignIn } from "./pages/SignIn.js";
 import { Unlinked } from "./pages/Unlinked.js";
 import { ProjectIndex } from "./projects/ProjectIndex.js";
 import { useProjects } from "./projects/queries.js";
+import { SetupPage } from "./setup/SetupPage.js";
 import { WorkspacePage } from "./WorkspacePage.js";
 import { WorkArea } from "./work/WorkArea.js";
 
@@ -46,6 +47,13 @@ const unlinkedRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/unlinked",
 	component: Unlinked,
+});
+
+/** The first administrator's one-time setup code (docs/EPIC-14.md rulings 15 to 18). */
+const setupRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/setup",
+	component: SetupPage,
 });
 
 const notAuthorizedRoute = createRoute({
@@ -225,6 +233,7 @@ export const routeTree = rootRoute.addChildren([
 	indexRoute,
 	sessionEndedRoute,
 	notAuthorizedRoute,
+	setupRoute,
 	unlinkedRoute,
 	linkRoute,
 	linkStartRoute,

@@ -2147,3 +2147,46 @@ Rulings S1 to S5, N1, N2 and N4 in `docs/EPIC-13-1.md` record them.
   out of scope; a link only changes where a later launch or sign-in lands.
 - **No `instructor` grant in the UI or API yet**, though the column
   accepts it, ready for the Entra and Google epic.
+
+## Epic 14 — Sign-in providers (in progress)
+
+### T2: first administrator setup code
+
+A new site gets its first administrator from a one-time setup code
+(docs/EPIC-14.md rulings 15 to 18, ADR 0028). The command
+`setup-code-main.js` in `@portikus/auth` prints a code of 16 Crockford
+base-32 characters (80 random bits), valid for 60 minutes and single use.
+Migration `0018_setup_codes` keeps only its SHA-256. Issuing a code
+deletes any unused one and writes `setup.code_issued` without the code.
+The Ansible step that T4 added runs this command by the same path.
+
+The `/setup` page lets a signed-in SSO account enter the code through
+`POST /setup/claim`. A good code sets `granted_role = 'administrator'`
+and writes `setup.code_claimed` and `user.role_changed` with source
+`setup`. A wrong or expired code gets one generic answer and a `failed`
+audit row. A course account, or any session that began with a course
+launch, is refused. Claims are limited to ten per address in ten minutes,
+the sign-in throttle's mechanism. Under standalone Dex, while no enabled
+administrator exists, `/setup` instead shows a form that creates the
+first Dex password and its administrator account in one step through
+`POST /setup/first-account`. `GET /setup/state` tells the page which form
+to show.
+
+Tests: database tests for issuing, claiming, expiry and single use; route
+tests for every refusal, the throttle, the first-account path and a log
+that holds no code; Playwright runs the command against the run's
+database, claims as a fresh student, sees the Administration link, and is
+refused a second claim; axe checks every state of `/setup`.
+
+Gaps:
+
+- **Caddy does not yet route `/setup/*` to the API.** The development
+  server proxies it, but a deployed site sends it to the web bundle, so
+  the page cannot claim a code until the Caddyfile gains a `handle
+  /setup/*` block for the API (an infra change outside T2).
+- The Playwright test claims as a fresh account rather than the shared
+  mock `alice`, because another spec checks at the same time that alice
+  has no Administration link.
+- An account whose provider gives it no role at all cannot sign in, so
+  it cannot claim a code either; under Entra such a person needs an app
+  role first.

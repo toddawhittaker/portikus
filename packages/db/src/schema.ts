@@ -26,6 +26,7 @@ export interface Database {
 	lti_memberships: LtiMembershipsTable;
 	account_links: AccountLinksTable;
 	account_link_intents: AccountLinkIntentsTable;
+	setup_codes: SetupCodesTable;
 }
 
 export interface UsersTable {
@@ -271,4 +272,14 @@ export interface AccountLinkIntentsTable {
 	/** The SSO account, set by the OIDC callback. */
 	user_id: string | null;
 	expires_at: ColumnType<Date, string, string>;
+}
+
+/** A one-time code that makes its claimer the administrator; only its hash is kept. */
+export interface SetupCodesTable {
+	id: Generated<string>;
+	code_hash: string;
+	created_at: ColumnType<Date, string | undefined, never>;
+	expires_at: ColumnType<Date, string, never>;
+	used_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	used_by: ColumnType<string | null, string | null | undefined, string | null>;
 }
