@@ -52,6 +52,26 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		name: "Dave Nobody",
 		groups: [],
 	},
+	// Linking tests only (docs/EPIC-13-1.md): erin and gail are link targets for
+	// two specs that run at once; frank must never sign in, so he has no account.
+	erin: {
+		sub: "erin",
+		email: "erin@example.edu",
+		name: "Erin Student",
+		groups: [MOCK_GROUPS.student],
+	},
+	frank: {
+		sub: "frank",
+		email: "frank@example.edu",
+		name: "Frank Student",
+		groups: [MOCK_GROUPS.student],
+	},
+	gail: {
+		sub: "gail",
+		email: "gail@example.edu",
+		name: "Gail Student",
+		groups: [MOCK_GROUPS.student],
+	},
 };
 
 export const MOCK_CLIENT_ID = "portikus-dev";

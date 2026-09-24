@@ -69,6 +69,24 @@ export const PEOPLE: readonly Person[] = [
 		email: "ada@mock-lms.test",
 		role: "Administrator",
 	},
+	// Linking tests only (docs/EPIC-13-1.md): a link changes where every launch
+	// of a person lands, so no other spec may launch these two.
+	{
+		key: "lin",
+		sub: "5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a1006",
+		givenName: "Lin",
+		familyName: "Linker",
+		email: "lin@mock-lms.test",
+		role: "Learner",
+	},
+	{
+		key: "max",
+		sub: "5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a1007",
+		givenName: "Max",
+		familyName: "Linker",
+		email: "max@mock-lms.test",
+		role: "Learner",
+	},
 ];
 
 export const COURSES: readonly Course[] = [

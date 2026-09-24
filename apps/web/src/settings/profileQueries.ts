@@ -1,10 +1,13 @@
 import {
 	MAX_PROFILE_PICTURE_BYTES,
+	MyLinks,
 	PICTURE_TOO_LARGE_MESSAGE,
 	Profile,
+	StartLinkResponse,
 	type UpdateProfileRequest,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { z } from "zod";
 import { request } from "../api/request.js";
 
 export const profileKey = ["me", "profile"] as const;
@@ -58,4 +61,34 @@ export function useRemovePicture() {
 	return useProfileMutation(() =>
 		request(Profile, "/me/picture", { method: "DELETE" }),
 	);
+}
+
+export const linksKey = ["me", "links"] as const;
+
+/** Whether this is a course or an SSO account, and its links (docs/EPIC-13-1.md, "The flow" step 1). */
+export function useMyLinks() {
+	return useQuery({
+		queryKey: linksKey,
+		queryFn: () => request(MyLinks, "/me/links"),
+	});
+}
+
+/** Step 2: the server answers with the SSO sign-in address, and the browser goes there. */
+export function useStartLink() {
+	return useMutation({
+		mutationFn: () => request(StartLinkResponse, "/me/links/start", { method: "POST" }),
+		onSuccess: ({ redirectUrl }) => location.assign(redirectUrl),
+	});
+}
+
+/** Step 7. */
+export function useUnlink() {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: (courseUserId: string) =>
+			request(z.unknown(), `/me/links/${encodeURIComponent(courseUserId)}/unlink`, {
+				method: "POST",
+			}),
+		onSuccess: () => client.invalidateQueries({ queryKey: linksKey }),
+	});
 }
