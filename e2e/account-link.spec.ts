@@ -3,18 +3,33 @@
  * and T3's "What done looks like"). Everything goes through the browser: the
  * mock LMS launch, Settings, the mock OIDC provider and the /link page. Only
  * standard OIDC behaviour of the mock is used (ruling 26).
+ *
+ * Lin (mock LMS), erin and frank (mock OIDC) exist for this spec alone, so a
+ * link never sends another spec's launch into the wrong account.
  */
 import { type Browser, expect, type Page, test } from "@playwright/test";
-import { apiLoginAs, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
-import { launchAs, ltiUsers } from "./lti-helpers";
+import { PEOPLE } from "../packages/mock-lms/src/seed";
+import { MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
+import { LTI_ISSUER, MOCK_LMS_ORIGIN } from "./lti-helpers";
 
-// Both tests change which account a mock identity resolves to.
-test.describe.configure({ mode: "serial" });
+const PERSON = "lin";
+const TARGET = "erin";
+const NO_ACCOUNT = "frank";
 
-async function me(page: Page): Promise<{ id: string; displayName: string }> {
+/** lti-helpers' launchAs, for a person its PersonKey type does not list. */
+async function launchPerson(page: Page, person: string) {
+	await page.goto(`${MOCK_LMS_ORIGIN}/`);
+	await page.getByLabel("Person").selectOption(person);
+	await page.getByLabel("Course").selectOption("cs101");
+	await page.getByRole("button", { name: "Launch Portikus" }).click();
+	await page.waitForURL(`${WEB_ORIGIN}/**`, { timeout: 30_000 });
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 30_000 });
+}
+
+async function me(page: Page): Promise<{ id: string }> {
 	const response = await page.request.get(`${WEB_ORIGIN}/auth/me`);
 	expect(response.status()).toBe(200);
-	return (await response.json()) as { id: string; displayName: string };
+	return (await response.json()) as { id: string };
 }
 
 async function openLinkedAccounts(page: Page) {
@@ -28,7 +43,7 @@ async function openLinkedAccounts(page: Page) {
 }
 
 /** From a fresh course session, start a link and pick `user` on the mock provider. */
-async function linkAs(page: Page, user: "bob" | "alice") {
+async function linkAs(page: Page, user: string) {
 	const region = await openLinkedAccounts(page);
 	await region.getByRole("button", { name: "Link to my SSO account" }).click();
 	await page.waitForURL(`${MOCK_ISSUER}/authorize**`);
@@ -36,10 +51,12 @@ async function linkAs(page: Page, user: "bob" | "alice") {
 	await page.waitForURL(`${WEB_ORIGIN}/link**`);
 }
 
-async function ssoUserId(browser: Browser, user: "bob" | "alice"): Promise<string> {
+/** helpers' apiLoginAs, for a mock user its MockUser type does not list; returns the account id. */
+async function ssoLogin(browser: Browser, user: string): Promise<string> {
 	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
 	try {
-		await apiLoginAs(context.request, user);
+		const authorize = await context.request.get("/auth/login");
+		await context.request.get(`${authorize.url()}&user=${user}`);
 		const response = await context.request.get("/auth/me");
 		return ((await response.json()) as { id: string }).id;
 	} finally {
@@ -47,35 +64,46 @@ async function ssoUserId(browser: Browser, user: "bob" | "alice"): Promise<strin
 	}
 }
 
-test("a course account links to bob, relaunches into bob, and unlinks", async ({
+async function courseUserId(): Promise<string> {
+	const [row] = await query<{ id: string }>(
+		"select id from users where oidc_issuer = $1 and oidc_subject = $2",
+		[LTI_ISSUER, PEOPLE.find((p) => p.key === PERSON)?.sub],
+	);
+	if (!row) throw new Error("Lin has not launched yet");
+	return row.id;
+}
+
+// Both tests launch Lin; the first links and unlinks her.
+test.describe.configure({ mode: "serial" });
+
+test("a course account links to an SSO account, relaunches into it, and unlinks", async ({
 	browser,
 }) => {
 	test.setTimeout(120_000);
-	const bobId = await ssoUserId(browser, "bob");
+	const erinId = await ssoLogin(browser, TARGET);
 	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
 	try {
 		const page = await context.newPage();
-		await launchAs(page, { person: "sam" });
-		const [course] = await ltiUsers("sam");
-		expect(course).toBeDefined();
-		expect((await me(page)).id).toBe(course?.id);
+		await launchPerson(page, PERSON);
+		const courseId = await courseUserId();
+		expect((await me(page)).id).toBe(courseId);
 		const oldCookies = await context.cookies();
 
-		await linkAs(page, "bob");
+		await linkAs(page, TARGET);
 		const accounts = page.getByTestId("link-accounts");
-		await expect(accounts).toContainText("Sam Student");
-		await expect(accounts).toContainText("Bob Student");
-		// Nothing is linked, and nobody is signed in as bob, until confirm.
-		expect((await me(page)).id).toBe(course?.id);
+		await expect(accounts).toContainText("Lin Linker");
+		await expect(accounts).toContainText("Erin Student");
+		// Nothing is linked, and nobody is signed in as erin, until confirm.
+		expect((await me(page)).id).toBe(courseId);
 
 		await page.getByRole("button", { name: "Link accounts" }).click();
 		await page.waitForURL(`${WEB_ORIGIN}/workspaces/**`, { timeout: 30_000 });
-		expect((await me(page)).id).toBe(bobId);
-		const [bobWorkspace] = await query<{ id: string }>(
+		expect((await me(page)).id).toBe(erinId);
+		const [erinWorkspace] = await query<{ id: string }>(
 			"select id from workspaces where owner_user_id = $1",
-			[bobId],
+			[erinId],
 		);
-		expect(page.url()).toContain(`/workspaces/${bobWorkspace?.id}`);
+		expect(page.url()).toContain(`/workspaces/${erinWorkspace?.id}`);
 
 		// The course account's old session is dead.
 		const old = await browser.newContext({ baseURL: WEB_ORIGIN });
@@ -86,23 +114,23 @@ test("a course account links to bob, relaunches into bob, and unlinks", async ({
 		// Its workspace is archived, not deleted.
 		const courseWorkspaces = await query<{ archived_at: Date | null }>(
 			"select archived_at from workspaces where owner_user_id = $1",
-			[course?.id],
+			[courseId],
 		);
 		for (const row of courseWorkspaces) expect(row.archived_at).not.toBeNull();
 
-		// A relaunch from the course lands in bob's account and workspace.
-		await launchAs(page, { person: "sam" });
-		expect((await me(page)).id).toBe(bobId);
+		// A relaunch from the course lands in erin's account.
+		await launchPerson(page, PERSON);
+		expect((await me(page)).id).toBe(erinId);
 
-		// bob sees the link and unlinks it.
+		// erin sees the link and unlinks it.
 		const region = await openLinkedAccounts(page);
-		await region.getByRole("button", { name: /^Unlink Sam Student/ }).click();
+		await region.getByRole("button", { name: /^Unlink Lin Linker/ }).click();
 		await expect(region.getByRole("status")).toContainText("Unlinked.");
 		await expect(region).toContainText("No course sign-ins are linked");
 
 		// The next launch signs into the course account again.
-		await launchAs(page, { person: "sam" });
-		expect((await me(page)).id).toBe(course?.id);
+		await launchPerson(page, PERSON);
+		expect((await me(page)).id).toBe(courseId);
 	} finally {
 		await context.close();
 	}
@@ -110,37 +138,23 @@ test("a course account links to bob, relaunches into bob, and unlinks", async ({
 
 test("a link to an SSO identity with no account is refused", async ({ browser }) => {
 	test.setTimeout(120_000);
-	// Move alice's row aside so her identity has no account for this test.
-	await ssoUserId(browser, "alice");
-	const aside = `alice-aside-${Date.now()}`;
-	await query(
-		"update users set oidc_subject = $1 where oidc_issuer = $2 and oidc_subject = 'alice'",
-		[aside, MOCK_ISSUER],
-	);
 	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
 	try {
 		const page = await context.newPage();
-		await launchAs(page, { person: "sam" });
-		const [course] = await ltiUsers("sam");
+		await launchPerson(page, PERSON);
+		const courseId = await courseUserId();
 
-		await linkAs(page, "alice");
+		await linkAs(page, NO_ACCOUNT);
 		expect(new URL(page.url()).searchParams.get("error")).toBe("no_account");
 		await expect(page.getByRole("alert")).toContainText("never signed in to Portikus");
-		// No account was created for alice, and sam is still signed in as the course account.
+		// Link mode created no account, and the course session is untouched.
 		const created = await query(
-			"select 1 from users where oidc_issuer = $1 and oidc_subject = 'alice'",
-			[MOCK_ISSUER],
+			"select 1 from users where oidc_issuer = $1 and oidc_subject = $2",
+			[MOCK_ISSUER, NO_ACCOUNT],
 		);
 		expect(created).toHaveLength(0);
-		expect((await me(page)).id).toBe(course?.id);
+		expect((await me(page)).id).toBe(courseId);
 	} finally {
 		await context.close();
-		// Put alice back unless another spec signed her in meanwhile.
-		await query(
-			`update users set oidc_subject = 'alice'
-			 where oidc_issuer = $1 and oidc_subject = $2
-			   and not exists (select 1 from users where oidc_issuer = $1 and oidc_subject = 'alice')`,
-			[MOCK_ISSUER, aside],
-		);
 	}
 });

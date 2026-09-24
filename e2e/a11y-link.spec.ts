@@ -1,11 +1,12 @@
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the /link page and
- * the Profile section's linked accounts (docs/EPIC-13-1.md, T3).
+ * the Profile section's linked accounts (docs/EPIC-13-1.md, T3). Max (mock
+ * LMS) and gail (mock OIDC) exist for this spec alone.
  */
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
 import { MOCK_ISSUER, WEB_ORIGIN } from "./helpers";
-import { launchAs } from "./lti-helpers";
+import { MOCK_LMS_ORIGIN } from "./lti-helpers";
 
 async function expectNoViolations(page: Page, include?: string) {
 	let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]);
@@ -15,10 +16,21 @@ async function expectNoViolations(page: Page, include?: string) {
 }
 
 test("the Profile link section and the /link page have no automatic violations", async ({
+	browser,
 	page,
 }) => {
 	test.setTimeout(120_000);
-	await launchAs(page, { person: "lee" });
+	// gail needs an account to reach the confirmation page.
+	const gail = await browser.newContext({ baseURL: WEB_ORIGIN });
+	const authorize = await gail.request.get("/auth/login");
+	await gail.request.get(`${authorize.url()}&user=gail`);
+	await gail.close();
+
+	await page.goto(`${MOCK_LMS_ORIGIN}/`);
+	await page.getByLabel("Person").selectOption("max");
+	await page.getByLabel("Course").selectOption("cs101");
+	await page.getByRole("button", { name: "Launch Portikus" }).click();
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 30_000 });
 
 	await page.getByTestId("me").click();
 	await page.getByRole("menuitem", { name: "Settings" }).click();
@@ -28,11 +40,10 @@ test("the Profile link section and the /link page have no automatic violations",
 	await expect(start).toBeVisible();
 	await expectNoViolations(page, '[data-testid="dialog-editor-settings"]');
 
-	// The confirmation page, reached the real way; nothing is confirmed. carol,
-	// because account-link.spec.ts links bob and moves alice aside.
+	// The confirmation page, reached the real way; nothing is confirmed.
 	await start.click();
 	await page.waitForURL(`${MOCK_ISSUER}/authorize**`);
-	await page.getByTestId("mock-user-carol").click();
+	await page.getByTestId("mock-user-gail").click();
 	await page.waitForURL(`${WEB_ORIGIN}/link**`);
 	await expect(page.getByRole("button", { name: "Link accounts" })).toBeVisible();
 	await expectNoViolations(page);
