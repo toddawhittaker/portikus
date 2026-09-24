@@ -46,6 +46,14 @@ test("an instructor removes a student, who reappears after a relaunch", async ({
 		await dialog.getByRole("button", { name: "Remove from course" }).click();
 		await expect(dialog).toBeHidden();
 		await expect(unaRow).toHaveCount(0);
+		await expect(course.getByTestId("course-removed")).toHaveText(
+			"Removed Una Unenrolled from CS 350 Software Engineering",
+		);
+		// Nobody else can be removed, so focus lands on the table caption.
+		await expect(table.locator("caption")).toBeFocused();
+		expect(await course.evaluate(() => document.activeElement === document.body)).toBe(
+			false,
+		);
 		await course.reload();
 		await expect(table.getByRole("row", { name: /Rex Remover/ })).toBeVisible();
 		await expect(unaRow).toHaveCount(0);

@@ -42,7 +42,7 @@ describe("StateBadge", () => {
 	});
 
 	it("has no status role in a table cell", () => {
-		render(<StateBadge state="running" inCell={true} />);
+		render(<StateBadge state="running" statusRole={false} />);
 		expect(screen.queryByRole("status")).toBeNull();
 		expect(screen.getByText("Running")).toBeTruthy();
 	});

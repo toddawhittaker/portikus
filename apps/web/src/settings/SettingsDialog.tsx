@@ -870,7 +870,11 @@ function ProfilePane({
 						))}
 					</section>
 					<section className="grid gap-4" aria-labelledby="settings-profile-linked">
-						<h3 id="settings-profile-linked" className="pk-text-label text-ink">
+						<h3
+							id="settings-profile-linked"
+							className="pk-text-label text-ink"
+							tabIndex={-1}
+						>
 							{linked?.title}
 						</h3>
 						{linked?.controls.map((control) => (
@@ -969,8 +973,26 @@ function LinkedAccounts() {
 							<Button
 								variant="secondary"
 								aria-label={`Unlink ${row.displayName} from ${row.platformName}`}
+								data-unlink-id={row.courseUserId}
 								loading={unlink.isPending && unlink.variables === row.courseUserId}
-								onClick={() => unlink.mutate(row.courseUserId)}
+								onClick={() => {
+									const index = rows.indexOf(row);
+									const next = rows[index + 1] ?? rows[index - 1];
+									unlink.mutate(row.courseUserId, {
+										// The list has refetched by now, so the row is gone.
+										onSuccess: () =>
+											requestAnimationFrame(() => {
+												const button = next
+													? document.querySelector<HTMLElement>(
+															`[data-unlink-id="${next.courseUserId}"]`,
+														)
+													: null;
+												(
+													button ?? document.getElementById("settings-profile-linked")
+												)?.focus();
+											}),
+									});
+								}}
 							>
 								Unlink
 							</Button>

@@ -35,4 +35,18 @@ describe("Checkbox", () => {
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(box.checked).toBe(true);
 	});
+
+	it("sets the indeterminate property and draws a dash", () => {
+		const { container, rerender } = render(
+			<Checkbox label="Select all" checked={false} indeterminate onChange={() => {}} />,
+		);
+		const input = screen.getByRole("checkbox", {
+			name: "Select all",
+		}) as HTMLInputElement;
+		expect(input.indeterminate).toBe(true);
+		expect(container.querySelector(".pk-check-box svg")).not.toBeNull();
+		rerender(<Checkbox label="Select all" checked={false} onChange={() => {}} />);
+		expect(input.indeterminate).toBe(false);
+		expect(container.querySelector(".pk-check-box svg")).toBeNull();
+	});
 });

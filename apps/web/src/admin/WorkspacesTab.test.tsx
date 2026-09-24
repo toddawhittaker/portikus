@@ -358,6 +358,45 @@ test("bulk disable names every row, calls each row's route, and names the failur
 		"Could not disable Bob Student: Bob cannot be disabled right now.",
 	);
 	expect(screen.queryByTestId("bulk-actions")).toBeNull();
+	// The bar and dialog are gone, so focus lands on the summary.
+	await waitFor(() => expect(document.activeElement).toBe(result));
+});
+
+test("a bulk run refetches the list once, not once per row", async () => {
+	stubUsers();
+	await openTable();
+	const listCalls = () =>
+		vi
+			.mocked(globalThis.fetch)
+			.mock.calls.filter(([url]) => String(url) === "/admin/users").length;
+	const before = listCalls();
+	for (const name of ["Alice Example", "Bob Student", "Sam Course"]) {
+		fireEvent.click(screen.getByRole("checkbox", { name: `Select ${name}` }));
+	}
+	fireEvent.click(screen.getByTestId("bulk-disable"));
+	const dialog = await screen.findByRole("alertdialog");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Disable" }));
+	await waitFor(() =>
+		expect(screen.getByTestId("bulk-result").textContent).not.toBe(""),
+	);
+	await waitFor(() => expect(listCalls()).toBe(before + 1));
+});
+
+test("select all shows a dash when some rows are ticked, and the count is announced", async () => {
+	stubUsers();
+	await openTable();
+	const all = screen.getByRole("checkbox", {
+		name: "Select all shown accounts",
+	}) as HTMLInputElement;
+	expect(all.indeterminate).toBe(false);
+	fireEvent.click(screen.getByRole("checkbox", { name: "Select Alice Example" }));
+	expect(all.indeterminate).toBe(true);
+	const count = screen.getByTestId("bulk-count");
+	expect(count.getAttribute("aria-live")).toBe("polite");
+	expect(count.textContent).toBe("1 selected");
+	fireEvent.click(all);
+	expect(all.indeterminate).toBe(false);
+	expect(count.textContent).toBe("5 selected");
 });
 
 test("bulk archive calls the workspace route only for rows that have a workspace", async () => {

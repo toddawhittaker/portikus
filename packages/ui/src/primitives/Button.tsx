@@ -18,7 +18,7 @@ const SIZE_CLASS = {
 export interface ButtonProps extends React.ComponentPropsWithRef<"button"> {
 	variant?: "primary" | "secondary" | "quiet" | "danger";
 	size?: "sm" | "md" | "lg";
-	/** Keeps the label and colour, adds the spinner and aria-busy. */
+	/** Keeps the label and colour, adds the spinner and aria-busy, and ignores clicks. */
 	loading?: boolean;
 	iconStart?: IconName;
 	iconEnd?: IconName;
@@ -32,6 +32,7 @@ export function Button({
 	iconEnd,
 	className,
 	children,
+	onClick,
 	...rest
 }: ButtonProps): React.ReactElement {
 	return (
@@ -46,6 +47,14 @@ export function Button({
 			)}
 			aria-busy={loading ? true : undefined}
 			aria-disabled={loading ? true : rest["aria-disabled"]}
+			onClick={(event) => {
+				// Stays focusable while busy, so a repeat click must be dropped here.
+				if (loading) {
+					event.preventDefault();
+					return;
+				}
+				onClick?.(event);
+			}}
 		>
 			{loading ? (
 				<span className="pk-spin" aria-hidden={true} />

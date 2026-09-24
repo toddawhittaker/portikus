@@ -113,6 +113,22 @@ function launchText(iso: string): string {
 	return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+/** The member whose Remove button takes focus after one is removed: the next, else the previous. */
+export function nextRemovable(
+	members: CourseMember[],
+	removedId: string,
+	myId: string | null,
+): string | null {
+	const index = members.findIndex((member) => member.userId === removedId);
+	const others = (list: CourseMember[]) =>
+		list.find((member) => member.userId !== myId)?.userId ?? null;
+	return (
+		others(members.slice(index + 1)) ??
+		others(members.slice(0, index).reverse()) ??
+		null
+	);
+}
+
 /** `/course/:courseId`: who has opened Portikus from this course, and removing them. */
 export function CourseMembersPage() {
 	return (
@@ -128,13 +144,16 @@ function CourseMembers() {
 	const me = useMe();
 	const myId = me.status === "authenticated" ? me.user.id : null;
 	const [removing, setRemoving] = React.useState<CourseMember | null>(null);
+	const [removedText, setRemovedText] = React.useState("");
+	const captionRef = React.useRef<HTMLTableCaptionElement>(null);
+	const headingRef = React.useRef<HTMLHeadingElement>(null);
 	const data = members.data;
 	const notFound = members.error instanceof ApiError && members.error.status === 404;
 	usePageTitle(data?.course.title ?? "Course");
 
 	return (
 		<>
-			<h1 className="pk-text-title" id="course-title">
+			<h1 className="pk-text-title" id="course-title" ref={headingRef} tabIndex={-1}>
 				{data?.course.title ?? "Course"}
 			</h1>
 			{data ? (
@@ -155,12 +174,15 @@ function CourseMembers() {
 					</span>
 				) : null}
 			</Status>
+			<span className="sr-only" role="status" data-testid="course-removed">
+				{removedText}
+			</span>
 			{data && data.members.length > 0 ? (
 				<table
 					className="mt-4 w-full text-left text-[13px]"
 					data-testid="course-members"
 				>
-					<caption className="sr-only">
+					<caption className="sr-only" ref={captionRef} tabIndex={-1}>
 						People who have opened Portikus from this course
 					</caption>
 					<thead>
@@ -192,14 +214,18 @@ function CourseMembers() {
 								<td className="py-2 pr-4">{launchText(member.lastLaunchAt)}</td>
 								<td className="py-2 pr-4">
 									{member.workspaceState ? (
-										<StateBadge state={member.workspaceState} inCell />
+										<StateBadge state={member.workspaceState} statusRole={false} />
 									) : (
 										"No workspace"
 									)}
 								</td>
 								<td className="py-2">
 									{member.userId === myId ? null : (
-										<Button size="sm" onClick={() => setRemoving(member)}>
+										<Button
+											size="sm"
+											data-remove-id={member.userId}
+											onClick={() => setRemoving(member)}
+										>
 											Remove{" "}
 											<span className="sr-only">{member.displayName} from course</span>
 										</Button>
@@ -216,6 +242,18 @@ function CourseMembers() {
 					courseTitle={data.course.title}
 					member={removing}
 					onClose={() => setRemoving(null)}
+					onRemoved={() => {
+						const next = nextRemovable(data.members, removing.userId, myId);
+						setRemoving(null);
+						setRemovedText(`Removed ${removing.displayName} from ${data.course.title}`);
+						// Wait for the row and the dialog to unmount, then land on what is left.
+						requestAnimationFrame(() => {
+							const button = next
+								? document.querySelector<HTMLElement>(`[data-remove-id="${next}"]`)
+								: null;
+							(button ?? captionRef.current ?? headingRef.current)?.focus();
+						});
+					}}
 				/>
 			) : null}
 		</>

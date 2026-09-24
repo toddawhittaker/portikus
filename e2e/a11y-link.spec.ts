@@ -42,6 +42,20 @@ test("the Profile link section and the /link page have no automatic violations",
 	await page.waitForURL(`${WEB_ORIGIN}/link**`);
 	await expect(page.getByRole("button", { name: "Link accounts" })).toBeVisible();
 	await expectNoViolations(page);
+
+	// Link, then unlink as gail: focus must not fall back to the page body.
+	await page.getByRole("button", { name: "Link accounts" }).click();
+	await page.waitForURL(`${WEB_ORIGIN}/workspaces/**`, { timeout: 30_000 });
+	await page.getByTestId("me").click();
+	await page.getByRole("menuitem", { name: "Settings" }).click();
+	await dialog.getByRole("button", { name: "Profile", exact: true }).click();
+	const region = dialog.getByRole("region", { name: "Linked accounts" });
+	await region.getByRole("button", { name: /^Unlink / }).click();
+	await expect(region).toContainText("No course sign-ins are linked");
+	await expect(region.getByRole("heading", { name: "Linked accounts" })).toBeFocused();
+	expect(await page.evaluate(() => document.activeElement === document.body)).toBe(
+		false,
+	);
 });
 
 test("the /link refusal page has no automatic violations", async ({ page }) => {

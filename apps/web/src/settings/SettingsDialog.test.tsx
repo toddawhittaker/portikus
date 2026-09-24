@@ -60,7 +60,10 @@ function stubSettings(
 		}
 		if (url.startsWith("/me/links/") && url.endsWith("/unlink")) {
 			linkWrites.push(url);
-			myLinks = { ...myLinks, links: [] };
+			myLinks = {
+				...myLinks,
+				links: myLinks.links.filter((link) => !url.includes(link.courseUserId)),
+			};
 			return json(204, null);
 		}
 		if (url === "/me/picture") {
@@ -91,7 +94,11 @@ const PROFILE = {
 let profileWrites: Sent[] = [];
 
 /** What GET /me/links answers; an SSO account with no links unless a test says otherwise. */
-let myLinks: Record<string, unknown> = { source: "sso", linkUntil: null, links: [] };
+let myLinks: {
+	source: string;
+	linkUntil: string | null;
+	links: { courseUserId: string; [key: string]: unknown }[];
+} = { source: "sso", linkUntil: null, links: [] };
 let startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
 let linkWrites: string[] = [];
 
@@ -816,6 +823,39 @@ test("an SSO account lists its links and unlinks one", async () => {
 	);
 	expect(linkWrites).toEqual([`/me/links/${courseUserId}/unlink`]);
 	expect(await within(region).findByText(/No course sign-ins are linked/)).toBeTruthy();
+	// The last row is gone, so focus lands on the section heading.
+	await waitFor(() =>
+		expect(document.activeElement?.id).toBe("settings-profile-linked"),
+	);
+});
+
+test("after an unlink, focus moves to the next Unlink button", async () => {
+	const first = "33333333-3333-4333-8333-333333333333";
+	const second = "44444444-4444-4444-8444-444444444444";
+	const row = (courseUserId: string, displayName: string) => ({
+		courseUserId,
+		platformName: "mock-lms",
+		displayName,
+		linkedAt: "2026-09-24T12:00:00.000Z",
+	});
+	myLinks = {
+		source: "sso",
+		linkUntil: null,
+		links: [row(first, "Sam Student"), row(second, "Sam Other")],
+	};
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", {
+			name: "Unlink Sam Student from mock-lms",
+		}),
+	);
+	await waitFor(() =>
+		expect(document.activeElement?.getAttribute("aria-label")).toBe(
+			"Unlink Sam Other from mock-lms",
+		),
+	);
 });
 
 /** Issue #363: a failed save is announced, not only shown. */
