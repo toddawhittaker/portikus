@@ -544,14 +544,20 @@ can show the launch page inside a frame.
 #### Trying it with the mock LMS
 
 The mock LMS runs on this host, never on the VM, and signs a launch as any
-of its seeded people. It listens on loopback and on the host's address on
-the VM network (`10.100.0.1:8765` for the pilot), so nobody on the LAN can
-use it. The VM reaches that address without any extra firewall rule.
+of its seeded people. It listens on port 8765 at loopback, the host's
+address on the VM network (`10.100.0.1`), and the host's LAN address
+(`HOST_IP`, `192.168.10.48` for the pilot), and registers itself at the LAN
+address (`MOCK_LMS_HOST` overrides). A platform's URLs must be reachable
+both by the user's browser (the login redirect) and by the API on the VM
+(the keyset fetch). A real LMS on the internet meets that; the mock must
+use an address the browser can reach, which `10.100.0.1` is not from
+another machine. Anyone on the LAN who can reach it can launch as anyone,
+so keep it registered only while you use it.
 
 ```
 make mock-lms              # in its own terminal; runs in the foreground
 make lti-mock-register     # trust it on the VM
-# open http://10.100.0.1:8765/ in a browser on this host and launch
+# open http://<HOST_IP>:8765/ in a browser and launch
 make lti-mock-unregister   # stop trusting it
 ```
 
@@ -565,8 +571,8 @@ the mock is registered, and lists the accounts mock launches have made.
 
 `make lti-mock-register` adds a `mock: true` registration named
 `mock-lms` to the platforms file and runs only the play's `lti` tasks.
-Because its keyset URL is `http://10.100.0.1:8765/...`, the API is allowed
-to reach `10.100.0.1/32` for as long as it stays registered. `make
+Because its keyset URL is `http://<MOCK_LMS_HOST>:8765/...`, the API is
+allowed to reach that address (`/32`) for as long as it stays registered. `make
 lti-mock-unregister` removes the registration (and the file, if nothing
 else is registered) and runs the same tasks, which takes the address away
 again. Both need a VM configured once with `make configure-vm` after this

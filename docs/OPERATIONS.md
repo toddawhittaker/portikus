@@ -381,9 +381,15 @@ id to the file. For `keyset_unavailable`, check the egress allow list.
 
 ### Trying it with the mock LMS
 
-A mock LMS runs on the host, never on the VM. It listens on `127.0.0.1`
-and the host's address on the VM network (`10.100.0.1`), port 8765, so
-only this host and the VM can reach it. Anyone who can reach it can launch
+A mock LMS runs on the host, never on the VM. It listens on port 8765 at
+`127.0.0.1`, the host's address on the VM network (`10.100.0.1`), and the
+host's LAN address (`HOST_IP`, the address in the public site's name),
+and registers itself at the LAN address. A platform's URLs must be
+reachable both by the user's browser, which is redirected to its login
+page, and by the API on the VM, which fetches its keyset. A real LMS on
+the internet meets that; the mock must use an address the browser can
+reach, so `10.100.0.1` would work only from a browser on this host.
+Override it with `MOCK_LMS_HOST`. Anyone who can reach the mock can launch
 as anyone, so it is trusted only while it is registered.
 
 1. In one terminal, start it and leave it running:
@@ -399,7 +405,7 @@ as anyone, so it is trusted only while it is registered.
    make lti-mock-register
    ```
 
-3. Open http://127.0.0.1:8765 on the host. Pick a person, a course and
+3. Open `http://<HOST_IP>:8765` (for the pilot, http://192.168.10.48:8765). Pick a person, a course and
    whether to launch inside a frame, then launch. Launch as Sam Student,
    then as Ivy Instructor, and open the Course page.
 4. When done, stop trusting it, then stop `make mock-lms` with Ctrl-C:
@@ -410,7 +416,7 @@ as anyone, so it is trusted only while it is registered.
 
 While the mock is registered, `make security-test` prints a warning
 naming it, and the smoke test reports it. Users created by mock launches
-stay in the database, under the issuer `lti:http://10.100.0.1:8765`.
+stay in the database, under the issuer `lti:http://<MOCK_LMS_HOST>:8765`.
 
 ## Backups
 
