@@ -7,6 +7,7 @@ import {
 	API_ORIGIN,
 	API_PORT,
 	FAKE_AGENT_PORT,
+	FAKE_DEX_GRPC_PORT,
 	MOCK_LMS_ORIGIN,
 	MOCK_LMS_PORT,
 	MOCK_ISSUER as MOCK_OIDC_ISSUER,
@@ -14,6 +15,7 @@ import {
 	WEB_PORT,
 	WEB_ORIGIN as WEB_URL,
 } from "./e2e/ports";
+import { writeDexGrpcCerts } from "./packages/auth/dist/testing/fake-dex-grpc.js";
 
 const FAKE_AGENT_TOKEN = "e2e-agent-token";
 
@@ -56,6 +58,11 @@ if (!existsSync(ltiToolKeyFile)) {
 		mode: 0o600,
 	});
 }
+
+// The fake Dex gRPC API's certificates for this run (docs/EPIC-14.md ruling 31);
+// kept when present, so the config loading more than once changes nothing.
+const dexCertDir = join(tmpdir(), `portikus-e2e-dex-${FAKE_DEX_GRPC_PORT}`);
+const dexCerts = writeDexGrpcCerts(dexCertDir, "e2e");
 
 export default defineConfig({
 	testDir: "./e2e",
@@ -110,6 +117,17 @@ export default defineConfig({
 			timeout: 120_000,
 		},
 		{
+			// Stands in for Dex's gRPC API, so the Users view can manage Dex users.
+			command: "node e2e/fake-dex-grpc.mjs",
+			port: FAKE_DEX_GRPC_PORT,
+			env: {
+				FAKE_DEX_GRPC_PORT: String(FAKE_DEX_GRPC_PORT),
+				FAKE_DEX_GRPC_CERT_DIR: dexCertDir,
+			},
+			reuseExistingServer: !process.env.CI,
+			timeout: 120_000,
+		},
+		{
 			command: "node packages/db/dist/migrate.js && node apps/api/dist/index.js",
 			url: `${API_ORIGIN}/health`,
 			env: {
@@ -127,6 +145,10 @@ export default defineConfig({
 				OIDC_ADMIN_GROUP: "portikus-administrators",
 				LTI_PLATFORMS_FILE: ltiPlatformsFile,
 				LTI_TOOL_KEY_FILE: ltiToolKeyFile,
+				DEX_GRPC_ADDR: `127.0.0.1:${FAKE_DEX_GRPC_PORT}`,
+				DEX_GRPC_CA: dexCerts.ca,
+				DEX_GRPC_CERT: dexCerts.clientCert,
+				DEX_GRPC_KEY: dexCerts.clientKey,
 				SESSION_COOKIE_SECRET: "e2e-session-secret-not-for-production-0000",
 				SESSION_TTL_SECONDS: "3600",
 				PRESENCE_TTL_SECONDS: "60",

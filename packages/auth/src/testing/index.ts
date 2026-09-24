@@ -1,4 +1,11 @@
 /** Test and development helpers: the in-repo mock identity provider and API test glue (ADR 0008). */
+
+export {
+	type DexGrpcCerts,
+	type FakeDexGrpc,
+	startFakeDexGrpc,
+	writeDexGrpcCerts,
+} from "./fake-dex-grpc.js";
 export {
 	CookieJar,
 	csrfHeaders,

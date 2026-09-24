@@ -471,3 +471,64 @@ export async function revokeAdministrator(
 		.execute();
 	return { ok: true, from: target.role as Role, to };
 }
+
+/**
+ * Grant instructor to an SSO account (docs/EPIC-14.md ruling 14). Run inside
+ * the caller's transaction. An administrator grant is never touched, and an
+ * account already instructor or higher is left as it is (`changed` false).
+ */
+export async function grantInstructor(
+	trx: Kysely<Database>,
+	targetId: string,
+): Promise<
+	| ({ ok: true; changed: boolean } & RoleChange)
+	| { ok: false; reason: "not_found" | "course_account" | "granted_administrator" }
+> {
+	const target = await trx
+		.selectFrom("users")
+		.select(["oidc_issuer", "role", "granted_role"])
+		.where("id", "=", targetId)
+		.forUpdate()
+		.executeTakeFirst();
+	if (!target) return { ok: false, reason: "not_found" };
+	if (isCourseIssuer(target.oidc_issuer))
+		return { ok: false, reason: "course_account" };
+	if (target.granted_role === "administrator")
+		return { ok: false, reason: "granted_administrator" };
+	const from = target.role as Role;
+	if (from !== "student") return { ok: true, changed: false, from, to: from };
+	const to: Role = "instructor";
+	await trx
+		.updateTable("users")
+		.set({ granted_role: "instructor", role: to, updated_at: new Date().toISOString() })
+		.where("id", "=", targetId)
+		.execute();
+	return { ok: true, changed: true, from, to };
+}
+
+/**
+ * Remove a granted instructor role (docs/EPIC-14.md ruling 14): the account
+ * falls back to its provider role. Only an instructor grant is removed.
+ */
+export async function revokeInstructor(
+	trx: Kysely<Database>,
+	targetId: string,
+): Promise<
+	({ ok: true } & RoleChange) | { ok: false; reason: "not_found" | "not_granted" }
+> {
+	const target = await trx
+		.selectFrom("users")
+		.select(["role", "provider_role", "granted_role"])
+		.where("id", "=", targetId)
+		.forUpdate()
+		.executeTakeFirst();
+	if (!target) return { ok: false, reason: "not_found" };
+	if (target.granted_role !== "instructor") return { ok: false, reason: "not_granted" };
+	const to = target.provider_role as Role;
+	await trx
+		.updateTable("users")
+		.set({ granted_role: null, role: to, updated_at: new Date().toISOString() })
+		.where("id", "=", targetId)
+		.execute();
+	return { ok: true, from: target.role as Role, to };
+}

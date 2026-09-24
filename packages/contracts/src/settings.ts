@@ -61,7 +61,7 @@ export const AdminUser = z.object({
 	role: Role,
 	/** The role the account's own sign-in gave last time. */
 	providerRole: Role,
-	/** A role stored by Portikus; only `administrator` is written in Epic 13.1. */
+	/** A role stored by Portikus: Promote writes administrator, Make instructor instructor. */
 	grantedRole: z.enum(["instructor", "administrator"]).nullable(),
 	disabledAt: z.string().datetime().nullable(),
 	/** Per-user override; null means use the platform-wide value. */
@@ -73,13 +73,44 @@ export const AdminUser = z.object({
 	/** `linked`: a course account retired by a link to an SSO account. */
 	markers: AdminAccountMarkers,
 	workspace: AdminWorkspaceSummary.nullable(),
+	/** A Dex local password this site manages: Reset password and Remove apply. */
+	dexLocal: z.boolean(),
 });
 export type AdminUser = z.infer<typeof AdminUser>;
 
 export const AdminUserList = z.object({
 	users: z.array(AdminUser),
+	/** True when the site runs Dex's gRPC API, so Add user is offered (docs/EPIC-14.md ruling 24). */
+	dexUsers: z.boolean(),
 });
 export type AdminUserList = z.infer<typeof AdminUserList>;
+
+/** A Dex username: letters, digits, dot, dash and underscore. */
+const DEX_USERNAME = /^[A-Za-z0-9._-]{1,64}$/;
+
+/** Request body for `POST /admin/dex-users` (docs/EPIC-14.md ruling 21). */
+export const CreateDexUserRequest = z
+	.object({
+		email: z.string().trim().toLowerCase().email().max(254),
+		username: z
+			.string()
+			.trim()
+			.regex(DEX_USERNAME, "Use 1 to 64 letters, digits, dots, dashes or underscores"),
+		role: Role,
+	})
+	.strict();
+export type CreateDexUserRequest = z.infer<typeof CreateDexUserRequest>;
+
+/** The new account and its password, which is shown once and never again. */
+export const CreateDexUserResponse = z.object({
+	user: AdminUser,
+	password: z.string().min(1),
+});
+export type CreateDexUserResponse = z.infer<typeof CreateDexUserResponse>;
+
+/** The body of `POST /admin/dex-users/:id/reset-password`: the new password, shown once. */
+export const DexPasswordResponse = z.object({ password: z.string().min(1) });
+export type DexPasswordResponse = z.infer<typeof DexPasswordResponse>;
 
 /** Request body for setting or clearing one user's grace period override. */
 export const UpdateAdminUserSettingsRequest = z

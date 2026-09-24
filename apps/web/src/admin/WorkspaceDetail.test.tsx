@@ -5,6 +5,7 @@ import { json, renderApp, stubFetch, USER, WORKSPACE } from "../test-utils.js";
 import { quotaError } from "./QuotaDialog.js";
 import {
 	capabilityNote,
+	instructorChangeNote,
 	NOT_AVAILABLE_TEXT,
 	quotaPending,
 	roleChangeNote,
@@ -38,6 +39,7 @@ const ALICE_ROW = {
 	grantedRole: null,
 	disabledAt: null,
 	shutdownGraceSeconds: null,
+	dexLocal: false,
 	preferredUsername: "alice",
 	issuer: "https://login.example.edu",
 	lastLoginAt: null,
@@ -65,6 +67,7 @@ const ADMIN_ROW = {
 	grantedRole: null,
 	disabledAt: null,
 	shutdownGraceSeconds: null,
+	dexLocal: false,
 	preferredUsername: null,
 	issuer: null,
 	lastLoginAt: null,
@@ -126,7 +129,7 @@ function stubDetail(
 	const writes: { url: string; body: unknown }[] = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users") return json(200, { users });
+		if (url === "/admin/users") return json(200, { users, dexUsers: false });
 		if (url === "/admin/settings") {
 			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
 		}
@@ -692,7 +695,7 @@ function stubRoles(refusal?: string) {
 	const writes: string[] = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users") return json(200, { users: ROLE_ROWS });
+		if (url === "/admin/users") return json(200, { users: ROLE_ROWS, dexUsers: false });
 		if (url === "/admin/settings") {
 			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
 		}
@@ -828,4 +831,114 @@ test("a refused promote shows the refusal in its dialog", async () => {
 	expect((await within(dialog).findByRole("alert")).textContent).toBe(
 		"Only SSO accounts can be administrators.",
 	);
+});
+
+// Make and remove instructor (docs/EPIC-14.md ruling 14).
+const TEACHER_ROW = {
+	...ALICE_ROW,
+	id: "66666666-6666-4666-8666-666666666666",
+	displayName: "Tia Teacher",
+	email: "tia@example.invalid",
+	role: "instructor" as const,
+	providerRole: "student" as const,
+	grantedRole: "instructor" as const,
+	workspace: null,
+};
+
+function stubInstructors(refusal?: string) {
+	const writes: string[] = [];
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, ADMIN);
+		if (url === "/admin/users") {
+			return json(200, { users: [...ROLE_ROWS, TEACHER_ROW], dexUsers: false });
+		}
+		if (url === "/admin/settings") {
+			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+		}
+		if (init?.method === "POST") {
+			writes.push(url);
+			if (refusal) return json(400, { code: "VALIDATION_FAILED", message: refusal });
+			return json(200, ALICE_ROW);
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	return writes;
+}
+
+test("make instructor asks first, then calls its route", async () => {
+	const writes = stubInstructors();
+	const panel = await openRow("Alice Example");
+	fireEvent.click(
+		within(panel).getByRole("button", { name: "Make instructor: Alice Example" }),
+	);
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Make Alice Example an instructor?",
+	});
+	fireEvent.click(within(dialog).getByRole("button", { name: "Make instructor" }));
+	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	expect(writes).toEqual([`/admin/users/${USER.id}/make-instructor`]);
+	expect(await screen.findByText("Alice Example is now an instructor")).toBeDefined();
+});
+
+test("remove instructor shows for a granted instructor and says where they go back to", async () => {
+	const writes = stubInstructors();
+	const panel = await openRow("Tia Teacher");
+	expect(within(panel).getByTestId("detail-role").textContent).toBe(
+		"Instructor (granted)",
+	);
+	expect(within(panel).queryByRole("button", { name: /^Make instructor/ })).toBeNull();
+	fireEvent.click(
+		within(panel).getByRole("button", { name: "Remove instructor: Tia Teacher" }),
+	);
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Remove instructor from Tia Teacher?",
+	});
+	expect(within(dialog).getByText(/They go back to Student/)).toBeDefined();
+	fireEvent.click(within(dialog).getByRole("button", { name: "Remove instructor" }));
+	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	expect(writes).toEqual([`/admin/users/${TEACHER_ROW.id}/remove-instructor`]);
+});
+
+test.each([
+	["Sam Course", "Only SSO accounts can be instructors."],
+	["Gina Granted", "This account is a granted administrator. Demote first."],
+	["Carol Admin", "Already an administrator from the SSO provider."],
+])("%s cannot be made an instructor, and the note says why", async (name, note) => {
+	const writes = stubInstructors();
+	const panel = await openRow(name);
+	const action = within(panel).getByRole("button", {
+		name: `Make instructor: ${name}`,
+	});
+	expect(action.getAttribute("aria-disabled")).toBe("true");
+	expect(action.getAttribute("aria-describedby")).toBe(
+		within(panel).getByText(note).id,
+	);
+	fireEvent.click(action);
+	expect(screen.queryByRole("alertdialog")).toBeNull();
+	expect(writes).toEqual([]);
+});
+
+test("instructorChangeNote leaves a student and a granted instructor on", () => {
+	expect(instructorChangeNote(ALICE_ROW as AdminUser)).toBeNull();
+	expect(instructorChangeNote(TEACHER_ROW as AdminUser)).toBeNull();
+	expect(
+		instructorChangeNote({
+			...ALICE_ROW,
+			role: "instructor",
+			providerRole: "instructor",
+		} as AdminUser),
+	).toBe("Already an instructor from the SSO provider.");
+});
+
+test("a refused make instructor shows the refusal in its dialog", async () => {
+	stubInstructors("Demote first.");
+	const panel = await openRow("Alice Example");
+	fireEvent.click(
+		within(panel).getByRole("button", { name: "Make instructor: Alice Example" }),
+	);
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Make Alice Example an instructor?",
+	});
+	fireEvent.click(within(dialog).getByRole("button", { name: "Make instructor" }));
+	expect((await within(dialog).findByRole("alert")).textContent).toBe("Demote first.");
 });

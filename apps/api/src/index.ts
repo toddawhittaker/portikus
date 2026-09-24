@@ -1,4 +1,4 @@
-import { createOidcClient } from "@portikus/auth";
+import { createOidcClient, loadDexApi } from "@portikus/auth";
 import { ApiConfigSchema, loadConfig } from "@portikus/config";
 import { createDb } from "@portikus/db";
 import { createLogger } from "@portikus/observability";
@@ -17,7 +17,16 @@ const db = createDb(config.DATABASE_URL);
 const oidc = createOidcClient(toAuthOptions(config));
 const lti = await loadLtiDeps(config);
 if (lti) logger.info({ platforms: lti.platforms.length }, "lti enabled");
-const app = buildServer({ db, config, logger, oidc, ...(lti ? { lti } : {}) });
+const dex = await loadDexApi(config);
+if (dex) logger.info("dex user management enabled");
+const app = buildServer({
+	db,
+	config,
+	logger,
+	oidc,
+	...(lti ? { lti } : {}),
+	...(dex ? { dex } : {}),
+});
 
 // Hooks must be added before listen; the first sweep runs after one
 // interval, so starting the sync here costs nothing at startup.
@@ -29,6 +38,7 @@ const levelSync = startLogLevelSync({
 });
 app.addHook("onClose", async () => {
 	levelSync.stop();
+	dex?.close();
 });
 
 await app.listen({ port: config.PORT, host: "127.0.0.1" });

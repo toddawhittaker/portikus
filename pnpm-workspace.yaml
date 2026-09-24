@@ -5,6 +5,8 @@ allowBuilds:
   esbuild: true
   # node-pty compiles a native addon; the workspace agent needs real PTYs.
   node-pty: true
+  # protobufjs only prints a version notice on install; nothing to build.
+  protobufjs: false
 minimumReleaseAgeExclude:
   - '@vitest/mocker@5.0.1'
   - '@vitest/spy@5.0.1'

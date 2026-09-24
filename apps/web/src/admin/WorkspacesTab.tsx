@@ -16,6 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { z } from "zod";
 import { request } from "../api/request.js";
+import { AddDexUser } from "./DexUserDialogs.js";
 import {
 	imageText,
 	Markers,
@@ -242,7 +243,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
 
-	const all = sortAccounts(users.data ?? []);
+	const all = sortAccounts(users.data?.users ?? []);
 	const rows = filterAccounts(all, filters);
 	const selected = all.find((user) => user.id === selectedId) ?? null;
 	const running = all.filter((user) => user.workspace?.state === "running").length;
@@ -266,9 +267,13 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 
 	return (
 		<div className="mt-6 flex flex-col gap-4">
-			<p className="pk-text-compact pk-muted m-0">
-				{all.length} accounts · {running} running
-			</p>
+			<div className="flex items-center gap-3">
+				<p className="pk-text-compact pk-muted m-0">
+					{all.length} accounts · {running} running
+				</p>
+				{/* Only when the site runs Dex's own passwords (docs/EPIC-14.md ruling 24). */}
+				{users.data?.dexUsers ? <AddDexUser /> : null}
+			</div>
 			<div className="flex flex-wrap items-end gap-3">
 				<TextField
 					id="admin-filter-text"

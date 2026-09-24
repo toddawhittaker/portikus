@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { dexLocalSubject } from "./dex-subject.js";
 import { createOidcClient, OidcError } from "./oidc.js";
 import { createSession, loadSession, upsertUser } from "./sessions.js";
+import { submitDexPasswordForm } from "./testing/dex-signin.js";
 import { type AuthOptions, mapRole } from "./types.js";
 
 /**
@@ -54,50 +55,17 @@ const auth: AuthOptions = {
 };
 const CALLBACK = new URL("/auth/callback", auth.publicUrl).href;
 
-/**
- * What a browser does between Portikus's redirect and the callback: follow
- * Dex to its password form, post it, and follow on. Returns the callback URL
- * when Dex sends the browser back, or null with the last page otherwise.
- */
-async function submitPasswordForm(
-	loginUrl: string,
-	login: string,
-	password: string,
-): Promise<{ callback: URL | null; page: string }> {
-	let url = loginUrl;
-	let init: RequestInit = {};
-	let posted = false;
-	for (let hop = 0; hop < 10; hop++) {
-		const res = await fetch(url, { ...init, redirect: "manual" });
-		const location = res.headers.get("location");
-		if (res.status >= 300 && res.status < 400 && location) {
-			const next = new URL(location, url);
-			if (next.href.startsWith(CALLBACK)) return { callback: next, page: "" };
-			url = next.href;
-			init = {};
-			continue;
-		}
-		const page = await res.text();
-		if (posted) return { callback: null, page };
-		const action = /<form method="post" action="([^"]*)"/.exec(page)?.[1];
-		if (!action) throw new Error(`no password form at ${url} (status ${res.status})`);
-		url = new URL(action.replaceAll("&amp;", "&"), url).href;
-		init = {
-			method: "POST",
-			headers: { "content-type": "application/x-www-form-urlencoded" },
-			body: new URLSearchParams({ login, password }).toString(),
-		};
-		posted = true;
-	}
-	throw new Error("too many redirects");
-}
-
 describe.skipIf(!ISSUER)("sign-in through a real Dex", () => {
 	const oidc = createOidcClient(auth);
 
 	async function signIn(login: string, password: string) {
 		const { url, state } = await oidc.buildLoginRedirect();
-		const { callback, page } = await submitPasswordForm(url, login, password);
+		const { callback, page } = await submitDexPasswordForm(
+			url,
+			CALLBACK,
+			login,
+			password,
+		);
 		if (!callback) return { completed: null, page };
 		return { completed: await oidc.completeLogin(callback, state), page };
 	}

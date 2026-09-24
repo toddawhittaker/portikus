@@ -21,6 +21,7 @@ const STUDENT_ROW = {
 	grantedRole: null,
 	disabledAt: null,
 	shutdownGraceSeconds: 30,
+	dexLocal: false,
 	preferredUsername: null,
 	issuer: null,
 	lastLoginAt: null,
@@ -43,6 +44,7 @@ const ADMIN_ROW = {
 	grantedRole: null,
 	disabledAt: "2026-01-01T00:00:00.000Z",
 	shutdownGraceSeconds: null,
+	dexLocal: false,
 	preferredUsername: null,
 	issuer: null,
 	lastLoginAt: null,
@@ -85,7 +87,7 @@ function stubAdmin(
 			return json(200, { ...STUDENT_ROW, ...body });
 		}
 		if (url === "/admin/users") {
-			return json(200, { users: [STUDENT_ROW, ADMIN_ROW] });
+			return json(200, { users: [STUDENT_ROW, ADMIN_ROW], dexUsers: false });
 		}
 		throw new Error(`unexpected request: ${url}`);
 	});
@@ -209,7 +211,8 @@ test("clearing a user's input sends null, and a number sets the override", async
 test("a user's override shows no default until the settings load", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users") return json(200, { users: [STUDENT_ROW, ADMIN_ROW] });
+		if (url === "/admin/users")
+			return json(200, { users: [STUDENT_ROW, ADMIN_ROW], dexUsers: false });
 		if (url === "/admin/settings") {
 			return json(500, { code: "INTERNAL", message: "Settings are unavailable." });
 		}

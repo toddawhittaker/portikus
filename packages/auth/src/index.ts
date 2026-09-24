@@ -1,11 +1,25 @@
 /** OIDC login, server-side sessions, and authorization helpers (SPEC.md sections 5 and 24, STACK.md section 8). */
 
 export {
+	createDexApi,
+	DEX_BCRYPT_COST,
+	DEX_PASSWORD_LENGTH,
+	type DexApi,
+	type DexApiConnection,
+	type DexApiEnv,
+	type DexPassword,
+	generateDexPassword,
+	hashDexPassword,
+	loadDexApi,
+} from "./dex-api.js";
+export { dexLocalSubject, dexLocalUserId } from "./dex-subject.js";
+export {
 	bindLinkIntent,
 	consumeLinkIntent,
 	courseLinkWindow,
 	findLinkIntent,
 	grantAdministrator,
+	grantInstructor,
 	isCourseIssuer,
 	LINK_INTENT_TTL_SECONDS,
 	LINK_WINDOW_SECONDS,
@@ -19,6 +33,7 @@ export {
 	type RoleChange,
 	resolveIdentity,
 	revokeAdministrator,
+	revokeInstructor,
 	saveLinkIntent,
 	sessionLinkState,
 	unlinkAccount,

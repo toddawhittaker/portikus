@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
 	AdminUser,
 	AdminUserList,
+	CreateDexUserRequest,
 	DEFAULT_TIMEZONE,
 	EDITOR_SETTINGS_DEFAULTS,
 	EditorSettings,
@@ -119,6 +120,7 @@ const sampleAdminUser = {
 	grantedRole: null,
 	disabledAt: null,
 	shutdownGraceSeconds: null,
+	dexLocal: false,
 	preferredUsername: null,
 	issuer: null,
 	lastLoginAt: null,
@@ -159,7 +161,7 @@ test("AdminUser rejects a bad id, a bad role and a negative override", () => {
 });
 
 test("AdminUserList parses a list of users", () => {
-	const parsed = AdminUserList.parse({ users: [sampleAdminUser] });
+	const parsed = AdminUserList.parse({ users: [sampleAdminUser], dexUsers: false });
 	expect(parsed.users).toHaveLength(1);
 });
 
@@ -326,4 +328,30 @@ test("profile links accept https URLs and GitHub usernames only", () => {
 test("a GitHub username links to its profile; a URL is kept as it is", () => {
 	expect(githubHref("alice-ex")).toBe("https://github.com/alice-ex");
 	expect(githubHref("https://github.com/alice")).toBe("https://github.com/alice");
+});
+
+test("CreateDexUserRequest lowercases the email and takes the three roles", () => {
+	expect(
+		CreateDexUserRequest.parse({
+			email: " Dana@Example.EDU ",
+			username: "dana.k_2-x",
+			role: "instructor",
+		}),
+	).toEqual({ email: "dana@example.edu", username: "dana.k_2-x", role: "instructor" });
+});
+
+test("CreateDexUserRequest refuses a bad email, username or role, and extra fields", () => {
+	const good = { email: "a@example.edu", username: "a", role: "student" };
+	for (const bad of [
+		{ ...good, email: "no-at-sign" },
+		{ ...good, username: "" },
+		{ ...good, username: "has space" },
+		{ ...good, username: "x".repeat(65) },
+		{ ...good, role: "owner" },
+		{ ...good, password: "chosen" },
+	]) {
+		expect(CreateDexUserRequest.safeParse(bad).success, JSON.stringify(bad)).toBe(
+			false,
+		);
+	}
 });

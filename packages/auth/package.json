@@ -19,9 +19,12 @@
 	},
 	"dependencies": {
 		"@fastify/cookie": "11.1.2",
+		"@grpc/grpc-js": "1.14.5",
+		"@grpc/proto-loader": "0.8.1",
 		"@portikus/db": "workspace:*",
 		"@portikus/events": "workspace:*",
 		"@portikus/observability": "workspace:*",
+		"bcryptjs": "3.0.3",
 		"fastify": "5.12.5",
 		"fastify-plugin": "6.0.0",
 		"jose": "6.2.12",

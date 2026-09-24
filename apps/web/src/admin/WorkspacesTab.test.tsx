@@ -51,6 +51,7 @@ function account(
 		grantedRole: null,
 		disabledAt: null,
 		shutdownGraceSeconds: null,
+		dexLocal: false,
 		preferredUsername: displayName.toLowerCase(),
 		issuer: null,
 		lastLoginAt: null,
@@ -227,7 +228,7 @@ function stubUsers(refuse: Record<string, string> = {}) {
 	const writes: string[] = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN_ME);
-		if (url === "/admin/users") return json(200, { users: ROWS });
+		if (url === "/admin/users") return json(200, { users: ROWS, dexUsers: false });
 		if (url === "/admin/settings") {
 			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
 		}

@@ -2,6 +2,9 @@ import {
 	AdminUser,
 	AdminUserList,
 	AdminWorkspaceDetail,
+	type CreateDexUserRequest,
+	CreateDexUserResponse,
+	DexPasswordResponse,
 	PlatformSettings,
 	type QuotaConfig,
 	type UpdateAdminUserSettingsRequest,
@@ -36,10 +39,11 @@ export function usePlatformSettings() {
 	});
 }
 
+/** Every account, and whether the site manages Dex users (docs/EPIC-14.md ruling 24). */
 export function useAdminUsers() {
 	return useQuery({
 		queryKey: adminKeys.users,
-		queryFn: async () => (await request(AdminUserList, "/admin/users")).users,
+		queryFn: () => request(AdminUserList, "/admin/users"),
 		refetchInterval: ADMIN_REFRESH_MS,
 	});
 }
@@ -151,6 +155,49 @@ export function useSetGrantedAdmin() {
 		url: `/admin/users/${userId}/${admin ? "promote" : "demote"}`,
 		init: { method: "POST" },
 	}));
+}
+
+/** Make instructor sets the grant; remove instructor clears it (docs/EPIC-14.md ruling 14). */
+export function useSetGrantedInstructor() {
+	return useAdminWrite(
+		({ userId, instructor }: { userId: string; instructor: boolean }) => ({
+			url: `/admin/users/${userId}/${instructor ? "make-instructor" : "remove-instructor"}`,
+			init: { method: "POST" },
+		}),
+	);
+}
+
+/**
+ * The Dex user writes (docs/EPIC-14.md rulings 21 and 22). Each waits for the
+ * list to refetch before its caller hears of success, so the caller can move
+ * focus knowing which buttons are still on the page.
+ */
+function useDexWrite<T, R>(run: (input: T) => Promise<R>) {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: run,
+		onSuccess: () => client.invalidateQueries({ queryKey: ["admin"] }),
+	});
+}
+
+export function useAddDexUser() {
+	return useDexWrite((body: CreateDexUserRequest) =>
+		request(CreateDexUserResponse, "/admin/dex-users", json("POST", body)),
+	);
+}
+
+export function useResetDexPassword() {
+	return useDexWrite(({ userId }: { userId: string }) =>
+		request(DexPasswordResponse, `/admin/dex-users/${userId}/reset-password`, {
+			method: "POST",
+		}),
+	);
+}
+
+export function useRemoveDexUser() {
+	return useDexWrite(({ userId }: { userId: string }) =>
+		request(AdminUser, `/admin/dex-users/${userId}/remove`, { method: "POST" }),
+	);
 }
 
 export function useUpdateQuota() {
