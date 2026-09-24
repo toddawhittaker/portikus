@@ -20,11 +20,20 @@ export const MOCK_GROUPS = {
 	admin: "portikus-administrators",
 } as const;
 
+/** The tenant ID and domain the Entra-shaped and Google-shaped users are allowed under (docs/EPIC-14.md ruling 31). */
+export const MOCK_ENTRA_TENANT = "11111111-1111-4111-8111-111111111111";
+export const MOCK_OTHER_TENANT = "22222222-2222-4222-8222-222222222222";
+export const MOCK_GOOGLE_DOMAIN = "school.example.edu";
+
 export interface MockUser {
 	sub: string;
 	email: string;
 	name: string;
 	groups: string[];
+	/** Extra ID token claims, such as Entra's `tid` and `roles` or Google's `hd`. */
+	claims?: Record<string, unknown>;
+	/** Extra userinfo claims, so a test can offer a claim the ID token lacks. */
+	userinfoClaims?: Record<string, unknown>;
 }
 
 export const MOCK_USERS: Record<string, MockUser> = {
@@ -54,11 +63,14 @@ export const MOCK_USERS: Record<string, MockUser> = {
 	},
 	// Linking tests only (docs/EPIC-13-1.md): erin and gail are link targets for
 	// two specs that run at once; frank must never sign in, so he has no account.
+	// erin is also Entra-shaped (EPIC-14 ruling 31); her groups keep the
+	// linking specs working under the default generic provider.
 	erin: {
 		sub: "erin",
 		email: "erin@example.edu",
 		name: "Erin Student",
 		groups: [MOCK_GROUPS.student],
+		claims: { tid: MOCK_ENTRA_TENANT, roles: ["Portikus.Student"] },
 	},
 	frank: {
 		sub: "frank",
@@ -71,6 +83,42 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		email: "gail@example.edu",
 		name: "Gail Student",
 		groups: [MOCK_GROUPS.student],
+	},
+	// Entra-shaped (EPIC-14 ruling 31): eve is from another tenant, ian has no app role.
+	eve: {
+		sub: "eve",
+		email: "eve@other.example.com",
+		name: "Eve Outsider",
+		groups: [],
+		claims: { tid: MOCK_OTHER_TENANT, roles: ["Portikus.Student"] },
+	},
+	ian: {
+		sub: "ian",
+		email: "ian@example.edu",
+		name: "Ian Unassigned",
+		groups: [],
+		claims: { tid: MOCK_ENTRA_TENANT },
+	},
+	// Google-shaped: gina is in the domain, gabe in another, gus has no `hd` (personal Gmail).
+	gina: {
+		sub: "gina",
+		email: "gina@school.example.edu",
+		name: "Gina Student",
+		groups: [],
+		claims: { hd: MOCK_GOOGLE_DOMAIN },
+	},
+	gabe: {
+		sub: "gabe",
+		email: "gabe@elsewhere.example.org",
+		name: "Gabe Outsider",
+		groups: [],
+		claims: { hd: "elsewhere.example.org" },
+	},
+	gus: {
+		sub: "gus",
+		email: "gus@gmail.example.com",
+		name: "Gus Personal",
+		groups: [],
 	},
 };
 
@@ -320,6 +368,7 @@ export async function startMockOidcProvider(
 			name: pending.user.name,
 			preferred_username: pending.user.sub,
 			groups: pending.user.groups,
+			...pending.user.claims,
 			...(pending.nonce ? { nonce: pending.nonce } : {}),
 		})
 			.setProtectedHeader({ alg: "RS256", kid })
@@ -357,6 +406,7 @@ export async function startMockOidcProvider(
 			name: user.name,
 			preferred_username: user.sub,
 			groups: user.groups,
+			...user.userinfoClaims,
 		});
 	});
 

@@ -115,12 +115,9 @@ export function registerAuthRoutes(
 			return linkCallback(request, reply, callbackUrl, loginState, intent);
 		}
 
-		let identity: Awaited<ReturnType<typeof oidc.completeLogin>>["identity"];
-		let claims: Record<string, unknown>;
+		let completed: Awaited<ReturnType<typeof oidc.completeLogin>>;
 		try {
-			const completed = await oidc.completeLogin(callbackUrl, loginState);
-			identity = completed.identity;
-			claims = completed.claims as Record<string, unknown>;
+			completed = await oidc.completeLogin(callbackUrl, loginState);
 		} catch (error) {
 			if (error instanceof OidcError) {
 				await audit(request, "auth.login", "unknown", "unknown", "failed");
@@ -129,15 +126,18 @@ export function registerAuthRoutes(
 			throw error;
 		}
 
-		const role = mapRole(claims, auth);
+		const { identity, claims, refusal } = completed;
+		const role = refusal ? null : mapRole(claims, auth);
 		if (!role) {
 			// Prefix the subject so a crafted one cannot look like `user:<uuid>`.
-			await audit(
-				request,
+			await writeAudit(
+				db,
 				"auth.login",
 				`subject:${identity.subject}`,
 				identity.subject,
 				"denied",
+				// The tenant or domain refusal is named (docs/EPIC-14.md ruling 9).
+				{ ...(refusal ? { reason: refusal } : {}), ...requestMetadata(request) },
 			);
 			return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		}
@@ -196,7 +196,7 @@ export function registerAuthRoutes(
 			if (error instanceof OidcError) return refuse("failed", "failed", null);
 			throw error;
 		}
-		if (!mapRole(completed.claims, auth)) {
+		if (completed.refusal || !mapRole(completed.claims, auth)) {
 			return refuse("not_authorized", "denied", null);
 		}
 

@@ -9,6 +9,9 @@ export {
 export {
 	MOCK_CLIENT_ID,
 	MOCK_CLIENT_SECRET,
+	MOCK_ENTRA_TENANT,
+	MOCK_GOOGLE_DOMAIN,
+	MOCK_OTHER_TENANT,
 	MOCK_USERS,
 	type MockOidcOptions,
 	type MockOidcProvider,
