@@ -31,13 +31,34 @@ async function openLinkedAccounts(page: Page) {
 	return region;
 }
 
-/** From a fresh course session, start a link and pick `user` on the mock provider. */
-async function linkAs(page: Page, user: MockUser) {
+/**
+ * From a fresh course session, start a link, which opens the SSO sign-in in
+ * a new tab, and pick `user` there. Returns that tab, now on /link.
+ */
+async function linkAs(page: Page, user: MockUser): Promise<Page> {
 	const region = await openLinkedAccounts(page);
-	await region.getByRole("button", { name: "Link to my SSO account" }).click();
-	await page.waitForURL(`${MOCK_ISSUER}/authorize**`);
-	await page.getByTestId(`mock-user-${user}`).click();
-	await page.waitForURL(`${WEB_ORIGIN}/link**`);
+	const [tab] = await Promise.all([
+		page.context().waitForEvent("page"),
+		region.getByRole("button", { name: "Link to my SSO account" }).click(),
+	]);
+	await expect(region.getByRole("status")).toHaveText(
+		"Finish signing in in the new tab.",
+	);
+	await tab.waitForURL(`${MOCK_ISSUER}/authorize**`);
+	await tab.getByTestId(`mock-user-${user}`).click();
+	await tab.waitForURL(`${WEB_ORIGIN}/link**`);
+	return tab;
+}
+
+/** Confirm in the link tab; the original tab reloads into the SSO account. */
+async function confirmLink(page: Page, tab: Page) {
+	// The original tab is already on a workspace, so wait for its reload, not a URL.
+	await Promise.all([
+		page.waitForEvent("load", { timeout: 30_000 }),
+		tab.getByRole("button", { name: "Link accounts" }).click(),
+	]);
+	await page.waitForURL(`${WEB_ORIGIN}/workspaces/**`, { timeout: 30_000 });
+	await expect(page.getByTestId("dialog-editor-settings")).toBeHidden();
 }
 
 /** Sign `user` in once so the account exists; returns its id. */
@@ -84,15 +105,16 @@ test("a course account links to an SSO account, relaunches into it, and unlinks"
 		expect((await me(page)).id).toBe(courseId);
 		const oldCookies = await context.cookies();
 
-		await linkAs(page, TARGET);
-		const accounts = page.getByTestId("link-accounts");
+		const tab = await linkAs(page, TARGET);
+		const accounts = tab.getByTestId("link-accounts");
 		await expect(accounts).toContainText("Lin Linker");
 		await expect(accounts).toContainText("Erin Student");
 		// Nothing is linked, and nobody is signed in as erin, until confirm.
 		expect((await me(page)).id).toBe(courseId);
 
-		await page.getByRole("button", { name: "Link accounts" }).click();
-		await page.waitForURL(`${WEB_ORIGIN}/workspaces/**`, { timeout: 30_000 });
+		await confirmLink(page, tab);
+		// The link tab closes itself; it was opened by script, so the browser allows it.
+		await expect.poll(() => tab.isClosed()).toBe(true);
 		expect((await me(page)).id).toBe(erinId);
 		const [erinWorkspace] = await query<{ id: string }>(
 			"select id from workspaces where owner_user_id = $1",
@@ -146,9 +168,7 @@ test("a launch into a linked account can unlink it from the course side", async 
 		const page = await context.newPage();
 		await launchAs(page, { person: PERSON });
 		const courseId = await courseUserId();
-		await linkAs(page, TARGET);
-		await page.getByRole("button", { name: "Link accounts" }).click();
-		await page.waitForURL(`${WEB_ORIGIN}/workspaces/**`, { timeout: 30_000 });
+		await confirmLink(page, await linkAs(page, TARGET));
 
 		await launchAs(page, { person: PERSON });
 		expect((await me(page)).id).toBe(erinId);
@@ -186,9 +206,9 @@ test("a link to an SSO identity with no account is refused", async ({ browser })
 		await launchAs(page, { person: PERSON });
 		const courseId = await courseUserId();
 
-		await linkAs(page, NO_ACCOUNT);
-		expect(new URL(page.url()).searchParams.get("error")).toBe("no_account");
-		await expect(page.getByRole("alert")).toContainText("never signed in to Portikus");
+		const tab = await linkAs(page, NO_ACCOUNT);
+		expect(new URL(tab.url()).searchParams.get("error")).toBe("no_account");
+		await expect(tab.getByRole("alert")).toContainText("never signed in to Portikus");
 		// Link mode created no account, and the course session is untouched.
 		const created = await query(
 			"select 1 from users where oidc_issuer = $1 and oidc_subject = $2",

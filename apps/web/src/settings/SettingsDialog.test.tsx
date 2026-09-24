@@ -739,9 +739,7 @@ function minutesFromNow(minutes: number): string {
 	return new Date(Date.now() + minutes * 60_000).toISOString();
 }
 
-test("a fresh course session offers Link to my SSO account and goes to the SSO sign-in", async () => {
-	const assign = vi.fn();
-	vi.stubGlobal("location", { ...window.location, assign });
+function courseLinks() {
 	myLinks = {
 		source: "course",
 		linkUntil: minutesFromNow(10),
@@ -749,33 +747,57 @@ test("a fresh course session offers Link to my SSO account and goes to the SSO s
 		launch: null,
 	};
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+}
+
+function tell(message: { type: string }) {
+	const channel = new BroadcastChannel("portikus-link");
+	channel.postMessage(message);
+	channel.close();
+}
+
+function fakeTab() {
+	return { opener: {} as unknown, location: { href: "" }, close: vi.fn() };
+}
+
+test("Link to my SSO account starts the link here and sends a new tab to the SSO sign-in", async () => {
+	const tab = fakeTab();
+	const open = vi.fn(() => tab);
+	vi.stubGlobal("open", open);
+	courseLinks();
 	const region = await openLinked();
 
 	fireEvent.click(
 		await within(region).findByRole("button", { name: "Link to my SSO account" }),
 	);
 
+	expect(open).toHaveBeenCalledWith("", "_blank");
+	expect(tab.opener).toBeNull();
 	await waitFor(() =>
-		expect(assign).toHaveBeenCalledWith("https://sso.example.edu/authorize?x=1"),
+		expect(tab.location.href).toBe("https://sso.example.edu/authorize?x=1"),
 	);
 	expect(linkWrites).toEqual(["/me/links/start"]);
 	expect(within(region).getByRole("status").textContent).toBe(
-		"Opening the SSO sign-in…",
+		"Finish signing in in the new tab.",
 	);
+	const reopen = within(region).getByRole("button", {
+		name: "Open the sign-in tab again",
+	});
+	expect(document.activeElement).toBe(reopen);
+	fireEvent.click(reopen);
+	expect(open).toHaveBeenCalledTimes(2);
 });
 
-test("a refused start is announced as an alert", async () => {
-	myLinks = {
-		source: "course",
-		linkUntil: minutesFromNow(10),
-		links: [],
-		launch: null,
-	};
+test("a refused start closes the new tab and is announced in Settings", async () => {
+	const tab = fakeTab();
+	vi.stubGlobal(
+		"open",
+		vi.fn(() => tab),
+	);
 	startAnswer = json(403, {
 		code: "FORBIDDEN",
 		message: "Open Portikus again from your course to link it.",
 	});
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	courseLinks();
 	const region = await openLinked();
 
 	fireEvent.click(
@@ -785,6 +807,49 @@ test("a refused start is announced as an alert", async () => {
 	expect((await within(region).findByRole("alert")).textContent).toBe(
 		"Open Portikus again from your course to link it.",
 	);
+	expect(tab.close).toHaveBeenCalled();
+	expect(tab.location.href).toBe("");
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			within(region).getByRole("button", { name: "Link to my SSO account" }),
+		),
+	);
+});
+
+test("a blocked pop-up falls back to the start page in this tab", async () => {
+	vi.stubGlobal(
+		"open",
+		vi.fn(() => null),
+	);
+	const assign = vi.fn();
+	vi.stubGlobal("location", { ...window.location, assign });
+	courseLinks();
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", { name: "Link to my SSO account" }),
+	);
+
+	expect(assign).toHaveBeenCalledWith("/link/start");
+});
+
+test("the waiting tab stops waiting when the new tab cancels", async () => {
+	vi.stubGlobal(
+		"open",
+		vi.fn(() => fakeTab()),
+	);
+	courseLinks();
+	const region = await openLinked();
+	fireEvent.click(
+		await within(region).findByRole("button", { name: "Link to my SSO account" }),
+	);
+
+	tell({ type: "cancelled" });
+	const start = await within(region).findByRole("button", {
+		name: "Link to my SSO account",
+	});
+	await waitFor(() => expect(document.activeElement).toBe(start));
+	expect(within(region).getByRole("status").textContent).toBe("");
 });
 
 test("a course session past the 15-minute window is told to open Portikus again", async () => {

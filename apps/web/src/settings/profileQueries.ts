@@ -73,12 +73,9 @@ export function useMyLinks() {
 	});
 }
 
-/** Step 2: the server answers with the SSO sign-in address, and the browser goes there. */
-export function useStartLink() {
-	return useMutation({
-		mutationFn: () => request(StartLinkResponse, "/me/links/start", { method: "POST" }),
-		onSuccess: ({ redirectUrl }) => location.assign(redirectUrl),
-	});
+/** Step 2: the server answers with the SSO sign-in address. */
+export function startLink() {
+	return request(StartLinkResponse, "/me/links/start", { method: "POST" });
 }
 
 /** Step 7. */

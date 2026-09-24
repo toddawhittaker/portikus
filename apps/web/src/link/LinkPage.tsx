@@ -2,6 +2,7 @@ import type { LinkError } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
 import { ApiError } from "../api/request.js";
 import { StandalonePage } from "../pages/StandalonePage.js";
+import { announceLink, leaveLinkTab } from "./channel.js";
 import { useConfirmLink, usePendingLink } from "./queries.js";
 
 /** What each refusal from the SSO sign-in means to the person (docs/EPIC-13-1.md ruling 18). */
@@ -20,9 +21,10 @@ export const LINK_ERROR_MESSAGES: Record<LinkError, string> = {
 		"The accounts could not be linked. Open Portikus again from your course and try again.",
 };
 
-function goHome() {
-	// A full load, because confirming changes who is signed in.
-	location.assign("/");
+/** Tell the tab that started the link, then close this one; it stays open only if the browser refuses. */
+function finishLinked() {
+	announceLink({ type: "linked" });
+	window.close();
 }
 
 /**
@@ -44,7 +46,7 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 					{LINK_ERROR_MESSAGES[error]}
 				</p>
 				<div className="pk-actions">
-					<Button variant="secondary" onClick={goHome}>
+					<Button variant="secondary" onClick={leaveLinkTab}>
 						Back to Portikus
 					</Button>
 				</div>
@@ -77,9 +79,28 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 						: LINK_ERROR_MESSAGES.expired}
 				</p>
 				<div className="pk-actions">
-					<Button variant="secondary" onClick={goHome}>
+					<Button variant="secondary" onClick={leaveLinkTab}>
 						Back to Portikus
 					</Button>
+				</div>
+			</StandalonePage>
+		);
+	}
+
+	if (confirm.isSuccess) {
+		return (
+			<StandalonePage title="Accounts linked" testId="page-link">
+				<h1 id="page-title" className="pk-text-display">
+					Accounts linked
+				</h1>
+				<p className="pk-text-body" role="status" data-testid="link-done">
+					Linked. You can close this tab.
+				</p>
+				<div className="pk-actions">
+					{/* A full load, because confirming changed who is signed in. */}
+					<a className="pk-text-body" href="/">
+						Go to Portikus
+					</a>
 				</div>
 			</StandalonePage>
 		);
@@ -90,7 +111,7 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 		confirm.error instanceof ApiError && confirm.error.status === 404
 			? LINK_ERROR_MESSAGES.expired
 			: confirm.error?.message;
-	const busy = confirm.isPending || confirm.isSuccess;
+	const busy = confirm.isPending;
 
 	return (
 		<StandalonePage title="Link accounts" testId="page-link">
@@ -136,14 +157,14 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 				</p>
 			) : null}
 			<div className="pk-actions">
-				<Button variant="secondary" onClick={goHome} disabled={busy}>
+				<Button variant="secondary" onClick={leaveLinkTab} disabled={busy}>
 					Cancel
 				</Button>
 				<Button
 					variant="primary"
 					data-testid="link-confirm"
 					loading={busy}
-					onClick={() => confirm.mutate(undefined, { onSuccess: goHome })}
+					onClick={() => confirm.mutate(undefined, { onSuccess: finishLinked })}
 				>
 					Link accounts
 				</Button>
