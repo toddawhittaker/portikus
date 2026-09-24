@@ -91,6 +91,41 @@ describe("users and sessions", () => {
 		},
 	);
 
+	async function usernameOf(id: string) {
+		const row = await t.db
+			.selectFrom("users")
+			.select("preferred_username")
+			.where("id", "=", id)
+			.executeTakeFirstOrThrow();
+		return row.preferred_username;
+	}
+
+	test.skipIf(!hasTestDb())(
+		"a sign-in without a username keeps the stored one",
+		async () => {
+			const user = await upsertUser(
+				t.db,
+				{ ...identity, preferredUsername: "alice" },
+				"student",
+			);
+			await upsertUser(t.db, { ...identity, preferredUsername: null }, "student");
+			expect(await usernameOf(user.id)).toBe("alice");
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"a sign-in with a username replaces the stored one",
+		async () => {
+			const user = await upsertUser(
+				t.db,
+				{ ...identity, preferredUsername: "alice" },
+				"student",
+			);
+			await upsertUser(t.db, { ...identity, preferredUsername: "alice2" }, "student");
+			expect(await usernameOf(user.id)).toBe("alice2");
+		},
+	);
+
 	test.skipIf(!hasTestDb())(
 		"the same subject at another issuer is another user",
 		async () => {
