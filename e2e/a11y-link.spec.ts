@@ -28,10 +28,11 @@ test("the Profile link section and the /link page have no automatic violations",
 	await expect(start).toBeVisible();
 	await expectNoViolations(page, '[data-testid="dialog-editor-settings"]');
 
-	// The confirmation page, reached the real way; nothing is confirmed.
+	// The confirmation page, reached the real way; nothing is confirmed. carol,
+	// because account-link.spec.ts links bob and moves alice aside.
 	await start.click();
 	await page.waitForURL(`${MOCK_ISSUER}/authorize**`);
-	await page.getByTestId("mock-user-bob").click();
+	await page.getByTestId("mock-user-carol").click();
 	await page.waitForURL(`${WEB_ORIGIN}/link**`);
 	await expect(page.getByRole("button", { name: "Link accounts" })).toBeVisible();
 	await expectNoViolations(page);
