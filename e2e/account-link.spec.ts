@@ -61,6 +61,16 @@ async function courseUserId(): Promise<string> {
 // Both tests launch Lin; the first links and unlinks her.
 test.describe.configure({ mode: "serial" });
 
+// A failed or retried run must not leave Lin linked or her workspace archived.
+test.beforeEach(async () => {
+	for (const row of await ltiUsers(PERSON)) {
+		await query("delete from account_links where course_user_id = $1", [row.id]);
+		await query("update workspaces set archived_at = null where owner_user_id = $1", [
+			row.id,
+		]);
+	}
+});
+
 test("a course account links to an SSO account, relaunches into it, and unlinks", async ({
 	browser,
 }) => {
@@ -101,13 +111,18 @@ test("a course account links to an SSO account, relaunches into it, and unlinks"
 			"select archived_at from workspaces where owner_user_id = $1",
 			[courseId],
 		);
+		expect(courseWorkspaces).toHaveLength(1);
 		for (const row of courseWorkspaces) expect(row.archived_at).not.toBeNull();
 
 		// A relaunch from the course lands in erin's account.
 		await launchAs(page, { person: PERSON });
 		expect((await me(page)).id).toBe(erinId);
 
-		// erin sees the link and unlinks it.
+		// erin, signed in with SSO, sees the link and unlinks it. Unlinking from
+		// the relaunched session itself ends that session (review S2), which the
+		// API tests cover.
+		await apiLoginAs(context.request, TARGET);
+		await page.goto("/");
 		const region = await openLinkedAccounts(page);
 		await region.getByRole("button", { name: /^Unlink Lin Linker/ }).click();
 		await expect(region.getByRole("status")).toContainText("Unlinked.");

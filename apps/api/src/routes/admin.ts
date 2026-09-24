@@ -22,6 +22,7 @@ import { z } from "zod";
 import { accountFlags, groupByEmail } from "../admin/markers.js";
 import type { ServerDeps } from "../server.js";
 import { loadImageFacts, toWorkspaceSummary } from "./admin-workspaces.js";
+import { audit, requestMetadata } from "./start-session.js";
 import { countActive, toWorkspace } from "./workspace-view.js";
 
 const UuidParam = z.object({ id: z.string().uuid() });
@@ -390,22 +391,12 @@ export function registerAdminRoutes(
 		const result = await db.transaction().execute(async (trx) => {
 			const granted = await grantAdministrator(trx, id);
 			if (granted.ok && granted.changed) {
-				await trx
-					.insertInto("audit_events")
-					.values({
-						actor: `user:${actor.id}`,
-						target: id,
-						action: "user.role_changed",
-						result: "ok",
-						metadata: JSON.stringify({
-							from: granted.from,
-							to: granted.to,
-							source: "admin",
-							ip: request.ip,
-							userAgent: request.headers["user-agent"] ?? null,
-						}),
-					})
-					.execute();
+				await audit(trx, "user.role_changed", `user:${actor.id}`, id, "ok", {
+					from: granted.from,
+					to: granted.to,
+					source: "admin",
+					...requestMetadata(request),
+				});
 			}
 			return granted;
 		});
@@ -436,23 +427,14 @@ export function registerAdminRoutes(
 				actorId: actor.id,
 				targetId: id,
 			});
-			if (revoked.ok) {
-				await trx
-					.insertInto("audit_events")
-					.values({
-						actor: `user:${actor.id}`,
-						target: id,
-						action: "user.role_changed",
-						result: "ok",
-						metadata: JSON.stringify({
-							from: revoked.from,
-							to: revoked.to,
-							source: "admin",
-							ip: request.ip,
-							userAgent: request.headers["user-agent"] ?? null,
-						}),
-					})
-					.execute();
+			// A provider administrator with a grant too keeps the role: nothing to audit.
+			if (revoked.ok && revoked.from !== revoked.to) {
+				await audit(trx, "user.role_changed", `user:${actor.id}`, id, "ok", {
+					from: revoked.from,
+					to: revoked.to,
+					source: "admin",
+					...requestMetadata(request),
+				});
 			}
 			return revoked;
 		});
@@ -467,21 +449,20 @@ export function registerAdminRoutes(
 						"VALIDATION_FAILED",
 						"You cannot demote your own account.",
 					);
-				case "not_granted": {
-					const target = await db
-						.selectFrom("users")
-						.select("role")
-						.where("id", "=", id)
-						.executeTakeFirst();
+				case "provider_administrator":
 					return sendError(
 						reply,
 						400,
 						"VALIDATION_FAILED",
-						target?.role === "administrator"
-							? "This administrator comes from the SSO provider's groups."
-							: "This account is not an administrator.",
+						"This administrator comes from the SSO provider's groups.",
 					);
-				}
+				case "not_administrator":
+					return sendError(
+						reply,
+						400,
+						"VALIDATION_FAILED",
+						"This account is not an administrator.",
+					);
 				case "last_administrator":
 					return sendError(
 						reply,

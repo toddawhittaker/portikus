@@ -1,4 +1,5 @@
 import { type AddressInfo, createServer } from "node:net";
+import { hashSessionToken } from "@portikus/auth";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -12,7 +13,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
-import { createPreviewSession, hashToken } from "../preview/store.js";
+import { createPreviewSession } from "../preview/store.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
 const skip = !hasTestDb();
@@ -497,14 +498,14 @@ test.skipIf(skip)(
 		await testDb.db
 			.updateTable("preview_sessions")
 			.set({ revoked_at: new Date(Date.now() - 2 * 86_400_000).toISOString() })
-			.where("token_hash", "=", hashToken(revoked))
+			.where("token_hash", "=", hashSessionToken(revoked))
 			.execute();
 		const orphan = await openPreview(5173);
 		const aliceId = (
 			await testDb.db
 				.selectFrom("preview_sessions")
 				.select("user_id")
-				.where("token_hash", "=", hashToken(orphan))
+				.where("token_hash", "=", hashSessionToken(orphan))
 				.executeTakeFirstOrThrow()
 		).user_id;
 		await testDb.db
@@ -518,9 +519,9 @@ test.skipIf(skip)(
 		const hashes = (
 			await testDb.db.selectFrom("preview_sessions").select("token_hash").execute()
 		).map((row) => row.token_hash);
-		expect(hashes).not.toContain(hashToken(revoked));
-		expect(hashes).not.toContain(hashToken(orphan));
-		expect(hashes).toContain(hashToken(live));
+		expect(hashes).not.toContain(hashSessionToken(revoked));
+		expect(hashes).not.toContain(hashSessionToken(orphan));
+		expect(hashes).toContain(hashSessionToken(live));
 	},
 );
 
@@ -1309,14 +1310,14 @@ test.skipIf(skip)("only the hash of a ticket and a token is stored", async () =>
 		.selectFrom("preview_grants")
 		.select("ticket_hash")
 		.executeTakeFirstOrThrow();
-	expect(storedTicket.ticket_hash).toBe(hashToken(ticket));
+	expect(storedTicket.ticket_hash).toBe(hashSessionToken(ticket));
 	expect(storedTicket.ticket_hash).not.toBe(ticket);
 
 	const storedToken = await testDb.db
 		.selectFrom("preview_sessions")
 		.select("token_hash")
 		.executeTakeFirstOrThrow();
-	expect(storedToken.token_hash).toBe(hashToken(token));
+	expect(storedToken.token_hash).toBe(hashSessionToken(token));
 	expect(storedToken.token_hash).not.toBe(token);
 });
 

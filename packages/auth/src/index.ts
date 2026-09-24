@@ -6,6 +6,7 @@ export {
 	courseLinkWindow,
 	findLinkIntent,
 	grantAdministrator,
+	isCourseIssuer,
 	LINK_INTENT_TTL_SECONDS,
 	LINK_WINDOW_SECONDS,
 	type LinkIntent,
@@ -13,6 +14,7 @@ export {
 	linkAccounts,
 	listLinks,
 	pendingLinkIntent,
+	platformIssuerOf,
 	type RoleChange,
 	resolveIdentity,
 	revokeAdministrator,
@@ -57,9 +59,11 @@ export {
 export {
 	createSession,
 	deleteSession,
-	effectiveRole,
 	hashSessionToken,
 	loadSession,
+	type SessionMethod,
+	type SessionOrigin,
+	sessionOrigin,
 	upsertUser,
 } from "./sessions.js";
 export { type AuthOptions, mapRole, type Role } from "./types.js";

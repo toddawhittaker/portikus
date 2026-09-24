@@ -3,13 +3,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 import {
 	createSession,
 	deleteSession,
-	effectiveRole,
 	hashSessionToken,
 	loadSession,
 	type OidcIdentity,
+	sessionOrigin,
 	upsertUser,
 } from "./sessions.js";
-import type { Role } from "./types.js";
 
 if (!hasTestDb()) {
 	console.log(
@@ -56,12 +55,10 @@ describe("users and sessions", () => {
 	/** Store a grant as promote does: the grant and the effective role together. */
 	async function grant(id: string, role: "instructor" | "administrator") {
 		const row = await roles(id);
+		const effective = row.provider_role === "administrator" ? "administrator" : role;
 		await t.db
 			.updateTable("users")
-			.set({
-				granted_role: role,
-				role: effectiveRole(row.provider_role as Role, role),
-			})
+			.set({ granted_role: role, role: effective })
 			.where("id", "=", id)
 			.execute();
 	}
@@ -111,7 +108,10 @@ describe("users and sessions", () => {
 		"a session round trips and stores only a hash",
 		async () => {
 			const user = await upsertUser(t.db, identity, "student");
-			const { token, expiresAt } = await createSession(t.db, user.id, 3600);
+			const { token, expiresAt } = await createSession(t.db, user.id, 3600, {
+				method: "oidc",
+				courseUserId: null,
+			});
 
 			expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
 			const stored = await t.db
@@ -137,7 +137,10 @@ describe("users and sessions", () => {
 
 	test.skipIf(!hasTestDb())("an expired session is refused and removed", async () => {
 		const user = await upsertUser(t.db, identity, "student");
-		const { token } = await createSession(t.db, user.id, -1);
+		const { token } = await createSession(t.db, user.id, -1, {
+			method: "oidc",
+			courseUserId: null,
+		});
 
 		expect(await loadSession(t.db, token)).toBeNull();
 		const rows = await t.db.selectFrom("sessions").select("id").execute();
@@ -146,7 +149,10 @@ describe("users and sessions", () => {
 
 	test.skipIf(!hasTestDb())("a disabled user is refused immediately", async () => {
 		const user = await upsertUser(t.db, identity, "student");
-		const { token } = await createSession(t.db, user.id, 3600);
+		const { token } = await createSession(t.db, user.id, 3600, {
+			method: "oidc",
+			courseUserId: null,
+		});
 		expect(await loadSession(t.db, token)).not.toBeNull();
 
 		await t.db
@@ -223,8 +229,14 @@ describe("users and sessions", () => {
 				{ ...identity, issuer: "lti:https://lms.example.edu", subject: "c-1" },
 				"student",
 			);
-			const { token } = await createSession(t.db, course.id, 3600);
-			const { token: ssoToken } = await createSession(t.db, sso.id, 3600);
+			const { token } = await createSession(t.db, course.id, 3600, {
+				method: "oidc",
+				courseUserId: null,
+			});
+			const { token: ssoToken } = await createSession(t.db, sso.id, 3600, {
+				method: "oidc",
+				courseUserId: null,
+			});
 			expect(await loadSession(t.db, token)).not.toBeNull();
 
 			await t.db
@@ -233,7 +245,7 @@ describe("users and sessions", () => {
 					course_user_id: course.id,
 					user_id: sso.id,
 					platform_issuer: "https://lms.example.edu",
-					archived_workspace: false,
+					archived_at: null,
 				})
 				.execute();
 
@@ -248,20 +260,70 @@ describe("users and sessions", () => {
 		);
 	});
 
-	test.each([
-		["student", null, "student"],
-		["student", "instructor", "instructor"],
-		["student", "administrator", "administrator"],
-		["instructor", "instructor", "instructor"],
-		["administrator", "instructor", "administrator"],
-		["instructor", null, "instructor"],
-	] as const)("effectiveRole(%s, %s) is %s", (provider, granted, expected) => {
-		expect(effectiveRole(provider, granted)).toBe(expected);
-	});
+	test.skipIf(!hasTestDb())(
+		"createSession records how the session started",
+		async () => {
+			const sso = await upsertUser(t.db, identity, "student");
+			const course = await upsertUser(
+				t.db,
+				{ ...identity, issuer: "lti:https://lms.example.edu", subject: "c-1" },
+				"student",
+			);
+			const { token } = await createSession(t.db, sso.id, 3600, {
+				method: "lti",
+				courseUserId: course.id,
+			});
+			expect(await sessionOrigin(t.db, hashSessionToken(token))).toEqual({
+				method: "lti",
+				courseUserId: course.id,
+			});
+			expect(await sessionOrigin(t.db, "missing")).toBeNull();
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"a launch session dies once its account is promoted to administrator",
+		async () => {
+			const user = await upsertUser(t.db, identity, "student");
+			const lti = await createSession(t.db, user.id, 3600, {
+				method: "lti",
+				courseUserId: null,
+			});
+			const sso = await createSession(t.db, user.id, 3600, {
+				method: "oidc",
+				courseUserId: null,
+			});
+			expect(await loadSession(t.db, lti.token)).not.toBeNull();
+			await grant(user.id, "administrator");
+			expect(await loadSession(t.db, lti.token)).toBeNull();
+			expect((await loadSession(t.db, sso.token))?.role).toBe("administrator");
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"a provider-group promotion at sign-in also kills launch sessions",
+		async () => {
+			const user = await upsertUser(t.db, identity, "student");
+			const lti = await createSession(t.db, user.id, 3600, {
+				method: "lti",
+				courseUserId: null,
+			});
+			const link = await createSession(t.db, user.id, 3600, {
+				method: "link",
+				courseUserId: null,
+			});
+			await upsertUser(t.db, identity, "administrator");
+			expect(await loadSession(t.db, lti.token)).toBeNull();
+			expect((await loadSession(t.db, link.token))?.role).toBe("administrator");
+		},
+	);
 
 	test.skipIf(!hasTestDb())("deleteSession logs the user out", async () => {
 		const user = await upsertUser(t.db, identity, "student");
-		const { token } = await createSession(t.db, user.id, 3600);
+		const { token } = await createSession(t.db, user.id, 3600, {
+			method: "oidc",
+			courseUserId: null,
+		});
 
 		await deleteSession(t.db, token);
 
@@ -271,8 +333,11 @@ describe("users and sessions", () => {
 
 	test.skipIf(!hasTestDb())("creating a session sweeps expired rows", async () => {
 		const user = await upsertUser(t.db, identity, "student");
-		const { token: stale } = await createSession(t.db, user.id, -1);
-		await createSession(t.db, user.id, 3600);
+		const { token: stale } = await createSession(t.db, user.id, -1, {
+			method: "oidc",
+			courseUserId: null,
+		});
+		await createSession(t.db, user.id, 3600, { method: "oidc", courseUserId: null });
 
 		expect(await loadSession(t.db, stale)).toBeNull();
 		expect(await t.db.selectFrom("sessions").select("id").execute()).toHaveLength(1);

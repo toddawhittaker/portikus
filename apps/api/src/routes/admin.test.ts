@@ -749,7 +749,7 @@ test.skipIf(skip)(
 				course_user_id: course,
 				user_id: alice.id,
 				platform_issuer: "https://lms.test.invalid",
-				archived_workspace: false,
+				archived_at: null,
 			})
 			.execute();
 
@@ -890,6 +890,29 @@ test.skipIf(skip)(
 		expect(provider.json().message).toBe(
 			"This administrator comes from the SSO provider's groups.",
 		);
+	},
+);
+
+test.skipIf(skip)(
+	"demoting a provider administrator who also holds a grant changes no role and writes no audit",
+	async () => {
+		const carol = await adminJar();
+		await studentJar();
+		const carolId = await userId("Carol");
+		const aliceId = await userId("Alice");
+		await adminPost(carol, `/admin/users/${aliceId}/promote`);
+		await testDb.db
+			.updateTable("users")
+			.set({ granted_role: "administrator" })
+			.where("id", "=", carolId)
+			.execute();
+		const alice = new CookieJar();
+		await loginAs(app, "alice", alice);
+		const res = await adminPost(alice, `/admin/users/${carolId}/demote`);
+		expect(res.statusCode).toBe(200);
+		expect(res.json()).toMatchObject({ role: "administrator", grantedRole: null });
+		// Only alice's promotion is on record.
+		expect(await roleAudits()).toHaveLength(1);
 	},
 );
 

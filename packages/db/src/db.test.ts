@@ -625,6 +625,8 @@ describe("database migrations and schema", () => {
 				expect(down15.error).toBeUndefined();
 				const down16 = await migrator.migrateDown();
 				expect(down16.error).toBeUndefined();
+				const down17 = await migrator.migrateDown();
+				expect(down17.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -644,6 +646,7 @@ describe("database migrations and schema", () => {
 					"0014_admin",
 					"0015_lti",
 					"0016_account_links",
+					"0017_session_method",
 				]);
 				throw rollback;
 			}),
@@ -665,6 +668,9 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0017_session_method",
+					);
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0016_account_links");
@@ -705,6 +711,100 @@ describe("database migrations and schema", () => {
 					throw rollback;
 				}),
 			).rejects.toBe(rollback);
+		},
+	);
+
+	// --- migration 0017: session method and the link's archive stamp (Epic 13.1 review) ---
+
+	test.skipIf(!hasTestDb())(
+		"0017 backfills sessions as oidc and the link's archive stamp, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const sso = await insertTestUser(trx);
+					const course = await insertTestLtiUser(trx);
+					const otherCourse = await insertTestLtiUser(
+						trx,
+						"https://other.test.invalid",
+					);
+					const stamp = "2026-09-20T10:00:00.000Z";
+					await trx
+						.insertInto("workspaces")
+						.values({
+							label: testLabel(),
+							owner_user_id: course,
+							state: "stopped",
+							archived_at: stamp,
+						})
+						.execute();
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const down = await migrator.migrateDown();
+					expect(down.error).toBeUndefined();
+					expect(down.results?.[0]?.migrationName).toBe("0017_session_method");
+					await sql`insert into sessions (id, user_id, expires_at)
+						values ('old-session', ${sso}, now() + interval '1 hour')`.execute(trx);
+					await sql`insert into account_links (course_user_id, user_id, platform_issuer, archived_workspace)
+						values (${course}, ${sso}, 'https://lms.test.invalid', true),
+						       (${otherCourse}, ${sso}, 'https://other.test.invalid', false)`.execute(
+						trx,
+					);
+
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+					const session = await trx
+						.selectFrom("sessions")
+						.select(["method", "course_user_id"])
+						.where("id", "=", "old-session")
+						.executeTakeFirstOrThrow();
+					expect(session).toEqual({ method: "oidc", course_user_id: null });
+					const links = await trx
+						.selectFrom("account_links")
+						.select(["course_user_id", "archived_at"])
+						.execute();
+					const archived = links.find((l) => l.course_user_id === course);
+					expect(new Date(archived?.archived_at ?? 0).toISOString()).toBe(stamp);
+					expect(
+						links.find((l) => l.course_user_id === otherCourse)?.archived_at,
+					).toBeNull();
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"sessions refuse an unknown method and a course user on a non-launch session",
+		async () => {
+			const user = await insertTestUser(t.db);
+			const course = await insertTestLtiUser(t.db);
+			const row = (id: string) => ({
+				id,
+				user_id: user,
+				expires_at: new Date(Date.now() + 60_000).toISOString(),
+			});
+			await expect(
+				t.db
+					.insertInto("sessions")
+					.values({ ...row("a"), method: "password" })
+					.execute(),
+			).rejects.toThrow(/sessions_method_check/);
+			await expect(
+				t.db
+					.insertInto("sessions")
+					.values({ ...row("b"), method: "oidc", course_user_id: course })
+					.execute(),
+			).rejects.toThrow(/sessions_course_user_check/);
+			await t.db
+				.insertInto("sessions")
+				.values({ ...row("c"), method: "lti", course_user_id: course })
+				.execute();
 		},
 	);
 
@@ -777,7 +877,7 @@ describe("database migrations and schema", () => {
 				course_user_id: course,
 				user_id: sso,
 				platform_issuer: "https://lms.test.invalid",
-				archived_workspace: false,
+				archived_at: null,
 			};
 			await t.db.insertInto("account_links").values(link).execute();
 			await expect(
@@ -976,6 +1076,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0017_session_method",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0016_account_links",
 					);
 					const down = await migrator.migrateDown();
@@ -1020,6 +1123,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					await migrator.migrateDown();
 					await migrator.migrateDown();
 					const down15 = await migrator.migrateDown();
 					expect(down15.results?.[0]?.migrationName).toBe("0015_lti");
@@ -1446,7 +1550,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Down past 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					// Down past 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();

@@ -2,6 +2,7 @@ import {
 	type AuthOptions,
 	createSession,
 	type Role,
+	type SessionOrigin,
 	sessionCookieName,
 	sessionCookieOptions,
 	upsertUser,
@@ -12,15 +13,17 @@ import type { Kysely } from "kysely";
 
 /**
  * Create a server-side session and set its cookie. Both sign-in paths, the
- * OIDC callback and the LTI launch, end here (docs/EPIC-13.md ruling 3).
+ * OIDC callback, the LTI launch and link confirm, end here (docs/EPIC-13.md
+ * ruling 3). The origin records how it started (docs/EPIC-13-1.md ruling 21).
  */
 export async function startSession(
 	db: Kysely<Database>,
 	auth: AuthOptions,
 	reply: FastifyReply,
 	userId: string,
+	origin: SessionOrigin,
 ): Promise<void> {
-	const session = await createSession(db, userId, auth.sessionTtlSeconds);
+	const session = await createSession(db, userId, auth.sessionTtlSeconds, origin);
 	reply.setCookie(sessionCookieName(auth), session.token, {
 		...sessionCookieOptions(auth),
 		expires: session.expiresAt,
@@ -35,6 +38,8 @@ export function requestMetadata(request: FastifyRequest): Record<string, unknown
 export interface SignInInput {
 	identity: Parameters<typeof upsertUser>[1];
 	role: Role;
+	/** Which sign-in path this is; a launch session can never act as an administrator. */
+	method: "oidc" | "lti";
 	/** Metadata for the `auth.login` row, ok or denied. */
 	loginMetadata: Record<string, unknown>;
 	/** Extra metadata for a `user.role_changed` row beyond from and to. */
@@ -67,7 +72,10 @@ export async function completeSignIn(
 		await audit(db, "auth.login", `user:${user.id}`, user.id, "denied", loginMetadata);
 		return { ok: false, userId: user.id };
 	}
-	await startSession(db, auth, reply, user.id);
+	await startSession(db, auth, reply, user.id, {
+		method: input.method,
+		courseUserId: null,
+	});
 	await audit(db, "auth.login", `user:${user.id}`, user.id, "ok", loginMetadata);
 	return { ok: true, userId: user.id };
 }

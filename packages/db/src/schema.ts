@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, and 0016_account_links
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, and 0017_session_method
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -64,6 +64,10 @@ export interface SessionsTable {
 	user_id: string;
 	created_at: ColumnType<Date, string | undefined, never>;
 	expires_at: ColumnType<Date, string, string>;
+	/** How the session started: 'oidc', 'lti' or 'link'. */
+	method: ColumnType<string, string | undefined, never>;
+	/** The linked course identity that launched this session; only for 'lti'. */
+	course_user_id: ColumnType<string | null, string | null | undefined, never>;
 }
 
 export interface WorkspacesTable {
@@ -254,8 +258,8 @@ export interface AccountLinksTable {
 	user_id: string;
 	/** The plain LTI platform issuer, without `lti:`. */
 	platform_issuer: string;
-	/** True when linking archived the course account's workspace. */
-	archived_workspace: boolean;
+	/** The `archived_at` this link wrote on the course workspace, or null when it archived nothing. */
+	archived_at: ColumnType<Date | null, string | null, string | null>;
 	created_at: ColumnType<Date, string | undefined, never>;
 }
 
