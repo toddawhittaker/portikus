@@ -53,6 +53,16 @@ function stubSettings(
 			}
 			return json(200, profile);
 		}
+		if (url === "/me/links") return json(200, myLinks);
+		if (url === "/me/links/start") {
+			linkWrites.push(url);
+			return startAnswer;
+		}
+		if (url.startsWith("/me/links/") && url.endsWith("/unlink")) {
+			linkWrites.push(url);
+			myLinks = { ...myLinks, links: [] };
+			return json(204, null);
+		}
 		if (url === "/me/picture") {
 			return json(413, { code: "FILE_TOO_LARGE", message: "The picture is too big" });
 		}
@@ -79,6 +89,17 @@ const PROFILE = {
 
 /** Profile writes seen by the last stubSettings. */
 let profileWrites: Sent[] = [];
+
+/** What GET /me/links answers; an SSO account with no links unless a test says otherwise. */
+let myLinks: Record<string, unknown> = { source: "sso", linkUntil: null, links: [] };
+let startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
+let linkWrites: string[] = [];
+
+afterEach(() => {
+	myLinks = { source: "sso", linkUntil: null, links: [] };
+	startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
+	linkWrites = [];
+});
 
 function checkbox(name: RegExp) {
 	return screen.getByRole("checkbox", { name });
@@ -695,6 +716,106 @@ test("searching for keyboard finds the help section", async () => {
 	expect(
 		screen.getByRole("button", { name: "Keyboard and screen readers" }),
 	).toBeTruthy();
+});
+
+/** docs/EPIC-13-1.md, "The flow" steps 1, 2 and 7. */
+async function openLinked() {
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await openProfile();
+	return await screen.findByRole("region", { name: "Linked accounts" });
+}
+
+function minutesFromNow(minutes: number): string {
+	return new Date(Date.now() + minutes * 60_000).toISOString();
+}
+
+test("a fresh course session offers Link to my SSO account and goes to the SSO sign-in", async () => {
+	const assign = vi.fn();
+	vi.stubGlobal("location", { ...window.location, assign });
+	myLinks = { source: "course", linkUntil: minutesFromNow(10), links: [] };
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", { name: "Link to my SSO account" }),
+	);
+
+	await waitFor(() =>
+		expect(assign).toHaveBeenCalledWith("https://sso.example.edu/authorize?x=1"),
+	);
+	expect(linkWrites).toEqual(["/me/links/start"]);
+	expect(within(region).getByRole("status").textContent).toBe(
+		"Opening the SSO sign-in…",
+	);
+});
+
+test("a refused start is announced as an alert", async () => {
+	myLinks = { source: "course", linkUntil: minutesFromNow(10), links: [] };
+	startAnswer = json(403, {
+		code: "FORBIDDEN",
+		message: "Open Portikus again from your course to link it.",
+	});
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", { name: "Link to my SSO account" }),
+	);
+
+	expect((await within(region).findByRole("alert")).textContent).toBe(
+		"Open Portikus again from your course to link it.",
+	);
+});
+
+test("a course session past the 15-minute window is told to open Portikus again", async () => {
+	myLinks = { source: "course", linkUntil: minutesFromNow(-1), links: [] };
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	expect((await within(region).findByTestId("link-too-late")).textContent).toBe(
+		"Open Portikus again from your course to link it.",
+	);
+	expect(
+		within(region).queryByRole("button", { name: "Link to my SSO account" }),
+	).toBeNull();
+});
+
+test("an SSO account with no links says how to link one and offers no button", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	expect(await within(region).findByText(/No course sign-ins are linked/)).toBeTruthy();
+	expect(within(region).queryByRole("button")).toBeNull();
+});
+
+test("an SSO account lists its links and unlinks one", async () => {
+	const courseUserId = "33333333-3333-4333-8333-333333333333";
+	myLinks = {
+		source: "sso",
+		linkUntil: null,
+		links: [
+			{
+				courseUserId,
+				platformName: "mock-lms",
+				displayName: "Sam Student",
+				linkedAt: "2026-09-24T12:00:00.000Z",
+			},
+		],
+	};
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	const region = await openLinked();
+
+	fireEvent.click(
+		await within(region).findByRole("button", {
+			name: "Unlink Sam Student from mock-lms",
+		}),
+	);
+
+	await waitFor(() =>
+		expect(within(region).getByRole("status").textContent).toMatch(/^Unlinked\./),
+	);
+	expect(linkWrites).toEqual([`/me/links/${courseUserId}/unlink`]);
+	expect(await within(region).findByText(/No course sign-ins are linked/)).toBeTruthy();
 });
 
 /** Issue #363: a failed save is announced, not only shown. */

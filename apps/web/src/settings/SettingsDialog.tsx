@@ -36,8 +36,11 @@ import {
 } from "../shell/theme.js";
 import { useMe } from "../useMe.js";
 import {
+	useMyLinks,
 	useProfile,
 	useRemovePicture,
+	useStartLink,
+	useUnlink,
 	useUpdateProfile,
 	useUploadPicture,
 } from "./profileQueries.js";
@@ -804,7 +807,7 @@ function ProfilePane({
 		}
 	}
 
-	const [signIn, about] = PROFILE?.groups ?? [];
+	const [signIn, about, linked] = PROFILE?.groups ?? [];
 
 	return (
 		<section className="grid gap-6" aria-labelledby="settings-section-profile">
@@ -866,8 +869,125 @@ function ProfilePane({
 							</ControlFrame>
 						))}
 					</section>
+					<section className="grid gap-4" aria-labelledby="settings-profile-linked">
+						<h3 id="settings-profile-linked" className="pk-text-label text-ink">
+							{linked?.title}
+						</h3>
+						{linked?.controls.map((control) => (
+							<ControlFrame
+								key={control.id}
+								control={control}
+								highlighted={highlightId === control.id}
+							>
+								<LinkedAccounts />
+							</ControlFrame>
+						))}
+					</section>
 				</>
 			) : null}
 		</section>
+	);
+}
+
+/**
+ * A course account links itself to an SSO account; an SSO account lists and
+ * unlinks its course sign-ins (docs/EPIC-13-1.md, "The flow" steps 1, 2 and 7).
+ */
+function LinkedAccounts() {
+	const links = useMyLinks();
+	const start = useStartLink();
+	const unlink = useUnlink();
+
+	if (links.isPending) {
+		return <p className="pk-text-body m-0 text-ink-muted">Loading linked accounts…</p>;
+	}
+	if (!links.isSuccess) {
+		return (
+			<p className="pk-text-body m-0 text-status-error" data-testid="links-error">
+				Your linked accounts could not be loaded.
+			</p>
+		);
+	}
+
+	const { source, linkUntil, links: rows } = links.data;
+
+	if (source === "course") {
+		const open = linkUntil !== null && Date.parse(linkUntil) > Date.now();
+		return (
+			<div className="grid gap-2" data-testid="link-course">
+				<p className="pk-text-compact m-0 text-ink-muted">
+					You opened Portikus from your course. If you also sign in with your SSO
+					account, link the two so your course opens that account and its workspace.
+					This course account's workspace is archived, not deleted.
+				</p>
+				{open ? (
+					<div>
+						<Button
+							variant="primary"
+							data-testid="link-start"
+							loading={start.isPending || start.isSuccess}
+							onClick={() => start.mutate()}
+						>
+							Link to my SSO account
+						</Button>
+					</div>
+				) : (
+					<p className="pk-text-body m-0 text-ink" data-testid="link-too-late">
+						Open Portikus again from your course to link it.
+					</p>
+				)}
+				<p role="status" className="pk-text-compact m-0 text-ink-muted">
+					{start.isPending || start.isSuccess ? "Opening the SSO sign-in…" : ""}
+				</p>
+				{start.error ? (
+					<p className="pk-text-body m-0 text-status-error" role="alert">
+						{start.error.message}
+					</p>
+				) : null}
+			</div>
+		);
+	}
+
+	return (
+		<div className="grid gap-2" data-testid="link-sso">
+			{rows.length === 0 ? (
+				<p className="pk-text-compact m-0 text-ink-muted">
+					No course sign-ins are linked to this SSO account. To link one, open Portikus
+					from your course and choose Link to my SSO account in Settings.
+				</p>
+			) : (
+				<ul className="m-0 grid list-none gap-2 p-0">
+					{rows.map((row) => (
+						<li
+							key={row.courseUserId}
+							className="flex items-center justify-between gap-3"
+							data-testid={`link-row-${row.courseUserId}`}
+						>
+							<span className="pk-text-body text-ink">
+								{row.displayName}, {row.platformName}
+							</span>
+							<Button
+								variant="secondary"
+								aria-label={`Unlink ${row.displayName} from ${row.platformName}`}
+								loading={unlink.isPending && unlink.variables === row.courseUserId}
+								onClick={() => unlink.mutate(row.courseUserId)}
+							>
+								Unlink
+							</Button>
+						</li>
+					))}
+				</ul>
+			)}
+			<p role="status" className="pk-text-compact m-0 text-ink-muted">
+				{unlink.isSuccess
+					? "Unlinked. Your next launch from that course opens the course account."
+					: ""}
+			</p>
+			{unlink.error ? (
+				<p className="pk-text-body m-0 text-status-error" role="alert">
+					{unlink.error.message}
+				</p>
+			) : null}
+		</div>
 	);
 }
