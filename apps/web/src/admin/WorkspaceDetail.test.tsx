@@ -1,9 +1,14 @@
-import type { AdminWorkspaceDetail } from "@portikus/contracts";
+import type { AdminUser, AdminWorkspaceDetail } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER, WORKSPACE } from "../test-utils.js";
 import { quotaError } from "./QuotaDialog.js";
-import { capabilityNote, NOT_AVAILABLE_TEXT, quotaPending } from "./WorkspaceDetail.js";
+import {
+	capabilityNote,
+	NOT_AVAILABLE_TEXT,
+	quotaPending,
+	roleChangeNote,
+} from "./WorkspaceDetail.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -654,4 +659,173 @@ test("the grace field is named by its visible label (WCAG 2.5.3)", async () => {
 		name: "Grace period override (seconds)",
 	});
 	expect(field.hasAttribute("aria-label")).toBe(false);
+});
+
+// Promote and demote (docs/EPIC-13-1.md ruling 23).
+const GRANTED_ROW = {
+	...ALICE_ROW,
+	id: "44444444-4444-4444-8444-444444444444",
+	displayName: "Gina Granted",
+	email: "gina@example.invalid",
+	role: "administrator" as const,
+	providerRole: "student" as const,
+	grantedRole: "administrator" as const,
+	workspace: null,
+};
+const COURSE_ROW = {
+	...ALICE_ROW,
+	id: "55555555-5555-4555-8555-555555555555",
+	displayName: "Sam Course",
+	email: null,
+	issuer: "lti:https://canvas.example.edu",
+	workspace: null,
+};
+const ROLE_ROWS = [
+	{ ...ALICE_ROW, workspace: null },
+	ADMIN_ROW,
+	GRANTED_ROW,
+	COURSE_ROW,
+];
+
+/** Answers the list; a promote or demote answers 400 with `refusal` when given. */
+function stubRoles(refusal?: string) {
+	const writes: string[] = [];
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, ADMIN);
+		if (url === "/admin/users") return json(200, { users: ROLE_ROWS });
+		if (url === "/admin/settings") {
+			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+		}
+		if (init?.method === "POST") {
+			writes.push(url);
+			if (refusal) return json(400, { code: "VALIDATION_FAILED", message: refusal });
+			return json(200, ALICE_ROW);
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	return writes;
+}
+
+async function openRow(name: string) {
+	renderApp("/admin");
+	fireEvent.click(
+		await screen.findByRole("button", {
+			name: new RegExp(`^Show details for ${name}, `),
+		}),
+	);
+	return screen.findByRole("region", { name });
+}
+
+test("the account section shows the role, source, issuer and username (issue #302)", async () => {
+	stubRoles();
+	const panel = await openRow("Alice Example");
+	expect(within(panel).getByTestId("detail-role").textContent).toBe("Student");
+	expect(within(panel).getByTestId("detail-issuer").textContent).toBe(
+		"https://login.example.edu",
+	);
+	expect(within(panel).getByText("alice")).toBeDefined();
+});
+
+test("promote asks first, then calls the promote route", async () => {
+	const writes = stubRoles();
+	const panel = await openRow("Alice Example");
+	fireEvent.click(
+		within(panel).getByRole("button", {
+			name: "Promote Alice Example to administrator",
+		}),
+	);
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Make Alice Example an administrator?",
+	});
+	fireEvent.click(within(dialog).getByRole("button", { name: "Promote" }));
+	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	expect(writes).toEqual([`/admin/users/${USER.id}/promote`]);
+	expect(
+		await screen.findByText("Alice Example is now an administrator"),
+	).toBeDefined();
+});
+
+test("demote asks first, says where they go back to, then calls the demote route", async () => {
+	const writes = stubRoles();
+	const panel = await openRow("Gina Granted");
+	expect(within(panel).getByTestId("detail-role").textContent).toBe(
+		"Administrator (granted)",
+	);
+	fireEvent.click(within(panel).getByRole("button", { name: "Demote Gina Granted" }));
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Demote Gina Granted?",
+	});
+	expect(within(dialog).getByText(/They go back to Student/)).toBeDefined();
+	fireEvent.click(within(dialog).getByRole("button", { name: "Demote" }));
+	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	expect(writes).toEqual([`/admin/users/${GRANTED_ROW.id}/demote`]);
+});
+
+test.each([
+	[
+		"Sam Course",
+		"Promote Sam Course to administrator",
+		"Only SSO accounts can be administrators.",
+	],
+	["Carol Admin", "Demote Carol Admin", "You cannot demote your own account."],
+])("%s's button is off and says why", async (name, button, note) => {
+	const writes = stubRoles();
+	const panel = await openRow(name);
+	const action = within(panel).getByRole("button", { name: button });
+	expect(action.getAttribute("aria-disabled")).toBe("true");
+	expect(action.getAttribute("aria-describedby")).toBe(
+		within(panel).getByText(note).id,
+	);
+	fireEvent.click(action);
+	expect(screen.queryByRole("alertdialog")).toBeNull();
+	expect(writes).toEqual([]);
+});
+
+test("a provider administrator cannot be demoted, and the note says why", () => {
+	expect(roleChangeNote({ ...ADMIN_ROW, id: "someone-else" } as AdminUser, false)).toBe(
+		"This administrator comes from the SSO provider's groups.",
+	);
+	expect(roleChangeNote(GRANTED_ROW as AdminUser, false)).toBeNull();
+	expect(roleChangeNote(ALICE_ROW as AdminUser, false)).toBeNull();
+});
+
+test.each([
+	"Only SSO accounts can be administrators.",
+	"You cannot demote your own account.",
+	"This administrator comes from the SSO provider's groups.",
+	"This account is not an administrator.",
+	"At least one other enabled administrator must remain.",
+])("the dialog shows the server's refusal: %s", async (message) => {
+	stubRoles(message);
+	const panel = await openRow("Gina Granted");
+	fireEvent.click(within(panel).getByRole("button", { name: "Demote Gina Granted" }));
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Demote Gina Granted?",
+	});
+	fireEvent.click(within(dialog).getByRole("button", { name: "Demote" }));
+	expect((await within(dialog).findByRole("alert")).textContent).toBe(message);
+	// Reopening starts clean.
+	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	fireEvent.click(within(panel).getByRole("button", { name: "Demote Gina Granted" }));
+	const again = await screen.findByRole("alertdialog", {
+		name: "Demote Gina Granted?",
+	});
+	expect(within(again).queryByRole("alert")).toBeNull();
+});
+
+test("a refused promote shows the refusal in its dialog", async () => {
+	stubRoles("Only SSO accounts can be administrators.");
+	const panel = await openRow("Alice Example");
+	fireEvent.click(
+		within(panel).getByRole("button", {
+			name: "Promote Alice Example to administrator",
+		}),
+	);
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Make Alice Example an administrator?",
+	});
+	fireEvent.click(within(dialog).getByRole("button", { name: "Promote" }));
+	expect((await within(dialog).findByRole("alert")).textContent).toBe(
+		"Only SSO accounts can be administrators.",
+	);
 });
