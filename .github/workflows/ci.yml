@@ -306,6 +306,40 @@ jobs:
           ansible-playbook infra/tests/dex-render-test.yml
           -e dex_render_dest="$DEX_DIR/config.yaml"
           -e dex_web_dir="$DEX_DIR/out/web"
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The proto the API's client is built from must match the pinned Dex
+      # (docs/EPIC-14.md, risk 5).
+      - name: Check the Dex API proto matches the pinned commit
+        run: >-
+          curl -sfL "https://raw.githubusercontent.com/dexidp/dex/${{ steps.pin.outputs.commit }}/api/v2/api.proto"
+          | cmp - packages/auth/proto/dex-api.proto
+      # PostgreSQL storage and the gRPC API behind mutual TLS, as the dex role
+      # will run them (docs/EPIC-14.md rulings 19 and 20). "other" is a second
+      # authority, for a client Dex must refuse.
+      - name: Give Dex PostgreSQL storage and the gRPC API
+        env:
+          PGPASSWORD: portikus
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -c 'create database dex'
+          pnpm exec tsx -e '
+            import { writeDexGrpcCerts } from "./packages/auth/src/testing/fake-dex-grpc.ts";
+            writeDexGrpcCerts(process.env.DEX_DIR + "/grpc", "ci");
+            writeDexGrpcCerts(process.env.DEX_DIR + "/grpc", "other");
+          '
+          yq -i '
+            .storage = {"type": "postgres", "config": {"host": "127.0.0.1", "port": 5432,
+              "database": "dex", "user": "postgres", "password": "portikus", "ssl": {"mode": "disable"}}} |
+            .grpc = {"addr": "127.0.0.1:5557",
+              "tlsCert": strenv(DEX_DIR) + "/grpc/ci-server.crt",
+              "tlsKey": strenv(DEX_DIR) + "/grpc/ci-server.key",
+              "tlsClientCA": strenv(DEX_DIR) + "/grpc/ci-ca.crt"}
+          ' "$DEX_DIR/config.yaml"
       - name: Start Dex
         run: |
           set -euo pipefail
@@ -316,17 +350,20 @@ jobs:
           done
           cat "$DEX_DIR/dex.log"
           exit 1
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Sign in through Dex
-        run: pnpm exec vitest run packages/auth/src/dex.integration.test.ts
+      - name: Sign in through Dex, and manage Dex users through its gRPC API
+        run: >-
+          pnpm exec vitest run
+          packages/auth/src/dex.integration.test.ts
+          packages/auth/src/dex-api.integration.test.ts
         env:
           DEX_TEST_ISSUER: http://127.0.0.1:5556/dex
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
+          DEX_GRPC_ADDR: 127.0.0.1:5557
+          DEX_GRPC_CA: ${{ env.DEX_DIR }}/grpc/ci-ca.crt
+          DEX_GRPC_CERT: ${{ env.DEX_DIR }}/grpc/ci-client.crt
+          DEX_GRPC_KEY: ${{ env.DEX_DIR }}/grpc/ci-client.key
+          DEX_GRPC_OTHER_CERT: ${{ env.DEX_DIR }}/grpc/other-client.crt
+          DEX_GRPC_OTHER_KEY: ${{ env.DEX_DIR }}/grpc/other-client.key
       - name: Show the Dex log
         if: failure()
         run: cat "$DEX_DIR/dex.log" || true

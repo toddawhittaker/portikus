@@ -30,7 +30,8 @@ async function freePorts(count) {
 	return ports;
 }
 
-const [webPort, apiPort, oidcPort, agentPort, mockLmsPort] = await freePorts(5);
+const [webPort, apiPort, oidcPort, agentPort, mockLmsPort, dexGrpcPort] =
+	await freePorts(6);
 const created = await createRunDatabase(sharedUrl);
 const child = spawn("pnpm", ["exec", "playwright", "test", ...process.argv.slice(2)], {
 	stdio: "inherit",
@@ -45,6 +46,7 @@ const child = spawn("pnpm", ["exec", "playwright", "test", ...process.argv.slice
 		PORTIKUS_OIDC_PORT: String(oidcPort),
 		FAKE_AGENT_PORT: String(agentPort),
 		PORTIKUS_MOCK_LMS_PORT: String(mockLmsPort),
+		FAKE_DEX_GRPC_PORT: String(dexGrpcPort),
 	},
 });
 

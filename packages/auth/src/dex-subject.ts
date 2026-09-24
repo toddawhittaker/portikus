@@ -18,3 +18,20 @@ export function dexLocalSubject(userId: string): string {
 	]);
 	return bytes.toString("base64url");
 }
+
+/**
+ * The Dex user ID inside a local-password subject, or null when the subject
+ * is not one (another connector, or not Dex's encoding at all).
+ */
+export function dexLocalUserId(subject: string): string | null {
+	const bytes = Buffer.from(subject, "base64url");
+	if (bytes.toString("base64url") !== subject) return null;
+	if (bytes.length < 2 || bytes[0] !== 0x0a) return null;
+	const idLength = bytes[1] ?? 0;
+	const id = bytes.subarray(2, 2 + idLength);
+	const rest = bytes.subarray(2 + idLength);
+	if (id.length !== idLength || idLength === 0 || idLength >= 128) return null;
+	if (!rest.equals(Buffer.from([0x12, 5, ...Buffer.from("local", "utf8")])))
+		return null;
+	return id.toString("utf8");
+}

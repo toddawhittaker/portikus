@@ -36,8 +36,9 @@ const KNOWN_VULN: Record<string, string> = {};
 /**
  * Routes whose allowed callers still get this refusal in the matrix world,
  * because the route needs state the world has none of: a recent course
- * session, a pending or existing link, or a granted administrator. The gate
- * let them through; the route's own tests cover the success.
+ * session, a pending or existing link, a granted administrator or
+ * instructor, or Dex's gRPC API. The gate let them through; the route's own
+ * tests cover the success.
  */
 const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /me/links/start": 400,
@@ -46,6 +47,10 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /me/links/confirm": 404,
 	"POST /me/links/:courseUserId/unlink": 404,
 	"POST /admin/users/:id/demote": 400,
+	"POST /admin/users/:id/remove-instructor": 400,
+	"POST /admin/dex-users": 404,
+	"POST /admin/dex-users/:id/reset-password": 404,
+	"POST /admin/dex-users/:id/remove": 404,
 };
 
 // The smallest PNG: one transparent pixel.
@@ -136,6 +141,11 @@ const PAYLOADS: Record<string, object> = {
 	"PUT /me/profile": { github: null },
 	"PUT /admin/settings": { logLevel: null },
 	"PUT /admin/users/:id/settings": { shutdownGraceSeconds: null },
+	"POST /admin/dex-users": {
+		email: "new@example.edu",
+		username: "new",
+		role: "student",
+	},
 	"POST /workspaces/:id/terminals": { name: "another" },
 	"PATCH /workspaces/:id/terminals/:tid": { name: "renamed" },
 	"POST /workspaces/:id/projects": { name: "another", source: "new" },
@@ -171,9 +181,10 @@ function sampleFor(
 		.replace(":rpid", pointId)
 		.replace(":port", "5173")
 		.replace("*", "index.html");
-	url = pattern.startsWith("/admin/users/:id")
-		? url.replace(":id", world.a.userId)
-		: url.replace(":id", ids.workspaceId);
+	url =
+		pattern.startsWith("/admin/users/:id") || pattern.startsWith("/admin/dex-users/:id")
+			? url.replace(":id", world.a.userId)
+			: url.replace(":id", ids.workspaceId);
 
 	const sample: Sample = { url: `${url}${QUERIES[pattern] ?? ""}`, headers: {} };
 	if (pattern.startsWith("/__portikus/") || pattern === "/preview/authorize") {
