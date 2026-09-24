@@ -1,8 +1,15 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import * as http from "node:http";
+import * as https from "node:https";
 import type { AddressInfo } from "node:net";
+import * as net from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { createKeySetSource } from "./lti/validate.js";
 import { createOidcClient } from "./oidc.js";
+import { createOutboundFetch } from "./outbound-fetch.js";
 import {
 	MOCK_CLIENT_ID,
 	MOCK_CLIENT_SECRET,
@@ -130,5 +137,86 @@ describe("LTI keysets through the outbound proxy", () => {
 		const getKey = createKeySetSource(null)(`${ISSUER}/jwks`);
 		await expect(getKey(header, token)).rejects.toThrow();
 		expect(proxied).toEqual([]);
+	});
+});
+
+describe("HTTPS through the outbound proxy", () => {
+	let target: https.Server;
+	let tunnelProxy: http.Server;
+	let tunnelProxyUrl: string;
+	const tunnels: string[] = [];
+	let savedRejectUnauthorized: string | undefined;
+
+	beforeAll(async () => {
+		// A throwaway self-signed certificate for the local HTTPS server.
+		const dir = mkdtempSync(join(tmpdir(), "outbound-fetch-"));
+		execFileSync(
+			"openssl",
+			[
+				"req",
+				"-x509",
+				"-newkey",
+				"rsa:2048",
+				"-nodes",
+				"-days",
+				"1",
+				"-subj",
+				"/CN=localhost",
+				"-keyout",
+				join(dir, "key.pem"),
+				"-out",
+				join(dir, "cert.pem"),
+			],
+			{ stdio: "ignore" },
+		);
+		const key = readFileSync(join(dir, "key.pem"));
+		const cert = readFileSync(join(dir, "cert.pem"));
+		rmSync(dir, { recursive: true, force: true });
+		target = https.createServer({ key, cert }, (_req, res) => {
+			res.writeHead(200, { "content-type": "text/plain" }).end("secure hello");
+		});
+		await new Promise<void>((resolve) => target.listen(0, "127.0.0.1", resolve));
+		const targetPort = (target.address() as AddressInfo).port;
+
+		// A proxy that only tunnels: it answers CONNECT and pipes raw bytes.
+		tunnelProxy = http.createServer((_req, res) => res.writeHead(405).end());
+		tunnelProxy.on("connect", (req, socket, head) => {
+			tunnels.push(req.url ?? "");
+			const upstream = net.connect(targetPort, "127.0.0.1", () => {
+				socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+				upstream.write(head);
+				upstream.pipe(socket);
+				socket.pipe(upstream);
+			});
+			upstream.on("error", () => socket.destroy());
+			socket.on("error", () => upstream.destroy());
+		});
+		await new Promise<void>((resolve) => tunnelProxy.listen(0, "127.0.0.1", resolve));
+		tunnelProxyUrl = `http://127.0.0.1:${(tunnelProxy.address() as AddressInfo).port}`;
+		// The module takes no TLS options, so trust the self-signed test
+		// certificate the only way it can: for this block's duration.
+		savedRejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+		process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+	});
+
+	afterAll(async () => {
+		if (savedRejectUnauthorized === undefined) {
+			delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+		} else {
+			process.env.NODE_TLS_REJECT_UNAUTHORIZED = savedRejectUnauthorized;
+		}
+		tunnelProxy.closeAllConnections();
+		target.closeAllConnections();
+		await new Promise((resolve) => tunnelProxy.close(resolve));
+		await new Promise((resolve) => target.close(resolve));
+	});
+
+	test("an https request goes through a CONNECT tunnel and succeeds", async () => {
+		const outbound = createOutboundFetch(tunnelProxyUrl);
+		// The host does not resolve, so only the tunnel can reach the server.
+		const response = await outbound("https://idp.invalid/secure", {});
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("secure hello");
+		expect(tunnels).toEqual(["idp.invalid:443"]);
 	});
 });

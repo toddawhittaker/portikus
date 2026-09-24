@@ -18,6 +18,12 @@ const request = requireUndici("undici/lib/api/api-request.js") as (
 	this: Dispatcher,
 	options: Dispatcher.RequestOptions,
 ) => Promise<Dispatcher.ResponseData>;
+// ProxyAgent opens an https tunnel with Dispatcher.prototype.connect, which
+// only undici's package entry attaches; without it every https request fails.
+const DispatcherClass = requireUndici("undici/lib/dispatcher/dispatcher.js") as {
+	prototype: { connect?: unknown };
+};
+DispatcherClass.prototype.connect ??= requireUndici("undici/lib/api/api-connect.js");
 
 // Statuses whose Response must have no body.
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
