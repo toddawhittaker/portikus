@@ -2424,8 +2424,8 @@ Gaps:
   play on a VM whose Dex is empty imports it again, so a fresh rehearsal
   VM needs `PORTIKUS_USERS_FILE=/nonexistent` until Todd deletes the
   file.
-- Dex's passwords carry no display name, so the next sign-in may replace
-  a display name such as "Carol Admin" with the username. This was not
-  checked.
+- Dex's passwords carry no display name, and Dex sends the username as
+  the name. A sign-in whose name equals the stored username now keeps the
+  stored display name, such as "Carol Admin" (`upsertUser`).
 - The `pre-epic14` snapshots and the dump are kept. Remove them by hand
   after about a week, around 2026-10-01.

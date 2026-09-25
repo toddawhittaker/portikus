@@ -114,6 +114,21 @@ describe("users and sessions", () => {
 	);
 
 	test.skipIf(!hasTestDb())(
+		"a sign-in whose name is only the stored username keeps the stored display name",
+		async () => {
+			// A Dex password sign-in: name is the username, no preferred_username.
+			const user = await upsertUser(t.db, identity, "student");
+			const again = await upsertUser(
+				t.db,
+				{ ...identity, displayName: "alice", preferredUsername: null },
+				"student",
+			);
+			expect(again.id).toBe(user.id);
+			expect(again.displayName).toBe("Alice Student");
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
 		"a sign-in with a username replaces the stored one",
 		async () => {
 			const user = await upsertUser(
