@@ -1,5 +1,11 @@
+import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { guardDrafts, guardRequest, parseGuardValue } from "./GuardDialog.js";
+import {
+	GuardDialog,
+	guardDrafts,
+	guardRequest,
+	parseGuardValue,
+} from "./GuardDialog.js";
 
 test("each guard value keeps to the ranges the platform allows", () => {
 	expect(parseGuardValue("cpuThresholdPercent", "1")).toBe(1);
@@ -32,4 +38,29 @@ test("a blank field removes the override and a bad one names its range", () => {
 	expect(guardRequest({ ...drafts, throttleSharePercent: "2" })).toEqual({
 		errors: { throttleSharePercent: "Enter a whole number from 5 to 100." },
 	});
+});
+
+test("each field names its platform value in a hint tied to the field", () => {
+	render(
+		<GuardDialog
+			open
+			onOpenChange={() => {}}
+			current={null}
+			defaults={{
+				cpuThresholdPercent: 80,
+				memoryThresholdPercent: 90,
+				windowMinutes: 30,
+				throttleSharePercent: 25,
+				idleStopMinutes: 60,
+			}}
+			ownerName="Ada"
+			pending={false}
+			serverError={null}
+			onSave={() => {}}
+		/>,
+	);
+	const field = screen.getByTestId("guard-windowMinutes");
+	expect(field.getAttribute("placeholder")).toBeNull();
+	const hint = document.getElementById(field.getAttribute("aria-describedby") ?? "");
+	expect(hint?.textContent).toBe("Platform value: 30");
 });

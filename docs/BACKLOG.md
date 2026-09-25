@@ -1287,3 +1287,26 @@ explicitly, with its own audit trail. Needs a security review, since it
 removes one of the two proofs of control ordinary linking requires.
 
 **Source.** Left out of Epic 13.1.
+
+## "Still working?" under an open dialog
+
+**What.** Make the idle notice reachable when it appears while a dialog is
+open. Today the dialog marks the rest of the page hidden from screen
+readers, and its focus trap pulls focus back from Keep working.
+
+**What it would take.** Raise the notice as its own alert dialog, or
+render it inside the open dialog's layer, so it is announced and can take
+focus. About a day with tests.
+
+**Source.** Accessibility review of Epic 14.3 (issue #554).
+
+## A larger unread badge
+
+**What.** The unread badge on the account button uses 10px text and an
+18px target that overlaps the account button (SPEC.md section 25.8).
+
+**What it would take.** A 24px target that sits beside the account button
+rather than over it, with at least 12px text, and a design check against
+design/. Half a day with the header tests.
+
+**Source.** Accessibility review of Epic 14.3 (issue #475).

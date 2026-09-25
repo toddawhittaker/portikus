@@ -162,7 +162,7 @@ export function GuardDialog({
 								label={field.label}
 								inputMode="numeric"
 								data-testid={`guard-${field.key}`}
-								placeholder={defaults ? `Platform: ${defaults[field.key]}` : undefined}
+								hint={defaults ? `Platform value: ${defaults[field.key]}` : undefined}
 								// Only the first problem is announced, so a reader hears one alert.
 								error={field.key === firstError ? announced(error) : error}
 								value={drafts[field.key]}

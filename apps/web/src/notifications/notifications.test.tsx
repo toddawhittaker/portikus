@@ -80,7 +80,7 @@ test("mark read, mark all as read, and clear call their routes", async () => {
 	});
 	renderWithQuery(<NotificationsDialog onClose={() => {}} />);
 
-	fireEvent.click(await screen.findByRole("button", { name: 'Mark "One" as read' }));
+	fireEvent.click(await screen.findByRole("button", { name: 'Mark read: "One"' }));
 	await waitFor(() =>
 		expect(fetchMock).toHaveBeenCalledWith(
 			`/me/notifications/${first.id}`,
@@ -104,6 +104,37 @@ test("mark read, mark all as read, and clear call their routes", async () => {
 			expect.objectContaining({ method: "DELETE" }),
 		),
 	);
+});
+
+test("after Mark read, focus moves to the next Mark read, then to Mark all as read", async () => {
+	const items = [note({ title: "One" }), note({ title: "Two" })];
+	stubFetch((url, init) => {
+		const method = init?.method ?? "GET";
+		if (method === "PATCH") {
+			const id = String(url).split("/").pop();
+			const item = items.find((entry) => entry.id === id);
+			if (item) item.readAt = new Date().toISOString();
+			return json(200, item);
+		}
+		return json(200, {
+			notifications: items.map((item) => ({ ...item })),
+			unreadCount: items.filter((item) => item.readAt === null).length,
+		});
+	});
+	renderWithQuery(<NotificationsDialog onClose={() => {}} />);
+
+	fireEvent.click(await screen.findByRole("button", { name: 'Mark read: "One"' }));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			screen.getByRole("button", { name: 'Mark read: "Two"' }),
+		),
+	);
+	fireEvent.click(screen.getByRole("button", { name: 'Mark read: "Two"' }));
+	const readAll = screen.getByTestId("notifications-read-all");
+	await waitFor(() => expect(document.activeElement).toBe(readAll));
+	// Still focusable, and says it has nothing to do.
+	expect(readAll.getAttribute("aria-disabled")).toBe("true");
+	expect(readAll.hasAttribute("disabled")).toBe(false);
 });
 
 test("an empty history says so", async () => {

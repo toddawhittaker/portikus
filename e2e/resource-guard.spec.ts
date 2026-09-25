@@ -106,6 +106,10 @@ test("a throttle shows the student notice and the admin tag; Lift throttle clear
 	await expect(notice).toContainText(
 		"It kept its CPUs more than 80% busy for 30 minutes, so it now gets 25% of its usual CPU.",
 	);
+	// The words reach a screen reader through the always-mounted status region.
+	await expect(studentPage.getByTestId("throttle-announce")).toContainText(
+		"Your workspace has been slowed down.",
+	);
 
 	await openAdmin(page);
 	await page.getByTestId("admin-filter-text").fill(name);

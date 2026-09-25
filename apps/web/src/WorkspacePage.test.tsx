@@ -86,8 +86,9 @@ test("a throttle shows the notice; dismissing it lasts until a new throttle", as
 
 test("Still working? sends activity, and an unanswered stop says why", async () => {
 	const { socket, push } = await openShell();
-	const stopAt = new Date(Date.now() + 5 * 60_000).toISOString();
-	const lastActivityAt = new Date(Date.now() - 60 * 60_000).toISOString();
+	// Nearly at the deadline, so the stop that follows is the idle stop.
+	const stopAt = new Date(Date.now() + 30_000).toISOString();
+	const lastActivityAt = new Date(Date.now() + 30_000 - 65 * 60_000).toISOString();
 	push({ idleStopAt: stopAt, lastActivityAt });
 
 	const button = await screen.findByRole("button", { name: "Keep working" });

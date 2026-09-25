@@ -19,7 +19,7 @@ import { IdleNotice, idleMinutes, useIdleStopReason } from "./shell/IdleNotice.j
 import { type RightPane, RightPaneContext } from "./shell/rightPane.js";
 import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
 import { StatusBar } from "./shell/StatusBar.js";
-import { ThrottleNotice } from "./shell/ThrottleNotice.js";
+import { ThrottleNotice, throttleAnnouncement } from "./shell/ThrottleNotice.js";
 import { type MeUser, useMe } from "./useMe.js";
 import { useWorkspaceSocket } from "./useWorkspaceSocket.js";
 import { WorkspaceStarting } from "./WorkspaceStarting.js";
@@ -127,6 +127,16 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 									// Takes focus when a notice holding it is dismissed.
 									tabIndex={-1}
 								>
+									{/* Always mounted, so a new throttle is announced (SPEC.md §25.8). */}
+									<span
+										role="status"
+										className="sr-only"
+										data-testid="throttle-announce"
+									>
+										{workspace?.cpuThrottle
+											? throttleAnnouncement(workspace.cpuThrottle)
+											: ""}
+									</span>
 									{workspace?.cpuThrottle &&
 										workspace.cpuThrottle.at !== dismissedThrottleAt && (
 											<ThrottleNotice
@@ -142,6 +152,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 											deadline={workspace.idleStopAt}
 											minutes={idleMinutes(workspace)}
 											onKeepWorking={sendActivity}
+											fallbackFocus={workRef}
 										/>
 									)}
 									{workspace?.shutdownDeadline && (

@@ -1,6 +1,6 @@
 import type { Workspace } from "@portikus/contracts";
 import { Button, Icon } from "@portikus/ui";
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { useCountdown } from "./useCountdown.js";
 
 /** The fixed wait between "Still working?" and the stop (ADR 0032). */
@@ -27,29 +27,48 @@ function minutesText(minutes: number): string {
 /**
  * "Still working?" while idle stop is counting down (ADR 0032). Keep working
  * takes focus when the notice appears; any other key press or click in the
- * page answers it too.
+ * page answers it too. When it goes, focus returns to where it was, or to
+ * `fallbackFocus` when that element is gone.
  */
 export function IdleNotice({
 	deadline,
 	minutes,
 	onKeepWorking,
+	fallbackFocus,
 }: {
 	deadline: string;
 	minutes: number | null;
 	onKeepWorking: () => void;
+	fallbackFocus?: RefObject<HTMLElement | null>;
 }) {
 	const countdown = useCountdown(deadline);
 	const button = useRef<HTMLButtonElement>(null);
+	const notice = useRef<HTMLDivElement>(null);
 	const shown = countdown !== null;
 
 	useEffect(() => {
-		if (shown) button.current?.focus();
-	}, [shown]);
+		if (!shown) return;
+		const before = document.activeElement;
+		const container = notice.current;
+		button.current?.focus();
+		return () => {
+			const active = document.activeElement;
+			const stranded =
+				!active || active === document.body || container?.contains(active) === true;
+			if (!stranded) return;
+			const target =
+				before instanceof HTMLElement && before !== document.body && before.isConnected
+					? before
+					: fallbackFocus?.current;
+			target?.focus({ preventScroll: true });
+		};
+	}, [shown, fallbackFocus]);
 
 	if (!countdown) return null;
 
 	return (
 		<div
+			ref={notice}
 			className="pk-notice pk-notice--warning"
 			role="status"
 			aria-live="polite"
@@ -87,32 +106,43 @@ export function IdleNotice({
 	);
 }
 
+// Allows for the worker's polling and a little clock skew.
+const DEADLINE_SLACK_MS = 60_000;
+
 /**
- * Remembers, for the page's life, that the workspace was stopped while
- * "Still working?" was showing, so the stopped screen can say why. Returns
- * the idle minutes (null when unknown) once it has stopped, else undefined.
+ * Remembers, for the page's life, that idle stop stopped the workspace, so
+ * the stopped screen can say why. The view does not say who stopped it, so a
+ * stop that begins well before the idle deadline (the student's own Stop, or
+ * the disconnect grace period) is not called an idle stop. Returns the idle
+ * minutes (null when unknown) once it has stopped, else undefined.
  */
 export function useIdleStopReason(
 	workspace: Workspace | null,
 ): { minutes: number | null } | undefined {
-	const asked = useRef<{ minutes: number | null } | null>(null);
+	const asked = useRef<{ minutes: number | null; deadline: number } | null>(null);
+	// The cause is judged once, when the stop is first seen.
+	const decided = useRef(false);
 	const [reason, setReason] = useState<{ minutes: number | null } | undefined>();
 
 	useEffect(() => {
 		if (!workspace) return;
 		if (workspace.idleStopAt) {
-			asked.current = { minutes: idleMinutes(workspace) };
+			asked.current = {
+				minutes: idleMinutes(workspace),
+				deadline: Date.parse(workspace.idleStopAt),
+			};
 		} else if (workspace.state === "running" && workspace.desiredState === "running") {
 			// Answered, or started again.
 			asked.current = null;
+			decided.current = false;
 			setReason(undefined);
 			return;
 		}
-		if (
-			asked.current &&
-			(workspace.state === "stopping" || workspace.state === "stopped")
-		) {
-			setReason(asked.current);
+		if (workspace.state !== "stopping" && workspace.state !== "stopped") return;
+		if (decided.current || !asked.current) return;
+		decided.current = true;
+		if (Date.now() >= asked.current.deadline - DEADLINE_SLACK_MS) {
+			setReason({ minutes: asked.current.minutes });
 		}
 	}, [workspace]);
 

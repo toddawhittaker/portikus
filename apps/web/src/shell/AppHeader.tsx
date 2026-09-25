@@ -52,6 +52,7 @@ export function AppHeader({
 	const badge = badgeText(unread);
 	const unreadLabel = `${unread} unread notification${unread === 1 ? "" : "s"}`;
 	const signOutForm = useRef<HTMLFormElement>(null);
+	const accountButton = useRef<HTMLButtonElement>(null);
 	const picture = useProfile().data?.picture ?? null;
 	const hasCourse = (useCourses().data?.length ?? 0) > 0;
 	const open = useOpenWorkspace();
@@ -129,7 +130,12 @@ export function AppHeader({
 			<span className="pk-account-wrap">
 				<MenuRoot>
 					<MenuTrigger asChild>
-						<button type="button" className="pk-account" data-testid="me">
+						<button
+							type="button"
+							className="pk-account"
+							data-testid="me"
+							ref={accountButton}
+						>
 							{picture ? (
 								<img
 									className="pk-initials object-cover"
@@ -206,7 +212,12 @@ export function AppHeader({
 						className="pk-account-badge"
 						data-testid="notifications-badge"
 						aria-label={`Notifications, ${unreadLabel}`}
-						onClick={() => setNotificationsOpen(true)}
+						onClick={() => {
+							// The badge goes once all is read, so the dialog returns focus
+							// to the account button, which always stays.
+							accountButton.current?.focus();
+							setNotificationsOpen(true);
+						}}
 					>
 						{badge}
 					</button>
