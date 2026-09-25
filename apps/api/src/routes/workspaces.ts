@@ -1,9 +1,10 @@
-import { requireUser } from "@portikus/auth";
+import { isCourseIssuer, requireUser } from "@portikus/auth";
 import {
 	type ApiError,
 	CreateWorkspaceRequest,
 	type DesiredState,
 	deriveWorkspaceLabel,
+	MAX_WORKSPACE_LABEL_LENGTH,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -68,16 +69,23 @@ export function registerWorkspaceRoutes(
 		// (SPEC.md Epic 8; BROWSER-HANDLING.md section 8).
 		const owner = await db
 			.selectFrom("users")
-			.select("preferred_username")
+			.select(["preferred_username", "oidc_issuer", "oidc_subject"])
 			.where("id", "=", ownerUserId)
 			.executeTakeFirst();
-		const baseLabel = deriveWorkspaceLabel(
-			owner?.preferred_username ?? null,
-			randomHex8(),
-		);
+		const hex = randomHex8();
+		const hexLabel = `ws-${hex}`;
+		// A course (LTI) account falls back to its LTI user ID, never random hex (SPEC.md, Epic 8).
+		const subLabel =
+			owner && isCourseIssuer(owner.oidc_issuer)
+				? deriveWorkspaceLabel(owner.oidc_subject, hex)
+				: hexLabel;
+		const username = deriveWorkspaceLabel(owner?.preferred_username ?? null, hex);
+		const baseLabel = username === hexLabel ? subLabel : username;
+		// Used once the suffixes run out, so a crowded label never fails creation.
+		const lastResort = [subLabel, hexLabel].filter((label) => label !== baseLabel);
 
 		try {
-			await insertWithLabel(db, baseLabel, {
+			await insertWithLabel(db, baseLabel, lastResort, {
 				id,
 				owner_user_id: ownerUserId,
 				incus_instance_name: incusInstanceName,
@@ -216,17 +224,33 @@ const MAX_LABEL_ATTEMPTS = 20;
 /** Postgres names the unique index over `workspaces.label`. */
 const LABEL_INDEX = "idx_workspaces_label";
 
+/** `base` with `-<attempt>` appended, shortened so the whole stays within the label cap. */
+function suffixedLabel(base: string, attempt: number): string {
+	if (attempt === 1) return base;
+	const suffix = `-${attempt}`;
+	const head = base
+		.slice(0, MAX_WORKSPACE_LABEL_LENGTH - suffix.length)
+		.replace(/-+$/g, "");
+	return `${head}${suffix}`;
+}
+
 /**
  * Insert the workspace, appending `-2`, `-3`, ... when two students derive
- * the same label from their usernames (SPEC.md Epic 8).
+ * the same label (SPEC.md Epic 8). When those run out, each `lastResort`
+ * label is tried once.
  */
 async function insertWithLabel(
 	db: ServerDeps["db"],
 	baseLabel: string,
+	lastResort: string[],
 	values: Omit<Insertable<Database["workspaces"]>, "label">,
 ): Promise<void> {
+	const labels = [];
 	for (let attempt = 1; attempt <= MAX_LABEL_ATTEMPTS; attempt++) {
-		const label = attempt === 1 ? baseLabel : `${baseLabel}-${attempt}`;
+		labels.push(suffixedLabel(baseLabel, attempt));
+	}
+	labels.push(...lastResort);
+	for (const label of labels) {
 		try {
 			await db
 				.insertInto("workspaces")

@@ -395,7 +395,7 @@ export function registerLtiRoutes(
 				subject: launch.subject,
 				email: launch.email,
 				displayName: launch.displayName,
-				preferredUsername: null,
+				preferredUsername: launch.username,
 			},
 			role: launch.role,
 			method: "lti",
