@@ -12,12 +12,13 @@
 #   2. destroy the rehearsal VM and recreate it with OpenTofu and cloud-init;
 #   3. converge it with Ansible, Dex included;
 #   4. build and import the workspace image;
-#   5. restore the backup set, and start one restored workspace to check it;
-#   6. when the set was taken before the Dex cutover, carry its accounts
-#      over to Dex (the dry run, then configure-vm);
-#   7. run the full smoke test, with the restored-data checks, the lifecycle
+#   5. restore the backup set, Dex's accounts included, and start one
+#      restored workspace to check it;
+#   6. run the full smoke test, with the restored-data checks, the lifecycle
 #      block and a full Dex sign-in;
-#   8. reinstall the previous package and check /health and a sign-in.
+#   7. reinstall the previous package and check /health and a sign-in.
+# The set must hold dex.dump (Epic 14 T5 onwards). The retired users file is
+# never imported here: the accounts it creates make restore.sh refuse the VM.
 # The VM is destroyed at the end whatever happens, because it holds restored
 # student data.
 #
@@ -25,21 +26,20 @@
 #   PREVIOUS_VERSION or PREVIOUS_DEB  the release, or the local package file,
 #                               to roll back to; it must support the
 #                               configured sign-in provider
-#   PORTIKUS_USERS_FILE         the rehearsal Dex users file
 #   PORTIKUS_SMOKE_SIGNIN_FILE  email and password (two lines, mode 0600) of
-#                               a user in that file
+#                               a Dex user in the set
 #   PORTIKUS_BACKUP_IDENTITY    the age key that opens the set
 #   PORTIKUS_PUBLIC_HOST, PORTIKUS_PUBLIC_PORT  as for the pilot
 set -euo pipefail
 
 # Nested makes see only what the M array passes: a VM_IP or PORTIKUS_DEB from
 # the caller's command line or environment could aim a step at the pilot.
-unset MAKEFLAGS MFLAGS VM_IP PORTIKUS_DEB
+# A PORTIKUS_USERS_FILE would be imported into the empty Dex before the restore.
+unset MAKEFLAGS MFLAGS VM_IP PORTIKUS_DEB PORTIKUS_USERS_FILE
 
 SET="${1:?Usage: rebuild-exercise.sh <backup set dir>}"
 SET=$(cd "$SET" && pwd)
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-: "${PORTIKUS_USERS_FILE:?PORTIKUS_USERS_FILE is required}"
 : "${PORTIKUS_SMOKE_SIGNIN_FILE:?PORTIKUS_SMOKE_SIGNIN_FILE is required}"
 : "${PORTIKUS_PUBLIC_HOST:?PORTIKUS_PUBLIC_HOST is required}"
 : "${PORTIKUS_PUBLIC_PORT:?PORTIKUS_PUBLIC_PORT is required}"
@@ -57,6 +57,8 @@ else
   exit 2
 fi
 [ -f "${SET}/MANIFEST.age" ] || { echo "rebuild-exercise: ${SET} is not a backup set" >&2; exit 2; }
+[ -f "${SET}/dex.dump.age" ] \
+  || { echo "rebuild-exercise: ${SET} has no dex.dump, so its accounts could not sign in; use a set taken since Epic 14" >&2; exit 2; }
 signin_email=$(sed -n 1p "$PORTIKUS_SMOKE_SIGNIN_FILE")
 [[ "$signin_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]] \
   || { echo "rebuild-exercise: the first line of ${PORTIKUS_SMOKE_SIGNIN_FILE} is not an email address" >&2; exit 2; }
@@ -64,8 +66,7 @@ signin_email=$(sed -n 1p "$PORTIKUS_SMOKE_SIGNIN_FILE")
 AUTHORITY="${PORTIKUS_PUBLIC_HOST}:${PORTIKUS_PUBLIC_PORT}"
 REHEARSAL_NAME=portikus-rehearsal
 LOGS=$(mktemp -d "${TMPDIR:-/tmp}/portikus-rebuild-exercise.XXXXXX")
-M=(make -C "$ROOT" --no-print-directory TOFU_ENV=rehearsal-libvirt
-  "PORTIKUS_USERS_FILE=${PORTIKUS_USERS_FILE}" PORTIKUS_IDP=dex
+M=(make -C "$ROOT" --no-print-directory TOFU_ENV=rehearsal-libvirt PORTIKUS_IDP=dex
   "PORTIKUS_PUBLIC_HOST=${PORTIKUS_PUBLIC_HOST}" "PORTIKUS_PUBLIC_PORT=${PORTIKUS_PUBLIC_PORT}")
 
 names=() seconds=() results=()
@@ -121,7 +122,6 @@ create_vm() { echo yes | "${M[@]}" rehearsal-up; }
 
 vm_ip() { "${M[@]}" -s rehearsal-address; }
 vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 "deploy@$(vm_ip)" "$@"; }
-psql_vm() { vm "sudo -u postgres psql -q -t -A -d portikus -c \"$1\""; }
 
 # A rebuilt VM has a new host key, and may get an address used before.
 forget_old_key() {
@@ -140,18 +140,6 @@ build_package() {
 }
 
 new_deb() { echo "${ROOT}/dist/deb/portikus_$(cat "${ROOT}/dist/deb/VERSION")_amd64.deb"; }
-
-carry_over_if_needed() {
-  local mock_rows
-  mock_rows=$(psql_vm "SELECT count(*) FROM users WHERE oidc_issuer LIKE '%/mock-idp'") || return
-  if [ "$mock_rows" = 0 ]; then
-    echo "The set was taken after the Dex cutover; no carry-over is needed."
-    return 0
-  fi
-  echo "${mock_rows} accounts are under the mock provider; carrying them over."
-  "${M[@]}" identity-carry-over-dry-run || return
-  "${M[@]}" configure-vm "PORTIKUS_DEB=$(new_deb)"
-}
 
 smoke() {
   PORTIKUS_SMOKE_RESTORED_SET="$SET" "${M[@]}" smoke-test \
@@ -192,6 +180,5 @@ step "check the new VM is ${REHEARSAL_NAME}" forget_old_key
 step "converge with Ansible (configure-vm)" "${M[@]}" configure-vm "PORTIKUS_DEB=$(new_deb)"
 step "build the workspace image" "${M[@]}" build-workspace-image
 step "restore the set and start one workspace" "${M[@]}" restore "BACKUP=${SET}" START_CHECK=1
-step "carry accounts over to Dex if needed" carry_over_if_needed
 step "smoke test with the restored-data checks" smoke
 step "roll back to ${previous_label}, /health and sign-in" rollback

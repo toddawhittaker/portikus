@@ -292,7 +292,8 @@ step "${checked} sampled files match the backup's checksums"
 if [ "$start_check" = yes ]; then
   # The workspace whose home has the most Git repositories shows the most.
   home=$(for vol in "${volumes[@]}"; do
-    [[ "$vol" == *-home ]] && echo "$(grep -c '"git"' "${scratch}/${vol}.index" || true) ${vol}"
+    # An if, not &&: a last volume that is not a home would fail the loop under pipefail.
+    if [[ "$vol" == *-home ]]; then echo "$(grep -c '"git"' "${scratch}/${vol}.index" || true) ${vol}"; fi
   done | sort -rn | awk 'NR == 1 { print $2 }')
   [ -n "$home" ] || die "no home volume to start"
   instance=${home%-home}
