@@ -10,6 +10,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { recordActivity } from "../activity.js";
 import { AgentCallError } from "../agent-client.js";
 import {
 	createPreviewDeniedAudit,
@@ -666,6 +667,12 @@ export function registerPreviewRoutes(
 				);
 				return page(reply, 503, inactiveServicePage(port));
 			}
+		}
+
+		// Opening a page is the owner's activity; assets, fetches and a dev
+		// server's reload socket are not (ADR 0032).
+		if (headers["sec-fetch-dest"] === "document") {
+			await recordActivity(db, workspace.id);
 		}
 
 		// The upstream comes from the workspace row and a port the registry

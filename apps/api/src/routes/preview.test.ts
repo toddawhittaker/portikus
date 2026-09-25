@@ -1562,3 +1562,77 @@ test.skipIf(skip)("a bridge forward closes when the preview session ends", async
 	expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([]);
 	expect((await bridge(token, "/__portikus/ports/3000/api")).statusCode).toBe(401);
 });
+
+// ── Activity for idle stop (ADR 0032) ──
+
+async function activityRow(): Promise<{
+	last_activity_at: Date | null;
+	idle_stop_at: Date | null;
+}> {
+	return testDb.db
+		.selectFrom("workspaces")
+		.select(["last_activity_at", "idle_stop_at"])
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+}
+
+async function pendingIdleStop(): Promise<void> {
+	await testDb.db
+		.updateTable("workspaces")
+		.set({
+			last_activity_at: null,
+			idle_stop_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+		})
+		.where("id", "=", workspaceId)
+		.execute();
+}
+
+test.skipIf(skip)(
+	"assets, fetches and sockets in a preview are not activity",
+	async () => {
+		const token = await openPreview(5173);
+		await pendingIdleStop();
+		for (const dest of ["script", "style", "image", "empty", "iframe", undefined]) {
+			const extra: Record<string, string> = dest ? { "sec-fetch-dest": dest } : {};
+			const response = await authorize(token, previewHostFor(5173), { extra });
+			expect(response.statusCode).toBe(200);
+		}
+		const row = await activityRow();
+		expect(row.last_activity_at).toBeNull();
+		expect(row.idle_stop_at).not.toBeNull();
+	},
+);
+
+test.skipIf(skip)("a refused page load is not activity", async () => {
+	const token = await openPreview(5173);
+	await pendingIdleStop();
+	const response = await authorize(token, previewHostFor(3000), {
+		extra: { "sec-fetch-dest": "document" },
+	});
+	expect(response.statusCode).toBe(403);
+	expect((await activityRow()).last_activity_at).toBeNull();
+});
+
+test.skipIf(skip)(
+	"a page load in a preview is activity, at most once a minute",
+	async () => {
+		const token = await openPreview(5173);
+		await pendingIdleStop();
+		const load = () =>
+			authorize(token, previewHostFor(5173), {
+				extra: { "sec-fetch-dest": "document" },
+			});
+
+		expect((await load()).statusCode).toBe(200);
+		let row = await activityRow();
+		expect(row.last_activity_at).not.toBeNull();
+		expect(row.idle_stop_at).toBeNull();
+
+		// A second load inside the minute writes nothing.
+		await pendingIdleStop();
+		expect((await load()).statusCode).toBe(200);
+		row = await activityRow();
+		expect(row.last_activity_at).toBeNull();
+		expect(row.idle_stop_at).not.toBeNull();
+	},
+);

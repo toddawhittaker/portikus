@@ -12,7 +12,7 @@ import { MAX_EDITOR_FILE_BYTES, MAX_UPLOAD_BYTES } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
@@ -814,5 +814,129 @@ test.skipIf(skip)(
 		expect(removed.status).toBe(204);
 		expect(agent.files.has("lab2/docs/notes.md")).toBe(false);
 		expect(agent.files.has("lab3/docs/notes.md")).toBe(true);
+	},
+);
+
+// --- Activity for idle stop (ADR 0032) ---
+
+async function activityRow(): Promise<{
+	last_activity_at: Date | null;
+	idle_stop_at: Date | null;
+}> {
+	return testDb.db
+		.selectFrom("workspaces")
+		.select(["last_activity_at", "idle_stop_at"])
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+}
+
+async function pendingIdleStop(): Promise<void> {
+	await testDb.db
+		.updateTable("workspaces")
+		.set({
+			last_activity_at: null,
+			idle_stop_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+		})
+		.where("id", "=", workspaceId)
+		.execute();
+}
+
+test.skipIf(skip)("every file write by the owner is activity", async () => {
+	seed("lab", "old.md", "text\n");
+	// Only Date is faked, so each write can be a minute after the last.
+	vi.useFakeTimers({ toFake: ["Date"], now: Date.now() });
+	try {
+		const writes = [
+			() =>
+				app.inject({
+					method: "PUT",
+					url: url("file", "?path=new.md"),
+					headers: {
+						...csrfHeaders(alice, PUBLIC_URL),
+						"if-none-match": "*",
+						"content-type": "text/plain",
+					},
+					payload: "hello\n",
+				}),
+			() =>
+				app.inject({
+					method: "POST",
+					url: url("mkdir"),
+					headers: csrfHeaders(alice, PUBLIC_URL),
+					payload: { path: "docs" },
+				}),
+			() =>
+				app.inject({
+					method: "POST",
+					url: url("move"),
+					headers: csrfHeaders(alice, PUBLIC_URL),
+					payload: { from: "old.md", to: "docs/old.md" },
+				}),
+			() =>
+				app.inject({
+					method: "DELETE",
+					url: url("file", "?path=new.md"),
+					headers: csrfHeaders(alice, PUBLIC_URL),
+				}),
+		];
+		for (const write of writes) {
+			vi.setSystemTime(Date.now() + 61_000);
+			await pendingIdleStop();
+			const res = await write();
+			expect(res.statusCode).toBeLessThan(300);
+			const row = await activityRow();
+			expect(row.last_activity_at?.getTime()).toBe(Date.now());
+			expect(row.idle_stop_at).toBeNull();
+		}
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test.skipIf(skip)("a second write inside the minute writes no activity", async () => {
+	const save = () =>
+		app.inject({
+			method: "POST",
+			url: url("mkdir"),
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { path: `d${crypto.randomUUID()}` },
+		});
+	await save();
+	expect((await activityRow()).last_activity_at).not.toBeNull();
+	await pendingIdleStop();
+	await save();
+	const row = await activityRow();
+	expect(row.last_activity_at).toBeNull();
+	expect(row.idle_stop_at).not.toBeNull();
+});
+
+test.skipIf(skip)("reading files is not activity", async () => {
+	seed("lab", "notes.md", "hi\n");
+	await pendingIdleStop();
+	expect((await get(alice, "file", "?path=notes.md")).statusCode).toBe(200);
+	expect((await get(alice, "tree", "?path=")).statusCode).toBe(200);
+	const row = await activityRow();
+	expect(row.last_activity_at).toBeNull();
+	expect(row.idle_stop_at).not.toBeNull();
+});
+
+test.skipIf(skip)(
+	"an administrator's file request is not the student's activity",
+	async () => {
+		seed("lab", "notes.md", "hi\n");
+		await pendingIdleStop();
+		const carol = new CookieJar();
+		await loginAs(app, "carol", carol);
+		expect((await get(carol, "file", "?path=notes.md")).statusCode).toBe(404);
+		const write = await app.inject({
+			method: "POST",
+			url: url("mkdir"),
+			headers: csrfHeaders(carol, PUBLIC_URL),
+			payload: { path: "docs" },
+		});
+		expect(write.statusCode).toBe(404);
+		const row = await activityRow();
+		expect(row.last_activity_at).toBeNull();
+		expect(row.idle_stop_at).not.toBeNull();
 	},
 );

@@ -1114,3 +1114,200 @@ test.skipIf(skip)("a student cannot make anyone an instructor", async () => {
 	const res = await adminPost(alice, `/admin/users/${aliceId}/make-instructor`);
 	expect(res.statusCode).toBe(403);
 });
+
+// --- Resource guard and acceptable-use settings (SPEC.md §24.11) ---
+
+test.skipIf(skip)(
+	"the guard settings are saved, audited together, and read back",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+
+		const put = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: {
+				cpuGuardThresholdPercent: 70,
+				memoryGuardThresholdPercent: 95,
+				guardWindowMinutes: 15,
+				cpuThrottleSharePercent: 50,
+				idleStopMinutes: 0,
+			},
+		});
+		expect(put.statusCode).toBe(200);
+		expect(put.json()).toMatchObject({
+			cpuGuardThresholdPercent: 70,
+			memoryGuardThresholdPercent: 95,
+			guardWindowMinutes: 15,
+			cpuThrottleSharePercent: 50,
+			idleStopMinutes: 0,
+			shutdownGraceSeconds: 600,
+		});
+
+		const after = await app.inject({
+			method: "GET",
+			url: "/admin/settings",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		expect(after.json()).toMatchObject({
+			cpuGuardThresholdPercent: 70,
+			idleStopMinutes: 0,
+		});
+
+		const guard = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "settings.resource_guard_updated")
+			.execute();
+		expect(guard).toHaveLength(1);
+		expect(guard[0]?.metadata).toMatchObject({
+			from: {
+				cpuGuardThresholdPercent: 80,
+				memoryGuardThresholdPercent: 90,
+				guardWindowMinutes: 30,
+				cpuThrottleSharePercent: 25,
+			},
+			to: {
+				cpuGuardThresholdPercent: 70,
+				memoryGuardThresholdPercent: 95,
+				guardWindowMinutes: 15,
+				cpuThrottleSharePercent: 50,
+			},
+		});
+		const idle = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "settings.idle_stop_updated")
+			.execute();
+		expect(idle).toHaveLength(1);
+		expect(idle[0]?.metadata).toMatchObject({ from: 60, to: 0 });
+	},
+);
+
+test.skipIf(skip)(
+	"the guard audit row names only the fields that were sent",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const put = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { guardWindowMinutes: 45 },
+		});
+		expect(put.statusCode).toBe(200);
+		expect(put.json().cpuGuardThresholdPercent).toBe(80);
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("target", "=", "settings")
+			.execute();
+		expect(rows.map((row) => row.action)).toEqual(["settings.resource_guard_updated"]);
+		const metadata = rows[0]?.metadata as { from: object; to: object };
+		expect(metadata.from).toEqual({ guardWindowMinutes: 30 });
+		expect(metadata.to).toEqual({ guardWindowMinutes: 45 });
+	},
+);
+
+test.skipIf(skip)(
+	"the guard settings accept their edges and refuse outside them",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const good = [
+			{ cpuGuardThresholdPercent: 1 },
+			{ cpuGuardThresholdPercent: 100 },
+			{ memoryGuardThresholdPercent: 1 },
+			{ memoryGuardThresholdPercent: 100 },
+			{ guardWindowMinutes: 5 },
+			{ guardWindowMinutes: 240 },
+			{ cpuThrottleSharePercent: 5 },
+			{ cpuThrottleSharePercent: 100 },
+			{ idleStopMinutes: 0 },
+			{ idleStopMinutes: 10 },
+			{ idleStopMinutes: 1440 },
+		];
+		for (const payload of good) {
+			const res = await app.inject({
+				method: "PUT",
+				url: "/admin/settings",
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload,
+			});
+			expect(res.statusCode, JSON.stringify(payload)).toBe(200);
+		}
+		const bad = [
+			{ cpuGuardThresholdPercent: 0 },
+			{ cpuGuardThresholdPercent: 101 },
+			{ memoryGuardThresholdPercent: 0 },
+			{ memoryGuardThresholdPercent: 101 },
+			{ guardWindowMinutes: 4 },
+			{ guardWindowMinutes: 241 },
+			{ cpuThrottleSharePercent: 4 },
+			{ cpuThrottleSharePercent: 101 },
+			{ idleStopMinutes: 9 },
+			{ idleStopMinutes: 1441 },
+			{ idleStopMinutes: -1 },
+			{ guardWindowMinutes: 30.5 },
+			{ acceptableUseVersion: 5 },
+			{ acceptableUseText: "   " },
+			{ acceptableUseText: "x".repeat(10_001) },
+		];
+		for (const payload of bad) {
+			const res = await app.inject({
+				method: "PUT",
+				url: "/admin/settings",
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload,
+			});
+			expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+			expect(res.json().code).toBe("VALIDATION_FAILED");
+		}
+	},
+);
+
+test.skipIf(skip)(
+	"a changed statement bumps the version and audits versions only",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const save = (acceptableUseText: string | null) =>
+			app.inject({
+				method: "PUT",
+				url: "/admin/settings",
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload: { acceptableUseText },
+			});
+
+		const first = await save("Be kind to the servers.");
+		expect(first.statusCode).toBe(200);
+		expect(first.json()).toMatchObject({
+			acceptableUseText: "Be kind to the servers.",
+			acceptableUseVersion: 2,
+		});
+
+		// Saving the same text again asks nobody to accept again.
+		const same = await save("Be kind to the servers.");
+		expect(same.json().acceptableUseVersion).toBe(2);
+
+		// Resetting to the default from a custom text is a change.
+		const reset = await save(null);
+		expect(reset.json()).toMatchObject({
+			acceptableUseText: null,
+			acceptableUseVersion: 3,
+		});
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "settings.acceptable_use_updated")
+			.orderBy("id")
+			.execute();
+		expect(rows.map((row) => row.metadata)).toMatchObject([
+			{ fromVersion: 1, toVersion: 2 },
+			{ fromVersion: 2, toVersion: 3 },
+		]);
+		expect(JSON.stringify(rows)).not.toContain("Be kind");
+	},
+);
