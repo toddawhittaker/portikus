@@ -28,7 +28,7 @@ This plan lives only on the epic branch (WORKFLOW.md, "Epic plans"). Code commen
 - A workspace that keeps its CPUs above 80% busy for 30 minutes is slowed to a quarter of its CPU limit. The student sees a notice saying why and how to get full speed back (stop and start the workspace). An administrator sees it marked in the admin area, with an audit row, and can lift it.
 - A workspace that keeps memory above 90% of its limit for 30 minutes is marked for administrators, with an audit row. Nothing is slowed.
 - An open, forgotten tab no longer keeps a workspace running for ever. After 60 minutes with no activity the student sees "Still working?"; unless they answer within 5 minutes, the workspace stops. The grace period still applies once every tab is closed; whichever timer fires first stops the workspace.
-- Administrators set the thresholds, the window, the throttled share and the idle time in Settings, and override the guard numbers for one workspace and the idle time for one person.
+- Administrators set the thresholds, the window, the throttled share and the idle time in Settings, and override any of them for one workspace.
 - Everyone accepts an acceptable-use statement at first sign-in, and again whenever an administrator changes its text.
 
 ## Rulings
@@ -40,9 +40,15 @@ Rulings marked **(user)** came from Todd, **(orchestrator)** from the orchestrat
 1. **(user)** A workspace using more than 80% of its CPU limit for 30 minutes is throttled to 25% of its limit. The student sees a banner; administrators see a flag and an audit row. The throttle lifts at the next stop and start, or when an administrator lifts it.
 2. **(user)** A workspace using more than 90% of its memory limit for 30 minutes is flagged with an audit row. It is not throttled: memory already has a hard limit.
 3. **(user)** The thresholds, the window and the throttled share are admin settings with per-workspace overrides, the way quotas are.
-4. **(user)** Idle stop counts activity (keystrokes, terminal input, file saves, preview visits), not an open tab. "Still working?" after 60 minutes; stop 5 minutes later unless the student answers. An admin setting with per-user overrides, like the grace period.
+4. **(user)** Idle stop counts activity (keystrokes, terminal input, file saves, preview visits), not an open tab. "Still working?" after 60 minutes; stop 5 minutes later unless the student answers. An admin setting with per-user overrides, like the grace period. *(Superseded in part by ruling 6b: the override is per workspace.)*
 5. **(user)** An acceptable-use statement at first sign-in.
-6. **(user)** Left out: blocking mining pools and tunnel services, and blocking miner programs by name.
+6. **(user)** No blocking of mining pools or tunnel services (Todd, 2026-09-25, PR #553), and no blocking of miner programs by name. Flagging, throttling and the acceptable-use statement are enough.
+
+6a. **(user, 2026-09-25)** **Idle stop applies to unattended coding agents too.** An agent working alone is stopped with its workspace after the idle time, like anything else; its output does not count as activity.
+
+6b. **(user, 2026-09-25)** **The idle time is an admin setting with a per-workspace override**, stored the same way as the CPU and memory overrides (ruling 19), not per user.
+
+6c. **(user, 2026-09-25)** **On upgrade, a workspace whose owner has a grace override of 0 gets an idle override of 0**, so it keeps running as before.
 
 ### Measuring
 
@@ -73,8 +79,8 @@ Rulings marked **(user)** came from Todd, **(orchestrator)** from the orchestrat
 ### Settings and overrides
 
 18. **(orchestrator)** **Platform defaults are new columns on the `settings` row**, edited in the admin Settings tab: CPU threshold 80%, memory threshold 90%, window 30 minutes, throttled share 25%, idle stop 60 minutes. **(brief)** Allowed values: thresholds 1 to 100; window 5 to 240 minutes; share 5 to 100 (100 means the throttle changes nothing); idle stop 0 (never) or 10 to 1440 minutes. The column defaults fill the existing pilot row, and the worker's `seedSettings` insert needs no change.
-19. **(orchestrator)** **Per-workspace overrides are one nullable jsonb column, `workspaces.guard_config`**, holding any of `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes` and `throttleSharePercent`; a missing key uses the platform value. This is how `quota_config` works. Edited in the workspace detail panel. Reason: "the way quotas are" (ruling 3).
-20. **(orchestrator)** **The per-user idle override is `users.idle_stop_minutes`**, null for the platform value and 0 for never, beside `users.shutdown_grace_seconds` and edited in the same place (the account section of the workspace detail panel). **(brief)** Migration `0020` sets it to 0 for every user whose grace override is 0, because an administrator who told Portikus never to stop that person's workspace meant it. Open question 2 asks Todd to confirm.
+19. **(orchestrator)** **Per-workspace overrides are one nullable jsonb column, `workspaces.guard_config`**, holding any of `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes`; a missing key uses the platform value. This is how `quota_config` works. Edited in the workspace detail panel. Reason: "the way quotas are" (ruling 3).
+20. **(user)** **The idle override is the key `idleStopMinutes` in `workspaces.guard_config`** (rulings 6b and 19), 0 for never; a missing key uses the platform value. It is edited in the same guard dialog as the CPU and memory overrides. **(brief)** Migration `0020` adds `{"idleStopMinutes": 0}` to the `guard_config` of every workspace whose owner's `shutdown_grace_seconds` is 0 (ruling 6c).
 21. **(brief)** Changing a setting or override takes effect on the next tick or sweep, as the grace period does (SPEC.md 6.4). Lowering the idle time below how long a workspace has already been idle shows "Still working?" on the next sweep, never an immediate stop.
 
 ### Idle stop
@@ -87,7 +93,7 @@ Rulings marked **(user)** came from Todd, **(orchestrator)** from the orchestrat
     Terminal frames are not inspected: the browser's terminal also answers programs' queries on its own (a cursor-position report, for one), which would count a program as a person. The agent is left out because anything inside the workspace can make it say anything.
 23. **(brief)** **The API writes `workspaces.last_activity_at` at most once a minute per workspace** (an in-memory map in the API process), and clears `idle_stop_at` in the same statement. The worker sets `last_activity_at` to the start time whenever it records a start, so a workspace never starts already idle.
 24. **(orchestrator)** **Both timers run; whichever fires first stops the workspace.** **(brief)** In the reconcile sweep, next to the grace-period step (`apps/worker/src/reconcile.ts`):
-    - a running workspace with `idle_stop_at` null, an idle time `coalesce(users.idle_stop_minutes, settings.idle_stop_minutes)` above 0, and `last_activity_at + idle` in the past gets `idle_stop_at = now + 5 minutes`;
+    - a running workspace with `idle_stop_at` null, an idle time `coalesce((guard_config->>'idleStopMinutes')::int, settings.idle_stop_minutes)` above 0, and `last_activity_at + idle` in the past gets `idle_stop_at = now + 5 minutes`;
     - a running workspace whose `idle_stop_at` has passed is stopped whether or not a browser is connected: `desired_state` becomes `stopped` (or `running` after a restart, as the grace step does), `workspace.idle_stopped` is written with `{idleMinutes}`, and the usual stop path follows;
     - the grace period is unchanged: with no browser connected it may stop the workspace first.
 
@@ -131,7 +137,8 @@ Rulings marked **(user)** came from Todd, **(orchestrator)** from the orchestrat
 
 - `settings`: `cpu_guard_threshold_percent int not null default 80`, `memory_guard_threshold_percent int not null default 90`, `guard_window_minutes int not null default 30`, `cpu_throttle_share_percent int not null default 25`, `idle_stop_minutes int not null default 60`, `acceptable_use_text text` (null), `acceptable_use_version int not null default 1`, each range from ruling 18 as a check constraint.
 - `workspaces`: `guard_config jsonb` (null), `cpu_throttle jsonb` (null), `memory_flag jsonb` (null), `last_activity_at timestamptz` (null), `idle_stop_at timestamptz` (null).
-- `users`: `idle_stop_minutes int` (null; check 0 or 10 to 1440), `acceptable_use_version int` (null), `acceptable_use_accepted_at timestamptz` (null). Then `update users set idle_stop_minutes = 0 where shutdown_grace_seconds = 0` (ruling 20).
+- `users`: `acceptable_use_version int` (null), `acceptable_use_accepted_at timestamptz` (null).
+- Then `update workspaces w set guard_config = coalesce(guard_config, '{}'::jsonb) || '{"idleStopMinutes": 0}'::jsonb from users u where u.id = w.owner_user_id and u.shutdown_grace_seconds = 0` (ruling 6c). The API checks `idleStopMinutes` is 0 or 10 to 1440, as for the platform value.
 - New table `workspace_usage_samples (id bigserial primary key, workspace_id uuid not null references workspaces on delete cascade, observed_at timestamptz not null, cpu_usage_ns bigint not null, cpu_limit int not null, memory_bytes bigint not null, memory_limit_bytes bigint not null)` with an index on `(workspace_id, observed_at)`.
 - `down` drops the table and every column.
 
@@ -142,15 +149,14 @@ Rulings marked **(user)** came from Todd, **(orchestrator)** from the orchestrat
 | Route | Change |
 |---|---|
 | `GET`/`PUT /admin/settings` | gains `cpuGuardThresholdPercent`, `memoryGuardThresholdPercent`, `guardWindowMinutes`, `cpuThrottleSharePercent`, `idleStopMinutes`, `acceptableUseText` (null resets to default), and read-only `acceptableUseVersion` |
-| `PUT /admin/workspaces/:id/guard` | new; body is `guard_config`'s keys, each a number or null; audit `workspace.guard_updated {from, to}` |
+| `PUT /admin/workspaces/:id/guard` | new; body is `guard_config`'s five keys, each a number or null (null removes the key); audit `workspace.guard_updated {from, to}` |
 | `POST /admin/workspaces/:id/lift-throttle`, `POST /admin/workspaces/:id/clear-memory-flag` | new; 409 when there is nothing to lift or clear |
-| `PUT /admin/users/:id/settings` | gains `idleStopMinutes` (null or a number); audit `user.idle_stop_updated` |
 | `GET /admin/health` | gains `guard: [{workspaceId, owner, cpuThrottle, memoryFlag}]` |
 | `GET /acceptable-use`, `POST /me/acceptable-use` | new (T6) |
 
 **Contracts:** `Workspace` gains `cpuThrottle`, `idleStopAt` and `lastActivityAt`; the admin workspace shape gains `guardConfig`, `effectiveGuard` and `memoryFlag`; `PlatformSettings` and its update request gain the settings fields; `AuthUser` gains `mustAcceptUse` (T6). `packages/events` `ClientMessage` becomes `heartbeat` or `activity`. The workspace socket's `signatureOf` includes `cpuThrottle` and `idleStopAt`, so both reach the browser at once.
 
-**Audit events (SPEC.md 24.11), actor `worker` unless noted:** `workspace.cpu_throttled`, `workspace.cpu_throttle_lifted` (`reason` `stopped`, or actor `user:<id>` with `reason` `administrator`), `workspace.cpu_throttle_failed`, `workspace.memory_flagged`, `workspace.memory_flag_cleared` (same two reasons), `workspace.idle_stopped`, `workspace.guard_updated` (user), `user.idle_stop_updated` (user), `settings.resource_guard_updated` and `settings.idle_stop_updated` (user, `{from, to}`), `settings.acceptable_use_updated` (user), `user.acceptable_use_accepted` (the person). No row holds a process name, a file name or the statement's text.
+**Audit events (SPEC.md 24.11), actor `worker` unless noted:** `workspace.cpu_throttled`, `workspace.cpu_throttle_lifted` (`reason` `stopped`, or actor `user:<id>` with `reason` `administrator`), `workspace.cpu_throttle_failed`, `workspace.memory_flagged`, `workspace.memory_flag_cleared` (same two reasons), `workspace.idle_stopped`, `workspace.guard_updated` (user), `settings.resource_guard_updated` and `settings.idle_stop_updated` (user, `{from, to}`), `settings.acceptable_use_updated` (user), `user.acceptable_use_accepted` (the person). No row holds a process name, a file name or the statement's text.
 
 No new environment setting and no Ansible change: every number is a runtime setting (ADR 0011).
 
@@ -175,7 +181,8 @@ No new environment setting and no Ansible change: every number is a runtime sett
 - An administrator's socket, file request or preview visit on a student's workspace never counts as that student's activity.
 - The workspace agent has no way to report activity.
 - A running workspace with a connected browser and no activity stops `idle + 5` minutes after its last activity; one with activity every few minutes never stops by idle. The grace period's behaviour with no browser is unchanged.
-- Idle 0 (platform or user) never stops a workspace by idle; a user override wins over the platform value.
+- Idle 0 (platform or workspace override) never stops a workspace by idle; a workspace override wins over the platform value.
+- A coding agent's output never counts as activity, so an unattended agent is stopped like anything else.
 - While an account has an unmet gate, every API route except the ones ruling 32 lists answers 403 with that gate's code, a WebSocket upgrade is refused, and the preview gateway refuses the account. The password gate comes before the AUP gate.
 - `POST /me/acceptable-use` with an old version answers 409 and records nothing.
 
@@ -201,9 +208,9 @@ After every task has landed: code-reviewer over the epic head, security-reviewer
 ## Test plan, per task
 
 - **T1:** unit tests against a fake Incus socket for the usage route (a running and a stopped instance, `limits.cpu` as a count and missing, `limits.memory` in each unit `parseIncusSize` knows, an allowance present and absent); the allowance route sets and removes the key through the ETag-guarded write and refuses `25%`, `0ms/100ms` and anything not matching the pattern; start removes an allowance left on a stopped instance. **On the pilot, read-only:** record `GET /1.0/instances/<one>/state` for a running workspace and confirm the `cpu.usage` and `memory.usage` fields and whether memory includes page cache (read a large file inside the workspace and compare with `memory.stat`), and time one `recursion=2` call with every workspace running. Report both before T3 starts.
-- **T2:** migration up and down on a fresh database and on one with a settings row and a user whose grace override is 0 (their idle override becomes 0); the check constraints refuse out-of-range values; contract tests for every new shape.
-- **T3:** with a fake controller and a fixed clock: a steady 100% workspace is throttled at the first tick with a full window and not before; a workspace at 79% is not; one that pauses for one minute every 29 is still throttled (the average); a workspace restarted mid-window starts a new window; throttling sets the allowance, writes one audit row, and a second tick writes nothing; a worker restart (a new loop over the same database) and a controller that lost the allowance both end with it set again; a lift in the database removes it; a controller failure audits once and retries; the memory flag at 91% and not at 89%, and not with fewer than half the samples; samples pruned and deleted at stop. Idle: the warning time, the stop five minutes later with a browser connected, an activity in between cancelling it, idle 0 at either level, the user override winning, a shortened setting warning rather than stopping, grace firing first with no browser, and `last_activity_at` set at start.
-- **T4:** route tests for each settings field and range, the guard override (merge, clear, audit), the idle override, lift and clear (409 when nothing is set, samples deleted, audit), the health list; activity: an owner's socket message, file write and preview document load each set `last_activity_at` and clear `idle_stop_at`, at most once a minute; an administrator's socket, a `GET` file read, and a preview asset or fetch do not; the workspace socket pushes `cpuThrottle` and `idleStopAt` changes.
+- **T2:** migration up and down on a fresh database and on one with a settings row and a user whose grace override is 0 (their workspace's `guard_config` gains `idleStopMinutes: 0`, other keys kept; other workspaces untouched); the check constraints refuse out-of-range values; contract tests for every new shape.
+- **T3:** with a fake controller and a fixed clock: a steady 100% workspace is throttled at the first tick with a full window and not before; a workspace at 79% is not; one that pauses for one minute every 29 is still throttled (the average); a workspace restarted mid-window starts a new window; throttling sets the allowance, writes one audit row, and a second tick writes nothing; a worker restart (a new loop over the same database) and a controller that lost the allowance both end with it set again; a lift in the database removes it; a controller failure audits once and retries; the memory flag at 91% and not at 89%, and not with fewer than half the samples; samples pruned and deleted at stop. Idle: the warning time, the stop five minutes later with a browser connected, an activity in between cancelling it, idle 0 at either level, the workspace override winning, a shortened setting warning rather than stopping, grace firing first with no browser, and `last_activity_at` set at start.
+- **T4:** route tests for each settings field and range, the guard override including `idleStopMinutes` (merge, clear one key, range, audit), lift and clear (409 when nothing is set, samples deleted, audit), the health list; activity: an owner's socket message, file write and preview document load each set `last_activity_at` and clear `idle_stop_at`, at most once a minute; an administrator's socket, a `GET` file read, and a preview asset or fetch do not; the workspace socket pushes `cpuThrottle` and `idleStopAt` changes.
 - **T5:** component tests for both notices (text from the row's numbers, the countdown, **Keep working** sends activity and has focus, dismissal), the settings sections (validation, the re-acceptance sentence), the guard dialog and the detail section buttons, the markers. Playwright: an administrator sets an override and sees it; a workspace given a throttle row in the e2e database shows the student notice and the admin tag, and **Lift throttle** clears both; with the idle time set to 10 minutes and `last_activity_at` moved back in the database, the notice appears, **Keep working** clears it, and without an answer the workspace stops and the page says why. axe on every new notice, section and dialog in both themes.
 - **T6:** gate tests: an account that has not accepted gets 403 `ACCEPTABLE_USE_REQUIRED` from a sample of routes across every router file (the authorization matrix gains a column), a WebSocket upgrade is refused, the preview gateway refuses, `/auth/me` and the two AUP routes answer; an account with both gates sees the password gate first; accepting with the current version clears the gate and audits; an old version answers 409; a text change puts everyone back behind the gate; LTI and Dex accounts alike. Playwright: first sign-in shows the statement, **I accept** lands on the workspace, a changed text shows it again, **Sign out** signs out; axe in both themes. Existing e2e users are marked as having accepted in the e2e seed so the other specs are unchanged.
 - **T7:** on the rehearsal VM, then the pilot: with a workspace's override set to a 5-minute window, run `stress-ng --cpu 4` (or a shell busy loop on four cores) and see the throttle land, `cpu.max` read `100000 100000`, the student notice and the admin tag; restart the controller and the worker and see the allowance stay; lift and see `cpu.max` go back to `max 100000`; stop and start and see it gone. The same for memory with a 5-minute window and a process holding 95% of the limit. Idle stop with the platform idle time set to 10 minutes. `make smoke-test` and `make security-test` pass.
@@ -212,11 +219,11 @@ After every task has landed: code-reviewer over the epic head, security-reviewer
 ## Rehearsal and pilot, in order
 
 1. **Rehearsal VM:** deploy the epic head's package, then T7's checks.
-2. **Pilot:** snapshot the VM and take a `pg_dump`, deploy from `origin` with the full role, confirm the migration filled the settings row with the defaults and gave every user with a grace override of 0 an idle override of 0, run T7's checks on one test workspace, then `make smoke-test`. Rollback is the snapshot, or the previous package with migration `0020`'s `down` (after lifting every throttle, so no allowance is left behind in Incus).
+2. **Pilot:** snapshot the VM and take a `pg_dump`, deploy from `origin` with the full role, confirm the migration filled the settings row with the defaults and gave every workspace whose owner has a grace override of 0 an idle override of 0, run T7's checks on one test workspace, then `make smoke-test`. Rollback is the snapshot, or the previous package with migration `0020`'s `down` (after lifting every throttle, so no allowance is left behind in Incus).
 
 ## SPEC.md changes (T8)
 
-- **6.4:** a second timer: idle stop by activity, what counts, the notice, the per-user override, and that the grace period is unchanged.
+- **6.4:** a second timer: idle stop by activity, what counts, the notice, the per-workspace override, that an unattended coding agent is stopped too, and that the grace period is unchanged.
 - **19:** a new 19.4 "Resource guard": the CPU and memory rules, the averages, the time-slice throttle, when it lifts, the settings and per-workspace overrides.
 - **20.1:** administrators see throttled and flagged workspaces and last activity, lift a throttle, clear a flag, and edit the guard settings, overrides and the acceptable-use statement.
 - **24.11:** the new audit events.
@@ -234,7 +241,7 @@ After every task has landed: code-reviewer over the epic head, security-reviewer
 
 ## Risks
 
-1. **A long unattended job is stopped.** An agent left to work for an hour, or a long build, stops at 65 minutes if the student does nothing in the page. That is ruling 4's intent; open question 1 asks whether it is what Todd wants for coding agents.
+1. **A long unattended job is stopped.** An agent left to work for an hour, or a long build, stops at 65 minutes if the student does nothing in the page. That is Todd's ruling 6a; an administrator can set that workspace's idle override to 0.
 2. **A determined student can fake activity** with a script that holds their session cookie and sends activity messages. The throttle still catches heavy CPU, and the script's requests carry the student's session, so it is their act. Nothing more is planned.
 3. **A student can lift their own throttle** by stopping and starting (ruling 1). Each throttle writes an audit row, so an administrator sees a repeat offender in the detail panel's recent events.
 4. **A legitimate heavy job is throttled.** A 30-minute build on all four CPUs is throttled. The student sees why and can restart; an administrator can raise that workspace's threshold (100 turns the CPU check off).
@@ -254,5 +261,4 @@ After every task has landed: code-reviewer over the epic head, security-reviewer
 
 ## Open questions for Todd
 
-1. **Should a coding agent working unattended keep the workspace alive?** As planned, an agent left alone for 65 minutes is stopped with its workspace, because nothing it does counts as activity (an agent's output is indistinguishable from a miner's). Recommendation: keep it that way; the notice gives five minutes, and an administrator can set a person's idle override to 0.
-2. **Users with a grace override of 0 get an idle override of 0** (ruling 20), so their workspaces keep running as before. Recommendation: keep; the alternative is that those users start being stopped after 65 idle minutes the day this deploys.
+None. Todd answered both on 2026-09-25; they are rulings 6a to 6c.
