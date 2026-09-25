@@ -103,6 +103,17 @@ export function AppHeader({
 				</Link>
 			)}
 
+			{/* Outside the menu, so it still announces after the menu closes. */}
+			{user.role === "administrator" && !workspaceId ? (
+				<span
+					role="status"
+					className={open.isPending ? "text-xs pk-muted" : "sr-only"}
+					data-testid="open-my-workspace-status"
+				>
+					{open.isPending ? "Opening your workspace" : ""}
+				</span>
+			) : null}
+
 			<MenuRoot>
 				<MenuTrigger asChild>
 					<button type="button" className="pk-account" data-testid="me">
@@ -142,8 +153,12 @@ export function AppHeader({
 					) : null}
 					{user.role === "administrator" && !workspaceId ? (
 						<>
-							<MenuItem onSelect={openMyWorkspace} testId="open-my-workspace">
-								Open my workspace
+							<MenuItem
+								onSelect={openMyWorkspace}
+								disabled={open.isPending}
+								testId="open-my-workspace"
+							>
+								{open.isPending ? "Opening your workspace…" : "Open my workspace"}
 							</MenuItem>
 							<MenuSeparator />
 						</>
@@ -165,12 +180,6 @@ export function AppHeader({
 				</Menu>
 			</MenuRoot>
 			{/* A real form post, so the session cookie is cleared by the server. */}
-			{/* Outside the menu, so it still announces after the menu closes. */}
-			{user.role === "administrator" && !workspaceId ? (
-				<span role="status" className="sr-only" data-testid="open-my-workspace-status">
-					{open.isPending ? "Opening your workspace" : ""}
-				</span>
-			) : null}
 			<form ref={signOutForm} method="post" action="/auth/logout" className="hidden" />
 
 			{settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}

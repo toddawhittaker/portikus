@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
 	FakeWebSocket,
@@ -476,11 +476,11 @@ test("Open my workspace makes the workspace and goes there (issue #534)", async 
 });
 
 test("Open my workspace shows it is working, then an error as a toast", async () => {
-	let answer: (response: Response) => void = () => {};
+	const waiting: ((response: Response) => void)[] = [];
 	const fetch = stubAdminWithWorkspace(
 		() =>
 			new Promise<Response>((resolve) => {
-				answer = resolve;
+				waiting.push(resolve);
 			}),
 	);
 	const { router } = renderApp("/admin");
@@ -491,15 +491,26 @@ test("Open my workspace shows it is working, then an error as a toast", async ()
 	const status = screen.getByTestId("open-my-workspace-status");
 	expect(status.getAttribute("role")).toBe("status");
 	await waitFor(() => expect(status.textContent).toBe("Opening your workspace"));
+	// Visible while pending, not only to screen readers.
+	expect(status.className).not.toContain("sr-only");
 	expect(screen.queryByTestId("open-my-workspace")).toBeNull();
 
 	// Choosing it again while it is opening sends no second request.
-	fireEvent.click(await openMyWorkspaceItem());
+	const again = await openMyWorkspaceItem();
+	expect(again.textContent).toBe("Opening your workspace…");
+	expect(again.getAttribute("aria-disabled")).toBe("true");
+	fireEvent.click(again);
+	// mutate() fetches after a microtask, so let a second request go out before counting.
+	await act(async () => {});
 	expect(workspacePosts(fetch)).toBe(1);
+	fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
 
-	answer(json(503, { code: "UNAVAILABLE", message: "Try again soon." }));
+	for (const answer of waiting) {
+		answer(json(503, { code: "UNAVAILABLE", message: "Try again soon." }));
+	}
 
 	expect(await screen.findByText("Your workspace did not open")).toBeDefined();
 	expect(status.textContent).toBe("");
+	expect(status.className).toContain("sr-only");
 	expect(router.state.location.pathname).toBe("/admin");
 });
