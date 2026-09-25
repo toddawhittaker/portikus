@@ -2898,7 +2898,12 @@ Includes:
 - a per-workspace host label derived once, at workspace creation, from the
   identity provider's `preferred_username` (lowercased, reduced to a DNS
   label, stored on the workspace row, with a fallback when the claim is
-  missing); the label names the preview hosts and is pushed into the
+  missing); a course (LTI) account's username is the launch's
+  `preferred_username`, else the LTI custom claim `username`, and when it
+  has neither its label falls back to its LTI user ID (the launch's `sub`)
+  reduced the same way, never random hex (issue #549, replacing Epic 13
+  ruling 12, which stored no username); an existing label never changes;
+  the label names the preview hosts and is pushed into the
   container as its hostname at every start, so the prompt reads
   `student@<label>.<public host>`;
 - authorization;

@@ -2430,6 +2430,20 @@ Gaps:
 
 ## Epic 14.1 — Fixes after Epic 14 (in progress)
 
+### LTI workspaces named after the LMS username (#549)
+
+A course (LTI) launch now stores a username: the id_token's
+`preferred_username`, else the custom claim `username`, which an LMS
+administrator sets with `$User.username` (Moodle) or
+`$Canvas.user.loginId` (Canvas), as `docs/OPERATIONS.md` now explains.
+The workspace label comes from it. A course account with no username gets
+a label made from its LTI user ID instead of `ws-` and random hex
+(SPEC.md, Epic 8; this replaces Epic 13 ruling 12). A returning launch
+refreshes the stored username the same way an SSO sign-in does, but a
+workspace keeps the label it was created with. The mock LMS sends a
+custom-claim username for Sam, a `preferred_username` for Lee, and none
+for the others. Linked launches are unchanged.
+
 ### Dex sign-in pages in the Portikus look (#532)
 
 Dex's sign-in pages now carry a Portikus theme (ADR 0023, "Pages"). The
