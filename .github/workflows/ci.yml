@@ -363,6 +363,8 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -U postgres -c 'create database dex_import'
+          # The command imports @portikus/db from its build, as on the VM.
+          pnpm exec tsc -b packages/db
           pnpm exec tsx packages/db/src/migrate.ts
           run_import() {
             pnpm exec tsx packages/auth/src/dex-import-main.ts \
