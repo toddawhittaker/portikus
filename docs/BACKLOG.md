@@ -117,6 +117,62 @@ connector, and the local administrator is the way back from a mistake.
 
 **Source.** Todd, 2026-09-25.
 
+## Resource guard: idle stop, CPU throttling, memory flags
+
+**What.** Stop students from running crypto miners or long-lived sites
+on the platform's CPU and memory. Rulings (Todd, 2026-09-25):
+
+1. **Heavy CPU is throttled.** No student needs more than 30 minutes of
+   heavy CPU. A workspace using more than 80% of its CPU limit for 30
+   minutes is throttled: its Incus CPU allowance drops to a low share
+   (default 25% of its limit). The student sees a banner saying why; the
+   admin area flags it and an audit row is written. The throttle lifts
+   when the workspace next stops and starts, or when an administrator
+   lifts it.
+2. **Heavy memory is flagged.** A workspace using more than 90% of its
+   memory limit for 30 minutes is flagged in the admin area with an
+   audit row. Not throttled: memory has a hard limit already.
+3. **Both are settings.** The thresholds, the 30 minutes and the throttled
+   share are admin settings in the admin area, with per-workspace
+   overrides, the way quotas are.
+4. **Idle stop by activity, not by an open tab.** Today an open tab keeps a
+   workspace running forever, because the grace period (SPEC.md 6.4) counts
+   connections. Keystrokes, terminal input, file saves and preview visits
+   count as activity; after 60 minutes with none the student sees "Still
+   working?", and the workspace stops 5 minutes later unless they answer.
+   An admin setting with per-user overrides, like the grace period.
+5. **Block the easy routes out.** The host firewall drops common
+   mining-pool ports, and the workspace resolver refuses a short list of
+   mining-pool and tunnel services (ngrok, trycloudflare, localtunnel,
+   serveo), so a student cannot publish a site around the preview sign-in.
+   This stops casual cases; rulings 1 and 2 catch the rest.
+6. **An acceptable-use statement** at first sign-in.
+
+**Why.** Previews are never public (SPEC.md 2.9, "A preview is never an
+unauthenticated public deployment"), but a student can keep a workspace
+alive with an open tab, run a miner inside the 4-CPU limit all day, or
+publish a site through a tunnel.
+
+**What it would take** (about two weeks):
+
+1. Per-workspace CPU and memory samples every minute. Today the worker
+   samples the host only (ADR 0022); the controller reads each instance's
+   CPU time and memory from Incus.
+2. The throttle and flag rules in the worker, `limits.cpu.allowance`
+   through the controller, audit rows, the student banner, and the admin
+   Health view showing throttled and flagged workspaces with a "Lift"
+   action.
+3. Activity reporting from the web app and the workspace agent, the idle
+   warning, and the stop.
+4. The firewall and resolver lists in the Ansible roles.
+5. The settings with per-workspace overrides, and the acceptable-use
+   screen.
+
+Left out: blocking known miner programs by name, because administrators
+never see a student's process command lines (SPEC.md 20.1).
+
+**Source.** Todd, 2026-09-25.
+
 ## Re-provision after a failed create
 
 **What.** An administrator action that retries a workspace stuck in `error`.
