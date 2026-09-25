@@ -3,12 +3,11 @@
  * (docs/EPIC-14.md, T2): the claim form with its error, the sign-in prompt,
  * and the first-account form a standalone Dex site shows.
  */
-import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent } from "./helpers";
+import { createStudent, settledAxe } from "./helpers";
 
 async function expectNoViolations(page: Page) {
-	const results = await new AxeBuilder({ page })
+	const results = await (await settledAxe(page))
 		.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
 		.analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

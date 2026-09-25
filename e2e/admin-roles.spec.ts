@@ -1,11 +1,11 @@
 import * as crypto from "node:crypto";
-import AxeBuilder from "@axe-core/playwright";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
 	loginAs,
 	MOCK_ISSUER,
 	query,
+	settledAxe,
 	WEB_ORIGIN,
 	workspacePath,
 } from "./helpers";
@@ -209,8 +209,8 @@ test("the Users tab and the role dialogs have no automatic accessibility violati
 	const other = `Axe ${crypto.randomUUID().slice(0, 8)}`;
 	await insertUser({ name: other });
 	await openUsers(page);
-	const axe = () =>
-		new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+	const axe = async () =>
+		(await settledAxe(page)).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
 
 	expect((await axe()).violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 
