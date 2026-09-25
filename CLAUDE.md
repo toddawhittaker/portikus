@@ -21,8 +21,7 @@ section, never here.
 - `docs/STACK.md`: technology choices and why. Section 2 is the repo
   layout, section 13 testing, section 15 observability, section 31 the
   Make targets, section 34 the stack summary, section 35 what was rejected.
-- `docs/HOW-WE-WORK.md`: a generic, reusable guide to building software with
-  AI agents, written in plain English for non-technical readers.
+- `docs/HOW-WE-WORK.md`: a plain-English guide to working with AI agents.
 - `docs/WORKFLOW.md`: local development, branching, pull requests, CI,
   secret scanning, and the pre-commit hook.
 - `docs/DESIGN.md`: the visual design, mirrored under `design/`.
@@ -129,6 +128,8 @@ Orchestration rules:
   a11y-reviewer when it touches `apps/web` or `packages/ui`. Fix or defer
   every finding through further task PRs, also landed by merger without
   review, then run a confirmation review with each reviewer that ran.
+- An epic's plan lives only on its branch and is folded into SPEC.md and
+  deleted by its last task; cite SPEC.md or ADRs (WORKFLOW.md, "Epic plans").
 - `main` changes only by pull request, and merging it is the user's
   decision. Prepare the epic pull request, citing the SPEC.md and STACK.md
   sections it serves and how it was verified (WORKFLOW.md, "Pull
