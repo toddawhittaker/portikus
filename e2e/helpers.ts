@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import AxeBuilder from "@axe-core/playwright";
 import {
 	type APIRequestContext,
 	type BrowserContext,
@@ -563,4 +564,22 @@ export async function setRestoreIncomplete(workspaceId: string): Promise<void> {
 	if (!response.ok) {
 		throw new Error(`the fake agent refused the recovery seed: ${response.status}`);
 	}
+}
+
+/**
+ * An axe builder for the page once every finite CSS transition and animation
+ * has finished. Axe reads computed colours, so a dialog opening or a theme
+ * changing mid-scan reports intermediate colours as contrast failures.
+ */
+export async function settledAxe(page: Page): Promise<AxeBuilder> {
+	await page.waitForFunction(() =>
+		document
+			.getAnimations()
+			.every(
+				(a) =>
+					a.playState !== "running" ||
+					a.effect?.getComputedTiming().iterations === Number.POSITIVE_INFINITY,
+			),
+	);
+	return new AxeBuilder({ page });
 }

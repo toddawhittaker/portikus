@@ -170,6 +170,11 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	handle /courses* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
+	# The first administrator's setup code (docs/EPIC-14.md, rulings 17 and
+	# 18). The page itself is /setup, served by the bundle below.
+	handle /setup/* {
+		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+	}
 	# The signed-in user's own editor settings (issue #159).
 	handle /me/* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
@@ -195,9 +200,10 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 		@dex_long_uri expression {http.request.uri}.size() > 1024
 		# No % in the patterns: Caddy then matches the decoded path, which
 		# also catches encoded spellings such as /dex/auth/loc%61l/login.
+		# local is Dex's own passwords, ldap the LDAP connector's form.
 		@dex_password_post {
 			method POST
-			path /dex/auth/local/login*
+			path /dex/auth/local/login* /dex/auth/ldap/login*
 		}
 		# Dex also reads an auth request from a POST body, so /dex/auth takes
 		# only GET, apart from the password post.
@@ -206,7 +212,7 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 			not method GET
 			not {
 				method POST
-				path /dex/auth/local/login*
+				path /dex/auth/local/login* /dex/auth/ldap/login*
 			}
 		}
 		@dex_signin_start {

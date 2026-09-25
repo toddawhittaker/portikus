@@ -16,6 +16,16 @@ const opts: AuthOptions = {
 };
 
 describe("mapRole", () => {
+	test("ignores every group when no groups claim is set (EPIC-14 ruling 11)", () => {
+		const none = { ...opts, groupsClaim: "" };
+		const claims = {
+			groups: ["portikus-administrators"],
+			"": ["portikus-administrators"],
+		};
+		expect(mapRole(claims, none)).toBeNull();
+		expect(mapRole(claims, { ...none, defaultRole: "student" })).toBe("student");
+	});
+
 	test("maps the student group", () => {
 		expect(mapRole({ groups: ["portikus-students"] }, opts)).toBe("student");
 	});
@@ -97,5 +107,24 @@ describe("mapRole", () => {
 				custom,
 			),
 		).toBe("student");
+	});
+});
+
+describe("mapRole with OIDC_DEFAULT_ROLE (docs/EPIC-14.md ruling 11)", () => {
+	test("none refuses a user with no matching group", () => {
+		expect(mapRole({ groups: [] }, { ...opts, defaultRole: "none" })).toBeNull();
+	});
+
+	test("student admits a user with no matching group as a student, never more", () => {
+		expect(mapRole({}, { ...opts, defaultRole: "student" })).toBe("student");
+	});
+
+	test("a matching group still wins", () => {
+		expect(
+			mapRole(
+				{ groups: ["portikus-instructors"] },
+				{ ...opts, defaultRole: "student" },
+			),
+		).toBe("instructor");
 	});
 });

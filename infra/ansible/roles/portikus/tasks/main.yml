@@ -279,14 +279,38 @@
     state: absent
   when: not portikus_mock_idp
 
-# ── Carry accounts over to Dex (docs/EPIC-12B.md) ────────────────
-# After the package install and the mock is stopped, and before api.env
-# changes: no mock sign-in can make a session after the carry-over revokes
-# them all, and no Dex identity can make a row before its account is linked.
-- name: Carry existing accounts over to Dex
-  ansible.builtin.import_tasks: carry_over.yml
+# A fresh VM has no tables until the API first starts, and a handler may
+# still owe the restart that migrates.  The users-file import and the
+# setup-code check below both need the current schema; the API runs the
+# same migration on every start, so this changes nothing else.
+- name: Bring the database schema up to date
+  ansible.builtin.command:
+    argv: [runuser, -u, portikus, --, /usr/bin/node, /usr/lib/portikus/api/node_modules/@portikus/db/dist/migrate.js]
+  environment:
+    DATABASE_URL: "{{ portikus_database_url }}"
+  register: portikus_migrate
+  changed_when: "'Applied migrations' in portikus_migrate.stdout"
+
+# Anyone could sign in as anyone through the mock, so its sessions end when
+# the site moves to a real provider (SPEC.md section 24).
+- name: End the mock provider's sessions
+  ansible.builtin.command:
+    argv: [runuser, -u, portikus, --, psql, -X, -tA, -v, ON_ERROR_STOP=1, -v, "issuer={{ portikus_public_url }}/mock-idp", -d, "{{ portikus_database_url }}"]
+    stdin: >-
+      WITH gone AS (DELETE FROM sessions WHERE user_id IN
+      (SELECT id FROM users WHERE oidc_issuer = :'issuer') RETURNING 1)
+      SELECT count(*) FROM gone;
+  register: portikus_mock_sessions
+  changed_when: portikus_mock_sessions.stdout | trim != '0'
+  when: portikus_idp != 'mock'
+
+# The gRPC client key, and the one-time users-file import, before api.env
+# names the key and the setup-code check below counts administrators.
+- name: Give the API what it needs from Dex
+  ansible.builtin.include_role:
+    name: dex
+    tasks_from: api
   when: portikus_idp == 'dex'
-  tags: carry_over
 
 # ── Environment files ────────────────────────────────────────────
 
@@ -305,49 +329,17 @@
   ansible.builtin.import_tasks: lti.yml
   tags: lti
 
-# The packaged API unit allows loopback and the workspace bridge only.  An
-# external provider's addresses and the LMS keyset addresses are added here,
-# so a later move to one is a settings change rather than a package change.
-# Tagged lti too, because registering the mock LMS widens it (ruling 26).
-- name: Allow the API its extra addresses
-  vars:
-    portikus_api_ip_allow: "{{ (portikus_api_ip_allow_extra + portikus_lti_keyset_cidrs) | unique }}"
+# The API reaches the internet only through the egress proxy now (ADR 0027),
+# so the packaged unit's loopback and bridge limit is all it gets.  This
+# removes the address drop-in older plays wrote.
+- name: Remove the old API address allow drop-in
+  ansible.builtin.file:
+    path: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
+    state: absent
   tags: lti
-  block:
-    - name: Create the API unit drop-in directory
-      ansible.builtin.file:
-        path: /etc/systemd/system/portikus-api.service.d
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      when: portikus_api_ip_allow | length > 0
-
-    - name: Allow the API to reach the identity provider and LMS keysets
-      ansible.builtin.copy:
-        dest: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
-        content: |
-          # Managed by Ansible from PORTIKUS_API_IP_ALLOW and the LTI keyset addresses.
-          [Service]
-          {% for cidr in portikus_api_ip_allow %}
-          IPAddressAllow={{ cidr }}
-          {% endfor %}
-        owner: root
-        group: root
-        mode: "0644"
-      when: portikus_api_ip_allow | length > 0
-      notify:
-        - Reload systemd
-        - Restart portikus-api
-
-    - name: Remove the API egress drop-in when nothing is added
-      ansible.builtin.file:
-        path: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
-        state: absent
-      when: portikus_api_ip_allow | length == 0
-      notify:
-        - Reload systemd
-        - Restart portikus-api
+  notify:
+    - Reload systemd
+    - Restart portikus-api
 
 - name: Deploy worker environment file
   ansible.builtin.template:
@@ -379,3 +371,48 @@
     - portikus-api
     - portikus-worker
     - portikus-controller
+
+# ── First administrator (docs/EPIC-14.md, rulings 15 and 16) ─────
+# While no enabled administrator exists, print a one-time setup code that
+# the first person to enter it at /setup claims.  A package from before the
+# command existed skips this.
+- name: Look for the setup-code command
+  ansible.builtin.stat:
+    path: "{{ portikus_setup_code_script }}"
+  register: portikus_setup_code_command
+
+- name: Issue a setup code when there is no administrator
+  when: portikus_setup_code_command.stat.exists
+  block:
+    - name: Count the enabled administrators
+      ansible.builtin.command:
+        argv:
+          - runuser
+          - -u
+          - portikus
+          - --
+          - psql
+          - -X
+          - -tA
+          - -d
+          - "{{ portikus_database_url }}"
+          - -c
+          - "SELECT count(*) FROM users WHERE role = 'administrator' AND disabled_at IS NULL"
+      register: portikus_admin_count
+      changed_when: false
+
+    - name: Issue the setup code
+      ansible.builtin.command:
+        argv: [runuser, -u, portikus, --, /usr/bin/node, "{{ portikus_setup_code_script }}"]
+      environment:
+        DATABASE_URL: "{{ portikus_database_url }}"
+      register: portikus_setup_code
+      changed_when: true
+      when: portikus_admin_count.stdout | trim == '0'
+
+    - name: Show the setup code
+      ansible.builtin.debug:
+        msg: >-
+          No administrator exists yet.  Open {{ portikus_public_url }}/setup
+          and enter this setup code within the hour: {{ portikus_setup_code.stdout }}
+      when: portikus_setup_code is not skipped

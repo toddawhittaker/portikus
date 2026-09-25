@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatBytes, formatCpu } from "../monitor/format.js";
 import { PENDING_LABEL } from "../shell/StatusBar.js";
 import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
+import { DexUserActions } from "./DexUserDialogs.js";
 import { defaultLabel, graceText } from "./graceText.js";
 import { logCommand } from "./logCommand.js";
 import { imageText, isCourseAccount, roleText, sourceText } from "./markers.js";
@@ -32,6 +33,7 @@ import {
 	useSetArchived,
 	useSetDisabled,
 	useSetGrantedAdmin,
+	useSetGrantedInstructor,
 	useUpdateQuota,
 	useUpdateUserSettings,
 } from "./queries.js";
@@ -732,9 +734,117 @@ function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 	);
 }
 
+/** Why Make instructor is off for this account, or null when it is on (docs/EPIC-14.md ruling 14). */
+export function instructorChangeNote(user: AdminUser): string | null {
+	if (user.grantedRole === "instructor") return null;
+	if (isCourseAccount(user.issuer)) return "Only SSO accounts can be instructors.";
+	if (user.grantedRole === "administrator") {
+		return "This account is a granted administrator. Demote first.";
+	}
+	if (user.role !== "student") {
+		return `Already ${user.role === "administrator" ? "an administrator" : "an instructor"} from the SSO provider.`;
+	}
+	return null;
+}
+
+/** Make instructor, or remove a granted instructor role (docs/EPIC-14.md ruling 14). */
+function InstructorChange({ user }: { user: AdminUser }) {
+	const toast = useToast();
+	const change = useSetGrantedInstructor();
+	const [confirming, setConfirming] = useState(false);
+	const make = user.grantedRole !== "instructor";
+	const note = instructorChangeNote(user);
+	const noteId = `instructor-note-${user.id}`;
+	const name = user.displayName;
+
+	function open(next: boolean) {
+		change.reset();
+		setConfirming(next);
+	}
+
+	function run() {
+		if (change.isPending) return;
+		change.mutate(
+			{ userId: user.id, instructor: make },
+			{
+				onSuccess: () => {
+					toast.show({
+						tone: "success",
+						title: make
+							? `${name} is now an instructor`
+							: `${name} is no longer an instructor`,
+					});
+					setConfirming(false);
+				},
+			},
+		);
+	}
+
+	return (
+		<>
+			<Button
+				size="sm"
+				data-testid={make ? "detail-make-instructor" : "detail-remove-instructor"}
+				aria-label={make ? `Make instructor: ${name}` : `Remove instructor: ${name}`}
+				aria-describedby={note ? noteId : undefined}
+				aria-disabled={note ? true : undefined}
+				onClick={() => (note ? undefined : open(true))}
+			>
+				{make ? "Make instructor…" : "Remove instructor…"}
+			</Button>
+			{note ? (
+				<p id={noteId} className="pk-muted m-0 w-full text-[13px]">
+					{note}
+				</p>
+			) : null}
+			<ConfirmDialogRoot open={confirming} onOpenChange={open}>
+				<ConfirmDialog
+					id={make ? "make-instructor-dialog" : "remove-instructor-dialog"}
+					testId={make ? "make-instructor-dialog" : "remove-instructor-dialog"}
+					title={
+						make ? `Make ${name} an instructor?` : `Remove instructor from ${name}?`
+					}
+					description={
+						<>
+							<span className="block">
+								{make
+									? "They can open the Course pages of courses they teach, from their next page load."
+									: `They go back to ${roleText({ role: user.providerRole, grantedRole: null })}, from their next page load.`}
+							</span>
+							{change.error ? (
+								<span
+									className="mt-2 block text-status-error"
+									role="alert"
+									data-testid="instructor-change-error"
+								>
+									{errorText(change.error)}
+								</span>
+							) : null}
+						</>
+					}
+					confirmLabel={make ? "Make instructor" : "Remove instructor"}
+					pending={change.isPending}
+					onConfirm={run}
+				/>
+			</ConfirmDialogRoot>
+		</>
+	);
+}
+
 /** Disable or enable the account, and its grace override (SPEC.md §6.4, §20.1). */
 function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 	const toast = useToast();
+	const wasDexLocal = useRef(user.dexLocal);
+
+	// Remove takes the Dex buttons and their dialog away with it; focus then
+	// goes to the panel heading rather than being lost (docs/EPIC-14.md ruling 22).
+	useEffect(() => {
+		const lost = document.activeElement === document.body || !document.activeElement;
+		if (wasDexLocal.current && !user.dexLocal && lost) {
+			document.getElementById("detail-title")?.focus();
+		}
+		wasDexLocal.current = user.dexLocal;
+	}, [user.dexLocal]);
 	const setDisabled = useSetDisabled();
 	const [confirming, setConfirming] = useState(false);
 	const disabled = user.disabledAt !== null;
@@ -802,6 +912,8 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 					{disabled ? "Enable account" : "Disable account…"}
 				</Button>
 				<RoleChange user={user} isSelf={isSelf} />
+				<InstructorChange user={user} />
+				{user.dexLocal ? <DexUserActions user={user} isSelf={isSelf} /> : null}
 			</div>
 			{isSelf ? (
 				<p id={selfNoteId} className="pk-muted m-0 text-[13px]">

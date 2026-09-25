@@ -331,6 +331,14 @@ test("ApiConfig applies the auth and session defaults", () => {
 	expect(config.SESSION_TTL_SECONDS).toBe(43200);
 });
 
+test("ApiConfig accepts an empty OIDC_GROUPS_CLAIM, meaning no groups claim", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+		OIDC_GROUPS_CLAIM: "",
+	});
+	expect(config.OIDC_GROUPS_CLAIM).toBe("");
+});
+
 test("ApiConfig rejects a PUBLIC_URL that is not a URL", () => {
 	expectConfigError(
 		{ DATABASE_URL: "postgres://localhost/portikus", PUBLIC_URL: "not-a-url" },
@@ -621,4 +629,94 @@ test("a zero recovery interval is a config error", () => {
 			RECOVERY_INTERVAL_SECONDS: "0",
 		}),
 	).toThrow(/RECOVERY_INTERVAL_SECONDS/);
+});
+
+// --- Sign-in provider settings (docs/EPIC-14.md, "API settings") ---
+
+const apiDevBase = { DATABASE_URL: "postgres://localhost/portikus" };
+
+test("ApiConfig defaults to generic OIDC, no default role, no proxy, no Dex gRPC", () => {
+	const config = loadConfig(ApiConfigSchema, apiDevBase);
+	expect(config.OIDC_PROVIDER).toBe("oidc");
+	expect(config.OIDC_DEFAULT_ROLE).toBe("none");
+	expect(config.OIDC_ALLOWED_TENANT).toBeUndefined();
+	expect(config.oidcAllowedDomains).toEqual([]);
+	expect(config.OUTBOUND_PROXY_URL).toBeUndefined();
+	expect(config.DEX_GRPC_ADDR).toBeUndefined();
+});
+
+test("ApiConfig refuses entra without a tenant", () => {
+	expectConfigError({ ...apiDevBase, OIDC_PROVIDER: "entra" }, "OIDC_ALLOWED_TENANT");
+});
+
+test("ApiConfig accepts entra with a tenant", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		...apiDevBase,
+		OIDC_PROVIDER: "entra",
+		OIDC_ALLOWED_TENANT: "11111111-2222-3333-4444-555555555555",
+	});
+	expect(config.OIDC_ALLOWED_TENANT).toBe("11111111-2222-3333-4444-555555555555");
+});
+
+test("ApiConfig refuses google without domains", () => {
+	expectConfigError({ ...apiDevBase, OIDC_PROVIDER: "google" }, "OIDC_ALLOWED_DOMAINS");
+	expectConfigError(
+		{ ...apiDevBase, OIDC_PROVIDER: "google", OIDC_ALLOWED_DOMAINS: " , " },
+		"OIDC_ALLOWED_DOMAINS",
+	);
+});
+
+test("ApiConfig parses google domains, trimmed and lowercased", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		...apiDevBase,
+		OIDC_PROVIDER: "google",
+		OIDC_ALLOWED_DOMAINS: "School.edu, staff.school.edu",
+	});
+	expect(config.oidcAllowedDomains).toEqual(["school.edu", "staff.school.edu"]);
+});
+
+test("ApiConfig refuses a domain that is not a DNS name", () => {
+	expectConfigError(
+		{
+			...apiDevBase,
+			OIDC_PROVIDER: "google",
+			OIDC_ALLOWED_DOMAINS: "https://school.edu",
+		},
+		"OIDC_ALLOWED_DOMAINS",
+	);
+});
+
+test("ApiConfig refuses an unknown provider or default role", () => {
+	expectConfigError({ ...apiDevBase, OIDC_PROVIDER: "saml" }, "OIDC_PROVIDER");
+	expectConfigError(
+		{ ...apiDevBase, OIDC_DEFAULT_ROLE: "instructor" },
+		"OIDC_DEFAULT_ROLE",
+	);
+});
+
+test("ApiConfig accepts a proxy URL and refuses one that is not a URL", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		...apiDevBase,
+		OUTBOUND_PROXY_URL: "http://127.0.0.1:3128",
+	});
+	expect(config.OUTBOUND_PROXY_URL).toBe("http://127.0.0.1:3128");
+	expectConfigError(
+		{ ...apiDevBase, OUTBOUND_PROXY_URL: "squid" },
+		"OUTBOUND_PROXY_URL",
+	);
+});
+
+test("ApiConfig requires the Dex gRPC settings together", () => {
+	expectConfigError(
+		{ ...apiDevBase, DEX_GRPC_ADDR: "127.0.0.1:5557" },
+		"DEX_GRPC_ADDR",
+	);
+	const config = loadConfig(ApiConfigSchema, {
+		...apiDevBase,
+		DEX_GRPC_ADDR: "127.0.0.1:5557",
+		DEX_GRPC_CA: "/etc/portikus/dex-grpc/ca.crt",
+		DEX_GRPC_CERT: "/etc/portikus/dex-grpc/client.crt",
+		DEX_GRPC_KEY: "/etc/portikus/dex-grpc/client.key",
+	});
+	expect(config.DEX_GRPC_ADDR).toBe("127.0.0.1:5557");
 });

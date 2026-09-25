@@ -415,6 +415,8 @@ test.skipIf(skip)("a student gets 403 on every /admin route", async () => {
 			"POST /admin/users/:id/enable",
 			"POST /admin/users/:id/promote",
 			"POST /admin/users/:id/demote",
+			"POST /admin/users/:id/make-instructor",
+			"POST /admin/users/:id/remove-instructor",
 			"GET /admin/workspaces/:id",
 			"POST /admin/workspaces/:id/archive",
 			"POST /admin/workspaces/:id/unarchive",
@@ -974,3 +976,141 @@ test.skipIf(skip)(
 		expect(admins).toHaveLength(1);
 	},
 );
+
+// --- Make and remove instructor (docs/EPIC-14.md ruling 14) ---
+
+test.skipIf(skip)(
+	"make instructor grants instructor once, audited, and survives the next sign-in",
+	async () => {
+		const carol = await adminJar();
+		await studentJar();
+		const carolId = await userId("Carol");
+		const aliceId = await userId("Alice");
+
+		const res = await adminPost(carol, `/admin/users/${aliceId}/make-instructor`);
+		expect(res.statusCode).toBe(200);
+		expect(res.json() as AdminUser).toMatchObject({
+			id: aliceId,
+			role: "instructor",
+			providerRole: "student",
+			grantedRole: "instructor",
+		});
+		const again = await adminPost(carol, `/admin/users/${aliceId}/make-instructor`);
+		expect(again.statusCode).toBe(200);
+		expect(await roleAudits()).toEqual([
+			{
+				actor: `user:${carolId}`,
+				target: aliceId,
+				metadata: {
+					from: "student",
+					to: "instructor",
+					source: "admin",
+					ip: expect.any(String),
+					userAgent: expect.any(String),
+				},
+			},
+		]);
+		// The grant survives alice's next sign-in.
+		const alice = new CookieJar();
+		await loginAs(app, "alice", alice);
+		const me = await app.inject({
+			url: "/auth/me",
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(me.json().role).toBe("instructor");
+	},
+);
+
+test.skipIf(skip)("make instructor keeps the account's sessions", async () => {
+	const carol = await adminJar();
+	const alice = await studentJar();
+	const aliceId = await userId("Alice");
+	await adminPost(carol, `/admin/users/${aliceId}/make-instructor`);
+	const me = await app.inject({
+		url: "/auth/me",
+		headers: { cookie: alice.cookieHeader() },
+	});
+	expect(me.statusCode).toBe(200);
+	expect(me.json().role).toBe("instructor");
+});
+
+test.skipIf(skip)(
+	"make instructor leaves a provider administrator alone and refuses a granted one",
+	async () => {
+		const carol = await adminJar();
+		await studentJar();
+		const carolId = await userId("Carol");
+		const aliceId = await userId("Alice");
+
+		const provider = await adminPost(carol, `/admin/users/${carolId}/make-instructor`);
+		expect(provider.statusCode).toBe(200);
+		expect(provider.json()).toMatchObject({ role: "administrator", grantedRole: null });
+
+		await adminPost(carol, `/admin/users/${aliceId}/promote`);
+		const granted = await adminPost(carol, `/admin/users/${aliceId}/make-instructor`);
+		expect(granted.statusCode).toBe(400);
+		expect(granted.json().message).toBe("Demote first.");
+		const remove = await adminPost(carol, `/admin/users/${aliceId}/remove-instructor`);
+		expect(remove.statusCode).toBe(400);
+		// Only the promotion is on record; the administrator grant is untouched.
+		expect(await roleAudits()).toHaveLength(1);
+		const row = await testDb.db
+			.selectFrom("users")
+			.select(["role", "granted_role"])
+			.where("id", "=", aliceId)
+			.executeTakeFirstOrThrow();
+		expect(row).toEqual({ role: "administrator", granted_role: "administrator" });
+	},
+);
+
+test.skipIf(skip)(
+	"make and remove instructor refuse a course account; bad ids are 404 and 400",
+	async () => {
+		const carol = await adminJar();
+		const courseId = await insertTestLtiUser(testDb.db);
+		const make = await adminPost(carol, `/admin/users/${courseId}/make-instructor`);
+		expect(make.statusCode).toBe(400);
+		expect(make.json().message).toBe("Only SSO accounts can be instructors.");
+		const remove = await adminPost(carol, `/admin/users/${courseId}/remove-instructor`);
+		expect(remove.statusCode).toBe(400);
+		for (const action of ["make-instructor", "remove-instructor"]) {
+			const missing = await adminPost(
+				carol,
+				`/admin/users/${crypto.randomUUID()}/${action}`,
+			);
+			expect(missing.statusCode).toBe(404);
+			const bad = await adminPost(carol, `/admin/users/not-a-uuid/${action}`);
+			expect(bad.statusCode).toBe(400);
+		}
+		expect(await roleAudits()).toEqual([]);
+	},
+);
+
+test.skipIf(skip)(
+	"remove instructor clears the grant and returns the provider role",
+	async () => {
+		const carol = await adminJar();
+		await studentJar();
+		const carolId = await userId("Carol");
+		const aliceId = await userId("Alice");
+		await adminPost(carol, `/admin/users/${aliceId}/make-instructor`);
+		const res = await adminPost(carol, `/admin/users/${aliceId}/remove-instructor`);
+		expect(res.statusCode).toBe(200);
+		expect(res.json()).toMatchObject({ role: "student", grantedRole: null });
+		expect((await roleAudits())[1]).toMatchObject({
+			actor: `user:${carolId}`,
+			target: aliceId,
+			metadata: { from: "instructor", to: "student", source: "admin" },
+		});
+		const none = await adminPost(carol, `/admin/users/${aliceId}/remove-instructor`);
+		expect(none.statusCode).toBe(400);
+		expect(none.json().message).toBe("This account has no instructor grant.");
+	},
+);
+
+test.skipIf(skip)("a student cannot make anyone an instructor", async () => {
+	const alice = await studentJar();
+	const aliceId = await userId("Alice");
+	const res = await adminPost(alice, `/admin/users/${aliceId}/make-instructor`);
+	expect(res.statusCode).toBe(403);
+});

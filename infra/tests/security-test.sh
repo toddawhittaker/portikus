@@ -10,7 +10,7 @@
 # Usage: ./infra/tests/security-test.sh <vm-ip> [--sweep]
 #   --sweep  also remove sectest users and workspaces an earlier run left.
 # Environment: PORTIKUS_PUBLIC_HOST, PORTIKUS_PUBLIC_PORT as for the smoke
-# test; PORTIKUS_IDP as the VM was configured (dex, mock or external);
+# test; PORTIKUS_IDP as the VM was configured (dex, entra, google, external or mock);
 # PORTIKUS_SECURITY_HEAVY=1 turns on the heavy limit tests, which need
 # a VM with no other workspace.
 set -uo pipefail
@@ -80,7 +80,7 @@ sec_check_idp
 
 # Modules run in this order; one that is not there yet is skipped.  The
 # network module goes last because it briefly claims b's address from a.
-for module in cross-user container preview-edge lti limits network; do
+for module in cross-user container preview-edge lti egress limits network; do
   if [ -f "${here}/security/${module}.sh" ]; then
     # shellcheck source=/dev/null
     . "${here}/security/${module}.sh"

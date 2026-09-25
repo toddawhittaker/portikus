@@ -1,7 +1,6 @@
 import * as crypto from "node:crypto";
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { loginAs, MOCK_ISSUER, query } from "./helpers";
+import { loginAs, MOCK_ISSUER, query, settledAxe } from "./helpers";
 
 /**
  * Bulk actions on the Users view (Epic 13.1 T4): tick rows, confirm a
@@ -52,7 +51,7 @@ test("an administrator disables two accounts at once", async ({ page }) => {
 	);
 	expect(
 		(
-			await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()
+			await (await settledAxe(page)).withTags(["wcag2a", "wcag2aa"]).analyze()
 		).violations.map((v) => v.id),
 	).toEqual([]);
 	await dialog.getByRole("button", { name: "Disable" }).click();

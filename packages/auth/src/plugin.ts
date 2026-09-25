@@ -106,6 +106,9 @@ function isExempt(request: FastifyRequest): boolean {
 	if (url.startsWith("/auth/")) return true;
 	// An LTI launch is how an LMS user gets a session in the first place.
 	if (url === "/lti/login" || url === "/lti/launch" || url === "/lti/jwks") return true;
+	// A new standalone Dex site has nobody to sign in as (docs/EPIC-14.md ruling 18).
+	if (request.method === "GET" && url === "/setup/state") return true;
+	if (request.method === "POST" && url === "/setup/first-account") return true;
 	// The preview host never carries the main session cookie, and the edge
 	// authorization subrequest carries none at all: both authenticate with the
 	// preview session instead (BROWSER-HANDLING.md §9.2, §10).

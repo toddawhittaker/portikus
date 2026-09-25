@@ -3,9 +3,12 @@ import {
 	CookieJar,
 	csrfHeaders,
 	loginAs,
+	MOCK_ENTRA_TENANT,
+	MOCK_GOOGLE_DOMAIN,
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import type { ApiConfig } from "@portikus/config";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { silentLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
@@ -373,3 +376,215 @@ test.skipIf(skip)("logout writes an auth.logout audit row", async () => {
 	expect(row.actor).toMatch(/^user:[0-9a-f-]{36}$/);
 	expect(row.result).toBe("ok");
 });
+
+// --- Sign-in providers (docs/EPIC-14.md rulings 8 to 12, 31) ---
+
+const ENTRA: Partial<ApiConfig> = {
+	OIDC_PROVIDER: "entra",
+	OIDC_ALLOWED_TENANT: MOCK_ENTRA_TENANT,
+	OIDC_GROUPS_CLAIM: "roles",
+	OIDC_STUDENT_GROUP: "Portikus.Student",
+	OIDC_INSTRUCTOR_GROUP: "Portikus.Instructor",
+	OIDC_ADMIN_GROUP: "Portikus.Administrator",
+	OIDC_DEFAULT_ROLE: "none",
+};
+
+const GOOGLE: Partial<ApiConfig> = {
+	OIDC_PROVIDER: "google",
+	OIDC_ALLOWED_DOMAINS: MOCK_GOOGLE_DOMAIN,
+	oidcAllowedDomains: [MOCK_GOOGLE_DOMAIN],
+	OIDC_DEFAULT_ROLE: "student",
+};
+
+/** Sign `user` in under `overrides`; returns the status, the new user's role and the denial audit row. */
+async function signInUnder(overrides: Partial<ApiConfig>, user: string) {
+	const provider = buildTestServer(testDb.db, mock.issuer, overrides);
+	await provider.ready();
+	try {
+		const jar = new CookieJar();
+		const result = await loginAs(provider, user, jar);
+		const row = await testDb.db
+			.selectFrom("users")
+			.select("role")
+			.where("oidc_subject", "=", user)
+			.executeTakeFirst();
+		const denied = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "auth.login")
+			.where("result", "=", "denied")
+			.execute();
+		return {
+			status: result.status,
+			session: jar.get("portikus_session"),
+			role: row?.role ?? null,
+			denied,
+		};
+	} finally {
+		await provider.close();
+	}
+}
+
+async function expectRefused(
+	overrides: Partial<ApiConfig>,
+	user: string,
+	reason?: string,
+) {
+	const result = await signInUnder(overrides, user);
+	expect(result.status).toBe(403);
+	expect(result.session).toBeUndefined();
+	expect(result.role).toBeNull();
+	expect(result.denied).toHaveLength(1);
+	expect(result.denied[0]?.actor).toBe(`subject:${user}`);
+	const metadata = result.denied[0]?.metadata as Record<string, unknown>;
+	if (reason) expect(metadata.reason).toBe(reason);
+	else expect(metadata.reason).toBeUndefined();
+}
+
+test.skipIf(skip)(
+	"Entra: erin, from the tenant with a student app role, is a student",
+	async () => {
+		const result = await signInUnder(ENTRA, "erin");
+		expect(result.status).toBe(302);
+		expect(result.role).toBe("student");
+		expect(result.denied).toHaveLength(0);
+	},
+);
+
+test.skipIf(skip)(
+	"Entra: eve, from another tenant, is refused as tenant_not_allowed",
+	async () => {
+		await expectRefused(ENTRA, "eve", "tenant_not_allowed");
+	},
+);
+
+test.skipIf(skip)(
+	"Entra: a token with no tid is refused as tenant_not_allowed",
+	async () => {
+		// gina's token has no tid at all.
+		await expectRefused(ENTRA, "gina", "tenant_not_allowed");
+	},
+);
+
+test.skipIf(skip)(
+	"Entra: ian, in the tenant with no app role, gets no account",
+	async () => {
+		await expectRefused(ENTRA, "ian");
+	},
+);
+
+test.skipIf(skip)(
+	"Entra with OIDC_DEFAULT_ROLE=student admits ian as a student",
+	async () => {
+		const result = await signInUnder({ ...ENTRA, OIDC_DEFAULT_ROLE: "student" }, "ian");
+		expect(result.status).toBe(302);
+		expect(result.role).toBe("student");
+	},
+);
+
+test.skipIf(skip)(
+	"Google: gina, from the domain, is a student and never more",
+	async () => {
+		const result = await signInUnder(GOOGLE, "gina");
+		expect(result.status).toBe(302);
+		expect(result.role).toBe("student");
+	},
+);
+
+test.skipIf(skip)(
+	"Google: gabe, from another domain, is refused as domain_not_allowed",
+	async () => {
+		await expectRefused(GOOGLE, "gabe", "domain_not_allowed");
+	},
+);
+
+test.skipIf(skip)(
+	"Google: gus, with no hd, is refused as domain_not_allowed",
+	async () => {
+		await expectRefused(GOOGLE, "gus", "domain_not_allowed");
+	},
+);
+
+test.skipIf(skip)("Google: the login redirect hints the first domain", async () => {
+	const provider = buildTestServer(testDb.db, mock.issuer, GOOGLE);
+	try {
+		const res = await provider.inject({ method: "GET", url: "/auth/login" });
+		const location = new URL(String(res.headers.location));
+		expect(location.searchParams.get("hd")).toBe(MOCK_GOOGLE_DOMAIN);
+	} finally {
+		await provider.close();
+	}
+});
+
+test.skipIf(skip)("generic OIDC sends no hd hint", async () => {
+	const res = await app.inject({ method: "GET", url: "/auth/login" });
+	expect(new URL(String(res.headers.location)).searchParams.has("hd")).toBe(false);
+});
+
+test.skipIf(skip)(
+	"a tid or hd in userinfo does not admit an ID token that lacks it",
+	async () => {
+		mock.users.uma = {
+			sub: "uma",
+			email: "uma@example.edu",
+			name: "Uma Userinfo",
+			groups: [],
+			claims: { roles: ["Portikus.Student"] },
+			userinfoClaims: { tid: MOCK_ENTRA_TENANT, hd: MOCK_GOOGLE_DOMAIN },
+		};
+		try {
+			await expectRefused(ENTRA, "uma", "tenant_not_allowed");
+			await testDb.truncate();
+			await expectRefused(GOOGLE, "uma", "domain_not_allowed");
+		} finally {
+			delete mock.users.uma;
+		}
+	},
+);
+
+test.skipIf(skip)(
+	"OIDC_DEFAULT_ROLE=none refuses a generic OIDC user with no group",
+	async () => {
+		await expectRefused({ OIDC_DEFAULT_ROLE: "none" }, "dave");
+	},
+);
+
+test.skipIf(skip)(
+	"OIDC_DEFAULT_ROLE=student admits a generic OIDC user with no group as a student",
+	async () => {
+		const result = await signInUnder({ OIDC_DEFAULT_ROLE: "student" }, "dave");
+		expect(result.status).toBe(302);
+		expect(result.role).toBe("student");
+	},
+);
+
+test.skipIf(skip)(
+	"a matching group still wins over OIDC_DEFAULT_ROLE=student",
+	async () => {
+		const result = await signInUnder({ OIDC_DEFAULT_ROLE: "student" }, "carol");
+		expect(result.role).toBe("administrator");
+	},
+);
+
+test.skipIf(skip)(
+	"a refused provider sign-in matches no existing account by email",
+	async () => {
+		// An account already holding gabe's email must not let gabe in.
+		await testDb.db
+			.insertInto("users")
+			.values({
+				oidc_issuer: mock.issuer,
+				oidc_subject: "someone-else",
+				email: "gabe@elsewhere.example.org",
+				display_name: "Existing",
+				role: "student",
+				provider_role: "student",
+			})
+			.execute();
+		const result = await signInUnder(GOOGLE, "gabe");
+		expect(result.status).toBe(403);
+		expect(result.session).toBeUndefined();
+		const sessions = await testDb.db.selectFrom("sessions").select("id").execute();
+		expect(sessions).toHaveLength(0);
+	},
+);

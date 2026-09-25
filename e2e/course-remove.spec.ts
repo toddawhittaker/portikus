@@ -2,9 +2,8 @@
  * An instructor removes a member from the Course page, and a relaunch from
  * the LMS brings them back. Rex and Una in CS 350 belong to this spec alone.
  */
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { WEB_ORIGIN } from "./helpers";
+import { settledAxe, WEB_ORIGIN } from "./helpers";
 import { launchAs, openCourseTab } from "./lti-helpers";
 
 test("an instructor removes a student, who reappears after a relaunch", async ({
@@ -37,7 +36,7 @@ test("an instructor removes a student, who reappears after a relaunch", async ({
 		await expect(dialog).toContainText(
 			"They reappear if they open Portikus from the course again.",
 		);
-		const axe = await new AxeBuilder({ page: course })
+		const axe = await (await settledAxe(course))
 			.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
 			.include('[data-testid="dialog-remove-member"]')
 			.analyze();

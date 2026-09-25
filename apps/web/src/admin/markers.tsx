@@ -71,7 +71,10 @@ export function roleText(user: Pick<AdminUser, "role" | "grantedRole">): string 
 			? "Administrator (granted)"
 			: "Administrator (from SSO)";
 	}
-	return user.role === "instructor" ? "Instructor" : "Student";
+	if (user.role === "instructor") {
+		return user.grantedRole === "instructor" ? "Instructor (granted)" : "Instructor";
+	}
+	return "Student";
 }
 
 /** The first part of an issuer URL, for a narrow column. The full value goes in the title. */

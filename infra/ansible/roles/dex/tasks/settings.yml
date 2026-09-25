@@ -1,0 +1,114 @@
+---
+# Checked before any role runs (site.yml pre_tasks), so bad Dex settings
+# change nothing on the VM.  Loads the retired users file, when there is
+# one, for the one-time import into Dex's storage (docs/EPIC-14.md ruling
+# 23); it is read on the machine that runs Ansible.
+
+- name: Require the settings of Dex's upstream connector
+  ansible.builtin.assert:
+    that:
+      - portikus_dex_upstream_client_id | length > 0
+      - portikus_dex_upstream_client_secret | length >= 16
+    fail_msg: >-
+      PORTIKUS_DEX_UPSTREAM={{ portikus_dex_upstream }} needs
+      PORTIKUS_DEX_UPSTREAM_CLIENT_ID and PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET,
+      the client Dex is registered as with {{ 'Microsoft' if portikus_dex_upstream == 'microsoft' else 'Google' }}.
+  when: portikus_dex_upstream in ['microsoft', 'google']
+  run_once: true
+
+# The user filter is the only gate on who may sign in (ruling 11).
+- name: Require the LDAP connector settings
+  ansible.builtin.assert:
+    that:
+      - portikus_ldap_host is match('^[A-Za-z0-9.-]+(:[0-9]{1,5})?$')
+      - portikus_ldap_schema in ['ad', 'openldap']
+      - portikus_ldap_bind_dn | length > 0
+      - portikus_ldap_bind_password | length > 0
+      - portikus_ldap_user_base_dn | length > 0
+      - portikus_ldap_user_filter is match('^\(.*\)$')
+      - portikus_ldap_ip_allow | length > 0
+      - portikus_ldap_ip_allow | reject('match', '^[0-9.]+(/[0-9]{1,2})?$') | list | length == 0
+    fail_msg: >-
+      PORTIKUS_DEX_UPSTREAM=ldap needs PORTIKUS_LDAP_HOST (host or host:port,
+      spoken over TLS), PORTIKUS_LDAP_SCHEMA (ad or openldap),
+      PORTIKUS_LDAP_BIND_DN, PORTIKUS_LDAP_BIND_PASSWORD,
+      PORTIKUS_LDAP_USER_BASE_DN, PORTIKUS_LDAP_USER_FILTER (in parentheses,
+      naming who may sign in) and PORTIKUS_LDAP_IP_ALLOW (the directory's
+      addresses).  PORTIKUS_LDAP_GROUP_BASE_DN and PORTIKUS_LDAP_ROOT_CA are
+      optional.
+  when: portikus_dex_upstream == 'ldap'
+  run_once: true
+
+- name: Require the LDAP root certificate file to exist
+  when: portikus_dex_upstream == 'ldap' and portikus_ldap_root_ca | length > 0
+  run_once: true
+  block:
+    - name: Look at the LDAP root certificate file
+      ansible.builtin.stat:
+        path: "{{ portikus_ldap_root_ca }}"
+      delegate_to: localhost
+      become: false
+      register: dex_ldap_root_ca_stat
+
+    - name: Require it
+      ansible.builtin.assert:
+        that:
+          - dex_ldap_root_ca_stat.stat.exists
+        fail_msg: "PORTIKUS_LDAP_ROOT_CA names {{ portikus_ldap_root_ca }}, which does not exist on this machine."
+
+- name: Look at the users file
+  ansible.builtin.stat:
+    path: "{{ portikus_users_file }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: dex_users_file_stat
+
+- name: Load the users file
+  when: dex_users_file_stat.stat.exists
+  run_once: true
+  block:
+    - name: Require the users file to be readable by its owner only
+      ansible.builtin.assert:
+        that:
+          - dex_users_file_stat.stat.mode == '0600'
+        fail_msg: >-
+          The users file {{ portikus_users_file }} must have mode 0600:
+          `chmod 600 {{ portikus_users_file }}`.
+
+    - name: Read the users file
+      block:
+        - name: Parse the users file
+          ansible.builtin.set_fact:
+            dex_users: "{{ lookup('ansible.builtin.file', portikus_users_file) | from_json }}"
+          no_log: true
+      rescue:
+        - name: Explain an unreadable users file
+          ansible.builtin.fail:
+            msg: "The users file {{ portikus_users_file }} is not valid JSON."
+
+    # Only usernames reach the messages below, never an entry with its hash.
+    - name: Require a version 1 users file with valid hashes and roles
+      ansible.builtin.assert:
+        that:
+          - dex_users.version | default(0) == 1
+          - dex_users.users | default([]) | length > 0
+          - dex_bad_hashes | length == 0
+          - dex_bad_roles | length == 0
+        fail_msg: >-
+          The users file {{ portikus_users_file }} must be version 1, hold at least
+          one user, and every entry needs a bcrypt hash of cost 10 to 12 and the
+          role student, instructor or administrator.
+          Bad hashes: {{ dex_bad_hashes | join(', ') or 'none' }}.
+          Bad roles: {{ dex_bad_roles | join(', ') or 'none' }}.
+      vars:
+        dex_bad_hashes: >-
+          {{ dex_users.users | default([])
+             | rejectattr('passwordHash', 'defined') | map(attribute='username') | list
+             + dex_users.users | default([]) | selectattr('passwordHash', 'defined')
+               | rejectattr('passwordHash', 'match', dex_bcrypt_pattern)
+               | map(attribute='username') | list }}
+        dex_bad_roles: >-
+          {{ dex_users.users | default([])
+             | rejectattr('role', 'in', ['student', 'instructor', 'administrator'])
+             | map(attribute='username') | list }}

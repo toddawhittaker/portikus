@@ -301,11 +301,48 @@ jobs:
       - name: Check the Dex version
         run: '"$DEX_DIR/out/dex" version | grep -F "Dex Version: ${{ steps.pin.outputs.version }}"'
       # The role's real template and guards, with the published test users.
-      - name: Render the Dex configuration from the users fixture
+      - name: Render the Dex configuration
         run: >-
           ansible-playbook infra/tests/dex-render-test.yml
           -e dex_render_dest="$DEX_DIR/config.yaml"
           -e dex_web_dir="$DEX_DIR/out/web"
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The proto the API's client is built from must match the pinned Dex
+      # (docs/EPIC-14.md, risk 5).
+      - name: Check the Dex API proto matches the pinned commit
+        run: >-
+          curl -sfL "https://raw.githubusercontent.com/dexidp/dex/${{ steps.pin.outputs.commit }}/api/v2/api.proto"
+          | cmp - packages/auth/proto/dex-api.proto
+      # PostgreSQL storage and the gRPC API behind mutual TLS, as the dex role
+      # will run them (docs/EPIC-14.md rulings 19 and 20), with the role's own
+      # certificate script. grpc-other is a second authority, for a client
+      # Dex must refuse.
+      - name: Give Dex PostgreSQL storage and the gRPC API
+        env:
+          PGPASSWORD: portikus
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -c 'create database dex'
+          certs=infra/ansible/roles/dex/files/dex-grpc-certs.sh
+          group=$(id -gn)
+          for dir in grpc grpc-other; do
+            [ "$(sudo bash "$certs" "$DEX_DIR/$dir" 30 "$group" "$group")" = changed ]
+          done
+          # A second run with every certificate current issues nothing.
+          [ -z "$(sudo bash "$certs" "$DEX_DIR/grpc" 30 "$group" "$group")" ]
+          yq -i '
+            .storage = {"type": "postgres", "config": {"host": "127.0.0.1", "port": 5432,
+              "database": "dex", "user": "postgres", "password": "portikus", "ssl": {"mode": "disable"}}} |
+            .grpc = {"addr": "127.0.0.1:5557",
+              "tlsCert": strenv(DEX_DIR) + "/grpc/server.crt",
+              "tlsKey": strenv(DEX_DIR) + "/grpc/server.key",
+              "tlsClientCA": strenv(DEX_DIR) + "/grpc/ca.crt"}
+          ' "$DEX_DIR/config.yaml"
       - name: Start Dex
         run: |
           set -euo pipefail
@@ -316,17 +353,47 @@ jobs:
           done
           cat "$DEX_DIR/dex.log"
           exit 1
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Sign in through Dex
-        run: pnpm exec vitest run packages/auth/src/dex.integration.test.ts
+      # The one-time users-file import the dex role runs (docs/EPIC-14.md
+      # ruling 23), into Dex's empty storage; the sign-in tests below use it.
+      - name: Import the users fixture into Dex
+        env:
+          PGPASSWORD: portikus
+          DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/dex_import
+          DEX_GRPC_ADDR: 127.0.0.1:5557
+          DEX_GRPC_CA: ${{ env.DEX_DIR }}/grpc/ca.crt
+          DEX_GRPC_CERT: ${{ env.DEX_DIR }}/grpc/client.crt
+          DEX_GRPC_KEY: ${{ env.DEX_DIR }}/grpc/client.key
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -c 'create database dex_import'
+          # The command imports @portikus/db from its build, as on the VM.
+          pnpm exec tsc -b packages/db
+          pnpm exec tsx packages/db/src/migrate.ts
+          run_import() {
+            pnpm exec tsx packages/auth/src/dex-import-main.ts \
+              --input infra/tests/fixtures/users.sample.json --issuer http://127.0.0.1:5556/dex
+          }
+          run_import | tee "$DEX_DIR/import-1.txt"
+          grep -qx 'Imported into Dex: carol, alice' "$DEX_DIR/import-1.txt"
+          grep -qx 'Grants set: none' "$DEX_DIR/import-1.txt"
+          grep -qx 'Accounts created for a grant: carol' "$DEX_DIR/import-1.txt"
+          # A second run finds the import already recorded and imports nothing.
+          run_import | tee "$DEX_DIR/import-2.txt"
+          grep -q '^The users file was already imported on .*; it is retired and nothing was imported.$' "$DEX_DIR/import-2.txt"
+      - name: Sign in through Dex, and manage Dex users through its gRPC API
+        run: >-
+          pnpm exec vitest run
+          packages/auth/src/dex.integration.test.ts
+          packages/auth/src/dex-api.integration.test.ts
         env:
           DEX_TEST_ISSUER: http://127.0.0.1:5556/dex
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
+          DEX_GRPC_ADDR: 127.0.0.1:5557
+          DEX_GRPC_CA: ${{ env.DEX_DIR }}/grpc/ca.crt
+          DEX_GRPC_CERT: ${{ env.DEX_DIR }}/grpc/client.crt
+          DEX_GRPC_KEY: ${{ env.DEX_DIR }}/grpc/client.key
+          DEX_GRPC_OTHER_CERT: ${{ env.DEX_DIR }}/grpc-other/client.crt
+          DEX_GRPC_OTHER_KEY: ${{ env.DEX_DIR }}/grpc-other/client.key
       - name: Show the Dex log
         if: failure()
         run: cat "$DEX_DIR/dex.log" || true

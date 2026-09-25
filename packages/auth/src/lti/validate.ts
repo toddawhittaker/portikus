@@ -1,10 +1,12 @@
 import {
 	compactVerify,
 	createRemoteJWKSet,
+	customFetch,
 	decodeProtectedHeader,
 	errors,
 	type JWTVerifyGetKey,
 } from "jose";
+import { createOutboundFetch } from "../outbound-fetch.js";
 import { isOnOrigin } from "./login.js";
 import type { LtiPlatform } from "./platforms.js";
 import { type LtiRole, mapLtiRoles } from "./roles.js";
@@ -61,9 +63,11 @@ const CLOCK_SKEW_SECONDS = 60;
 /**
  * One remote JWKS per keyset URL, kept for the life of the process: keys
  * cached 10 minutes, an unknown `kid` refetches at most every 30 seconds,
- * each fetch times out after 5 seconds (ruling 19).
+ * each fetch times out after 5 seconds (ruling 19). With a proxy URL the
+ * fetches go through the forward proxy (docs/EPIC-14.md ruling 27).
  */
-export function createKeySetSource(): KeySetSource {
+export function createKeySetSource(proxyUrl?: string | null): KeySetSource {
+	const outboundFetch = createOutboundFetch(proxyUrl);
 	const sets = new Map<string, JWTVerifyGetKey>();
 	return (keysetUrl) => {
 		let set = sets.get(keysetUrl);
@@ -72,6 +76,7 @@ export function createKeySetSource(): KeySetSource {
 				cacheMaxAge: 600_000,
 				cooldownDuration: 30_000,
 				timeoutDuration: 5_000,
+				[customFetch]: outboundFetch,
 			});
 			sets.set(keysetUrl, set);
 		}

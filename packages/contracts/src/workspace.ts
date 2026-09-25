@@ -176,6 +176,9 @@ export const ApiErrorCode = z.enum([
 	"BUSY",
 	"WORKSPACE_ARCHIVED",
 	"NOT_IMPLEMENTED",
+	// Dex user management (docs/EPIC-14.md rulings 21 and 22).
+	"DEX_USER_EXISTS",
+	"DEX_UNAVAILABLE",
 	"INTERNAL",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;

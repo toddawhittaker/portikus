@@ -8,6 +8,13 @@ it is rejected, and record the rejection in `docs/STACK.md` section 35.
 
 ## `apt install portikus` on a bring-your-own Debian 13 host
 
+**Scheduled as Epic 15.** `docs/EPIC-15.md` is now the plan, after Epic 14
+(`docs/EPIC-14.md`); it keeps this entry's shape (Debian 13 only, the
+Ansible roles shipped in the package, a signed apt repository, the image
+as a release asset, a fresh-install test) and adds debconf questions and
+an admin Workspace image section. Remove this entry when Epic 15 lands.
+The text below is the original proposal.
+
 **What.** An operator with their own Debian 13 machine, virtual or bare
 metal, runs one `apt install portikus`, edits a config file, and runs one
 `portikus configure` command to get a working platform. Today the control
@@ -997,6 +1004,11 @@ today.
 3. One profile per deployment, or per user.
 4. Whether a debugger is in scope.
 
+**Related.** Per-course or per-project tool versions (a version manager
+such as mise, so one course gets a different Node or Python) belong here
+too. Epic 15's Workspace image section only picks one Node and Python
+for the whole site (docs/EPIC-15.md, ruling 29).
+
 **Source.** Todd and a colleague, after a demo, 2026-09-23.
 
 ## LTI grade passback (AGS)
@@ -1054,20 +1066,79 @@ Needs a security review. About a week.
 
 ## Group-ID and overage handling for Microsoft Entra ID
 
-**What.** Map Entra's group object IDs, and its overage claim past about
-200 groups, to roles, instead of the group-name claim `mapRole` reads
-today.
+**What.** Map Entra security groups to roles, by their object IDs, and
+handle the overage claim Entra sends instead of the list past about 200
+groups.
 
-**Why.** Past the overage limit Entra sends no group list at all, so
-`mapRole` cannot place a student or instructor; a stored role grant still
-reaches administrator, but there is no equivalent for `instructor` yet.
+**Why.** Epic 14 takes roles from Entra app roles, which a tenant assigns
+to people or groups on the Portikus registration and which have no
+overage limit. A site that wants to reuse existing groups without
+assigning app roles cannot today.
 
-**What it would take.** A Microsoft Graph call to resolve group IDs (and
-page through an overage), or a stored `instructor` grant exposed in the
-Users view as a stopgap. A few days plus a security review of the new
-Graph credential.
+**What it would take.** Group object IDs in the three role settings, and
+a Microsoft Graph call to page through an overage. A few days plus a
+security review of the new Graph credential and its egress host.
 
-**Source.** Left out of Epic 13.1 (ruling 25).
+**Source.** Left out of Epic 13.1 (ruling 25) and Epic 14.
+
+## Several Entra tenants on one site
+
+**What.** Let people from more than one Entra tenant sign in to one site.
+
+**Why.** Epic 14 allows one tenant per site (docs/EPIC-14.md ruling 8).
+A site shared by several organisations would need more.
+
+**What it would take.** Entra's shared `organizations` endpoint, whose
+tokens carry a different issuer per tenant, so Portikus would replace
+`openid-client`'s single issuer check with its own. About two days plus a
+security review.
+
+**Source.** Left out of Epic 14 (Todd, 2026-09-24).
+
+## A Google group check
+
+**What.** Admit only members of a Google group, not a whole Workspace
+domain, and optionally map groups to roles.
+
+**Why.** Under Google, the domain is the only gate, and everyone starts
+as a student (docs/EPIC-14.md risk 3).
+
+**What it would take.** A Google Admin SDK call with a service account
+and domain-wide delegation, and its host on the egress allow list. A few
+days plus a security review.
+
+**Source.** Left out of Epic 14.
+
+## Self-service passwords and invitations for Dex accounts
+
+**What.** Let a Dex user change their own password, reset a forgotten
+one by email, and receive an emailed invitation; let an administrator
+edit a Dex user's email or username in place.
+
+**Why.** Today an administrator resets every forgotten password and hands
+it over privately, and changing an email or username means removing and
+re-adding the person, who then gets a new, empty workspace.
+
+**What it would take.** A signed-in password-change page through Dex's
+gRPC API; outbound email for resets and invitations, with its own
+throttle; and an update route that keeps the user ID. About a week.
+
+**Source.** Left out of Epic 14.
+
+## Admin pages for the egress allow list and LMS platforms
+
+**What.** Edit the API's egress allow list and the registered LMS
+platforms from the admin area instead of files Ansible applies.
+
+**Why.** Both change rarely today, and a file keeps every change in the
+operator's hands. A site with many courses or providers may want an
+administrator to do it without the host.
+
+**What it would take.** Storing both in the database, reloading Squid
+and the API's platform list on change, and auditing each edit. A few
+days plus a security review, since both widen what the API trusts.
+
+**Source.** Left out of Epic 13 and Epic 14.
 
 ## Server-side search and paging for the Users view
 
@@ -1098,20 +1169,5 @@ would bring the course account back (EPIC-13-1.md rulings 21 and N4).
 proof and instead requires the administrator to pick both accounts
 explicitly, with its own audit trail. Needs a security review, since it
 removes one of the two proofs of control ordinary linking requires.
-
-**Source.** Left out of Epic 13.1.
-
-## An `instructor` grant in the Users view
-
-**What.** Let an administrator grant the `instructor` role, not only
-`administrator`, from the Users view.
-
-**Why.** Today `granted_role` accepts `instructor` in the database, but
-only promote-to-administrator is exposed in the API and UI. Under a
-provider that sends no groups claim (Google), a grant would be the only
-way to `instructor` too.
-
-**What it would take.** A route and a UI action, mirroring promote and
-demote. Half a day.
 
 **Source.** Left out of Epic 13.1.

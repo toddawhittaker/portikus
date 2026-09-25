@@ -63,3 +63,22 @@
     owner: portikus
   become: true
   become_user: postgres
+
+# Dex's own accounts (docs/EPIC-14.md ruling 19).  The role matches Dex's
+# system user, so peer authentication lets only Dex in.  Kept when the site
+# moves off Dex, like any other data.
+- name: Create the Dex database role
+  community.postgresql.postgresql_user:
+    name: portikus-dex
+    role_attr_flags: NOSUPERUSER,NOCREATEROLE,NOCREATEDB
+  become: true
+  become_user: postgres
+  when: portikus_idp == 'dex'
+
+- name: Create the Dex database
+  community.postgresql.postgresql_db:
+    name: dex
+    owner: portikus-dex
+  become: true
+  become_user: postgres
+  when: portikus_idp == 'dex'

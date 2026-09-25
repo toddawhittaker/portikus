@@ -1,0 +1,80 @@
+---
+# What the API needs from Dex once the package is installed; the portikus
+# role includes this before it writes api.env.
+
+# The package made the portikus group, so the client key can be handed to it
+# now (ruling 20: root:portikus, mode 0640).  The API reads the client files
+# when it starts, so new certificates, from here or the dex role, restart it.
+- name: Give the API the gRPC client key
+  ansible.builtin.script:
+    cmd: >-
+      dex-grpc-certs.sh {{ dex_grpc_dir }} {{ dex_grpc_renew_days }}
+      portikus-dex portikus
+  register: dex_grpc_client
+  changed_when: "'changed' in dex_grpc_client.stdout or (dex_grpc_certs | default({})) is changed"
+  notify: Restart portikus-api
+
+# ── The one-time users-file import (docs/EPIC-14.md ruling 23) ────
+# Only while a users file is given.  The command's first run, whether it
+# imports or finds Dex already holding passwords, marks the site imported,
+# so every later run changes nothing.
+- name: Import the users file into Dex
+  when: dex_users is defined
+  block:
+    - name: Look for the import command
+      ansible.builtin.stat:
+        path: "{{ dex_import_script }}"
+      register: dex_import_command
+
+    - name: Require a package that has the import command
+      ansible.builtin.assert:
+        that:
+          - dex_import_command.stat.exists
+        fail_msg: >-
+          The installed portikus package has no Dex import command, so the
+          users file cannot be moved into Dex's storage.  Install a newer
+          package with PORTIKUS_DEB or PORTIKUS_VERSION.
+
+    # The portikus role brought the schema up to date just before this.
+    - name: Write the import input
+      ansible.builtin.copy:
+        dest: "{{ dex_import_input }}"
+        content: "{{ dex_users | to_json }}"
+        owner: root
+        group: portikus
+        mode: "0640"
+      changed_when: false
+      no_log: true
+
+    - name: Run the import
+      ansible.builtin.command:
+        argv:
+          - runuser
+          - -u
+          - portikus
+          - --
+          - /usr/bin/node
+          - "{{ dex_import_script }}"
+          - --input
+          - "{{ dex_import_input }}"
+          - --issuer
+          - "{{ portikus_dex_issuer }}"
+      environment:
+        DATABASE_URL: "{{ portikus_database_url }}"
+        DEX_GRPC_ADDR: "{{ dex_grpc_addr }}"
+        DEX_GRPC_CA: "{{ dex_grpc_dir }}/ca.crt"
+        DEX_GRPC_CERT: "{{ dex_grpc_dir }}/client.crt"
+        DEX_GRPC_KEY: "{{ dex_grpc_dir }}/client.key"
+      register: dex_import
+      changed_when: "'Imported into Dex' in dex_import.stdout"
+
+    - name: Show the import report
+      ansible.builtin.debug:
+        var: dex_import.stdout_lines
+
+  always:
+    - name: Remove the import input
+      ansible.builtin.file:
+        path: "{{ dex_import_input }}"
+        state: absent
+      changed_when: false

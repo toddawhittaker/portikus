@@ -284,6 +284,17 @@ Architecture must allow later support for:
 
 LDAP support does not need to be implemented directly in P0 if the institutional LDAP directory can be fronted by an OIDC identity provider.
 
+Added by Epic 14 (docs/EPIC-14.md, ADRs 0027 and 0028): a site picks one OIDC provider, and LTI launch works beside it.
+
+- Microsoft Entra ID, by direct OIDC: one tenant per site, admitted by the ID token's `tid` claim, with roles from Entra app roles in the `roles` claim.
+- Google Workspace, by direct OIDC: admitted by the ID token's `hd` claim against the site's domains; everyone starts as a student.
+- LDAP and Active Directory through Dex's LDAP connector, with a required user filter and roles from directory groups. Portikus never speaks LDAP.
+- Dex with its own passwords, kept in PostgreSQL and managed by administrators from the Users view; Dex can also sit in front of Entra or Google for guest accounts.
+- Any other OIDC provider, such as Okta, Keycloak or Shibboleth with its OIDC plugin. SAML is not supported directly.
+- An account is always keyed by the provider's issuer and `sub`, never by email.
+- A new site's first administrator comes from a one-time setup code printed on the host, never from being the first to sign in.
+- The API reaches outside providers and LMS keysets only through a forward proxy that allows named hosts.
+
 ### 5.2 Authorization
 
 Access must be denied by default.
@@ -2968,7 +2979,7 @@ Includes:
 
 - LTI 1.3 core resource-link launch (third-party login, id_token validation, state and nonce);
 - LMS platforms registered in an operator file applied by Ansible;
-- the `instructor` role, from LTI or from the Dex users file;
+- the `instructor` role, from LTI or from the site's sign-in provider;
 - a read-only Course page for instructors;
 - a mock LMS on the operator's host for trying and testing launches.
 
@@ -2995,6 +3006,27 @@ Acceptance:
 - a person who launches from a course and also signs in through SSO can link the two and always land in the SSO account and workspace afterward;
 - a launch never starts a session for an account whose effective role is administrator;
 - an administrator can promote an SSO account and demote one they promoted, and can never demote the last administrator.
+
+### Epic 14 — Sign-in providers
+
+See `docs/EPIC-14.md` for the working brief and rulings, `docs/adr/0027-egress-by-hostname-through-a-forward-proxy.md` for the egress proxy, and `docs/adr/0028-dex-storage-and-first-administrator.md` for Dex's storage and the first administrator; built on `epic/14-sign-in-providers`.
+
+Includes:
+
+- Microsoft Entra ID (one tenant, app roles) and Google Workspace (listed domains) by direct OIDC;
+- LDAP and Active Directory, and Entra or Google for guests, through Dex connectors;
+- Dex's accounts in PostgreSQL, with Add user, Reset password and Remove in the Users view through Dex's gRPC API behind mutual TLS, and the users file imported once and retired;
+- Make instructor and Remove instructor in the Users view;
+- a one-time setup code for the first administrator;
+- API egress by hostname through a Squid forward proxy, replacing the API's address allow list;
+- operator documentation for each provider, including Shibboleth's OIDC plugin and why SAML is not built.
+
+Acceptance:
+
+- each provider admits exactly the people its rules allow, tested against imitation tokens, and refuses the rest with a reason in the audit log;
+- moving the pilot's accounts into Dex's storage keeps every account, `sub` and workspace;
+- nobody becomes an administrator by signing in first;
+- the API cannot reach any internet address except through the proxy, and through it only listed hosts.
 
 ### Estimated total
 

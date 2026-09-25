@@ -2,13 +2,12 @@
  * Automated accessibility checks (SPEC.md section 25.8) on the Course page
  * and both LTI fallback pages (docs/EPIC-13.md rulings 17 and 24).
  */
-import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
-import { WEB_ORIGIN } from "./helpers";
+import { settledAxe, WEB_ORIGIN } from "./helpers";
 import { launchAs, openCourseTab, startLaunch } from "./lti-helpers";
 
 async function expectNoViolations(page: Page, include?: string) {
-	let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]);
+	let builder = (await settledAxe(page)).withTags(["wcag2a", "wcag2aa", "wcag21aa"]);
 	if (include) builder = builder.include(include);
 	const results = await builder.analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

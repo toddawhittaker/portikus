@@ -9,6 +9,8 @@
 # Usage (as root on the VM):
 #   portikus-backup-export volumes        one workspace volume name per line
 #   portikus-backup-export db             pg_dump -Fc of the portikus database
+#   portikus-backup-export has-dex        1 when Dex's own database exists, else 0
+#   portikus-backup-export dex-db         pg_dump -Fc of Dex's database (its accounts)
 #   portikus-backup-export counts         users, workspaces and projects rows
 #   portikus-backup-export workspaces     workspace id and instance name, one per line
 #   portikus-backup-export instances      the Incus instance names, one per line
@@ -85,6 +87,13 @@ case "${1:-}" in
   db)
     runuser -u postgres -- pg_dump -Fc portikus
     ;;
+  has-dex)
+    runuser -u postgres -- psql -X -q -t -A -d postgres -c \
+      "SELECT count(*) FROM pg_database WHERE datname = 'dex'"
+    ;;
+  dex-db)
+    runuser -u postgres -- pg_dump -Fc dex
+    ;;
   counts)
     runuser -u postgres -- psql -X -q -t -A -d portikus -c \
       "SELECT 'users ' || (SELECT count(*) FROM users) || ' workspaces ' || (SELECT count(*) FROM workspaces) || ' projects ' || (SELECT count(*) FROM projects)"
@@ -104,6 +113,6 @@ case "${1:-}" in
     export_volume "${2:-}"
     ;;
   *)
-    die "usage: portikus-backup-export volumes | db | counts | workspaces | instances | idmap VOL | volume VOL"
+    die "usage: portikus-backup-export volumes | db | has-dex | dex-db | counts | workspaces | instances | idmap VOL | volume VOL"
     ;;
 esac

@@ -61,8 +61,14 @@ export async function upsertUser(
 		.onConflict((oc) =>
 			oc.columns(["oidc_issuer", "oidc_subject"]).doUpdateSet({
 				email: identity.email,
-				display_name: identity.displayName,
-				preferred_username: identity.preferredUsername,
+				// A Dex password's name is its username, so keep the stored display name then.
+				display_name: sql<string>`case
+					when excluded.display_name = users.preferred_username then users.display_name
+					else excluded.display_name end`,
+				// Dex sends none for a password made through its API, so keep the stored one.
+				preferred_username: sql<
+					string | null
+				>`coalesce(excluded.preferred_username, users.preferred_username)`,
 				provider_role: role,
 				// In SQL so a grant written concurrently is never overwritten by a stale read.
 				role: sql<string>`case

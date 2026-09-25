@@ -172,6 +172,18 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/users/:id/enable": { access: "admin" },
 	"POST /admin/users/:id/promote": { access: "admin" },
 	"POST /admin/users/:id/demote": { access: "admin" },
+	"POST /admin/users/:id/make-instructor": { access: "admin" },
+	"POST /admin/users/:id/remove-instructor": { access: "admin" },
+	"POST /admin/dex-users": { access: "admin" },
+	"POST /admin/dex-users/:id/reset-password": { access: "admin" },
+	"POST /admin/dex-users/:id/remove": { access: "admin" },
+	// The first administrator (docs/EPIC-14.md rulings 17 and 18). The state
+	// and the first-account form serve a site nobody can sign in to yet; the
+	// form answers 404 unless Dex runs and no administrator exists.
+	"GET /setup/state": { access: "public" },
+	"HEAD /setup/state": { access: "self" },
+	"POST /setup/claim": { access: "self" },
+	"POST /setup/first-account": { access: "public" },
 	"GET /admin/workspaces/:id": { access: "admin" },
 	"HEAD /admin/workspaces/:id": { access: "admin" },
 	"POST /admin/workspaces/:id/archive": { access: "admin" },

@@ -193,7 +193,7 @@ export function registerLtiRoutes(
 ): void {
 	const auth = toAuthOptions(config);
 	const publicUrl = config.PUBLIC_URL;
-	const keySets = createKeySetSource();
+	const keySets = createKeySetSource(auth.outboundProxyUrl);
 	const jwks = toolJwks(lti?.toolKeyPem ?? null);
 
 	// Any page may frame login and launch: framed, they only render the

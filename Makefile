@@ -5,7 +5,6 @@
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy \
-       users-add users-remove users-list users-check users-deploy identity-carry-over-dry-run \
        backup-setup backup backup-install-timer restore \
        mock-lms lti-mock-register lti-mock-unregister
 
@@ -76,6 +75,10 @@ export TF_VAR_memory_mb := $(REHEARSAL_MEMORY_MB)
 rehearsal_disk_bytes := $(call tofu_attr,terraform_data,data_disk_size,triggers_replace.value)
 REHEARSAL_DATA_DISK_GB ?= $(if $(rehearsal_disk_bytes),$(shell echo $$(( $(rehearsal_disk_bytes) / 1073741824 ))),100)
 export TF_VAR_data_disk_size_bytes := $(shell echo $$(( $(REHEARSAL_DATA_DISK_GB) * 1073741824 )))
+# Its accounts come from a restored dex.dump or /setup, never the pilot's
+# retired users file, whose import would make restore.sh refuse the VM.
+# An exported PORTIKUS_USERS_FILE does not override this; the command line does.
+PORTIKUS_USERS_FILE := /nonexistent
 else
 $(error TOFU_ENV must be dev-libvirt or rehearsal-libvirt, not '$(TOFU_ENV)')
 endif
@@ -137,6 +140,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/caddy-preview-test.sh
 	bash infra/tests/lti-platforms-test.sh
 	ansible-playbook infra/tests/dex-render-test.yml
+	ansible-playbook infra/tests/egress-proxy-render-test.yml
 	bash infra/tests/backup-scope-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
@@ -181,20 +185,26 @@ wait-vm: ## Wait for the platform VM to finish first boot
 PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
 
 # ── Sign-in provider and accounts (docs/adr/0023) ──────────────────
-# PORTIKUS_IDP picks the provider: dex (the default), mock (test only: anyone
-# can sign in as anyone), or external (a real provider named by the
-# PORTIKUS_OIDC_* settings, reachable through PORTIKUS_API_IP_ALLOW=<cidr>).
+# PORTIKUS_IDP picks the provider: dex (the default), entra, google, external
+# (any other OIDC provider named by the PORTIKUS_OIDC_* settings), or mock
+# (test only: anyone can sign in as anyone).  The API reaches an outside
+# provider through the egress proxy; PORTIKUS_EGRESS_EXTRA_HOSTS adds hosts.
 PORTIKUS_IDP ?= dex
-# Dex accounts. Kept on this machine, outside any work tree; never on the VM.
+# The retired Dex users file, kept on this machine and never copied to the VM
+# except for the one-time import into Dex's storage (docs/EPIC-14.md ruling 23).
+# The Users view manages Dex accounts now.
 PORTIKUS_USERS_FILE ?= $(HOME)/.config/portikus/users.json
-USERS_CLI = pnpm --silent --dir packages/users-file exec tsx src/main.ts
-USERS_FILE_FLAG = --file "$(abspath $(PORTIKUS_USERS_FILE))"
-# The users file is needed, and checked first, only when Dex is the provider.
-USERS_CHECK := $(if $(filter dex,$(PORTIKUS_IDP)),users-check,)
 
 # The client secret reaches Ansible through the environment, never a recipe
 # line, where make's echo and ps would show it.
 export PORTIKUS_OIDC_CLIENT_SECRET
+# The provider settings of docs/EPIC-14.md, exported as they are, so an LDAP
+# filter's parentheses and the two secrets never pass through a recipe line.
+export PORTIKUS_ENTRA_TENANT_ID PORTIKUS_GOOGLE_DOMAINS PORTIKUS_EGRESS_EXTRA_HOSTS
+export PORTIKUS_DEX_UPSTREAM PORTIKUS_DEX_UPSTREAM_CLIENT_ID PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
+export PORTIKUS_LDAP_HOST PORTIKUS_LDAP_SCHEMA PORTIKUS_LDAP_BIND_DN PORTIKUS_LDAP_BIND_PASSWORD
+export PORTIKUS_LDAP_USER_BASE_DN PORTIKUS_LDAP_USER_FILTER PORTIKUS_LDAP_GROUP_BASE_DN
+export PORTIKUS_LDAP_ROOT_CA PORTIKUS_LDAP_IP_ALLOW
 
 ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) \
 	PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) \
@@ -209,29 +219,7 @@ ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR
 	PORTIKUS_API_IP_ALLOW="$(PORTIKUS_API_IP_ALLOW)" \
 	PORTIKUS_LTI_PLATFORMS_FILE="$(abspath $(PORTIKUS_LTI_PLATFORMS_FILE))"
 
-users-add: ## Add or update a Dex account; asks for the password twice (USERNAME=<name>)
-	@test -n "$(USERNAME)" || { echo "users-add: USERNAME is required, e.g. make users-add USERNAME=alice"; exit 1; }
-	@$(USERS_CLI) add "$(USERNAME)" $(USERS_FILE_FLAG)
-
-users-remove: ## Remove a Dex account (USERNAME=<name>); users-deploy applies it
-	@test -n "$(USERNAME)" || { echo "users-remove: USERNAME is required, e.g. make users-remove USERNAME=alice"; exit 1; }
-	@$(USERS_CLI) remove "$(USERNAME)" $(USERS_FILE_FLAG)
-
-users-list: ## List the Dex accounts (never shows password hashes)
-	@$(USERS_CLI) list $(USERS_FILE_FLAG)
-
-users-check: ## Validate the users file
-	@$(USERS_CLI) check $(USERS_FILE_FLAG)
-
-users-deploy: users-check wait-vm ## Apply the users file to Dex on the VM
-	@test "$(PORTIKUS_IDP)" = dex || { echo "users-deploy: only for PORTIKUS_IDP=dex"; exit 1; }
-	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags dex
-
-identity-carry-over-dry-run: users-check wait-vm ## Show which existing accounts the move to Dex would carry over; changes nothing
-	@test "$(PORTIKUS_IDP)" = dex || { echo "identity-carry-over-dry-run: only for PORTIKUS_IDP=dex"; exit 1; }
-	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags carry_over -e portikus_carry_over_apply=false
-
-configure-vm: $(USERS_CHECK) wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|mock|external picks the sign-in provider, PORTIKUS_USERS_FILE=<path> the Dex accounts)
+configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|entra|google|external|mock picks the sign-in provider, PORTIKUS_USERS_FILE=<path> the users file imported once into Dex)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml
 
 # ── LTI launch (docs/EPIC-13.md, rulings 14 and 26) ────────────────
@@ -254,11 +242,11 @@ mock-lms: ## Run the mock LMS on this host in the foreground at the LAN address 
 	pnpm --dir packages/mock-lms start -- --tool-url $(PORTIKUS_PUBLIC_URL) --port $(MOCK_LMS_PORT) \
 		$(foreach bind,$(MOCK_LMS_BIND),--bind $(bind)) --issuer $(MOCK_LMS_URL)
 
-lti-mock-register: $(USERS_CHECK) wait-vm ## Trust the mock LMS on the VM: add its registration to the platforms file and apply only the LTI tasks
+lti-mock-register: wait-vm ## Trust the mock LMS on the VM: add its registration to the platforms file and apply only the LTI tasks
 	$(LTI_MOCK_CLI) register --url $(MOCK_LMS_URL)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti
 
-lti-mock-unregister: $(USERS_CHECK) wait-vm ## Stop trusting the mock LMS: remove its registration and apply only the LTI tasks
+lti-mock-unregister: wait-vm ## Stop trusting the mock LMS: remove its registration and apply only the LTI tasks
 	$(LTI_MOCK_CLI) unregister
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti
 
@@ -281,9 +269,8 @@ destroy-pilot: ## Destroy the pilot VM (irreversible)
 	@$(MAKE) --no-print-directory TOFU_ENV=dev-libvirt TOFU_DESTROY_CALLER=destroy-pilot tofu-destroy
 
 # Sub-makes, not prerequisites, so make -j cannot destroy the VM while the
-# users check or the apply is still running.
+# apply is still running.
 rebuild-pilot: ## Destroy and recreate the platform VM
-	$(if $(USERS_CHECK),@$(MAKE) --no-print-directory users-check)
 	@$(MAKE) --no-print-directory destroy-pilot
 	@$(MAKE) --no-print-directory infra-apply
 	@$(MAKE) --no-print-directory configure-vm

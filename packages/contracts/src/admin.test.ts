@@ -101,6 +101,7 @@ describe("admin contracts", () => {
 			grantedRole: "administrator",
 			disabledAt: null,
 			shutdownGraceSeconds: null,
+			dexLocal: false,
 			preferredUsername: "alice",
 			issuer: "https://idp.example.edu",
 			lastLoginAt: now,

@@ -24,11 +24,18 @@ The shell needs the `libvirt` group. Until you log in again after
 
 ```
 make rehearsal-up                      # create it and wait for first boot
-make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_USERS_FILE=<a rehearsal users file>
+make configure-vm TOFU_ENV=rehearsal-libvirt
 make build-workspace-image TOFU_ENV=rehearsal-libvirt   # a new VM has no image
 make smoke-test   TOFU_ENV=rehearsal-libvirt
 make rehearsal-destroy                 # remove the VM, disks, network and pool
 ```
+
+The play prints a setup code for `/setup`, where the first administrator
+creates their Dex account. A restore brings Dex's accounts from the set's
+`dex.dump` instead. For this VM the Makefile sets `PORTIKUS_USERS_FILE`
+to a path that does not exist, so the play never imports the pilot's
+retired users file: the accounts it would create make `make restore`
+refuse the VM. `make rebuild-exercise` needs a set that holds `dex.dump`.
 
 Every other VM target (`configure-vm`, `deploy-app`, `smoke-test`,
 `security-test`, `wait-vm`) takes `TOFU_ENV=rehearsal-libvirt` and then reads

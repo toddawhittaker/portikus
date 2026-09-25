@@ -91,6 +91,56 @@ describe("users and sessions", () => {
 		},
 	);
 
+	async function usernameOf(id: string) {
+		const row = await t.db
+			.selectFrom("users")
+			.select("preferred_username")
+			.where("id", "=", id)
+			.executeTakeFirstOrThrow();
+		return row.preferred_username;
+	}
+
+	test.skipIf(!hasTestDb())(
+		"a sign-in without a username keeps the stored one",
+		async () => {
+			const user = await upsertUser(
+				t.db,
+				{ ...identity, preferredUsername: "alice" },
+				"student",
+			);
+			await upsertUser(t.db, { ...identity, preferredUsername: null }, "student");
+			expect(await usernameOf(user.id)).toBe("alice");
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"a sign-in whose name is only the stored username keeps the stored display name",
+		async () => {
+			// A Dex password sign-in: name is the username, no preferred_username.
+			const user = await upsertUser(t.db, identity, "student");
+			const again = await upsertUser(
+				t.db,
+				{ ...identity, displayName: "alice", preferredUsername: null },
+				"student",
+			);
+			expect(again.id).toBe(user.id);
+			expect(again.displayName).toBe("Alice Student");
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"a sign-in with a username replaces the stored one",
+		async () => {
+			const user = await upsertUser(
+				t.db,
+				{ ...identity, preferredUsername: "alice" },
+				"student",
+			);
+			await upsertUser(t.db, { ...identity, preferredUsername: "alice2" }, "student");
+			expect(await usernameOf(user.id)).toBe("alice2");
+		},
+	);
+
 	test.skipIf(!hasTestDb())(
 		"the same subject at another issuer is another user",
 		async () => {

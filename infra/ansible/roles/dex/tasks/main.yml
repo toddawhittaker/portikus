@@ -1,5 +1,5 @@
 ---
-# Dex, the pilot's sign-in provider (docs/adr/0023-dex-static-users.md).
+# Dex, the site's own sign-in provider (ADR 0023, ADR 0028).
 # Built from source at a pinned commit, the way distrobuilder is (ADR 0004),
 # because Dex publishes no binaries and Debian has no package for it.
 
@@ -216,6 +216,17 @@
         dex_client_secret: "{{ dex_client_secret_file_content.content | b64decode | trim }}"
       no_log: true
 
+    # ── gRPC API certificates (docs/EPIC-14.md ruling 20) ────────
+
+    - name: Issue the gRPC API certificates
+      ansible.builtin.script:
+        cmd: >-
+          dex-grpc-certs.sh {{ dex_grpc_dir }} {{ dex_grpc_renew_days }}
+          portikus-dex portikus
+      register: dex_grpc_certs
+      changed_when: "'changed' in dex_grpc_certs.stdout"
+      notify: Restart portikus-dex
+
     # ── Configuration and service ────────────────────────────────
 
     - name: Create the Dex configuration directory
@@ -226,7 +237,25 @@
         group: portikus-dex
         mode: "0750"
 
-    # Holds every password hash, so nothing about it may reach the output.
+    - name: Install the LDAP directory's root certificate
+      ansible.builtin.copy:
+        src: "{{ portikus_ldap_root_ca }}"
+        dest: "{{ dex_ldap_root_ca_path }}"
+        owner: root
+        group: portikus-dex
+        mode: "0644"
+      when: portikus_dex_upstream == 'ldap' and portikus_ldap_root_ca | length > 0
+      notify: Restart portikus-dex
+
+    - name: Remove an LDAP root certificate no longer configured
+      ansible.builtin.file:
+        path: "{{ dex_ldap_root_ca_path }}"
+        state: absent
+      when: portikus_dex_upstream != 'ldap' or portikus_ldap_root_ca | length == 0
+      notify: Restart portikus-dex
+
+    # Holds the client secrets and the LDAP bind password, so nothing about
+    # it may reach the output.
     - name: Deploy the Dex configuration
       ansible.builtin.template:
         src: config.yaml.j2
@@ -236,6 +265,12 @@
         mode: "0640"
       no_log: true
       notify: Restart portikus-dex
+
+    # Left by the users-file deploys this storage replaces.
+    - name: Remove the list of users the old deploys recorded
+      ansible.builtin.file:
+        path: "{{ dex_config_dir }}/deployed-users.json"
+        state: absent
 
     - name: Deploy the Dex unit
       ansible.builtin.template:
@@ -272,8 +307,11 @@
           - dex_discovery.json.issuer == portikus_dex_issuer
         fail_msg: "Dex reports issuer {{ dex_discovery.json.issuer }}, expected {{ portikus_dex_issuer }}."
 
-    - name: End the sessions of accounts this deploy removed or weakened
-      ansible.builtin.include_tasks: revoke.yml
+    - name: Wait for Dex's gRPC API
+      ansible.builtin.wait_for:
+        host: "{{ dex_grpc_addr.split(':') | first }}"
+        port: "{{ dex_grpc_addr.split(':') | last | int }}"
+        timeout: 30
 
 - name: Turn Dex off
   when: portikus_idp != 'dex'
@@ -290,7 +328,11 @@
         state: stopped
       when: dex_unit.stat.exists
 
-    - name: Remove the Dex configuration
+    # The dex database stays: it holds the accounts if Dex comes back.
+    - name: Remove the Dex configuration and gRPC certificates
       ansible.builtin.file:
-        path: "{{ dex_config_dir }}"
+        path: "{{ item }}"
         state: absent
+      loop:
+        - "{{ dex_config_dir }}"
+        - "{{ dex_grpc_dir }}"

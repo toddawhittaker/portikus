@@ -12,7 +12,8 @@
 #     one volume that fails to export does not stop the others;
 #   - restore.sh verifies a set, and refuses the wrong VM, an older release,
 #     or a VM that already holds workspace volumes or rows, before stopping
-#     anything; a restore leaves every workspace stopped;
+#     anything; a restore leaves every workspace stopped, skips Dex's
+#     accounts on a VM without Dex, and starts Dex again if loading fails;
 #   - neither script trusts what came from the VM: a lying VM or a doctored
 #     set is refused before any of it reaches a file name or a command, and a
 #     file name with a control character is left out of the checks rather
@@ -120,6 +121,9 @@ expect "volumes lists only home and recovery volumes" \
 : >"$log"
 run_export db >/dev/null
 expect "db is a pg_dump as postgres" "grep -qx 'runuser -u postgres -- pg_dump -Fc portikus' '$log'"
+: >"$log"
+run_export dex-db >/dev/null
+expect "dex-db is a pg_dump of Dex's database as postgres" "grep -qx 'runuser -u postgres -- pg_dump -Fc dex' '$log'"
 
 echo "--- host backup ---"
 # A small volume export: one file, one Git repository, and two files whose
@@ -155,6 +159,8 @@ case "\$cmd" in
     [ -n "\${FAKE_VOLUMES_EMPTY:-}" ] && exit 0
     printf '%s\n' ${HOME_VOL} ${REC_VOL} \${FAKE_EXTRA_VOLUME:-} ;;
   *"\$X db") [ -n "\${FAKE_DB_FAILS:-}" ] && exit 1; printf 'PGDMP fake dump' ;;
+  *"\$X has-dex") echo "\${FAKE_HAS_DEX:-1}" ;;
+  *"\$X dex-db") printf 'PGDMP fake dex dump' ;;
   *"\$X counts") echo "users 3 workspaces 1 projects 6" ;;
   *"\$X workspaces") [ -n "\${FAKE_WORKSPACES_EMPTY:-}" ] && exit 0; echo "\${FAKE_WORKSPACE:-11111111-2222-3333-4444-555555555555 ${INST}}" ;;
   *"\$X instances") echo "${INST}" ;;
@@ -172,6 +178,11 @@ case "\$cmd" in
       *"'users '"*) echo "users 3 workspaces 1 projects 6" ;;
       *"FROM users) +"*) echo "\${FAKE_ROWS:-0}" ;;
     esac ;;
+  *"systemctl cat portikus-dex"*) [ -n "\${FAKE_NO_DEX:-}" ] && echo no || echo yes ;;
+  *pg_restore*)
+    dump=\$(cat)
+    [ -n "\${FAKE_DEX_RESTORE_FAILS:-}" ] && [[ "\$dump" == *"fake dex dump"* ]] && exit 1
+    true ;;
   *) cat >/dev/null ;;
 esac
 EOF
@@ -189,7 +200,7 @@ mkdir "${mine}/keep-me" "${sets}/portikus/20250101T000000Z" "${sets}/20250101T00
 
 run_backup() {
   PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
-    PORTIKUS_USERS_FILE="${work}/no-users.json" bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210
+    bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210
 }
 set_count() { find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | wc -l; }
 all_sets() { find "$sets" -mindepth 1 | sort; }
@@ -197,13 +208,13 @@ all_sets() { find "$sets" -mindepth 1 | sort; }
 : >"$log"
 if run_backup >"${work}/backup.out" 2>&1; then ok "backup.sh completes against the fake VM"; else bad "backup.sh completes against the fake VM"; cat "${work}/backup.out"; fi
 expect "the VM is sent only hostname, dpkg-query and the export script's read commands" \
-  "! grep '^ssh ' '$log' | sed 's/^ssh //' | grep -vE '^(hostname|dpkg-query .*|sudo bash -c \"\\\$\\(echo [A-Za-z0-9+/=]+ \\| base64 -d\\)\" portikus-backup-export (volumes|db|counts|workspaces|instances|(idmap|volume) ws-[0-9a-f]{24}-(home|recovery)))\$'"
+  "! grep '^ssh ' '$log' | sed 's/^ssh //' | grep -vE '^(hostname|dpkg-query .*|sudo bash -c \"\\\$\\(echo [A-Za-z0-9+/=]+ \\| base64 -d\\)\" portikus-backup-export (volumes|db|has-dex|dex-db|counts|workspaces|instances|(idmap|volume) ws-[0-9a-f]{24}-(home|recovery)))\$'"
 sent=$(grep -m1 -oE 'echo [A-Za-z0-9+/=]+ \| base64' "$log" | cut -d' ' -f2)
 expect "the script it sends is the export script tested above" "[ \"\$(printf '%s' '$sent' | base64 -d | sha256sum)\" = \"\$(sha256sum <'$export_cmd')\" ]"
 newest=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
 expect "the set goes in the VM's own directory, named by hostname" "[ -n '$newest' ] && [ -f '${newest}/MANIFEST.age' ]"
-expect "the set holds the dump, both volumes, their indexes and the MANIFEST" \
-  "[ -f '${newest}/db.dump.age' ] && [ -f '${newest}/${HOME_VOL}.age' ] && [ -f '${newest}/${REC_VOL}.index.age' ] && [ -f '${newest}/MANIFEST.age' ]"
+expect "the set holds both dumps, both volumes, their indexes and the MANIFEST" \
+  "[ -f '${newest}/db.dump.age' ] && [ -f '${newest}/dex.dump.age' ] && [ -f '${newest}/${HOME_VOL}.age' ] && [ -f '${newest}/${REC_VOL}.index.age' ] && [ -f '${newest}/MANIFEST.age' ]"
 expect "a complete set has no FAILED file" "[ ! -e '${newest}/FAILED' ]"
 expect "nothing in the set is readable without the key" "! grep -rq 'PGDMP' '$newest'"
 expect "the set directory is private" "[ \"\$(stat -c %a '$newest')\" = 700 ]"
@@ -222,7 +233,7 @@ no_set() {
   shift
   before=$(all_sets)
   if env "$@" PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
-    PORTIKUS_USERS_FILE="${work}/no-users.json" bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/refusal" 2>&1; then
+    bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/refusal" 2>&1; then
     bad "$label"
   elif [ "$(all_sets)" != "$before" ]; then
     bad "${label} (it left a set or a partial directory)"
@@ -280,7 +291,7 @@ flaky="${sets}/portikus-flaky"
 mkdir -m 0700 "$flaky" "${flaky}/20250101T000000Z"
 for i in $(seq -w 1 20); do mkdir "${flaky}/202601${i}T000000Z" && echo x >"${flaky}/202601${i}T000000Z/FAILED"; done
 FAKE_HOSTNAME=portikus-flaky FAKE_VOLUME_FAILS="$HOME_VOL" PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" \
-  PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" PORTIKUS_USERS_FILE="${work}/no-users.json" \
+  PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
   bash "${repo}/infra/host/backup.sh" --vm-name portikus-flaky 10.101.0.210 >/dev/null 2>&1
 flaky_incomplete=$(find "$flaky" -mindepth 2 -maxdepth 2 -name FAILED | wc -l)
 expect "only the newest fourteen incomplete sets are kept" "[ '$flaky_incomplete' = 14 ]"
@@ -338,8 +349,27 @@ expect "restore marks every workspace stopped right after pg_restore" \
   "[[ \"\$restore_sql\" == *\"UPDATE workspaces SET state = 'stopped', desired_state = 'stopped';\"* ]]"
 expect "restore ends every session and preview session in the same transaction" \
   "[[ \"\$restore_sql\" == 'sql BEGIN; '*'DELETE FROM preview_sessions; DELETE FROM sessions; COMMIT;' ]]"
+expect "restore loads Dex's accounts with Dex stopped, then starts it" \
+  "grep -A2 'systemctl stop portikus-dex' '$log' | grep -q 'pg_restore' && grep -q 'systemctl start portikus-dex' '$log'"
 expect "restore samples the plainly named file" "grep -q 'file pull .*projects/demo/a.txt' '$log'"
 expect "restore leaves the names with a tab or a newline out of the sample" "! grep -qE 'tab|line\\.txt' '$log'"
+
+: >"$log"
+if FAKE_NO_DEX=1 run_restore --target-name portikus-rehearsal 10.101.0.210 "$newest" >"${work}/restore.out" 2>&1 \
+  && grep -q 'runs no Dex; skipped' "${work}/restore.out"; then
+  ok "restore onto a VM without Dex skips Dex's accounts and finishes"
+else
+  bad "restore onto a VM without Dex skips Dex's accounts and finishes"; cat "${work}/restore.out"
+fi
+expect "without Dex, restore never stops or starts it" "! grep -qE 'systemctl (stop|start) portikus-dex' '$log'"
+: >"$log"
+if FAKE_DEX_RESTORE_FAILS=1 run_restore --target-name portikus-rehearsal 10.101.0.210 "$newest" >/dev/null 2>&1; then
+  bad "restore fails when Dex's accounts cannot be loaded"
+else
+  ok "restore fails when Dex's accounts cannot be loaded"
+fi
+expect "a failed Dex load still starts Dex again" \
+  "grep -A10 'systemctl stop portikus-dex' '$log' | grep -q 'systemctl start portikus-dex'"
 
 echo "--- hostile input ---"
 lying_vm() { # LABEL ENV...
@@ -347,7 +377,7 @@ lying_vm() { # LABEL ENV...
   shift
   before_sets=$(all_sets)
   if env "$@" PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
-    PORTIKUS_USERS_FILE="${work}/no-users.json" bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/refusal" 2>&1; then
+    bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/refusal" 2>&1; then
     bad "$label"
   elif [ "$(all_sets)" != "$before_sets" ] || [ -e "${work}/evil" ]; then
     bad "${label} (it wrote something)"

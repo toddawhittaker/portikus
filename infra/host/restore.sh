@@ -32,7 +32,7 @@ SAMPLE=20
 INSTANCE_PATTERN='^ws-[0-9a-f]{24}$'
 UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 # Every line backup.sh writes, and nothing else.
-MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|failed ws-[0-9a-f]{24}-(home|recovery)|seconds [0-9]+)$'
+MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|failed ws-[0-9a-f]{24}-(home|recovery)|seconds [0-9]+)$'
 
 info() { printf '[restore %s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf '[restore] FAIL: %s\n' "$*" >&2; exit 1; }
@@ -58,7 +58,15 @@ fi
 [ -r "$IDENTITY" ] || die "no age identity at ${IDENTITY}; set PORTIKUS_BACKUP_IDENTITY"
 [ -f "${SET}/MANIFEST.age" ] || die "${SET} is not a backup set (no MANIFEST.age)"
 scratch=$(mktemp -d)
-trap 'rm -rf "$scratch"' EXIT
+# Set once Dex is stopped, and once a restored workspace is held running.
+dex_stopped=no ws_held=no
+cleanup() {
+  [ "$ws_held" = no ] || release
+  # A restore that dies after stopping Dex must not leave sign-in down.
+  [ "$dex_stopped" = no ] || vm sudo systemctl start portikus-dex || true
+  rm -rf "$scratch"
+}
+trap cleanup EXIT
 t0=$(date +%s)
 step_start=$t0
 step() {
@@ -145,6 +153,9 @@ psql_vm() { printf '%s\n' "$1" | vm_in "sudo runuser -u postgres -- psql -X -q -
 actual_name=$(vm hostname)
 [ "$actual_name" = "$target_name" ] || die "${VM} is '${actual_name}', not '${target_name}'; nothing was changed"
 
+# Mock, Entra and Google sites run no Dex, so a set's Dex accounts have nowhere to go.
+dex_installed() { vm "if systemctl cat portikus-dex.service >/dev/null 2>&1; then echo yes; else echo no; fi"; }
+
 start_services() {
   # The API first: its start runs the migrations the worker's queries need.
   vm sudo systemctl start portikus-api
@@ -173,6 +184,13 @@ if [ "$mode" = remove ]; then
   info "removed ${#volumes[@]} imported volumes and the instances' own volumes"
   # The restored rows go with a fresh, empty database.
   vm "sudo runuser -u postgres -- dropdb --if-exists portikus && sudo runuser -u postgres -- createdb -O portikus portikus"
+  if grep -q '^file dex\.dump ' "$manifest" && [ "$(dex_installed)" = yes ]; then
+    # Dex makes its tables again when it starts on the empty database.
+    dex_stopped=yes
+    vm "sudo systemctl stop portikus-dex && sudo runuser -u postgres -- dropdb --if-exists dex && sudo runuser -u postgres -- createdb -O portikus-dex dex"
+    vm sudo systemctl start portikus-dex
+    dex_stopped=no
+  fi
   start_services
   step "the set's workspaces and the restored database are gone from ${target_name}"
   exit 0
@@ -208,6 +226,20 @@ decrypt db.dump | vm_in "sudo runuser -u postgres -- pg_restore --create --clean
 # sessions go too, so a cookie stolen before the backup does not work here.
 psql_vm "BEGIN; UPDATE workspaces SET state = 'stopped', desired_state = 'stopped'; DELETE FROM preview_sessions; DELETE FROM sessions; COMMIT;"
 step "database restored, every workspace marked stopped, every session ended"
+# Dex's accounts (docs/EPIC-14.md ruling 19), with Dex stopped so the
+# database can be replaced; a set from before Dex had storage has none.
+if grep -q '^file dex\.dump ' "$manifest"; then
+  if [ "$(dex_installed)" = yes ]; then
+    dex_stopped=yes
+    vm sudo systemctl stop portikus-dex
+    decrypt dex.dump | vm_in "sudo runuser -u postgres -- pg_restore --create --clean --if-exists --exit-on-error -d postgres"
+    vm sudo systemctl start portikus-dex
+    dex_stopped=no
+    step "Dex's accounts restored"
+  else
+    info "the set holds Dex's accounts, but ${target_name} runs no Dex; skipped them"
+  fi
+fi
 
 # ── 5. Volumes ────────────────────────────────────────────────────
 for vol in "${volumes[@]}"; do
@@ -280,7 +312,8 @@ step "${checked} sampled files match the backup's checksums"
 if [ "$start_check" = yes ]; then
   # The workspace whose home has the most Git repositories shows the most.
   home=$(for vol in "${volumes[@]}"; do
-    [[ "$vol" == *-home ]] && echo "$(grep -c '"git"' "${scratch}/${vol}.index" || true) ${vol}"
+    # An if, not &&: a last volume that is not a home would fail the loop under pipefail.
+    if [[ "$vol" == *-home ]]; then echo "$(grep -c '"git"' "${scratch}/${vol}.index" || true) ${vol}"; fi
   done | sort -rn | awk 'NR == 1 { print $2 }')
   [ -n "$home" ] || die "no home volume to start"
   instance=${home%-home}
@@ -290,11 +323,11 @@ if [ "$start_check" = yes ]; then
   conn=$(psql_vm "WITH c AS (INSERT INTO workspace_connections (workspace_id) VALUES ('${ws}') RETURNING id) UPDATE workspaces SET desired_state = 'running', last_active_connection_at = now(), updated_at = now() WHERE id = '${ws}' RETURNING (SELECT id FROM c)")
   [[ "$conn" =~ $UUID_PATTERN ]] || die "could not add a presence row for ${ws}"
   release() {
-    trap 'rm -rf "$scratch"' EXIT
+    ws_held=no
     psql_vm "DELETE FROM workspace_connections WHERE id = '${conn}'; UPDATE workspaces SET desired_state = 'stopped', updated_at = now() WHERE id = '${ws}'" || true
   }
   # However the check ends, the workspace is let go so it stops again.
-  trap 'release; rm -rf "$scratch"' EXIT
+  ws_held=yes
   state=""
   for _ in $(seq 1 90); do
     psql_vm "UPDATE workspace_connections SET last_seen_at = now() WHERE id = '${conn}'"

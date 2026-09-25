@@ -15,11 +15,13 @@ import {
 	courseLinkWindow,
 	findLinkIntent,
 	grantAdministrator,
+	grantInstructor,
 	linkAccounts,
 	listLinks,
 	pendingLinkIntent,
 	resolveIdentity,
 	revokeAdministrator,
+	revokeInstructor,
 	saveLinkIntent,
 	unlinkAccount,
 } from "./links.js";
@@ -626,6 +628,89 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 				.where("role", "=", "administrator")
 				.execute();
 			expect(admins).toHaveLength(1);
+		});
+	});
+
+	describe("grant and revoke instructor", () => {
+		const grant = (id: string) =>
+			db.transaction().execute((trx) => grantInstructor(trx, id));
+		const revoke = (id: string) =>
+			db.transaction().execute((trx) => revokeInstructor(trx, id));
+
+		async function roleRow(id: string) {
+			return db
+				.selectFrom("users")
+				.select(["role", "provider_role", "granted_role"])
+				.where("id", "=", id)
+				.executeTakeFirstOrThrow();
+		}
+
+		test("makes a student an instructor and removal restores the provider's role", async () => {
+			const target = await insertTestUser(db, { role: "student" });
+			expect(await grant(target)).toEqual({
+				ok: true,
+				changed: true,
+				from: "student",
+				to: "instructor",
+			});
+			expect(await roleRow(target)).toEqual({
+				role: "instructor",
+				provider_role: "student",
+				granted_role: "instructor",
+			});
+			expect(await revoke(target)).toEqual({
+				ok: true,
+				from: "instructor",
+				to: "student",
+			});
+			expect(await roleRow(target)).toEqual({
+				role: "student",
+				provider_role: "student",
+				granted_role: null,
+			});
+		});
+
+		test("is a no-op for a provider instructor or administrator", async () => {
+			for (const role of ["instructor", "administrator"] as const) {
+				const target = await insertTestUser(db, { role });
+				expect(await grant(target)).toEqual({
+					ok: true,
+					changed: false,
+					from: role,
+					to: role,
+				});
+				expect(await roleRow(target)).toMatchObject({ granted_role: null });
+			}
+		});
+
+		test("refuses a course account and never touches an administrator grant", async () => {
+			const course = await insertTestLtiUser(db, LMS);
+			expect(await grant(course)).toEqual({ ok: false, reason: "course_account" });
+			const admin = await insertTestUser(db, { role: "student" });
+			await db.transaction().execute((trx) => grantAdministrator(trx, admin));
+			expect(await grant(admin)).toEqual({
+				ok: false,
+				reason: "granted_administrator",
+			});
+			expect(await revoke(admin)).toEqual({ ok: false, reason: "not_granted" });
+			expect(await roleRow(admin)).toMatchObject({
+				role: "administrator",
+				granted_role: "administrator",
+			});
+			expect(await grant("00000000-0000-0000-0000-000000000000")).toEqual({
+				ok: false,
+				reason: "not_found",
+			});
+			expect(await revoke("00000000-0000-0000-0000-000000000000")).toEqual({
+				ok: false,
+				reason: "not_found",
+			});
+		});
+
+		test("remove refuses an account without an instructor grant", async () => {
+			const provider = await insertTestUser(db, { role: "instructor" });
+			expect(await revoke(provider)).toEqual({ ok: false, reason: "not_granted" });
+			expect(await roleRow(provider)).toMatchObject({ role: "instructor" });
 		});
 	});
 

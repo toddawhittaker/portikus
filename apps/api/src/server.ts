@@ -1,5 +1,5 @@
 import websocket from "@fastify/websocket";
-import { authPlugin, type OidcClient } from "@portikus/auth";
+import { authPlugin, type DexApi, type OidcClient } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import { type ApiError, HealthResponse } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
@@ -14,6 +14,7 @@ import { toAuthOptions } from "./auth-options.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
+import { registerAdminDexUserRoutes } from "./routes/admin-dex-users.js";
 import { registerAdminHealthRoutes } from "./routes/admin-health.js";
 import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -29,6 +30,7 @@ import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectEventsSocket } from "./routes/project-events.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerRecoveryRoutes } from "./routes/recovery.js";
+import { registerSetupRoutes } from "./routes/setup.js";
 import { registerTerminalRoutes } from "./routes/terminals.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
@@ -47,6 +49,8 @@ export interface ServerDeps {
 	oidc?: OidcClient;
 	/** The registered LMS platforms; absent means LTI is off and /lti/* is 404. */
 	lti?: LtiDeps;
+	/** Dex's gRPC API; absent means the Dex user routes answer 404 (docs/EPIC-14.md ruling 24). */
+	dex?: DexApi;
 	/** How often the listening registry looks for workspaces; tests go faster. */
 	previewPollIntervalMs?: number;
 }
@@ -204,6 +208,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerMeRoutes(instance, deps);
 		registerLinkRoutes(instance, deps);
 		registerAdminRoutes(instance, deps);
+		registerAdminDexUserRoutes(instance, deps);
+		registerSetupRoutes(instance, deps);
 		registerMaintenanceRoutes(instance, deps);
 		registerAdminWorkspaceRoutes(instance, routeDeps);
 		registerAdminAuditRoutes(instance, routeDeps);

@@ -34,6 +34,7 @@ function account(
 		grantedRole: null,
 		disabledAt: null,
 		shutdownGraceSeconds: null,
+		dexLocal: false,
 		preferredUsername: null,
 		issuer: null,
 		lastLoginAt: null,

@@ -83,6 +83,14 @@ function parsePorts(value: string): number[] {
 	return ports;
 }
 
+/** Split a comma-separated domain list, lowercased, blanks dropped. */
+function parseDomains(value: string): string[] {
+	return value
+		.split(",")
+		.map((part) => part.trim().toLowerCase())
+		.filter((part) => part !== "");
+}
+
 /**
  * Environment contract for the API process (STACK.md §5, §9).
  */
@@ -100,11 +108,27 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_CLIENT_ID: z.string().min(1).default("portikus-dev"),
 	OIDC_CLIENT_SECRET: z.string().min(1).default(DEV_CLIENT_SECRET),
 	OIDC_SCOPES: z.string().min(1).default("openid profile email"),
-	OIDC_GROUPS_CLAIM: z.string().min(1).default("groups"),
+	/** Empty means no claim carries roles (Dex's Microsoft or Google upstream, EPIC-14 ruling 11). */
+	OIDC_GROUPS_CLAIM: z.string().default("groups"),
 	OIDC_STUDENT_GROUP: z.string().min(1).default("portikus-students"),
 	OIDC_ADMIN_GROUP: z.string().min(1).default("portikus-administrators"),
 	/** The group whose members are instructors (docs/EPIC-13.md ruling 4). */
 	OIDC_INSTRUCTOR_GROUP: z.string().min(1).default("portikus-instructors"),
+	/** Which sign-in provider the site uses (docs/EPIC-14.md ruling 1). */
+	OIDC_PROVIDER: z.enum(["oidc", "entra", "google"]).default("oidc"),
+	/** The one Entra tenant ID whose `tid` may sign in (EPIC-14 ruling 8). */
+	OIDC_ALLOWED_TENANT: z.string().min(1).optional(),
+	/** Comma-separated Google Workspace domains whose `hd` may sign in (ruling 3). */
+	OIDC_ALLOWED_DOMAINS: z.string().default(""),
+	/** What an admitted person gets when no group or app role matches (ruling 11). */
+	OIDC_DEFAULT_ROLE: z.enum(["none", "student"]).default("none"),
+	/** Forward proxy for discovery, token, keyset and LMS keyset requests (ruling 27). */
+	OUTBOUND_PROXY_URL: z.string().url().optional(),
+	/** Dex gRPC API address and mutual TLS files; unset turns the Dex user routes off (rulings 20, 24). */
+	DEX_GRPC_ADDR: z.string().min(1).optional(),
+	DEX_GRPC_CA: z.string().min(1).optional(),
+	DEX_GRPC_CERT: z.string().min(1).optional(),
+	DEX_GRPC_KEY: z.string().min(1).optional(),
 	/** The LTI platforms file (docs/EPIC-13.md ruling 14); unset means LTI is off. */
 	LTI_PLATFORMS_FILE: z.string().min(1).optional(),
 	/** The tool's RSA key, whose public half `/lti/jwks` serves (ruling 15). */
@@ -145,6 +169,46 @@ export const ApiConfigSchema = BaseConfig.extend({
 		message: productionHttpsMessage("OIDC_ISSUER_URL"),
 		path: ["OIDC_ISSUER_URL"],
 	})
+	.refine(
+		(config) => config.OIDC_PROVIDER !== "entra" || !!config.OIDC_ALLOWED_TENANT,
+		{
+			message: "OIDC_ALLOWED_TENANT must be set when OIDC_PROVIDER is entra",
+			path: ["OIDC_ALLOWED_TENANT"],
+		},
+	)
+	.refine(
+		(config) =>
+			config.OIDC_PROVIDER !== "google" ||
+			parseDomains(config.OIDC_ALLOWED_DOMAINS).length > 0,
+		{
+			message: "OIDC_ALLOWED_DOMAINS must be set when OIDC_PROVIDER is google",
+			path: ["OIDC_ALLOWED_DOMAINS"],
+		},
+	)
+	.refine(
+		(config) =>
+			parseDomains(config.OIDC_ALLOWED_DOMAINS).every((d) => DNS_NAME.test(d)),
+		{
+			message: "OIDC_ALLOWED_DOMAINS must be comma-separated DNS names",
+			path: ["OIDC_ALLOWED_DOMAINS"],
+		},
+	)
+	.refine(
+		(config) => {
+			const set = [
+				config.DEX_GRPC_ADDR,
+				config.DEX_GRPC_CA,
+				config.DEX_GRPC_CERT,
+				config.DEX_GRPC_KEY,
+			].filter((value) => value !== undefined).length;
+			return set === 0 || set === 4;
+		},
+		{
+			message:
+				"DEX_GRPC_ADDR, DEX_GRPC_CA, DEX_GRPC_CERT and DEX_GRPC_KEY are set together",
+			path: ["DEX_GRPC_ADDR"],
+		},
+	)
 	.refine(requireProductionSecret("OIDC_CLIENT_SECRET", DEV_CLIENT_SECRET), {
 		message: productionSecretMessage("OIDC_CLIENT_SECRET"),
 		path: ["OIDC_CLIENT_SECRET"],
@@ -225,6 +289,7 @@ export const ApiConfigSchema = BaseConfig.extend({
 
 		return {
 			...config,
+			oidcAllowedDomains: parseDomains(config.OIDC_ALLOWED_DOMAINS),
 			projectTemplates,
 			// The agent port is never a student's to reach, whatever the list says.
 			previewDeniedPorts: [...new Set([...denied, config.AGENT_PORT])].sort(

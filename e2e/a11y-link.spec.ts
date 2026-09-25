@@ -3,13 +3,12 @@
  * the Profile section's linked accounts (docs/EPIC-13-1.md, T3). Max (mock
  * LMS) and gail (mock OIDC) exist for this spec alone.
  */
-import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
-import { apiLoginAs, MOCK_ISSUER, WEB_ORIGIN } from "./helpers";
+import { apiLoginAs, MOCK_ISSUER, settledAxe, WEB_ORIGIN } from "./helpers";
 import { launchAs } from "./lti-helpers";
 
 async function expectNoViolations(page: Page, include?: string) {
-	let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]);
+	let builder = (await settledAxe(page)).withTags(["wcag2a", "wcag2aa", "wcag21aa"]);
 	if (include) builder = builder.include(include);
 	const results = await builder.analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
