@@ -1,5 +1,5 @@
 import { Workspace } from "@portikus/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { request } from "./request.js";
 
@@ -27,15 +27,10 @@ function ensureWorkspace() {
 
 /**
  * The same call on a click, for an administrator, who gets a workspace only
- * when they open one (SPEC.md §5.2).
+ * when they open one (SPEC.md §6.1).
  */
 export function useOpenWorkspace() {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: ensureWorkspace,
-		onSuccess: (workspace) =>
-			queryClient.setQueryData(["workspace", "mine"], workspace),
-	});
+	return useMutation({ mutationFn: ensureWorkspace });
 }
 
 /** What a student can ask the platform to do with their workspace (SPEC.md §6.2). */

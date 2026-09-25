@@ -91,6 +91,35 @@ export interface TestStudent {
 }
 
 /**
+ * Create a user with the given role and a session, and put the session
+ * cookie in the browser context.
+ */
+export async function createSignedInUser(
+	context: BrowserContext,
+	role: "student" | "administrator",
+): Promise<{ userId: string; sessionToken: string }> {
+	const subject = `e2e-${crypto.randomUUID()}`;
+	const name = role === "student" ? "E2E Student" : "E2E Admin";
+	const [user] = await query<{ id: string }>(
+		`insert into users (oidc_issuer, oidc_subject, email, display_name, role)
+		 values ($1, $2, $3, $4, $5) returning id`,
+		[MOCK_ISSUER, subject, `${subject}@example.edu`, name, role],
+	);
+	if (!user) throw new Error("could not create the test user");
+
+	const sessionToken = crypto.randomBytes(32).toString("base64url");
+	await query(
+		`insert into sessions (id, user_id, expires_at)
+		 values ($1, $2, now() + interval '1 hour')`,
+		[crypto.createHash("sha256").update(sessionToken).digest("hex"), user.id],
+	);
+	await context.addCookies([
+		{ name: "portikus_session", value: sessionToken, url: WEB_ORIGIN },
+	]);
+	return { userId: user.id, sessionToken };
+}
+
+/**
  * Create a student, their workspace and a session, and put the session
  * cookie in the browser context. The login flow itself is covered by
  * auth.spec.ts; here it would only get in the way of test isolation.
@@ -99,13 +128,7 @@ export async function createStudent(
 	context: BrowserContext,
 	options: { state?: string } = {},
 ): Promise<TestStudent> {
-	const subject = `e2e-${crypto.randomUUID()}`;
-	const [user] = await query<{ id: string }>(
-		`insert into users (oidc_issuer, oidc_subject, email, display_name, role)
-		 values ($1, $2, $3, $4, 'student') returning id`,
-		[MOCK_ISSUER, subject, `${subject}@example.edu`, "E2E Student"],
-	);
-	if (!user) throw new Error("could not create the test user");
+	const { userId, sessionToken } = await createSignedInUser(context, "student");
 
 	const workspaceId = crypto.randomUUID();
 	await query(
@@ -115,7 +138,7 @@ export async function createStudent(
 		 values ($1, $2, $3, $4, $5, 'running', '127.0.0.1', $6)`,
 		[
 			workspaceId,
-			user.id,
+			userId,
 			// Labels are unique, so each test workspace gets the fallback form
 			// the API would give a user with no username (SPEC.md Epic 8).
 			`ws-${workspaceId.replace(/-/g, "").slice(0, 8)}`,
@@ -125,18 +148,7 @@ export async function createStudent(
 		],
 	);
 
-	const sessionToken = crypto.randomBytes(32).toString("base64url");
-	await query(
-		`insert into sessions (id, user_id, expires_at)
-		 values ($1, $2, now() + interval '1 hour')`,
-		[crypto.createHash("sha256").update(sessionToken).digest("hex"), user.id],
-	);
-
-	await context.addCookies([
-		{ name: "portikus_session", value: sessionToken, url: WEB_ORIGIN },
-	]);
-
-	return { userId: user.id, workspaceId, sessionToken };
+	return { userId, workspaceId, sessionToken };
 }
 
 export async function setWorkspaceState(
