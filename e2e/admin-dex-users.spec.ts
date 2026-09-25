@@ -1,7 +1,6 @@
 import * as crypto from "node:crypto";
-import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, query, WEB_ORIGIN } from "./helpers";
+import { loginAs, query, settledAxe, WEB_ORIGIN } from "./helpers";
 
 /**
  * Add, reset and remove Dex users from the Users view (docs/EPIC-14.md
@@ -10,7 +9,7 @@ import { loginAs, query, WEB_ORIGIN } from "./helpers";
  */
 
 async function expectNoViolations(page: Page, selector: string) {
-	const results = await new AxeBuilder({ page })
+	const results = await (await settledAxe(page))
 		.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
 		.include(selector)
 		.analyze();

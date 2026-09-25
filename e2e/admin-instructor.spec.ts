@@ -1,7 +1,13 @@
 import * as crypto from "node:crypto";
-import AxeBuilder from "@axe-core/playwright";
 import { type Browser, expect, type Page, test } from "@playwright/test";
-import { createStudent, loginAs, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
+import {
+	createStudent,
+	loginAs,
+	MOCK_ISSUER,
+	query,
+	settledAxe,
+	WEB_ORIGIN,
+} from "./helpers";
 
 /**
  * Make instructor and Remove instructor in the Users view (docs/EPIC-14.md
@@ -9,7 +15,7 @@ import { createStudent, loginAs, MOCK_ISSUER, query, WEB_ORIGIN } from "./helper
  */
 
 async function expectNoViolations(page: Page, selector: string) {
-	const results = await new AxeBuilder({ page })
+	const results = await (await settledAxe(page))
 		.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
 		.include(selector)
 		.analyze();
