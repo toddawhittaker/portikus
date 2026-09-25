@@ -12,6 +12,7 @@ import {
 	type AdminUserList,
 	type AdminWorkspaceList,
 	type ApiError,
+	DEFAULT_ACCEPTABLE_USE_TEXT,
 	LogLevel,
 	type PlatformSettings,
 	Role,
@@ -401,7 +402,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 
 		const before = await db
 			.selectFrom("settings")
-			.select(["shutdown_grace_seconds", "log_level"])
+			.select(SETTINGS_COLUMNS)
 			.where("id", "=", 1)
 			.executeTakeFirst();
 		if (!before) {
@@ -413,22 +414,79 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			updated_at: new Date().toISOString(),
 			updated_by: user.id,
 		};
-		const audits: { action: string; from: unknown; to: unknown }[] = [];
+		const audits: { action: string; details: Record<string, unknown> }[] = [];
 		if (body.data.shutdownGraceSeconds !== undefined) {
 			changes.shutdown_grace_seconds = body.data.shutdownGraceSeconds;
 			audits.push({
 				action: "settings.shutdown_grace_updated",
-				from: before.shutdown_grace_seconds,
-				to: body.data.shutdownGraceSeconds,
+				details: {
+					from: before.shutdown_grace_seconds,
+					to: body.data.shutdownGraceSeconds,
+				},
 			});
 		}
 		if (body.data.logLevel !== undefined) {
 			changes.log_level = body.data.logLevel;
 			audits.push({
 				action: "settings.log_level_updated",
-				from: toLogLevel(before.log_level),
-				to: body.data.logLevel,
+				details: {
+					from: toLogLevel(before.log_level),
+					to: body.data.logLevel,
+				},
 			});
+		}
+
+		// The four guard numbers share one audit row with only the changed keys.
+		const guardFields = [
+			["cpuGuardThresholdPercent", "cpu_guard_threshold_percent"],
+			["memoryGuardThresholdPercent", "memory_guard_threshold_percent"],
+			["guardWindowMinutes", "guard_window_minutes"],
+			["cpuThrottleSharePercent", "cpu_throttle_share_percent"],
+		] as const;
+		const guardFrom: Record<string, number> = {};
+		const guardTo: Record<string, number> = {};
+		for (const [field, column] of guardFields) {
+			const value = body.data[field];
+			if (value === undefined) continue;
+			changes[column] = value;
+			guardFrom[field] = before[column];
+			guardTo[field] = value;
+		}
+		if (Object.keys(guardTo).length > 0) {
+			audits.push({
+				action: "settings.resource_guard_updated",
+				details: {
+					from: guardFrom,
+					to: guardTo,
+				},
+			});
+		}
+		if (body.data.idleStopMinutes !== undefined) {
+			changes.idle_stop_minutes = body.data.idleStopMinutes;
+			audits.push({
+				action: "settings.idle_stop_updated",
+				details: {
+					from: before.idle_stop_minutes,
+					to: body.data.idleStopMinutes,
+				},
+			});
+		}
+		if (body.data.acceptableUseText !== undefined) {
+			changes.acceptable_use_text = body.data.acceptableUseText;
+			// Any change to the text everyone sees asks everyone to accept again;
+			// the audit row holds versions, never the text.
+			const oldText = before.acceptable_use_text ?? DEFAULT_ACCEPTABLE_USE_TEXT;
+			const newText = body.data.acceptableUseText ?? DEFAULT_ACCEPTABLE_USE_TEXT;
+			if (oldText !== newText) {
+				changes.acceptable_use_version = before.acceptable_use_version + 1;
+				audits.push({
+					action: "settings.acceptable_use_updated",
+					details: {
+						fromVersion: before.acceptable_use_version,
+						toVersion: before.acceptable_use_version + 1,
+					},
+				});
+			}
 		}
 
 		// The change and its audit rows commit together (SPEC.md §24.11).
@@ -448,8 +506,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 						action: audit.action,
 						result: "ok",
 						metadata: JSON.stringify({
-							from: audit.from,
-							to: audit.to,
+							...audit.details,
 							ip: request.ip,
 							userAgent: request.headers["user-agent"] ?? null,
 						}),

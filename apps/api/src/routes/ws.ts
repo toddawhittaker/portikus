@@ -3,6 +3,7 @@ import { loadSession } from "@portikus/auth";
 import type { ListeningService, Workspace } from "@portikus/contracts";
 import { ClientMessage, type ServerMessage } from "@portikus/events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { recordActivity } from "../activity.js";
 import type { ListeningRegistry } from "../preview/registry.js";
 import type { ServerDeps } from "../server.js";
 import {
@@ -39,6 +40,9 @@ function signatureOf(workspace: Workspace): string {
 		// A Reset Docker or Rebuild request must reach the browser at once (SPEC.md §27).
 		workspace.pendingOperation,
 		workspace.archivedAt,
+		// The throttle notice and "Still working?" must appear at once (ADR 0032).
+		workspace.cpuThrottle,
+		workspace.idleStopAt,
 	]);
 }
 
@@ -235,7 +239,8 @@ export function registerWorkspaceSocket(
 						} catch {
 							return; // Malformed frames are ignored.
 						}
-						if (!ClientMessage.safeParse(parsed).success) return;
+						const message = ClientMessage.safeParse(parsed);
+						if (!message.success) return;
 
 						// Revocation must take effect at once, so re-check the session
 						// on every heartbeat (SPEC.md §5.3).
@@ -248,6 +253,10 @@ export function registerWorkspaceSocket(
 						}
 
 						if (present) await touchPresence(db, connectionId);
+						// Only the owner's own key presses hold off idle stop (ADR 0032).
+						if (present && message.data.type === "activity") {
+							await recordActivity(db, workspaceId);
+						}
 					} catch (error) {
 						request.log.error(
 							{ err: error, workspaceId },

@@ -383,3 +383,138 @@ test.skipIf(skip)(
 		await socket.close();
 	},
 );
+
+// --- Activity and the resource guard fields (ADR 0032) ---
+
+async function activityRow(): Promise<{
+	last_activity_at: Date | null;
+	idle_stop_at: Date | null;
+}> {
+	return testDb.db
+		.selectFrom("workspaces")
+		.select(["last_activity_at", "idle_stop_at"])
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+}
+
+test.skipIf(skip)(
+	"the owner's activity message records activity and answers Still working",
+	async () => {
+		const idleStopAt = new Date(Date.now() + 5 * 60_000).toISOString();
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ idle_stop_at: idleStopAt })
+			.where("id", "=", workspaceId)
+			.execute();
+		const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+		await socket.next();
+
+		socket.ws.send(JSON.stringify({ type: "activity" }));
+		await vi.waitFor(async () => {
+			const row = await activityRow();
+			expect(row.last_activity_at).not.toBeNull();
+			expect(row.idle_stop_at).toBeNull();
+		});
+
+		// A second message inside the minute writes nothing.
+		const seeded = new Date(Date.now() - 30_000).toISOString();
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ last_activity_at: seeded, idle_stop_at: idleStopAt })
+			.where("id", "=", workspaceId)
+			.execute();
+		socket.ws.send(JSON.stringify({ type: "activity" }));
+		socket.ws.send(JSON.stringify({ type: "heartbeat" }));
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		const row = await activityRow();
+		expect(row.last_activity_at?.toISOString()).toBe(seeded);
+		expect(row.idle_stop_at?.toISOString()).toBe(idleStopAt);
+
+		await socket.close();
+	},
+);
+
+test.skipIf(skip)("a heartbeat is not activity", async () => {
+	const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+	await socket.next();
+	socket.ws.send(JSON.stringify({ type: "heartbeat" }));
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	expect((await activityRow()).last_activity_at).toBeNull();
+	await socket.close();
+});
+
+test.skipIf(skip)(
+	"an administrator's activity message is not the student's activity",
+	async () => {
+		const idleStopAt = new Date(Date.now() + 5 * 60_000).toISOString();
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ idle_stop_at: idleStopAt })
+			.where("id", "=", workspaceId)
+			.execute();
+		const carol = new CookieJar();
+		await loginAs(app, "carol", carol);
+		const socket = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+		await socket.next();
+
+		socket.ws.send(JSON.stringify({ type: "activity" }));
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		const row = await activityRow();
+		expect(row.last_activity_at).toBeNull();
+		expect(row.idle_stop_at?.toISOString()).toBe(idleStopAt);
+		expect(socket.ws.readyState).toBe(WebSocket.OPEN);
+
+		await socket.close();
+	},
+);
+
+test.skipIf(skip)("throttle and idle-stop changes reach an open socket", async () => {
+	const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+	await socket.next();
+
+	const throttle = {
+		at: "2026-09-25T12:00:00.000Z",
+		averagePercent: 98,
+		thresholdPercent: 80,
+		windowMinutes: 30,
+		sharePercent: 25,
+		allowance: "100ms/100ms",
+	};
+	let update = socket.nextOf("workspace");
+	// Only cpu_throttle changes, so nothing else could trigger the push.
+	await testDb.db
+		.updateTable("workspaces")
+		.set({ cpu_throttle: JSON.stringify(throttle) })
+		.where("id", "=", workspaceId)
+		.execute();
+	let message = await update;
+	// The student sees the numbers, never the allowance or the average.
+	expect(message.workspace.cpuThrottle).toEqual({
+		at: throttle.at,
+		thresholdPercent: 80,
+		windowMinutes: 30,
+		sharePercent: 25,
+	});
+
+	const idleStopAt = new Date(Date.now() + 5 * 60_000).toISOString();
+	update = socket.nextOf("workspace");
+	await testDb.db
+		.updateTable("workspaces")
+		.set({ idle_stop_at: idleStopAt })
+		.where("id", "=", workspaceId)
+		.execute();
+	message = await update;
+	expect(message.workspace.idleStopAt).toBe(idleStopAt);
+
+	update = socket.nextOf("workspace");
+	await testDb.db
+		.updateTable("workspaces")
+		.set({ idle_stop_at: null, cpu_throttle: null })
+		.where("id", "=", workspaceId)
+		.execute();
+	message = await update;
+	expect(message.workspace.idleStopAt).toBeNull();
+	expect(message.workspace.cpuThrottle).toBeNull();
+
+	await socket.close();
+});
