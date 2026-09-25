@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, test } from "vitest";
 import {
 	createDexApi,
@@ -121,6 +123,155 @@ describe.skipIf(!ISSUER || !GRPC.DEX_GRPC_ADDR)(
 			} finally {
 				stranger.close();
 			}
+		});
+	},
+);
+
+/**
+ * The local administrator and a password an administrator made, through the
+ * real API in front of the real Dex (SPEC.md sections 5.1 to 5.3, ADR 0031).
+ * The CI job starts the built API on DEX_TEST_API_URL with
+ * the Dex above as its issuer and its gRPC API, on the database
+ * DEX_TEST_API_DATABASE_URL names; without them the suite is skipped.
+ */
+const API = process.env.DEX_TEST_API_URL ?? "";
+const API_DATABASE_URL = process.env.DEX_TEST_API_DATABASE_URL ?? "";
+
+describe.skipIf(!ISSUER || !GRPC.DEX_GRPC_ADDR || !API || !API_DATABASE_URL)(
+	"passwords that must be changed, through the real API and Dex",
+	() => {
+		const apiCallback = `${API}/auth/callback`;
+		const adminEmail = "local-admin@example.edu";
+
+		function cookiesOf(res: Response): string {
+			return res.headers
+				.getSetCookie()
+				.map((c) => c.split(";")[0] ?? "")
+				.filter((c) => !c.endsWith("="))
+				.join("; ");
+		}
+
+		/** The API's sign-in, as a browser does it: the session cookie, or null. */
+		async function apiSignIn(login: string, password: string): Promise<string | null> {
+			const start = await fetch(`${API}/auth/login`, { redirect: "manual" });
+			const location = start.headers.get("location");
+			if (start.status !== 302 || !location) throw new Error("no redirect to Dex");
+			const { callback } = await submitDexPasswordForm(
+				location,
+				apiCallback,
+				login,
+				password,
+			);
+			if (!callback) return null;
+			const done = await fetch(callback, {
+				redirect: "manual",
+				headers: { cookie: cookiesOf(start) },
+			});
+			if (done.status !== 302 || done.headers.get("location") !== "/") {
+				throw new Error(`the callback answered ${done.status}`);
+			}
+			return cookiesOf(done);
+		}
+
+		async function me(cookie: string | null) {
+			const res = await fetch(`${API}/auth/me`, { headers: { cookie: cookie ?? "" } });
+			expect(res.status).toBe(200);
+			return (await res.json()) as Record<string, unknown>;
+		}
+
+		function post(cookie: string | null, path: string, body: unknown) {
+			return fetch(`${API}${path}`, {
+				method: "POST",
+				// The browser's own origin, which the API requires on a change.
+				headers: {
+					cookie: cookie ?? "",
+					"content-type": "application/json",
+					origin: API,
+				},
+				body: JSON.stringify(body),
+			});
+		}
+
+		/** The built command, as `portikus reset-admin` runs it on the VM. */
+		function resetAdmin(): string {
+			const main = fileURLToPath(
+				new URL("../dist/reset-admin-main.js", import.meta.url),
+			);
+			const out = execFileSync(process.execPath, [main, "--email", adminEmail], {
+				env: {
+					...process.env,
+					DATABASE_URL: API_DATABASE_URL,
+					OIDC_ISSUER_URL: ISSUER,
+					PUBLIC_URL: API,
+				},
+				encoding: "utf8",
+			});
+			// Standard output holds the password and nothing else.
+			const lines = out.split("\n").filter(Boolean);
+			expect(lines).toHaveLength(1);
+			return lines[0] ?? "";
+		}
+
+		test("the local administrator signs in with the printed password, changes it, and the old one stops working", async () => {
+			const first = resetAdmin();
+			const cookie = await apiSignIn(adminEmail, first);
+			expect(cookie).not.toBeNull();
+			expect(await me(cookie)).toMatchObject({
+				role: "administrator",
+				mustChangePassword: true,
+				localPassword: true,
+			});
+			// Everything but the change is closed while the flag is set.
+			const blocked = await fetch(`${API}/admin/users`, {
+				headers: { cookie: cookie ?? "" },
+			});
+			expect(blocked.status).toBe(403);
+			expect(await blocked.json()).toMatchObject({ code: "PASSWORD_CHANGE_REQUIRED" });
+
+			// Dex's VerifyPassword refuses a wrong current password.
+			const second = "a-brand-new-password-for-ci";
+			const wrong = await post(cookie, "/me/password", {
+				currentPassword: `${first}x`,
+				newPassword: second,
+			});
+			expect(wrong.status).toBe(403);
+			expect(await wrong.json()).toMatchObject({ code: "WRONG_PASSWORD" });
+
+			const changed = await post(cookie, "/me/password", {
+				currentPassword: first,
+				newPassword: second,
+			});
+			expect(changed.status, await changed.text()).toBeLessThan(300);
+			expect(await me(cookie)).toMatchObject({ mustChangePassword: false });
+
+			expect(await apiSignIn(adminEmail, first)).toBeNull();
+			const again = await apiSignIn(adminEmail, second);
+			expect(again).not.toBeNull();
+			expect(await me(again)).toMatchObject({
+				role: "administrator",
+				mustChangePassword: false,
+			});
+		});
+
+		test("a password made by Add user must be changed at first sign-in", async () => {
+			const cookie = await apiSignIn(adminEmail, "a-brand-new-password-for-ci");
+			expect(cookie).not.toBeNull();
+			const email = `added-${crypto.randomUUID().slice(0, 8)}@example.edu`;
+			const added = await post(cookie, "/admin/dex-users", {
+				email,
+				username: "added-user",
+				name: "Added User",
+				role: "student",
+			});
+			expect(added.status).toBe(200);
+			const { password } = (await added.json()) as { password: string };
+			const newcomer = await apiSignIn(email, password);
+			expect(newcomer).not.toBeNull();
+			expect(await me(newcomer)).toMatchObject({
+				role: "student",
+				mustChangePassword: true,
+				localPassword: true,
+			});
 		});
 	},
 );

@@ -50,6 +50,8 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		email: "carol@example.edu",
 		name: "Carol Admin",
 		groups: [MOCK_GROUPS.admin],
+		// The app role an Entra tenant sends, for Dex's entra preset in CI.
+		claims: { roles: ["Portikus.Administrator"] },
 	},
 	dave: {
 		sub: "dave",
@@ -64,6 +66,7 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		email: "erin@example.edu",
 		name: "Erin Student",
 		groups: [MOCK_GROUPS.student],
+		claims: { roles: ["Portikus.Student"] },
 	},
 	frank: {
 		sub: "frank",
@@ -331,6 +334,8 @@ export async function startMockOidcProvider(
 		const now = Math.floor(Date.now() / 1000);
 		const idToken = await new SignJWT({
 			email: pending.user.email,
+			// Dex's generic OIDC connector refuses a token without it.
+			email_verified: true,
 			name: pending.user.name,
 			preferred_username: pending.user.sub,
 			groups: pending.user.groups,
