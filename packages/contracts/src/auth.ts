@@ -18,16 +18,17 @@ export const AuthUser = z.object({
 	signInName: z.string().min(1).optional(),
 	/**
 	 * While true the account can use only the change-password page
-	 * (docs/EPIC-14-2.md ruling 18). `GET /auth/me` always sends it.
+	 * (docs/EPIC-14-2.md ruling 18).
 	 */
-	mustChangePassword: z.boolean().optional(),
-	/** The account is a Dex local password, so Settings offers Password. */
-	localPassword: z.boolean().optional(),
+	mustChangePassword: z.boolean(),
 });
 export type AuthUser = z.infer<typeof AuthUser>;
 
 /** Response body for `GET /auth/me`. */
-export const MeResponse = AuthUser;
+export const MeResponse = AuthUser.extend({
+	/** The account is a Dex local password, so Settings offers Password. */
+	localPassword: z.boolean(),
+});
 export type MeResponse = z.infer<typeof MeResponse>;
 
 /** bcrypt, which Dex uses, reads at most 72 bytes. */

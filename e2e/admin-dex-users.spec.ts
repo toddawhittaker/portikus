@@ -46,7 +46,7 @@ async function addUser(
 	const done = page.getByRole("dialog", { name: `${name} added` });
 	await expect(done).toBeVisible();
 	await expect(done).toContainText(
-		"Give this to them privately. It will not be shown again.",
+		"Give this to them privately. It will not be shown again. They will choose their own password when they first sign in.",
 	);
 	const password = (await done.getByTestId("dex-password").textContent()) ?? "";
 	expect(password).toMatch(/^[A-Za-z0-9]{20}$/);
@@ -174,6 +174,9 @@ test("Reset password shows a new password once and signs the user out", async ({
 	const password = (await shown.getByTestId("dex-password").textContent()) ?? "";
 	expect(password).toMatch(/^[A-Za-z0-9]{20}$/);
 	expect(password).not.toBe(added.password);
+	await expect(shown).toContainText(
+		"They will choose their own password when they first sign in.",
+	);
 	await expectNoViolations(page, "[data-testid=dex-reset-dialog]");
 	await shown.getByRole("button", { name: "Done" }).click();
 	await expect(shown).toBeHidden();

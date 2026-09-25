@@ -194,6 +194,8 @@ const ADMIN_ME = {
 	email: "carol@example.invalid",
 	displayName: "Carol Admin",
 	role: "administrator" as const,
+	mustChangePassword: false,
+	localPassword: false,
 };
 
 function listed(
