@@ -3,6 +3,7 @@ import { mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { MAX_TERMINALS_PER_WORKSPACE } from "@portikus/contracts";
 import type { LogLevel } from "@portikus/observability";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
@@ -288,10 +289,11 @@ test.skipIf(!haveTmux)("a working directory outside the home is refused", async 
 });
 
 test.skipIf(!haveTmux)(
-	"a workspace is capped at eight terminals",
+	"a workspace is capped at MAX_TERMINALS_PER_WORKSPACE terminals",
 	async () => {
 		const ids: string[] = [];
-		for (let i = 0; i < 8; i += 1) {
+		expect(MAX_TERMINALS_PER_WORKSPACE).toBe(20);
+		for (let i = 0; i < MAX_TERMINALS_PER_WORKSPACE; i += 1) {
 			const id = makeId();
 			ids.push(id);
 			const created = await app.inject({
@@ -317,7 +319,7 @@ test.skipIf(!haveTmux)(
 		expect(duplicate.statusCode).toBe(409);
 		expect(duplicate.json().error.code).toBe("TERMINAL_EXISTS");
 
-		const ninth = await app.inject({
+		const extra = await app.inject({
 			method: "POST",
 			url: "/terminals",
 			headers: auth(),
@@ -328,8 +330,8 @@ test.skipIf(!haveTmux)(
 				timezone: "America/New_York",
 			},
 		});
-		expect(ninth.statusCode).toBe(409);
-		expect(ninth.json().error.code).toBe("TERMINAL_LIMIT");
+		expect(extra.statusCode).toBe(409);
+		expect(extra.json().error.code).toBe("TERMINAL_LIMIT");
 
 		for (const id of ids) {
 			await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
