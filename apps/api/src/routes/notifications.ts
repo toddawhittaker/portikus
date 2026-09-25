@@ -68,17 +68,14 @@ export function registerNotificationRoutes(
 		if (!query.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", "Invalid page request");
 		}
-		let select = db
+		const rows = await db
 			.selectFrom("notifications")
 			.selectAll()
 			.where("user_id", "=", user.id)
 			.orderBy("created_at", "desc")
 			.orderBy("id", "desc")
-			.limit(query.data.limit);
-		if (query.data.before) {
-			select = select.where("created_at", "<", new Date(query.data.before));
-		}
-		const rows = await select.execute();
+			.limit(query.data.limit)
+			.execute();
 		const out: NotificationList = {
 			notifications: rows.map(toNotification),
 			unreadCount: await unreadCount(db, user.id),

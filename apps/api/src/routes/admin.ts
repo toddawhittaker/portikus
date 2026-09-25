@@ -436,7 +436,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			});
 		}
 
-		// The four guard numbers share one audit row with only the changed keys.
+		// The four guard numbers share one audit row with only the keys whose value changed.
 		const guardFields = [
 			["cpuGuardThresholdPercent", "cpu_guard_threshold_percent"],
 			["memoryGuardThresholdPercent", "memory_guard_threshold_percent"],
@@ -447,7 +447,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		const guardTo: Record<string, number> = {};
 		for (const [field, column] of guardFields) {
 			const value = body.data[field];
-			if (value === undefined) continue;
+			if (value === undefined || value === before[column]) continue;
 			changes[column] = value;
 			guardFrom[field] = before[column];
 			guardTo[field] = value;
@@ -461,7 +461,10 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				},
 			});
 		}
-		if (body.data.idleStopMinutes !== undefined) {
+		if (
+			body.data.idleStopMinutes !== undefined &&
+			body.data.idleStopMinutes !== before.idle_stop_minutes
+		) {
 			changes.idle_stop_minutes = body.data.idleStopMinutes;
 			audits.push({
 				action: "settings.idle_stop_updated",
