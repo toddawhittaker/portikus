@@ -75,7 +75,7 @@ test("a toast times out, is recorded, and the history follows the user to a seco
 		.getByTestId("notification")
 		.filter({ hasText: "Project deleted" });
 	await expect(item).toHaveAttribute("data-unread", "true");
-	await item.getByRole("button", { name: 'Mark "Project deleted" as read' }).click();
+	await item.getByRole("button", { name: 'Mark read: "Project deleted"' }).click();
 	await expect(item).toHaveAttribute("data-unread", "false");
 	await expect(badge).toHaveCount(0);
 	await page.keyboard.press("Escape");
@@ -203,7 +203,7 @@ test("keyboard only: reach Notifications from the account menu and mark one read
 	const dialog = page.getByTestId("dialog-notifications");
 	await expect(dialog).toBeVisible();
 	const markRead = dialog.getByRole("button", {
-		name: 'Mark "Second warning" as read',
+		name: 'Mark read: "Second warning"',
 	});
 	for (let i = 0; i < 10; i += 1) {
 		if (await markRead.evaluate((el) => el === document.activeElement)) break;
@@ -212,6 +212,10 @@ test("keyboard only: reach Notifications from the account menu and mark one read
 	await expect(markRead).toBeFocused();
 	await page.keyboard.press("Enter");
 	await expect(page.getByTestId("notifications-badge")).toHaveText("1");
+	// Its button is gone, so focus moves to the next unread item's Mark read.
+	await expect(
+		dialog.getByRole("button", { name: 'Mark read: "First warning"' }),
+	).toBeFocused();
 
 	await page.keyboard.press("Escape");
 	await expect(dialog).toHaveCount(0);
@@ -219,4 +223,15 @@ test("keyboard only: reach Notifications from the account menu and mark one read
 	await page.getByTestId("notifications-badge").focus();
 	await page.keyboard.press("Enter");
 	await expect(dialog).toBeVisible();
+
+	// Mark all as read keeps focus, though the badge that opened the dialog goes.
+	const readAll = dialog.getByTestId("notifications-read-all");
+	await readAll.focus();
+	await page.keyboard.press("Enter");
+	await expect(page.getByTestId("notifications-badge")).toHaveCount(0);
+	await expect(readAll).toBeFocused();
+	await expect(readAll).toHaveAttribute("aria-disabled", "true");
+	await page.keyboard.press("Escape");
+	await expect(dialog).toHaveCount(0);
+	await expect(page.getByTestId("me")).toBeFocused();
 });

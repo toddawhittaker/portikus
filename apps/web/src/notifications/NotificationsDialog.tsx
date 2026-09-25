@@ -1,5 +1,6 @@
 import type { Notification, NotificationTone } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, Icon, type IconName } from "@portikus/ui";
+import { useEffect, useRef } from "react";
 import {
 	useClearNotifications,
 	useMarkAllNotificationsRead,
@@ -32,13 +33,22 @@ export function relativeTime(iso: string, now: number): string {
 	return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
-function NotificationItem({ item, now }: { item: Notification; now: number }) {
+function NotificationItem({
+	item,
+	now,
+	onMarkRead,
+}: {
+	item: Notification;
+	now: number;
+	onMarkRead: (id: string) => void;
+}) {
 	const markRead = useMarkNotificationRead();
 	const unread = item.readAt === null;
 	return (
 		<li
 			className={`pk-notification pk-notification--${item.tone}${unread ? " pk-notification--unread" : ""}`}
 			data-testid="notification"
+			data-notification-id={item.id}
 			data-unread={unread ? "true" : "false"}
 		>
 			<Icon name={TONE_ICON[item.tone]} className="pk-notification-icon" />
@@ -67,8 +77,12 @@ function NotificationItem({ item, now }: { item: Notification; now: number }) {
 						size="sm"
 						variant="quiet"
 						loading={markRead.isPending}
-						onClick={() => markRead.mutate(item.id)}
-						aria-label={`Mark "${item.title}" as read`}
+						onClick={() => {
+							onMarkRead(item.id);
+							markRead.mutate(item.id);
+						}}
+						// Starts with the visible words, so voice control finds it (WCAG 2.5.3).
+						aria-label={`Mark read: "${item.title}"`}
 						data-testid="notification-mark-read"
 					>
 						Mark read
@@ -90,6 +104,29 @@ export function NotificationsDialog({ onClose }: { onClose: () => void }) {
 	const items = query.data?.notifications ?? [];
 	const unread = query.data?.unreadCount ?? 0;
 	const now = Date.now();
+	const body = useRef<HTMLDivElement>(null);
+	const readAll = useRef<HTMLButtonElement>(null);
+	// The item whose Mark read was pressed; its button goes once it is read.
+	const marked = useRef<string | null>(null);
+
+	useEffect(() => {
+		const id = marked.current;
+		if (!id) return;
+		const index = items.findIndex((item) => item.id === id);
+		if (index !== -1 && items[index]?.readAt === null) return;
+		marked.current = null;
+		const after = items.slice(index + 1).find((item) => item.readAt === null);
+		const before = items
+			.slice(0, Math.max(index, 0))
+			.find((item) => item.readAt === null);
+		const next = after ?? before;
+		const button = next
+			? body.current?.querySelector<HTMLElement>(
+					`[data-notification-id="${next.id}"] [data-testid="notification-mark-read"]`,
+				)
+			: null;
+		(button ?? readAll.current)?.focus();
+	}, [items]);
 
 	return (
 		<DialogRoot open onOpenChange={(open) => !open && onClose()}>
@@ -107,18 +144,24 @@ export function NotificationsDialog({ onClose }: { onClose: () => void }) {
 					<>
 						<Button
 							variant="secondary"
-							disabled={items.length === 0}
+							// aria-disabled, not disabled, so focus stays on it after it acts.
+							aria-disabled={items.length === 0}
 							loading={clear.isPending}
-							onClick={() => clear.mutate()}
+							onClick={() => {
+								if (items.length > 0) clear.mutate();
+							}}
 							data-testid="notifications-clear"
 						>
 							Clear all
 						</Button>
 						<Button
 							variant="secondary"
-							disabled={unread === 0}
+							ref={readAll}
+							aria-disabled={unread === 0}
 							loading={markAll.isPending}
-							onClick={() => markAll.mutate()}
+							onClick={() => {
+								if (unread > 0) markAll.mutate();
+							}}
 							data-testid="notifications-read-all"
 						>
 							Mark all as read
@@ -126,23 +169,35 @@ export function NotificationsDialog({ onClose }: { onClose: () => void }) {
 					</>
 				}
 			>
-				{query.isPending ? (
-					<p className="m-0 text-ink-muted">Loading notifications…</p>
-				) : query.isError ? (
-					<p className="m-0 text-ink-muted" role="alert">
-						Notifications could not be loaded. Try again in a moment.
-					</p>
-				) : items.length === 0 ? (
-					<p className="m-0 text-ink-muted" data-testid="notifications-empty">
-						No notifications yet. Messages the platform shows you appear here.
-					</p>
-				) : (
-					<ul className="pk-notification-list" aria-label="Notifications, newest first">
-						{items.map((item) => (
-							<NotificationItem key={item.id} item={item} now={now} />
-						))}
-					</ul>
-				)}
+				<div ref={body}>
+					{query.isPending ? (
+						<p className="m-0 text-ink-muted">Loading notifications…</p>
+					) : query.isError ? (
+						<p className="m-0 text-ink-muted" role="alert">
+							Notifications could not be loaded. Try again in a moment.
+						</p>
+					) : items.length === 0 ? (
+						<p className="m-0 text-ink-muted" data-testid="notifications-empty">
+							No notifications yet. Messages the platform shows you appear here.
+						</p>
+					) : (
+						<ul
+							className="pk-notification-list"
+							aria-label="Notifications, newest first"
+						>
+							{items.map((item) => (
+								<NotificationItem
+									key={item.id}
+									item={item}
+									now={now}
+									onMarkRead={(id) => {
+										marked.current = id;
+									}}
+								/>
+							))}
+						</ul>
+					)}
+				</div>
 			</Dialog>
 		</DialogRoot>
 	);

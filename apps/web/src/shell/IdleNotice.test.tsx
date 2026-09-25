@@ -1,6 +1,6 @@
 import type { Workspace } from "@portikus/contracts";
 import { fireEvent, render, renderHook, screen } from "@testing-library/react";
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { WORKSPACE } from "../test-utils.js";
 import { IdleNotice, idleMinutes, useIdleStopReason } from "./IdleNotice.js";
 
@@ -41,7 +41,14 @@ test("without an activity time it still explains the stop", () => {
 	expect(screen.getByTestId("idle-notice").textContent).toContain("stop in 1 minute,");
 });
 
-function reasonAfter(steps: Partial<Workspace>[]) {
+afterEach(() => {
+	vi.useRealTimers();
+});
+
+/** Runs the steps with the clock at `now`, the idle deadline by default. */
+function reasonAfter(steps: Partial<Workspace>[], now = STOP) {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime(new Date(now));
 	const hook = renderHook(
 		({ workspace }: { workspace: Workspace }) => useIdleStopReason(workspace),
 		{ initialProps: { workspace: WORKSPACE as Workspace } },
@@ -91,4 +98,69 @@ test("starting again forgets the reason", () => {
 			{ state: "running", desiredState: "running" },
 		]),
 	).toBeUndefined();
+});
+
+test("a stop well before the idle deadline is not called an idle stop", () => {
+	// The student pressed Stop, or the grace period ran out, while the notice showed.
+	expect(
+		reasonAfter(
+			[
+				{ idleStopAt: STOP, lastActivityAt: LAST },
+				{ state: "stopping", desiredState: "stopped" },
+				{ state: "stopped", desiredState: "stopped" },
+			],
+			"2026-09-25T13:02:00.000Z",
+		),
+	).toBeUndefined();
+});
+
+test("focus returns to where it was when the notice goes", () => {
+	const input = document.createElement("input");
+	document.body.append(input);
+	input.focus();
+	const deadline = new Date(Date.now() + 60_000).toISOString();
+	const view = render(
+		<IdleNotice deadline={deadline} minutes={1} onKeepWorking={() => {}} />,
+	);
+	expect(document.activeElement).toBe(screen.getByTestId("idle-keep-working"));
+	view.unmount();
+	expect(document.activeElement).toBe(input);
+	input.remove();
+});
+
+test("focus falls back to the work area when the old element is gone", () => {
+	const input = document.createElement("input");
+	const work = document.createElement("main");
+	work.tabIndex = -1;
+	document.body.append(input, work);
+	input.focus();
+	const deadline = new Date(Date.now() + 60_000).toISOString();
+	const view = render(
+		<IdleNotice
+			deadline={deadline}
+			minutes={1}
+			onKeepWorking={() => {}}
+			fallbackFocus={{ current: work }}
+		/>,
+	);
+	input.remove();
+	view.unmount();
+	expect(document.activeElement).toBe(work);
+	work.remove();
+});
+
+test("focus the student moved elsewhere is left alone", () => {
+	const input = document.createElement("input");
+	const other = document.createElement("button");
+	document.body.append(input, other);
+	input.focus();
+	const deadline = new Date(Date.now() + 60_000).toISOString();
+	const view = render(
+		<IdleNotice deadline={deadline} minutes={1} onKeepWorking={() => {}} />,
+	);
+	other.focus();
+	view.unmount();
+	expect(document.activeElement).toBe(other);
+	input.remove();
+	other.remove();
 });

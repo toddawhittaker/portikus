@@ -1,5 +1,15 @@
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, loginAs, query, toast, workspacePath } from "./helpers";
+import {
+	createProject,
+	createStudent,
+	expectConnected,
+	loginAs,
+	query,
+	terminalIds,
+	toast,
+	workspacePath,
+	workTabs,
+} from "./helpers";
 
 /**
  * Idle stop as the student sees it (ADR 0032, SPEC.md §6.4). The worker does
@@ -26,12 +36,27 @@ test.afterAll(async () => {
 	await query("update settings set idle_stop_minutes = $1", [saved]);
 });
 
-/** The worker's warning: idle for 10 minutes, stopping 5 minutes from now. */
-async function warn(workspaceId: string): Promise<void> {
+/**
+ * The worker's warning after 10 idle minutes. By default the stop is five
+ * minutes away, as when it is first given; a smaller `secondsLeft` stands for
+ * a warning that has nearly run out.
+ */
+async function warn(workspaceId: string, secondsLeft = 300): Promise<void> {
 	await query(
 		`update workspaces
-		    set last_activity_at = now() - interval '10 minutes',
-		        idle_stop_at = now() + interval '5 minutes',
+		    set idle_stop_at = now() + make_interval(secs => $2),
+		        last_activity_at = now() + make_interval(secs => $2) - interval '15 minutes',
+		        updated_at = now()
+		  where id = $1`,
+		[workspaceId, secondsLeft],
+	);
+}
+
+/** Stop the workspace, as the worker or the student's Stop would. */
+async function stop(workspaceId: string): Promise<void> {
+	await query(
+		`update workspaces
+		    set desired_state = 'stopped', state = 'stopped', idle_stop_at = null,
 		        updated_at = now()
 		  where id = $1`,
 		[workspaceId],
@@ -92,21 +117,68 @@ test("unanswered, the workspace stops and the page says why", async ({
 }) => {
 	const student = await createStudent(context);
 	await openShell(page, student.workspaceId);
-	await warn(student.workspaceId);
+	await warn(student.workspaceId, 30);
 	await expect(page.getByTestId("idle-notice")).toBeVisible({ timeout: 15_000 });
 
 	// The worker's idle step: stop the workspace whether or not a tab is open.
-	await query(
-		`update workspaces
-		    set desired_state = 'stopped', state = 'stopped', idle_stop_at = null,
-		        updated_at = now()
-		  where id = $1`,
-		[student.workspaceId],
-	);
+	await stop(student.workspaceId);
 
 	await expect(page.getByTestId("idle-stopped")).toHaveText(
 		"Stopped after 10 minutes without activity.",
 		{ timeout: 15_000 },
 	);
 	await expect(page.getByTestId("idle-notice")).toHaveCount(0);
+});
+
+test("a stop well before the idle deadline does not claim idleness", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await openShell(page, student.workspaceId);
+	await warn(student.workspaceId);
+	await expect(page.getByTestId("idle-notice")).toBeVisible({ timeout: 15_000 });
+
+	// The student's own Stop, or the disconnect grace period, while the notice shows.
+	await stop(student.workspaceId);
+
+	await expect(page.getByTestId("workspace-progress")).toHaveAttribute(
+		"data-phase",
+		"stopped",
+		{ timeout: 15_000 },
+	);
+	await expect(page.getByTestId("idle-stopped")).toHaveCount(0);
+});
+
+test("Keep working hands the keyboard back to the terminal", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Idle Focus" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+	await page.getByTestId("launcher").click();
+	await page.getByTestId("launcher-terminal").click();
+	const [id] = await terminalIds(student.workspaceId, project.id);
+	if (!id) throw new Error("the terminal row was not created");
+	await expectConnected(page, id);
+	const terminal = page.locator(
+		`[data-testid="terminal-pane-${id}"] .xterm-helper-textarea`,
+	);
+	await expect(terminal).toBeFocused();
+
+	await warn(student.workspaceId);
+	const keep = page.getByTestId("idle-keep-working");
+	await expect(keep).toBeFocused({ timeout: 15_000 });
+	await page.keyboard.press("Enter");
+	// Opening the terminal wrote activity under a minute ago, so the API skips
+	// this write (once a minute per workspace); clear the warning as it would.
+	await query(
+		"update workspaces set idle_stop_at = null, updated_at = now() where id = $1",
+		[student.workspaceId],
+	);
+
+	await expect(page.getByTestId("idle-notice")).toHaveCount(0, { timeout: 15_000 });
+	await expect(terminal).toBeFocused();
 });
