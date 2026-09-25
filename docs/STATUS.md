@@ -2428,6 +2428,18 @@ Gaps:
 - Review fixes, infrastructure and egress: Portikus asks Dex for `groups` only with Dex's own passwords or LDAP, never behind its Microsoft or Google connector, where students can create groups; OpenLDAP accounts are keyed by `entryUUID`, so a reused username gets a new account; Active Directory keeps `sAMAccountName`, because Dex v2.45.1 cannot encode the binary `objectGUID` (999 of 1,000 random GUIDs failed), and docs/OPERATIONS.md says to disable, not delete, departed accounts; Squid matches names only as written (`dstdomain -n`) and refuses any unlisted IP address given directly; `restore.sh` skips Dex's accounts on a VM without Dex and restarts Dex if loading them fails; the mock-to-Dex carry-over and `make identity-carry-over-dry-run` are removed; CI makes the gRPC certificates with the dex role's own script. Verified on the rehearsal VM with 0.1.423+gd0a823d and a throwaway OpenLDAP: a new person given a deleted person's username got a new account, the old rules let a CONNECT to 1.1.1.1 through by its reverse DNS name while the new ones refuse it, `make security-test` passed 236 of 236 and `make smoke-test` 240 of 240.
 - Confirmation-review fixes: behind Dex's Microsoft or Google connector the play now leaves the API's `OIDC_GROUPS_CLAIM` empty, and the API takes no role from groups when that setting is empty, so a student who adds the `groups` scope to the Dex sign-in address gains nothing; every play on a site that no longer uses the mock ends the sessions of the mock's accounts; a users-file import skipped because Dex already holds passwords now marks the site imported, so a Dex emptied later never gets the file; the setup page and the Add user dialog render the invalid field before moving focus to it, so a screen reader announces it as invalid. Unit, database and render tests cover each; the play task that ends mock sessions has not been run on a VM.
 
+## Epic 14.2 — One front door (in progress)
+
+### LTI workspace label falls back to the email (#558)
+
+A course (LTI) account with no LMS username now gets a workspace label
+from the part of its email before the `@`, before falling back to its
+LTI user ID, which in Canvas is an unreadable UUID. The cleaning, the
+40-character limit and the `-2`, `-3` clash suffixes are unchanged; when
+the suffixes run out, the email label and then the LTI user ID label are
+each tried once. Existing labels do not change, so the pilot's LTI
+workspaces need relabelling by hand.
+
 ## Epic 14.1 — Fixes after Epic 14 (in progress)
 
 ### LTI workspaces named after the LMS username (#549)
