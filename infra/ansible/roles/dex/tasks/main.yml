@@ -187,8 +187,8 @@
     # Template patches, re-applied after every build: the logo moves into the
     # sign-in card with a text alternative, and the card becomes the main
     # landmark; each page has a first-level heading, names its language and
-    # keeps the natural tab order; a failed sign-in is announced to screen
-    # readers.
+    # keeps the natural tab order; the words match the Portikus sign-in page;
+    # a failed sign-in is announced to screen readers.
     - name: Put the logo in the Dex sign-in card
       ansible.builtin.replace:
         path: "{{ dex_web_dir }}/templates/header.html"
@@ -209,6 +209,26 @@
         path: "{{ dex_web_dir }}/templates/password.html"
         regexp: ' tabindex="[0-9]+"'
         replace: ''
+      notify: Restart portikus-dex
+
+    # The Portikus sign-in page's words. Dex's own template braces are escaped
+    # or carried by a backreference, so Ansible never evaluates them.
+    - name: Word the Dex pages like the Portikus sign-in page
+      ansible.builtin.replace:
+        path: "{{ dex_web_dir }}/templates/{{ item.file }}"
+        regexp: "{{ item.regexp }}"
+        replace: "{{ item.replace }}"
+      loop:
+        - {file: header.html, regexp: '<title>\{\{ issuer \}\}</title>', replace: '<title>Sign in, Portikus</title>'}
+        - {file: password.html, regexp: '>Log in to Your Account<', replace: '>Sign in to Portikus<'}
+        - {file: password.html, regexp: '>Login</button>', replace: '>Sign in</button>'}
+        - file: password.html
+          regexp: 'Invalid (\{\{ \.UsernamePrompt) \}\} and password\.'
+          replace: 'That \1 | lower }} or password is wrong.'
+        - {file: login.html, regexp: '>Log in to \{\{ issuer \}\} <', replace: '>Sign in to Portikus<'}
+        - {file: login.html, regexp: '>Log in with ', replace: '>Sign in with '}
+      loop_control:
+        label: "{{ item.file }}: {{ item.regexp }}"
       notify: Restart portikus-dex
 
     - name: Give the Dex pages a language

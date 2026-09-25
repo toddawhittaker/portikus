@@ -2444,7 +2444,10 @@ request outside the site. Template patches, re-applied after every
 build, move the logo into the card with the text "Portikus", make the
 card the main landmark, turn each page heading into a first-level
 heading, and drop the password form's positive `tabindex`, beside the
-two earlier ones (`lang="en"` and `role="alert"`).
+two earlier ones (`lang="en"` and `role="alert"`). The pages also use the
+Portikus words: the title "Sign in, Portikus", the heading "Sign in to
+Portikus", a "Sign in" button, and "That email address or password is
+wrong." after a failed sign-in.
 
 Verified on the pilot, 2026-09-25: the dex role applied (`--tags dex`),
 a second run changed nothing, and `make smoke-test` passed 126 of 126
@@ -2455,8 +2458,6 @@ or a failed sign-in, in light or dark. Text contrast is at least 5.0:1
 
 Gaps:
 
-- The page text is still Dex's own: "Log in to Your Account" and
-  "Login", where the Portikus page says "Sign in".
 - CI's `dex-signin` job starts Dex with the stock web directory, so the
   theme's files are missing there (Dex serves the pages unstyled); the
   job only signs in, so it still passes.

@@ -41,7 +41,10 @@ Ansible role `dex`.
   sign-in card with a text alternative and make the card the main
   landmark, make each heading a first-level heading, drop the password
   form's positive `tabindex`, declare `lang="en"`, and give the failed
-  sign-in message `role="alert"`.
+  sign-in message `role="alert"`. They also use the Portikus sign-in
+  page's words: the title "Sign in, Portikus", the heading "Sign in to
+  Portikus", a "Sign in" button, "Sign in with" on connector buttons, and
+  "That email address or password is wrong." after a failed sign-in.
 - **Storage.** `storage: memory`. Every account comes from the static
   configuration, and Portikus reads the ID token once at sign-in and keeps
   its own server-side session (ADR 0008). A restart loses only sign-ins in
