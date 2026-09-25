@@ -169,7 +169,8 @@ test.describe("administration", () => {
 		// An administrator lands on /admin; the link lives in the workspace (issue #534).
 		await expect(page).toHaveURL(`${WEB_ORIGIN}/admin`, { timeout: 15_000 });
 		await expect(page.getByTestId("back-to-workspace")).toHaveCount(0);
-		await page.getByTestId("open-my-workspace").click();
+		await page.getByTestId("me").click();
+		await page.getByRole("menuitem", { name: "Open my workspace" }).click();
 		await expect(page).toHaveURL(/\/workspaces\//, { timeout: 15_000 });
 		await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 

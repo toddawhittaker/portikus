@@ -42,6 +42,24 @@ export function AppHeader({
 	const signOutForm = useRef<HTMLFormElement>(null);
 	const picture = useProfile().data?.picture ?? null;
 	const hasCourse = (useCourses().data?.length ?? 0) > 0;
+	const open = useOpenWorkspace();
+	const navigate = useNavigate();
+	const toast = useToast();
+
+	/** An administrator's way into their own workspace, made on first open (SPEC.md §6.1). */
+	function openMyWorkspace() {
+		if (open.isPending) return;
+		open.mutate(undefined, {
+			onSuccess: (workspace) =>
+				void navigate({ to: "/workspaces/$id", params: { id: workspace.id } }),
+			onError: (error) =>
+				toast.show({
+					tone: "danger",
+					title: "Your workspace did not open",
+					children: error instanceof Error ? error.message : undefined,
+				}),
+		});
+	}
 
 	return (
 		<header className="pk-appbar" data-testid="app-header">
@@ -74,10 +92,8 @@ export function AppHeader({
 				</a>
 			) : null}
 
-			{workspaceId ? null : user.role === "administrator" ? (
-				// "/" sends an administrator to /admin, so the back link would loop.
-				<OpenWorkspaceButton />
-			) : (
+			{/* "/" sends an administrator to /admin, so they get a menu item instead. */}
+			{workspaceId || user.role === "administrator" ? null : (
 				<Link
 					to="/"
 					className="pk-wsbutton pk-wsbutton-text"
@@ -86,6 +102,17 @@ export function AppHeader({
 					Back to your workspace
 				</Link>
 			)}
+
+			{/* Outside the menu, so it still announces after the menu closes. */}
+			{user.role === "administrator" && !workspaceId ? (
+				<span
+					role="status"
+					className={open.isPending ? "text-xs pk-muted" : "sr-only"}
+					data-testid="open-my-workspace-status"
+				>
+					{open.isPending ? "Opening your workspace" : ""}
+				</span>
+			) : null}
 
 			<MenuRoot>
 				<MenuTrigger asChild>
@@ -124,6 +151,18 @@ export function AppHeader({
 							<MenuSeparator />
 						</>
 					) : null}
+					{user.role === "administrator" && !workspaceId ? (
+						<>
+							<MenuItem
+								onSelect={openMyWorkspace}
+								disabled={open.isPending}
+								testId="open-my-workspace"
+							>
+								{open.isPending ? "Opening your workspace…" : "Open my workspace"}
+							</MenuItem>
+							<MenuSeparator />
+						</>
+					) : null}
 					<MenuItem onSelect={() => setSettingsOpen(true)}>
 						<span data-testid="editor-settings">Settings</span>
 					</MenuItem>
@@ -145,41 +184,5 @@ export function AppHeader({
 
 			{settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
 		</header>
-	);
-}
-
-/** An administrator's way into their own workspace, made on first open (SPEC.md §6.1). */
-function OpenWorkspaceButton() {
-	const open = useOpenWorkspace();
-	const navigate = useNavigate();
-	const toast = useToast();
-
-	return (
-		<>
-			<button
-				type="button"
-				className="pk-wsbutton pk-wsbutton-text"
-				data-testid="open-my-workspace"
-				onClick={() => {
-					if (open.isPending) return;
-					open.mutate(undefined, {
-						onSuccess: (workspace) =>
-							void navigate({ to: "/workspaces/$id", params: { id: workspace.id } }),
-						onError: (error) =>
-							toast.show({
-								tone: "danger",
-								title: "Your workspace did not open",
-								children: error instanceof Error ? error.message : undefined,
-							}),
-					});
-				}}
-			>
-				{open.isPending ? "Opening your workspace…" : "Open my workspace"}
-			</button>
-			{/* A changing button label is not reliably announced; a live region is. */}
-			<span role="status" className="sr-only" data-testid="open-my-workspace-status">
-				{open.isPending ? "Opening your workspace" : ""}
-			</span>
-		</>
 	);
 }
