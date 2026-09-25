@@ -69,6 +69,11 @@ async function start(overrides: { AGENT_PORT?: number } = {}): Promise<void> {
 beforeEach(async () => {
 	if (skip) return;
 	await testDb.truncate();
+	// The worker seeds this row; the detail reads the platform guard values from it.
+	await testDb.db
+		.insertInto("settings")
+		.values({ id: 1, shutdown_grace_seconds: 600 })
+		.execute();
 	agent.listening.clear();
 	return async () => {
 		await app?.close();
@@ -700,10 +705,6 @@ describe("guard overrides", () => {
 	beforeEach(async () => {
 		if (skip) return;
 		await start();
-		await testDb.db
-			.insertInto("settings")
-			.values({ id: 1, shutdown_grace_seconds: 600 })
-			.execute();
 	});
 
 	test.skipIf(skip)(

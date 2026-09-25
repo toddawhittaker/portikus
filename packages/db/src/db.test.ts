@@ -1761,6 +1761,11 @@ describe("resource guard migration", () => {
 							.values({ label: testLabel(), owner_user_id: owner, state: "stopped" })
 							.execute();
 					}
+					const runner = await insertTestUser(trx);
+					await trx
+						.insertInto("workspaces")
+						.values({ label: testLabel(), owner_user_id: runner, state: "running" })
+						.execute();
 
 					const up = await migrator.migrateToLatest();
 					expect(up.error).toBeUndefined();
@@ -1794,10 +1799,12 @@ describe("resource guard migration", () => {
 					expect(byOwner.get(optedOut)?.guard_config).toEqual({ idleStopMinutes: 0 });
 					expect(byOwner.get(longGrace)?.guard_config).toBeNull();
 					expect(byOwner.get(plain)?.guard_config).toBeNull();
+					// Only the running workspace counts as active from the migration on.
+					expect(byOwner.get(runner)?.last_activity_at).toBeInstanceOf(Date);
 					for (const r of rows) {
 						expect(r.cpu_throttle).toBeNull();
 						expect(r.memory_flag).toBeNull();
-						expect(r.last_activity_at).toBeNull();
+						if (r.owner_user_id !== runner) expect(r.last_activity_at).toBeNull();
 						expect(r.idle_stop_at).toBeNull();
 					}
 

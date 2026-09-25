@@ -36,6 +36,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		add column acceptable_use_accepted_at timestamptz`.execute(db);
 
 	await backfillIdleOverride(db);
+	// A workspace already running counts as active now, so idle stop never fires at once.
+	await sql`update workspaces set last_activity_at = now() where state = 'running'`.execute(
+		db,
+	);
 
 	await sql`create table workspace_usage_samples (
 		id bigserial primary key,
