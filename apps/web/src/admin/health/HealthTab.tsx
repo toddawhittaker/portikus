@@ -1,4 +1,5 @@
 import type { HealthReport } from "@portikus/contracts";
+import { Link } from "@tanstack/react-router";
 import { ApiError } from "../../api/request.js";
 import { formatBytes } from "../../monitor/format.js";
 import { useHealth } from "./queries.js";
@@ -140,6 +141,8 @@ export function HealthView({ report, now }: { report: HealthReport; now: number 
 				</dl>
 			</section>
 
+			<GuardList guard={report.guard} />
+
 			<section className="pk-card p-6" aria-labelledby="health-trend-title">
 				<h2 className="pk-text-heading m-0" id="health-trend-title">
 					Last 24 hours
@@ -187,6 +190,100 @@ export function HealthView({ report, now }: { report: HealthReport; now: number 
 				</div>
 			</section>
 		</div>
+	);
+}
+
+/** One row per throttle or memory flag, a workspace with both getting two. */
+export function guardRows(guard: HealthReport["guard"]) {
+	return guard.flatMap((entry) => [
+		...(entry.cpuThrottle
+			? [
+					{
+						key: `${entry.workspaceId}-cpu`,
+						owner: entry.owner,
+						which: "Throttled",
+						at: entry.cpuThrottle.at,
+						average: `CPU ${Math.round(entry.cpuThrottle.averagePercent)}% over ${entry.cpuThrottle.windowMinutes} minutes`,
+					},
+				]
+			: []),
+		...(entry.memoryFlag
+			? [
+					{
+						key: `${entry.workspaceId}-memory`,
+						owner: entry.owner,
+						which: "High memory",
+						at: entry.memoryFlag.at,
+						average: `Memory ${Math.round(entry.memoryFlag.averagePercent)}% over ${entry.memoryFlag.windowMinutes} minutes`,
+					},
+				]
+			: []),
+	]);
+}
+
+/** Throttled and memory-flagged workspaces, each linking to its detail panel (ADR 0032). */
+function GuardList({ guard }: { guard: HealthReport["guard"] }) {
+	const rows = guardRows(guard);
+	return (
+		<section className="pk-card p-6" aria-labelledby="health-guard-title">
+			<h2 className="pk-text-heading m-0" id="health-guard-title">
+				Resource guard
+			</h2>
+			{rows.length === 0 ? (
+				<p className="pk-muted m-0 mt-4 text-[13px]" data-testid="health-guard-empty">
+					No workspace is throttled or flagged.
+				</p>
+			) : (
+				<table className="mt-4 text-left text-[13px]" data-testid="health-guard">
+					<caption className="sr-only">Throttled and flagged workspaces</caption>
+					<thead>
+						<tr className="text-ink-muted">
+							<th scope="col" className="py-1 pr-6 font-medium">
+								Owner
+							</th>
+							<th scope="col" className="py-1 pr-6 font-medium">
+								State
+							</th>
+							<th scope="col" className="py-1 pr-6 font-medium">
+								Since
+							</th>
+							<th scope="col" className="py-1 font-medium">
+								Average that set it
+							</th>
+						</tr>
+					</thead>
+					<tbody>
+						{rows.map((row) => (
+							<tr key={row.key} className="border-line border-t">
+								<td className="py-1 pr-6">
+									<Link
+										to="/admin"
+										search={{ tab: "workspaces", user: row.owner.id }}
+										className="pk-link text-[var(--accent-text)] underline"
+									>
+										{row.owner.displayName}
+									</Link>
+								</td>
+								<td className="py-1 pr-6">
+									<span className="pk-tag pk-tag--warning">{row.which}</span>
+								</td>
+								<td className="py-1 pr-6">
+									<time dateTime={row.at}>
+										{new Date(row.at).toLocaleString(undefined, {
+											month: "short",
+											day: "numeric",
+											hour: "2-digit",
+											minute: "2-digit",
+										})}
+									</time>
+								</td>
+								<td className="py-1">{row.average}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			)}
+		</section>
 	);
 }
 

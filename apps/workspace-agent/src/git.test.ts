@@ -20,6 +20,11 @@ const GIT_ENV = {
 	GIT_AUTHOR_EMAIL: "test@example.com",
 	GIT_COMMITTER_NAME: "Test",
 	GIT_COMMITTER_EMAIL: "test@example.com",
+	// Newer git runs auto maintenance detached after a commit or merge; that
+	// background child can still write in .git while the next test removes it.
+	GIT_CONFIG_COUNT: "1",
+	GIT_CONFIG_KEY_0: "maintenance.auto",
+	GIT_CONFIG_VALUE_0: "false",
 };
 
 let app: FastifyInstance;
@@ -64,7 +69,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-	await rm(projectsRoot, { recursive: true, force: true });
+	// Retries cover any git child that still outlives its parent.
+	await rm(projectsRoot, { recursive: true, force: true, maxRetries: 5 });
 	project = join(projectsRoot, SLUG);
 	await mkdir(project, { recursive: true });
 });

@@ -1,6 +1,6 @@
 import { PaneHandle, Skeleton } from "@portikus/ui";
 import { Navigate, Outlet, useNavigate, useParams } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import {
 	useEditorSettings,
@@ -15,9 +15,11 @@ import { ListeningContext, useListeningQuery } from "./running/services.js";
 import { AppHeader } from "./shell/AppHeader.js";
 import { DisconnectNotice } from "./shell/DisconnectNotice.js";
 import { FilesPane } from "./shell/FilesPane.js";
+import { IdleNotice, idleMinutes, useIdleStopReason } from "./shell/IdleNotice.js";
 import { type RightPane, RightPaneContext } from "./shell/rightPane.js";
 import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
 import { StatusBar } from "./shell/StatusBar.js";
+import { ThrottleNotice } from "./shell/ThrottleNotice.js";
 import { type MeUser, useMe } from "./useMe.js";
 import { useWorkspaceSocket } from "./useWorkspaceSocket.js";
 import { WorkspaceStarting } from "./WorkspaceStarting.js";
@@ -53,9 +55,16 @@ function WorkspaceShellWhenSettled(props: { workspaceId: string; user: MeUser })
 
 function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUser }) {
 	const navigate = useNavigate();
-	const { workspace, listening, reconnect } = useWorkspaceSocket(workspaceId, () => {
-		void navigate({ to: "/session-ended" });
-	});
+	const { workspace, listening, reconnect, sendActivity } = useWorkspaceSocket(
+		workspaceId,
+		() => {
+			void navigate({ to: "/session-ended" });
+		},
+	);
+	// A throttle is dismissed for the page's life; a new one shows again (ADR 0032).
+	const [dismissedThrottleAt, setDismissedThrottleAt] = useState<string | null>(null);
+	const idleStopReason = useIdleStopReason(workspace);
+	const workRef = useRef<HTMLElement>(null);
 	// The project route is a child of this one, so its parameter may be absent.
 	const { projectId } = useParams({ strict: false }) as { projectId?: string };
 	const projects = useProjects(workspaceId, "active");
@@ -111,7 +120,30 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 							</Panel>
 							<PaneHandle label="Resize project list" />
 							<Panel id="work" minSize={360}>
-								<main className="pk-work" aria-label="Work area">
+								<main
+									className="pk-work"
+									aria-label="Work area"
+									ref={workRef}
+									// Takes focus when a notice holding it is dismissed.
+									tabIndex={-1}
+								>
+									{workspace?.cpuThrottle &&
+										workspace.cpuThrottle.at !== dismissedThrottleAt && (
+											<ThrottleNotice
+												throttle={workspace.cpuThrottle}
+												onDismiss={() => {
+													setDismissedThrottleAt(workspace.cpuThrottle?.at ?? null);
+													workRef.current?.focus();
+												}}
+											/>
+										)}
+									{workspace?.idleStopAt && (
+										<IdleNotice
+											deadline={workspace.idleStopAt}
+											minutes={idleMinutes(workspace)}
+											onKeepWorking={sendActivity}
+										/>
+									)}
 									{workspace?.shutdownDeadline && (
 										<DisconnectNotice
 											deadline={workspace.shutdownDeadline}
@@ -124,6 +156,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 										<WorkspaceStarting
 											workspaceId={workspaceId}
 											workspace={workspace}
+											idleStop={idleStopReason}
 										/>
 									)}
 								</main>

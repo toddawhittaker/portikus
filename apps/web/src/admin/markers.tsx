@@ -1,4 +1,8 @@
-import type { AdminImageVersion, AdminUser } from "@portikus/contracts";
+import type {
+	AdminImageVersion,
+	AdminUser,
+	AdminWorkspaceSummary,
+} from "@portikus/contracts";
 
 type AccountMarkers = AdminUser["markers"];
 
@@ -18,15 +22,34 @@ const MARKER_ORDER: (keyof AccountMarkers)[] = [
 	"stale",
 ];
 
-/** The marker labels an account carries, in a fixed order (issue #302, docs/archive/epics/EPIC-13-1.md ruling 24). */
-export function markerLabels(markers: AccountMarkers | undefined): string[] {
-	if (!markers) return [];
-	return MARKER_ORDER.filter((key) => markers[key]).map((key) => MARKER_LABEL[key]);
+type GuardState = Pick<AdminWorkspaceSummary, "cpuThrottle" | "memoryFlag">;
+
+/**
+ * The marker labels an account carries, in a fixed order (issue #302,
+ * docs/archive/epics/EPIC-13-1.md ruling 24), then its workspace's resource
+ * guard tags (ADR 0032).
+ */
+export function markerLabels(
+	markers: AccountMarkers | undefined,
+	workspace?: GuardState | null,
+): string[] {
+	const labels = markers
+		? MARKER_ORDER.filter((key) => markers[key]).map((key) => MARKER_LABEL[key])
+		: [];
+	if (workspace?.cpuThrottle) labels.push("Throttled");
+	if (workspace?.memoryFlag) labels.push("High memory");
+	return labels;
 }
 
 /** The tags beside a name in the Workspaces table. */
-export function Markers({ markers }: { markers: AccountMarkers | undefined }) {
-	const labels = markerLabels(markers);
+export function Markers({
+	markers,
+	workspace,
+}: {
+	markers: AccountMarkers | undefined;
+	workspace?: GuardState | null;
+}) {
+	const labels = markerLabels(markers, workspace);
 	if (labels.length === 0) return null;
 	return (
 		<span className="ml-2 inline-flex gap-1">

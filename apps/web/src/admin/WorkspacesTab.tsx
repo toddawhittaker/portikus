@@ -13,6 +13,7 @@ import {
 	type WorkspaceState,
 } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
+import { useSearch } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { z } from "zod";
 import { request } from "../api/request.js";
@@ -240,7 +241,9 @@ interface BulkResult {
 export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	const users = useAdminUsers();
 	const [filters, setFilters] = useState<AccountFilters>(NO_FILTERS);
-	const [selectedId, setSelectedId] = useState<string | null>(null);
+	// The Health tab's resource guard list links here with ?user= (ADR 0032).
+	const search = useSearch({ strict: false }) as { user?: string };
+	const [selectedId, setSelectedId] = useState<string | null>(search.user ?? null);
 	const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
 
 	const all = sortAccounts(users.data?.users ?? []);
@@ -602,7 +605,7 @@ function AccountRow({
 	onSelect: () => void;
 }) {
 	const workspace = user.workspace;
-	const labels = markerLabels(user.markers);
+	const labels = markerLabels(user.markers, workspace);
 	return (
 		<tr
 			className={`border-line border-t align-top ${selected ? "bg-surface-hover" : ""}`}
@@ -634,7 +637,7 @@ function AccountRow({
 				>
 					{user.displayName}
 				</button>
-				<Markers markers={user.markers} />
+				<Markers markers={user.markers} workspace={workspace} />
 				<div className="pk-muted">{user.email ?? "—"}</div>
 				{user.preferredUsername ? (
 					<div className="pk-mono-small pk-muted">{user.preferredUsername}</div>

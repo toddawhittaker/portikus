@@ -82,3 +82,26 @@ test("a pending rebuild reads Rebuilding and says projects are kept", () => {
 		"Your projects and home folder are kept",
 	);
 });
+
+test("a stop after an unanswered Still working? says why", () => {
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "stopped", desiredState: "stopped" }}
+			idleStop={{ minutes: 60 }}
+		/>,
+	);
+	expect(screen.getByTestId("idle-stopped").textContent).toBe(
+		"Stopped after 60 minutes without activity.",
+	);
+});
+
+test("without an idle stop the stopped screen says nothing about it", () => {
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "stopped", desiredState: "stopped" }}
+		/>,
+	);
+	expect(screen.queryByTestId("idle-stopped")).toBeNull();
+});
