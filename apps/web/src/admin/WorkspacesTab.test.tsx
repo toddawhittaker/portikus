@@ -269,8 +269,10 @@ test("the table shows each account's role label and source", async () => {
 	);
 	expect(screen.getByRole("columnheader", { name: "Source" })).toBeDefined();
 	expect(screen.queryByRole("columnheader", { name: "Issuer" })).toBeNull();
-	// Badges in cells are not live regions; only the count and the bulk result are.
+	// Badges in cells are not live regions; only the header's open-workspace
+	// status, the count and the bulk result are.
 	expect(screen.getAllByRole("status").map((node) => node.dataset.testid)).toEqual([
+		"open-my-workspace-status",
 		"admin-row-count",
 		"bulk-result",
 	]);

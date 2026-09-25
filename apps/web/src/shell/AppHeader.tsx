@@ -78,7 +78,11 @@ export function AppHeader({
 				// "/" sends an administrator to /admin, so the back link would loop.
 				<OpenWorkspaceButton />
 			) : (
-				<Link to="/" className="pk-wsbutton" data-testid="back-to-workspace">
+				<Link
+					to="/"
+					className="pk-wsbutton pk-wsbutton-text"
+					data-testid="back-to-workspace"
+				>
 					Back to your workspace
 				</Link>
 			)}
@@ -144,33 +148,38 @@ export function AppHeader({
 	);
 }
 
-/** An administrator's way into their own workspace, made on first open (SPEC.md §5.2). */
+/** An administrator's way into their own workspace, made on first open (SPEC.md §6.1). */
 function OpenWorkspaceButton() {
 	const open = useOpenWorkspace();
 	const navigate = useNavigate();
 	const toast = useToast();
 
 	return (
-		<button
-			type="button"
-			className="pk-wsbutton"
-			data-testid="open-my-workspace"
-			aria-busy={open.isPending || undefined}
-			onClick={() => {
-				if (open.isPending) return;
-				open.mutate(undefined, {
-					onSuccess: (workspace) =>
-						void navigate({ to: "/workspaces/$id", params: { id: workspace.id } }),
-					onError: (error) =>
-						toast.show({
-							tone: "danger",
-							title: "Your workspace did not open",
-							children: error instanceof Error ? error.message : undefined,
-						}),
-				});
-			}}
-		>
-			{open.isPending ? "Opening your workspace…" : "Open my workspace"}
-		</button>
+		<>
+			<button
+				type="button"
+				className="pk-wsbutton pk-wsbutton-text"
+				data-testid="open-my-workspace"
+				onClick={() => {
+					if (open.isPending) return;
+					open.mutate(undefined, {
+						onSuccess: (workspace) =>
+							void navigate({ to: "/workspaces/$id", params: { id: workspace.id } }),
+						onError: (error) =>
+							toast.show({
+								tone: "danger",
+								title: "Your workspace did not open",
+								children: error instanceof Error ? error.message : undefined,
+							}),
+					});
+				}}
+			>
+				{open.isPending ? "Opening your workspace…" : "Open my workspace"}
+			</button>
+			{/* A changing button label is not reliably announced; a live region is. */}
+			<span role="status" className="sr-only" data-testid="open-my-workspace-status">
+				{open.isPending ? "Opening your workspace" : ""}
+			</span>
+		</>
 	);
 }

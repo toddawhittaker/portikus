@@ -5,11 +5,11 @@ import { StandalonePage } from "./StandalonePage.js";
 
 /**
  * The front door (design/mockups/Main). A signed-in student never sees it:
- * they go straight to their workspace.
+ * a student goes straight to their workspace and an administrator to /admin.
  */
 export function SignIn() {
 	const me = useMe();
-	// An administrator gets a workspace only by opening one (SPEC.md §5.2).
+	// An administrator gets a workspace only by opening one (SPEC.md §6.1).
 	const isAdmin = me.status === "authenticated" && me.user.role === "administrator";
 	const workspace = useEnsureWorkspace(me.status === "authenticated" && !isAdmin);
 

@@ -481,12 +481,16 @@ test("Open my workspace shows it is working, then an error as a toast", async ()
 	const button = await screen.findByTestId("open-my-workspace");
 	fireEvent.click(button);
 
-	await waitFor(() => expect(button.getAttribute("aria-busy")).toBe("true"));
+	// A live region announces the wait; aria-busy on the button would not.
+	const status = screen.getByTestId("open-my-workspace-status");
+	expect(status.getAttribute("role")).toBe("status");
+	await waitFor(() => expect(status.textContent).toBe("Opening your workspace"));
 	expect(button.textContent).toBe("Opening your workspace…");
+	expect(button.hasAttribute("aria-busy")).toBe(false);
 
 	answer(json(503, { code: "UNAVAILABLE", message: "Try again soon." }));
 
 	expect(await screen.findByText("Your workspace did not open")).toBeDefined();
-	expect(button.getAttribute("aria-busy")).toBeNull();
+	expect(status.textContent).toBe("");
 	expect(router.state.location.pathname).toBe("/admin");
 });

@@ -269,6 +269,10 @@ button.pk-statusbar-item:focus-visible {
 	font-size: 13px;
 	cursor: pointer;
 }
+/* Text only, no trailing icon, so the padding is even. */
+.pk-wsbutton-text {
+	padding: 0 var(--space-3);
+}
 .pk-wsbutton:hover {
 	background: var(--surface-hover);
 }

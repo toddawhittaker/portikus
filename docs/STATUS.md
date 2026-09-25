@@ -2479,8 +2479,12 @@ workspace. Their workspace starts only when they press "Open my
 workspace" in the admin header (PR #539; SPEC.md section 6.1). Unit
 tests in `router.test.tsx` and `AdminPage.test.tsx` and the Playwright
 tests `e2e/admin-landing.spec.ts` and `e2e/admin.spec.ts` cover it.
+Review fixes: the wait is announced through a polite status region, the
+button's padding is even, and the browser test now waits for the real
+trip through "/" back to `/admin`.
 
-Gaps: none known.
+Gaps: arriving at a workspace leaves focus at the top of the document;
+moving it would race the terminal's own focus on mount.
 
 ### Full local browser test run no longer hits the sign-in limit (#540)
 
