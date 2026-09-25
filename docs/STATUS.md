@@ -2537,9 +2537,28 @@ of Entra through the generic `oidc` connector also covers
 running Dex sets the restored local administrator's must-change-password
 flag, because Dex still holds the rebuilt VM's one-time password.
 
-### Pending
+### Pilot deploy
 
-- The pilot deploy has not been run. A later task adds its results here.
+The pilot was deployed on 2026-09-25 as 0.1.453+gb10a2ff with the full
+play. The later #582 changed only docs, the not-found link style, a play
+guard and `restore.sh`. Users went from 11 to 12; the only one added was
+the local administrator. All 9 workspaces kept their owner, state and
+label, and carol is still an administrator by grant. `setup_codes` is
+gone. `/etc/portikus/admin-password` is owned by root with mode 0600, and
+the password appears in no play output, journal, file under /var/log or
+audit row. Dex's gRPC certificate now names `DNS:localhost` and
+`IP:127.0.0.1`, and no DEP0123 warning has appeared since. The local
+administrator signed in through Dex and got 403
+`PASSWORD_CHANGE_REQUIRED` on the admin routes; its one-time password is
+left for Todd's first sign-in. `make smoke-test` passed 129 of 129 (the
+lifecycle block was skipped because student workspaces exist) and `make
+security-test` 232 of 232, with the one expected warning about the mock
+LMS.
+
+Rollback kit, to remove after about a week: the libvirt snapshot
+`pre-epic14-2` of the domain `portikus`, Incus snapshots `pre-epic14-2`
+on 26 workspace volumes, and dumps of both databases in Todd's home
+directory.
 
 ### Gaps
 
