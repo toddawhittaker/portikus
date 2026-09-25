@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The certificates for Dex's gRPC API (docs/archive/epics/EPIC-14.md ruling 20): a small
-# certificate authority, a server certificate for 127.0.0.1 that Dex serves,
+# certificate authority, a server certificate for localhost and 127.0.0.1 that Dex serves,
 # and a client certificate the API presents.  Dex accepts only clients the
 # authority signed.  Safe to repeat: it issues nothing while every file is
 # there and more than RENEW_DAYS from expiry, and prints "changed" otherwise.
@@ -36,8 +36,12 @@ if ! valid ca.crt || [ ! -s ca.key ]; then
   rm -f server.crt client.crt
   changed=yes
 fi
-if ! valid server.crt || ! valid client.crt; then
-  issue server "subjectAltName=IP:127.0.0.1
+# Node warns (DEP0123) on a TLS name that is an IP address, so the API checks localhost.
+has_localhost() {
+  openssl x509 -in server.crt -noout -ext subjectAltName 2>/dev/null | grep -q 'DNS:localhost'
+}
+if ! valid server.crt || ! valid client.crt || ! has_localhost; then
+  issue server "subjectAltName=DNS:localhost,IP:127.0.0.1
 extendedKeyUsage=serverAuth"
   issue client "extendedKeyUsage=clientAuth"
   for name in server client; do

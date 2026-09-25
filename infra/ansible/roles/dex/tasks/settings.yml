@@ -83,6 +83,19 @@
           names, without spaces or quotes.
       when: portikus_dex_upstream == 'oidc'
 
+    # Generic oidc reads groups a student may be able to create in Entra;
+    # the entra connector reads admin-assigned app roles instead.
+    - name: Refuse Entra through the generic OIDC connector
+      ansible.builtin.fail:
+        msg: >-
+          PORTIKUS_DEX_UPSTREAM_ISSUER names Microsoft Entra
+          (login.microsoftonline.com).  Use PORTIKUS_DEX_UPSTREAM=entra, which
+          reads roles from Entra app roles that only administrators assign;
+          see docs/OPERATIONS.md, "Microsoft Entra ID".
+      when:
+        - portikus_dex_upstream == 'oidc'
+        - portikus_dex_upstream_issuer is match('^https://login[.]microsoftonline[.]com([:/]|$)', ignorecase=true)
+
     # The user filter is the only gate on who may sign in
     # (docs/archive/epics/EPIC-14.md ruling 11).
     - name: Require the LDAP connector settings

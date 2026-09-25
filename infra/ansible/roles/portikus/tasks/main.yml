@@ -374,16 +374,25 @@
 # Made on the first run.  After that --if-missing leaves the account alone,
 # even one an administrator removed, and its exit status says whether the
 # one-time password is still unchanged (10) or spent (11).  The command
-# writes the password only to a root-only file and prints where it is.  A
-# package from before the command existed skips this.
+# writes the password only to a root-only file and prints where it is.
 - name: Look for the portikus command
   ansible.builtin.stat:
     path: /usr/bin/portikus
   register: portikus_command
   when: portikus_idp == 'dex'
 
+- name: Require the portikus command
+  ansible.builtin.assert:
+    that:
+      - portikus_command.stat.exists
+    fail_msg: >-
+      /usr/bin/portikus is missing, so the local administrator cannot be
+      made.  The installed package is older than this play; install the
+      current Portikus package and run the play again.
+  when: portikus_idp == 'dex'
+
 - name: Make the local administrator
-  when: portikus_idp == 'dex' and portikus_command.stat.exists
+  when: portikus_idp == 'dex'
   block:
     - name: Make the local administrator if there is none
       ansible.builtin.command:

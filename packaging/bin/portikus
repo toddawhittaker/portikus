@@ -29,7 +29,7 @@ reset_admin() {
   fi
   if ! grep -q '^DEX_GRPC_ADDR=' "${API_ENV}" 2>/dev/null; then
     echo "portikus: ${API_ENV} names no DEX_GRPC_ADDR, so this site has no Dex local passwords" >&2
-    exit 1
+    exit 2
   fi
 
   # The password reaches only this root-only file, never a log or the journal.
