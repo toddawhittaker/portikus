@@ -1,6 +1,13 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, renderApp, stubFetch, USER } from "../test-utils.js";
+import {
+	FakeWebSocket,
+	json,
+	renderApp,
+	stubFetch,
+	USER,
+	WORKSPACE,
+} from "../test-utils.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -418,4 +425,68 @@ test("the Audit tab's filters survive in the address, and bad values are dropped
 		user: undefined,
 		action: "workspace.",
 	});
+});
+
+/** The admin reads, with `POST /workspaces` answered by `ensure`. */
+function stubAdminWithWorkspace(ensure: () => Response | Promise<Response>) {
+	return stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, ADMIN);
+		if (url === "/workspaces" && init?.method === "POST") return ensure() as Response;
+		if (url === "/admin/users") {
+			return json(200, { users: [STUDENT_ROW, ADMIN_ROW], dexUsers: false });
+		}
+		if (url.endsWith("/templates")) return json(200, { templates: [] });
+		if (url.includes("/projects")) return json(200, { projects: [] });
+		return json(200, {});
+	});
+}
+
+function workspacePosts(fetch: ReturnType<typeof stubFetch>): number {
+	return fetch.mock.calls.filter(
+		([url, init]) => url === "/workspaces" && init?.method === "POST",
+	).length;
+}
+
+test("Open my workspace makes the workspace and goes there (issue #534)", async () => {
+	vi.stubGlobal("WebSocket", FakeWebSocket);
+	const fetch = stubAdminWithWorkspace(() =>
+		json(201, { ...WORKSPACE, ownerUserId: ADMIN.id }),
+	);
+	const { router } = renderApp("/admin");
+
+	const button = await screen.findByTestId("open-my-workspace");
+	expect(button.textContent).toBe("Open my workspace");
+	expect(screen.queryByTestId("back-to-workspace")).toBeNull();
+	// Nothing is made until the administrator asks.
+	expect(workspacePosts(fetch)).toBe(0);
+
+	fireEvent.click(button);
+
+	await waitFor(() =>
+		expect(router.state.location.pathname).toBe(`/workspaces/${WORKSPACE.id}`),
+	);
+	expect(workspacePosts(fetch)).toBe(1);
+});
+
+test("Open my workspace shows it is working, then an error as a toast", async () => {
+	let answer: (response: Response) => void = () => {};
+	stubAdminWithWorkspace(
+		() =>
+			new Promise<Response>((resolve) => {
+				answer = resolve;
+			}),
+	);
+	const { router } = renderApp("/admin");
+
+	const button = await screen.findByTestId("open-my-workspace");
+	fireEvent.click(button);
+
+	await waitFor(() => expect(button.getAttribute("aria-busy")).toBe("true"));
+	expect(button.textContent).toBe("Opening your workspace…");
+
+	answer(json(503, { code: "UNAVAILABLE", message: "Try again soon." }));
+
+	expect(await screen.findByText("Your workspace did not open")).toBeDefined();
+	expect(button.getAttribute("aria-busy")).toBeNull();
+	expect(router.state.location.pathname).toBe("/admin");
 });

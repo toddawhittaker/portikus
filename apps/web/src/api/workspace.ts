@@ -1,5 +1,5 @@
 import { Workspace } from "@portikus/contracts";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { request } from "./request.js";
 
@@ -13,12 +13,28 @@ export function useEnsureWorkspace(enabled: boolean) {
 		queryKey: ["workspace", "mine"],
 		enabled,
 		staleTime: Number.POSITIVE_INFINITY,
-		queryFn: () =>
-			request(Workspace, "/workspaces", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: "{}",
-			}),
+		queryFn: ensureWorkspace,
+	});
+}
+
+function ensureWorkspace() {
+	return request(Workspace, "/workspaces", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: "{}",
+	});
+}
+
+/**
+ * The same call on a click, for an administrator, who gets a workspace only
+ * when they open one (SPEC.md §5.2).
+ */
+export function useOpenWorkspace() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ensureWorkspace,
+		onSuccess: (workspace) =>
+			queryClient.setQueryData(["workspace", "mine"], workspace),
 	});
 }
 

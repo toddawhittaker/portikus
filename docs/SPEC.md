@@ -355,6 +355,8 @@ P0 assigns one workspace to each authorized student.
 
 A student's projects all live inside that workspace.
 
+An administrator signs in to the administration page, not a workspace. An administrator gets a workspace only when they choose to open one from that page.
+
 ### 6.2 Provisioning
 
 On first use, the platform must be able to provision a workspace from the current approved workspace image.

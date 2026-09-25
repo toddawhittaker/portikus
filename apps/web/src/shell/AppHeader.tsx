@@ -8,9 +8,11 @@ import {
 	MenuSeparator,
 	MenuTrigger,
 	NameMark,
+	useToast,
 } from "@portikus/ui";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
+import { useOpenWorkspace } from "../api/workspace.js";
 import { useCourses } from "../course/queries.js";
 import { clearLocalLayouts } from "../layout/local.js";
 import { useProfile } from "../settings/profileQueries.js";
@@ -72,7 +74,10 @@ export function AppHeader({
 				</a>
 			) : null}
 
-			{workspaceId ? null : (
+			{workspaceId ? null : user.role === "administrator" ? (
+				// "/" sends an administrator to /admin, so the back link would loop.
+				<OpenWorkspaceButton />
+			) : (
 				<Link to="/" className="pk-wsbutton" data-testid="back-to-workspace">
 					Back to your workspace
 				</Link>
@@ -136,5 +141,36 @@ export function AppHeader({
 
 			{settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
 		</header>
+	);
+}
+
+/** An administrator's way into their own workspace, made on first open (SPEC.md §5.2). */
+function OpenWorkspaceButton() {
+	const open = useOpenWorkspace();
+	const navigate = useNavigate();
+	const toast = useToast();
+
+	return (
+		<button
+			type="button"
+			className="pk-wsbutton"
+			data-testid="open-my-workspace"
+			aria-busy={open.isPending || undefined}
+			onClick={() => {
+				if (open.isPending) return;
+				open.mutate(undefined, {
+					onSuccess: (workspace) =>
+						void navigate({ to: "/workspaces/$id", params: { id: workspace.id } }),
+					onError: (error) =>
+						toast.show({
+							tone: "danger",
+							title: "Your workspace did not open",
+							children: error instanceof Error ? error.message : undefined,
+						}),
+				});
+			}}
+		>
+			{open.isPending ? "Opening your workspace…" : "Open my workspace"}
+		</button>
 	);
 }

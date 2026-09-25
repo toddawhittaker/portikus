@@ -9,10 +9,13 @@ import { StandalonePage } from "./StandalonePage.js";
  */
 export function SignIn() {
 	const me = useMe();
-	const workspace = useEnsureWorkspace(me.status === "authenticated");
+	// An administrator gets a workspace only by opening one (SPEC.md §5.2).
+	const isAdmin = me.status === "authenticated" && me.user.role === "administrator";
+	const workspace = useEnsureWorkspace(me.status === "authenticated" && !isAdmin);
 
 	if (me.status === "loading") return <div className="pk-root" aria-busy="true" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
+	if (isAdmin) return <Navigate to="/admin" replace />;
 	if (me.status === "authenticated") {
 		if (workspace.data) {
 			return (
