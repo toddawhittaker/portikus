@@ -18,6 +18,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import bcrypt from "bcryptjs";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { toAuthOptions } from "../auth-options.js";
 import { buildServer } from "../server.js";
@@ -192,6 +193,22 @@ async function carolId(): Promise<string> {
 	return row.id;
 }
 
+/** Make the next commit of a users row with this email fail, as a lost database would. */
+async function failCommitFor(email: string): Promise<() => Promise<void>> {
+	await sql`create function doom() returns trigger language plpgsql as $$
+		begin raise exception 'commit refused'; end $$`.execute(testDb.db);
+	await sql
+		.raw(
+			`create constraint trigger doom after insert on users deferrable initially deferred
+			for each row when (lower(new.email) = lower('${email}')) execute function doom()`,
+		)
+		.execute(testDb.db);
+	return async () => {
+		await sql`drop trigger doom on users`.execute(testDb.db);
+		await sql`drop function doom()`.execute(testDb.db);
+	};
+}
+
 describe.skipIf(skip)("Add user", () => {
 	test("creates the Dex password and pre-creates the account under Dex's subject", async () => {
 		const carol = await adminJar();
@@ -315,6 +332,29 @@ describe.skipIf(skip)("Add user", () => {
 		expect(stub.passwords.size).toBe(0);
 	});
 
+	test("a failed commit after Dex made the password removes that password", async () => {
+		const carol = await adminJar();
+		const undo = await failCommitFor("lost@example.edu");
+		try {
+			const res = await post(carol, "/admin/dex-users", {
+				email: "lost@example.edu",
+				username: "lost",
+				role: "student",
+			});
+			expect(res.statusCode).toBe(500);
+		} finally {
+			await undo();
+		}
+		expect(stub.passwords.has("lost@example.edu")).toBe(false);
+		// So adding the same email again works rather than answering 409 for ever.
+		const again = await post(carol, "/admin/dex-users", {
+			email: "lost@example.edu",
+			username: "lost",
+			role: "student",
+		});
+		expect(again.statusCode).toBe(200);
+	});
+
 	test("Dex being down is 503 and leaves no account behind", async () => {
 		const carol = await adminJar();
 		stub.state.failing = true;
@@ -431,9 +471,52 @@ describe.skipIf(skip)("Reset password", () => {
 		expect(JSON.stringify(lines)).not.toContain(password);
 	});
 
+	test("refuses the administrator's own account and keeps their sessions", async () => {
+		const carol = await adminJar();
+		const id = await carolId();
+		const dexUserId = crypto.randomUUID();
+		await testDb.db
+			.updateTable("users")
+			.set({ oidc_subject: dexLocalSubject(dexUserId) })
+			.where("id", "=", id)
+			.execute();
+		stub.passwords.set("carol@example.edu", {
+			email: "carol@example.edu",
+			username: "carol",
+			userId: dexUserId,
+			hash: "$2b$10$x",
+		});
+		const res = await post(carol, `/admin/dex-users/${id}/reset-password`);
+		expect(res.statusCode).toBe(400);
+		expect(res.json()).toMatchObject({
+			code: "VALIDATION_FAILED",
+			message: "You cannot reset your own password here.",
+		});
+		expect(stub.passwords.get("carol@example.edu")?.hash).toBe("$2b$10$x");
+		const sessions = await testDb.db
+			.selectFrom("sessions")
+			.select("id")
+			.where("user_id", "=", id)
+			.execute();
+		expect(sessions.length).toBeGreaterThan(0);
+		expect(await auditRows("dex_user.password_reset")).toEqual([]);
+	});
+
 	test("refuses an account with no Dex password; a missing one is 404", async () => {
 		const carol = await adminJar();
-		const res = await post(carol, `/admin/dex-users/${await carolId()}/reset-password`);
+		const sso = await testDb.db
+			.insertInto("users")
+			.values({
+				oidc_issuer: mock.issuer,
+				oidc_subject: "sso-only",
+				email: "sso@example.edu",
+				display_name: "SSO",
+				role: "student",
+				provider_role: "student",
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		const res = await post(carol, `/admin/dex-users/${sso.id}/reset-password`);
 		expect(res.statusCode).toBe(400);
 		expect(res.json().message).toBe("This account has no Dex password.");
 		const missing = await post(

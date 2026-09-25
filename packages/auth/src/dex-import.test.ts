@@ -29,7 +29,7 @@ const alice = user("alice", "student", 2);
 const ivy = user("ivy", "instructor", 3);
 
 /** An in-memory Dex that can be told to refuse the nth create. */
-function fakeDex(failOnCreate?: number) {
+function fakeDex(failOnCreate?: number, failDelete = false) {
 	const passwords = new Map<string, DexPassword & { hash: string }>();
 	let creates = 0;
 	const dex: DexApi = {
@@ -44,6 +44,7 @@ function fakeDex(failOnCreate?: number) {
 			return "not_found";
 		},
 		async deletePassword(email) {
+			if (failDelete) throw new Error("unavailable");
 			return passwords.delete(email) ? "deleted" : "not_found";
 		},
 		async listPasswords() {
@@ -194,6 +195,11 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 				action: "user.role_changed",
 				metadata: { from: "administrator", to: "administrator", source: "import" },
 			},
+			{
+				actor: "operator:dex-import",
+				action: "dex.users_imported",
+				metadata: { users: 1 },
+			},
 		]);
 	});
 
@@ -230,7 +236,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 		await importUsersFile(t.db, dex, DEX, [carol, alice]);
 		await t.db.updateTable("users").set({ granted_role: null }).execute();
 		const again = await importUsersFile(t.db, dex, DEX, [carol, alice, ivy]);
-		expect(again).toEqual({ status: "skipped", passwordsInDex: 2 });
+		expect(again).toMatchObject({ status: "already_imported" });
 		expect(passwords.size).toBe(2);
 		expect((await row(carol))?.granted_role).toBeNull();
 		expect(await row(ivy)).toBeUndefined();
@@ -254,5 +260,55 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 			"already has a password for alice2",
 		);
 		expect(passwords.size).toBe(0);
+	});
+
+	test("a run after an administrator removed every Dex user still imports nothing", async () => {
+		const { dex, passwords } = fakeDex();
+		await importUsersFile(t.db, dex, DEX, [carol, alice]);
+		passwords.clear();
+		const again = await importUsersFile(t.db, dex, DEX, [carol, alice]);
+		expect(again).toMatchObject({ status: "already_imported" });
+		expect(formatImportReport(again)).toContain("already imported");
+		expect(passwords.size).toBe(0);
+	});
+
+	test("a Dex that already holds passwords is left alone even before any import", async () => {
+		const { dex, passwords } = fakeDex();
+		await dex.createPassword({ ...alice, hash: HASH });
+		const report = await importUsersFile(t.db, dex, DEX, [carol]);
+		expect(report).toEqual({ status: "skipped", passwordsInDex: 1 });
+		expect(passwords.size).toBe(1);
+	});
+
+	test("a disabled account gets no grant back from the file", async () => {
+		const { dex } = fakeDex();
+		const { id } = await account(carol);
+		await t.db
+			.updateTable("users")
+			.set({ disabled_at: new Date().toISOString() })
+			.where("id", "=", id)
+			.execute();
+		const report = await importUsersFile(t.db, dex, DEX, [carol]);
+		expect(report).toMatchObject({ granted: [], precreated: [] });
+		expect(await row(carol)).toMatchObject({ role: "student", granted_role: null });
+	});
+
+	test("an instructor entry raises a student account by grant", async () => {
+		const { dex } = fakeDex();
+		await account(ivy);
+		const report = await importUsersFile(t.db, dex, DEX, [ivy]);
+		expect(report).toMatchObject({ granted: ["ivy"] });
+		expect(await row(ivy)).toMatchObject({
+			role: "instructor",
+			granted_role: "instructor",
+		});
+	});
+
+	test("a cleanup that fails names the Dex passwords left behind", async () => {
+		const { dex, passwords } = fakeDex(2, true);
+		await expect(importUsersFile(t.db, dex, DEX, [carol, alice])).rejects.toThrow(
+			"could not remove these Dex passwords again, delete them before the next run: carol",
+		);
+		expect(passwords.size).toBe(1);
 	});
 });

@@ -52,7 +52,7 @@ export function sendError(
 }
 
 /** The users columns the administration pages read. */
-export const USER_COLUMNS = [
+const USER_COLUMNS = [
 	"id",
 	"display_name",
 	"email",

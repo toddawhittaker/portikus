@@ -2,11 +2,8 @@
 
 export {
 	createDexApi,
-	DEX_BCRYPT_COST,
 	DEX_PASSWORD_LENGTH,
 	type DexApi,
-	type DexApiConnection,
-	type DexApiEnv,
 	type DexPassword,
 	generateDexPassword,
 	hashDexPassword,
@@ -30,6 +27,7 @@ export {
 	listLinks,
 	pendingLinkIntent,
 	platformIssuerOf,
+	precreateDexAccount,
 	type RoleChange,
 	resolveIdentity,
 	revokeAdministrator,
@@ -59,7 +57,6 @@ export {
 	validateLaunchToken,
 } from "./lti/validate.js";
 export {
-	type AdmissionRefusal,
 	createOidcClient,
 	type LoginState,
 	type OidcClient,
@@ -89,6 +86,5 @@ export {
 	claimSetupCode,
 	hasEnabledAdministrator,
 	issueSetupCode,
-	normalizeSetupCode,
 } from "./setup-code.js";
-export { type AuthOptions, mapRole, type OidcProvider, type Role } from "./types.js";
+export { type AuthOptions, mapRole, type Role } from "./types.js";

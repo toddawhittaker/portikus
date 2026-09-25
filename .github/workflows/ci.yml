@@ -374,9 +374,9 @@ jobs:
           grep -qx 'Imported into Dex: carol, alice' "$DEX_DIR/import-1.txt"
           grep -qx 'Grants set: none' "$DEX_DIR/import-1.txt"
           grep -qx 'Accounts created for a grant: carol' "$DEX_DIR/import-1.txt"
-          # A second run finds Dex holding passwords and imports nothing.
+          # A second run finds the import already recorded and imports nothing.
           run_import | tee "$DEX_DIR/import-2.txt"
-          grep -qx 'Dex already holds 2 passwords; nothing imported.' "$DEX_DIR/import-2.txt"
+          grep -q '^The users file was already imported on .*; it is retired and nothing was imported.$' "$DEX_DIR/import-2.txt"
       - name: Sign in through Dex, and manage Dex users through its gRPC API
         run: >-
           pnpm exec vitest run
