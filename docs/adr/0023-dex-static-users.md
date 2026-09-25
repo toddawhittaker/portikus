@@ -32,9 +32,16 @@ Ansible role `dex`.
   file records the installed commit, so a run whose marker matches builds
   nothing. A failed build leaves the old binary running.
 - **Pages.** Dex's sign-in pages come from the same pinned source, copied to
-  `/usr/local/share/portikus/dex-web` and served through `frontend.dir`, with
-  two accessibility fixes and no restyling: the page declares
-  `lang="en"`, and the failed sign-in message has `role="alert"`.
+  `/usr/local/share/portikus/dex-web` and served through `frontend.dir`.
+  They carry a Portikus theme (#532, which reverses the first "no
+  restyling" decision): the dex role installs `themes/portikus/` from
+  `roles/dex/files/theme/` with Public Sans, and `frontend.theme` selects
+  it, so the pages look like the Portikus sign-in page in light and dark.
+  Template patches, re-applied after each build, put the logo in the
+  sign-in card with a text alternative and make the card the main
+  landmark, make each heading a first-level heading, drop the password
+  form's positive `tabindex`, declare `lang="en"`, and give the failed
+  sign-in message `role="alert"`.
 - **Storage.** `storage: memory`. Every account comes from the static
   configuration, and Portikus reads the ID token once at sign-in and keeps
   its own server-side session (ADR 0008). A restart loses only sign-ins in

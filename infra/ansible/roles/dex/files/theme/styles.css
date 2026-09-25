@@ -1,0 +1,257 @@
+/*
+ * The Portikus theme for Dex's sign-in pages (ADR 0023, "Pages").
+ * Loaded after Dex's static/main.css, so it overrides that file too.
+ * Values are the design tokens (design/system/tokens.json); the page follows
+ * the browser's light or dark setting, like the Portikus sign-in page.
+ */
+
+@font-face {
+	font-family: "Public Sans";
+	src: url("PublicSans-Variable.woff2") format("woff2");
+	font-weight: 100 900;
+	font-style: normal;
+	font-display: swap;
+}
+
+:root {
+	color-scheme: light dark;
+	--surface: #f6f4ef;
+	--surface-raised: #fdfcfa;
+	--surface-hover: #e6e2d9;
+	--surface-inverse: #2a2723;
+	--surface-inverse-hover: #3d3933;
+	--line: #dcd7cc;
+	--line-strong: #8a8375;
+	--ink: #23211d;
+	--ink-muted: #5a554c;
+	--ink-faint: #6e685d;
+	--ink-inverse: #fdfcfa;
+	--accent-text: #24605c;
+	--focus: #1b7a86;
+	--status-error: #a4342a;
+	--status-error-soft: #f6e1dd;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--surface: #171614;
+		--surface-raised: #211f1c;
+		--surface-hover: #2b2925;
+		--surface-inverse: #ece8df;
+		--surface-inverse-hover: #d3cec3;
+		--line: #35322d;
+		--line-strong: #7f786c;
+		--ink: #ece8df;
+		--ink-muted: #aba498;
+		--ink-faint: #948d81;
+		--ink-inverse: #171614;
+		--accent-text: #8fcdc4;
+		--focus: #5fc3cf;
+		--status-error: #f0998f;
+		--status-error-soft: #3a1f1b;
+	}
+}
+
+.theme-body {
+	margin: 0;
+	min-height: 100vh;
+	background: var(--surface);
+	color: var(--ink);
+	font-family: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+	font-size: 14px;
+	line-height: 20px;
+}
+
+/* The card, like the Portikus sign-in panel; the header patch puts the logo in it. */
+.dex-container {
+	box-sizing: border-box;
+	width: min(440px, 100% - 32px);
+	min-width: 0;
+	max-width: none;
+	margin: 64px auto 40px;
+	padding: 40px;
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+	background: var(--surface-raised);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	color: var(--ink);
+	text-align: left;
+}
+
+@media (max-width: 480px) {
+	.dex-container {
+		margin-top: 24px;
+		padding: 24px;
+	}
+}
+
+.theme-logo {
+	display: block;
+	align-self: flex-start;
+	height: 30px;
+	width: auto;
+}
+
+.theme-panel {
+	padding: 0;
+	background: none;
+	box-shadow: none;
+}
+
+.theme-heading {
+	margin: 0 0 24px;
+	font-size: 28px;
+	line-height: 36px;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+}
+
+.theme-panel p {
+	margin: 0 0 16px;
+	color: var(--ink-muted);
+}
+
+.theme-form-row {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 0 0 16px;
+}
+
+.theme-form-label {
+	width: auto;
+	margin: 0;
+	font-size: 13px;
+	line-height: 18px;
+	font-weight: 500;
+	text-align: left;
+}
+
+.theme-form-input {
+	box-sizing: border-box;
+	width: 100%;
+	height: 36px;
+	margin: 0;
+	padding: 0 12px;
+	background: var(--surface-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: 4px;
+	box-shadow: none;
+	color: var(--ink);
+	font: inherit;
+}
+
+.theme-form-input:hover {
+	border-color: var(--ink-muted);
+}
+
+.theme-form-input::placeholder {
+	color: var(--ink-faint);
+	opacity: 1;
+}
+
+.theme-form-input:focus-visible,
+.dex-btn:focus-visible,
+.theme-panel a:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+}
+
+.dex-btn {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	height: 44px;
+	padding: 0 20px;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	box-shadow: none;
+	font:
+		600 15px / 1 "Public Sans",
+		ui-sans-serif,
+		system-ui,
+		sans-serif;
+}
+
+.dex-btn:active {
+	box-shadow: none;
+}
+
+.theme-btn--primary,
+.theme-btn--success {
+	margin-top: 8px;
+	background: var(--surface-inverse);
+	color: var(--ink-inverse);
+}
+
+.theme-btn--primary:hover,
+.theme-btn--success:hover {
+	background: var(--surface-inverse-hover);
+	color: var(--ink-inverse);
+}
+
+/* An upstream connector's button, and Cancel. */
+.theme-btn-provider {
+	display: flex;
+	align-items: center;
+	padding: 0;
+	overflow: hidden;
+	background: var(--surface-raised);
+	border-color: var(--line-strong);
+	color: var(--ink);
+}
+
+.theme-btn-provider:hover {
+	background: var(--surface-hover);
+	color: var(--ink);
+}
+
+.dex-btn-icon {
+	height: 42px;
+	width: 42px;
+	margin: 0;
+	border-radius: 0;
+}
+
+.dex-btn-text {
+	flex: 1;
+	padding: 0 12px;
+	line-height: inherit;
+}
+
+.dex-error-box {
+	max-width: none;
+	margin: 0 0 16px;
+	padding: 8px 12px;
+	background: var(--status-error-soft);
+	border: 1px solid var(--status-error);
+	border-radius: 4px;
+	color: var(--ink);
+	font-size: 13px;
+	line-height: 18px;
+}
+
+.dex-subtle-text,
+.dex-list {
+	color: var(--ink-muted);
+	font-size: 13px;
+	line-height: 18px;
+}
+
+.theme-link-back {
+	margin-top: 16px;
+}
+
+.theme-link-back a {
+	color: var(--accent-text);
+	text-decoration: underline;
+}
+
+.dex-separator {
+	height: 1px;
+	margin: 16px 0;
+	border: 0;
+	background: var(--line);
+}

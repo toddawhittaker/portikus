@@ -6,7 +6,7 @@ dex_config_dir: /etc/portikus-dex
 dex_client_secret_file: /etc/portikus/dex-client.secret
 dex_src_dir: /root/go/src/dex
 dex_marker: /usr/local/share/portikus/dex-commit
-# The pinned build's pages, with accessibility fixes; Dex reads them from frontend.dir.
+# The pinned build's pages, with the Portikus theme and accessibility fixes; Dex reads them from frontend.dir.
 dex_web_dir: /usr/local/share/portikus/dex-web
 # A separate build cache, so clearing it after a build leaves distrobuilder's alone.
 dex_gocache: /root/go/dex-cache

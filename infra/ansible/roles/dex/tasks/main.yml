@@ -166,8 +166,51 @@
             path: "{{ dex_gocache }}"
             state: absent
 
-    # Accessibility fixes only, no restyling (Gate E review): the page names
-    # its language, and a failed sign-in is announced to screen readers.
+    # The Portikus theme (ADR 0023, "Pages"), which frontend.theme selects.
+    # Dex serves these files as they are, so changing them needs no restart.
+    - name: Install the Portikus theme for the Dex pages
+      ansible.builtin.copy:
+        src: theme/
+        dest: "{{ dex_web_dir }}/themes/portikus/"
+        owner: root
+        group: root
+        mode: u=rwX,go=rX
+
+    - name: Install the theme's font
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../packages/ui/src/fonts/PublicSans-Variable.woff2"
+        dest: "{{ dex_web_dir }}/themes/portikus/PublicSans-Variable.woff2"
+        owner: root
+        group: root
+        mode: "0644"
+
+    # Template patches, re-applied after every build: the logo moves into the
+    # sign-in card with a text alternative, and the card becomes the main
+    # landmark; each page has a first-level heading, names its language and
+    # keeps the natural tab order; a failed sign-in is announced to screen
+    # readers.
+    - name: Put the logo in the Dex sign-in card
+      ansible.builtin.replace:
+        path: "{{ dex_web_dir }}/templates/header.html"
+        regexp: '<div class="theme-navbar">[\s\S]*?src="([^"]*)">[\s\S]*?<div class="dex-container">'
+        replace: '<div class="dex-container" role="main">\n      <img class="theme-logo" src="\1" alt="Portikus">'
+      notify: Restart portikus-dex
+
+    - name: Make each Dex page heading a first-level heading
+      ansible.builtin.replace:
+        path: "{{ dex_web_dir }}/templates/{{ item }}"
+        regexp: '<h2 class="theme-heading">(.*)</h2>'
+        replace: '<h1 class="theme-heading">\1</h1>'
+      loop: [approval.html, device.html, device_success.html, error.html, login.html, oob.html, password.html]
+      notify: Restart portikus-dex
+
+    - name: Drop the Dex password form's positive tab order
+      ansible.builtin.replace:
+        path: "{{ dex_web_dir }}/templates/password.html"
+        regexp: ' tabindex="[0-9]+"'
+        replace: ''
+      notify: Restart portikus-dex
+
     - name: Give the Dex pages a language
       ansible.builtin.replace:
         path: "{{ dex_web_dir }}/templates/header.html"

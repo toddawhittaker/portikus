@@ -2427,3 +2427,36 @@ Gaps:
 - Known gap from the review: Remove deletes the Dex password inside the database transaction, so if Dex succeeds and the commit then fails, the account stays enabled with no Dex password. Add user and the first-account form delete the new Dex password in that case; Remove does not recreate one.
 - Review fixes, infrastructure and egress: Portikus asks Dex for `groups` only with Dex's own passwords or LDAP, never behind its Microsoft or Google connector, where students can create groups; OpenLDAP accounts are keyed by `entryUUID`, so a reused username gets a new account; Active Directory keeps `sAMAccountName`, because Dex v2.45.1 cannot encode the binary `objectGUID` (999 of 1,000 random GUIDs failed), and docs/OPERATIONS.md says to disable, not delete, departed accounts; Squid matches names only as written (`dstdomain -n`) and refuses any unlisted IP address given directly; `restore.sh` skips Dex's accounts on a VM without Dex and restarts Dex if loading them fails; the mock-to-Dex carry-over and `make identity-carry-over-dry-run` are removed; CI makes the gRPC certificates with the dex role's own script. Verified on the rehearsal VM with 0.1.423+gd0a823d and a throwaway OpenLDAP: a new person given a deleted person's username got a new account, the old rules let a CONNECT to 1.1.1.1 through by its reverse DNS name while the new ones refuse it, `make security-test` passed 236 of 236 and `make smoke-test` 240 of 240.
 - Confirmation-review fixes: behind Dex's Microsoft or Google connector the play now leaves the API's `OIDC_GROUPS_CLAIM` empty, and the API takes no role from groups when that setting is empty, so a student who adds the `groups` scope to the Dex sign-in address gains nothing; every play on a site that no longer uses the mock ends the sessions of the mock's accounts; a users-file import skipped because Dex already holds passwords now marks the site imported, so a Dex emptied later never gets the file; the setup page and the Add user dialog render the invalid field before moving focus to it, so a screen reader announces it as invalid. Unit, database and render tests cover each; the play task that ends mock sessions has not been run on a VM.
+
+## Epic 14.1 — Fixes after Epic 14 (in progress)
+
+### Dex sign-in pages in the Portikus look (#532)
+
+Dex's sign-in pages now carry a Portikus theme (ADR 0023, "Pages"). The
+dex role installs `infra/ansible/roles/dex/files/theme/` (`styles.css`,
+the wordmark as `logo.svg`, a 64-pixel `favicon.png` made from
+`apps/web/public/favicon.svg` with ImageMagick) and Public Sans from
+`packages/ui/src/fonts/` into the pinned build's `themes/portikus/`, and
+`frontend.theme` selects it. The page matches the Portikus sign-in page:
+one card with the wordmark, the design tokens' colours, radii and
+spacing, and light or dark from the browser's setting. It makes no
+request outside the site. Template patches, re-applied after every
+build, move the logo into the card with the text "Portikus", make the
+card the main landmark, turn each page heading into a first-level
+heading, and drop the password form's positive `tabindex`, beside the
+two earlier ones (`lang="en"` and `role="alert"`).
+
+Verified on the pilot, 2026-09-25: the dex role applied (`--tags dex`),
+a second run changed nothing, and `make smoke-test` passed 126 of 126
+with the mock LMS warning. axe found no violations on the sign-in page
+or a failed sign-in, in light or dark. Text contrast is at least 5.0:1
+(the placeholder in dark), control borders 3.7:1 and the focus ring
+4.6:1 on the page in light.
+
+Gaps:
+
+- The page text is still Dex's own: "Log in to Your Account" and
+  "Login", where the Portikus page says "Sign in".
+- CI's `dex-signin` job starts Dex with the stock web directory, so the
+  theme's files are missing there (Dex serves the pages unstyled); the
+  job only signs in, so it still passes.
