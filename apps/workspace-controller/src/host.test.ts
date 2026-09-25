@@ -4,7 +4,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { HostSnapshot } from "@portikus/contracts";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { parseIncusSize, readHostSnapshot, readLoadAverage } from "./host.js";
+import {
+	countIncusCpus,
+	parseIncusSize,
+	readHostSnapshot,
+	readInactiveFileBytes,
+	readLoadAverage,
+} from "./host.js";
 import { IncusClient, IncusError } from "./incus.js";
 import { IncusWorkspaceProvider } from "./provider.js";
 
@@ -271,4 +277,33 @@ test("grow refuses an invalid instance name without calling Incus", async () => 
 		provider().growVolumes("../etc", { homeGiB: 30, dockerGiB: 30 }),
 	).rejects.toMatchObject({ code: "INVALID_NAME" });
 	expect(requests).toEqual([]);
+});
+
+test("countIncusCpus reads a count or a CPU set, and null otherwise", () => {
+	expect(countIncusCpus("4")).toBe(4);
+	expect(countIncusCpus("0-3")).toBe(4);
+	expect(countIncusCpus("0,2,5-6")).toBe(4);
+	expect(countIncusCpus(undefined)).toBeNull();
+	expect(countIncusCpus("")).toBeNull();
+	expect(countIncusCpus("0")).toBeNull();
+	expect(countIncusCpus("3-1")).toBeNull();
+	expect(countIncusCpus("four")).toBeNull();
+});
+
+test("readInactiveFileBytes reads the instance's cgroup under its project", async () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "cgroup-test-"));
+	fs.mkdirSync(path.join(root, "lxc.payload.portikus_ws-a"));
+	fs.writeFileSync(
+		path.join(root, "lxc.payload.portikus_ws-a", "memory.stat"),
+		"anon 1000\nfile 900\nactive_file 400\ninactive_file 500\n",
+	);
+	fs.mkdirSync(path.join(root, "lxc.payload.ws-b"));
+	fs.writeFileSync(
+		path.join(root, "lxc.payload.ws-b", "memory.stat"),
+		"inactive_file 7\n",
+	);
+
+	expect(await readInactiveFileBytes("portikus", "ws-a", root)).toBe(500);
+	expect(await readInactiveFileBytes("default", "ws-b", root)).toBe(7);
+	await expect(readInactiveFileBytes("portikus", "ws-none", root)).rejects.toThrow();
 });

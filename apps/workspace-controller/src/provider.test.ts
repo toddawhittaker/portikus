@@ -1058,3 +1058,277 @@ test("start without a recovery size skips the recovery step entirely", async () 
 	expect(state.patches).toHaveLength(0);
 	expect(state.execs.some((c) => c[0] === "chown")).toBe(false);
 });
+
+// Resource guard (ADR 0032): usage from one Incus listing, and the CPU
+// allowance written through the ETag-guarded PUT.
+
+function usageProvider(cgroupRoot: string): IncusWorkspaceProvider {
+	return new IncusWorkspaceProvider({
+		client: new IncusClient({ socketPath, project: "portikus" }),
+		pool: "mypool",
+		profile: "workspace",
+		imageAlias: "portikus",
+		agentPort,
+		cgroupRoot,
+		hostCpuCount: 8,
+	});
+}
+
+function writeMemoryStat(root: string, instance: string, inactiveFile: number): void {
+	const dir = path.join(root, `lxc.payload.portikus_${instance}`);
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(
+		path.join(dir, "memory.stat"),
+		`anon 100\nfile 200\ninactive_file ${inactiveFile}\n`,
+	);
+}
+
+function listed(
+	name: string,
+	status: string,
+	expanded: Record<string, string>,
+	state: { cpu: number; memory: number; total?: number } | null,
+) {
+	return {
+		name,
+		status,
+		config: {},
+		expanded_config: expanded,
+		state: state && {
+			cpu: { usage: state.cpu, allocated_time: 0 },
+			memory: { usage: state.memory, total: state.total ?? 0, usage_peak: 0 },
+		},
+	};
+}
+
+test("usage reports running instances only, with limits, working set and allowance", async () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "usage-cgroup-"));
+	writeMemoryStat(root, "ws-a", 1_000);
+	writeMemoryStat(root, "ws-c", 0);
+	const urls: string[] = [];
+	handler = async (req, res) => {
+		urls.push(req.url ?? "");
+		respond(
+			res,
+			200,
+			sync([
+				listed(
+					"ws-a",
+					"Running",
+					{
+						"limits.cpu": "4",
+						"limits.memory": "6GiB",
+						"limits.cpu.allowance": "100ms/100ms",
+						"volatile.base_image": "x",
+					},
+					{ cpu: 123_456_789, memory: 5_000 },
+				),
+				listed("ws-b", "Stopped", { "limits.cpu": "4", "limits.memory": "6GiB" }, null),
+				listed(
+					"ws-c",
+					"Running",
+					{ "limits.memory": "4GB" },
+					{ cpu: 7, memory: 2_000 },
+				),
+			]),
+		);
+	};
+
+	const result = await usageProvider(root).usage();
+
+	expect(urls).toEqual(["/1.0/instances?recursion=2&project=portikus"]);
+	expect(result).toEqual([
+		{
+			name: "ws-a",
+			cpuUsageNs: 123_456_789,
+			cpuLimit: 4,
+			// Page cache is left out: 5,000 used less 1,000 inactive file.
+			memoryBytes: 4_000,
+			memoryLimitBytes: 6 * 2 ** 30,
+			cpuAllowance: "100ms/100ms",
+		},
+		{
+			name: "ws-c",
+			cpuUsageNs: 7,
+			// No limits.cpu: the host's CPU count.
+			cpuLimit: 8,
+			memoryBytes: 2_000,
+			memoryLimitBytes: 4e9,
+			cpuAllowance: null,
+		},
+	]);
+});
+
+test("usage reads limits.memory in every unit Incus uses", async () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "usage-cgroup-"));
+	const units: Array<[string, number]> = [
+		["1073741824", 2 ** 30],
+		["512B", 512],
+		["2kB", 2e3],
+		["2KB", 2e3],
+		["3MB", 3e6],
+		["4GB", 4e9],
+		["1TB", 1e12],
+		["2KiB", 2 * 2 ** 10],
+		["3MiB", 3 * 2 ** 20],
+		["6GiB", 6 * 2 ** 30],
+		["1TiB", 2 ** 40],
+	];
+	for (const [i] of units.entries()) writeMemoryStat(root, `ws-${i}`, 0);
+	handler = (_req, res) => {
+		respond(
+			res,
+			200,
+			sync(
+				units.map(([size], i) =>
+					listed(
+						`ws-${i}`,
+						"Running",
+						{ "limits.memory": size },
+						{ cpu: 1, memory: 1 },
+					),
+				),
+			),
+		);
+	};
+
+	const result = await usageProvider(root).usage();
+
+	expect(result.map((u) => u.memoryLimitBytes)).toEqual(
+		units.map(([, bytes]) => bytes),
+	);
+});
+
+test("usage falls back to Incus's figures when limits.memory or memory.stat is missing", async () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "usage-cgroup-"));
+	handler = (_req, res) => {
+		respond(
+			res,
+			200,
+			sync([
+				listed("ws-a", "Running", {}, { cpu: 1, memory: 3_000, total: 9_000 }),
+				listed("ws-b", "Running", {}, { cpu: 1, memory: 3_000, total: 0 }),
+			]),
+		);
+	};
+
+	const result = await usageProvider(root).usage();
+
+	// No memory.stat: the raw figure. No limit anywhere: the instance is skipped.
+	expect(result).toEqual([
+		{
+			name: "ws-a",
+			cpuUsageNs: 1,
+			cpuLimit: 8,
+			memoryBytes: 3_000,
+			memoryLimitBytes: 9_000,
+			cpuAllowance: null,
+		},
+	]);
+});
+
+test("setting the CPU allowance writes it back through the ETag-guarded PUT", async () => {
+	const state = fakeIncus();
+	state.status = "Running";
+	serveIncus(state);
+	const before = structuredClone(state);
+
+	await provider.setCpuAllowance("ws-test", "100ms/100ms");
+
+	expect(state.puts).toHaveLength(1);
+	const put = state.puts[0];
+	if (!put) throw new Error("expected a PUT");
+	expect(put.ifMatch).toBe('"e1"');
+	expect(put.body.config).toEqual({
+		...before.config,
+		"limits.cpu.allowance": "100ms/100ms",
+	});
+	expect(put.body.devices).toEqual(before.devices);
+	expect(put.body.profiles).toEqual(["workspace"]);
+	expect(state.patches).toHaveLength(0);
+
+	// Asking again for the same value writes nothing.
+	await provider.setCpuAllowance("ws-test", "100ms/100ms");
+	expect(state.puts).toHaveLength(1);
+});
+
+test("removing the CPU allowance drops only that key", async () => {
+	const state = fakeIncus();
+	state.status = "Running";
+	state.config = { ...state.config, "limits.cpu.allowance": "100ms/100ms" };
+	serveIncus(state);
+	const before = structuredClone(state);
+
+	await provider.setCpuAllowance("ws-test", null);
+
+	expect(state.puts).toHaveLength(1);
+	expect(state.config).toEqual({ "volatile.base_image": "old", "image.os": "debian" });
+	expect(state.devices).toEqual(before.devices);
+
+	// Nothing left to remove: no write.
+	await provider.setCpuAllowance("ws-test", null);
+	expect(state.puts).toHaveLength(1);
+});
+
+test("a stale ETag refuses the allowance write", async () => {
+	const state = fakeIncus();
+	state.staleEtag = true;
+	serveIncus(state);
+
+	await expect(
+		provider.setCpuAllowance("ws-test", "100ms/100ms"),
+	).rejects.toBeInstanceOf(Error);
+	expect(state.config["limits.cpu.allowance"]).toBeUndefined();
+});
+
+test("the allowance must be a time slice; anything else never reaches Incus", async () => {
+	const state = fakeIncus();
+	serveIncus(state);
+	for (const bad of [
+		"25%",
+		"0ms/100ms",
+		"100ms",
+		"100ms/200ms",
+		"1000000ms/100ms",
+		"",
+	]) {
+		await expect(provider.setCpuAllowance("ws-test", bad)).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+		});
+	}
+	await expect(provider.setCpuAllowance("../etc", "100ms/100ms")).rejects.toMatchObject(
+		{ code: "INVALID_NAME" },
+	);
+	expect(state.puts).toHaveLength(0);
+});
+
+test("start removes an allowance left on the stopped instance before starting it", async () => {
+	const state = fakeIncus();
+	state.config = { ...state.config, "limits.cpu.allowance": "100ms/100ms" };
+	serveIncus(state);
+	const original = handler;
+	let statusAtPut = "";
+	handler = (req, res) => {
+		if (req.method === "PUT" && req.url?.startsWith("/1.0/instances/ws-test?")) {
+			statusAtPut = state.status;
+		}
+		original(req, res);
+	};
+
+	await provider.start("ws-test", START);
+
+	expect(statusAtPut).toBe("Stopped");
+	expect(state.puts).toHaveLength(1);
+	expect(state.puts[0]?.ifMatch).toBe('"e1"');
+	expect(state.config["limits.cpu.allowance"]).toBeUndefined();
+	expect(state.status).toBe("Running");
+});
+
+test("start without an allowance makes no guarded write", async () => {
+	const state = fakeIncus();
+	serveIncus(state);
+
+	await provider.start("ws-test", START);
+
+	expect(state.puts).toHaveLength(0);
+});

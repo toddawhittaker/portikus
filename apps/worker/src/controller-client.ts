@@ -3,6 +3,7 @@ import type {
 	CreateInstanceRequest,
 	CreateInstanceResponse,
 	GrowVolumesRequest,
+	InstanceUsage,
 	ListInstancesResponse,
 	LogLevel,
 	RebuildInstanceRequest,
@@ -17,6 +18,7 @@ import {
 	CreateInstanceResponse as CreateInstanceResponseSchema,
 	GrowVolumesResponse,
 	HostSnapshot,
+	InstanceUsageResponse,
 	ListInstancesResponse as ListInstancesResponseSchema,
 	RebuildInstanceResponse as RebuildInstanceResponseSchema,
 	StartInstanceResponse as StartInstanceResponseSchema,
@@ -49,6 +51,10 @@ export interface ControllerClient {
 	hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot>;
 	/** Grow a workspace's home and Docker volumes; never shrinks (SPEC.md §20.1). */
 	growVolumes(name: string, req: GrowVolumesRequest): Promise<GrowVolumesResponse>;
+	/** CPU time and memory of every running instance (ADR 0032). */
+	usage(signal?: AbortSignal): Promise<InstanceUsage[]>;
+	/** Set a time-slice CPU allowance, or remove it with null (ADR 0032). */
+	setCpuAllowance(name: string, allowance: string | null): Promise<void>;
 }
 
 /**
@@ -167,5 +173,16 @@ export class HttpControllerClient implements ControllerClient {
 			req,
 		);
 		return GrowVolumesResponse.parse(res);
+	}
+
+	async usage(signal?: AbortSignal): Promise<InstanceUsage[]> {
+		const res = await this.request("GET", "/instances/usage", undefined, signal);
+		return InstanceUsageResponse.parse(res).instances;
+	}
+
+	async setCpuAllowance(name: string, allowance: string | null): Promise<void> {
+		await this.request("PUT", `/instances/${encodeURIComponent(name)}/cpu-allowance`, {
+			allowance,
+		});
 	}
 }

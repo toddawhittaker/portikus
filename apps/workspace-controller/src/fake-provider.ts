@@ -6,6 +6,7 @@ import {
 	type HostSnapshot,
 	InstanceName,
 	type InstanceStatus,
+	type InstanceUsage,
 	type RebuildInstanceResponse,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
@@ -27,6 +28,7 @@ interface FakeInstance {
 	/** Counts replacements, so a test can tell the Docker volume is new. */
 	dockerGeneration: number;
 	rebuilds: number;
+	cpuAllowance: string | null;
 }
 
 export class FakeWorkspaceProvider implements WorkspaceProvider {
@@ -85,6 +87,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			recoveryGiB: sizes.recoveryGiB,
 			dockerGeneration: 1,
 			rebuilds: 0,
+			cpuAllowance: null,
 		};
 		this.instances.set(name, inst);
 		return { created: true, imageFingerprint: "abc123", quota };
@@ -110,6 +113,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 		}
 		inst.status = "Running";
 		inst.ipv4 = "10.0.0.2";
+		inst.cpuAllowance = null;
 		// The real provider pushes this token and waits for agent health;
 		// the fake records it and treats the agent as already healthy.
 		inst.agentToken = opts.agentToken;
@@ -225,5 +229,29 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 		}
 		inst.quota = { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
 		return { ...inst.quota };
+	}
+
+	async usage(): Promise<InstanceUsage[]> {
+		this.checkError();
+		return [...this.instances.values()]
+			.filter((inst) => inst.status === "Running")
+			.map((inst) => ({
+				name: inst.name,
+				cpuUsageNs: 0,
+				cpuLimit: 4,
+				memoryBytes: 2 ** 30,
+				memoryLimitBytes: 6 * 2 ** 30,
+				cpuAllowance: inst.cpuAllowance,
+			}));
+	}
+
+	async setCpuAllowance(name: string, allowance: string | null): Promise<void> {
+		this.validate(name);
+		this.checkError();
+		const inst = this.instances.get(name);
+		if (!inst) {
+			throw new IncusError("NOT_FOUND", `instance ${name} not found`);
+		}
+		inst.cpuAllowance = allowance;
 	}
 }
