@@ -1,4 +1,4 @@
-import { HostSnapshot } from "@portikus/contracts";
+import { HostSnapshot, InstanceUsageResponse } from "@portikus/contracts";
 import type { LogLevel } from "@portikus/observability";
 import { collectingLogger, lineAt } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
@@ -752,4 +752,120 @@ test("POST /instances/:name/volumes rejects a bad name, body, or unknown instanc
 		payload: { homeGiB: 30, dockerGiB: 20 },
 	});
 	expect(missing.statusCode).toBe(404);
+});
+
+// Resource guard routes (ADR 0032).
+
+const START_BODY = {
+	timeoutSeconds: 10,
+	agentToken: AGENT_TOKEN,
+	hostname: "tw7",
+	previewHostSuffix: "preview.example.edu",
+	timezone: "UTC",
+};
+
+test("the usage and allowance routes need the token", async () => {
+	const usage = await app.inject({ method: "GET", url: "/instances/usage" });
+	expect(usage.statusCode).toBe(401);
+	const put = await app.inject({
+		method: "PUT",
+		url: "/instances/ws-abc/cpu-allowance",
+		payload: { allowance: "100ms/100ms" },
+	});
+	expect(put.statusCode).toBe(401);
+});
+
+test("GET /instances/usage lists running instances in the contract shape", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	await provider.create("ws-off", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	await provider.start("ws-abc", START_BODY);
+
+	const res = await app.inject({
+		method: "GET",
+		url: "/instances/usage",
+		headers: auth(),
+	});
+
+	expect(res.statusCode).toBe(200);
+	const body = InstanceUsageResponse.parse(res.json());
+	expect(body.instances.map((i) => i.name)).toEqual(["ws-abc"]);
+});
+
+test("GET /instances/usage maps an Incus failure to its status", async () => {
+	provider.failNext("INCUS_UNAVAILABLE");
+	const res = await app.inject({
+		method: "GET",
+		url: "/instances/usage",
+		headers: auth(),
+	});
+	expect(res.statusCode).toBe(503);
+});
+
+test("PUT /instances/:name/cpu-allowance sets and removes the allowance", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	await provider.start("ws-abc", START_BODY);
+
+	const set = await app.inject({
+		method: "PUT",
+		url: "/instances/ws-abc/cpu-allowance",
+		headers: auth(),
+		payload: { allowance: "100ms/100ms" },
+	});
+	expect(set.statusCode).toBe(204);
+	expect(provider.instances.get("ws-abc")?.cpuAllowance).toBe("100ms/100ms");
+
+	const cleared = await app.inject({
+		method: "PUT",
+		url: "/instances/ws-abc/cpu-allowance",
+		headers: auth(),
+		payload: { allowance: null },
+	});
+	expect(cleared.statusCode).toBe(204);
+	expect(provider.instances.get("ws-abc")?.cpuAllowance).toBeNull();
+});
+
+test("PUT /instances/:name/cpu-allowance refuses anything but a time slice", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	for (const payload of [
+		{ allowance: "25%" },
+		{ allowance: "0ms/100ms" },
+		{ allowance: "100ms/200ms" },
+		{ allowance: 100 },
+		{},
+		{ allowance: "100ms/100ms", extra: true },
+	]) {
+		const res = await app.inject({
+			method: "PUT",
+			url: "/instances/ws-abc/cpu-allowance",
+			headers: auth(),
+			payload,
+		});
+		expect(res.statusCode).toBe(400);
+		expect(res.json().code).toBe("BAD_REQUEST");
+	}
+	expect(provider.instances.get("ws-abc")?.cpuAllowance).toBeNull();
+
+	const badName = await app.inject({
+		method: "PUT",
+		url: "/instances/Bad_Name/cpu-allowance",
+		headers: auth(),
+		payload: { allowance: "100ms/100ms" },
+	});
+	expect(badName.statusCode).toBe(400);
+	expect(badName.json().code).toBe("INVALID_NAME");
+
+	const missing = await app.inject({
+		method: "PUT",
+		url: "/instances/ws-nope/cpu-allowance",
+		headers: auth(),
+		payload: { allowance: "100ms/100ms" },
+	});
+	expect(missing.statusCode).toBe(404);
+});
+
+test("the fake's start clears an allowance, as the real one does", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	await provider.setCpuAllowance("ws-abc", "100ms/100ms");
+	await provider.start("ws-abc", START_BODY);
+	expect(provider.instances.get("ws-abc")?.cpuAllowance).toBeNull();
 });
