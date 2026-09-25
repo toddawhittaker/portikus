@@ -13,7 +13,7 @@ import { type LtiRole, mapLtiRoles } from "./roles.js";
 import type { LtiLoginState } from "./state.js";
 
 /**
- * Every reason a launch is refused, one per check (docs/EPIC-13.md ruling
+ * Every reason a launch is refused, one per check (docs/archive/epics/EPIC-13.md ruling
  * 19). `state_missing` and `state_mismatch` come from `checkLaunchState`
  * and `consumeLoginState`; the rest from {@link validateLaunchToken}.
  */
@@ -44,6 +44,8 @@ export interface LtiLaunch {
 	displayName: string;
 	/** For the profile only; never used to find or link an account. */
 	email: string | null;
+	/** `preferred_username`, else the custom claim `username`; names the workspace (SPEC.md, Epic 8). */
+	username: string | null;
 	role: LtiRole;
 	/** Absent when the launch had no context claim: sign in, record no membership. */
 	context: { id: string; title: string } | null;
@@ -64,7 +66,7 @@ const CLOCK_SKEW_SECONDS = 60;
  * One remote JWKS per keyset URL, kept for the life of the process: keys
  * cached 10 minutes, an unknown `kid` refetches at most every 30 seconds,
  * each fetch times out after 5 seconds (ruling 19). With a proxy URL the
- * fetches go through the forward proxy (docs/EPIC-14.md ruling 27).
+ * fetches go through the forward proxy (docs/archive/epics/EPIC-14.md ruling 27).
  */
 export function createKeySetSource(proxyUrl?: string | null): KeySetSource {
 	const outboundFetch = createOutboundFetch(proxyUrl);
@@ -112,6 +114,18 @@ function displayNameOf(claims: Record<string, unknown>): string {
 		.map((p) => p.trim())
 		.filter((p) => p !== "");
 	return parts.length > 0 ? parts.join(" ") : "LTI user";
+}
+
+/** LTI 1.3 has no username claim, so an LMS may send one as a custom parameter. */
+function usernameOf(claims: Record<string, unknown>): string | null {
+	const custom = objectClaim(claims[`${CLAIM}custom`]);
+	for (const value of [claims.preferred_username, custom?.username]) {
+		// A leading `$` is a substitution variable the LMS did not fill in.
+		if (isString(value) && value.trim() !== "" && !value.trim().startsWith("$")) {
+			return value.trim();
+		}
+	}
+	return null;
 }
 
 /**
@@ -229,6 +243,7 @@ export async function validateLaunchToken(
 			subject: sub,
 			displayName: displayNameOf(claims),
 			email: isString(claims.email) && claims.email !== "" ? claims.email : null,
+			username: usernameOf(claims),
 			role: mapLtiRoles(claims[`${CLAIM}roles`]),
 			context,
 			targetLinkUri: target,

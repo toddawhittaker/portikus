@@ -2,7 +2,7 @@
 # Holds client secrets and any LDAP bind password: root:portikus-dex, mode 0640.
 issuer: {{ portikus_dex_issuer | to_json }}
 # Accounts live in their own database, so a restart keeps them and the
-# nightly backup carries them (docs/EPIC-14.md ruling 19).  The postgresql
+# nightly backup carries them (docs/archive/epics/EPIC-14.md ruling 19).  The postgresql
 # role makes it; peer authentication over the socket admits only Dex's user.
 storage:
   type: postgres
@@ -28,6 +28,8 @@ logger:
 frontend:
   issuer: Portikus
   dir: {{ dex_web_dir }}
+  theme: portikus
+  logoURL: theme/logo.svg
 oauth2:
   skipApprovalScreen: true
 expiry:

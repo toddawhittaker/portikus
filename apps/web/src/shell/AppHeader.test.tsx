@@ -167,3 +167,27 @@ test("a saved profile picture shows in the account button instead of initials", 
 	expect(picture.getAttribute("src")).toBe("/me/picture?v=1");
 	expect(screen.getByTestId("me").textContent).not.toContain("AE");
 });
+
+test("on the admin page, Open my workspace sits in the account menu where Administration sits (issue #550)", () => {
+	renderWithQuery(
+		<AppHeader
+			user={{ ...USER, role: "administrator" }}
+			workspace={null}
+			project={undefined}
+		/>,
+	);
+	expect(screen.queryByTestId("open-my-workspace")).toBeNull();
+	expect(screen.queryByTestId("back-to-workspace")).toBeNull();
+	openAccountMenu();
+
+	const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
+	expect(items).toEqual(["Open my workspace", "Settings", "Sign out"]);
+	expect(screen.queryByTestId("admin-link")).toBeNull();
+});
+
+test("in a workspace, an administrator has no Open my workspace item", () => {
+	renderHeader(WORKSPACE, { ...USER, role: "administrator" });
+	openAccountMenu();
+	expect(screen.queryByTestId("open-my-workspace")).toBeNull();
+	expect(screen.queryByTestId("open-my-workspace-status")).toBeNull();
+});

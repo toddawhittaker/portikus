@@ -3,7 +3,7 @@ import { type Browser, expect, type Page, test } from "@playwright/test";
 import { createStudent, query, WEB_ORIGIN, workspacePath } from "./helpers";
 
 /**
- * The first administrator's setup code (docs/EPIC-14.md rulings 15 to 17):
+ * The first administrator's setup code (docs/archive/epics/EPIC-14.md rulings 15 to 17):
  * the entry point Ansible runs prints a code, the first person to enter it
  * at /setup becomes an administrator, and the code works only once. Fresh
  * accounts stand in for alice, because admin.spec.ts checks at the same time

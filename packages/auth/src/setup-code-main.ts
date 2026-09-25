@@ -1,5 +1,5 @@
 /**
- * Issue a one-time setup code for the first administrator (docs/EPIC-14.md
+ * Issue a one-time setup code for the first administrator (docs/archive/epics/EPIC-14.md
  * ruling 16): node setup-code-main.js
  * Reads DATABASE_URL from the environment and prints only the code, which
  * Ansible shows to the operator.

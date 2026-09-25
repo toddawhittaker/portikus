@@ -82,7 +82,7 @@
     portikus_workspace_recovery_size_gib: 3
 
     # ── Authentication (SPEC 5.3, ADR 0008, ADR 0023) ─────────────
-    # PORTIKUS_IDP picks the sign-in provider (docs/EPIC-14.md):
+    # PORTIKUS_IDP picks the sign-in provider (docs/archive/epics/EPIC-14.md):
     #   dex       Dex on this VM, accounts managed in the Users view (the default);
     #   entra     Microsoft Entra ID, one tenant (PORTIKUS_ENTRA_TENANT_ID);
     #   google    Google Workspace, the listed domains (PORTIKUS_GOOGLE_DOMAINS);
@@ -125,12 +125,12 @@
     # Loopback only; Caddy serves it at /dex.
     dex_port: 5556
     # Dex's gRPC API, on loopback behind mutual TLS; Caddy never routes to it.
-    # The API's DEX_GRPC_* settings name these (docs/EPIC-14.md ruling 20).
+    # The API's DEX_GRPC_* settings name these (docs/archive/epics/EPIC-14.md ruling 20).
     dex_grpc_addr: 127.0.0.1:5557
     dex_grpc_dir: /etc/portikus/dex-grpc
     # The retired users file, on the machine that runs Ansible, outside any
     # work tree.  When it exists, its accounts are imported once into Dex's
-    # storage, keeping every user ID (docs/EPIC-14.md ruling 23); after that
+    # storage, keeping every user ID (docs/archive/epics/EPIC-14.md ruling 23); after that
     # the Users view manages them and the file can be deleted.
     portikus_users_file: >-
       {{ lookup('env', 'PORTIKUS_USERS_FILE')
@@ -143,7 +143,7 @@
       {{ portikus_entra_issuer if portikus_idp == 'entra'
          else portikus_google_issuer if portikus_idp == 'google'
          else lookup('env', 'PORTIKUS_OIDC_ISSUER') }}
-    # The API's OIDC_PROVIDER and OIDC_DEFAULT_ROLE (docs/EPIC-14.md, ruling
+    # The API's OIDC_PROVIDER and OIDC_DEFAULT_ROLE (docs/archive/epics/EPIC-14.md, ruling
     # 11): Entra and other providers refuse a person no role claim matches;
     # Google and Dex make them a student.
     portikus_oidc_provider: "{{ portikus_idp if portikus_idp in ['entra', 'google'] else 'oidc' }}"
@@ -177,7 +177,7 @@
          | default('Portikus.Instructor' if portikus_idp == 'entra' else 'portikus-instructors', true) }}
     portikus_session_ttl_seconds: 43200
 
-    # ── LTI launch (docs/EPIC-13.md, rulings 14 and 26) ──────────
+    # ── LTI launch (docs/archive/epics/EPIC-13.md, rulings 14 and 26) ──────────
     # The registered LMS platforms, on the machine that runs Ansible.  The
     # role copies it to the VM; no file here means LTI is off.
     portikus_lti_platforms_file: >-
@@ -185,7 +185,7 @@
          | default(lookup('env', 'HOME') ~ '/.config/portikus/lti-platforms.json', true)
          | expanduser }}
 
-    # ── API egress (ADR 0027, docs/EPIC-14.md rulings 26 to 29) ──
+    # ── API egress (ADR 0027, docs/archive/epics/EPIC-14.md rulings 26 to 29) ──
     # The API reaches the internet only through the egress proxy, which
     # allows the provider's discovery hosts, the LMS keyset hosts, and these:
     # `host` or `host:port`, separated by commas or spaces.

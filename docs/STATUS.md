@@ -1300,7 +1300,7 @@ migration from another branch that stopped Kysely from starting (PR #342).
 
 ## Epic 9.2 — image paste into the terminal, and the rest of issue #300
 
-The requirement is `docs/EPIC-9.2.md` until SPEC.md section 29 lists the
+The requirement is `docs/archive/epics/EPIC-9.2.md` until SPEC.md section 29 lists the
 epic.
 
 **Image paste (issue #355).** Pasting a lone png or jpeg into a terminal,
@@ -1427,7 +1427,7 @@ rows a day later.
 ## Epic 10 — Recovery, quotas, and reset workflows
 
 Landed on `epic/10-recovery-quotas` (not yet merged to `main`; see Gaps).
-Working brief: `docs/EPIC-10.md`.
+Working brief: `docs/archive/epics/EPIC-10.md`.
 
 **Recovery points.** Portikus now keeps compressed, `tar.zst` copies of
 each active project outside the project folder, on a fourth storage
@@ -1724,7 +1724,7 @@ off the list also leaves the ACL.
 
 ## Epic 12a — Security test suites
 
-The requirement is `docs/EPIC-12A.md`. This is the first half of SPEC.md
+The requirement is `docs/archive/epics/EPIC-12A.md`. This is the first half of SPEC.md
 section 29 Epic 12: tests of code that already exists, plus section 30
 Gate C. The second half, Epic 12b (load, backup and restore, the
 destructive rebuild exercise, deployment documentation, and the
@@ -1841,7 +1841,7 @@ place.
 
 ## Epic 12b — Dex sign-in and pilot readiness
 
-The requirement is `docs/EPIC-12B.md`. This is the second half of SPEC.md
+The requirement is `docs/archive/epics/EPIC-12B.md`. This is the second half of SPEC.md
 section 29 Epic 12, and the last epic before the pilot. The operator's
 runbook is `docs/OPERATIONS.md`.
 
@@ -1962,7 +1962,7 @@ about to ship, and this was accepted.
 
 ## Epic 13 — LTI 1.3 launch and an instructor role
 
-The requirement is `docs/EPIC-13.md`, with its rulings as amended by the
+The requirement is `docs/archive/epics/EPIC-13.md`, with its rulings as amended by the
 epic reviews, and the design is ADR 0025. It serves SPEC.md sections 5.1
 and 5.2 and the new section 29 entry. The operator's steps are in
 `docs/OPERATIONS.md`, "Signing in from a learning management system (LTI
@@ -2043,7 +2043,7 @@ new tab.
 
 ## Epic 13.1 — Link a course account to an SSO account, and promote administrators
 
-The requirement is `docs/EPIC-13-1.md` with its rulings, and the design is
+The requirement is `docs/archive/epics/EPIC-13-1.md` with its rulings, and the design is
 ADR 0026. It serves SPEC.md sections 5.2 and the new section 29 entry.
 The operator's steps are in `docs/OPERATIONS.md`, "Linking a course
 account to an SSO account".
@@ -2125,7 +2125,7 @@ cannot be linked; the preview gateway applies the same session rule as
 the API; Settings moves focus only after the unlinked row is gone; the
 launch notice is announced through a status region mounted in advance;
 and removing the last other course member focuses the page heading.
-Rulings S1 to S5, N1, N2 and N4 in `docs/EPIC-13-1.md` record them.
+Rulings S1 to S5, N1, N2 and N4 in `docs/archive/epics/EPIC-13-1.md` record them.
 
 **Pilot rehearsal:** 2026-09-24, epic head ad10dac deployed to the pilot as 0.1.404+gad10dac (pg_dump and `pre-epic13-1b` snapshots taken first; migration 0017 applied). Smoke test 117 passed, security test 225 passed, plus the expected mock LMS warning. By headless browser through the mock LMS: a course launch, then "Link to my SSO account", reaches the Dex password page with `prompt=login`; an instructor removes a student in a course of their own, has no Remove button on their own row, and the student reappears after launching again. Not yet run on the pilot, for lack of a Dex test account: confirming a link with a real Dex sign-in, the relaunch into the SSO account with its "Not you? Unlink" notice, unlinking, and promote and demote in the Users view. CI's Playwright suite covers each of these against the mock identity provider.
 
@@ -2153,7 +2153,7 @@ Rulings S1 to S5, N1, N2 and N4 in `docs/EPIC-13-1.md` record them.
 ### T1: provider sign-in
 
 The API can now sign in through Microsoft Entra ID and Google Workspace
-as well as Dex and generic OpenID Connect (docs/EPIC-14.md rulings 8 to
+as well as Dex and generic OpenID Connect (docs/archive/epics/EPIC-14.md rulings 8 to
 12 and 27, PR #517). New settings: `OIDC_PROVIDER` (`oidc`, `entra` or
 `google`), `OIDC_ALLOWED_TENANT` (required for `entra`),
 `OIDC_ALLOWED_DOMAINS` (required for `google`), `OIDC_DEFAULT_ROLE`
@@ -2186,7 +2186,7 @@ Gaps:
 ### T2: first administrator setup code
 
 A new site gets its first administrator from a one-time setup code
-(docs/EPIC-14.md rulings 15 to 18, ADR 0028). The command
+(docs/archive/epics/EPIC-14.md rulings 15 to 18, ADR 0028). The command
 `setup-code-main.js` in `@portikus/auth` prints a code of 16 Crockford
 base-32 characters (80 random bits), valid for 60 minutes and single use.
 Migration `0018_setup_codes` keeps only its SHA-256. Issuing a code
@@ -2226,7 +2226,7 @@ Gaps:
 ### T3: Dex users and the instructor grant in the Users view
 
 The API manages Dex's passwords over Dex's gRPC API with mutual TLS
-(`packages/auth/src/dex-api.ts`, PR #518, docs/EPIC-14.md rulings 14 and
+(`packages/auth/src/dex-api.ts`, PR #518, docs/archive/epics/EPIC-14.md rulings 14 and
 19 to 24). `POST /admin/dex-users` adds a person with a generated
 20-character password, shown once, and pre-creates the Portikus account
 under the subject Dex will give them, with the chosen role as a grant.
@@ -2256,7 +2256,7 @@ Gaps:
 ### T4: egress proxy and provider settings
 
 Squid from Debian runs on `127.0.0.1:3128` in the new `egress_proxy`
-role (ADR 0027, docs/EPIC-14.md rulings 25 to 29, PR #519). It allows
+role (ADR 0027, docs/archive/epics/EPIC-14.md rulings 25 to 29, PR #519). It allows
 `CONNECT` to port 443 of listed host names, refuses a name that resolves
 to a private, loopback or link-local address, allows a listed IPv4
 address with its port exactly, and caches nothing. An entry listed with
@@ -2288,7 +2288,7 @@ fixed by #520. The new security module is `infra/tests/security/egress.sh`.
 ### T5: Dex storage, gRPC and connectors
 
 Dex now keeps its accounts in its own PostgreSQL database, `dex`, owned
-by the `portikus-dex` role and reached over the local socket (docs/EPIC-14.md
+by the `portikus-dex` role and reached over the local socket (docs/archive/epics/EPIC-14.md
 ruling 19, ADR 0028). Its gRPC API listens on `127.0.0.1:5557` and accepts
 only a client certificate from a small certificate authority that Ansible
 makes in `/etc/portikus/dex-grpc/` (ruling 20). The API's client key is
@@ -2343,7 +2343,7 @@ Gaps:
 
 - Dex's `microsoft` and `google` connectors are checked only by the
   render test; no real tenant was used (see "Unverified until a real
-  tenant exists" in docs/EPIC-14.md).
+  tenant exists" in docs/archive/epics/EPIC-14.md).
 - Active Directory was not tried; OpenLDAP stood in for it.
 - The host's nightly backup timer runs an installed copy of `backup.sh`,
   so `make backup-install-timer` must run again on the host after this
@@ -2427,3 +2427,102 @@ Gaps:
 - Known gap from the review: Remove deletes the Dex password inside the database transaction, so if Dex succeeds and the commit then fails, the account stays enabled with no Dex password. Add user and the first-account form delete the new Dex password in that case; Remove does not recreate one.
 - Review fixes, infrastructure and egress: Portikus asks Dex for `groups` only with Dex's own passwords or LDAP, never behind its Microsoft or Google connector, where students can create groups; OpenLDAP accounts are keyed by `entryUUID`, so a reused username gets a new account; Active Directory keeps `sAMAccountName`, because Dex v2.45.1 cannot encode the binary `objectGUID` (999 of 1,000 random GUIDs failed), and docs/OPERATIONS.md says to disable, not delete, departed accounts; Squid matches names only as written (`dstdomain -n`) and refuses any unlisted IP address given directly; `restore.sh` skips Dex's accounts on a VM without Dex and restarts Dex if loading them fails; the mock-to-Dex carry-over and `make identity-carry-over-dry-run` are removed; CI makes the gRPC certificates with the dex role's own script. Verified on the rehearsal VM with 0.1.423+gd0a823d and a throwaway OpenLDAP: a new person given a deleted person's username got a new account, the old rules let a CONNECT to 1.1.1.1 through by its reverse DNS name while the new ones refuse it, `make security-test` passed 236 of 236 and `make smoke-test` 240 of 240.
 - Confirmation-review fixes: behind Dex's Microsoft or Google connector the play now leaves the API's `OIDC_GROUPS_CLAIM` empty, and the API takes no role from groups when that setting is empty, so a student who adds the `groups` scope to the Dex sign-in address gains nothing; every play on a site that no longer uses the mock ends the sessions of the mock's accounts; a users-file import skipped because Dex already holds passwords now marks the site imported, so a Dex emptied later never gets the file; the setup page and the Add user dialog render the invalid field before moving focus to it, so a screen reader announces it as invalid. Unit, database and render tests cover each; the play task that ends mock sessions has not been run on a VM.
+
+## Epic 14.1 — Fixes after Epic 14 (in progress)
+
+### LTI workspaces named after the LMS username (#549)
+
+A course (LTI) launch now stores a username: the id_token's
+`preferred_username`, else the custom claim `username`, which an LMS
+administrator sets with `$User.username` (Moodle) or
+`$Canvas.user.loginId` (Canvas), as `docs/OPERATIONS.md` now explains.
+The workspace label comes from it. A course account with no username gets
+a label made from its LTI user ID instead of `ws-` and random hex
+(SPEC.md, Epic 8; this replaces Epic 13 ruling 12). A returning launch
+refreshes the stored username the same way an SSO sign-in does, but a
+workspace keeps the label it was created with. The mock LMS sends a
+custom-claim username for Sam, a `preferred_username` for Lee, and none
+for the others. Linked launches are unchanged.
+
+### Dex sign-in pages in the Portikus look (#532)
+
+Dex's sign-in pages now carry a Portikus theme (ADR 0023, "Pages"). The
+dex role installs `infra/ansible/roles/dex/files/theme/` (`styles.css`,
+the wordmark as `logo.svg`, a 64-pixel `favicon.png` made from
+`apps/web/public/favicon.svg` with ImageMagick) and Public Sans from
+`packages/ui/src/fonts/` into the pinned build's `themes/portikus/`, and
+`frontend.theme` selects it. The page matches the Portikus sign-in page:
+one card with the wordmark, the design tokens' colours, radii and
+spacing, and light or dark from the browser's setting. It makes no
+request outside the site. Template patches, re-applied after every
+build, move the logo into the card with the text "Portikus", make the
+card the main landmark, turn each page heading into a first-level
+heading, and drop the password form's positive `tabindex`, beside the
+two earlier ones (`lang="en"` and `role="alert"`). The pages also use the
+Portikus words: the title "Sign in, Portikus", the heading "Sign in to
+Portikus", a "Sign in" button, and "That email address or password is
+wrong." after a failed sign-in. Each connector is one link rather than a
+button inside a link, the fields carry `autocomplete`, and a failed
+sign-in marks the password field `aria-invalid`. A last task fails the
+play if any patch did not land; it fails on the stock templates.
+
+Verified on the pilot, 2026-09-25: the dex role applied (`--tags dex`),
+a second run changed nothing, and `make smoke-test` passed 126 of 126
+with the mock LMS warning. axe found no violations on the sign-in page
+or a failed sign-in, in light or dark, nor on the patched connector
+page rendered with three connectors (the pilot has only one, so Dex
+never shows that page there). Text contrast is at least 5.0:1
+(the placeholder in dark), control borders 3.7:1 and the focus ring
+4.6:1 on the page in light.
+
+CI's `dex-signin` job now serves the same themed pages. The theme and
+the patches live in one role task file, `roles/dex/tasks/web.yml`, which
+the job runs on a copy of the pinned commit's stock pages before it
+starts Dex. The job then checks that the sign-in page says "Sign in to
+Portikus", links the theme's stylesheet, and that Dex serves the
+stylesheet, logo, icon and font. So a Dex upgrade that breaks a patch
+fails in CI before it reaches a VM. The sign-in tests now expect the
+Portikus wording after a failed sign-in.
+
+Gaps: none known.
+
+### Administrators land on the admin page (#534)
+
+An administrator who signs in now lands on `/admin` and gets no
+workspace. Their workspace starts only when they press "Open my
+workspace" in the admin header (PR #539; SPEC.md section 6.1). Unit
+tests in `router.test.tsx` and `AdminPage.test.tsx` and the Playwright
+tests `e2e/admin-landing.spec.ts` and `e2e/admin.spec.ts` cover it.
+Review fixes: the wait is announced through a polite status region, the
+button's padding is even, and the browser test now waits for the real
+trip through "/" back to `/admin`.
+
+Gaps: arriving at a workspace leaves focus at the top of the document;
+moving it would race the terminal's own focus on mount.
+
+### Full local browser test run no longer hits the sign-in limit (#540)
+
+One full local `pnpm test:e2e` run makes more than 150 sign-in starts a
+minute from 127.0.0.1, so the API's sign-in start limit answered HTTP
+429 and the 12 LTI tests failed. CI passed only because it splits the
+run into three. LTI launches count as sign-in starts on purpose
+(docs/archive/epics/EPIC-13.md ruling 21), so that stays. The Playwright API server
+now sets the existing `SIGNIN_START_LIMIT_PER_MINUTE` setting to
+100,000. Production keeps its default of 150, and the unit tests in
+`apps/api/src/signin-throttle.test.ts` still prove the 429 at the real
+limit.
+
+Gaps: no browser test checks the 429 itself; the unit tests do.
+
+### Add user asks for the person's name (#547)
+
+A Dex password account used to show its username as its name for ever,
+because Dex sends the username as the name claim. Add user in the Users
+view now asks for a Name (required, 1 to 100 characters after trimming).
+It is stored as the pre-created account's display name, and the success
+dialog shows it. The first sign-in keeps it, because the pre-created
+account already holds the username and a name equal to the username is
+not taken over the stored one (SPEC.md section 5.1).
+
+Gaps: an existing Dex account's name still cannot be changed from the
+Users view.

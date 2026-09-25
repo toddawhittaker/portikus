@@ -16,7 +16,7 @@ export function pointTime(createdAt: string): string {
  * Restoring replaces the project's files, so it names the project and the
  * time, and says a point of the current state is made first (SPEC.md §15.8).
  * When that safety point fails because recovery storage is full, a second
- * confirmation offers to restore without it (EPIC-10 decisions).
+ * confirmation offers to restore without it (docs/archive/epics/EPIC-10.md decisions).
  */
 export function RestoreConfirm({
 	workspaceId,

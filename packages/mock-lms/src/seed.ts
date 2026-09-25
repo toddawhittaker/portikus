@@ -19,6 +19,10 @@ export interface Person {
 	familyName: string;
 	email: string;
 	role: RoleName;
+	/** Sent as the `preferred_username` claim. */
+	preferredUsername?: string;
+	/** Sent as the custom claim `username`, the way Moodle and Canvas can. */
+	customUsername?: string;
 }
 
 export interface Course {
@@ -52,6 +56,7 @@ export const PEOPLE: readonly Person[] = [
 		familyName: "Student",
 		email: "sam@mock-lms.test",
 		role: "Learner",
+		customUsername: "sam.student",
 	},
 	{
 		key: "lee",
@@ -60,6 +65,7 @@ export const PEOPLE: readonly Person[] = [
 		familyName: "Learner",
 		email: "lee@mock-lms.test",
 		role: "Learner",
+		preferredUsername: "lee",
 	},
 	{
 		key: "ada",
@@ -85,7 +91,7 @@ export const PEOPLE: readonly Person[] = [
 		email: "una@mock-lms.test",
 		role: "Learner",
 	},
-	// Linking tests only (docs/EPIC-13-1.md): a link changes where every launch
+	// Linking tests only (docs/archive/epics/EPIC-13-1.md): a link changes where every launch
 	// of a person lands, so no other spec may launch these two.
 	{
 		key: "lin",

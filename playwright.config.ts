@@ -28,7 +28,7 @@ const databaseUrl =
 	process.env.TEST_DATABASE_URL ??
 	"postgres://postgres:portikus@127.0.0.1:55432/portikus_test";
 
-// The mock LMS registration and the tool key for this run (docs/EPIC-13.md
+// The mock LMS registration and the tool key for this run (docs/archive/epics/EPIC-13.md
 // rulings 14 and 15). Keyed by the mock's port so runs never share them; the
 // config loads more than once, so the writes are idempotent.
 const ltiDir = join(tmpdir(), `portikus-e2e-lti-${MOCK_LMS_PORT}`);
@@ -59,7 +59,7 @@ if (!existsSync(ltiToolKeyFile)) {
 	});
 }
 
-// The fake Dex gRPC API's certificates for this run (docs/EPIC-14.md ruling 31);
+// The fake Dex gRPC API's certificates for this run (docs/archive/epics/EPIC-14.md ruling 31);
 // kept when present, so the config loading more than once changes nothing.
 const dexCertDir = join(tmpdir(), `portikus-e2e-dex-${FAKE_DEX_GRPC_PORT}`);
 const dexCerts = writeDexGrpcCerts(dexCertDir, "e2e");
@@ -157,6 +157,9 @@ export default defineConfig({
 				PROJECT_TEMPLATES: "Starter=https://example.com/starter.git",
 				WORKSPACE_HOME_SIZE_GIB: "25",
 				WORKSPACE_DOCKER_SIZE_GIB: "20",
+				// One full local run makes more than 150 sign-in starts a minute
+				// from 127.0.0.1 (issue #540); unit tests keep the real limit.
+				SIGNIN_START_LIMIT_PER_MINUTE: "100000",
 			},
 			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,

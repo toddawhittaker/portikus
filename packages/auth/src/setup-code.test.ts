@@ -16,7 +16,7 @@ import {
 	normalizeSetupCode,
 } from "./setup-code.js";
 
-/** The setup code (docs/EPIC-14.md rulings 16 and 17; ADR 0028). */
+/** The setup code (docs/archive/epics/EPIC-14.md rulings 16 and 17; ADR 0028). */
 
 const CODE_SHAPE = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/;
 

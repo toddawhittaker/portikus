@@ -1,6 +1,13 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, renderApp, stubFetch, USER } from "../test-utils.js";
+import {
+	FakeWebSocket,
+	json,
+	renderApp,
+	stubFetch,
+	USER,
+	WORKSPACE,
+} from "../test-utils.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -110,7 +117,7 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 
 	const nav = await screen.findByRole("navigation", { name: "Administration" });
 	const current = within(nav).getByRole("link", { current: "page" });
-	// Relabelled Users; the address stays ?tab=workspaces (EPIC-13-1 ruling 24).
+	// Relabelled Users; the address stays ?tab=workspaces (docs/archive/epics/EPIC-13-1.md ruling 24).
 	expect(current.textContent).toBe("Users");
 	expect(current.getAttribute("href")).toBe("/admin?tab=workspaces");
 	expect(within(nav).getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
@@ -418,4 +425,92 @@ test("the Audit tab's filters survive in the address, and bad values are dropped
 		user: undefined,
 		action: "workspace.",
 	});
+});
+
+/** The admin reads, with `POST /workspaces` answered by `ensure`. */
+function stubAdminWithWorkspace(ensure: () => Response | Promise<Response>) {
+	return stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, ADMIN);
+		if (url === "/workspaces" && init?.method === "POST") return ensure() as Response;
+		if (url === "/admin/users") {
+			return json(200, { users: [STUDENT_ROW, ADMIN_ROW], dexUsers: false });
+		}
+		if (url.endsWith("/templates")) return json(200, { templates: [] });
+		if (url.includes("/projects")) return json(200, { projects: [] });
+		return json(200, {});
+	});
+}
+
+async function openMyWorkspaceItem(): Promise<HTMLElement> {
+	fireEvent.pointerDown(await screen.findByTestId("me"), { button: 0, ctrlKey: false });
+	return screen.findByTestId("open-my-workspace");
+}
+
+function workspacePosts(fetch: ReturnType<typeof stubFetch>): number {
+	return fetch.mock.calls.filter(
+		([url, init]) => url === "/workspaces" && init?.method === "POST",
+	).length;
+}
+
+test("Open my workspace makes the workspace and goes there (issue #534)", async () => {
+	vi.stubGlobal("WebSocket", FakeWebSocket);
+	const fetch = stubAdminWithWorkspace(() =>
+		json(201, { ...WORKSPACE, ownerUserId: ADMIN.id }),
+	);
+	const { router } = renderApp("/admin");
+
+	const item = await openMyWorkspaceItem();
+	expect(item.textContent).toBe("Open my workspace");
+	expect(screen.queryByTestId("back-to-workspace")).toBeNull();
+	// A menu item now, not a header button (issue #550).
+	expect(screen.queryByRole("button", { name: "Open my workspace" })).toBeNull();
+	// Nothing is made until the administrator asks.
+	expect(workspacePosts(fetch)).toBe(0);
+
+	fireEvent.click(item);
+
+	await waitFor(() =>
+		expect(router.state.location.pathname).toBe(`/workspaces/${WORKSPACE.id}`),
+	);
+	expect(workspacePosts(fetch)).toBe(1);
+});
+
+test("Open my workspace shows it is working, then an error as a toast", async () => {
+	const waiting: ((response: Response) => void)[] = [];
+	const fetch = stubAdminWithWorkspace(
+		() =>
+			new Promise<Response>((resolve) => {
+				waiting.push(resolve);
+			}),
+	);
+	const { router } = renderApp("/admin");
+
+	fireEvent.click(await openMyWorkspaceItem());
+
+	// The live region sits outside the menu, so it announces after the menu closes.
+	const status = screen.getByTestId("open-my-workspace-status");
+	expect(status.getAttribute("role")).toBe("status");
+	await waitFor(() => expect(status.textContent).toBe("Opening your workspace"));
+	// Visible while pending, not only to screen readers.
+	expect(status.className).not.toContain("sr-only");
+	expect(screen.queryByTestId("open-my-workspace")).toBeNull();
+
+	// Choosing it again while it is opening sends no second request.
+	const again = await openMyWorkspaceItem();
+	expect(again.textContent).toBe("Opening your workspace…");
+	expect(again.getAttribute("aria-disabled")).toBe("true");
+	fireEvent.click(again);
+	// mutate() fetches after a microtask, so let a second request go out before counting.
+	await act(async () => {});
+	expect(workspacePosts(fetch)).toBe(1);
+	fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+
+	for (const answer of waiting) {
+		answer(json(503, { code: "UNAVAILABLE", message: "Try again soon." }));
+	}
+
+	expect(await screen.findByText("Your workspace did not open")).toBeDefined();
+	expect(status.textContent).toBe("");
+	expect(status.className).toContain("sr-only");
+	expect(router.state.location.pathname).toBe("/admin");
 });

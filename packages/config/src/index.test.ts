@@ -631,7 +631,7 @@ test("a zero recovery interval is a config error", () => {
 	).toThrow(/RECOVERY_INTERVAL_SECONDS/);
 });
 
-// --- Sign-in provider settings (docs/EPIC-14.md, "API settings") ---
+// --- Sign-in provider settings (docs/archive/epics/EPIC-14.md, "API settings") ---
 
 const apiDevBase = { DATABASE_URL: "postgres://localhost/portikus" };
 

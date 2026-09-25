@@ -49,7 +49,7 @@ export interface ServerDeps {
 	oidc?: OidcClient;
 	/** The registered LMS platforms; absent means LTI is off and /lti/* is 404. */
 	lti?: LtiDeps;
-	/** Dex's gRPC API; absent means the Dex user routes answer 404 (docs/EPIC-14.md ruling 24). */
+	/** Dex's gRPC API; absent means the Dex user routes answer 404 (docs/archive/epics/EPIC-14.md ruling 24). */
 	dex?: DexApi;
 	/** How often the listening registry looks for workspaces; tests go faster. */
 	previewPollIntervalMs?: number;
@@ -87,7 +87,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	});
 
 	// Browser forms post urlencoded: the sign-out button, whose fields no
-	// route reads, and the LTI login and launch (docs/EPIC-13.md ruling 1).
+	// route reads, and the LTI login and launch (docs/archive/epics/EPIC-13.md ruling 1).
 	app.addContentTypeParser(
 		"application/x-www-form-urlencoded",
 		{ parseAs: "string" },

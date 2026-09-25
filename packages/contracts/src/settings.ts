@@ -57,7 +57,7 @@ export const AdminUser = z.object({
 	id: z.string().uuid(),
 	displayName: z.string().min(1),
 	email: z.string().nullable(),
-	/** The effective role: the higher of the two below (docs/EPIC-13-1.md ruling 20). */
+	/** The effective role: the higher of the two below (docs/archive/epics/EPIC-13-1.md ruling 20). */
 	role: Role,
 	/** The role the account's own sign-in gave last time. */
 	providerRole: Role,
@@ -80,7 +80,7 @@ export type AdminUser = z.infer<typeof AdminUser>;
 
 export const AdminUserList = z.object({
 	users: z.array(AdminUser),
-	/** True when the site runs Dex's gRPC API, so Add user is offered (docs/EPIC-14.md ruling 24). */
+	/** True when the site runs Dex's gRPC API, so Add user is offered (docs/archive/epics/EPIC-14.md ruling 24). */
 	dexUsers: z.boolean(),
 });
 export type AdminUserList = z.infer<typeof AdminUserList>;
@@ -88,7 +88,7 @@ export type AdminUserList = z.infer<typeof AdminUserList>;
 /** A Dex username: letters, digits, dot, dash and underscore. */
 const DEX_USERNAME = /^[A-Za-z0-9._-]{1,64}$/;
 
-/** Request body for `POST /admin/dex-users` (docs/EPIC-14.md ruling 21). */
+/** Request body for `POST /admin/dex-users` (docs/archive/epics/EPIC-14.md ruling 21). */
 export const CreateDexUserRequest = z
 	.object({
 		email: z.string().trim().toLowerCase().email().max(254),
@@ -96,6 +96,7 @@ export const CreateDexUserRequest = z
 			.string()
 			.trim()
 			.regex(DEX_USERNAME, "Use 1 to 64 letters, digits, dots, dashes or underscores"),
+		name: z.string().trim().min(1, "Enter a name").max(100),
 		role: Role,
 	})
 	.strict();

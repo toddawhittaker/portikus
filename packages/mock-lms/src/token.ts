@@ -80,6 +80,10 @@ export function launchClaims(input: LaunchClaimsInput): Record<string, unknown> 
 		given_name: person.givenName,
 		family_name: person.familyName,
 		email: person.email,
+		...(person.preferredUsername && { preferred_username: person.preferredUsername }),
+		...(person.customUsername && {
+			[`${LTI}custom`]: { username: person.customUsername },
+		}),
 		[`${LTI}message_type`]:
 			defect === "wrong_message_type"
 				? "LtiDeepLinkingRequest"

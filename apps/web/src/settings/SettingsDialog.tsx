@@ -896,7 +896,7 @@ function ProfilePane({
 
 /**
  * A course account links itself to an SSO account; an SSO account lists and
- * unlinks its course sign-ins (docs/EPIC-13-1.md, "The flow" steps 1, 2 and 7).
+ * unlinks its course sign-ins (docs/archive/epics/EPIC-13-1.md, "The flow" steps 1, 2 and 7).
  */
 function LinkedAccounts() {
 	const links = useMyLinks();

@@ -4,7 +4,7 @@ import type { Kysely } from "kysely";
 
 /**
  * The one-time setup code that makes its claimer the first administrator
- * (docs/EPIC-14.md rulings 15 to 18; ADR 0028). Sixteen Crockford base-32
+ * (docs/archive/epics/EPIC-14.md rulings 15 to 18; ADR 0028). Sixteen Crockford base-32
  * characters, 80 random bits, valid for an hour, single use. Only the
  * SHA-256 of a code is stored: with 80 random bits a slow hash adds nothing.
  */

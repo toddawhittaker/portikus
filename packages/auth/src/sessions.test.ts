@@ -1,5 +1,7 @@
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { dexLocalSubject } from "./dex-subject.js";
+import { precreateDexAccount } from "./links.js";
 import {
 	createSession,
 	deleteSession,
@@ -110,6 +112,35 @@ describe("users and sessions", () => {
 			);
 			await upsertUser(t.db, { ...identity, preferredUsername: null }, "student");
 			expect(await usernameOf(user.id)).toBe("alice");
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"the first Dex sign-in keeps the name Add user stored (SPEC.md section 5.1)",
+		async () => {
+			const userId = "2f6c1f0e-5b1a-4c55-9d11-000000000547";
+			const id = await precreateDexAccount(t.db, identity.issuer, {
+				userId,
+				email: "erin@example.edu",
+				username: "erin",
+				displayName: "Erin Example",
+				role: "student",
+			});
+			expect(await usernameOf(id)).toBe("erin");
+			// Dex sends the username as the name and as preferred_username.
+			const user = await upsertUser(
+				t.db,
+				{
+					issuer: identity.issuer,
+					subject: dexLocalSubject(userId),
+					email: "erin@example.edu",
+					displayName: "erin",
+					preferredUsername: "erin",
+				},
+				"student",
+			);
+			expect(user.id).toBe(id);
+			expect(user.displayName).toBe("Erin Example");
 		},
 	);
 

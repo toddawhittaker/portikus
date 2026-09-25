@@ -30,7 +30,7 @@ const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
 
 /**
  * The fetch for the API's outbound provider requests: OIDC discovery, token
- * and userinfo requests, and LMS keysets (docs/EPIC-14.md ruling 27). With a
+ * and userinfo requests, and LMS keysets (docs/archive/epics/EPIC-14.md ruling 27). With a
  * proxy URL every request goes through that forward proxy; without one it is
  * the plain global fetch, for development and tests.
  */

@@ -12,7 +12,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
-/** The Course page API (docs/EPIC-13.md ruling 23). */
+/** The Course page API (docs/archive/epics/EPIC-13.md ruling 23). */
 
 const skip = !hasTestDb();
 let testDb: TestDb;

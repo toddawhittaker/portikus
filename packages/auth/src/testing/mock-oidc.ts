@@ -20,7 +20,7 @@ export const MOCK_GROUPS = {
 	admin: "portikus-administrators",
 } as const;
 
-/** The tenant ID and domain the Entra-shaped and Google-shaped users are allowed under (docs/EPIC-14.md ruling 31). */
+/** The tenant ID and domain the Entra-shaped and Google-shaped users are allowed under (docs/archive/epics/EPIC-14.md ruling 31). */
 export const MOCK_ENTRA_TENANT = "11111111-1111-4111-8111-111111111111";
 export const MOCK_OTHER_TENANT = "22222222-2222-4222-8222-222222222222";
 export const MOCK_GOOGLE_DOMAIN = "school.example.edu";
@@ -61,9 +61,9 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		name: "Dave Nobody",
 		groups: [],
 	},
-	// Linking tests only (docs/EPIC-13-1.md): erin and gail are link targets for
+	// Linking tests only (docs/archive/epics/EPIC-13-1.md): erin and gail are link targets for
 	// two specs that run at once; frank must never sign in, so he has no account.
-	// erin is also Entra-shaped (EPIC-14 ruling 31); her groups keep the
+	// erin is also Entra-shaped (docs/archive/epics/EPIC-14.md ruling 31); her groups keep the
 	// linking specs working under the default generic provider.
 	erin: {
 		sub: "erin",
@@ -84,7 +84,7 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		name: "Gail Student",
 		groups: [MOCK_GROUPS.student],
 	},
-	// Entra-shaped (EPIC-14 ruling 31): eve is from another tenant, ian has no app role.
+	// Entra-shaped (docs/archive/epics/EPIC-14.md ruling 31): eve is from another tenant, ian has no app role.
 	eve: {
 		sub: "eve",
 		email: "eve@other.example.com",

@@ -231,7 +231,8 @@ jobs:
           [ "$RESULT" = "success" ]
 
   # Sign-in through a real Dex at the commit site.yml pins, configured by the
-  # role's own template (docs/EPIC-12B.md, Part A item 12). Not a required
+  # role's own template and themed by the role's own task file, as on the
+  # pilot (docs/archive/epics/EPIC-12B.md, Part A item 12; ADR 0023). Not a required
   # check, so a Dex upgrade shows its failure here without blocking merges.
   dex-signin:
     name: Dex sign-in
@@ -300,12 +301,16 @@ jobs:
           cp -r web "$DEX_DIR/out/web"
       - name: Check the Dex version
         run: '"$DEX_DIR/out/dex" version | grep -F "Dex Version: ${{ steps.pin.outputs.version }}"'
-      # The role's real template and guards, with the published test users.
-      - name: Render the Dex configuration
-        run: >-
-          ansible-playbook infra/tests/dex-render-test.yml
-          -e dex_render_dest="$DEX_DIR/config.yaml"
-          -e dex_web_dir="$DEX_DIR/out/web"
+      # The role's real template and guards, with the published test users,
+      # and the role's theme and template patches on a copy of the stock
+      # pages, so the cached build stays stock.
+      - name: Render the Dex configuration and install the Portikus theme
+        run: |
+          set -euo pipefail
+          cp -r "$DEX_DIR/out/web" "$DEX_DIR/web"
+          ansible-playbook infra/tests/dex-render-test.yml \
+            -e dex_render_dest="$DEX_DIR/config.yaml" \
+            -e dex_web_dir="$DEX_DIR/web" -e dex_render_web=true
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -313,13 +318,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # The proto the API's client is built from must match the pinned Dex
-      # (docs/EPIC-14.md, risk 5).
+      # (docs/archive/epics/EPIC-14.md, risk 5).
       - name: Check the Dex API proto matches the pinned commit
         run: >-
           curl -sfL "https://raw.githubusercontent.com/dexidp/dex/${{ steps.pin.outputs.commit }}/api/v2/api.proto"
           | cmp - packages/auth/proto/dex-api.proto
       # PostgreSQL storage and the gRPC API behind mutual TLS, as the dex role
-      # will run them (docs/EPIC-14.md rulings 19 and 20), with the role's own
+      # will run them (docs/archive/epics/EPIC-14.md rulings 19 and 20), with the role's own
       # certificate script. grpc-other is a second authority, for a client
       # Dex must refuse.
       - name: Give Dex PostgreSQL storage and the gRPC API
@@ -353,7 +358,21 @@ jobs:
           done
           cat "$DEX_DIR/dex.log"
           exit 1
-      # The one-time users-file import the dex role runs (docs/EPIC-14.md
+      # The sign-in page a browser reaches is the themed one, and the theme's
+      # files are served.
+      - name: Check Dex serves the Portikus sign-in page
+        run: |
+          set -euo pipefail
+          dex=http://127.0.0.1:5556/dex
+          curl -sfL "$dex/auth?client_id=portikus&response_type=code&scope=openid&state=ci&redirect_uri=http%3A%2F%2F127.0.0.1%3A3000%2Fauth%2Fcallback" \
+            >"$DEX_DIR/signin.html"
+          grep -q '>Sign in to Portikus<' "$DEX_DIR/signin.html"
+          grep -q 'theme/styles.css' "$DEX_DIR/signin.html"
+          for file in styles.css logo.svg favicon.png PublicSans-Variable.woff2; do
+            curl -sf -o /dev/null "$dex/theme/$file"
+          done
+          echo "Dex serves the Portikus sign-in page and its theme files."
+      # The one-time users-file import the dex role runs (docs/archive/epics/EPIC-14.md
       # ruling 23), into Dex's empty storage; the sign-in tests below use it.
       - name: Import the users fixture into Dex
         env:

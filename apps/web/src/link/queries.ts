@@ -20,7 +20,7 @@ export function usePendingLink(enabled: boolean) {
 	});
 }
 
-/** docs/EPIC-13-1.md, "The flow" step 5. */
+/** docs/archive/epics/EPIC-13-1.md, "The flow" step 5. */
 export function useConfirmLink() {
 	return useMutation({
 		mutationFn: () => request(z.unknown(), "/me/links/confirm", { method: "POST" }),

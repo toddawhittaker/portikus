@@ -284,12 +284,13 @@ Architecture must allow later support for:
 
 LDAP support does not need to be implemented directly in P0 if the institutional LDAP directory can be fronted by an OIDC identity provider.
 
-Added by Epic 14 (docs/EPIC-14.md, ADRs 0027 and 0028): a site picks one OIDC provider, and LTI launch works beside it.
+Added by Epic 14 (docs/archive/epics/EPIC-14.md, ADRs 0027 and 0028): a site picks one OIDC provider, and LTI launch works beside it.
 
 - Microsoft Entra ID, by direct OIDC: one tenant per site, admitted by the ID token's `tid` claim, with roles from Entra app roles in the `roles` claim.
 - Google Workspace, by direct OIDC: admitted by the ID token's `hd` claim against the site's domains; everyone starts as a student.
 - LDAP and Active Directory through Dex's LDAP connector, with a required user filter and roles from directory groups. Portikus never speaks LDAP.
 - Dex with its own passwords, kept in PostgreSQL and managed by administrators from the Users view; Dex can also sit in front of Entra or Google for guest accounts.
+  Add user asks for the person's name as well as email, username and role, because Dex sends only the username as the name; the account keeps that name through sign-in.
 - Any other OIDC provider, such as Okta, Keycloak or Shibboleth with its OIDC plugin. SAML is not supported directly.
 - An account is always keyed by the provider's issuer and `sub`, never by email.
 - A new site's first administrator comes from a one-time setup code printed on the host, never from being the first to sign in.
@@ -298,6 +299,10 @@ Added by Epic 14 (docs/EPIC-14.md, ADRs 0027 and 0028): a site picks one OIDC pr
 ### 5.2 Authorization
 
 Access must be denied by default.
+
+Another user's workspace, project, file, or terminal answers 404, never 403,
+so its existence is not revealed (Epic 12a). An administrator gets the same
+404 for a student's terminals, files, projects, previews, and checks.
 
 Authorization may be based on:
 
@@ -320,7 +325,7 @@ stored by Portikus (a "grant"); an administrator grants and revokes it
 from the Users view. A grant is refused on a course account, so LTI can
 never make anyone an administrator, and a launch never starts a session
 for an account whose effective role is administrator. See
-`docs/EPIC-13-1.md` and ADR 0026.
+`docs/archive/epics/EPIC-13-1.md` and ADR 0026.
 
 P2 roles may include:
 
@@ -339,6 +344,11 @@ Browser sessions must:
 - expire according to configurable policy;
 - reject access immediately when server-side authorization is removed.
 
+Sign-in is rate limited per client address in the API, since Dex has no
+lockout (Epic 12b, ADR 0023): sign-in starts and Dex password attempts have
+separate limits, the password attempts also have a site-wide total, and a
+refusal answers 429 `RATE_LIMITED` and is audited as `auth.throttled`.
+
 ### 5.4 Multiple browser connections
 
 A user may connect to the same workspace from multiple browser windows or devices.
@@ -354,6 +364,8 @@ Events originating in one connection must propagate to other active connections 
 P0 assigns one workspace to each authorized student.
 
 A student's projects all live inside that workspace.
+
+An administrator signs in to the administration page, not a workspace. An administrator gets a workspace only when they choose to open one from that page.
 
 ### 6.2 Provisioning
 
@@ -722,6 +734,13 @@ The platform should persist:
 
 The process itself is not persisted across full workspace stop.
 
+Pasting an image into a terminal (Epic 9.2) writes it through the ordinary
+project upload, under its limits and owner check, to
+`.portikus/pastes/<timestamp>.png` (or `.jpeg`) in the terminal's own
+project. The terminal then receives the file's absolute path and a trailing
+space, never a newline, so the paste cannot run a command. Image bytes are
+never logged.
+
 ### 9.7 Session model and wire protocol
 
 Each terminal is one tmux session inside the workspace, named
@@ -970,6 +989,11 @@ The agent enforces fixed limits: a file the editor opens or saves is at most
 2 MiB, an upload at most 50 MiB, and one directory listing returns at most
 2,000 entries and says when it was truncated. A larger file uses the download
 path of §11.2 rather than the editor (§13.2).
+
+A download of a file, folder, or project is capped at 1 GiB (Epic 12b). The
+agent refuses a larger one before doing any work, with `FILE_TOO_LARGE`, and
+the API cuts off a relayed stream that runs past the cap plus a fixed zip
+allowance.
 
 The confinement rule is the one §7.6 already states for projects: the agent
 resolves the requested path with realpath and refuses unless the result lies
@@ -1756,6 +1780,19 @@ P0 administration must support:
 - archive or disable a user workspace;
 - revoke platform access.
 
+As built (Epic 11, ADR 0022): revoking access and disabling are one action,
+Disable account, which ends the user's sessions and preview sessions and
+stops their workspace; an administrator cannot disable their own account.
+Archiving a workspace stops it and keeps its data; an archived workspace is
+never started until it is unarchived. Home and Docker quotas can only grow,
+up to 1024 GiB each, and the worker applies the change; CPU, memory, and
+process limits are shown but not edited. An account is marked stale after
+30 days without a sign-in, or when another account with the same email
+signed in more recently; nothing is merged automatically. An administrator
+sees a workspace's aggregates (CPU, memory, disk, port numbers, short
+process names) but never its files, terminals, or process command lines.
+Logs stay in journald; the admin page has no log viewer.
+
 ### 20.2 User impersonation
 
 P0 must not require silent administrator impersonation of a student session.
@@ -2129,6 +2166,11 @@ At minimum:
 
 For a controlled pilot, any accepted encryption-at-rest gap must be documented explicitly.
 
+As built (Epic 12b, ADR 0024): backups of the database and each workspace's
+home and recovery volumes are pulled to the host nightly and encrypted there
+with age; Docker data and root filesystems are not backed up, because Reset
+Docker and Rebuild recreate them.
+
 ### 24.10 Transport security
 
 Production/pilot network access must use TLS for browser-facing interfaces.
@@ -2151,6 +2193,11 @@ Audit events should include:
 - break-glass administrative actions where practical.
 
 Audit logs must not contain secrets or full agent prompts by default.
+
+As built (Epic 11): a preview refusal that answers 403 is audited as
+`preview.denied`, at most once per workspace and reason per minute; 401 and
+503 answers are not audited. A role change is audited as `user.role_changed`
+with the old and new role and its source.
 
 ### 24.12 Dependency/security maintenance
 
@@ -2851,7 +2898,12 @@ Includes:
 - a per-workspace host label derived once, at workspace creation, from the
   identity provider's `preferred_username` (lowercased, reduced to a DNS
   label, stored on the workspace row, with a fallback when the claim is
-  missing); the label names the preview hosts and is pushed into the
+  missing); a course (LTI) account's username is the launch's
+  `preferred_username`, else the LTI custom claim `username`, and when it
+  has neither its label falls back to its LTI user ID (the launch's `sub`)
+  reduced the same way, never random hex (issue #549, replacing Epic 13
+  ruling 12, which stored no username); an existing label never changes;
+  the label names the preview hosts and is pushed into the
   container as its hostname at every start, so the prompt reads
   `student@<label>.<public host>`;
 - authorization;
@@ -2912,7 +2964,7 @@ Acceptance:
 - Git history is not modified by automatic recovery;
 - Docker can be reset without deleting projects.
 
-As built: `docs/EPIC-10.md` has the working brief; landed on
+As built: `docs/archive/epics/EPIC-10.md` has the working brief; landed on
 `epic/10-recovery-quotas`. §15.10 describes recovery storage and
 operations, §16.4 Reset Docker, §17.2 rebuild, and §19.2 storage figures
 and warnings; ADR 0020 and ADR 0021 record the choices. Out of this epic:
@@ -2924,7 +2976,7 @@ points into a new project by hand.
 ### Epic 11 — Administration and observability
 **Estimate:** 3–4 engineer-days
 
-See `docs/EPIC-11.md` for the working brief and decisions; landed on
+See `docs/archive/epics/EPIC-11.md` for the working brief and decisions; landed on
 `epic/11-admin-observability`.
 
 Includes:
@@ -2946,9 +2998,9 @@ Acceptance:
 ### Epic 12 — Security, load, recovery, and pilot hardening
 **Estimate:** 5–7 engineer-days
 
-Epic 12a (security test suites): see docs/EPIC-12A.md; landed on epic/12a-security-tests.
+Epic 12a (security test suites): see docs/archive/epics/EPIC-12A.md; landed on epic/12a-security-tests.
 
-Epic 12b (Dex sign-in and pilot readiness: load, backup and restore, rebuild, deployment documentation, threat model): see docs/EPIC-12B.md; the operations runbook is docs/OPERATIONS.md.
+Epic 12b (Dex sign-in and pilot readiness: load, backup and restore, rebuild, deployment documentation, threat model): see docs/archive/epics/EPIC-12B.md; the operations runbook is docs/OPERATIONS.md.
 
 Includes:
 
@@ -2973,7 +3025,7 @@ Acceptance:
 
 ### Epic 13 — LTI 1.3 launch and an instructor role
 
-See `docs/EPIC-13.md` for the working brief and rulings, and `docs/adr/0025-lti-launch.md` for the design; landed on `epic/13-lti-launch`.
+See `docs/archive/epics/EPIC-13.md` for the working brief and rulings, and `docs/adr/0025-lti-launch.md` for the design; landed on `epic/13-lti-launch`.
 
 Includes:
 
@@ -2991,7 +3043,7 @@ Acceptance:
 
 ### Epic 13.1 — Link a course account to an SSO account, and promote administrators
 
-See `docs/EPIC-13-1.md` for the working brief and rulings, and `docs/adr/0026-account-links-and-role-grant.md` for the design; landed on `epic/13-1-account-linking`.
+See `docs/archive/epics/EPIC-13-1.md` for the working brief and rulings, and `docs/adr/0026-account-links-and-role-grant.md` for the design; landed on `epic/13-1-account-linking`.
 
 Includes:
 
@@ -3009,7 +3061,7 @@ Acceptance:
 
 ### Epic 14 — Sign-in providers
 
-See `docs/EPIC-14.md` for the working brief and rulings, `docs/adr/0027-egress-by-hostname-through-a-forward-proxy.md` for the egress proxy, and `docs/adr/0028-dex-storage-and-first-administrator.md` for Dex's storage and the first administrator; built on `epic/14-sign-in-providers`.
+See `docs/archive/epics/EPIC-14.md` for the working brief and rulings, `docs/adr/0027-egress-by-hostname-through-a-forward-proxy.md` for the egress proxy, and `docs/adr/0028-dex-storage-and-first-administrator.md` for Dex's storage and the first administrator; built on `epic/14-sign-in-providers`.
 
 Includes:
 

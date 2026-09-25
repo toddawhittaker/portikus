@@ -728,7 +728,7 @@ test("searching for keyboard finds the help section", async () => {
 	).toBeTruthy();
 });
 
-/** docs/EPIC-13-1.md, "The flow" steps 1, 2 and 7. */
+/** docs/archive/epics/EPIC-13-1.md, "The flow" steps 1, 2 and 7. */
 async function openLinked() {
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await openProfile();

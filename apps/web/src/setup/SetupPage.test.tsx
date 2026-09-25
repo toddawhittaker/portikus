@@ -1,5 +1,5 @@
 /**
- * The /setup page (docs/EPIC-14.md rulings 17 and 18): signed in it claims
+ * The /setup page (docs/archive/epics/EPIC-14.md rulings 17 and 18): signed in it claims
  * the code; signed out on a standalone Dex site with no administrator it
  * creates the first account; otherwise it asks the person to sign in.
  */

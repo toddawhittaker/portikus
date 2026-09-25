@@ -116,7 +116,7 @@ export const DISABLED_MOCK_USER: MockUser = {
 	groups: ["portikus-students"],
 };
 
-/** A mock user in the instructor group (docs/EPIC-13.md ruling 4). */
+/** A mock user in the instructor group (docs/archive/epics/EPIC-13.md ruling 4). */
 export const INSTRUCTOR_MOCK_USER: MockUser = {
 	sub: "ivy",
 	email: "ivy@example.edu",

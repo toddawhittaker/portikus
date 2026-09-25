@@ -51,7 +51,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /edge/signin-throttle": { access: "public" },
 	"HEAD /edge/signin-throttle": { access: "public" },
 
-	// LTI 1.3 login and launch; the two POSTs are CSRF-exempt (docs/EPIC-13.md
+	// LTI 1.3 login and launch; the two POSTs are CSRF-exempt (docs/archive/epics/EPIC-13.md
 	// ruling 7). With no platforms file every one answers 404.
 	"GET /lti/login": { access: "public" },
 	"HEAD /lti/login": { access: "public" },
@@ -73,7 +73,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"PUT /me/picture": { access: "self" },
 	"DELETE /me/picture": { access: "self" },
 	"POST /workspaces": { access: "self" },
-	// Account linking (docs/EPIC-13-1.md, "The flow"); each checks its own state.
+	// Account linking (docs/archive/epics/EPIC-13-1.md, "The flow"); each checks its own state.
 	"GET /me/links": { access: "self" },
 	"HEAD /me/links": { access: "self" },
 	"POST /me/links/start": { access: "self" },
@@ -177,7 +177,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/dex-users": { access: "admin" },
 	"POST /admin/dex-users/:id/reset-password": { access: "admin" },
 	"POST /admin/dex-users/:id/remove": { access: "admin" },
-	// The first administrator (docs/EPIC-14.md rulings 17 and 18). The state
+	// The first administrator (docs/archive/epics/EPIC-14.md rulings 17 and 18). The state
 	// and the first-account form serve a site nobody can sign in to yet; the
 	// form answers 404 unless Dex runs and no administrator exists.
 	"GET /setup/state": { access: "public" },

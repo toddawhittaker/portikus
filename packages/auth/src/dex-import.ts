@@ -1,6 +1,6 @@
 /**
  * The one-time import of the retired users file into Dex's storage
- * (docs/EPIC-14.md ruling 23, ADR 0028). Every entry keeps its bcrypt hash
+ * (docs/archive/epics/EPIC-14.md ruling 23, ADR 0028). Every entry keeps its bcrypt hash
  * and user ID, so its subject, and so its Portikus account and workspace,
  * stay the same. A password made through the gRPC API carries no groups, so
  * an instructor or administrator in the file becomes that account's

@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 
 /**
  * A client for Dex's gRPC API, used to manage Dex's local passwords from the
- * admin area (docs/EPIC-14.md rulings 20 to 22, ADR 0028). The proto file is
+ * admin area (docs/archive/epics/EPIC-14.md rulings 20 to 22, ADR 0028). The proto file is
  * Dex's api/v2/api.proto copied unchanged from the commit site.yml pins. It
  * lives outside src/ because the Debian package drops every src/ directory.
  *
@@ -175,7 +175,7 @@ export function createDexApi(connection: DexApiConnection): DexApi {
 	};
 }
 
-/** The settings that turn the Dex user routes on (docs/EPIC-14.md, packages/config). */
+/** The settings that turn the Dex user routes on (docs/archive/epics/EPIC-14.md, packages/config). */
 export interface DexApiEnv {
 	DEX_GRPC_ADDR?: string | undefined;
 	DEX_GRPC_CA?: string | undefined;

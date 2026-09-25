@@ -1,4 +1,4 @@
-// The load test driver (docs/EPIC-12B.md, B4). It runs on the VM, reads its
+// The load test driver (docs/archive/epics/EPIC-12B.md, B4). It runs on the VM, reads its
 // configuration as JSON on standard input (the session tokens are in it, so
 // never on the command line), and writes the results as JSON to a file.
 //
@@ -14,7 +14,7 @@ const stopped = () => fs.existsSync(config.stopFile);
 const log = (line) =>
 	console.log(`[${new Date().toISOString().slice(11, 19)}] ${line}`);
 
-// SPEC.md section 25.1 and docs/EPIC-12B.md, in milliseconds.
+// SPEC.md section 25.1 and docs/archive/epics/EPIC-12B.md, in milliseconds.
 const CRITERIA = [
 	{ name: "start", stat: "p95", limit: 10000 },
 	{ name: "echo", stat: "p95", limit: 150 },

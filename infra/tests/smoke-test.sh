@@ -26,7 +26,7 @@
 #
 # When the VM has a mock LMS registration (make lti-mock-register), the LTI
 # block launches through it, and starts it on this host first if it is not
-# already running (docs/EPIC-13.md, ruling 26).
+# already running (docs/archive/epics/EPIC-13.md, ruling 26).
 set -uo pipefail
 
 VM="${1:?Usage: smoke-test.sh <vm-ip>}"
@@ -197,7 +197,7 @@ check "IPv4 forwarding"                       ssh_cmd 'test "$(/usr/sbin/sysctl 
 check "Data disk is an LVM PV"               ssh_cmd sudo pvs /dev/vdb
 
 # 12. configure-vm keeps the VM's Incus script in step with the repository
-#     (docs/EPIC-12B.md, item 17).
+#     (docs/archive/epics/EPIC-12B.md, item 17).
 repo_script_sum=$(sha256sum "$(dirname "$0")/../incus/workspace.sh" | cut -d' ' -f1)
 vm_script_sum=$(ssh_cmd "sha256sum /var/lib/portikus/incus/workspace.sh" 2>/dev/null | cut -d' ' -f1)
 if [ -n "$repo_script_sum" ] && [ "$vm_script_sum" = "$repo_script_sum" ]; then
@@ -367,7 +367,7 @@ fi
 
 echo ""
 
-# ── Epic 12b: restored data (docs/EPIC-12B.md, items 19 and 20) ──
+# ── Epic 12b: restored data (docs/archive/epics/EPIC-12B.md, items 19 and 20) ──
 # Only when PORTIKUS_SMOKE_RESTORED_SET names the set restored onto this VM.
 # Everything read from the set is matched against a strict form before it
 # reaches a command, as restore.sh does.
@@ -479,7 +479,7 @@ fi
 # WebSocket.  With the mock provider the users sign in through it.  With any
 # other provider they are made in PostgreSQL with a session, as the security
 # suite does, so the block needs no password and works with IT's provider too
-# (docs/EPIC-12B.md, "Other Part A decisions").
+# (docs/archive/epics/EPIC-12B.md, "Other Part A decisions").
 PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${VM}.nip.io}"
 # The default name only works where Caddy was told to serve it, so say so
 # rather than letting every HTTPS check fail for a reason nobody can see.
@@ -561,7 +561,7 @@ check "an unauthorized preview request is never served" unauthorized_preview_is_
 echo ""
 
 # --- Epic 14: the egress proxy (ADR 0027) ----------------------------
-# Every SSO sign-in and LMS launch depends on it (EPIC-14 risk 1).
+# Every SSO sign-in and LMS launch depends on it (docs/archive/epics/EPIC-14.md risk 1).
 echo "--- Epic 14: egress proxy ---"
 echo ""
 check "squid is active"  ssh_cmd systemctl is-active squid
@@ -600,7 +600,7 @@ if ! ssh_cmd systemctl is-active portikus-api >/dev/null 2>&1; then
     fail=$((fail + 1))
   fi
 else
-  # ── Epic 12b: the sign-in provider (docs/EPIC-12B.md, Part A) ──
+  # ── Epic 12b: the sign-in provider (docs/archive/epics/EPIC-12B.md, Part A) ──
   echo "--- Epic 12b: sign-in provider (${IDP}) ---"
   echo ""
 
@@ -754,7 +754,7 @@ print(me.get("email", "").lower(), me.get("role", "") in ("student", "instructor
       ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT count(*) FROM audit_events WHERE action = 'auth.throttled' AND metadata::jsonb->>'ip' = '${throttle_source}'\""
   fi
 
-  # ── Epic 13: LTI launch (docs/EPIC-13.md) ──────────────────────
+  # ── Epic 13: LTI launch (docs/archive/epics/EPIC-13.md) ──────────────────────
   echo ""
   echo "--- Epic 13: LTI launch ---"
   echo ""
@@ -805,7 +805,7 @@ for p in json.load(sys.stdin)["platforms"]:
 print(" ".join(seen))')
     # Framed, login and launch only show a new-tab or refusal page, so any
     # page may frame them; the login form may post only to us and the
-    # registered platforms (docs/EPIC-13.md, ruling 17).
+    # registered platforms (docs/archive/epics/EPIC-13.md, ruling 17).
     lti_directive() { # PATH DIRECTIVE
       ssh_cmd "${CURL} -D - -o /dev/null '${API}$1'" \
         | tr -d '\r' | grep -i '^content-security-policy:' | grep -o "$2 [^;]*" | paste -sd'|'

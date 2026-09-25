@@ -1,5 +1,5 @@
 /**
- * Linking a course account to an SSO account (docs/EPIC-13-1.md, "The flow"
+ * Linking a course account to an SSO account (docs/archive/epics/EPIC-13-1.md, "The flow"
  * and T3's "What done looks like"). Everything goes through the browser: the
  * mock LMS launch, Settings, the mock OIDC provider and the /link page. Only
  * standard OIDC behaviour of the mock is used (ruling 26).

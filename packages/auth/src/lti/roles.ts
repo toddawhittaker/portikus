@@ -1,4 +1,4 @@
-/** The platform role an LTI launch can grant; never administrator (docs/EPIC-13.md ruling 4). */
+/** The platform role an LTI launch can grant; never administrator (docs/archive/epics/EPIC-13.md ruling 4). */
 export type LtiRole = "student" | "instructor";
 
 const LIS = "http://purl.imsglobal.org/vocab/lis/v2/";

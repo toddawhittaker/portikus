@@ -323,7 +323,7 @@
     mode: "0640"
   notify: Restart portikus-api
 
-# ── LTI launch (docs/EPIC-13.md) ─────────────────────────────────
+# ── LTI launch (docs/archive/epics/EPIC-13.md) ─────────────────────────────────
 # After api.env, which names the files these tasks write.
 - name: Apply the LTI platforms file and tool key
   ansible.builtin.import_tasks: lti.yml
@@ -372,7 +372,7 @@
     - portikus-worker
     - portikus-controller
 
-# ── First administrator (docs/EPIC-14.md, rulings 15 and 16) ─────
+# ── First administrator (docs/archive/epics/EPIC-14.md, rulings 15 and 16) ─────
 # While no enabled administrator exists, print a one-time setup code that
 # the first person to enter it at /setup claims.  A package from before the
 # command existed skips this.

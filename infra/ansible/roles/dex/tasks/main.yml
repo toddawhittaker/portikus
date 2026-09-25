@@ -166,21 +166,9 @@
             path: "{{ dex_gocache }}"
             state: absent
 
-    # Accessibility fixes only, no restyling (Gate E review): the page names
-    # its language, and a failed sign-in is announced to screen readers.
-    - name: Give the Dex pages a language
-      ansible.builtin.replace:
-        path: "{{ dex_web_dir }}/templates/header.html"
-        regexp: '^<html>$'
-        replace: '<html lang="en">'
-      notify: Restart portikus-dex
-
-    - name: Announce a failed Dex sign-in
-      ansible.builtin.replace:
-        path: "{{ dex_web_dir }}/templates/password.html"
-        regexp: '<div id="login-error" class="dex-error-box">'
-        replace: '<div id="login-error" class="dex-error-box" role="alert">'
-      notify: Restart portikus-dex
+    # The Portikus theme and template patches, re-applied after every build.
+    - name: Install the Portikus look for the Dex pages
+      ansible.builtin.import_tasks: web.yml
 
     # ── Client secret (generated once) ───────────────────────────
 
@@ -216,7 +204,7 @@
         dex_client_secret: "{{ dex_client_secret_file_content.content | b64decode | trim }}"
       no_log: true
 
-    # ── gRPC API certificates (docs/EPIC-14.md ruling 20) ────────
+    # ── gRPC API certificates (docs/archive/epics/EPIC-14.md ruling 20) ────────
 
     - name: Issue the gRPC API certificates
       ansible.builtin.script:

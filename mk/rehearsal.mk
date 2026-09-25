@@ -1,4 +1,4 @@
-# The rebuild-from-code exercise (docs/EPIC-12B.md, B5; STACK.md section 33).
+# The rebuild-from-code exercise (docs/archive/epics/EPIC-12B.md, B5; STACK.md section 33).
 .PHONY: rebuild-exercise rehearsal-address
 
 # The VM address must come from the rehearsal state, never from the caller:

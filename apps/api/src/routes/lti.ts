@@ -25,7 +25,7 @@ import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../server.js";
 import { completeSignIn, requestMetadata, startSession } from "./start-session.js";
 
-/** What the API loaded at start for LTI (docs/EPIC-13.md rulings 14 and 15). */
+/** What the API loaded at start for LTI (docs/archive/epics/EPIC-13.md rulings 14 and 15). */
 export interface LtiDeps {
 	platforms: LtiPlatform[];
 	/** The tool's private key in PEM; only its public half is ever served. */
@@ -35,7 +35,7 @@ export interface LtiDeps {
 /**
  * Load the platforms file at start. Ansible always sets the variables, so a
  * missing file means LTI is off; a file that is there but wrong throws
- * PlatformsFileError and stops the start (docs/EPIC-13.md ruling 14).
+ * PlatformsFileError and stops the start (docs/archive/epics/EPIC-13.md ruling 14).
  */
 export async function loadLtiDeps(
 	config: Pick<ApiConfig, "LTI_PLATFORMS_FILE" | "LTI_TOOL_KEY_FILE">,
@@ -186,7 +186,7 @@ export function targetPath(uri: string, publicUrl: string): string {
 	return /^\/[^/\\]/.test(path) ? path : "/";
 }
 
-/** LTI 1.3 login initiation, launch, and the tool keyset (docs/EPIC-13.md). */
+/** LTI 1.3 login initiation, launch, and the tool keyset (docs/archive/epics/EPIC-13.md). */
 export function registerLtiRoutes(
 	app: FastifyInstance,
 	{ db, config, lti }: ServerDeps,
@@ -395,7 +395,7 @@ export function registerLtiRoutes(
 				subject: launch.subject,
 				email: launch.email,
 				displayName: launch.displayName,
-				preferredUsername: null,
+				preferredUsername: launch.username,
 			},
 			role: launch.role,
 			method: "lti",
@@ -418,7 +418,7 @@ export function registerLtiRoutes(
 	/**
 	 * A launch from a linked course identity signs into the SSO account and
 	 * refreshes only its membership: name, email and roles stay as they are
-	 * (docs/EPIC-13-1.md, "The flow" step 6). It never starts an
+	 * (docs/archive/epics/EPIC-13-1.md, "The flow" step 6). It never starts an
 	 * administrator session (ruling 21).
 	 */
 	async function linkedLaunch(

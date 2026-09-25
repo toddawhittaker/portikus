@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 
-/** One LMS registration from the platforms file (docs/EPIC-13.md ruling 14). */
+/** One LMS registration from the platforms file (docs/archive/epics/EPIC-13.md ruling 14). */
 export interface LtiPlatform {
 	name: string;
 	issuer: string;

@@ -1,6 +1,6 @@
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the /link page and
- * the Profile section's linked accounts (docs/EPIC-13-1.md, T3). Max (mock
+ * the Profile section's linked accounts (docs/archive/epics/EPIC-13-1.md, T3). Max (mock
  * LMS) and gail (mock OIDC) exist for this spec alone.
  */
 import { expect, type Page, test } from "@playwright/test";

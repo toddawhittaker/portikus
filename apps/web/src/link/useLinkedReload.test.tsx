@@ -1,6 +1,6 @@
 /**
  * Every Portikus tab but the link tab itself reloads when a link finishes
- * (docs/EPIC-13-1.md, "The flow" step 4), with or without Settings open.
+ * (docs/archive/epics/EPIC-13-1.md, "The flow" step 4), with or without Settings open.
  */
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";

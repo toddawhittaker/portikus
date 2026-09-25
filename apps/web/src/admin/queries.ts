@@ -39,7 +39,7 @@ export function usePlatformSettings() {
 	});
 }
 
-/** Every account, and whether the site manages Dex users (docs/EPIC-14.md ruling 24). */
+/** Every account, and whether the site manages Dex users (docs/archive/epics/EPIC-14.md ruling 24). */
 export function useAdminUsers() {
 	return useQuery({
 		queryKey: adminKeys.users,
@@ -149,7 +149,7 @@ export function useSetArchived() {
 	);
 }
 
-/** Promote grants administrator; demote clears the grant (EPIC-13-1 ruling 23). */
+/** Promote grants administrator; demote clears the grant (docs/archive/epics/EPIC-13-1.md ruling 23). */
 export function useSetGrantedAdmin() {
 	return useAdminWrite(({ userId, admin }: { userId: string; admin: boolean }) => ({
 		url: `/admin/users/${userId}/${admin ? "promote" : "demote"}`,
@@ -157,7 +157,7 @@ export function useSetGrantedAdmin() {
 	}));
 }
 
-/** Make instructor sets the grant; remove instructor clears it (docs/EPIC-14.md ruling 14). */
+/** Make instructor sets the grant; remove instructor clears it (docs/archive/epics/EPIC-14.md ruling 14). */
 export function useSetGrantedInstructor() {
 	return useAdminWrite(
 		({ userId, instructor }: { userId: string; instructor: boolean }) => ({
@@ -168,7 +168,7 @@ export function useSetGrantedInstructor() {
 }
 
 /**
- * The Dex user writes (docs/EPIC-14.md rulings 21 and 22). Each waits for the
+ * The Dex user writes (docs/archive/epics/EPIC-14.md rulings 21 and 22). Each waits for the
  * list to refetch before its caller hears of success, so the caller can move
  * focus knowing which buttons are still on the page.
  */

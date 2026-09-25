@@ -1,6 +1,6 @@
 /**
- * A student opens Portikus from a course (docs/EPIC-13.md rulings 3, 12, 18
- * and 20; SPEC.md section 5).
+ * A student opens Portikus from a course (docs/archive/epics/EPIC-13.md rulings 3, 18
+ * and 20; SPEC.md section 5 and Epic 8).
  */
 import { expect, test } from "@playwright/test";
 import { query, WEB_ORIGIN } from "./helpers";
@@ -58,16 +58,33 @@ test("a second launch finds the same account instead of making another", async (
 	}
 });
 
-test("an LTI user is stored under the lti: issuer with no username", async ({
-	page,
-}) => {
-	await launchAs(page, { person: "sam" });
-	const [row] = await query<{ preferred_username: string | null }>(
-		"select preferred_username from users where oidc_issuer like 'lti:%' and email = $1",
-		["sam@mock-lms.test"],
-	);
-	expect(row?.preferred_username ?? null).toBeNull();
-});
+for (const [person, username, label] of [
+	["sam", "sam.student", "sam-student"],
+	["lee", "lee", "lee"],
+] as const) {
+	test(`an LTI student's workspace is named after their LMS username (${person})`, async ({
+		page,
+	}) => {
+		// Sam's username comes as the custom claim, Lee's as preferred_username (issue #549).
+		await launchAs(page, { person });
+		await expect(page.getByTestId("workspace-state")).toBeVisible({ timeout: 15_000 });
+		const [user] = await ltiUsers(person);
+		const [row] = await query<{ preferred_username: string | null }>(
+			"select preferred_username from users where id = $1",
+			[user?.id],
+		);
+		expect(row?.preferred_username).toBe(username);
+		await expect
+			.poll(async () => {
+				const rows = await query<{ label: string }>(
+					"select label from workspaces where owner_user_id = $1",
+					[user?.id],
+				);
+				return rows[0]?.label ?? null;
+			})
+			.toBe(label);
+	});
+}
 
 test("two LTI links opened at once both sign in, whichever launch lands first", async ({
 	page,

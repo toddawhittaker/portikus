@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Linking a course account to an SSO account (docs/EPIC-13-1.md, "The
+ * Linking a course account to an SSO account (docs/archive/epics/EPIC-13-1.md, "The
  * flow"). An SSO account signs in through the institution's OpenID Connect
  * provider; a course account was created by an LTI launch.
  */

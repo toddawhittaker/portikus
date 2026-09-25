@@ -265,7 +265,7 @@ echo "--- Application virtual host is unchanged ---"
 has "the control plane still refuses to be framed" "frame-ancestors 'none'" "${app}"
 
 echo ""
-echo "--- LTI launch and the Course page (docs/EPIC-13.md, rulings 17 and 23) ---"
+echo "--- LTI launch and the Course page (docs/archive/epics/EPIC-13.md, rulings 17 and 23) ---"
 
 # Everything but /lti/* keeps frame-ancestors 'none'; the API sends the
 # platforms' own frame-ancestors on /lti/*, and two policies would conflict.

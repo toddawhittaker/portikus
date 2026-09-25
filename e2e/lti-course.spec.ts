@@ -1,5 +1,5 @@
 /**
- * The instructor role and the Course page (docs/EPIC-13.md rulings 4, 5,
+ * The instructor role and the Course page (docs/archive/epics/EPIC-13.md rulings 4, 5,
  * 23 and 24; SPEC.md sections 5.2 and 24).
  */
 import { type Browser, expect, type Page, test } from "@playwright/test";

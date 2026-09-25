@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 
 /**
- * The sign-in rate limit (issue #398; docs/EPIC-12B.md, "Sign-in rate
+ * The sign-in rate limit (issue #398; docs/archive/epics/EPIC-12B.md, "Sign-in rate
  * limit"). Counts live in this process, which the pilot runs one of.
  */
 
@@ -15,7 +15,7 @@ const TEN_MINUTES_MS = 10 * MINUTE_MS;
 const PASSWORD_TOTAL_FACTOR = 10;
 /** The path Caddy asks about for Dex's sign-in pages and password form. */
 export const EDGE_THROTTLE_PATH = "/edge/signin-throttle";
-// An LTI launch is a sign-in start too (docs/EPIC-13.md ruling 21).
+// An LTI launch is a sign-in start too (docs/archive/epics/EPIC-13.md ruling 21).
 const START_ROUTES = new Set([
 	"/auth/login",
 	"/auth/callback",
@@ -197,7 +197,7 @@ export function registerSigninThrottleRoute(app: FastifyInstance): void {
 	app.get(EDGE_THROTTLE_PATH, async (_request, reply) => reply.status(204).send());
 }
 
-/** Setup-code attempts: ten per address in ten minutes (docs/EPIC-14.md ruling 17). */
+/** Setup-code attempts: ten per address in ten minutes (docs/archive/epics/EPIC-14.md ruling 17). */
 export function createSetupThrottle(now: () => number = Date.now) {
 	const attempts = createCounter(10, TEN_MINUTES_MS, now);
 	return {

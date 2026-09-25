@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, query, toast } from "./helpers";
+import { loginAs, query, toast, WEB_ORIGIN } from "./helpers";
 
 /**
  * The administration page: the live disconnect grace period and the
@@ -166,6 +166,12 @@ test.describe("administration", () => {
 
 	test("only an administrator sees the Administration link", async ({ page }) => {
 		await loginAs(page, "carol");
+		// An administrator lands on /admin; the link lives in the workspace (issue #534).
+		await expect(page).toHaveURL(`${WEB_ORIGIN}/admin`, { timeout: 15_000 });
+		await expect(page.getByTestId("back-to-workspace")).toHaveCount(0);
+		await page.getByTestId("me").click();
+		await page.getByRole("menuitem", { name: "Open my workspace" }).click();
+		await expect(page).toHaveURL(/\/workspaces\//, { timeout: 15_000 });
 		await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 
 		await page.getByTestId("me").click();
@@ -182,6 +188,8 @@ test.describe("administration", () => {
 		await expect(page.getByTestId("signin")).toBeVisible();
 
 		await loginAs(page, "alice");
+		// A student still lands in their own workspace.
+		await expect(page).toHaveURL(/\/workspaces\/[0-9a-f-]{36}$/, { timeout: 15_000 });
 		await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 		await page.getByTestId("me").click();
 		await expect(page.getByTestId("admin-link")).toHaveCount(0);

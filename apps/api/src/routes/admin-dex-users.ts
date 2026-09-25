@@ -44,7 +44,7 @@ async function viaDex<T>(call: Promise<T>): Promise<T> {
 }
 
 /**
- * Add, reset the password of, and remove standalone Dex users (docs/EPIC-14.md
+ * Add, reset the password of, and remove standalone Dex users (docs/archive/epics/EPIC-14.md
  * rulings 21, 22 and 24). The routes answer 404 unless the site runs Dex's
  * gRPC API. A generated password leaves Portikus only in one response body:
  * it is never stored, logged, or audited.
@@ -118,7 +118,7 @@ export function registerAdminDexUserRoutes(
 		if (!body.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
-		const { email, username, role } = body.data;
+		const { email, username, name, role } = body.data;
 		const dexUserId = crypto.randomUUID();
 		const password = generateDexPassword();
 		const hash = await hashDexPassword(password);
@@ -131,8 +131,8 @@ export function registerAdminDexUserRoutes(
 					userId: dexUserId,
 					email,
 					username,
-					// A Dex password has no display name: Dex sends the username.
-					displayName: username,
+					// Dex sends the username as the name claim, so the admin supplies it (SPEC.md section 5.1).
+					displayName: name,
 					role,
 				});
 				await audit(trx, "dex_user.created", `user:${actor.id}`, newId, "ok", {

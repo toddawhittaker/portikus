@@ -232,6 +232,22 @@ error means the root is not imported.
   `epic/**`, so a direct merge is not allowed.
 - Branches are deleted on merge.
 
+## Epic plans
+
+An epic's detailed plan, `docs/EPIC-<n>.md` (its rulings, task table,
+estimates and rehearsal steps), lives only on the epic branch, so every
+agent working from a checkout can read it.
+
+- Code comments, tests and other docs cite SPEC.md sections or ADRs,
+  never the plan, because the plan goes away.
+- The epic's last task folds the plan's lasting rules into SPEC.md in a
+  sentence or two each, puts any "why" a later reader will ask into an
+  ADR, and deletes the plan.
+- So `main` never holds a plan at a merge. Git history keeps it, and the
+  epic pull request's commits show it to the reviewer.
+- Plans of epics finished before this rule are kept in
+  `docs/archive/epics/`; nothing new is added there.
+
 ## Pull requests
 
 Every pull request cites the SPEC.md and STACK.md sections it serves and

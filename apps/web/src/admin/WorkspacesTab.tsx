@@ -271,7 +271,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				<p className="pk-text-compact pk-muted m-0">
 					{all.length} accounts · {running} running
 				</p>
-				{/* Only when the site runs Dex's own passwords (docs/EPIC-14.md ruling 24). */}
+				{/* Only when the site runs Dex's own passwords (docs/archive/epics/EPIC-14.md ruling 24). */}
 				{users.data?.dexUsers ? <AddDexUser /> : null}
 			</div>
 			<div className="flex flex-wrap items-end gap-3">

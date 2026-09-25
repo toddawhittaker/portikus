@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * The first administrator's setup code (docs/EPIC-14.md rulings 15 to 18).
+ * The first administrator's setup code (docs/archive/epics/EPIC-14.md rulings 15 to 18).
  */
 
 /** `GET /setup/state`: whether `/setup` offers the first-account form (ruling 18). */

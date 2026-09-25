@@ -3,7 +3,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { loginAs, query, settledAxe, WEB_ORIGIN } from "./helpers";
 
 /**
- * Add, reset and remove Dex users from the Users view (docs/EPIC-14.md
+ * Add, reset and remove Dex users from the Users view (docs/archive/epics/EPIC-14.md
  * rulings 21, 22 and 24), against the fake Dex gRPC API the e2e environment
  * runs (e2e/fake-dex-grpc.mjs). Every test adds its own user.
  */
@@ -28,18 +28,22 @@ async function addUser(
 	role: "student" | "instructor" | "administrator" = "student",
 	options: { checkA11y?: boolean } = {},
 ) {
-	const username = `dex-${crypto.randomUUID().slice(0, 8)}`;
+	const suffix = crypto.randomUUID().slice(0, 8);
+	const username = `dex-${suffix}`;
+	// A real name, unlike the username Dex sends as the name claim (SPEC.md section 5.1).
+	const name = `Dex Person ${suffix}`;
 	const email = `${username}@example.edu`;
 	await page.getByRole("button", { name: "Add user…" }).click();
 	const form = page.getByRole("dialog", { name: "Add user" });
 	await expect(form).toBeVisible();
+	await form.getByLabel("Name", { exact: true }).fill(name);
 	await form.getByLabel("Email").fill(email);
 	await form.getByLabel("Username").fill(username);
 	await form.getByLabel("Role").selectOption(role);
 	if (options.checkA11y) await expectNoViolations(page, "[data-testid=dex-add-dialog]");
 	await form.getByRole("button", { name: "Add user" }).click();
 
-	const done = page.getByRole("dialog", { name: `${username} added` });
+	const done = page.getByRole("dialog", { name: `${name} added` });
 	await expect(done).toBeVisible();
 	await expect(done).toContainText(
 		"Give this to them privately. It will not be shown again.",
@@ -50,12 +54,18 @@ async function addUser(
 	await done.getByRole("button", { name: "Done" }).click();
 	await expect(done).toBeHidden();
 
-	const [row] = await query<{ id: string; granted_role: string | null; role: string }>(
-		"select id, granted_role, role from users where email = $1",
+	const [row] = await query<{
+		id: string;
+		granted_role: string | null;
+		role: string;
+		display_name: string;
+		preferred_username: string | null;
+	}>(
+		"select id, granted_role, role, display_name, preferred_username from users where email = $1",
 		[email],
 	);
 	if (!row) throw new Error("the account was not pre-created");
-	return { username, email, password, id: row.id, row };
+	return { name, username, email, password, id: row.id, row };
 }
 
 async function openDetail(page: Page, name: string) {
@@ -71,11 +81,16 @@ test("Add user shows the password once and pre-creates the account", async ({
 	const add = page.getByRole("button", { name: "Add user…" });
 	const added = await addUser(page, "instructor", { checkA11y: true });
 	await expect(add).toBeFocused();
-	expect(added.row).toMatchObject({ role: "instructor", granted_role: "instructor" });
+	expect(added.row).toMatchObject({
+		role: "instructor",
+		granted_role: "instructor",
+		display_name: added.name,
+		preferred_username: added.username,
+	});
 
 	// The password is nowhere on the page once the dialog is gone.
 	await expect(page.getByText(added.password)).toHaveCount(0);
-	await page.getByTestId("admin-filter-text").fill(added.username);
+	await page.getByTestId("admin-filter-text").fill(added.name);
 	await expect(page.getByTestId(`account-role-${added.id}`)).toHaveText(
 		"Instructor (granted)",
 	);
@@ -94,7 +109,10 @@ async function submitEmptyAdd(page: Page): Promise<void> {
 	await page.getByRole("button", { name: "Add user…" }).click();
 	const form = page.getByRole("dialog", { name: "Add user" });
 	await form.getByRole("button", { name: "Add user" }).click();
-	await expect(form.getByLabel("Email")).toBeFocused();
+	await expect(form.getByLabel("Name", { exact: true })).toBeFocused();
+	await expect(form.getByLabel("Name", { exact: true })).toHaveAccessibleDescription(
+		"Enter a name of 1 to 100 characters.",
+	);
 	await expect(form.getByLabel("Email")).toHaveAccessibleDescription(
 		"Enter an email address.",
 	);
@@ -119,6 +137,7 @@ test("a taken email is refused in the dialog", async ({ page }) => {
 	const added = await addUser(page);
 	await page.getByRole("button", { name: "Add user…" }).click();
 	const form = page.getByRole("dialog", { name: "Add user" });
+	await form.getByLabel("Name", { exact: true }).fill(`${added.name} again`);
 	await form.getByLabel("Email").fill(added.email);
 	await form.getByLabel("Username").fill(`${added.username}x`);
 	await form.getByRole("button", { name: "Add user" }).click();
@@ -137,20 +156,20 @@ test("Reset password shows a new password once and signs the user out", async ({
 		 values ($1, $2, now() + interval '1 hour', 'oidc')`,
 		[crypto.randomBytes(32).toString("hex"), added.id],
 	);
-	const panel = await openDetail(page, added.username);
+	const panel = await openDetail(page, added.name);
 	const reset = panel.getByRole("button", {
-		name: `Reset password for ${added.username}`,
+		name: `Reset password for ${added.name}`,
 	});
 	await reset.click();
 	const dialog = page.getByRole("dialog", {
-		name: `Reset the password for ${added.username}?`,
+		name: `Reset the password for ${added.name}?`,
 	});
 	await expect(dialog).toBeVisible();
 	await expectNoViolations(page, "[data-testid=dex-reset-dialog]");
 	await dialog.getByRole("button", { name: "Reset password" }).click();
 
 	const shown = page.getByRole("dialog", {
-		name: `New password for ${added.username}`,
+		name: `New password for ${added.name}`,
 	});
 	const password = (await shown.getByTestId("dex-password").textContent()) ?? "";
 	expect(password).toMatch(/^[A-Za-z0-9]{20}$/);
@@ -169,9 +188,9 @@ test("Reset password shows a new password once and signs the user out", async ({
 test("Remove deletes the Dex user and disables the account", async ({ page }) => {
 	await openUsers(page);
 	const added = await addUser(page);
-	const panel = await openDetail(page, added.username);
-	await panel.getByRole("button", { name: `Remove user ${added.username}` }).click();
-	const dialog = page.getByRole("alertdialog", { name: `Remove ${added.username}?` });
+	const panel = await openDetail(page, added.name);
+	await panel.getByRole("button", { name: `Remove user ${added.name}` }).click();
+	const dialog = page.getByRole("alertdialog", { name: `Remove ${added.name}?` });
 	await expect(dialog).toContainText("The workspace stays for you to archive.");
 	await expectNoViolations(page, "[data-testid=dex-remove-dialog]");
 	await dialog.getByRole("button", { name: "Remove" }).click();
@@ -179,7 +198,7 @@ test("Remove deletes the Dex user and disables the account", async ({ page }) =>
 
 	// The Dex buttons are gone, so focus lands on the panel heading.
 	await expect(panel.getByRole("button", { name: /^Remove user/ })).toHaveCount(0);
-	await expect(panel.getByRole("heading", { name: added.username })).toBeFocused();
+	await expect(panel.getByRole("heading", { name: added.name })).toBeFocused();
 	await expect(panel.getByRole("button", { name: /^Enable account/ })).toBeVisible();
 	const [row] = await query<{ disabled_at: Date | null }>(
 		"select disabled_at from users where id = $1",

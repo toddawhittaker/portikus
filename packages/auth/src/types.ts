@@ -18,11 +18,11 @@ export interface AuthOptions {
 	groupsClaim: string;
 	studentGroup: string;
 	adminGroup: string;
-	/** OIDC_INSTRUCTOR_GROUP (docs/EPIC-13.md ruling 4). */
+	/** OIDC_INSTRUCTOR_GROUP (docs/archive/epics/EPIC-13.md ruling 4). */
 	instructorGroup: string;
 	cookieSecret: string;
 	sessionTtlSeconds: number;
-	/** OIDC_PROVIDER (docs/EPIC-14.md); absent means generic OIDC. */
+	/** OIDC_PROVIDER (docs/archive/epics/EPIC-14.md); absent means generic OIDC. */
 	provider?: OidcProvider;
 	/** OIDC_ALLOWED_TENANT: the one Entra tenant ID (ruling 8). */
 	allowedTenant?: string | null;
@@ -42,7 +42,7 @@ export const LOGIN_COOKIE = "portikus_login";
 /**
  * Map the identity provider's group claim to a platform role; the highest
  * role wins. With none of the groups the answer is OIDC_DEFAULT_ROLE:
- * null (refused) or student (docs/EPIC-14.md ruling 11).
+ * null (refused) or student (docs/archive/epics/EPIC-14.md ruling 11).
  */
 export function mapRole(
 	claims: Record<string, unknown>,
