@@ -163,8 +163,25 @@ export async function importUsersFile(
 	const at = await importedAt(db);
 	if (at !== null) return { status: "already_imported", at };
 	const existing = await dex.listPasswords();
-	if (existing.length > 0)
-		return { status: "skipped", passwordsInDex: existing.length };
+	if (existing.length > 0) {
+		// Mark the site imported too, so a Dex emptied later never gets the file.
+		return await db.transaction().execute(async (trx) => {
+			await sql`select pg_advisory_xact_lock(hashtext(${IMPORTED}))`.execute(trx);
+			const done = await importedAt(trx);
+			if (done !== null) return { status: "already_imported", at: done } as const;
+			await trx
+				.insertInto("audit_events")
+				.values({
+					actor: ACTOR,
+					target: "dex",
+					action: IMPORTED,
+					result: "ok",
+					metadata: JSON.stringify({ skipped: true, passwordsInDex: existing.length }),
+				})
+				.execute();
+			return { status: "skipped", passwordsInDex: existing.length } as const;
+		});
+	}
 
 	const created: ImportedUser[] = [];
 	try {

@@ -48,7 +48,8 @@ export function mapRole(
 	claims: Record<string, unknown>,
 	opts: AuthOptions,
 ): Role | null {
-	const raw = claims[opts.groupsClaim];
+	// An empty claim name means the site takes no roles from the token.
+	const raw = opts.groupsClaim === "" ? undefined : claims[opts.groupsClaim];
 	const groups =
 		typeof raw === "string"
 			? [raw]

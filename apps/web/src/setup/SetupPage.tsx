@@ -3,6 +3,7 @@ import { Button, TextField } from "@portikus/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { z } from "zod";
 import { request } from "../api/request.js";
 import { StandalonePage } from "../pages/StandalonePage.js";
@@ -179,7 +180,8 @@ function FirstAccountForm() {
 			}
 		}
 		if (password !== again) found.again = "The two passwords do not match.";
-		setErrors(found);
+		// Render the invalid state before focus lands, so it is announced.
+		flushSync(() => setErrors(found));
 		const first = FIELD_ORDER.find((field) => found[field]);
 		if (first) {
 			focusField(FIELD_ID[first]);

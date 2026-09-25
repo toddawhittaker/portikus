@@ -86,9 +86,14 @@ test("signed out under Dex with no administrator, it creates the first account",
 	fill("Password again", "correct horse batterx");
 	fill("Setup code", "ABCD-EFGH-JKMN-PQRS");
 	const create = screen.getByRole("button", { name: "Create administrator account" });
+	const atFocus: (string | null)[] = [];
+	document.addEventListener("focusin", (e) =>
+		atFocus.push((e.target as HTMLElement).getAttribute("aria-invalid")),
+	);
 	fireEvent.click(create);
-	// The mismatch belongs to "Password again", which takes focus.
+	// The mismatch belongs to "Password again", which takes focus already invalid.
 	const again = screen.getByLabelText("Password again");
+	expect(atFocus.at(-1)).toBe("true");
 	expect(again.getAttribute("aria-invalid")).toBe("true");
 	expect(
 		document.getElementById(String(again.getAttribute("aria-describedby")))

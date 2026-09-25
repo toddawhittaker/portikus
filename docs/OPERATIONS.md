@@ -134,7 +134,8 @@ everyone a new, empty account, because the issuer changes. No tool
 carries accounts from one provider to another (docs/EPIC-12B.md, risk
 7). The mock-to-Dex carry-over the pilot used once, on 2026-09-23, was
 removed with the users file, so a backup from before that date restores
-accounts that only the mock can sign in to.
+accounts that only the mock can sign in to. Once the site uses any
+other provider, every play run ends the sessions of the mock's accounts.
 
 ### Microsoft Entra ID
 
@@ -324,7 +325,10 @@ registered with the provider:
   would pass on every group the person belongs to, including Microsoft
   365 groups any student can create and name after the administrators'
   group. A play that sets `PORTIKUS_OIDC_SCOPES` with `groups` under
-  either connector stops with an error.
+  either connector stops with an error. Because a student could still add
+  `groups` to the sign-in address themselves, the play also leaves the
+  API's `OIDC_GROUPS_CLAIM` empty here, and the API then takes no role
+  from any groups in the token.
 
 ```
 read -rs PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET && export PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET

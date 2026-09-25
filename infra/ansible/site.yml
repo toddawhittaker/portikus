@@ -160,7 +160,12 @@
                      if portikus_idp == 'dex' and portikus_dex_upstream in ['none', 'ldap']
                    else 'openid profile email', true) }}
     # Entra's roles are the app roles on the Portikus registration.
-    portikus_oidc_groups_claim: "{{ 'roles' if portikus_idp == 'entra' else 'groups' }}"
+    # Behind Dex's Microsoft or Google connector a student can add the groups
+    # scope to the authorize URL themselves, so the API reads no groups claim.
+    portikus_oidc_groups_claim: >-
+      {{ 'roles' if portikus_idp == 'entra'
+         else '' if portikus_idp == 'dex' and portikus_dex_upstream in ['microsoft', 'google']
+         else 'groups' }}
     portikus_oidc_student_group: >-
       {{ lookup('env', 'PORTIKUS_OIDC_STUDENT_GROUP')
          | default('Portikus.Student' if portikus_idp == 'entra' else 'portikus-students', true) }}

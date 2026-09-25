@@ -12,6 +12,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 import { useAddDexUser, useRemoveDexUser, useResetDexPassword } from "./queries.js";
 import { errorText } from "./SettingsTab.js";
 
@@ -110,7 +111,8 @@ export function AddDexUser() {
 				const field = issue.path[0] as AddField;
 				found[field] = ADD_FIELD_ERROR[field];
 			}
-			setErrors(found);
+			// Render the invalid state before focus lands, so it is announced.
+			flushSync(() => setErrors(found));
 			// Blur first so focusing an already-focused field reads its error again.
 			const input = document.getElementById(
 				found.email ? "dex-add-email" : "dex-add-username",

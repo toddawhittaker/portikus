@@ -108,7 +108,8 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_CLIENT_ID: z.string().min(1).default("portikus-dev"),
 	OIDC_CLIENT_SECRET: z.string().min(1).default(DEV_CLIENT_SECRET),
 	OIDC_SCOPES: z.string().min(1).default("openid profile email"),
-	OIDC_GROUPS_CLAIM: z.string().min(1).default("groups"),
+	/** Empty means no claim carries roles (Dex's Microsoft or Google upstream, EPIC-14 ruling 11). */
+	OIDC_GROUPS_CLAIM: z.string().default("groups"),
 	OIDC_STUDENT_GROUP: z.string().min(1).default("portikus-students"),
 	OIDC_ADMIN_GROUP: z.string().min(1).default("portikus-administrators"),
 	/** The group whose members are instructors (docs/EPIC-13.md ruling 4). */
