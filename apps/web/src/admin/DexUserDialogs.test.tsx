@@ -79,7 +79,7 @@ function stub({ dexUsers = true, refusal }: Options = {}) {
 				return json(refusal.status, { code: refusal.code, message: refusal.message });
 			}
 			if (url === "/admin/dex-users") {
-				const created = row("55555555-5555-4555-8555-555555555555", "erin", {
+				const created = row("55555555-5555-4555-8555-555555555555", "Erin Example", {
 					dexLocal: true,
 				});
 				users = [...users, created];
@@ -125,6 +125,9 @@ test("Add user sends the form, then shows the password once", async () => {
 	add.focus();
 	fireEvent.click(add);
 	const dialog = await screen.findByRole("dialog", { name: "Add user" });
+	fireEvent.change(within(dialog).getByLabelText("Name"), {
+		target: { value: "Erin Example" },
+	});
 	fireEvent.change(within(dialog).getByLabelText("Email"), {
 		target: { value: "erin@example.edu" },
 	});
@@ -137,7 +140,7 @@ test("Add user sends the form, then shows the password once", async () => {
 	fireEvent.click(within(dialog).getByRole("button", { name: "Add user" }));
 
 	const done = await screen.findByRole("dialog", {
-		name: "erin added",
+		name: "Erin Example added",
 		description: PASSWORD_ONCE_TEXT,
 	});
 	expect(within(done).getByTestId("dex-password").textContent).toBe(SHOWN_ONCE);
@@ -145,7 +148,12 @@ test("Add user sends the form, then shows the password once", async () => {
 	expect(writes).toEqual([
 		{
 			url: "/admin/dex-users",
-			body: { email: "erin@example.edu", username: "erin", role: "instructor" },
+			body: {
+				name: "Erin Example",
+				email: "erin@example.edu",
+				username: "erin",
+				role: "instructor",
+			},
 		},
 	]);
 
@@ -172,9 +180,13 @@ test("Add user checks each field before sending and focuses the first bad one", 
 		atFocus.push((e.target as HTMLElement).getAttribute("aria-invalid")),
 	);
 	fireEvent.click(within(dialog).getByRole("button", { name: "Add user" }));
-	const email = within(dialog).getByLabelText("Email");
-	await waitFor(() => expect(document.activeElement).toBe(email));
+	const name = within(dialog).getByLabelText("Name");
+	await waitFor(() => expect(document.activeElement).toBe(name));
 	expect(atFocus.at(-1)).toBe("true");
+	expect(document.getElementById("dex-add-name-err")?.textContent).toBe(
+		"Enter a name of 1 to 100 characters.",
+	);
+	const email = within(dialog).getByLabelText("Email");
 	expect(email.getAttribute("aria-invalid")).toBe("true");
 	expect(document.getElementById("dex-add-email-err")?.textContent).toBe(
 		"Enter an email address.",
@@ -183,6 +195,11 @@ test("Add user checks each field before sending and focuses the first bad one", 
 		/username/,
 	);
 	expect(within(dialog).queryByRole("alert")).toBeNull();
+	// A name of only spaces is still no name.
+	fireEvent.change(name, { target: { value: "   " } });
+	fireEvent.click(within(dialog).getByRole("button", { name: "Add user" }));
+	expect(name.getAttribute("aria-invalid")).toBe("true");
+	fireEvent.change(name, { target: { value: "Erin Example" } });
 	fireEvent.change(within(dialog).getByLabelText("Email"), {
 		target: { value: "erin@example.edu" },
 	});
@@ -208,6 +225,9 @@ test("a refused Add user shows the server's message in the dialog", async () => 
 	renderApp("/admin");
 	fireEvent.click(await screen.findByRole("button", { name: "Add user…" }));
 	const dialog = await screen.findByRole("dialog", { name: "Add user" });
+	fireEvent.change(within(dialog).getByLabelText("Name"), {
+		target: { value: "Dana" },
+	});
 	fireEvent.change(within(dialog).getByLabelText("Email"), {
 		target: { value: "dana@example.edu" },
 	});

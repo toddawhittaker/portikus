@@ -118,7 +118,7 @@ export function registerAdminDexUserRoutes(
 		if (!body.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
-		const { email, username, role } = body.data;
+		const { email, username, name, role } = body.data;
 		const dexUserId = crypto.randomUUID();
 		const password = generateDexPassword();
 		const hash = await hashDexPassword(password);
@@ -131,8 +131,8 @@ export function registerAdminDexUserRoutes(
 					userId: dexUserId,
 					email,
 					username,
-					// A Dex password has no display name: Dex sends the username.
-					displayName: username,
+					// Dex sends the username as the name claim, so the admin supplies it (SPEC.md section 5.1).
+					displayName: name,
 					role,
 				});
 				await audit(trx, "dex_user.created", `user:${actor.id}`, newId, "ok", {

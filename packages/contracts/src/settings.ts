@@ -96,6 +96,7 @@ export const CreateDexUserRequest = z
 			.string()
 			.trim()
 			.regex(DEX_USERNAME, "Use 1 to 64 letters, digits, dots, dashes or underscores"),
+		name: z.string().trim().min(1, "Enter a name").max(100),
 		role: Role,
 	})
 	.strict();

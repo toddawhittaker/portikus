@@ -71,9 +71,10 @@ function DialogError({ error }: { error: unknown }) {
 	);
 }
 
-type AddField = "email" | "username";
+type AddField = "name" | "email" | "username";
 
 const ADD_FIELD_ERROR: Record<AddField, string> = {
+	name: "Enter a name of 1 to 100 characters.",
 	email: "Enter an email address.",
 	username:
 		"Use 1 to 64 letters, digits, dots, dashes or underscores for the username.",
@@ -83,6 +84,7 @@ const ADD_FIELD_ERROR: Record<AddField, string> = {
 export function AddDexUser() {
 	const add = useAddDexUser();
 	const [open, setOpen] = useState(false);
+	const [name, setName] = useState("");
 	const [email, setEmail] = useState("");
 	const [username, setUsername] = useState("");
 	const [role, setRole] = useState<Role>("student");
@@ -94,6 +96,7 @@ export function AddDexUser() {
 		if (add.isPending) return;
 		if (next) {
 			add.reset();
+			setName("");
 			setEmail("");
 			setUsername("");
 			setRole("student");
@@ -104,7 +107,7 @@ export function AddDexUser() {
 
 	function submit() {
 		if (add.isPending) return;
-		const body = CreateDexUserRequest.safeParse({ email, username, role });
+		const body = CreateDexUserRequest.safeParse({ name, email, username, role });
 		if (!body.success) {
 			const found: Partial<Record<AddField, string>> = {};
 			for (const issue of body.error.issues) {
@@ -115,7 +118,11 @@ export function AddDexUser() {
 			flushSync(() => setErrors(found));
 			// Blur first so focusing an already-focused field reads its error again.
 			const input = document.getElementById(
-				found.email ? "dex-add-email" : "dex-add-username",
+				found.name
+					? "dex-add-name"
+					: found.email
+						? "dex-add-email"
+						: "dex-add-username",
 			);
 			input?.blur();
 			input?.focus();
@@ -171,6 +178,15 @@ export function AddDexUser() {
 								submit();
 							}}
 						>
+							<TextField
+								id="dex-add-name"
+								label="Name"
+								autoComplete="off"
+								data-testid="dex-add-name"
+								error={errors.name}
+								value={name}
+								onChange={(event) => setName(event.target.value)}
+							/>
 							<TextField
 								id="dex-add-email"
 								label="Email"

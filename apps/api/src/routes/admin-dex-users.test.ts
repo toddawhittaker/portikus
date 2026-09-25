@@ -128,7 +128,7 @@ function post(jar: CookieJar, url: string, payload?: object) {
 
 async function addUser(
 	jar: CookieJar,
-	body: { email: string; username: string; role: string },
+	body: { name: string; email: string; username: string; role: string },
 ): Promise<{ user: AdminUser; password: string }> {
 	const res = await post(jar, "/admin/dex-users", body);
 	expect(res.statusCode).toBe(200);
@@ -213,6 +213,7 @@ describe.skipIf(skip)("Add user", () => {
 	test("creates the Dex password and pre-creates the account under Dex's subject", async () => {
 		const carol = await adminJar();
 		const { user, password } = await addUser(carol, {
+			name: "  Dana Kim ",
 			email: "Dana@Example.edu",
 			username: "dana",
 			role: "student",
@@ -230,6 +231,7 @@ describe.skipIf(skip)("Add user", () => {
 				"oidc_subject",
 				"email",
 				"display_name",
+				"preferred_username",
 				"role",
 				"provider_role",
 				"granted_role",
@@ -240,7 +242,8 @@ describe.skipIf(skip)("Add user", () => {
 			oidc_issuer: mock.issuer,
 			oidc_subject: dexLocalSubject(stored?.userId ?? ""),
 			email: "dana@example.edu",
-			display_name: "dana",
+			display_name: "Dana Kim",
+			preferred_username: "dana",
 			role: "student",
 			provider_role: "student",
 			granted_role: null,
@@ -252,6 +255,7 @@ describe.skipIf(skip)("Add user", () => {
 		const carol = await adminJar();
 		for (const role of ["instructor", "administrator"] as const) {
 			const { user } = await addUser(carol, {
+				name: `${role} Person`,
 				email: `${role}@example.edu`,
 				username: role,
 				role,
@@ -263,6 +267,7 @@ describe.skipIf(skip)("Add user", () => {
 	test("the password is in that one response only: not stored, logged or audited", async () => {
 		const carol = await adminJar();
 		const { user, password } = await addUser(carol, {
+			name: "Erin-Dex Person",
 			email: "erin.dex@example.edu",
 			username: "erin-dex",
 			role: "student",
@@ -297,11 +302,13 @@ describe.skipIf(skip)("Add user", () => {
 	test("a taken email is 409 and leaves no account behind", async () => {
 		const carol = await adminJar();
 		await addUser(carol, {
+			name: "Twice Person",
 			email: "twice@example.edu",
 			username: "twice",
 			role: "student",
 		});
 		const res = await post(carol, "/admin/dex-users", {
+			name: "Again Person",
 			email: "twice@example.edu",
 			username: "again",
 			role: "instructor",
@@ -317,14 +324,33 @@ describe.skipIf(skip)("Add user", () => {
 		expect(await auditRows("dex_user.created")).toHaveLength(1);
 	});
 
-	test("refuses a bad email, username, role or extra field", async () => {
+	test("refuses a missing or blank name, a bad email, username, role or extra field", async () => {
 		const carol = await adminJar();
 		for (const body of [
-			{ email: "not-an-email", username: "ok", role: "student" },
-			{ email: "ok@example.edu", username: "has space", role: "student" },
-			{ email: "ok@example.edu", username: "", role: "student" },
-			{ email: "ok@example.edu", username: "ok", role: "owner" },
-			{ email: "ok@example.edu", username: "ok", role: "student", hash: "x" },
+			{ email: "ok@example.edu", username: "ok", role: "student" },
+			{ name: "  ", email: "ok@example.edu", username: "ok", role: "student" },
+			{
+				name: "x".repeat(101),
+				email: "ok@example.edu",
+				username: "ok",
+				role: "student",
+			},
+			{ name: "Ok Person", email: "not-an-email", username: "ok", role: "student" },
+			{
+				name: "Ok Person",
+				email: "ok@example.edu",
+				username: "has space",
+				role: "student",
+			},
+			{ name: "Ok Person", email: "ok@example.edu", username: "", role: "student" },
+			{ name: "Ok Person", email: "ok@example.edu", username: "ok", role: "owner" },
+			{
+				name: "Ok Person",
+				email: "ok@example.edu",
+				username: "ok",
+				role: "student",
+				hash: "x",
+			},
 		]) {
 			const res = await post(carol, "/admin/dex-users", body);
 			expect(res.statusCode, JSON.stringify(body)).toBe(400);
@@ -337,6 +363,7 @@ describe.skipIf(skip)("Add user", () => {
 		const undo = await failCommitFor("lost@example.edu");
 		try {
 			const res = await post(carol, "/admin/dex-users", {
+				name: "Lost Person",
 				email: "lost@example.edu",
 				username: "lost",
 				role: "student",
@@ -348,6 +375,7 @@ describe.skipIf(skip)("Add user", () => {
 		expect(stub.passwords.has("lost@example.edu")).toBe(false);
 		// So adding the same email again works rather than answering 409 for ever.
 		const again = await post(carol, "/admin/dex-users", {
+			name: "Lost Person",
 			email: "lost@example.edu",
 			username: "lost",
 			role: "student",
@@ -359,6 +387,7 @@ describe.skipIf(skip)("Add user", () => {
 		const carol = await adminJar();
 		stub.state.failing = true;
 		const res = await post(carol, "/admin/dex-users", {
+			name: "Down Person",
 			email: "down@example.edu",
 			username: "down",
 			role: "student",
@@ -379,12 +408,18 @@ describe.skipIf(skip)("Add user", () => {
 			method: "POST",
 			url: "/admin/dex-users",
 			headers: { cookie: carol.cookieHeader() },
-			payload: { email: "x@example.edu", username: "x", role: "student" },
+			payload: {
+				name: "Ok Person",
+				email: "x@example.edu",
+				username: "x",
+				role: "student",
+			},
 		});
 		expect(noCsrf.statusCode).toBe(403);
 		const alice = new CookieJar();
 		await loginAs(app, "alice", alice);
 		const student = await post(alice, "/admin/dex-users", {
+			name: "X Person",
 			email: "x@example.edu",
 			username: "x",
 			role: "student",
@@ -398,6 +433,7 @@ describe.skipIf(skip)("the account list", () => {
 	test("marks Dex local passwords and says the site manages them", async () => {
 		const carol = await adminJar();
 		const { user } = await addUser(carol, {
+			name: "Gus Person",
 			email: "gus@example.edu",
 			username: "gus",
 			role: "student",
@@ -438,6 +474,7 @@ describe.skipIf(skip)("Reset password", () => {
 	test("sets a new password, shown once, and ends the account's sessions", async () => {
 		const carol = await adminJar();
 		const { user, password: first } = await addUser(carol, {
+			name: "Hal Person",
 			email: "hal@example.edu",
 			username: "hal",
 			role: "student",
@@ -531,6 +568,7 @@ describe.skipIf(skip)("Reset password", () => {
 	test("Dex being down is 503 and keeps the sessions", async () => {
 		const carol = await adminJar();
 		const { user } = await addUser(carol, {
+			name: "Ivy Person",
 			email: "ivy@example.edu",
 			username: "ivy",
 			role: "student",
@@ -553,6 +591,7 @@ describe.skipIf(skip)("Remove", () => {
 	test("deletes the Dex password and disables the account, ending its sessions", async () => {
 		const carol = await adminJar();
 		const { user } = await addUser(carol, {
+			name: "Jo Person",
 			email: "jo@example.edu",
 			username: "jo",
 			role: "student",
@@ -614,6 +653,7 @@ describe.skipIf(skip)("Remove", () => {
 	test("Dex being down is 503 and the account stays enabled", async () => {
 		const carol = await adminJar();
 		const { user } = await addUser(carol, {
+			name: "Lee Person",
 			email: "lee@example.edu",
 			username: "lee",
 			role: "student",
@@ -658,7 +698,12 @@ describe.skipIf(skip)("a site without Dex's gRPC API", () => {
 					method: "POST",
 					url,
 					headers: csrfHeaders(carol, PUBLIC_URL),
-					payload: { email: "x@example.edu", username: "x", role: "student" },
+					payload: {
+						name: "Ok Person",
+						email: "x@example.edu",
+						username: "x",
+						role: "student",
+					},
 				});
 				expect(res.statusCode, url).toBe(404);
 			}
