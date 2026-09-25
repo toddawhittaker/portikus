@@ -37,6 +37,9 @@ export interface SweepResult {
 	refreshError: { code: string; message: string } | null;
 }
 
+/** How long "Still working?" shows before an idle workspace stops; fixed (ADR 0032). */
+export const IDLE_WARNING_MS = 5 * 60_000;
+
 /** How long an errored workspace rests before the sweep retries a start. */
 const ERROR_RETRY_SECONDS = 10;
 
@@ -174,6 +177,40 @@ async function endOpenTerminals(
 		.where("workspace_id", "=", workspaceId)
 		.where("ended_at", "is", null)
 		.execute();
+}
+
+/**
+ * Clear what the resource guard holds for a workspace that has stopped: the
+ * throttle, the memory flag, the idle warning and the samples, auditing each
+ * cleared mark with reason "stopped" (ADR 0032). The controller removes the
+ * allowance itself at the next start.
+ */
+async function clearGuardAtStop(db: Kysely<Database>, id: string): Promise<void> {
+	const before = await db
+		.selectFrom("workspaces")
+		.select(["cpu_throttle", "memory_flag"])
+		.where("id", "=", id)
+		.executeTakeFirst();
+	await db
+		.updateTable("workspaces")
+		.set({ cpu_throttle: null, memory_flag: null, idle_stop_at: null })
+		.where("id", "=", id)
+		.execute();
+	await db
+		.deleteFrom("workspace_usage_samples")
+		.where("workspace_id", "=", id)
+		.execute();
+	if (before?.cpu_throttle) {
+		await audit(db, id, "workspace.cpu_throttle_lifted", "ok", { reason: "stopped" });
+	}
+	if (before?.memory_flag) {
+		await audit(db, id, "workspace.memory_flag_cleared", "ok", { reason: "stopped" });
+	}
+}
+
+/** A workspace that has just started counts as active, so it never starts idle (ADR 0032). */
+function startedNow(now: Date): Record<string, unknown> {
+	return { last_activity_at: now.toISOString(), idle_stop_at: null };
 }
 
 /**
@@ -418,6 +455,62 @@ export async function reconcile(
 		await doStop(db, controller, config, ws, now);
 	}
 
+	// Idle stop (ADR 0032): a workspace override wins over the platform value,
+	// and 0 means never. It runs whether or not a browser is connected; the
+	// grace period above may still stop a workspace first.
+	const idle = sql`coalesce((ws.guard_config->>'idleStopMinutes')::int, s.idle_stop_minutes)`;
+
+	// A workspace running from before idle stop existed counts as active now.
+	await db
+		.updateTable("workspaces")
+		.set({ last_activity_at: now.toISOString() })
+		.where("state", "=", "running")
+		.where("last_activity_at", "is", null)
+		.execute();
+
+	// Idle turned off since the warning: withdraw it.
+	await sql`
+		update workspaces w set idle_stop_at = null
+		from workspaces ws left join settings s on s.id = 1
+		where w.id = ws.id and ws.idle_stop_at is not null
+			and coalesce(${idle}, 0) = 0
+	`.execute(db);
+
+	// Idle for long enough: warn, and stop five minutes later. A shortened
+	// setting also warns first, never stops at once.
+	await sql`
+		update workspaces w set idle_stop_at = ${new Date(now.getTime() + IDLE_WARNING_MS).toISOString()}::timestamptz
+		from workspaces ws left join settings s on s.id = 1
+		where w.id = ws.id and ws.state = 'running' and ws.idle_stop_at is null
+			and ${idle} > 0
+			and ws.last_activity_at + ${idle} * interval '1 minute' <= ${now.toISOString()}::timestamptz
+	`.execute(db);
+
+	const idlePassed = await sql<{
+		id: string;
+		incus_instance_name: string | null;
+		idle_minutes: number;
+	}>`
+		update workspaces w
+		set state = 'stopping',
+			desired_state = case when w.desired_state = 'restarting' then 'running' else 'stopped' end,
+			updated_at = ${now.toISOString()}::timestamptz
+		from workspaces ws left join settings s on s.id = 1
+		where w.id = ws.id and w.state = 'running' and w.idle_stop_at <= ${now.toISOString()}::timestamptz
+		returning w.id, w.incus_instance_name, ${idle} as idle_minutes
+	`.execute(db);
+
+	for (const ws of idlePassed.rows) {
+		transitions++;
+		record(ws.id, "stop after idle");
+		await audit(db, ws.id, "workspace.idle_stopped", "ok", {
+			idleMinutes: ws.idle_minutes,
+		});
+		await endOpenTerminals(db, ws.id, now);
+		if (!ws.incus_instance_name) continue;
+		await doStop(db, controller, config, ws, now);
+	}
+
 	// 3d: error with desired running (or restarting) -> retry a start, but
 	// only after a short rest so a broken controller is not hammered.
 	const retryCutoff = new Date(now.getTime() - ERROR_RETRY_SECONDS * 1000);
@@ -533,6 +626,7 @@ export async function reconcile(
 					if (updated) {
 						transitions++;
 						await endOpenTerminals(db, ws.id, now);
+						await clearGuardAtStop(db, ws.id);
 						record(ws.id, "instance missing");
 						await audit(db, ws.id, "workspace.instance_missing", "failed", {
 							instanceName: ws.incus_instance_name,
@@ -562,6 +656,7 @@ export async function reconcile(
 					if (updated) {
 						transitions++;
 						await endOpenTerminals(db, ws.id, now);
+						await clearGuardAtStop(db, ws.id);
 						record(ws.id, "observed stopped");
 						await audit(db, ws.id, "workspace.observed_stopped", "ok");
 					}
@@ -573,7 +668,7 @@ export async function reconcile(
 						db,
 						ws.id,
 						"stopped",
-						{ state: "running" },
+						{ state: "running", ...startedNow(now) },
 						now,
 					);
 					if (updated) {
@@ -590,7 +685,7 @@ export async function reconcile(
 							db,
 							ws.id,
 							"starting",
-							{ state: "running" },
+							{ state: "running", ...startedNow(now) },
 							now,
 						);
 						if (updated) {
@@ -635,6 +730,7 @@ export async function reconcile(
 						if (updated) {
 							transitions++;
 							await endOpenTerminals(db, ws.id, now);
+							await clearGuardAtStop(db, ws.id);
 							record(ws.id, "stop resolved as stopped");
 							await audit(db, ws.id, "workspace.stop", "ok", {
 								resolvedFromList: true,
@@ -850,7 +946,7 @@ async function startWorkspace(
 			db,
 			ws.id,
 			"starting",
-			{ state: "running", agent_address: result.ipv4 },
+			{ state: "running", agent_address: result.ipv4, ...startedNow(now) },
 			now,
 		);
 		if (updated) {
@@ -912,6 +1008,7 @@ export async function doStop(
 		// The stop happened, so record it even if another pass already
 		// moved the row out of 'stopping' (SPEC.md §6.5).
 		await audit(db, ws.id, "workspace.stop", "ok", { forced: result.forced });
+		await clearGuardAtStop(db, ws.id);
 		if (result.forced) {
 			await audit(db, ws.id, "workspace.force_stop", "ok");
 		}

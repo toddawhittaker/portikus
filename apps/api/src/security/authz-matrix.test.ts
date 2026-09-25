@@ -52,6 +52,9 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/dex-users/:id/reset-password": 404,
 	"POST /admin/dex-users/:id/remove": 404,
 	"POST /setup/claim": 400,
+	// The matrix workspace is neither throttled nor flagged.
+	"POST /admin/workspaces/:id/lift-throttle": 409,
+	"POST /admin/workspaces/:id/clear-memory-flag": 409,
 };
 
 // The smallest PNG: one transparent pixel.
@@ -160,6 +163,7 @@ const PAYLOADS: Record<string, object> = {
 	"POST /workspaces/:id/projects/:pid/move": { from: "notes.txt", to: "moved.txt" },
 	"POST /workspaces/:id/preview-grants": { port: 5173, presentation: "embedded" },
 	"PUT /admin/workspaces/:id/quota": { homeGiB: 100, dockerGiB: 100 },
+	"PUT /admin/workspaces/:id/guard": { idleStopMinutes: 0 },
 	"POST /admin/workspaces/:id/rebuild": { resetDocker: false },
 };
 

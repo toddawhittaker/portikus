@@ -12,6 +12,7 @@ import {
 	ZIP_OVERHEAD_BYTES,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { recordActivity } from "../activity.js";
 import { AGENT_TIMEOUT_MS, readAgentError, readJson } from "../agent-client.js";
 import type { ServerDeps } from "../server.js";
 import { agentUrl, scopedProject, sendAgentError, sendError } from "./project-scope.js";
@@ -224,6 +225,8 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 			write.put("/workspaces/:id/projects/:pid/file", async (request, reply) => {
 				const scope = await scopedProject(db, config, request, reply);
 				if (!scope) return;
+				// A write by the owner is activity; reads are not (ADR 0032).
+				await recordActivity(db, scope.workspaceId);
 				const path = queryPath(request, reply, { allowRoot: false });
 				if (path === null) return;
 
@@ -301,6 +304,8 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 		instance.delete("/workspaces/:id/projects/:pid/file", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
+			// A write by the owner is activity; reads are not (ADR 0032).
+			await recordActivity(db, scope.workspaceId);
 			const path = queryPath(request, reply, { allowRoot: false });
 			if (path === null) return;
 
@@ -323,6 +328,8 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 		instance.post("/workspaces/:id/projects/:pid/mkdir", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
+			// A write by the owner is activity; reads are not (ADR 0032).
+			await recordActivity(db, scope.workspaceId);
 			const body = MkdirRequest.safeParse(request.body ?? {});
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", "that path is not valid");
@@ -346,6 +353,8 @@ export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void
 		instance.post("/workspaces/:id/projects/:pid/move", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
+			// A write by the owner is activity; reads are not (ADR 0032).
+			await recordActivity(db, scope.workspaceId);
 			const body = MoveRequest.safeParse(request.body ?? {});
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", "that path is not valid");
