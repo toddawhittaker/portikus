@@ -1,11 +1,11 @@
 import {
 	claimSetupCode,
-	dexLocalSubject,
 	grantAdministrator,
 	hasEnabledAdministrator,
 	hashDexPassword,
 	hashSessionToken,
 	isCourseIssuer,
+	precreateDexAccount,
 	requireUser,
 	sessionOrigin,
 } from "@portikus/auth";
@@ -139,7 +139,7 @@ export function registerSetupRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	// POST /setup/first-account -- the first Dex password and its administrator (ruling 18).
 	app.post("/setup/first-account", async (request, reply) => {
 		const dex = deps.dex;
-		if (!dex || (await hasEnabledAdministrator(db))) {
+		if (!dex || !(await firstAccountOpen())) {
 			return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		}
 		if (!(await withinLimit(request, reply))) return reply;
@@ -151,31 +151,25 @@ export function registerSetupRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		const dexUserId = crypto.randomUUID();
 		const hash = await hashDexPassword(password);
 
+		let dexCreated = false;
 		try {
 			// The code, the account and the Dex password commit together, or none do.
 			await db.transaction().execute(async (trx) => {
 				if (await hasEnabledAdministrator(trx)) throw new Refused("admin_exists");
-				const row = await trx
-					.insertInto("users")
-					.values({
-						oidc_issuer: config.OIDC_ISSUER_URL,
-						oidc_subject: dexLocalSubject(dexUserId),
-						email,
-						display_name: username,
-						preferred_username: username,
-						role: "administrator",
-						provider_role: "student",
-						granted_role: "administrator",
-					})
-					.returning("id")
-					.executeTakeFirstOrThrow();
+				const id = await precreateDexAccount(trx, config.OIDC_ISSUER_URL, {
+					userId: dexUserId,
+					email,
+					username,
+					displayName: username,
+					role: "administrator",
+				});
 				// Single use settles a race: only one form can claim the code.
-				if (!(await claimSetupCode(trx, code, row.id))) throw new Refused("code");
-				await audit(trx, "setup.code_claimed", `user:${row.id}`, row.id, "ok", {
+				if (!(await claimSetupCode(trx, code, id))) throw new Refused("code");
+				await audit(trx, "setup.code_claimed", `user:${id}`, id, "ok", {
 					firstAccount: true,
 					...requestMetadata(request),
 				});
-				await audit(trx, "user.role_changed", `user:${row.id}`, row.id, "ok", {
+				await audit(trx, "user.role_changed", `user:${id}`, id, "ok", {
 					from: null,
 					to: "administrator",
 					source: "setup",
@@ -188,8 +182,19 @@ export function registerSetupRoutes(app: FastifyInstance, deps: ServerDeps): voi
 					hash,
 				});
 				if (created === "already_exists") throw new Refused("dex_user_exists");
+				dexCreated = true;
 			});
 		} catch (err) {
+			if (dexCreated) {
+				// The account did not commit: best effort, remove its Dex password.
+				await dex.deletePassword(email).catch((cleanupErr: unknown) => {
+					const code = (cleanupErr as { code?: unknown }).code;
+					request.log.error(
+						{ grpcCode: typeof code === "number" ? code : null },
+						"dex password left without an account",
+					);
+				});
+			}
 			if (err instanceof Refused) {
 				if (err.reason === "code") {
 					await audit(db, "setup.code_claimed", "unknown", "setup", "failed", {

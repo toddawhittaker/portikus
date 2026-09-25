@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
+import { dexLocalSubject } from "./dex-subject.js";
 import type { SessionMethod, SessionOrigin } from "./sessions.js";
 import type { Role } from "./types.js";
 
@@ -531,4 +532,37 @@ export async function revokeInstructor(
 		.where("id", "=", targetId)
 		.execute();
 	return { ok: true, from: target.role as Role, to };
+}
+
+/**
+ * Create the account a new Dex password will sign into, before its first
+ * sign-in, holding the role as a grant because Dex sends no groups
+ * (docs/EPIC-14.md ruling 21). Run inside the caller's transaction.
+ */
+export async function precreateDexAccount(
+	trx: Kysely<Database>,
+	issuer: string,
+	input: {
+		userId: string;
+		email: string;
+		username: string;
+		displayName: string;
+		role: Role;
+	},
+): Promise<string> {
+	const row = await trx
+		.insertInto("users")
+		.values({
+			oidc_issuer: issuer,
+			oidc_subject: dexLocalSubject(input.userId),
+			email: input.email,
+			display_name: input.displayName,
+			preferred_username: input.username,
+			role: input.role,
+			provider_role: "student",
+			granted_role: input.role === "student" ? null : input.role,
+		})
+		.returning("id")
+		.executeTakeFirstOrThrow();
+	return row.id;
 }

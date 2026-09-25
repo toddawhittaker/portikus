@@ -2424,3 +2424,4 @@ Gaps:
   stored display name, such as "Carol Admin" (`upsertUser`).
 - The `pre-epic14` snapshots and the dump are kept. Remove them by hand
   after about a week, around 2026-10-01.
+- Known gap from the review: Remove deletes the Dex password inside the database transaction, so if Dex succeeds and the commit then fails, the account stays enabled with no Dex password. Add user and the first-account form delete the new Dex password in that case; Remove does not recreate one.

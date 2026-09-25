@@ -1,9 +1,9 @@
 import {
 	type DexApi,
-	dexLocalSubject,
 	dexLocalUserId,
 	generateDexPassword,
 	hashDexPassword,
+	precreateDexAccount,
 	requireRole,
 	requireUser,
 } from "@portikus/auth";
@@ -93,6 +93,17 @@ export function registerAdminDexUserRoutes(
 		return { found: "yes", email: password.email } as const;
 	}
 
+	/** Best effort: delete a Dex password whose account did not commit. */
+	async function removeOrphan(request: FastifyRequest, dex: DexApi, email: string) {
+		await dex.deletePassword(email).catch((err: unknown) => {
+			const code = (err as { code?: unknown }).code;
+			request.log.error(
+				{ grpcCode: typeof code === "number" ? code : null },
+				"dex password left without an account",
+			);
+		});
+	}
+
 	const notLocal = (reply: FastifyReply) =>
 		sendError(reply, 400, "VALIDATION_FAILED", "This account has no Dex password.");
 
@@ -111,28 +122,20 @@ export function registerAdminDexUserRoutes(
 		const dexUserId = crypto.randomUUID();
 		const password = generateDexPassword();
 		const hash = await hashDexPassword(password);
-		const granted = role === "student" ? null : role;
-
 		let id: string;
+		let dexCreated = false;
 		try {
 			// The account and the Dex password are made together, or neither is.
 			id = await db.transaction().execute(async (trx) => {
-				const row = await trx
-					.insertInto("users")
-					.values({
-						oidc_issuer: config.OIDC_ISSUER_URL,
-						oidc_subject: dexLocalSubject(dexUserId),
-						email,
-						// A Dex password has no display name: Dex sends the username.
-						display_name: username,
-						preferred_username: username,
-						role,
-						provider_role: "student",
-						granted_role: granted,
-					})
-					.returning("id")
-					.executeTakeFirstOrThrow();
-				await audit(trx, "dex_user.created", `user:${actor.id}`, row.id, "ok", {
+				const newId = await precreateDexAccount(trx, config.OIDC_ISSUER_URL, {
+					userId: dexUserId,
+					email,
+					username,
+					// A Dex password has no display name: Dex sends the username.
+					displayName: username,
+					role,
+				});
+				await audit(trx, "dex_user.created", `user:${actor.id}`, newId, "ok", {
 					role,
 					...requestMetadata(request),
 				});
@@ -140,9 +143,11 @@ export function registerAdminDexUserRoutes(
 					dex.createPassword({ email, username, userId: dexUserId, hash }),
 				);
 				if (created === "already_exists") throw new DexEmailTaken();
-				return row.id;
+				dexCreated = true;
+				return newId;
 			});
 		} catch (err) {
+			if (dexCreated) await removeOrphan(request, dex, email);
 			if (err instanceof DexEmailTaken) {
 				return sendError(
 					reply,
@@ -169,6 +174,15 @@ export function registerAdminDexUserRoutes(
 			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
 		}
 		const id = params.data.id;
+		// Resetting it would end the caller's own session before they saw the password.
+		if (id === actor.id) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"You cannot reset your own password here.",
+			);
+		}
 		const password = generateDexPassword();
 		try {
 			const found = await findDexPassword(dex, id);

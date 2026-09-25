@@ -22,6 +22,7 @@ import {
 import { collectingLogger } from "@portikus/observability/testing";
 import bcrypt from "bcryptjs";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { toAuthOptions } from "../auth-options.js";
 import { buildServer } from "../server.js";
@@ -50,8 +51,8 @@ function stubDex() {
 		async updatePassword() {
 			return "not_found";
 		},
-		async deletePassword() {
-			return "not_found";
+		async deletePassword(email) {
+			return passwords.delete(email) ? "deleted" : "not_found";
 		},
 		async listPasswords() {
 			return [...passwords.values()];
@@ -302,6 +303,22 @@ async function state(): Promise<boolean> {
 	return res.json().firstAccount;
 }
 
+/** Make the next commit of a users row with this email fail, as a lost database would. */
+async function failCommitFor(email: string): Promise<() => Promise<void>> {
+	await sql`create function doom() returns trigger language plpgsql as $$
+		begin raise exception 'commit refused'; end $$`.execute(testDb.db);
+	await sql
+		.raw(
+			`create constraint trigger doom after insert on users deferrable initially deferred
+			for each row when (lower(new.email) = lower('${email}')) execute function doom()`,
+		)
+		.execute(testDb.db);
+	return async () => {
+		await sql`drop trigger doom on users`.execute(testDb.db);
+		await sql`drop function doom()`.execute(testDb.db);
+	};
+}
+
 describe.skipIf(skip)("POST /setup/first-account under standalone Dex", () => {
 	beforeEach(() => start({ dex: true }));
 
@@ -343,6 +360,19 @@ describe.skipIf(skip)("POST /setup/first-account under standalone Dex", () => {
 		expect(again.statusCode).toBe(404);
 		await expectNoTraceOf(code);
 		expect(JSON.stringify(lines)).not.toContain(FIRST.password);
+	});
+
+	test("a failed commit after Dex made the password removes that password", async () => {
+		const code = await issueSetupCode(testDb.db);
+		const undo = await failCommitFor(FIRST.email);
+		try {
+			const res = await firstAccount({ ...FIRST, code });
+			expect(res.statusCode).toBe(500);
+		} finally {
+			await undo();
+		}
+		expect(stub.passwords.size).toBe(0);
+		expect(await state()).toBe(true);
 	});
 
 	test("checks the code before creating anything", async () => {
