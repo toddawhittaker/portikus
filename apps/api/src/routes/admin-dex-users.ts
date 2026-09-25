@@ -44,7 +44,7 @@ async function viaDex<T>(call: Promise<T>): Promise<T> {
 }
 
 /**
- * Add, reset the password of, and remove standalone Dex users (docs/EPIC-14.md
+ * Add, reset the password of, and remove standalone Dex users (docs/archive/epics/EPIC-14.md
  * rulings 21, 22 and 24). The routes answer 404 unless the site runs Dex's
  * gRPC API. A generated password leaves Portikus only in one response body:
  * it is never stored, logged, or audited.

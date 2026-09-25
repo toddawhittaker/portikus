@@ -214,7 +214,7 @@ pull() {
 info "database"
 pull db.dump plain db || die "db.dump: the pipeline failed (ssh, index or age)"
 echo "file db.dump $(cat "${scratch}/db.dump.sum")" >>"$manifest"
-# Dex's accounts replace the users file's encrypted copy (docs/EPIC-14.md ruling 23).
+# Dex's accounts replace the users file's encrypted copy (docs/archive/epics/EPIC-14.md ruling 23).
 has_dex=$(remote_export has-dex)
 must "Dex database check" '^[01]$' "$has_dex"
 if [ "$has_dex" = 1 ]; then

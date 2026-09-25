@@ -13,8 +13,8 @@ import type { Kysely } from "kysely";
 
 /**
  * Create a server-side session and set its cookie. Both sign-in paths, the
- * OIDC callback, the LTI launch and link confirm, end here (docs/EPIC-13.md
- * ruling 3). The origin records how it started (docs/EPIC-13-1.md ruling 21).
+ * OIDC callback, the LTI launch and link confirm, end here (docs/archive/epics/EPIC-13.md
+ * ruling 3). The origin records how it started (docs/archive/epics/EPIC-13-1.md ruling 21).
  */
 export async function startSession(
 	db: Kysely<Database>,

@@ -232,7 +232,7 @@ jobs:
 
   # Sign-in through a real Dex at the commit site.yml pins, configured by the
   # role's own template and themed by the role's own task file, as on the
-  # pilot (docs/EPIC-12B.md, Part A item 12; ADR 0023). Not a required
+  # pilot (docs/archive/epics/EPIC-12B.md, Part A item 12; ADR 0023). Not a required
   # check, so a Dex upgrade shows its failure here without blocking merges.
   dex-signin:
     name: Dex sign-in
@@ -318,13 +318,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # The proto the API's client is built from must match the pinned Dex
-      # (docs/EPIC-14.md, risk 5).
+      # (docs/archive/epics/EPIC-14.md, risk 5).
       - name: Check the Dex API proto matches the pinned commit
         run: >-
           curl -sfL "https://raw.githubusercontent.com/dexidp/dex/${{ steps.pin.outputs.commit }}/api/v2/api.proto"
           | cmp - packages/auth/proto/dex-api.proto
       # PostgreSQL storage and the gRPC API behind mutual TLS, as the dex role
-      # will run them (docs/EPIC-14.md rulings 19 and 20), with the role's own
+      # will run them (docs/archive/epics/EPIC-14.md rulings 19 and 20), with the role's own
       # certificate script. grpc-other is a second authority, for a client
       # Dex must refuse.
       - name: Give Dex PostgreSQL storage and the gRPC API
@@ -372,7 +372,7 @@ jobs:
             curl -sf -o /dev/null "$dex/theme/$file"
           done
           echo "Dex serves the Portikus sign-in page and its theme files."
-      # The one-time users-file import the dex role runs (docs/EPIC-14.md
+      # The one-time users-file import the dex role runs (docs/archive/epics/EPIC-14.md
       # ruling 23), into Dex's empty storage; the sign-in tests below use it.
       - name: Import the users fixture into Dex
         env:

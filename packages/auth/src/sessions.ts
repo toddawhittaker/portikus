@@ -17,7 +17,7 @@ export function hashSessionToken(token: string): string {
 	return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-/** How a session started (docs/EPIC-13-1.md ruling 21). */
+/** How a session started (docs/archive/epics/EPIC-13-1.md ruling 21). */
 export type SessionMethod = "oidc" | "lti" | "link";
 
 export interface SessionOrigin {
@@ -122,7 +122,7 @@ export async function createSession(
 /**
  * Resolve a session token to its user. Returns null when the session is
  * unknown or expired, when the account has been disabled, or when it is a
- * course account retired by a link (docs/EPIC-13-1.md ruling 13), so that
+ * course account retired by a link (docs/archive/epics/EPIC-13-1.md ruling 13), so that
  * revoking access takes effect on the next request (SPEC.md section 5.3).
  * A launch session also dies once its account is an administrator, however
  * the role arrived (ruling 21).

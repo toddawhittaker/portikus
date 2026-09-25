@@ -10,7 +10,7 @@ import {
 } from "./helpers";
 
 /**
- * Make instructor and Remove instructor in the Users view (docs/EPIC-14.md
+ * Make instructor and Remove instructor in the Users view (docs/archive/epics/EPIC-14.md
  * ruling 14). Every test acts on accounts of its own.
  */
 

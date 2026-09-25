@@ -21,13 +21,13 @@ export interface LoginState {
 	nonce: string;
 }
 
-/** Why an otherwise valid sign-in was not admitted (docs/EPIC-14.md ruling 9). */
+/** Why an otherwise valid sign-in was not admitted (docs/archive/epics/EPIC-14.md ruling 9). */
 export type AdmissionRefusal = "tenant_not_allowed" | "domain_not_allowed";
 
 export interface OidcClient {
 	/**
 	 * `prompt: "login"` asks the provider to re-authenticate the user, the
-	 * standard OIDC way; linking an account uses it (docs/EPIC-13-1.md ruling 11).
+	 * standard OIDC way; linking an account uses it (docs/archive/epics/EPIC-13-1.md ruling 11).
 	 */
 	buildLoginRedirect(options?: {
 		prompt?: "login";

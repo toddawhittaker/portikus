@@ -85,7 +85,7 @@ export const PEOPLE: readonly Person[] = [
 		email: "una@mock-lms.test",
 		role: "Learner",
 	},
-	// Linking tests only (docs/EPIC-13-1.md): a link changes where every launch
+	// Linking tests only (docs/archive/epics/EPIC-13-1.md): a link changes where every launch
 	// of a person lands, so no other spec may launch these two.
 	{
 		key: "lin",

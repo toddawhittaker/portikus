@@ -38,7 +38,7 @@ export function isOnOrigin(uri: string, publicUrl: string): boolean {
 
 /**
  * Check a login initiation and build the authorization request
- * (docs/EPIC-13.md ruling 19 and "Validation reference"). The caller stores
+ * (docs/archive/epics/EPIC-13.md ruling 19 and "Validation reference"). The caller stores
  * the state with `saveLoginState`, sets the state cookie, and redirects.
  * An unknown issuer and client id pair, or an issuer with several
  * registrations and no client id, is `unknown_issuer`.

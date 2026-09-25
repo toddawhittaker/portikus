@@ -14,7 +14,7 @@
   changed_when: "'changed' in dex_grpc_client.stdout or (dex_grpc_certs | default({})) is changed"
   notify: Restart portikus-api
 
-# ── The one-time users-file import (docs/EPIC-14.md ruling 23) ────
+# ── The one-time users-file import (docs/archive/epics/EPIC-14.md ruling 23) ────
 # Only while a users file is given.  The command's first run, whether it
 # imports or finds Dex already holding passwords, marks the site imported,
 # so every later run changes nothing.

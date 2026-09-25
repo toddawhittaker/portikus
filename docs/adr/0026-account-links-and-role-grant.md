@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-09-24
-- **References**: SPEC.md sections 5.2, 12.5, 20.1, 24, 25.8, 29; docs/EPIC-13-1.md;
+- **References**: SPEC.md sections 5.2, 12.5, 20.1, 24, 25.8, 29; docs/archive/epics/EPIC-13-1.md;
   ADR 0025
 
 ## Context
@@ -83,7 +83,7 @@ both use it.
 - Entra sends group object IDs and, past about 200 groups, an overage
   claim instead of the list, so `mapRole` cannot place students or
   instructors under Entra; a stored grant still reaches administrator.
-  Left for a later epic (docs/EPIC-13-1.md ruling 25).
+  Left for a later epic (docs/archive/epics/EPIC-13-1.md ruling 25).
 - Rejected: matching by email (proves nothing); refusing to link when the
   course workspace holds work (no honest cheap test, and the student
   could not fix it); a general identities table (moves every sign-in

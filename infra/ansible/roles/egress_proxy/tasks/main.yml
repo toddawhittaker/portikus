@@ -61,7 +61,7 @@
     validate: squid -k parse -f %s
   notify: Restart squid
 
-# A stopped proxy stops every SSO sign-in and LMS launch (EPIC-14 risk 1).
+# A stopped proxy stops every SSO sign-in and LMS launch (docs/archive/epics/EPIC-14.md risk 1).
 - name: Create the squid drop-in directory
   ansible.builtin.file:
     path: /etc/systemd/system/squid.service.d

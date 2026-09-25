@@ -2,7 +2,7 @@
 
 A second platform VM, `portikus-rehearsal`, on the same host as the live
 pilot. Restore, rebuild and load exercises run here, so the pilot is never
-touched (docs/EPIC-12B.md, "Decisions").
+touched (docs/archive/epics/EPIC-12B.md, "Decisions").
 
 It shares nothing with the pilot's `dev-libvirt` environment:
 

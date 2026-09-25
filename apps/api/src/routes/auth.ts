@@ -109,7 +109,7 @@ export function registerAuthRoutes(
 		const callbackUrl = new URL(request.url, auth.publicUrl);
 
 		// A stored intent under this state means the course account asked to
-		// link (docs/EPIC-13-1.md, "The flow" step 3); otherwise a sign-in.
+		// link (docs/archive/epics/EPIC-13-1.md, "The flow" step 3); otherwise a sign-in.
 		const intent = await findLinkIntent(db, loginState.state);
 		if (intent) {
 			return linkCallback(request, reply, callbackUrl, loginState, intent);
@@ -136,7 +136,7 @@ export function registerAuthRoutes(
 				`subject:${identity.subject}`,
 				identity.subject,
 				"denied",
-				// The tenant or domain refusal is named (docs/EPIC-14.md ruling 9).
+				// The tenant or domain refusal is named (docs/archive/epics/EPIC-14.md ruling 9).
 				{ ...(refusal ? { reason: refusal } : {}), ...requestMetadata(request) },
 			);
 			return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);

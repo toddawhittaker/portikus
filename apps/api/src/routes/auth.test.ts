@@ -377,7 +377,7 @@ test.skipIf(skip)("logout writes an auth.logout audit row", async () => {
 	expect(row.result).toBe("ok");
 });
 
-// --- Sign-in providers (docs/EPIC-14.md rulings 8 to 12, 31) ---
+// --- Sign-in providers (docs/archive/epics/EPIC-14.md rulings 8 to 12, 31) ---
 
 const ENTRA: Partial<ApiConfig> = {
 	OIDC_PROVIDER: "entra",

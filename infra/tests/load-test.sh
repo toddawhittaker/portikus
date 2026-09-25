@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The load and concurrency test (docs/EPIC-12B.md, B4; SPEC.md 25.1, 25.2).
+# The load and concurrency test (docs/archive/epics/EPIC-12B.md, B4; SPEC.md 25.1, 25.2).
 #
 # Usage: load-test.sh <vm-ip> [N] [--sweep]
 #

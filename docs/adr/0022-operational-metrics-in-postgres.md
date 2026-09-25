@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-09-22
-- **References**: STACK.md section 15, SPEC.md sections 24.11, 25.6 and 25.10, ADR 0006, ADR 0012, docs/EPIC-11.md
+- **References**: STACK.md section 15, SPEC.md sections 24.11, 25.6 and 25.10, ADR 0006, ADR 0012, docs/archive/epics/EPIC-11.md
 
 ## Context
 

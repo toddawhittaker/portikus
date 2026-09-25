@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# API egress (ADR 0027; docs/EPIC-14.md, "Security invariants to test").
+# API egress (ADR 0027; docs/archive/epics/EPIC-14.md, "Security invariants to test").
 #
 # Sourced by infra/tests/security-test.sh.  The API may reach no internet
 # address directly; through the egress proxy it reaches only listed hosts,

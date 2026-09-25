@@ -1,6 +1,6 @@
 /**
  * The tab that links accounts tells the tab that started it how it ended
- * (docs/EPIC-13-1.md, "The flow" steps 2 and 4). BroadcastChannel is
+ * (docs/archive/epics/EPIC-13-1.md, "The flow" steps 2 and 4). BroadcastChannel is
  * same-origin only.
  */
 export const LINK_CHANNEL = "portikus-link";

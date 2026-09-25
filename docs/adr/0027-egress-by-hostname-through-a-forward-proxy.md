@@ -3,7 +3,7 @@
 - **Status**: Accepted
 - **Date**: 2026-09-24
 - **References**: SPEC.md sections 23 and 24; STACK.md sections 15 and 29;
-  docs/EPIC-14.md rulings 25 to 29; ADR 0025
+  docs/archive/epics/EPIC-14.md rulings 25 to 29; ADR 0025
 
 ## Context
 

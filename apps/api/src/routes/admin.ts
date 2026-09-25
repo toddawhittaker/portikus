@@ -116,7 +116,7 @@ async function listDexUserIds(
 }
 
 /**
- * A local Dex password this site manages (docs/EPIC-14.md ruling 24). Under
+ * A local Dex password this site manages (docs/archive/epics/EPIC-14.md ruling 24). Under
  * Dex in front of an upstream provider, only the local (guest) accounts. While
  * Dex does not answer, the subject alone decides, so a click reports the outage.
  */
@@ -549,7 +549,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		return loadUser(id);
 	});
 
-	// POST /admin/users/:id/make-instructor -- grant instructor (docs/EPIC-14.md ruling 14).
+	// POST /admin/users/:id/make-instructor -- grant instructor (docs/archive/epics/EPIC-14.md ruling 14).
 	app.post("/admin/users/:id/make-instructor", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 		const params = UuidParam.safeParse(request.params);

@@ -1,6 +1,6 @@
 /**
  * Every launch that is wrong in one way is refused, gets a page saying so,
- * and leaves no session (docs/EPIC-13.md rulings 16, 19 and 22).
+ * and leaves no session (docs/archive/epics/EPIC-13.md rulings 16, 19 and 22).
  */
 import { expect, type Page, type Response, test } from "@playwright/test";
 import { query, WEB_ORIGIN } from "./helpers";
@@ -93,7 +93,7 @@ test("a launch that arrives without the state cookie is refused with the reopen 
 });
 
 test("an image-style request to the login sets no state cookie", async ({ page }) => {
-	// Any page could fire these to pile up state cookies (docs/EPIC-13.md ruling 17).
+	// Any page could fire these to pile up state cookies (docs/archive/epics/EPIC-13.md ruling 17).
 	const url = `${WEB_ORIGIN}/lti/login?${new URLSearchParams({
 		iss: MOCK_LMS_ORIGIN,
 		login_hint: "anyone",

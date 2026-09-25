@@ -1,5 +1,5 @@
 /**
- * Command line for the one-time users-file import into Dex (docs/EPIC-14.md ruling 23):
+ * Command line for the one-time users-file import into Dex (docs/archive/epics/EPIC-14.md ruling 23):
  *   node dex-import-main.js --input <users file> --issuer <Dex issuer URL>
  * Reads DATABASE_URL and DEX_GRPC_ADDR, DEX_GRPC_CA, DEX_GRPC_CERT and
  * DEX_GRPC_KEY from the environment.

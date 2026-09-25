@@ -16,7 +16,7 @@ import { flushSync } from "react-dom";
 import { useAddDexUser, useRemoveDexUser, useResetDexPassword } from "./queries.js";
 import { errorText } from "./SettingsTab.js";
 
-/** Standalone Dex users in the Users view (docs/EPIC-14.md rulings 21 and 22). */
+/** Standalone Dex users in the Users view (docs/archive/epics/EPIC-14.md rulings 21 and 22). */
 
 export const PASSWORD_ONCE_TEXT =
 	"Give this to them privately. It will not be shown again.";

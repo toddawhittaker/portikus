@@ -204,7 +204,7 @@
         dex_client_secret: "{{ dex_client_secret_file_content.content | b64decode | trim }}"
       no_log: true
 
-    # ── gRPC API certificates (docs/EPIC-14.md ruling 20) ────────
+    # ── gRPC API certificates (docs/archive/epics/EPIC-14.md ruling 20) ────────
 
     - name: Issue the gRPC API certificates
       ansible.builtin.script:

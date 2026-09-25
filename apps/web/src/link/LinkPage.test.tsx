@@ -1,5 +1,5 @@
 /**
- * The /link confirmation page (docs/EPIC-13-1.md, "The flow" steps 4 and 5,
+ * The /link confirmation page (docs/archive/epics/EPIC-13-1.md, "The flow" steps 4 and 5,
  * ruling 18): it names both accounts, confirms, and explains every refusal.
  */
 import { LinkError } from "@portikus/contracts";

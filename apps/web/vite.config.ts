@@ -45,11 +45,11 @@ export default defineConfig({
 			"/auth": api,
 			// The signed-in user's own editor settings (issue #159).
 			"/me": api,
-			// LTI launch and the Course page's data (docs/EPIC-13.md). Anchored so
+			// LTI launch and the Course page's data (docs/archive/epics/EPIC-13.md). Anchored so
 			// the web app's own /course pages stay in the bundle.
 			"^/lti(/|\\?|$)": api,
 			"^/courses(/|\\?|$)": api,
-			// The /setup page is in the bundle; /setup/* is its data (docs/EPIC-14.md).
+			// The /setup page is in the bundle; /setup/* is its data (docs/archive/epics/EPIC-14.md).
 			"/setup/": api,
 			// /admin is the administration screen in the bundle; /admin/*
 			// is its data. Only the document navigation stays in the browser.

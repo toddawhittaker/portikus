@@ -43,7 +43,7 @@ function fail(
 
 /**
  * Linking a course account to an SSO account, and unlinking it
- * (docs/EPIC-13-1.md, "The flow"; ADR 0026). The OIDC callback's link mode
+ * (docs/archive/epics/EPIC-13-1.md, "The flow"; ADR 0026). The OIDC callback's link mode
  * lives in auth.ts.
  */
 export function registerLinkRoutes(

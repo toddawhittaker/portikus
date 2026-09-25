@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { WorkspaceState } from "./workspace.js";
 
-/** A course the caller teaches, from `GET /courses` (docs/EPIC-13.md ruling 23). */
+/** A course the caller teaches, from `GET /courses` (docs/archive/epics/EPIC-13.md ruling 23). */
 export const CourseSummary = z.object({
 	id: z.string().uuid(),
 	title: z.string(),

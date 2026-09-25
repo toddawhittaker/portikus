@@ -2,7 +2,7 @@
 
 - **Status**: Accepted; its users file and in-memory storage are superseded by ADR 0028
 - **Date**: 2026-09-22
-- **References**: SPEC.md §5, §24; STACK.md §8, §27; ADR 0004, ADR 0008; docs/EPIC-12B.md
+- **References**: SPEC.md §5, §24; STACK.md §8, §27; ADR 0004, ADR 0008; docs/archive/epics/EPIC-12B.md
 
 ## Context
 

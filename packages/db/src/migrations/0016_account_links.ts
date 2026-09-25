@@ -1,6 +1,6 @@
 import { type Kysely, sql } from "kysely";
 
-/** Account links and the stored role grant (docs/EPIC-13-1.md, "The data model"). */
+/** Account links and the stored role grant (docs/archive/epics/EPIC-13-1.md, "The data model"). */
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`alter table users add column provider_role text`.execute(db);
 	await sql`update users set provider_role = role`.execute(db);

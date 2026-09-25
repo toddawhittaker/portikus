@@ -664,7 +664,7 @@ test("the grace field is named by its visible label (WCAG 2.5.3)", async () => {
 	expect(field.hasAttribute("aria-label")).toBe(false);
 });
 
-// Promote and demote (docs/EPIC-13-1.md ruling 23).
+// Promote and demote (docs/archive/epics/EPIC-13-1.md ruling 23).
 const GRANTED_ROW = {
 	...ALICE_ROW,
 	id: "44444444-4444-4444-8444-444444444444",
@@ -833,7 +833,7 @@ test("a refused promote shows the refusal in its dialog", async () => {
 	);
 });
 
-// Make and remove instructor (docs/EPIC-14.md ruling 14).
+// Make and remove instructor (docs/archive/epics/EPIC-14.md ruling 14).
 const TEACHER_ROW = {
 	...ALICE_ROW,
 	id: "66666666-6666-4666-8666-666666666666",

@@ -29,7 +29,7 @@ import { buildServer } from "../server.js";
 import { PUBLIC_URL, testConfig } from "../test-support.js";
 
 /**
- * The first administrator's routes (docs/EPIC-14.md rulings 15 to 18 and
+ * The first administrator's routes (docs/archive/epics/EPIC-14.md rulings 15 to 18 and
  * "Security invariants to test"). A code is single use, expires, is refused
  * for a course account, is throttled, and never reaches a log or audit row.
  */

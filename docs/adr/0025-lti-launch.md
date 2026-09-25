@@ -3,7 +3,7 @@
 - **Status**: Accepted
 - **Date**: 2026-09-23
 - **References**: SPEC.md sections 5.1, 5.2, 14.3, 24, 29 (Epic 13), 31;
-  docs/EPIC-13.md; ADR 0008, ADR 0023
+  docs/archive/epics/EPIC-13.md; ADR 0008, ADR 0023
 
 ## Context
 

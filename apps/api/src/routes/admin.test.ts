@@ -775,7 +775,7 @@ test.skipIf(skip)(
 	},
 );
 
-// --- Promote and demote (docs/EPIC-13-1.md ruling 23) ---
+// --- Promote and demote (docs/archive/epics/EPIC-13-1.md ruling 23) ---
 
 function adminPost(jar: CookieJar, url: string) {
 	return app.inject({ method: "POST", url, headers: csrfHeaders(jar, PUBLIC_URL) });
@@ -977,7 +977,7 @@ test.skipIf(skip)(
 	},
 );
 
-// --- Make and remove instructor (docs/EPIC-14.md ruling 14) ---
+// --- Make and remove instructor (docs/archive/epics/EPIC-14.md ruling 14) ---
 
 test.skipIf(skip)(
 	"make instructor grants instructor once, audited, and survives the next sign-in",

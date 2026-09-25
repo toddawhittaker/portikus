@@ -4,7 +4,7 @@ import { openSocket, request, sleep, waitFor } from "./http.mjs";
 
 const SESSION_COOKIE = "__Host-portikus_session";
 const PREVIEW_COOKIE = "__Host-portikus-preview";
-// About the resident size of an idle coding agent CLI (docs/EPIC-12B.md, B4).
+// About the resident size of an idle coding agent CLI (docs/archive/epics/EPIC-12B.md, B4).
 const STAND_IN =
 	"(setsid nohup python3 -c 'import time; b = b\"x\" * (150 << 20); time.sleep(86400)' >/dev/null 2>&1 &)";
 
@@ -245,7 +245,7 @@ export class Student {
 		return done;
 	}
 
-	/** One round of steady activity (docs/EPIC-12B.md, Part B decisions). */
+	/** One round of steady activity (docs/archive/epics/EPIC-12B.md, Part B decisions). */
 	async act() {
 		this.tick += 1;
 		await this.measure("echo", async () => {

@@ -1,5 +1,5 @@
 # Rehearsal-libvirt environment: a second platform VM beside the pilot, for
-# restore, rebuild and load exercises (docs/EPIC-12B.md, "Decisions").
+# restore, rebuild and load exercises (docs/archive/epics/EPIC-12B.md, "Decisions").
 # It has its own network, pool and state, and is never published.
 
 terraform {

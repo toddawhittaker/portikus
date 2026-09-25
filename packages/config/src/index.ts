@@ -108,15 +108,15 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_CLIENT_ID: z.string().min(1).default("portikus-dev"),
 	OIDC_CLIENT_SECRET: z.string().min(1).default(DEV_CLIENT_SECRET),
 	OIDC_SCOPES: z.string().min(1).default("openid profile email"),
-	/** Empty means no claim carries roles (Dex's Microsoft or Google upstream, EPIC-14 ruling 11). */
+	/** Empty means no claim carries roles (Dex's Microsoft or Google upstream, docs/archive/epics/EPIC-14.md ruling 11). */
 	OIDC_GROUPS_CLAIM: z.string().default("groups"),
 	OIDC_STUDENT_GROUP: z.string().min(1).default("portikus-students"),
 	OIDC_ADMIN_GROUP: z.string().min(1).default("portikus-administrators"),
-	/** The group whose members are instructors (docs/EPIC-13.md ruling 4). */
+	/** The group whose members are instructors (docs/archive/epics/EPIC-13.md ruling 4). */
 	OIDC_INSTRUCTOR_GROUP: z.string().min(1).default("portikus-instructors"),
-	/** Which sign-in provider the site uses (docs/EPIC-14.md ruling 1). */
+	/** Which sign-in provider the site uses (docs/archive/epics/EPIC-14.md ruling 1). */
 	OIDC_PROVIDER: z.enum(["oidc", "entra", "google"]).default("oidc"),
-	/** The one Entra tenant ID whose `tid` may sign in (EPIC-14 ruling 8). */
+	/** The one Entra tenant ID whose `tid` may sign in (docs/archive/epics/EPIC-14.md ruling 8). */
 	OIDC_ALLOWED_TENANT: z.string().min(1).optional(),
 	/** Comma-separated Google Workspace domains whose `hd` may sign in (ruling 3). */
 	OIDC_ALLOWED_DOMAINS: z.string().default(""),
@@ -129,7 +129,7 @@ export const ApiConfigSchema = BaseConfig.extend({
 	DEX_GRPC_CA: z.string().min(1).optional(),
 	DEX_GRPC_CERT: z.string().min(1).optional(),
 	DEX_GRPC_KEY: z.string().min(1).optional(),
-	/** The LTI platforms file (docs/EPIC-13.md ruling 14); unset means LTI is off. */
+	/** The LTI platforms file (docs/archive/epics/EPIC-13.md ruling 14); unset means LTI is off. */
 	LTI_PLATFORMS_FILE: z.string().min(1).optional(),
 	/** The tool's RSA key, whose public half `/lti/jwks` serves (ruling 15). */
 	LTI_TOOL_KEY_FILE: z.string().min(1).optional(),

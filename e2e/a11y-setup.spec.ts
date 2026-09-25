@@ -1,6 +1,6 @@
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the /setup page
- * (docs/EPIC-14.md, T2): the claim form with its error, the sign-in prompt,
+ * (docs/archive/epics/EPIC-14.md, T2): the claim form with its error, the sign-in prompt,
  * and the first-account form a standalone Dex site shows.
  */
 import { expect, type Page, test } from "@playwright/test";

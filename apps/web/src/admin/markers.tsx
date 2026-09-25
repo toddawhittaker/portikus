@@ -18,7 +18,7 @@ const MARKER_ORDER: (keyof AccountMarkers)[] = [
 	"stale",
 ];
 
-/** The marker labels an account carries, in a fixed order (issue #302, EPIC-13-1 ruling 24). */
+/** The marker labels an account carries, in a fixed order (issue #302, docs/archive/epics/EPIC-13-1.md ruling 24). */
 export function markerLabels(markers: AccountMarkers | undefined): string[] {
 	if (!markers) return [];
 	return MARKER_ORDER.filter((key) => markers[key]).map((key) => MARKER_LABEL[key]);
@@ -51,12 +51,12 @@ export function imageText(image: AdminImageVersion): string {
 
 const LTI_PREFIX = "lti:";
 
-/** True for a course account, made by an LTI launch (EPIC-13 ruling 12). */
+/** True for a course account, made by an LTI launch (docs/archive/epics/EPIC-13.md ruling 12). */
 export function isCourseAccount(issuer: string | null | undefined): boolean {
 	return issuer?.startsWith(LTI_PREFIX) ?? false;
 }
 
-/** "SSO", or "Course: <platform host>" for a course account (EPIC-13-1 ruling 24). */
+/** "SSO", or "Course: <platform host>" for a course account (docs/archive/epics/EPIC-13-1.md ruling 24). */
 export function sourceText(issuer: string | null | undefined): string {
 	if (!issuer || !isCourseAccount(issuer)) return "SSO";
 	return `Course: ${shortIssuer(issuer.slice(LTI_PREFIX.length))}`;
@@ -64,7 +64,7 @@ export function sourceText(issuer: string | null | undefined): string {
 
 export const ROLE_FILTERS = ["administrator", "instructor", "student"] as const;
 
-/** The Role column: an administrator says where the role came from (EPIC-13-1 ruling 24). */
+/** The Role column: an administrator says where the role came from (docs/archive/epics/EPIC-13-1.md ruling 24). */
 export function roleText(user: Pick<AdminUser, "role" | "grantedRole">): string {
 	if (user.role === "administrator") {
 		return user.grantedRole === "administrator"

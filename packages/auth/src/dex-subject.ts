@@ -1,7 +1,7 @@
 /**
  * The subject Dex puts in an ID token for a static-password user: the
  * protobuf IDTokenSubject{user_id, conn_id: "local"}, base64url without
- * padding (docs/EPIC-12B.md, "Carrying existing accounts over").
+ * padding (docs/archive/epics/EPIC-12B.md, "Carrying existing accounts over").
  */
 export function dexLocalSubject(userId: string): string {
 	const id = Buffer.from(userId, "utf8");

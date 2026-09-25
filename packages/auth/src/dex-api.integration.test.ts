@@ -14,7 +14,7 @@ import type { AuthOptions } from "./types.js";
 
 /**
  * Dex user management through the gRPC API of a real Dex built from the
- * pinned commit (docs/EPIC-14.md rulings 20 to 22). The CI dex-signin job
+ * pinned commit (docs/archive/epics/EPIC-14.md rulings 20 to 22). The CI dex-signin job
  * starts Dex with PostgreSQL storage and the gRPC API behind mutual TLS, and
  * sets DEX_TEST_ISSUER and the DEX_GRPC_* settings; without them the suite
  * is skipped.

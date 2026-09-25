@@ -3,7 +3,7 @@
 This is the runbook for the one operator of the Portikus pilot. It says how
 to deploy, manage accounts, back up and restore, and check the pilot. It
 serves SPEC.md section 29, Epic 12 ("deployment documentation and a
-runbook"), docs/EPIC-12B.md, task B6, and docs/EPIC-14.md, task T6. How
+runbook"), docs/archive/epics/EPIC-12B.md, task B6, and docs/archive/epics/EPIC-14.md, task T6. How
 the infrastructure is built the first time is in `infra/README.md`. What each part of this runbook
 rests on is in the ADRs (architecture decision records) it cites.
 
@@ -92,7 +92,7 @@ prefer `configure-vm`.
 
 ## Sign-in providers
 
-A site has one sign-in provider (docs/EPIC-14.md, rulings 1 to 13).
+A site has one sign-in provider (docs/archive/epics/EPIC-14.md, rulings 1 to 13).
 Opening Portikus from a course (LTI) works alongside whichever it is.
 Every provider speaks OpenID Connect (OIDC), and an account is always
 keyed by the provider's issuer and its `sub` claim (the provider's
@@ -108,7 +108,7 @@ permanent ID for the person), never by email.
 | Another OIDC provider | `external` | whoever the provider signs in | the `groups` claim | refused |
 
 A "grant" is the stored role an administrator sets with Make instructor
-or Promote in the Users view (docs/EPIC-13-1.md). It lasts across
+or Promote in the Users view (docs/archive/epics/EPIC-13-1.md). It lasts across
 sign-ins.
 
 Every setting below is an environment variable read by `make
@@ -131,7 +131,7 @@ below.
 
 **Changing the provider of a site that already has accounts** gives
 everyone a new, empty account, because the issuer changes. No tool
-carries accounts from one provider to another (docs/EPIC-12B.md, risk
+carries accounts from one provider to another (docs/archive/epics/EPIC-12B.md, risk
 7). The mock-to-Dex carry-over the pilot used once, on 2026-09-23, was
 removed with the users file, so a backup from before that date restores
 accounts that only the mock can sign in to. Once the site uses any
@@ -390,7 +390,7 @@ documentation warns that it is not maintained, so it is not built
 ### First checks with a real provider
 
 The imitation tokens in the tests prove Portikus's own checks, not how a
-real provider behaves (docs/EPIC-14.md, "Unverified until a real tenant
+real provider behaves (docs/archive/epics/EPIC-14.md, "Unverified until a real tenant
 exists"). The first time a site uses Entra, Google or Active Directory,
 check these, and record the results in docs/STATUS.md:
 
@@ -407,7 +407,7 @@ check these, and record the results in docs/STATUS.md:
 ## Managing users
 
 Under Dex, administrators manage accounts in the Users view of `/admin`
-(docs/EPIC-14.md rulings 21 to 24, ADR 0028). Dex keeps them in its
+(docs/archive/epics/EPIC-14.md rulings 21 to 24, ADR 0028). Dex keeps them in its
 PostgreSQL database, `dex`, and the nightly backup holds them as
 `dex.dump`.
 
@@ -486,7 +486,7 @@ row. Epic 15 will wrap the command as `portikus setup-code`.
 ## The Dex cutover and the storage move
 
 The pilot moved from the mock provider to Dex on 2026-09-23 (task A6,
-docs/EPIC-12B.md). Its accounts moved into Dex's storage on 2026-09-24
+docs/archive/epics/EPIC-12B.md). Its accounts moved into Dex's storage on 2026-09-24
 (Epic 14). Both kept every account, `sub` and workspace. docs/STATUS.md
 records each run and its snapshots and dump.
 
@@ -624,7 +624,7 @@ role and the course. Portikus checks it and signs the person in with no
 second password. Students land in their own workspace. Instructors,
 teaching assistants and course designers land in their own workspace too,
 and also get a read-only **Course** page. The design is in ADR 0025 and
-`docs/EPIC-13.md`.
+`docs/archive/epics/EPIC-13.md`.
 
 LTI is off until at least one LMS is registered. Every `/lti/*` route then
 answers 404.
@@ -801,7 +801,7 @@ stay in the database, under the issuer `lti:http://<MOCK_LMS_HOST>:8765`.
 
 A person who signs in both by an LTI launch and through single sign-on
 (SSO) can link the two from Settings, Profile, so every later launch lands
-in the SSO account. The design is `docs/EPIC-13-1.md` and ADR 0026. There
+in the SSO account. The design is `docs/archive/epics/EPIC-13-1.md` and ADR 0026. There
 is no operator step to make linking available; it works once both an LMS
 and the OIDC provider are configured.
 

@@ -48,7 +48,7 @@ clean: ## Remove build output
 # ── Infrastructure targets (STACK.md section 31) ─────────────────
 
 # TOFU_ENV picks the OpenTofu environment: dev-libvirt is the live pilot,
-# rehearsal-libvirt the throwaway VM beside it (docs/EPIC-12B.md).
+# rehearsal-libvirt the throwaway VM beside it (docs/archive/epics/EPIC-12B.md).
 TOFU_ENV ?= dev-libvirt
 TOFU_DIR := infra/tofu/environments/$(TOFU_ENV)
 
@@ -191,14 +191,14 @@ PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
 # provider through the egress proxy; PORTIKUS_EGRESS_EXTRA_HOSTS adds hosts.
 PORTIKUS_IDP ?= dex
 # The retired Dex users file, kept on this machine and never copied to the VM
-# except for the one-time import into Dex's storage (docs/EPIC-14.md ruling 23).
+# except for the one-time import into Dex's storage (docs/archive/epics/EPIC-14.md ruling 23).
 # The Users view manages Dex accounts now.
 PORTIKUS_USERS_FILE ?= $(HOME)/.config/portikus/users.json
 
 # The client secret reaches Ansible through the environment, never a recipe
 # line, where make's echo and ps would show it.
 export PORTIKUS_OIDC_CLIENT_SECRET
-# The provider settings of docs/EPIC-14.md, exported as they are, so an LDAP
+# The provider settings of docs/archive/epics/EPIC-14.md, exported as they are, so an LDAP
 # filter's parentheses and the two secrets never pass through a recipe line.
 export PORTIKUS_ENTRA_TENANT_ID PORTIKUS_GOOGLE_DOMAINS PORTIKUS_EGRESS_EXTRA_HOSTS
 export PORTIKUS_DEX_UPSTREAM PORTIKUS_DEX_UPSTREAM_CLIENT_ID PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
@@ -222,7 +222,7 @@ ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR
 configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|entra|google|external|mock picks the sign-in provider, PORTIKUS_USERS_FILE=<path> the users file imported once into Dex)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml
 
-# ── LTI launch (docs/EPIC-13.md, rulings 14 and 26) ────────────────
+# ── LTI launch (docs/archive/epics/EPIC-13.md, rulings 14 and 26) ────────────────
 # The registered LMS platforms. Kept on this machine; configure-vm copies it to
 # the VM, and no file means LTI is off.
 PORTIKUS_LTI_PLATFORMS_FILE ?= $(HOME)/.config/portikus/lti-platforms.json

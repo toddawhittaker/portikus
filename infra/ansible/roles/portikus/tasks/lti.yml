@@ -1,5 +1,5 @@
 ---
-# LTI launch on the VM (docs/EPIC-13.md, rulings 14, 15 and 26).  api.env
+# LTI launch on the VM (docs/archive/epics/EPIC-13.md, rulings 14, 15 and 26).  api.env
 # always names both files; a missing platforms file means LTI is off.
 # lti_load.yml has already read the file on the Ansible host.
 

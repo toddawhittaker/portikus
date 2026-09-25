@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The rebuild-from-code exercise (STACK.md section 33; docs/EPIC-12B.md,
+# The rebuild-from-code exercise (STACK.md section 33; docs/archive/epics/EPIC-12B.md,
 # item 20 and task B5), on the rehearsal VM only.
 #
 # Usage: rebuild-exercise.sh <backup set dir>

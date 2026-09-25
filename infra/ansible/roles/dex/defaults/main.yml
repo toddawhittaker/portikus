@@ -11,7 +11,7 @@ dex_web_dir: /usr/local/share/portikus/dex-web
 # A separate build cache, so clearing it after a build leaves distrobuilder's alone.
 dex_gocache: /root/go/dex-cache
 # The bcrypt shape allowed: cost 10 to 12, as higher costs let counted
-# password attempts burn the VM's CPU (docs/EPIC-12B.md, the users file).
+# password attempts burn the VM's CPU (docs/archive/epics/EPIC-12B.md, the users file).
 dex_bcrypt_pattern: '^\$2[aby]\$1[0-2]\$[./A-Za-z0-9]{53}$'
 
 # The gRPC API (dex_grpc_addr and dex_grpc_dir, set in site.yml).

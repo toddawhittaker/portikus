@@ -16,7 +16,7 @@ const opts: AuthOptions = {
 };
 
 describe("mapRole", () => {
-	test("ignores every group when no groups claim is set (EPIC-14 ruling 11)", () => {
+	test("ignores every group when no groups claim is set (docs/archive/epics/EPIC-14.md ruling 11)", () => {
 		const none = { ...opts, groupsClaim: "" };
 		const claims = {
 			groups: ["portikus-administrators"],
@@ -110,7 +110,7 @@ describe("mapRole", () => {
 	});
 });
 
-describe("mapRole with OIDC_DEFAULT_ROLE (docs/EPIC-14.md ruling 11)", () => {
+describe("mapRole with OIDC_DEFAULT_ROLE (docs/archive/epics/EPIC-14.md ruling 11)", () => {
 	test("none refuses a user with no matching group", () => {
 		expect(mapRole({ groups: [] }, { ...opts, defaultRole: "none" })).toBeNull();
 	});

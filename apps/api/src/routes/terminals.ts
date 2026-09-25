@@ -352,7 +352,7 @@ export function registerTerminalRoutes(
 		if (body.data.agent !== undefined && project) {
 			try {
 				if ((await countProjectPoints(db, project.id)) >= MAX_POINTS_PER_PROJECT) {
-					// Ids only (ADR 0012); the student is not told (EPIC-10 decisions).
+					// Ids only (ADR 0012); the student is not told (docs/archive/epics/EPIC-10.md decisions).
 					request.log.warn(
 						{ workspaceId: params.data.id, projectId: project.id },
 						"agent-session recovery point skipped: point cap",
