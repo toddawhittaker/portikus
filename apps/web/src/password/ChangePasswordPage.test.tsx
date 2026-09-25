@@ -62,11 +62,25 @@ test("after a good change the administrator lands on the admin page", async () =
 	).toBeTruthy();
 });
 
-test("the setup page is gone", async () => {
-	stubFetch((url) => {
-		if (url === "/auth/me") return json(401, { code: "UNAUTHORIZED", message: "no" });
-		return json(404, { code: "NOT_FOUND", message: "Not found." });
-	});
+test("the forced change page says Current password is the one-time password", async () => {
+	stubFetch((url) => (url === "/auth/me" ? json(200, FLAGGED) : json(200, {})));
+	renderApp("/change-password");
+	expect(
+		await screen.findByText(/enter the one-time password you were given/),
+	).toBeTruthy();
+});
+
+test("the setup page is gone: an unknown address shows a not-found page with a way home", async () => {
+	stubFetch((url) =>
+		url === "/auth/me"
+			? json(401, { code: "UNAUTHENTICATED", message: "no" })
+			: json(200, {}),
+	);
 	renderApp("/setup");
-	expect(await screen.findByText("Not Found")).toBeTruthy();
+	expect(await screen.findByRole("heading", { name: "Page not found" })).toBeTruthy();
+	expect(screen.getByRole("main")).toBeTruthy();
+	expect(screen.getByRole("link", { name: /home page/ }).getAttribute("href")).toBe(
+		"/",
+	);
+	expect(document.title).toBe("Page not found, Portikus");
 });
