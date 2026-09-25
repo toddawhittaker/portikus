@@ -157,6 +157,9 @@ export default defineConfig({
 				PROJECT_TEMPLATES: "Starter=https://example.com/starter.git",
 				WORKSPACE_HOME_SIZE_GIB: "25",
 				WORKSPACE_DOCKER_SIZE_GIB: "20",
+				// One full local run makes more than 150 sign-in starts a minute
+				// from 127.0.0.1 (issue #540); unit tests keep the real limit.
+				SIGNIN_START_LIMIT_PER_MINUTE: "100000",
 			},
 			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,

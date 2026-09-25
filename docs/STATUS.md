@@ -2471,3 +2471,27 @@ fails in CI before it reaches a VM. The sign-in tests now expect the
 Portikus wording after a failed sign-in.
 
 Gaps: none known.
+
+### Administrators land on the admin page (#534)
+
+An administrator who signs in now lands on `/admin` and gets no
+workspace. Their workspace starts only when they press "Open my
+workspace" in the admin header (PR #539; SPEC.md section 6.1). Unit
+tests in `router.test.tsx` and `AdminPage.test.tsx` and the Playwright
+tests `e2e/admin-landing.spec.ts` and `e2e/admin.spec.ts` cover it.
+
+Gaps: none known.
+
+### Full local browser test run no longer hits the sign-in limit (#540)
+
+One full local `pnpm test:e2e` run makes more than 150 sign-in starts a
+minute from 127.0.0.1, so the API's sign-in start limit answered HTTP
+429 and the 12 LTI tests failed. CI passed only because it splits the
+run into three. LTI launches count as sign-in starts on purpose
+(docs/EPIC-13.md ruling 21), so that stays. The Playwright API server
+now sets the existing `SIGNIN_START_LIMIT_PER_MINUTE` setting to
+100,000. Production keeps its default of 150, and the unit tests in
+`apps/api/src/signin-throttle.test.ts` still prove the 429 at the real
+limit.
+
+Gaps: no browser test checks the 429 itself; the unit tests do.
