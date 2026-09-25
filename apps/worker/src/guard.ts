@@ -40,14 +40,15 @@ interface RunSample {
 
 /**
  * Whether the instance booted between two consecutive samples: the boot
- * marker changed, or, when either marker is missing, the CPU counter
- * dropped. A reboot from inside the workspace changes the marker too.
+ * marker changed, or the CPU counter dropped. A counter cannot drop within
+ * one boot, and a restarted init can reuse the old marker.
  */
 export function restartedBetween(prev: RunSample, cur: RunSample): boolean {
-	if (prev.boot_marker !== null && cur.boot_marker !== null) {
-		return prev.boot_marker !== cur.boot_marker;
-	}
-	return BigInt(cur.cpu_usage_ns) < BigInt(prev.cpu_usage_ns);
+	const bothMarkers = prev.boot_marker !== null && cur.boot_marker !== null;
+	return (
+		(bothMarkers && prev.boot_marker !== cur.boot_marker) ||
+		BigInt(cur.cpu_usage_ns) < BigInt(prev.cpu_usage_ns)
+	);
 }
 
 /** Round to one decimal place for the stored average. */
