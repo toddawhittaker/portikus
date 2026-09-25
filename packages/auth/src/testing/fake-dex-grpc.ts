@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import bcrypt from "bcryptjs";
 
 /**
  * A stand-in for Dex's gRPC API with mutual TLS, holding passwords in
@@ -179,6 +180,12 @@ export async function startFakeDexGrpc(
 		DeletePassword: handle((request: { email: string }) => ({
 			not_found: !passwords.delete(request.email.toLowerCase()),
 		})),
+		VerifyPassword: handle((request: { email: string; password: string }) => {
+			const stored = passwords.get(request.email.toLowerCase());
+			if (!stored) return { verified: false, not_found: true };
+			const hash = stored.hash.toString("utf8");
+			return { verified: bcrypt.compareSync(request.password, hash), not_found: false };
+		}),
 		ListPasswords: handle(() => ({
 			passwords: [...passwords.values()].map((p) => ({ ...p, hash: Buffer.alloc(0) })),
 		})),

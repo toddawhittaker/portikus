@@ -6,6 +6,8 @@ export interface AuthUser {
 	email: string | null;
 	displayName: string;
 	role: Role;
+	/** The account must change its password before anything else (docs/EPIC-14-2.md ruling 18). */
+	mustChangePassword: boolean;
 }
 
 /** Everything the auth helpers need, validated by the service's config loader. */

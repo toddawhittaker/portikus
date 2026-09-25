@@ -36,6 +36,12 @@ export {
 	sessionLinkState,
 	unlinkAccount,
 } from "./links.js";
+export {
+	LOCAL_ADMIN_USER_ID,
+	LocalAdminEmailTaken,
+	resetLocalAdmin,
+	runResetAdmin,
+} from "./local-admin.js";
 export { isOnOrigin, type LtiLoginParams, startLtiLogin } from "./lti/login.js";
 export {
 	type LtiPlatform,
@@ -70,6 +76,7 @@ export {
 	requireUser,
 	sessionCookieName,
 	sessionCookieOptions,
+	sessionGate,
 } from "./plugin.js";
 export {
 	createSession,
@@ -82,9 +89,4 @@ export {
 	sessionOrigin,
 	upsertUser,
 } from "./sessions.js";
-export {
-	claimSetupCode,
-	hasEnabledAdministrator,
-	issueSetupCode,
-} from "./setup-code.js";
 export { type AuthOptions, mapRole, type Role } from "./types.js";

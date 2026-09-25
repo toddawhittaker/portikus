@@ -49,6 +49,11 @@ export interface DexApi {
 	deletePassword(email: string): Promise<"deleted" | "not_found">;
 	/** Every password Dex holds. */
 	listPasswords(): Promise<DexPassword[]>;
+	/** Whether `password` is the one Dex holds for this email (docs/EPIC-14-2.md ruling 16). */
+	verifyPassword(
+		email: string,
+		password: string,
+	): Promise<"verified" | "wrong" | "not_found">;
 	close(): void;
 }
 
@@ -98,6 +103,10 @@ interface RawDexClient extends grpc.Client {
 	>;
 	DeletePassword: Method<{ email: string }, { not_found: boolean }>;
 	ListPasswords: Method<Record<string, never>, { passwords: RawPassword[] }>;
+	VerifyPassword: Method<
+		{ email: string; password: string },
+		{ verified: boolean; not_found: boolean }
+	>;
 }
 
 function loadServiceClient(): new (
@@ -168,6 +177,11 @@ export function createDexApi(connection: DexApiConnection): DexApi {
 				username: p.username,
 				userId: p.user_id,
 			}));
+		},
+		async verifyPassword(email, password) {
+			const res = await call(client, client.VerifyPassword, { email, password });
+			if (res.not_found) return "not_found";
+			return res.verified ? "verified" : "wrong";
 		},
 		close() {
 			client.close();
