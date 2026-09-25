@@ -34,6 +34,7 @@ afterAll(async () => {
 const USAGE = {
 	name: "ws-a",
 	cpuUsageNs: 5,
+	bootMarker: 77,
 	cpuLimit: 4,
 	memoryBytes: 10,
 	memoryLimitBytes: 20,

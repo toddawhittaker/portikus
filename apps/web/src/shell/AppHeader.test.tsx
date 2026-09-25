@@ -243,12 +243,16 @@ test("the badge and the menu item both open the Notifications dialog", async () 
 	expect(await screen.findByTestId("dialog-notifications")).toBeDefined();
 });
 
-test("the badge hands its return focus to the account button, which outlives it", async () => {
+// Closed without reading, the badge still exists and takes focus back; the
+// mark-all-read case, where it is gone, is pinned in e2e/notifications.spec.ts.
+test("closing the dialog the badge opened returns focus to the badge", async () => {
 	stubUnread(2);
 	renderHeader();
 	fireEvent.click(await screen.findByTestId("notifications-badge"));
 	expect(await screen.findByTestId("dialog-notifications")).toBeDefined();
 	fireEvent.click(screen.getByRole("button", { name: "Close" }));
 	await waitFor(() => expect(screen.queryByTestId("dialog-notifications")).toBeNull());
-	await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("me")));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByTestId("notifications-badge")),
+	);
 });

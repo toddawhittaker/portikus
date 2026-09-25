@@ -1766,6 +1766,11 @@ describe("resource guard migration", () => {
 						.insertInto("workspaces")
 						.values({ label: testLabel(), owner_user_id: runner, state: "running" })
 						.execute();
+					const stopper = await insertTestUser(trx);
+					await trx
+						.insertInto("workspaces")
+						.values({ label: testLabel(), owner_user_id: stopper, state: "stopping" })
+						.execute();
 
 					const up = await migrator.migrateToLatest();
 					expect(up.error).toBeUndefined();
@@ -1799,12 +1804,15 @@ describe("resource guard migration", () => {
 					expect(byOwner.get(optedOut)?.guard_config).toEqual({ idleStopMinutes: 0 });
 					expect(byOwner.get(longGrace)?.guard_config).toBeNull();
 					expect(byOwner.get(plain)?.guard_config).toBeNull();
-					// Only the running workspace counts as active from the migration on.
+					// Every workspace not stopped counts as active from the migration on,
+					// so a stopping one whose stop fails can still idle-stop later.
 					expect(byOwner.get(runner)?.last_activity_at).toBeInstanceOf(Date);
+					expect(byOwner.get(stopper)?.last_activity_at).toBeInstanceOf(Date);
 					for (const r of rows) {
 						expect(r.cpu_throttle).toBeNull();
 						expect(r.memory_flag).toBeNull();
-						if (r.owner_user_id !== runner) expect(r.last_activity_at).toBeNull();
+						if (r.owner_user_id !== runner && r.owner_user_id !== stopper)
+							expect(r.last_activity_at).toBeNull();
 						expect(r.idle_stop_at).toBeNull();
 					}
 

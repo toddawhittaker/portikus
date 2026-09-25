@@ -238,6 +238,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			.map((inst) => ({
 				name: inst.name,
 				cpuUsageNs: 0,
+				bootMarker: 1,
 				cpuLimit: 4,
 				memoryBytes: 2 ** 30,
 				memoryLimitBytes: 6 * 2 ** 30,

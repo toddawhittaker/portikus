@@ -1088,14 +1088,16 @@ function listed(
 	name: string,
 	status: string,
 	expanded: Record<string, string>,
-	state: { cpu: number; memory: number; total?: number } | null,
+	state: { cpu: number; memory: number; total?: number; pid?: number } | null,
 ) {
 	return {
 		name,
 		status,
 		config: {},
 		expanded_config: expanded,
+		// Incus 7.4 reports pid 0 when it has no init process.
 		state: state && {
+			pid: state.pid ?? 0,
 			cpu: { usage: state.cpu, allocated_time: 0 },
 			memory: { usage: state.memory, total: state.total ?? 0, usage_peak: 0 },
 		},
@@ -1122,7 +1124,7 @@ test("usage reports running instances only, with limits, working set and allowan
 						"limits.cpu.allowance": "100ms/100ms",
 						"volatile.base_image": "x",
 					},
-					{ cpu: 123_456_789, memory: 5_000 },
+					{ cpu: 123_456_789, memory: 5_000, pid: 4242 },
 				),
 				listed("ws-b", "Stopped", { "limits.cpu": "4", "limits.memory": "6GiB" }, null),
 				listed(
@@ -1142,6 +1144,8 @@ test("usage reports running instances only, with limits, working set and allowan
 		{
 			name: "ws-a",
 			cpuUsageNs: 123_456_789,
+			// The host PID of the instance's init marks the boot.
+			bootMarker: 4242,
 			cpuLimit: 4,
 			// Page cache is left out: 5,000 used less 1,000 inactive file.
 			memoryBytes: 4_000,
@@ -1151,6 +1155,8 @@ test("usage reports running instances only, with limits, working set and allowan
 		{
 			name: "ws-c",
 			cpuUsageNs: 7,
+			// No PID reported: no marker, so the guard falls back to the counter.
+			bootMarker: null,
 			// No limits.cpu: the host's CPU count.
 			cpuLimit: 8,
 			memoryBytes: 2_000,
@@ -1220,6 +1226,7 @@ test("usage falls back to Incus's figures when limits.memory or memory.stat is m
 		{
 			name: "ws-a",
 			cpuUsageNs: 1,
+			bootMarker: null,
 			cpuLimit: 8,
 			memoryBytes: 3_000,
 			memoryLimitBytes: 9_000,

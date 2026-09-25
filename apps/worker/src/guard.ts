@@ -32,6 +32,24 @@ export function allowanceFor(sharePercent: number, cpuLimit: number): string {
 	return `${ms}ms/100ms`;
 }
 
+interface RunSample {
+	observed_at: Date;
+	cpu_usage_ns: string;
+	boot_marker: string | null;
+}
+
+/**
+ * Whether the instance booted between two consecutive samples: the boot
+ * marker changed, or, when either marker is missing, the CPU counter
+ * dropped. A reboot from inside the workspace changes the marker too.
+ */
+export function restartedBetween(prev: RunSample, cur: RunSample): boolean {
+	if (prev.boot_marker !== null && cur.boot_marker !== null) {
+		return prev.boot_marker !== cur.boot_marker;
+	}
+	return BigInt(cur.cpu_usage_ns) < BigInt(prev.cpu_usage_ns);
+}
+
 /** Round to one decimal place for the stored average. */
 function round1(value: number): number {
 	return Math.round(value * 10) / 10;
@@ -144,6 +162,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 				workspace_id: id,
 				observed_at: at.toISOString(),
 				cpu_usage_ns: inst.cpuUsageNs,
+				boot_marker: inst.bootMarker,
 				cpu_limit: inst.cpuLimit,
 				memory_bytes: inst.memoryBytes,
 				memory_limit_bytes: inst.memoryLimitBytes,
@@ -155,8 +174,11 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 	 * Throttle when CPU use over the last window of wall-clock time averages
 	 * above the threshold; returns the new row. Usage is remembered across
 	 * restarts (Todd's ruling, 2026-09-25): the CPU time between consecutive
-	 * samples is summed, a counter drop counts as a restart from zero, and
-	 * stopped time counts as no use. The first judgement waits until the
+	 * samples is summed and stopped time counts as no use. Across a restart
+	 * (see restartedBetween) the later counter counts in full, plus the time
+	 * before the restart, up to one sample interval, as full use: a reboot
+	 * from inside the workspace must not hide what ran before it (security
+	 * review, EPIC-14-3 ruling 10). The first judgement waits until the
 	 * oldest kept sample is at least a window old, stopped time included.
 	 */
 	async function judgeCpu(
@@ -177,7 +199,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 		if (!anchor) return null;
 		const samples = await db
 			.selectFrom("workspace_usage_samples")
-			.select("cpu_usage_ns")
+			.select(["observed_at", "cpu_usage_ns", "boot_marker", "cpu_limit"])
 			.where("workspace_id", "=", id)
 			.where("observed_at", ">=", anchor.observed_at)
 			.where("observed_at", "<=", at)
@@ -186,9 +208,17 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			.execute();
 		let usedNs = 0n;
 		for (let i = 1; i < samples.length; i++) {
-			const before = BigInt(samples[i - 1]?.cpu_usage_ns ?? 0);
-			const after = BigInt(samples[i]?.cpu_usage_ns ?? 0);
-			usedNs += after >= before ? after - before : after;
+			const prev = samples[i - 1];
+			const cur = samples[i];
+			if (!prev || !cur) continue;
+			const after = BigInt(cur.cpu_usage_ns);
+			if (restartedBetween(prev, cur)) {
+				const gapMs = cur.observed_at.getTime() - prev.observed_at.getTime();
+				const tailMs = Math.min(Math.max(gapMs, 0), GUARD_SAMPLE_SECONDS * 1000);
+				usedNs += after + BigInt(tailMs) * 1_000_000n * BigInt(cur.cpu_limit);
+			} else {
+				usedNs += after - BigInt(prev.cpu_usage_ns);
+			}
 		}
 		const elapsedNs = (at.getTime() - anchor.observed_at.getTime()) * 1e6;
 		if (elapsedNs <= 0) return null;
@@ -238,19 +268,44 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 		return throttle;
 	}
 
-	/** Flag when memory over the window averages above the threshold, with at least half the samples. */
+	/**
+	 * Flag when memory averages above the threshold over the window, judged
+	 * per run: only samples since the latest restart count, and at least
+	 * half a window of them is needed (EPIC-14-3 ruling 10). A restart is
+	 * what restartedBetween says, or a gap of more than two sample
+	 * intervals, which is where a stop left no samples.
+	 */
 	async function judgeMemory(
 		id: string,
 		effective: EffectiveGuard,
 		at: Date,
 	): Promise<void> {
 		const windowStart = new Date(at.getTime() - effective.windowMinutes * 60_000);
-		const samples = await db
+		const all = await db
 			.selectFrom("workspace_usage_samples")
-			.select(["memory_bytes", "memory_limit_bytes"])
+			.select([
+				"observed_at",
+				"cpu_usage_ns",
+				"boot_marker",
+				"memory_bytes",
+				"memory_limit_bytes",
+			])
 			.where("workspace_id", "=", id)
 			.where("observed_at", ">", windowStart)
+			.where("observed_at", "<=", at)
+			.orderBy("observed_at", "asc")
+			.orderBy("id", "asc")
 			.execute();
+		let runStart = 0;
+		for (let i = 1; i < all.length; i++) {
+			const prev = all[i - 1];
+			const cur = all[i];
+			if (!prev || !cur) continue;
+			const gapMs = cur.observed_at.getTime() - prev.observed_at.getTime();
+			if (restartedBetween(prev, cur) || gapMs > 2 * GUARD_SAMPLE_SECONDS * 1000)
+				runStart = i;
+		}
+		const samples = all.slice(runStart);
 		if (samples.length === 0 || samples.length < effective.windowMinutes / 2) return;
 		let sum = 0;
 		for (const s of samples)

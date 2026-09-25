@@ -10,6 +10,7 @@ describe("the resource guard's controller contracts (ADR 0032)", () => {
 	const usage = {
 		name: "ws-alice",
 		cpuUsageNs: 123_456_789_000,
+		bootMarker: 31337,
 		cpuLimit: 4,
 		memoryBytes: 512 * 1024 ** 2,
 		memoryLimitBytes: 6 * 1024 ** 3,
@@ -33,6 +34,8 @@ describe("the resource guard's controller contracts (ADR 0032)", () => {
 		expect(InstanceUsage.safeParse({ ...usage, memoryLimitBytes: 0 }).success).toBe(
 			false,
 		);
+		expect(InstanceUsage.safeParse({ ...usage, bootMarker: 0 }).success).toBe(false);
+		expect(InstanceUsage.safeParse({ ...usage, bootMarker: null }).success).toBe(true);
 		const { cpuUsageNs: _dropped, ...missing } = usage;
 		expect(InstanceUsage.safeParse(missing).success).toBe(false);
 	});
