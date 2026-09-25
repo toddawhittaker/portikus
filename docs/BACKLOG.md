@@ -88,7 +88,7 @@ always works and SSO setup in the admin area both need Dex on every site.
 6. SPEC.md 5.1, 5.2 and 24.11, EPIC-14.md's superseded rulings, and the
    mock provider tests follow.
 
-**Source.** Todd, 2026-09-25, after a review of the sign-in options.
+**Source.** Todd, 2026-09-25, after a review of the sign-in options. The working brief is `docs/EPIC-14-2.md`.
 
 ## Sign-in setup in the admin area
 
