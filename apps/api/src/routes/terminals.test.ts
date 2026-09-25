@@ -5,7 +5,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { redactUrl } from "@portikus/contracts";
+import { MAX_TERMINALS_PER_WORKSPACE, redactUrl } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
@@ -340,18 +340,19 @@ test.skipIf(skip)("another student sees 404 on every terminal route", async () =
 	expect(agent.terminals.has(terminalId)).toBe(true);
 });
 
-test.skipIf(skip)("the ninth terminal is refused", async () => {
-	for (let i = 0; i < 8; i += 1) {
+test.skipIf(skip)("the terminal past the limit is refused", async () => {
+	for (let i = 0; i < MAX_TERMINALS_PER_WORKSPACE; i += 1) {
 		expect((await create(alice, workspaceId)).statusCode).toBe(201);
 	}
-	const ninth = await create(alice, workspaceId);
-	expect(ninth.statusCode).toBe(409);
-	expect(ninth.json().code).toBe("TERMINAL_LIMIT");
+	const extra = await create(alice, workspaceId);
+	expect(MAX_TERMINALS_PER_WORKSPACE).toBe(20);
+	expect(extra.statusCode).toBe(409);
+	expect(extra.json().code).toBe("TERMINAL_LIMIT");
 });
 
 test.skipIf(skip)("a closed terminal frees a slot", async () => {
 	const ids: string[] = [];
-	for (let i = 0; i < 8; i += 1) {
+	for (let i = 0; i < MAX_TERMINALS_PER_WORKSPACE; i += 1) {
 		ids.push((await create(alice, workspaceId)).json().id);
 	}
 	await app.inject({

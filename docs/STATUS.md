@@ -2526,3 +2526,27 @@ not taken over the stored one (SPEC.md section 5.1).
 
 Gaps: an existing Dex account's name still cannot be changed from the
 Users view.
+
+## Epic 14.3 — Resource guard (in progress)
+
+### Terminal limit of 20, shown in a toast (#474)
+
+A workspace may now hold 20 terminals instead of 8. The API and the
+workspace agent both read the shared constant, and SPEC.md section 9
+says why the cap exists: it stops a runaway client, and the container's
+CPU, memory and process limits are the real resource limit. A refused
+create now shows a toast that names the limit ("You can have up to 20
+terminals open at once. Close one to open another."). Any other failure
+to create, rename, recolour or close a terminal shows a generic toast.
+The inline "Terminals are unavailable" line is kept only for a terminal
+list that will not load.
+
+The same pull request fixes a flaky API test. When a browser socket
+closed while the API had paused its agent socket for backpressure, the
+API never resumed that socket, so it could not read the agent's close
+reply. Both ends then waited for the WebSocket library's 30-second close
+timeout, which made the real-agent test's shutdown hook time out in CI.
+Stopping the backpressure poll now also resumes the agent socket.
+
+Gaps: the New terminal button is not disabled at the cap; the toast is
+enough for now.

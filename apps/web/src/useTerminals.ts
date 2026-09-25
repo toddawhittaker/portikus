@@ -6,14 +6,16 @@
  */
 import {
 	type CodingAgent,
+	MAX_TERMINALS_PER_WORKSPACE,
 	Terminal,
 	TerminalList,
 	type TerminalTheme,
 } from "@portikus/contracts";
+import { useToast } from "@portikus/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { z } from "zod";
-import { request, SessionEndedError } from "./api/request.js";
+import { ApiError, request, SessionEndedError } from "./api/request.js";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
@@ -32,6 +34,14 @@ export interface Terminals {
 	refetch: () => void;
 }
 
+/** What to tell the user when a terminal call fails (issue #474). */
+export function terminalFailureMessage(error: unknown): string {
+	if (error instanceof ApiError && error.code === "TERMINAL_LIMIT") {
+		return `You can have up to ${MAX_TERMINALS_PER_WORKSPACE} terminals open at once. Close one to open another.`;
+	}
+	return "Something went wrong with the terminal. Please try again.";
+}
+
 export function terminalsKey(workspaceId: string, projectId: string) {
 	return ["terminals", workspaceId, projectId] as const;
 }
@@ -43,6 +53,7 @@ export function useTerminals(
 	onSessionEnded: () => void,
 ): Terminals {
 	const queryClient = useQueryClient();
+	const toast = useToast();
 	const key = terminalsKey(workspaceId, projectId);
 	const url = `/workspaces/${workspaceId}/terminals`;
 
@@ -53,6 +64,13 @@ export function useTerminals(
 		queryFn: () =>
 			request(TerminalList, `${url}?projectId=${encodeURIComponent(projectId)}`),
 	});
+
+	// A failed create, rename, theme change or close is a toast; the panes
+	// behind it are still fine. An ended session is handled below instead.
+	function showFailure(error: unknown) {
+		if (error instanceof SessionEndedError) return;
+		toast.show({ tone: "danger", title: terminalFailureMessage(error) });
+	}
 
 	async function invalidate() {
 		await queryClient.invalidateQueries({ queryKey: key });
@@ -86,6 +104,7 @@ export function useTerminals(
 				return { terminals: [...current.terminals, terminal] };
 			});
 		},
+		onError: showFailure,
 	});
 
 	const rename = useMutation({
@@ -96,6 +115,7 @@ export function useTerminals(
 				body: JSON.stringify({ name }),
 			}),
 		onSuccess: invalidate,
+		onError: showFailure,
 	});
 
 	const setTheme = useMutation({
@@ -118,6 +138,7 @@ export function useTerminals(
 					: current,
 			);
 		},
+		onError: showFailure,
 	});
 
 	const close = useMutation({
@@ -126,6 +147,7 @@ export function useTerminals(
 				method: "DELETE",
 			}),
 		onSuccess: invalidate,
+		onError: showFailure,
 	});
 
 	// Any 401 means the session is gone, whichever call saw it first.
@@ -143,8 +165,10 @@ export function useTerminals(
 	return {
 		terminals: query.data?.terminals ?? [],
 		loaded: query.isSuccess,
+		// Only a list that will not load keeps an inline line: then there is
+		// nothing else to show.
 		error:
-			failure && !(failure instanceof SessionEndedError)
+			query.error && !(query.error instanceof SessionEndedError)
 				? "Terminals are unavailable right now."
 				: null,
 		create: (init) => create.mutateAsync(init),
