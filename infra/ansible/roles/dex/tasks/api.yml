@@ -34,15 +34,7 @@
           users file cannot be moved into Dex's storage.  Install a newer
           package with PORTIKUS_DEB or PORTIKUS_VERSION.
 
-    # The grants it sets need the account columns of the current schema.
-    - name: Bring the database schema up to date for the import
-      ansible.builtin.command:
-        argv: [runuser, -u, portikus, --, /usr/bin/node, /usr/lib/portikus/api/node_modules/@portikus/db/dist/migrate.js]
-      environment:
-        DATABASE_URL: "{{ portikus_database_url }}"
-      register: dex_import_migrate
-      changed_when: "'Applied migrations' in dex_import_migrate.stdout"
-
+    # The portikus role brought the schema up to date just before this.
     - name: Write the import input
       ansible.builtin.copy:
         dest: "{{ dex_import_input }}"

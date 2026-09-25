@@ -298,7 +298,7 @@
         that:
           - ol.rootCA == dex_ldap_root_ca_path
           - ol.userSearch.username == 'uid'
-          - ol.userSearch.idAttr == 'uid'
+          - ol.userSearch.idAttr == 'entryUUID'
           - ol.userSearch.nameAttr == 'cn'
           - ol.userSearch.filter == dex_render_ldap.portikus_ldap_user_filter
           - ol.groupSearch is not defined
@@ -328,6 +328,34 @@
           - "'Environment=HTTPS_PROXY=http://127.0.0.1:3128' in dex_up.google.unit"
       vars:
         gg: "{{ dex_up.google.config.connectors[0].config }}"
+
+    # ── The scopes Portikus asks Dex for ────────────────────────
+    # Behind Dex's Microsoft connector the groups claim holds groups students
+    # can create, so only local passwords and LDAP ask for it.  This renders
+    # site.yml's own rule rather than a copy of it.
+    - name: Copy site.yml's scope rule to a template
+      ansible.builtin.copy:
+        content: "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/../ansible/site.yml') | from_yaml)[0].vars.portikus_oidc_scopes }}"
+        dest: "{{ dex_render_workdir.path }}/scopes.j2"
+        mode: "0600"
+
+    - name: Render the scopes for each Dex upstream
+      ansible.builtin.set_fact:
+        dex_scopes: >-
+          {{ dex_scopes | default({}) | combine({item: (lookup('ansible.builtin.template', dex_render_workdir.path ~ '/scopes.j2',
+               template_vars={'portikus_idp': 'dex', 'portikus_dex_upstream': item}) | trim).split()}) }}
+      loop: [none, ldap, microsoft, google]
+
+    - name: Check groups are asked for only where an administrator controls them
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - "'groups' in dex_scopes.none"
+          - "'groups' in dex_scopes.ldap"
+          - "'groups' not in dex_scopes.microsoft"
+          - "'groups' not in dex_scopes.google"
+          - dex_scopes.microsoft == ['openid', 'profile', 'email']
+        fail_msg: "{{ dex_scopes | to_json }}"
 
     # ── The settings guards ─────────────────────────────────────
 

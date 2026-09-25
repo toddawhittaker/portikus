@@ -279,14 +279,17 @@
     state: absent
   when: not portikus_mock_idp
 
-# ── Carry accounts over to Dex (docs/EPIC-12B.md) ────────────────
-# After the package install and the mock is stopped, and before api.env
-# changes: no mock sign-in can make a session after the carry-over revokes
-# them all, and no Dex identity can make a row before its account is linked.
-- name: Carry existing accounts over to Dex
-  ansible.builtin.import_tasks: carry_over.yml
-  when: portikus_idp == 'dex' and dex_users is defined
-  tags: carry_over
+# A fresh VM has no tables until the API first starts, and a handler may
+# still owe the restart that migrates.  The users-file import and the
+# setup-code check below both need the current schema; the API runs the
+# same migration on every start, so this changes nothing else.
+- name: Bring the database schema up to date
+  ansible.builtin.command:
+    argv: [runuser, -u, portikus, --, /usr/bin/node, /usr/lib/portikus/api/node_modules/@portikus/db/dist/migrate.js]
+  environment:
+    DATABASE_URL: "{{ portikus_database_url }}"
+  register: portikus_migrate
+  changed_when: "'Applied migrations' in portikus_migrate.stdout"
 
 # The gRPC client key, and the one-time users-file import, before api.env
 # names the key and the setup-code check below counts administrators.
@@ -368,27 +371,18 @@
 - name: Issue a setup code when there is no administrator
   when: portikus_setup_code_command.stat.exists
   block:
-    # The API applies migrations when it restarts, which a handler may still owe.
-    - name: Bring the database schema up to date for the setup code
-      ansible.builtin.command:
-        argv: [runuser, -u, portikus, --, /usr/bin/node, /usr/lib/portikus/api/node_modules/@portikus/db/dist/migrate.js]
-      environment:
-        DATABASE_URL: "{{ portikus_database_url }}"
-      register: portikus_setup_migrate
-      changed_when: "'Applied migrations' in portikus_setup_migrate.stdout"
-
     - name: Count the enabled administrators
       ansible.builtin.command:
         argv:
           - runuser
           - -u
-          - postgres
+          - portikus
           - --
           - psql
           - -X
           - -tA
           - -d
-          - portikus
+          - "{{ portikus_database_url }}"
           - -c
           - "SELECT count(*) FROM users WHERE role = 'administrator' AND disabled_at IS NULL"
       register: portikus_admin_count

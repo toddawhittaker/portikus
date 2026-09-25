@@ -130,11 +130,11 @@ hosts it names. Nobody types address ranges. See "The egress proxy",
 below.
 
 **Changing the provider of a site that already has accounts** gives
-everyone a new, empty account, because the issuer changes. Only the move
-from the mock to Dex has a carry-over tool (`make
-identity-carry-over-dry-run`, kept for restoring old backups). Moving
-accounts to Entra, Google or another provider needs a carry-over that
-does not exist yet (docs/EPIC-12B.md, risk 7).
+everyone a new, empty account, because the issuer changes. No tool
+carries accounts from one provider to another (docs/EPIC-12B.md, risk
+7). The mock-to-Dex carry-over the pilot used once, on 2026-09-23, was
+removed with the users file, so a backup from before that date restores
+accounts that only the mock can sign in to.
 
 ### Microsoft Entra ID
 
@@ -251,10 +251,22 @@ The schema picks these attributes. People sign in with the username
 attribute. Group members are matched by their full distinguished name
 (DN) in the group's `member` attribute.
 
-| Schema | Username and ID | Display name | Groups searched |
-|---|---|---|---|
-| `ad` | `sAMAccountName` | `displayName` | `(objectClass=group)` |
-| `openldap` | `uid` | `cn` | `(objectClass=groupOfNames)` |
+| Schema | Username | ID | Display name | Groups searched |
+|---|---|---|---|---|
+| `ad` | `sAMAccountName` | `sAMAccountName` | `displayName` | `(objectClass=group)` |
+| `openldap` | `uid` | `entryUUID` | `cn` | `(objectClass=groupOfNames)` |
+
+The ID becomes the person's Portikus identity, and their workspace hangs
+off it. OpenLDAP's `entryUUID` is never reused, so a new person who is
+later given an old username gets a new, empty account. Active Directory
+has no text attribute like that: its `objectGUID` is binary, and Dex
+v2.45.1 copies it into the token's subject as raw bytes, which fail to
+encode for most accounts. So under AD the ID is the username, and **a
+reused username inherits the old account, its workspace and its role.**
+Disable a departed person's AD account; never delete it and give the
+name to someone else. Before Epic 14's review the OpenLDAP ID was `uid`.
+No site used LDAP then, but a site that did would find everyone's next
+sign-in making a new, empty account.
 
 The role comes from groups whose `cn` is `portikus-students`,
 `portikus-instructors` or `portikus-administrators`. Change the names with
@@ -306,6 +318,11 @@ registered with the provider:
   URI `https://<public host>:<port>/dex/callback`.
 - Entra app roles are not used, and Google sends no groups. Everyone
   starts as a student, and roles come from grants in the Users view.
+  Portikus does not ask Dex for groups here: Dex's Microsoft connector
+  would pass on every group the person belongs to, including Microsoft
+  365 groups any student can create and name after the administrators'
+  group. A play that sets `PORTIKUS_OIDC_SCOPES` with `groups` under
+  either connector stops with an error.
 
 ```
 read -rs PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET && export PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
@@ -504,8 +521,10 @@ workspaces have their own egress rules.
 - **What it allows.** A host name is reached only over HTTPS (a
   `CONNECT` tunnel) on port 443, or on the port listed with it, and never
   at a private, loopback or link-local address. An IPv4 address listed
-  with a port is allowed exactly, plain HTTP included. Squid caches
-  nothing and never sees inside the TLS connection.
+  with a port is allowed exactly, plain HTTP included. Any other address
+  given directly, IPv4 or IPv6, is refused; names are matched as
+  written, never through reverse DNS. Squid caches nothing and never
+  sees inside the TLS connection.
 - **Where the list comes from.** Every `make configure-vm` rebuilds it
   from the provider's discovery document (fetched while the play runs),
   the keyset URL of every registered LMS, and
@@ -1051,27 +1070,26 @@ the end, even when a step fails:
 ```
 make rebuild-exercise BACKUP=/var/backups/portikus/portikus/<timestamp> \
   PREVIOUS_VERSION=<release to roll back to> \
-  PORTIKUS_USERS_FILE=<rehearsal users file> \
-  PORTIKUS_SMOKE_SIGNIN_FILE=<file with a test user's email and password>
+  PORTIKUS_SMOKE_SIGNIN_FILE=<file with a Dex user's email and password>
 ```
 
-**Not run since Epic 14, and expected to fail.**
-`infra/tests/rebuild-exercise.sh` still requires the retired
-`PORTIKUS_USERS_FILE` and converges the new VM with it before the
-restore. On that empty VM the play imports the file, which creates an
-account for each administrator or instructor in it, and `restore.sh` then
-refuses a target that already has accounts. The fix belongs in the script
-(docs/STATUS.md, Epic 14 T6 gaps).
+The set must hold `dex.dump`, the Dex accounts database that backups
+carry since Epic 14. The sign-in file names a Dex user in that set: the
+email on the first line and the password on the second, mode 0600. The
+exercise never imports a users file, because the accounts an import
+creates would make `restore.sh` refuse the VM.
 
 Run it from a shell in the `libvirt` group, like `make rehearsal-up`.
 It does these steps in order:
 
 1. It builds the package from the checkout.
-2. It rebuilds the VM from code, and builds the workspace image.
-3. It restores the set.
-4. It carries mock accounts over to Dex, if the set holds any.
-5. It runs the smoke test with the restored-data checks.
-6. It rolls back to the previous package, then checks `/health` and a
+2. It rebuilds the VM from code, converges it with Dex, and builds the
+   workspace image.
+3. It restores the set, Dex's accounts included, and starts one restored
+   workspace to check it.
+4. It runs the smoke test with the restored-data checks, the lifecycle
+   block and a full Dex sign-in.
+5. It rolls back to the previous package, then checks `/health` and a
    Dex sign-in.
 
 It prints a timing table at the end, and keeps a log of each step under
@@ -1081,6 +1099,9 @@ It prints a timing table at the end, and keeps a log of each step under
 The previous package must support Dex. At the time of writing, no
 published release does, so the run below used a local build of the
 previous epic head.
+
+The run below is from before Epic 14, when the exercise still carried
+mock accounts over to Dex; it has not been repeated since.
 
 The run on 2026-09-23 restored the pilot's set `20260923T045452Z` and
 rolled back to `0.1.366+g1acca31`. Every step passed:
@@ -1132,7 +1153,7 @@ Rebuild, and a full Dex password sign-in. Building the package beforehand
 | Destroy, create, converge, build the image | as above | 8 min 48 s |
 | Prove the key opens the set | `restore.sh --check <set>` | 1 s |
 | Restore the pilot's newest set | `make restore TOFU_ENV=rehearsal-libvirt BACKUP=<set> START_CHECK=1` | 55 s |
-| Show the account pairings | `make identity-carry-over-dry-run TOFU_ENV=rehearsal-libvirt PORTIKUS_USERS_FILE=<file>` | under 1 min |
+| Show the account pairings | `make identity-carry-over-dry-run` (since removed) | under 1 min |
 | Carry the accounts over to Dex | `make configure-vm` as above | 48 s |
 | **From an empty host to restored students signing in** | | **about 10 min 30 s** |
 
@@ -1167,13 +1188,11 @@ What was checked afterwards:
   workspace (same id and label). She could start and stop it through the
   API, and bob's workspace answered 404 to her.
 
-**A restore needs one extra step while old backups hold mock accounts.**
-A backup taken before the Dex cutover holds users under the mock issuer.
-After restoring one onto a VM that signs in through Dex, run
-`make identity-carry-over-dry-run`, read it, then `make configure-vm`
-again, so the carry-over links the accounts. Without it, a student who
-signs in gets a new, empty account. Backups taken after the cutover
-already hold Dex identities and need no carry-over.
+**Backups from before the Dex cutover hold mock accounts.** A set taken
+before 2026-09-23 holds users under the mock issuer. The carry-over that
+linked them to Dex was removed with the users file, so after such a
+restore a student who signs in through Dex gets a new, empty account.
+Sets taken since hold Dex identities.
 
 **Removing an account ends its sessions.** Under Epic 14 this is the
 Users view's Remove, which disables the account through the same path as

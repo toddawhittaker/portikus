@@ -460,24 +460,6 @@ in the file becomes that account's stored grant. The import is all or
 nothing, and a later run imports nothing. After the import, delete the
 file.
 
-#### Moving existing accounts from the mock to Dex
-
-Accounts made through the mock have the mock as their issuer, so after a
-switch to Dex the same people would get new, empty accounts. When the
-play has a users file, it carries each of its accounts over to the row
-the mock account already has, matching by email, before the API
-switches to Dex. It audits every change and signs everyone out once. The
-pilot needed this once, on 2026-09-23; it is kept for restoring a backup
-taken before then. To see what it would do without changing anything:
-
-```
-make identity-carry-over-dry-run
-```
-
-Each account is reported as already linked, carried (or would carry), new
-(it gets an account at first sign-in), or left behind (an older duplicate,
-issue #302, which is not touched).
-
 #### The egress proxy
 
 The API's systemd unit may reach only loopback and the workspace bridge.

@@ -58,7 +58,15 @@ fi
 [ -r "$IDENTITY" ] || die "no age identity at ${IDENTITY}; set PORTIKUS_BACKUP_IDENTITY"
 [ -f "${SET}/MANIFEST.age" ] || die "${SET} is not a backup set (no MANIFEST.age)"
 scratch=$(mktemp -d)
-trap 'rm -rf "$scratch"' EXIT
+# Set once Dex is stopped, and once a restored workspace is held running.
+dex_stopped=no ws_held=no
+cleanup() {
+  [ "$ws_held" = no ] || release
+  # A restore that dies after stopping Dex must not leave sign-in down.
+  [ "$dex_stopped" = no ] || vm sudo systemctl start portikus-dex || true
+  rm -rf "$scratch"
+}
+trap cleanup EXIT
 t0=$(date +%s)
 step_start=$t0
 step() {
@@ -145,6 +153,9 @@ psql_vm() { printf '%s\n' "$1" | vm_in "sudo runuser -u postgres -- psql -X -q -
 actual_name=$(vm hostname)
 [ "$actual_name" = "$target_name" ] || die "${VM} is '${actual_name}', not '${target_name}'; nothing was changed"
 
+# Mock, Entra and Google sites run no Dex, so a set's Dex accounts have nowhere to go.
+dex_installed() { vm "if systemctl cat portikus-dex.service >/dev/null 2>&1; then echo yes; else echo no; fi"; }
+
 start_services() {
   # The API first: its start runs the migrations the worker's queries need.
   vm sudo systemctl start portikus-api
@@ -173,9 +184,12 @@ if [ "$mode" = remove ]; then
   info "removed ${#volumes[@]} imported volumes and the instances' own volumes"
   # The restored rows go with a fresh, empty database.
   vm "sudo runuser -u postgres -- dropdb --if-exists portikus && sudo runuser -u postgres -- createdb -O portikus portikus"
-  if grep -q '^file dex\.dump ' "$manifest"; then
+  if grep -q '^file dex\.dump ' "$manifest" && [ "$(dex_installed)" = yes ]; then
     # Dex makes its tables again when it starts on the empty database.
-    vm "sudo systemctl stop portikus-dex && sudo runuser -u postgres -- dropdb --if-exists dex && sudo runuser -u postgres -- createdb -O portikus-dex dex && sudo systemctl start portikus-dex"
+    dex_stopped=yes
+    vm "sudo systemctl stop portikus-dex && sudo runuser -u postgres -- dropdb --if-exists dex && sudo runuser -u postgres -- createdb -O portikus-dex dex"
+    vm sudo systemctl start portikus-dex
+    dex_stopped=no
   fi
   start_services
   step "the set's workspaces and the restored database are gone from ${target_name}"
@@ -215,10 +229,16 @@ step "database restored, every workspace marked stopped, every session ended"
 # Dex's accounts (docs/EPIC-14.md ruling 19), with Dex stopped so the
 # database can be replaced; a set from before Dex had storage has none.
 if grep -q '^file dex\.dump ' "$manifest"; then
-  vm sudo systemctl stop portikus-dex
-  decrypt dex.dump | vm_in "sudo runuser -u postgres -- pg_restore --create --clean --if-exists --exit-on-error -d postgres"
-  vm sudo systemctl start portikus-dex
-  step "Dex's accounts restored"
+  if [ "$(dex_installed)" = yes ]; then
+    dex_stopped=yes
+    vm sudo systemctl stop portikus-dex
+    decrypt dex.dump | vm_in "sudo runuser -u postgres -- pg_restore --create --clean --if-exists --exit-on-error -d postgres"
+    vm sudo systemctl start portikus-dex
+    dex_stopped=no
+    step "Dex's accounts restored"
+  else
+    info "the set holds Dex's accounts, but ${target_name} runs no Dex; skipped them"
+  fi
 fi
 
 # ── 5. Volumes ────────────────────────────────────────────────────
@@ -303,11 +323,11 @@ if [ "$start_check" = yes ]; then
   conn=$(psql_vm "WITH c AS (INSERT INTO workspace_connections (workspace_id) VALUES ('${ws}') RETURNING id) UPDATE workspaces SET desired_state = 'running', last_active_connection_at = now(), updated_at = now() WHERE id = '${ws}' RETURNING (SELECT id FROM c)")
   [[ "$conn" =~ $UUID_PATTERN ]] || die "could not add a presence row for ${ws}"
   release() {
-    trap 'rm -rf "$scratch"' EXIT
+    ws_held=no
     psql_vm "DELETE FROM workspace_connections WHERE id = '${conn}'; UPDATE workspaces SET desired_state = 'stopped', updated_at = now() WHERE id = '${ws}'" || true
   }
   # However the check ends, the workspace is let go so it stops again.
-  trap 'release; rm -rf "$scratch"' EXIT
+  ws_held=yes
   state=""
   for _ in $(seq 1 90); do
     psql_vm "UPDATE workspace_connections SET last_seen_at = now() WHERE id = '${conn}'"

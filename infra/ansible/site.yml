@@ -151,10 +151,13 @@
     portikus_oidc_client_id: "{{ lookup('env', 'PORTIKUS_OIDC_CLIENT_ID') }}"
     portikus_oidc_client_secret: "{{ lookup('env', 'PORTIKUS_OIDC_CLIENT_SECRET') }}"
     # Dex puts groups in the token only when asked; some providers refuse
-    # scopes they do not know.
+    # scopes they do not know.  Groups are asked for only where an
+    # administrator controls them: behind Dex's Microsoft connector a
+    # student can create a group with the administrators' group name.
     portikus_oidc_scopes: >-
       {{ lookup('env', 'PORTIKUS_OIDC_SCOPES')
-         | default('openid profile email groups' if portikus_idp == 'dex'
+         | default('openid profile email groups'
+                     if portikus_idp == 'dex' and portikus_dex_upstream in ['none', 'ldap']
                    else 'openid profile email', true) }}
     # Entra's roles are the app roles on the Portikus registration.
     portikus_oidc_groups_claim: "{{ 'roles' if portikus_idp == 'entra' else 'groups' }}"
@@ -250,6 +253,18 @@
           PORTIKUS_IDP must be dex, entra, google, external or mock (got
           '{{ portikus_idp }}'), and PORTIKUS_DEX_UPSTREAM none, ldap,
           microsoft or google (got '{{ portikus_dex_upstream }}').
+      tags: always
+
+    - name: Refuse the groups scope behind Dex's Microsoft or Google connector
+      ansible.builtin.assert:
+        that:
+          - "'groups' not in portikus_oidc_scopes.split()"
+        fail_msg: >-
+          PORTIKUS_OIDC_SCOPES asks for groups, but with
+          PORTIKUS_DEX_UPSTREAM={{ portikus_dex_upstream }} anyone can create a
+          group named like the administrators' group.  Leave groups out; roles
+          come from the Users view.
+      when: portikus_idp == 'dex' and portikus_dex_upstream in ['microsoft', 'google']
       tags: always
 
     - name: Require identity provider settings for an outside provider

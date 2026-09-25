@@ -319,26 +319,29 @@ jobs:
           curl -sfL "https://raw.githubusercontent.com/dexidp/dex/${{ steps.pin.outputs.commit }}/api/v2/api.proto"
           | cmp - packages/auth/proto/dex-api.proto
       # PostgreSQL storage and the gRPC API behind mutual TLS, as the dex role
-      # will run them (docs/EPIC-14.md rulings 19 and 20). "other" is a second
-      # authority, for a client Dex must refuse.
+      # will run them (docs/EPIC-14.md rulings 19 and 20), with the role's own
+      # certificate script. grpc-other is a second authority, for a client
+      # Dex must refuse.
       - name: Give Dex PostgreSQL storage and the gRPC API
         env:
           PGPASSWORD: portikus
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -U postgres -c 'create database dex'
-          pnpm exec tsx -e '
-            import { writeDexGrpcCerts } from "./packages/auth/src/testing/fake-dex-grpc.ts";
-            writeDexGrpcCerts(process.env.DEX_DIR + "/grpc", "ci");
-            writeDexGrpcCerts(process.env.DEX_DIR + "/grpc", "other");
-          '
+          certs=infra/ansible/roles/dex/files/dex-grpc-certs.sh
+          group=$(id -gn)
+          for dir in grpc grpc-other; do
+            [ "$(sudo bash "$certs" "$DEX_DIR/$dir" 30 "$group" "$group")" = changed ]
+          done
+          # A second run with every certificate current issues nothing.
+          [ -z "$(sudo bash "$certs" "$DEX_DIR/grpc" 30 "$group" "$group")" ]
           yq -i '
             .storage = {"type": "postgres", "config": {"host": "127.0.0.1", "port": 5432,
               "database": "dex", "user": "postgres", "password": "portikus", "ssl": {"mode": "disable"}}} |
             .grpc = {"addr": "127.0.0.1:5557",
-              "tlsCert": strenv(DEX_DIR) + "/grpc/ci-server.crt",
-              "tlsKey": strenv(DEX_DIR) + "/grpc/ci-server.key",
-              "tlsClientCA": strenv(DEX_DIR) + "/grpc/ci-ca.crt"}
+              "tlsCert": strenv(DEX_DIR) + "/grpc/server.crt",
+              "tlsKey": strenv(DEX_DIR) + "/grpc/server.key",
+              "tlsClientCA": strenv(DEX_DIR) + "/grpc/ca.crt"}
           ' "$DEX_DIR/config.yaml"
       - name: Start Dex
         run: |
@@ -357,9 +360,9 @@ jobs:
           PGPASSWORD: portikus
           DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/dex_import
           DEX_GRPC_ADDR: 127.0.0.1:5557
-          DEX_GRPC_CA: ${{ env.DEX_DIR }}/grpc/ci-ca.crt
-          DEX_GRPC_CERT: ${{ env.DEX_DIR }}/grpc/ci-client.crt
-          DEX_GRPC_KEY: ${{ env.DEX_DIR }}/grpc/ci-client.key
+          DEX_GRPC_CA: ${{ env.DEX_DIR }}/grpc/ca.crt
+          DEX_GRPC_CERT: ${{ env.DEX_DIR }}/grpc/client.crt
+          DEX_GRPC_KEY: ${{ env.DEX_DIR }}/grpc/client.key
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -U postgres -c 'create database dex_import'
@@ -386,11 +389,11 @@ jobs:
           DEX_TEST_ISSUER: http://127.0.0.1:5556/dex
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
           DEX_GRPC_ADDR: 127.0.0.1:5557
-          DEX_GRPC_CA: ${{ env.DEX_DIR }}/grpc/ci-ca.crt
-          DEX_GRPC_CERT: ${{ env.DEX_DIR }}/grpc/ci-client.crt
-          DEX_GRPC_KEY: ${{ env.DEX_DIR }}/grpc/ci-client.key
-          DEX_GRPC_OTHER_CERT: ${{ env.DEX_DIR }}/grpc/other-client.crt
-          DEX_GRPC_OTHER_KEY: ${{ env.DEX_DIR }}/grpc/other-client.key
+          DEX_GRPC_CA: ${{ env.DEX_DIR }}/grpc/ca.crt
+          DEX_GRPC_CERT: ${{ env.DEX_DIR }}/grpc/client.crt
+          DEX_GRPC_KEY: ${{ env.DEX_DIR }}/grpc/client.key
+          DEX_GRPC_OTHER_CERT: ${{ env.DEX_DIR }}/grpc-other/client.crt
+          DEX_GRPC_OTHER_KEY: ${{ env.DEX_DIR }}/grpc-other/client.key
       - name: Show the Dex log
         if: failure()
         run: cat "$DEX_DIR/dex.log" || true

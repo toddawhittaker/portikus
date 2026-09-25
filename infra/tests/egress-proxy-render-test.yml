@@ -38,7 +38,7 @@
           - egress_rules | select('match', '^http_access') | first == 'http_access deny !localhost'
           - egress_rules | select('match', '^http_access') | last == 'http_access deny all'
           # The site is reached by name at loopback, on its own port.
-          - "'acl portikus_site dstdomain portikus.192.168.10.48.nip.io' in egress_rules"
+          - "'acl portikus_site dstdomain -n portikus.192.168.10.48.nip.io' in egress_rules"
           - "'acl portikus_site_port port 8443' in egress_rules"
           - "'http_access allow portikus_connect portikus_site portikus_site_port portikus_site_address' in egress_rules"
           # A listed address is allowed exactly, on its port, before the private rule.
@@ -47,16 +47,41 @@
           - egress_rules.index('http_access allow portikus_fetch portikus_address_1 portikus_address_1_port')
             < egress_rules.index('http_access deny portikus_private')
           # Host names on 443 are allowed by CONNECT only, after the private rule.
-          - "'acl portikus_hosts_443 dstdomain login.microsoftonline.com sso.canvaslms.com' in egress_rules"
-          - "'acl portikus_hosts_8443 dstdomain keys.example.edu' in egress_rules"
+          - "'acl portikus_hosts_443 dstdomain -n login.microsoftonline.com sso.canvaslms.com' in egress_rules"
+          - "'acl portikus_hosts_8443 dstdomain -n keys.example.edu' in egress_rules"
           - egress_rules.index('http_access deny portikus_private')
             < egress_rules.index('http_access allow portikus_connect portikus_hosts_443 portikus_port_443')
           # A host listed with its own port may also get plain HTTP there.
           - egress_rules.index('http_access deny portikus_private')
             < egress_rules.index('http_access allow portikus_fetch portikus_hosts_8443 portikus_port_8443')
+          # No name is ever matched by reverse DNS.
+          - egress_rules | select('search', ' dstdomain ') | reject('search', ' dstdomain -n ') | list | length == 0
+          # Any unlisted address given directly is refused before the names.
+          - egress_rules.index('http_access allow portikus_fetch portikus_address_1 portikus_address_1_port')
+            < egress_rules.index('http_access deny portikus_ip_literal')
+          - egress_rules.index('http_access deny portikus_ip_literal')
+            < egress_rules.index('http_access allow portikus_connect portikus_hosts_443 portikus_port_443')
           # No address rule names a host, and no host rule names an address.
           - egress_rules | select('search', 'dstdomain .*192\.168\.10\.48( |$)') | list | length == 0
         fail_msg: "{{ egress_render }}"
+
+    - name: Check which hosts count as an address given directly
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - (item.host is search(ip_literal[0], ignorecase=true) or item.host is search(ip_literal[1])) == item.literal
+        fail_msg: "{{ item.host }}"
+      loop:
+        - {host: 1.1.1.1, literal: true}
+        - {host: "2130706433", literal: true}
+        - {host: 0x7f.1, literal: true}
+        - {host: "2606:4700::1111", literal: true}
+        - {host: "[2606:4700::1111]", literal: true}
+        - {host: login.microsoftonline.com, literal: false}
+        - {host: 1.1.1.1.nip.io, literal: false}
+        - {host: cafe.be, literal: false}
+      vars:
+        ip_literal: "{{ (egress_rules | select('match', '^acl portikus_ip_literal dstdom_regex -n -i ') | first).split()[5:] }}"
 
     - name: Render with no site and no listed hosts
       ansible.builtin.set_fact:
@@ -68,5 +93,5 @@
     - name: Check that an empty list lets nothing out
       ansible.builtin.assert:
         that:
-          - egress_empty == ['http_access deny !localhost', 'http_access deny portikus_private', 'http_access deny all']
+          - egress_empty == ['http_access deny !localhost', 'http_access deny portikus_ip_literal', 'http_access deny portikus_private', 'http_access deny all']
         fail_msg: "{{ egress_empty }}"
