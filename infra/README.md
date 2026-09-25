@@ -364,7 +364,7 @@ leaves libvirt's own rules alone, so the VM keeps its outbound access.
 
 ### Identity provider
 
-`PORTIKUS_IDP` picks how people sign in (ADR 0023, docs/EPIC-14.md). A
+`PORTIKUS_IDP` picks how people sign in (ADR 0023, docs/archive/epics/EPIC-14.md). A
 site has one provider; LTI launches work beside any of them.
 
 - `dex`, the default: Dex runs on the VM and keeps its own passwords,
@@ -505,7 +505,7 @@ not sign everyone out.
 
 LTI 1.3 (Learning Tools Interoperability) lets a student open Portikus
 from a course in a learning management system (LMS) such as Canvas or
-Moodle, without a second password (docs/EPIC-13.md). The LMS is called the
+Moodle, without a second password (docs/archive/epics/EPIC-13.md). The LMS is called the
 platform. docs/OPERATIONS.md says which LMS fields to fill in.
 
 Platforms are registered in a file on the machine that runs Ansible, by

@@ -756,7 +756,7 @@ test("reset Docker puts back every other device exactly and replaces only the do
 	expect(state.devices.docker).toEqual(before.docker);
 	expect(state.deleted).toEqual(["ws-test-docker"]);
 	expect(state.createdVolumes).toEqual(["ws-test-docker"]);
-	// A new volume picks up the current quota (EPIC-10 risk 9).
+	// A new volume picks up the current quota (docs/archive/epics/EPIC-10.md risk 9).
 	expect(state.volumes.get("ws-test-docker")).toBe("30GiB");
 	expect(state.volumes.get("ws-test-home")).toBe("25GiB");
 	expect(state.volumes.get("ws-test-recovery")).toBe("3GiB");

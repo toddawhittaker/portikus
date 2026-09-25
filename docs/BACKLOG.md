@@ -9,7 +9,7 @@ it is rejected, and record the rejection in `docs/STACK.md` section 35.
 ## `apt install portikus` on a bring-your-own Debian 13 host
 
 **Scheduled as Epic 15.** `docs/EPIC-15.md` is now the plan, after Epic 14
-(`docs/EPIC-14.md`); it keeps this entry's shape (Debian 13 only, the
+(`docs/archive/epics/EPIC-14.md`); it keeps this entry's shape (Debian 13 only, the
 Ansible roles shipped in the package, a signed apt repository, the image
 as a release asset, a fresh-install test) and adds debconf questions and
 an admin Workspace image section. Remove this entry when Epic 15 lands.
@@ -85,7 +85,7 @@ always works and SSO setup in the admin area both need Dex on every site.
    sessions ended, the password printed; it recreates a removed account.
 5. Remove the setup code, `/setup`, its claim route, the first-account
    form and the `setup_codes` table.
-6. SPEC.md 5.1, 5.2 and 24.11, EPIC-14.md's superseded rulings, and the
+6. SPEC.md 5.1, 5.2 and 24.11, docs/archive/epics/EPIC-14.md's superseded rulings, and the
    mock provider tests follow.
 
 **Source.** Todd, 2026-09-25, after a review of the sign-in options.
@@ -228,7 +228,7 @@ to two weeks; a post-pilot epic candidate.
 
 **Source.** Todd, 2026-09-17.
 
-**Shipped** as Epic 13 (`docs/EPIC-13.md`, ADR 0025): the core launch, the
+**Shipped** as Epic 13 (`docs/archive/epics/EPIC-13.md`, ADR 0025): the core launch, the
 `instructor` role and a read-only Course page. What it left out is listed
 in the LTI entries at the end of this file.
 
@@ -734,7 +734,7 @@ hostile entry name. Epic 12b did not add one.
 tests of `apps/workspace-agent/src/recovery.ts`, following the pattern in
 `apps/workspace-agent/src/security/path-escape.test.ts`. Half a day.
 
-**Source.** `docs/EPIC-12A.md`, decisions; `docs/STATUS.md`, Epic 12a.
+**Source.** `docs/archive/epics/EPIC-12A.md`, decisions; `docs/STATUS.md`, Epic 12a.
 
 ## Optional content-length on downloads
 
@@ -785,7 +785,7 @@ is still conceivable.
 itself at the start of a run, checked before minting any user. About half
 a day.
 
-**Source.** `docs/EPIC-12A.md`, "Rules for the VM suite"; `docs/STATUS.md`,
+**Source.** `docs/archive/epics/EPIC-12A.md`, "Rules for the VM suite"; `docs/STATUS.md`,
 Epic 12a (PR #440).
 
 ## A shared point-insert helper for the API and the worker
@@ -817,7 +817,7 @@ archive that is deleted while a restore is reading it (retry or fail the
 restore cleanly, not silently), and old `.portikus-aside-*` and
 `.portikus-restore-*` folders left behind by an incomplete restore.
 
-**Why.** Epic 10 accepted an orphan archive as a known gap (`docs/EPIC-10.md`,
+**Why.** Epic 10 accepted an orphan archive as a known gap (`docs/archive/epics/EPIC-10.md`,
 risk 8): the API can crash between the agent writing an archive and the
 row being inserted. Rollback copies from a failed restore are also never
 cleaned up automatically today (`docs/STATUS.md`, Epic 10 known gaps).
@@ -829,7 +829,7 @@ and deletes anything with no matching row past some age, plus ages out
 `.portikus-aside-*` folders after a fixed period. One to two days,
 including the busy-delete race with an in-progress restore.
 
-**Source.** `docs/EPIC-10.md` risk 8; `docs/STATUS.md`, Epic 10 known gaps.
+**Source.** `docs/archive/epics/EPIC-10.md` risk 8; `docs/STATUS.md`, Epic 10 known gaps.
 
 ## Recovery quota backfill should follow `WORKSPACE_RECOVERY_SIZE_GIB`
 
@@ -872,7 +872,7 @@ request is refused only because the caller is going too fast, instead of
 reusing `BUSY`.
 
 **Why.** Epic 10 answers 429 with code `BUSY` when a project's manual
-recovery-point rate limit is hit (`docs/EPIC-10.md` task 5 review fixes),
+recovery-point rate limit is hit (`docs/archive/epics/EPIC-10.md` task 5 review fixes),
 the same code the agent's per-project lock uses for "another operation
 on this project is already running". A client cannot tell "try again in
 a moment" from "wait for the other operation to finish" apart without
@@ -882,7 +882,7 @@ also checking the HTTP status.
 throttle, so what is left is to switch Epic 10's recovery-point
 rate-limit responses to it and update the handful of tests that assert on `BUSY` for a rate limit today. Half a day.
 
-**Source.** `docs/EPIC-10.md`, task 5 review fixes; PR #428.
+**Source.** `docs/archive/epics/EPIC-10.md`, task 5 review fixes; PR #428.
 ## OpenTelemetry export
 
 **What.** Export the operational metrics that today live only in
@@ -914,7 +914,7 @@ sweep job similar to the one that already prunes `health_samples` after
 7 days, and a decision on whether old rows are deleted or exported
 first. About a day.
 
-**Source.** SPEC.md section 25.10; `docs/EPIC-11.md`, "Out of this epic".
+**Source.** SPEC.md section 25.10; `docs/archive/epics/EPIC-11.md`, "Out of this epic".
 
 ## Per-workspace CPU, memory, and process limits
 
@@ -929,7 +929,7 @@ workspace is bounded only by the platform-wide profile.
 **What it would take.** A per-instance Incus limit override, a place to
 store the chosen values, and admin UI to set them. About two days.
 
-**Source.** `docs/EPIC-11.md`, "Out of this epic".
+**Source.** `docs/archive/epics/EPIC-11.md`, "Out of this epic".
 
 ## Egress allow-list (issue #284)
 
@@ -948,7 +948,7 @@ nftables rules per workspace, alongside the existing deny list), and
 admin UI in the Settings tab, which Epic 11 left a place for. About two
 days.
 
-**Source.** Issue #284; `docs/EPIC-11.md`, "Settings tab" and task 7.
+**Source.** Issue #284; `docs/archive/epics/EPIC-11.md`, "Settings tab" and task 7.
 
 ## Bulk admin actions
 
@@ -964,7 +964,7 @@ confirmation dialog naming every affected row, and either a bulk API
 route or a loop over the existing single-row ones with a shared audit
 row per action. About a day.
 
-**Source.** `docs/EPIC-11.md`, "Out of this epic".
+**Source.** `docs/archive/epics/EPIC-11.md`, "Out of this epic".
 
 ## Course profiles and a language-aware editor
 
@@ -1146,7 +1146,7 @@ security review of the new Graph credential and its egress host.
 
 **What.** Let people from more than one Entra tenant sign in to one site.
 
-**Why.** Epic 14 allows one tenant per site (docs/EPIC-14.md ruling 8).
+**Why.** Epic 14 allows one tenant per site (docs/archive/epics/EPIC-14.md ruling 8).
 A site shared by several organisations would need more.
 
 **What it would take.** Entra's shared `organizations` endpoint, whose
@@ -1162,7 +1162,7 @@ security review.
 domain, and optionally map groups to roles.
 
 **Why.** Under Google, the domain is the only gate, and everyone starts
-as a student (docs/EPIC-14.md risk 3).
+as a student (docs/archive/epics/EPIC-14.md risk 3).
 
 **What it would take.** A Google Admin SDK call with a service account
 and domain-wide delegation, and its host on the egress allow list. A few
@@ -1218,13 +1218,13 @@ the matching web changes. A day or two.
 
 **What.** Let an administrator link or unlink two accounts on someone
 else's behalf, for a person who cannot complete the self-service flow
-(EPIC-13-1.md).
+(docs/archive/epics/EPIC-13-1.md).
 
 **Why.** Today only the account holder can start and confirm a link.
 A student whose course sign-in is linked to an SSO account that is later
 disabled or promoted to administrator is locked out of launches: every launch lands
 in that account and is refused, and only an administrator-side unlink
-would bring the course account back (EPIC-13-1.md rulings 21 and N4).
+would bring the course account back (docs/archive/epics/EPIC-13-1.md rulings 21 and N4).
 
 **What it would take.** An admin route that skips the "recent launch"
 proof and instead requires the administrator to pick both accounts

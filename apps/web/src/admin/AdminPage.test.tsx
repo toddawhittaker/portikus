@@ -117,7 +117,7 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 
 	const nav = await screen.findByRole("navigation", { name: "Administration" });
 	const current = within(nav).getByRole("link", { current: "page" });
-	// Relabelled Users; the address stays ?tab=workspaces (EPIC-13-1 ruling 24).
+	// Relabelled Users; the address stays ?tab=workspaces (docs/archive/epics/EPIC-13-1.md ruling 24).
 	expect(current.textContent).toBe("Users");
 	expect(current.getAttribute("href")).toBe("/admin?tab=workspaces");
 	expect(within(nav).getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(

@@ -4,7 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
 import { PASSWORD_ONCE_TEXT } from "./DexUserDialogs.js";
 
-/** The Dex user dialogs in the Users view (docs/EPIC-14.md rulings 21, 22, 24). */
+/** The Dex user dialogs in the Users view (docs/archive/epics/EPIC-14.md rulings 21, 22, 24). */
 
 afterEach(() => vi.unstubAllGlobals());
 

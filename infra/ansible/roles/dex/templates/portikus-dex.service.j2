@@ -30,7 +30,7 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 # Loopback for the proxy and the database; an LDAP directory by address,
-# since LDAP does not go through the proxy (docs/EPIC-14.md ruling 28).
+# since LDAP does not go through the proxy (docs/archive/epics/EPIC-14.md ruling 28).
 IPAddressAllow=127.0.0.0/8{% if portikus_dex_upstream == 'ldap' %} {{ portikus_ldap_ip_allow | join(' ') }}{% endif %}
 
 IPAddressDeny=any

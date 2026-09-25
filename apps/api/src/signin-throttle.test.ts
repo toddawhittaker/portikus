@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 import { createSigninThrottle } from "./signin-throttle.js";
 import { buildTestServer, PUBLIC_URL } from "./test-support.js";
 
-/** The sign-in rate limit (issue #398; docs/EPIC-12B.md, "Sign-in rate limit"). */
+/** The sign-in rate limit (issue #398; docs/archive/epics/EPIC-12B.md, "Sign-in rate limit"). */
 
 describe("createSigninThrottle", () => {
 	function fixture() {

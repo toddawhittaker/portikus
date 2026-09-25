@@ -3,7 +3,7 @@
 - **Status**: Accepted
 - **Date**: 2026-09-23
 - **References**: SPEC.md sections 17.3, 19, 24.9, 29 (Epic 12); STACK.md
-  sections 20, 27 and 33; docs/EPIC-12B.md ("Part B decisions", task B3);
+  sections 20, 27 and 33; docs/archive/epics/EPIC-12B.md ("Part B decisions", task B3);
   ADR 0005, ADR 0020, ADR 0021
 
 ## Context
@@ -234,7 +234,7 @@ exactly the set's instances, their home, recovery and Docker volumes, and
 every volume named on the MANIFEST's `volume` lines, and replaces the
 database with an empty one; it refuses a VM named
 `portikus`. The rehearsal VM is also destroyed when an exercise ends
-(docs/EPIC-12B.md, Part 3).
+(docs/archive/epics/EPIC-12B.md, Part 3).
 
 ## Consequences
 
@@ -242,7 +242,7 @@ database with an empty one; it refuses a VM named
   and its disk survive. The backups sit on the same physical disk as the
   VM, so they do not protect against losing that disk. That is an accepted
   pilot gap: Todd copies `/var/backups/portikus` to external storage weekly
-  by hand, and off-site copies are later work (docs/EPIC-12B.md, risk 10).
+  by hand, and off-site copies are later work (docs/archive/epics/EPIC-12B.md, risk 10).
 - Losing the private age key makes every set unreadable. Todd keeps it in
   his password manager (risk 11), and the restore drill starts with
   `restore.sh --check`, which proves the key still opens the newest set.

@@ -6,7 +6,7 @@ import type { SessionMethod, SessionOrigin } from "./sessions.js";
 import type { Role } from "./types.js";
 
 /**
- * Account links and the stored role grant (docs/EPIC-13-1.md, "The data
+ * Account links and the stored role grant (docs/archive/epics/EPIC-13-1.md, "The data
  * model" and rulings 10 to 23). Identities are looked up only by (issuer,
  * `sub`), never by email or username. Functions that change several rows
  * take the caller's transaction, so the caller's audit rows commit with them.
@@ -24,7 +24,7 @@ function hashState(state: string): string {
 	return createHash("sha256").update(state).digest("hex");
 }
 
-/** True for a course account's issuer, `lti:<platform issuer>` (EPIC-13 ruling 12). */
+/** True for a course account's issuer, `lti:<platform issuer>` (docs/archive/epics/EPIC-13.md ruling 12). */
 export function isCourseIssuer(issuer: string): boolean {
 	return issuer.startsWith(LTI_PREFIX);
 }
@@ -474,7 +474,7 @@ export async function revokeAdministrator(
 }
 
 /**
- * Grant instructor to an SSO account (docs/EPIC-14.md ruling 14). Run inside
+ * Grant instructor to an SSO account (docs/archive/epics/EPIC-14.md ruling 14). Run inside
  * the caller's transaction. An administrator grant is never touched, and an
  * account already instructor or higher is left as it is (`changed` false).
  */
@@ -508,7 +508,7 @@ export async function grantInstructor(
 }
 
 /**
- * Remove a granted instructor role (docs/EPIC-14.md ruling 14): the account
+ * Remove a granted instructor role (docs/archive/epics/EPIC-14.md ruling 14): the account
  * falls back to its provider role. Only an instructor grant is removed.
  */
 export async function revokeInstructor(
@@ -537,7 +537,7 @@ export async function revokeInstructor(
 /**
  * Create the account a new Dex password will sign into, before its first
  * sign-in, holding the role as a grant because Dex sends no groups
- * (docs/EPIC-14.md ruling 21). Run inside the caller's transaction.
+ * (docs/archive/epics/EPIC-14.md ruling 21). Run inside the caller's transaction.
  */
 export async function precreateDexAccount(
 	trx: Kysely<Database>,

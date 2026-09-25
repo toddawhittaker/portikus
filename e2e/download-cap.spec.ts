@@ -10,7 +10,7 @@ import {
 import { FAKE_AGENT_URL } from "./ports";
 
 /**
- * The download size cap (#399, EPIC-12B "Part B decisions"). A download over
+ * The download size cap (#399, docs/archive/epics/EPIC-12B.md "Part B decisions"). A download over
  * 1 GB is refused before anything is zipped, and the student is told the
  * limit and what to do instead, rather than seeing a failed download.
  */

@@ -1,6 +1,6 @@
 # Epic 13.1: Link a course account to an SSO account, and promote administrators
 
-This is the working brief for Epic 13.1. SPEC.md section 29 lists Epic 13 and this follows it; this file is the requirement an agent implements against. Where it is silent, `docs/SPEC.md` wins on behaviour and `docs/STACK.md` on technology. `docs/EPIC-13.md` and ADR 0025 describe the LTI launch this builds on; ADR 0026 records the decisions made here.
+This is the working brief for Epic 13.1. SPEC.md section 29 lists Epic 13 and this follows it; this file is the requirement an agent implements against. Where it is silent, `docs/SPEC.md` wins on behaviour and `docs/STACK.md` on technology. `docs/archive/epics/EPIC-13.md` and ADR 0025 describe the LTI launch this builds on; ADR 0026 records the decisions made here.
 
 - **Base commit:** `main` at `a3a1378`.
 - **Epic branch:** `epic/13-1-account-linking`. Builders reset to `origin/epic/13-1-account-linking` and branch `task/13-1-<name>` from it.
@@ -9,7 +9,7 @@ This is the working brief for Epic 13.1. SPEC.md section 29 lists Epic 13 and th
 Terms used throughout:
 
 - **SSO account** (single sign-on): an account whose sign-in is the institution's OpenID Connect (OIDC) provider. On the pilot that provider is Dex; in production it may be Microsoft Entra ID or another. Nothing in this epic may depend on Dex: only the issuer and the `sub` claim, through the existing OIDC client and config. Entra's `sub` is stable per application, so accounts stay keyed on (issuer, `sub`), never on email, `oid` or `preferred_username`.
-- **Course account**: an account created by an LTI launch, stored under the issuer `lti:<platform issuer>` (EPIC-13 ruling 12).
+- **Course account**: an account created by an LTI launch, stored under the issuer `lti:<platform issuer>` (docs/archive/epics/EPIC-13.md ruling 12).
 - **Link**: a record that sends every later launch from one course account into one SSO account.
 
 ## What the user gets
@@ -127,7 +127,7 @@ Each task owns only the files listed; ask the orchestrator before touching any o
 | **T3 Web: linking** | builder, then tester for e2e | `apps/web/src/link/**` (new `/link` page); `apps/web/src/router.tsx` and test; `apps/web/src/settings/SettingsDialog.tsx`, `sections.ts`, `profileQueries.ts` and tests; `e2e/account-link.spec.ts`, `e2e/a11y-link.spec.ts` (new) | T1's contracts; T2 for e2e |
 | **T4 Web: Users view** | builder, then tester for e2e | `apps/web/src/admin/AdminPage.tsx`, `WorkspacesTab.tsx`, `WorkspaceDetail.tsx`, `queries.ts`, `markers.tsx` and their tests; `e2e/admin-roles.spec.ts` (new); `e2e/admin*.spec.ts` only where the tab label breaks them | T1's contracts; T2 for e2e |
 | **T5 Docs and rehearsal** | builder | `docs/adr/0026-account-links-and-role-grant.md` (proposed in this PR; T5 brings it in line with what landed and marks it accepted); `docs/SPEC.md` section 5.2 and section 29; `docs/OPERATIONS.md` (unarchiving a linked account's workspace; grants versus the users file; the Entra limit); `docs/OVERVIEW.md`; `docs/STATUS.md`; `docs/BACKLOG.md` (close the linking item; add "Left out") | all others |
-| **T6 Instructors remove a course member** | builder | `apps/api/src/routes/courses.ts` and test; `apps/api/src/security/route-policy.ts`, `authz-matrix.test.ts`; `apps/web/src/course/CoursePage.tsx`, `RemoveMemberConfirm.tsx` (new), `queries.ts` and tests; `packages/contracts/src/courses.ts` and test; `packages/mock-lms/src/seed.ts`; `e2e/course-remove.spec.ts` (new), `e2e/lti-course.spec.ts`, `e2e/lti-helpers.ts`; `docs/EPIC-13.md` (amends rulings 23 and 27); `docs/BACKLOG.md` (closes the two items this replaces) | T1 |
+| **T6 Instructors remove a course member** | builder | `apps/api/src/routes/courses.ts` and test; `apps/api/src/security/route-policy.ts`, `authz-matrix.test.ts`; `apps/web/src/course/CoursePage.tsx`, `RemoveMemberConfirm.tsx` (new), `queries.ts` and tests; `packages/contracts/src/courses.ts` and test; `packages/mock-lms/src/seed.ts`; `e2e/course-remove.spec.ts` (new), `e2e/lti-course.spec.ts`, `e2e/lti-helpers.ts`; `docs/archive/epics/EPIC-13.md` (amends rulings 23 and 27); `docs/BACKLOG.md` (closes the two items this replaces) | T1 |
 
 T1 starts alone; it is small. T2, T3 and T4 start when T1 lands, together. The e2e specs in T3 and T4 pass once T2 lands. T6 landed alongside the others, as `#506`, once T1 was in. T5 is last and includes the pilot rehearsal.
 
@@ -140,7 +140,7 @@ After every task has landed: code-reviewer over the epic head, security-reviewer
 - **T3:** component tests for the Profile states (course inside and past the window, SSO with and without links) and the `/link` page (pending, each error, confirm); Playwright: launch as Sam Student from the mock LMS, link to mock user `bob`, confirm, land in bob's workspace, relaunch lands there too, the course account's old session is dead, unlink, relaunch lands in the course account; a link to an SSO identity with no account is refused; axe on `/link` and the Profile section.
 - **T4:** component tests for search by name, email, username and source, the role filter, the role labels, and the Promote and Demote dialogs; Playwright: search, promote `alice`, alice's admin link appears on her next page load, demote, no demote for carol (provider administrator) or oneself, the last-admin refusal (seeded with only granted administrators), promote refused for a course account; axe on the tab and dialogs.
 - **T5:** every doc above updated; ADR 0026 accepted; `pnpm lint` passes; the pilot rehearsal (mock LMS registered, launch, link to a real Dex user through the password page, relaunch, unlink, unregister) recorded in STATUS.md.
-- **T6:** route tests for every refusal (student, another course's instructor, removing oneself, a non-member) and the success path; the authorization matrix covers the new route; component tests for the confirmation dialog and the list updating; Playwright removes a member from `cs350` and shows a relaunch adds it back; `docs/EPIC-13.md` rulings 23 and 27 amended in place, not restated here.
+- **T6:** route tests for every refusal (student, another course's instructor, removing oneself, a non-member) and the success path; the authorization matrix covers the new route; component tests for the confirmation dialog and the list updating; Playwright removes a member from `cs350` and shows a relaunch adds it back; `docs/archive/epics/EPIC-13.md` rulings 23 and 27 amended in place, not restated here.
 
 # Risks
 
@@ -185,7 +185,7 @@ P8. **`StateBadge` gains an `inCell` option** (SPEC.md section 25.8). Inside a t
 
 P9. **Issue #302 (the admin account detail shows the full issuer and username) is met** by T4's account section, which already prints both in full; no separate change was needed.
 
-P10. **Instructors remove a course member** (`#506`, amending Epic 13 rulings 23 and 27). `POST /courses/:courseId/members/:userId/remove` deletes that one `lti_memberships` row and writes a `course.member_removed` audit row with ids only. It refuses students, an instructor of a different course, removing oneself, and a non-member. A later launch from the LMS adds the membership back, exactly as any other launch does. The Course page's member list now carries each member's `userId`, which Epic 13's ruling 23 said the response would never contain; T5 does not touch this, since #506 already amended `docs/EPIC-13.md` rulings 23 and 27 in place.
+P10. **Instructors remove a course member** (`#506`, amending Epic 13 rulings 23 and 27). `POST /courses/:courseId/members/:userId/remove` deletes that one `lti_memberships` row and writes a `course.member_removed` audit row with ids only. It refuses students, an instructor of a different course, removing oneself, and a non-member. A later launch from the LMS adds the membership back, exactly as any other launch does. The Course page's member list now carries each member's `userId`, which Epic 13's ruling 23 said the response would never contain; T5 does not touch this, since #506 already amended `docs/archive/epics/EPIC-13.md` rulings 23 and 27 in place.
 
 P11. **A last-administrator e2e test was deliberately left out.** P6 asks for Playwright coverage of "the last-admin guard"; that guard is exercised by the API route test (concurrent mutual demotions, `admin.test.ts`) and the component test for the Demote dialog's refusal state (`WorkspaceDetail.test.tsx`). A seeded, isolated database state (only granted administrators, nobody else) for one more end-to-end path was judged not worth the added run time and flake surface, given the two tests already pin the invariant at the unit and component levels.
 

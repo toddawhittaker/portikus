@@ -132,7 +132,7 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# frame-ancestors 'none' keeps the control plane out of any iframe,
 	# including a preview. /lti/* is the one exception: an LMS may frame the
 	# launch, and the API sends a frame-ancestors naming the registered
-	# platforms itself (docs/EPIC-13.md, ruling 17).
+	# platforms itself (docs/archive/epics/EPIC-13.md, ruling 17).
 	@not_lti not path /lti/*
 	header @not_lti Content-Security-Policy "frame-ancestors 'none'"
 
@@ -160,17 +160,17 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	handle /admin* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
-	# LTI launch from an LMS (docs/EPIC-13.md). The API answers 404 here
+	# LTI launch from an LMS (docs/archive/epics/EPIC-13.md). The API answers 404 here
 	# when no platform is registered.
 	handle /lti/* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
-	# An instructor's course list and members (docs/EPIC-13.md, ruling 23).
+	# An instructor's course list and members (docs/archive/epics/EPIC-13.md, ruling 23).
 	# The pages themselves live at /course, served by the bundle below.
 	handle /courses* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
-	# The first administrator's setup code (docs/EPIC-14.md, rulings 17 and
+	# The first administrator's setup code (docs/archive/epics/EPIC-14.md, rulings 17 and
 	# 18). The page itself is /setup, served by the bundle below.
 	handle /setup/* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}

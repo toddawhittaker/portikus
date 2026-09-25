@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # LTI launch, the frame policy and the instructor role through the real edge
-# (docs/EPIC-13.md rulings 4, 5, 7, 9, 16, 17, 19, 25 and 26; SPEC.md 24).
+# (docs/archive/epics/EPIC-13.md rulings 4, 5, 7, 9, 16, 17, 19, 25 and 26; SPEC.md 24).
 #
 # Sourced by infra/tests/security-test.sh.  Works with LTI on or off: with no
 # platforms file the /lti routes must be 404, and the checks that need a

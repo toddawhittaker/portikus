@@ -6,7 +6,7 @@ host name resolves to Caddy and Caddy's root certificate is installed.  It
 prints one JSON object and never prints a token, state or nonce.
 
   launch MOCK_URL SITE PERSON COURSE
-      The whole browser flow with the mock LMS (docs/EPIC-13.md, "The mock
+      The whole browser flow with the mock LMS (docs/archive/epics/EPIC-13.md, "The mock
       LMS"): the mock's launch page and form, /lti/login, the mock's /authorize, then
       /lti/launch.  Then asks /auth/me, /courses and one admin route with the
       new session, and posts the same id_token and state a second time.
@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 
 CA = "/etc/portikus/caddy-root.crt"
-# One cookie per login, named from the state's hash (docs/EPIC-13.md, ruling 16).
+# One cookie per login, named from the state's hash (docs/archive/epics/EPIC-13.md, ruling 16).
 STATE_COOKIE_PREFIX = "__Host-portikus_lti_state_"
 SESSION_COOKIE = "__Host-portikus_session"
 ADMIN_ROUTE = "/admin/users"

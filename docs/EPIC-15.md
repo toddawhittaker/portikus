@@ -1,6 +1,6 @@
 # Epic 15: `apt install portikus`
 
-This is the working brief for Epic 15. It is the requirement an agent implements against. Where it is silent, `docs/SPEC.md` wins on behaviour and `docs/STACK.md` on technology. It replaces the BACKLOG entry "`apt install portikus` on a bring-your-own Debian 13 host", builds on Epic 14 (`docs/EPIC-14.md`), and is built after it. ADR 0029 (Ansible in the package) and ADR 0030 (workspace image jobs) record the decisions made here.
+This is the working brief for Epic 15. It is the requirement an agent implements against. Where it is silent, `docs/SPEC.md` wins on behaviour and `docs/STACK.md` on technology. It replaces the BACKLOG entry "`apt install portikus` on a bring-your-own Debian 13 host", builds on Epic 14 (`docs/archive/epics/EPIC-14.md`), and is built after it. ADR 0029 (Ansible in the package) and ADR 0030 (workspace image jobs) record the decisions made here.
 
 - **Base commit:** `main` once Epic 14 has merged. **Epic branch:** `epic/15-apt-install`. Builders reset to it and branch `task/15-<name>`.
 - **Migration number:** none. No task adds a migration.

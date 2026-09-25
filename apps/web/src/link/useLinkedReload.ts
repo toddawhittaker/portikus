@@ -3,7 +3,7 @@ import { LINK_CHANNEL, type LinkMessage } from "./channel.js";
 
 /**
  * Any Portikus tab reloads when a link finishes in another tab, even with
- * Settings closed (docs/EPIC-13-1.md, "The flow" step 4). Confirming ended
+ * Settings closed (docs/archive/epics/EPIC-13-1.md, "The flow" step 4). Confirming ended
  * the course session; the shared cookie now holds the SSO one.
  */
 export function useLinkedReload() {

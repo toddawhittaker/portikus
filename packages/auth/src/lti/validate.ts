@@ -13,7 +13,7 @@ import { type LtiRole, mapLtiRoles } from "./roles.js";
 import type { LtiLoginState } from "./state.js";
 
 /**
- * Every reason a launch is refused, one per check (docs/EPIC-13.md ruling
+ * Every reason a launch is refused, one per check (docs/archive/epics/EPIC-13.md ruling
  * 19). `state_missing` and `state_mismatch` come from `checkLaunchState`
  * and `consumeLoginState`; the rest from {@link validateLaunchToken}.
  */
@@ -64,7 +64,7 @@ const CLOCK_SKEW_SECONDS = 60;
  * One remote JWKS per keyset URL, kept for the life of the process: keys
  * cached 10 minutes, an unknown `kid` refetches at most every 30 seconds,
  * each fetch times out after 5 seconds (ruling 19). With a proxy URL the
- * fetches go through the forward proxy (docs/EPIC-14.md ruling 27).
+ * fetches go through the forward proxy (docs/archive/epics/EPIC-14.md ruling 27).
  */
 export function createKeySetSource(proxyUrl?: string | null): KeySetSource {
 	const outboundFetch = createOutboundFetch(proxyUrl);

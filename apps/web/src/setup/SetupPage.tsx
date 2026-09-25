@@ -11,7 +11,7 @@ import { useMe } from "../useMe.js";
 
 /**
  * `/setup`: the first administrator enters the one-time setup code printed on
- * the server (docs/EPIC-14.md rulings 15 to 18). Signed in, the code makes
+ * the server (docs/archive/epics/EPIC-14.md rulings 15 to 18). Signed in, the code makes
  * this account an administrator. Signed out on a standalone Dex site with no
  * administrator, the code creates the first account instead.
  */

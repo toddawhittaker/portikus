@@ -1,4 +1,4 @@
-# The load and concurrency test (docs/EPIC-12B.md, B4; docs/CAPACITY.md).
+# The load and concurrency test (docs/archive/epics/EPIC-12B.md, B4; docs/CAPACITY.md).
 .PHONY: load-test
 
 N ?= 25

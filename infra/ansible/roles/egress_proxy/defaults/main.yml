@@ -1,5 +1,5 @@
 ---
-# The API's only way to the internet (ADR 0027, docs/EPIC-14.md rulings 26 to 28).
+# The API's only way to the internet (ADR 0027, docs/archive/epics/EPIC-14.md rulings 26 to 28).
 egress_proxy_port: 3128
 
 # Hosts the proxy lets through, as `host` (port 443) or `host:port`.  A

@@ -65,7 +65,7 @@ export function useRemovePicture() {
 
 export const linksKey = ["me", "links"] as const;
 
-/** Whether this is a course or an SSO account, and its links (docs/EPIC-13-1.md, "The flow" step 1). */
+/** Whether this is a course or an SSO account, and its links (docs/archive/epics/EPIC-13-1.md, "The flow" step 1). */
 export function useMyLinks() {
 	return useQuery({
 		queryKey: linksKey,

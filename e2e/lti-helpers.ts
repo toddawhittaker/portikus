@@ -1,5 +1,5 @@
 /**
- * Launch helpers for the LTI specs (docs/EPIC-13.md, "The mock LMS"). Each
+ * Launch helpers for the LTI specs (docs/archive/epics/EPIC-13.md, "The mock LMS"). Each
  * launch drives the mock's own launch page, so the browser takes the real
  * route: the mock, the tool's /lti/login, the mock's /authorize, and the
  * form post to /lti/launch.

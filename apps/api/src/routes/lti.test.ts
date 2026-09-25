@@ -27,7 +27,7 @@ import { loadLtiDeps, targetPath, toolJwks } from "./lti.js";
 
 /**
  * LTI 1.3 login and launch against a real database and a local keyset
- * (docs/EPIC-13.md, T3; rulings 12 to 22).
+ * (docs/archive/epics/EPIC-13.md, T3; rulings 12 to 22).
  */
 
 const skip = !hasTestDb();

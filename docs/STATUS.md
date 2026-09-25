@@ -1300,7 +1300,7 @@ migration from another branch that stopped Kysely from starting (PR #342).
 
 ## Epic 9.2 — image paste into the terminal, and the rest of issue #300
 
-The requirement is `docs/EPIC-9.2.md` until SPEC.md section 29 lists the
+The requirement is `docs/archive/epics/EPIC-9.2.md` until SPEC.md section 29 lists the
 epic.
 
 **Image paste (issue #355).** Pasting a lone png or jpeg into a terminal,
@@ -1427,7 +1427,7 @@ rows a day later.
 ## Epic 10 — Recovery, quotas, and reset workflows
 
 Landed on `epic/10-recovery-quotas` (not yet merged to `main`; see Gaps).
-Working brief: `docs/EPIC-10.md`.
+Working brief: `docs/archive/epics/EPIC-10.md`.
 
 **Recovery points.** Portikus now keeps compressed, `tar.zst` copies of
 each active project outside the project folder, on a fourth storage
@@ -1724,7 +1724,7 @@ off the list also leaves the ACL.
 
 ## Epic 12a — Security test suites
 
-The requirement is `docs/EPIC-12A.md`. This is the first half of SPEC.md
+The requirement is `docs/archive/epics/EPIC-12A.md`. This is the first half of SPEC.md
 section 29 Epic 12: tests of code that already exists, plus section 30
 Gate C. The second half, Epic 12b (load, backup and restore, the
 destructive rebuild exercise, deployment documentation, and the
@@ -1841,7 +1841,7 @@ place.
 
 ## Epic 12b — Dex sign-in and pilot readiness
 
-The requirement is `docs/EPIC-12B.md`. This is the second half of SPEC.md
+The requirement is `docs/archive/epics/EPIC-12B.md`. This is the second half of SPEC.md
 section 29 Epic 12, and the last epic before the pilot. The operator's
 runbook is `docs/OPERATIONS.md`.
 
@@ -1962,7 +1962,7 @@ about to ship, and this was accepted.
 
 ## Epic 13 — LTI 1.3 launch and an instructor role
 
-The requirement is `docs/EPIC-13.md`, with its rulings as amended by the
+The requirement is `docs/archive/epics/EPIC-13.md`, with its rulings as amended by the
 epic reviews, and the design is ADR 0025. It serves SPEC.md sections 5.1
 and 5.2 and the new section 29 entry. The operator's steps are in
 `docs/OPERATIONS.md`, "Signing in from a learning management system (LTI
@@ -2043,7 +2043,7 @@ new tab.
 
 ## Epic 13.1 — Link a course account to an SSO account, and promote administrators
 
-The requirement is `docs/EPIC-13-1.md` with its rulings, and the design is
+The requirement is `docs/archive/epics/EPIC-13-1.md` with its rulings, and the design is
 ADR 0026. It serves SPEC.md sections 5.2 and the new section 29 entry.
 The operator's steps are in `docs/OPERATIONS.md`, "Linking a course
 account to an SSO account".
@@ -2125,7 +2125,7 @@ cannot be linked; the preview gateway applies the same session rule as
 the API; Settings moves focus only after the unlinked row is gone; the
 launch notice is announced through a status region mounted in advance;
 and removing the last other course member focuses the page heading.
-Rulings S1 to S5, N1, N2 and N4 in `docs/EPIC-13-1.md` record them.
+Rulings S1 to S5, N1, N2 and N4 in `docs/archive/epics/EPIC-13-1.md` record them.
 
 **Pilot rehearsal:** 2026-09-24, epic head ad10dac deployed to the pilot as 0.1.404+gad10dac (pg_dump and `pre-epic13-1b` snapshots taken first; migration 0017 applied). Smoke test 117 passed, security test 225 passed, plus the expected mock LMS warning. By headless browser through the mock LMS: a course launch, then "Link to my SSO account", reaches the Dex password page with `prompt=login`; an instructor removes a student in a course of their own, has no Remove button on their own row, and the student reappears after launching again. Not yet run on the pilot, for lack of a Dex test account: confirming a link with a real Dex sign-in, the relaunch into the SSO account with its "Not you? Unlink" notice, unlinking, and promote and demote in the Users view. CI's Playwright suite covers each of these against the mock identity provider.
 
@@ -2153,7 +2153,7 @@ Rulings S1 to S5, N1, N2 and N4 in `docs/EPIC-13-1.md` record them.
 ### T1: provider sign-in
 
 The API can now sign in through Microsoft Entra ID and Google Workspace
-as well as Dex and generic OpenID Connect (docs/EPIC-14.md rulings 8 to
+as well as Dex and generic OpenID Connect (docs/archive/epics/EPIC-14.md rulings 8 to
 12 and 27, PR #517). New settings: `OIDC_PROVIDER` (`oidc`, `entra` or
 `google`), `OIDC_ALLOWED_TENANT` (required for `entra`),
 `OIDC_ALLOWED_DOMAINS` (required for `google`), `OIDC_DEFAULT_ROLE`
@@ -2186,7 +2186,7 @@ Gaps:
 ### T2: first administrator setup code
 
 A new site gets its first administrator from a one-time setup code
-(docs/EPIC-14.md rulings 15 to 18, ADR 0028). The command
+(docs/archive/epics/EPIC-14.md rulings 15 to 18, ADR 0028). The command
 `setup-code-main.js` in `@portikus/auth` prints a code of 16 Crockford
 base-32 characters (80 random bits), valid for 60 minutes and single use.
 Migration `0018_setup_codes` keeps only its SHA-256. Issuing a code
@@ -2226,7 +2226,7 @@ Gaps:
 ### T3: Dex users and the instructor grant in the Users view
 
 The API manages Dex's passwords over Dex's gRPC API with mutual TLS
-(`packages/auth/src/dex-api.ts`, PR #518, docs/EPIC-14.md rulings 14 and
+(`packages/auth/src/dex-api.ts`, PR #518, docs/archive/epics/EPIC-14.md rulings 14 and
 19 to 24). `POST /admin/dex-users` adds a person with a generated
 20-character password, shown once, and pre-creates the Portikus account
 under the subject Dex will give them, with the chosen role as a grant.
@@ -2256,7 +2256,7 @@ Gaps:
 ### T4: egress proxy and provider settings
 
 Squid from Debian runs on `127.0.0.1:3128` in the new `egress_proxy`
-role (ADR 0027, docs/EPIC-14.md rulings 25 to 29, PR #519). It allows
+role (ADR 0027, docs/archive/epics/EPIC-14.md rulings 25 to 29, PR #519). It allows
 `CONNECT` to port 443 of listed host names, refuses a name that resolves
 to a private, loopback or link-local address, allows a listed IPv4
 address with its port exactly, and caches nothing. An entry listed with
@@ -2288,7 +2288,7 @@ fixed by #520. The new security module is `infra/tests/security/egress.sh`.
 ### T5: Dex storage, gRPC and connectors
 
 Dex now keeps its accounts in its own PostgreSQL database, `dex`, owned
-by the `portikus-dex` role and reached over the local socket (docs/EPIC-14.md
+by the `portikus-dex` role and reached over the local socket (docs/archive/epics/EPIC-14.md
 ruling 19, ADR 0028). Its gRPC API listens on `127.0.0.1:5557` and accepts
 only a client certificate from a small certificate authority that Ansible
 makes in `/etc/portikus/dex-grpc/` (ruling 20). The API's client key is
@@ -2343,7 +2343,7 @@ Gaps:
 
 - Dex's `microsoft` and `google` connectors are checked only by the
   render test; no real tenant was used (see "Unverified until a real
-  tenant exists" in docs/EPIC-14.md).
+  tenant exists" in docs/archive/epics/EPIC-14.md).
 - Active Directory was not tried; OpenLDAP stood in for it.
 - The host's nightly backup timer runs an installed copy of `backup.sh`,
   so `make backup-install-timer` must run again on the host after this
@@ -2492,7 +2492,7 @@ One full local `pnpm test:e2e` run makes more than 150 sign-in starts a
 minute from 127.0.0.1, so the API's sign-in start limit answered HTTP
 429 and the 12 LTI tests failed. CI passed only because it splits the
 run into three. LTI launches count as sign-in starts on purpose
-(docs/EPIC-13.md ruling 21), so that stays. The Playwright API server
+(docs/archive/epics/EPIC-13.md ruling 21), so that stays. The Playwright API server
 now sets the existing `SIGNIN_START_LIMIT_PER_MINUTE` setting to
 100,000. Production keeps its default of 150, and the unit tests in
 `apps/api/src/signin-throttle.test.ts` still prove the 429 at the real

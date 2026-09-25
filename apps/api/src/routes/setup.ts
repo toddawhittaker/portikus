@@ -32,7 +32,7 @@ class Refused extends Error {
 }
 
 /**
- * The first administrator (docs/EPIC-14.md rulings 15 to 18; ADR 0028). A
+ * The first administrator (docs/archive/epics/EPIC-14.md rulings 15 to 18; ADR 0028). A
  * signed-in SSO account claims the setup code; under standalone Dex, while
  * no administrator exists, the code also creates the first account. The
  * code itself is never logged or audited.

@@ -1,7 +1,7 @@
 import { type Kysely, sql } from "kysely";
 
 /**
- * One-time setup codes for the first administrator (docs/EPIC-14.md rulings
+ * One-time setup codes for the first administrator (docs/archive/epics/EPIC-14.md rulings
  * 16 to 18; ADR 0028). Only the SHA-256 of a code is stored.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {

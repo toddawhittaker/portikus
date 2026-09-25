@@ -2,7 +2,7 @@
 # Renders the dex role's real configuration and unit templates and checks
 # them, with no VM: PostgreSQL storage, the gRPC API behind mutual TLS, each
 # upstream connector, and the guards on the settings and the users file
-# (docs/EPIC-14.md rulings 11, 13, 19, 20, 23 and 28).  `make infra-check`
+# (docs/archive/epics/EPIC-14.md rulings 11, 13, 19, 20, 23 and 28).  `make infra-check`
 # runs it; the CI dex-signin job runs it to get a configuration it can
 # start Dex with:
 #

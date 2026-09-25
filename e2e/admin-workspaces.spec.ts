@@ -12,7 +12,7 @@ import {
 
 /**
  * The admin Workspaces tab and its detail panel (SPEC.md §20.1, issue #302;
- * docs/EPIC-11.md task 5). Carol is the mock provider's administrator. Every
+ * docs/archive/epics/EPIC-11.md task 5). Carol is the mock provider's administrator. Every
  * test makes its own accounts straight in the database, filters the table
  * down to them, and never touches another test's rows.
  */

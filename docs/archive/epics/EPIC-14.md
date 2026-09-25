@@ -1,6 +1,6 @@
 # Epic 14: Sign-in providers
 
-This is the working brief for Epic 14. It is the requirement an agent implements against. Where it is silent, `docs/SPEC.md` wins on behaviour and `docs/STACK.md` on technology. It builds on Epic 13 (`docs/EPIC-13.md`, ADR 0025) and Epic 13.1 (`docs/EPIC-13-1.md`, ADR 0026), whose role rule it uses unchanged. ADR 0027 (the egress proxy) and ADR 0028 (Dex user storage and the first administrator) record the decisions made here. Epic 15 (`docs/EPIC-15.md`) packages the result for `apt install portikus` and is built after this one.
+This is the working brief for Epic 14. It is the requirement an agent implements against. Where it is silent, `docs/SPEC.md` wins on behaviour and `docs/STACK.md` on technology. It builds on Epic 13 (`docs/archive/epics/EPIC-13.md`, ADR 0025) and Epic 13.1 (`docs/archive/epics/EPIC-13-1.md`, ADR 0026), whose role rule it uses unchanged. ADR 0027 (the egress proxy) and ADR 0028 (Dex user storage and the first administrator) record the decisions made here. Epic 15 (`docs/EPIC-15.md`) packages the result for `apt install portikus` and is built after this one.
 
 - **Base commit:** `epic/14-sign-in-providers` once Epic 13.1 has merged to `main`. Builders reset to `origin/epic/14-sign-in-providers` and branch `task/14-<name>` from it.
 - **Migration number:** `0017_setup_codes` is reserved for T2. No other task adds a migration.
@@ -10,14 +10,14 @@ This is the working brief for Epic 14. It is the requirement an agent implements
 Terms used throughout:
 
 - **OIDC** (OpenID Connect): the sign-in standard Portikus already speaks. The institution's service that signs people in is the **provider**; it sends Portikus a signed **ID token** whose fields are **claims**.
-- **SSO account** (single sign-on): as in EPIC-13-1, an account whose sign-in is the site's OIDC provider, keyed by (issuer, `sub`).
+- **SSO account** (single sign-on): as in docs/archive/epics/EPIC-13-1.md, an account whose sign-in is the site's OIDC provider, keyed by (issuer, `sub`).
 - **Entra ID**: Microsoft's identity service. A **tenant** is one organisation in it, named by a tenant ID; the ID token's `tid` claim names the tenant that issued it. An **app role** is a role defined on the Portikus app registration and assigned to people; it arrives in the `roles` claim.
 - **Google Workspace**: Google's identity service for organisations. The ID token's `hd` claim ("hosted domain") names the person's organisation domain; a personal Gmail account has none.
 - **Dex**: the small OIDC provider Portikus already runs (ADR 0023). A Dex **connector** is an upstream source of people, such as an LDAP directory; **local passwords** are accounts Dex holds itself.
 - **LDAP** (Lightweight Directory Access Protocol): the protocol of campus directories, including Microsoft **Active Directory** (AD).
 - **Egress**: traffic the server starts toward the internet.
 - **Forward proxy**: a small service the API sends its outbound requests through, which allows only named destinations.
-- **The role rule** (EPIC-13-1 ruling 20): each account has a `provider_role` from its own sign-in, an optional `granted_role` (`instructor` or `administrator`) stored by Portikus, and an effective `role`, the higher of the two.
+- **The role rule** (docs/archive/epics/EPIC-13-1.md ruling 20): each account has a `provider_role` from its own sign-in, an optional `granted_role` (`instructor` or `administrator`) stored by Portikus, and an effective `role`, the higher of the two.
 
 ## What the user gets
 
@@ -59,12 +59,12 @@ Rulings marked **(user)** came from Todd, **(orchestrator)** from the orchestrat
     | Generic OIDC | whoever the provider signs in | the groups claim | refused (`none`) |
 
     Under LDAP the user filter is required, not optional, because it is the only gate: without it every directory account could sign in.
-12. **(brief)** **Identity stays (issuer, `sub`)** for every provider (EPIC-13-1). For Entra that is the pairwise `sub`, not `oid`; for Google, `sub`. No lookup by email, `preferred_username` or `upn`.
+12. **(brief)** **Identity stays (issuer, `sub`)** for every provider (docs/archive/epics/EPIC-13-1.md). For Entra that is the pairwise `sub`, not `oid`; for Google, `sub`. No lookup by email, `preferred_username` or `upn`.
 13. **(brief)** **Dex in front of Entra or Google uses Dex's own `microsoft` or `google` connector**, restricted by its `tenant` or `hostedDomains` option, beside local passwords for guests. Only one upstream connector per site. Dex's generic OIDC connector is left out.
 
 ### Instructor grant
 
-14. **(brief, agreeing with the user's leaning)** **The Users view gets Make instructor.** Under Google and under Dex it is the only way to an instructor role other than an LTI launch, and 13.1 already stores it. `POST /admin/users/:id/make-instructor` and `POST /admin/users/:id/remove-instructor`, beside 13.1's promote and demote and following EPIC-13-1 ruling 23:
+14. **(brief, agreeing with the user's leaning)** **The Users view gets Make instructor.** Under Google and under Dex it is the only way to an instructor role other than an LTI launch, and 13.1 already stores it. `POST /admin/users/:id/make-instructor` and `POST /admin/users/:id/remove-instructor`, beside 13.1's promote and demote and following docs/archive/epics/EPIC-13-1.md ruling 23:
     - Make instructor: 400 for an `lti:` account; 400 when `granted_role` is `administrator` ("Demote first."); 200 with no change when the effective role is already instructor or higher from the provider. Otherwise sets `granted_role = 'instructor'` and recomputes `role`.
     - Remove instructor: 400 unless `granted_role` is `instructor`. Clears it and sets `role = provider_role`.
     - Both write `user.role_changed` with `{from, to, source: "admin", ip, userAgent}` and return the `AdminUser`. Neither ends sessions; the next request reads the new role.
@@ -193,7 +193,7 @@ OPERATIONS.md lists these as the first checks when a real site is set up.
 
 ## Left out
 
-- Several Entra tenants on one site (ruling 8), Entra group object IDs and the groups overage claim (EPIC-13-1 ruling 25), and a Google group check through the Admin SDK.
+- Several Entra tenants on one site (ruling 8), Entra group object IDs and the groups overage claim (docs/archive/epics/EPIC-13-1.md ruling 25), and a Google group check through the Admin SDK.
 - Dex's SAML and generic OIDC connectors; more than one upstream connector.
 - Self-service password change or reset for Dex users; e-mailed invitations.
 - An admin UI for LTI platforms or for the egress allow list; both stay in files Ansible applies.

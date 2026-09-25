@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The certificates for Dex's gRPC API (docs/EPIC-14.md ruling 20): a small
+# The certificates for Dex's gRPC API (docs/archive/epics/EPIC-14.md ruling 20): a small
 # certificate authority, a server certificate for 127.0.0.1 that Dex serves,
 # and a client certificate the API presents.  Dex accepts only clients the
 # authority signed.  Safe to repeat: it issues nothing while every file is

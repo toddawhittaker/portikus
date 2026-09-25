@@ -21,7 +21,7 @@ import { buildServer } from "../server.js";
 import { PUBLIC_URL, testConfig } from "../test-support.js";
 
 /**
- * Linking a course account to an SSO account (docs/EPIC-13-1.md, "The
+ * Linking a course account to an SSO account (docs/archive/epics/EPIC-13-1.md, "The
  * flow" and "Security invariants to test").
  */
 

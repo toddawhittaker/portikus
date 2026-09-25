@@ -44,7 +44,7 @@ test("matching ignores case and can hit several controls in one section", () => 
 	]);
 });
 
-test("search finds the SSO account link in Profile (docs/EPIC-13-1.md, flow step 1)", () => {
+test("search finds the SSO account link in Profile (docs/archive/epics/EPIC-13-1.md, flow step 1)", () => {
 	expect(settingsHits(SETTINGS_SECTIONS, "sso")).toEqual([
 		{ sectionId: "profile", controlId: "sso-link", label: "Link to my SSO account" },
 	]);

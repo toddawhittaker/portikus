@@ -18,7 +18,7 @@ const MemberParam = z.object({
 });
 
 /**
- * The read-only Course page (docs/EPIC-13.md ruling 23). Only a course's
+ * The read-only Course page (docs/archive/epics/EPIC-13.md ruling 23). Only a course's
  * instructors see it; for anyone else it does not exist. No email, user id,
  * subject or workspace id ever leaves here; the member's user id does, so an
  * instructor can remove them.

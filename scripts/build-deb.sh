@@ -116,7 +116,7 @@ if [ -n "$found" ]; then
 fi
 
 # The mock LMS signs launches as anyone, so it must never reach the VM
-# (docs/EPIC-13.md, ruling 25). Nothing depends on it; this proves it.
+# (docs/archive/epics/EPIC-13.md, ruling 25). Nothing depends on it; this proves it.
 mock_lms="$(grep -E 'mock-lms' <<<"$listing" || true)"
 if [ -n "$mock_lms" ]; then
 	echo "The mock LMS is in the package:" >&2

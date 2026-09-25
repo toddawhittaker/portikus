@@ -1,7 +1,7 @@
 ---
 # Read the LTI platforms file on the machine that runs Ansible and derive
-# the egress proxy entries its keysets need (docs/EPIC-13.md, ruling 14;
-# docs/EPIC-14.md, ruling 28).  The file is validated by the API's own
+# the egress proxy entries its keysets need (docs/archive/epics/EPIC-13.md, ruling 14;
+# docs/archive/epics/EPIC-14.md, ruling 28).  The file is validated by the API's own
 # parser when lti.yml installs it, so there is one rule set.  Runs in the
 # play's pre_tasks.
 

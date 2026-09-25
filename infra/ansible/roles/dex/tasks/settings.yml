@@ -1,7 +1,7 @@
 ---
 # Checked before any role runs (site.yml pre_tasks), so bad Dex settings
 # change nothing on the VM.  Loads the retired users file, when there is
-# one, for the one-time import into Dex's storage (docs/EPIC-14.md ruling
+# one, for the one-time import into Dex's storage (docs/archive/epics/EPIC-14.md ruling
 # 23); it is read on the machine that runs Ansible.
 
 - name: Require the settings of Dex's upstream connector

@@ -6,7 +6,7 @@ import { StandalonePage } from "../pages/StandalonePage.js";
 import { leaveLinkTab } from "./channel.js";
 
 /**
- * Where Settings goes when the browser blocks the new tab (docs/EPIC-13-1.md,
+ * Where Settings goes when the browser blocks the new tab (docs/archive/epics/EPIC-13-1.md,
  * "The flow" step 2). It starts the link only on a click, so another site
  * that opens this address cannot reset a link in progress.
  */

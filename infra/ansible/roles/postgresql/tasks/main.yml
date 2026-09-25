@@ -64,7 +64,7 @@
   become: true
   become_user: postgres
 
-# Dex's own accounts (docs/EPIC-14.md ruling 19).  The role matches Dex's
+# Dex's own accounts (docs/archive/epics/EPIC-14.md ruling 19).  The role matches Dex's
 # system user, so peer authentication lets only Dex in.  Kept when the site
 # moves off Dex, like any other data.
 - name: Create the Dex database role

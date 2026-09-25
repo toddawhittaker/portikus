@@ -11,7 +11,7 @@ export const ADMIN_TABS = ["workspaces", "audit", "health", "settings"] as const
 export type AdminTab = (typeof ADMIN_TABS)[number];
 
 const TAB_LABEL: Record<AdminTab, string> = {
-	// The address stays ?tab=workspaces so old links keep working (EPIC-13-1 ruling 24).
+	// The address stays ?tab=workspaces so old links keep working (docs/archive/epics/EPIC-13-1.md ruling 24).
 	workspaces: "Users",
 	audit: "Audit",
 	health: "Health",

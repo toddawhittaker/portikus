@@ -25,7 +25,7 @@ import { buildServer } from "../server.js";
 import { buildTestServer, PUBLIC_URL, testConfig } from "../test-support.js";
 
 /**
- * The Dex user routes (docs/EPIC-14.md rulings 21, 22 and 24) against an
+ * The Dex user routes (docs/archive/epics/EPIC-14.md rulings 21, 22 and 24) against an
  * in-memory stand-in for the gRPC client. The client itself is tested
  * against a gRPC server in packages/auth.
  */

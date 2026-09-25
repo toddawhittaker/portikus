@@ -49,7 +49,7 @@ const unlinkedRoute = createRoute({
 	component: Unlinked,
 });
 
-/** The first administrator's one-time setup code (docs/EPIC-14.md rulings 15 to 18). */
+/** The first administrator's one-time setup code (docs/archive/epics/EPIC-14.md rulings 15 to 18). */
 const setupRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/setup",
@@ -62,7 +62,7 @@ const notAuthorizedRoute = createRoute({
 	component: NotAuthorized,
 });
 
-/** The SSO sign-in lands here to confirm a link (docs/EPIC-13-1.md, "The flow" step 4). */
+/** The SSO sign-in lands here to confirm a link (docs/archive/epics/EPIC-13-1.md, "The flow" step 4). */
 const linkRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/link",
@@ -74,7 +74,7 @@ const linkRoute = createRoute({
 	},
 });
 
-/** Settings opens this in a new tab to start a link (docs/EPIC-13-1.md, "The flow" step 2). */
+/** Settings opens this in a new tab to start a link (docs/archive/epics/EPIC-13-1.md, "The flow" step 2). */
 const linkStartRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/link/start",

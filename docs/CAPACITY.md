@@ -1,6 +1,6 @@
 # Capacity: load test method and results
 
-This note records how Portikus behaves with many students working at once, and what size the pilot VM needs. It serves SPEC.md section 25.2 (at least 25 concurrently active workspaces) and the latency targets in section 25.1. The brief is docs/EPIC-12B.md, task B4.
+This note records how Portikus behaves with many students working at once, and what size the pilot VM needs. It serves SPEC.md section 25.2 (at least 25 concurrently active workspaces) and the latency targets in section 25.1. The brief is docs/archive/epics/EPIC-12B.md, task B4.
 
 ## Summary
 
@@ -106,7 +106,7 @@ For 25 active workspaces:
 
 The rehearsal VM at 12 vCPUs and 24 GiB was measured directly. The 8 vCPU and 16 GiB figure is worked out from those measurements and has not been run. A confirming run is `make rehearsal-up REHEARSAL_VCPUS=8 REHEARSAL_MEMORY_MB=16384`, then `make load-test TOFU_ENV=rehearsal-libvirt N=25`, when nothing else is using the rehearsal VM.
 
-Resizing the pilot is Todd's decision (docs/EPIC-12B.md, risk 9). The steps are under "Resizing the pilot" below.
+Resizing the pilot is Todd's decision (docs/archive/epics/EPIC-12B.md, risk 9). The steps are under "Resizing the pilot" below.
 
 ## Limits observed
 

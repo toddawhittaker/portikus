@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests how the portikus role reads the LTI platforms file and the proxy
-# entries it derives (docs/EPIC-14.md, ruling 28), and the mock
+# entries it derives (docs/archive/epics/EPIC-14.md, ruling 28), and the mock
 # registration helper the Makefile uses.  Needs no VM.  The file's rules
 # are tested with the API's own parser in packages/auth.
 set -uo pipefail

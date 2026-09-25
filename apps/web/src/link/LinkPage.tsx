@@ -5,7 +5,7 @@ import { StandalonePage } from "../pages/StandalonePage.js";
 import { announceLink, leaveLinkTab } from "./channel.js";
 import { useConfirmLink, usePendingLink } from "./queries.js";
 
-/** What each refusal from the SSO sign-in means to the person (docs/EPIC-13-1.md ruling 18). */
+/** What each refusal from the SSO sign-in means to the person (docs/archive/epics/EPIC-13-1.md ruling 18). */
 export const LINK_ERROR_MESSAGES: Record<LinkError, string> = {
 	no_account:
 		"That SSO account has never signed in to Portikus. Sign in to Portikus with it once, then open Portikus from your course and try again.",
@@ -28,7 +28,7 @@ function finishLinked() {
 }
 
 /**
- * The confirmation page after the SSO sign-in (docs/EPIC-13-1.md, "The
+ * The confirmation page after the SSO sign-in (docs/archive/epics/EPIC-13-1.md, "The
  * flow" steps 4 and 5). It names both accounts; nothing is linked until
  * Link accounts is pressed.
  */

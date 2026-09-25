@@ -226,7 +226,7 @@ decrypt db.dump | vm_in "sudo runuser -u postgres -- pg_restore --create --clean
 # sessions go too, so a cookie stolen before the backup does not work here.
 psql_vm "BEGIN; UPDATE workspaces SET state = 'stopped', desired_state = 'stopped'; DELETE FROM preview_sessions; DELETE FROM sessions; COMMIT;"
 step "database restored, every workspace marked stopped, every session ended"
-# Dex's accounts (docs/EPIC-14.md ruling 19), with Dex stopped so the
+# Dex's accounts (docs/archive/epics/EPIC-14.md ruling 19), with Dex stopped so the
 # database can be replaced; a set from before Dex had storage has none.
 if grep -q '^file dex\.dump ' "$manifest"; then
   if [ "$(dex_installed)" = yes ]; then

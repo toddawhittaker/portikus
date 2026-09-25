@@ -1,5 +1,5 @@
 /**
- * A student opens Portikus from a course (docs/EPIC-13.md rulings 3, 12, 18
+ * A student opens Portikus from a course (docs/archive/epics/EPIC-13.md rulings 3, 12, 18
  * and 20; SPEC.md section 5).
  */
 import { expect, test } from "@playwright/test";
