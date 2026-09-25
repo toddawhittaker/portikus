@@ -291,6 +291,19 @@
   register: portikus_migrate
   changed_when: "'Applied migrations' in portikus_migrate.stdout"
 
+# Anyone could sign in as anyone through the mock, so its sessions end when
+# the site moves to a real provider (SPEC.md section 24).
+- name: End the mock provider's sessions
+  ansible.builtin.command:
+    argv: [runuser, -u, portikus, --, psql, -X, -tA, -v, ON_ERROR_STOP=1, -v, "issuer={{ portikus_public_url }}/mock-idp", -d, "{{ portikus_database_url }}"]
+    stdin: >-
+      WITH gone AS (DELETE FROM sessions WHERE user_id IN
+      (SELECT id FROM users WHERE oidc_issuer = :'issuer') RETURNING 1)
+      SELECT count(*) FROM gone;
+  register: portikus_mock_sessions
+  changed_when: portikus_mock_sessions.stdout | trim != '0'
+  when: portikus_idp != 'mock'
+
 # The gRPC client key, and the one-time users-file import, before api.env
 # names the key and the setup-code check below counts administrators.
 - name: Give the API what it needs from Dex

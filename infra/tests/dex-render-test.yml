@@ -357,6 +357,31 @@
           - dex_scopes.microsoft == ['openid', 'profile', 'email']
         fail_msg: "{{ dex_scopes | to_json }}"
 
+    # A student can add the groups scope to the Dex authorize URL, so behind
+    # Microsoft or Google the API's api.env names no groups claim at all.
+    - name: Copy site.yml's groups-claim rule into an api.env line
+      ansible.builtin.copy:
+        content: "OIDC_GROUPS_CLAIM={{ (lookup('ansible.builtin.file', playbook_dir ~ '/../ansible/site.yml') | from_yaml)[0].vars.portikus_oidc_groups_claim }}"
+        dest: "{{ dex_render_workdir.path }}/groups-claim.j2"
+        mode: "0600"
+
+    - name: Render api.env's groups claim for each Dex upstream
+      ansible.builtin.set_fact:
+        dex_claims: >-
+          {{ dex_claims | default({}) | combine({item: (lookup('ansible.builtin.template', dex_render_workdir.path ~ '/groups-claim.j2',
+               template_vars={'portikus_idp': 'dex', 'portikus_dex_upstream': item}) | trim)}) }}
+      loop: [none, ldap, microsoft, google]
+
+    - name: Check api.env reads groups only where an administrator controls them
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_claims.none == 'OIDC_GROUPS_CLAIM=groups'
+          - dex_claims.ldap == 'OIDC_GROUPS_CLAIM=groups'
+          - dex_claims.microsoft == 'OIDC_GROUPS_CLAIM='
+          - dex_claims.google == 'OIDC_GROUPS_CLAIM='
+        fail_msg: "{{ dex_claims | to_json }}"
+
     # ── The settings guards ─────────────────────────────────────
 
     - name: Check the settings guards

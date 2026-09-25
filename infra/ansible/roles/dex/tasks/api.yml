@@ -15,8 +15,9 @@
   notify: Restart portikus-api
 
 # ── The one-time users-file import (docs/EPIC-14.md ruling 23) ────
-# Only while a users file is given; the command itself does nothing once Dex
-# holds any password, so every later run changes nothing.
+# Only while a users file is given.  The command's first run, whether it
+# imports or finds Dex already holding passwords, marks the site imported,
+# so every later run changes nothing.
 - name: Import the users file into Dex
   when: dex_users is defined
   block:

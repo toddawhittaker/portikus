@@ -331,6 +331,14 @@ test("ApiConfig applies the auth and session defaults", () => {
 	expect(config.SESSION_TTL_SECONDS).toBe(43200);
 });
 
+test("ApiConfig accepts an empty OIDC_GROUPS_CLAIM, meaning no groups claim", () => {
+	const config = loadConfig(ApiConfigSchema, {
+		DATABASE_URL: "postgres://localhost/portikus",
+		OIDC_GROUPS_CLAIM: "",
+	});
+	expect(config.OIDC_GROUPS_CLAIM).toBe("");
+});
+
 test("ApiConfig rejects a PUBLIC_URL that is not a URL", () => {
 	expectConfigError(
 		{ DATABASE_URL: "postgres://localhost/portikus", PUBLIC_URL: "not-a-url" },

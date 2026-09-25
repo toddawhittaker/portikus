@@ -166,9 +166,15 @@ test("Add user checks each field before sending and focuses the first bad one", 
 	renderApp("/admin");
 	fireEvent.click(await screen.findByRole("button", { name: "Add user…" }));
 	const dialog = await screen.findByRole("dialog", { name: "Add user" });
+	// The field must already be invalid when focus reaches it, so it is announced so.
+	const atFocus: (string | null)[] = [];
+	dialog.addEventListener("focusin", (e) =>
+		atFocus.push((e.target as HTMLElement).getAttribute("aria-invalid")),
+	);
 	fireEvent.click(within(dialog).getByRole("button", { name: "Add user" }));
 	const email = within(dialog).getByLabelText("Email");
 	await waitFor(() => expect(document.activeElement).toBe(email));
+	expect(atFocus.at(-1)).toBe("true");
 	expect(email.getAttribute("aria-invalid")).toBe("true");
 	expect(document.getElementById("dex-add-email-err")?.textContent).toBe(
 		"Enter an email address.",

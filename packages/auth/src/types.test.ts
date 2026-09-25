@@ -16,6 +16,16 @@ const opts: AuthOptions = {
 };
 
 describe("mapRole", () => {
+	test("ignores every group when no groups claim is set (EPIC-14 ruling 11)", () => {
+		const none = { ...opts, groupsClaim: "" };
+		const claims = {
+			groups: ["portikus-administrators"],
+			"": ["portikus-administrators"],
+		};
+		expect(mapRole(claims, none)).toBeNull();
+		expect(mapRole(claims, { ...none, defaultRole: "student" })).toBe("student");
+	});
+
 	test("maps the student group", () => {
 		expect(mapRole({ groups: ["portikus-students"] }, opts)).toBe("student");
 	});

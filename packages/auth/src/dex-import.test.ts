@@ -280,6 +280,16 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 		expect(passwords.size).toBe(1);
 	});
 
+	test("a skipped run marks the site imported, so a later empty Dex never imports", async () => {
+		const { dex, passwords } = fakeDex();
+		await dex.createPassword({ ...alice, hash: HASH });
+		await importUsersFile(t.db, dex, DEX, [carol]);
+		passwords.clear();
+		const again = await importUsersFile(t.db, dex, DEX, [carol]);
+		expect(again).toMatchObject({ status: "already_imported" });
+		expect(passwords.size).toBe(0);
+	});
+
 	test("a disabled account gets no grant back from the file", async () => {
 		const { dex } = fakeDex();
 		const { id } = await account(carol);
