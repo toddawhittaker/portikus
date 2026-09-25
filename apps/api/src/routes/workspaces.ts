@@ -225,7 +225,7 @@ const MAX_LABEL_ATTEMPTS = 20;
 const LABEL_INDEX = "idx_workspaces_label";
 
 /** `base` with `-<attempt>` appended, shortened so the whole stays within the label cap. */
-export function suffixedLabel(base: string, attempt: number): string {
+function suffixedLabel(base: string, attempt: number): string {
 	if (attempt === 1) return base;
 	const suffix = `-${attempt}`;
 	const head = base
