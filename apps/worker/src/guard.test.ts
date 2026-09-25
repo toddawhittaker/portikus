@@ -143,12 +143,13 @@ function harness(opts: {
 		},
 		/**
 		 * One minute that ends in a reboot from inside the workspace: the
-		 * counter restarts and reads `afterNs` at the tick, the marker changes.
+		 * counter restarts and reads `afterNs` at the tick, the marker changes
+		 * unless `sameMarker` (a restarted init that reused the old PID).
 		 */
-		async rebootStep(afterNs: number) {
+		async rebootStep(afterNs: number, sameMarker = false) {
 			minute++;
 			cpuNs = afterNs;
-			boot++;
+			if (!sameMarker) boot++;
 			refresh();
 			await tick();
 		},
@@ -334,6 +335,21 @@ test.skipIf(skip)(
 		expect((await row(ws.id)).cpu_throttle).toBeNull();
 		await h.rebootStep(5 * 4 * 1e9);
 		expect((await row(ws.id)).cpu_throttle).not.toBeNull();
+	},
+);
+
+test.skipIf(skip)(
+	"a counter drop with an unchanged boot marker still counts as a restart",
+	async () => {
+		const ws = await insertWorkspace();
+		const h = harness({ instance: ws.instance, busy: () => 1 });
+		await h.tick();
+		// A busy minute, then a restart that reuses the marker; a negative delta would pull the average down.
+		for (let i = 0; i < 15; i++) {
+			await h.step();
+			await h.rebootStep(5 * 4 * 1e9, true);
+		}
+		expect((await row(ws.id)).cpu_throttle?.averagePercent).toBeGreaterThanOrEqual(100);
 	},
 );
 
