@@ -264,7 +264,9 @@ v2.45.1 copies it into the token's subject as raw bytes, which fail to
 encode for most accounts. So under AD the ID is the username, and **a
 reused username inherits the old account, its workspace and its role.**
 Disable a departed person's AD account; never delete it and give the
-name to someone else. Before Epic 14's review the OpenLDAP ID was `uid`.
+name to someone else. Under either schema, groups name their members by
+DN, which a reused name shares, so also take a departed person out of
+the Portikus groups. Before Epic 14's review the OpenLDAP ID was `uid`.
 No site used LDAP then, but a site that did would find everyone's next
 sign-in making a new, empty account.
 
