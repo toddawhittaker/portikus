@@ -576,8 +576,12 @@ check_output "api.env sends the API's outbound requests through the proxy" "http
   ssh_cmd "sudo sed -n 's/^OUTBOUND_PROXY_URL=//p' /etc/portikus/api.env"
 check "the old API address allow drop-in is gone" \
   ssh_cmd "test ! -e /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf"
+# systemd prints the ranges in no fixed order, so compare them sorted.
+api_ip_allow() {
+  ssh_cmd "systemctl show portikus-api -p IPAddressAllow --value" | tr ' ' '\n' | sed '/^$/d' | LC_ALL=C sort | paste -sd' '
+}
 check_output "the API unit may reach loopback and the workspace bridge only" \
-  "IPAddressAllow=10.200.0.0/24 127.0.0.0/8" ssh_cmd "systemctl show portikus-api -p IPAddressAllow"
+  "10.200.0.0/24 127.0.0.0/8" api_ip_allow
 # proxy_connect URL -- the status of the proxy's answer to CONNECT for URL.
 proxy_connect() {
   ssh_cmd "${CURL} -o /dev/null -w '%{http_connect}' -x http://127.0.0.1:3128 '$1'"

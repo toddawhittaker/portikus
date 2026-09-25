@@ -76,6 +76,10 @@ export TF_VAR_memory_mb := $(REHEARSAL_MEMORY_MB)
 rehearsal_disk_bytes := $(call tofu_attr,terraform_data,data_disk_size,triggers_replace.value)
 REHEARSAL_DATA_DISK_GB ?= $(if $(rehearsal_disk_bytes),$(shell echo $$(( $(rehearsal_disk_bytes) / 1073741824 ))),100)
 export TF_VAR_data_disk_size_bytes := $(shell echo $$(( $(REHEARSAL_DATA_DISK_GB) * 1073741824 )))
+# Its accounts come from a restored dex.dump or /setup, never the pilot's
+# retired users file, whose import would make restore.sh refuse the VM.
+# An exported PORTIKUS_USERS_FILE does not override this; the command line does.
+PORTIKUS_USERS_FILE := /nonexistent
 else
 $(error TOFU_ENV must be dev-libvirt or rehearsal-libvirt, not '$(TOFU_ENV)')
 endif

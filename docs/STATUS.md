@@ -2413,17 +2413,12 @@ Gaps:
   sign-in (`make smoke-test PORTIKUS_SMOKE_SIGNIN_FILE=<file>`) as them.
   Todd should sign in as each, or run that command with a sign-in file
   for each, and check that each lands in the same workspace.
-- The smoke test's allow-list check in `infra/tests/smoke-test.sh`
-  should accept the two ranges in either order.
-- `infra/tests/rebuild-exercise.sh` still requires `PORTIKUS_USERS_FILE`
-  and converges the new VM with it before the restore. The import then
-  creates an account for each administrator in the file, and `restore.sh`
-  refuses a target that already has accounts. It has not been run since
-  Epic 14.
+- Fixed after T6: the smoke test's allow-list check accepts the two
+  ranges in either order, `rebuild-exercise.sh` no longer takes a users
+  file and needs a set that holds `dex.dump`, and the Makefile never
+  imports the users file into the rehearsal VM.
 - The retired users file is still at `~/.config/portikus/users.json`. A
-  play on a VM whose Dex is empty imports it again, so a fresh rehearsal
-  VM needs `PORTIKUS_USERS_FILE=/nonexistent` until Todd deletes the
-  file.
+  play on the pilot whose Dex is empty would import it again.
 - Dex's passwords carry no display name, and Dex sends the username as
   the name. A sign-in whose name equals the stored username now keeps the
   stored display name, such as "Carol Admin" (`upsertUser`).
