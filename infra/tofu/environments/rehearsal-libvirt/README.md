@@ -30,8 +30,9 @@ make smoke-test   TOFU_ENV=rehearsal-libvirt
 make rehearsal-destroy                 # remove the VM, disks, network and pool
 ```
 
-The play prints a setup code for `/setup`, where the first administrator
-creates their Dex account. A restore brings Dex's accounts from the set's
+The play makes the local administrator and prints how to read its
+one-time password (`sudo cat /etc/portikus/admin-password` on the VM). A
+restore brings Dex's accounts from the set's
 `dex.dump` instead. For this VM the Makefile sets `PORTIKUS_USERS_FILE`
 to a path that does not exist, so the play never imports the pilot's
 retired users file: the accounts it would create make `make restore`

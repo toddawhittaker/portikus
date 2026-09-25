@@ -18,7 +18,7 @@ export const AuthUser = z.object({
 	signInName: z.string().min(1).optional(),
 	/**
 	 * While true the account can use only the change-password page
-	 * (docs/EPIC-14-2.md ruling 18).
+	 * (SPEC.md section 5.3).
 	 */
 	mustChangePassword: z.boolean(),
 });
@@ -35,7 +35,7 @@ export type MeResponse = z.infer<typeof MeResponse>;
 const BCRYPT_MAX_BYTES = 72;
 
 /**
- * `POST /me/password` (docs/EPIC-14-2.md ruling 16). At least 15 characters
+ * `POST /me/password` (SPEC.md section 5.3). At least 15 characters
  * (NIST SP 800-63B revision 4 for a single factor), no composition rules.
  */
 export const ChangePasswordRequest = z

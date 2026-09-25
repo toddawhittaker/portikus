@@ -548,7 +548,7 @@ export async function precreateDexAccount(
 		username: string;
 		displayName: string;
 		role: Role;
-		/** Set when an administrator or the host chose the password (docs/EPIC-14-2.md ruling 17). */
+		/** Set when an administrator or the host chose the password (SPEC.md section 5.2). */
 		mustChangePassword?: boolean;
 	},
 ): Promise<string> {

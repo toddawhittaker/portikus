@@ -107,7 +107,7 @@ test("AuthUser round-trips and allows a null email", () => {
 	expect(AuthUser.parse(withSubject)).toEqual(withSubject);
 });
 
-test("AuthUser and MeResponse require the password flags (docs/EPIC-14-2.md)", () => {
+test("AuthUser and MeResponse require the password flags (SPEC.md section 5.3)", () => {
 	const user = {
 		id: "550e8400-e29b-41d4-a716-446655440111",
 		email: null,

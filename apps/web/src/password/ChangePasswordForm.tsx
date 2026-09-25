@@ -1,6 +1,6 @@
 /**
  * Current password and the new one twice, for a Dex local password
- * (docs/EPIC-14-2.md ruling 16). The change page and Settings, Password
+ * (SPEC.md section 5.3). The change page and Settings, Password
  * both use it.
  */
 import { Button, TextField } from "@portikus/ui";

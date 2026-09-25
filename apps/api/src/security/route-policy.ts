@@ -81,7 +81,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /me/links/pending": { access: "self" },
 	"POST /me/links/confirm": { access: "self" },
 	"POST /me/links/:courseUserId/unlink": { access: "self" },
-	// Settings, Password (docs/EPIC-14-2.md ruling 16); 404 without Dex's gRPC API.
+	// Settings, Password (SPEC.md section 5.3); 404 without Dex's gRPC API.
 	"POST /me/password": { access: "self" },
 
 	"GET /workspaces/:id": { access: "owner-or-admin" },

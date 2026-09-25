@@ -77,7 +77,7 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		name: "Gail Student",
 		groups: [MOCK_GROUPS.student],
 	},
-	// The local administrator's Dex subject (docs/EPIC-14-2.md ruling 11), for
+	// The local administrator's Dex subject (SPEC.md section 5.1), for
 	// e2e/change-password.spec.ts. The mock admits only grouped people; the
 	// account's grant makes it an administrator.
 	admin: {

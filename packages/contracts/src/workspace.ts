@@ -179,7 +179,7 @@ export const ApiErrorCode = z.enum([
 	// Dex user management (docs/archive/epics/EPIC-14.md rulings 21 and 22).
 	"DEX_USER_EXISTS",
 	"DEX_UNAVAILABLE",
-	// The local administrator and password change (docs/EPIC-14-2.md rulings 16 and 18).
+	// The local administrator and password change (SPEC.md section 5.3).
 	"PASSWORD_CHANGE_REQUIRED",
 	"NOT_LOCAL_PASSWORD",
 	"WRONG_PASSWORD",

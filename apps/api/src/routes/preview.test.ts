@@ -713,7 +713,7 @@ test.skipIf(skip)("a preview session dies with its main session", async () => {
 });
 
 test.skipIf(skip)(
-	"an account that must change its password gets no preview (docs/EPIC-14-2.md ruling 18)",
+	"an account that must change its password gets no preview (SPEC.md section 5.3)",
 	async () => {
 		const token = await openPreview(5173);
 		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(200);

@@ -375,7 +375,7 @@ test.skipIf(skip)("logout writes an auth.logout audit row", async () => {
 	expect(row.result).toBe("ok");
 });
 
-// --- One issuer (ADR 0031; docs/EPIC-14-2.md rulings 2 to 4) ---
+// --- One issuer (ADR 0031; SPEC.md section 5.1) ---
 
 /** Sign `user` in under `overrides`; returns the status, the new user's role and the denial audit row. */
 async function signInUnder(overrides: Partial<ApiConfig>, user: string) {

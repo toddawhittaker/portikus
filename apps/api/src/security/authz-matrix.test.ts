@@ -89,7 +89,7 @@ afterAll(async () => {
 
 /**
  * An administrator who must change their password, as the local
- * administrator is at first sign-in (docs/EPIC-14-2.md ruling 18).
+ * administrator is at first sign-in (SPEC.md section 5.3).
  */
 const FLAGGED_MOCK_USER = "gail";
 

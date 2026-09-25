@@ -586,7 +586,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	);
 }
 
-/** Settings, Password: change a Dex local password (docs/EPIC-14-2.md ruling 16). */
+/** Settings, Password: change a Dex local password (SPEC.md section 5.3). */
 function PasswordPane() {
 	const [changed, setChanged] = useState(false);
 	return (

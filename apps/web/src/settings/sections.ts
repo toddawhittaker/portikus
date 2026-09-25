@@ -87,7 +87,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 			},
 		],
 	},
-	// Only for a Dex local password; the dialog drops it for everyone else (docs/EPIC-14-2.md ruling 16).
+	// Only for a Dex local password; the dialog drops it for everyone else (SPEC.md section 5.3).
 	{
 		id: "password",
 		title: "Password",

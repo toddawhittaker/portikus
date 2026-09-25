@@ -265,7 +265,7 @@ export function registerAuthRoutes(
 		}
 		// A Dex subject is an opaque blob, so prefer the username.
 		const signInName = row.preferred_username || row.oidc_subject;
-		// Settings offers Password only where POST /me/password can work (docs/EPIC-14-2.md ruling 18).
+		// Settings offers Password only where POST /me/password can work (SPEC.md section 5.3).
 		const localPassword =
 			dex !== undefined &&
 			row.oidc_issuer === config.OIDC_ISSUER_URL &&

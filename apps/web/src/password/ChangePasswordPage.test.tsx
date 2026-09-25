@@ -1,4 +1,4 @@
-/** The change-password gate in the router (docs/EPIC-14-2.md ruling 18). */
+/** The change-password gate in the router (SPEC.md section 5.3). */
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER, WORKSPACE } from "../test-utils.js";

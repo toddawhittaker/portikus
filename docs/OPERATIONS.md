@@ -59,8 +59,8 @@ database itself is wrong, load the dump with `pg_restore --clean`.
 git fetch origin && git checkout origin/main
 nvm use
 make build-deb
-make configure-vm PORTIKUS_DEB=dist/deb/portikus_<version>_amd64.deb PORTIKUS_IDP=<provider>
-make smoke-test PORTIKUS_IDP=<provider>
+make configure-vm PORTIKUS_DEB=dist/deb/portikus_<version>_amd64.deb
+make smoke-test
 ```
 
 - `make build-deb` builds the control-plane Debian package into `dist/deb`.
@@ -73,12 +73,13 @@ make smoke-test PORTIKUS_IDP=<provider>
   `error`. The worker now retries the create, but it is still better not
   to race it (docs/CAPACITY.md, "Limits observed").
 
-`PORTIKUS_IDP` picks the sign-in provider: `dex` (the default, and what
-the pilot uses), `entra`, `google`, `external` or `mock`. "Sign-in
-providers", below, says how to set up each one. Pass the same value, and
-the same provider settings, on every `configure-vm`; a different value
-switches the site to another provider. Never use `mock` on a VM others
-can reach: anyone could sign in as anyone.
+Every site signs in through Dex. `PORTIKUS_DEX_UPSTREAM` connects an
+institution's provider to it: `none` (the default, and what the pilot
+uses), `entra`, `google`, `ldap` or `oidc`. "Sign-in providers", below,
+says how to set up each one. Pass the same connector settings on every
+`configure-vm`. `PORTIKUS_IDP=mock` replaces Dex with the in-repo test
+provider; never use it on a VM others can reach: anyone could sign in as
+anyone.
 
 **After a deploy that changes `infra/host/backup.sh`, run
 `make backup-install-timer` on the host.** The nightly timer runs an
@@ -92,67 +93,98 @@ prefer `configure-vm`.
 
 ## Sign-in providers
 
-A site has one sign-in provider (docs/archive/epics/EPIC-14.md, rulings 1 to 13).
-Opening Portikus from a course (LTI) works alongside whichever it is.
-Every provider speaks OpenID Connect (OIDC), and an account is always
-keyed by the provider's issuer and its `sub` claim (the provider's
-permanent ID for the person), never by email.
+Every site signs people in through Dex, the small OpenID Connect (OIDC)
+provider that runs on the VM beside the API (ADR 0031, SPEC.md section
+5.1). Opening Portikus from a course (LTI) works beside it. Dex's own
+passwords are always on. An institution's provider is added to Dex as
+one **connector** (an upstream source of people), chosen with
+`PORTIKUS_DEX_UPSTREAM`; a site has at most one. An account is always
+keyed by Dex's issuer and the `sub` claim Dex gives (a permanent ID for
+the person), never by email.
 
-| Provider | `PORTIKUS_IDP` | Who may sign in | Role comes from | No role matched |
+| Provider | `PORTIKUS_DEX_UPSTREAM` | Who may sign in | Role comes from | No role matched |
 |---|---|---|---|---|
-| Microsoft Entra ID | `entra` | the site's tenant | Entra app roles | refused |
+| Dex's own passwords only | `none` (the default) | people an administrator added | grants in the Users view | student |
+| Microsoft Entra ID | `entra` | the site's tenant, with a Portikus app role | Entra app roles | refused by Dex |
 | Google Workspace | `google` | the listed domains | grants in the Users view | student |
-| Dex, its own passwords | `dex` | people an administrator added | grants in the Users view | student |
-| Dex with LDAP or Active Directory | `dex` | people the user filter admits | directory groups, or grants | student |
-| Dex in front of Entra or Google | `dex` | the tenant or domains | grants in the Users view | student |
-| Another OIDC provider | `external` | whoever the provider signs in | the `groups` claim | refused |
+| LDAP or Active Directory | `ldap` | people the user filter admits | directory groups, or grants | student |
+| Another OIDC provider | `oidc` | members of one of the three groups | the provider's groups claim | refused by Dex |
+
+Dex's own passwords, the local administrator among them, work beside
+every connector. Dex's sign-in page then offers two buttons: "Log in with
+Email" for its own passwords, and one for the connector ("Microsoft",
+"Google", "LDAP" or "Active Directory", or "Single sign-on").
 
 A "grant" is the stored role an administrator sets with Make instructor
-or Promote in the Users view (docs/archive/epics/EPIC-13-1.md). It lasts across
-sign-ins.
+or Promote in the Users view (docs/archive/epics/EPIC-13-1.md). It lasts
+across sign-ins.
+
+**Someone Dex refuses never reaches Portikus.** They see Dex's own error
+page, and the refusal is in Dex's log (`journalctl -u portikus-dex`), not
+in Portikus's audit table.
+
+`PORTIKUS_IDP` is `dex` (the default) or `mock`, the in-repo test
+provider used by development and CI, where anyone can sign in as anyone.
+The old values `entra`, `google` and `external` were removed with Epic
+14.2, and `PORTIKUS_DEX_UPSTREAM=microsoft` was replaced by `entra`; a
+play that still uses any of them stops before it changes anything, with
+a message pointing here. The settings `PORTIKUS_OIDC_ISSUER`,
+`PORTIKUS_OIDC_CLIENT_ID` and `PORTIKUS_OIDC_CLIENT_SECRET` are no longer
+read: the API's client is always the one the play makes in Dex.
 
 Every setting below is an environment variable read by `make
 configure-vm`. Keep secrets off the command line, where shell history
 keeps them. Export them from a prompt instead:
 
 ```
-read -rs PORTIKUS_OIDC_CLIENT_SECRET && export PORTIKUS_OIDC_CLIENT_SECRET
+read -rs PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET && export PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
 ```
 
-After changing provider, run `make smoke-test` and `make security-test`
-with the same `PORTIKUS_IDP`. Then do one real sign-in, and issue a setup
-code if the site has no administrator yet ("The first administrator",
-below).
+Every connector that speaks OIDC (`entra`, `google` and `oidc`) is
+registered with the provider as Dex, not as Portikus, with the redirect
+URI `https://<public host>:<port>/dex/callback` (leave out `:<port>` when
+it is 443). Its client ID and secret go in
+`PORTIKUS_DEX_UPSTREAM_CLIENT_ID` and `PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET`;
+the secret must be at least 16 characters.
 
-**The API reaches a provider by name, through the egress proxy.** Ansible
-reads the provider's discovery document while it runs and allows the
-hosts it names. Nobody types address ranges. See "The egress proxy",
-below.
+After changing the connector, run `make smoke-test` and `make
+security-test`, then do one real sign-in with the connector and one as
+the local administrator ("The local administrator", below).
 
-**Changing the provider of a site that already has accounts** gives
-everyone a new, empty account, because the issuer changes. No tool
-carries accounts from one provider to another (docs/archive/epics/EPIC-12B.md, risk
-7). The mock-to-Dex carry-over the pilot used once, on 2026-09-23, was
-removed with the users file, so a backup from before that date restores
-accounts that only the mock can sign in to. Once the site uses any
-other provider, every play run ends the sessions of the mock's accounts.
+**Dex reaches a provider by name, through the egress proxy.** Ansible
+reads the connector's discovery document while it runs and allows the
+hosts it names. Nobody types address ranges. The API itself reaches no
+provider. See "The egress proxy", below.
+
+**Changing the issuer of a site that already has accounts** gives
+everyone a new, empty account. Adding, changing or removing a Dex
+connector does not change the issuer, which is always Dex's, but a
+person who signed in through one connector gets a new account when they
+sign in through another. No tool carries accounts from one to another
+(docs/archive/epics/EPIC-12B.md, risk 7). The mock-to-Dex carry-over the
+pilot used once, on 2026-09-23, was removed with the users file, so a
+backup from before that date restores accounts that only the mock can
+sign in to. Once the site uses Dex, every play run ends the sessions of
+the mock's accounts.
 
 ### Microsoft Entra ID
 
-Only people from one Entra tenant (one organisation's directory) can sign
-in. Guests invited into that tenant are checked like anyone else. Their
-role comes from an app role, which Entra sends in the ID token's `roles`
-claim. Portikus checks the token's `tid` claim against the tenant and
-does not call Entra's userinfo endpoint. One tenant per site is a ruling;
-more would need its own security review (ruling 8).
+Only people from one Entra tenant (one organisation's directory) who hold
+one of the three Portikus app roles can sign in. Guests invited into that
+tenant are checked like anyone else. Dex uses its generic `oidc`
+connector, held to the tenant's own issuer,
+`https://login.microsoftonline.com/<tenant ID>/v2.0`, so a token from any
+other tenant fails validation. It reads the ID token's `roles` claim as
+the person's groups and refuses anyone with none of the three app roles.
+It never calls Microsoft Graph, so no Graph permission and no
+administrator consent is needed. One tenant per site.
 
 In the Microsoft Entra admin center:
 
 1. **App registrations, New registration.** Name it Portikus. For
    supported account types, choose "Accounts in this organizational
    directory only (Single tenant)". Add a redirect URI of platform **Web**:
-   `https://<public host>:<port>/auth/callback` (leave out `:<port>` when
-   it is 443).
+   `https://<public host>:<port>/dex/callback`.
 2. On the registration's **Overview**, copy the **Application (client) ID**
    and the **Directory (tenant) ID**.
 3. **Certificates & secrets, New client secret.** Copy its **Value**, not
@@ -161,40 +193,36 @@ In the Microsoft Entra admin center:
 4. **App roles, Create app role**, three times. Allowed member types:
    Users/Groups. The values must be exactly `Portikus.Student`,
    `Portikus.Instructor` and `Portikus.Administrator`.
-5. **Enterprise applications, Portikus, Properties.** Set "Assignment
+5. **Token configuration, Add optional claim**, token type ID, `email`.
+   Entra sends `email` only for accounts with a mail address unless this
+   is added, and Dex refuses a sign-in without one.
+6. **Enterprise applications, Portikus, Properties.** Set "Assignment
    required?" to **Yes**, so only assigned people can get a token.
-6. **Users and groups, Add user/group.** Assign each person, or a group,
+7. **Users and groups, Add user/group.** Assign each person, or a group,
    one of the three roles. Assigning groups needs an Entra ID P1 licence
    or higher.
 
 Then deploy:
 
 ```
-read -rs PORTIKUS_OIDC_CLIENT_SECRET && export PORTIKUS_OIDC_CLIENT_SECRET
-make configure-vm PORTIKUS_IDP=entra PORTIKUS_ENTRA_TENANT_ID=<tenant ID> \
-  PORTIKUS_OIDC_CLIENT_ID=<application ID>
+read -rs PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET && export PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
+make configure-vm PORTIKUS_DEX_UPSTREAM=entra PORTIKUS_ENTRA_TENANT_ID=<tenant ID> \
+  PORTIKUS_DEX_UPSTREAM_CLIENT_ID=<application ID>
 ```
 
-The play derives the issuer, `https://login.microsoftonline.com/<tenant
-ID>/v2.0`, and refuses a tenant ID that is not a GUID or a client secret
-shorter than 32 characters. Someone with no Portikus app role cannot sign
-in at all, so assign the first administrator the role
-`Portikus.Administrator`, or at least `Portikus.Student`, before they
-claim the setup code. `PORTIKUS_OIDC_STUDENT_GROUP`,
+The play refuses a tenant ID that is not a GUID. `PORTIKUS_OIDC_STUDENT_GROUP`,
 `PORTIKUS_OIDC_INSTRUCTOR_GROUP` and `PORTIKUS_OIDC_ADMIN_GROUP` change
-the three role values if a tenant already uses other names.
-
-A refused sign-in shows the "not authorized" page and writes an
-`auth.login` audit row with the result `denied` and the reason
-`tenant_not_allowed`.
+the three app role values if a tenant already uses other names. Grants
+in the Users view still raise a role. The first Entra administrator can
+be given the `Portikus.Administrator` app role, or promoted by the local
+administrator after their first sign-in.
 
 ### Google Workspace
 
-Only accounts from the listed Google Workspace domains can sign in.
-Portikus checks the ID token's `hd` ("hosted domain") claim. A personal
-Gmail account has none and is refused. Google sends no groups, so
-everyone starts as a student, and an administrator uses Make instructor
-or Promote in the Users view.
+Only accounts from the listed Google Workspace domains can sign in; Dex's
+`google` connector checks the domain. A personal Gmail account is
+refused. Google sends no groups here, so everyone starts as a student,
+and an administrator uses Make instructor or Promote in the Users view.
 
 In the Google Cloud console, in a project owned by the organisation:
 
@@ -202,34 +230,32 @@ In the Google Cloud console, in a project owned by the organisation:
    the audience **Internal**, so only the organisation's accounts are
    offered.
 2. **Clients, Create client.** Type: **Web application**. Add the
-   authorised redirect URI `https://<public host>:<port>/auth/callback`.
+   authorised redirect URI `https://<public host>:<port>/dex/callback`.
 3. Copy the client ID and the client secret.
 
 Then deploy:
 
 ```
-read -rs PORTIKUS_OIDC_CLIENT_SECRET && export PORTIKUS_OIDC_CLIENT_SECRET
-make configure-vm PORTIKUS_IDP=google PORTIKUS_GOOGLE_DOMAINS=example.edu,students.example.edu \
-  PORTIKUS_OIDC_CLIENT_ID=<client ID>
+read -rs PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET && export PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
+make configure-vm PORTIKUS_DEX_UPSTREAM=google PORTIKUS_GOOGLE_DOMAINS=example.edu,students.example.edu \
+  PORTIKUS_DEX_UPSTREAM_CLIENT_ID=<client ID>
 ```
 
-The sign-in sends the first domain to Google as a hint for its account
-picker. The check at the callback is what counts. A refused sign-in is
-audited with the reason `domain_not_allowed`. A whole domain is
-admitted; a site that wants fewer people should put Dex in front
-instead, or ask for a Google group check (docs/BACKLOG.md).
+A whole domain is admitted. Portikus does not ask Dex for groups under
+Google, and a play that sets `PORTIKUS_OIDC_SCOPES` with `groups` stops
+with an error, because a groups claim here could only come from somewhere
+a student controls. A Google group check would need a Google service
+account and the Admin SDK, which is not built.
 
 ### LDAP and Active Directory
 
 Dex checks the password against the directory and passes the person's
-groups on. Portikus itself never talks to the directory. Dex's own
-passwords stay on beside it, for guests, and Dex shows a choice page
-first.
+groups on. Portikus itself never talks to the directory.
 
 ```
 read -rs PORTIKUS_LDAP_BIND_PASSWORD && export PORTIKUS_LDAP_BIND_PASSWORD
 export PORTIKUS_LDAP_USER_FILTER='(&(objectClass=user)(memberOf=CN=Portikus Users,OU=Groups,DC=example,DC=edu))'
-make configure-vm PORTIKUS_IDP=dex PORTIKUS_DEX_UPSTREAM=ldap \
+make configure-vm PORTIKUS_DEX_UPSTREAM=ldap \
   PORTIKUS_LDAP_HOST=ldap.example.edu:636 PORTIKUS_LDAP_SCHEMA=ad \
   PORTIKUS_LDAP_BIND_DN='CN=svc-portikus,OU=Service,DC=example,DC=edu' \
   PORTIKUS_LDAP_USER_BASE_DN='OU=People,DC=example,DC=edu' \
@@ -292,14 +318,13 @@ Test a filter with `ldapsearch` from a machine that can reach the
 directory before deploying it. Bad or missing settings stop the play
 before anything on the VM changes.
 
-### Standalone Dex
+### Dex's own passwords only
 
 The default, for a site with no institutional provider. Dex runs on the
 VM and keeps its own passwords in its PostgreSQL database, `dex`. Nothing
-needs setting. A new site has nobody who can sign in, so the first
-administrator creates their own account on `/setup` with the setup code
-("The first administrator", below). After that, administrators manage
-everyone from the Users view ("Managing users", below).
+needs setting. The first person to sign in is the local administrator
+("The local administrator", below), who then adds everyone else from the
+Users view ("Managing users", below).
 
 The Users view reaches Dex through Dex's gRPC API (a remote procedure
 call interface) on `127.0.0.1:5557`. It accepts only a client
@@ -307,62 +332,36 @@ certificate signed by a small certificate authority that Ansible keeps in
 `/etc/portikus/dex-grpc/`. The API's client key there is `root:portikus`,
 mode 0640. The certificates last 825 days, and every `make configure-vm`
 issues new ones when fewer than 30 days are left. A site that goes two
-years without a deploy would find the Users view's Dex buttons failing;
-a `make configure-vm` fixes it.
-
-### Dex in front of Entra or Google, for guests
-
-When a site has Entra or Google but also needs accounts for people
-outside it, Dex sits in front. Guests get Dex passwords; everyone else
-chooses Microsoft or Google on Dex's choice page. Dex, not Portikus, is
-registered with the provider:
-
-- Register the app as for direct Entra or Google, but with the redirect
-  URI `https://<public host>:<port>/dex/callback`.
-- Entra app roles are not used, and Google sends no groups. Everyone
-  starts as a student, and roles come from grants in the Users view.
-  Portikus does not ask Dex for groups here: Dex's Microsoft connector
-  would pass on every group the person belongs to, including Microsoft
-  365 groups any student can create and name after the administrators'
-  group. A play that sets `PORTIKUS_OIDC_SCOPES` with `groups` under
-  either connector stops with an error. Because a student could still add
-  `groups` to the sign-in address themselves, the play also leaves the
-  API's `OIDC_GROUPS_CLAIM` empty here, and the API then takes no role
-  from any groups in the token.
-
-```
-read -rs PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET && export PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
-make configure-vm PORTIKUS_IDP=dex PORTIKUS_DEX_UPSTREAM=microsoft \
-  PORTIKUS_ENTRA_TENANT_ID=<tenant ID> PORTIKUS_DEX_UPSTREAM_CLIENT_ID=<application ID>
-```
-
-For Google, use `PORTIKUS_DEX_UPSTREAM=google` and
-`PORTIKUS_GOOGLE_DOMAINS` in place of the tenant ID. Dex holds sign-in to
-the tenant or the domains itself. It reaches Microsoft or Google through
-the egress proxy. The Users view manages only the Dex (guest) accounts.
+years without a deploy would find the Users view's Dex buttons, Settings,
+Password and `portikus reset-admin` failing; a `make configure-vm` fixes
+it.
 
 ### Another OIDC provider: Okta, Keycloak and others
 
-Any provider that speaks OIDC and can put group names in a `groups` claim
-works as `external`. Register a client with the redirect URI
-`https://<public host>:<port>/auth/callback`, then:
+Any provider that speaks OIDC and can put group names in a claim works
+through Dex's generic `oidc` connector. Its button on Dex's page reads
+"Sign in with Single sign-on". Register a client for Dex with the
+redirect URI `https://<public host>:<port>/dex/callback`, then:
 
 ```
-read -rs PORTIKUS_OIDC_CLIENT_SECRET && export PORTIKUS_OIDC_CLIENT_SECRET
-make configure-vm PORTIKUS_IDP=external PORTIKUS_OIDC_ISSUER=https://idp.example.edu \
-  PORTIKUS_OIDC_CLIENT_ID=portikus
+read -rs PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET && export PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
+make configure-vm PORTIKUS_DEX_UPSTREAM=oidc PORTIKUS_DEX_UPSTREAM_ISSUER=https://idp.example.edu \
+  PORTIKUS_DEX_UPSTREAM_CLIENT_ID=portikus
 ```
 
-- The client secret must be at least 32 characters.
+- The issuer must be an `https` URL.
 - The group names default to `portikus-students`,
-  `portikus-instructors` and `portikus-administrators`; the
-  `PORTIKUS_OIDC_*_GROUP` settings change them.
-- The scopes default to `openid profile email`. Set
-  `PORTIKUS_OIDC_SCOPES` if the provider needs another scope before it
-  sends groups.
-- Someone in none of the groups cannot sign in.
-- The API calls this provider's userinfo endpoint, so its host is on the
-  allow list too.
+  `portikus-instructors` and `portikus-administrators`. **If the
+  provider uses other names, set `PORTIKUS_OIDC_STUDENT_GROUP`,
+  `PORTIKUS_OIDC_INSTRUCTOR_GROUP` and `PORTIKUS_OIDC_ADMIN_GROUP`**:
+  Dex admits only people in one of the three, and passes on only those.
+- `PORTIKUS_OIDC_UPSTREAM_GROUPS_CLAIM` names the claim that holds the
+  groups (default `groups`).
+- Dex asks for `openid profile email`. `PORTIKUS_OIDC_UPSTREAM_EXTRA_SCOPES`
+  adds more, separated by commas; Okta, for one, sends groups only when
+  asked for a `groups` scope.
+- Dex calls the provider's userinfo endpoint, so its host is on the allow
+  list too.
 
 ### Shibboleth, and why not SAML
 
@@ -372,54 +371,63 @@ uses the Shibboleth identity provider's own OIDC support:
 
 1. Install the **OIDC OP** plugin on the Shibboleth identity provider
    (version 4.1 or later).
-2. Register Portikus as an OIDC relying party, with a client ID, a client
-   secret of 32 characters or more, and the redirect URI
-   `https://<public host>:<port>/auth/callback`.
+2. Register Dex as an OIDC relying party, with a client ID, a client
+   secret of 16 characters or more, and the redirect URI
+   `https://<public host>:<port>/dex/callback`.
 3. Release `sub`, `email` and `name`, and a `groups` claim holding the
    three Portikus group names, for example from `isMemberOf` or
    `eduPersonEntitlement`.
-4. Configure Portikus as "Another OIDC provider", above.
+4. Configure it as "Another OIDC provider", above.
 
 Why not SAML directly: one sign-in protocol keeps the security-sensitive
 code, its tests and its identity rule in one place. SAML would add XML
 signature checking, a common source of sign-in bypasses, for sites that
 can already turn OIDC on. Dex does have a SAML connector, but its own
 documentation warns that it is not maintained, so it is not built
-(ruling 7).
+(docs/archive/epics/EPIC-14.md ruling 7).
 
 ### First checks with a real provider
 
-The imitation tokens in the tests prove Portikus's own checks, not how a
-real provider behaves (docs/archive/epics/EPIC-14.md, "Unverified until a real tenant
-exists"). The first time a site uses Entra, Google or Active Directory,
-check these, and record the results in docs/STATUS.md:
+The tests prove the connectors against imitation tokens from the in-repo
+mock provider, not how a real provider behaves. The first time a site
+uses Entra, Google, another OIDC provider or Active Directory, check
+these, and record the results in docs/STATUS.md:
 
-- Entra puts `roles` in the ID token for this registration, and `tid`
-  for a guest (B2B) account.
+- Entra's ID token carries `roles`, `name` and `email` for this
+  registration, and a guest (B2B) account's token comes from the tenant's
+  issuer.
+- Someone with no Portikus app role (Entra) or in none of the three groups
+  (another OIDC provider) is refused on Dex's page.
 - The allow list the play built covers every host the sign-in uses,
   including key rotation: a sign-in a day or two later still works.
-- Google sends `hd` for every Workspace account and honours the hint.
 - Linking a course account (Settings, Profile) forces a password prompt
-  at Entra or Google.
-- Dex's `microsoft` and `google` connectors, and the LDAP connector
-  against real Active Directory.
+  at the provider.
+- Dex's sign-in page reads well with its two choices, "Log in with Email"
+  and the institution's.
+- The LDAP connector against real Active Directory.
 
 ## Managing users
 
-Under Dex, administrators manage accounts in the Users view of `/admin`
-(docs/archive/epics/EPIC-14.md rulings 21 to 24, ADR 0028). Dex keeps them in its
-PostgreSQL database, `dex`, and the nightly backup holds them as
+Administrators manage Dex's own accounts in the Users view of `/admin`
+(docs/archive/epics/EPIC-14.md rulings 21 to 24, ADR 0028). Dex keeps them
+in its PostgreSQL database, `dex`, and the nightly backup holds them as
 `dex.dump`.
 
-- **Add user…** takes an email, a username and a role: student,
+- **Add user…** takes a name, an email, a username and a role: student,
   instructor or administrator. Portikus makes a 20-character password and
   shows it once, with a Copy button. Give it to the person privately, in
   person or by a private message in the learning system, never by plain
   email. The account exists in Portikus straight away, so an instructor
-  or administrator role is a stored grant from the start.
+  or administrator role is a stored grant from the start. The person must
+  choose their own password when they first sign in; until then every
+  page sends them to **Set a new password**.
 - **Reset password** makes a new password, shows it once, and ends the
-  account's sessions and preview sessions. People cannot change their own
-  password, so a reset is how a forgotten one is replaced.
+  account's sessions and preview sessions. It too must be changed at the
+  next sign-in.
+- **Settings, Password** lets anyone with a Dex password change it: the
+  current password, then a new one of at least 15 characters. A change
+  ends the account's other sessions. Ten wrong current passwords from one
+  address in ten minutes are allowed; the eleventh is refused for a while.
 - **Remove** deletes the Dex password and disables the account, which
   ends its sessions. The workspace stays; archive it from the same page
   when it is no longer needed.
@@ -427,16 +435,15 @@ PostgreSQL database, `dex`, and the nightly backup holds them as
   The new account starts with a new, empty workspace.
 - To stop someone at once without removing them, **Disable** the account.
 
-These buttons appear only when the provider is Dex. With an upstream
-connector they manage only Dex's own (guest) accounts; people from the
-directory, Microsoft or Google are managed there. Under any provider,
-**Make instructor**, **Remove instructor**, **Promote** and **Demote** set
-or clear a stored grant. None of them ends sessions; the next request
-reads the new role.
+With a connector, these buttons manage only Dex's own accounts; people
+from the directory, Microsoft, Google or the other provider are managed
+there. Under any connector, **Make instructor**, **Remove instructor**,
+**Promote** and **Demote** set or clear a stored grant. None of them ends
+sessions; the next request reads the new role.
 
-Portikus never stores or logs a generated password. Each action writes an
-audit row (`dex_user.created`, `dex_user.password_reset`,
-`dex_user.removed`) with no password, hash or email in it.
+Portikus never stores or logs a password. Each action writes an audit row
+(`dex_user.created`, `dex_user.password_reset`, `dex_user.removed`,
+`user.password_changed`) with no password, hash or email in it.
 
 **The users file is retired.** Before Epic 14, Dex's accounts lived in a
 users file on the host and `make users-*` managed them. The first `make
@@ -450,38 +457,70 @@ nothing imported." The pilot's import ran on 2026-09-24. Once the nightly
 backup holds `dex.dump`, delete the file, so a later play on an empty
 Dex cannot bring old passwords back.
 
-## The first administrator
+## The local administrator
 
-A new site has no administrator. Nobody becomes one just by signing in
-first. Instead, when no enabled administrator exists, the end of `make
-configure-vm` prints a one-time **setup code** and the address
-`https://<public host>:<port>/setup` (ADR 0028). The code is 16
-characters, works once, and expires after an hour. Only its hash is
-stored.
+Every site has one local administrator: a Dex password with the username
+`admin`, the display name "Local administrator" and the administrator
+role (ADR 0031). Nobody becomes an administrator by signing in first. It
+works whatever connector the site uses, so it is the way in when the
+institution's sign-in is broken.
 
-- **Under Entra, Google, LDAP or another OIDC provider**, sign in, open
-  `/setup`, and enter the code. The account is an administrator from the
-  next request.
-- **Under standalone Dex**, nobody can sign in yet, so `/setup` shows a
-  form that creates the first account instead: email, username, the
-  password twice, and the code. Then sign in normally.
-- A course (LTI) account cannot claim a code. Under Entra, the person
-  needs a Portikus app role before they can sign in at all.
-- A wrong code gets one generic answer. Ten tries per address in ten
-  minutes are allowed.
-
-To issue a new code by hand, because the hour passed or because every
-administrator is gone, run the same command the play runs. A new code
-replaces any unused one:
+**Made by the play.** The first `make configure-vm` creates it with a
+random one-time password and prints only:
 
 ```
-ssh deploy@10.100.0.120 'sudo runuser -u portikus -- env DATABASE_URL="postgresql://portikus@/portikus?host=/var/run/postgresql" node /usr/lib/portikus/api/node_modules/@portikus/auth/dist/setup-code-main.js'
+Made the local administrator, admin@<public host>.  Read the local administrator's one-time password with: sudo cat /etc/portikus/admin-password
 ```
 
-Only root on the VM can run it, and root already owns the site, so this
-is also the recovery path. Issuing and claiming are audited
-(`setup.code_issued`, `setup.code_claimed`), never with the code in the
-row. Epic 15 will wrap the command as `portikus setup-code`.
+The password is in `/etc/portikus/admin-password`, owned by root with
+mode 0600, and nowhere else: not in the play's output, the journal, a log
+or the audit table. Dex stores only its hash. The email is
+`admin@<public host>` unless `PORTIKUS_ADMIN_EMAIL` names another; it is
+set only when the account is created, so changing it later changes
+nothing (to change it, remove the account in the Users view and run
+`sudo portikus reset-admin --email <new address>`). Creation fails, and
+says so, if another Dex password already has that email.
+
+**First sign-in.** Read the file, open the site, choose "Log in with
+Email" on Dex's page, and sign in with that email and the password.
+Portikus shows only **Set a new password** until a new one is chosen;
+every other page, WebSocket and preview is refused until then. Once it is
+changed, the one-time password no longer works, and the next play run
+deletes the file. While it is still unchanged, every play run prints the
+"Read … with" line again.
+
+**Recovery.** If every administrator is locked out, or the institution's
+sign-in is down, run on the VM:
+
+```
+ssh deploy@10.100.0.120 'sudo portikus reset-admin'
+```
+
+It gives the local administrator a new one-time password in the same
+file, re-enables the account, gives the administrator role back, and ends
+every session of that account; the next sign-in must set a new password
+again. If the account or its Dex password was removed, it makes them
+again with the same identity, so the same account and workspace come
+back. It must run as root, on a Dex site.
+
+The play runs `portikus reset-admin --if-missing`, which does nothing to
+an account that exists, even one an administrator removed in the Users
+view. The command's exit status:
+
+| Status | Meaning |
+|---|---|
+| 0 | a new one-time password is in the file |
+| 10 | `--if-missing`: the account exists and its one-time password is still unchanged |
+| 11 | `--if-missing`: the account exists and has chosen its own password |
+| 1 | it failed: not root, no Dex on this site, Dex unreachable, or the email already taken |
+| 2 | bad arguments or missing settings |
+
+Each run that changes something writes `local_admin.created` or
+`local_admin.reset`, with the actor `host:root` and no password or email.
+
+The local administrator has only a password; Dex has no second factor for
+its own accounts. Keep the password long and private, and use the
+institution's sign-in for everyday administration.
 
 ## The Dex cutover and the storage move
 
@@ -510,19 +549,20 @@ A move like these follows the same steps:
 **Signing out of Portikus does not end a Dex session, and none is needed.**
 Dex's password login keeps no browser session, so the next sign-in always
 asks for the password again. That suits shared lab computers: the next
-person at the machine cannot sign in as the last one. Entra, Google and
-Dex's `microsoft` and `google` connectors are different: the provider
-keeps its own session, so on a shared computer people must also sign out
-of Microsoft or Google.
+person at the machine cannot sign in as the last one. The `entra`,
+`google` and `oidc` connectors are different: the provider keeps its own
+session, so on a shared computer people must also sign out of Microsoft,
+Google or the other provider.
 
 ## The egress proxy
 
 The API may reach only loopback and the workspace bridge; its systemd unit
-denies every other address. It reaches its sign-in provider and each
-LMS's keyset through Squid, a forward proxy on `127.0.0.1:3128`, which
-allows only named hosts (ADR 0027). Dex uses the same proxy for a
-`microsoft` or `google` connector. Nothing else goes through it; the
-workspaces have their own egress rules.
+denies every other address. It reaches each LMS's keyset through Squid,
+a forward proxy on `127.0.0.1:3128`, which allows only named hosts (ADR
+0027). The API reaches no sign-in provider: its one issuer is Dex, on the
+same VM. Dex uses the same proxy for an `entra`, `google` or `oidc`
+connector. Nothing else goes through it; the workspaces have their own
+egress rules.
 
 - **What it allows.** A host name is reached only over HTTPS (a
   `CONNECT` tunnel) on port 443, or on the port listed with it, and never
@@ -532,9 +572,10 @@ workspaces have their own egress rules.
   written, never through reverse DNS. Squid caches nothing and never
   sees inside the TLS connection.
 - **Where the list comes from.** Every `make configure-vm` rebuilds it
-  from the provider's discovery document (fetched while the play runs),
-  the keyset URL of every registered LMS, and
-  `PORTIKUS_EGRESS_EXTRA_HOSTS`. Under Dex or the mock, the site's own
+  from the connector's discovery document (fetched while the play runs;
+  under `entra` without the userinfo host, so `graph.microsoft.com` is not
+  listed), the keyset URL of every registered LMS, and
+  `PORTIKUS_EGRESS_EXTRA_HOSTS`. The site's own
   name is allowed at `127.0.0.1` only, because the API reaches its issuer
   through Caddy on the same VM. The play prints the list, and it is in
   `/etc/squid/squid.conf` on the VM.
@@ -546,8 +587,8 @@ workspaces have their own egress rules.
 - **`PORTIKUS_API_IP_ALLOW` is gone.** A play that still sets it stops
   with a message naming `PORTIKUS_EGRESS_EXTRA_HOSTS`, and the play
   deletes the old `10-idp-egress.conf` drop-in.
-- **When it fails.** If Squid stops, SSO sign-ins through Entra, Google
-  or another outside provider, and every LMS launch, stop too; Dex's own
+- **When it fails.** If Squid stops, sign-ins through the `entra`,
+  `google` or `oidc` connector, and every LMS launch, stop too; Dex's own
   passwords and LDAP do not use it. systemd restarts it after a failure.
   Refusals are in `/var/log/squid/access.log` as `TCP_DENIED/403` with
   the host that was refused:
@@ -901,7 +942,7 @@ PORTIKUS_BACKUP_IDENTITY=<path to the private key> \
 
 ```
 make rehearsal-up
-make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_IDP=<as the pilot>
+make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_DEX_UPSTREAM=<as the pilot>
 make restore TOFU_ENV=rehearsal-libvirt BACKUP=/var/backups/portikus/portikus/<timestamp> START_CHECK=1
 ```
 
@@ -1081,7 +1122,7 @@ The journal is capped at 2 GB. On the host, the nightly backup logs to
   the VM (`sudo journalctl -u unattended-upgrades`), which the `base` role
   sets up.
 - Delete `pre-...` snapshots that are no longer needed.
-- Under Entra, Google or a Dex `microsoft` or `google` connector, check
+- Under an `entra`, `google` or `oidc` connector, check
   when the client secret expires, and deploy a new one before then.
 
 ## Rebuild from code (B5)

@@ -284,17 +284,26 @@ Architecture must allow later support for:
 
 LDAP support does not need to be implemented directly in P0 if the institutional LDAP directory can be fronted by an OIDC identity provider.
 
-Added by Epic 14 (docs/archive/epics/EPIC-14.md, ADRs 0027 and 0028): a site picks one OIDC provider, and LTI launch works beside it.
+Added by Epic 14 (docs/archive/epics/EPIC-14.md, ADRs 0027 and 0028) and changed by Epic 14.2 (ADR 0031): every site signs people in through Dex, the small OIDC (OpenID Connect) provider Portikus runs beside the API, and LTI (Learning Tools Interoperability) launch works beside it.
 
-- Microsoft Entra ID, by direct OIDC: one tenant per site, admitted by the ID token's `tid` claim, with roles from Entra app roles in the `roles` claim.
-- Google Workspace, by direct OIDC: admitted by the ID token's `hd` claim against the site's domains; everyone starts as a student.
-- LDAP and Active Directory through Dex's LDAP connector, with a required user filter and roles from directory groups. Portikus never speaks LDAP.
-- Dex with its own passwords, kept in PostgreSQL and managed by administrators from the Users view; Dex can also sit in front of Entra or Google for guest accounts.
-  Add user asks for the person's name as well as email, username and role, because Dex sends only the username as the name; the account keeps that name through sign-in.
-- Any other OIDC provider, such as Okta, Keycloak or Shibboleth with its OIDC plugin. SAML is not supported directly.
-- An account is always keyed by the provider's issuer and `sub`, never by email.
-- A new site's first administrator comes from a one-time setup code printed on the host, never from being the first to sign in.
-- The API reaches outside providers and LMS keysets only through a forward proxy that allows named hosts.
+- The API trusts one issuer, Dex. It keeps a plain OIDC client against `OIDC_ISSUER_URL` with no provider-specific branches, and always calls userinfo, because Dex puts `groups` there. The development and test sites (`portikus_idp: mock`) point it at the in-repo mock provider instead. `OIDC_DEFAULT_ROLE` stays; Ansible sets it to `student` on every Dex site, so the local administrator and guests, who have no groups, are not refused, and to `none` for the mock.
+- Dex's own passwords are always on, kept in PostgreSQL and managed by administrators from the Users view. Add user asks for the person's name as well as email, username and role, because Dex sends only the username as the name; the account keeps that name through sign-in.
+- An institution's provider is one Dex connector beside the local passwords, never more than one per site. Dex decides who may sign in; a person Dex refuses sees Dex's error page, never reaches Portikus, and is recorded in Dex's log:
+
+  | Connector (`portikus_dex_upstream`) | Who may sign in | Role from | No group matched |
+  |---|---|---|---|
+  | `none` (local passwords only) | people an administrator added, and the local administrator | grants | student |
+  | `entra` (Dex's `oidc` connector held to the tenant's own issuer) | the tenant's people, guests included, with one of the three Portikus app roles | the `roles` claim, passed on as groups | refused by Dex |
+  | `google` | the listed Google Workspace domains | grants | student |
+  | `ldap` (LDAP or Active Directory) | people the required user filter admits | directory groups | student |
+  | `oidc` (Okta, Keycloak, Shibboleth's OIDC plugin, any other) | members of one of the three groups | the provider's groups claim | refused by Dex |
+
+  The three group names default to `portikus-students`, `portikus-instructors` and `portikus-administrators`, and under `entra` to the app role values `Portikus.Student`, `Portikus.Instructor` and `Portikus.Administrator`; the `PORTIKUS_OIDC_*_GROUP` settings change them, and an `oidc` site whose provider uses other names must set them. The `entra` connector reads no Microsoft Graph data and needs no Graph permission. Dex's `microsoft` connector, Google groups and SAML are not supported. Portikus never speaks LDAP.
+- An account is always keyed by the provider's issuer and `sub`, never by email; under Dex that is Dex's issuer and the subject Dex gives.
+- Every install has a local administrator: a Dex local password with Dex user ID `local-admin`, username `admin`, display name "Local administrator", the `administrator` grant, and the email `portikus_admin_email` (default `admin@<public host>`), set only when the account is created. Its password is random and unique to the install (the 20-character password Add user makes, about 115 bits), stored by Dex only as a bcrypt hash, and must be changed at first sign-in. It is written only to `/etc/portikus/admin-password` (owner root, mode 0600), never to a log, the journal or the play's output; the play removes the file once the password has been changed.
+- `portikus reset-admin`, run by root on the host, is the recovery path. It creates the local administrator if it is missing, gives it a new one-time password, re-enables it, restores the administrator grant, sets "must change password", and ends every session and preview session of the account. With `--if-missing` it leaves an existing account alone, even a removed one, and exits 10 while the one-time password is unchanged and 11 once it has been changed; otherwise 0 is success, 1 a failure (such as another Dex password already holding the email) and 2 bad arguments or settings. It refuses to run unless it is root and the site has Dex's gRPC API.
+- Nobody becomes an administrator by signing in first; there is no setup code and no `/setup` page.
+- Only Dex reaches an outside provider, through a forward proxy that allows named hosts: the discovery hosts of its one connector (for `entra`, without the userinfo host, so no `graph.microsoft.com`). The API reaches only Dex, under the site's own name, and LMS keysets.
 
 ### 5.2 Authorization
 
@@ -327,6 +336,14 @@ never make anyone an administrator, and a launch never starts a session
 for an account whose effective role is administrator. See
 `docs/archive/epics/EPIC-13-1.md` and ADR 0026.
 
+Added by Epic 14.2 (ADR 0031): roles come from the Dex connector's groups
+(directory groups, Entra app roles, or a generic provider's groups claim)
+or from grants. Dex refuses people outside the connector's admission rules
+(5.1) before Portikus sees them. A password an administrator sets (Add user
+or Reset password in the Users view) or `portikus reset-admin` sets must be
+changed at first sign-in: the account carries a "must change password"
+flag until it does.
+
 P2 roles may include:
 
 - `developer`;
@@ -348,6 +365,25 @@ Sign-in is rate limited per client address in the API, since Dex has no
 lockout (Epic 12b, ADR 0023): sign-in starts and Dex password attempts have
 separate limits, the password attempts also have a site-wide total, and a
 refusal answers 429 `RATE_LIMITED` and is audited as `auth.throttled`.
+
+Added by Epic 14.2: an account that must change its password can use only
+the change-password page. Every other API route answers 403
+`PASSWORD_CHANGE_REQUIRED`, except `GET /auth/me`, `POST /me/password`,
+`POST /auth/logout` and the routes that need no session (`/health`,
+`/auth/*`, the LTI routes); WebSocket upgrades and the preview gateway
+refuse the account too, and the web sends every page to
+`/change-password`. Anyone with a Dex local password can change it from
+Settings, Password (`POST /me/password`, CSRF-checked): the current
+password is checked through Dex's gRPC `VerifyPassword`; the new one must
+be at least 15 characters (NIST SP 800-63B revision 4 for a single
+factor, no composition rules), at most 72 bytes (bcrypt's limit) and
+different from the current one; it is stored in Dex as a bcrypt hash. A
+wrong current password answers 403 `WRONG_PASSWORD` and counts against a
+per-address limit of 10 in 10 minutes, after which the answer is 429. A
+change clears the flag and ends the account's other sessions and preview
+sessions; the current session stays. The route answers 404 without Dex's
+gRPC API and 400 `NOT_LOCAL_PASSWORD` for an account that is not a Dex
+local password.
 
 ### 5.4 Multiple browser connections
 
@@ -2199,6 +2235,15 @@ As built (Epic 11): a preview refusal that answers 403 is audited as
 503 answers are not audited. A role change is audited as `user.role_changed`
 with the old and new role and its source.
 
+As built (Epic 14.2): `local_admin.created` and `local_admin.reset` (actor
+`host:root`) record the break-glass command `portikus reset-admin`, and
+`user.password_changed` (`ok` or `failed`, with address and user agent)
+records a Dex password change. None of them, nor any other audit row or
+log line, holds a password, a hash or the local administrator's email.
+Sign-ins that Dex refuses under a connector's admission rules never reach
+Portikus, so they are recorded in Dex's JSON log, not the audit table.
+`setup.code_issued` and `setup.code_claimed` are no longer written.
+
 ### 24.12 Dependency/security maintenance
 
 The project must define a process for:
@@ -3068,11 +3113,11 @@ See `docs/archive/epics/EPIC-14.md` for the working brief and rulings, `docs/adr
 
 Includes:
 
-- Microsoft Entra ID (one tenant, app roles) and Google Workspace (listed domains) by direct OIDC;
+- Microsoft Entra ID (one tenant, app roles) and Google Workspace (listed domains) by direct OIDC (superseded by Epic 14.2: both are now Dex connectors);
 - LDAP and Active Directory, and Entra or Google for guests, through Dex connectors;
 - Dex's accounts in PostgreSQL, with Add user, Reset password and Remove in the Users view through Dex's gRPC API behind mutual TLS, and the users file imported once and retired;
 - Make instructor and Remove instructor in the Users view;
-- a one-time setup code for the first administrator;
+- a one-time setup code for the first administrator (superseded by Epic 14.2: the local administrator and `portikus reset-admin`);
 - API egress by hostname through a Squid forward proxy, replacing the API's address allow list;
 - operator documentation for each provider, including Shibboleth's OIDC plugin and why SAML is not built.
 
@@ -3082,6 +3127,27 @@ Acceptance:
 - moving the pilot's accounts into Dex's storage keeps every account, `sub` and workspace;
 - nobody becomes an administrator by signing in first;
 - the API cannot reach any internet address except through the proxy, and through it only listed hosts.
+
+### Epic 14.2 — One front door
+
+See `docs/adr/0031-dex-is-the-only-front-door.md` for the decision and sections 5.1 to 5.3 and 24.11 for the rules; built on `epic/14-2-one-front-door` (issue #537).
+
+Includes:
+
+- the API trusting only Dex, with its direct Entra, Google and generic OIDC paths and their settings (`OIDC_PROVIDER`, `OIDC_ALLOWED_TENANT`, `OIDC_ALLOWED_DOMAINS`) removed;
+- Dex connectors for Entra (app roles, the tenant's own issuer), Google, LDAP and any other OIDC provider, one per site;
+- a local administrator on every install, with a one-time password in a root-only file, and `portikus reset-admin` for recovery;
+- "must change password" for the local administrator and for passwords an administrator sets, enforced by the server;
+- Settings, Password for every Dex local password;
+- the setup code, `/setup` and the first-account form removed.
+
+Acceptance:
+
+- no API code path reads `tid` or `hd`, and no setting selects a provider-specific branch;
+- the local administrator's password appears only in the root-only file;
+- while the flag is set, every route but the change-password ones answers 403, and WebSocket upgrades and previews are refused;
+- under `entra` a token from another tenant is refused, and under `entra` or `oidc` a person with none of the three roles or groups is refused by Dex;
+- moving the pilot keeps every account, `sub` and workspace, and adds only the local administrator.
 
 ### Estimated total
 

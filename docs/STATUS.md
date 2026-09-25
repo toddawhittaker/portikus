@@ -2430,6 +2430,95 @@ Gaps:
 
 ## Epic 14.2 — One front door (in progress)
 
+Dex is now the only sign-in front door, and every install has a local
+administrator (ADR 0031; SPEC.md sections 5.1 to 5.3 and 24.11; issue
+#537). The working brief was folded into SPEC.md and deleted by T6.
+
+### What was built
+
+- **One issuer (T1, #559).** The API trusts only Dex (or the mock on
+  development and CI sites). `OIDC_PROVIDER`, `OIDC_ALLOWED_TENANT` and
+  `OIDC_ALLOWED_DOMAINS`, the `tid` and `hd` checks and their audit
+  reasons, and the skipped userinfo call are gone; the API always calls
+  userinfo. The Entra- and Google-shaped mock users (eve, ian, gina, gabe,
+  gus) were removed. `OIDC_DEFAULT_ROLE` stays: `student` on every Dex
+  site, `none` for the mock.
+- **The local administrator and password change, server side (T2,
+  #563).** Migration `0019_local_admin` adds `users.must_change_password`
+  and drops `setup_codes`. `packages/auth/src/local-admin.ts` and
+  `reset-admin-main.ts` make or reset the local administrator: Dex user
+  ID `local-admin`, username `admin`, display name "Local administrator",
+  the administrator grant, a 20-character generated password written only
+  to standard output, the flag set, every session and preview session
+  ended, and a `local_admin.created` or `local_admin.reset` audit row.
+  Exit codes: 0 a new password, 10 or 11 when `--if-missing` found the
+  account with the flag set or clear, 1 a failure, 2 bad arguments or
+  settings. `POST /me/password` checks the current password with Dex's
+  `VerifyPassword`, stores the new hash, clears the flag and ends the
+  other sessions; wrong current passwords are throttled at 10 per 10
+  minutes per address. While the flag is set every route answers 403
+  `PASSWORD_CHANGE_REQUIRED` except `/auth/me`, `/me/password`,
+  `/auth/logout` and the routes that need no session, and WebSocket
+  upgrades and the preview gateway refuse the account. Add user and Reset
+  password set the flag. `/setup` and its routes are gone and answer 404.
+- **Web (T4, #568).** The **Set a new password** page, where every page
+  goes while the flag is set, and Settings, Password for Dex local
+  passwords only. The Add user and Reset password dialogs say "They will
+  choose their own password when they first sign in." The `/setup` page is
+  gone. Playwright and axe cover the change page and the Settings section
+  in both themes.
+- **Dex connectors, the play and the host command (T3, pushed as
+  `task/14-2-t3-dex-connectors`, not yet merged into the epic branch when
+  these docs were written).** `PORTIKUS_IDP` takes only `dex` and `mock`;
+  `PORTIKUS_DEX_UPSTREAM` takes `none`, `ldap`, `entra`, `google` and
+  `oidc`. `entra` renders Dex's `oidc` connector held to the tenant's
+  issuer, with `roles` read as groups and only the three app roles
+  admitted; `oidc` renders the generic connector, labelled "Single
+  sign-on", admitting only the three groups. The play refuses
+  `PORTIKUS_IDP=entra`, `google` and `external` and
+  `PORTIKUS_DEX_UPSTREAM=microsoft` with a pointer to docs/OPERATIONS.md.
+  The package ships `/usr/bin/portikus reset-admin`, which runs the entry
+  point as the portikus user with the API's environment through
+  `systemd-run --pipe` and writes the password to
+  `/etc/portikus/admin-password` (root, 0600). The play runs it with
+  `--if-missing --email <PORTIKUS_ADMIN_EMAIL>`, prints only how to read
+  the file, and deletes the file once the password has been changed. The
+  API's own egress to providers is gone; the allow list holds only the
+  connector's discovery hosts, and under `entra` not
+  `graph.microsoft.com`.
+- **LTI label (#558).** Below.
+- **Docs (T6).** SPEC.md sections 5.1, 5.2, 5.3, 24.11 and 29;
+  docs/OPERATIONS.md's provider sections and "The local administrator";
+  infra/README.md; ADRs 0031 (built), 0028 and 0023; the superseded
+  rulings marked in docs/archive/epics/EPIC-14.md.
+
+### Pending
+
+- T5, CI's `dex-signin` job against the real Dex (the local
+  administrator, a password change, and the `oidc` and `entra` connectors
+  pointed at the mock), had not landed when these docs were written.
+- The rehearsal (a fresh install, then a pilot backup restored) and the
+  pilot deploy have not been run. A later task adds their results here.
+
+### Gaps
+
+- The `entra` connector has not met a real tenant, nor the `oidc`
+  connector a real Okta, Keycloak or Shibboleth; docs/OPERATIONS.md,
+  "First checks with a real provider", lists what to check first.
+- The spent one-time password stays in its root-only file until the next
+  play run after the change. It no longer works.
+- Changing `PORTIKUS_ADMIN_EMAIL` after the account exists changes
+  nothing; removing the account and running `portikus reset-admin
+  --email` is the manual step.
+- When `reset-admin` resets an existing Dex password, it keeps the email
+  Dex already holds, ahead of `--email` and the account's stored email.
+  The brief put `--email` first; the effect only shows if Dex's email and
+  the account's differ, which nothing in Portikus does.
+- The local administrator has only a password: Dex at the pinned version
+  has no second factor for its own accounts.
+- Dex's `microsoft` connector, Google groups and more than one connector
+  per site are not built.
+
 ### LTI workspace label falls back to the email (#558)
 
 A course (LTI) account with no LMS username now gets a workspace label
