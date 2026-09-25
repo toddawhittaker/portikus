@@ -120,7 +120,10 @@ function displayNameOf(claims: Record<string, unknown>): string {
 function usernameOf(claims: Record<string, unknown>): string | null {
 	const custom = objectClaim(claims[`${CLAIM}custom`]);
 	for (const value of [claims.preferred_username, custom?.username]) {
-		if (isString(value) && value.trim() !== "") return value.trim();
+		// A leading `$` is a substitution variable the LMS did not fill in.
+		if (isString(value) && value.trim() !== "" && !value.trim().startsWith("$")) {
+			return value.trim();
+		}
 	}
 	return null;
 }

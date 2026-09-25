@@ -513,6 +513,52 @@ describe.skipIf(skip)("a good launch", () => {
 		expect(await labelFor("Opaque_ID|42")).toBe("opaque-id-42");
 	});
 
+	test("a username that cleans to nothing falls through to the LTI user ID", async () => {
+		const label = await labelFor("s-9", (c) => {
+			c.preferred_username = "アダ";
+		});
+		expect(label).toBe("s-9");
+	});
+
+	test("an unfilled substitution variable falls through to the LTI user ID", async () => {
+		const label = await labelFor("s-8", (c) => {
+			c["https://purl.imsglobal.org/spec/lti/claim/custom"] = {
+				username: "$User.username",
+			};
+		});
+		expect(label).toBe("s-8");
+	});
+
+	test("suffixed labels stay within 40 characters", async () => {
+		const prefix = "a".repeat(40);
+		expect(await labelFor(`${prefix}x`)).toBe(prefix);
+		const second = await labelFor(`${prefix}y`);
+		expect(second).toBe(`${"a".repeat(38)}-2`);
+	});
+
+	test("when the suffixes run out, the LTI user ID label is used", async () => {
+		const values = ["crowd", ...Array.from({ length: 19 }, (_, i) => `crowd-${i + 2}`)];
+		for (const label of values) {
+			const owner = await insertTestUser(testDb.db, {});
+			await testDb.db
+				.insertInto("workspaces")
+				.values({
+					id: crypto.randomUUID(),
+					owner_user_id: owner,
+					incus_instance_name: `ws-${label}`,
+					label,
+					state: "stopped",
+					desired_state: "stopped",
+					quota_config: "{}",
+				})
+				.execute();
+		}
+		const label = await labelFor("s-7", (c) => {
+			c.preferred_username = "crowd";
+		});
+		expect(label).toBe("s-7");
+	});
+
 	test("a clashing LTI user ID gets the -2 suffix", async () => {
 		expect(await labelFor("student_1")).toBe("student-1");
 		expect(await labelFor("Student.1")).toBe("student-1-2");
@@ -531,6 +577,7 @@ describe.skipIf(skip)("a good launch", () => {
 		const user = await testDb.db
 			.selectFrom("users")
 			.select("preferred_username")
+			.where("oidc_subject", "=", "s-1")
 			.executeTakeFirstOrThrow();
 		expect(user.preferred_username).toBe("sam");
 	});

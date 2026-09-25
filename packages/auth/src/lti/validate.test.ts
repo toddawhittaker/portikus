@@ -197,6 +197,11 @@ describe("validateLaunchToken", () => {
 			{ [`${CLAIM}custom`]: "username=x" },
 			null,
 		],
+		[
+			"an unfilled substitution variable",
+			{ [`${CLAIM}custom`]: { username: "$Canvas.user.loginId" } },
+			null,
+		],
 		["nothing", {}, null],
 	])("username from %s", async (_label, extra, expected) => {
 		const result = await validate(token({ ...claims(), ...extra }));
