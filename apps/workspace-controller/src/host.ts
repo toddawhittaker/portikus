@@ -193,3 +193,47 @@ export async function growVolumes(
 
 	return { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
 }
+
+/**
+ * Bytes of reclaimable file cache (`inactive_file`) in an instance's cgroup.
+ * Incus reports `memory.current`, which counts page cache, so the resource
+ * guard subtracts this to get the working set (ADR 0032).
+ */
+export async function readInactiveFileBytes(
+	project: string,
+	instance: string,
+	cgroupRoot = "/sys/fs/cgroup",
+): Promise<number> {
+	// Incus leaves the project out of the cgroup name for the default project.
+	const scope = project === "default" ? instance : `${project}_${instance}`;
+	const path = `${cgroupRoot}/lxc.payload.${scope}/memory.stat`;
+	const text = await readFile(path, "utf8");
+	const match = /^inactive_file (\d+)$/m.exec(text);
+	if (!match) {
+		throw new IncusError("OPERATION_FAILED", `no inactive_file in ${path}`);
+	}
+	return Number(match[1]);
+}
+
+/**
+ * The number of CPUs in an Incus `limits.cpu` value: a count such as "4",
+ * or a CPU set such as "0-3" or "0,2". Null when unset or unreadable.
+ */
+export function countIncusCpus(value: unknown): number | null {
+	if (typeof value !== "string" || value.trim() === "") return null;
+	const text = value.trim();
+	if (/^\d+$/.test(text)) {
+		const n = Number(text);
+		return n > 0 ? n : null;
+	}
+	let count = 0;
+	for (const part of text.split(",")) {
+		const range = /^(\d+)(?:-(\d+))?$/.exec(part.trim());
+		if (!range) return null;
+		const first = Number(range[1]);
+		const last = range[2] === undefined ? first : Number(range[2]);
+		if (last < first) return null;
+		count += last - first + 1;
+	}
+	return count;
+}

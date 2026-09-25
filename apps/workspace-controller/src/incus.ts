@@ -33,7 +33,8 @@ export interface IncusClientOptions {
  */
 export class IncusClient {
 	private readonly socketPath: string;
-	private readonly project: string;
+	/** The Incus project; the controller also names cgroups with it. */
+	readonly project: string;
 
 	constructor(opts: IncusClientOptions) {
 		this.socketPath = opts.socketPath;

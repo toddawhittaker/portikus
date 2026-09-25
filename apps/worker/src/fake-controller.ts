@@ -4,6 +4,7 @@ import type {
 	GrowVolumesRequest,
 	GrowVolumesResponse,
 	HostSnapshot,
+	InstanceUsage,
 	ListInstancesResponse,
 	LogLevel,
 	RebuildInstanceRequest,
@@ -113,6 +114,22 @@ export class FakeControllerClient implements ControllerClient {
 		this.calls.push({ method: "growVolumes", args: [name, req] });
 		if (this.growError) throw this.growError;
 		return { homeGiB: req.homeGiB, dockerGiB: req.dockerGiB };
+	}
+
+	usageResult: InstanceUsage[] | Error = [];
+
+	async usage(signal?: AbortSignal): Promise<InstanceUsage[]> {
+		this.calls.push({ method: "usage", args: [signal] });
+		if (this.usageResult instanceof Error) throw this.usageResult;
+		return this.usageResult;
+	}
+
+	/** Set to an Error to make allowance writes fail. */
+	setCpuAllowanceError: Error | null = null;
+
+	async setCpuAllowance(name: string, allowance: string | null): Promise<void> {
+		this.calls.push({ method: "setCpuAllowance", args: [name, allowance] });
+		if (this.setCpuAllowanceError) throw this.setCpuAllowanceError;
 	}
 
 	/** Helper to make a ControllerClientError. */

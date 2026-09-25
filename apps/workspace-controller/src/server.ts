@@ -5,6 +5,7 @@ import {
 	InstanceName,
 	RebuildInstanceRequest,
 	ResetDockerRequest,
+	SetCpuAllowanceRequest,
 	SetLogLevelRequest,
 	StartInstanceRequest,
 	StopInstanceRequest,
@@ -292,6 +293,37 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	app.get("/host", async (_request, reply) => {
 		try {
 			return reply.code(200).send(await provider.hostSnapshot());
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	// The worker samples this once a minute for the resource guard (ADR 0032).
+	app.get("/instances/usage", async (_request, reply) => {
+		try {
+			return reply.code(200).send({ instances: await provider.usage() });
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	app.put("/instances/:name/cpu-allowance", async (request, reply) => {
+		const params = request.params as { name: string };
+		if (!InstanceName.safeParse(params.name).success) {
+			return reply
+				.code(400)
+				.send({ code: "INVALID_NAME", message: "invalid instance name" });
+		}
+		const bodyResult = SetCpuAllowanceRequest.safeParse(request.body ?? {});
+		if (!bodyResult.success) {
+			return reply.code(400).send({
+				code: "BAD_REQUEST",
+				message: bodyResult.error.issues.map((i) => i.message).join("; "),
+			});
+		}
+		try {
+			await provider.setCpuAllowance(params.name, bodyResult.data.allowance);
+			return reply.code(204).send();
 		} catch (err) {
 			return sendError(reply, err);
 		}
