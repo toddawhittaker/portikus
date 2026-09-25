@@ -92,6 +92,9 @@
       - {name: OIDC without an issuer, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: ""}}
       - {name: an OIDC issuer over plain HTTP, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: "http://sso.example.edu"}}
       - {name: Entra through the generic OIDC connector, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: "https://login.microsoftonline.com/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0"}}
+      - {name: Entra US Government through the generic OIDC connector, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: "https://login.microsoftonline.us/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0"}}
+      - {name: Entra China through the generic OIDC connector, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: "https://login.partner.microsoftonline.cn/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0"}}
+      - {name: Entra v1 issuer through the generic OIDC connector, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: "https://STS.Windows.net/3fa85f64-5717-4562-b3fc-2c963f66afa6/"}}
       - {name: OIDC without a client ID, accept: false, upstream: oidc, change: {portikus_dex_upstream_client_id: ""}}
       - {name: an OIDC groups claim with a space, accept: false, upstream: oidc, change: {portikus_oidc_upstream_groups_claim: "my groups"}}
       - {name: complete Google settings, accept: true, upstream: google, change: {}}

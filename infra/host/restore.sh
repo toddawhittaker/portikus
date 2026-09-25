@@ -243,6 +243,15 @@ if grep -q '^file dex\.dump ' "$manifest"; then
   else
     info "the set holds Dex's accounts, but ${target_name} runs no Dex; skipped them"
   fi
+elif [ "$(dex_installed)" = yes ]; then
+  # Dex still holds this VM's one-time password for the local administrator,
+  # so the restored row must not let that password skip the change.  A set
+  # from before migration 0019 has no such column and no such row.
+  has_flag=$(psql_vm "SELECT count(*) FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'must_change_password'")
+  if [ "$has_flag" = 1 ]; then
+    psql_vm "UPDATE users SET must_change_password = true WHERE oidc_subject = '${LOCAL_ADMIN_SUBJECT}' AND preferred_username = 'admin'"
+    step "no Dex accounts in the set; the local administrator must change its password at next sign-in"
+  fi
 fi
 
 # ── 5. Volumes ────────────────────────────────────────────────────
