@@ -1439,3 +1439,320 @@ test.skipIf(skip)("an instance that already exists is adopted", async () => {
 	const audits = await getAudits(id);
 	expect(audits.some((a) => a.action === "workspace.provisioned")).toBe(true);
 });
+
+// --- Idle stop and the resource guard at start and stop (ADR 0032) ---
+
+const MIN = 60_000;
+
+async function setIdleMinutes(minutes: number): Promise<void> {
+	await tdb.db.updateTable("settings").set({ idle_stop_minutes: minutes }).execute();
+}
+
+/** A running workspace with a browser connected and its last activity `idleFor` ms ago. */
+async function activeWorkspace(
+	now: Date,
+	idleFor: number,
+	overrides: Record<string, unknown> = {},
+): Promise<string> {
+	const id = await insertWorkspace({
+		state: "running",
+		desired_state: "running",
+		last_activity_at: new Date(now.getTime() - idleFor).toISOString(),
+		...overrides,
+	});
+	await insertConnection(id, now);
+	return id;
+}
+
+async function sweepAt(at: Date): Promise<void> {
+	// Keep the browser's connection fresh, as its heartbeats would.
+	await tdb.db
+		.updateTable("workspace_connections")
+		.set({ last_seen_at: at.toISOString() })
+		.execute();
+	await reconcile(tdb.db, fake, cfg, at, at);
+}
+
+test.skipIf(skip)(
+	"idle for the idle time warns, and stops five minutes later with a browser connected",
+	async () => {
+		const now = new Date();
+		const id = await activeWorkspace(now, 59 * MIN);
+		await sweepAt(now);
+		expect((await getWorkspace(id)).idle_stop_at).toBeNull();
+
+		const warnAt = new Date(now.getTime() + MIN);
+		await sweepAt(warnAt);
+		const warned = await getWorkspace(id);
+		expect(warned.state).toBe("running");
+		expect(warned.idle_stop_at?.getTime()).toBe(warnAt.getTime() + 5 * MIN);
+
+		await sweepAt(new Date(warnAt.getTime() + 5 * MIN - 1000));
+		expect((await getWorkspace(id)).state).toBe("running");
+
+		await sweepAt(new Date(warnAt.getTime() + 5 * MIN));
+		const stopped = await getWorkspace(id);
+		expect(stopped.state).toBe("stopped");
+		expect(stopped.desired_state).toBe("stopped");
+		expect(stopped.idle_stop_at).toBeNull();
+		expect(fake.calls.some((c) => c.method === "stop")).toBe(true);
+		const idleAudits = (await getAudits(id)).filter(
+			(a) => a.action === "workspace.idle_stopped",
+		);
+		expect(idleAudits.map((a) => [a.actor, a.metadata])).toEqual([
+			["worker", { idleMinutes: 60 }],
+		]);
+	},
+);
+
+test.skipIf(skip)("activity after the warning cancels the stop", async () => {
+	const now = new Date();
+	const id = await activeWorkspace(now, 60 * MIN);
+	await sweepAt(now);
+	expect((await getWorkspace(id)).idle_stop_at).not.toBeNull();
+
+	// What the API does on activity.
+	const answered = new Date(now.getTime() + 2 * MIN);
+	await tdb.db
+		.updateTable("workspaces")
+		.set({ last_activity_at: answered.toISOString(), idle_stop_at: null })
+		.where("id", "=", id)
+		.execute();
+	await sweepAt(new Date(now.getTime() + 6 * MIN));
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("running");
+	expect(ws.idle_stop_at).toBeNull();
+});
+
+test.skipIf(skip)("activity every few minutes never stops by idle", async () => {
+	await setIdleMinutes(10);
+	const start = new Date();
+	const id = await activeWorkspace(start, 0);
+	for (let minute = 1; minute <= 60; minute++) {
+		const at = new Date(start.getTime() + minute * MIN);
+		if (minute % 7 === 0) {
+			await tdb.db
+				.updateTable("workspaces")
+				.set({ last_activity_at: at.toISOString(), idle_stop_at: null })
+				.where("id", "=", id)
+				.execute();
+		}
+		await sweepAt(at);
+	}
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("running");
+	expect(ws.idle_stop_at).toBeNull();
+});
+
+test.skipIf(skip)("a platform idle time of 0 never stops by idle", async () => {
+	await setIdleMinutes(0);
+	const now = new Date();
+	const id = await activeWorkspace(now, 24 * 60 * MIN);
+	await sweepAt(now);
+	await sweepAt(new Date(now.getTime() + 10 * MIN));
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("running");
+	expect(ws.idle_stop_at).toBeNull();
+});
+
+test.skipIf(skip)("a workspace override of 0 never stops by idle", async () => {
+	const now = new Date();
+	const id = await activeWorkspace(now, 24 * 60 * MIN, {
+		guard_config: JSON.stringify({ idleStopMinutes: 0 }),
+	});
+	await sweepAt(now);
+	await sweepAt(new Date(now.getTime() + 10 * MIN));
+	const ws = await getWorkspace(id);
+	expect(ws.idle_stop_at).toBeNull();
+	expect(ws.state).toBe("running");
+});
+
+test.skipIf(skip)("setting idle to 0 after the warning withdraws it", async () => {
+	const now = new Date();
+	const id = await activeWorkspace(now, 60 * MIN);
+	await sweepAt(now);
+	expect((await getWorkspace(id)).idle_stop_at).not.toBeNull();
+	await setIdleMinutes(0);
+	await sweepAt(new Date(now.getTime() + 10 * MIN));
+	const ws = await getWorkspace(id);
+	expect(ws.idle_stop_at).toBeNull();
+	expect(ws.state).toBe("running");
+});
+
+test.skipIf(skip)("a workspace override wins over the platform value", async () => {
+	const now = new Date();
+	const shorter = await activeWorkspace(now, 20 * MIN, {
+		guard_config: JSON.stringify({ idleStopMinutes: 15 }),
+	});
+	const longer = await activeWorkspace(now, 90 * MIN, {
+		guard_config: JSON.stringify({ idleStopMinutes: 120 }),
+	});
+	const platform = await activeWorkspace(now, 20 * MIN);
+	await sweepAt(now);
+	expect((await getWorkspace(shorter)).idle_stop_at).not.toBeNull();
+	expect((await getWorkspace(longer)).idle_stop_at).toBeNull();
+	expect((await getWorkspace(platform)).idle_stop_at).toBeNull();
+});
+
+test.skipIf(skip)("a shortened setting warns rather than stops", async () => {
+	const now = new Date();
+	const id = await activeWorkspace(now, 50 * MIN);
+	await sweepAt(now);
+	await setIdleMinutes(10);
+	const later = new Date(now.getTime() + 1000);
+	await sweepAt(later);
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("running");
+	expect(ws.idle_stop_at?.getTime()).toBe(later.getTime() + 5 * MIN);
+});
+
+test.skipIf(skip)(
+	"with no browser the grace period stops the workspace first",
+	async () => {
+		const now = new Date();
+		const id = await insertWorkspace({
+			state: "running",
+			desired_state: "running",
+			last_activity_at: now.toISOString(),
+		});
+		await reconcile(tdb.db, fake, cfg, now, now);
+		const later = new Date(now.getTime() + cfg.SHUTDOWN_GRACE_SECONDS * 1000);
+		await reconcile(tdb.db, fake, cfg, later, later);
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		const actions = (await getAudits(id)).map((a) => a.action);
+		expect(actions).not.toContain("workspace.idle_stopped");
+	},
+);
+
+test.skipIf(skip)(
+	"a running workspace without a last activity counts as active now",
+	async () => {
+		const now = new Date();
+		const id = await insertWorkspace({ state: "running", desired_state: "running" });
+		await insertConnection(id, now);
+		await sweepAt(now);
+		const ws = await getWorkspace(id);
+		expect(ws.last_activity_at?.getTime()).toBe(now.getTime());
+		expect(ws.idle_stop_at).toBeNull();
+	},
+);
+
+test.skipIf(skip)(
+	"a start sets last activity to the start time and clears the warning",
+	async () => {
+		const now = new Date();
+		const id = await insertWorkspace({
+			state: "stopped",
+			desired_state: "running",
+			last_activity_at: new Date(now.getTime() - 5 * 60 * MIN).toISOString(),
+			idle_stop_at: new Date(now.getTime() - MIN).toISOString(),
+		});
+		await insertConnection(id, now);
+		await reconcile(tdb.db, fake, cfg, now, now);
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("running");
+		expect(ws.last_activity_at?.getTime()).toBe(now.getTime());
+		expect(ws.idle_stop_at).toBeNull();
+	},
+);
+
+const THROTTLE = {
+	at: "2026-09-25T12:00:00.000Z",
+	averagePercent: 99.5,
+	thresholdPercent: 80,
+	windowMinutes: 30,
+	sharePercent: 25,
+	allowance: "100ms/100ms",
+};
+const FLAG = {
+	at: "2026-09-25T12:00:00.000Z",
+	averagePercent: 93,
+	thresholdPercent: 90,
+	windowMinutes: 30,
+};
+
+async function addSample(workspaceId: string): Promise<void> {
+	await tdb.db
+		.insertInto("workspace_usage_samples")
+		.values({
+			workspace_id: workspaceId,
+			observed_at: new Date().toISOString(),
+			cpu_usage_ns: 1,
+			cpu_limit: 4,
+			memory_bytes: 1,
+			memory_limit_bytes: 2,
+		})
+		.execute();
+}
+
+async function sampleRows(workspaceId: string): Promise<number> {
+	const rows = await tdb.db
+		.selectFrom("workspace_usage_samples")
+		.select("id")
+		.where("workspace_id", "=", workspaceId)
+		.execute();
+	return rows.length;
+}
+
+test.skipIf(skip)(
+	"a stop clears the throttle, the flag and the samples, and audits each",
+	async () => {
+		const id = await insertWorkspace({
+			state: "running",
+			desired_state: "stopped",
+			cpu_throttle: JSON.stringify(THROTTLE),
+			memory_flag: JSON.stringify(FLAG),
+		});
+		await addSample(id);
+		const now = new Date();
+		await reconcile(tdb.db, fake, cfg, now, now);
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(ws.cpu_throttle).toBeNull();
+		expect(ws.memory_flag).toBeNull();
+		expect(await sampleRows(id)).toBe(0);
+		const guardAudits = (await getAudits(id))
+			.filter((a) => a.action !== "workspace.stop")
+			.map((a) => [a.action, a.actor, a.metadata]);
+		expect(guardAudits).toEqual([
+			["workspace.cpu_throttle_lifted", "worker", { reason: "stopped" }],
+			["workspace.memory_flag_cleared", "worker", { reason: "stopped" }],
+		]);
+	},
+);
+
+test.skipIf(skip)("a stop with nothing to clear writes no guard audit", async () => {
+	const id = await insertWorkspace({ state: "running", desired_state: "stopped" });
+	await addSample(id);
+	const now = new Date();
+	await reconcile(tdb.db, fake, cfg, now, now);
+	expect((await getAudits(id)).map((a) => a.action)).toEqual(["workspace.stop"]);
+	expect(await sampleRows(id)).toBe(0);
+});
+
+test.skipIf(skip)(
+	"a stop seen in the instance list clears the throttle too",
+	async () => {
+		const instance = "ws-observed-stop";
+		const id = await insertWorkspace({
+			state: "running",
+			desired_state: "running",
+			incus_instance_name: instance,
+			cpu_throttle: JSON.stringify(THROTTLE),
+		});
+		await insertConnection(id);
+		await addSample(id);
+		fake.listResult = [{ name: instance, status: "Stopped", ipv4: null }];
+		await reconcile(tdb.db, fake, cfg, new Date(), null);
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(ws.cpu_throttle).toBeNull();
+		expect(await sampleRows(id)).toBe(0);
+		expect((await getAudits(id)).map((a) => a.action)).toContain(
+			"workspace.cpu_throttle_lifted",
+		);
+	},
+);
