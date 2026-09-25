@@ -1,7 +1,7 @@
 # 0031. Dex is the only sign-in front door, with a local administrator made at install
 
 - **Status**: Accepted (Todd, 2026-09-25); not yet built
-- **Date**: 2026-09-25
+- **Date**: 2026-09-25; amended the same day after docs/EPIC-14-2.md's open questions
 - **References**: SPEC.md sections 5.1, 5.2 and 24.11; docs/EPIC-14.md
   rulings 1 to 3, 6, 13 and 15 to 18; docs/EPIC-15.md rulings 3, 14, 15
   and 20; ADR 0023; ADR 0028 (first-administrator part superseded)
@@ -24,25 +24,33 @@ some sites.
 ## Decision
 
 Portikus signs people in through Dex only, plus LTI launches. Every
-institution provider is one Dex connector: `microsoft` (Entra), `google`,
-`ldap`, or Dex's generic `oidc` connector (Okta, Keycloak, Shibboleth's
-OIDC plugin). Dex's own passwords are always on. The API's direct Entra,
+institution provider is one Dex connector: `google`, `ldap`, or Dex's
+generic `oidc` connector (Microsoft Entra ID, Okta, Keycloak,
+Shibboleth's OIDC plugin). Dex's own passwords are always on. The API's direct Entra,
 Google and generic OIDC paths are removed; its one issuer is Dex.
 
 Every install has a local administrator account in Dex. Setup creates it
 with a random password unique to that install (at least 80 random bits),
-prints the password once, and stores only its bcrypt hash. Portikus holds
+writes the password to a root-only file (`/etc/portikus/admin-password`,
+mode 0600) and prints only the command that reads it, so the password
+never reaches a log or the journal; Dex stores only its bcrypt hash. Portikus holds
 a "must change password" flag and, while it is set, shows that account
 only the change-password form. The same account is the way back in when
 the institution's sign-in fails. A root command on the host,
 `portikus reset-admin`, sets a new random password, sets the flag, ends
-the account's sessions and prints the password; it recreates the account
-if it was removed. It replaces the setup code, `/setup`, its claim flow
-and the first-account form.
+the account's sessions and writes the password to the same file; it
+recreates the account if it was removed. It replaces the setup code, `/setup`, its claim flow
+and the first-account form. A password an administrator sets for someone
+else, with Add user or Reset password in the Users view, carries the same
+flag, so its owner chooses their own password at first sign-in.
 
-Roles under Entra come from Entra security groups, which Dex's
-`microsoft` connector passes on in `groups`, or from grants in the Users
-view. Two-factor sign-in stays the institution's: Dex sends each person
+Roles under Entra come from Entra app roles (Todd, 2026-09-25): Dex's
+generic `oidc` connector, pointed at the tenant's own issuer, reads the ID
+token's `roles` claim as groups and passes them on, so Portikus maps them
+as before; grants in the Users view still raise a role. Dex's `microsoft`
+connector was rejected: it reads groups only through Microsoft Graph with
+the delegated `Directory.Read.All` permission, which needs a tenant
+administrator's consent. Two-factor sign-in stays the institution's: Dex sends each person
 to their provider, which asks for the second factor under its own rules.
 
 ## Consequences
@@ -56,8 +64,7 @@ to their provider, which asks for the second factor under its own rules.
   version has no second factor for its own passwords. Mitigations: a long
   generated password, the existing sign-in throttle, and an audit row for
   every sign-in to it.
-- Portikus cannot read Entra app roles, and cannot see whether a second
-  factor was used (Dex does not pass on the `amr` claim). The provider
+- Portikus cannot see whether a second factor was used (Dex does not pass on the `amr` claim). The provider
   enforces two-factor sign-in, as is usual.
 - Dex must be up for anyone to sign in except through LTI. It already is
   the default and runs beside the API.

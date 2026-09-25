@@ -5,12 +5,12 @@ This is the working brief for Epic 15. It is the requirement an agent implements
 - **Base commit:** `main` once Epic 14 has merged. **Epic branch:** `epic/15-apt-install`. Builders reset to it and branch `task/15-<name>`.
 - **Migration number:** none. No task adds a migration.
 
-**Amendment (Todd, 2026-09-25): Dex is the only front door (ADR 0031).** Epic 15 is built after the BACKLOG work "One front door: Dex for every site", and these rulings change with it:
+**Amendment (Todd, 2026-09-25): Dex is the only front door (ADR 0031).** Epic 15 is built after Epic 14.2 (`docs/EPIC-14-2.md`), and these rulings change with it:
 
-- Ruling 3: `portikus/provider` keeps its five answers, but each one is a Dex connector (`dex` means no connector). The Entra and Google questions fill the Dex `microsoft` and `google` connectors; `oidc` fills Dex's generic `oidc` connector. A new question, `portikus/admin_email` (default `admin@<public_host>`), names the local administrator.
-- Rulings 14 and 15: no setup code. The last task of the play creates the local administrator when it does not exist and prints its one-time password in a box; `portikus setup --follow` shows it. The `portikus` command's `setup-code` becomes `reset-admin`.
-- Ruling 20: the install test signs in as the local administrator with the printed password, changes it, and then runs the smoke test.
-- The user story's setup-code sentence reads the same way: at the end setup prints the administrator's email and a one-time password, which must be changed at first sign-in.
+- Ruling 3: `portikus/provider` keeps its five answers, but each one is a Dex connector (`dex` means no connector). The Entra questions (tenant ID, client ID and secret) fill the `entra` preset of Dex's generic `oidc` connector, which uses the tenant's own issuer and takes roles from Entra app roles; the Google questions fill Dex's `google` connector; `oidc` fills the generic `oidc` connector. `ldap` fills the `ldap` connector as before (EPIC-14-2 rulings 5 to 9). A new question, `portikus/admin_email` (default `admin@<public_host>`), names the local administrator.
+- Rulings 14 and 15: no setup code. The last task of the play creates the local administrator when it does not exist, writes its one-time password to the root-only file `/etc/portikus/admin-password` (mode 0600), and prints only how to read it: `sudo cat /etc/portikus/admin-password`. The password never appears in the play's output, the journal or `portikus setup --follow` (EPIC-14-2 rulings 14 and 20). The `portikus` command's `setup-code` becomes `reset-admin`.
+- Ruling 20: the install test reads `/etc/portikus/admin-password` as root, signs in as the local administrator with that password, changes it, and then runs the smoke test.
+- The user story's setup-code sentence reads the same way: at the end setup prints the administrator's email and the command that shows its one-time password, which must be changed at first sign-in.
 
 Terms used throughout:
 
