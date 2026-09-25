@@ -11,7 +11,12 @@ export function NotFound() {
 				<p className="pk-text-body">There is nothing at this address.</p>
 			</div>
 			<p className="pk-text-body">
-				<a href="/">Go to the Portikus home page</a>
+				<a
+					href="/"
+					className="pk-focus-ring text-[var(--accent-text)] underline underline-offset-2"
+				>
+					Go to the Portikus home page
+				</a>
 			</p>
 		</StandalonePage>
 	);

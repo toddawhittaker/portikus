@@ -87,6 +87,14 @@ installed copy of the script, not the checkout. Epic 14 is such a change:
 until the timer is reinstalled, the nightly set has no `dex.dump`, so it
 cannot bring back Dex's accounts.
 
+**Epic 14.2 must be deployed with `make configure-vm PORTIKUS_DEB=...`,
+not `make deploy-app` or a plain `apt upgrade`.** From this release the
+API checks that Dex's gRPC server certificate names `localhost`, and only
+the play reissues that certificate. The API also refuses to start while
+api.env still holds the retired direct-provider settings
+(`OIDC_PROVIDER`, `OIDC_ALLOWED_TENANT`, `OIDC_ALLOWED_DOMAINS`), which
+only the play removes. A package-only install leaves sign-in broken.
+
 `make deploy-app` builds and installs the package without Ansible. It is
 quicker for a small application fix, but it skips everything else, so
 prefer `configure-vm`.
@@ -993,7 +1001,11 @@ then `make rehearsal-destroy`.
    ```
 
    With a `dex.dump` in the set, the restore also loads Dex's accounts,
-   with Dex stopped, so everyone keeps their password.
+   with Dex stopped, so everyone keeps their password. Without one, Dex
+   keeps the rebuilt VM's accounts, including the local administrator's
+   one-time password, so the restore sets the restored local
+   administrator's must-change-password flag: that password works once
+   more, and only to choose a new one.
 4. Run `make configure-vm` again, which makes a local administrator if
    the backup had none, then `make smoke-test` and `make security-test`,
    and sign in as an administrator to check that the workspaces are

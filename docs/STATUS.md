@@ -2519,6 +2519,24 @@ and a second `portikus reset-admin` all passed. `make smoke-test` passed
 destroyed. Signing in as carol, alice or bob was not tried, because their
 passwords are Todd's.
 
+### Upgrading to this release
+
+Deploy it with the full play (`make configure-vm PORTIKUS_DEB=...`), not
+`make deploy-app` or a plain `apt upgrade`. The API now checks that Dex's
+gRPC server certificate names `localhost`, which only the play's
+`dex-grpc-certs.sh` reissues, and it refuses to start while api.env holds
+the retired direct-provider settings that only the play removes.
+docs/OPERATIONS.md, "Deploying", says the same.
+
+### Final confirmation fixes
+
+The not-found page's home link is styled as a link. The play's refusal
+of Entra through the generic `oidc` connector also covers
+`login.microsoftonline.us`, `login.partner.microsoftonline.cn` and
+`sts.windows.net`. A restore from a set without `dex.dump` onto a VM
+running Dex sets the restored local administrator's must-change-password
+flag, because Dex still holds the rebuilt VM's one-time password.
+
 ### Pending
 
 - The pilot deploy has not been run. A later task adds its results here.
