@@ -174,6 +174,11 @@ test("Add user checks each field before sending and focuses the first bad one", 
 	renderApp("/admin");
 	fireEvent.click(await screen.findByRole("button", { name: "Add user…" }));
 	const dialog = await screen.findByRole("dialog", { name: "Add user" });
+	for (const label of ["Name", "Email", "Username"]) {
+		expect(within(dialog).getByLabelText(label).getAttribute("aria-required")).toBe(
+			"true",
+		);
+	}
 	// The field must already be invalid when focus reaches it, so it is announced so.
 	const atFocus: (string | null)[] = [];
 	dialog.addEventListener("focusin", (e) =>

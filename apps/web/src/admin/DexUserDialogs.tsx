@@ -117,13 +117,8 @@ export function AddDexUser() {
 			// Render the invalid state before focus lands, so it is announced.
 			flushSync(() => setErrors(found));
 			// Blur first so focusing an already-focused field reads its error again.
-			const input = document.getElementById(
-				found.name
-					? "dex-add-name"
-					: found.email
-						? "dex-add-email"
-						: "dex-add-username",
-			);
+			const first = (["name", "email", "username"] as const).find((f) => found[f]);
+			const input = document.getElementById(`dex-add-${first}`);
 			input?.blur();
 			input?.focus();
 			return;
@@ -183,6 +178,7 @@ export function AddDexUser() {
 								label="Name"
 								autoComplete="off"
 								data-testid="dex-add-name"
+								aria-required="true"
 								error={errors.name}
 								value={name}
 								onChange={(event) => setName(event.target.value)}
@@ -193,6 +189,7 @@ export function AddDexUser() {
 								type="email"
 								autoComplete="off"
 								data-testid="dex-add-email"
+								aria-required="true"
 								error={errors.email}
 								value={email}
 								onChange={(event) => setEmail(event.target.value)}
@@ -203,6 +200,7 @@ export function AddDexUser() {
 								autoComplete="off"
 								mono
 								data-testid="dex-add-username"
+								aria-required="true"
 								error={errors.username}
 								value={username}
 								onChange={(event) => setUsername(event.target.value)}
