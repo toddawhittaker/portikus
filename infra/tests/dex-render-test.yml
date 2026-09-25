@@ -8,6 +8,9 @@
 #
 #   ansible-playbook infra/tests/dex-render-test.yml -e dex_render_dest=/tmp/dex.yaml
 #
+# With -e dex_render_web=true it also runs the role's theme task file on the
+# pages dex_web_dir names, as root; CI points that at a copy of stock Dex.
+#
 # Every value below can be overridden with -e.
 - name: Render and check the Dex configuration
   hosts: localhost
@@ -19,7 +22,13 @@
   vars_files:
     - ../ansible/roles/dex/defaults/main.yml
 
+  # The patches notify the role's restart; the CI job starts Dex afterwards.
+  handlers:
+    - name: Restart portikus-dex
+      ansible.builtin.meta: noop
+
   vars:
+    dex_render_web: false
     dex_render_users_file: "{{ playbook_dir }}/fixtures/users.sample.json"
     dex_render_dest: "{{ dex_render_workdir.path }}/config.yaml"
     portikus_public_url: http://127.0.0.1:3000
@@ -218,6 +227,14 @@
           - "'HTTPS_PROXY' not in unit"
       vars:
         unit: "{{ lookup('ansible.builtin.file', dex_render_workdir.path ~ '/none.service') }}"
+
+    # ── The Portikus theme, only when CI asks ───────────────────
+    # The role's own task file, on the copy of the stock pages dex_web_dir
+    # names.  Root because the role hands the files to root.
+    - name: Install the Portikus look on the Dex pages
+      ansible.builtin.import_tasks: ../ansible/roles/dex/tasks/web.yml
+      when: dex_render_web | bool
+      become: true
 
     # ── Upstream connectors (rulings 11, 13 and 28) ────────────
 

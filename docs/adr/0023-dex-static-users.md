@@ -51,7 +51,9 @@ Ansible role `dex`.
   "Choose another way to sign in." as the back link, and "That email
   address or password is wrong." after a failed sign-in. A
   last task fails the play if any patch did not land, so a Dex upgrade
-  that changes a template cannot drop one silently.
+  that changes a template cannot drop one silently. CI's `dex-signin` job
+  runs the same task file on the pinned commit's pages, so that failure
+  shows in CI first.
 - **Storage.** `storage: memory`. Every account comes from the static
   configuration, and Portikus reads the ID token once at sign-in and keeps
   its own server-side session (ADR 0008). A restart loses only sign-ins in

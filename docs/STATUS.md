@@ -2461,8 +2461,13 @@ never shows that page there). Text contrast is at least 5.0:1
 (the placeholder in dark), control borders 3.7:1 and the focus ring
 4.6:1 on the page in light.
 
-Gaps:
+CI's `dex-signin` job now serves the same themed pages. The theme and
+the patches live in one role task file, `roles/dex/tasks/web.yml`, which
+the job runs on a copy of the pinned commit's stock pages before it
+starts Dex. The job then checks that the sign-in page says "Sign in to
+Portikus", links the theme's stylesheet, and that Dex serves the
+stylesheet, logo, icon and font. So a Dex upgrade that breaks a patch
+fails in CI before it reaches a VM. The sign-in tests now expect the
+Portikus wording after a failed sign-in.
 
-- CI's `dex-signin` job starts Dex with the stock web directory, so the
-  theme's files are missing there (Dex serves the pages unstyled); the
-  job only signs in, so it still passes.
+Gaps: none known.

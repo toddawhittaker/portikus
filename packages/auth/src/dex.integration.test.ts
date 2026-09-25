@@ -110,13 +110,13 @@ describe.skipIf(!ISSUER)("sign-in through a real Dex", () => {
 	test("a wrong password never reaches the callback", async () => {
 		const { completed, page } = await signIn(student.email, "not-the-password-at-all");
 		expect(completed).toBeNull();
-		expect(page).toContain("Invalid");
+		expect(page).toContain("or password is wrong.");
 	});
 
 	test("an email Dex holds no password for never reaches the callback", async () => {
 		const { completed, page } = await signIn("nobody@example.edu", FIXTURE_PASSWORD);
 		expect(completed).toBeNull();
-		expect(page).toContain("Invalid");
+		expect(page).toContain("or password is wrong.");
 	});
 
 	test("a callback with a forged code is refused", async () => {
