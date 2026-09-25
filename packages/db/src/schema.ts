@@ -28,6 +28,7 @@ export interface Database {
 	account_link_intents: AccountLinkIntentsTable;
 	setup_codes: SetupCodesTable;
 	workspace_usage_samples: WorkspaceUsageSamplesTable;
+	notifications: NotificationsTable;
 }
 
 export interface UsersTable {
@@ -355,4 +356,15 @@ export interface SetupCodesTable {
 	expires_at: ColumnType<Date, string, never>;
 	used_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	used_by: ColumnType<string | null, string | null | undefined, string | null>;
+}
+
+/** One toast the user was shown, kept as their notification history (ADR 0033). */
+export interface NotificationsTable {
+	id: Generated<string>;
+	user_id: string;
+	tone: string;
+	title: string;
+	body: string;
+	created_at: ColumnType<Date, string | undefined, never>;
+	read_at: ColumnType<Date | null, string | null | undefined, string | null>;
 }

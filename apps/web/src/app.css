@@ -255,6 +255,73 @@ button.pk-statusbar-item:focus-visible {
 	font-size: 11px;
 	font-weight: 600;
 }
+/* Notifications (SPEC.md section 8.5) */
+.pk-account-wrap {
+	position: relative;
+	display: inline-flex;
+}
+.pk-account-badge {
+	position: absolute;
+	top: 2px;
+	left: 20px;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 4px;
+	border: 2px solid var(--surface);
+	border-radius: 9px;
+	background: var(--status-danger);
+	color: var(--on-danger);
+	font: inherit;
+	font-size: 10px;
+	font-weight: 700;
+	line-height: 14px;
+	cursor: pointer;
+}
+.pk-account-badge:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+.pk-notification-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+.pk-notification {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-3);
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+}
+.pk-notification--unread {
+	background: var(--surface-sunken);
+	border-color: var(--line-strong);
+}
+.pk-notification-icon {
+	margin-top: 2px;
+	color: var(--ink-muted);
+}
+.pk-notification--success .pk-notification-icon {
+	color: var(--status-running);
+}
+.pk-notification--warning .pk-notification-icon {
+	color: var(--status-warning);
+}
+.pk-notification--danger .pk-notification-icon {
+	color: var(--status-danger);
+}
+.pk-notification-dot {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	margin-top: 8px;
+	border-radius: 50%;
+	background: var(--status-danger);
+}
 .pk-wsbutton {
 	display: inline-flex;
 	align-items: center;

@@ -25,6 +25,7 @@ export * from "./git.js";
 export * from "./host.js";
 export * from "./links.js";
 export * from "./listening.js";
+export * from "./notifications.js";
 export * from "./preview.js";
 export * from "./project.js";
 export * from "./recovery.js";

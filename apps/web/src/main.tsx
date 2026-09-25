@@ -5,6 +5,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createQueryClient } from "./api/queryClient.js";
 import "./app.css";
+import { recordNotification } from "./notifications/queries.js";
 import { router } from "./router.js";
 import {
 	clearStaleChunkFlag,
@@ -32,7 +33,7 @@ const queryClient = createQueryClient(() => {
 createRoot(container).render(
 	<StrictMode>
 		<QueryClientProvider client={queryClient}>
-			<ToastProvider>
+			<ToastProvider onShow={(toast) => void recordNotification(queryClient, toast)}>
 				<RouterProvider router={router} />
 			</ToastProvider>
 		</QueryClientProvider>

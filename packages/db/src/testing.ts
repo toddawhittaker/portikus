@@ -132,6 +132,7 @@ export async function createTestDb(): Promise<TestDb> {
 	await migrateToLatest(db);
 
 	const truncate = async () => {
+		await db.deleteFrom("notifications").execute();
 		await db.deleteFrom("setup_codes").execute();
 		await db.deleteFrom("account_link_intents").execute();
 		await db.deleteFrom("account_links").execute();
