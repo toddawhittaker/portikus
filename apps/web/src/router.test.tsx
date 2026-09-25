@@ -43,6 +43,40 @@ test("signed in, the front page goes to the student's workspace", async () => {
 	);
 });
 
+test("an administrator goes to the administration page and gets no workspace (issue #534)", async () => {
+	const fetch = stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url === "/workspaces" && init?.method === "POST") return json(201, WORKSPACE);
+		return json(200, {});
+	});
+
+	const { router } = renderApp("/");
+
+	await waitFor(() => expect(router.state.location.pathname).toBe("/admin"));
+	await screen.findByTestId("open-my-workspace");
+	const posted = fetch.mock.calls.some(
+		([url, init]) => url === "/workspaces" && init?.method === "POST",
+	);
+	expect(posted).toBe(false);
+});
+
+test("an instructor still goes to their workspace (issue #534)", async () => {
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "instructor" });
+		if (url === "/workspaces" && init?.method === "POST") return json(201, WORKSPACE);
+		if (url.endsWith("/templates")) return json(200, { templates: [] });
+		if (url.includes("/projects")) return json(200, { projects: [project()] });
+		return json(200, {});
+	});
+	vi.stubGlobal("WebSocket", FakeWebSocket);
+
+	const { router } = renderApp("/");
+
+	await waitFor(() =>
+		expect(router.state.location.pathname).toBe(`/workspaces/${WORKSPACE.id}`),
+	);
+});
+
 test("an account without access lands on the not-authorized page", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") {
