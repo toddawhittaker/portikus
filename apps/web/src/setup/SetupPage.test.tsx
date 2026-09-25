@@ -3,7 +3,7 @@
  * the code; signed out on a standalone Dex site with no administrator it
  * creates the first account; otherwise it asks the person to sign in.
  */
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
 
@@ -40,9 +40,10 @@ test("signed in, a good code says so and links to Administration", async () => {
 		target: { value: "abcd-efgh-jkmn-pqrs" },
 	});
 	fireEvent.click(screen.getByRole("button", { name: "Become administrator" }));
-	expect((await screen.findByTestId("setup-done")).textContent).toBe(
-		"You are now an administrator.",
-	);
+	const done = await screen.findByTestId("setup-done");
+	expect(done.textContent).toBe("You are now an administrator.");
+	// Focus moves to the result so a screen reader reads it.
+	await waitFor(() => expect(document.activeElement).toBe(done));
 	expect(screen.getByRole("link", { name: "Open Administration" })).toBeTruthy();
 	expect(posts).toEqual([
 		{ url: "/setup/claim", body: { code: "abcd-efgh-jkmn-pqrs" } },
@@ -86,14 +87,21 @@ test("signed out under Dex with no administrator, it creates the first account",
 	fill("Setup code", "ABCD-EFGH-JKMN-PQRS");
 	const create = screen.getByRole("button", { name: "Create administrator account" });
 	fireEvent.click(create);
-	expect((await screen.findByRole("alert")).textContent).toBe(
-		"The two passwords do not match.",
-	);
+	// The mismatch belongs to "Password again", which takes focus.
+	const again = screen.getByLabelText("Password again");
+	expect(again.getAttribute("aria-invalid")).toBe("true");
+	expect(
+		document.getElementById(String(again.getAttribute("aria-describedby")))
+			?.textContent,
+	).toBe("The two passwords do not match.");
+	expect(document.activeElement).toBe(again);
+	expect(screen.queryByRole("alert")).toBeNull();
 	expect(posts).toEqual([]);
 
 	fill("Password again", "correct horse battery");
 	fireEvent.click(create);
-	expect(await screen.findByTestId("setup-done")).toBeTruthy();
+	const done = await screen.findByTestId("setup-done");
+	await waitFor(() => expect(document.activeElement).toBe(done));
 	expect(posts).toEqual([
 		{
 			url: "/setup/first-account",
@@ -121,8 +129,13 @@ test("a short password is refused before anything is sent", async () => {
 	});
 	fireEvent.change(screen.getByLabelText("Setup code"), { target: { value: "X" } });
 	fireEvent.click(screen.getByRole("button", { name: "Create administrator account" }));
-	expect((await screen.findByRole("alert")).textContent).toBe(
+	// Each field shows its own error; focus goes to the first one.
+	const password = screen.getByLabelText("Password");
+	expect(password.getAttribute("aria-invalid")).toBe("true");
+	expect(password.getAttribute("aria-describedby")).toContain("setup-password-err");
+	expect(document.getElementById("setup-password-err")?.textContent).toBe(
 		"Use a password of 12 to 72 characters.",
 	);
+	expect(document.activeElement).toBe(password);
 	expect(posts).toEqual([]);
 });

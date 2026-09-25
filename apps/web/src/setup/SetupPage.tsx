@@ -2,8 +2,9 @@ import { FirstAccountRequest, SetupState } from "@portikus/contracts";
 import { Button, TextField } from "@portikus/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type * as React from "react";
-import { useState } from "react";
-import { request, toApiError } from "../api/request.js";
+import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
+import { request } from "../api/request.js";
 import { StandalonePage } from "../pages/StandalonePage.js";
 import { useMe } from "../useMe.js";
 
@@ -18,16 +19,15 @@ const LINK_CLASS =
 	"pk-btn pk-focus-ring inline-flex h-[var(--size-control-lg)] w-full items-center justify-center rounded-sm bg-surface-inverse px-5 font-medium text-[15px] text-ink-inverse no-underline hover:bg-surface-inverse-hover";
 
 /** Both setup posts answer 204 on success. */
-async function post(url: string, body: object): Promise<void> {
-	const response = await fetch(url, {
+function post(url: string, body: object): Promise<undefined> {
+	return request(z.undefined(), url, {
 		method: "POST",
-		credentials: "same-origin",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(body),
 	});
-	if (!response.ok) throw await toApiError(response);
 }
 
+/** A server error. The caller keys it by attempt so a repeat is announced again. */
 function ErrorLine({ error }: { error: string | null }) {
 	if (!error) return null;
 	return (
@@ -48,9 +48,51 @@ function messageOf(error: unknown): string | null {
 		: "Something went wrong. Please try again.";
 }
 
+/** Takes focus when it appears, so the result is read out (SPEC.md 25.8). */
+function DoneMessage({ children }: { children: React.ReactNode }) {
+	const ref = useRef<HTMLParagraphElement>(null);
+	useEffect(() => ref.current?.focus(), []);
+	return (
+		<p
+			ref={ref}
+			tabIndex={-1}
+			className="pk-text-body outline-none"
+			role="status"
+			data-testid="setup-done"
+		>
+			{children}
+		</p>
+	);
+}
+
+type Field = "email" | "username" | "password" | "again" | "code";
+const FIELD_ORDER: Field[] = ["email", "username", "password", "again", "code"];
+const FIELD_ID: Record<Field, string> = {
+	email: "setup-email",
+	username: "setup-username",
+	password: "setup-password",
+	again: "setup-password-again",
+	code: "setup-code",
+};
+const FIELD_ERROR: Record<Exclude<Field, "again">, string> = {
+	email: "Enter an email address.",
+	username:
+		"Use 1 to 64 letters, digits, dots, dashes or underscores for the username.",
+	password: "Use a password of 12 to 72 characters.",
+	code: "Enter the setup code.",
+};
+
+/** Focus a field even if it already has focus, so its error is read again. */
+function focusField(id: string) {
+	const input = document.getElementById(id);
+	input?.blur();
+	input?.focus();
+}
+
 function ClaimForm() {
 	const queryClient = useQueryClient();
 	const [code, setCode] = useState("");
+	const [attempt, setAttempt] = useState(0);
 	const claim = useMutation({
 		mutationFn: () => post("/setup/claim", { code }),
 		onSuccess: () => queryClient.invalidateQueries({ queryKey: ["me"] }),
@@ -59,9 +101,7 @@ function ClaimForm() {
 	if (claim.isSuccess) {
 		return (
 			<>
-				<p className="pk-text-body" role="status" data-testid="setup-done">
-					You are now an administrator.
-				</p>
+				<DoneMessage>You are now an administrator.</DoneMessage>
 				<a href="/admin" className={LINK_CLASS} data-testid="setup-admin-link">
 					Open Administration
 				</a>
@@ -74,7 +114,10 @@ function ClaimForm() {
 			className="flex flex-col gap-3"
 			onSubmit={(event) => {
 				event.preventDefault();
-				if (!claim.isPending && code.trim() !== "") claim.mutate();
+				if (!claim.isPending && code.trim() !== "") {
+					setAttempt((n) => n + 1);
+					claim.mutate();
+				}
 			}}
 		>
 			<p className="pk-text-body pk-muted">
@@ -92,7 +135,7 @@ function ClaimForm() {
 				value={code}
 				onChange={(event) => setCode(event.target.value)}
 			/>
-			<ErrorLine error={messageOf(claim.error)} />
+			<ErrorLine key={attempt} error={messageOf(claim.error)} />
 			<Button variant="primary" type="submit" loading={claim.isPending}>
 				Become administrator
 			</Button>
@@ -106,7 +149,8 @@ function FirstAccountForm() {
 	const [password, setPassword] = useState("");
 	const [again, setAgain] = useState("");
 	const [code, setCode] = useState("");
-	const [problem, setProblem] = useState<string | null>(null);
+	const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
+	const [attempt, setAttempt] = useState(0);
 	const create = useMutation({
 		mutationFn: (body: FirstAccountRequest) => post("/setup/first-account", body),
 	});
@@ -114,9 +158,9 @@ function FirstAccountForm() {
 	if (create.isSuccess) {
 		return (
 			<>
-				<p className="pk-text-body" role="status" data-testid="setup-done">
+				<DoneMessage>
 					Your administrator account is ready. Sign in with its email and password.
-				</p>
+				</DoneMessage>
 				<a href="/auth/login" className={LINK_CLASS} data-testid="setup-signin">
 					Sign in
 				</a>
@@ -126,25 +170,23 @@ function FirstAccountForm() {
 
 	function submit() {
 		if (create.isPending) return;
-		if (password !== again) {
-			setProblem("The two passwords do not match.");
-			return;
-		}
+		const found: Partial<Record<Field, string>> = {};
 		const body = FirstAccountRequest.safeParse({ email, username, password, code });
 		if (!body.success) {
-			const field = body.error.issues[0]?.path[0];
-			setProblem(
-				field === "email"
-					? "Enter an email address."
-					: field === "username"
-						? "Use 1 to 64 letters, digits, dots, dashes or underscores for the username."
-						: field === "password"
-							? "Use a password of 12 to 72 characters."
-							: "Enter the setup code.",
-			);
+			for (const issue of body.error.issues) {
+				const field = issue.path[0] as Exclude<Field, "again">;
+				found[field] = FIELD_ERROR[field];
+			}
+		}
+		if (password !== again) found.again = "The two passwords do not match.";
+		setErrors(found);
+		const first = FIELD_ORDER.find((field) => found[field]);
+		if (first) {
+			focusField(FIELD_ID[first]);
 			return;
 		}
-		setProblem(null);
+		if (!body.success) return;
+		setAttempt((n) => n + 1);
 		create.mutate(body.data);
 	}
 
@@ -166,6 +208,7 @@ function FirstAccountForm() {
 				type="email"
 				autoComplete="email"
 				value={email}
+				error={errors.email}
 				onChange={(event) => setEmail(event.target.value)}
 			/>
 			<TextField
@@ -174,6 +217,7 @@ function FirstAccountForm() {
 				mono
 				autoComplete="username"
 				value={username}
+				error={errors.username}
 				onChange={(event) => setUsername(event.target.value)}
 			/>
 			<TextField
@@ -183,6 +227,7 @@ function FirstAccountForm() {
 				autoComplete="new-password"
 				hint="12 to 72 characters."
 				value={password}
+				error={errors.password}
 				onChange={(event) => setPassword(event.target.value)}
 			/>
 			<TextField
@@ -191,6 +236,7 @@ function FirstAccountForm() {
 				type="password"
 				autoComplete="new-password"
 				value={again}
+				error={errors.again}
 				onChange={(event) => setAgain(event.target.value)}
 			/>
 			<TextField
@@ -201,9 +247,10 @@ function FirstAccountForm() {
 				spellCheck={false}
 				placeholder="XXXX-XXXX-XXXX-XXXX"
 				value={code}
+				error={errors.code}
 				onChange={(event) => setCode(event.target.value)}
 			/>
-			<ErrorLine error={problem ?? messageOf(create.error)} />
+			<ErrorLine key={attempt} error={messageOf(create.error)} />
 			<Button variant="primary" type="submit" loading={create.isPending}>
 				Create administrator account
 			</Button>
