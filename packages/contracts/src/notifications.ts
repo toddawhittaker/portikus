@@ -28,11 +28,9 @@ export const Notification = z.object({
 });
 export type Notification = z.infer<typeof Notification>;
 
-/** `GET /me/notifications?limit=&before=`: newest first. */
+/** `GET /me/notifications?limit=`: the newest notifications first. */
 export const ListNotificationsQuery = z.object({
 	limit: z.coerce.number().int().min(1).max(MAX_NOTIFICATIONS_PAGE).default(50),
-	/** Returns notifications created before this time, for the next page. */
-	before: z.string().datetime().optional(),
 });
 export type ListNotificationsQuery = z.infer<typeof ListNotificationsQuery>;
 

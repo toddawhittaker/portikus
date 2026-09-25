@@ -1211,6 +1211,56 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"a save that changes nothing writes no guard or idle stop audit row",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const put = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: {
+				cpuGuardThresholdPercent: 80,
+				memoryGuardThresholdPercent: 90,
+				guardWindowMinutes: 45,
+				cpuThrottleSharePercent: 25,
+				idleStopMinutes: 60,
+			},
+		});
+		expect(put.statusCode).toBe(200);
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("target", "=", "settings")
+			.execute();
+		expect(rows.map((row) => row.action)).toEqual(["settings.resource_guard_updated"]);
+		const metadata = rows[0]?.metadata as { from: object; to: object };
+		expect(metadata.from).toEqual({ guardWindowMinutes: 30 });
+		expect(metadata.to).toEqual({ guardWindowMinutes: 45 });
+
+		const again = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: {
+				cpuGuardThresholdPercent: 80,
+				memoryGuardThresholdPercent: 90,
+				guardWindowMinutes: 45,
+				cpuThrottleSharePercent: 25,
+				idleStopMinutes: 60,
+			},
+		});
+		expect(again.statusCode).toBe(200);
+		const after = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("target", "=", "settings")
+			.execute();
+		expect(after).toHaveLength(1);
+	},
+);
+
+test.skipIf(skip)(
 	"the guard settings accept their edges and refuse outside them",
 	async () => {
 		await seedSettings();
