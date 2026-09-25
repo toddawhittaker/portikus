@@ -684,10 +684,12 @@ authentication request URL. Those go in the platforms file.
 address and the terminal prompt. LTI 1.3 has no standard username, so
 Portikus reads the `preferred_username` claim if the LMS sends one, else
 the custom parameter `username` set above. Without either, the name is
-made from the LMS's user ID, which is often a long opaque string. The tool must be
+the part of the student's email before the `@` (`ivy@example.edu` gives
+`ivy`), if the LMS shares the email. Without that, the name is made from
+the LMS's user ID, which is often a long opaque string. The tool must be
 allowed to see the login (in Canvas, a privacy level that shares it). A
 variable the LMS leaves unfilled, such as a literal `$User.username`, is
-ignored and the LMS user ID is used instead. The name
+ignored and the next fallback is used instead. The name
 is fixed when the workspace is created, so add the custom parameter before
 students first launch.
 

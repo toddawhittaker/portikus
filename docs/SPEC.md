@@ -2900,9 +2900,12 @@ Includes:
   label, stored on the workspace row, with a fallback when the claim is
   missing); a course (LTI) account's username is the launch's
   `preferred_username`, else the LTI custom claim `username`, and when it
-  has neither its label falls back to its LTI user ID (the launch's `sub`)
-  reduced the same way, never random hex (issue #549, replacing Epic 13
-  ruling 12, which stored no username); an existing label never changes;
+  has neither its label falls back to the part of its email before the
+  `@` (issue #558), then to its LTI user ID (the launch's `sub`), each
+  reduced the same way and skipped when it reduces to nothing, never random
+  hex while either exists (issue #549, replacing Epic 13 ruling 12, which
+  stored no username); when the `-2`, `-3` suffixes run out, the later
+  fallbacks are each tried once; an existing label never changes;
   the label names the preview hosts and is pushed into the
   container as its hostname at every start, so the prompt reads
   `student@<label>.<public host>`;
