@@ -1,6 +1,7 @@
 import {
 	bindLinkIntent,
 	deleteSession,
+	dexLocalUserId,
 	findLinkIntent,
 	hashSessionToken,
 	type LinkIntent,
@@ -29,7 +30,7 @@ const DENIED_MESSAGE = "Your account is not authorized to use Portikus";
 /** Login, logout, and the current-user route (SPEC.md §5.1, §5.2, §5.3). */
 export function registerAuthRoutes(
 	app: FastifyInstance,
-	{ db, config, oidc }: ServerDeps,
+	{ db, config, oidc, dex }: ServerDeps,
 ): void {
 	const auth = toAuthOptions(config);
 	const sessionCookie = sessionCookieName(auth);
@@ -256,7 +257,7 @@ export function registerAuthRoutes(
 		// The session user has no sign-in name; it lives on the user row.
 		const row = await db
 			.selectFrom("users")
-			.select(["oidc_subject", "preferred_username"])
+			.select(["oidc_issuer", "oidc_subject", "preferred_username"])
 			.where("id", "=", request.user.id)
 			.executeTakeFirst();
 		if (!row) {
@@ -264,7 +265,12 @@ export function registerAuthRoutes(
 		}
 		// A Dex subject is an opaque blob, so prefer the username.
 		const signInName = row.preferred_username || row.oidc_subject;
-		const body: MeResponse = { ...request.user, signInName };
+		// Settings offers Password only where POST /me/password can work (docs/EPIC-14-2.md ruling 18).
+		const localPassword =
+			dex !== undefined &&
+			row.oidc_issuer === config.OIDC_ISSUER_URL &&
+			dexLocalUserId(row.oidc_subject) !== null;
+		const body: MeResponse = { ...request.user, signInName, localPassword };
 		return reply.send(body);
 	});
 }

@@ -134,6 +134,8 @@ export function registerAdminDexUserRoutes(
 					// Dex sends the username as the name claim, so the admin supplies it (SPEC.md section 5.1).
 					displayName: name,
 					role,
+					// The person chooses their own at first sign-in (docs/EPIC-14-2.md ruling 17).
+					mustChangePassword: true,
 				});
 				await audit(trx, "dex_user.created", `user:${actor.id}`, newId, "ok", {
 					role,
@@ -194,6 +196,11 @@ export function registerAdminDexUserRoutes(
 			const updated = await db.transaction().execute(async (trx) => {
 				const now = new Date().toISOString();
 				await trx.deleteFrom("sessions").where("user_id", "=", id).execute();
+				await trx
+					.updateTable("users")
+					.set({ must_change_password: true })
+					.where("id", "=", id)
+					.execute();
 				await trx
 					.updateTable("preview_sessions")
 					.set({ revoked_at: now })

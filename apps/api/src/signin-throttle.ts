@@ -62,6 +62,8 @@ function createCounter(limit: number, windowMs: number, now: () => number) {
 			window.count += 1;
 			return window;
 		},
+		/** The window as it stands, without counting. */
+		peek: current,
 		limit,
 	};
 }
@@ -197,13 +199,22 @@ export function registerSigninThrottleRoute(app: FastifyInstance): void {
 	app.get(EDGE_THROTTLE_PATH, async (_request, reply) => reply.status(204).send());
 }
 
-/** Setup-code attempts: ten per address in ten minutes (docs/archive/epics/EPIC-14.md ruling 17). */
-export function createSetupThrottle(now: () => number = Date.now) {
-	const attempts = createCounter(10, TEN_MINUTES_MS, now);
+/**
+ * Wrong current passwords on the change form: ten per address in ten
+ * minutes (docs/EPIC-14-2.md ruling 16). Only failures count, so a person
+ * who types their password right is never held back.
+ */
+export function createPasswordChangeThrottle(now: () => number = Date.now) {
+	const failures = createCounter(10, TEN_MINUTES_MS, now);
 	return {
+		/** Whether this address may try again; does not count as a try. */
 		check(ip: string): ThrottleDecision {
-			const window = attempts.hit(ip);
-			return decide(window, window.count > attempts.limit);
+			const window = failures.peek(ip);
+			return decide(window, window.count >= failures.limit);
+		},
+		/** Count one wrong current password. */
+		fail(ip: string): void {
+			failures.hit(ip);
 		},
 	};
 }

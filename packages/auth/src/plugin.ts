@@ -106,14 +106,34 @@ function isExempt(request: FastifyRequest): boolean {
 	if (url.startsWith("/auth/")) return true;
 	// An LTI launch is how an LMS user gets a session in the first place.
 	if (url === "/lti/login" || url === "/lti/launch" || url === "/lti/jwks") return true;
-	// A new standalone Dex site has nobody to sign in as (docs/archive/epics/EPIC-14.md ruling 18).
-	if (request.method === "GET" && url === "/setup/state") return true;
-	if (request.method === "POST" && url === "/setup/first-account") return true;
 	// The preview host never carries the main session cookie, and the edge
 	// authorization subrequest carries none at all: both authenticate with the
 	// preview session instead (BROWSER-HANDLING.md §9.2, §10).
 	if (request.method === "GET" && url.startsWith("/__portikus/")) return true;
 	return request.method === "GET" && url === "/preview/authorize";
+}
+
+/** What a signed-in account may still reach while a gate holds it. */
+function passesGate(request: FastifyRequest): boolean {
+	if (isExempt(request)) return true;
+	return request.method === "POST" && request.routeOptions.url === "/me/password";
+}
+
+/**
+ * Why this account may use nothing but the change-password page, or null
+ * when it may use everything (docs/EPIC-14-2.md ruling 18). The one place
+ * the gate is decided; the preview gateway asks it too.
+ */
+export function sessionGate(
+	user: Pick<AuthUser, "id"> & { mustChangePassword?: boolean | undefined },
+): { code: "PASSWORD_CHANGE_REQUIRED"; message: string } | null {
+	if (user.mustChangePassword === true) {
+		return {
+			code: "PASSWORD_CHANGE_REQUIRED",
+			message: "Choose a new password to continue.",
+		};
+	}
+	return null;
 }
 
 export interface AuthPluginOptions {
@@ -171,6 +191,13 @@ export const authPlugin = fp<AuthPluginOptions>(
 				await reply
 					.code(401)
 					.send({ code: "UNAUTHORIZED", message: "authentication required" });
+				return;
+			}
+
+			// A WebSocket upgrade is never on the allowed list, so it is refused too.
+			const gate = request.user ? sessionGate(request.user) : null;
+			if (gate && !passesGate(request)) {
+				await reply.code(403).send(gate);
 			}
 		});
 	},

@@ -548,6 +548,8 @@ export async function precreateDexAccount(
 		username: string;
 		displayName: string;
 		role: Role;
+		/** Set when an administrator or the host chose the password (docs/EPIC-14-2.md ruling 17). */
+		mustChangePassword?: boolean;
 	},
 ): Promise<string> {
 	const row = await trx
@@ -561,6 +563,7 @@ export async function precreateDexAccount(
 			role: input.role,
 			provider_role: "student",
 			granted_role: input.role === "student" ? null : input.role,
+			must_change_password: input.mustChangePassword ?? false,
 		})
 		.returning("id")
 		.executeTakeFirstOrThrow();
