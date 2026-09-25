@@ -283,3 +283,69 @@ test.skipIf(skip)("the health counts can use the (action, at) index", async () =
 	const indexCond = plan.split("\n").find((line) => line.includes("Index Cond"));
 	expect(indexCond).toContain("action = ANY");
 });
+
+test.skipIf(skip)(
+	"lists throttled and memory-flagged workspaces with their owners",
+	async () => {
+		const throttle = {
+			at: "2026-09-25T12:00:00.000Z",
+			averagePercent: 98,
+			thresholdPercent: 80,
+			windowMinutes: 30,
+			sharePercent: 25,
+			allowance: "100ms/100ms",
+		};
+		const flag = {
+			at: "2026-09-25T12:05:00.000Z",
+			averagePercent: 92,
+			thresholdPercent: 90,
+			windowMinutes: 30,
+		};
+		const ids: Record<string, string> = {};
+		for (const name of ["alice", "bob", "dave"]) {
+			const jar = new CookieJar();
+			await loginAs(app, name, jar);
+			ids[name] = (
+				await app.inject({
+					method: "POST",
+					url: "/workspaces",
+					headers: csrfHeaders(jar, PUBLIC_URL),
+				})
+			).json().id;
+		}
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ cpu_throttle: JSON.stringify(throttle) })
+			.where("id", "=", ids.alice as string)
+			.execute();
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ memory_flag: JSON.stringify(flag) })
+			.where("id", "=", ids.bob as string)
+			.execute();
+
+		const res = await app.inject({
+			method: "GET",
+			url: "/admin/health",
+			headers: { cookie: carol.cookieHeader() },
+		});
+		expect(res.statusCode).toBe(200);
+		const body = HealthReport.parse(res.json());
+		expect(body.guard).toHaveLength(2);
+		const alice = body.guard.find((row) => row.workspaceId === ids.alice);
+		const bob = body.guard.find((row) => row.workspaceId === ids.bob);
+		expect(alice).toMatchObject({ cpuThrottle: throttle, memoryFlag: null });
+		expect(alice?.owner.displayName).toMatch(/Alice/);
+		expect(bob).toMatchObject({ cpuThrottle: null, memoryFlag: flag });
+		expect(body.guard.some((row) => row.workspaceId === ids.dave)).toBe(false);
+	},
+);
+
+test.skipIf(skip)("the guard list is empty when nothing is marked", async () => {
+	const res = await app.inject({
+		method: "GET",
+		url: "/admin/health",
+		headers: { cookie: carol.cookieHeader() },
+	});
+	expect(res.json().guard).toEqual([]);
+});
