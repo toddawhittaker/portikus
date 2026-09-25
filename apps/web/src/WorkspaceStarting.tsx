@@ -80,9 +80,12 @@ export function startingPhase(workspace: Workspace | null): StartingPhase {
 export function WorkspaceStarting({
 	workspaceId,
 	workspace,
+	idleStop,
 }: {
 	workspaceId: string;
 	workspace: Workspace | null;
+	/** Set when this page saw "Still working?" go unanswered (ADR 0032). */
+	idleStop?: { minutes: number | null } | undefined;
 }) {
 	const phase = startingPhase(workspace);
 	const pending = workspace?.pendingOperation ?? null;
@@ -109,6 +112,15 @@ export function WorkspaceStarting({
 							{heading}
 						</h1>
 						<p className="pk-text-body pk-muted">{sub}</p>
+						{idleStop && (phase === "stopping" || phase === "stopped") && (
+							<p className="pk-text-body" data-testid="idle-stopped">
+								{idleStop.minutes === null
+									? "Stopped because nothing happened in it for a while."
+									: `Stopped after ${idleStop.minutes} ${
+											idleStop.minutes === 1 ? "minute" : "minutes"
+										} without activity.`}
+							</p>
+						)}
 					</div>
 					{at >= 0 && (
 						<ol className="pk-steps">

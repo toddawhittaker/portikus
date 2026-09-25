@@ -5,10 +5,13 @@ import { json, renderApp, stubFetch, USER, WORKSPACE } from "../test-utils.js";
 import { quotaError } from "./QuotaDialog.js";
 import {
 	capabilityNote,
+	effectiveGuardText,
 	instructorChangeNote,
+	memoryFlagText,
 	NOT_AVAILABLE_TEXT,
 	quotaPending,
 	roleChangeNote,
+	throttleText,
 } from "./WorkspaceDetail.js";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -953,4 +956,131 @@ test("a refused make instructor shows the refusal in its dialog", async () => {
 	});
 	fireEvent.click(within(dialog).getByRole("button", { name: "Make instructor" }));
 	expect((await within(dialog).findByRole("alert")).textContent).toBe("Demote first.");
+});
+
+const THROTTLE = {
+	at: "2026-09-25T12:00:00.000Z",
+	thresholdPercent: 80,
+	windowMinutes: 30,
+	sharePercent: 25,
+	averagePercent: 97.4,
+	allowance: "100ms/100ms",
+};
+const FLAG = {
+	at: "2026-09-25T12:00:00.000Z",
+	averagePercent: 93,
+	thresholdPercent: 90,
+	windowMinutes: 30,
+};
+
+test("the guard texts give the numbers and mark overrides", () => {
+	expect(throttleText(null)).toBe("Normal");
+	expect(throttleText(THROTTLE)).toContain(
+		"It averaged 97% over 30 minutes, above 80%, and now gets 25% of its CPU (100ms/100ms).",
+	);
+	expect(memoryFlagText(FLAG)).toContain("It averaged 93% over 30 minutes, above 90%.");
+	const guard = {
+		cpuThresholdPercent: 80,
+		memoryThresholdPercent: 90,
+		windowMinutes: 30,
+		throttleSharePercent: 25,
+		idleStopMinutes: 0,
+	};
+	expect(effectiveGuardText(guard, { idleStopMinutes: 0 })).toEqual([
+		"CPU above 80% for 30 minutes is slowed to 25%.",
+		"Memory above 90% is flagged.",
+		"Never stopped for inactivity (override).",
+	]);
+	expect(effectiveGuardText({ ...guard, idleStopMinutes: 60 }, null)[2]).toBe(
+		"Stopped after 60 minutes without activity.",
+	);
+});
+
+test("a normal workspace shows its limits and last activity, with no lift or clear", async () => {
+	stubDetail(
+		detail({ workspace: { ...WORKSPACE, lastActivityAt: "2026-09-25T12:00:00.000Z" } }),
+	);
+	const panel = await openAlice();
+	const section = within(panel).getByRole("region", { name: "Resource guard" });
+	expect(within(section).getByTestId("detail-guard-cpu").textContent).toBe("Normal");
+	expect(within(section).getByTestId("detail-guard-memory").textContent).toBe("Normal");
+	expect(within(section).getByTestId("detail-last-activity").textContent).not.toBe(
+		"None recorded",
+	);
+	expect(within(section).queryByTestId("detail-lift-throttle")).toBeNull();
+	expect(within(section).queryByTestId("detail-clear-memory-flag")).toBeNull();
+});
+
+test("Lift throttle and Clear memory flag call their routes and move focus to the heading", async () => {
+	const writes = stubDetail(detail({ cpuThrottle: THROTTLE, memoryFlag: FLAG }));
+	const panel = await openAlice();
+	const section = within(panel).getByRole("region", { name: "Resource guard" });
+	expect(within(section).getByTestId("detail-guard-cpu").textContent).toContain(
+		"Throttled since",
+	);
+
+	fireEvent.click(
+		within(section).getByRole("button", {
+			name: "Lift throttle on Alice Example's workspace",
+		}),
+	);
+	await waitFor(() =>
+		expect(writes).toContainEqual({
+			url: `/admin/workspaces/${WORKSPACE.id}/lift-throttle`,
+			body: null,
+		}),
+	);
+	expect(await screen.findByText("Throttle lifted")).toBeDefined();
+	expect(document.activeElement?.id).toBe("detail-guard");
+
+	fireEvent.click(
+		within(section).getByRole("button", {
+			name: "Clear memory flag on Alice Example's workspace",
+		}),
+	);
+	await waitFor(() =>
+		expect(writes).toContainEqual({
+			url: `/admin/workspaces/${WORKSPACE.id}/clear-memory-flag`,
+			body: null,
+		}),
+	);
+});
+
+test("the overrides dialog refuses a bad value, then sends numbers and nulls", async () => {
+	const writes = stubDetail(detail({ guardConfig: { cpuThresholdPercent: 95 } }));
+	const panel = await openAlice();
+	fireEvent.click(
+		within(panel).getByRole("button", {
+			name: "Change overrides for Alice Example's workspace",
+		}),
+	);
+	const dialog = await screen.findByRole("dialog", {
+		name: "Resource guard overrides",
+	});
+	const cpu = within(dialog).getByLabelText("CPU threshold (%)") as HTMLInputElement;
+	expect(cpu.value).toBe("95");
+
+	const idle = within(dialog).getByLabelText("Idle stop (minutes)");
+	fireEvent.change(idle, { target: { value: "5" } });
+	fireEvent.click(within(dialog).getByTestId("guard-save"));
+	expect((await within(dialog).findByRole("alert")).textContent).toBe(
+		"Enter 0 for never, or a whole number from 10 to 1440.",
+	);
+	expect(writes).toEqual([]);
+
+	fireEvent.change(idle, { target: { value: "0" } });
+	fireEvent.change(cpu, { target: { value: "" } });
+	fireEvent.click(within(dialog).getByTestId("guard-save"));
+	await waitFor(() => expect(writes.length).toBe(1));
+	expect(writes[0]).toEqual({
+		url: `/admin/workspaces/${WORKSPACE.id}/guard`,
+		body: {
+			cpuThresholdPercent: null,
+			memoryThresholdPercent: null,
+			windowMinutes: null,
+			throttleSharePercent: null,
+			idleStopMinutes: 0,
+		},
+	});
+	expect(await screen.findByText("Overrides saved")).toBeDefined();
 });

@@ -8,6 +8,7 @@ import {
 	PlatformSettings,
 	type QuotaConfig,
 	type UpdateAdminUserSettingsRequest,
+	type UpdateGuardRequest,
 	type UpdatePlatformSettingsRequest,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -215,6 +216,32 @@ export function useRebuild() {
 		({ workspaceId, resetDocker }: { workspaceId: string; resetDocker: boolean }) => ({
 			url: `/admin/workspaces/${workspaceId}/rebuild`,
 			init: json("POST", { resetDocker }),
+		}),
+	);
+}
+
+/** Per-workspace resource guard overrides; null removes one (ADR 0032). */
+export function useUpdateGuard() {
+	return useAdminWrite(
+		({ workspaceId, body }: { workspaceId: string; body: UpdateGuardRequest }) => ({
+			url: `/admin/workspaces/${workspaceId}/guard`,
+			init: json("PUT", body),
+		}),
+	);
+}
+
+/** Lift a CPU throttle or clear a memory flag (ADR 0032). */
+export function useGuardClear() {
+	return useAdminWrite(
+		({
+			workspaceId,
+			action,
+		}: {
+			workspaceId: string;
+			action: "lift-throttle" | "clear-memory-flag";
+		}) => ({
+			url: `/admin/workspaces/${workspaceId}/${action}`,
+			init: { method: "POST" },
 		}),
 	);
 }

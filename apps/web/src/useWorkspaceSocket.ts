@@ -4,6 +4,10 @@ import { z } from "zod";
 import { wsUrl } from "./api/ws.js";
 
 const HEARTBEAT_MS = 15_000;
+/** Activity is reported at most this often (ADR 0032). */
+export const ACTIVITY_MS = 60_000;
+/** What counts as the student doing something on purpose (ADR 0032). */
+const ACTIVITY_EVENTS = ["keydown", "pointerdown", "paste"] as const;
 const RECONNECT_MS = 3_000;
 const MAX_RECONNECT_MS = 60_000;
 /** The API closes with this code when the session is gone (SPEC.md §26). */
@@ -23,6 +27,8 @@ export interface WorkspaceSocket {
 	listening: ListeningService[] | null;
 	/** Drop the socket and connect again now, without waiting for the backoff. */
 	reconnect: () => void;
+	/** Report activity now, as Keep working does (ADR 0032). */
+	sendActivity: () => void;
 }
 
 /**
@@ -41,6 +47,32 @@ export function useWorkspaceSocket(
 	sessionEnded.current = onSessionEnded;
 
 	const reconnect = useCallback(() => setAttempt((value) => value + 1), []);
+	const current = useRef<WebSocket | null>(null);
+	const lastActivity = useRef(0);
+
+	const sendActivity = useCallback(() => {
+		const socket = current.current;
+		if (socket?.readyState !== WebSocket.OPEN) return;
+		socket.send(JSON.stringify({ type: "activity" }));
+		lastActivity.current = Date.now();
+	}, []);
+
+	// A key press, click or paste anywhere in the page is activity; the
+	// terminal's own traffic is not, so programs never count (ADR 0032).
+	useEffect(() => {
+		if (!workspaceId) return;
+		function onActivity() {
+			if (Date.now() - lastActivity.current >= ACTIVITY_MS) sendActivity();
+		}
+		for (const name of ACTIVITY_EVENTS) {
+			document.addEventListener(name, onActivity, { capture: true });
+		}
+		return () => {
+			for (const name of ACTIVITY_EVENTS) {
+				document.removeEventListener(name, onActivity, { capture: true });
+			}
+		};
+	}, [workspaceId, sendActivity]);
 
 	// `attempt` is never read in the body on purpose: bumping it is what
 	// reconnect() does, and re-running the effect is how the socket is replaced.
@@ -62,6 +94,7 @@ export function useWorkspaceSocket(
 			if (stopped) return;
 			const next = new WebSocket(socketUrl(id));
 			socket = next;
+			current.current = next;
 			let opened = false;
 
 			next.onopen = () => {
@@ -135,5 +168,5 @@ export function useWorkspaceSocket(
 		};
 	}, [workspaceId, attempt]);
 
-	return { workspace, listening, reconnect };
+	return { workspace, listening, reconnect, sendActivity };
 }

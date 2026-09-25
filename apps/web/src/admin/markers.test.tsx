@@ -59,6 +59,31 @@ test("marker labels come in a fixed order and only when set", () => {
 	expect(markerLabels({ ...NONE, stale: true })).toEqual(["Stale"]);
 });
 
+test("a throttled or memory-flagged workspace adds its tags after the account's", () => {
+	const throttle = {
+		at: "2026-09-25T12:00:00.000Z",
+		thresholdPercent: 80,
+		windowMinutes: 30,
+		sharePercent: 25,
+		averagePercent: 97,
+		allowance: "100ms/100ms",
+	};
+	const flag = {
+		at: "2026-09-25T12:00:00.000Z",
+		averagePercent: 93,
+		thresholdPercent: 90,
+		windowMinutes: 30,
+	};
+	expect(markerLabels(NONE, { cpuThrottle: throttle, memoryFlag: null })).toEqual([
+		"Throttled",
+	]);
+	expect(
+		markerLabels({ ...NONE, stale: true }, { cpuThrottle: throttle, memoryFlag: flag }),
+	).toEqual(["Stale", "Throttled", "High memory"]);
+	expect(markerLabels(NONE, { cpuThrottle: null, memoryFlag: null })).toEqual([]);
+	expect(markerLabels(NONE, null)).toEqual([]);
+});
+
 test("accounts that share an email sit together, whatever their names (issue #302)", () => {
 	const dup = { ...NONE, duplicateEmail: true };
 	const sorted = sortAccounts([

@@ -1,8 +1,9 @@
 import type { HealthReport } from "@portikus/contracts";
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
+import { json, renderApp, renderWithQuery, stubFetch } from "../../test-utils.js";
 import {
+	guardRows,
 	HealthTab,
 	HealthView,
 	isNearlyFull,
@@ -191,6 +192,65 @@ test("the tab loads the report from the API", async () => {
 	expect((await screen.findByTestId("health-agents")).textContent).toBe(
 		"1 of 2 running",
 	);
+});
+
+const OWNER = {
+	id: "11111111-1111-4111-8111-111111111111",
+	displayName: "Alice Example",
+};
+const GUARDED = {
+	workspaceId: "22222222-2222-4222-8222-222222222222",
+	owner: OWNER,
+	cpuThrottle: {
+		at: "2026-09-22T11:00:00.000Z",
+		thresholdPercent: 80,
+		windowMinutes: 30,
+		sharePercent: 25,
+		averagePercent: 97.4,
+		allowance: "100ms/100ms",
+	},
+	memoryFlag: {
+		at: "2026-09-22T11:10:00.000Z",
+		averagePercent: 92.6,
+		thresholdPercent: 90,
+		windowMinutes: 30,
+	},
+};
+
+test("the guard list says when nothing is throttled or flagged", () => {
+	render(<HealthView report={report()} now={NOW} />);
+	expect(screen.getByTestId("health-guard-empty").textContent).toBe(
+		"No workspace is throttled or flagged.",
+	);
+});
+
+test("a workspace with both a throttle and a flag gets a row for each", () => {
+	expect(guardRows([GUARDED]).map((row) => [row.which, row.average])).toEqual([
+		["Throttled", "CPU 97% over 30 minutes"],
+		["High memory", "Memory 93% over 30 minutes"],
+	]);
+	expect(guardRows([{ ...GUARDED, memoryFlag: null }])).toHaveLength(1);
+});
+
+test("each guard row links to the owner's detail panel", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") {
+			return json(200, {
+				id: "33333333-3333-4333-8333-333333333333",
+				email: "carol@example.invalid",
+				displayName: "Carol Admin",
+				role: "administrator",
+			});
+		}
+		if (url === "/admin/health") return json(200, report({ guard: [GUARDED] }));
+		throw new Error(`unexpected request: ${url}`);
+	});
+	renderApp("/admin?tab=health");
+
+	const table = await screen.findByTestId("health-guard");
+	const links = within(table).getAllByRole("link", { name: "Alice Example" });
+	expect(links).toHaveLength(2);
+	expect(links[0]?.getAttribute("href")).toBe(`/admin?tab=workspaces&user=${OWNER.id}`);
 });
 
 test("a failed load is announced", async () => {
