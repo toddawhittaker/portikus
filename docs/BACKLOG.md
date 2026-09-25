@@ -119,6 +119,8 @@ connector, and the local administrator is the way back from a mistake.
 
 ## Resource guard: idle stop, CPU throttling, memory flags
 
+**Scheduled as Epic 14.3, docs/EPIC-14-3.md.**
+
 **What.** Stop students from running crypto miners or long-lived sites
 on the platform's CPU and memory. Rulings (Todd, 2026-09-25):
 
