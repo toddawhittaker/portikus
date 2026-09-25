@@ -666,7 +666,7 @@ else
     check_output "the Dex config is root:portikus-dex, mode 0640" "root:portikus-dex 640" \
       ssh_cmd "sudo stat -c '%U:%G %a' /etc/portikus-dex/config.yaml"
 
-    # The local administrator (docs/EPIC-14-2.md rulings 14, 15 and 19).  The
+    # The local administrator (SPEC.md section 5.1).  The
     # play made it, so --if-missing changes nothing and exits 10 while its
     # one-time password is unchanged, 11 once it is spent.
     check_output "the portikus command is root, mode 0755" "root:root 755" \

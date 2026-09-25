@@ -3,7 +3,7 @@
 # them, with no VM: PostgreSQL storage, the gRPC API behind mutual TLS, each
 # upstream connector, the sign-in lines of api.env, and the guards on the
 # settings and the users file (docs/archive/epics/EPIC-14.md rulings 11, 13,
-# 19, 20, 23 and 28; docs/EPIC-14-2.md rulings 4 to 9).  `make infra-check`
+# 19, 20, 23 and 28; SPEC.md section 5.1).  `make infra-check`
 # runs it; the CI dex-signin job runs it to get a configuration it can
 # start Dex with:
 #
@@ -268,7 +268,7 @@
       when: dex_render_web | bool
       become: true
 
-    # ── What Portikus asks Dex for (docs/EPIC-14-2.md rulings 4 and 5) ──
+    # ── What Portikus asks Dex for (SPEC.md section 5.1) ──
     # site.yml's own rules for api.env's sign-in lines, rendered for each
     # upstream.  Groups are asked for everywhere but behind Google, whose
     # connector has none.  The group names feed the connectors below.
@@ -338,7 +338,7 @@
              == ['portikus-students', 'portikus-instructors', 'portikus-administrators']"
         fail_msg: "{{ dex_env | to_json }}"
 
-    # ── Upstream connectors (rulings 11, 13 and 28; docs/EPIC-14-2.md 5 to 8) ──
+    # ── Upstream connectors (rulings 11, 13 and 28; SPEC.md section 5.1) ──
 
     - name: Render each upstream connector
       ansible.builtin.template:

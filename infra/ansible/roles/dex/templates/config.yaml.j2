@@ -82,7 +82,7 @@ connectors:
 {% if portikus_dex_upstream == 'entra' %}
   # Entra through the generic connector, held to the tenant's own issuer;
   # the app roles in the ID token's roles claim are passed on as groups,
-  # so no Microsoft Graph permission is needed (docs/EPIC-14-2.md ruling 5).
+  # so no Microsoft Graph permission is needed (ADR 0031, SPEC.md section 5.1).
   - type: oidc
     id: entra
     name: Microsoft
@@ -95,7 +95,7 @@ connectors:
       claimMapping:
         groups: roles
 {% else %}
-  # Any other OIDC provider (docs/EPIC-14-2.md ruling 7).
+  # Any other OIDC provider (SPEC.md section 5.1).
   - type: oidc
     id: oidc
     name: Single sign-on

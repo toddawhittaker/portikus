@@ -226,7 +226,7 @@
   when: portikus_idp == 'dex'
   no_log: true
 
-# The API's one issuer is Dex, or the mock (docs/EPIC-14-2.md ruling 2).
+# The API's one issuer is Dex, or the mock (SPEC.md section 5.1).
 # Both are served by Caddy on the public host, so the API reaches either
 # over loopback with a certificate it trusts.
 - name: Set the effective identity provider settings
@@ -370,7 +370,7 @@
     - portikus-worker
     - portikus-controller
 
-# ── The local administrator (ADR 0031, docs/EPIC-14-2.md rulings 10 to 20) ──
+# ── The local administrator (ADR 0031, SPEC.md section 5.1) ──
 # Made on the first run.  After that --if-missing leaves the account alone,
 # even one an administrator removed, and its exit status says whether the
 # one-time password is still unchanged (10) or spent (11).  The command

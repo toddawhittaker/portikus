@@ -1,5 +1,5 @@
 #!/bin/sh
-# The Portikus host command, for root on the VM (docs/EPIC-14-2.md ruling 20).
+# The Portikus host command, for root on the VM (SPEC.md section 5.1).
 set -eu
 
 API_ENV=/etc/portikus/api.env

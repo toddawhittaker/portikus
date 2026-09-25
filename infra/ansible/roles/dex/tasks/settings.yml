@@ -6,7 +6,7 @@
 # runs Ansible.
 
 # A silent move to Dex would change the issuer, and so give everyone a new,
-# empty account (docs/EPIC-14-2.md ruling 9).
+# empty account (SPEC.md section 5.1).
 - name: Refuse the removed direct sign-in providers
   ansible.builtin.fail:
     msg: >-

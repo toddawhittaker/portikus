@@ -82,7 +82,7 @@
     portikus_workspace_recovery_size_gib: 3
 
     # ── Authentication (SPEC 5.1, ADR 0008, ADR 0023, ADR 0031) ───
-    # Every site signs in through Dex (docs/EPIC-14-2.md rulings 1 and 9).
+    # Every site signs in through Dex (ADR 0031, SPEC.md section 5.1).
     # PORTIKUS_IDP is dex (the default) or mock, the in-repo test provider,
     # where anyone who reaches the site can sign in as any account, the
     # administrator included.
@@ -252,7 +252,7 @@
       tags: always
 
     # Every sign-in setting, checked in one place so the render test can
-    # try each refusal (docs/EPIC-14-2.md ruling 9).
+    # try each refusal (SPEC.md section 5.1).
     - name: Check the sign-in settings and load the users file
       ansible.builtin.include_role:
         name: dex
@@ -340,9 +340,9 @@
       tags: [egress_proxy, lti]
       vars:
         egress_proxy_hosts: "{{ portikus_egress_extra_hosts + portikus_lti_keyset_egress }}"
-        # Only Dex's connector reaches a provider (docs/EPIC-14-2.md ruling
-        # 21).  The entra connector never calls userinfo, so Microsoft
-        # Graph stays off the list.
+        # Only Dex's connector reaches a provider (SPEC.md section 5.1).
+        # The entra connector never calls userinfo, so Microsoft Graph
+        # stays off the list.
         egress_proxy_discovery: >-
           {{ [] if portikus_idp != 'dex'
              else [{'issuer': portikus_entra_issuer, 'userinfo': false}]

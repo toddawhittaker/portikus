@@ -97,7 +97,7 @@
           - egress_empty == ['http_access deny !localhost', 'http_access deny portikus_ip_literal', 'http_access deny portikus_private', 'http_access deny all']
         fail_msg: "{{ egress_empty }}"
 
-    # ── The sign-in hosts (docs/EPIC-14-2.md ruling 21) ─────────
+    # ── The sign-in hosts (SPEC.md section 5.1) ─────────
     # Only Dex's connector reaches a provider.  This renders site.yml's own
     # rule, then builds the list with the role's own tasks from sample
     # discovery documents.

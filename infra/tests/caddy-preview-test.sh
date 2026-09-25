@@ -279,7 +279,7 @@ else
 fi
 has "/lti/* reaches the API" '^[[:space:]]+handle /lti/\* \{$' "${app}"
 has "the course list and members reach the API" '^[[:space:]]+handle /courses\* \{$' "${app}"
-# The setup code is gone (docs/EPIC-14-2.md ruling 19); /setup is only a page.
+# The setup code is gone (ADR 0031); /setup is only a page.
 lacks "no /setup route reaches the API" 'handle /setup' "${app}"
 lacks "the /course pages are not sent to the API" 'handle /course[^s]' "${app}"
 has "the control plane is still compressed" '^[[:space:]]+encode gzip$' "${app}"

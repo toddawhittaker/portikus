@@ -71,7 +71,7 @@ contents:
     dst: /usr/lib/systemd/system/portikus-mock-idp.service
     file_info: *unit_info
 
-  # The host command, run by root (docs/EPIC-14-2.md ruling 20).
+  # The host command, run by root (SPEC.md section 5.1).
   - src: ./packaging/bin/portikus
     dst: /usr/bin/portikus
     file_info:

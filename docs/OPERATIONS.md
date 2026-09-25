@@ -362,6 +362,8 @@ make configure-vm PORTIKUS_DEX_UPSTREAM=oidc PORTIKUS_DEX_UPSTREAM_ISSUER=https:
   asked for a `groups` scope.
 - Dex calls the provider's userinfo endpoint, so its host is on the allow
   list too.
+- The provider must send the `email_verified` claim, true, or Dex refuses
+  the sign-in, because Portikus matches accounts by email.
 
 ### Shibboleth, and why not SAML
 
