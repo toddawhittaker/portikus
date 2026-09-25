@@ -2180,13 +2180,76 @@ refused a second claim; axe checks every state of `/setup`.
 
 Gaps:
 
-- **Caddy does not yet route `/setup/*` to the API.** The development
-  server proxies it, but a deployed site sends it to the web bundle, so
-  the page cannot claim a code until the Caddyfile gains a `handle
-  /setup/*` block for the API (an infra change outside T2).
+- Caddy did not route `/setup/*` to the API at first, so a deployed site
+  sent it to the web bundle. T5 added the route and claimed a code
+  through it on the rehearsal VM.
 - The Playwright test claims as a fresh account rather than the shared
   mock `alice`, because another spec checks at the same time that alice
   has no Administration link.
 - An account whose provider gives it no role at all cannot sign in, so
   it cannot claim a code either; under Entra such a person needs an app
   role first.
+
+### T5: Dex storage, gRPC and connectors
+
+Dex now keeps its accounts in its own PostgreSQL database, `dex`, owned
+by the `portikus-dex` role and reached over the local socket (docs/EPIC-14.md
+ruling 19, ADR 0028). Its gRPC API listens on `127.0.0.1:5557` and accepts
+only a client certificate from a small certificate authority that Ansible
+makes in `/etc/portikus/dex-grpc/` (ruling 20). The API's client key is
+`root:portikus`, mode 0640, and `api.env` names the files through
+`DEX_GRPC_*` only when the provider is Dex. The certificates are issued
+again when they have less than 30 days left.
+
+`PORTIKUS_DEX_UPSTREAM` adds one upstream connector beside Dex's own
+passwords: `ldap` (Active Directory or OpenLDAP attribute names, a
+required user filter, an optional group search and root certificate, and
+the directory's addresses in Dex's `IPAddressAllow`), `microsoft` (held to
+the site's tenant) or `google` (held to the site's domains). The last two
+reach their provider through the egress proxy with `HTTPS_PROXY` in Dex's
+unit. Bad upstream settings stop the play before anything changes. Caddy
+now lets the LDAP password form through, behind the same sign-in throttle
+as Dex's own form, and routes `/setup/*` to the API.
+
+The users file is retired. When one is given and Dex holds no passwords,
+the play imports every entry through the gRPC API with its own bcrypt
+hash and user ID, so every subject, account and workspace stays the same.
+An administrator or instructor in the file becomes that account's
+`granted_role`, because Dex sends no groups for these passwords. The
+import is all or nothing, and a later run imports nothing. `make users-*`,
+`packages/users-file`, the users-deploy session revocation, and the
+backup's encrypted copy of the users file are gone. The nightly backup
+now also dumps the `dex` database, and a restore loads it.
+
+Verified on the rehearsal VM, never the pilot, with package
+0.1.419+gc66573a and the pilot's backup of 2026-09-24 restored:
+
+- The import moved carol, alice and bob into Dex. Every account kept its
+  subject and still owns its workspace (checked with SQL against the
+  subjects the users file predicts), and Dex holds each user's original
+  hash. carol is administrator by grant. A second play printed "Dex
+  already holds 3 passwords; nothing imported." and changed nothing.
+- A gRPC call with the API's client certificate answered; one with a
+  certificate from another authority, and one with none, were refused.
+- With a throwaway OpenLDAP on the VM, lena (in the user filter and the
+  instructors group) signed in through Caddy and the API as an
+  instructor, and ivan (no group) as a student. otto, outside the filter,
+  was refused with the right password.
+- A setup code issued with the play's command was claimed through Caddy
+  at `/setup/claim`; `/setup/state` answered JSON from the API.
+- `make backup` wrote `dex.dump` into the set. Removing the restored data
+  and restoring that set brought the three Dex passwords back.
+- `make smoke-test` passed 126 of 126, with the lifecycle block skipped
+  because restored workspaces exist, and `make security-test` passed 230
+  of 230. The smoke test's Dex sign-in now picks Dex's own passwords when
+  an upstream connector adds a choice page.
+
+Gaps:
+
+- Dex's `microsoft` and `google` connectors are checked only by the
+  render test; no real tenant was used (see "Unverified until a real
+  tenant exists" in docs/EPIC-14.md).
+- Active Directory was not tried; OpenLDAP stood in for it.
+- The host's nightly backup timer runs an installed copy of `backup.sh`,
+  so `make backup-install-timer` must run again on the host after this
+  lands for the pilot's nightly set to include the `dex` dump.

@@ -83,7 +83,7 @@
 
     # ── Authentication (SPEC 5.3, ADR 0008, ADR 0023) ─────────────
     # PORTIKUS_IDP picks the sign-in provider (docs/EPIC-14.md):
-    #   dex       Dex on this VM, accounts from the users file (the default);
+    #   dex       Dex on this VM, accounts managed in the Users view (the default);
     #   entra     Microsoft Entra ID, one tenant (PORTIKUS_ENTRA_TENANT_ID);
     #   google    Google Workspace, the listed domains (PORTIKUS_GOOGLE_DOMAINS);
     #   external  any other OIDC provider named by the PORTIKUS_OIDC_* settings;
@@ -95,6 +95,26 @@
       {{ lookup('env', 'PORTIKUS_GOOGLE_DOMAINS') | replace(',', ' ') | split | select | list }}
     # Dex's upstream connector, which the dex role sets up: none, ldap, microsoft or google.
     portikus_dex_upstream: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM') | default('none', true) }}"
+    # The client Dex is registered as with Microsoft or Google.
+    portikus_dex_upstream_client_id: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM_CLIENT_ID') }}"
+    portikus_dex_upstream_client_secret: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET') }}"
+    # Dex's LDAP connector.  host or host:port, always over TLS (LDAPS, port
+    # 636 by default); the schema, ad or openldap, picks the attribute names.
+    portikus_ldap_host: "{{ lookup('env', 'PORTIKUS_LDAP_HOST') }}"
+    portikus_ldap_schema: "{{ lookup('env', 'PORTIKUS_LDAP_SCHEMA') }}"
+    portikus_ldap_bind_dn: "{{ lookup('env', 'PORTIKUS_LDAP_BIND_DN') }}"
+    portikus_ldap_bind_password: "{{ lookup('env', 'PORTIKUS_LDAP_BIND_PASSWORD') }}"
+    portikus_ldap_user_base_dn: "{{ lookup('env', 'PORTIKUS_LDAP_USER_BASE_DN') }}"
+    # Required: without it every directory account could sign in (ruling 11).
+    portikus_ldap_user_filter: "{{ lookup('env', 'PORTIKUS_LDAP_USER_FILTER') }}"
+    # Empty means no group search, so everyone signs in as a student.
+    portikus_ldap_group_base_dn: "{{ lookup('env', 'PORTIKUS_LDAP_GROUP_BASE_DN') }}"
+    # A CA certificate file on the machine that runs Ansible; empty trusts the system store.
+    portikus_ldap_root_ca: "{{ lookup('env', 'PORTIKUS_LDAP_ROOT_CA') }}"
+    # The directory's addresses, which Dex's unit may reach: CIDRs, separated
+    # by commas or spaces.  LDAP does not go through the egress proxy.
+    portikus_ldap_ip_allow: >-
+      {{ lookup('env', 'PORTIKUS_LDAP_IP_ALLOW') | replace(',', ' ') | split | select | list }}
     portikus_mock_idp: "{{ portikus_idp == 'mock' }}"
     portikus_mock_idp_port: 3002
     # Dex is built from source at this upstream commit (docs/adr/0023).
@@ -104,8 +124,14 @@
     portikus_dex_issuer: "{{ portikus_public_url }}/dex"
     # Loopback only; Caddy serves it at /dex.
     dex_port: 5556
-    # On the machine that runs Ansible, outside any work tree.  It is read
-    # there and never copied to the VM.
+    # Dex's gRPC API, on loopback behind mutual TLS; Caddy never routes to it.
+    # The API's DEX_GRPC_* settings name these (docs/EPIC-14.md ruling 20).
+    dex_grpc_addr: 127.0.0.1:5557
+    dex_grpc_dir: /etc/portikus/dex-grpc
+    # The retired users file, on the machine that runs Ansible, outside any
+    # work tree.  When it exists, its accounts are imported once into Dex's
+    # storage, keeping every user ID (docs/EPIC-14.md ruling 23); after that
+    # the Users view manages them and the file can be deleted.
     portikus_users_file: >-
       {{ lookup('env', 'PORTIKUS_USERS_FILE')
          | default(lookup('env', 'HOME') ~ '/.config/portikus/users.json', true)
@@ -197,8 +223,8 @@
   # Checked before any role runs, so bad identity-provider settings change
   # nothing on the VM.  The secret rules match packages/config: portikus-api
   # refuses to start in production on a short or default secret.
-  # The guards are tagged always, so a run limited with --tags (such as
-  # `make users-deploy`) is checked the same way.
+  # The guards are tagged always, so a run limited with --tags is checked
+  # the same way.
   pre_tasks:
     - name: Refuse the old mock sign-in switch
       ansible.builtin.fail:
@@ -278,10 +304,10 @@
           tags: always
       tags: always
 
-    - name: Load the users file for Dex
+    - name: Check the Dex settings and load the users file
       ansible.builtin.include_role:
         name: dex
-        tasks_from: users
+        tasks_from: settings
         apply:
           tags: always
       when: portikus_idp == 'dex'

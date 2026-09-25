@@ -285,8 +285,16 @@
 # them all, and no Dex identity can make a row before its account is linked.
 - name: Carry existing accounts over to Dex
   ansible.builtin.import_tasks: carry_over.yml
-  when: portikus_idp == 'dex'
+  when: portikus_idp == 'dex' and dex_users is defined
   tags: carry_over
+
+# The gRPC client key, and the one-time users-file import, before api.env
+# names the key and the setup-code check below counts administrators.
+- name: Give the API what it needs from Dex
+  ansible.builtin.include_role:
+    name: dex
+    tasks_from: api
+  when: portikus_idp == 'dex'
 
 # ── Environment files ────────────────────────────────────────────
 

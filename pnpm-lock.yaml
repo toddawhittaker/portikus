@@ -615,22 +615,6 @@ importers:
         specifier: 19.3.0
         version: 19.3.0(@types/react@19.3.0)
 
-  packages/users-file:
-    dependencies:
-      bcryptjs:
-        specifier: 3.0.3
-        version: 3.0.3
-      zod:
-        specifier: 4.6.5
-        version: 4.6.5
-    devDependencies:
-      '@types/node':
-        specifier: 24.9.2
-        version: 24.9.2
-      node-pty:
-        specifier: 1.1.0
-        version: 1.1.0
-
 packages:
 
   '@asamuzakjp/css-color@7.0.1':

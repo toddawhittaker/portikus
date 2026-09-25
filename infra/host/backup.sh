@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Pull a backup of the platform VM to this host, encrypted with age
 # (docs/adr/0024-backups-pulled-to-host.md).  It only reads from the VM:
-# a pg_dump, and an export of each workspace's home and recovery volume.
+# a pg_dump of the portikus database and of Dex's accounts, when Dex has a
+# database, and an export of each workspace's home and recovery volume.
 #
 # Sets go to <backup dir>/<VM name>/<UTC timestamp>, so the rehearsal VM's
 # sets never push out the pilot's.  The name comes from the caller, never
@@ -18,14 +19,12 @@
 #   PORTIKUS_BACKUP_DIR         holds one directory of sets per VM (default /var/backups/portikus)
 #   PORTIKUS_BACKUP_RECIPIENTS  age recipients file (default ~/.config/portikus/backup-recipients.txt)
 #   PORTIKUS_BACKUP_KEEP        complete sets, and incomplete ones, kept per VM (default 14)
-#   PORTIKUS_USERS_FILE         the Dex users file, copied into the set when present
 set -euo pipefail
 umask 077
 
 BACKUP_DIR="${PORTIKUS_BACKUP_DIR:-/var/backups/portikus}"
 RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-${HOME}/.config/portikus/backup-recipients.txt}"
 KEEP="${PORTIKUS_BACKUP_KEEP:-14}"
-USERS_FILE="${PORTIKUS_USERS_FILE:-${HOME}/.config/portikus/users.json}"
 # The VM half, sent with every command rather than installed on the VM.
 EXPORT_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-export"
 SET_PATTERN='^[0-9]{8}T[0-9]{6}Z$'
@@ -215,6 +214,14 @@ pull() {
 info "database"
 pull db.dump plain db || die "db.dump: the pipeline failed (ssh, index or age)"
 echo "file db.dump $(cat "${scratch}/db.dump.sum")" >>"$manifest"
+# Dex's accounts replace the users file's encrypted copy (docs/EPIC-14.md ruling 23).
+has_dex=$(remote_export has-dex)
+must "Dex database check" '^[01]$' "$has_dex"
+if [ "$has_dex" = 1 ]; then
+  info "Dex database"
+  pull dex.dump plain dex-db || die "dex.dump: the pipeline failed (ssh, index or age)"
+  echo "file dex.dump $(cat "${scratch}/dex.dump.sum")" >>"$manifest"
+fi
 
 failed=()
 for vol in "${volumes[@]}"; do
@@ -230,11 +237,6 @@ for vol in "${volumes[@]}"; do
   age -R "$RECIPIENTS" -o "${work}/${vol}.index.age" "${scratch}/${vol}.index"
   echo "volume ${vol} $(cat "${scratch}/${vol}.sum") ${idmap:--}" >>"$manifest"
 done
-
-if [ -f "$USERS_FILE" ]; then
-  age -R "$RECIPIENTS" -o "${work}/users.json.age" "$USERS_FILE"
-  echo "file users.json $(wc -c <"$USERS_FILE") $(sha256sum "$USERS_FILE" | cut -d' ' -f1)" >>"$manifest"
-fi
 
 echo "seconds $(($(date +%s) - started))" >>"$manifest"
 age -R "$RECIPIENTS" -o "${work}/MANIFEST.age" "$manifest"

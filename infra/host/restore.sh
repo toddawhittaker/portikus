@@ -32,7 +32,7 @@ SAMPLE=20
 INSTANCE_PATTERN='^ws-[0-9a-f]{24}$'
 UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 # Every line backup.sh writes, and nothing else.
-MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|failed ws-[0-9a-f]{24}-(home|recovery)|seconds [0-9]+)$'
+MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|failed ws-[0-9a-f]{24}-(home|recovery)|seconds [0-9]+)$'
 
 info() { printf '[restore %s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf '[restore] FAIL: %s\n' "$*" >&2; exit 1; }
@@ -173,6 +173,10 @@ if [ "$mode" = remove ]; then
   info "removed ${#volumes[@]} imported volumes and the instances' own volumes"
   # The restored rows go with a fresh, empty database.
   vm "sudo runuser -u postgres -- dropdb --if-exists portikus && sudo runuser -u postgres -- createdb -O portikus portikus"
+  if grep -q '^file dex\.dump ' "$manifest"; then
+    # Dex makes its tables again when it starts on the empty database.
+    vm "sudo systemctl stop portikus-dex && sudo runuser -u postgres -- dropdb --if-exists dex && sudo runuser -u postgres -- createdb -O portikus-dex dex && sudo systemctl start portikus-dex"
+  fi
   start_services
   step "the set's workspaces and the restored database are gone from ${target_name}"
   exit 0
@@ -208,6 +212,14 @@ decrypt db.dump | vm_in "sudo runuser -u postgres -- pg_restore --create --clean
 # sessions go too, so a cookie stolen before the backup does not work here.
 psql_vm "BEGIN; UPDATE workspaces SET state = 'stopped', desired_state = 'stopped'; DELETE FROM preview_sessions; DELETE FROM sessions; COMMIT;"
 step "database restored, every workspace marked stopped, every session ended"
+# Dex's accounts (docs/EPIC-14.md ruling 19), with Dex stopped so the
+# database can be replaced; a set from before Dex had storage has none.
+if grep -q '^file dex\.dump ' "$manifest"; then
+  vm sudo systemctl stop portikus-dex
+  decrypt dex.dump | vm_in "sudo runuser -u postgres -- pg_restore --create --clean --if-exists --exit-on-error -d postgres"
+  vm sudo systemctl start portikus-dex
+  step "Dex's accounts restored"
+fi
 
 # ── 5. Volumes ────────────────────────────────────────────────────
 for vol in "${volumes[@]}"; do

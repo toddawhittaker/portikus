@@ -301,7 +301,7 @@ jobs:
       - name: Check the Dex version
         run: '"$DEX_DIR/out/dex" version | grep -F "Dex Version: ${{ steps.pin.outputs.version }}"'
       # The role's real template and guards, with the published test users.
-      - name: Render the Dex configuration from the users fixture
+      - name: Render the Dex configuration
         run: >-
           ansible-playbook infra/tests/dex-render-test.yml
           -e dex_render_dest="$DEX_DIR/config.yaml"
@@ -350,6 +350,33 @@ jobs:
           done
           cat "$DEX_DIR/dex.log"
           exit 1
+      # The one-time users-file import the dex role runs (docs/EPIC-14.md
+      # ruling 23), into Dex's empty storage; the sign-in tests below use it.
+      - name: Import the users fixture into Dex
+        env:
+          PGPASSWORD: portikus
+          DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/dex_import
+          DEX_GRPC_ADDR: 127.0.0.1:5557
+          DEX_GRPC_CA: ${{ env.DEX_DIR }}/grpc/ci-ca.crt
+          DEX_GRPC_CERT: ${{ env.DEX_DIR }}/grpc/ci-client.crt
+          DEX_GRPC_KEY: ${{ env.DEX_DIR }}/grpc/ci-client.key
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -c 'create database dex_import'
+          # The command imports @portikus/db from its build, as on the VM.
+          pnpm exec tsc -b packages/db
+          pnpm exec tsx packages/db/src/migrate.ts
+          run_import() {
+            pnpm exec tsx packages/auth/src/dex-import-main.ts \
+              --input infra/tests/fixtures/users.sample.json --issuer http://127.0.0.1:5556/dex
+          }
+          run_import | tee "$DEX_DIR/import-1.txt"
+          grep -qx 'Imported into Dex: carol, alice' "$DEX_DIR/import-1.txt"
+          grep -qx 'Grants set: none' "$DEX_DIR/import-1.txt"
+          grep -qx 'Accounts created for a grant: carol' "$DEX_DIR/import-1.txt"
+          # A second run finds Dex holding passwords and imports nothing.
+          run_import | tee "$DEX_DIR/import-2.txt"
+          grep -qx 'Dex already holds 2 passwords; nothing imported.' "$DEX_DIR/import-2.txt"
       - name: Sign in through Dex, and manage Dex users through its gRPC API
         run: >-
           pnpm exec vitest run
