@@ -23,8 +23,8 @@ dex_grpc_renew_days: 30
 dex_import_script: /usr/lib/portikus/api/node_modules/@portikus/auth/dist/dex-import-main.js
 dex_import_input: /run/portikus-dex-import.json
 
-# The upstream connector's settings (portikus_ldap_* and
-# portikus_dex_upstream_client_*) are set in site.yml.
+# The upstream connector's settings (portikus_ldap_*, portikus_dex_upstream_*,
+# portikus_oidc_upstream_* and the three group names) are set in site.yml.
 dex_ldap_root_ca_path: "{{ dex_config_dir }}/ldap-ca.crt"
 # The id becomes the Portikus account's subject, so it must never be reused.
 # OpenLDAP's entryUUID is not.  AD's objectGUID is binary, which Dex

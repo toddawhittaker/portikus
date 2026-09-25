@@ -77,15 +77,44 @@ connectors:
             groupAttr: member
         nameAttr: cn
 {% endif %}
-{% elif portikus_dex_upstream == 'microsoft' %}
-  - type: microsoft
-    id: microsoft
+{% elif portikus_dex_upstream in ['entra', 'oidc'] %}
+{% set dex_role_groups = [portikus_oidc_student_group, portikus_oidc_instructor_group, portikus_oidc_admin_group] %}
+{% if portikus_dex_upstream == 'entra' %}
+  # Entra through the generic connector, held to the tenant's own issuer;
+  # the app roles in the ID token's roles claim are passed on as groups,
+  # so no Microsoft Graph permission is needed (ADR 0031, SPEC.md section 5.1).
+  - type: oidc
+    id: entra
     name: Microsoft
     config:
+      issuer: {{ portikus_entra_issuer | to_json }}
+      scopes: ["openid", "profile", "email"]
+      getUserInfo: false
+      # Entra sends no email_verified claim.
+      insecureSkipEmailVerified: true
+      claimMapping:
+        groups: roles
+{% else %}
+  # Any other OIDC provider (SPEC.md section 5.1).
+  - type: oidc
+    id: oidc
+    name: Single sign-on
+    config:
+      issuer: {{ portikus_dex_upstream_issuer | to_json }}
+      scopes: {{ (['openid', 'profile', 'email'] + portikus_oidc_upstream_extra_scopes) | unique | to_json }}
+      getUserInfo: true
+      claimMapping:
+        groups: {{ portikus_oidc_upstream_groups_claim | to_json }}
+{% endif %}
       clientID: {{ portikus_dex_upstream_client_id | to_json }}
       clientSecret: {{ portikus_dex_upstream_client_secret | to_json }}
       redirectURI: {{ dex_callback | to_json }}
-      tenant: {{ portikus_entra_tenant_id | to_json }}
+      insecureEnableGroups: true
+      overrideClaimMapping: true
+      # Nobody without one of the three is admitted, and only these three
+      # are passed on.
+      allowedGroups: {{ dex_role_groups | to_json }}
+      pkceChallenge: S256
 {% elif portikus_dex_upstream == 'google' %}
   - type: google
     id: google

@@ -10,7 +10,7 @@
 #
 # Usage: ./infra/tests/smoke-test.sh <vm-ip>
 # Environment:
-#   PORTIKUS_IDP                dex (the default), entra, google, external or mock: the sign-in
+#   PORTIKUS_IDP                dex (the default) or mock: the sign-in
 #                               provider the VM was configured with.
 #   PORTIKUS_SMOKE_SIGNIN_FILE  with dex, a file of mode 0600 holding a test
 #                               user's email and password on two lines; the
@@ -37,8 +37,8 @@ if [ -n "${PORTIKUS_MOCK_IDP:-}" ]; then
 fi
 IDP="${PORTIKUS_IDP:-dex}"
 case "$IDP" in
-  dex | entra | google | external | mock) ;;
-  *) echo "smoke-test: PORTIKUS_IDP must be dex, entra, google, external or mock (got: ${IDP})" >&2; exit 2 ;;
+  dex | mock) ;;
+  *) echo "smoke-test: PORTIKUS_IDP must be dex or mock (got: ${IDP})" >&2; exit 2 ;;
 esac
 # The password is read into this shell only.  It reaches the VM on an ssh
 # standard input, never in a command line.
@@ -665,6 +665,24 @@ else
       ssh_cmd "sudo stat -c '%U:%G %a' /etc/portikus/dex-client.secret"
     check_output "the Dex config is root:portikus-dex, mode 0640" "root:portikus-dex 640" \
       ssh_cmd "sudo stat -c '%U:%G %a' /etc/portikus-dex/config.yaml"
+
+    # The local administrator (SPEC.md section 5.1).  The
+    # play made it, so --if-missing changes nothing and exits 10 while its
+    # one-time password is unchanged, 11 once it is spent.
+    check_output "the portikus command is root, mode 0755" "root:root 755" \
+      ssh_cmd "stat -c '%U:%G %a' /usr/bin/portikus"
+    local_admin_status() {
+      case "$(ssh_cmd "sudo portikus reset-admin --if-missing >/dev/null 2>&1; echo \$?")" in
+        10 | 11) echo "10 or 11" ;;
+        *) echo "another status" ;;
+      esac
+    }
+    check_output "the local administrator exists (reset-admin --if-missing leaves it alone)" "10 or 11" \
+      local_admin_status
+    # The password is compared on the VM, so it never leaves it.
+    # shellcheck disable=SC2016  # expanded by the shell on the VM
+    check "the one-time password file, if any, is root:root 0600 and in no journal" \
+      ssh_cmd 'sudo sh -c '\''f=/etc/portikus/admin-password; test ! -e "$f" || { test "$(stat -c "%U:%G %a" "$f")" = "root:root 600" && ! journalctl --no-pager -o cat | grep -qF -- "$(cat "$f")"; }'\'''
     # The users file stays on the operator's machine, so the Dex config is
     # the only place with a hash (docs/adr/0023).  /root/go holds the Dex
     # source and module cache, whose examples carry sample hashes.
