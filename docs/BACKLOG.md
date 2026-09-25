@@ -141,17 +141,11 @@ on the platform's CPU and memory. Rulings (Todd, 2026-09-25):
    count as activity; after 60 minutes with none the student sees "Still
    working?", and the workspace stops 5 minutes later unless they answer.
    An admin setting with per-user overrides, like the grace period.
-5. **Block the easy routes out.** The host firewall drops common
-   mining-pool ports, and the workspace resolver refuses a short list of
-   mining-pool and tunnel services (ngrok, trycloudflare, localtunnel,
-   serveo), so a student cannot publish a site around the preview sign-in.
-   This stops casual cases; rulings 1 and 2 catch the rest.
-6. **An acceptable-use statement** at first sign-in.
+5. **An acceptable-use statement** at first sign-in.
 
 **Why.** Previews are never public (SPEC.md 2.9, "A preview is never an
 unauthenticated public deployment"), but a student can keep a workspace
-alive with an open tab, run a miner inside the 4-CPU limit all day, or
-publish a site through a tunnel.
+alive with an open tab or run a miner inside the 4-CPU limit all day.
 
 **What it would take** (about two weeks):
 
@@ -164,12 +158,13 @@ publish a site through a tunnel.
    action.
 3. Activity reporting from the web app and the workspace agent, the idle
    warning, and the stop.
-4. The firewall and resolver lists in the Ansible roles.
-5. The settings with per-workspace overrides, and the acceptable-use
+4. The settings with per-workspace overrides, and the acceptable-use
    screen.
 
 Left out: blocking known miner programs by name, because administrators
-never see a student's process command lines (SPEC.md 20.1).
+never see a student's process command lines (SPEC.md 20.1); and blocking
+mining-pool ports and tunnel services, because flagging, throttling and the
+acceptable-use statement are enough (Todd, 2026-09-25).
 
 **Source.** Todd, 2026-09-25.
 
