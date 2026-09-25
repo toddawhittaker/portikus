@@ -249,6 +249,20 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"the detail is 404, not 500, before platform settings exist",
+	async () => {
+		await start();
+		await testDb.db.deleteFrom("settings").execute();
+		const res = await detail();
+		expect(res.statusCode).toBe(404);
+		expect(res.json()).toMatchObject({
+			code: "NOT_FOUND",
+			message: "Platform settings are not set yet",
+		});
+	},
+);
+
 test.skipIf(skip)("an unknown workspace is 404", async () => {
 	await start();
 	const res = await app.inject({

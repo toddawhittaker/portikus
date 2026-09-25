@@ -53,6 +53,7 @@ export function AppHeader({
 	const unreadLabel = `${unread} unread notification${unread === 1 ? "" : "s"}`;
 	const signOutForm = useRef<HTMLFormElement>(null);
 	const accountButton = useRef<HTMLButtonElement>(null);
+	const badgeButton = useRef<HTMLButtonElement>(null);
 	const picture = useProfile().data?.picture ?? null;
 	const hasCourse = (useCourses().data?.length ?? 0) > 0;
 	const open = useOpenWorkspace();
@@ -209,13 +210,13 @@ export function AppHeader({
 				{badge ? (
 					<button
 						type="button"
+						ref={badgeButton}
 						className="pk-account-badge"
 						data-testid="notifications-badge"
 						aria-label={`Notifications, ${unreadLabel}`}
 						onClick={() => {
-							// The badge goes once all is read, so the dialog returns focus
-							// to the account button, which always stays.
-							accountButton.current?.focus();
+							// Focus the badge so the dialog returns focus to it on close.
+							badgeButton.current?.focus();
 							setNotificationsOpen(true);
 						}}
 					>
@@ -228,7 +229,18 @@ export function AppHeader({
 
 			{settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
 			{notificationsOpen ? (
-				<NotificationsDialog onClose={() => setNotificationsOpen(false)} />
+				<NotificationsDialog
+					onClose={() => {
+						setNotificationsOpen(false);
+						// Once all is read the badge is gone; the account button always stays.
+						if (!badgeButton.current?.isConnected) {
+							requestAnimationFrame(() => {
+								if (!document.activeElement || document.activeElement === document.body)
+									accountButton.current?.focus();
+							});
+						}
+					}}
+				/>
 			) : null}
 		</header>
 	);

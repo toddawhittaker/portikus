@@ -98,12 +98,14 @@ function harness(opts: {
 	const { logger } = collectingLogger();
 	let minute = 0;
 	let cpuNs = 0;
+	let boot = 1000;
 	let allowance: string | null = null;
 	const busy = opts.busy ?? (() => 0.1);
 	const memory = opts.memory ?? (() => 0.1);
 	const usage = (): InstanceUsage => ({
 		name: opts.instance,
 		cpuUsageNs: Math.round(cpuNs),
+		bootMarker: boot,
 		cpuLimit: 4,
 		memoryBytes: Math.round(memory(minute) * 6 * GiB),
 		memoryLimitBytes: 6 * GiB,
@@ -139,6 +141,17 @@ function harness(opts: {
 			refresh();
 			await tick();
 		},
+		/**
+		 * One minute that ends in a reboot from inside the workspace: the
+		 * counter restarts and reads `afterNs` at the tick, the marker changes.
+		 */
+		async rebootStep(afterNs: number) {
+			minute++;
+			cpuNs = afterNs;
+			boot++;
+			refresh();
+			await tick();
+		},
 		async steps(n: number) {
 			for (let i = 0; i < n; i++) await this.step();
 		},
@@ -150,6 +163,7 @@ function harness(opts: {
 		stopFor(n: number) {
 			minute += n;
 			cpuNs = 0;
+			boot++;
 			allowance = null;
 		},
 		set allowance(value: string | null) {
@@ -278,9 +292,9 @@ test.skipIf(skip)(
 		// 28 minutes since the first sample: not yet a full window.
 		expect((await row(ws.id)).cpu_throttle).toBeNull();
 		await h.step();
-		// 29 busy minutes out of 30.
+		// 29 busy minutes out of 30, and the minute before the restart is assumed busy.
 		expect((await row(ws.id)).cpu_throttle).toMatchObject({
-			averagePercent: 96.7,
+			averagePercent: 100,
 			allowance: "100ms/100ms",
 		});
 		for (let cycle = 0; cycle < 3; cycle++) {
@@ -294,15 +308,42 @@ test.skipIf(skip)(
 	},
 );
 
-test.skipIf(skip)("a steady 79% is not throttled across restarts", async () => {
+// Each restart counts up to one minute as full use, so stay a little further below.
+test.skipIf(skip)("a steady 75% is not throttled across restarts", async () => {
 	const ws = await insertWorkspace();
-	const h = harness({ instance: ws.instance, busy: () => 0.79 });
+	const h = harness({ instance: ws.instance, busy: () => 0.75 });
 	await h.tick();
 	for (let cycle = 0; cycle < 4; cycle++) {
 		await h.steps(25);
 		h.stopFor(1);
 	}
 	await h.steps(25);
+	expect((await row(ws.id)).cpu_throttle).toBeNull();
+	expect(await audits(ws.id)).toEqual([]);
+});
+
+// A reboot from inside the workspace zeroes the counter (security review, EPIC-14-3 ruling 10).
+test.skipIf(skip)(
+	"a reboot loop at about 90% real use is throttled at the first full window",
+	async () => {
+		const ws = await insertWorkspace();
+		const h = harness({ instance: ws.instance, busy: () => 0 });
+		await h.tick();
+		// Each minute burns all 4 CPUs for 55 s, reboots, and the tick sees 5 s of use.
+		for (let i = 0; i < 29; i++) await h.rebootStep(5 * 4 * 1e9);
+		expect((await row(ws.id)).cpu_throttle).toBeNull();
+		await h.rebootStep(5 * 4 * 1e9);
+		expect((await row(ws.id)).cpu_throttle).not.toBeNull();
+	},
+);
+
+test.skipIf(skip)("an honest restart in a quiet window is not throttled", async () => {
+	const ws = await insertWorkspace();
+	const h = harness({ instance: ws.instance, busy: () => 0.1 });
+	await h.tick();
+	await h.steps(15);
+	h.stopFor(5);
+	await h.steps(40);
 	expect((await row(ws.id)).cpu_throttle).toBeNull();
 	expect(await audits(ws.id)).toEqual([]);
 });
@@ -492,6 +533,40 @@ test.skipIf(skip)("memory above 90% is flagged; 89% is not", async () => {
 	await l.steps(40);
 	expect((await row(low.id)).memory_flag).toBeNull();
 });
+
+// Memory is judged per run; CPU across runs (EPIC-14-3 ruling 10).
+test.skipIf(skip)(
+	"memory is judged per run while CPU is judged across the restart",
+	async () => {
+		const ws = await insertWorkspace();
+		let mem = 0.99;
+		const h = harness({ instance: ws.instance, busy: () => 1, memory: () => mem });
+		await h.tick();
+		await h.steps(20);
+		expect((await row(ws.id)).memory_flag).not.toBeNull();
+		// A stop clears the flag, as reconcile does, and keeps the samples.
+		await tdb.db
+			.updateTable("workspaces")
+			.set({ memory_flag: null })
+			.where("id", "=", ws.id)
+			.execute();
+		h.stopFor(1);
+		mem = 0.1;
+		await h.step();
+		expect((await row(ws.id)).memory_flag).toBeNull();
+		await h.steps(5);
+		expect((await row(ws.id)).memory_flag).toBeNull();
+		// CPU still counts the minutes before the stop and throttles at the window.
+		await h.steps(2);
+		expect((await row(ws.id)).cpu_throttle).toBeNull();
+		await h.steps(2);
+		expect((await row(ws.id)).cpu_throttle).not.toBeNull();
+		// Memory high again, once the window holds only this run's high samples, is flagged.
+		mem = 0.99;
+		await h.steps(30);
+		expect((await row(ws.id)).memory_flag).not.toBeNull();
+	},
+);
 
 test.skipIf(skip)(
 	"memory is not judged with fewer than half the window's samples",

@@ -133,7 +133,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 										className="sr-only"
 										data-testid="throttle-announce"
 									>
-										{workspace?.cpuThrottle
+										{workspace?.cpuThrottle &&
+										workspace.cpuThrottle.at !== dismissedThrottleAt
 											? throttleAnnouncement(workspace.cpuThrottle)
 											: ""}
 									</span>

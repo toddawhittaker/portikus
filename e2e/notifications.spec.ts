@@ -223,6 +223,12 @@ test("keyboard only: reach Notifications from the account menu and mark one read
 	await page.getByTestId("notifications-badge").focus();
 	await page.keyboard.press("Enter");
 	await expect(dialog).toBeVisible();
+	// Closed without reading, focus goes back to the badge that opened it.
+	await page.keyboard.press("Escape");
+	await expect(dialog).toHaveCount(0);
+	await expect(page.getByTestId("notifications-badge")).toBeFocused();
+	await page.keyboard.press("Enter");
+	await expect(dialog).toBeVisible();
 
 	// Mark all as read keeps focus, though the badge that opened the dialog goes.
 	const readAll = dialog.getByTestId("notifications-read-all");

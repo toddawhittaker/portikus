@@ -855,6 +855,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			config?: Record<string, string>;
 			expanded_config?: Record<string, string>;
 			state?: {
+				pid?: number;
 				cpu?: { usage?: number };
 				memory?: { usage?: number; total?: number };
 			};
@@ -873,6 +874,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			result.push({
 				name: inst.name,
 				cpuUsageNs: Math.max(0, Math.trunc(inst.state?.cpu?.usage ?? 0)),
+				bootMarker:
+					(inst.state?.pid ?? 0) > 0 ? Math.trunc(inst.state?.pid ?? 0) : null,
 				cpuLimit: countIncusCpus(expanded["limits.cpu"]) ?? this.hostCpuCount,
 				memoryBytes: await this.workingSetBytes(
 					inst.name,

@@ -158,6 +158,11 @@ export const InstanceUsage = z.object({
 	/** CPU time in nanoseconds since the instance started. */
 	// Not .int(): a counter above 2^53 is a valid, if imprecise, number.
 	cpuUsageNs: z.number().nonnegative(),
+	/**
+	 * Changes on every boot, including a reboot from inside the workspace:
+	 * the host PID of the instance's init. Null when Incus does not report it.
+	 */
+	bootMarker: z.number().int().positive().nullable(),
 	/** `limits.cpu` as a count, or the host's CPU count when unset. */
 	cpuLimit: z.number().int().positive(),
 	/** The working set: usage without reclaimable file cache. */

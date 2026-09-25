@@ -294,6 +294,8 @@ export interface WorkspaceUsageSamplesTable {
 	observed_at: ColumnType<Date, string, never>;
 	/** Postgres returns bigint as a string. */
 	cpu_usage_ns: ColumnType<string, number | string, never>;
+	/** The instance's boot marker (host PID of its init), or null; see InstanceUsage. */
+	boot_marker: ColumnType<string | null, number | null | undefined, never>;
 	cpu_limit: number;
 	memory_bytes: ColumnType<string, number | string, never>;
 	memory_limit_bytes: ColumnType<string, number | string, never>;

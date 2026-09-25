@@ -286,6 +286,21 @@ export function registerAdminWorkspaceRoutes(
 			.orderBy("created_at")
 			.execute();
 
+		const settings = await db
+			.selectFrom("settings")
+			.select([
+				"cpu_guard_threshold_percent",
+				"memory_guard_threshold_percent",
+				"guard_window_minutes",
+				"cpu_throttle_share_percent",
+				"idle_stop_minutes",
+			])
+			.where("id", "=", 1)
+			.executeTakeFirst();
+		if (!settings) {
+			return sendError(reply, 404, "NOT_FOUND", "Platform settings are not set yet");
+		}
+
 		const facts = await loadImageFacts(db);
 		const body: AdminWorkspaceDetail = {
 			workspace: toWorkspace(row, await countActive(db, id, config), config),
@@ -322,20 +337,7 @@ export function registerAdminWorkspaceRoutes(
 				resetDocker: app.hasRoute({ method: "POST", url: RESET_DOCKER_ROUTE }),
 			},
 			guardConfig: toJson<GuardConfig>(row.guard_config),
-			effectiveGuard: effectiveGuard(
-				await db
-					.selectFrom("settings")
-					.select([
-						"cpu_guard_threshold_percent",
-						"memory_guard_threshold_percent",
-						"guard_window_minutes",
-						"cpu_throttle_share_percent",
-						"idle_stop_minutes",
-					])
-					.where("id", "=", 1)
-					.executeTakeFirstOrThrow(),
-				toJson<GuardConfig>(row.guard_config),
-			),
+			effectiveGuard: effectiveGuard(settings, toJson<GuardConfig>(row.guard_config)),
 			cpuThrottle: toJson<CpuThrottle>(row.cpu_throttle),
 			memoryFlag: toJson<MemoryFlag>(row.memory_flag),
 		};

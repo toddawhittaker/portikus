@@ -77,11 +77,15 @@ test("a throttle shows the notice; dismissing it lasts until a new throttle", as
 	);
 	expect(screen.queryByTestId("throttle-notice")).toBeNull();
 	expect(document.activeElement).toBe(screen.getByRole("main", { name: "Work area" }));
+	// The screen-reader status empties too, so the dismissed message does not linger.
+	expect(screen.getByTestId("throttle-announce").textContent).toBe("");
 
 	push({ cpuThrottle: THROTTLE });
 	expect(screen.queryByTestId("throttle-notice")).toBeNull();
+	expect(screen.getByTestId("throttle-announce").textContent).toBe("");
 	push({ cpuThrottle: { ...THROTTLE, at: "2026-09-25T14:00:00.000Z" } });
 	expect(screen.getByTestId("throttle-notice")).toBeDefined();
+	expect(screen.getByTestId("throttle-announce").textContent).not.toBe("");
 });
 
 test("Still working? sends activity, and an unanswered stop says why", async () => {
