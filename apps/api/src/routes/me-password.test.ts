@@ -38,7 +38,7 @@ import { buildTestServer, PUBLIC_URL, testConfig } from "../test-support.js";
 
 /**
  * Settings, Password and the "must change password" gate
- * (docs/EPIC-14-2.md rulings 16 to 18, "Security invariants to test"),
+ * (SPEC.md sections 5.1 and 5.3),
  * against the fake Dex gRPC server, so the current password is checked by a
  * real bcrypt comparison.
  */

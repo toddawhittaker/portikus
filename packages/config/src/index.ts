@@ -106,7 +106,7 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_ADMIN_GROUP: z.string().min(1).default("portikus-administrators"),
 	/** The group whose members are instructors (docs/archive/epics/EPIC-13.md ruling 4). */
 	OIDC_INSTRUCTOR_GROUP: z.string().min(1).default("portikus-instructors"),
-	/** What a signed-in person gets when no group matches (docs/EPIC-14-2.md ruling 4). */
+	/** What a signed-in person gets when no group matches (SPEC.md section 5.1). */
 	OIDC_DEFAULT_ROLE: z.enum(["none", "student"]).default("none"),
 	/** Forward proxy for discovery, token, keyset and LMS keyset requests (ruling 27). */
 	OUTBOUND_PROXY_URL: z.string().url().optional(),

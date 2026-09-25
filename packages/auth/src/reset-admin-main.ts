@@ -1,6 +1,6 @@
 /**
  * `portikus reset-admin` runs this as the portikus user with the API's
- * environment (docs/EPIC-14-2.md ruling 20):
+ * environment (SPEC.md section 5.1):
  *   node reset-admin-main.js [--if-missing] [--email <address>]
  * Standard output carries only the new password; see runResetAdmin.
  */

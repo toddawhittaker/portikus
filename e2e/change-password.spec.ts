@@ -9,7 +9,7 @@ import { FAKE_DEX_GRPC_PORT } from "./ports";
 
 /**
  * The local administrator's first sign-in and Settings, Password
- * (docs/EPIC-14-2.md rulings 16 to 19, ADR 0031). `reset-admin-main` runs
+ * (SPEC.md sections 5.1 and 5.3, ADR 0031). `reset-admin-main` runs
  * against this run's database and the fake Dex gRPC API, and the mock
  * provider's "admin" user carries the local administrator's Dex subject.
  * The tests share that one account, so they run in order.
@@ -83,7 +83,7 @@ test("every page lands on Set a new password while the flag is set", async ({
 			page.getByRole("heading", { name: "Set a new password" }),
 		).toBeVisible();
 	}
-	// The server refuses the rest too (ruling 18).
+	// The server refuses the rest too (SPEC.md section 5.3).
 	const blocked = await page.request.get("/admin/users");
 	expect(blocked.status()).toBe(403);
 	expect((await blocked.json()).code).toBe("PASSWORD_CHANGE_REQUIRED");

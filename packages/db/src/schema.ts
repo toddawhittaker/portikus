@@ -43,7 +43,7 @@ export interface UsersTable {
 	/** The `preferred_username` claim; the workspace label comes from it. */
 	preferred_username: string | null;
 	disabled_at: ColumnType<Date | null, string | null, string | null>;
-	/** While set, the account can only change its password (docs/EPIC-14-2.md ruling 18). */
+	/** While set, the account can only change its password (SPEC.md section 5.3). */
 	must_change_password: ColumnType<boolean, boolean | undefined, boolean>;
 	/** Per-user grace period override; null means use the global setting. */
 	shutdown_grace_seconds: number | null;

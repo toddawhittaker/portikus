@@ -242,7 +242,7 @@ describe.skipIf(skip)("Add user", () => {
 			])
 			.where("id", "=", user.id)
 			.executeTakeFirstOrThrow();
-		// They choose their own password at first sign-in (docs/EPIC-14-2.md ruling 17).
+		// They choose their own password at first sign-in (SPEC.md section 5.2).
 		expect(row).toEqual({
 			oidc_issuer: mock.issuer,
 			oidc_subject: dexLocalSubject(stored?.userId ?? ""),

@@ -11,7 +11,7 @@ export function SignIn() {
 	const me = useMe();
 	// An administrator gets a workspace only by opening one (SPEC.md §6.1).
 	const isAdmin = me.status === "authenticated" && me.user.role === "administrator";
-	// The root route sends this account to the change page (docs/EPIC-14-2.md ruling 18).
+	// The root route sends this account to the change page (SPEC.md section 5.3).
 	const mustChange = me.status === "authenticated" && me.user.mustChangePassword;
 	const workspace = useEnsureWorkspace(
 		me.status === "authenticated" && !isAdmin && !mustChange,

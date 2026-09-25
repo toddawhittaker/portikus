@@ -36,7 +36,7 @@ const rootRoute = createRootRoute({
 		const me = useMe();
 		const navigate = useNavigate();
 		const pathname = useRouterState({ select: (state) => state.location.pathname });
-		// The server refuses everything else anyway (docs/EPIC-14-2.md ruling 18).
+		// The server refuses everything else anyway (SPEC.md section 5.3).
 		const sendAway =
 			me.status === "authenticated" &&
 			me.user.mustChangePassword &&

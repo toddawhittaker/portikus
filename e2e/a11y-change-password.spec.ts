@@ -5,7 +5,7 @@ import { MOCK_ISSUER, query, settledAxe, WEB_ORIGIN } from "./helpers";
 
 /**
  * axe on the change-password page and Settings, Password, in light and dark
- * (SPEC.md §25.8, docs/EPIC-14-2.md rulings 16 and 18). Each test makes its
+ * (SPEC.md sections 5.3 and 25.8). Each test makes its
  * own Dex local-password account in the database, so it never touches the
  * local administrator change-password.spec.ts uses. Only the browser's own
  * checks run here, so no Dex password is needed.

@@ -49,7 +49,7 @@ export interface DexApi {
 	deletePassword(email: string): Promise<"deleted" | "not_found">;
 	/** Every password Dex holds. */
 	listPasswords(): Promise<DexPassword[]>;
-	/** Whether `password` is the one Dex holds for this email (docs/EPIC-14-2.md ruling 16). */
+	/** Whether `password` is the one Dex holds for this email (SPEC.md section 5.3). */
 	verifyPassword(
 		email: string,
 		password: string,

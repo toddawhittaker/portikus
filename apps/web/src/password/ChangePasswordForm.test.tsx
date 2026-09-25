@@ -1,4 +1,4 @@
-/** The change-password form (docs/EPIC-14-2.md ruling 16, SPEC.md §25.8). */
+/** The change-password form (SPEC.md sections 5.3 and 25.8). */
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../test-utils.js";

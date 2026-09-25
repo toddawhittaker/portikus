@@ -8,7 +8,7 @@ import { ChangePasswordForm } from "./ChangePasswordForm.js";
 
 /**
  * The only page an account with "must change password" can reach
- * (docs/EPIC-14-2.md ruling 18); the router sends every other page here.
+ * (SPEC.md section 5.3); the router sends every other page here.
  */
 export function ChangePasswordPage() {
 	const me = useMe();

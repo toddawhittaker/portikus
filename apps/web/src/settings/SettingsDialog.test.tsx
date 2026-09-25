@@ -1033,7 +1033,7 @@ test("a failed save is shown as an alert", async () => {
 	expect(alert.getAttribute("data-testid")).toBe("editor-settings-error");
 });
 
-test("Password is offered to a Dex local password and not to an SSO account (docs/EPIC-14-2.md ruling 16)", async () => {
+test("Password is offered to a Dex local password and not to an SSO account (SPEC.md section 5.3)", async () => {
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, { ...USER, localPassword: true });
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	fireEvent.click(await screen.findByRole("button", { name: "Password" }));

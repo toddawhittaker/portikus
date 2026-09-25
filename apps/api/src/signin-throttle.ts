@@ -201,7 +201,7 @@ export function registerSigninThrottleRoute(app: FastifyInstance): void {
 
 /**
  * Wrong current passwords on the change form: ten per address in ten
- * minutes (docs/EPIC-14-2.md ruling 16). Only failures count, so a person
+ * minutes (SPEC.md section 5.3). Only failures count, so a person
  * who types their password right is never held back.
  */
 export function createPasswordChangeThrottle(now: () => number = Date.now) {

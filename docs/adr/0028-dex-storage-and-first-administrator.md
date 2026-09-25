@@ -1,7 +1,8 @@
 # 0028. Dex accounts in PostgreSQL, managed from the admin area, and a setup code for the first administrator
 
 - **Status**: Accepted; the first-administrator part (the setup code and
-  the first-account form) is superseded by ADR 0031
+  the first-account form) is superseded by ADR 0031, built by Epic 14.2,
+  which removed both and made a local administrator on every install
 - **Date**: 2026-09-24
 - **References**: SPEC.md sections 5, 20.1 and 24.11; docs/archive/epics/EPIC-14.md
   rulings 15 to 24; ADR 0023 (partly superseded); ADR 0026
