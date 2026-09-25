@@ -54,6 +54,67 @@ PostgreSQL 16, so supporting it means external repositories for both.
 **Source.** Todd, 2026-09-17, during the structured logging task. Schedule
 after Epic 7; the pilot does not need it.
 
+## One front door: Dex for every site
+
+**What.** Build ADR 0031. Portikus signs people in through Dex only, plus
+LTI. Every institution provider becomes one Dex connector (`microsoft`,
+`google`, `ldap`, or Dex's generic `oidc`), and the API's direct Entra,
+Google and generic OIDC paths go away. Every install gets a local
+administrator in Dex with a random password unique to the install, which
+must be changed at first sign-in (#535). `portikus reset-admin` replaces
+the setup code as the recovery path.
+
+**Why.** Epic 14 left seven sign-in shapes and three ways to make the
+first administrator (ADR 0031, "Context"). A local administrator that
+always works and SSO setup in the admin area both need Dex on every site.
+
+**What it would take** (about a week, before Epic 15, whose rulings 3,
+14, 15 and 20 depend on it):
+
+1. The API keeps one issuer, Dex. Remove `OIDC_PROVIDER` `entra` and
+   `google`, `OIDC_ALLOWED_TENANT`, `OIDC_ALLOWED_DOMAINS` and the
+   `tid`/`hd` checks; Dex's connectors do the admitting.
+2. The Dex role gains the generic `oidc` connector, and the `microsoft`
+   connector passes Entra security groups (Graph permission and
+   `graph.microsoft.com` in the egress list), mapped by the existing
+   `mapRole`.
+3. The local administrator: created by setup, `granted_role =
+   'administrator'`, a "must change password" flag in Portikus that
+   blocks every page but the change form, an audit row per sign-in.
+4. `portikus reset-admin` (root): a new random password, the flag set,
+   sessions ended, the password printed; it recreates a removed account.
+5. Remove the setup code, `/setup`, its claim route, the first-account
+   form and the `setup_codes` table.
+6. SPEC.md 5.1, 5.2 and 24.11, EPIC-14.md's superseded rulings, and the
+   mock provider tests follow.
+
+**Source.** Todd, 2026-09-25, after a review of the sign-in options.
+
+## Sign-in setup in the admin area
+
+**What.** An administrator sets up the site's SSO provider from the admin
+area instead of the command line: choose Entra, Google, LDAP or generic
+OIDC, fill in its fields, press "Test sign-in", and save only after the
+test passes. The command line stays as the fallback.
+
+**Why.** Today every provider setting is an Ansible variable. With Dex as
+the only front door (ADR 0031) there is one thing to configure, Dex's
+connector, and the local administrator is the way back from a mistake.
+
+**What it would take** (about two weeks, after "One front door"):
+
+1. Confirm the pinned Dex's gRPC API can create and update connectors
+   (it sits behind a feature switch) and that connectors kept in Dex's
+   storage survive restarts. Then exactly one owner: the admin area owns
+   the connector and Ansible only seeds it once.
+2. The outbound allow list and LDAP's address rule are root-owned host
+   files today. Either a narrow root helper in the style of ADR 0030, or
+   Squid and the Dex unit read a list the API maintains.
+3. A test sign-in that runs the connector without changing who can sign
+   in, and an audit row for every change.
+
+**Source.** Todd, 2026-09-25.
+
 ## Re-provision after a failed create
 
 **What.** An administrator action that retries a workspace stuck in `error`.

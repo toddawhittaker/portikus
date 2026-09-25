@@ -5,6 +5,8 @@ This is the working brief for Epic 14. It is the requirement an agent implements
 - **Base commit:** `epic/14-sign-in-providers` once Epic 13.1 has merged to `main`. Builders reset to `origin/epic/14-sign-in-providers` and branch `task/14-<name>` from it.
 - **Migration number:** `0017_setup_codes` is reserved for T2. No other task adds a migration.
 
+**Later decision (Todd, 2026-09-25):** ADR 0031 makes Dex the only sign-in front door and replaces the setup code with a local administrator made at install. It supersedes rulings 2, 3 and 6 (direct Entra, Google and generic OIDC) and 15 to 18 (the setup code and the first-account form) once built (docs/BACKLOG.md, "One front door: Dex for every site"). This brief still describes what Epic 14 built.
+
 Terms used throughout:
 
 - **OIDC** (OpenID Connect): the sign-in standard Portikus already speaks. The institution's service that signs people in is the **provider**; it sends Portikus a signed **ID token** whose fields are **claims**.

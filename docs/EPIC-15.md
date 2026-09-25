@@ -5,6 +5,13 @@ This is the working brief for Epic 15. It is the requirement an agent implements
 - **Base commit:** `main` once Epic 14 has merged. **Epic branch:** `epic/15-apt-install`. Builders reset to it and branch `task/15-<name>`.
 - **Migration number:** none. No task adds a migration.
 
+**Amendment (Todd, 2026-09-25): Dex is the only front door (ADR 0031).** Epic 15 is built after the BACKLOG work "One front door: Dex for every site", and these rulings change with it:
+
+- Ruling 3: `portikus/provider` keeps its five answers, but each one is a Dex connector (`dex` means no connector). The Entra and Google questions fill the Dex `microsoft` and `google` connectors; `oidc` fills Dex's generic `oidc` connector. A new question, `portikus/admin_email` (default `admin@<public_host>`), names the local administrator.
+- Rulings 14 and 15: no setup code. The last task of the play creates the local administrator when it does not exist and prints its one-time password in a box; `portikus setup --follow` shows it. The `portikus` command's `setup-code` becomes `reset-admin`.
+- Ruling 20: the install test signs in as the local administrator with the printed password, changes it, and then runs the smoke test.
+- The user story's setup-code sentence reads the same way: at the end setup prints the administrator's email and a one-time password, which must be changed at first sign-in.
+
 Terms used throughout:
 
 - **debconf**: Debian's system for asking a package's install questions. It shows them as text dialogs (the `whiptail` or `dialog` front end), remembers the answers, and accepts them in advance: **preseeding** loads answers with `debconf-set-selections` so an install asks nothing. `dpkg-reconfigure portikus` asks again.
