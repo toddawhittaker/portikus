@@ -2150,6 +2150,39 @@ Rulings S1 to S5, N1, N2 and N4 in `docs/EPIC-13-1.md` record them.
 
 ## Epic 14 — Sign-in providers (in progress)
 
+### T1: provider sign-in
+
+The API can now sign in through Microsoft Entra ID and Google Workspace
+as well as Dex and generic OpenID Connect (docs/EPIC-14.md rulings 8 to
+12 and 27, PR #517). New settings: `OIDC_PROVIDER` (`oidc`, `entra` or
+`google`), `OIDC_ALLOWED_TENANT` (required for `entra`),
+`OIDC_ALLOWED_DOMAINS` (required for `google`), `OIDC_DEFAULT_ROLE`
+(`none` or `student`), `OUTBOUND_PROXY_URL`, and the four `DEX_GRPC_*`
+settings, which must be set together or not at all.
+
+Entra and Google sign-ins are admitted only when the signed ID token's
+`tid` or `hd` claim matches; a missing claim is refused. A refusal gets
+the existing 403 page and an `auth.login` `denied` audit row with the
+reason `tenant_not_allowed` or `domain_not_allowed`. Entra and Google
+skip the userinfo call, so userinfo can never add a missing claim. Google
+logins send the first domain as a hint. With `OUTBOUND_PROXY_URL` set,
+OIDC discovery, token and userinfo requests and LTI keyset fetches go
+through undici's `ProxyAgent`, now an exactly pinned dependency of
+`packages/auth`; nothing else does, and Node's global fetch is left
+alone. The mock provider gained optional claims and the Entra-shaped
+(erin, eve, ian) and Google-shaped (gina, gabe, gus) users.
+
+Tests: route tests drive the real `openid-client` through the mock to
+`/auth/callback` under each provider setting; a stub proxy proves which
+requests go through it.
+
+Gaps:
+
+- HTTPS through the proxy failed at first, because the code loaded
+  undici's proxy module without the part that adds `connect` to its
+  dispatcher. T4 found it on the rehearsal VM, and PR #520 fixed it with
+  a test that tunnels HTTPS through a stub proxy.
+
 ### T2: first administrator setup code
 
 A new site gets its first administrator from a one-time setup code
@@ -2189,6 +2222,68 @@ Gaps:
 - An account whose provider gives it no role at all cannot sign in, so
   it cannot claim a code either; under Entra such a person needs an app
   role first.
+
+### T3: Dex users and the instructor grant in the Users view
+
+The API manages Dex's passwords over Dex's gRPC API with mutual TLS
+(`packages/auth/src/dex-api.ts`, PR #518, docs/EPIC-14.md rulings 14 and
+19 to 24). `POST /admin/dex-users` adds a person with a generated
+20-character password, shown once, and pre-creates the Portikus account
+under the subject Dex will give them, with the chosen role as a grant.
+`reset-password` makes a new password and ends the account's sessions
+and preview sessions. `remove` deletes the password and disables the
+account in one transaction. The routes are for administrators only,
+CSRF-checked, and answer 404 unless `DEX_GRPC_ADDR` is set. A password
+appears in one response body only, never in a log or audit row. The
+proto is Dex's `api/v2/api.proto` copied unchanged into
+`packages/auth/proto/`. It has no display name and no groups, so the form
+asks for none, and any role above student is a Portikus grant.
+
+`make-instructor` and `remove-instructor` follow the promote and demote
+pattern: they refuse course accounts and never touch an administrator
+grant. The Users view shows Add user (only when the site manages Dex
+users), and Reset password, Remove, Make instructor and Remove instructor
+in the detail panel. CI's `dex-signin` job runs Dex with PostgreSQL
+storage and the gRPC API, checks the proto against the pinned commit, and
+creates, signs in as, resets and removes a user on the real Dex.
+
+Gaps:
+
+- Dex sends no `preferred_username` for these passwords, so a sign-in
+  used to overwrite the stored one with null. `upsertUser` now keeps the
+  stored value when the claim is missing.
+
+### T4: egress proxy and provider settings
+
+Squid from Debian runs on `127.0.0.1:3128` in the new `egress_proxy`
+role (ADR 0027, docs/EPIC-14.md rulings 25 to 29, PR #519). It allows
+`CONNECT` to port 443 of listed host names, refuses a name that resolves
+to a private, loopback or link-local address, allows a listed IPv4
+address with its port exactly, and caches nothing. An entry listed with
+its own port also gets plain HTTP there, because undici forwards
+`http://` URLs rather than tunnelling them. The play checks the
+configuration with `squid -k parse` and restarts Squid on failure.
+
+The play builds the list from the provider's discovery document (the
+userinfo host left out for Entra and Google), every LMS keyset URL, and
+`PORTIKUS_EGRESS_EXTRA_HOSTS`. Under Dex or the mock, the site's own name
+is allowed only at 127.0.0.1 on the site's port. `PORTIKUS_API_IP_ALLOW`
+and the `10-idp-egress.conf` drop-in are gone; a play that still sets
+the variable stops with a message naming `PORTIKUS_EGRESS_EXTRA_HOSTS`.
+`PORTIKUS_IDP` also takes `entra` and `google`, with
+`PORTIKUS_ENTRA_TENANT_ID`, `PORTIKUS_GOOGLE_DOMAINS` and
+`PORTIKUS_DEX_UPSTREAM`; the issuer is derived for Entra and Google, and
+Entra uses the `roles` claim with the `Portikus.*` app roles. At the end
+of the portikus role the play prints a setup code when no enabled
+administrator exists.
+
+Verified on the rehearsal VM, never the pilot: as the API's user under
+the unit's address rules, a direct request to accounts.google.com got no
+connection, the same host through the proxy answered 200, example.com
+was refused with 403, and a listed name resolving to 10.0.0.1 was
+refused. `make security-test` passed 232 of 232 with package
+0.1.416+g8137d20. The smoke test's one failure there was T1's proxy bug,
+fixed by #520. The new security module is `infra/tests/security/egress.sh`.
 
 ### T5: Dex storage, gRPC and connectors
 
@@ -2252,4 +2347,85 @@ Gaps:
 - Active Directory was not tried; OpenLDAP stood in for it.
 - The host's nightly backup timer runs an installed copy of `backup.sh`,
   so `make backup-install-timer` must run again on the host after this
-  lands for the pilot's nightly set to include the `dex` dump.
+  lands for the pilot's nightly set to include the `dex` dump. T6 did
+  this on the pilot on 2026-09-24.
+
+### T6: docs and the pilot move
+
+The operator docs now describe every provider as built. docs/OPERATIONS.md
+has a section for each: the Entra app registration with its redirect URI
+and three app roles, the Google OAuth client, LDAP and Active Directory
+settings and user filters, standalone Dex, Dex in front of Entra or
+Google for guests, a generic OIDC provider, Shibboleth's OIDC plugin, and
+why SAML is not built. It also gained "Managing users" for the Users
+view, "The first administrator" for the setup code, and "The egress
+proxy". infra/README.md's "Identity provider" lists every setting as the
+code reads it. The users file, `make users-*` and `PORTIKUS_API_IP_ALLOW`
+now appear only as retired. SPEC.md sections 5.1 and 29 name Epic 14, and
+ADRs 0027 and 0028 are accepted.
+
+A setup code was claimed on the rehearsal VM by T5 (PR #522), through
+Caddy at `/setup/claim`. That covers this task's rehearsal item, so the
+rehearsal VM was not built again.
+
+**The pilot move, 2026-09-24, about 20:40 to 21:00 host time.** The
+pilot went from 0.1.409+g0cd5d7a to 0.1.419+g85b5cd1, the epic head,
+with the full play (`make configure-vm PORTIKUS_DEB=<package>`). It stayed
+on Dex. Before the move:
+
+- Incus snapshots named `pre-epic14` were taken of all 26 workspace
+  volumes: the `-home`, `-docker` and `-recovery` volume of each of the 9
+  workspaces, except bob's, which has no recovery volume.
+- A `pg_dump` of the platform database was saved on the host as
+  `~/portikus-pre-epic14-2026-09-24.dump` (mode 0600). Dex had no
+  database before this move, so nothing else needed dumping.
+
+Results:
+
+- The play imported the users file. It printed "Imported into Dex:
+  carol, alice, bob" and "Grants set: carol". SQL afterwards showed each
+  of the three accounts with the same `sub` as before the move, still
+  owning the same workspace. Dex's `password` table holds the three
+  original user IDs. carol is administrator by grant
+  (`granted_role = 'administrator'`).
+- A second full play wrote no audit row and left Dex's three passwords
+  as they were, so it imported nothing.
+- The old `10-idp-egress.conf` drop-in is gone. Squid is active, and
+  `api.env` has `OIDC_PROVIDER=oidc`, `OIDC_DEFAULT_ROLE=student`,
+  `OUTBOUND_PROXY_URL` and the `DEX_GRPC_*` settings.
+- `make security-test` passed 230 of 230, with one allowed warning: the
+  mock LMS is registered.
+- `make smoke-test` passed 125 of 126, with the lifecycle block skipped
+  because student workspaces exist. The one failure is a test bug. The
+  check "the API unit may reach loopback and the workspace bridge only"
+  compares the list as one string, and systemd prints the same two
+  ranges, `127.0.0.0/8` and `10.200.0.0/24`, in the other order on the
+  pilot.
+- `make backup-install-timer` installed the new `backup.sh` for the
+  nightly timer. `make backup` then wrote the set
+  `/var/backups/portikus/portikus/20260925T005540Z`, which holds
+  `dex.dump.age`.
+
+Gaps:
+
+- Nobody has signed in as carol, alice or bob since the move. Their
+  passwords are Todd's own, so the agent could not run the scripted Dex
+  sign-in (`make smoke-test PORTIKUS_SMOKE_SIGNIN_FILE=<file>`) as them.
+  Todd should sign in as each, or run that command with a sign-in file
+  for each, and check that each lands in the same workspace.
+- The smoke test's allow-list check in `infra/tests/smoke-test.sh`
+  should accept the two ranges in either order.
+- `infra/tests/rebuild-exercise.sh` still requires `PORTIKUS_USERS_FILE`
+  and converges the new VM with it before the restore. The import then
+  creates an account for each administrator in the file, and `restore.sh`
+  refuses a target that already has accounts. It has not been run since
+  Epic 14.
+- The retired users file is still at `~/.config/portikus/users.json`. A
+  play on a VM whose Dex is empty imports it again, so a fresh rehearsal
+  VM needs `PORTIKUS_USERS_FILE=/nonexistent` until Todd deletes the
+  file.
+- Dex's passwords carry no display name, so the next sign-in may replace
+  a display name such as "Carol Admin" with the username. This was not
+  checked.
+- The `pre-epic14` snapshots and the dump are kept. Remove them by hand
+  after about a week, around 2026-10-01.

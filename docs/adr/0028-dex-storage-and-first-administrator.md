@@ -1,6 +1,6 @@
 # 0028. Dex accounts in PostgreSQL, managed from the admin area, and a setup code for the first administrator
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-09-24
 - **References**: SPEC.md sections 5, 20.1 and 24.11; docs/EPIC-14.md
   rulings 15 to 24; ADR 0023 (partly superseded); ADR 0026

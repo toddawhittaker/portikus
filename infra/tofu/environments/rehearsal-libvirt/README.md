@@ -24,11 +24,16 @@ The shell needs the `libvirt` group. Until you log in again after
 
 ```
 make rehearsal-up                      # create it and wait for first boot
-make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_USERS_FILE=<a rehearsal users file>
+make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_USERS_FILE=/nonexistent
 make build-workspace-image TOFU_ENV=rehearsal-libvirt   # a new VM has no image
 make smoke-test   TOFU_ENV=rehearsal-libvirt
 make rehearsal-destroy                 # remove the VM, disks, network and pool
 ```
+
+The play prints a setup code for `/setup`, where the first administrator
+creates their Dex account. `PORTIKUS_USERS_FILE=/nonexistent` keeps the
+play from importing the pilot's retired users file into the new VM's Dex,
+for as long as that file still sits at its default path.
 
 Every other VM target (`configure-vm`, `deploy-app`, `smoke-test`,
 `security-test`, `wait-vm`) takes `TOFU_ENV=rehearsal-libvirt` and then reads
