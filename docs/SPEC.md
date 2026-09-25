@@ -290,6 +290,7 @@ Added by Epic 14 (docs/archive/epics/EPIC-14.md, ADRs 0027 and 0028): a site pic
 - Google Workspace, by direct OIDC: admitted by the ID token's `hd` claim against the site's domains; everyone starts as a student.
 - LDAP and Active Directory through Dex's LDAP connector, with a required user filter and roles from directory groups. Portikus never speaks LDAP.
 - Dex with its own passwords, kept in PostgreSQL and managed by administrators from the Users view; Dex can also sit in front of Entra or Google for guest accounts.
+  Add user asks for the person's name as well as email, username and role, because Dex sends only the username as the name; the account keeps that name through sign-in.
 - Any other OIDC provider, such as Okta, Keycloak or Shibboleth with its OIDC plugin. SAML is not supported directly.
 - An account is always keyed by the provider's issuer and `sub`, never by email.
 - A new site's first administrator comes from a one-time setup code printed on the host, never from being the first to sign in.

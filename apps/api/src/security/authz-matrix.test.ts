@@ -143,6 +143,7 @@ const PAYLOADS: Record<string, object> = {
 	"PUT /admin/settings": { logLevel: null },
 	"PUT /admin/users/:id/settings": { shutdownGraceSeconds: null },
 	"POST /admin/dex-users": {
+		name: "New Person",
 		email: "new@example.edu",
 		username: "new",
 		role: "student",

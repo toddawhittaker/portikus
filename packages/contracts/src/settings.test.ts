@@ -333,16 +333,30 @@ test("a GitHub username links to its profile; a URL is kept as it is", () => {
 test("CreateDexUserRequest lowercases the email and takes the three roles", () => {
 	expect(
 		CreateDexUserRequest.parse({
+			name: "  Dana Kim ",
 			email: " Dana@Example.EDU ",
 			username: "dana.k_2-x",
 			role: "instructor",
 		}),
-	).toEqual({ email: "dana@example.edu", username: "dana.k_2-x", role: "instructor" });
+	).toEqual({
+		name: "Dana Kim",
+		email: "dana@example.edu",
+		username: "dana.k_2-x",
+		role: "instructor",
+	});
 });
 
-test("CreateDexUserRequest refuses a bad email, username or role, and extra fields", () => {
-	const good = { email: "a@example.edu", username: "a", role: "student" };
+test("CreateDexUserRequest refuses a bad name, email, username or role, and extra fields", () => {
+	const good = { name: "A", email: "a@example.edu", username: "a", role: "student" };
+	expect(
+		CreateDexUserRequest.safeParse({ ...good, name: "x".repeat(100) }).success,
+	).toBe(true);
+	const { name: _name, ...noName } = good;
 	for (const bad of [
+		noName,
+		{ ...good, name: "" },
+		{ ...good, name: "   " },
+		{ ...good, name: "x".repeat(101) },
 		{ ...good, email: "no-at-sign" },
 		{ ...good, username: "" },
 		{ ...good, username: "has space" },

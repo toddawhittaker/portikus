@@ -71,9 +71,10 @@ function DialogError({ error }: { error: unknown }) {
 	);
 }
 
-type AddField = "email" | "username";
+type AddField = "name" | "email" | "username";
 
 const ADD_FIELD_ERROR: Record<AddField, string> = {
+	name: "Enter a name of 1 to 100 characters.",
 	email: "Enter an email address.",
 	username:
 		"Use 1 to 64 letters, digits, dots, dashes or underscores for the username.",
@@ -83,6 +84,7 @@ const ADD_FIELD_ERROR: Record<AddField, string> = {
 export function AddDexUser() {
 	const add = useAddDexUser();
 	const [open, setOpen] = useState(false);
+	const [name, setName] = useState("");
 	const [email, setEmail] = useState("");
 	const [username, setUsername] = useState("");
 	const [role, setRole] = useState<Role>("student");
@@ -94,6 +96,7 @@ export function AddDexUser() {
 		if (add.isPending) return;
 		if (next) {
 			add.reset();
+			setName("");
 			setEmail("");
 			setUsername("");
 			setRole("student");
@@ -104,7 +107,7 @@ export function AddDexUser() {
 
 	function submit() {
 		if (add.isPending) return;
-		const body = CreateDexUserRequest.safeParse({ email, username, role });
+		const body = CreateDexUserRequest.safeParse({ name, email, username, role });
 		if (!body.success) {
 			const found: Partial<Record<AddField, string>> = {};
 			for (const issue of body.error.issues) {
@@ -114,9 +117,8 @@ export function AddDexUser() {
 			// Render the invalid state before focus lands, so it is announced.
 			flushSync(() => setErrors(found));
 			// Blur first so focusing an already-focused field reads its error again.
-			const input = document.getElementById(
-				found.email ? "dex-add-email" : "dex-add-username",
-			);
+			const first = (["name", "email", "username"] as const).find((f) => found[f]);
+			const input = document.getElementById(`dex-add-${first}`);
 			input?.blur();
 			input?.focus();
 			return;
@@ -172,11 +174,22 @@ export function AddDexUser() {
 							}}
 						>
 							<TextField
+								id="dex-add-name"
+								label="Name"
+								autoComplete="off"
+								data-testid="dex-add-name"
+								aria-required="true"
+								error={errors.name}
+								value={name}
+								onChange={(event) => setName(event.target.value)}
+							/>
+							<TextField
 								id="dex-add-email"
 								label="Email"
 								type="email"
 								autoComplete="off"
 								data-testid="dex-add-email"
+								aria-required="true"
 								error={errors.email}
 								value={email}
 								onChange={(event) => setEmail(event.target.value)}
@@ -187,6 +200,7 @@ export function AddDexUser() {
 								autoComplete="off"
 								mono
 								data-testid="dex-add-username"
+								aria-required="true"
 								error={errors.username}
 								value={username}
 								onChange={(event) => setUsername(event.target.value)}

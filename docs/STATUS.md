@@ -2499,3 +2499,16 @@ now sets the existing `SIGNIN_START_LIMIT_PER_MINUTE` setting to
 limit.
 
 Gaps: no browser test checks the 429 itself; the unit tests do.
+
+### Add user asks for the person's name (#547)
+
+A Dex password account used to show its username as its name for ever,
+because Dex sends the username as the name claim. Add user in the Users
+view now asks for a Name (required, 1 to 100 characters after trimming).
+It is stored as the pre-created account's display name, and the success
+dialog shows it. The first sign-in keeps it, because the pre-created
+account already holds the username and a name equal to the username is
+not taken over the stored one (SPEC.md section 5.1).
+
+Gaps: an existing Dex account's name still cannot be changed from the
+Users view.
