@@ -72,6 +72,13 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /me/picture": { access: "self" },
 	"PUT /me/picture": { access: "self" },
 	"DELETE /me/picture": { access: "self" },
+	// Every notification query is scoped to the caller (ADR 0033).
+	"GET /me/notifications": { access: "self" },
+	"HEAD /me/notifications": { access: "self" },
+	"POST /me/notifications": { access: "self" },
+	"DELETE /me/notifications": { access: "self" },
+	"PATCH /me/notifications/:id": { access: "self" },
+	"POST /me/notifications/read-all": { access: "self" },
 	"POST /workspaces": { access: "self" },
 	// Account linking (docs/archive/epics/EPIC-13-1.md, "The flow"); each checks its own state.
 	"GET /me/links": { access: "self" },

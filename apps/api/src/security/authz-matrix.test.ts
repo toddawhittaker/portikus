@@ -55,6 +55,8 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	// The matrix workspace is neither throttled nor flagged.
 	"POST /admin/workspaces/:id/lift-throttle": 409,
 	"POST /admin/workspaces/:id/clear-memory-flag": 409,
+	// The matrix world records no notifications; each is its owner's alone.
+	"PATCH /me/notifications/:id": 404,
 };
 
 // The smallest PNG: one transparent pixel.
@@ -141,6 +143,8 @@ const QUERIES: Record<string, string> = {
 };
 
 const PAYLOADS: Record<string, object> = {
+	"POST /me/notifications": { tone: "neutral", title: "Saved" },
+	"PATCH /me/notifications/:id": { read: true },
 	"PUT /me/settings": { timezone: "America/New_York" },
 	"PUT /me/profile": { github: null },
 	"PUT /admin/settings": { logLevel: null },

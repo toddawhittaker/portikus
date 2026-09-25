@@ -631,6 +631,8 @@ describe("database migrations and schema", () => {
 				expect(down18.error).toBeUndefined();
 				const down19 = await migrator.migrateDown();
 				expect(down19.error).toBeUndefined();
+				const down20 = await migrator.migrateDown();
+				expect(down20.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -653,6 +655,7 @@ describe("database migrations and schema", () => {
 					"0017_session_method",
 					"0018_setup_codes",
 					"0020_resource_guard",
+					"0021_notifications",
 				]);
 				throw rollback;
 			}),
@@ -674,6 +677,9 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0021_notifications",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0020_resource_guard",
 					);
@@ -792,6 +798,9 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0021_notifications",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0020_resource_guard",
 					);
@@ -1137,6 +1146,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0021_notifications",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0020_resource_guard",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1190,6 +1202,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
@@ -1619,7 +1632,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Down past 0020 (Epic 14.3), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					// Down past 0021 and 0020 (Epic 14.3), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -1722,6 +1736,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0021_notifications",
+					);
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0020_resource_guard");
@@ -1946,7 +1963,8 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => withLate },
 						allowUnorderedMigrations: true,
 					});
-					// Undo 0020, 0019 and 0018 (they were applied 0018, 0020, 0019).
+					// Undo 0019, 0021, 0020 and 0018 (they were applied 0018, 0020, 0021, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -1957,6 +1975,7 @@ describe("resource guard migration", () => {
 						"0018_setup_codes",
 						"0019_local_admin",
 						"0020_resource_guard",
+						"0021_notifications",
 					]);
 					throw rollback;
 				}),

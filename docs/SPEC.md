@@ -680,6 +680,39 @@ Terminal panes must additionally support splitting.
 
 The right pane contains the selected project's file tree and Git decorations.
 
+### 8.5 Toasts and notifications
+
+Every toast goes away on its own: neutral and success toasts after 5
+seconds, warnings and errors after 10. The timer pauses while the
+pointer or keyboard focus is on the toast, and the close button stays.
+A toast that carries an action the user must answer, such as replacing
+a file that already exists, stays until it is answered.
+
+Every toast shown is also recorded as a notification with its tone,
+title, body text, time, and whether it has been read. Notifications are
+stored on the server (ADR 0033) in a `notifications` table, so they
+follow the user to any browser. Each user keeps at most 200 and none
+older than 90 days; the API trims as it records and the worker prunes
+hourly. The routes act only on the signed-in user's own rows:
+`GET /me/notifications` (newest first, paged, with the unread count),
+`POST /me/notifications` (record one), `PATCH /me/notifications/:id`
+(mark one read), `POST /me/notifications/read-all`, and
+`DELETE /me/notifications` (clear). The title is capped at 200
+characters and the body at 2,000, and recording is limited to 30 per
+user per minute. Titles and bodies are never logged, because they can
+name files and projects. If recording fails, the toast still shows, and
+the failure is neither retried nor reported.
+
+The account button in the top bar carries a badge with the unread count,
+"9+" above nine and hidden at zero, and its accessible name includes the
+count ("…, 3 unread notifications"). The browser polls the count every
+30 seconds and again when the window regains focus, so a read on one
+device clears the badge on another. A "Notifications" item in the
+account menu, or a click on the badge, opens the Notifications dialog:
+newest first, each with its tone icon, title, body and relative time,
+unread ones marked. The user can mark one read, mark all read, or clear
+the list. Opening the dialog marks nothing read by itself.
+
 ## 9. Terminal functionality
 
 ### 9.1 Terminal implementation

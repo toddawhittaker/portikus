@@ -2550,3 +2550,25 @@ Stopping the backpressure poll now also resumes the agent socket.
 
 Gaps: the New terminal button is not disabled at the cap; the toast is
 enough for now.
+
+### Toasts time out, and a notification history (#475)
+
+Every toast now goes away on its own: neutral and success after 5
+seconds, warnings and errors after 10. A toast with an action the user
+must answer still stays until answered. Every toast shown is also
+recorded on the server as a notification (migration `0021_notifications`,
+ADR 0033). The account button shows an unread badge ("9+" above nine),
+its accessible name carries the count, and a Notifications dialog,
+opened from the account menu or the badge, lists the history with mark
+read, mark all read and clear. Browsers poll every 30 seconds and on
+window focus. The API caps title and body length, rate-limits recording
+to 30 a minute per user, trims each user to 200 rows, and never logs the
+text; the worker deletes rows older than 90 days every hour. The Epic
+12b backup already covers the table, because it dumps the whole
+database. SPEC.md section 8.5 describes it.
+
+Gaps: a toast whose text comes from a component that renders its own
+words is recorded without that text; every current toast passes plain
+text or elements. The dialog shows the newest 50 and has no "load more"
+yet, though the API pages. The a11y-reviewer pass on the badge and
+dialog is still to run at the epic review.

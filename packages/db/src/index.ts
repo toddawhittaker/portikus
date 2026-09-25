@@ -3,7 +3,7 @@ import pg from "pg";
 import type { Database } from "./schema.js";
 
 export { migrateToLatest } from "./migrate.js";
-export type { Database } from "./schema.js";
+export type { Database, NotificationsTable } from "./schema.js";
 
 /**
  * Create a Kysely instance connected to PostgreSQL at the given URL.

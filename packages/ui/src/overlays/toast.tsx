@@ -11,6 +11,34 @@ const TONE_ICON: Record<ToastTone, IconName> = {
 	danger: "alert",
 };
 
+/** How long a toast stays, in milliseconds (SPEC.md section 8.5). */
+export const TOAST_DURATION_MS = {
+	neutral: 5000,
+	success: 5000,
+	warning: 10_000,
+	danger: 10_000,
+};
+
+/** The toast as plain text, for the notification history. */
+export interface ToastRecord {
+	tone: ToastTone;
+	title: string;
+	body: string;
+}
+
+/**
+ * The visible text of a React node: strings and numbers, and the children of
+ * elements, joined. A component that makes its own text contributes none.
+ */
+export function nodeText(node: React.ReactNode): string {
+	if (typeof node === "string" || typeof node === "number") return String(node);
+	if (Array.isArray(node)) return node.map(nodeText).join("");
+	if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
+		return nodeText(node.props.children);
+	}
+	return "";
+}
+
 export interface ToastProps {
 	tone?: ToastTone;
 	title: React.ReactNode;
@@ -29,14 +57,13 @@ export function Toast({
 	onDismiss,
 	className,
 }: ToastProps): React.ReactElement {
-	// Warnings and errors stay until dismissed; the rest go after 5 seconds.
-	const sticky = tone === "warning" || tone === "danger";
+	const urgent = tone === "warning" || tone === "danger";
 	return (
 		<RadixToast.Root
-			type={sticky ? "foreground" : "background"}
-			role={sticky ? "alert" : "status"}
-			// Radix takes a number of milliseconds, so "stays until dismissed" is a day.
-			duration={sticky ? 24 * 60 * 60 * 1000 : 5000}
+			type={urgent ? "foreground" : "background"}
+			role={urgent ? "alert" : "status"}
+			// A toast that asks for an answer stays until answered; Radix pauses the rest on hover or focus.
+			duration={actions ? Number.POSITIVE_INFINITY : TOAST_DURATION_MS[tone]}
 			onOpenChange={(open) => {
 				if (!open) onDismiss?.();
 			}}
@@ -74,15 +101,27 @@ const ToastContext = React.createContext<ToastApi | null>(null);
 
 export interface ToastProviderProps {
 	children?: React.ReactNode;
+	/** Called once for every toast shown, with its text; used to record notifications. */
+	onShow?: (toast: ToastRecord) => void;
 }
 
 /** Wraps the app once: the Radix provider, the queue, and the bottom-right viewport. */
-export function ToastProvider({ children }: ToastProviderProps): React.ReactElement {
+export function ToastProvider({
+	children,
+	onShow,
+}: ToastProviderProps): React.ReactElement {
 	const [toasts, setToasts] = React.useState<QueuedToast[]>([]);
 	const nextKey = React.useRef(0);
+	const onShowRef = React.useRef(onShow);
+	onShowRef.current = onShow;
 	const api = React.useMemo<ToastApi>(
 		() => ({
 			show(toast) {
+				onShowRef.current?.({
+					tone: toast.tone ?? "neutral",
+					title: nodeText(toast.title),
+					body: nodeText(toast.children),
+				});
 				nextKey.current += 1;
 				setToasts((current) => [...current, { ...toast, key: nextKey.current }]);
 			},

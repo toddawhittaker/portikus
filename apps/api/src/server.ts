@@ -26,6 +26,7 @@ import { registerLinkRoutes } from "./routes/links.js";
 import { type LtiDeps, registerLtiRoutes } from "./routes/lti.js";
 import { registerMaintenanceRoutes } from "./routes/maintenance.js";
 import { registerMeRoutes } from "./routes/me.js";
+import { registerNotificationRoutes } from "./routes/notifications.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectEventsSocket } from "./routes/project-events.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -206,6 +207,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerUsageRoutes(instance, deps);
 		registerProjectEventsSocket(instance, deps);
 		registerMeRoutes(instance, deps);
+		registerNotificationRoutes(instance, deps);
 		registerLinkRoutes(instance, deps);
 		registerAdminRoutes(instance, deps);
 		registerAdminDexUserRoutes(instance, deps);
