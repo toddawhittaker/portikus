@@ -66,6 +66,7 @@ function stubSettings(
 			};
 			return json(200, { signedOut: unlinkSignsOut });
 		}
+		if (url === "/me/password") return new Response(null, { status: 204 });
 		if (url === "/me/picture") {
 			return json(413, { code: "FILE_TOO_LARGE", message: "The picture is too big" });
 		}
@@ -1056,4 +1057,46 @@ test("an SSO account has no Password section, not even in search", async () => {
 		target: { value: "change password" },
 	});
 	expect(screen.getByText("No matching settings.")).toBeTruthy();
+});
+
+test("choosing the Change password search hit puts focus on the form's first field", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, { ...USER, localPassword: true });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await screen.findByRole("button", { name: "Password" });
+	fireEvent.change(screen.getByLabelText("Search"), {
+		target: { value: "change password" },
+	});
+	fireEvent.click(buttonNamed("Change password"));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByLabelText("Current password")),
+	);
+});
+
+test("a second password change in one visit is announced again", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, { ...USER, localPassword: true });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	fireEvent.click(await screen.findByRole("button", { name: "Password" }));
+	const status = await screen.findByTestId("password-changed");
+
+	async function change(from: string, to: string) {
+		fireEvent.change(screen.getByLabelText("Current password"), {
+			target: { value: from },
+		});
+		fireEvent.change(screen.getByLabelText("New password"), { target: { value: to } });
+		fireEvent.change(screen.getByLabelText("New password again"), {
+			target: { value: to },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+	}
+
+	await change("old-password-one", "correct horse battery staple");
+	await waitFor(() =>
+		expect(status.textContent).toBe("Your password has been changed."),
+	);
+	await change("correct horse battery staple", "another long passphrase here");
+	// The message is cleared as the second submit starts, so its return is a new announcement.
+	expect(status.textContent).toBe("");
+	await waitFor(() =>
+		expect(status.textContent).toBe("Your password has been changed."),
+	);
 });

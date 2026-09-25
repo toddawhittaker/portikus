@@ -107,3 +107,11 @@ test("a good change sends both passwords once, clears the form and reports back"
 	});
 	expect((screen.getByLabelText("New password") as HTMLInputElement).value).toBe("");
 });
+
+test("the 15-character minimum counts characters, not UTF-16 units", () => {
+	// Eight emoji are 16 UTF-16 units but only 8 characters.
+	const emoji = "\u{1F600}".repeat(8);
+	expect(checkPasswords("old", emoji, emoji).next).toBe("Use at least 15 characters.");
+	const fifteen = "\u{1F600}".repeat(15);
+	expect(checkPasswords("old", fifteen, fifteen)).toEqual({});
+});

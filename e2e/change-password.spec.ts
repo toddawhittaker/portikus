@@ -158,5 +158,10 @@ test("an SSO account has no Password section", async ({ page }) => {
 
 test("the setup page is gone", async ({ page }) => {
 	await page.goto("/setup");
-	await expect(page.getByText("Not Found")).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
+	await expect(page.getByRole("link", { name: /home page/ })).toHaveAttribute(
+		"href",
+		"/",
+	);
+	await expect(page).toHaveTitle("Page not found, Portikus");
 });
