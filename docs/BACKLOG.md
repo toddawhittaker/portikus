@@ -57,8 +57,8 @@ after Epic 7; the pilot does not need it.
 ## One front door: Dex for every site
 
 **What.** Build ADR 0031. Portikus signs people in through Dex only, plus
-LTI. Every institution provider becomes one Dex connector (`microsoft`,
-`google`, `ldap`, or Dex's generic `oidc`), and the API's direct Entra,
+LTI. Every institution provider becomes one Dex connector (`google`,
+`ldap`, or Dex's generic `oidc`, which also serves Entra), and the API's direct Entra,
 Google and generic OIDC paths go away. Every install gets a local
 administrator in Dex with a random password unique to the install, which
 must be changed at first sign-in (#535). `portikus reset-admin` replaces
@@ -74,15 +74,17 @@ always works and SSO setup in the admin area both need Dex on every site.
 1. The API keeps one issuer, Dex. Remove `OIDC_PROVIDER` `entra` and
    `google`, `OIDC_ALLOWED_TENANT`, `OIDC_ALLOWED_DOMAINS` and the
    `tid`/`hd` checks; Dex's connectors do the admitting.
-2. The Dex role gains the generic `oidc` connector, and the `microsoft`
-   connector passes Entra security groups (Graph permission and
-   `graph.microsoft.com` in the egress list), mapped by the existing
-   `mapRole`.
+2. The Dex role gains the generic `oidc` connector. Entra uses it too,
+   pointed at the tenant's issuer, with the `roles` claim read as groups,
+   so Entra app roles are mapped by the existing `mapRole`; no Graph
+   permission is needed.
 3. The local administrator: created by setup, `granted_role =
    'administrator'`, a "must change password" flag in Portikus that
    blocks every page but the change form, an audit row per sign-in.
+   Add user and Reset password in the Users view set the same flag.
 4. `portikus reset-admin` (root): a new random password, the flag set,
-   sessions ended, the password printed; it recreates a removed account.
+   sessions ended, the password written to a root-only file; it
+   recreates a removed account.
 5. Remove the setup code, `/setup`, its claim route, the first-account
    form and the `setup_codes` table.
 6. SPEC.md 5.1, 5.2 and 24.11, EPIC-14.md's superseded rulings, and the
