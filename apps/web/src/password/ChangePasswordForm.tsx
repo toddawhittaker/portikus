@@ -25,7 +25,8 @@ const FIELDS: readonly Field[] = ["current", "next", "confirm"];
 export function checkPasswords(current: string, next: string, confirm: string): Errors {
 	const errors: Errors = {};
 	if (current === "") errors.current = "Enter your current password.";
-	if (next.length < MIN_PASSWORD_LENGTH) {
+	// Count code points, as the server does, not UTF-16 units.
+	if ([...next].length < MIN_PASSWORD_LENGTH) {
 		errors.next = `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
 	} else if (new TextEncoder().encode(next).length > MAX_PASSWORD_BYTES) {
 		errors.next =
@@ -42,9 +43,12 @@ export function checkPasswords(current: string, next: string, confirm: string): 
 export function ChangePasswordForm({
 	idPrefix,
 	onChanged,
+	onSubmitStart,
 }: {
 	idPrefix: string;
 	onChanged: () => void | Promise<void>;
+	/** Called as each submit starts, so a caller can clear an old status. */
+	onSubmitStart?: () => void;
 }) {
 	const [current, setCurrent] = useState("");
 	const [next, setNext] = useState("");
@@ -72,6 +76,7 @@ export function ChangePasswordForm({
 
 	async function submit() {
 		if (change.isPending) return;
+		onSubmitStart?.();
 		const found = checkPasswords(current, next, confirm);
 		if (Object.keys(found).length > 0) {
 			change.reset();

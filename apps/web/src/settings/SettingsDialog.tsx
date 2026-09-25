@@ -101,7 +101,7 @@ function ChoiceField({
 const PREFERENCES = SETTINGS_SECTIONS.find((section) => section.id === "preferences");
 const PROFILE = SETTINGS_SECTIONS.find((section) => section.id === "profile");
 const KEYBOARD = SETTINGS_SECTIONS.find((section) => section.id === "keyboard");
-const PASSWORD_ID = "password";
+const PASSWORD = SETTINGS_SECTIONS.find((section) => section.id === "password");
 
 /** The profile links the student has typed but not saved yet. */
 interface LinkDraft {
@@ -242,7 +242,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const me = useMe();
 	const localPassword = me.status === "authenticated" && me.user.localPassword;
 	const sections = SETTINGS_SECTIONS.filter(
-		(section) => section.id !== PASSWORD_ID || localPassword,
+		(section) => section.id !== PASSWORD?.id || localPassword,
 	);
 	const filtering = query.trim() !== "";
 	const hits = settingsHits(sections, query);
@@ -512,8 +512,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						<div className="min-h-0 flex-1 overflow-y-auto p-4">
 							{sectionId === KEYBOARD?.id ? (
 								<KeyboardHelp />
-							) : sectionId === PASSWORD_ID && localPassword ? (
-								<PasswordPane />
+							) : sectionId === PASSWORD?.id && localPassword ? (
+								<PasswordPane highlightId={highlightId} />
 							) : sectionId === PROFILE?.id ? (
 								<ProfilePane
 									highlightId={highlightId}
@@ -587,8 +587,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 }
 
 /** Settings, Password: change a Dex local password (SPEC.md section 5.3). */
-function PasswordPane() {
+function PasswordPane({ highlightId }: { highlightId: string | null }) {
 	const [changed, setChanged] = useState(false);
+	useShowSetting(highlightId, true);
 	return (
 		<section className="grid gap-4" aria-labelledby="settings-section-password">
 			<h2 id="settings-section-password" className="pk-text-heading text-ink">
@@ -598,10 +599,13 @@ function PasswordPane() {
 				The password you sign in with on the Portikus sign-in page. Changing it signs
 				you out everywhere else.
 			</p>
-			<ChangePasswordForm
-				idPrefix="settings-password"
-				onChanged={() => setChanged(true)}
-			/>
+			<div id="settings-control-change-password">
+				<ChangePasswordForm
+					idPrefix="settings-password"
+					onSubmitStart={() => setChanged(false)}
+					onChanged={() => setChanged(true)}
+				/>
+			</div>
 			<p
 				role="status"
 				className="pk-text-body m-0 text-ink"

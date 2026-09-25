@@ -18,6 +18,7 @@ import { LinkStartPage } from "./link/LinkStartPage.js";
 import { useLinkedReload } from "./link/useLinkedReload.js";
 import { MIN_PREVIEW_PORT, UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
+import { NotFound } from "./pages/NotFound.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
 import { SignIn } from "./pages/SignIn.js";
 import { Unlinked } from "./pages/Unlinked.js";
@@ -47,6 +48,7 @@ const rootRoute = createRootRoute({
 		if (sendAway) return <div className="pk-root" aria-busy="true" />;
 		return <Outlet />;
 	},
+	notFoundComponent: NotFound,
 });
 
 const indexRoute = createRoute({

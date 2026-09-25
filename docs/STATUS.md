@@ -2467,9 +2467,7 @@ administrator (ADR 0031; SPEC.md sections 5.1 to 5.3 and 24.11; issue
   choose their own password when they first sign in." The `/setup` page is
   gone. Playwright and axe cover the change page and the Settings section
   in both themes.
-- **Dex connectors, the play and the host command (T3, pushed as
-  `task/14-2-t3-dex-connectors`, not yet merged into the epic branch when
-  these docs were written).** `PORTIKUS_IDP` takes only `dex` and `mock`;
+- **Dex connectors, the play and the host command (T3, #578).** `PORTIKUS_IDP` takes only `dex` and `mock`;
   `PORTIKUS_DEX_UPSTREAM` takes `none`, `ldap`, `entra`, `google` and
   `oidc`. `entra` renders Dex's `oidc` connector held to the tenant's
   issuer, with `roles` read as groups and only the three app roles
@@ -2486,19 +2484,44 @@ administrator (ADR 0031; SPEC.md sections 5.1 to 5.3 and 24.11; issue
   API's own egress to providers is gone; the allow list holds only the
   connector's discovery hosts, and under `entra` not
   `graph.microsoft.com`.
+- **CI signs in through the real Dex (T5, #572).** The `dex-signin` job
+  covers the local administrator, a password change, and the `oidc` and
+  `entra` connectors pointed at the mock.
 - **LTI label (#558).** Below.
+- **Review fixes (infrastructure and operator docs).** The play refuses
+  `PORTIKUS_DEX_UPSTREAM=oidc` with a `login.microsoftonline.com` issuer
+  and points to `entra`. docs/OPERATIONS.md says to give Entra app roles
+  and generic OIDC groups only to groups that students cannot create or
+  join, and that accounts are keyed on issuer and subject, not email.
+  Dex's gRPC server certificate now also names `localhost`, and an
+  existing certificate without it is reissued, so Node gives no DEP0123
+  warning. `portikus reset-admin` exits 2 when api.env has no
+  `DEX_GRPC_ADDR`. The play fails with a clear message when
+  `/usr/bin/portikus` is missing instead of skipping the local
+  administrator. The smoke test reads the one-time password from its file
+  rather than passing it on grep's command line. `restore.sh` treats a VM
+  whose only user is the local administrator as empty, so the documented
+  rehearsal path (rehearsal-up, configure-vm, restore) works again.
 - **Docs (T6).** SPEC.md sections 5.1, 5.2, 5.3, 24.11 and 29;
   docs/OPERATIONS.md's provider sections and "The local administrator";
   infra/README.md; ADRs 0031 (built), 0028 and 0023; the superseded
   rulings marked in docs/archive/epics/EPIC-14.md.
 
+### Rehearsal
+
+Step 2, a pilot backup restored onto a freshly configured rehearsal VM:
+the pilot's set 20260925T063005Z was restored. The VM had 11 users
+before and 12 after; the only one added was the local administrator. The
+9 workspace owners were unchanged, and carol was still an administrator
+by grant. The local administrator's sign-in, its forced password change,
+and a second `portikus reset-admin` all passed. `make smoke-test` passed
+129 of 129 and `make security-test` 232 of 232. The VM was then
+destroyed. Signing in as carol, alice or bob was not tried, because their
+passwords are Todd's.
+
 ### Pending
 
-- T5, CI's `dex-signin` job against the real Dex (the local
-  administrator, a password change, and the `oidc` and `entra` connectors
-  pointed at the mock), had not landed when these docs were written.
-- The rehearsal (a fresh install, then a pilot backup restored) and the
-  pilot deploy have not been run. A later task adds their results here.
+- The pilot deploy has not been run. A later task adds its results here.
 
 ### Gaps
 
@@ -2518,6 +2541,17 @@ administrator (ADR 0031; SPEC.md sections 5.1 to 5.3 and 24.11; issue
   has no second factor for its own accounts.
 - Dex's `microsoft` connector, Google groups and more than one connector
   per site are not built.
+- Dex's `entra` connector needs an `email` claim in the ID token. The
+  docs say to add the optional `email` claim on the app registration for
+  accounts without a mailbox; that step is unverified until a real
+  tenant.
+
+### Accepted risks
+
+- A course user whose LMS lets them edit their own email can choose their
+  workspace label through #558's email fallback, for example another
+  person's name. The impact is limited because previews are owner-only
+  (orchestrator ruling).
 
 ### LTI workspace label falls back to the email (#558)
 

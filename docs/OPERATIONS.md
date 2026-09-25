@@ -194,13 +194,18 @@ In the Microsoft Entra admin center:
    Users/Groups. The values must be exactly `Portikus.Student`,
    `Portikus.Instructor` and `Portikus.Administrator`.
 5. **Token configuration, Add optional claim**, token type ID, `email`.
-   Entra sends `email` only for accounts with a mail address unless this
-   is added, and Dex refuses a sign-in without one.
+   Dex needs an `email` claim in the ID token and refuses a sign-in
+   without one. Entra sends it only for accounts with a mailbox unless
+   this optional claim is added, so add it whenever some accounts have no
+   mailbox. This step has not yet been tried against a real tenant.
 6. **Enterprise applications, Portikus, Properties.** Set "Assignment
    required?" to **Yes**, so only assigned people can get a token.
 7. **Users and groups, Add user/group.** Assign each person, or a group,
    one of the three roles. Assigning groups needs an Entra ID P1 licence
-   or higher.
+   or higher. **Assign a role only to a group whose membership
+   administrators control**: never a group people can join themselves,
+   and never a dynamic group built from attributes users can edit, or a
+   student could give themselves a role.
 
 Then deploy:
 
@@ -362,8 +367,15 @@ make configure-vm PORTIKUS_DEX_UPSTREAM=oidc PORTIKUS_DEX_UPSTREAM_ISSUER=https:
   asked for a `groups` scope.
 - Dex calls the provider's userinfo endpoint, so its host is on the allow
   list too.
-- The provider must send the `email_verified` claim, true, or Dex refuses
-  the sign-in, because Portikus matches accounts by email.
+- The provider must send the `email_verified` claim, true, or Dex's
+  generic connector refuses the sign-in. Portikus itself keys accounts on
+  the issuer and subject, and shows the email only for display.
+- **The groups claim must contain only groups whose membership a student
+  cannot create or join**, so not GitLab groups and not self-service
+  Microsoft 365 groups, or a student could make themselves an
+  administrator.
+- For Microsoft Entra use `PORTIKUS_DEX_UPSTREAM=entra`; the play refuses
+  a `login.microsoftonline.com` issuer here.
 
 ### Shibboleth, and why not SAML
 
@@ -950,9 +962,16 @@ make restore TOFU_ENV=rehearsal-libvirt BACKUP=/var/backups/portikus/portikus/<t
 
 `make restore` refuses the pilot's environment and any VM whose hostname
 is not the one in the state. It refuses a target that already has any
-workspace volume, user, workspace or project, so it can never overwrite a
-live VM. It loads the database, imports each volume under its original
-name, and leaves every restored workspace stopped. `START_CHECK=1` then
+workspace volume, workspace, project, or user other than the local
+administrator, so it can never overwrite a live VM. A freshly configured
+VM holds only that one account, and the restore treats it as empty. The
+restore replaces the whole database with the backup's, so the target's
+local administrator goes with it. If the backup has its own local
+administrator, that one comes back, with its password when the set holds
+a `dex.dump`. If it has none, the next `make configure-vm` makes a new one
+and prints where its one-time password is. The restore loads the
+database, imports each volume under its original name, and leaves every
+restored workspace stopped. `START_CHECK=1` then
 starts one workspace, checks its files and Git commits from inside it, and
 stops it. When the exercise is over, run
 `make restore TOFU_ENV=rehearsal-libvirt BACKUP=<same set> REMOVE=1` and
@@ -962,8 +981,9 @@ then `make rehearsal-destroy`.
 
 1. Rebuild it from code (`make infra-apply`, `make configure-vm` with the
    usual provider settings, and `make build-workspace-image`). It comes
-   up with an empty database and no workspace volumes. Ignore the setup
-   code the play prints; the restored database has its administrators.
+   up with no workspace volumes and a database whose only user is the
+   local administrator. Ignore its one-time password; the restore
+   replaces that account with the backup's.
 2. Check the set with `restore.sh --check` as above.
 3. Run `restore.sh` directly, since `make restore` refuses the pilot:
 
@@ -974,8 +994,10 @@ then `make rehearsal-destroy`.
 
    With a `dex.dump` in the set, the restore also loads Dex's accounts,
    with Dex stopped, so everyone keeps their password.
-4. Run `make smoke-test` and `make security-test`, and sign in as an
-   administrator to check that the workspaces are listed.
+4. Run `make configure-vm` again, which makes a local administrator if
+   the backup had none, then `make smoke-test` and `make security-test`,
+   and sign in as an administrator to check that the workspaces are
+   listed.
 5. Tell the students their workspaces are back. They start them as usual.
 
 The rebuilt pilot keeps the same public host name and port, so the
