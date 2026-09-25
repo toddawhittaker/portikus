@@ -1,60 +1,125 @@
 ---
-# Checked before any role runs (site.yml pre_tasks), so bad Dex settings
-# change nothing on the VM.  Loads the retired users file, when there is
-# one, for the one-time import into Dex's storage (docs/archive/epics/EPIC-14.md ruling
-# 23); it is read on the machine that runs Ansible.
+# Checked before any role runs (site.yml pre_tasks), so bad sign-in
+# settings change nothing on the VM.  Loads the retired users file, when
+# there is one, for the one-time import into Dex's storage
+# (docs/archive/epics/EPIC-14.md ruling 23); it is read on the machine that
+# runs Ansible.
 
-- name: Require the settings of Dex's upstream connector
-  ansible.builtin.assert:
-    that:
-      - portikus_dex_upstream_client_id | length > 0
-      - portikus_dex_upstream_client_secret | length >= 16
-    fail_msg: >-
-      PORTIKUS_DEX_UPSTREAM={{ portikus_dex_upstream }} needs
-      PORTIKUS_DEX_UPSTREAM_CLIENT_ID and PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET,
-      the client Dex is registered as with {{ 'Microsoft' if portikus_dex_upstream == 'microsoft' else 'Google' }}.
-  when: portikus_dex_upstream in ['microsoft', 'google']
+# A silent move to Dex would change the issuer, and so give everyone a new,
+# empty account (docs/EPIC-14-2.md ruling 9).
+- name: Refuse the removed direct sign-in providers
+  ansible.builtin.fail:
+    msg: >-
+      PORTIKUS_IDP={{ portikus_idp }} was removed: every site now signs in
+      through Dex (ADR 0031).  Leave PORTIKUS_IDP unset and connect the
+      provider to Dex with PORTIKUS_DEX_UPSTREAM (entra, google or oidc);
+      see docs/OPERATIONS.md, "Sign-in providers".
+  when: portikus_idp in ['entra', 'google', 'external']
   run_once: true
 
-# The user filter is the only gate on who may sign in (ruling 11).
-- name: Require the LDAP connector settings
-  ansible.builtin.assert:
-    that:
-      - portikus_ldap_host is match('^[A-Za-z0-9.-]+(:[0-9]{1,5})?$')
-      - portikus_ldap_schema in ['ad', 'openldap']
-      - portikus_ldap_bind_dn | length > 0
-      - portikus_ldap_bind_password | length > 0
-      - portikus_ldap_user_base_dn | length > 0
-      - portikus_ldap_user_filter is match('^\(.*\)$')
-      - portikus_ldap_ip_allow | length > 0
-      - portikus_ldap_ip_allow | reject('match', '^[0-9.]+(/[0-9]{1,2})?$') | list | length == 0
-    fail_msg: >-
-      PORTIKUS_DEX_UPSTREAM=ldap needs PORTIKUS_LDAP_HOST (host or host:port,
-      spoken over TLS), PORTIKUS_LDAP_SCHEMA (ad or openldap),
-      PORTIKUS_LDAP_BIND_DN, PORTIKUS_LDAP_BIND_PASSWORD,
-      PORTIKUS_LDAP_USER_BASE_DN, PORTIKUS_LDAP_USER_FILTER (in parentheses,
-      naming who may sign in) and PORTIKUS_LDAP_IP_ALLOW (the directory's
-      addresses).  PORTIKUS_LDAP_GROUP_BASE_DN and PORTIKUS_LDAP_ROOT_CA are
-      optional.
-  when: portikus_dex_upstream == 'ldap'
+- name: Refuse Dex's microsoft connector
+  ansible.builtin.fail:
+    msg: >-
+      PORTIKUS_DEX_UPSTREAM=microsoft was replaced by
+      PORTIKUS_DEX_UPSTREAM=entra, which reads the roles from Entra app
+      roles and needs no Microsoft Graph permission (ADR 0031).
+  when: portikus_dex_upstream == 'microsoft'
   run_once: true
 
-- name: Require the LDAP root certificate file to exist
-  when: portikus_dex_upstream == 'ldap' and portikus_ldap_root_ca | length > 0
+- name: Require a known sign-in provider
+  ansible.builtin.assert:
+    that:
+      - portikus_idp in ['dex', 'mock']
+      - portikus_dex_upstream in ['none', 'ldap', 'entra', 'google', 'oidc']
+    fail_msg: >-
+      PORTIKUS_IDP must be dex or mock (got '{{ portikus_idp }}'), and
+      PORTIKUS_DEX_UPSTREAM none, ldap, entra, google or oidc (got
+      '{{ portikus_dex_upstream }}').
+  run_once: true
+
+- name: Check the settings of Dex's upstream connector
+  when: portikus_idp == 'dex'
   run_once: true
   block:
+    - name: Require the client Dex is registered as upstream
+      ansible.builtin.assert:
+        that:
+          - portikus_dex_upstream_client_id | length > 0
+          - portikus_dex_upstream_client_secret | length >= 16
+        fail_msg: >-
+          PORTIKUS_DEX_UPSTREAM={{ portikus_dex_upstream }} needs
+          PORTIKUS_DEX_UPSTREAM_CLIENT_ID and PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET,
+          the client Dex is registered as with the provider.
+      when: portikus_dex_upstream in ['entra', 'google', 'oidc']
+
+    # One tenant per site; its ID is part of the issuer Dex validates against.
+    - name: Require the Entra tenant ID
+      ansible.builtin.assert:
+        that:
+          - portikus_entra_tenant_id is match('^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$')
+        fail_msg: "PORTIKUS_DEX_UPSTREAM=entra needs PORTIKUS_ENTRA_TENANT_ID, the tenant's ID, a GUID."
+      when: portikus_dex_upstream == 'entra'
+
+    - name: Require the Google Workspace domains
+      ansible.builtin.assert:
+        that:
+          - portikus_google_domains | length > 0
+          - portikus_google_domains | reject('match', '^([a-z0-9-]+[.])+[a-z]{2,}$') | list | length == 0
+        fail_msg: >-
+          PORTIKUS_DEX_UPSTREAM=google needs PORTIKUS_GOOGLE_DOMAINS, the site's
+          Google Workspace domains, such as example.edu, separated by commas.
+      when: portikus_dex_upstream == 'google'
+
+    - name: Require the OIDC provider's issuer and groups claim
+      ansible.builtin.assert:
+        that:
+          - portikus_dex_upstream_issuer is match('^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[^\s?#]*)?$')
+          - portikus_oidc_upstream_groups_claim is match('^[A-Za-z0-9_.:/-]+$')
+          - portikus_oidc_upstream_extra_scopes | reject('match', '^[A-Za-z0-9_.:/-]+$') | list | length == 0
+        fail_msg: >-
+          PORTIKUS_DEX_UPSTREAM=oidc needs PORTIKUS_DEX_UPSTREAM_ISSUER, the
+          provider's https issuer URL.  PORTIKUS_OIDC_UPSTREAM_GROUPS_CLAIM
+          (default groups) and PORTIKUS_OIDC_UPSTREAM_EXTRA_SCOPES take plain
+          names, without spaces or quotes.
+      when: portikus_dex_upstream == 'oidc'
+
+    # The user filter is the only gate on who may sign in
+    # (docs/archive/epics/EPIC-14.md ruling 11).
+    - name: Require the LDAP connector settings
+      ansible.builtin.assert:
+        that:
+          - portikus_ldap_host is match('^[A-Za-z0-9.-]+(:[0-9]{1,5})?$')
+          - portikus_ldap_schema in ['ad', 'openldap']
+          - portikus_ldap_bind_dn | length > 0
+          - portikus_ldap_bind_password | length > 0
+          - portikus_ldap_user_base_dn | length > 0
+          - portikus_ldap_user_filter is match('^\(.*\)$')
+          - portikus_ldap_ip_allow | length > 0
+          - portikus_ldap_ip_allow | reject('match', '^[0-9.]+(/[0-9]{1,2})?$') | list | length == 0
+        fail_msg: >-
+          PORTIKUS_DEX_UPSTREAM=ldap needs PORTIKUS_LDAP_HOST (host or host:port,
+          spoken over TLS), PORTIKUS_LDAP_SCHEMA (ad or openldap),
+          PORTIKUS_LDAP_BIND_DN, PORTIKUS_LDAP_BIND_PASSWORD,
+          PORTIKUS_LDAP_USER_BASE_DN, PORTIKUS_LDAP_USER_FILTER (in parentheses,
+          naming who may sign in) and PORTIKUS_LDAP_IP_ALLOW (the directory's
+          addresses).  PORTIKUS_LDAP_GROUP_BASE_DN and PORTIKUS_LDAP_ROOT_CA are
+          optional.
+      when: portikus_dex_upstream == 'ldap'
+
     - name: Look at the LDAP root certificate file
       ansible.builtin.stat:
         path: "{{ portikus_ldap_root_ca }}"
       delegate_to: localhost
       become: false
       register: dex_ldap_root_ca_stat
+      when: portikus_dex_upstream == 'ldap' and portikus_ldap_root_ca | length > 0
 
-    - name: Require it
+    - name: Require the LDAP root certificate file to exist
       ansible.builtin.assert:
         that:
           - dex_ldap_root_ca_stat.stat.exists
         fail_msg: "PORTIKUS_LDAP_ROOT_CA names {{ portikus_ldap_root_ca }}, which does not exist on this machine."
+      when: portikus_dex_upstream == 'ldap' and portikus_ldap_root_ca | length > 0
 
 - name: Look at the users file
   ansible.builtin.stat:
@@ -63,9 +128,10 @@
   become: false
   run_once: true
   register: dex_users_file_stat
+  when: portikus_idp == 'dex'
 
 - name: Load the users file
-  when: dex_users_file_stat.stat.exists
+  when: portikus_idp == 'dex' and dex_users_file_stat.stat.exists
   run_once: true
   block:
     - name: Require the users file to be readable by its owner only

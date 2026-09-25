@@ -1,0 +1,33 @@
+---
+# The allow list, from the listed hosts and the fetched discovery documents
+# (egress_proxy_discovery_documents).  egress-proxy-render-test.yml runs it
+# on sample documents.
+
+- name: Start the allow list with the listed hosts
+  ansible.builtin.set_fact:
+    egress_proxy_allowed: "{{ egress_proxy_hosts }}"
+
+- name: Add the hosts the discovery documents name
+  ansible.builtin.set_fact:
+    egress_proxy_allowed: "{{ egress_proxy_allowed + (egress_proxy_urls | map('urlsplit', 'netloc') | list) }}"
+  loop: "{{ egress_proxy_discovery_documents.results }}"
+  loop_control:
+    label: "{{ item.item.issuer }}"
+  vars:
+    egress_proxy_urls: >-
+      {{ [item.json.issuer, item.json.authorization_endpoint, item.json.token_endpoint, item.json.jwks_uri]
+         + ([item.json.userinfo_endpoint] if item.item.userinfo and item.json.userinfo_endpoint is defined else []) }}
+
+# `host` means port 443.  Anything else, such as a URL or a wildcard, is refused.
+- name: Normalise the allow list
+  ansible.builtin.set_fact:
+    egress_proxy_allowed: >-
+      {{ egress_proxy_allowed | map('lower') | map('regex_replace', '^([^:]+)$', '\1:443') | unique | sort }}
+
+- name: Require every allowed entry to be a host name or IPv4 address with a port
+  ansible.builtin.assert:
+    that:
+      - item is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*:[0-9]{1,5}$')
+    fail_msg: "Egress allow list entry '{{ item }}' is not host or host:port."
+    quiet: true
+  loop: "{{ egress_proxy_allowed }}"

@@ -58,7 +58,7 @@ command -v ansible >/dev/null || {
 }
 
 # render IDP DEST — the template as site.yml would render it for that
-# sign-in provider (dex, mock or external).
+# sign-in provider (dex or mock).
 render() {
   ansible localhost -c local -m ansible.builtin.template \
     -a "src=${TEMPLATE} dest=${2} mode=0644" \
@@ -78,7 +78,6 @@ render() {
 rendered="${work}/Caddyfile"
 render dex "${rendered}"
 render mock "${work}/Caddyfile.mock"
-render external "${work}/Caddyfile.external"
 
 # Split the rendered file into the application block and the preview block,
 # so each set of assertions can only see its own virtual host.  The snippets
@@ -280,8 +279,8 @@ else
 fi
 has "/lti/* reaches the API" '^[[:space:]]+handle /lti/\* \{$' "${app}"
 has "the course list and members reach the API" '^[[:space:]]+handle /courses\* \{$' "${app}"
-has "the setup-code routes reach the API" '^[[:space:]]+handle /setup/\* \{$' "${app}"
-lacks "the /setup page is not sent to the API" 'handle /setup[^/]' "${app}"
+# The setup code is gone (docs/EPIC-14-2.md ruling 19); /setup is only a page.
+lacks "no /setup route reaches the API" 'handle /setup' "${app}"
 lacks "the /course pages are not sent to the API" 'handle /course[^s]' "${app}"
 has "the control plane is still compressed" '^[[:space:]]+encode gzip$' "${app}"
 lacks "the control plane has no preview routes" '__portikus' "${app}"
@@ -363,10 +362,6 @@ has "with the mock, /dex is a 404" 'handle /dex\* \{' "${work}/Caddyfile.mock"
 lacks "with the mock, nothing proxies to Dex" '127\.0\.0\.1:5556' "${work}/Caddyfile.mock"
 has "with the mock, the mock provider is served" \
   'reverse_proxy 127\.0\.0\.1:3002' "${work}/Caddyfile.mock"
-has "with an external provider, /dex is a 404" 'handle /dex\* \{' "${work}/Caddyfile.external"
-has "with an external provider, /mock-idp is a 404" 'handle /mock-idp\* \{' "${work}/Caddyfile.external"
-lacks "with an external provider, nothing proxies to Dex" '127\.0\.0\.1:5556' "${work}/Caddyfile.external"
-lacks "with an external provider, nothing proxies to the mock" '127\.0\.0\.1:3002' "${work}/Caddyfile.external"
 
 echo ""
 echo "--- The API is told which suffix Caddy serves ---"
@@ -377,7 +372,7 @@ has "PREVIEW_SUFFIX is written beside PUBLIC_URL" \
 
 if command -v caddy >/dev/null; then
   echo ""
-  for idp in dex mock external; do
+  for idp in dex mock; do
     config="${rendered}"
     [ "${idp}" = dex ] || config="${rendered}.${idp}"
     if caddy validate --adapter caddyfile --config "${config}" >"${work}/validate.log" 2>&1; then

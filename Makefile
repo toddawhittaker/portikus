@@ -75,8 +75,9 @@ export TF_VAR_memory_mb := $(REHEARSAL_MEMORY_MB)
 rehearsal_disk_bytes := $(call tofu_attr,terraform_data,data_disk_size,triggers_replace.value)
 REHEARSAL_DATA_DISK_GB ?= $(if $(rehearsal_disk_bytes),$(shell echo $$(( $(rehearsal_disk_bytes) / 1073741824 ))),100)
 export TF_VAR_data_disk_size_bytes := $(shell echo $$(( $(REHEARSAL_DATA_DISK_GB) * 1073741824 )))
-# Its accounts come from a restored dex.dump or /setup, never the pilot's
-# retired users file, whose import would make restore.sh refuse the VM.
+# Its accounts come from a restored dex.dump or the local administrator the
+# play makes, never the pilot's retired users file, whose import would make
+# restore.sh refuse the VM.
 # An exported PORTIKUS_USERS_FILE does not override this; the command line does.
 PORTIKUS_USERS_FILE := /nonexistent
 else
@@ -184,24 +185,24 @@ wait-vm: ## Wait for the platform VM to finish first boot
 # Ansible runs from infra/ansible, so a local package path has to be absolute.
 PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
 
-# ── Sign-in provider and accounts (docs/adr/0023) ──────────────────
-# PORTIKUS_IDP picks the provider: dex (the default), entra, google, external
-# (any other OIDC provider named by the PORTIKUS_OIDC_* settings), or mock
-# (test only: anyone can sign in as anyone).  The API reaches an outside
-# provider through the egress proxy; PORTIKUS_EGRESS_EXTRA_HOSTS adds hosts.
+# ── Sign-in provider and accounts (docs/adr/0023, docs/adr/0031) ───
+# PORTIKUS_IDP is dex (the default) or mock (test only: anyone can sign in
+# as anyone).  An institution's provider is one Dex connector, named by
+# PORTIKUS_DEX_UPSTREAM: ldap, entra, google or oidc.  Dex reaches it through
+# the egress proxy; PORTIKUS_EGRESS_EXTRA_HOSTS adds hosts.
 PORTIKUS_IDP ?= dex
 # The retired Dex users file, kept on this machine and never copied to the VM
 # except for the one-time import into Dex's storage (docs/archive/epics/EPIC-14.md ruling 23).
 # The Users view manages Dex accounts now.
 PORTIKUS_USERS_FILE ?= $(HOME)/.config/portikus/users.json
 
-# The client secret reaches Ansible through the environment, never a recipe
-# line, where make's echo and ps would show it.
-export PORTIKUS_OIDC_CLIENT_SECRET
-# The provider settings of docs/archive/epics/EPIC-14.md, exported as they are, so an LDAP
-# filter's parentheses and the two secrets never pass through a recipe line.
+# The connector settings, exported as they are, so an LDAP filter's
+# parentheses and the two secrets never pass through a recipe line, where
+# make's echo and ps would show them.
 export PORTIKUS_ENTRA_TENANT_ID PORTIKUS_GOOGLE_DOMAINS PORTIKUS_EGRESS_EXTRA_HOSTS
 export PORTIKUS_DEX_UPSTREAM PORTIKUS_DEX_UPSTREAM_CLIENT_ID PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
+export PORTIKUS_DEX_UPSTREAM_ISSUER PORTIKUS_OIDC_UPSTREAM_GROUPS_CLAIM PORTIKUS_OIDC_UPSTREAM_EXTRA_SCOPES
+export PORTIKUS_ADMIN_EMAIL
 export PORTIKUS_LDAP_HOST PORTIKUS_LDAP_SCHEMA PORTIKUS_LDAP_BIND_DN PORTIKUS_LDAP_BIND_PASSWORD
 export PORTIKUS_LDAP_USER_BASE_DN PORTIKUS_LDAP_USER_FILTER PORTIKUS_LDAP_GROUP_BASE_DN
 export PORTIKUS_LDAP_ROOT_CA PORTIKUS_LDAP_IP_ALLOW
@@ -211,7 +212,6 @@ ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
 	PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
 	PORTIKUS_USERS_FILE="$(abspath $(PORTIKUS_USERS_FILE))" \
-	PORTIKUS_OIDC_ISSUER=$(PORTIKUS_OIDC_ISSUER) PORTIKUS_OIDC_CLIENT_ID=$(PORTIKUS_OIDC_CLIENT_ID) \
 	PORTIKUS_OIDC_SCOPES="$(PORTIKUS_OIDC_SCOPES)" \
 	PORTIKUS_OIDC_STUDENT_GROUP=$(PORTIKUS_OIDC_STUDENT_GROUP) \
 	PORTIKUS_OIDC_ADMIN_GROUP=$(PORTIKUS_OIDC_ADMIN_GROUP) \
@@ -219,7 +219,7 @@ ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR
 	PORTIKUS_API_IP_ALLOW="$(PORTIKUS_API_IP_ALLOW)" \
 	PORTIKUS_LTI_PLATFORMS_FILE="$(abspath $(PORTIKUS_LTI_PLATFORMS_FILE))"
 
-configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|entra|google|external|mock picks the sign-in provider, PORTIKUS_USERS_FILE=<path> the users file imported once into Dex)
+configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|mock picks the sign-in provider, PORTIKUS_DEX_UPSTREAM=none|ldap|entra|google|oidc connects an institution's provider to Dex, PORTIKUS_USERS_FILE=<path> the users file imported once into Dex)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml
 
 # ── LTI launch (docs/archive/epics/EPIC-13.md, rulings 14 and 26) ────────────────

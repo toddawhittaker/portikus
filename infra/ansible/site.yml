@@ -81,23 +81,38 @@
     # Each workspace's recovery-point volume (SPEC 19.1, ADR 0020).
     portikus_workspace_recovery_size_gib: 3
 
-    # ── Authentication (SPEC 5.3, ADR 0008, ADR 0023) ─────────────
-    # PORTIKUS_IDP picks the sign-in provider (docs/archive/epics/EPIC-14.md):
-    #   dex       Dex on this VM, accounts managed in the Users view (the default);
-    #   entra     Microsoft Entra ID, one tenant (PORTIKUS_ENTRA_TENANT_ID);
-    #   google    Google Workspace, the listed domains (PORTIKUS_GOOGLE_DOMAINS);
-    #   external  any other OIDC provider named by the PORTIKUS_OIDC_* settings;
-    #   mock      the in-repo test provider, where anyone who reaches the site
-    #             can sign in as any account, the administrator included.
+    # ── Authentication (SPEC 5.1, ADR 0008, ADR 0023, ADR 0031) ───
+    # Every site signs in through Dex (docs/EPIC-14-2.md rulings 1 and 9).
+    # PORTIKUS_IDP is dex (the default) or mock, the in-repo test provider,
+    # where anyone who reaches the site can sign in as any account, the
+    # administrator included.
     portikus_idp: "{{ lookup('env', 'PORTIKUS_IDP') | default('dex', true) }}"
+    # Dex's one upstream connector, beside its local passwords (rulings 5 to 8):
+    #   none    local passwords only;
+    #   ldap    an LDAP or Active Directory directory (PORTIKUS_LDAP_*);
+    #   entra   Microsoft Entra ID, one tenant (PORTIKUS_ENTRA_TENANT_ID),
+    #           roles from the registration's app roles;
+    #   google  Google Workspace, the listed domains (PORTIKUS_GOOGLE_DOMAINS);
+    #   oidc    any other OIDC provider (PORTIKUS_DEX_UPSTREAM_ISSUER), roles
+    #           from its groups claim.
+    portikus_dex_upstream: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM') | default('none', true) }}"
     portikus_entra_tenant_id: "{{ lookup('env', 'PORTIKUS_ENTRA_TENANT_ID') }}"
     portikus_google_domains: >-
       {{ lookup('env', 'PORTIKUS_GOOGLE_DOMAINS') | replace(',', ' ') | split | select | list }}
-    # Dex's upstream connector, which the dex role sets up: none, ldap, microsoft or google.
-    portikus_dex_upstream: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM') | default('none', true) }}"
-    # The client Dex is registered as with Microsoft or Google.
+    # The client Dex is registered as with Entra, Google or the OIDC provider.
     portikus_dex_upstream_client_id: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM_CLIENT_ID') }}"
     portikus_dex_upstream_client_secret: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET') }}"
+    # The oidc connector: the provider's issuer, the claim holding its groups,
+    # and scopes beyond openid, profile and email (Okta sends groups only
+    # when asked for a groups scope), separated by commas or spaces.
+    portikus_dex_upstream_issuer: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM_ISSUER') }}"
+    portikus_oidc_upstream_groups_claim: "{{ lookup('env', 'PORTIKUS_OIDC_UPSTREAM_GROUPS_CLAIM') | default('groups', true) }}"
+    portikus_oidc_upstream_extra_scopes: >-
+      {{ lookup('env', 'PORTIKUS_OIDC_UPSTREAM_EXTRA_SCOPES') | replace(',', ' ') | split | select | list }}
+    # The local administrator's email, used only when the play creates it
+    # (ruling 12); changing it later changes no existing account.
+    portikus_admin_email: >-
+      {{ lookup('env', 'PORTIKUS_ADMIN_EMAIL') | default('admin@' ~ portikus_public_host, true) }}
     # Dex's LDAP connector.  host or host:port, always over TLS (LDAPS, port
     # 636 by default); the schema, ad or openldap, picks the attribute names.
     portikus_ldap_host: "{{ lookup('env', 'PORTIKUS_LDAP_HOST') }}"
@@ -136,45 +151,34 @@
       {{ lookup('env', 'PORTIKUS_USERS_FILE')
          | default(lookup('env', 'HOME') ~ '/.config/portikus/users.json', true)
          | expanduser }}
-    # Derived for Entra and Google, so the API needs no provider-specific URLs.
+    # The Entra and Google connectors' issuers, which Dex validates tokens
+    # against and the egress list is built from.  The Entra one is the
+    # tenant's own, so only that tenant's tokens validate (ruling 5).
     portikus_entra_issuer: "https://login.microsoftonline.com/{{ portikus_entra_tenant_id }}/v2.0"
     portikus_google_issuer: https://accounts.google.com
-    portikus_oidc_issuer: >-
-      {{ portikus_entra_issuer if portikus_idp == 'entra'
-         else portikus_google_issuer if portikus_idp == 'google'
-         else lookup('env', 'PORTIKUS_OIDC_ISSUER') }}
-    # The API's OIDC_PROVIDER and OIDC_DEFAULT_ROLE (docs/archive/epics/EPIC-14.md, ruling
-    # 11): Entra and other providers refuse a person no role claim matches;
-    # Google and Dex make them a student.
-    portikus_oidc_provider: "{{ portikus_idp if portikus_idp in ['entra', 'google'] else 'oidc' }}"
-    portikus_oidc_default_role: "{{ 'student' if portikus_idp in ['google', 'dex'] else 'none' }}"
-    portikus_oidc_client_id: "{{ lookup('env', 'PORTIKUS_OIDC_CLIENT_ID') }}"
-    portikus_oidc_client_secret: "{{ lookup('env', 'PORTIKUS_OIDC_CLIENT_SECRET') }}"
-    # Dex puts groups in the token only when asked; some providers refuse
-    # scopes they do not know.  Groups are asked for only where an
-    # administrator controls them: behind Dex's Microsoft connector a
-    # student can create a group with the administrators' group name.
+    # Nobody Dex admits is refused by Portikus for having no group: the local
+    # administrator and guests have none (ruling 4).  The mock keeps none,
+    # so its group-less test user is still refused.
+    portikus_oidc_default_role: "{{ 'student' if portikus_idp == 'dex' else 'none' }}"
+    # Dex puts groups in the token only when asked.  Behind Google they are
+    # never asked for: the connector has none, and roles come from grants.
     portikus_oidc_scopes: >-
       {{ lookup('env', 'PORTIKUS_OIDC_SCOPES')
          | default('openid profile email groups'
-                     if portikus_idp == 'dex' and portikus_dex_upstream in ['none', 'ldap']
+                     if portikus_idp == 'dex' and portikus_dex_upstream != 'google'
                    else 'openid profile email', true) }}
-    # Entra's roles are the app roles on the Portikus registration.
-    # Behind Dex's Microsoft or Google connector a student can add the groups
-    # scope to the authorize URL themselves, so the API reads no groups claim.
-    portikus_oidc_groups_claim: >-
-      {{ 'roles' if portikus_idp == 'entra'
-         else '' if portikus_idp == 'dex' and portikus_dex_upstream in ['microsoft', 'google']
-         else 'groups' }}
+    portikus_oidc_groups_claim: "{{ '' if portikus_idp == 'dex' and portikus_dex_upstream == 'google' else 'groups' }}"
+    # The group names for ldap and oidc, and the app role values for entra;
+    # Dex's oidc connector admits only people holding one of them.
     portikus_oidc_student_group: >-
       {{ lookup('env', 'PORTIKUS_OIDC_STUDENT_GROUP')
-         | default('Portikus.Student' if portikus_idp == 'entra' else 'portikus-students', true) }}
+         | default('Portikus.Student' if portikus_dex_upstream == 'entra' else 'portikus-students', true) }}
     portikus_oidc_admin_group: >-
       {{ lookup('env', 'PORTIKUS_OIDC_ADMIN_GROUP')
-         | default('Portikus.Administrator' if portikus_idp == 'entra' else 'portikus-administrators', true) }}
+         | default('Portikus.Administrator' if portikus_dex_upstream == 'entra' else 'portikus-administrators', true) }}
     portikus_oidc_instructor_group: >-
       {{ lookup('env', 'PORTIKUS_OIDC_INSTRUCTOR_GROUP')
-         | default('Portikus.Instructor' if portikus_idp == 'entra' else 'portikus-instructors', true) }}
+         | default('Portikus.Instructor' if portikus_dex_upstream == 'entra' else 'portikus-instructors', true) }}
     portikus_session_ttl_seconds: 43200
 
     # ── LTI launch (docs/archive/epics/EPIC-13.md, rulings 14 and 26) ──────────
@@ -229,10 +233,8 @@
     portikus_caddy_root_cert: /etc/portikus/caddy-root.crt
 
   # Checked before any role runs, so bad identity-provider settings change
-  # nothing on the VM.  The secret rules match packages/config: portikus-api
-  # refuses to start in production on a short or default secret.
-  # The guards are tagged always, so a run limited with --tags is checked
-  # the same way.
+  # nothing on the VM.  The guards are tagged always, so a run limited with
+  # --tags is checked the same way.
   pre_tasks:
     - name: Refuse the old mock sign-in switch
       ansible.builtin.fail:
@@ -249,60 +251,26 @@
       when: lookup('env', 'PORTIKUS_API_IP_ALLOW') | length > 0
       tags: always
 
-    - name: Require a known identity provider
-      ansible.builtin.assert:
-        that:
-          - portikus_idp in ['dex', 'entra', 'google', 'external', 'mock']
-          - portikus_dex_upstream in ['none', 'ldap', 'microsoft', 'google']
-        fail_msg: >-
-          PORTIKUS_IDP must be dex, entra, google, external or mock (got
-          '{{ portikus_idp }}'), and PORTIKUS_DEX_UPSTREAM none, ldap,
-          microsoft or google (got '{{ portikus_dex_upstream }}').
+    # Every sign-in setting, checked in one place so the render test can
+    # try each refusal (docs/EPIC-14-2.md ruling 9).
+    - name: Check the sign-in settings and load the users file
+      ansible.builtin.include_role:
+        name: dex
+        tasks_from: settings
+        apply:
+          tags: always
       tags: always
 
-    - name: Refuse the groups scope behind Dex's Microsoft or Google connector
+    # Google's connector here has no groups, so a groups claim could only
+    # come from somewhere a student controls.
+    - name: Refuse the groups scope behind Dex's Google connector
       ansible.builtin.assert:
         that:
           - "'groups' not in portikus_oidc_scopes.split()"
         fail_msg: >-
-          PORTIKUS_OIDC_SCOPES asks for groups, but with
-          PORTIKUS_DEX_UPSTREAM={{ portikus_dex_upstream }} anyone can create a
-          group named like the administrators' group.  Leave groups out; roles
-          come from the Users view.
-      when: portikus_idp == 'dex' and portikus_dex_upstream in ['microsoft', 'google']
-      tags: always
-
-    - name: Require identity provider settings for an outside provider
-      ansible.builtin.assert:
-        that:
-          - portikus_oidc_issuer | default('', true) | length > 0
-          - portikus_oidc_client_id | default('', true) | length > 0
-          - portikus_oidc_client_secret | default('', true) | length >= 32
-          - portikus_oidc_client_secret | default('', true) != 'portikus-dev-secret'
-        fail_msg: >-
-          With PORTIKUS_IDP={{ portikus_idp }}, set PORTIKUS_OIDC_CLIENT_ID and
-          PORTIKUS_OIDC_CLIENT_SECRET{{ ', and PORTIKUS_OIDC_ISSUER' if portikus_idp == 'external' else '' }}.
-          The client secret must be at least 32 characters and must not be
-          the development default, or portikus-api will refuse to start.
-      when: portikus_idp in ['entra', 'google', 'external']
-      tags: always
-
-    # One tenant per site (ruling 8); its ID is part of the issuer.
-    - name: Require the Entra tenant ID
-      ansible.builtin.assert:
-        that:
-          - portikus_entra_tenant_id is match('^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$')
-        fail_msg: "Set PORTIKUS_ENTRA_TENANT_ID to the tenant's ID, a GUID."
-      when: portikus_idp == 'entra' or (portikus_idp == 'dex' and portikus_dex_upstream == 'microsoft')
-      tags: always
-
-    - name: Require the Google Workspace domains
-      ansible.builtin.assert:
-        that:
-          - portikus_google_domains | length > 0
-          - portikus_google_domains | reject('match', '^([a-z0-9-]+[.])+[a-z]{2,}$') | list | length == 0
-        fail_msg: "Set PORTIKUS_GOOGLE_DOMAINS to the site's Google Workspace domains, such as example.edu, separated by commas."
-      when: portikus_idp == 'google' or (portikus_idp == 'dex' and portikus_dex_upstream == 'google')
+          PORTIKUS_OIDC_SCOPES asks for groups, but Dex's Google connector
+          reads none.  Leave groups out; roles come from the Users view.
+      when: portikus_idp == 'dex' and portikus_dex_upstream == 'google'
       tags: always
 
     - name: Require extra egress hosts of the form host or host:port
@@ -322,15 +290,6 @@
         tasks_from: lti_load
         apply:
           tags: always
-      tags: always
-
-    - name: Check the Dex settings and load the users file
-      ansible.builtin.include_role:
-        name: dex
-        tasks_from: settings
-        apply:
-          tags: always
-      when: portikus_idp == 'dex'
       tags: always
 
     # BROWSER-HANDLING 23: start-up must fail when the application and
@@ -381,16 +340,20 @@
       tags: [egress_proxy, lti]
       vars:
         egress_proxy_hosts: "{{ portikus_egress_extra_hosts + portikus_lti_keyset_egress }}"
+        # Only Dex's connector reaches a provider (docs/EPIC-14-2.md ruling
+        # 21).  The entra connector never calls userinfo, so Microsoft
+        # Graph stays off the list.
         egress_proxy_discovery: >-
-          {{ [{'issuer': portikus_oidc_issuer, 'userinfo': portikus_idp == 'external'}]
-               if portikus_idp in ['entra', 'google', 'external']
-             else [{'issuer': portikus_entra_issuer, 'userinfo': true}]
-               if portikus_idp == 'dex' and portikus_dex_upstream == 'microsoft'
+          {{ [] if portikus_idp != 'dex'
+             else [{'issuer': portikus_entra_issuer, 'userinfo': false}]
+               if portikus_dex_upstream == 'entra'
              else [{'issuer': portikus_google_issuer, 'userinfo': true}]
-               if portikus_idp == 'dex' and portikus_dex_upstream == 'google'
+               if portikus_dex_upstream == 'google'
+             else [{'issuer': portikus_dex_upstream_issuer, 'userinfo': true}]
+               if portikus_dex_upstream == 'oidc'
              else [] }}
         # Dex and the mock are served by Caddy on this VM under the site's name.
-        egress_proxy_site_host: "{{ portikus_public_host if portikus_idp in ['dex', 'mock'] else '' }}"
+        egress_proxy_site_host: "{{ portikus_public_host }}"
         egress_proxy_site_port: "{{ portikus_public_port }}"
         egress_proxy_denied_ranges: "{{ workspace_egress_denied_ranges }}"
     - role: dex

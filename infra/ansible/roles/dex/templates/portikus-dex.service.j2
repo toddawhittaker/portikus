@@ -10,7 +10,7 @@ Type=simple
 User=portikus-dex
 Group=portikus-dex
 ExecStart=/usr/local/bin/dex serve {{ dex_config_dir }}/config.yaml
-{% if portikus_dex_upstream in ['microsoft', 'google'] %}
+{% if portikus_dex_upstream in ['entra', 'google', 'oidc'] %}
 # The upstream provider is reached through the egress proxy (ADR 0027).
 Environment=HTTPS_PROXY={{ portikus_outbound_proxy_url }}
 {% endif %}

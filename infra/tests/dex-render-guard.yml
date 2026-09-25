@@ -3,13 +3,21 @@
 # working upstream settings and one change, accepted or refused as expected.
 - name: Try the settings for {{ dex_guard.name }}
   vars:
-    given: "{{ dex_render_ldap | combine(dex_render_upstream_client) | combine(dex_guard.change) }}"
+    given: >-
+      {{ dex_render_ldap | combine(dex_render_upstream_client) | combine(dex_render_connector)
+         | combine(dex_guard.change) }}
   block:
     - name: Load the settings for {{ dex_guard.name }}
       ansible.builtin.include_tasks: ../ansible/roles/dex/tasks/settings.yml
       vars:
         portikus_users_file: "{{ dex_render_workdir.path }}/no-such-users.json"
+        portikus_idp: "{{ dex_guard.idp | default('dex') }}"
         portikus_dex_upstream: "{{ dex_guard.upstream }}"
+        portikus_entra_tenant_id: "{{ given.portikus_entra_tenant_id }}"
+        portikus_google_domains: "{{ given.portikus_google_domains }}"
+        portikus_dex_upstream_issuer: "{{ given.portikus_dex_upstream_issuer }}"
+        portikus_oidc_upstream_groups_claim: "{{ given.portikus_oidc_upstream_groups_claim }}"
+        portikus_oidc_upstream_extra_scopes: "{{ given.portikus_oidc_upstream_extra_scopes }}"
         portikus_dex_upstream_client_id: "{{ given.portikus_dex_upstream_client_id }}"
         portikus_dex_upstream_client_secret: "{{ given.portikus_dex_upstream_client_secret }}"
         portikus_ldap_host: "{{ given.portikus_ldap_host }}"

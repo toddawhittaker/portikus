@@ -1,0 +1,82 @@
+#!/bin/sh
+# The Portikus host command, for root on the VM (docs/EPIC-14-2.md ruling 20).
+set -eu
+
+API_ENV=/etc/portikus/api.env
+PASSWORD_FILE=/etc/portikus/admin-password
+RESET_ADMIN_MAIN=/usr/lib/portikus/api/node_modules/@portikus/auth/dist/reset-admin-main.js
+READ_LINE="Read the local administrator's one-time password with: sudo cat ${PASSWORD_FILE}"
+
+usage() {
+  cat <<EOF
+Usage: portikus reset-admin [--email ADDRESS] [--if-missing]
+
+reset-admin  Give the local administrator a new one-time password, the
+             administrator role, and a working account, and end its
+             sessions.  Creates it if it is missing.  The password goes
+             only to ${PASSWORD_FILE}.
+             --email ADDRESS  the email for an administrator created now
+             --if-missing     do nothing if the account exists; exit 10
+                              while its one-time password is unchanged,
+                              11 once it has chosen its own
+EOF
+}
+
+reset_admin() {
+  if [ "$(id -u)" != 0 ]; then
+    echo "portikus: reset-admin must run as root: sudo portikus reset-admin" >&2
+    exit 1
+  fi
+  if ! grep -q '^DEX_GRPC_ADDR=' "${API_ENV}" 2>/dev/null; then
+    echo "portikus: ${API_ENV} names no DEX_GRPC_ADDR, so this site has no Dex local passwords" >&2
+    exit 1
+  fi
+
+  # The password reaches only this root-only file, never a log or the journal.
+  umask 077
+  tmp="$(mktemp "${PASSWORD_FILE}.XXXXXX")"
+  trap 'rm -f "${tmp}"' EXIT
+
+  # The API's own settings, parsed as systemd parses them for the API.
+  status=0
+  systemd-run --wait --pipe --quiet --collect --uid=portikus \
+    -p EnvironmentFile="${API_ENV}" \
+    /usr/bin/node "${RESET_ADMIN_MAIN}" "$@" >"${tmp}" || status=$?
+
+  case "${status}" in
+    0)
+      if [ ! -s "${tmp}" ]; then
+        echo "portikus: reset-admin printed no password; ${PASSWORD_FILE} is unchanged" >&2
+        exit 1
+      fi
+      mv "${tmp}" "${PASSWORD_FILE}"
+      echo "${READ_LINE}"
+      ;;
+    10)
+      echo "The local administrator has not yet chosen its own password."
+      if [ -e "${PASSWORD_FILE}" ]; then
+        echo "${READ_LINE}"
+      else
+        echo "Its one-time password file is gone; make a new one with: sudo portikus reset-admin"
+      fi
+      exit 10
+      ;;
+    *)
+      exit "${status}"
+      ;;
+  esac
+}
+
+case "${1:-}" in
+  reset-admin)
+    shift
+    reset_admin "$@"
+    ;;
+  -h | --help | help)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

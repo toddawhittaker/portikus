@@ -226,19 +226,17 @@
   when: portikus_idp == 'dex'
   no_log: true
 
-# Dex and the mock are served by Caddy on the public host, so the API
-# reaches either over loopback with a certificate it trusts.
+# The API's one issuer is Dex, or the mock (docs/EPIC-14-2.md ruling 2).
+# Both are served by Caddy on the public host, so the API reaches either
+# over loopback with a certificate it trusts.
 - name: Set the effective identity provider settings
   ansible.builtin.set_fact:
     portikus_effective_oidc_issuer: >-
-      {{ {'dex': portikus_dex_issuer,
-          'mock': portikus_public_url ~ '/mock-idp'}.get(portikus_idp, portikus_oidc_issuer) }}
-    portikus_effective_oidc_client_id: >-
-      {{ {'dex': 'portikus', 'mock': 'portikus-dev'}.get(portikus_idp, portikus_oidc_client_id) }}
+      {{ portikus_dex_issuer if portikus_idp == 'dex' else portikus_public_url ~ '/mock-idp' }}
+    portikus_effective_oidc_client_id: "{{ 'portikus' if portikus_idp == 'dex' else 'portikus-dev' }}"
     portikus_effective_oidc_client_secret: >-
       {{ (portikus_dex_client_secret_file.content | b64decode | trim) if portikus_idp == 'dex'
-         else portikus_mock_client_secret if portikus_idp == 'mock'
-         else portikus_oidc_client_secret }}
+         else portikus_mock_client_secret }}
   no_log: true
 
 - name: Deploy mock identity provider environment file
@@ -281,7 +279,7 @@
 
 # A fresh VM has no tables until the API first starts, and a handler may
 # still owe the restart that migrates.  The users-file import and the
-# setup-code check below both need the current schema; the API runs the
+# local administrator below both need the current schema; the API runs the
 # same migration on every start, so this changes nothing else.
 - name: Bring the database schema up to date
   ansible.builtin.command:
@@ -305,7 +303,7 @@
   when: portikus_idp != 'mock'
 
 # The gRPC client key, and the one-time users-file import, before api.env
-# names the key and the setup-code check below counts administrators.
+# names the key and the local administrator below is made through it.
 - name: Give the API what it needs from Dex
   ansible.builtin.include_role:
     name: dex
@@ -372,47 +370,38 @@
     - portikus-worker
     - portikus-controller
 
-# ── First administrator (docs/archive/epics/EPIC-14.md, rulings 15 and 16) ─────
-# While no enabled administrator exists, print a one-time setup code that
-# the first person to enter it at /setup claims.  A package from before the
-# command existed skips this.
-- name: Look for the setup-code command
+# ── The local administrator (ADR 0031, docs/EPIC-14-2.md rulings 10 to 20) ──
+# Made on the first run.  After that --if-missing leaves the account alone,
+# even one an administrator removed, and its exit status says whether the
+# one-time password is still unchanged (10) or spent (11).  The command
+# writes the password only to a root-only file and prints where it is.  A
+# package from before the command existed skips this.
+- name: Look for the portikus command
   ansible.builtin.stat:
-    path: "{{ portikus_setup_code_script }}"
-  register: portikus_setup_code_command
+    path: /usr/bin/portikus
+  register: portikus_command
+  when: portikus_idp == 'dex'
 
-- name: Issue a setup code when there is no administrator
-  when: portikus_setup_code_command.stat.exists
+- name: Make the local administrator
+  when: portikus_idp == 'dex' and portikus_command.stat.exists
   block:
-    - name: Count the enabled administrators
+    - name: Make the local administrator if there is none
       ansible.builtin.command:
-        argv:
-          - runuser
-          - -u
-          - portikus
-          - --
-          - psql
-          - -X
-          - -tA
-          - -d
-          - "{{ portikus_database_url }}"
-          - -c
-          - "SELECT count(*) FROM users WHERE role = 'administrator' AND disabled_at IS NULL"
-      register: portikus_admin_count
-      changed_when: false
+        argv: [/usr/bin/portikus, reset-admin, --if-missing, --email, "{{ portikus_admin_email }}"]
+      register: portikus_local_admin
+      changed_when: portikus_local_admin.rc == 0
+      failed_when: portikus_local_admin.rc not in [0, 10, 11]
 
-    - name: Issue the setup code
-      ansible.builtin.command:
-        argv: [runuser, -u, portikus, --, /usr/bin/node, "{{ portikus_setup_code_script }}"]
-      environment:
-        DATABASE_URL: "{{ portikus_database_url }}"
-      register: portikus_setup_code
-      changed_when: true
-      when: portikus_admin_count.stdout | trim == '0'
-
-    - name: Show the setup code
+    - name: Say where the one-time password is
       ansible.builtin.debug:
         msg: >-
-          No administrator exists yet.  Open {{ portikus_public_url }}/setup
-          and enter this setup code within the hour: {{ portikus_setup_code.stdout }}
-      when: portikus_setup_code is not skipped
+          {{ ('Made the local administrator, ' ~ portikus_admin_email ~ '.  ') if portikus_local_admin.rc == 0 else '' }}{{
+             portikus_local_admin.stdout_lines | join('  ') }}
+      when: portikus_local_admin.rc in [0, 10]
+
+    # It holds a password that no longer works (ruling 15).
+    - name: Remove the spent one-time password
+      ansible.builtin.file:
+        path: /etc/portikus/admin-password
+        state: absent
+      when: portikus_local_admin.rc == 11

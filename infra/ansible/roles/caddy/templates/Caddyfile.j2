@@ -170,11 +170,6 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	handle /courses* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
-	# The first administrator's setup code (docs/archive/epics/EPIC-14.md, rulings 17 and
-	# 18). The page itself is /setup, served by the bundle below.
-	handle /setup/* {
-		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
-	}
 	# The signed-in user's own editor settings (issue #159).
 	handle /me/* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
