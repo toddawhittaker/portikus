@@ -1,7 +1,7 @@
 import {
-	dexLocalUserId,
 	hashDexPassword,
 	hashSessionToken,
+	localDexUserId,
 	requireUser,
 } from "@portikus/auth";
 import { ChangePasswordRequest } from "@portikus/contracts";
@@ -66,13 +66,10 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 			.select(["oidc_issuer", "oidc_subject"])
 			.where("id", "=", user.id)
 			.executeTakeFirstOrThrow();
-		const dexUserId =
-			row.oidc_issuer === config.OIDC_ISSUER_URL
-				? dexLocalUserId(row.oidc_subject)
-				: null;
+		const dexUserId = localDexUserId(row, config.OIDC_ISSUER_URL);
 		if (dexUserId === null) return notLocal(reply);
 
-		const decision = throttle.check(request.ip);
+		const decision = throttle.attempt(user.id);
 		if (!decision.allowed) {
 			if (decision.audit) {
 				await audit(db, "auth.throttled", `user:${user.id}`, user.id, "denied", {
@@ -90,6 +87,7 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 
 		const actor = `user:${user.id}`;
 		const currentSession = hashSessionToken(request.sessionToken as string);
+		let wrong = false;
 		try {
 			// Found by user ID, so a changed email cannot point at someone else's password.
 			const password = (await dex.listPasswords()).find((p) => p.userId === dexUserId);
@@ -97,7 +95,7 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 			const verified = await dex.verifyPassword(password.email, currentPassword);
 			if (verified === "not_found") return notLocal(reply);
 			if (verified === "wrong") {
-				throttle.fail(request.ip);
+				wrong = true;
 				await audit(db, "user.password_changed", actor, user.id, "failed", {
 					...requestMetadata(request),
 				});
@@ -138,6 +136,8 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 		} catch (err) {
 			if (err instanceof PasswordGone) return notLocal(reply);
 			return dexUnavailable(request, reply, err);
+		} finally {
+			if (!wrong) throttle.giveBack(user.id);
 		}
 		return reply.status(204).send();
 	});

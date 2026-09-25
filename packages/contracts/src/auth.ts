@@ -43,7 +43,8 @@ export const ChangePasswordRequest = z
 		currentPassword: z.string().min(1).max(1024),
 		newPassword: z
 			.string()
-			.min(15, "Use at least 15 characters")
+			// Characters as people count them: code points, not UTF-16 units.
+			.refine((p) => [...p].length >= 15, "Use at least 15 characters")
 			.refine(
 				(p) => new TextEncoder().encode(p).length <= BCRYPT_MAX_BYTES,
 				"Use at most 72 bytes",

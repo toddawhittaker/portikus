@@ -200,21 +200,23 @@ export function registerSigninThrottleRoute(app: FastifyInstance): void {
 }
 
 /**
- * Wrong current passwords on the change form: ten per address in ten
- * minutes (SPEC.md section 5.3). Only failures count, so a person
- * who types their password right is never held back.
+ * Wrong current passwords on the change form: ten per account in ten
+ * minutes (SPEC.md section 5.3; Todd's ruling of 2026-09-25). Each try is
+ * counted before Dex is asked, so parallel requests cannot slip past the
+ * limit, and handed back when it was not a wrong password.
  */
 export function createPasswordChangeThrottle(now: () => number = Date.now) {
-	const failures = createCounter(10, TEN_MINUTES_MS, now);
+	const attempts = createCounter(10, TEN_MINUTES_MS, now);
 	return {
-		/** Whether this address may try again; does not count as a try. */
-		check(ip: string): ThrottleDecision {
-			const window = failures.peek(ip);
-			return decide(window, window.count >= failures.limit);
+		/** Count one try for this account; refused once the limit is used up. */
+		attempt(userId: string): ThrottleDecision {
+			const window = attempts.hit(userId);
+			return decide(window, window.count > attempts.limit);
 		},
-		/** Count one wrong current password. */
-		fail(ip: string): void {
-			failures.hit(ip);
+		/** Give back a try that turned out not to be a wrong password. */
+		giveBack(userId: string): void {
+			const window = attempts.peek(userId);
+			if (window.count > 0) window.count -= 1;
 		},
 	};
 }

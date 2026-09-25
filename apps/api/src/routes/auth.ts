@@ -1,11 +1,11 @@
 import {
 	bindLinkIntent,
 	deleteSession,
-	dexLocalUserId,
 	findLinkIntent,
 	hashSessionToken,
 	type LinkIntent,
 	type LoginState,
+	localDexUserId,
 	loginCookieName,
 	loginCookieOptions,
 	mapRole,
@@ -267,9 +267,7 @@ export function registerAuthRoutes(
 		const signInName = row.preferred_username || row.oidc_subject;
 		// Settings offers Password only where POST /me/password can work (SPEC.md section 5.3).
 		const localPassword =
-			dex !== undefined &&
-			row.oidc_issuer === config.OIDC_ISSUER_URL &&
-			dexLocalUserId(row.oidc_subject) !== null;
+			dex !== undefined && localDexUserId(row, config.OIDC_ISSUER_URL) !== null;
 		const body: MeResponse = { ...request.user, signInName, localPassword };
 		return reply.send(body);
 	});

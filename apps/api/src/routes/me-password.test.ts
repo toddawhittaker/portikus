@@ -307,7 +307,7 @@ describe.skipIf(skip)("POST /me/password", () => {
 		expect(JSON.stringify(lines)).not.toContain("not-the-password");
 	});
 
-	test("ten wrong current passwords per address, then 429, audited once", async () => {
+	test("ten wrong current passwords per account, then 429, audited once", async () => {
 		const jar = new CookieJar();
 		await localAccount("alice", jar);
 		for (let i = 0; i < 10; i++) {
@@ -327,6 +327,67 @@ describe.skipIf(skip)("POST /me/password", () => {
 		const throttled = await auditRows("auth.throttled");
 		expect(throttled).toHaveLength(1);
 		expect(throttled[0]?.metadata).toMatchObject({ scope: "password-change" });
+	});
+
+	test("twenty parallel wrong passwords: at most ten reach Dex", async () => {
+		const jar = new CookieJar();
+		await localAccount("alice", jar);
+		const before = fake.verifyCalls;
+		const results = await Promise.all(
+			Array.from({ length: 20 }, (_, i) =>
+				change(jar, { currentPassword: `wrong-${i}`, newPassword: NEW }),
+			),
+		);
+		expect(fake.verifyCalls - before).toBeLessThanOrEqual(10);
+		expect(results.filter((r) => r.statusCode === 403)).toHaveLength(10);
+		expect(results.filter((r) => r.statusCode === 429)).toHaveLength(10);
+	});
+
+	test("two accounts behind one address do not block each other", async () => {
+		const aliceJar = new CookieJar();
+		const bobJar = new CookieJar();
+		await localAccount("alice", aliceJar);
+		await localAccount("bob", bobJar);
+		for (let i = 0; i < 10; i++) {
+			const res = await change(aliceJar, {
+				currentPassword: `wrong-${i}`,
+				newPassword: NEW,
+			});
+			expect(res.statusCode).toBe(403);
+		}
+		expect(
+			(await change(aliceJar, { currentPassword: "wrong", newPassword: NEW }))
+				.statusCode,
+		).toBe(429);
+		// Same address (inject's), another account: still its own ten.
+		expect(
+			(await change(bobJar, { currentPassword: "wrong", newPassword: NEW })).statusCode,
+		).toBe(403);
+		expect(
+			(await change(bobJar, { currentPassword: CURRENT, newPassword: NEW })).statusCode,
+		).toBe(204);
+	});
+
+	test("a success between wrong passwords leaves the budget as it was", async () => {
+		const jar = new CookieJar();
+		await localAccount("alice", jar);
+		for (let i = 0; i < 9; i++) {
+			const res = await change(jar, {
+				currentPassword: `wrong-${i}`,
+				newPassword: NEW,
+			});
+			expect(res.statusCode).toBe(403);
+		}
+		expect(
+			(await change(jar, { currentPassword: CURRENT, newPassword: NEW })).statusCode,
+		).toBe(204);
+		expect(
+			(await change(jar, { currentPassword: "wrong", newPassword: CURRENT }))
+				.statusCode,
+		).toBe(403);
+		expect(
+			(await change(jar, { currentPassword: NEW, newPassword: CURRENT })).statusCode,
+		).toBe(429);
 	});
 
 	test("a right password does not count against the throttle", async () => {

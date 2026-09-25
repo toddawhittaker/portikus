@@ -109,17 +109,20 @@ interface RawDexClient extends grpc.Client {
 	>;
 }
 
-function loadServiceClient(): new (
+type ClientConstructor = new (
 	address: string,
 	credentials: grpc.ChannelCredentials,
-) => RawDexClient {
+	options: grpc.ChannelOptions,
+) => RawDexClient;
+
+function loadServiceClient(): ClientConstructor {
 	const definition = protoLoader.loadSync(PROTO_PATH, {
 		keepCase: true,
 		longs: String,
 		defaults: true,
 	});
 	const api = grpc.loadPackageDefinition(definition).api as unknown as {
-		Dex: new (address: string, credentials: grpc.ChannelCredentials) => RawDexClient;
+		Dex: ClientConstructor;
 	};
 	return api.Dex;
 }
@@ -144,6 +147,8 @@ export function createDexApi(connection: DexApiConnection): DexApi {
 	const client = new Client(
 		connection.address,
 		grpc.credentials.createSsl(connection.ca, connection.key, connection.cert),
+		// Check the certificate against a name, not the IP, which Node warns about (DEP0123).
+		{ "grpc.ssl_target_name_override": "localhost" },
 	);
 	return {
 		async createPassword(input) {
