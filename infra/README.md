@@ -65,14 +65,16 @@ Alternatively, wait for the SSH port to open.
 ## 5. Configure the VM with Ansible
 
 The VM address is read from the OpenTofu output automatically; pass
-`VM_IP=<ip>` only to override it. People sign in through Dex with accounts
-from a users file on this machine, so create at least one administrator
-first (see "Identity provider" under section 9):
+`VM_IP=<ip>` only to override it. People sign in through Dex by default
+(see "Identity provider" under section 9):
 
 ```
-make users-add USERNAME=carol
 make configure-vm
 ```
+
+On a new VM the play ends by printing a one-time setup code. Open
+`https://<public-host>:<port>/setup` within the hour and enter it to
+create the first administrator.
 
 This installs Incus, creates the LVM thin pool on the data disk, sets
 up the workspace network, profile, and project, and applies the firewall.
@@ -296,11 +298,9 @@ again after `make rebuild-pilot` (that target already calls it).
 
 Then configure the VM, which names the site after the host's LAN address
 so browsers on the LAN reach it through the forward. Sign-in goes through
-Dex, so add at least one administrator account first (see "Identity
-provider" below):
+Dex by default (see "Identity provider" below):
 
 ```
-make users-add USERNAME=carol
 make configure-vm
 ```
 
@@ -364,21 +364,63 @@ leaves libvirt's own rules alone, so the VM keeps its outbound access.
 
 ### Identity provider
 
-`PORTIKUS_IDP` picks how people sign in (ADR 0023):
+`PORTIKUS_IDP` picks how people sign in (ADR 0023, docs/EPIC-14.md). A
+site has one provider; LTI launches work beside any of them.
 
-- `dex`, the default: Dex runs on the VM, and accounts come from a users
-  file you keep on your own machine. This is what the pilot uses.
-- `external`: a real identity provider, such as the institution's.
-- `mock`: the in-repo test provider (ADR 0008), where anyone who reaches the
-  site can pick any account, the administrator included. For development
-  and tests only; never on a VM others can reach.
+- `dex`, the default: Dex runs on the VM and keeps its own passwords,
+  which administrators manage in the Users view. It can also sit in front
+  of an LDAP or Active Directory directory, Entra or Google
+  (`PORTIKUS_DEX_UPSTREAM`). This is what the pilot uses.
+- `entra`: Microsoft Entra ID, one tenant, roles from app roles.
+- `google`: Google Workspace, the listed domains, everyone a student
+  until an administrator grants more.
+- `external`: any other OpenID Connect (OIDC) provider, such as Okta,
+  Keycloak or Shibboleth with its OIDC plugin.
+- `mock`: the in-repo test provider (ADR 0008), where anyone who reaches
+  the site can pick any account, the administrator included. For
+  development and tests only; never on a VM others can reach.
 
-Only the chosen provider runs. Ansible stops and disables the others and
-removes their configuration and secrets, and Caddy answers `/dex` and
-`/mock-idp` with 404 when they are not the provider. The old
-`PORTIKUS_MOCK_IDP=true` is refused with a message; use `PORTIKUS_IDP=mock`.
+docs/OPERATIONS.md, "Sign-in providers", says how to register Portikus
+with each provider and which settings to pass. Only the chosen provider
+runs. Ansible stops and disables the others and removes their
+configuration and secrets, and Caddy answers `/dex` and `/mock-idp` with
+404 when they are not the provider. The old `PORTIKUS_MOCK_IDP=true` is
+refused with a message; use `PORTIKUS_IDP=mock`.
 
-#### Dex and the users file
+The settings, all read from the environment by `make configure-vm`:
+
+| Setting | Used with | What it is |
+|---|---|---|
+| `PORTIKUS_ENTRA_TENANT_ID` | `entra`, or Dex's `microsoft` connector | The tenant's ID, a GUID. The issuer is derived from it. |
+| `PORTIKUS_GOOGLE_DOMAINS` | `google`, or Dex's `google` connector | The allowed domains, separated by commas. |
+| `PORTIKUS_OIDC_ISSUER` | `external` | The provider's issuer URL. |
+| `PORTIKUS_OIDC_CLIENT_ID`, `PORTIKUS_OIDC_CLIENT_SECRET` | `entra`, `google`, `external` | The client Portikus is registered as. The secret needs 32 characters or more. |
+| `PORTIKUS_OIDC_SCOPES` | any | Defaults to `openid profile email`, plus `groups` for Dex. |
+| `PORTIKUS_OIDC_STUDENT_GROUP`, `PORTIKUS_OIDC_INSTRUCTOR_GROUP`, `PORTIKUS_OIDC_ADMIN_GROUP` | any | The group or app role names that give each role. They default to `portikus-students` and so on, or `Portikus.Student` and so on under Entra. |
+| `PORTIKUS_DEX_UPSTREAM` | `dex` | `none` (the default), `ldap`, `microsoft` or `google`. |
+| `PORTIKUS_DEX_UPSTREAM_CLIENT_ID`, `PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET` | Dex's `microsoft` or `google` connector | The client Dex is registered as. The secret needs 16 characters or more. |
+| `PORTIKUS_LDAP_HOST`, `PORTIKUS_LDAP_SCHEMA`, `PORTIKUS_LDAP_BIND_DN`, `PORTIKUS_LDAP_BIND_PASSWORD`, `PORTIKUS_LDAP_USER_BASE_DN`, `PORTIKUS_LDAP_USER_FILTER`, `PORTIKUS_LDAP_GROUP_BASE_DN`, `PORTIKUS_LDAP_ROOT_CA`, `PORTIKUS_LDAP_IP_ALLOW` | Dex's `ldap` connector | The directory. The user filter and the directory's addresses are required. |
+| `PORTIKUS_EGRESS_EXTRA_HOSTS` | any | More hosts the API may reach through the egress proxy, as `host` or `host:port`. |
+| `PORTIKUS_USERS_FILE` | `dex` | The retired users file, imported once (below). |
+
+The Makefile exports these to Ansible from the environment, so the
+secrets never appear in a recipe line. Keep them out of shell history too:
+`read -rs NAME && export NAME`. Bad or missing settings stop the play
+before anything on the VM changes.
+
+Ansible turns them into these API settings in `/etc/portikus/api.env`:
+`OIDC_PROVIDER` (`oidc`, `entra` or `google`), `OIDC_ALLOWED_TENANT`,
+`OIDC_ALLOWED_DOMAINS`, `OIDC_DEFAULT_ROLE` (`student` under Dex and
+Google, `none` otherwise, which refuses someone no group matches),
+`OUTBOUND_PROXY_URL`, and, under Dex only, `DEX_GRPC_ADDR`, `DEX_GRPC_CA`,
+`DEX_GRPC_CERT` and `DEX_GRPC_KEY`.
+
+When no enabled administrator exists, the play ends by printing a
+one-time setup code for `https://<public-host>:<port>/setup`. The first
+person to enter it becomes the administrator (docs/OPERATIONS.md, "The
+first administrator").
+
+#### Dex
 
 Dex has no Debian package and publishes no binaries, so the `dex` role
 builds it on the VM from the upstream commit pinned in `site.yml`
@@ -387,66 +429,46 @@ first run needs GitHub and the Go module proxy and takes a few minutes. A
 later run builds nothing unless the pin changed, and a failed build leaves
 the running binary in place. Dex listens on `127.0.0.1:5556` and Caddy
 serves it at `https://<public-host>:<port>/dex`, which is also its issuer.
-It keeps no sign-in state on disk, so it has nothing to back up. Before a password
-form post reaches Dex, Caddy asks the API's sign-in throttle, because Dex
-has no lockout of its own (#398).
+Before a password form post reaches Dex, its own or the LDAP connector's,
+Caddy asks the API's sign-in throttle, because Dex has no lockout of its
+own (#398).
 
-Accounts live in a users file on the machine that runs Ansible, outside any
-repository checkout, by default `~/.config/portikus/users.json` (override
-with `PORTIKUS_USERS_FILE=<path>`). It holds each user's email, display
-name, role, a fixed random id, and a bcrypt hash of the password, never the
-password itself. Keep a copy in your password manager.
-
-```
-make users-add USERNAME=alice     # create or update; asks for the password twice
-make users-remove USERNAME=alice
-make users-list                   # never shows hashes
-make users-check                  # validate the file
-make users-deploy                 # apply the file to Dex on the VM
-```
-
-`make users-add` asks for the email, display name and role (`student`,
-`instructor` or `administrator`), then for the password twice without echoing it. Passwords
-need at least 12 characters. Students sign in with their email address and
-that password. Nobody can change their own password; to reset one, run
-`make users-add` again for that user and then `make users-deploy`.
-
-Removing a user, resetting a password, or changing a role from
-`administrator` to `student` also ends that user's Portikus sessions and
-preview sessions when `make users-deploy` runs, so nobody keeps the old
-access until their session expires. The deploy compares the file with the
-one it deployed last time, which it keeps on the VM in
-`/etc/portikus-dex/deployed-users.json` (root, mode 0600) as usernames,
-ids, roles and a SHA-256 of each password hash, never the hash itself. It
-writes one `auth.sessions_revoked` audit event naming the usernames, and a
-repeat run with an unchanged file ends nothing. The very first deploy has
-nothing to compare with, so it only records the file. To stop someone at
-once, without waiting for a deploy, disable the account in `/admin`.
-
-`make configure-vm` and `make users-deploy` run `make users-check` first
-and stop if it fails. Ansible reads the file on your machine and renders
-one Dex entry per user into `/etc/portikus-dex/config.yaml` on the VM
-(`root:portikus-dex`, mode 0640), with the group `portikus-students`,
-`portikus-instructors` or `portikus-administrators` from the role. That rendered file is the only
-place on the VM that holds the hashes; the users file itself is never
-copied there.
+Dex keeps its accounts in its own PostgreSQL database, `dex`, owned by
+the `portikus-dex` role and reached over the local socket (ADR 0028). The
+nightly backup dumps it as `dex.dump`. Its gRPC API, which the Users view
+uses to add, reset and remove passwords, listens on `127.0.0.1:5557` and
+accepts only a client certificate from a small certificate authority that
+Ansible keeps in `/etc/portikus/dex-grpc/`. The API's client key is
+`root:portikus`, mode 0640. Caddy never routes to that port. A play
+issues new certificates when fewer than 30 days are left, and restarts
+Dex and the API when it does.
 
 Dex's client secret is generated on the VM into
 `/etc/portikus/dex-client.secret` (root, mode 0600) the first time, the
 same way the controller token and session secret are, and written into
-the API's environment file and Dex's configuration.
+the API's environment file and Dex's configuration,
+`/etc/portikus-dex/config.yaml` (`root:portikus-dex`, mode 0640). An LDAP
+bind password or an upstream client secret is written there too.
 
-#### Moving existing accounts to Dex
+**The users file is retired.** Before Epic 14, Dex's accounts came from a
+users file on the machine that runs Ansible. When that file exists
+(`PORTIKUS_USERS_FILE`, by default `~/.config/portikus/users.json`, mode
+0600) and Dex's storage holds no passwords, the play imports every entry
+through the gRPC API with its own bcrypt hash and user ID, so every
+account keeps its subject and workspace. An administrator or instructor
+in the file becomes that account's stored grant. The import is all or
+nothing, and a later run imports nothing. After the import, delete the
+file.
 
-Accounts made through the mock have the mock as their issuer, so after the
-switch the same people would get new, empty accounts. Before the API
-switches to Dex, the playbook carries each users-file account over to the
-row its mock account already has, matching by email, so the person keeps
-their workspace. It audits every change and signs everyone out once. It is
-safe to repeat: an account already carried over is left alone.
+#### Moving existing accounts from the mock to Dex
 
-To see what it would do without changing anything, run this against a VM
-whose installed release already has the carry-over command:
+Accounts made through the mock have the mock as their issuer, so after a
+switch to Dex the same people would get new, empty accounts. When the
+play has a users file, it carries each of its accounts over to the row
+the mock account already has, matching by email, before the API
+switches to Dex. It audits every change and signs everyone out once. The
+pilot needed this once, on 2026-09-23; it is kept for restoring a backup
+taken before then. To see what it would do without changing anything:
 
 ```
 make identity-carry-over-dry-run
@@ -456,33 +478,20 @@ Each account is reported as already linked, carried (or would carry), new
 (it gets an account at first sign-in), or left behind (an older duplicate,
 issue #302, which is not touched).
 
-#### An external provider
+#### The egress proxy
 
-```
-make configure-vm PORTIKUS_IDP=external \
-  PORTIKUS_OIDC_ISSUER=https://idp.example.edu \
-  PORTIKUS_OIDC_CLIENT_ID=portikus \
-  PORTIKUS_OIDC_CLIENT_SECRET=<secret> \
-  PORTIKUS_OIDC_STUDENT_GROUP=portikus-students \
-  PORTIKUS_OIDC_ADMIN_GROUP=portikus-administrators \
-  PORTIKUS_API_IP_ALLOW=198.51.100.0/24
-```
-
-Ansible refuses to run if the issuer, client id, or client secret is
-missing. Register `https://<public-host>:<port>/auth/callback` as the
-client's redirect URI at the provider, and make sure the provider puts
-group names in a `groups` claim. The scopes default to
-`openid profile email`; set `PORTIKUS_OIDC_SCOPES` if the provider needs
-another scope for groups.
-
-The API's systemd unit allows network traffic to loopback and the
-workspace bridge only. `PORTIKUS_API_IP_ALLOW` takes the provider's address
-ranges (CIDRs, separated by commas) and adds them through the drop-in
-`/etc/systemd/system/portikus-api.service.d/10-idp-egress.conf`, so the API
-can reach the provider without a package change. Check it with
-`systemctl show portikus-api -p IPAddressAllow`. It is accepted only with
-`PORTIKUS_IDP=external` or an LTI platforms file (see "LTI"). Existing accounts need a carry-over to the new
-provider's subjects, which is a separate task (docs/EPIC-12B.md, risk 7).
+The API's systemd unit may reach only loopback and the workspace bridge.
+It reaches its provider and each LMS's keyset through Squid, a forward
+proxy that the `egress_proxy` role runs on `127.0.0.1:3128` (ADR 0027).
+Squid allows only HTTPS to the named hosts, refuses a name that resolves
+to a private address, and caches nothing. The play builds the list from
+the provider's discovery document, the LMS keyset URLs and
+`PORTIKUS_EGRESS_EXTRA_HOSTS`, prints it, and checks the configuration
+with `squid -k parse` before installing it. `PORTIKUS_API_IP_ALLOW` and
+its `10-idp-egress.conf` drop-in are gone; a play that still sets the
+variable stops with a message. Dex's `microsoft` and `google` connectors
+use the same proxy. An LDAP directory is reached directly, through Dex's
+own `IPAddressAllow` drop-in built from `PORTIKUS_LDAP_IP_ALLOW`.
 
 #### The mock, for development
 
@@ -499,10 +508,10 @@ refused). Its client secret is generated on the VM into
 `/etc/portikus/mock-client.secret`, and any other provider removes that
 file along with the mock's environment file.
 
-Passing the client secret through the environment is a known gap: it
-belongs in the SOPS-encrypted secrets under `infra/secrets`, which is not
-wired up yet (STACK.md section 27). Until then the secret is visible to
-anything that can read your shell history or the Ansible process.
+Passing the client secrets through the environment is a known gap: they
+belong in the SOPS-encrypted secrets under `infra/secrets`, which is not
+wired up yet (STACK.md section 27). Until then a secret is visible to
+anything that can read the Ansible process's environment.
 
 The session cookie secret is different: Ansible generates it on the VM
 once into `/etc/portikus/session.secret` and never regenerates it, the
@@ -531,11 +540,11 @@ the VM once, into `/etc/portikus/lti-tool-key.pem` (`root:portikus`, mode
 0640), and never replaced, because every registration pins it. A new
 key would mean updating every LMS.
 
-The API unit may reach only the addresses it is given. A keyset URL that
-names an IP address is allowed exactly, through the same drop-in as an
-external provider (`10-idp-egress.conf`). A keyset URL with a hostname,
-like every cloud LMS, needs its address ranges in `PORTIKUS_API_IP_ALLOW`;
-Ansible names such hosts when it runs.
+The API fetches each platform's keyset through the egress proxy (see
+"The egress proxy" above). The play adds the host of every keyset URL to
+the proxy's allow list, so a cloud LMS needs nothing more. A keyset URL
+that names an IP address, like the mock LMS's, is allowed at that address
+and port only.
 
 Caddy sends `frame-ancestors 'none'` on every control-plane page except
 `/lti/*`, where the API names the registered platforms instead, so an LMS
@@ -628,7 +637,6 @@ ansible-galaxy collection install -r requirements.yml
 export PORTIKUS_VM_IP=192.0.2.10
 export PORTIKUS_MANAGEMENT_CIDR=192.0.2.0/24
 export PORTIKUS_PUBLIC_HOST=portikus.192.0.2.10.nip.io
-export PORTIKUS_USERS_FILE=~/.config/portikus/users.json
 ansible-playbook site.yml
 ```
 
@@ -645,8 +653,9 @@ make smoke-test VM_IP=192.0.2.10 \
 
 The playbook already installed the newest published release, so `make
 deploy-app` is only for testing a local build. Trust Caddy's certificate
-as described under "Browser access", and create the users file with
-`make users-add` before running the playbook (see "Identity provider").
+as described under "Browser access", and claim the setup code the
+playbook prints to create the first administrator (see "Identity
+provider").
 
 ### Limits today
 
