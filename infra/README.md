@@ -395,7 +395,7 @@ The settings, all read from the environment by `make configure-vm`:
 | `PORTIKUS_GOOGLE_DOMAINS` | `google`, or Dex's `google` connector | The allowed domains, separated by commas. |
 | `PORTIKUS_OIDC_ISSUER` | `external` | The provider's issuer URL. |
 | `PORTIKUS_OIDC_CLIENT_ID`, `PORTIKUS_OIDC_CLIENT_SECRET` | `entra`, `google`, `external` | The client Portikus is registered as. The secret needs 32 characters or more. |
-| `PORTIKUS_OIDC_SCOPES` | any | Defaults to `openid profile email`, plus `groups` for Dex. |
+| `PORTIKUS_OIDC_SCOPES` | any | Defaults to `openid profile email`, plus `groups` for Dex with its own passwords or LDAP. Never `groups` behind Dex's `microsoft` or `google` connector, where students can create groups; the play refuses it. |
 | `PORTIKUS_OIDC_STUDENT_GROUP`, `PORTIKUS_OIDC_INSTRUCTOR_GROUP`, `PORTIKUS_OIDC_ADMIN_GROUP` | any | The group or app role names that give each role. They default to `portikus-students` and so on, or `Portikus.Student` and so on under Entra. |
 | `PORTIKUS_DEX_UPSTREAM` | `dex` | `none` (the default), `ldap`, `microsoft` or `google`. |
 | `PORTIKUS_DEX_UPSTREAM_CLIENT_ID`, `PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET` | Dex's `microsoft` or `google` connector | The client Dex is registered as. The secret needs 16 characters or more. |
@@ -460,31 +460,14 @@ in the file becomes that account's stored grant. The import is all or
 nothing, and a later run imports nothing. After the import, delete the
 file.
 
-#### Moving existing accounts from the mock to Dex
-
-Accounts made through the mock have the mock as their issuer, so after a
-switch to Dex the same people would get new, empty accounts. When the
-play has a users file, it carries each of its accounts over to the row
-the mock account already has, matching by email, before the API
-switches to Dex. It audits every change and signs everyone out once. The
-pilot needed this once, on 2026-09-23; it is kept for restoring a backup
-taken before then. To see what it would do without changing anything:
-
-```
-make identity-carry-over-dry-run
-```
-
-Each account is reported as already linked, carried (or would carry), new
-(it gets an account at first sign-in), or left behind (an older duplicate,
-issue #302, which is not touched).
-
 #### The egress proxy
 
 The API's systemd unit may reach only loopback and the workspace bridge.
 It reaches its provider and each LMS's keyset through Squid, a forward
 proxy that the `egress_proxy` role runs on `127.0.0.1:3128` (ADR 0027).
 Squid allows only HTTPS to the named hosts, refuses a name that resolves
-to a private address, and caches nothing. The play builds the list from
+to a private address, refuses any address given directly unless it is
+listed, never matches a name through reverse DNS, and caches nothing. The play builds the list from
 the provider's discovery document, the LMS keyset URLs and
 `PORTIKUS_EGRESS_EXTRA_HOSTS`, prints it, and checks the configuration
 with `squid -k parse` before installing it. `PORTIKUS_API_IP_ALLOW` and

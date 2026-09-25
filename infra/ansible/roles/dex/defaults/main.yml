@@ -26,6 +26,10 @@ dex_import_input: /run/portikus-dex-import.json
 # The upstream connector's settings (portikus_ldap_* and
 # portikus_dex_upstream_client_*) are set in site.yml.
 dex_ldap_root_ca_path: "{{ dex_config_dir }}/ldap-ca.crt"
+# The id becomes the Portikus account's subject, so it must never be reused.
+# OpenLDAP's entryUUID is not.  AD's objectGUID is binary, which Dex
+# v2.45.1 cannot put in a subject, so AD keeps sAMAccountName: disable a
+# departed account, never delete it (docs/OPERATIONS.md).
 dex_ldap_attributes:
   ad:
     username: sAMAccountName
@@ -34,6 +38,6 @@ dex_ldap_attributes:
     group_filter: (objectClass=group)
   openldap:
     username: uid
-    id: uid
+    id: entryUUID
     name: cn
     group_filter: (objectClass=groupOfNames)

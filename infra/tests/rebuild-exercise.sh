@@ -135,7 +135,7 @@ forget_old_key() {
 
 build_package() {
   "${M[@]}" build-deb || return
-  # build-deb prunes devDependencies, which the users check needs.
+  # build-deb prunes devDependencies, which this checkout still needs.
   (cd "$ROOT" && pnpm install --frozen-lockfile)
 }
 

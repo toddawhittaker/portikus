@@ -5,7 +5,6 @@
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy \
-       identity-carry-over-dry-run \
        backup-setup backup backup-install-timer restore \
        mock-lms lti-mock-register lti-mock-unregister
 
@@ -219,10 +218,6 @@ ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR
 	PORTIKUS_OIDC_INSTRUCTOR_GROUP=$(PORTIKUS_OIDC_INSTRUCTOR_GROUP) \
 	PORTIKUS_API_IP_ALLOW="$(PORTIKUS_API_IP_ALLOW)" \
 	PORTIKUS_LTI_PLATFORMS_FILE="$(abspath $(PORTIKUS_LTI_PLATFORMS_FILE))"
-
-identity-carry-over-dry-run: wait-vm ## Show which existing accounts the move to Dex would carry over; changes nothing
-	@test "$(PORTIKUS_IDP)" = dex || { echo "identity-carry-over-dry-run: only for PORTIKUS_IDP=dex"; exit 1; }
-	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags carry_over -e portikus_carry_over_apply=false
 
 configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|entra|google|external|mock picks the sign-in provider, PORTIKUS_USERS_FILE=<path> the users file imported once into Dex)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml

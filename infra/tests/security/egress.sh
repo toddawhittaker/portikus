@@ -51,6 +51,9 @@ fi
 check "through the proxy, the API is refused an unlisted host" eg_refused_as_api https://example.com/
 check "through the proxy, the API is refused a private address" eg_refused_as_api https://10.0.0.1/
 check "through the proxy, the API is refused the metadata address" eg_refused_as_api http://169.254.169.254/
+# Only a name can match the list; an address is never matched by its reverse DNS name.
+check "through the proxy, the API is refused a public address given directly" eg_refused_as_api https://1.1.1.1/
+check "through the proxy, the API is refused a public IPv6 address given directly" eg_refused_as_api "https://[2606:4700:4700::1111]/"
 
 # Every listed host name: reached when all its addresses are public,
 # refused when any is private (ADR 0027).
@@ -66,7 +69,7 @@ sys.exit(1)
 ' "$@"
 }
 # One line per port: the port, then its host names.
-eg_listed=$(sec_ssh "sudo sed -n 's/^acl portikus_hosts_\([0-9]*\) dstdomain \(.*\)$/\1 \2/p' /etc/squid/squid.conf" 2>/dev/null)
+eg_listed=$(sec_ssh "sudo sed -n 's/^acl portikus_hosts_\([0-9]*\) dstdomain -n \(.*\)$/\1 \2/p' /etc/squid/squid.conf" 2>/dev/null)
 eg_count=0
 while read -r eg_port eg_hosts; do
   [ -n "$eg_port" ] || continue
@@ -82,6 +85,11 @@ while read -r eg_port eg_hosts; do
     else
       check "through the proxy, the API reaches listed host ${eg_host}:${eg_port}" \
         eg_connected_as_api "https://${eg_host}:${eg_port}/"
+      # The same address given directly is refused, whatever its reverse DNS name.
+      eg_address=${eg_addresses%% *}
+      [[ "$eg_address" != *:* ]] || eg_address="[${eg_address}]"
+      check "through the proxy, the API is refused ${eg_host}'s address ${eg_address} given directly" \
+        eg_refused_as_api "https://${eg_address}:${eg_port}/"
     fi
   done
 done <<<"$eg_listed"

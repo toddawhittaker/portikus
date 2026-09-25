@@ -12,7 +12,8 @@
 #     one volume that fails to export does not stop the others;
 #   - restore.sh verifies a set, and refuses the wrong VM, an older release,
 #     or a VM that already holds workspace volumes or rows, before stopping
-#     anything; a restore leaves every workspace stopped;
+#     anything; a restore leaves every workspace stopped, skips Dex's
+#     accounts on a VM without Dex, and starts Dex again if loading fails;
 #   - neither script trusts what came from the VM: a lying VM or a doctored
 #     set is refused before any of it reaches a file name or a command, and a
 #     file name with a control character is left out of the checks rather
@@ -177,6 +178,11 @@ case "\$cmd" in
       *"'users '"*) echo "users 3 workspaces 1 projects 6" ;;
       *"FROM users) +"*) echo "\${FAKE_ROWS:-0}" ;;
     esac ;;
+  *"systemctl cat portikus-dex"*) [ -n "\${FAKE_NO_DEX:-}" ] && echo no || echo yes ;;
+  *pg_restore*)
+    dump=\$(cat)
+    [ -n "\${FAKE_DEX_RESTORE_FAILS:-}" ] && [[ "\$dump" == *"fake dex dump"* ]] && exit 1
+    true ;;
   *) cat >/dev/null ;;
 esac
 EOF
@@ -347,6 +353,23 @@ expect "restore loads Dex's accounts with Dex stopped, then starts it" \
   "grep -A2 'systemctl stop portikus-dex' '$log' | grep -q 'pg_restore' && grep -q 'systemctl start portikus-dex' '$log'"
 expect "restore samples the plainly named file" "grep -q 'file pull .*projects/demo/a.txt' '$log'"
 expect "restore leaves the names with a tab or a newline out of the sample" "! grep -qE 'tab|line\\.txt' '$log'"
+
+: >"$log"
+if FAKE_NO_DEX=1 run_restore --target-name portikus-rehearsal 10.101.0.210 "$newest" >"${work}/restore.out" 2>&1 \
+  && grep -q 'runs no Dex; skipped' "${work}/restore.out"; then
+  ok "restore onto a VM without Dex skips Dex's accounts and finishes"
+else
+  bad "restore onto a VM without Dex skips Dex's accounts and finishes"; cat "${work}/restore.out"
+fi
+expect "without Dex, restore never stops or starts it" "! grep -qE 'systemctl (stop|start) portikus-dex' '$log'"
+: >"$log"
+if FAKE_DEX_RESTORE_FAILS=1 run_restore --target-name portikus-rehearsal 10.101.0.210 "$newest" >/dev/null 2>&1; then
+  bad "restore fails when Dex's accounts cannot be loaded"
+else
+  ok "restore fails when Dex's accounts cannot be loaded"
+fi
+expect "a failed Dex load still starts Dex again" \
+  "grep -A10 'systemctl stop portikus-dex' '$log' | grep -q 'systemctl start portikus-dex'"
 
 echo "--- hostile input ---"
 lying_vm() { # LABEL ENV...

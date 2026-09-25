@@ -1,7 +1,7 @@
 # Managed by Ansible (egress_proxy role).  The API's forward proxy (ADR 0027):
 # CONNECT to port 443 of listed host names, never at a private address; plain
 # HTTP too for an entry listed with its own port; listed IPv4 addresses
-# exactly.  Nothing is cached.  Rules are read top to bottom and the first
+# exactly, and no other address.  Nothing is cached.  Rules are read top to bottom and the first
 # match wins.
 {% set ipv4 = '^[0-9]{1,3}(\\.[0-9]{1,3}){3}:' %}
 {% set ip_entries = egress_proxy_allowed | select('match', ipv4) | list %}
@@ -25,7 +25,7 @@ http_access deny !localhost
 
 {% if egress_proxy_site_host %}
 # The site itself, pinned to loopback in /etc/hosts: the issuer of Dex or the mock.
-acl portikus_site dstdomain {{ egress_proxy_site_host }}
+acl portikus_site dstdomain -n {{ egress_proxy_site_host }}
 acl portikus_site_port port {{ egress_proxy_site_port }}
 acl portikus_site_address dst 127.0.0.1
 http_access allow portikus_connect portikus_site portikus_site_port portikus_site_address
@@ -39,11 +39,16 @@ acl portikus_address_{{ loop.index }}_port port {{ port }}
 http_access allow portikus_fetch portikus_address_{{ loop.index }} portikus_address_{{ loop.index }}_port
 
 {% endfor %}
+# Any other address given directly is refused: only a name can match the
+# list, and -n keeps squid from matching an address by its reverse DNS name.
+acl portikus_ip_literal dstdom_regex -n -i ^(0x[0-9a-f]+|[0-9]+)(\.(0x[0-9a-f]+|[0-9]+))*$ :
+http_access deny portikus_ip_literal
+
 # A listed name pointed at an internal address is refused from here on.
 http_access deny portikus_private
 
 {% for port in host_ports %}
-acl portikus_hosts_{{ port }} dstdomain {{ host_entries | select('match', '.*:' ~ port ~ '$') | map('regex_replace', ':[0-9]+$', '') | join(' ') }}
+acl portikus_hosts_{{ port }} dstdomain -n {{ host_entries | select('match', '.*:' ~ port ~ '$') | map('regex_replace', ':[0-9]+$', '') | join(' ') }}
 acl portikus_port_{{ port }} port {{ port }}
 {# Plain HTTP only where a port was listed explicitly, as for an http:// keyset. #}
 http_access allow {{ 'portikus_connect' if port == '443' else 'portikus_fetch' }} portikus_hosts_{{ port }} portikus_port_{{ port }}
