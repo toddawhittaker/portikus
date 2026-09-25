@@ -384,20 +384,40 @@ test("a revived terminal keeps the name it was given", async ({ page, context })
 	await expect(page.getByRole("tab", { name: "Terminal 1" })).toHaveCount(0);
 });
 
-test("a workspace is held to eight terminals", async ({ page, context }) => {
+// Issue #474: the limit is a toast that names it, not an outage line.
+test("a workspace is held to twenty terminals and says so in a toast", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
 	const student = await createStudent(context);
 	await openWithTerminal(page, student.workspaceId);
 
-	for (let index = 2; index <= 8; index += 1) {
+	for (let index = 2; index <= 20; index += 1) {
 		await newTerminal(page);
 		await expect(page.getByRole("tab", { name: `Terminal ${index}` })).toBeVisible();
 	}
 
 	await newTerminal(page);
 
-	await expect(page.getByRole("alert")).toContainText("Terminals are unavailable");
-	await expect(tabs(page).getByRole("tab")).toHaveCount(8);
-	expect(await terminalIds(student.workspaceId)).toHaveLength(8);
+	await expect(
+		page
+			.locator(".pk-toast")
+			.getByText(
+				"You can have up to 20 terminals open at once. Close one to open another.",
+			),
+	).toBeVisible();
+	await expect(page.getByText("Terminals are unavailable")).toHaveCount(0);
+	await expect(tabs(page).getByRole("tab")).toHaveCount(20);
+	expect(await terminalIds(student.workspaceId)).toHaveLength(20);
+
+	// Closing one frees a slot for a new one.
+	await page.getByRole("button", { name: "Close Terminal 20" }).click();
+	await expect(tabs(page).getByRole("tab")).toHaveCount(19);
+	await expect.poll(() => terminalIds(student.workspaceId)).toHaveLength(19);
+	await newTerminal(page);
+	await expect(tabs(page).getByRole("tab")).toHaveCount(20);
+	expect(await terminalIds(student.workspaceId)).toHaveLength(20);
 });
 
 test("ending the session sends the user back to sign in", async ({ page, context }) => {

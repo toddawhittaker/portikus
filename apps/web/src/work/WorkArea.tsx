@@ -233,7 +233,7 @@ export function WorkArea({
 
 	/**
 	 * Delete the terminal and let the refreshed list remove the pane. The pane
-	 * may stay for one round trip; a failure shows the terminals error line.
+	 * may stay for one round trip; a failure shows a toast.
 	 */
 	function closeTerminal(terminalId: string) {
 		void terminals.close(terminalId).catch(() => {});

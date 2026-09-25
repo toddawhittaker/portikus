@@ -776,7 +776,10 @@ bytes without interpreting them:
 
 Limits, enforced by the server:
 
-- at most 8 terminals per workspace;
+- at most 20 terminals per workspace. The cap stops a runaway client from
+  creating terminals without end; it is not the resource limit, which is
+  the container's CPU, memory and process limits. A refused create shows
+  the user a toast naming the limit;
 - at most 4 simultaneous attachments per terminal;
 - at most 64 KiB of data in one input frame, and at most 1 MiB in any
   frame the browser sends;

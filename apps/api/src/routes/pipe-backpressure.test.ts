@@ -62,7 +62,9 @@ test("pausing happens once while the socket stays backed up", () => {
 	expect(h.calls).toEqual(["pause"]);
 });
 
-test("cancel stops the drain poll when the socket closes", () => {
+// A paused agent socket never reads the agent's close reply, so closing it
+// would hang until ws gives up 30 s later.
+test("cancel stops the drain poll and resumes a paused agent socket", () => {
 	const h = harness();
 	h.socket.bufferedAmount = 2000;
 	h.apply();
@@ -70,6 +72,12 @@ test("cancel stops the drain poll when the socket closes", () => {
 
 	h.socket.bufferedAmount = 0;
 	vi.advanceTimersByTime(500);
-	expect(h.calls).toEqual(["pause"]);
+	expect(h.calls).toEqual(["pause", "resume"]);
 	expect(vi.getTimerCount()).toBe(0);
+});
+
+test("cancel does not resume a socket it never paused", () => {
+	const h = harness();
+	h.cancel();
+	expect(h.calls).toEqual([]);
 });
