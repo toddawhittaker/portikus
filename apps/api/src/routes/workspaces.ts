@@ -68,13 +68,15 @@ export function registerWorkspaceRoutes(
 		// (SPEC.md Epic 8; BROWSER-HANDLING.md section 8).
 		const owner = await db
 			.selectFrom("users")
-			.select("preferred_username")
+			.select(["preferred_username", "oidc_issuer", "oidc_subject"])
 			.where("id", "=", ownerUserId)
 			.executeTakeFirst();
-		const baseLabel = deriveWorkspaceLabel(
-			owner?.preferred_username ?? null,
-			randomHex8(),
-		);
+		const hex = randomHex8();
+		let baseLabel = deriveWorkspaceLabel(owner?.preferred_username ?? null, hex);
+		// A course (LTI) account falls back to its LTI user ID, never random hex (SPEC.md, Epic 8).
+		if (baseLabel === `ws-${hex}` && owner?.oidc_issuer.startsWith("lti:")) {
+			baseLabel = deriveWorkspaceLabel(owner.oidc_subject, hex);
+		}
 
 		try {
 			await insertWithLabel(db, baseLabel, {

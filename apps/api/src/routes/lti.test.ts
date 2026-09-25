@@ -473,6 +473,67 @@ describe.skipIf(skip)("a good launch", () => {
 		}
 		expect(labels[0]).not.toBe(labels[1]);
 	});
+
+	/** Launch, create the workspace, and return its label (SPEC.md, Epic 8; issue #549). */
+	async function labelFor(
+		sub: string,
+		claims?: (c: Record<string, unknown>) => void,
+	): Promise<string> {
+		const { res } = await launch({ sub }, { claims });
+		const created = await app.inject({
+			method: "POST",
+			url: "/workspaces",
+			headers: {
+				cookie: `portikus_session=${sessionCookie(res)}`,
+				origin: new URL(PUBLIC_URL).origin,
+			},
+		});
+		expect(created.statusCode).toBe(201);
+		return created.json().label as string;
+	}
+
+	test("the label is the preferred_username when the launch sends one", async () => {
+		const label = await labelFor("s-1", (c) => {
+			c.preferred_username = "Sam.S";
+		});
+		expect(label).toBe("sam-s");
+	});
+
+	test("the label is the custom claim username when there is no preferred_username", async () => {
+		const label = await labelFor("s-1", (c) => {
+			c["https://purl.imsglobal.org/spec/lti/claim/custom"] = { username: "jdoe" };
+		});
+		expect(label).toBe("jdoe");
+	});
+
+	test("with no username the label is the cleaned LTI user ID, not random hex", async () => {
+		expect(await labelFor("5D0C1C7E-1f7a-4c1e-9a51-0b8e6f3a1003")).toBe(
+			"u5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a1003",
+		);
+		expect(await labelFor("Opaque_ID|42")).toBe("opaque-id-42");
+	});
+
+	test("a clashing LTI user ID gets the -2 suffix", async () => {
+		expect(await labelFor("student_1")).toBe("student-1");
+		expect(await labelFor("Student.1")).toBe("student-1-2");
+	});
+
+	test("a returning launch refreshes the stored username", async () => {
+		await launch({ sub: "s-1" });
+		await launch(
+			{ sub: "s-1" },
+			{
+				claims: (c) => {
+					c.preferred_username = "sam";
+				},
+			},
+		);
+		const user = await testDb.db
+			.selectFrom("users")
+			.select("preferred_username")
+			.executeTakeFirstOrThrow();
+		expect(user.preferred_username).toBe("sam");
+	});
 });
 
 describe.skipIf(skip)("a launch from a linked course identity", () => {

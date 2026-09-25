@@ -133,6 +133,7 @@ describe("validateLaunchToken", () => {
 				subject: "user-123",
 				displayName: "Ivy Instructor",
 				email: "ivy@example.edu",
+				username: null,
 				role: "instructor",
 				context: { id: "ctx-1", title: "CS 101" },
 				targetLinkUri: `${PUBLIC_URL}/`,
@@ -175,6 +176,31 @@ describe("validateLaunchToken", () => {
 	])("display name from %s", async (_label, extra, expected) => {
 		const result = await validate(token({ ...claims(), ...extra }));
 		expect(result.ok && result.launch.displayName).toBe(expected);
+	});
+
+	test.each<[string, Record<string, unknown>, string | null]>([
+		["preferred_username", { preferred_username: " ivy " }, "ivy"],
+		["the custom claim", { [`${CLAIM}custom`]: { username: "ivy.i" } }, "ivy.i"],
+		[
+			"preferred_username over the custom claim",
+			{ preferred_username: "ivy", [`${CLAIM}custom`]: { username: "other" } },
+			"ivy",
+		],
+		[
+			"a blank preferred_username",
+			{ preferred_username: " ", [`${CLAIM}custom`]: { username: "c" } },
+			"c",
+		],
+		["a non-string custom username", { [`${CLAIM}custom`]: { username: 7 } }, null],
+		[
+			"a custom claim that is not an object",
+			{ [`${CLAIM}custom`]: "username=x" },
+			null,
+		],
+		["nothing", {}, null],
+	])("username from %s", async (_label, extra, expected) => {
+		const result = await validate(token({ ...claims(), ...extra }));
+		expect(result.ok && result.launch.username).toBe(expected);
 	});
 
 	test("an absent email is null and an untitled context has an empty title", async () => {

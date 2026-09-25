@@ -44,6 +44,8 @@ export interface LtiLaunch {
 	displayName: string;
 	/** For the profile only; never used to find or link an account. */
 	email: string | null;
+	/** `preferred_username`, else the custom claim `username`; names the workspace (SPEC.md, Epic 8). */
+	username: string | null;
 	role: LtiRole;
 	/** Absent when the launch had no context claim: sign in, record no membership. */
 	context: { id: string; title: string } | null;
@@ -112,6 +114,15 @@ function displayNameOf(claims: Record<string, unknown>): string {
 		.map((p) => p.trim())
 		.filter((p) => p !== "");
 	return parts.length > 0 ? parts.join(" ") : "LTI user";
+}
+
+/** LTI 1.3 has no username claim, so an LMS may send one as a custom parameter. */
+function usernameOf(claims: Record<string, unknown>): string | null {
+	const custom = objectClaim(claims[`${CLAIM}custom`]);
+	for (const value of [claims.preferred_username, custom?.username]) {
+		if (isString(value) && value.trim() !== "") return value.trim();
+	}
+	return null;
 }
 
 /**
@@ -229,6 +240,7 @@ export async function validateLaunchToken(
 			subject: sub,
 			displayName: displayNameOf(claims),
 			email: isString(claims.email) && claims.email !== "" ? claims.email : null,
+			username: usernameOf(claims),
 			role: mapLtiRoles(claims[`${CLAIM}roles`]),
 			context,
 			targetLinkUri: target,

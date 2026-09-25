@@ -652,6 +652,8 @@ pilot `https://portikus.192.168.10.48.nip.io:8443`.
 - Turn the key on, and note its client id (the number under Details).
   Add the tool to the account or course by that client id, and note the
   deployment id Canvas shows for it.
+- Custom Fields: `username=$Canvas.user.loginId`, so each student's
+  workspace is named after their login (see "The workspace name" below).
 - Ask Canvas to **open in a new window**: in the placement's settings, set
   the window target to `_blank` (in the configuration JSON,
   `"windowTarget": "_blank"`).
@@ -671,10 +673,20 @@ modules, External tool, **Manage tools**, and configures a tool manually:
 - Redirection URI(s): `https://<site>/lti/launch`.
 - Default launch container: **New window**.
 - Under Privacy, share the launcher's name (and email if wanted) with the tool.
+- Custom parameters: `username=$User.username`, so each student's
+  workspace is named after their login (see "The workspace name" below).
 
 After saving, the tool's "View configuration details" shows the platform
 ID (the issuer), client ID, deployment ID, public keyset URL and
 authentication request URL. Those go in the platforms file.
+
+**The workspace name.** A student's workspace name starts every preview
+address and the terminal prompt. LTI 1.3 has no standard username, so
+Portikus reads the `preferred_username` claim if the LMS sends one, else
+the custom parameter `username` set above. Without either, the name is
+made from the LMS's user ID, which is often a long opaque string. The name
+is fixed when the workspace is created, so add the custom parameter before
+students first launch.
 
 "Open in a new window" matters. Inside a frame, the browser often blocks
 the cookie the launch needs. Portikus then shows a page with an **Open
