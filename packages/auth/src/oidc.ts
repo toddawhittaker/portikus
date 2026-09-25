@@ -118,7 +118,7 @@ export function createOidcClient(opts: AuthOptions): OidcClient {
 				throw new OidcError("the identity provider returned no ID token claims");
 			}
 
-			// Dex puts `groups` in userinfo, so it is always asked (docs/EPIC-14-2.md ruling 3).
+			// Dex puts `groups` in userinfo, so it is always asked (SPEC.md section 5.1).
 			let claims: Record<string, unknown>;
 			try {
 				const userinfo = await client.fetchUserInfo(

@@ -7,6 +7,7 @@ import {
 } from "@portikus/observability";
 import Fastify, { type FastifyBaseLogger } from "fastify";
 import { exportJWK, generateKeyPair, type JWK, type KeyObject, SignJWT } from "jose";
+import { dexLocalSubject } from "../dex-subject.js";
 
 /**
  * A small OIDC provider for tests, local development, and the pilot VM.
@@ -74,6 +75,15 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		sub: "gail",
 		email: "gail@example.edu",
 		name: "Gail Student",
+		groups: [MOCK_GROUPS.student],
+	},
+	// The local administrator's Dex subject (SPEC.md section 5.1), for
+	// e2e/change-password.spec.ts. The mock admits only grouped people; the
+	// account's grant makes it an administrator.
+	admin: {
+		sub: dexLocalSubject("local-admin"),
+		email: "admin@example.edu",
+		name: "Local administrator",
 		groups: [MOCK_GROUPS.student],
 	},
 };

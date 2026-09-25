@@ -5,13 +5,13 @@ import { dexLocalSubject } from "./dex-subject.js";
 import { precreateDexAccount } from "./links.js";
 
 /**
- * The local administrator every install has (docs/EPIC-14-2.md rulings 10
- * to 19; ADR 0031). Its Dex user ID is a constant, so `reset-admin` can
+ * The local administrator every install has (SPEC.md section 5.1;
+ * ADR 0031). Its Dex user ID is a constant, so `reset-admin` can
  * always find both its password and its Portikus account.
  */
 export const LOCAL_ADMIN_USER_ID = "local-admin";
 
-/** Exit codes of `reset-admin --if-missing` when the account exists (ruling 19). */
+/** Exit codes of `reset-admin --if-missing` when the account exists (SPEC.md section 5.1). */
 export const EXIT_EXISTS_FLAG_SET = 10;
 export const EXIT_EXISTS_FLAG_CLEAR = 11;
 
@@ -148,7 +148,7 @@ export interface ResetAdminDeps {
 }
 
 /**
- * The command behind `portikus reset-admin` (ruling 20). Standard output
+ * The command behind `portikus reset-admin` (SPEC.md section 5.1). Standard output
  * carries only the password, which the caller pipes into the root-only
  * file; every other message goes to standard error. Returns the exit code:
  * 0 with a new password, 10 or 11 when `--if-missing` found the account

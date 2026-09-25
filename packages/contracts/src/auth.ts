@@ -18,23 +18,24 @@ export const AuthUser = z.object({
 	signInName: z.string().min(1).optional(),
 	/**
 	 * While true the account can use only the change-password page
-	 * (docs/EPIC-14-2.md ruling 18). `GET /auth/me` always sends it.
+	 * (SPEC.md section 5.3).
 	 */
-	mustChangePassword: z.boolean().optional(),
-	/** The account is a Dex local password, so Settings offers Password. */
-	localPassword: z.boolean().optional(),
+	mustChangePassword: z.boolean(),
 });
 export type AuthUser = z.infer<typeof AuthUser>;
 
 /** Response body for `GET /auth/me`. */
-export const MeResponse = AuthUser;
+export const MeResponse = AuthUser.extend({
+	/** The account is a Dex local password, so Settings offers Password. */
+	localPassword: z.boolean(),
+});
 export type MeResponse = z.infer<typeof MeResponse>;
 
 /** bcrypt, which Dex uses, reads at most 72 bytes. */
 const BCRYPT_MAX_BYTES = 72;
 
 /**
- * `POST /me/password` (docs/EPIC-14-2.md ruling 16). At least 15 characters
+ * `POST /me/password` (SPEC.md section 5.3). At least 15 characters
  * (NIST SP 800-63B revision 4 for a single factor), no composition rules.
  */
 export const ChangePasswordRequest = z

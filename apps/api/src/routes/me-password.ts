@@ -15,9 +15,9 @@ import { audit, requestMetadata } from "./start-session.js";
 class PasswordGone extends Error {}
 
 /**
- * Settings, Password: change a Dex local password (docs/EPIC-14-2.md
- * ruling 16). The only route an account with the flag may use besides
- * `/auth/*` (ruling 18). No password or hash is ever logged or audited.
+ * Settings, Password: change a Dex local password (SPEC.md section
+ * 5.3). The only route an account with the flag may use besides
+ * `/auth/*` (SPEC.md section 5.3). No password or hash is ever logged or audited.
  */
 export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps): void {
 	const { db, config } = deps;

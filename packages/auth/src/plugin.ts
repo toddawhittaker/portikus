@@ -121,7 +121,7 @@ function passesGate(request: FastifyRequest): boolean {
 
 /**
  * Why this account may use nothing but the change-password page, or null
- * when it may use everything (docs/EPIC-14-2.md ruling 18). The one place
+ * when it may use everything (SPEC.md section 5.3). The one place
  * the gate is decided; the preview gateway asks it too.
  */
 export function sessionGate(

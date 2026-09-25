@@ -134,7 +134,7 @@ export function registerAdminDexUserRoutes(
 					// Dex sends the username as the name claim, so the admin supplies it (SPEC.md section 5.1).
 					displayName: name,
 					role,
-					// The person chooses their own at first sign-in (docs/EPIC-14-2.md ruling 17).
+					// The person chooses their own at first sign-in (SPEC.md section 5.2).
 					mustChangePassword: true,
 				});
 				await audit(trx, "dex_user.created", `user:${actor.id}`, newId, "ok", {

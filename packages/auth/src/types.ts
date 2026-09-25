@@ -6,7 +6,7 @@ export interface AuthUser {
 	email: string | null;
 	displayName: string;
 	role: Role;
-	/** The account must change its password before anything else (docs/EPIC-14-2.md ruling 18). */
+	/** The account must change its password before anything else (SPEC.md section 5.3). */
 	mustChangePassword: boolean;
 }
 

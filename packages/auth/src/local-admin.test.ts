@@ -16,8 +16,8 @@ import {
 } from "./testing/fake-dex-grpc.js";
 
 /**
- * The local administrator and `reset-admin` (docs/EPIC-14-2.md rulings 10
- * to 20) against a database and the fake Dex gRPC server.
+ * The local administrator and `reset-admin` (SPEC.md section
+ * 5.1) against a database and the fake Dex gRPC server.
  */
 
 const ISSUER = "https://portikus.example.edu/dex";

@@ -2,7 +2,7 @@ import { type Kysely, sql } from "kysely";
 
 /**
  * The "must change password" flag and the end of the setup code
- * (docs/EPIC-14-2.md, "Data model and configuration"; ADR 0031).
+ * (SPEC.md section 5.1; ADR 0031).
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`alter table users add column must_change_password boolean not null default false`.execute(
