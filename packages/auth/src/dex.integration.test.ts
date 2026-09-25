@@ -51,6 +51,8 @@ const auth: AuthOptions = {
 	studentGroup: "portikus-students",
 	adminGroup: "portikus-administrators",
 	instructorGroup: "portikus-instructors",
+	// As Ansible sets it under Dex (docs/EPIC-14.md ruling 11).
+	defaultRole: "student",
 	cookieSecret: "a-test-cookie-secret-value",
 	sessionTtlSeconds: 3600,
 };
