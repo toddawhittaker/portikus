@@ -156,7 +156,8 @@ export type ListInstancesResponse = z.infer<typeof ListInstancesResponse>;
 export const InstanceUsage = z.object({
 	name: z.string().min(1),
 	/** CPU time in nanoseconds since the instance started. */
-	cpuUsageNs: z.number().int().nonnegative(),
+	// Not .int(): a counter above 2^53 is a valid, if imprecise, number.
+	cpuUsageNs: z.number().nonnegative(),
 	/** `limits.cpu` as a count, or the host's CPU count when unset. */
 	cpuLimit: z.number().int().positive(),
 	/** The working set: usage without reclaimable file cache. */

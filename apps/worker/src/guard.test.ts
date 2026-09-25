@@ -6,6 +6,7 @@ import {
 	type TestDb,
 } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { FakeControllerClient } from "./fake-controller.js";
 import { allowanceFor, createGuard, SAMPLE_RETENTION_MINUTES } from "./guard.js";
@@ -145,8 +146,9 @@ function harness(opts: {
 		restartWorker() {
 			tick = createGuard({ db: tdb.db, controller, logger, now });
 		},
-		/** The instance restarted: the CPU counter and the allowance reset. */
-		restartInstance() {
+		/** Stopped for `n` minutes with no samples, then started: the counter and allowance reset. */
+		stopFor(n: number) {
+			minute += n;
 			cpuNs = 0;
 			allowance = null;
 		},
@@ -263,18 +265,110 @@ test.skipIf(skip)("workspace overrides set the window and the share", async () =
 	});
 });
 
-test.skipIf(skip)("a restart mid-window starts a new window", async () => {
+// Usage is remembered across restarts (Todd's ruling, 2026-09-25).
+test.skipIf(skip)(
+	"stopping for a minute in every 26 still averages above the threshold",
+	async () => {
+		const ws = await insertWorkspace();
+		const h = harness({ instance: ws.instance, busy: () => 1 });
+		await h.tick();
+		await h.steps(25);
+		h.stopFor(1);
+		await h.steps(3);
+		// 28 minutes since the first sample: not yet a full window.
+		expect((await row(ws.id)).cpu_throttle).toBeNull();
+		await h.step();
+		// 29 busy minutes out of 30.
+		expect((await row(ws.id)).cpu_throttle).toMatchObject({
+			averagePercent: 96.7,
+			allowance: "100ms/100ms",
+		});
+		for (let cycle = 0; cycle < 3; cycle++) {
+			await h.steps(21);
+			h.stopFor(1);
+			await h.steps(4);
+		}
+		expect((await audits(ws.id)).map((a) => a.action)).toEqual([
+			"workspace.cpu_throttled",
+		]);
+	},
+);
+
+test.skipIf(skip)("a steady 79% is not throttled across restarts", async () => {
+	const ws = await insertWorkspace();
+	const h = harness({ instance: ws.instance, busy: () => 0.79 });
+	await h.tick();
+	for (let cycle = 0; cycle < 4; cycle++) {
+		await h.steps(25);
+		h.stopFor(1);
+	}
+	await h.steps(25);
+	expect((await row(ws.id)).cpu_throttle).toBeNull();
+	expect(await audits(ws.id)).toEqual([]);
+});
+
+test.skipIf(skip)("a throttled workspace that restarts starts fresh", async () => {
 	const ws = await insertWorkspace();
 	const h = harness({ instance: ws.instance, busy: () => 1 });
 	await h.tick();
-	await h.steps(20);
-	h.restartInstance();
-	await h.steps(20);
-	// 40 minutes busy in all, but only 20 since the restart.
+	await h.steps(30);
+	const throttle = (await row(ws.id)).cpu_throttle;
+	expect(throttle).not.toBeNull();
+
+	// What the stop does (reconcile.ts clearGuardAtStop, ADR 0032).
+	await tdb.db
+		.updateTable("workspaces")
+		.set({ cpu_throttle: null })
+		.where("id", "=", ws.id)
+		.execute();
+	await tdb.db
+		.deleteFrom("workspace_usage_samples")
+		.where("workspace_id", "=", ws.id)
+		.where("observed_at", "<=", new Date(throttle?.at ?? 0))
+		.execute();
+	h.stopFor(1);
+	await h.steps(30);
+	// The first sample after the restart is not yet a window old.
 	expect((await row(ws.id)).cpu_throttle).toBeNull();
-	await h.steps(11);
+	await h.steps(2);
 	expect((await row(ws.id)).cpu_throttle).not.toBeNull();
 });
+
+test.skipIf(skip)(
+	"a workspace that stops between the read and the judgement is neither throttled nor flagged",
+	async () => {
+		const ws = await insertWorkspace();
+		const h = harness({ instance: ws.instance, busy: () => 1, memory: () => 0.99 });
+		await h.tick();
+		await h.steps(29);
+		expect((await row(ws.id)).cpu_throttle).toBeNull();
+		// Memory was flagged at half a window; clear it so this tick judges both again.
+		await tdb.db
+			.updateTable("workspaces")
+			.set({ memory_flag: null })
+			.where("id", "=", ws.id)
+			.execute();
+		await tdb.db.deleteFrom("audit_events").where("target", "=", ws.id).execute();
+		// Storing the sample happens after the guard read the row as running.
+		await sql`create function guard_test_stop() returns trigger language plpgsql as $$
+			begin
+				update workspaces set state = 'stopped' where id = new.workspace_id;
+				return new;
+			end $$`.execute(tdb.db);
+		await sql`create trigger guard_test_stop after insert on workspace_usage_samples
+			for each row execute function guard_test_stop()`.execute(tdb.db);
+		try {
+			await h.step();
+		} finally {
+			await sql`drop trigger guard_test_stop on workspace_usage_samples`.execute(
+				tdb.db,
+			);
+			await sql`drop function guard_test_stop()`.execute(tdb.db);
+		}
+		expect(await row(ws.id)).toEqual({ cpu_throttle: null, memory_flag: null });
+		expect(await audits(ws.id)).toEqual([]);
+	},
+);
 
 test.skipIf(skip)(
 	"a worker restart and a controller that lost the allowance both end with it set",

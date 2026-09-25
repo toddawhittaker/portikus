@@ -1,4 +1,8 @@
-import type { InstanceUsage } from "@portikus/contracts";
+import {
+	type EffectiveGuard,
+	effectiveGuard,
+	type InstanceUsage,
+} from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
@@ -18,13 +22,6 @@ export interface GuardOptions {
 	controller: ControllerClient;
 	logger: Logger;
 	now?: () => Date;
-}
-
-interface Effective {
-	cpuThresholdPercent: number;
-	memoryThresholdPercent: number;
-	windowMinutes: number;
-	throttleSharePercent: number;
 }
 
 type Throttle = NonNullable<Database["workspaces"]["cpu_throttle"]["__select__"]>;
@@ -78,6 +75,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 					"memory_guard_threshold_percent",
 					"guard_window_minutes",
 					"cpu_throttle_share_percent",
+					"idle_stop_minutes",
 				])
 				.where("id", "=", 1)
 				.executeTakeFirst();
@@ -104,19 +102,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 					let throttle = row.cpu_throttle;
 					await recordSample(row.id, inst, at);
 					if (settings) {
-						const effective: Effective = {
-							cpuThresholdPercent:
-								row.guard_config?.cpuThresholdPercent ??
-								settings.cpu_guard_threshold_percent,
-							memoryThresholdPercent:
-								row.guard_config?.memoryThresholdPercent ??
-								settings.memory_guard_threshold_percent,
-							windowMinutes:
-								row.guard_config?.windowMinutes ?? settings.guard_window_minutes,
-							throttleSharePercent:
-								row.guard_config?.throttleSharePercent ??
-								settings.cpu_throttle_share_percent,
-						};
+						const effective = effectiveGuard(settings, row.guard_config);
 						if (!throttle) throttle = await judgeCpu(row.id, inst, effective, at);
 						if (!row.memory_flag) await judgeMemory(row.id, effective, at);
 					}
@@ -152,20 +138,6 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 		inst: InstanceUsage,
 		at: Date,
 	): Promise<void> {
-		// A counter lower than the last sample means the instance restarted: start a new window.
-		const last = await db
-			.selectFrom("workspace_usage_samples")
-			.select("cpu_usage_ns")
-			.where("workspace_id", "=", id)
-			.orderBy("observed_at", "desc")
-			.limit(1)
-			.executeTakeFirst();
-		if (last && BigInt(last.cpu_usage_ns) > BigInt(inst.cpuUsageNs)) {
-			await db
-				.deleteFrom("workspace_usage_samples")
-				.where("workspace_id", "=", id)
-				.execute();
-		}
 		await db
 			.insertInto("workspace_usage_samples")
 			.values({
@@ -179,27 +151,48 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			.execute();
 	}
 
-	/** Throttle when the CPU average over the window is above the threshold; returns the new row. */
+	/**
+	 * Throttle when CPU use over the last window of wall-clock time averages
+	 * above the threshold; returns the new row. Usage is remembered across
+	 * restarts (Todd's ruling, 2026-09-25): the CPU time between consecutive
+	 * samples is summed, a counter drop counts as a restart from zero, and
+	 * stopped time counts as no use. The first judgement waits until the
+	 * oldest kept sample is at least a window old, stopped time included.
+	 */
 	async function judgeCpu(
 		id: string,
 		inst: InstanceUsage,
-		effective: Effective,
+		effective: EffectiveGuard,
 		at: Date,
 	): Promise<Throttle | null> {
 		const windowStart = new Date(at.getTime() - effective.windowMinutes * 60_000);
-		const then = await db
+		const anchor = await db
 			.selectFrom("workspace_usage_samples")
-			.select(["observed_at", "cpu_usage_ns"])
+			.select("observed_at")
 			.where("workspace_id", "=", id)
 			.where("observed_at", "<=", windowStart)
 			.orderBy("observed_at", "desc")
 			.limit(1)
 			.executeTakeFirst();
-		if (!then) return null;
-		const elapsedNs = (at.getTime() - then.observed_at.getTime()) * 1e6;
+		if (!anchor) return null;
+		const samples = await db
+			.selectFrom("workspace_usage_samples")
+			.select("cpu_usage_ns")
+			.where("workspace_id", "=", id)
+			.where("observed_at", ">=", anchor.observed_at)
+			.where("observed_at", "<=", at)
+			.orderBy("observed_at", "asc")
+			.orderBy("id", "asc")
+			.execute();
+		let usedNs = 0n;
+		for (let i = 1; i < samples.length; i++) {
+			const before = BigInt(samples[i - 1]?.cpu_usage_ns ?? 0);
+			const after = BigInt(samples[i]?.cpu_usage_ns ?? 0);
+			usedNs += after >= before ? after - before : after;
+		}
+		const elapsedNs = (at.getTime() - anchor.observed_at.getTime()) * 1e6;
 		if (elapsedNs <= 0) return null;
-		const usedNs = inst.cpuUsageNs - Number(then.cpu_usage_ns);
-		const average = (usedNs / (elapsedNs * inst.cpuLimit)) * 100;
+		const average = (Number(usedNs) / (elapsedNs * inst.cpuLimit)) * 100;
 		if (!(average > effective.cpuThresholdPercent)) return null;
 
 		const throttle: Throttle = {
@@ -215,6 +208,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 				.updateTable("workspaces")
 				.set({ cpu_throttle: JSON.stringify(throttle) })
 				.where("id", "=", id)
+				.where("state", "=", "running")
 				.where("cpu_throttle", "is", null)
 				.executeTakeFirst();
 			if (Number(updated.numUpdatedRows) === 0) return false;
@@ -247,7 +241,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 	/** Flag when memory over the window averages above the threshold, with at least half the samples. */
 	async function judgeMemory(
 		id: string,
-		effective: Effective,
+		effective: EffectiveGuard,
 		at: Date,
 	): Promise<void> {
 		const windowStart = new Date(at.getTime() - effective.windowMinutes * 60_000);
@@ -275,6 +269,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 				.updateTable("workspaces")
 				.set({ memory_flag: JSON.stringify(flag) })
 				.where("id", "=", id)
+				.where("state", "=", "running")
 				.where("memory_flag", "is", null)
 				.executeTakeFirst();
 			if (Number(updated.numUpdatedRows) === 0) return false;

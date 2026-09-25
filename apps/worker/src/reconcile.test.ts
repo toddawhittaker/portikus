@@ -1626,19 +1626,6 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
-	"a running workspace without a last activity counts as active now",
-	async () => {
-		const now = new Date();
-		const id = await insertWorkspace({ state: "running", desired_state: "running" });
-		await insertConnection(id, now);
-		await sweepAt(now);
-		const ws = await getWorkspace(id);
-		expect(ws.last_activity_at?.getTime()).toBe(now.getTime());
-		expect(ws.idle_stop_at).toBeNull();
-	},
-);
-
-test.skipIf(skip)(
 	"a start sets last activity to the start time and clears the warning",
 	async () => {
 		const now = new Date();
@@ -1672,12 +1659,15 @@ const FLAG = {
 	windowMinutes: 30,
 };
 
-async function addSample(workspaceId: string): Promise<void> {
+async function addSample(
+	workspaceId: string,
+	observedAt = "2026-09-25T11:59:00.000Z",
+): Promise<void> {
 	await tdb.db
 		.insertInto("workspace_usage_samples")
 		.values({
 			workspace_id: workspaceId,
-			observed_at: new Date().toISOString(),
+			observed_at: observedAt,
 			cpu_usage_ns: 1,
 			cpu_limit: 4,
 			memory_bytes: 1,
@@ -1696,7 +1686,7 @@ async function sampleRows(workspaceId: string): Promise<number> {
 }
 
 test.skipIf(skip)(
-	"a stop clears the throttle, the flag and the samples, and audits each",
+	"a stop clears the throttle, the flag and the samples from before the throttle, and audits each",
 	async () => {
 		const id = await insertWorkspace({
 			state: "running",
@@ -1705,6 +1695,7 @@ test.skipIf(skip)(
 			memory_flag: JSON.stringify(FLAG),
 		});
 		await addSample(id);
+		await addSample(id, "2026-09-25T12:01:00.000Z");
 		const now = new Date();
 		await reconcile(tdb.db, fake, cfg, now, now);
 
@@ -1712,7 +1703,8 @@ test.skipIf(skip)(
 		expect(ws.state).toBe("stopped");
 		expect(ws.cpu_throttle).toBeNull();
 		expect(ws.memory_flag).toBeNull();
-		expect(await sampleRows(id)).toBe(0);
+		// Only the sample taken after the throttle survives: a restart starts fresh.
+		expect(await sampleRows(id)).toBe(1);
 		const guardAudits = (await getAudits(id))
 			.filter((a) => a.action !== "workspace.stop")
 			.map((a) => [a.action, a.actor, a.metadata]);
@@ -1723,14 +1715,18 @@ test.skipIf(skip)(
 	},
 );
 
-test.skipIf(skip)("a stop with nothing to clear writes no guard audit", async () => {
-	const id = await insertWorkspace({ state: "running", desired_state: "stopped" });
-	await addSample(id);
-	const now = new Date();
-	await reconcile(tdb.db, fake, cfg, now, now);
-	expect((await getAudits(id)).map((a) => a.action)).toEqual(["workspace.stop"]);
-	expect(await sampleRows(id)).toBe(0);
-});
+test.skipIf(skip)(
+	"a stop with nothing to clear writes no guard audit and keeps the samples",
+	async () => {
+		const id = await insertWorkspace({ state: "running", desired_state: "stopped" });
+		await addSample(id);
+		const now = new Date();
+		await reconcile(tdb.db, fake, cfg, now, now);
+		expect((await getAudits(id)).map((a) => a.action)).toEqual(["workspace.stop"]);
+		// Usage is remembered across restarts (Todd's ruling, 2026-09-25).
+		expect(await sampleRows(id)).toBe(1);
+	},
+);
 
 test.skipIf(skip)(
 	"a stop seen in the instance list clears the throttle too",

@@ -669,9 +669,14 @@ export function registerPreviewRoutes(
 			}
 		}
 
-		// Opening a page is the owner's activity; assets, fetches and a dev
-		// server's reload socket are not (ADR 0032).
-		if (headers["sec-fetch-dest"] === "document") {
+		// Only a user-started navigation of a page or the Preview iframe counts;
+		// browsers set Sec-Fetch-User only then and scripts cannot forge it, so
+		// self-reloads, assets and fetches never keep a workspace awake (ADR 0032).
+		const dest = headers["sec-fetch-dest"];
+		if (
+			(dest === "document" || dest === "iframe") &&
+			headers["sec-fetch-user"] === "?1"
+		) {
 			await recordActivity(db, workspace.id);
 		}
 

@@ -1588,12 +1588,22 @@ async function pendingIdleStop(): Promise<void> {
 }
 
 test.skipIf(skip)(
-	"assets, fetches and sockets in a preview are not activity",
+	"assets, fetches, sockets and script reloads in a preview are not activity",
 	async () => {
 		const token = await openPreview(5173);
 		await pendingIdleStop();
-		for (const dest of ["script", "style", "image", "empty", "iframe", undefined]) {
-			const extra: Record<string, string> = dest ? { "sec-fetch-dest": dest } : {};
+		const cases: Record<string, string>[] = [
+			{ "sec-fetch-dest": "script" },
+			{ "sec-fetch-dest": "style" },
+			{ "sec-fetch-dest": "image", "sec-fetch-user": "?1" },
+			{ "sec-fetch-dest": "empty" },
+			{ "sec-fetch-dest": "iframe" },
+			// A reload the page started by script carries no Sec-Fetch-User.
+			{ "sec-fetch-dest": "document" },
+			{ "sec-fetch-dest": "document", "sec-fetch-user": "?0" },
+			{},
+		];
+		for (const extra of cases) {
 			const response = await authorize(token, previewHostFor(5173), { extra });
 			expect(response.statusCode).toBe(200);
 		}
@@ -1607,20 +1617,20 @@ test.skipIf(skip)("a refused page load is not activity", async () => {
 	const token = await openPreview(5173);
 	await pendingIdleStop();
 	const response = await authorize(token, previewHostFor(3000), {
-		extra: { "sec-fetch-dest": "document" },
+		extra: { "sec-fetch-dest": "document", "sec-fetch-user": "?1" },
 	});
 	expect(response.statusCode).toBe(403);
 	expect((await activityRow()).last_activity_at).toBeNull();
 });
 
 test.skipIf(skip)(
-	"a page load in a preview is activity, at most once a minute",
+	"a user-started page load in a preview is activity, at most once a minute",
 	async () => {
 		const token = await openPreview(5173);
 		await pendingIdleStop();
 		const load = () =>
 			authorize(token, previewHostFor(5173), {
-				extra: { "sec-fetch-dest": "document" },
+				extra: { "sec-fetch-dest": "document", "sec-fetch-user": "?1" },
 			});
 
 		expect((await load()).statusCode).toBe(200);
@@ -1634,5 +1644,20 @@ test.skipIf(skip)(
 		row = await activityRow();
 		expect(row.last_activity_at).toBeNull();
 		expect(row.idle_stop_at).not.toBeNull();
+	},
+);
+
+test.skipIf(skip)(
+	"a user-started load in the Preview tab iframe is activity",
+	async () => {
+		const token = await openPreview(5173);
+		await pendingIdleStop();
+		const response = await authorize(token, previewHostFor(5173), {
+			extra: { "sec-fetch-dest": "iframe", "sec-fetch-user": "?1" },
+		});
+		expect(response.statusCode).toBe(200);
+		const row = await activityRow();
+		expect(row.last_activity_at).not.toBeNull();
+		expect(row.idle_stop_at).toBeNull();
 	},
 );

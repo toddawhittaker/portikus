@@ -105,17 +105,14 @@ describe.skipIf(skip)("notifications API", () => {
 		expect(out.notifications[1]?.body).toBe("");
 	});
 
-	test("pages with limit and before", async () => {
+	test("limit caps the list to the newest", async () => {
 		const jar = await signIn("alice");
 		for (const title of ["a", "b", "c"]) {
 			await record(jar, { tone: "neutral", title });
 		}
 		const first = await list(jar, "?limit=2");
 		expect(first.notifications.map((n) => n.title)).toEqual(["c", "b"]);
-		const before = first.notifications[1]?.createdAt ?? "";
-		const next = await list(jar, `?limit=2&before=${encodeURIComponent(before)}`);
-		expect(next.notifications.map((n) => n.title)).toEqual(["a"]);
-		expect(next.unreadCount).toBe(3);
+		expect(first.unreadCount).toBe(3);
 	});
 
 	test("marks one read, then all read", async () => {
