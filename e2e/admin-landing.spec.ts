@@ -52,7 +52,8 @@ test("Open my workspace makes the workspace and opens it in this tab", async ({
 	const adminId = await createAdmin(context);
 	await page.goto("/admin");
 
-	await page.getByTestId("open-my-workspace").click();
+	await page.getByTestId("me").click();
+	await page.getByRole("menuitem", { name: "Open my workspace" }).click();
 
 	await expect(page).toHaveURL(/\/workspaces\/[0-9a-f-]{36}$/, { timeout: 15_000 });
 	const ids = await workspacesOf(adminId);
@@ -65,7 +66,8 @@ test("Open my workspace makes the workspace and opens it in this tab", async ({
 
 	// A second open reuses the same workspace.
 	await page.goto("/admin");
-	await page.getByTestId("open-my-workspace").click();
+	await page.getByTestId("me").click();
+	await page.getByRole("menuitem", { name: "Open my workspace" }).click();
 	await expect(page).toHaveURL(`${WEB_ORIGIN}/workspaces/${ids[0]}`, {
 		timeout: 15_000,
 	});

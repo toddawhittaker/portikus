@@ -53,7 +53,7 @@ test("an administrator goes to the administration page and gets no workspace (is
 	const { router } = renderApp("/");
 
 	await waitFor(() => expect(router.state.location.pathname).toBe("/admin"));
-	await screen.findByTestId("open-my-workspace");
+	await screen.findByTestId("open-my-workspace-status");
 	const posted = fetch.mock.calls.some(
 		([url, init]) => url === "/workspaces" && init?.method === "POST",
 	);

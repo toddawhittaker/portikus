@@ -441,6 +441,11 @@ function stubAdminWithWorkspace(ensure: () => Response | Promise<Response>) {
 	});
 }
 
+async function openMyWorkspaceItem(): Promise<HTMLElement> {
+	fireEvent.pointerDown(await screen.findByTestId("me"), { button: 0, ctrlKey: false });
+	return screen.findByTestId("open-my-workspace");
+}
+
 function workspacePosts(fetch: ReturnType<typeof stubFetch>): number {
 	return fetch.mock.calls.filter(
 		([url, init]) => url === "/workspaces" && init?.method === "POST",
@@ -454,13 +459,15 @@ test("Open my workspace makes the workspace and goes there (issue #534)", async 
 	);
 	const { router } = renderApp("/admin");
 
-	const button = await screen.findByTestId("open-my-workspace");
-	expect(button.textContent).toBe("Open my workspace");
+	const item = await openMyWorkspaceItem();
+	expect(item.textContent).toBe("Open my workspace");
 	expect(screen.queryByTestId("back-to-workspace")).toBeNull();
+	// A menu item now, not a header button (issue #550).
+	expect(screen.queryByRole("button", { name: "Open my workspace" })).toBeNull();
 	// Nothing is made until the administrator asks.
 	expect(workspacePosts(fetch)).toBe(0);
 
-	fireEvent.click(button);
+	fireEvent.click(item);
 
 	await waitFor(() =>
 		expect(router.state.location.pathname).toBe(`/workspaces/${WORKSPACE.id}`),
@@ -470,7 +477,7 @@ test("Open my workspace makes the workspace and goes there (issue #534)", async 
 
 test("Open my workspace shows it is working, then an error as a toast", async () => {
 	let answer: (response: Response) => void = () => {};
-	stubAdminWithWorkspace(
+	const fetch = stubAdminWithWorkspace(
 		() =>
 			new Promise<Response>((resolve) => {
 				answer = resolve;
@@ -478,15 +485,17 @@ test("Open my workspace shows it is working, then an error as a toast", async ()
 	);
 	const { router } = renderApp("/admin");
 
-	const button = await screen.findByTestId("open-my-workspace");
-	fireEvent.click(button);
+	fireEvent.click(await openMyWorkspaceItem());
 
-	// A live region announces the wait; aria-busy on the button would not.
+	// The live region sits outside the menu, so it announces after the menu closes.
 	const status = screen.getByTestId("open-my-workspace-status");
 	expect(status.getAttribute("role")).toBe("status");
 	await waitFor(() => expect(status.textContent).toBe("Opening your workspace"));
-	expect(button.textContent).toBe("Opening your workspace…");
-	expect(button.hasAttribute("aria-busy")).toBe(false);
+	expect(screen.queryByTestId("open-my-workspace")).toBeNull();
+
+	// Choosing it again while it is opening sends no second request.
+	fireEvent.click(await openMyWorkspaceItem());
+	expect(workspacePosts(fetch)).toBe(1);
 
 	answer(json(503, { code: "UNAVAILABLE", message: "Try again soon." }));
 
