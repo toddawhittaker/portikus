@@ -304,7 +304,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			(await this.ensureRecoveryDevice(name, opts.recoveryGiB, signal));
 
 		// A throttle never outlives a stop: every start begins at full speed.
-		await this.removeLeftoverAllowance(name, signal);
+		await this.writeCpuAllowance(name, null, signal);
 
 		await this.client.request(
 			"PUT",
@@ -802,27 +802,6 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		this.log.info({ instance: name, imageFingerprint }, "instance rebuilt");
 
 		return { imageFingerprint };
-	}
-
-	/**
-	 * Remove an allowance left on the stopped instance (ADR 0032). A plain
-	 * read first, so a start without one makes no guarded write.
-	 */
-	private async removeLeftoverAllowance(
-		name: string,
-		signal: AbortSignal,
-	): Promise<void> {
-		const inst = (await this.client.request(
-			"GET",
-			`/1.0/instances/${enc(name)}`,
-			undefined,
-			signal,
-		)) as Partial<InstanceConfig>;
-		if (inst.config?.[CPU_ALLOWANCE_KEY] === undefined) {
-			return;
-		}
-		await this.writeCpuAllowance(name, null, signal);
-		this.log.info({ instance: name }, "cpu allowance removed at start");
 	}
 
 	async setCpuAllowance(name: string, allowance: string | null): Promise<void> {

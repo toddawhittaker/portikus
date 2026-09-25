@@ -181,9 +181,11 @@ async function endOpenTerminals(
 
 /**
  * Clear what the resource guard holds for a workspace that has stopped: the
- * throttle, the memory flag, the idle warning and the samples, auditing each
- * cleared mark with reason "stopped" (ADR 0032). The controller removes the
- * allowance itself at the next start.
+ * throttle, the memory flag and the idle warning, auditing each cleared mark
+ * with reason "stopped" (ADR 0032). Samples are kept so usage is remembered
+ * across restarts, except that a cleared throttle drops the samples from
+ * before it, so a restart after a throttle starts fresh. The controller
+ * removes the allowance itself at the next start.
  */
 async function clearGuardAtStop(db: Kysely<Database>, id: string): Promise<void> {
 	const before = await db
@@ -196,11 +198,12 @@ async function clearGuardAtStop(db: Kysely<Database>, id: string): Promise<void>
 		.set({ cpu_throttle: null, memory_flag: null, idle_stop_at: null })
 		.where("id", "=", id)
 		.execute();
-	await db
-		.deleteFrom("workspace_usage_samples")
-		.where("workspace_id", "=", id)
-		.execute();
 	if (before?.cpu_throttle) {
+		await db
+			.deleteFrom("workspace_usage_samples")
+			.where("workspace_id", "=", id)
+			.where("observed_at", "<=", new Date(before.cpu_throttle.at))
+			.execute();
 		await audit(db, id, "workspace.cpu_throttle_lifted", "ok", { reason: "stopped" });
 	}
 	if (before?.memory_flag) {
@@ -459,14 +462,6 @@ export async function reconcile(
 	// and 0 means never. It runs whether or not a browser is connected; the
 	// grace period above may still stop a workspace first.
 	const idle = sql`coalesce((ws.guard_config->>'idleStopMinutes')::int, s.idle_stop_minutes)`;
-
-	// A workspace running from before idle stop existed counts as active now.
-	await db
-		.updateTable("workspaces")
-		.set({ last_activity_at: now.toISOString() })
-		.where("state", "=", "running")
-		.where("last_activity_at", "is", null)
-		.execute();
 
 	// Idle turned off since the warning: withdraw it.
 	await sql`

@@ -37,6 +37,13 @@ describe("the resource guard's controller contracts (ADR 0032)", () => {
 		expect(InstanceUsage.safeParse(missing).success).toBe(false);
 	});
 
+	test("a CPU counter above 2^53 still parses, so one instance cannot fail the listing", () => {
+		const huge = { ...usage, cpuUsageNs: 2 ** 60 };
+		expect(InstanceUsageResponse.safeParse({ instances: [usage, huge] }).success).toBe(
+			true,
+		);
+	});
+
 	test("a usage row drops anything beyond the totals", () => {
 		const parsed = InstanceUsage.parse({ ...usage, processes: ["xmrig"] });
 		expect(parsed).toEqual(usage);

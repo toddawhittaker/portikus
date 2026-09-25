@@ -28,7 +28,8 @@ afterAll(async () => {
 });
 
 function respond(res: http.ServerResponse, status: number, body: unknown): void {
-	res.writeHead(status, { "Content-Type": "application/json" });
+	// Incus sends an ETag on every instance read; the start's allowance check needs one.
+	res.writeHead(status, { "Content-Type": "application/json", ETag: '"e1"' });
 	res.end(JSON.stringify(body));
 }
 
