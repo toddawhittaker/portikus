@@ -187,8 +187,12 @@
     # Template patches, re-applied after every build: the logo moves into the
     # sign-in card with a text alternative, and the card becomes the main
     # landmark; each page has a first-level heading, names its language and
-    # keeps the natural tab order; the words match the Portikus sign-in page;
-    # a failed sign-in is announced to screen readers.
+    # keeps the natural tab order; each connector is one link, not a button
+    # inside a link; the sign-in fields name what browsers should fill; the
+    # words match the Portikus sign-in page; a failed sign-in is announced to
+    # screen readers and marks the password field invalid.  Dex's own
+    # template braces are escaped or carried by a backreference, so Ansible
+    # never evaluates them.
     - name: Put the logo in the Dex sign-in card
       ansible.builtin.replace:
         path: "{{ dex_web_dir }}/templates/header.html"
@@ -204,16 +208,15 @@
       loop: [approval.html, device.html, device_success.html, error.html, login.html, oob.html, password.html]
       notify: Restart portikus-dex
 
-    - name: Drop the Dex password form's positive tab order
+    - name: Drop the positive tab order from the Dex forms
       ansible.builtin.replace:
-        path: "{{ dex_web_dir }}/templates/password.html"
+        path: "{{ dex_web_dir }}/templates/{{ item }}"
         regexp: ' tabindex="[0-9]+"'
         replace: ''
+      loop: [device.html, password.html]
       notify: Restart portikus-dex
 
-    # The Portikus sign-in page's words. Dex's own template braces are escaped
-    # or carried by a backreference, so Ansible never evaluates them.
-    - name: Word the Dex pages like the Portikus sign-in page
+    - name: Patch the Dex sign-in forms and words
       ansible.builtin.replace:
         path: "{{ dex_web_dir }}/templates/{{ item.file }}"
         regexp: "{{ item.regexp }}"
@@ -225,8 +228,18 @@
         - file: password.html
           regexp: 'Invalid (\{\{ \.UsernamePrompt) \}\} and password\.'
           replace: 'That \1 | lower }} or password is wrong.'
+        - file: password.html
+          regexp: '(id="login" name="login" type="text") class='
+          replace: '\1 autocomplete="username" class='
+        - file: password.html
+          regexp: '(id="password" name="password" type="password") (class="theme-form-input" placeholder="password" \{\{ if \.Invalid \}\}) autofocus'
+          replace: '\1 autocomplete="current-password" \2 autofocus aria-invalid="true" aria-describedby="login-error"'
         - {file: login.html, regexp: '>Log in to \{\{ issuer \}\} <', replace: '>Sign in to Portikus<'}
         - {file: login.html, regexp: '>Log in with ', replace: '>Sign in with '}
+        - file: login.html
+          regexp: '<a href="([^"]*)" target="_self">\s*<button class="dex-btn theme-btn-provider">'
+          replace: '<a class="dex-btn theme-btn-provider" href="\1" target="_self">'
+        - {file: login.html, regexp: '</span>\s*</button>\s*</a>', replace: '</span>\n        </a>'}
       loop_control:
         label: "{{ item.file }}: {{ item.regexp }}"
       notify: Restart portikus-dex
@@ -244,6 +257,20 @@
         regexp: '<div id="login-error" class="dex-error-box">'
         replace: '<div id="login-error" class="dex-error-box" role="alert">'
       notify: Restart portikus-dex
+
+    # A Dex upgrade can change a template so a patch silently stops matching.
+    - name: Check every Dex template patch landed
+      ansible.builtin.shell:
+        cmd: >-
+          grep -q 'role="main"' header.html && grep -q 'lang="en"' header.html
+          && grep -q 'role="alert"' password.html
+          && grep -q 'autocomplete="current-password"' password.html
+          && grep -q 'aria-describedby="login-error"' password.html
+          && ! grep -q 'tabindex=' password.html device.html
+          && ! grep -q '<h2 class="theme-heading">' ./*.html
+          && ! grep -q '<button' login.html
+        chdir: "{{ dex_web_dir }}/templates"
+      changed_when: false
 
     # ── Client secret (generated once) ───────────────────────────
 

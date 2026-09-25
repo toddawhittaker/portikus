@@ -2447,12 +2447,17 @@ heading, and drop the password form's positive `tabindex`, beside the
 two earlier ones (`lang="en"` and `role="alert"`). The pages also use the
 Portikus words: the title "Sign in, Portikus", the heading "Sign in to
 Portikus", a "Sign in" button, and "That email address or password is
-wrong." after a failed sign-in.
+wrong." after a failed sign-in. Each connector is one link rather than a
+button inside a link, the fields carry `autocomplete`, and a failed
+sign-in marks the password field `aria-invalid`. A last task fails the
+play if any patch did not land; it fails on the stock templates.
 
 Verified on the pilot, 2026-09-25: the dex role applied (`--tags dex`),
 a second run changed nothing, and `make smoke-test` passed 126 of 126
 with the mock LMS warning. axe found no violations on the sign-in page
-or a failed sign-in, in light or dark. Text contrast is at least 5.0:1
+or a failed sign-in, in light or dark, nor on the patched connector
+page rendered with three connectors (the pilot has only one, so Dex
+never shows that page there). Text contrast is at least 5.0:1
 (the placeholder in dark), control borders 3.7:1 and the focus ring
 4.6:1 on the page in light.
 

@@ -39,12 +39,18 @@ Ansible role `dex`.
   it, so the pages look like the Portikus sign-in page in light and dark.
   Template patches, re-applied after each build, put the logo in the
   sign-in card with a text alternative and make the card the main
-  landmark, make each heading a first-level heading, drop the password
-  form's positive `tabindex`, declare `lang="en"`, and give the failed
-  sign-in message `role="alert"`. They also use the Portikus sign-in
+  landmark, make each heading a first-level heading, drop the positive
+  `tabindex` from the password and device forms, and declare `lang="en"`.
+  Each connector on the choice page becomes one link instead of a button
+  inside a link. The sign-in fields get `autocomplete="username"` and
+  `autocomplete="current-password"`. After a failed sign-in the message
+  has `role="alert"`, and the password field is marked `aria-invalid` and
+  described by the message. The pages also use the Portikus sign-in
   page's words: the title "Sign in, Portikus", the heading "Sign in to
   Portikus", a "Sign in" button, "Sign in with" on connector buttons, and
-  "That email address or password is wrong." after a failed sign-in.
+  "That email address or password is wrong." after a failed sign-in. A
+  last task fails the play if any patch did not land, so a Dex upgrade
+  that changes a template cannot drop one silently.
 - **Storage.** `storage: memory`. Every account comes from the static
   configuration, and Portikus reads the ID token once at sign-in and keeps
   its own server-side session (ADR 0008). A restart loses only sign-ins in
