@@ -682,7 +682,7 @@ else
     # The password is compared on the VM, so it never leaves it.
     # shellcheck disable=SC2016  # expanded by the shell on the VM
     check "the one-time password file, if any, is root:root 0600 and in no journal" \
-      ssh_cmd 'sudo sh -c '\''f=/etc/portikus/admin-password; test ! -e "$f" || { test "$(stat -c "%U:%G %a" "$f")" = "root:root 600" && ! journalctl --no-pager -o cat | grep -qF -- "$(cat "$f")"; }'\'''
+      ssh_cmd 'sudo sh -c '\''f=/etc/portikus/admin-password; test ! -e "$f" || { test "$(stat -c "%U:%G %a" "$f")" = "root:root 600" && ! journalctl --no-pager -o cat | grep -qFf "$f"; }'\'''
     # The users file stays on the operator's machine, so the Dex config is
     # the only place with a hash (docs/adr/0023).  /root/go holds the Dex
     # source and module cache, whose examples carry sample hashes.

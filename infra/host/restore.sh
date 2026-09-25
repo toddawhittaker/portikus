@@ -7,8 +7,9 @@
 #       decrypt and verify every file of the set; touches no VM
 #   restore.sh [--start-check] --target-name <vm-name> <vm-ip> <set-dir>
 #       load the database and import the workspace volumes onto a VM with no
-#       workspace volumes and no users, workspaces or projects yet, such as a
-#       freshly rebuilt pilot; every restored workspace is left stopped
+#       workspace volumes, workspaces or projects and no users but the local
+#       administrator, such as a freshly rebuilt pilot; the backup's database
+#       replaces that account; every restored workspace is left stopped
 #   restore.sh --remove --target-name <vm-name> <vm-ip> <set-dir>
 #       after a rehearsal: delete the set's instances and volumes from the
 #       VM and leave it an empty database; refuses the pilot
@@ -29,6 +30,8 @@ PROJECT=portikus
 PILOT_NAME=portikus
 # Files per volume compared with the backup's index after the import.
 SAMPLE=20
+# dexLocalSubject("local-admin") in packages/auth: the local administrator's subject.
+LOCAL_ADMIN_SUBJECT=Cgtsb2NhbC1hZG1pbhIFbG9jYWw
 INSTANCE_PATTERN='^ws-[0-9a-f]{24}$'
 UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 # Every line backup.sh writes, and nothing else.
@@ -204,15 +207,16 @@ dpkg --compare-versions "$target_version" ge "$backup_version" \
 vm "incus image show portikus --project ${PROJECT} >/dev/null" \
   || die "${target_name} has no workspace image; run make build-workspace-image first"
 # A restore replaces the whole database, so the target must hold nothing a
-# restore could destroy: a freshly configured VM has no workspace volumes and
-# no users, workspaces or projects.  This is what keeps it off a live pilot.
+# restore could destroy: a freshly configured VM has no workspace volumes, no
+# workspaces or projects, and no users but the local administrator the play
+# made.  This is what keeps it off a live pilot.
 existing=$(vm "incus storage volume list ${POOL} --project ${PROJECT} --format csv --columns n")
 if grep -qE '^ws-' <<<"$existing"; then
   die "${target_name} already has workspace volumes ($(grep -cE '^ws-' <<<"$existing")); restore only onto a VM without any. Nothing was changed"
 fi
-rows=$(psql_vm "SELECT (SELECT count(*) FROM users) + (SELECT count(*) FROM workspaces) + (SELECT count(*) FROM projects)") \
+rows=$(psql_vm "SELECT (SELECT count(*) FROM users WHERE NOT (oidc_subject = '${LOCAL_ADMIN_SUBJECT}' AND preferred_username = 'admin')) + (SELECT count(*) FROM workspaces) + (SELECT count(*) FROM projects)") \
   || die "cannot count the rows on ${target_name}; nothing was changed"
-[ "$rows" = 0 ] || die "${target_name} already has ${rows:-unknown} users, workspaces and projects; restore only onto an empty VM. Nothing was changed"
+[ "$rows" = 0 ] || die "${target_name} already has ${rows:-unknown} users, workspaces and projects besides the local administrator; restore only onto an empty VM. Nothing was changed"
 info "target ${target_name} (${VM}), portikus ${target_version}"
 
 # ── 4. Database ───────────────────────────────────────────────────
