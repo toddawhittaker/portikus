@@ -126,8 +126,8 @@ export function registerAuthRoutes(
 			throw error;
 		}
 
-		const { identity, claims, refusal } = completed;
-		const role = refusal ? null : mapRole(claims, auth);
+		const { identity, claims } = completed;
+		const role = mapRole(claims, auth);
 		if (!role) {
 			// Prefix the subject so a crafted one cannot look like `user:<uuid>`.
 			await writeAudit(
@@ -136,8 +136,7 @@ export function registerAuthRoutes(
 				`subject:${identity.subject}`,
 				identity.subject,
 				"denied",
-				// The tenant or domain refusal is named (docs/archive/epics/EPIC-14.md ruling 9).
-				{ ...(refusal ? { reason: refusal } : {}), ...requestMetadata(request) },
+				requestMetadata(request),
 			);
 			return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		}
@@ -196,7 +195,7 @@ export function registerAuthRoutes(
 			if (error instanceof OidcError) return refuse("failed", "failed", null);
 			throw error;
 		}
-		if (completed.refusal || !mapRole(completed.claims, auth)) {
+		if (!mapRole(completed.claims, auth)) {
 			return refuse("not_authorized", "denied", null);
 		}
 
