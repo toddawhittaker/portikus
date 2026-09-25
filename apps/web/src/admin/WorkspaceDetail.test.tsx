@@ -55,6 +55,8 @@ const ALICE_ROW = {
 		quotaApplied: WORKSPACE.quotaConfig,
 		image: IMAGE,
 		archivedAt: null,
+		cpuThrottle: null,
+		memoryFlag: null,
 	},
 };
 
@@ -111,6 +113,16 @@ function detail(overrides: Partial<AdminWorkspaceDetail> = {}): AdminWorkspaceDe
 			},
 		],
 		capabilities: { rebuild: false, resetDocker: false },
+		guardConfig: null,
+		effectiveGuard: {
+			cpuThresholdPercent: 80,
+			memoryThresholdPercent: 90,
+			windowMinutes: 30,
+			throttleSharePercent: 25,
+			idleStopMinutes: 60,
+		},
+		cpuThrottle: null,
+		memoryFlag: null,
 		...overrides,
 	};
 }

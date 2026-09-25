@@ -117,6 +117,26 @@ export function registerAdminHealthRoutes(
 				}),
 			);
 
+			// Throttled or memory-flagged workspaces (ADR 0032).
+			const guarded = await db
+				.selectFrom("workspaces")
+				.innerJoin("users", "users.id", "workspaces.owner_user_id")
+				.select([
+					"workspaces.id",
+					"workspaces.cpu_throttle",
+					"workspaces.memory_flag",
+					"users.id as owner_id",
+					"users.display_name",
+				])
+				.where((eb) =>
+					eb.or([
+						eb("workspaces.cpu_throttle", "is not", null),
+						eb("workspaces.memory_flag", "is not", null),
+					]),
+				)
+				.orderBy("users.display_name")
+				.execute();
+
 			const host = sampled?.host ?? null;
 			const body: HealthReport = {
 				sampledAt: sampledAt ? sampledAt.toISOString() : null,
@@ -163,6 +183,12 @@ export function registerAdminHealthRoutes(
 					memoryUsedBytes: Number(row.memory_used),
 					memoryTotalBytes: Number(row.memory_total),
 					load1: Number(row.load1),
+				})),
+				guard: guarded.map((row) => ({
+					workspaceId: row.id,
+					owner: { id: row.owner_id, displayName: row.display_name },
+					cpuThrottle: row.cpu_throttle,
+					memoryFlag: row.memory_flag,
 				})),
 			};
 			return reply.header("cache-control", "no-store").send(body);

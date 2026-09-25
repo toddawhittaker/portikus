@@ -3,6 +3,20 @@ import type { AuthUser, Workspace } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 
+/** The throttle numbers the student is shown; never the allowance string. */
+function toStudentThrottle(value: unknown): Workspace["cpuThrottle"] {
+	if (value === null || value === undefined) return null;
+	const raw = (typeof value === "string" ? JSON.parse(value) : value) as NonNullable<
+		Workspace["cpuThrottle"]
+	>;
+	return {
+		at: raw.at,
+		thresholdPercent: raw.thresholdPercent,
+		windowMinutes: raw.windowMinutes,
+		sharePercent: raw.sharePercent,
+	};
+}
+
 /** Map a workspaces row to the Workspace contract shape. */
 export function toWorkspace(
 	row: Record<string, unknown>,
@@ -37,6 +51,11 @@ export function toWorkspace(
 			? (row.shutdown_deadline as Date).toISOString()
 			: null,
 		archivedAt: row.archived_at ? (row.archived_at as Date).toISOString() : null,
+		cpuThrottle: toStudentThrottle(row.cpu_throttle),
+		idleStopAt: row.idle_stop_at ? (row.idle_stop_at as Date).toISOString() : null,
+		lastActivityAt: row.last_activity_at
+			? (row.last_activity_at as Date).toISOString()
+			: null,
 		createdAt: (row.created_at as Date).toISOString(),
 		updatedAt: (row.updated_at as Date).toISOString(),
 	};

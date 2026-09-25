@@ -5,8 +5,12 @@ import {
 	type AdminWorkspaceSummary,
 	type ApiError,
 	type AuditEvent,
+	type CpuThrottle,
+	type EffectiveGuard,
+	type GuardConfig,
 	HealthSample,
 	isQuotaGrowOnly,
+	type MemoryFlag,
 	QUOTA_SHRINK_MESSAGE,
 	type QuotaConfig,
 	type StorageFigure,
@@ -127,6 +131,36 @@ export function toWorkspaceSummary(
 			facts,
 		),
 		archivedAt: iso(row.archived_at),
+		cpuThrottle: toJson<CpuThrottle>(row.cpu_throttle),
+		memoryFlag: toJson<MemoryFlag>(row.memory_flag),
+	};
+}
+
+/** A jsonb column, or null when it is unset. */
+function toJson<T>(value: unknown): T | null {
+	if (value === null || value === undefined) return null;
+	return (typeof value === "string" ? JSON.parse(value) : value) as T;
+}
+
+/** The platform guard values with this workspace's overrides on top (ADR 0032). */
+export function toEffectiveGuard(
+	settings: {
+		cpu_guard_threshold_percent: number;
+		memory_guard_threshold_percent: number;
+		guard_window_minutes: number;
+		cpu_throttle_share_percent: number;
+		idle_stop_minutes: number;
+	} | null,
+	overrides: GuardConfig | null,
+): EffectiveGuard {
+	// Before the worker seeds the settings row, the migration's defaults apply.
+	return {
+		cpuThresholdPercent: settings?.cpu_guard_threshold_percent ?? 80,
+		memoryThresholdPercent: settings?.memory_guard_threshold_percent ?? 90,
+		windowMinutes: settings?.guard_window_minutes ?? 30,
+		throttleSharePercent: settings?.cpu_throttle_share_percent ?? 25,
+		idleStopMinutes: settings?.idle_stop_minutes ?? 60,
+		...overrides,
 	};
 }
 
@@ -308,6 +342,23 @@ export function registerAdminWorkspaceRoutes(
 				rebuild: app.hasRoute({ method: "POST", url: REBUILD_ROUTE }),
 				resetDocker: app.hasRoute({ method: "POST", url: RESET_DOCKER_ROUTE }),
 			},
+			guardConfig: toJson<GuardConfig>(row.guard_config),
+			effectiveGuard: toEffectiveGuard(
+				(await db
+					.selectFrom("settings")
+					.select([
+						"cpu_guard_threshold_percent",
+						"memory_guard_threshold_percent",
+						"guard_window_minutes",
+						"cpu_throttle_share_percent",
+						"idle_stop_minutes",
+					])
+					.where("id", "=", 1)
+					.executeTakeFirst()) ?? null,
+				toJson<GuardConfig>(row.guard_config),
+			),
+			cpuThrottle: toJson<CpuThrottle>(row.cpu_throttle),
+			memoryFlag: toJson<MemoryFlag>(row.memory_flag),
 		};
 		return body;
 	});

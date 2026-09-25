@@ -19,6 +19,17 @@ const ADMIN = {
 	role: "administrator" as const,
 };
 
+/** The resource guard and acceptable-use settings at their defaults. */
+const GUARD_SETTINGS = {
+	cpuGuardThresholdPercent: 80,
+	memoryGuardThresholdPercent: 90,
+	guardWindowMinutes: 30,
+	cpuThrottleSharePercent: 25,
+	idleStopMinutes: 60,
+	acceptableUseText: null,
+	acceptableUseVersion: 1,
+};
+
 const STUDENT_ROW = {
 	id: USER.id,
 	displayName: USER.displayName,
@@ -76,6 +87,7 @@ function stubAdmin(
 			const body = JSON.parse(String(init.body));
 			onWrite?.(url, body);
 			return json(200, {
+				...GUARD_SETTINGS,
 				shutdownGraceSeconds: body.shutdownGraceSeconds ?? graceSeconds,
 				logLevel: body.logLevel ?? null,
 				updatedAt: "2026-01-01T00:00:00.000Z",
@@ -83,6 +95,7 @@ function stubAdmin(
 		}
 		if (url === "/admin/settings") {
 			return json(200, {
+				...GUARD_SETTINGS,
 				shutdownGraceSeconds: graceSeconds,
 				logLevel: null,
 				updatedAt: null,
@@ -393,7 +406,12 @@ test("a failed log-level save is an alert tied to the select (issue #363)", asyn
 			return json(500, { error: "internal", message: "Something broke" });
 		}
 		if (url === "/admin/settings") {
-			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+			return json(200, {
+				...GUARD_SETTINGS,
+				shutdownGraceSeconds: 600,
+				logLevel: null,
+				updatedAt: null,
+			});
 		}
 		throw new Error(`unexpected request: ${url}`);
 	});

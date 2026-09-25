@@ -17,6 +17,7 @@ import { down as down0015, up as up0015 } from "./0015_lti.js";
 import { down as down0016, up as up0016 } from "./0016_account_links.js";
 import { down as down0017, up as up0017 } from "./0017_session_method.js";
 import { down as down0018, up as up0018 } from "./0018_setup_codes.js";
+import { down as down0020, up as up0020 } from "./0020_resource_guard.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -41,4 +42,6 @@ export const migrations: Record<string, Migration> = {
 	"0016_account_links": { up: up0016, down: down0016 },
 	"0017_session_method": { up: up0017, down: down0017 },
 	"0018_setup_codes": { up: up0018, down: down0018 },
+	// 0019 (Epic 14.2) may arrive later; the migrator allows unordered migrations.
+	"0020_resource_guard": { up: up0020, down: down0020 },
 };

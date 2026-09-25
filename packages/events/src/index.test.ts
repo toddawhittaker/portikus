@@ -22,6 +22,9 @@ const workspace = {
 	lastActiveConnectionAt: null,
 	shutdownDeadline: null,
 	archivedAt: null,
+	cpuThrottle: null,
+	idleStopAt: null,
+	lastActivityAt: null,
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -32,8 +35,13 @@ test("ClientMessage accepts a heartbeat", () => {
 	});
 });
 
+test("ClientMessage accepts an activity message", () => {
+	expect(ClientMessage.parse({ type: "activity" })).toEqual({ type: "activity" });
+});
+
 test("ClientMessage rejects an unknown type", () => {
 	expect(ClientMessage.safeParse({ type: "resize" }).success).toBe(false);
+	expect(ClientMessage.safeParse({}).success).toBe(false);
 });
 
 test("ServerMessage round-trips a workspace message", () => {

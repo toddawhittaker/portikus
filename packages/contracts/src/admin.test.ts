@@ -1,12 +1,16 @@
 import { describe, expect, test } from "vitest";
 import {
 	AdminWorkspaceDetail,
+	AdminWorkspaceSummary,
 	AuditPage,
 	AuditQuery,
+	EffectiveGuard,
+	GuardConfig,
 	HealthReport,
 	isQuotaGrowOnly,
 	MAX_QUOTA_GIB,
 	STALE_AFTER_DAYS,
+	UpdateGuardRequest,
 	UpdateQuotaRequest,
 } from "./admin.js";
 import { AdminUser } from "./settings.js";
@@ -31,6 +35,9 @@ const workspace: Workspace = {
 	lastActiveConnectionAt: now,
 	shutdownDeadline: null,
 	archivedAt: null,
+	cpuThrottle: null,
+	idleStopAt: null,
+	lastActivityAt: null,
 	createdAt: now,
 	updatedAt: now,
 };
@@ -70,7 +77,28 @@ const detail = {
 	previewSessions: [{ port: 5173, openedAt: now }],
 	recentAudit: [event],
 	capabilities: { rebuild: false, resetDocker: false },
+	guardConfig: { idleStopMinutes: 0 },
+	effectiveGuard: {
+		cpuThresholdPercent: 80,
+		memoryThresholdPercent: 90,
+		windowMinutes: 30,
+		throttleSharePercent: 25,
+		idleStopMinutes: 0,
+	},
+	cpuThrottle: null,
+	memoryFlag: null,
 };
+
+const throttle = {
+	at: now,
+	averagePercent: 97.5,
+	thresholdPercent: 80,
+	windowMinutes: 30,
+	sharePercent: 25,
+	allowance: "100ms/100ms",
+};
+
+const flag = { at: now, averagePercent: 93.1, thresholdPercent: 90, windowMinutes: 30 };
 
 describe("admin contracts", () => {
 	test("the stale threshold is 30 days", () => {
@@ -127,6 +155,8 @@ describe("admin contracts", () => {
 					current: false,
 				},
 				archivedAt: null,
+				cpuThrottle: null,
+				memoryFlag: null,
 			},
 		};
 		expect(AdminUser.parse(user)).toEqual(user);
@@ -208,8 +238,112 @@ describe("admin contracts", () => {
 					load1: 0.5,
 				},
 			],
+			guard: [
+				{
+					workspaceId: uuid,
+					owner: { id: uuid, displayName: "Alice" },
+					cpuThrottle: throttle,
+					memoryFlag: null,
+				},
+				{
+					workspaceId: uuid,
+					owner: { id: uuid, displayName: "Bob" },
+					cpuThrottle: null,
+					memoryFlag: flag,
+				},
+			],
 		};
 		expect(HealthReport.parse(report)).toEqual(report);
+		const { guard: _guard, ...withoutGuard } = report;
+		expect(HealthReport.safeParse(withoutGuard).success).toBe(false);
+	});
+
+	test("a throttled and flagged workspace detail round-trips with its guard", () => {
+		const guarded = {
+			...detail,
+			workspace: {
+				...workspace,
+				cpuThrottle: {
+					at: now,
+					thresholdPercent: 80,
+					windowMinutes: 30,
+					sharePercent: 25,
+				},
+			},
+			guardConfig: { cpuThresholdPercent: 100, windowMinutes: 5 },
+			cpuThrottle: throttle,
+			memoryFlag: flag,
+		};
+		expect(AdminWorkspaceDetail.parse(guarded)).toEqual(guarded);
+		const { effectiveGuard: _effective, ...missing } = detail;
+		expect(AdminWorkspaceDetail.safeParse(missing).success).toBe(false);
+	});
+
+	test("the effective guard needs every value, each in range", () => {
+		const full = detail.effectiveGuard;
+		expect(EffectiveGuard.parse(full)).toEqual(full);
+		expect(EffectiveGuard.safeParse({ ...full, windowMinutes: 4 }).success).toBe(false);
+		const { throttleSharePercent: _share, ...missing } = full;
+		expect(EffectiveGuard.safeParse(missing).success).toBe(false);
+	});
+
+	test("a guard override holds any of the five keys and nothing else", () => {
+		expect(GuardConfig.parse({})).toEqual({});
+		expect(GuardConfig.parse({ idleStopMinutes: 0 })).toEqual({ idleStopMinutes: 0 });
+		expect(GuardConfig.safeParse({ idleStopMinutes: 5 }).success).toBe(false);
+		expect(GuardConfig.safeParse({ processName: "xmrig" }).success).toBe(false);
+	});
+
+	test("a guard update sets or clears keys, in range, and must change something", () => {
+		expect(
+			UpdateGuardRequest.parse({ cpuThresholdPercent: 95, idleStopMinutes: null }),
+		).toEqual({ cpuThresholdPercent: 95, idleStopMinutes: null });
+		expect(UpdateGuardRequest.parse({ idleStopMinutes: 0 })).toEqual({
+			idleStopMinutes: 0,
+		});
+		expect(UpdateGuardRequest.safeParse({}).success).toBe(false);
+		expect(UpdateGuardRequest.safeParse({ extra: 1 }).success).toBe(false);
+		const bad: Array<[string, unknown]> = [
+			["cpuThresholdPercent", 0],
+			["memoryThresholdPercent", 101],
+			["windowMinutes", 241],
+			["throttleSharePercent", 4],
+			["idleStopMinutes", 9],
+			["idleStopMinutes", 1441],
+			["windowMinutes", 30.5],
+		];
+		for (const [key, value] of bad) {
+			expect(UpdateGuardRequest.safeParse({ [key]: value }).success, key).toBe(false);
+		}
+	});
+
+	test("an admin workspace row carries its throttle and memory flag", () => {
+		const row = {
+			id: uuid,
+			label: "alice",
+			state: "running",
+			desiredState: "running",
+			activeConnections: 0,
+			lastActiveConnectionAt: null,
+			quotaConfig: { homeGiB: 25, dockerGiB: 20 },
+			quotaApplied: null,
+			image: { label: null, fingerprint: null, current: null },
+			archivedAt: null,
+			cpuThrottle: throttle,
+			memoryFlag: flag,
+		};
+		expect(AdminWorkspaceSummary.parse(row)).toEqual(row);
+		expect(
+			AdminWorkspaceSummary.safeParse({
+				...row,
+				cpuThrottle: { ...throttle, allowance: undefined },
+			}).success,
+		).toBe(false);
+	});
+
+	test("lifting or clearing nothing has its own error codes", () => {
+		expect(ApiErrorCode.parse("NOT_THROTTLED")).toBe("NOT_THROTTLED");
+		expect(ApiErrorCode.parse("NOT_FLAGGED")).toBe("NOT_FLAGGED");
 	});
 
 	test("archived workspaces have their own error code", () => {

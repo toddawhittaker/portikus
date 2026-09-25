@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { AdminAccountMarkers, AdminWorkspaceSummary } from "./admin.js";
 import { Role } from "./auth.js";
+import {
+	GuardThresholdPercent,
+	GuardWindowMinutes,
+	IdleStopMinutes,
+	ThrottleSharePercent,
+} from "./workspace.js";
 
 /** Largest value a PostgreSQL integer column holds. */
 const MAX_GRACE_SECONDS = 2147483647;
@@ -23,24 +29,61 @@ export type LogLevel = z.infer<typeof LogLevel>;
 export const PlatformSettings = z.object({
 	shutdownGraceSeconds: graceSeconds,
 	logLevel: LogLevel.nullable(),
+	// Resource guard defaults (ADR 0032).
+	cpuGuardThresholdPercent: GuardThresholdPercent,
+	memoryGuardThresholdPercent: GuardThresholdPercent,
+	guardWindowMinutes: GuardWindowMinutes,
+	cpuThrottleSharePercent: ThrottleSharePercent,
+	idleStopMinutes: IdleStopMinutes,
+	/** Null means the built-in DEFAULT_ACCEPTABLE_USE_TEXT. */
+	acceptableUseText: z.string().nullable(),
+	/** Read-only: goes up by one whenever the text changes. */
+	acceptableUseVersion: z.number().int().positive(),
 	updatedAt: z.string().datetime().nullable(),
 });
 export type PlatformSettings = z.infer<typeof PlatformSettings>;
 
+/** Longest acceptable-use statement an administrator may save. */
+export const MAX_ACCEPTABLE_USE_LENGTH = 10_000;
+
+/**
+ * The statement everyone accepts until an administrator writes their own
+ * (ADR 0032). Plain text; a blank line separates paragraphs.
+ */
+export const DEFAULT_ACCEPTABLE_USE_TEXT = [
+	"Your Portikus workspace is for coursework and learning.",
+	"Do not mine cryptocurrency, host public services or tunnels, attack other systems, or share your account with anyone.",
+	"Heavy use is slowed down automatically. Administrators can see how much CPU and memory your workspace uses, but not your files.",
+	"Breaking these rules can end your access to Portikus.",
+	"Your institution's own rules also apply.",
+].join("\n\n");
+
 /**
  * Request body for changing the platform-wide settings. Every field is
- * optional, but a request that changes nothing is rejected.
+ * optional, but a request that changes nothing is rejected. A null
+ * acceptable-use text goes back to the built-in default.
  */
 export const UpdatePlatformSettingsRequest = z
 	.object({
 		shutdownGraceSeconds: graceSeconds.optional(),
 		logLevel: LogLevel.nullable().optional(),
+		cpuGuardThresholdPercent: GuardThresholdPercent.optional(),
+		memoryGuardThresholdPercent: GuardThresholdPercent.optional(),
+		guardWindowMinutes: GuardWindowMinutes.optional(),
+		cpuThrottleSharePercent: ThrottleSharePercent.optional(),
+		idleStopMinutes: IdleStopMinutes.optional(),
+		acceptableUseText: z
+			.string()
+			.trim()
+			.min(1, "Enter the statement, or reset it to the default")
+			.max(MAX_ACCEPTABLE_USE_LENGTH)
+			.nullable()
+			.optional(),
 	})
 	.strict()
-	.refine(
-		(body) => body.shutdownGraceSeconds !== undefined || body.logLevel !== undefined,
-		{ message: "At least one setting must be given" },
-	);
+	.refine((body) => Object.values(body).some((value) => value !== undefined), {
+		message: "At least one setting must be given",
+	});
 export type UpdatePlatformSettingsRequest = z.infer<
 	typeof UpdatePlatformSettingsRequest
 >;
