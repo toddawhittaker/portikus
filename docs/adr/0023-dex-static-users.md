@@ -47,8 +47,9 @@ Ansible role `dex`.
   has `role="alert"`, and the password field is marked `aria-invalid` and
   described by the message. The pages also use the Portikus sign-in
   page's words: the title "Sign in, Portikus", the heading "Sign in to
-  Portikus", a "Sign in" button, "Sign in with" on connector buttons, and
-  "That email address or password is wrong." after a failed sign-in. A
+  Portikus", a "Sign in" button, "Sign in with" on connector buttons,
+  "Choose another way to sign in." as the back link, and "That email
+  address or password is wrong." after a failed sign-in. A
   last task fails the play if any patch did not land, so a Dex upgrade
   that changes a template cannot drop one silently.
 - **Storage.** `storage: memory`. Every account comes from the static
