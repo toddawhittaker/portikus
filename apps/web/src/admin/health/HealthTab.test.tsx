@@ -58,6 +58,7 @@ function report(overrides: Partial<HealthReport> = {}): HealthReport {
 				load1: 0.5,
 			},
 		],
+		guard: [],
 		...overrides,
 	};
 }

@@ -40,6 +40,46 @@ function toLogLevel(value: string | null): LogLevel | null {
 	return parsed.success ? parsed.data : null;
 }
 
+/** The settings columns `GET` and `PUT /admin/settings` answer with. */
+const SETTINGS_COLUMNS = [
+	"shutdown_grace_seconds",
+	"log_level",
+	"cpu_guard_threshold_percent",
+	"memory_guard_threshold_percent",
+	"guard_window_minutes",
+	"cpu_throttle_share_percent",
+	"idle_stop_minutes",
+	"acceptable_use_text",
+	"acceptable_use_version",
+	"updated_at",
+] as const;
+
+function toPlatformSettings(row: {
+	shutdown_grace_seconds: number;
+	log_level: string | null;
+	cpu_guard_threshold_percent: number;
+	memory_guard_threshold_percent: number;
+	guard_window_minutes: number;
+	cpu_throttle_share_percent: number;
+	idle_stop_minutes: number;
+	acceptable_use_text: string | null;
+	acceptable_use_version: number;
+	updated_at: Date | null;
+}): PlatformSettings {
+	return {
+		shutdownGraceSeconds: row.shutdown_grace_seconds,
+		logLevel: toLogLevel(row.log_level),
+		cpuGuardThresholdPercent: row.cpu_guard_threshold_percent,
+		memoryGuardThresholdPercent: row.memory_guard_threshold_percent,
+		guardWindowMinutes: row.guard_window_minutes,
+		cpuThrottleSharePercent: row.cpu_throttle_share_percent,
+		idleStopMinutes: row.idle_stop_minutes,
+		acceptableUseText: row.acceptable_use_text,
+		acceptableUseVersion: row.acceptable_use_version,
+		updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+	};
+}
+
 const adminOnly = { preHandler: requireRole("administrator") };
 
 export function sendError(
@@ -341,18 +381,13 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	app.get("/admin/settings", adminOnly, async (_request, reply) => {
 		const row = await db
 			.selectFrom("settings")
-			.select(["shutdown_grace_seconds", "log_level", "updated_at"])
+			.select(SETTINGS_COLUMNS)
 			.where("id", "=", 1)
 			.executeTakeFirst();
 		if (!row) {
 			return sendError(reply, 404, "NOT_FOUND", "Platform settings are not set yet");
 		}
-		const body: PlatformSettings = {
-			shutdownGraceSeconds: row.shutdown_grace_seconds,
-			logLevel: toLogLevel(row.log_level),
-			updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
-		};
-		return body;
+		return toPlatformSettings(row);
 	});
 
 	// PUT /admin/settings -- change it; the worker picks it up next sweep.
@@ -402,7 +437,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				.updateTable("settings")
 				.set(changes)
 				.where("id", "=", 1)
-				.returning(["shutdown_grace_seconds", "log_level", "updated_at"])
+				.returning(SETTINGS_COLUMNS)
 				.executeTakeFirstOrThrow();
 			for (const audit of audits) {
 				await trx
@@ -424,12 +459,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			return row;
 		});
 
-		const out: PlatformSettings = {
-			shutdownGraceSeconds: updated.shutdown_grace_seconds,
-			logLevel: toLogLevel(updated.log_level),
-			updatedAt: updated.updated_at ? new Date(updated.updated_at).toISOString() : null,
-		};
-		return out;
+		return toPlatformSettings(updated);
 	});
 
 	// GET /admin/users -- every account with its markers and workspace (issue #302).

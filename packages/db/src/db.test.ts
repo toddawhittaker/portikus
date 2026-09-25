@@ -629,6 +629,8 @@ describe("database migrations and schema", () => {
 				expect(down17.error).toBeUndefined();
 				const down18 = await migrator.migrateDown();
 				expect(down18.error).toBeUndefined();
+				const down19 = await migrator.migrateDown();
+				expect(down19.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -650,6 +652,7 @@ describe("database migrations and schema", () => {
 					"0016_account_links",
 					"0017_session_method",
 					"0018_setup_codes",
+					"0020_resource_guard",
 				]);
 				throw rollback;
 			}),
@@ -671,6 +674,9 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0020_resource_guard",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0018_setup_codes",
 					);
@@ -786,6 +792,9 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0020_resource_guard",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0018_setup_codes",
 					);
@@ -1128,6 +1137,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0020_resource_guard",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0018_setup_codes",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1178,6 +1190,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
@@ -1606,7 +1619,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Down past 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					// Down past 0020 (Epic 14.3), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -1674,6 +1688,279 @@ describe("orphaned test database sweep", () => {
 					.catch(() => {});
 				await client.end();
 			}
+		},
+	);
+});
+
+// --- migration 0020: resource guard and acceptable use (ADR 0032) ---
+
+describe("resource guard migration", () => {
+	let t: TestDb;
+
+	beforeAll(async () => {
+		t = await createTestDb();
+	});
+
+	afterAll(async () => {
+		await t?.close();
+	});
+
+	beforeEach(async () => {
+		await t.truncate();
+	});
+
+	test.skipIf(!hasTestDb())(
+		"0020 fills settings defaults, gives grace-0 owners an idle override of 0, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const down = await migrator.migrateDown();
+					expect(down.error).toBeUndefined();
+					expect(down.results?.[0]?.migrationName).toBe("0020_resource_guard");
+					const gone = await sql<{ n: number }>`
+					select count(*)::int as n from information_schema.columns
+					where column_name in ('cpu_guard_threshold_percent', 'guard_config',
+						'acceptable_use_version', 'idle_stop_at', 'last_activity_at')
+					or table_name = 'workspace_usage_samples'`.execute(trx);
+					expect(gone.rows[0]?.n).toBe(0);
+
+					await sql`insert into settings (id, shutdown_grace_seconds) values (1, 600)`.execute(
+						trx,
+					);
+					const optedOut = await insertTestUser(trx, { shutdown_grace_seconds: 0 });
+					const longGrace = await insertTestUser(trx, { shutdown_grace_seconds: 3600 });
+					const plain = await insertTestUser(trx);
+					for (const owner of [optedOut, longGrace, plain]) {
+						await trx
+							.insertInto("workspaces")
+							.values({ label: testLabel(), owner_user_id: owner, state: "stopped" })
+							.execute();
+					}
+
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+
+					const settings = await trx
+						.selectFrom("settings")
+						.selectAll()
+						.executeTakeFirstOrThrow();
+					expect(settings).toMatchObject({
+						cpu_guard_threshold_percent: 80,
+						memory_guard_threshold_percent: 90,
+						guard_window_minutes: 30,
+						cpu_throttle_share_percent: 25,
+						idle_stop_minutes: 60,
+						acceptable_use_text: null,
+						acceptable_use_version: 1,
+					});
+
+					const rows = await trx
+						.selectFrom("workspaces")
+						.select([
+							"owner_user_id",
+							"guard_config",
+							"cpu_throttle",
+							"memory_flag",
+							"last_activity_at",
+							"idle_stop_at",
+						])
+						.execute();
+					const byOwner = new Map(rows.map((r) => [r.owner_user_id, r]));
+					expect(byOwner.get(optedOut)?.guard_config).toEqual({ idleStopMinutes: 0 });
+					expect(byOwner.get(longGrace)?.guard_config).toBeNull();
+					expect(byOwner.get(plain)?.guard_config).toBeNull();
+					for (const r of rows) {
+						expect(r.cpu_throttle).toBeNull();
+						expect(r.memory_flag).toBeNull();
+						expect(r.last_activity_at).toBeNull();
+						expect(r.idle_stop_at).toBeNull();
+					}
+
+					const user = await trx
+						.selectFrom("users")
+						.select(["acceptable_use_version", "acceptable_use_accepted_at"])
+						.where("id", "=", plain)
+						.executeTakeFirstOrThrow();
+					expect(user).toEqual({
+						acceptable_use_version: null,
+						acceptable_use_accepted_at: null,
+					});
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"0020's backfill keeps other guard keys already set",
+		async () => {
+			// The column is new in 0020, so no row can hold keys before it runs;
+			// this pins the backfill statement for a row that already has some.
+			const { backfillIdleOverride } = await import(
+				"./migrations/0020_resource_guard.js"
+			);
+			const owner = await insertTestUser(t.db, { shutdown_grace_seconds: 0 });
+			await t.db
+				.insertInto("workspaces")
+				.values({
+					label: testLabel(),
+					owner_user_id: owner,
+					state: "stopped",
+					guard_config: JSON.stringify({
+						cpuThresholdPercent: 95,
+						idleStopMinutes: 30,
+					}),
+				})
+				.execute();
+			await backfillIdleOverride(t.db as Kysely<unknown>);
+			const row = await t.db
+				.selectFrom("workspaces")
+				.select("guard_config")
+				.where("owner_user_id", "=", owner)
+				.executeTakeFirstOrThrow();
+			expect(row.guard_config).toEqual({ cpuThresholdPercent: 95, idleStopMinutes: 0 });
+		},
+	);
+
+	test.skipIf(!hasTestDb())("settings refuse guard values out of range", async () => {
+		await t.db
+			.insertInto("settings")
+			.values({ id: 1, shutdown_grace_seconds: 600 })
+			.execute();
+		const bad: Array<[string, number]> = [
+			["cpu_guard_threshold_percent", 0],
+			["cpu_guard_threshold_percent", 101],
+			["memory_guard_threshold_percent", 0],
+			["memory_guard_threshold_percent", 101],
+			["guard_window_minutes", 4],
+			["guard_window_minutes", 241],
+			["cpu_throttle_share_percent", 4],
+			["cpu_throttle_share_percent", 101],
+			["idle_stop_minutes", -1],
+			["idle_stop_minutes", 9],
+			["idle_stop_minutes", 1441],
+		];
+		for (const [column, value] of bad) {
+			await expect(
+				t.db
+					.updateTable("settings")
+					.set({ [column]: value })
+					.execute(),
+				`${column} = ${value}`,
+			).rejects.toThrow(new RegExp(`settings_${column}_check`));
+		}
+		const good: Array<[string, number]> = [
+			["cpu_guard_threshold_percent", 1],
+			["cpu_guard_threshold_percent", 100],
+			["memory_guard_threshold_percent", 100],
+			["guard_window_minutes", 5],
+			["guard_window_minutes", 240],
+			["cpu_throttle_share_percent", 5],
+			["cpu_throttle_share_percent", 100],
+			["idle_stop_minutes", 0],
+			["idle_stop_minutes", 10],
+			["idle_stop_minutes", 1440],
+		];
+		for (const [column, value] of good) {
+			await t.db
+				.updateTable("settings")
+				.set({ [column]: value })
+				.execute();
+		}
+	});
+
+	test.skipIf(!hasTestDb())(
+		"workspace_usage_samples stores a reading and goes with its workspace",
+		async () => {
+			const owner = await insertTestUser(t.db);
+			const ws = await t.db
+				.insertInto("workspaces")
+				.values({ label: testLabel(), owner_user_id: owner, state: "running" })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			const row = await t.db
+				.insertInto("workspace_usage_samples")
+				.values({
+					workspace_id: ws.id,
+					observed_at: new Date().toISOString(),
+					cpu_usage_ns: "9007199254740993",
+					cpu_limit: 4,
+					memory_bytes: 1024,
+					memory_limit_bytes: 6 * 1024 ** 3,
+				})
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			expect(row.cpu_usage_ns).toBe("9007199254740993");
+			expect(row.memory_limit_bytes).toBe(String(6 * 1024 ** 3));
+
+			const { rows } = await sql<{ indexdef: string }>`
+				select indexdef from pg_indexes
+				where tablename = 'workspace_usage_samples'
+				and indexname = 'workspace_usage_samples_workspace_observed_idx'`.execute(t.db);
+			expect(rows[0]?.indexdef).toMatch(/\(workspace_id, observed_at\)/);
+
+			await t.db.deleteFrom("workspaces").where("id", "=", ws.id).execute();
+			const left = await t.db
+				.selectFrom("workspace_usage_samples")
+				.select("id")
+				.where("workspace_id", "=", ws.id)
+				.execute();
+			expect(left).toEqual([]);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"Epic 14.2's 0019 applies after 0020 and orders before it on a fresh run",
+		async () => {
+			const { migrateToLatest } = await import("./migrate.js");
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const standin = {
+				up: async (db: Kysely<unknown>) => {
+					await db.schema
+						.createTable("standin_0019")
+						.addColumn("id", "integer")
+						.execute();
+				},
+				down: async (db: Kysely<unknown>) => {
+					await db.schema.dropTable("standin_0019").execute();
+				},
+			};
+			const withLate = { ...migrations, "0019_local_admin": standin };
+			const rollback = new Error("rollback");
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					// A database that already has 0020 takes 0019 when it arrives.
+					expect(await migrateToLatest(trx, withLate)).toEqual(["0019_local_admin"]);
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => withLate },
+						allowUnorderedMigrations: true,
+					});
+					// Undo 0020, 0019 and 0018 (they were applied 0018, 0020, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					// A fresh run applies them by name.
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+					expect(up.results?.map((r) => r.migrationName)).toEqual([
+						"0018_setup_codes",
+						"0019_local_admin",
+						"0020_resource_guard",
+					]);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
 		},
 	);
 });

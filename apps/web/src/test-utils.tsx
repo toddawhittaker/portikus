@@ -34,6 +34,9 @@ export const WORKSPACE = {
 	lastActiveConnectionAt: null,
 	shutdownDeadline: null,
 	archivedAt: null,
+	cpuThrottle: null,
+	idleStopAt: null,
+	lastActivityAt: null,
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 };

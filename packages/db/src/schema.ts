@@ -27,6 +27,7 @@ export interface Database {
 	account_links: AccountLinksTable;
 	account_link_intents: AccountLinkIntentsTable;
 	setup_codes: SetupCodesTable;
+	workspace_usage_samples: WorkspaceUsageSamplesTable;
 }
 
 export interface UsersTable {
@@ -56,6 +57,17 @@ export interface UsersTable {
 	picture: Buffer | null;
 	picture_type: string | null;
 	picture_updated_at: ColumnType<Date | null, string | null, string | null>;
+	/** The acceptable-use version this user accepted; null for never. */
+	acceptable_use_version: ColumnType<
+		number | null,
+		number | null | undefined,
+		number | null
+	>;
+	acceptable_use_accepted_at: ColumnType<
+		Date | null,
+		string | null | undefined,
+		string | null
+	>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 }
@@ -105,6 +117,45 @@ export interface WorkspacesTable {
 		string | null,
 		string | null
 	>;
+	/** Per-workspace guard overrides; a missing key uses the settings value. */
+	guard_config: ColumnType<
+		{
+			cpuThresholdPercent?: number;
+			memoryThresholdPercent?: number;
+			windowMinutes?: number;
+			throttleSharePercent?: number;
+			idleStopMinutes?: number;
+		} | null,
+		string | null | undefined,
+		string | null
+	>;
+	/** Set while the guard has lowered the CPU allowance. */
+	cpu_throttle: ColumnType<
+		{
+			at: string;
+			averagePercent: number;
+			thresholdPercent: number;
+			windowMinutes: number;
+			sharePercent: number;
+			allowance: string;
+		} | null,
+		string | null | undefined,
+		string | null
+	>;
+	/** Set while the workspace is flagged for high memory. */
+	memory_flag: ColumnType<
+		{
+			at: string;
+			averagePercent: number;
+			thresholdPercent: number;
+			windowMinutes: number;
+		} | null,
+		string | null | undefined,
+		string | null
+	>;
+	last_activity_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	/** When the idle stop happens unless the student answers. */
+	idle_stop_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 }
@@ -155,6 +206,16 @@ export interface SettingsTable {
 	shutdown_grace_seconds: number;
 	/** Runtime log level for every service; null means use each LOG_LEVEL. */
 	log_level: string | null;
+	/** Resource guard defaults (ADR 0032); each has a column default. */
+	cpu_guard_threshold_percent: Generated<number>;
+	memory_guard_threshold_percent: Generated<number>;
+	guard_window_minutes: Generated<number>;
+	cpu_throttle_share_percent: Generated<number>;
+	/** 0 means never stop by idle. */
+	idle_stop_minutes: Generated<number>;
+	/** Null means the built-in default statement. */
+	acceptable_use_text: string | null;
+	acceptable_use_version: Generated<number>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 	updated_by: string | null;
 }
@@ -223,6 +284,18 @@ export interface HealthSamplesTable {
 	observed_at: ColumnType<Date, string | undefined, never>;
 	/** A HealthSample from @portikus/contracts. */
 	sample: ColumnType<Record<string, unknown>, string, never>;
+}
+
+/** One reading of a running workspace's CPU time and memory from Incus, each minute. */
+export interface WorkspaceUsageSamplesTable {
+	id: Generated<string>;
+	workspace_id: string;
+	observed_at: ColumnType<Date, string, never>;
+	/** Postgres returns bigint as a string. */
+	cpu_usage_ns: ColumnType<string, number | string, never>;
+	cpu_limit: number;
+	memory_bytes: ColumnType<string, number | string, never>;
+	memory_limit_bytes: ColumnType<string, number | string, never>;
 }
 
 /** Pending LTI third-party logins; `platform_issuer` is the plain issuer, without `lti:`. */

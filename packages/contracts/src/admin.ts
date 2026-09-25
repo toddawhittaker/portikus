@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { PortNumber } from "./listening.js";
-import { Workspace } from "./workspace.js";
+import {
+	CpuThrottle,
+	GuardThresholdPercent,
+	GuardWindowMinutes,
+	IdleStopMinutes,
+	MemoryFlag,
+	ThrottleSharePercent,
+	Workspace,
+} from "./workspace.js";
 
 /** An account with no sign-in for this many days is marked stale (issue #302). */
 export const STALE_AFTER_DAYS = 30;
@@ -32,6 +40,35 @@ export const AdminAccountMarkers = z.object({
 });
 export type AdminAccountMarkers = z.infer<typeof AdminAccountMarkers>;
 
+/** The guard values one workspace runs with, after its overrides (ADR 0032). */
+export const EffectiveGuard = z.object({
+	cpuThresholdPercent: GuardThresholdPercent,
+	memoryThresholdPercent: GuardThresholdPercent,
+	windowMinutes: GuardWindowMinutes,
+	throttleSharePercent: ThrottleSharePercent,
+	idleStopMinutes: IdleStopMinutes,
+});
+export type EffectiveGuard = z.infer<typeof EffectiveGuard>;
+
+/** `workspaces.guard_config`: any key present overrides the platform value. */
+export const GuardConfig = EffectiveGuard.partial().strict();
+export type GuardConfig = z.infer<typeof GuardConfig>;
+
+/** Body of `PUT /admin/workspaces/:id/guard`: null removes that override. */
+export const UpdateGuardRequest = z
+	.object({
+		cpuThresholdPercent: GuardThresholdPercent.nullable().optional(),
+		memoryThresholdPercent: GuardThresholdPercent.nullable().optional(),
+		windowMinutes: GuardWindowMinutes.nullable().optional(),
+		throttleSharePercent: ThrottleSharePercent.nullable().optional(),
+		idleStopMinutes: IdleStopMinutes.nullable().optional(),
+	})
+	.strict()
+	.refine((body) => Object.values(body).some((value) => value !== undefined), {
+		message: "At least one setting must be given",
+	});
+export type UpdateGuardRequest = z.infer<typeof UpdateGuardRequest>;
+
 /** The readable image version of one instance, and whether it is current. */
 export const AdminImageVersion = z.object({
 	/** `image.serial`, or the first 12 characters of the fingerprint. */
@@ -56,6 +93,9 @@ export const AdminWorkspaceSummary = z.object({
 	quotaApplied: QuotaConfig.nullable(),
 	image: AdminImageVersion,
 	archivedAt: z.string().datetime().nullable(),
+	/** The Throttled and High memory tags (ADR 0032). */
+	cpuThrottle: CpuThrottle.nullable(),
+	memoryFlag: MemoryFlag.nullable(),
 });
 export type AdminWorkspaceSummary = z.infer<typeof AdminWorkspaceSummary>;
 
@@ -133,6 +173,11 @@ export const AdminWorkspaceDetail = z.object({
 	),
 	recentAudit: z.array(AuditEvent),
 	capabilities: AdminCapabilities,
+	/** The resource guard section (ADR 0032); `workspace` carries the student's view. */
+	guardConfig: GuardConfig.nullable(),
+	effectiveGuard: EffectiveGuard,
+	cpuThrottle: CpuThrottle.nullable(),
+	memoryFlag: MemoryFlag.nullable(),
 });
 export type AdminWorkspaceDetail = z.infer<typeof AdminWorkspaceDetail>;
 
@@ -215,6 +260,15 @@ export const HealthReport = z.object({
 			memoryUsedBytes: bytes,
 			memoryTotalBytes: bytes,
 			load1: z.number().nonnegative(),
+		}),
+	),
+	/** Throttled or memory-flagged workspaces (ADR 0032). */
+	guard: z.array(
+		z.object({
+			workspaceId: z.string().uuid(),
+			owner: z.object({ id: z.string().uuid(), displayName: z.string().min(1) }),
+			cpuThrottle: CpuThrottle.nullable(),
+			memoryFlag: MemoryFlag.nullable(),
 		}),
 	),
 });

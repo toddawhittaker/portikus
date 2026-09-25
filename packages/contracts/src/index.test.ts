@@ -33,6 +33,9 @@ const sampleWorkspace = {
 	lastActiveConnectionAt: null,
 	shutdownDeadline: null,
 	archivedAt: null,
+	cpuThrottle: null,
+	idleStopAt: null,
+	lastActivityAt: null,
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -73,6 +76,9 @@ test("Workspace round-trips a complete response", () => {
 		lastActiveConnectionAt: now,
 		shutdownDeadline: null,
 		archivedAt: null,
+		cpuThrottle: null,
+		idleStopAt: null,
+		lastActivityAt: null,
 		createdAt: now,
 		updatedAt: now,
 	};
