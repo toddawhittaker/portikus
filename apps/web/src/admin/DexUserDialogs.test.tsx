@@ -145,6 +145,9 @@ test("Add user sends the form, then shows the password once", async () => {
 	});
 	expect(within(done).getByTestId("dex-password").textContent).toBe(SHOWN_ONCE);
 	expect(within(done).getByText(PASSWORD_ONCE_TEXT)).toBeDefined();
+	expect(PASSWORD_ONCE_TEXT).toContain(
+		"They will choose their own password when they first sign in.",
+	);
 	expect(writes).toEqual([
 		{
 			url: "/admin/dex-users",

@@ -463,9 +463,10 @@ test("the saved appearance is shown and wins over this browser's copy", async ()
 });
 
 test("every control label on the section list is a search hit", async () => {
-	stubSettings();
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, { ...USER, localPassword: true });
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() => expect(screen.getByLabelText("Search")).toBeTruthy());
+	await screen.findByRole("button", { name: "Password" });
 
 	for (const section of SETTINGS_SECTIONS) {
 		for (const group of section.groups) {
@@ -1030,4 +1031,29 @@ test("a failed save is shown as an alert", async () => {
 
 	const alert = await screen.findByRole("alert");
 	expect(alert.getAttribute("data-testid")).toBe("editor-settings-error");
+});
+
+test("Password is offered to a Dex local password and not to an SSO account (docs/EPIC-14-2.md ruling 16)", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, { ...USER, localPassword: true });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	fireEvent.click(await screen.findByRole("button", { name: "Password" }));
+	expect(await screen.findByRole("heading", { name: "Password" })).toBeTruthy();
+	expect(screen.getByLabelText("Current password")).toBeTruthy();
+	expect(screen.getByLabelText("New password")).toBeTruthy();
+	expect(screen.getByLabelText("New password again")).toBeTruthy();
+});
+
+test("an SSO account has no Password section, not even in search", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, USER);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await screen.findByRole("button", { name: "Profile" });
+	// Wait for /auth/me, so the absence is not just the loading state.
+	await waitFor(() =>
+		expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/auth/me")).toBe(true),
+	);
+	expect(screen.queryByRole("button", { name: "Password" })).toBeNull();
+	fireEvent.change(screen.getByLabelText("Search"), {
+		target: { value: "change password" },
+	});
+	expect(screen.getByText("No matching settings.")).toBeTruthy();
 });

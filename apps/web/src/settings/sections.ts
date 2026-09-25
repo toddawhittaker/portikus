@@ -87,6 +87,17 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 			},
 		],
 	},
+	// Only for a Dex local password; the dialog drops it for everyone else (docs/EPIC-14-2.md ruling 16).
+	{
+		id: "password",
+		title: "Password",
+		groups: [
+			{
+				title: "Change password",
+				controls: [{ id: "change-password", label: "Change password" }],
+			},
+		],
+	},
 	// Help text only, no controls; search finds it by its title (issue #359).
 	{
 		id: "keyboard",
