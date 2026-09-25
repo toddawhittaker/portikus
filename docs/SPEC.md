@@ -375,11 +375,15 @@ refuse the account too, and the web sends every page to
 `/change-password`. Anyone with a Dex local password can change it from
 Settings, Password (`POST /me/password`, CSRF-checked): the current
 password is checked through Dex's gRPC `VerifyPassword`; the new one must
-be at least 15 characters (NIST SP 800-63B revision 4 for a single
+be at least 15 characters, counted as Unicode code points (NIST SP 800-63B revision 4 for a single
 factor, no composition rules), at most 72 bytes (bcrypt's limit) and
 different from the current one; it is stored in Dex as a bcrypt hash. A
 wrong current password answers 403 `WRONG_PASSWORD` and counts against a
-per-address limit of 10 in 10 minutes, after which the answer is 429. A
+per-account limit of 10 in 10 minutes, after which the answer is 429
+(per account, not per address, so a lab behind one address is not
+blocked together; Todd's ruling of 2026-09-25). Each attempt is counted
+before Dex is asked, so parallel requests cannot pass the limit, and is
+given back when the password was not wrong. A
 change clears the flag and ends the account's other sessions and preview
 sessions; the current session stays. The route answers 404 without Dex's
 gRPC API and 400 `NOT_LOCAL_PASSWORD` for an account that is not a Dex

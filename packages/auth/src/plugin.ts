@@ -125,7 +125,7 @@ function passesGate(request: FastifyRequest): boolean {
  * the gate is decided; the preview gateway asks it too.
  */
 export function sessionGate(
-	user: Pick<AuthUser, "id"> & { mustChangePassword?: boolean | undefined },
+	user: Pick<AuthUser, "mustChangePassword">,
 ): { code: "PASSWORD_CHANGE_REQUIRED"; message: string } | null {
 	if (user.mustChangePassword === true) {
 		return {
