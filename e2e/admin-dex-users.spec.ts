@@ -90,6 +90,31 @@ test("Add user shows the password once and pre-creates the account", async ({
 	expect(JSON.stringify(audits)).not.toContain(added.email);
 });
 
+/** Submit an empty Add user form and check its field errors. */
+async function submitEmptyAdd(page: Page): Promise<void> {
+	await page.getByRole("button", { name: "Add user…" }).click();
+	const form = page.getByRole("dialog", { name: "Add user" });
+	await form.getByRole("button", { name: "Add user" }).click();
+	await expect(form.getByLabel("Email")).toBeFocused();
+	await expect(form.getByLabel("Email")).toHaveAccessibleDescription(
+		"Enter an email address.",
+	);
+	await expectNoViolations(page, "[data-testid=dex-add-dialog]");
+}
+
+test("Add user field errors sit on their fields, in light and dark", async ({
+	page,
+}) => {
+	await openUsers(page);
+	await submitEmptyAdd(page);
+
+	// Reloaded rather than switched in place, so no colour transition is caught midway.
+	await page.emulateMedia({ colorScheme: "dark" });
+	await page.reload();
+	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+	await submitEmptyAdd(page);
+});
+
 test("a taken email is refused in the dialog", async ({ page }) => {
 	await openUsers(page);
 	const added = await addUser(page);

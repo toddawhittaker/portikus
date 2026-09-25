@@ -136,7 +136,10 @@ test("Add user sends the form, then shows the password once", async () => {
 	});
 	fireEvent.click(within(dialog).getByRole("button", { name: "Add user" }));
 
-	const done = await screen.findByRole("dialog", { name: "erin added" });
+	const done = await screen.findByRole("dialog", {
+		name: "erin added",
+		description: PASSWORD_ONCE_TEXT,
+	});
 	expect(within(done).getByTestId("dex-password").textContent).toBe(SHOWN_ONCE);
 	expect(within(done).getByText(PASSWORD_ONCE_TEXT)).toBeDefined();
 	expect(writes).toEqual([
@@ -158,15 +161,22 @@ test("Add user sends the form, then shows the password once", async () => {
 	expect((within(again).getByLabelText("Email") as HTMLInputElement).value).toBe("");
 });
 
-test("Add user checks the form before sending, in an alert", async () => {
+test("Add user checks each field before sending and focuses the first bad one", async () => {
 	const writes = stub();
 	renderApp("/admin");
 	fireEvent.click(await screen.findByRole("button", { name: "Add user…" }));
 	const dialog = await screen.findByRole("dialog", { name: "Add user" });
 	fireEvent.click(within(dialog).getByRole("button", { name: "Add user" }));
-	expect((await within(dialog).findByRole("alert")).textContent).toBe(
+	const email = within(dialog).getByLabelText("Email");
+	await waitFor(() => expect(document.activeElement).toBe(email));
+	expect(email.getAttribute("aria-invalid")).toBe("true");
+	expect(document.getElementById("dex-add-email-err")?.textContent).toBe(
 		"Enter an email address.",
 	);
+	expect(document.getElementById("dex-add-username-err")?.textContent).toMatch(
+		/username/,
+	);
+	expect(within(dialog).queryByRole("alert")).toBeNull();
 	fireEvent.change(within(dialog).getByLabelText("Email"), {
 		target: { value: "erin@example.edu" },
 	});
@@ -174,7 +184,10 @@ test("Add user checks the form before sending, in an alert", async () => {
 		target: { value: "has space" },
 	});
 	fireEvent.click(within(dialog).getByRole("button", { name: "Add user" }));
-	expect((await within(dialog).findByRole("alert")).textContent).toMatch(/username/);
+	const username = within(dialog).getByLabelText("Username");
+	await waitFor(() => expect(document.activeElement).toBe(username));
+	expect(email.getAttribute("aria-invalid")).toBeNull();
+	expect(username.getAttribute("aria-invalid")).toBe("true");
 	expect(writes).toEqual([]);
 });
 
@@ -212,7 +225,10 @@ test("Reset password asks first, then shows the new password once", async () => 
 	});
 	expect(within(dialog).getByText(/signed out everywhere/)).toBeDefined();
 	fireEvent.click(within(dialog).getByRole("button", { name: "Reset password" }));
-	const shown = await screen.findByRole("dialog", { name: "New password for dana" });
+	const shown = await screen.findByRole("dialog", {
+		name: "New password for dana",
+		description: PASSWORD_ONCE_TEXT,
+	});
 	expect(within(shown).getByTestId("dex-password").textContent).toBe(SHOWN_ONCE);
 	expect(writes.map((w) => w.url)).toEqual([
 		`/admin/dex-users/${DANA.id}/reset-password`,
@@ -302,4 +318,19 @@ test("an SSO account has no Dex buttons", async () => {
 	const panel = await openRow("Alice Example");
 	expect(within(panel).queryByRole("button", { name: /^Reset password/ })).toBeNull();
 	expect(within(panel).queryByRole("button", { name: /^Remove user/ })).toBeNull();
+});
+
+test("an administrator's own Reset password is off and says why", async () => {
+	const writes = stub();
+	const panel = await openRow("Carol Admin");
+	const reset = within(panel).getByRole("button", {
+		name: "Reset password for Carol Admin",
+	});
+	expect(reset.getAttribute("aria-disabled")).toBe("true");
+	expect(reset.getAttribute("aria-describedby")).toBe(
+		within(panel).getByText("You cannot reset your own password here.").id,
+	);
+	fireEvent.click(reset);
+	expect(screen.queryByRole("dialog")).toBeNull();
+	expect(writes).toEqual([]);
 });

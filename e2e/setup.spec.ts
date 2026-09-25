@@ -55,6 +55,8 @@ test("the printed code makes its first claimer an administrator, once", async ({
 		await expect(first.page.getByTestId("setup-done")).toHaveText(
 			"You are now an administrator.",
 		);
+		// Focus moves to the result so a screen reader reads it (SPEC.md 25.8).
+		await expect(first.page.getByTestId("setup-done")).toBeFocused();
 		await first.page.goto(workspacePath(first.workspaceId));
 		await first.page.getByTestId("me").click({ timeout: 15_000 });
 		await expect(first.page.getByTestId("admin-link")).toBeVisible();

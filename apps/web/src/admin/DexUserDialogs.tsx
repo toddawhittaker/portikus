@@ -44,7 +44,6 @@ function PasswordOnce({ password }: { password: string }) {
 
 	return (
 		<div className="flex flex-col gap-2">
-			<p className="m-0">{PASSWORD_ONCE_TEXT}</p>
 			<div className="flex items-center gap-2">
 				<code className="pk-techdetail select-all" data-testid="dex-password">
 					{password}
@@ -66,10 +65,18 @@ function DialogError({ error }: { error: unknown }) {
 			role="alert"
 			data-testid="dex-dialog-error"
 		>
-			{typeof error === "string" ? error : errorText(error)}
+			{errorText(error)}
 		</p>
 	);
 }
+
+type AddField = "email" | "username";
+
+const ADD_FIELD_ERROR: Record<AddField, string> = {
+	email: "Enter an email address.",
+	username:
+		"Use 1 to 64 letters, digits, dots, dashes or underscores for the username.",
+};
 
 /** "Add user…" above the table, and its dialog. */
 export function AddDexUser() {
@@ -78,7 +85,8 @@ export function AddDexUser() {
 	const [email, setEmail] = useState("");
 	const [username, setUsername] = useState("");
 	const [role, setRole] = useState<Role>("student");
-	const [problem, setProblem] = useState<string | null>(null);
+	const [errors, setErrors] = useState<Partial<Record<AddField, string>>>({});
+	const [attempt, setAttempt] = useState(0);
 	const created = add.data ?? null;
 
 	function change(next: boolean) {
@@ -88,7 +96,7 @@ export function AddDexUser() {
 			setEmail("");
 			setUsername("");
 			setRole("student");
-			setProblem(null);
+			setErrors({});
 		}
 		setOpen(next);
 	}
@@ -97,14 +105,22 @@ export function AddDexUser() {
 		if (add.isPending) return;
 		const body = CreateDexUserRequest.safeParse({ email, username, role });
 		if (!body.success) {
-			setProblem(
-				body.error.issues[0]?.path[0] === "email"
-					? "Enter an email address."
-					: "Use 1 to 64 letters, digits, dots, dashes or underscores for the username.",
+			const found: Partial<Record<AddField, string>> = {};
+			for (const issue of body.error.issues) {
+				const field = issue.path[0] as AddField;
+				found[field] = ADD_FIELD_ERROR[field];
+			}
+			setErrors(found);
+			// Blur first so focusing an already-focused field reads its error again.
+			const input = document.getElementById(
+				found.email ? "dex-add-email" : "dex-add-username",
 			);
+			input?.blur();
+			input?.focus();
 			return;
 		}
-		setProblem(null);
+		setErrors({});
+		setAttempt((n) => n + 1);
 		add.mutate(body.data);
 	}
 
@@ -118,6 +134,7 @@ export function AddDexUser() {
 					<Dialog
 						testId="dex-add-dialog"
 						title={`${created.user.displayName} added`}
+						description={PASSWORD_ONCE_TEXT}
 						footer={
 							<Button variant="primary" onClick={() => change(false)}>
 								Done
@@ -158,6 +175,7 @@ export function AddDexUser() {
 								type="email"
 								autoComplete="off"
 								data-testid="dex-add-email"
+								error={errors.email}
 								value={email}
 								onChange={(event) => setEmail(event.target.value)}
 							/>
@@ -167,6 +185,7 @@ export function AddDexUser() {
 								autoComplete="off"
 								mono
 								data-testid="dex-add-username"
+								error={errors.username}
 								value={username}
 								onChange={(event) => setUsername(event.target.value)}
 							/>
@@ -193,7 +212,7 @@ export function AddDexUser() {
 							{/* Enter in a field submits. */}
 							<button type="submit" hidden />
 						</form>
-						<DialogError error={problem ?? add.error} />
+						<DialogError key={attempt} error={add.error} />
 					</Dialog>
 				)}
 			</DialogRoot>
@@ -209,6 +228,7 @@ export function DexUserActions({ user, isSelf }: { user: AdminUser; isSelf: bool
 	const [dialog, setDialog] = useState<"reset" | "remove" | null>(null);
 	const name = user.displayName;
 	const selfNoteId = `dex-self-note-${user.id}`;
+	const selfResetNoteId = `dex-self-reset-note-${user.id}`;
 	const newPassword = reset.data?.password ?? null;
 
 	function openReset(next: boolean) {
@@ -244,7 +264,9 @@ export function DexUserActions({ user, isSelf }: { user: AdminUser; isSelf: bool
 				size="sm"
 				data-testid="detail-dex-reset"
 				aria-label={`Reset password for ${name}`}
-				onClick={() => openReset(true)}
+				aria-describedby={isSelf ? selfResetNoteId : undefined}
+				aria-disabled={isSelf ? true : undefined}
+				onClick={() => (isSelf ? undefined : openReset(true))}
 			>
 				Reset password…
 			</Button>
@@ -259,9 +281,14 @@ export function DexUserActions({ user, isSelf }: { user: AdminUser; isSelf: bool
 				Remove user…
 			</Button>
 			{isSelf ? (
-				<p id={selfNoteId} className="pk-muted m-0 w-full text-[13px]">
-					You cannot remove your own account.
-				</p>
+				<>
+					<p id={selfResetNoteId} className="pk-muted m-0 w-full text-[13px]">
+						You cannot reset your own password here.
+					</p>
+					<p id={selfNoteId} className="pk-muted m-0 w-full text-[13px]">
+						You cannot remove your own account.
+					</p>
+				</>
 			) : null}
 
 			<DialogRoot open={dialog === "reset"} onOpenChange={openReset}>
@@ -269,6 +296,7 @@ export function DexUserActions({ user, isSelf }: { user: AdminUser; isSelf: bool
 					<Dialog
 						testId="dex-reset-dialog"
 						title={`New password for ${name}`}
+						description={PASSWORD_ONCE_TEXT}
 						footer={
 							<Button variant="primary" onClick={() => openReset(false)}>
 								Done
