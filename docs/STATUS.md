@@ -2148,7 +2148,7 @@ Rulings S1 to S5, N1, N2 and N4 in `docs/archive/epics/EPIC-13-1.md` record them
 - **No `instructor` grant in the UI or API yet**, though the column
   accepts it, ready for the Entra and Google epic.
 
-## Epic 14 — Sign-in providers (in progress)
+## Epic 14 — Sign-in providers
 
 ### T1: provider sign-in
 
@@ -2428,7 +2428,7 @@ Gaps:
 - Review fixes, infrastructure and egress: Portikus asks Dex for `groups` only with Dex's own passwords or LDAP, never behind its Microsoft or Google connector, where students can create groups; OpenLDAP accounts are keyed by `entryUUID`, so a reused username gets a new account; Active Directory keeps `sAMAccountName`, because Dex v2.45.1 cannot encode the binary `objectGUID` (999 of 1,000 random GUIDs failed), and docs/OPERATIONS.md says to disable, not delete, departed accounts; Squid matches names only as written (`dstdomain -n`) and refuses any unlisted IP address given directly; `restore.sh` skips Dex's accounts on a VM without Dex and restarts Dex if loading them fails; the mock-to-Dex carry-over and `make identity-carry-over-dry-run` are removed; CI makes the gRPC certificates with the dex role's own script. Verified on the rehearsal VM with 0.1.423+gd0a823d and a throwaway OpenLDAP: a new person given a deleted person's username got a new account, the old rules let a CONNECT to 1.1.1.1 through by its reverse DNS name while the new ones refuse it, `make security-test` passed 236 of 236 and `make smoke-test` 240 of 240.
 - Confirmation-review fixes: behind Dex's Microsoft or Google connector the play now leaves the API's `OIDC_GROUPS_CLAIM` empty, and the API takes no role from groups when that setting is empty, so a student who adds the `groups` scope to the Dex sign-in address gains nothing; every play on a site that no longer uses the mock ends the sessions of the mock's accounts; a users-file import skipped because Dex already holds passwords now marks the site imported, so a Dex emptied later never gets the file; the setup page and the Add user dialog render the invalid field before moving focus to it, so a screen reader announces it as invalid. Unit, database and render tests cover each; the play task that ends mock sessions has not been run on a VM.
 
-## Epic 14.2 — One front door (in progress)
+## Epic 14.2 — One front door
 
 Dex is now the only sign-in front door, and every install has a local
 administrator (ADR 0031; SPEC.md sections 5.1 to 5.3 and 24.11; issue
@@ -2600,7 +2600,7 @@ the suffixes run out, the email label and then the LTI user ID label are
 each tried once. Existing labels do not change, so the pilot's LTI
 workspaces need relabelling by hand.
 
-## Epic 14.1 — Fixes after Epic 14 (in progress)
+## Epic 14.1 — Fixes after Epic 14
 
 ### LTI workspaces named after the LMS username (#549)
 
@@ -2699,7 +2699,7 @@ not taken over the stored one (SPEC.md section 5.1).
 Gaps: an existing Dex account's name still cannot be changed from the
 Users view.
 
-## Epic 14.3 — Resource guard (in progress)
+## Epic 14.3 — Resource guard
 
 ### Terminal limit of 20, shown in a toast (#474)
 
@@ -2792,7 +2792,7 @@ and `make security-test` 242 of 242 with one warning (the mock LMS).
 PR #588 adds the `cpu.max` checks to `limits.sh` and the gate check to
 `preview-edge.sh`.
 
-Pilot: not yet deployed; the rehearsal VM results above are the live evidence.
+Pilot: on 2026-09-26, main at 9ca56ba (PR #590) was deployed to the pilot as 0.1.479+g9ca56ba, after `pre-epic14-3` VM and Incus snapshots and database dumps. Migrations 0020 and 0021 applied; users (12) and workspace owners (9) were unchanged. `make smoke-test` passed 129 of 129 and `make security-test` 242 of 242 with one warning (the mock LMS). All student workspaces were stopped, so the live usage read waits for the first workspace start.
 
 Gaps:
 
