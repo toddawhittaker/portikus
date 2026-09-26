@@ -4,6 +4,7 @@ import type {
 	GrowVolumesRequest,
 	GrowVolumesResponse,
 	HostSnapshot,
+	InstanceProcess,
 	InstanceUsage,
 	ListInstancesResponse,
 	LogLevel,
@@ -130,6 +131,14 @@ export class FakeControllerClient implements ControllerClient {
 	async setCpuAllowance(name: string, allowance: string | null): Promise<void> {
 		this.calls.push({ method: "setCpuAllowance", args: [name, allowance] });
 		if (this.setCpuAllowanceError) throw this.setCpuAllowanceError;
+	}
+
+	processesResult: InstanceProcess[] | Error = [];
+
+	async processes(name: string, signal?: AbortSignal): Promise<InstanceProcess[]> {
+		this.calls.push({ method: "processes", args: [name, signal] });
+		if (this.processesResult instanceof Error) throw this.processesResult;
+		return this.processesResult;
 	}
 
 	/** Helper to make a ControllerClientError. */

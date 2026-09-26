@@ -5,6 +5,7 @@ import {
 	type GrowVolumesResponse,
 	type HostSnapshot,
 	InstanceName,
+	type InstanceProcess,
 	type InstanceStatus,
 	type InstanceUsage,
 	type RebuildInstanceResponse,
@@ -254,5 +255,40 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			throw new IncusError("NOT_FOUND", `instance ${name} not found`);
 		}
 		inst.cpuAllowance = allowance;
+	}
+
+	/** What `processes` answers for a running instance. */
+	processRows: InstanceProcess[] = [
+		{
+			pid: 1,
+			uid: 0,
+			name: "systemd",
+			startTicks: 1,
+			cpuPercent: 0,
+			residentBytes: 12 * 2 ** 20,
+			protected: true,
+		},
+		{
+			pid: 4242,
+			uid: 1000,
+			name: "node",
+			startTicks: 90_000,
+			cpuPercent: 97.5,
+			residentBytes: 300 * 2 ** 20,
+			protected: false,
+		},
+	];
+
+	async processes(name: string): Promise<InstanceProcess[]> {
+		this.validate(name);
+		this.checkError();
+		const inst = this.instances.get(name);
+		if (!inst) {
+			throw new IncusError("NOT_FOUND", `instance ${name} not found`);
+		}
+		if (inst.status !== "Running") {
+			throw new IncusError("OPERATION_FAILED", `instance ${name} is not running`);
+		}
+		return this.processRows;
 	}
 }

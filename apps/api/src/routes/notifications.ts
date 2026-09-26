@@ -43,6 +43,42 @@ async function unreadCount(db: Kysely<Database>, userId: string): Promise<number
 }
 
 /**
+ * Record one notification for a user and keep only their newest rows
+ * (ADR 0033). The API also uses it to tell a student something happened.
+ */
+export async function recordNotification(
+	db: Kysely<Database>,
+	userId: string,
+	notification: { tone: NotificationTone; title: string; body: string },
+): Promise<Selectable<NotificationsTable>> {
+	const row = await db
+		.insertInto("notifications")
+		.values({
+			user_id: userId,
+			tone: notification.tone,
+			title: notification.title,
+			body: notification.body,
+		})
+		.returningAll()
+		.executeTakeFirstOrThrow();
+	// Keep only this user's newest rows; the worker also prunes by age.
+	await db
+		.deleteFrom("notifications")
+		.where("user_id", "=", userId)
+		.where("id", "not in", (eb) =>
+			eb
+				.selectFrom("notifications")
+				.select("id")
+				.where("user_id", "=", userId)
+				.orderBy("created_at", "desc")
+				.orderBy("id", "desc")
+				.limit(MAX_NOTIFICATIONS_PER_USER),
+		)
+		.execute();
+	return row;
+}
+
+/**
  * The signed-in user's notification history (SPEC.md section 8.5, ADR 0033).
  * Every query is scoped to the caller, so no one can read or change another
  * user's notifications. Titles and bodies are never logged (ADR 0012).
@@ -94,30 +130,7 @@ export function registerNotificationRoutes(
 			request.log.warn("notification record rate limit reached");
 			return sendError(reply, 429, "RATE_LIMITED", "Too many notifications just now.");
 		}
-		const row = await db
-			.insertInto("notifications")
-			.values({
-				user_id: user.id,
-				tone: body.data.tone,
-				title: body.data.title,
-				body: body.data.body,
-			})
-			.returningAll()
-			.executeTakeFirstOrThrow();
-		// Keep only this user's newest rows; the worker also prunes by age.
-		await db
-			.deleteFrom("notifications")
-			.where("user_id", "=", user.id)
-			.where("id", "not in", (eb) =>
-				eb
-					.selectFrom("notifications")
-					.select("id")
-					.where("user_id", "=", user.id)
-					.orderBy("created_at", "desc")
-					.orderBy("id", "desc")
-					.limit(MAX_NOTIFICATIONS_PER_USER),
-			)
-			.execute();
+		const row = await recordNotification(db, user.id, body.data);
 		return reply.status(201).send(toNotification(row));
 	});
 

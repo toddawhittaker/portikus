@@ -1984,6 +1984,25 @@ number or null to remove it). The Settings tab edits the guard
 thresholds, window, throttle share, the automatic lift's quiet time and
 percent, and idle time, and the acceptable-use statement with **Reset to default** (section 5.1).
 
+Added by Epic 21 (ADR 0037): an administrator can read a running
+workspace's heaviest processes and stop one. The list comes from Incus
+through the worker, never from the workspace agent. **Refresh**
+(`POST /admin/workspaces/:id/processes/refresh`, 202, 409 when the
+workspace is not running) records a request; the worker, within a second,
+asks the controller (`GET /instances/:name/processes`), which runs one
+fixed command in the instance as uid 1000 and returns the top ten
+processes by CPU over one second and the top ten by resident memory,
+each with PID, uid, short name (control characters replaced, at most 15
+characters), start ticks, CPU percent of the instance's CPU limit,
+resident bytes and whether it is protected (PID 1, not uid 1000, the
+agent, or `tmux: server`). `GET /admin/workspaces/:id/processes` returns
+the latest snapshot, with `takenAt` null until it is served and `error`
+set to a code when it could not be read. Snapshots are deleted after an
+hour. **Stop** (`POST /admin/workspaces/:id/processes/:pid/stop`, body
+`{startTicks, force}`) goes through the agent's checked stop route with
+the same answers as the student's, and the student gets a notification,
+"An administrator stopped a process in your workspace", naming no process.
+
 ### 20.2 User impersonation
 
 P0 must not require silent administrator impersonation of a student session.
@@ -2415,7 +2434,9 @@ name, a command line, a file name or the statement's text.
 As built (Epic 21): each stop signal sent to a workspace process writes
 `workspace.process_stopped` (actor `user:<id>`, target the workspace) with
 `{pid, signal, exited}`. A refused stop is not audited. The row holds no
-process name or command line.
+process name or command line. The same row is written when an
+administrator stops a process (section 20.1); the actor's role tells the two
+apart.
 
 ### 24.12 Dependency/security maintenance
 
@@ -2671,6 +2692,8 @@ Migration `0020_resource_guard` (sections 5.1, 6.4 and 19.4):
 Migration `0021_notifications` (section 8.5, ADR 0033): a new table, `notifications`: `id`, `user_id` (cascades on delete), `tone` (`neutral`, `success`, `warning` or `danger`), `title`, `body`, `created_at`, `read_at` (null while unread), indexed on `(user_id, created_at desc)`.
 
 Migration `0023_guard_idle_lift` (section 19.4, Epic 21): `settings` gains `cpu_idle_lift_minutes` (default 5, 1 to 60) and `cpu_idle_lift_percent` (default 10, 0 to 100), each range a check constraint.
+
+Migration `0024_process_snapshots` (section 20.1, Epic 21, ADR 0037): a new table, `workspace_process_snapshots`: `workspace_id` (primary key, cascades on delete), `requested_at`, `requested_by` (set null when the user is deleted), `taken_at` (null until served), `processes` (jsonb rows with short names only, never command lines) and `error` (a code).
 
 ## 27. API principles
 

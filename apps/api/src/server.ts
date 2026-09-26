@@ -17,6 +17,7 @@ import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
 import { registerAdminDexUserRoutes } from "./routes/admin-dex-users.js";
 import { registerAdminHealthRoutes } from "./routes/admin-health.js";
+import { registerAdminProcessRoutes } from "./routes/admin-processes.js";
 import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCheckRoutes } from "./routes/checks.js";
@@ -218,6 +219,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAdminDexUserRoutes(instance, deps);
 		registerMaintenanceRoutes(instance, deps);
 		registerAdminWorkspaceRoutes(instance, routeDeps);
+		registerAdminProcessRoutes(instance, deps);
 		registerAdminAuditRoutes(instance, routeDeps);
 		registerAdminHealthRoutes(instance, routeDeps);
 	});

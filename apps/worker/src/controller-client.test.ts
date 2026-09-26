@@ -77,3 +77,31 @@ test("a controller error keeps its code", async () => {
 		new HttpControllerClient(baseUrl, "tok").setCpuAllowance("ws-a", null),
 	).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
+
+const PROCESS = {
+	pid: 42,
+	uid: 1000,
+	name: "node",
+	startTicks: 9,
+	cpuPercent: 50,
+	residentBytes: 4096,
+	protected: false,
+};
+
+test("processes reads GET /instances/:name/processes", async () => {
+	seen = [];
+	answer = { status: 200, body: { processes: [PROCESS] } };
+	const client = new HttpControllerClient(baseUrl, "tok");
+	expect(await client.processes("ws-a")).toEqual([PROCESS]);
+	expect(seen).toEqual([
+		{ method: "GET", url: "/instances/ws-a/processes", auth: "Bearer tok", body: "" },
+	]);
+});
+
+test("processes refuses a row carrying a command line or a long name", async () => {
+	const client = new HttpControllerClient(baseUrl, "tok");
+	answer = { status: 200, body: { processes: [{ ...PROCESS, commandLine: "x" }] } };
+	await expect(client.processes("ws-a")).rejects.toThrow();
+	answer = { status: 200, body: { processes: [{ ...PROCESS, name: "y".repeat(16) }] } };
+	await expect(client.processes("ws-a")).rejects.toThrow();
+});

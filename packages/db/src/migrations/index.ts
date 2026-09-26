@@ -21,6 +21,7 @@ import { down as down0019, up as up0019 } from "./0019_local_admin.js";
 import { down as down0020, up as up0020 } from "./0020_resource_guard.js";
 import { down as down0021, up as up0021 } from "./0021_notifications.js";
 import { down as down0023, up as up0023 } from "./0023_guard_idle_lift.js";
+import { down as down0024, up as up0024 } from "./0024_process_snapshots.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -49,4 +50,5 @@ export const migrations: Record<string, Migration> = {
 	"0020_resource_guard": { up: up0020, down: down0020 },
 	"0021_notifications": { up: up0021, down: down0021 },
 	"0023_guard_idle_lift": { up: up0023, down: down0023 },
+	"0024_process_snapshots": { up: up0024, down: down0024 },
 };

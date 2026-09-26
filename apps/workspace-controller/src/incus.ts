@@ -141,6 +141,53 @@ export class IncusClient {
 		});
 	}
 
+	/**
+	 * Read a file-like resource, such as an exec's recorded output, as bytes.
+	 * Stops and throws once it passes `maxBytes`.
+	 */
+	getBytes(path: string, maxBytes: number, signal?: AbortSignal): Promise<Buffer> {
+		return new Promise<Buffer>((resolve, reject) => {
+			const req = http.request(
+				{
+					socketPath: this.socketPath,
+					method: "GET",
+					path: this.withProject(path),
+					signal,
+				},
+				(res) => {
+					const chunks: Buffer[] = [];
+					let size = 0;
+					res.on("data", (chunk: Buffer) => {
+						size += chunk.length;
+						if (size > maxBytes) {
+							req.destroy();
+							reject(new IncusError("OPERATION_FAILED", "output is too large"));
+							return;
+						}
+						chunks.push(chunk);
+					});
+					res.on("end", () => {
+						if ((res.statusCode ?? 0) >= 400) {
+							reject(
+								new IncusError("OPERATION_FAILED", `Incus answered ${res.statusCode}`),
+							);
+						} else {
+							resolve(Buffer.concat(chunks));
+						}
+					});
+				},
+			);
+			req.on("error", (err: NodeJS.ErrnoException) => {
+				reject(
+					err.name === "AbortError"
+						? new IncusError("TIMEOUT", "request timed out")
+						: new IncusError("OPERATION_FAILED", err.message),
+				);
+			});
+			req.end();
+		});
+	}
+
 	private rawRequest(
 		method: string,
 		path: string,
