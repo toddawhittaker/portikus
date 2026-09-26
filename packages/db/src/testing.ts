@@ -104,7 +104,7 @@ const TEST_POOL_SIZE = 4;
 /**
  * Test users have accepted the current acceptable-use statement unless a
  * test says otherwise, so only the gate's own tests meet the gate
- * (docs/EPIC-14-3.md, "Test plan, per task", T6). Read through jsonb so the
+ * (SPEC.md section 5.1). Read through jsonb so the
  * trigger does nothing while the migration tests step below migration 0020.
  */
 const ACCEPT_USE_FOR_TEST_USERS = [

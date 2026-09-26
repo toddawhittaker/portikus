@@ -14,8 +14,8 @@ import { audit } from "./start-session.js";
 const CURRENT_VERSION = sql<number>`coalesce((select acceptable_use_version from settings where id = 1), 1)`;
 
 /**
- * The acceptable-use statement and its acceptance (docs/EPIC-14-3.md
- * rulings 31 to 33). Both routes are on the gate's allowed list.
+ * The acceptable-use statement and its acceptance (SPEC.md
+ * section 5.1). Both routes are on the gate's allowed list.
  */
 export function registerAcceptableUseRoutes(
 	app: FastifyInstance,

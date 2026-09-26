@@ -591,7 +591,7 @@ export function registerPreviewRoutes(
 		// The preview session lives with the main one (BROWSER-HANDLING §9.2).
 		const user = await loadMainSessionUser(db, session.session_id);
 		if (!user || user.id !== session.user_id) return page(reply, 401, signInPage());
-		// An account held at any session gate gets no preview (SPEC.md section 5.3, EPIC-14-3 ruling 32).
+		// An account held at any session gate gets no preview (SPEC.md sections 5.1 and 5.3).
 		if (sessionGate(user)) return page(reply, 403, refusedPage());
 
 		const { workspace_id: sessionWorkspaceId, user_id: sessionUserId } = session;

@@ -158,7 +158,7 @@ describe("the LTI exemptions", () => {
 	});
 });
 
-describe("sessionGate (SPEC.md section 5.3, docs/EPIC-14-3.md ruling 32)", () => {
+describe("sessionGate (SPEC.md sections 5.1 and 5.3)", () => {
 	test("no gate holds an account that changed its password and accepted", () => {
 		expect(sessionGate({ mustChangePassword: false, mustAcceptUse: false })).toBeNull();
 	});

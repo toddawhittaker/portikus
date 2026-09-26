@@ -729,7 +729,7 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
-	"an account that has not accepted the current statement gets no preview (EPIC-14-3 ruling 32)",
+	"an account that has not accepted the current statement gets no preview (SPEC.md section 5.1)",
 	async () => {
 		const token = await openPreview(5173);
 		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(200);

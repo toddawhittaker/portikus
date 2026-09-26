@@ -1,4 +1,4 @@
-/** The acceptable-use page (docs/EPIC-14-3.md rulings 29, 32 and 33). */
+/** The acceptable-use page (SPEC.md section 5.1). */
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER, WORKSPACE } from "../test-utils.js";

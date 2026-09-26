@@ -125,7 +125,7 @@ interface Gate {
 
 /**
  * The ordered gates a signed-in account passes before anything else
- * (SPEC.md section 5.3, EPIC-14-3 rulings 32 and 33). The first unmet one wins.
+ * (SPEC.md sections 5.1 and 5.3). The first unmet one wins.
  */
 const GATES: Gate[] = [
 	{

@@ -13,7 +13,7 @@ export function createQueryClient(onSessionEnded: () => void): QueryClient {
 	const handle = (error: unknown) => {
 		if (error instanceof SessionEndedError) onSessionEnded();
 		// A gate that closed mid-session (a new statement): refetch the session,
-		// so the router sends the page to the gate (docs/EPIC-14-3.md ruling 33).
+		// so the router sends the page to the gate (SPEC.md section 5.1).
 		if (error instanceof ApiError && GATE_CODES.has(error.code ?? "")) {
 			void client.invalidateQueries({ queryKey: ["me"], exact: true });
 		}
