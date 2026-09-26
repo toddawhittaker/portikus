@@ -138,4 +138,62 @@ describe("ConfirmDialog", () => {
 			expect(document.activeElement).toBe(screen.getByText("Row actions")),
 		);
 	});
+
+	it("is destructive by default: danger button, alert icon, red lost heading", () => {
+		render(<Fixture />);
+		const confirm = screen.getByRole("button", { name: "Archive project" });
+		expect(confirm.className).toContain("bg-status-danger");
+		expect(screen.getByText("Will be removed").className).toContain(
+			"text-status-danger",
+		);
+		const status = document.querySelector(".pk-dialog-status");
+		expect(status?.classList.contains("pk-dialog-status--neutral")).toBe(false);
+		expect(status?.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe(
+			"alert",
+		);
+	});
+
+	it("uses the primary button, info icon and neutral colours when not destructive", () => {
+		render(
+			<ConfirmDialogRoot defaultOpen>
+				<ConfirmDialog
+					title="Archive todo-api?"
+					lost={["The project in the list"]}
+					survives={["The files on disk"]}
+					confirmLabel="Archive project"
+					destructive={false}
+				/>
+			</ConfirmDialogRoot>,
+		);
+		const confirm = screen.getByRole("button", { name: "Archive project" });
+		expect(confirm.className).toContain("bg-surface-inverse");
+		expect(confirm.className).not.toContain("bg-status-danger");
+		expect(screen.getByText("Will be removed").className).toContain("text-ink");
+		expect(screen.getByText("Will be removed").className).not.toContain(
+			"text-status-danger",
+		);
+		const status = document.querySelector(".pk-dialog-status");
+		expect(status?.classList.contains("pk-dialog-status--neutral")).toBe(true);
+		expect(status?.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe(
+			"info",
+		);
+	});
+
+	it("renders children inside the dialog", () => {
+		render(
+			<ConfirmDialogRoot defaultOpen>
+				<ConfirmDialog
+					title="Rebuild all?"
+					lost={["The running processes"]}
+					survives={["The files on disk"]}
+					confirmLabel="Rebuild"
+				>
+					<p>Three workspaces will be rebuilt.</p>
+				</ConfirmDialog>
+			</ConfirmDialogRoot>,
+		);
+		expect(screen.getByRole("alertdialog").textContent).toContain(
+			"Three workspaces will be rebuilt.",
+		);
+	});
 });

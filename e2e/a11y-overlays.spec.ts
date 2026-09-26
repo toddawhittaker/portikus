@@ -46,6 +46,24 @@ test.describe("accessible overlays", () => {
 		await expect(page.getByTestId(`project-menu-${project.id}`)).toBeFocused();
 	});
 
+	/** Issue #609 item 6: the dialog box itself draws no focus outline. */
+	test("a dialog opened from a menu has no outline on the dialog box", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "No Outline" });
+		await page.goto(workspacePath(student.workspaceId));
+
+		await openRename(page, project.id);
+		const style = await page.getByRole("dialog").evaluate((element) => {
+			// Radix may focus the box itself when nothing inside takes focus first.
+			(element as HTMLElement).focus();
+			return getComputedStyle(element).outlineStyle;
+		});
+		expect(style).toBe("none");
+	});
+
 	/** Issue #358 remainder: a file row's menu has no trigger button in the Tab order. */
 	for (const item of ["row-move", "row-delete"]) {
 		test(`closing the ${item} dialog from a file row menu returns focus to the row`, async ({

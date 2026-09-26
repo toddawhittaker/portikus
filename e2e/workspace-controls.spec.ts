@@ -84,6 +84,16 @@ test("the dialog fits a narrow window, fingerprint and all", async ({
 
 	const dialog = page.getByTestId("dialog-workspace-status");
 	await expect(dialog).toBeVisible();
+	// Measure with Technical details open, since its values are the widest.
+	const summary = dialog.getByText("Technical details");
+	await summary.click();
+	await expect(page.getByTestId("workspace-status-image")).toBeVisible();
+	// Keyboard focus on the summary shows the platform focus ring.
+	await page.keyboard.press("Shift+Tab");
+	await page.keyboard.press("Tab");
+	await expect(summary).toBeFocused();
+	await expect(summary).toHaveCSS("outline-style", "solid");
+	await expect(summary).toHaveCSS("outline-width", "2px");
 	const overflows = await dialog.evaluate(
 		(node) => node.scrollWidth > node.clientWidth,
 	);
@@ -122,6 +132,8 @@ test("closing the dialog on a stopped workspace shows a Start button, not a spin
 	await expect
 		.poll(() => desiredState(student.workspaceId), { timeout: 15_000 })
 		.toBe("running");
+	// The Start button is gone; focus lands on the heading, not the page body.
+	await expect(page.locator("#progress-title")).toBeFocused();
 });
 
 test("secondary buttons in the workspace dialog show their border", async ({

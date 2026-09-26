@@ -232,6 +232,18 @@ stick to the scrolling page. One rule is added to the design: a row header
 (`tbody th`) looks like an ordinary cell. The sortable-header rules are left
 out until something sorts.
 
+**Where the build departs from the mockups on purpose (Epic 20).** These were
+dropped or moved deliberately; do not restore them to match `design/`. The
+project list shows no change count. The file tree's "Show hidden and
+generated files" lives in the pane's "…" menu, not a footer checkbox. The
+status bar has no save state, listening port or storage line ("4.1 GB of
+10 GB"); storage shows in the workspace dialog and as a warning at 80%. The
+launcher has no File… item. The header has no search and no role tag, and
+there is no leave-terminal hint. In the right pane the tab names the pane,
+so no visible title row repeats it. The Preview frame width is a set of
+checkable items in the More menu rather than radio items, and "Reset
+preview data" has no ellipsis because it opens no confirmation.
+
 ## 10. Which Monaco features are on
 
 Pilot feedback asked for the stock editor rather than a stripped-down one

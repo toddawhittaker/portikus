@@ -3,6 +3,11 @@
  * process list. No chart and no way to kill a process.
  */
 
+/* The same side gutter as the other right-pane bodies. */
+.pk-pane-body.pk-monitor {
+	padding-inline: var(--space-4);
+}
+
 .pk-monitor {
 	display: flex;
 	flex-direction: column;
@@ -49,7 +54,7 @@
 	text-align: left;
 	font-weight: 500;
 	color: var(--ink-muted);
-	font-size: 11px;
+	font-size: 12px;
 }
 
 .pk-monitor-procs th button {

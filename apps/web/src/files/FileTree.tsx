@@ -558,8 +558,8 @@ export function FileTreePane({
 		>
 			<TreeContext.Provider value={api}>
 				<aside className="pk-pane pk-pane--right" aria-label="Files">
-					<div className="pk-pane-head">
-						<h2 className="pk-pane-title">Files</h2>
+					<div className="pk-pane-head pk-pane-head--actions">
+						<h2 className="sr-only">Files</h2>
 						<MenuRoot>
 							<MenuTrigger asChild>
 								<IconButton

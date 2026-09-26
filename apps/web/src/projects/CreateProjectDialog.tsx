@@ -115,23 +115,24 @@ export function CreateProjectDialog({
 						submit();
 					}}
 				>
-					<fieldset className="m-0 grid gap-1.5 border-0 p-0">
-						<legend className="pk-text-label mb-1.5 text-ink">What to create</legend>
-						<div className="flex gap-1">
+					<div className="grid gap-1.5">
+						<span className="pk-text-label text-ink" aria-hidden="true">
+							What to create
+						</span>
+						<fieldset className="pk-segmented self-start">
+							<legend className="pk-visually-hidden">What to create</legend>
 							{modeOptions.map((option) => (
-								<Button
+								<button
 									key={option.value}
 									type="button"
-									size="sm"
-									variant={mode === option.value ? "secondary" : "quiet"}
 									aria-pressed={mode === option.value}
 									onClick={() => setMode(option.value as CreateMode)}
 								>
 									{option.label}
-								</Button>
+								</button>
 							))}
-						</div>
-					</fieldset>
+						</fieldset>
+					</div>
 					{/* In clone mode the URL comes first: a student pastes it and the
 					    name and slug follow from it (SPEC.md §7.2). */}
 					{mode === "clone" && (

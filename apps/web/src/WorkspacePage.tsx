@@ -1,4 +1,4 @@
-import { PaneHandle, Skeleton } from "@portikus/ui";
+import { EmptyState, PaneHandle, Skeleton } from "@portikus/ui";
 import { Navigate, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
@@ -20,9 +20,10 @@ import { type RightPane, RightPaneContext } from "./shell/rightPane.js";
 import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
 import { StatusBar } from "./shell/StatusBar.js";
 import { ThrottleNotice, throttleAnnouncement } from "./shell/ThrottleNotice.js";
+import { resolveStatus, type WorkspaceDialogMode } from "./shell/WorkspaceDialog.js";
 import { type MeUser, useMe } from "./useMe.js";
 import { useWorkspaceSocket } from "./useWorkspaceSocket.js";
-import { WorkspaceStarting } from "./WorkspaceStarting.js";
+import { startingPhase, WorkspaceStarting } from "./WorkspaceStarting.js";
 
 const PANEL_IDS = ["projects", "work", "files"];
 
@@ -64,6 +65,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	// A throttle is dismissed for the page's life; a new one shows again (ADR 0032).
 	const [dismissedThrottleAt, setDismissedThrottleAt] = useState<string | null>(null);
 	const idleStopReason = useIdleStopReason(workspace);
+	// The status bar, the error screen and the throttle notice all open this dialog.
+	const [workspaceDialog, setWorkspaceDialog] = useState<WorkspaceDialogMode>("closed");
 	const workRef = useRef<HTMLElement>(null);
 	// The project route is a child of this one, so its parameter may be absent.
 	const { projectId } = useParams({ strict: false }) as { projectId?: string };
@@ -71,6 +74,10 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const project = projects.data?.find((item) => item.id === projectId);
 	usePageTitle(project?.name ?? "");
 	const running = workspace?.state === "running";
+	// Skeletons promise that something is loading; a stopped workspace loads nothing.
+	const phase = startingPhase(workspace);
+	const loading =
+		phase === "connecting" || phase === "starting" || phase === "restoring";
 	const layout = useDefaultLayout({ id: "pk-shell", panelIds: PANEL_IDS });
 	// The work area and the file tree share one layout store, so a file
 	// opened in the tree becomes a tab in the work area (SPEC.md §8.3, §8.4).
@@ -114,8 +121,14 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 							<Panel id="projects" defaultSize={240} minSize={180} maxSize={420}>
 								{running ? (
 									<ProjectPane workspaceId={workspaceId} currentProjectId={projectId} />
-								) : (
+								) : loading ? (
 									<PaneSkeleton label="Projects" side="left" rows={4} />
+								) : (
+									<PaneWaiting
+										label="Projects"
+										side="left"
+										text="Start your workspace to see your projects"
+									/>
 								)}
 							</Panel>
 							<PaneHandle label="Resize project list" />
@@ -142,6 +155,12 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 										workspace.cpuThrottle.at !== dismissedThrottleAt && (
 											<ThrottleNotice
 												throttle={workspace.cpuThrottle}
+												onOpenWorkspace={() =>
+													// A restart cannot run while the workspace is already changing.
+													setWorkspaceDialog(
+														resolveStatus(workspace).moving ? "open" : "restart",
+													)
+												}
 												onDismiss={() => {
 													setDismissedThrottleAt(workspace.cpuThrottle?.at ?? null);
 													workRef.current?.focus();
@@ -169,6 +188,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 											workspaceId={workspaceId}
 											workspace={workspace}
 											idleStop={idleStopReason}
+											onOpenWorkspace={() => setWorkspaceDialog("open")}
 										/>
 									)}
 								</main>
@@ -177,8 +197,14 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 							<Panel id="files" defaultSize={280} minSize={200} maxSize={480}>
 								{running ? (
 									<FilesPane workspaceId={workspaceId} project={project} />
-								) : (
+								) : loading ? (
 									<PaneSkeleton label="Files" side="right" rows={9} />
+								) : (
+									<PaneWaiting
+										label="Files"
+										side="right"
+										text="Start your workspace to see its files"
+									/>
 								)}
 							</Panel>
 						</Group>
@@ -186,6 +212,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 							workspaceId={workspaceId}
 							project={project}
 							workspace={workspace}
+							dialog={workspaceDialog}
+							onDialogChange={setWorkspaceDialog}
 						/>
 					</div>
 				</RightPaneContext.Provider>
@@ -219,6 +247,28 @@ function PaneSkeleton({
 						<Skeleton variant="text" width={width} />
 					</div>
 				))}
+			</div>
+		</section>
+	);
+}
+
+/** A side pane while the workspace is stopped or failed: nothing is loading. */
+function PaneWaiting({
+	label,
+	side,
+	text,
+}: {
+	label: string;
+	side: "left" | "right";
+	text: string;
+}) {
+	return (
+		<section className={`pk-pane pk-pane--${side}`} aria-label={label}>
+			<div className="pk-pane-head">
+				<h2 className="pk-pane-title">{label}</h2>
+			</div>
+			<div className="pk-pane-body">
+				<EmptyState title={text} />
 			</div>
 		</section>
 	);
