@@ -1,8 +1,19 @@
 import { requireRole } from "@portikus/auth";
-import { type HealthReport, HealthSample } from "@portikus/contracts";
+import {
+	type HealthReport,
+	HealthSample,
+	type HealthSeries,
+	HealthSeriesQuery,
+} from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { type AgentClient, agentClientFor } from "../agent-client.js";
+import { apiRequestSeries } from "../health-series/api-requests.js";
+import { eventSeries } from "../health-series/events.js";
+import { hostSeries, newestCpuCount } from "../health-series/host.js";
+import { platformSeries } from "../health-series/platform.js";
+import { seriesWindow } from "../health-series/range.js";
+import { usageSeries } from "../health-series/usage.js";
 import type { ServerDeps } from "../server.js";
 
 /** The worker samples every minute; older than this means it stopped. */
@@ -72,29 +83,6 @@ export function registerAdminHealthRoutes(
 			const sample = newest ? HealthSample.safeParse(newest.sample) : null;
 			const sampled = sample?.success ? sample.data : null;
 			const sampledAt = newest ? new Date(newest.observed_at) : null;
-
-			// Maxima per fifteen minutes over the last day, oldest first.
-			const series = await sql<{
-				at: Date;
-				pool_used: string;
-				pool_total: string;
-				memory_used: string;
-				memory_total: string;
-				load1: number;
-			}>`
-				select
-					date_bin('15 minutes', observed_at, timestamptz '2000-01-01') as at,
-					max((sample->'host'->'pool'->>'usedBytes')::bigint) as pool_used,
-					max((sample->'host'->'pool'->>'totalBytes')::bigint) as pool_total,
-					max((sample->'host'->'memory'->>'usedBytes')::bigint) as memory_used,
-					max((sample->'host'->'memory'->>'totalBytes')::bigint) as memory_total,
-					max((sample->'host'->'loadAverage'->>0)::float8) as load1
-				from health_samples
-				where observed_at > now() - interval '24 hours'
-					and jsonb_typeof(sample->'host') = 'object'
-				group by 1
-				order by 1
-			`.execute(db);
 
 			const states = await db
 				.selectFrom("workspaces")
@@ -176,20 +164,51 @@ export function registerAdminHealthRoutes(
 					signInFailures: count("sign_in_failures"),
 					previewRefusals: count("preview_refusals"),
 				},
-				series: series.rows.map((row) => ({
-					at: new Date(row.at).toISOString(),
-					poolUsedBytes: Number(row.pool_used),
-					poolTotalBytes: Number(row.pool_total),
-					memoryUsedBytes: Number(row.memory_used),
-					memoryTotalBytes: Number(row.memory_total),
-					load1: Number(row.load1),
-				})),
 				guard: guarded.map((row) => ({
 					workspaceId: row.id,
 					owner: { id: row.owner_id, displayName: row.display_name },
 					cpuThrottle: row.cpu_throttle,
 					memoryFlag: row.memory_flag,
 				})),
+			};
+			return reply.header("cache-control", "no-store").send(body);
+		},
+	);
+	/**
+	 * `GET /admin/health/series?range=` (SPEC.md §25.6): every Health chart's
+	 * data for one range, bucketed here so the browser gets at most 168
+	 * points per series.
+	 */
+	app.get(
+		"/admin/health/series",
+		{ preHandler: requireRole("administrator") },
+		async (request, reply) => {
+			const parsed = HealthSeriesQuery.safeParse(request.query);
+			if (!parsed.success) {
+				return reply
+					.status(400)
+					.send({ code: "VALIDATION_FAILED", message: "invalid health series query" });
+			}
+			const window = seriesWindow(parsed.data.range, new Date());
+			const [cpuCount, host, platform, events, usage, api] = await Promise.all([
+				newestCpuCount(db),
+				hostSeries(db, window),
+				platformSeries(db, window),
+				eventSeries(db, window),
+				usageSeries(db, window),
+				apiRequestSeries(db, window),
+			]);
+			const body: HealthSeries = {
+				range: window.range,
+				bucketSeconds: window.bucketSeconds,
+				from: window.from.toISOString(),
+				to: window.to.toISOString(),
+				cpuCount,
+				host,
+				platform,
+				events,
+				usage,
+				api,
 			};
 			return reply.header("cache-control", "no-store").send(body);
 		},

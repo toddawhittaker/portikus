@@ -203,6 +203,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /admin/audit": { access: "admin" },
 	"GET /admin/health": { access: "admin" },
 	"HEAD /admin/health": { access: "admin" },
+	"GET /admin/health/series": { access: "admin" },
+	"HEAD /admin/health/series": { access: "admin" },
 
 	"GET /__portikus/bootstrap": { access: "preview-edge" },
 	"HEAD /__portikus/bootstrap": { access: "preview-edge" },

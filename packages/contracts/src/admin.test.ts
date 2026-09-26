@@ -228,16 +228,6 @@ describe("admin contracts", () => {
 				signInFailures: 1,
 				previewRefusals: 3,
 			},
-			series: [
-				{
-					at: now,
-					poolUsedBytes: 1,
-					poolTotalBytes: 2,
-					memoryUsedBytes: 1,
-					memoryTotalBytes: 2,
-					load1: 0.5,
-				},
-			],
 			guard: [
 				{
 					workspaceId: uuid,
@@ -256,6 +246,8 @@ describe("admin contracts", () => {
 		expect(HealthReport.parse(report)).toEqual(report);
 		const { guard: _guard, ...withoutGuard } = report;
 		expect(HealthReport.safeParse(withoutGuard).success).toBe(false);
+		// The trend series moved to GET /admin/health/series (Epic 19).
+		expect(HealthReport.parse({ ...report, series: [] })).not.toHaveProperty("series");
 	});
 
 	test("a throttled and flagged workspace detail round-trips with its guard", () => {

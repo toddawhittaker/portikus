@@ -2497,6 +2497,21 @@ minute in `workspace_usage_samples`, keeping them for 245 minutes (the
 longest allowed guard window plus five). They hold no process, command
 or file names.
 
+As built (Epic 19): the admin Health tab has three rows: Platform and
+Resource guard; a full-width Trends card; then Failures (fixed at the
+last 24 hours) and Workspaces by state (every known state, zeros
+included). The Trends card offers four ranges, 1 hour, 6 hours, 1 day
+and 7 days, in 1-minute, 5-minute, 15-minute and 1-hour buckets. The
+choice is remembered per browser and defaults to 1 day. One admin-only
+route, `GET /admin/health/series?range=`, returns every chart's data
+already bucketed, at most 168 points per series; `GET /admin/health`
+keeps only the current state. Charts are hand-drawn SVG with a Y axis,
+time labels, threshold lines, a legend that uses dash patterns so no
+series relies on colour alone, a visible text summary, and one tab stop
+whose arrow keys read each bucket aloud. The host charts show pool and
+memory use and the 1, 5 and 15 minute load, each the maximum in its
+bucket, with the CPU count as a reference line.
+
 ### 25.7 Maintainability
 
 Major subsystems should have clear interfaces.

@@ -1,11 +1,13 @@
 import type { HealthReport } from "@portikus/contracts";
 import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { ApiError } from "../../api/request.js";
 import { formatBytes } from "../../monitor/format.js";
 import { AdminSection } from "../AdminSection.js";
 import { shortTime } from "../shortTime.js";
+import { KNOWN_STATES, WorkspaceStateBadge } from "../WorkspacesTab.js";
 import { useHealth } from "./queries.js";
-import { Sparkline } from "./Sparkline.js";
+import { TrendsCard } from "./TrendsCard.js";
 
 /** Pool or memory use at or above this share gets a warning (SPEC.md §19.2). */
 export const WARN_RATIO = 0.8;
@@ -55,7 +57,11 @@ export function HealthTab() {
 	return (
 		<AdminSection title="Health">
 			{health.data ? (
-				<HealthView report={health.data} now={Date.now()} />
+				<HealthView
+					report={health.data}
+					now={Date.now()}
+					trends={<TrendsCard warnPercent={Math.round(WARN_RATIO * 100)} />}
+				/>
 			) : (
 				<div aria-busy="true" data-testid="health-loading" />
 			)}
@@ -63,7 +69,28 @@ export function HealthTab() {
 	);
 }
 
-export function HealthView({ report, now }: { report: HealthReport; now: number }) {
+/** States in the Workspaces tab's order, zeros included, then any newer ones. */
+export function stateRows(byState: HealthReport["workspacesByState"]) {
+	const extra = Object.keys(byState).filter((state) => !KNOWN_STATES.includes(state));
+	return [...KNOWN_STATES, ...extra].map((state) => ({
+		state,
+		count: byState[state] ?? 0,
+	}));
+}
+
+/**
+ * Three rows (docs/EPIC-19.md ruling 9): Platform and Resource guard, then
+ * the Trends card in full width, then Failures and Workspaces by state.
+ */
+export function HealthView({
+	report,
+	now,
+	trends,
+}: {
+	report: HealthReport;
+	now: number;
+	trends?: ReactNode;
+}) {
 	const { host } = report;
 	return (
 		<div className="flex flex-col gap-6" data-testid="health">
@@ -80,91 +107,88 @@ export function HealthView({ report, now }: { report: HealthReport; now: number 
 				</div>
 			) : null}
 
-			<section className="pk-card p-6" aria-labelledby="health-platform-title">
-				<h3 className="pk-text-heading m-0" id="health-platform-title">
-					Platform
-				</h3>
-				<dl className="mt-4 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-[13px]">
-					<dt className="pk-muted">Controller</dt>
-					<dd className="m-0" data-testid="health-controller">
-						{report.controller.reachable
-							? "Reachable"
-							: `Not reachable${report.controller.errorCode ? ` (${report.controller.errorCode})` : ""}`}
-					</dd>
-					<dt className="pk-muted">Last sample</dt>
-					<dd className="m-0">
-						{report.sampledAt ? sampleAge(report.sampledAt, now) : "None yet"}
-					</dd>
-					<dt className="pk-muted">Agents answering</dt>
-					<dd className="m-0" data-testid="health-agents">
-						{report.agents.answering} of {report.agents.running} running
-					</dd>
-					{host ? (
-						<>
-							<dt className="pk-muted">Load average</dt>
-							<dd className="m-0">
-								{host.loadAverage.map((load) => load.toFixed(2)).join(", ")} across{" "}
-								{host.cpuCount} CPU{host.cpuCount === 1 ? "" : "s"}
-							</dd>
-							<dt className="pk-muted">Memory</dt>
-							<dd className="m-0">
-								<Usage
-									testId="health-memory"
-									name="Memory"
-									used={host.memory.usedBytes}
-									total={host.memory.totalBytes}
-								/>
-							</dd>
-							<dt className="pk-muted">Storage pool</dt>
-							<dd className="m-0">
-								<Usage
-									testId="health-pool"
-									name="Storage pool"
-									used={host.pool.usedBytes}
-									total={host.pool.totalBytes}
-								/>
-							</dd>
-							<dt className="pk-muted">Workspace limits</dt>
-							<dd className="m-0">
-								CPU {host.profileLimits.cpu ?? "not set"}, memory{" "}
-								{host.profileLimits.memory ?? "not set"}, processes{" "}
-								{host.profileLimits.processes ?? "not set"}
-							</dd>
-							<dt className="pk-muted">Current image</dt>
-							<dd className="m-0" data-testid="health-image">
-								{host.image.serial ?? "No version"}
-								{host.image.fingerprint ? (
-									<span className="pk-muted font-mono">
-										{" "}
-										({host.image.fingerprint.slice(0, 12)})
-									</span>
-								) : null}
-							</dd>
-						</>
-					) : (
-						<>
-							<dt className="pk-muted">Host</dt>
-							<dd className="m-0">No host figures in the newest sample.</dd>
-						</>
-					)}
-				</dl>
-			</section>
+			<div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+				<section className="pk-card p-6" aria-labelledby="health-platform-title">
+					<h3 className="pk-text-heading m-0" id="health-platform-title">
+						Platform
+					</h3>
+					<dl className="mt-4 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-[13px]">
+						<dt className="pk-muted">Controller</dt>
+						<dd className="m-0" data-testid="health-controller">
+							{report.controller.reachable
+								? "Reachable"
+								: `Not reachable${report.controller.errorCode ? ` (${report.controller.errorCode})` : ""}`}
+						</dd>
+						<dt className="pk-muted">Last sample</dt>
+						<dd className="m-0">
+							{report.sampledAt ? sampleAge(report.sampledAt, now) : "None yet"}
+						</dd>
+						<dt className="pk-muted">Agents answering</dt>
+						<dd className="m-0" data-testid="health-agents">
+							{report.agents.answering} of {report.agents.running} running
+						</dd>
+						{host ? (
+							<>
+								<dt className="pk-muted">Load average</dt>
+								<dd className="m-0">
+									{host.loadAverage.map((load) => load.toFixed(2)).join(", ")} across{" "}
+									{host.cpuCount} CPU{host.cpuCount === 1 ? "" : "s"}
+								</dd>
+								<dt className="pk-muted">Memory</dt>
+								<dd className="m-0">
+									<Usage
+										testId="health-memory"
+										name="Memory"
+										used={host.memory.usedBytes}
+										total={host.memory.totalBytes}
+									/>
+								</dd>
+								<dt className="pk-muted">Storage pool</dt>
+								<dd className="m-0">
+									<Usage
+										testId="health-pool"
+										name="Storage pool"
+										used={host.pool.usedBytes}
+										total={host.pool.totalBytes}
+									/>
+								</dd>
+								<dt className="pk-muted">Workspace limits</dt>
+								<dd className="m-0">
+									CPU {host.profileLimits.cpu ?? "not set"}, memory{" "}
+									{host.profileLimits.memory ?? "not set"}, processes{" "}
+									{host.profileLimits.processes ?? "not set"}
+								</dd>
+								<dt className="pk-muted">Current image</dt>
+								<dd className="m-0" data-testid="health-image">
+									{host.image.serial ?? "No version"}
+									{host.image.fingerprint ? (
+										<span className="pk-muted font-mono">
+											{" "}
+											({host.image.fingerprint.slice(0, 12)})
+										</span>
+									) : null}
+								</dd>
+							</>
+						) : (
+							<>
+								<dt className="pk-muted">Host</dt>
+								<dd className="m-0">No host figures in the newest sample.</dd>
+							</>
+						)}
+					</dl>
+				</section>
 
-			<GuardList guard={report.guard} />
+				<GuardList guard={report.guard} />
+			</div>
 
-			<section className="pk-card p-6" aria-labelledby="health-trend-title">
-				<h3 className="pk-text-heading m-0" id="health-trend-title">
-					Last 24 hours
-				</h3>
-				<Trends report={report} />
-			</section>
+			{trends}
 
-			<section className="pk-card p-6" aria-labelledby="health-counts-title">
-				<h3 className="pk-text-heading m-0" id="health-counts-title">
-					Events
-				</h3>
-				<div className="mt-4 flex flex-wrap items-start gap-12">
-					<table className="pk-table w-auto" data-testid="health-counts">
+			<div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+				<section className="pk-card p-6" aria-labelledby="health-counts-title">
+					<h3 className="pk-text-heading m-0" id="health-counts-title">
+						Failures
+					</h3>
+					<table className="pk-table mt-4" data-testid="health-counts">
 						<caption className="pk-text-label pk-muted text-left">
 							Failures in the last 24 hours
 						</caption>
@@ -179,21 +203,30 @@ export function HealthView({ report, now }: { report: HealthReport; now: number 
 							))}
 						</tbody>
 					</table>
-					<table className="pk-table w-auto" data-testid="health-states">
-						<caption className="pk-text-label pk-muted text-left">
-							Workspaces by state
-						</caption>
+				</section>
+				<section className="pk-card p-6" aria-labelledby="health-states-title">
+					<h3 className="pk-text-heading m-0" id="health-states-title">
+						Workspaces by state
+					</h3>
+					<table className="pk-table mt-4" data-testid="health-states">
+						<caption className="sr-only">Workspaces by state</caption>
 						<tbody>
-							{Object.entries(report.workspacesByState).map(([state, count]) => (
+							{stateRows(report.workspacesByState).map(({ state, count }) => (
 								<tr key={state}>
-									<th scope="row">{state}</th>
+									<th scope="row">
+										<WorkspaceStateBadge
+											state={state}
+											desiredState={state}
+											statusRole={false}
+										/>
+									</th>
 									<td className="pk-num">{count}</td>
 								</tr>
 							))}
 						</tbody>
 					</table>
-				</div>
-			</section>
+				</section>
+			</div>
 		</div>
 	);
 }
@@ -295,56 +328,10 @@ function Usage({
 		<span data-testid={testId}>
 			{formatBytes(used)} of {formatBytes(total)} ({usedPercent(used, total)}%)
 			{warn ? (
-				<span
-					className="pk-tag ml-2 bg-status-warning-soft text-status-warning"
-					data-testid={`${testId}-warning`}
-				>
+				<span className="pk-tag pk-tag--warning ml-2" data-testid={`${testId}-warning`}>
 					{name} is over 80% full
 				</span>
 			) : null}
 		</span>
-	);
-}
-
-function trendSummary(values: readonly number[], unit: string): string {
-	const last = values[values.length - 1];
-	if (last === undefined) return "No samples in the last 24 hours.";
-	const peak = Math.max(...values);
-	return `Now ${last.toFixed(unit === "%" ? 0 : 2)}${unit}, highest ${peak.toFixed(unit === "%" ? 0 : 2)}${unit}.`;
-}
-
-function Trends({ report }: { report: HealthReport }) {
-	const pool = report.series.map((point) =>
-		usedPercent(point.poolUsedBytes, point.poolTotalBytes),
-	);
-	const memory = report.series.map((point) =>
-		usedPercent(point.memoryUsedBytes, point.memoryTotalBytes),
-	);
-	const load = report.series.map((point) => point.load1);
-	const loadMax = Math.max(report.host?.cpuCount ?? 1, ...load);
-	return (
-		<div className="mt-4 flex flex-wrap gap-8">
-			<Sparkline
-				testId="health-chart-pool"
-				label="Storage pool used"
-				values={pool}
-				max={100}
-				summary={trendSummary(pool, "%")}
-			/>
-			<Sparkline
-				testId="health-chart-memory"
-				label="Memory used"
-				values={memory}
-				max={100}
-				summary={trendSummary(memory, "%")}
-			/>
-			<Sparkline
-				testId="health-chart-load"
-				label="Load, 1 minute"
-				values={load}
-				max={loadMax}
-				summary={trendSummary(load, "")}
-			/>
-		</div>
 	);
 }
