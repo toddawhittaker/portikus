@@ -134,11 +134,14 @@ body {
 	border: 0;
 	margin: 0;
 }
-.pk-actions {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-2);
+/* Layered so Tailwind utilities such as items-end can override it. */
+@layer components {
+	.pk-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2);
+	}
 }
 .pk-card {
 	box-sizing: border-box;
@@ -714,4 +717,9 @@ button.pk-statusbar-item:hover {
 /* The Git line of the status bar is muted when there is no repository. */
 .pk-statusbar-muted {
 	color: var(--ink-faint);
+}
+
+/* Headings focused by script for screen readers are not controls, so they need no focus ring. */
+:is(h1, h2, h3)[tabindex="-1"]:focus {
+	outline: none;
 }

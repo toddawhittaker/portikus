@@ -35,7 +35,12 @@ test("first sign-in shows the statement, and I accept lands on the workspace", a
 
 	await page.goto("/");
 	await expect(page).toHaveURL(/\/acceptable-use$/, { timeout: 15_000 });
-	await expect(page.getByRole("heading", { name: "Acceptable use" })).toBeVisible();
+	const heading = page.getByRole("heading", { name: "Acceptable use" });
+	await expect(heading).toBeVisible();
+	await expect(heading).toBeFocused();
+	expect(await heading.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe(
+		"none",
+	);
 	await expect(page.getByTestId("acceptable-use-text")).toContainText("coursework");
 	await expect(page).toHaveTitle("Acceptable use, Portikus");
 
