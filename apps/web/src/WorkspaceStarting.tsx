@@ -1,6 +1,11 @@
-import type { PendingOperation, Workspace } from "@portikus/contracts";
+import type { PendingOperation, Workspace, WorkspaceUsage } from "@portikus/contracts";
 import { Button, Icon, Skeleton, useToast } from "@portikus/ui";
+import { useState } from "react";
 import { useWorkspaceAction } from "./api/workspace.js";
+import { STORAGE_POLL_MS, useWorkspaceUsage } from "./monitor/usage.js";
+import { storageLevel } from "./recovery/storage.js";
+import { StorageMeters } from "./shell/StorageMeters.js";
+import { ResetDocker } from "./shell/WorkspaceDialog.js";
 
 export type StartingPhase =
 	| "connecting"
@@ -73,6 +78,24 @@ export function startingPhase(workspace: Workspace | null): StartingPhase {
 	return "starting";
 }
 
+/** Whether any storage class reported a figure. */
+function hasFigures(storage: WorkspaceUsage["storage"] | undefined): boolean {
+	return !!storage && Object.values(storage).some((figure) => figure !== null);
+}
+
+/**
+ * Offer a Docker reset from the error screen only when Docker is what filled
+ * up; resetting it for full project storage would destroy data for nothing.
+ */
+export function offerDockerCleanup(
+	errorCode: string | null | undefined,
+	storage: WorkspaceUsage["storage"] | undefined,
+): boolean {
+	return (
+		errorCode === "STORAGE_FULL" && storageLevel(storage?.docker ?? null) === "critical"
+	);
+}
+
 /**
  * The center of the shell while the workspace is not running yet
  * (SPEC.md §6.3): what is happening, in order, and nothing to click.
@@ -94,6 +117,10 @@ export function WorkspaceStarting({
 	const pending = workspace?.pendingOperation ?? null;
 	const [heading, sub] = pending ? PENDING_COPY[pending] : COPY[phase];
 	const at = STEPS.indexOf(phase as (typeof STEPS)[number]);
+	// The agent may still answer while the workspace is in error (SPEC.md §18.3).
+	const usage = useWorkspaceUsage(workspaceId, phase === "error", STORAGE_POLL_MS);
+	const storage = phase === "error" ? usage.data?.storage : undefined;
+	const [cleaning, setCleaning] = useState(false);
 
 	return (
 		<>
@@ -113,20 +140,27 @@ export function WorkspaceStarting({
 					data-phase={phase}
 					data-pending={pending ?? undefined}
 				>
-					<div className="flex flex-col gap-2">
-						<h1 id="progress-title" className="pk-text-title">
-							{heading}
-						</h1>
-						<p className="pk-text-body pk-muted">{sub}</p>
-						{idleStop && (phase === "stopping" || phase === "stopped") && (
-							<p className="pk-text-body" data-testid="idle-stopped">
-								{idleStop.minutes === null
-									? "Stopped because nothing happened in it for a while."
-									: `Stopped after ${idleStop.minutes} ${
-											idleStop.minutes === 1 ? "minute" : "minutes"
-										} without activity.`}
-							</p>
+					<div className="flex items-start gap-3">
+						{phase === "error" && (
+							<div className="pk-dialog-status bg-status-error-soft text-status-error">
+								<Icon name="alert" size="lg" />
+							</div>
 						)}
+						<div className="flex flex-col gap-2">
+							<h1 id="progress-title" className="pk-text-title">
+								{heading}
+							</h1>
+							<p className="pk-text-body pk-muted">{sub}</p>
+							{idleStop && (phase === "stopping" || phase === "stopped") && (
+								<p className="pk-text-body" data-testid="idle-stopped">
+									{idleStop.minutes === null
+										? "Stopped because nothing happened in it for a while."
+										: `Stopped after ${idleStop.minutes} ${
+												idleStop.minutes === 1 ? "minute" : "minutes"
+											} without activity.`}
+								</p>
+							)}
+						</div>
 					</div>
 					{at >= 0 && (
 						<ol className="pk-steps">
@@ -162,6 +196,7 @@ export function WorkspaceStarting({
 					)}
 					{phase === "error" && (
 						<>
+							{storage && hasFigures(storage) && <StorageMeters storage={storage} />}
 							<div className="pk-actions">
 								<StartButton workspaceId={workspaceId} testId="workspace-retry">
 									Try again
@@ -173,6 +208,16 @@ export function WorkspaceStarting({
 								>
 									Workspace details
 								</Button>
+								{offerDockerCleanup(workspace?.errorCode, storage) && (
+									<ResetDocker
+										workspaceId={workspaceId}
+										workspace={workspace}
+										label="Clean up Docker…"
+										testId="workspace-clean-docker"
+										confirming={cleaning}
+										setConfirming={setCleaning}
+									/>
+								)}
 							</div>
 							{(workspace?.errorMessage || workspace?.errorCode) && (
 								<details data-testid="workspace-error-details">

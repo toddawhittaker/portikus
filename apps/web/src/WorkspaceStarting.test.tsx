@@ -1,7 +1,11 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "./test-utils.js";
-import { startingPhase, WorkspaceStarting } from "./WorkspaceStarting.js";
+import {
+	offerDockerCleanup,
+	startingPhase,
+	WorkspaceStarting,
+} from "./WorkspaceStarting.js";
 
 const noop = () => {};
 
@@ -170,4 +174,94 @@ test("without an idle stop the stopped screen says nothing about it", () => {
 		/>,
 	);
 	expect(screen.queryByTestId("idle-stopped")).toBeNull();
+});
+
+const GB = 1024 ** 3;
+const at = (percent: number) => ({ usedBytes: percent * GB, totalBytes: 100 * GB });
+
+test("Clean up Docker is offered only for STORAGE_FULL with Docker at the critical level", () => {
+	expect(
+		offerDockerCleanup("STORAGE_FULL", {
+			home: at(10),
+			docker: at(96),
+			recovery: null,
+		}),
+	).toBe(true);
+	// Projects storage is what filled up: a Docker reset would destroy data for nothing.
+	expect(
+		offerDockerCleanup("STORAGE_FULL", {
+			home: at(99),
+			docker: at(85),
+			recovery: null,
+		}),
+	).toBe(false);
+	expect(
+		offerDockerCleanup("AGENT_UNAVAILABLE", {
+			home: null,
+			docker: at(99),
+			recovery: null,
+		}),
+	).toBe(false);
+	expect(offerDockerCleanup("STORAGE_FULL", undefined)).toBe(false);
+});
+
+function stubUsage(docker: { usedBytes: number; totalBytes: number } | null) {
+	stubFetch((url) =>
+		String(url).endsWith("/usage")
+			? json(200, {
+					observedAt: "2026-01-01T00:00:00.000Z",
+					cpuPercent: 1,
+					memory: { usedBytes: 1, totalBytes: 2 },
+					disk: { usedBytes: 1, totalBytes: 2 },
+					network: { receiveBytesPerSecond: 0, transmitBytesPerSecond: 0 },
+					processes: [],
+					storage: { home: at(10), docker, recovery: null },
+				})
+			: json(202, { ok: true }),
+	);
+}
+
+test("the error screen shows the meters and Clean up Docker when Docker filled up", async () => {
+	stubUsage(at(99));
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "error", errorCode: "STORAGE_FULL" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+
+	await screen.findByTestId("storage-meters");
+	const clean = await screen.findByRole("button", { name: "Clean up Docker…" });
+	fireEvent.click(clean);
+	expect(screen.getByTestId("dialog-reset-docker")).toBeDefined();
+});
+
+test("with Docker not full the error screen shows the meters but no Clean up Docker", async () => {
+	stubUsage(at(20));
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "error", errorCode: "STORAGE_FULL" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+
+	await screen.findByTestId("storage-meters");
+	expect(screen.queryByRole("button", { name: "Clean up Docker…" })).toBeNull();
+});
+
+test("with no figures the error screen offers only Try again and Workspace details", async () => {
+	stubFetch(() => json(503, { code: "AGENT_UNAVAILABLE", message: "no" }));
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "error", errorCode: "STORAGE_FULL" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+
+	expect(screen.queryByTestId("storage-meters")).toBeNull();
+	const names = screen.getAllByRole("button").map((button) => button.textContent);
+	expect(names).toEqual(["Try again", "Workspace details"]);
 });

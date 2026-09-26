@@ -1,5 +1,5 @@
 import type { Workspace } from "@portikus/contracts";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
@@ -248,9 +248,10 @@ test("the dialog lists the three storage classes, and a missing one says so", as
 	await waitFor(() =>
 		expect(screen.getByTestId("storage-home").textContent).toContain("of"),
 	);
-	expect(screen.getByText("Projects & home")).toBeDefined();
-	expect(screen.getByText("Docker")).toBeDefined();
-	expect(screen.getByText("Recovery")).toBeDefined();
+	const meters = within(screen.getByTestId("storage-meters"));
+	expect(meters.getByText("Projects & home")).toBeDefined();
+	expect(meters.getByText("Docker")).toBeDefined();
+	expect(meters.getByText("Recovery")).toBeDefined();
 	expect(screen.getByTestId("storage-docker").textContent).toBe("Not available");
 	expect(screen.getByTestId("storage-home").textContent).not.toContain("nearly full");
 });
@@ -374,4 +375,21 @@ test("opened in restart mode, the dialog shows Restart's confirmation; Cancel le
 	fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 	expect(screen.queryByTestId("dialog-workspace-restart")).toBeNull();
 	expect(screen.getByTestId("dialog-workspace-status")).toBeDefined();
+});
+
+test("the dialog puts the state and its actions first and folds the technical details away", () => {
+	renderBar();
+	openStatus();
+
+	const dialog = screen.getByTestId("dialog-workspace-status");
+	const text = dialog.textContent ?? "";
+	expect(text.indexOf("Restart workspace")).toBeLessThan(text.indexOf("Storage"));
+	expect(text.indexOf("Storage")).toBeLessThan(text.indexOf("Reset Docker"));
+	expect(screen.getByTestId("workspace-status-state").textContent).toContain("Running");
+	const details = screen.getByTestId("workspace-status-details") as HTMLDetailsElement;
+	expect(details.open).toBe(false);
+	expect(details.querySelector("summary")?.textContent).toBe("Technical details");
+	expect(within(details).getByText("Desired state")).toBeDefined();
+	expect(within(details).getByText("Connections")).toBeDefined();
+	expect(within(details).getByText("Image")).toBeDefined();
 });

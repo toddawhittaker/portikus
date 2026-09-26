@@ -79,6 +79,59 @@ test("the error screen offers Try again and Workspace details, with the detail f
 	expect((await start).ok()).toBe(true);
 });
 
+test("a STORAGE_FULL error with Docker full shows the meters and offers Clean up Docker", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await failWorkspace(student.workspaceId);
+	// The API answers usage only for a running workspace today, so the figures an
+	// agent would report in the error state are served here.
+	const GIB = 1024 ** 3;
+	await page.route(`**/workspaces/${student.workspaceId}/usage`, (route) =>
+		route.fulfill({
+			json: {
+				observedAt: new Date().toISOString(),
+				cpuPercent: 0,
+				memory: { usedBytes: 1, totalBytes: 2 },
+				disk: { usedBytes: 1, totalBytes: 2 },
+				network: { receiveBytesPerSecond: 0, transmitBytesPerSecond: 0 },
+				processes: [],
+				storage: {
+					home: { usedBytes: 3 * GIB, totalBytes: 10 * GIB },
+					docker: { usedBytes: 99 * GIB, totalBytes: 100 * GIB },
+					recovery: null,
+				},
+			},
+		}),
+	);
+	await page.goto(workspacePath(student.workspaceId));
+
+	const progress = page.getByTestId("workspace-progress");
+	await expect(progress).toHaveAttribute("data-phase", "error", { timeout: 15_000 });
+	await expect(progress.getByTestId("storage-meter-docker")).toHaveClass(
+		/pk-meter--full/,
+	);
+	await progress.getByRole("button", { name: "Clean up Docker…" }).click();
+	await expect(page.getByTestId("dialog-reset-docker")).toBeVisible();
+});
+
+test("an error with no storage figures offers only Try again and Workspace details", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await failWorkspace(student.workspaceId);
+	await page.goto(workspacePath(student.workspaceId));
+
+	const progress = page.getByTestId("workspace-progress");
+	await expect(progress).toHaveAttribute("data-phase", "error", { timeout: 15_000 });
+	await expect(progress.getByTestId("storage-meters")).toHaveCount(0);
+	await expect(progress.getByRole("button", { name: "Clean up Docker…" })).toHaveCount(
+		0,
+	);
+});
+
 for (const state of ["stopped", "error"] as const) {
 	test(`a ${state} workspace shows no loading skeletons`, async ({ page, context }) => {
 		const student = await createStudent(context);

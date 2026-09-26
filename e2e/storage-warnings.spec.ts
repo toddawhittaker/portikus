@@ -63,6 +63,32 @@ test("the dialog lists Projects & home, Docker and Recovery", async ({
 	await expect(dialog.getByTestId("storage-recovery")).toHaveText("Not available");
 	await expect(dialog).toContainText("Projects & home");
 	await expect(page.getByTestId("storage-warning")).toHaveCount(0);
+	// One meter per class; the bar is drawn only where there is a figure.
+	await expect(dialog.locator(".pk-meter")).toHaveCount(3);
+	await expect(dialog.locator(".pk-meter-track")).toHaveCount(2);
+});
+
+test("the dialog's actions come first, and the technical details are folded away", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await seedStorage(student.workspaceId, { home: percent(96) });
+	await page.goto(workspacePath(student.workspaceId));
+
+	await page.getByTestId("workspace-status").click();
+	const dialog = page.getByTestId("dialog-workspace-status");
+	await expect(dialog.getByTestId("storage-meter-home")).toHaveClass(/pk-meter--full/);
+	await expect(dialog.getByTestId("workspace-restart")).toBeVisible();
+	const restart = await dialog.getByTestId("workspace-restart").boundingBox();
+	const storage = await dialog.getByRole("heading", { name: "Storage" }).boundingBox();
+	expect(restart && storage && restart.y < storage.y).toBe(true);
+	await expect(dialog.getByTestId("storage-home")).toHaveText(
+		"96.0 GB of 100 GB, nearly full",
+	);
+	await expect(dialog.getByText("Desired state")).toBeHidden();
+	await dialog.getByText("Technical details").click();
+	await expect(dialog.getByText("Desired state")).toBeVisible();
 });
 
 test("at 80% the status bar names Docker", async ({ page, context }) => {
