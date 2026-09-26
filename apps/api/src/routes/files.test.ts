@@ -940,3 +940,72 @@ test.skipIf(skip)(
 		expect(row.idle_stop_at).not.toBeNull();
 	},
 );
+
+// ── The per-user write limit (docs/EPIC-17.md rulings 16 and 17) ──
+
+test.skipIf(skip)(
+	"file and project writes share one per-user limit; reads and other users are not held",
+	async () => {
+		const limited = buildTestServer(testDb.db, mock.issuer, {
+			AGENT_PORT: agent.port,
+			FILE_WRITE_LIMIT_PER_MINUTE: 3,
+		});
+		await limited.ready();
+		try {
+			const jar = new CookieJar();
+			await loginAs(limited, "alice", jar);
+			const write = (method: "POST" | "PUT", path: string, payload: unknown) =>
+				limited.inject({
+					method,
+					url: `/workspaces/${workspaceId}/projects${path}`,
+					headers: {
+						...csrfHeaders(jar, PUBLIC_URL),
+						"content-type": "application/json",
+					},
+					payload: JSON.stringify(payload),
+				});
+
+			expect(
+				(await write("POST", `/${projectId}/mkdir`, { path: "a" })).statusCode,
+			).toBe(201);
+			expect(
+				(await write("POST", `/${projectId}/mkdir`, { path: "b" })).statusCode,
+			).toBe(201);
+			expect(
+				(await write("POST", "", { name: "second", source: "new" })).statusCode,
+			).toBe(201);
+
+			const refused = await write("POST", `/${projectId}/mkdir`, { path: "c" });
+			expect(refused.statusCode).toBe(429);
+			expect(refused.json()).toEqual({
+				code: "RATE_LIMITED",
+				message: "Too many requests just now. Try again in a minute.",
+			});
+			expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
+			expect(Number(refused.headers["retry-after"])).toBeLessThanOrEqual(60);
+			// A project write is held by the same count.
+			expect(
+				(await write("POST", "", { name: "third", source: "new" })).statusCode,
+			).toBe(429);
+
+			const read = await limited.inject({
+				method: "GET",
+				url: `/workspaces/${workspaceId}/projects/${projectId}/tree`,
+				headers: { cookie: jar.cookieHeader() },
+			});
+			expect(read.statusCode).toBe(200);
+
+			const bob = new CookieJar();
+			await loginAs(limited, "bob", bob);
+			const theirs = await limited.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/projects/${projectId}/mkdir`,
+				headers: csrfHeaders(bob, PUBLIC_URL),
+				payload: { path: "x" },
+			});
+			expect(theirs.statusCode).toBe(404);
+		} finally {
+			await limited.close();
+		}
+	},
+);

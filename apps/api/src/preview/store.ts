@@ -275,3 +275,84 @@ export async function revokeSessionPreviewSessions(
 		.where("revoked_at", "is", null)
 		.execute();
 }
+
+export interface PreviewWorkspaceRow {
+	id: string;
+	label: string;
+	state: string;
+	owner_user_id: string;
+	agent_address: string | null;
+}
+
+/** The three rows `/preview/authorize` needs; any may be missing. */
+export interface PreviewLookup {
+	session: PreviewSessionRow | null;
+	user: AuthUser | null;
+	workspace: PreviewWorkspaceRow | null;
+}
+
+/** How long a found set of rows is reused (docs/EPIC-17.md rulings 10 and 11). */
+export const PREVIEW_LOOKUP_TTL_MS = 2000;
+export const PREVIEW_LOOKUP_MAX_ENTRIES = 10_000;
+
+/**
+ * Remember the rows behind a preview cookie for two seconds, so a page of
+ * hundreds of assets costs three queries rather than three per asset. Only
+ * the rows are kept, never a decision: the caller runs every check on them
+ * each time. A lookup missing any row is not kept, so a made-up or revoked
+ * cookie always goes to the database. Sign-out, a stop and a session gate
+ * therefore reach the gateway up to two seconds late.
+ */
+export function createPreviewLookupCache(
+	db: Kysely<Database>,
+	now: () => number = Date.now,
+) {
+	const entries = new Map<string, { at: number; lookup: PreviewLookup }>();
+
+	async function load(token: string): Promise<PreviewLookup> {
+		const session = await loadPreviewSession(db, token);
+		if (!session) return { session: null, user: null, workspace: null };
+		const user = await loadMainSessionUser(db, session.session_id);
+		if (!user) return { session, user: null, workspace: null };
+		const workspace =
+			(await db
+				.selectFrom("workspaces")
+				.select(["id", "label", "state", "owner_user_id", "agent_address"])
+				.where("id", "=", session.workspace_id)
+				.executeTakeFirst()) ?? null;
+		return { session, user, workspace };
+	}
+
+	return {
+		async get(token: string): Promise<PreviewLookup> {
+			const key = hashSessionToken(token);
+			const at = now();
+			const hit = entries.get(key);
+			if (hit && at - hit.at < PREVIEW_LOOKUP_TTL_MS) return hit.lookup;
+			if (hit) entries.delete(key);
+
+			const lookup = await load(token);
+			if (!lookup.session || !lookup.user || !lookup.workspace) return lookup;
+			// Map order is insertion order, so the oldest entries come first.
+			for (const [k, entry] of entries) {
+				if (
+					at - entry.at < PREVIEW_LOOKUP_TTL_MS &&
+					entries.size < PREVIEW_LOOKUP_MAX_ENTRIES
+				) {
+					break;
+				}
+				entries.delete(k);
+			}
+			entries.set(key, { at, lookup });
+			return lookup;
+		},
+		/** Forget everything, after a revocation made in this process. */
+		clear(): void {
+			entries.clear();
+		},
+		/** How many entries are held; for tests. */
+		get size(): number {
+			return entries.size;
+		},
+	};
+}

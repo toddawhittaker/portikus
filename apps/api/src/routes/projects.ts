@@ -26,6 +26,7 @@ import {
 	type AgentClient,
 	readAgentError,
 } from "../agent-client.js";
+import { fileWriteLimit } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 import { cappedDownload } from "./files.js";
 import {
@@ -220,6 +221,12 @@ export function registerProjectRoutes(
 	app: FastifyInstance,
 	{ db, config }: ServerDeps,
 ): void {
+	/** Every project write shares the file-write limit (docs/EPIC-17.md ruling 16). */
+	const allowWrite = fileWriteLimit(app, config);
+	async function limitWrites(request: FastifyRequest, reply: FastifyReply) {
+		if (!(await allowWrite(request, reply))) return reply;
+	}
+
 	/** Every project route resolves its workspace through the one owner check. */
 	function owned(request: FastifyRequest, reply: FastifyReply) {
 		return ownedScope(db, config, request, reply);
@@ -353,104 +360,19 @@ export function registerProjectRoutes(
 	});
 
 	// POST /workspaces/:id/projects (SPEC.md §7.2).
-	app.post("/workspaces/:id/projects", async (request, reply) => {
-		const scope = await owned(request, reply);
-		if (!scope) return;
-		const body = CreateProjectRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
-		const agent = requireAgent(scope, reply);
-		if (!agent) return;
-
-		const slug = slugify(body.data.name);
-		if (slug === "") {
-			return sendError(
-				reply,
-				400,
-				"INVALID_SLUG",
-				"The project name must contain a letter or a digit.",
-			);
-		}
-
-		let url = body.data.url;
-		if (body.data.source === "template") {
-			const template = config.projectTemplates.find(
-				(candidate) => candidate.name === body.data.template,
-			);
-			if (!template) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "Unknown project template");
+	app.post(
+		"/workspaces/:id/projects",
+		{ preHandler: limitWrites },
+		async (request, reply) => {
+			const scope = await owned(request, reply);
+			if (!scope) return;
+			const body = CreateProjectRequest.safeParse(request.body ?? {});
+			if (!body.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 			}
-			url = template.url;
-		}
+			const agent = requireAgent(scope, reply);
+			if (!agent) return;
 
-		const existing = await db
-			.selectFrom("projects")
-			.select("id")
-			.where("workspace_id", "=", scope.workspaceId)
-			.where("slug", "=", slug)
-			.executeTakeFirst();
-		if (existing) {
-			return sendError(
-				reply,
-				409,
-				"PROJECT_EXISTS",
-				`A project called ${slug} already exists.`,
-			);
-		}
-
-		// An empty directory is quick; a clone or a template is not.
-		const slow = body.data.source !== "new";
-		if (slow && !claimLongOperation(scope.workspaceId, reply)) return;
-
-		let created: { isGitRepo: boolean };
-		try {
-			created = await agent.createProject({
-				slug,
-				source: body.data.source,
-				...(url === undefined ? {} : { url }),
-				gitInit: body.data.gitInit,
-			});
-		} catch (error) {
-			return sendAgentError(reply, error);
-		} finally {
-			if (slow) releaseLongOperation(scope.workspaceId);
-		}
-
-		const row = await db
-			.insertInto("projects")
-			.values({
-				workspace_id: scope.workspaceId,
-				slug,
-				name: body.data.name,
-				path: projectPath(slug),
-				source: body.data.source,
-			})
-			.returningAll()
-			.executeTakeFirstOrThrow();
-
-		return reply.status(201).send(toProject(row, created.isGitRepo, false));
-	});
-
-	// PATCH /workspaces/:id/projects/:pid -- rename, archive, unarchive.
-	app.patch("/workspaces/:id/projects/:pid", async (request, reply) => {
-		const user = requireUser(request);
-		const params = ProjectParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const scope = await owned(request, reply);
-		if (!scope) return;
-		const body = UpdateProjectRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
-		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
-		if (!row) return;
-
-		let current = row;
-
-		if (body.data.name !== undefined && body.data.name !== current.name) {
 			const slug = slugify(body.data.name);
 			if (slug === "") {
 				return sendError(
@@ -460,142 +382,239 @@ export function registerProjectRoutes(
 					"The project name must contain a letter or a digit.",
 				);
 			}
-			if (slug !== current.slug) {
-				const agent = requireAgent(scope, reply);
-				if (!agent) return;
-				const taken = await db
-					.selectFrom("projects")
-					.select("id")
-					.where("workspace_id", "=", scope.workspaceId)
-					.where("slug", "=", slug)
-					.executeTakeFirst();
-				if (taken) {
-					return sendError(
-						reply,
-						409,
-						"PROJECT_EXISTS",
-						`A project called ${slug} already exists.`,
-					);
+
+			let url = body.data.url;
+			if (body.data.source === "template") {
+				const template = config.projectTemplates.find(
+					(candidate) => candidate.name === body.data.template,
+				);
+				if (!template) {
+					return sendError(reply, 400, "VALIDATION_FAILED", "Unknown project template");
 				}
-				try {
-					await agent.renameProject(current.slug, slug);
-				} catch (error) {
-					return sendAgentError(reply, error);
-				}
+				url = template.url;
 			}
 
-			const oldPath = current.path;
-			const newPath = projectPath(slug);
-			current = await db.transaction().execute(async (trx) => {
-				const updated = await trx
+			const existing = await db
+				.selectFrom("projects")
+				.select("id")
+				.where("workspace_id", "=", scope.workspaceId)
+				.where("slug", "=", slug)
+				.executeTakeFirst();
+			if (existing) {
+				return sendError(
+					reply,
+					409,
+					"PROJECT_EXISTS",
+					`A project called ${slug} already exists.`,
+				);
+			}
+
+			// An empty directory is quick; a clone or a template is not.
+			const slow = body.data.source !== "new";
+			if (slow && !claimLongOperation(scope.workspaceId, reply)) return;
+
+			let created: { isGitRepo: boolean };
+			try {
+				created = await agent.createProject({
+					slug,
+					source: body.data.source,
+					...(url === undefined ? {} : { url }),
+					gitInit: body.data.gitInit,
+				});
+			} catch (error) {
+				return sendAgentError(reply, error);
+			} finally {
+				if (slow) releaseLongOperation(scope.workspaceId);
+			}
+
+			const row = await db
+				.insertInto("projects")
+				.values({
+					workspace_id: scope.workspaceId,
+					slug,
+					name: body.data.name,
+					path: projectPath(slug),
+					source: body.data.source,
+				})
+				.returningAll()
+				.executeTakeFirstOrThrow();
+
+			return reply.status(201).send(toProject(row, created.isGitRepo, false));
+		},
+	);
+
+	// PATCH /workspaces/:id/projects/:pid -- rename, archive, unarchive.
+	app.patch(
+		"/workspaces/:id/projects/:pid",
+		{ preHandler: limitWrites },
+		async (request, reply) => {
+			const user = requireUser(request);
+			const params = ProjectParam.safeParse(request.params);
+			if (!params.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+			}
+			const scope = await owned(request, reply);
+			if (!scope) return;
+			const body = UpdateProjectRequest.safeParse(request.body ?? {});
+			if (!body.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
+			}
+			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			if (!row) return;
+
+			let current = row;
+
+			if (body.data.name !== undefined && body.data.name !== current.name) {
+				const slug = slugify(body.data.name);
+				if (slug === "") {
+					return sendError(
+						reply,
+						400,
+						"INVALID_SLUG",
+						"The project name must contain a letter or a digit.",
+					);
+				}
+				if (slug !== current.slug) {
+					const agent = requireAgent(scope, reply);
+					if (!agent) return;
+					const taken = await db
+						.selectFrom("projects")
+						.select("id")
+						.where("workspace_id", "=", scope.workspaceId)
+						.where("slug", "=", slug)
+						.executeTakeFirst();
+					if (taken) {
+						return sendError(
+							reply,
+							409,
+							"PROJECT_EXISTS",
+							`A project called ${slug} already exists.`,
+						);
+					}
+					try {
+						await agent.renameProject(current.slug, slug);
+					} catch (error) {
+						return sendAgentError(reply, error);
+					}
+				}
+
+				const oldPath = current.path;
+				const newPath = projectPath(slug);
+				current = await db.transaction().execute(async (trx) => {
+					const updated = await trx
+						.updateTable("projects")
+						.set({ slug, name: body.data.name as string, path: newPath })
+						.where("id", "=", current.id)
+						.returningAll()
+						.executeTakeFirstOrThrow();
+					// A terminal's cwd is a path under the project that just moved.
+					const terminals = await trx
+						.selectFrom("terminals")
+						.selectAll()
+						.where("project_id", "=", current.id)
+						.execute();
+					for (const terminal of terminals) {
+						if (terminal.cwd !== oldPath && !terminal.cwd.startsWith(`${oldPath}/`)) {
+							continue;
+						}
+						await trx
+							.updateTable("terminals")
+							.set({ cwd: newPath + terminal.cwd.slice(oldPath.length) })
+							.where("id", "=", terminal.id)
+							.execute();
+					}
+					return updated;
+				});
+			}
+
+			if (body.data.state !== undefined && body.data.state !== current.state) {
+				const archiving = body.data.state === "archived";
+				// Best effort: archive leaves the directory in place, so a failed
+				// point must not block it (SPEC.md §7.3, §15.6).
+				if (archiving && scope.agent) {
+					try {
+						await makeRecoveryPoint(db, config, scope.agent, {
+							workspaceId: scope.workspaceId,
+							project: current,
+							reason: "before-archive",
+							createdBy: user.id,
+						});
+					} catch (error) {
+						request.log.warn(
+							{
+								workspaceId: scope.workspaceId,
+								projectId: current.id,
+								code: error instanceof AgentCallError ? error.code : "INTERNAL",
+							},
+							"before-archive recovery point failed",
+						);
+					}
+				}
+				current = await db
 					.updateTable("projects")
-					.set({ slug, name: body.data.name as string, path: newPath })
+					.set({
+						state: body.data.state,
+						archived_at: archiving ? new Date().toISOString() : null,
+					})
 					.where("id", "=", current.id)
 					.returningAll()
 					.executeTakeFirstOrThrow();
-				// A terminal's cwd is a path under the project that just moved.
-				const terminals = await trx
-					.selectFrom("terminals")
-					.selectAll()
-					.where("project_id", "=", current.id)
+				await db
+					.insertInto("audit_events")
+					.values({
+						actor: `user:${user.id}`,
+						target: current.id,
+						action: archiving ? "project.archived" : "project.unarchived",
+						result: "ok",
+					})
 					.execute();
-				for (const terminal of terminals) {
-					if (terminal.cwd !== oldPath && !terminal.cwd.startsWith(`${oldPath}/`)) {
-						continue;
-					}
-					await trx
-						.updateTable("terminals")
-						.set({ cwd: newPath + terminal.cwd.slice(oldPath.length) })
-						.where("id", "=", terminal.id)
-						.execute();
-				}
-				return updated;
-			});
-		}
-
-		if (body.data.state !== undefined && body.data.state !== current.state) {
-			const archiving = body.data.state === "archived";
-			// Best effort: archive leaves the directory in place, so a failed
-			// point must not block it (SPEC.md §7.3, §15.6).
-			if (archiving && scope.agent) {
-				try {
-					await makeRecoveryPoint(db, config, scope.agent, {
-						workspaceId: scope.workspaceId,
-						project: current,
-						reason: "before-archive",
-						createdBy: user.id,
-					});
-				} catch (error) {
-					request.log.warn(
-						{
-							workspaceId: scope.workspaceId,
-							projectId: current.id,
-							code: error instanceof AgentCallError ? error.code : "INTERNAL",
-						},
-						"before-archive recovery point failed",
-					);
-				}
 			}
-			current = await db
-				.updateTable("projects")
-				.set({
-					state: body.data.state,
-					archived_at: archiving ? new Date().toISOString() : null,
-				})
-				.where("id", "=", current.id)
-				.returningAll()
-				.executeTakeFirstOrThrow();
-			await db
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${user.id}`,
-					target: current.id,
-					action: archiving ? "project.archived" : "project.unarchived",
-					result: "ok",
-				})
-				.execute();
-		}
 
-		return toProject(current, null, null);
-	});
+			return toProject(current, null, null);
+		},
+	);
 
 	// DELETE /workspaces/:id/projects/:pid -- permanent (SPEC.md §7.3, §24.11).
-	app.delete("/workspaces/:id/projects/:pid", async (request, reply) => {
-		const user = requireUser(request);
-		const params = ProjectParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const scope = await owned(request, reply);
-		if (!scope) return;
-		const body = DeleteProjectRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
-		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
-		if (!row) return;
-		// Typing the folder name back is the whole safeguard, so it is checked
-		// against the row rather than anything the browser chose.
-		if (body.data.slug !== row.slug) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"The slug you typed does not match",
-			);
-		}
-		const agent = requireAgent(scope, reply);
-		if (!agent) return;
+	app.delete(
+		"/workspaces/:id/projects/:pid",
+		{ preHandler: limitWrites },
+		async (request, reply) => {
+			const user = requireUser(request);
+			const params = ProjectParam.safeParse(request.params);
+			if (!params.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+			}
+			const scope = await owned(request, reply);
+			if (!scope) return;
+			const body = DeleteProjectRequest.safeParse(request.body ?? {});
+			if (!body.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
+			}
+			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			if (!row) return;
+			// Typing the folder name back is the whole safeguard, so it is checked
+			// against the row rather than anything the browser chose.
+			if (body.data.slug !== row.slug) {
+				return sendError(
+					reply,
+					400,
+					"VALIDATION_FAILED",
+					"The slug you typed does not match",
+				);
+			}
+			const agent = requireAgent(scope, reply);
+			if (!agent) return;
 
-		// Removing a tree can take a while, and a copy running at the same time
-		// would read directories this is deleting.
-		if (!claimLongOperation(scope.workspaceId, reply)) return;
-		try {
-			return await deleteProjectTree(request, reply, scope, row, agent, user.id);
-		} finally {
-			releaseLongOperation(scope.workspaceId);
-		}
-	});
+			// Removing a tree can take a while, and a copy running at the same time
+			// would read directories this is deleting.
+			if (!claimLongOperation(scope.workspaceId, reply)) return;
+			try {
+				return await deleteProjectTree(request, reply, scope, row, agent, user.id);
+			} finally {
+				releaseLongOperation(scope.workspaceId);
+			}
+		},
+	);
 
 	/** The slow half of the delete, so the slot is released on every exit. */
 	async function deleteProjectTree(
@@ -681,90 +700,98 @@ export function registerProjectRoutes(
 	}
 
 	// POST /workspaces/:id/projects/:pid/duplicate (SPEC.md §7.3).
-	app.post("/workspaces/:id/projects/:pid/duplicate", async (request, reply) => {
-		const params = ProjectParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const scope = await owned(request, reply);
-		if (!scope) return;
-		const body = DuplicateProjectRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
-		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
-		if (!row) return;
-		const agent = requireAgent(scope, reply);
-		if (!agent) return;
+	app.post(
+		"/workspaces/:id/projects/:pid/duplicate",
+		{ preHandler: limitWrites },
+		async (request, reply) => {
+			const params = ProjectParam.safeParse(request.params);
+			if (!params.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+			}
+			const scope = await owned(request, reply);
+			if (!scope) return;
+			const body = DuplicateProjectRequest.safeParse(request.body ?? {});
+			if (!body.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
+			}
+			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			if (!row) return;
+			const agent = requireAgent(scope, reply);
+			if (!agent) return;
 
-		const slug = slugify(body.data.name);
-		if (slug === "") {
-			return sendError(
-				reply,
-				400,
-				"INVALID_SLUG",
-				"The project name must contain a letter or a digit.",
-			);
-		}
-		const taken = await db
-			.selectFrom("projects")
-			.select("id")
-			.where("workspace_id", "=", scope.workspaceId)
-			.where("slug", "=", slug)
-			.executeTakeFirst();
-		if (taken) {
-			return sendError(
-				reply,
-				409,
-				"PROJECT_EXISTS",
-				`A project called ${slug} already exists.`,
-			);
-		}
+			const slug = slugify(body.data.name);
+			if (slug === "") {
+				return sendError(
+					reply,
+					400,
+					"INVALID_SLUG",
+					"The project name must contain a letter or a digit.",
+				);
+			}
+			const taken = await db
+				.selectFrom("projects")
+				.select("id")
+				.where("workspace_id", "=", scope.workspaceId)
+				.where("slug", "=", slug)
+				.executeTakeFirst();
+			if (taken) {
+				return sendError(
+					reply,
+					409,
+					"PROJECT_EXISTS",
+					`A project called ${slug} already exists.`,
+				);
+			}
 
-		if (!claimLongOperation(scope.workspaceId, reply)) return;
-		try {
-			await agent.duplicateProject(row.slug, slug);
-		} catch (error) {
-			return sendAgentError(reply, error);
-		} finally {
-			releaseLongOperation(scope.workspaceId);
-		}
+			if (!claimLongOperation(scope.workspaceId, reply)) return;
+			try {
+				await agent.duplicateProject(row.slug, slug);
+			} catch (error) {
+				return sendAgentError(reply, error);
+			} finally {
+				releaseLongOperation(scope.workspaceId);
+			}
 
-		// The copy is a project the student made here, not a discovered one.
-		const copy = await db
-			.insertInto("projects")
-			.values({
-				workspace_id: scope.workspaceId,
-				slug,
-				name: body.data.name,
-				path: projectPath(slug),
-				source: "new",
-			})
-			.returningAll()
-			.executeTakeFirstOrThrow();
+			// The copy is a project the student made here, not a discovered one.
+			const copy = await db
+				.insertInto("projects")
+				.values({
+					workspace_id: scope.workspaceId,
+					slug,
+					name: body.data.name,
+					path: projectPath(slug),
+					source: "new",
+				})
+				.returningAll()
+				.executeTakeFirstOrThrow();
 
-		return reply.status(201).send(toProject(copy, null, false));
-	});
+			return reply.status(201).send(toProject(copy, null, false));
+		},
+	);
 
 	// POST /workspaces/:id/projects/:pid/git-init (SPEC.md §7.2).
-	app.post("/workspaces/:id/projects/:pid/git-init", async (request, reply) => {
-		const params = ProjectParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const scope = await owned(request, reply);
-		if (!scope) return;
-		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
-		if (!row) return;
-		const agent = requireAgent(scope, reply);
-		if (!agent) return;
-		try {
-			await agent.gitInit(row.slug);
-		} catch (error) {
-			return sendAgentError(reply, error);
-		}
-		return toProject(row, true, false);
-	});
+	app.post(
+		"/workspaces/:id/projects/:pid/git-init",
+		{ preHandler: limitWrites },
+		async (request, reply) => {
+			const params = ProjectParam.safeParse(request.params);
+			if (!params.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+			}
+			const scope = await owned(request, reply);
+			if (!scope) return;
+			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			if (!row) return;
+			const agent = requireAgent(scope, reply);
+			if (!agent) return;
+			try {
+				await agent.gitInit(row.slug);
+			} catch (error) {
+				return sendAgentError(reply, error);
+			}
+			return toProject(row, true, false);
+		},
+	);
 
 	// GET /workspaces/:id/projects/:pid/download -- the agent's zip, streamed.
 	// With `?path=` it is one directory inside the project (SPEC.md §11.2).
@@ -862,36 +889,40 @@ export function registerProjectRoutes(
 	});
 
 	// PUT /workspaces/:id/projects/:pid/layout -- last write wins (plan, Layout).
-	app.put("/workspaces/:id/projects/:pid/layout", async (request, reply) => {
-		const params = ProjectParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const scope = await owned(request, reply);
-		if (!scope) return;
-		const body = ProjectLayout.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
-		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
-		if (!row) return;
+	app.put(
+		"/workspaces/:id/projects/:pid/layout",
+		{ preHandler: limitWrites },
+		async (request, reply) => {
+			const params = ProjectParam.safeParse(request.params);
+			if (!params.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+			}
+			const scope = await owned(request, reply);
+			if (!scope) return;
+			const body = ProjectLayout.safeParse(request.body ?? {});
+			if (!body.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
+			}
+			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			if (!row) return;
 
-		await db
-			.updateTable("projects")
-			.set({ layout: JSON.stringify(body.data) })
-			.where("id", "=", row.id)
-			.execute();
+			await db
+				.updateTable("projects")
+				.set({ layout: JSON.stringify(body.data) })
+				.where("id", "=", row.id)
+				.execute();
 
-		request.log.debug(
-			{
-				workspaceId: scope.workspaceId,
-				projectId: row.id,
-				tabs: body.data.tabs.length,
-				panes: body.data.tabs.reduce((total, tab) => total + countPanes(tab.root), 0),
-			},
-			"layout saved",
-		);
+			request.log.debug(
+				{
+					workspaceId: scope.workspaceId,
+					projectId: row.id,
+					tabs: body.data.tabs.length,
+					panes: body.data.tabs.reduce((total, tab) => total + countPanes(tab.root), 0),
+				},
+				"layout saved",
+			);
 
-		return reply.status(204).send();
-	});
+			return reply.status(204).send();
+		},
+	);
 }
