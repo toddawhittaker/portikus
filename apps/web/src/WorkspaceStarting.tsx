@@ -122,16 +122,17 @@ export function WorkspaceStarting({
 	const storage = phase === "error" ? usage.data?.storage : undefined;
 	const [cleaning, setCleaning] = useState(false);
 	const headingRef = useRef<HTMLHeadingElement>(null);
-	const firstRender = useRef(true);
-	// A button that vanishes with the phase drops focus to the body; catch it there.
+	const cardRef = useRef<HTMLElement>(null);
+	const lastFocused = useRef<Element | null>(null);
+	// A focused button that vanishes with the phase drops focus to the body; catch it there.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs on phase change only
 	useEffect(() => {
-		if (firstRender.current) {
-			firstRender.current = false;
-			return;
-		}
+		const gone = lastFocused.current && !lastFocused.current.isConnected;
 		const active = document.activeElement;
-		if (active === null || active === document.body) headingRef.current?.focus();
+		if (gone && (active === null || active === document.body)) {
+			lastFocused.current = null;
+			headingRef.current?.focus();
+		}
 	}, [phase, pending]);
 	const storageFull = phase === "error" && workspace?.errorCode === "STORAGE_FULL";
 
@@ -146,7 +147,16 @@ export function WorkspaceStarting({
 			)}
 			<div className="flex flex-1 items-center justify-center p-10">
 				<section
+					ref={cardRef}
 					className="pk-card pk-progress-card"
+					onFocus={(event) => {
+						lastFocused.current = event.target;
+					}}
+					onBlur={(event) => {
+						// A removed button blurs with no target; keep it so the effect can see it went.
+						if (event.relatedTarget && !cardRef.current?.contains(event.relatedTarget))
+							lastFocused.current = null;
+					}}
 					aria-labelledby="progress-title"
 					data-testid="workspace-progress"
 					data-phase={phase}

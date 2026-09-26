@@ -362,6 +362,15 @@ test("a phase change leaves focus alone when it is elsewhere, like a status-bar 
 	outside.remove();
 });
 
+test("a fresh load with focus on the body does not take focus when the phase moves on", () => {
+	const change = renderPhases(
+		{ ...WORKSPACE, state: "starting", desiredState: "running" },
+		{ ...WORKSPACE, state: "running", desiredState: "running" },
+	);
+	change();
+	expect(document.activeElement).toBe(document.body);
+});
+
 test("the first render does not take focus", () => {
 	const stopped = {
 		...WORKSPACE,
