@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { ApiError } from "../../api/request.js";
 import { formatBytes } from "../../monitor/format.js";
 import { AdminSection } from "../AdminSection.js";
+import { shortTime } from "../shortTime.js";
 import { useHealth } from "./queries.js";
 import { Sparkline } from "./Sparkline.js";
 
@@ -265,14 +266,7 @@ function GuardList({ guard }: { guard: HealthReport["guard"] }) {
 										<span className="pk-tag pk-tag--warning">{row.which}</span>
 									</td>
 									<td>
-										<time dateTime={row.at}>
-											{new Date(row.at).toLocaleString(undefined, {
-												month: "short",
-												day: "numeric",
-												hour: "2-digit",
-												minute: "2-digit",
-											})}
-										</time>
+										<time dateTime={row.at}>{shortTime(row.at)}</time>
 									</td>
 									<td>{row.average}</td>
 								</tr>

@@ -1,10 +1,11 @@
 import type { AuditEvent } from "@portikus/contracts";
 import { Button, TextField } from "@portikus/ui";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { UUID } from "../../links.js";
 import { AdminSection } from "../AdminSection.js";
+import { shortTime } from "../shortTime.js";
 import { type AuditFilters, useAuditPage } from "./queries.js";
 
 function text(value: unknown): string {
@@ -22,7 +23,8 @@ export function filtersFromSearch(search: Record<string, unknown>): AuditFilters
 
 /**
  * The Audit tab of the admin page (SPEC.md §24.11): newest first, 50 rows a
- * page, filtered by workspace, user and action prefix.
+ * page, filtered by target, user and action prefix. The target filter keeps
+ * the `workspace` URL key so older links still work.
  */
 export function AuditTab() {
 	const search = useSearch({ strict: false }) as Record<string, unknown>;
@@ -81,7 +83,7 @@ export function AuditTab() {
 			<form className="pk-actions items-end" onSubmit={apply}>
 				<TextField
 					id="audit-workspace"
-					label="Workspace ID"
+					label="Target ID"
 					className="w-80"
 					data-testid="audit-filter-workspace"
 					value={draft.workspace}
@@ -106,12 +108,16 @@ export function AuditTab() {
 					value={draft.action}
 					onChange={(event) => setDraft({ ...draft, action: event.target.value })}
 				/>
-				<Button variant="primary" type="submit" data-testid="audit-filter-apply">
-					Apply filters
-				</Button>
-				<Button type="button" data-testid="audit-filter-clear" onClick={clear}>
-					Clear
-				</Button>
+				{/* mt-6 is LABEL_CLASS's 18 px line plus FIELD_CLASS's 6 px gap, so the
+				    buttons line up with the inputs even when a field shows an error. */}
+				<div className="mt-6 flex gap-2 self-start">
+					<Button variant="primary" type="submit" data-testid="audit-filter-apply">
+						Apply filters
+					</Button>
+					<Button type="button" data-testid="audit-filter-clear" onClick={clear}>
+						Clear
+					</Button>
+				</div>
 			</form>
 			{/* Only the results re-key on new filters, so the focused form button stays. */}
 			<AuditResults key={key} filters={filters} />
@@ -206,35 +212,85 @@ export function pageText(pageNumber: number, count: number): string {
 	return `Page ${pageNumber}, ${count} ${count === 1 ? "event" : "events"}`;
 }
 
+/** The first 8 characters of a UUID, keeping a `user:` style prefix. */
+export function shortId(value: string): string {
+	const colon = value.indexOf(":");
+	const prefix = colon === -1 ? "" : value.slice(0, colon + 1);
+	const rest = value.slice(prefix.length);
+	return UUID.test(rest) ? `${prefix}${rest.slice(0, 8)}` : value;
+}
+
+/** "ok" and "success" are neutral; every other result is shown as an error. */
+export function resultTagClass(result: string): string {
+	return result === "ok" || result === "success" ? "pk-tag" : "pk-tag pk-tag--error";
+}
+
+function detailText(value: unknown): string {
+	return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 function AuditRow({ event }: { event: AuditEvent }) {
 	const metadata = Object.entries(event.metadata ?? {});
+	const actorShort = shortId(event.actor);
 	return (
 		<tr className="align-top" data-testid={`audit-row-${event.id}`}>
-			<td className="py-2">
-				<time dateTime={event.at}>{new Date(event.at).toLocaleString()}</time>
+			<td>
+				<time dateTime={event.at} title={new Date(event.at).toLocaleString()}>
+					{shortTime(event.at)}
+				</time>
 			</td>
-			<td className="py-2" title={event.actor}>
-				{event.actorName ?? event.actor}
+			<td title={event.actor}>
+				{event.actorName ?? <IdText full={event.actor} short={actorShort} />}
 			</td>
-			<td className="py-2 font-mono">{event.action}</td>
-			<td className="py-2 font-mono whitespace-normal break-all">{event.target}</td>
-			<td className="py-2">{event.result}</td>
-			<td className="py-2 whitespace-normal">
+			<td className="font-mono">{event.action}</td>
+			<td>
+				{UUID.test(event.target) ? (
+					<Link
+						to="/admin"
+						search={{ tab: "audit", workspace: event.target }}
+						className="pk-link pk-mono-small text-[var(--accent-text)] underline"
+						title={event.target}
+						aria-label={`Show events for target ${event.target}`}
+						data-testid="audit-target-link"
+					>
+						{shortId(event.target)}
+					</Link>
+				) : (
+					<span className="pk-mono-small">{event.target}</span>
+				)}
+			</td>
+			<td>
+				<span className={resultTagClass(event.result)}>{event.result}</span>
+			</td>
+			<td className="max-w-[48ch]">
 				{metadata.length === 0 ? (
 					"—"
 				) : (
 					<dl className="m-0">
-						{metadata.map(([key, value]) => (
-							<div key={key} className="flex gap-1">
-								<dt className="pk-muted">{key}:</dt>
-								<dd className="m-0 font-mono break-all">
-									{typeof value === "string" ? value : JSON.stringify(value)}
-								</dd>
-							</div>
-						))}
+						{metadata.map(([key, value]) => {
+							const full = detailText(value);
+							return (
+								<div key={key} className="truncate" title={`${key}: ${full}`}>
+									{/* truncate only clips visually; screen readers get the whole value. */}
+									<dt className="pk-muted inline">{key}:</dt>
+									<dd className="m-0 ml-1 inline font-mono">{full}</dd>
+								</div>
+							);
+						})}
 					</dl>
 				)}
 			</td>
 		</tr>
+	);
+}
+
+/** A shortened ID that screen readers still read in full. */
+function IdText({ full, short }: { full: string; short: string }) {
+	if (full === short) return <span className="pk-mono-small">{full}</span>;
+	return (
+		<span className="pk-mono-small">
+			<span aria-hidden="true">{short}</span>
+			<span className="sr-only">{full}</span>
+		</span>
 	);
 }
