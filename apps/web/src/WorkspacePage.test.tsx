@@ -121,6 +121,14 @@ test("the throttle notice's Restart workspace… opens the workspace dialog with
 	expect(screen.getByTestId("dialog-workspace-restart")).toBeDefined();
 });
 
+test("while the workspace is already changing, Restart workspace… opens the dialog without a confirmation that could not run", async () => {
+	const { push } = await openShell();
+	push({ cpuThrottle: THROTTLE, pendingOperation: "reset-docker" });
+	fireEvent.click(await screen.findByRole("button", { name: "Restart workspace…" }));
+	expect(screen.getByTestId("dialog-workspace-status")).toBeDefined();
+	expect(screen.queryByTestId("dialog-workspace-restart")).toBeNull();
+});
+
 test("side panes show skeletons while starting and a static message once stopped", async () => {
 	const { push } = await openShell();
 	push({ state: "starting" });

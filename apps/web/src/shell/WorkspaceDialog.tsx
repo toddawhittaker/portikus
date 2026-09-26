@@ -156,7 +156,7 @@ export function WorkspaceDialog({
 							projects are kept; programs installed with sudo apt are not.
 						</p>
 						<details data-testid="workspace-status-details">
-							<summary className="pk-text-body">Technical details</summary>
+							<summary className="pk-text-body pk-summary">Technical details</summary>
 							<dl className="pk-techdetail mt-2 grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1">
 								<dt className="text-ink-muted">Desired state</dt>
 								<dd className="m-0">{workspace?.desiredState ?? "running"}</dd>

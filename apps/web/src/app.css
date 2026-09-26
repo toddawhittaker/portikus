@@ -240,6 +240,7 @@ body {
 .pk-account:hover {
 	background: var(--surface-hover);
 }
+.pk-summary:focus-visible,
 .pk-account:focus-visible,
 .pk-wsbutton:focus-visible,
 button.pk-statusbar-item:focus-visible {
@@ -376,6 +377,14 @@ button.pk-statusbar-item:focus-visible {
 	height: 40px;
 	padding: 0 var(--space-1) 0 var(--space-4);
 	overflow: hidden;
+}
+/*
+ * A right-pane head that keeps only its action buttons: the tab already
+ * names the pane, so the title is screen-reader-only (Epic 20, ruling 18).
+ */
+.pk-pane-head.pk-pane-head--actions {
+	justify-content: flex-end;
+	height: 32px;
 }
 /* Keep the head's buttons on screen when the pane is dragged narrow. */
 .pk-pane-head .pk-iconbtn {

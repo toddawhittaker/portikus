@@ -485,11 +485,11 @@ test("the bar keeps host, Back, Forward, Reload and new tab; the rest is in the 
 	).map((item) => item.textContent);
 	expect(names).toEqual([
 		"Copy URL",
-		"Fit",
-		"375 px",
-		"768 px",
-		"1024 px",
-		"1440 px",
+		"Fit width",
+		"375 px wide",
+		"768 px wide",
+		"1024 px wide",
+		"1440 px wide",
 		"Reset preview data",
 		"Show in Running",
 	]);

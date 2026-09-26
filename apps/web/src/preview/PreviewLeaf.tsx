@@ -466,7 +466,7 @@ export function PreviewLeaf({
 								checked={width === option}
 								onCheckedChange={() => setWidth(option)}
 							>
-								{option === "fit" ? "Fit" : `${option} px`}
+								{option === "fit" ? "Fit width" : `${option} px wide`}
 							</MenuCheckboxItem>
 						))}
 						<MenuSeparator />

@@ -107,3 +107,9 @@
 	overflow: hidden;
 	overflow-wrap: anywhere;
 }
+/* Without field-sizing the rows attribute sizes it; scroll rather than clip. */
+@supports not (field-sizing: content) {
+	.pk-settings-readonly {
+		overflow: auto;
+	}
+}

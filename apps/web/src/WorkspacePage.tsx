@@ -18,8 +18,9 @@ import { FilesPane } from "./shell/FilesPane.js";
 import { IdleNotice, idleMinutes, useIdleStopReason } from "./shell/IdleNotice.js";
 import { type RightPane, RightPaneContext } from "./shell/rightPane.js";
 import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
-import { StatusBar, type WorkspaceDialogMode } from "./shell/StatusBar.js";
+import { StatusBar } from "./shell/StatusBar.js";
 import { ThrottleNotice, throttleAnnouncement } from "./shell/ThrottleNotice.js";
+import { resolveStatus, type WorkspaceDialogMode } from "./shell/WorkspaceDialog.js";
 import { type MeUser, useMe } from "./useMe.js";
 import { useWorkspaceSocket } from "./useWorkspaceSocket.js";
 import { startingPhase, WorkspaceStarting } from "./WorkspaceStarting.js";
@@ -154,7 +155,12 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 										workspace.cpuThrottle.at !== dismissedThrottleAt && (
 											<ThrottleNotice
 												throttle={workspace.cpuThrottle}
-												onOpenWorkspace={() => setWorkspaceDialog("restart")}
+												onOpenWorkspace={() =>
+													// A restart cannot run while the workspace is already changing.
+													setWorkspaceDialog(
+														resolveStatus(workspace).moving ? "open" : "restart",
+													)
+												}
 												onDismiss={() => {
 													setDismissedThrottleAt(workspace.cpuThrottle?.at ?? null);
 													workRef.current?.focus();
