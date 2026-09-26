@@ -131,6 +131,14 @@ function provider(): IncusWorkspaceProvider {
 	});
 }
 
+const rates = {
+	cpuPercent: 12,
+	netRxBytesPerSecond: 100,
+	netTxBytesPerSecond: 50,
+	diskReadBytesPerSecond: 0,
+	diskWriteBytesPerSecond: 512,
+};
+
 const load = async () => [0.24, 0.09, 0.02] as [number, number, number];
 
 test("the snapshot reads the host, pool, profile, image and instances", async () => {
@@ -139,6 +147,7 @@ test("the snapshot reads the host, pool, profile, image and instances", async ()
 		profile: "workspace",
 		imageAlias: "portikus",
 		loadAverage: load,
+		rates: async () => rates,
 		now: () => new Date("2026-09-22T12:00:00Z"),
 	});
 
@@ -156,6 +165,7 @@ test("the snapshot reads the host, pool, profile, image and instances", async ()
 			// An instance from an older image without a serial keeps its fingerprint.
 			{ name: "ws-bbbbbbbbbbbb", imageFingerprint: OLD_FP, imageSerial: null },
 		],
+		rates,
 	});
 	expect(requests.every((r) => r.method === "GET")).toBe(true);
 });

@@ -34,6 +34,39 @@ async function seedSample(poolUsedGiB: number, minutesAgo: number): Promise<void
 	);
 }
 
+/** A sample with Epic 19's host rates and running count (#598 items 2, 6 to 8). */
+async function seedPlatformSample(
+	minutesAgo: number,
+	reachable: boolean,
+): Promise<void> {
+	const base = sample(40);
+	const value = reachable
+		? {
+				...base,
+				host: {
+					...base.host,
+					rates: {
+						cpuPercent: 37,
+						netRxBytesPerSecond: 2 * 1024 * 1024,
+						netTxBytesPerSecond: 1024 * 1024,
+						diskReadBytesPerSecond: 512 * 1024,
+						diskWriteBytesPerSecond: 256 * 1024,
+					},
+				},
+				runningWorkspaces: 3,
+			}
+		: {
+				controller: { reachable: false, errorCode: "CONTROLLER_UNAVAILABLE" },
+				host: null,
+				runningWorkspaces: 3,
+			};
+	await query(
+		`insert into health_samples (observed_at, sample)
+		 values (now() - make_interval(mins => $1), $2)`,
+		[minutesAgo, JSON.stringify(value)],
+	);
+}
+
 async function openHealth(page: Page): Promise<void> {
 	await loginAs(page, "carol");
 	await page.goto("/admin?tab=health");
@@ -206,5 +239,67 @@ test.describe("admin health", () => {
 		await expect(banner).toContainText("Worker not reporting.");
 		await expect(banner).toContainText("3 minutes ago");
 		await expect(page.getByTestId("health-pool-warning")).toHaveCount(0);
+	});
+
+	test("the platform charts show availability, running count, CPU, network and disk", async ({
+		page,
+	}) => {
+		for (let minutes = 0; minutes <= 9; minutes++)
+			await seedPlatformSample(minutes, true);
+		for (const minutes of [20, 21, 22]) await seedPlatformSample(minutes, false);
+		await openHealth(page);
+		await page.getByRole("button", { name: "1 hour" }).click();
+		await expect(page.getByTestId("health-trends")).toHaveAttribute(
+			"aria-busy",
+			"false",
+		);
+
+		await expect(page.getByTestId("health-chart-availability-summary")).toHaveText(
+			"Samples in 13 of 60 minutes; controller unreachable for 3.",
+		);
+		const strip = page.getByTestId("health-chart-availability");
+		await expect(strip.locator("[data-part=outage]")).toHaveCount(3);
+		await expect(
+			strip.getByText("Controller unreachable", { exact: true }),
+		).toBeVisible();
+		// Outages carry a pattern, not only a colour.
+		await expect(strip.locator("[data-part=outage]").first()).toHaveCSS(
+			"fill",
+			/url\(/,
+		);
+		await expect(page.getByTestId("health-chart-running-summary")).toHaveText(
+			"Now 3, highest 3.",
+		);
+		await expect(page.getByTestId("health-chart-cpu-summary")).toHaveText(
+			"Now 37%, highest 37%.",
+		);
+		await expect(page.getByTestId("health-chart-network-summary")).toHaveText(
+			"In: Now 2 MB/s, highest 2 MB/s. Out: Now 1 MB/s, highest 1 MB/s.",
+		);
+		await expect(page.getByTestId("health-chart-disk-summary")).toHaveText(
+			"Read: Now 512 KB/s, highest 512 KB/s. Write: Now 256 KB/s, highest 256 KB/s.",
+		);
+		await expect(
+			page.getByTestId("health-chart-network").locator("svg text"),
+		).toContainText(["0 MB/s"]);
+
+		const cpu = page.getByRole("application", {
+			name: "Host CPU used, use the left and right arrow keys to read values",
+		});
+		await cpu.focus();
+		await page.keyboard.press("End");
+		await page.keyboard.press("ArrowLeft");
+		await expect(page.getByTestId("health-chart-cpu-readout")).toHaveText(/, 37%$/);
+
+		await page
+			.getByRole("application", {
+				name: "Sampling and controller availability, use the left and right arrow keys to read values",
+			})
+			.focus();
+		await page.keyboard.press("End");
+		await page.keyboard.press("ArrowLeft");
+		await expect(page.getByTestId("health-chart-availability-readout")).toHaveText(
+			/, samples in 1 of 1 minutes, controller unreachable for 0$/,
+		);
 	});
 });
