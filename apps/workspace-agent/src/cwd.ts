@@ -11,7 +11,7 @@
  */
 import type { WebSocket } from "@fastify/websocket";
 import type { TerminalServerMessage } from "@portikus/events";
-import { listPanes, type PaneState } from "./tmux.js";
+import { listPanes, type PaneState, type TmuxServer } from "./tmux.js";
 
 /**
  * How often the panes are polled while one of them has a full-screen program
@@ -48,7 +48,7 @@ function send(socket: WebSocket, message: TerminalServerMessage): void {
 }
 
 /** One poll for the whole agent, shared by every attachment it serves. */
-export function watchPanes(socketName?: string): PaneWatcher {
+export function watchPanes(server: TmuxServer): PaneWatcher {
 	const watched = new Map<string, Watched>();
 	let stopped = false;
 	let timer: NodeJS.Timeout | undefined;
@@ -75,7 +75,7 @@ export function watchPanes(socketName?: string): PaneWatcher {
 		if (stopped || watched.size === 0) return;
 		let panes: Map<string, PaneState>;
 		try {
-			panes = await listPanes(socketName);
+			panes = await listPanes(server);
 		} catch {
 			// No tmux server, or it went away; the attachments close with it.
 			schedule(IDLE_POLL_MS);

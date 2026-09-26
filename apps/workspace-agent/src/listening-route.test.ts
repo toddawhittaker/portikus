@@ -9,7 +9,7 @@ import { type AddressInfo, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { buildServer } from "./server.js";
 
 const TOKEN = "d".repeat(64);
@@ -103,6 +103,31 @@ test("the events socket sends the whole list on connect", async () => {
 	expect(first.type).toBe("workspace.listening-services.changed");
 	expect((first.services as { port: number }[]).map((s) => s.port)).toEqual([echoPort]);
 	ws.close();
+});
+
+test("an open events socket keeps the timer scanning", async () => {
+	const ws = new WebSocket(`ws://127.0.0.1:${port}/listening/events`, {
+		headers: auth(),
+	} as unknown as string[]);
+	const frames: { port: number }[][] = [];
+	ws.addEventListener("message", (event) => {
+		frames.push(JSON.parse(event.data as string).services);
+	});
+	await vi.waitFor(() => expect(frames.length).toBeGreaterThan(0));
+	// A new port reaches the socket through the timer alone.
+	await writeProcNet(
+		[HEADER, row(hexLoopback(echoPort)), row(hexLoopback(4999))].join("\n"),
+	);
+	try {
+		await vi.waitFor(() =>
+			expect(frames.at(-1)?.map((s) => s.port)).toEqual(
+				[4999, echoPort].sort((a, b) => a - b),
+			),
+		);
+	} finally {
+		ws.close();
+		await writeProcNet([HEADER, row(hexLoopback(echoPort))].join("\n"));
+	}
 });
 
 test("a forward opens, lists, and closes", async () => {

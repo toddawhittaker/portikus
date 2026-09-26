@@ -853,6 +853,22 @@ attachments to one terminal are a shared tmux attach and must not create a
 second process. A full workspace stop ends the container and therefore the
 tmux sessions with it.
 
+The tmux server listens on a private socket named `portikus`
+(`/tmp/tmux-<uid>/portikus`, in tmux's own mode-0700 directory) and is
+started with `-f /dev/null`, so a student's `~/.tmux.conf` is never read;
+the agent sets every option it needs on each `new-session`. On images that
+run tmux in its own unit (`TMUX_EXTERNAL_SERVER=true`), the agent passes
+`-N` and never starts a server: a missing server is `TMUX_FAILED` saying the
+terminal service restarts within seconds. Every tmux call is killed after 5
+seconds and reported as `TMUX_FAILED`. An ordinary terminal starts in the
+agent's `portikus-shell` wrapper, which unsets `TMUX` and `TMUX_PANE` (so a
+`tmux` typed in a pane is the student's own server) and, when the login
+shell exits within a second, says the `~/.bashrc` made it exit and starts
+`bash --noprofile --norc` once. Closing a terminal stops the pane's whole
+process tree, its descendants and every process in its session, with
+`SIGTERM`, then `SIGKILL` after 3 seconds; a program that double-forks out
+of both escapes.
+
 Terminal metadata (§9.6, §26) is a durable control-plane row holding at
 least the terminal ID, its workspace, display name, working directory,
 layout position, creation time, and the time it ended. The control plane
@@ -1790,6 +1806,10 @@ Requirements:
 - projects without configured checks must remain usable;
 - an agent may run the same commands directly, and resulting state should be reflected when practical;
 - test execution must obey ordinary workspace resource limits.
+- a check runs under `choom -n 0`, so it does not inherit the agent's
+  lowered out-of-memory score;
+- stopping a check stops its whole process tree as closing a terminal does
+  (§9.7), and a check's output pauses for a slow watcher as a terminal's does.
 
 P0 does not require a universal test-framework parser, per-test graphical explorer, code-coverage UI, or IDE-style test debugging.
 

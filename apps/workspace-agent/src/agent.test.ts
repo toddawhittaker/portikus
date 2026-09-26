@@ -15,6 +15,7 @@ const run = promisify(execFile);
 
 const TOKEN = "a".repeat(64);
 const SOCKET_NAME = `portikus-test-${process.pid}`;
+const SERVER = { socketName: SOCKET_NAME, external: false };
 
 let app: FastifyInstance;
 let homeDir: string;
@@ -178,7 +179,7 @@ test.skipIf(!haveTmux)("a refused POST /terminals creates no terminal", async ()
 		payload: { id, cwd: homeDir, theme: "dark", timezone: "America/New_York" },
 	});
 	expect(refused.statusCode).toBe(401);
-	expect(await hasSession(id, SOCKET_NAME)).toBe(false);
+	expect(await hasSession(id, SERVER)).toBe(false);
 });
 
 test.skipIf(!haveTmux)("the upgrade is rejected without a valid token", async () => {
@@ -230,7 +231,7 @@ test.skipIf(!haveTmux)(
 
 		// Closing one attachment detaches it; the session and its shell live on.
 		await first.close();
-		expect(await hasSession(id, SOCKET_NAME)).toBe(true);
+		expect(await hasSession(id, SERVER)).toBe(true);
 
 		const afterDetach = await app.inject({
 			method: "GET",
@@ -249,7 +250,7 @@ test.skipIf(!haveTmux)(
 			headers: auth(),
 		});
 		expect(deleted.statusCode).toBe(204);
-		expect(await hasSession(id, SOCKET_NAME)).toBe(false);
+		expect(await hasSession(id, SERVER)).toBe(false);
 		await second.closed;
 
 		const missing = await app.inject({
@@ -778,7 +779,7 @@ test.skipIf(!haveTmux)(
 		await socket.waitFor("BULK-2000", 1);
 		await socket.close();
 
-		const history = await captureHistory(id, SOCKET_NAME);
+		const history = await captureHistory(id, SERVER);
 		const bytes = Buffer.byteLength(history, "utf8");
 		expect(bytes).toBeGreaterThan(0);
 		expect(bytes).toBeLessThanOrEqual(256 * 1024);
