@@ -107,7 +107,6 @@ test("an account with no sign-in for 31 days is marked Stale", async ({ page }) 
 
 	const row = page.getByTestId(`account-row-${id}`);
 	await expect(row.getByText("Stale", { exact: true })).toBeVisible();
-	await expect(row.getByText("31 days ago")).toBeVisible();
 });
 
 test("an administrator stops another user's workspace, and it is audited", async ({
@@ -359,3 +358,81 @@ for (const { name, button, dialogId, confirmLabel, done, operation, action } of 
 		await expect(panel.getByText(action)).toBeVisible();
 	});
 }
+
+/** The Users table after EPIC-18 T2 (rulings 5, 11-13). */
+test.describe("the Users table layout", () => {
+	test.use({ viewport: { width: 1280, height: 600 } });
+
+	test("seven columns, a sticky header, centred filter extras, no sideways scroll", async ({
+		page,
+	}) => {
+		const tag = crypto.randomUUID().slice(0, 8);
+		const ids: string[] = [];
+		for (let n = 0; n < 25; n++) {
+			ids.push(
+				await insertUser(`layout-${tag}-${n}@example.edu`, `Layout ${tag} ${n}`, 0),
+			);
+		}
+		await openAdmin(page);
+		await filterTo(page, `Layout ${tag}`);
+		await expect(page.locator("[data-testid^=account-row-]")).toHaveCount(25);
+
+		const table = page.getByTestId("admin-accounts");
+		await expect(table.locator("thead th")).toHaveText([
+			"Select all shown accounts",
+			"Account",
+			"Role",
+			"Workspace",
+			"Last activity",
+			"Image",
+			"Connections",
+		]);
+
+		// The checkbox and the count sit on the middle of the select controls.
+		const middle = async (box: { y: number; height: number } | null) =>
+			box ? box.y + box.height / 2 : Number.NaN;
+		const control = await middle(
+			await page.getByTestId("admin-filter-role").boundingBox(),
+		);
+		const archived = await middle(
+			// The input is a 1 px hidden box; the drawn label is what the eye sees.
+			await page.locator("label.pk-check", { hasText: "Show archived" }).boundingBox(),
+		);
+		const count = await middle(await page.getByTestId("admin-row-count").boundingBox());
+		expect(Math.abs(archived - control)).toBeLessThanOrEqual(1);
+		expect(Math.abs(count - control)).toBeLessThanOrEqual(1);
+
+		// The header stays in view after <main> scrolls.
+		const header = table.getByRole("columnheader", { name: "Account", exact: true });
+		await page.locator("main").evaluate((main) => {
+			main.scrollTop = main.scrollHeight;
+		});
+		const mainTop = await page
+			.locator("main")
+			.evaluate((m) => m.getBoundingClientRect().top);
+		// The list is long enough that <main> really scrolled.
+		expect(await page.locator("main").evaluate((m) => m.scrollTop)).toBeGreaterThan(
+			200,
+		);
+		const headerBox = await header.boundingBox();
+		expect(headerBox?.y ?? -1).toBeGreaterThanOrEqual(mainTop - 1);
+		expect(headerBox?.y ?? 9999).toBeLessThan(mainTop + 40);
+
+		// With the detail panel open at 1280 px the table does not scroll sideways.
+		await page
+			.getByRole("button", { name: `Show details for Layout ${tag} 0,` })
+			.click();
+		await expect(page.getByRole("region", { name: `Layout ${tag} 0` })).toBeVisible();
+		const overflow = await table.evaluate((t) => {
+			const wrap = t.parentElement as HTMLElement;
+			return {
+				table: t.scrollWidth,
+				wrap: wrap.clientWidth,
+				page: document.documentElement.scrollWidth,
+				view: window.innerWidth,
+			};
+		});
+		expect(overflow.table).toBeLessThanOrEqual(overflow.wrap);
+		expect(overflow.page).toBeLessThanOrEqual(overflow.view);
+	});
+});

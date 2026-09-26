@@ -270,14 +270,16 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	}
 
 	return (
-		<AdminSection title="Users">
-			<div className="flex items-center gap-3">
-				<p className="pk-text-compact pk-muted m-0">
+		<AdminSection
+			title="Users"
+			count={
+				<span data-testid="admin-account-count">
 					{all.length} accounts · {running} running
-				</p>
-				{/* Only when the site runs Dex's own passwords (docs/archive/epics/EPIC-14.md ruling 24). */}
-				{users.data?.dexUsers ? <AddDexUser /> : null}
-			</div>
+				</span>
+			}
+			// Only when the site runs Dex's own passwords (docs/archive/epics/EPIC-14.md ruling 24).
+			actions={users.data?.dexUsers ? <AddDexUser /> : undefined}
+		>
 			<div className="flex flex-wrap items-end gap-3">
 				<TextField
 					id="admin-filter-text"
@@ -345,20 +347,24 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 						<option value="older">Older</option>
 					</select>
 				</div>
-				<Checkbox
-					className="mb-2"
-					label="Show archived"
-					checked={filters.showArchived}
-					onChange={(event) => set({ showArchived: event.target.checked })}
-				/>
+				{/* Centred on the controls' row, not on the labelled fields. */}
+				<div className="flex h-[var(--pk-control)] items-center">
+					<Checkbox
+						label="Show archived"
+						checked={filters.showArchived}
+						onChange={(event) => set({ showArchived: event.target.checked })}
+					/>
+				</div>
 				<span className="flex-grow" />
-				<span
-					className="pk-text-compact pk-muted"
-					role="status"
-					data-testid="admin-row-count"
-				>
-					Showing {rows.length} of {all.length}
-				</span>
+				<div className="flex h-[var(--pk-control)] items-center">
+					<span
+						className="pk-text-compact pk-muted"
+						role="status"
+						data-testid="admin-row-count"
+					>
+						Showing {rows.length} of {all.length}
+					</span>
+				</div>
 			</div>
 			<BulkActions
 				rows={checkedRows}
@@ -366,7 +372,8 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				onDone={() => setChecked(new Set())}
 			/>
 			<div className="flex items-start gap-4">
-				<div className="pk-table-wrap min-w-0 flex-1 overflow-x-auto">
+				{/* Not a scroll container, so the header sticks against <main> (EPIC-18 ruling 5). */}
+				<div className="pk-table-wrap min-w-0 flex-1 overflow-clip">
 					<table className="pk-table" data-testid="admin-accounts">
 						<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
 							Accounts and their workspaces. Choose a name to see details.
@@ -389,11 +396,8 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 								</th>
 								<th scope="col">Account</th>
 								<th scope="col">Role</th>
-								<th scope="col">Source</th>
 								<th scope="col">Workspace</th>
 								<th scope="col">Last activity</th>
-								<th scope="col">Last sign-in</th>
-								<th scope="col">Storage</th>
 								<th scope="col">Image</th>
 								<th scope="col">Connections</th>
 							</tr>
@@ -568,6 +572,13 @@ function BulkSummary({ result }: { result: BulkResult }) {
 	);
 }
 
+/** The Account cell's second line: the email, or the username when there is none. */
+export function accountContact(
+	user: Pick<AdminUser, "email" | "preferredUsername">,
+): string {
+	return user.email ?? user.preferredUsername ?? "—";
+}
+
 export function rowButtonId(userId: string): string {
 	return `admin-row-open-${userId}`;
 }
@@ -609,32 +620,31 @@ function AccountRow({
 				/>
 			</td>
 			<td className="py-2">
-				<button
-					type="button"
-					id={rowButtonId(user.id)}
-					className="pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink"
-					aria-label={`Show details for ${user.displayName}, ${user.email ?? user.preferredUsername ?? user.id}`}
-					aria-expanded={selected}
-					aria-controls={selected ? "workspace-detail" : undefined}
-					onClick={onSelect}
-				>
-					{user.displayName}
-				</button>
-				<Markers markers={user.markers} workspace={workspace} />
-				<div className="pk-muted">{user.email ?? "—"}</div>
-				{user.preferredUsername ? (
-					<div className="pk-mono-small pk-muted">{user.preferredUsername}</div>
-				) : null}
+				<div className="pk-cell-stack" data-testid={`account-name-${user.id}`}>
+					<span className="pk-cell-primary">
+						<button
+							type="button"
+							id={rowButtonId(user.id)}
+							className="pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink"
+							aria-label={`Show details for ${user.displayName}, ${user.email ?? user.preferredUsername ?? user.id}`}
+							aria-expanded={selected}
+							aria-controls={selected ? "workspace-detail" : undefined}
+							onClick={onSelect}
+						>
+							{user.displayName}
+						</button>
+						<Markers markers={user.markers} workspace={workspace} />
+					</span>
+					<span
+						className="pk-cell-secondary"
+						data-testid={`account-contact-${user.id}`}
+					>
+						{accountContact(user)}
+					</span>
+				</div>
 			</td>
 			<td className="py-2" data-testid={`account-role-${user.id}`}>
 				{roleText(user)}
-			</td>
-			<td
-				className="py-2"
-				title={user.issuer ?? undefined}
-				data-testid={`account-source-${user.id}`}
-			>
-				{sourceText(user.issuer)}
 			</td>
 			<td className="py-2">
 				{workspace ? (
@@ -651,14 +661,12 @@ function AccountRow({
 				)}
 			</td>
 			<td className="py-2">{workspace ? lastActivity(workspace, now) : "—"}</td>
-			<td className="py-2">{timeAgo(user.lastLoginAt, now)}</td>
-			<td className="py-2">{workspace ? storageText(workspace.quotaConfig) : "—"}</td>
-			<td className="py-2">
-				{workspace ? (
-					<span className="pk-mono-small">{imageText(workspace.image)}</span>
-				) : (
-					"—"
-				)}
+			<td className="py-2" data-testid={`account-image-${user.id}`}>
+				{workspace?.image.current === false ? (
+					<span className="pk-tag pk-tag--warning" title={imageText(workspace.image)}>
+						Older image
+					</span>
+				) : null}
 			</td>
 			<td className="py-2">{workspace ? workspace.activeConnections : "—"}</td>
 		</tr>
