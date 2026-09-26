@@ -23,11 +23,7 @@ import {
 	readInactiveFileBytes,
 } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
-import {
-	PROCESS_SNAPSHOT_SCRIPT,
-	parseProcessOutput,
-	STUDENT_UID,
-} from "./processes.js";
+import { parseIdmap, readInstanceProcesses } from "./processes.js";
 
 export interface WorkspaceProvider {
 	create(
@@ -102,12 +98,6 @@ export const RECOVERY_PATH = "/var/lib/portikus/recovery";
 /** How long to wait for Incus to replace a root filesystem. */
 const REBUILD_TIMEOUT_SECONDS = 600;
 
-/** The most process output read back from Incus (docs/EPIC-21.md ruling 17). */
-export const PROCESS_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
-
-/** How long Incus may take to run the one-second process sample. */
-const PROCESS_EXEC_TIMEOUT_SECONDS = 8;
-
 /** The Incus key the resource guard throttles with (ADR 0032). */
 const CPU_ALLOWANCE_KEY = "limits.cpu.allowance";
 
@@ -169,33 +159,6 @@ function execExitStatus(result: unknown): number | null {
 	return typeof meta?.return === "number" ? meta.return : null;
 }
 
-/**
- * The recorded output logs an exec named in its metadata, kept only when
- * they are this instance's exec logs, so nothing else is read or deleted.
- */
-export function recordedOutputPaths(
-	name: string,
-	result: unknown,
-): { stdout: string | null; all: string[] } {
-	const output = (result as { metadata?: { output?: unknown } } | undefined)?.metadata
-		?.output;
-	const prefix = `/1.0/instances/${enc(name)}/logs/`;
-	const pick = (value: unknown): string | null => {
-		if (typeof value !== "string") return null;
-		const path = value.split("?")[0] ?? "";
-		const file = path.slice(prefix.length);
-		return path.startsWith(prefix) &&
-			/^[A-Za-z0-9._/-]+$/.test(file) &&
-			!file.includes("..")
-			? path
-			: null;
-	};
-	const record = (output ?? {}) as Record<string, unknown>;
-	const stdout = pick(record["1"]);
-	const stderr = pick(record["2"]);
-	return { stdout, all: [stdout, stderr].filter((p): p is string => p !== null) };
-}
-
 export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly client: IncusClient;
 	private readonly pool: string;
@@ -204,6 +167,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly agentPort: number;
 	private readonly log: Logger;
 	private readonly cgroupRoot: string;
+	private readonly procRoot: string;
 	private readonly hostCpuCount: number;
 
 	constructor(opts: {
@@ -215,6 +179,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		logger?: Logger;
 		/** Where the host's cgroup tree is mounted; tests point it elsewhere. */
 		cgroupRoot?: string;
+		/** Where the host's /proc is mounted; tests point it elsewhere. */
+		procRoot?: string;
 		/** CPUs on the host, for an instance with no `limits.cpu`. */
 		hostCpuCount?: number;
 	}) {
@@ -225,6 +191,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		this.agentPort = opts.agentPort;
 		this.log = opts.logger ?? silentLogger();
 		this.cgroupRoot = opts.cgroupRoot ?? "/sys/fs/cgroup";
+		this.procRoot = opts.procRoot ?? "/proc";
 		this.hostCpuCount = opts.hostCpuCount ?? availableParallelism();
 	}
 
@@ -930,9 +897,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	}
 
 	/**
-	 * Read the instance's processes through one Incus exec (ADR 0037). It runs
-	 * as the student, with a fixed command and no caller input, and its output
-	 * is read from Incus's recorded log, which is deleted afterwards.
+	 * Read the instance's processes from the host's /proc and cgroup tree
+	 * (ADR 0037). Nothing runs inside the instance and nothing is written.
 	 */
 	async processes(name: string, signal?: AbortSignal): Promise<InstanceProcess[]> {
 		validateName(name);
@@ -941,60 +907,34 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			`/1.0/instances/${enc(name)}`,
 			undefined,
 			signal,
-		)) as { status?: string; expanded_config?: Record<string, string> };
-		if (inst.status !== "Running") {
+		)) as { config?: Record<string, string>; expanded_config?: Record<string, string> };
+		const state = (await this.client.request(
+			"GET",
+			`/1.0/instances/${enc(name)}/state`,
+			undefined,
+			signal,
+		)) as { status?: string; pid?: number };
+		const initPid = state.pid ?? 0;
+		if (state.status !== "Running" || !(initPid > 0)) {
 			throw new IncusError("OPERATION_FAILED", `instance ${name} is not running`);
 		}
-		const cpuLimit =
-			countIncusCpus(inst.expanded_config?.["limits.cpu"]) ?? this.hostCpuCount;
-
-		const result = await this.client.request(
-			"POST",
-			`/1.0/instances/${enc(name)}/exec`,
-			{
-				command: ["/bin/sh", "-c", PROCESS_SNAPSHOT_SCRIPT],
-				environment: { PATH: "/usr/bin:/bin", LANG: "C" },
-				user: STUDENT_UID,
-				group: STUDENT_UID,
-				cwd: "/",
-				"wait-for-websocket": false,
-				"record-output": true,
-				interactive: false,
-			},
-			signal,
-			PROCESS_EXEC_TIMEOUT_SECONDS,
-		);
-		const logs = recordedOutputPaths(name, result);
+		const scope =
+			this.client.project === "default" ? name : `${this.client.project}_${name}`;
 		try {
-			const status = execExitStatus(result);
-			if (status !== 0) {
-				throw new IncusError("OPERATION_FAILED", `process read exited ${status}`);
-			}
-			if (!logs.stdout) {
-				throw new IncusError("OPERATION_FAILED", "Incus recorded no process output");
-			}
-			const output = await this.client.getBytes(
-				logs.stdout,
-				PROCESS_OUTPUT_MAX_BYTES,
-				signal,
+			return await readInstanceProcesses({
+				procRoot: this.procRoot,
+				cgroupDir: `${this.cgroupRoot}/lxc.payload.${scope}`,
+				initPid,
+				idmap: parseIdmap(inst.config?.["volatile.idmap.current"]),
+				cpuLimit:
+					countIncusCpus(inst.expanded_config?.["limits.cpu"]) ?? this.hostCpuCount,
+				wait: () => new Promise((r) => setTimeout(r, 1000)),
+			});
+		} catch (err) {
+			throw new IncusError(
+				"OPERATION_FAILED",
+				err instanceof Error ? err.message : "could not read processes",
 			);
-			try {
-				return parseProcessOutput(output.toString("utf8"), cpuLimit);
-			} catch (err) {
-				throw new IncusError(
-					"OPERATION_FAILED",
-					err instanceof Error ? err.message : "bad process output",
-				);
-			}
-		} finally {
-			for (const path of logs.all) {
-				await this.client.request("DELETE", path).catch((err: unknown) => {
-					this.log.warn(
-						{ instance: name, err: err instanceof Error ? err.message : String(err) },
-						"could not delete an exec output log",
-					);
-				});
-			}
 		}
 	}
 
