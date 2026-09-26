@@ -75,6 +75,18 @@ test("GET /instances still requires auth", async () => {
 
 // POST /instances
 
+test("a full storage pool refuses a create with 507 POOL_FULL", async () => {
+	provider.failNext("POOL_FULL");
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances",
+		payload: { name: "ws-a", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
+		headers: auth(),
+	});
+	expect(res.statusCode).toBe(507);
+	expect(res.json().code).toBe("POOL_FULL");
+});
+
 test("create instance happy path", async () => {
 	const res = await app.inject({
 		method: "POST",

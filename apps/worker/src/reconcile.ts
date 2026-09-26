@@ -84,6 +84,8 @@ function userMessage(code: ControllerErrorCode): string {
 	switch (code) {
 		case "STORAGE_FULL":
 			return "Your workspace could not start because its storage is full.";
+		case "POOL_FULL":
+			return "There is no room for a new workspace right now. Your administrator has been told.";
 		case "IMAGE_NOT_FOUND":
 			return "The workspace image is not available. Please contact your administrator.";
 		case "TIMEOUT":
@@ -339,7 +341,7 @@ export async function reconcile(
 	// 3a: provisioning -> create -> stopped/error
 	const provisioning = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name"])
+		.select(["id", "incus_instance_name", "error_code"])
 		.where("state", "=", "provisioning")
 		.execute();
 
@@ -349,7 +351,11 @@ export async function reconcile(
 			db,
 			controller,
 			config,
-			{ id: ws.id, incus_instance_name: ws.incus_instance_name },
+			{
+				id: ws.id,
+				incus_instance_name: ws.incus_instance_name,
+				error_code: ws.error_code,
+			},
 			now,
 			createRetryDelaysMs,
 		);
@@ -813,13 +819,15 @@ function isTransient(err: ControllerClientError): boolean {
  * stopped, or to error if the create fails (SPEC.md §6.3). The controller
  * answers an existing instance with `created: false`, which is adopted like
  * a fresh one. Unreachable-controller failures are retried with backoff.
- * Returns what happened for the debug line, or null if the row moved on.
+ * A full storage pool leaves the row in provisioning, to be tried again next
+ * sweep (SPEC.md §20.1). Returns what happened for the debug line, or null if
+ * the row moved on or nothing changed.
  */
 async function createWorkspace(
 	db: Kysely<Database>,
 	controller: ControllerClient,
 	config: ReconcileConfig,
-	ws: { id: string; incus_instance_name: string },
+	ws: { id: string; incus_instance_name: string; error_code: string | null },
 	now: Date,
 	retryDelaysMs: readonly number[],
 ): Promise<string | null> {
@@ -862,6 +870,22 @@ async function createWorkspace(
 			if (isTransient(err) && delay !== undefined) {
 				await new Promise((resolve) => setTimeout(resolve, delay));
 				continue;
+			}
+			if (err.code === "POOL_FULL") {
+				// Audit only the first refusal, so a long wait is one row, not one per sweep.
+				if (ws.error_code === "POOL_FULL") return null;
+				const refused = await casUpdate(
+					db,
+					ws.id,
+					"provisioning",
+					{ error_code: err.code, error_message: userMessage(err.code) },
+					now,
+				);
+				if (!refused) return null;
+				await audit(db, ws.id, "workspace.provision_refused", "refused", {
+					errorCode: err.code,
+				});
+				return "create refused: storage pool full";
 			}
 			const updated = await casUpdate(
 				db,

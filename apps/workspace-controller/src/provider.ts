@@ -9,6 +9,8 @@ import {
 	type InstanceStatus,
 	type InstanceUsage,
 	isSystemTimezone,
+	POOL_FULL_PERCENT,
+	poolFillPercent,
 	type RebuildInstanceResponse,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
@@ -20,6 +22,7 @@ import {
 	parseIncusSize,
 	readHostSnapshot,
 	readInactiveFileBytes,
+	readPoolUse,
 } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
 
@@ -164,6 +167,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly log: Logger;
 	private readonly cgroupRoot: string;
 	private readonly hostCpuCount: number;
+	private readonly thinPoolStatusPath: string | undefined;
 
 	constructor(opts: {
 		client: IncusClient;
@@ -176,6 +180,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		cgroupRoot?: string;
 		/** CPUs on the host, for an instance with no `limits.cpu`. */
 		hostCpuCount?: number;
+		/** The lvm role's status file; tests point it elsewhere. */
+		thinPoolStatusPath?: string;
 	}) {
 		this.client = opts.client;
 		this.pool = opts.pool;
@@ -185,6 +191,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		this.log = opts.logger ?? silentLogger();
 		this.cgroupRoot = opts.cgroupRoot ?? "/sys/fs/cgroup";
 		this.hostCpuCount = opts.hostCpuCount ?? availableParallelism();
+		this.thinPoolStatusPath = opts.thinPoolStatusPath;
 	}
 
 	async create(
@@ -192,6 +199,21 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		sizes: { homeGiB: number; dockerGiB: number; recoveryGiB: number },
 	): Promise<CreateInstanceResponse> {
 		validateName(name);
+
+		// Refuse before any volume is made; start, stop and rebuild are never refused.
+		const use = await readPoolUse(
+			this.client,
+			this.pool,
+			new Date(),
+			this.thinPoolStatusPath,
+		);
+		const fill = poolFillPercent(use);
+		if (fill >= POOL_FULL_PERCENT) {
+			throw new IncusError(
+				"POOL_FULL",
+				`storage pool is ${Math.floor(fill)}% full; new workspaces are refused`,
+			);
+		}
 
 		await this.ensureVolume(`${name}-home`, sizes.homeGiB);
 		await this.ensureVolume(`${name}-docker`, sizes.dockerGiB);
@@ -932,6 +954,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			pool: this.pool,
 			profile: this.profile,
 			imageAlias: this.imageAlias,
+			thinPoolStatusPath: this.thinPoolStatusPath,
 		});
 	}
 

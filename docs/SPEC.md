@@ -1957,6 +1957,25 @@ number or null to remove it). The Settings tab edits the guard
 thresholds, window, throttle share and idle time, and the
 acceptable-use statement with **Reset to default** (section 5.1).
 
+Added by Epic 17 (issue #613): the storage pool's fill is the larger of
+its data use (from Incus) and its metadata use (from
+`/run/portikus-thinpool.json`, written each minute by a root timer; the
+controller ignores a file older than 5 minutes). The host snapshot and
+`GET /admin/health` carry it as `pool.metadataPercent`, null when not
+reported. The Health tab shows metadata use beside data use and, at 70%
+fill, the text "Storage pool is over 70% full"; memory keeps its 80%
+warning. When the worker's health sample sees the fill cross 70% it
+records a warning notification for every enabled administrator, and at
+90% a danger one ("new workspaces are refused"); each level re-arms once
+the fill falls 5 points below it. At 90% the controller refuses
+`POST /instances` with 507 `POOL_FULL`, separate from `STORAGE_FULL`
+(one workspace's own volume). The worker leaves the workspace in
+`provisioning` with the message "There is no room for a new workspace
+right now. Your administrator has been told.", audits the first refusal
+as `workspace.provision_refused`, and tries again every sweep, so the
+workspace is created once space is freed. The student's starting screen
+shows that message. Start, stop and rebuild are never refused.
+
 ### 20.2 User impersonation
 
 P0 must not require silent administrator impersonation of a student session.

@@ -42,18 +42,18 @@ export async function readHostSnapshot(
 		imageAlias: string;
 		loadAverage?: () => Promise<LoadAverage>;
 		now?: () => Date;
+		/** Tests point this elsewhere. */
+		thinPoolStatusPath?: string;
 	},
 ): Promise<HostSnapshot> {
 	const loadAverage = await (opts.loadAverage ?? readLoadAverage)();
+	const now = (opts.now ?? (() => new Date()))();
 
 	const resources = (await client.request("GET", "/1.0/resources")) as {
 		cpu?: { total?: number };
 		memory?: { used?: number; total?: number };
 	};
-	const poolResources = (await client.request(
-		"GET",
-		`/1.0/storage-pools/${enc(opts.pool)}/resources`,
-	)) as { space?: { used?: number; total?: number } };
+	const pool = await readPoolUse(client, opts.pool, now, opts.thinPoolStatusPath);
 	const profile = (await client.request(
 		"GET",
 		`/1.0/profiles/${enc(opts.profile)}`,
@@ -68,18 +68,14 @@ export async function readHostSnapshot(
 	}>;
 
 	return {
-		observedAt: (opts.now ?? (() => new Date()))().toISOString(),
+		observedAt: now.toISOString(),
 		loadAverage,
 		cpuCount: Math.max(1, num(resources.cpu?.total)),
 		memory: {
 			usedBytes: num(resources.memory?.used),
 			totalBytes: num(resources.memory?.total),
 		},
-		pool: {
-			name: opts.pool,
-			usedBytes: num(poolResources.space?.used),
-			totalBytes: num(poolResources.space?.total),
-		},
+		pool: { name: opts.pool, ...pool },
 		profileLimits: {
 			cpu: str(profile.config?.["limits.cpu"]),
 			memory: str(profile.config?.["limits.memory"]),
@@ -91,6 +87,55 @@ export async function readHostSnapshot(
 			imageFingerprint: str(inst.config?.["volatile.base_image"]),
 			imageSerial: str(inst.config?.["image.serial"]),
 		})),
+	};
+}
+
+/** Written every minute by the lvm role's root timer (EPIC-17 ruling 18). */
+export const THIN_POOL_STATUS_PATH = "/run/portikus-thinpool.json";
+
+/** A status file older than this is ignored, since its timer has stopped. */
+export const THIN_POOL_STATUS_MAX_AGE_MS = 5 * 60_000;
+
+/**
+ * The thin pool's metadata use from the host's status file, or null when the
+ * file is missing, unreadable or stale. Incus does not report metadata, and
+ * this process cannot run `lvs`.
+ */
+export async function readThinPoolMetadata(
+	now: Date,
+	path = THIN_POOL_STATUS_PATH,
+): Promise<number | null> {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(await readFile(path, "utf8"));
+	} catch {
+		return null;
+	}
+	const { observedAt, metadataPercent } = (parsed ?? {}) as Record<string, unknown>;
+	if (typeof observedAt !== "string" || typeof metadataPercent !== "number")
+		return null;
+	const age = now.getTime() - Date.parse(observedAt);
+	if (!(age <= THIN_POOL_STATUS_MAX_AGE_MS)) return null;
+	return Number.isFinite(metadataPercent) && metadataPercent >= 0
+		? metadataPercent
+		: null;
+}
+
+/** The storage pool's data use from Incus and its metadata use from the status file. */
+export async function readPoolUse(
+	client: IncusClient,
+	pool: string,
+	now: Date,
+	statusPath?: string,
+): Promise<Omit<HostSnapshot["pool"], "name">> {
+	const resources = (await client.request(
+		"GET",
+		`/1.0/storage-pools/${enc(pool)}/resources`,
+	)) as { space?: { used?: number; total?: number } };
+	return {
+		usedBytes: num(resources.space?.used),
+		totalBytes: num(resources.space?.total),
+		metadataPercent: await readThinPoolMetadata(now, statusPath),
 	};
 }
 

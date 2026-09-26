@@ -10,7 +10,7 @@ test.describe.configure({ mode: "serial" });
 
 const GIB = 1024 ** 3;
 
-function sample(poolUsedGiB: number) {
+function sample(poolUsedGiB: number, metadataPercent: number | null = 12) {
 	return {
 		controller: { reachable: true, errorCode: null },
 		host: {
@@ -18,7 +18,12 @@ function sample(poolUsedGiB: number) {
 			loadAverage: [0.5, 0.4, 0.3],
 			cpuCount: 4,
 			memory: { usedBytes: 4 * GIB, totalBytes: 16 * GIB },
-			pool: { name: "portikus", usedBytes: poolUsedGiB * GIB, totalBytes: 100 * GIB },
+			pool: {
+				name: "portikus",
+				usedBytes: poolUsedGiB * GIB,
+				totalBytes: 100 * GIB,
+				metadataPercent,
+			},
 			profileLimits: { cpu: "2", memory: "4GiB", processes: "2000" },
 			image: { fingerprint: "abcdef0123456789abcdef", serial: "2026.09.9" },
 			instances: [],
@@ -26,11 +31,15 @@ function sample(poolUsedGiB: number) {
 	};
 }
 
-async function seedSample(poolUsedGiB: number, minutesAgo: number): Promise<void> {
+async function seedSample(
+	poolUsedGiB: number,
+	minutesAgo: number,
+	metadataPercent?: number | null,
+): Promise<void> {
 	await query(
 		`insert into health_samples (observed_at, sample)
 		 values (now() - make_interval(mins => $1), $2)`,
-		[minutesAgo, JSON.stringify(sample(poolUsedGiB))],
+		[minutesAgo, JSON.stringify(sample(poolUsedGiB, metadataPercent))],
 	);
 }
 
@@ -49,7 +58,35 @@ test.describe("admin health", () => {
 		await query("delete from health_samples");
 	});
 
-	test("a pool over 80 percent is flagged, and the chart has a text alternative", async ({
+	test("a pool at 70 percent is flagged in words, and metadata use is shown", async ({
+		page,
+	}) => {
+		await seedSample(70, 0, 30);
+
+		await openHealth(page);
+
+		await expect(page.getByTestId("health-pool")).toContainText("(70%)");
+		await expect(page.getByTestId("health-pool-metadata")).toHaveText("30% used");
+		await expect(page.getByTestId("health-pool-warning")).toHaveText(
+			"Storage pool is over 70% full",
+		);
+	});
+
+	test("metadata over 70 percent flags the pool even with data room", async ({
+		page,
+	}) => {
+		await seedSample(20, 0, 75.4);
+
+		await openHealth(page);
+
+		await expect(page.getByTestId("health-pool")).toContainText("(20%)");
+		await expect(page.getByTestId("health-pool-metadata")).toHaveText("75% used");
+		await expect(page.getByTestId("health-pool-warning")).toHaveText(
+			"Storage pool is over 70% full",
+		);
+	});
+
+	test("a pool at 85 percent is flagged, and the chart has a text alternative", async ({
 		page,
 	}) => {
 		await seedSample(60, 30);
@@ -59,7 +96,7 @@ test.describe("admin health", () => {
 
 		await expect(page.getByTestId("health-pool")).toContainText("(85%)");
 		await expect(page.getByTestId("health-pool-warning")).toHaveText(
-			"Storage pool is over 80% full",
+			"Storage pool is over 70% full",
 		);
 		await expect(page.getByTestId("health-memory-warning")).toHaveCount(0);
 		await expect(page.getByTestId("health-worker-stale")).toHaveCount(0);
