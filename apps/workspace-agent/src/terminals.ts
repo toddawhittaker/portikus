@@ -225,6 +225,7 @@ export class TerminalRegistry {
 
 		pty.onExit(() => {
 			this.forget(id, attachment);
+			if (attachment.closed) return;
 			// Whether the server died tells the control plane if a crash
 			// record is worth waiting for (SPEC.md §9.7).
 			void tmuxServerGone(this.server)

@@ -376,3 +376,36 @@ test.skipIf(!haveTmux)(
 		expect(exitFrame(sockets[1] as FakeSocket)?.serverGone).toBe(true);
 	},
 );
+
+test.skipIf(!haveTmux)(
+	"a pty that exits after its socket closed sends nothing",
+	async () => {
+		const socketName = `portikus-closed-${process.pid}`;
+		const server = { socketName, external: true };
+		const id = makeId();
+		await createSession(id, homeDir, homeDir, "dark", "UTC", {
+			socketName,
+			external: false,
+		});
+		const ptys: FakePty[] = [];
+		const { logger } = collectingLogger();
+		const registry = new TerminalRegistry(
+			homeDir,
+			logger as unknown as FastifyBaseLogger,
+			server,
+			((_file: string, _args: string[], opts: { cols: number; rows: number }) => {
+				const pty = new FakePty(opts.cols, opts.rows);
+				ptys.push(pty);
+				return pty as unknown as IPty;
+			}) as unknown as typeof spawn,
+		);
+		const socket = new FakeSocket();
+		await registry.attach(id, socket as unknown as WebSocket, {});
+		socket.close();
+		const sentBefore = socket.sent.length;
+		ptys[0]?.exit();
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(socket.sent.length).toBe(sentBefore);
+		await run("tmux", ["-L", socketName, "kill-server"]);
+	},
+);
