@@ -2,9 +2,33 @@ import { expect, test } from "vitest";
 import { compareProcesses, toggleProcessSort } from "./sort.js";
 
 const processes = [
-	{ pid: 10, cpuPercent: 1, residentBytes: 100, command: "node10" },
-	{ pid: 2, cpuPercent: null, residentBytes: 5000, command: "node2" },
-	{ pid: 9, cpuPercent: 20, residentBytes: 200, command: "python" },
+	{
+		pid: 10,
+		cpuPercent: 1,
+		residentBytes: 100,
+		command: "node10",
+		startTicks: 100,
+		stoppable: true,
+		commandLine: null,
+	},
+	{
+		pid: 2,
+		cpuPercent: null,
+		residentBytes: 5000,
+		command: "node2",
+		startTicks: 100,
+		stoppable: true,
+		commandLine: null,
+	},
+	{
+		pid: 9,
+		cpuPercent: 20,
+		residentBytes: 200,
+		command: "python",
+		startTicks: 100,
+		stoppable: true,
+		commandLine: null,
+	},
 ];
 
 function order(

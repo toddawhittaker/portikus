@@ -14,6 +14,8 @@ import {
 	type LogLevel,
 	LoopbackForward,
 	LoopbackForwardRequest,
+	ProcessStopRequest,
+	ProcessStopResponse,
 	SetLogLevelRequest,
 } from "@portikus/contracts";
 
@@ -102,6 +104,30 @@ export class AgentClient {
 	/** Stop what holds a port inside the workspace (SPEC.md 18.2). */
 	async stopListener(port: number): Promise<void> {
 		await this.call("POST", `/listening/${port}/stop`, undefined, STOP_TIMEOUT_MS);
+	}
+
+	/**
+	 * Stop one process (SPEC.md §18.3). The agent is untrusted, so an answer
+	 * that is malformed or names another PID is treated as a failed agent.
+	 */
+	async stopProcess(
+		pid: number,
+		input: ProcessStopRequest,
+	): Promise<ProcessStopResponse> {
+		const payload = await this.call(
+			"POST",
+			`/processes/${pid}/stop`,
+			ProcessStopRequest.parse(input),
+			STOP_TIMEOUT_MS,
+		);
+		const parsed = ProcessStopResponse.safeParse(payload);
+		if (!parsed.success || parsed.data.pid !== pid) {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent sent a bad answer",
+			);
+		}
+		return parsed.data;
 	}
 
 	/**

@@ -20,6 +20,7 @@ import {
 	parseProcessStat,
 	parseTotalCpu,
 	roundPercent,
+	statValue,
 	UsageSampler,
 } from "./usage.js";
 
@@ -85,6 +86,8 @@ test("two samples produce process and workspace CPU from every process", async (
 		homePath: root,
 		now: () => now,
 		statfs: async () => ({ blocks: 10, bfree: 4, bsize: 1024 }),
+		studentUid: STUDENT,
+		selfPid: 4242,
 	});
 	try {
 		await writeSample(root, {
@@ -115,8 +118,24 @@ test("two samples produce process and workspace CPU from every process", async (
 			// Loopback moved a lot. It must not show up in the rate.
 			loRx: 500_000,
 			processes: [
-				{ pid: 7, utime: 15, stime: 5, uid: STUDENT, rssKb: 2048, command: "zzsecret" },
-				{ pid: 3, utime: 80, stime: 80, uid: 0, rssKb: 100, command: "systemd" },
+				{
+					pid: 7,
+					utime: 15,
+					stime: 5,
+					uid: STUDENT,
+					rssKb: 2048,
+					command: "zzsecret",
+					cmdline: "node\0app.js\0",
+				},
+				{
+					pid: 3,
+					utime: 80,
+					stime: 80,
+					uid: 0,
+					rssKb: 100,
+					command: "systemd",
+					cmdline: "/sbin/init\0",
+				},
 				// New since the previous sample: its whole life is not this interval.
 				{ pid: 9, utime: 400, stime: 0, uid: STUDENT, rssKb: 10, command: "fresh" },
 			],
@@ -131,18 +150,28 @@ test("two samples produce process and workspace CPU from every process", async (
 				cpuPercent: 60,
 				residentBytes: 100 * 1024,
 				command: "systemd",
+				startTicks: 30,
+				stoppable: false,
+				// Not the student's, so never read.
+				commandLine: null,
 			},
 			{
 				pid: 7,
 				cpuPercent: 10,
 				residentBytes: 2048 * 1024,
 				command: "zzsecret",
+				startTicks: 70,
+				stoppable: true,
+				commandLine: "node app.js",
 			},
 			{
 				pid: 9,
 				cpuPercent: null,
 				residentBytes: 10 * 1024,
 				command: "fresh",
+				startTicks: 90,
+				stoppable: true,
+				commandLine: null,
 			},
 		]);
 		expect(second.network).toEqual({
@@ -160,6 +189,8 @@ test("cgroup memory wins over meminfo when the container has a limit", async () 
 	await mkdir(cgroup, { recursive: true });
 	await writeFile(join(cgroup, "memory.current"), "4096\n");
 	await writeFile(join(cgroup, "memory.max"), "8192\n");
+	// Page cache the kernel can drop is not counted (SPEC.md §19.4).
+	await writeFile(join(cgroup, "memory.stat"), "active_file 99\ninactive_file 1024\n");
 	await writeSample(root, {
 		total: 10,
 		rx: 0,
@@ -174,7 +205,7 @@ test("cgroup memory wins over meminfo when the container has a limit", async () 
 	});
 	try {
 		const sample = await sampler.read();
-		expect(sample.memory).toEqual({ usedBytes: 4096, totalBytes: 8192 });
+		expect(sample.memory).toEqual({ usedBytes: 3072, totalBytes: 8192 });
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -196,7 +227,15 @@ test("GET /usage reports the second sample and does not log the command", async 
 		tx: 0,
 		loRx: 0,
 		processes: [
-			{ pid: 7, utime: 1, stime: 0, uid: STUDENT, rssKb: 1, command: "zzsecret" },
+			{
+				pid: 7,
+				utime: 1,
+				stime: 0,
+				uid: STUDENT,
+				rssKb: 1,
+				command: "zzsecret",
+				cmdline: "run\0--password=zzline\0",
+			},
 		],
 	});
 	app = buildServer({
@@ -208,6 +247,7 @@ test("GET /usage reports the second sample and does not log the command", async 
 			procRoot,
 			now: () => now,
 			statfs: async () => ({ blocks: 2, bfree: 1, bsize: 512 }),
+			studentUid: STUDENT,
 		},
 	});
 
@@ -229,7 +269,15 @@ test("GET /usage reports the second sample and does not log the command", async 
 		tx: 0,
 		loRx: 0,
 		processes: [
-			{ pid: 7, utime: 11, stime: 0, uid: STUDENT, rssKb: 1, command: "zzsecret" },
+			{
+				pid: 7,
+				utime: 11,
+				stime: 0,
+				uid: STUDENT,
+				rssKb: 1,
+				command: "zzsecret",
+				cmdline: "run\0--password=zzline\0",
+			},
 		],
 	});
 	const second = await app.inject({
@@ -241,6 +289,25 @@ test("GET /usage reports the second sample and does not log the command", async 
 	expect(body.cpuPercent).toBe(10);
 	expect(body.processes[0]?.command).toBe("zzsecret");
 	expect(JSON.stringify(logs.lines)).not.toContain("zzsecret");
+	// The student sees their own command line; no log line carries it.
+	expect(body.processes[0]?.commandLine).toBe("run --password=zzline");
+	expect(JSON.stringify(logs.lines)).not.toContain("zzline");
+});
+
+test("the stop route is registered behind the agent token", async () => {
+	const url = "/processes/7/stop";
+	const denied = await app.inject({ method: "POST", url, payload: { startTicks: 70 } });
+	expect(denied.statusCode).toBe(401);
+	// The fake /proc's pid 7 started at 70 ticks; 71 is someone else.
+	const changed = await app.inject({
+		method: "POST",
+		url,
+		headers: { authorization: `Bearer ${TOKEN}` },
+		payload: { startTicks: 71 },
+	});
+	expect(changed.statusCode).toBe(409);
+	expect(changed.json().error.code).toBe("PROCESS_CHANGED");
+	expect(JSON.stringify(logs.lines)).not.toContain("zzline");
 });
 
 afterAll(async () => {
@@ -344,6 +411,14 @@ function statLine(pid: number, command: string, utime: number, stime: number): s
 		"0",
 		String(utime),
 		String(stime),
+		// Fields 16 to 21, then field 22: the start ticks.
+		"0",
+		"0",
+		"0",
+		"0",
+		"0",
+		"0",
+		String(pid * 10),
 	].join(" ");
 	return `${pid} (${command}) ${after}\n`;
 }
@@ -362,6 +437,7 @@ async function writeSample(
 			uid: number;
 			rssKb: number;
 			command: string;
+			cmdline?: string;
 		}[];
 	},
 ): Promise<void> {
@@ -388,5 +464,13 @@ async function writeSample(
 			join(dir, "status"),
 			`Name:\t${process.command}\nUid:\t${process.uid}\t${process.uid}\t${process.uid}\t${process.uid}\nVmRSS:\t${process.rssKb} kB\n`,
 		);
+		await writeFile(join(dir, "cmdline"), process.cmdline ?? "");
 	}
 }
+
+test("memory.stat counters are read by name, and a missing one is zero", () => {
+	expect(statValue("active_file 5\ninactive_file 42\n", "inactive_file")).toBe(42);
+	expect(statValue("total_inactive_file 7\n", "total_inactive_file")).toBe(7);
+	expect(statValue("anon 1\n", "inactive_file")).toBe(0);
+	expect(statValue(null, "inactive_file")).toBe(0);
+});

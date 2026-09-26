@@ -50,6 +50,7 @@ import {
 	workspaceInterfaceAddress,
 } from "./listening.js";
 import { listeningRoutes } from "./listening-route.js";
+import { processesRoutes } from "./processes-route.js";
 import {
 	archiveDir,
 	archiveProject,
@@ -613,6 +614,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		registerRecoveryRoutes(instance, { homeDir: options.homeDir, recoveryRoot });
 		instance.register(checksRoute, { homeDir: options.homeDir });
 		instance.register(listeningRoutes, { monitor, forwards });
+		instance.register(processesRoutes, { procRoot: options.usage?.procRoot });
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,
 			maxSockets: options.maxEventSockets,

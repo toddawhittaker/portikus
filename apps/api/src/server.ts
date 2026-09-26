@@ -30,6 +30,7 @@ import { registerMeRoutes } from "./routes/me.js";
 import { registerMePasswordRoutes } from "./routes/me-password.js";
 import { registerNotificationRoutes } from "./routes/notifications.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
+import { registerProcessRoutes } from "./routes/processes.js";
 import { registerProjectEventsSocket } from "./routes/project-events.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerRecoveryRoutes } from "./routes/recovery.js";
@@ -206,6 +207,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerGitSearchRoutes(instance, deps);
 		registerCheckRoutes(instance, deps);
 		registerUsageRoutes(instance, deps);
+		registerProcessRoutes(instance, deps);
 		registerProjectEventsSocket(instance, deps);
 		registerMeRoutes(instance, deps);
 		registerMePasswordRoutes(instance, deps);

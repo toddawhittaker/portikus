@@ -24,7 +24,17 @@ const USAGE = {
 	memory: { usedBytes: 1024, totalBytes: 2048 },
 	disk: { usedBytes: 1024, totalBytes: 4096 },
 	network: { receiveBytesPerSecond: 0, transmitBytesPerSecond: 0 },
-	processes: [{ pid: 7, cpuPercent: 1, residentBytes: 4096, command: "node" }],
+	processes: [
+		{
+			pid: 7,
+			cpuPercent: 1,
+			residentBytes: 4096,
+			command: "node",
+			startTicks: 100,
+			stoppable: true,
+			commandLine: null,
+		},
+	],
 	storage: { home: null, docker: null, recovery: null },
 };
 
