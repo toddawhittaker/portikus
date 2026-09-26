@@ -1902,17 +1902,18 @@ Added by Epic 14.3 (ADR 0032). The guard slows a workspace that keeps its CPUs b
 - CPU is judged across runs over a rolling window of wall-clock time, and usage is remembered across stops and restarts. The anchor is the newest sample at least one window old; with no such sample there is no decision yet. The CPU time used between each pair of consecutive samples from the anchor to now is summed. Across a restart, the later sample's whole counter counts, plus the time between the two samples, capped at one sample interval (60 seconds), times the CPU limit, as if the workspace had used every CPU before restarting. Stopped time has no samples and counts as no use. The average is the used CPU time divided by the time since the anchor times the CPU limit. So a student who runs 25 minutes and stops for one, over and over, is still throttled, while an honest restart in a quiet window adds at most one minute of assumed use. Because of that assumed use, the average recorded after a reboot from inside the workspace can exceed 100%.
 - Memory is judged per run: the mean of working set over memory limit across the samples in the last window that were taken since the latest restart, and only when there are at least half a window of them. For memory, a gap of more than two sample intervals also counts as a restart, since a stop leaves no samples.
 - A throttled workspace is still sampled but not judged for CPU again until the throttle is lifted; a flagged one is not judged for memory until the flag is cleared.
+- Each tick a throttled workspace is judged for an automatic lift (Epic 21, #596). Only samples taken after the throttle's `at` count. The anchor is the newest such sample at least the lift time old; with none there is no decision yet. The average is computed as for the CPU judgement (the same restart rule, against the full CPU limit, not the throttled allowance), and the throttle lifts when it is strictly below the lift percent.
 
 **Throttling.**
 
 - A workspace whose CPU average is above the CPU threshold (default 80%) over the window (default 30 minutes) is throttled to the throttle share (default 25%) of its CPU limit. The throttle is Incus's `limits.cpu.allowance` written as a time slice, `<N>ms/100ms`, where N is the share times the CPU limit times 100 ms, rounded to a whole millisecond: 25% of a pilot workspace's 2 CPUs is `50ms/100ms`, half a CPU, which the cgroup shows as `cpu.max` `50000 100000`. It is never a percentage, which Incus treats as a soft weight that only applies when the host is busy.
 - The database is the source of truth. Throttling writes `workspaces.cpu_throttle` (when, the average, the threshold, the window, the share and the allowance) and the audit row `workspace.cpu_throttled` in one transaction, then asks the controller to set the allowance (`PUT /instances/:name/cpu-allowance`, which accepts only `^\d{1,6}ms/100ms$` or null). Every tick the worker compares each running workspace's allowance in Incus with its row and sets or removes it when they differ, so the throttle survives a restart of the worker or the controller and a lift reaches Incus even if the controller was down. A failed controller call is audited once as `workspace.cpu_throttle_failed` and retried next tick; the row stays throttled.
-- The throttle lifts at the next stop, or when an administrator lifts it. The controller removes any allowance before every start. When the worker records a stop by any path it clears `cpu_throttle`, deletes the workspace's samples taken at or before the throttle, so the next run starts a fresh window, and audits `workspace.cpu_throttle_lifted` with `{reason: "stopped"}`. An administrator's lift clears the row, deletes all the workspace's samples, and audits the same event with `{reason: "administrator"}`; the worker removes the allowance on its next tick.
-- The student sees a warning notice at once, with the numbers from the row: the workspace was slowed because it kept its CPUs busy, what share it now gets, and that stopping and starting restores full speed or an administrator can lift it. It is dismissible for the page's life. There is no warning before the throttle.
+- The throttle lifts on its own after a quiet spell (above), at the next stop, or when an administrator lifts it. An automatic lift clears `cpu_throttle`, deletes the samples taken at or before the throttle, and audits `workspace.cpu_throttle_lifted` with `{reason: "idle", averagePercent}` in one transaction; the same tick removes the allowance from Incus. The controller removes any allowance before every start. When the worker records a stop by any path it clears `cpu_throttle`, deletes the workspace's samples taken at or before the throttle, so the next run starts a fresh window, and audits `workspace.cpu_throttle_lifted` with `{reason: "stopped"}`. An administrator's lift clears the row, deletes all the workspace's samples, and audits the same event with `{reason: "administrator"}`; the worker removes the allowance on its next tick.
+- The student sees a warning notice at once, with the numbers from the row (the student's `cpuThrottle` also carries `idleLiftMinutes` and `idleLiftPercent` from the settings row, both null when automatic lifting is off): the workspace was slowed because it kept its CPUs busy, what share it now gets, and that stopping and starting restores full speed or an administrator can lift it. It is dismissible for the page's life. There is no warning before the throttle.
 
-**Memory flag.** A workspace whose memory average is above the memory threshold (default 90%) is flagged: `workspaces.memory_flag` (when, the average, the threshold, the window) and `workspace.memory_flagged`. Nothing is slowed, because memory already has a hard limit, and the student sees nothing. The flag clears at the next stop (`workspace.memory_flag_cleared` with `{reason: "stopped"}`) or when an administrator clears it (`{reason: "administrator"}`, which also deletes the workspace's samples).
+**Memory flag.** A workspace whose memory average is above the memory threshold (default 90%) is flagged: `workspaces.memory_flag` (when, the average, the threshold, the window) and `workspace.memory_flagged`. Nothing is slowed, because memory already has a hard limit. The owner's workspace view carries the flag as `memoryFlag` (when, the average, the threshold, the window). The flag clears at the next stop (`workspace.memory_flag_cleared` with `{reason: "stopped"}`) or when an administrator clears it (`{reason: "administrator"}`, which also deletes the workspace's samples).
 
-**Settings and overrides.** The platform values are columns on the `settings` row, edited in the admin Settings tab: CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing) and the idle time of section 6.4. Each workspace may override any of them in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes`; a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
+**Settings and overrides.** The platform values are columns on the `settings` row, edited in the admin Settings tab: CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing), the automatic lift's quiet time (`cpu_idle_lift_minutes`, 1 to 60, default 5) and quiet percent (`cpu_idle_lift_percent`, 0 to 100, default 10; 0 turns automatic lifting off), and the idle time of section 6.4. The two lift settings have no per-workspace override. Each workspace may override any of them in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes`; a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
 
 ## 20. Administration
 
@@ -1960,8 +1961,8 @@ the guard state and the last activity time, with **Lift throttle**
 when there is nothing to lift or clear, and a dialog for the workspace's
 guard and idle overrides (`PUT /admin/workspaces/:id/guard`, each key a
 number or null to remove it). The Settings tab edits the guard
-thresholds, window, throttle share and idle time, and the
-acceptable-use statement with **Reset to default** (section 5.1).
+thresholds, window, throttle share, the automatic lift's quiet time and
+percent, and idle time, and the acceptable-use statement with **Reset to default** (section 5.1).
 
 ### 20.2 User impersonation
 
@@ -2382,7 +2383,8 @@ As built (Epic 14.3, sections 5.1, 6.4 and 19.4): the worker (actor
 `worker`) writes `workspace.cpu_throttled`, `workspace.cpu_throttle_failed`,
 `workspace.memory_flagged` and `workspace.idle_stopped`, and
 `workspace.cpu_throttle_lifted` and `workspace.memory_flag_cleared` with
-`reason` `stopped`. An administrator (actor `user:<id>`) writes the same
+`reason` `stopped`, and `workspace.cpu_throttle_lifted` with `reason`
+`idle` and the quiet `averagePercent` (Epic 21). An administrator (actor `user:<id>`) writes the same
 two with `reason` `administrator`, `workspace.guard_updated`,
 `settings.resource_guard_updated` and `settings.idle_stop_updated` (each
 with `{from, to}`), and `settings.acceptable_use_updated` with
@@ -2642,6 +2644,8 @@ Migration `0020_resource_guard` (sections 5.1, 6.4 and 19.4):
 - A new table, `workspace_usage_samples`: `id`, `workspace_id` (cascades on delete), `observed_at`, `cpu_usage_ns`, `boot_marker` (nullable), `cpu_limit`, `memory_bytes`, `memory_limit_bytes`, indexed on `(workspace_id, observed_at)`.
 
 Migration `0021_notifications` (section 8.5, ADR 0033): a new table, `notifications`: `id`, `user_id` (cascades on delete), `tone` (`neutral`, `success`, `warning` or `danger`), `title`, `body`, `created_at`, `read_at` (null while unread), indexed on `(user_id, created_at desc)`.
+
+Migration `0023_guard_idle_lift` (section 19.4, Epic 21): `settings` gains `cpu_idle_lift_minutes` (default 5, 1 to 60) and `cpu_idle_lift_percent` (default 10, 0 to 100), each range a check constraint.
 
 ## 27. API principles
 

@@ -2,10 +2,11 @@ import {
 	type EffectiveGuard,
 	effectiveGuard,
 	type InstanceUsage,
+	idleLift,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
 
 /** How often the guard samples every running workspace (ADR 0032). */
@@ -60,7 +61,8 @@ function round1(value: number): number {
  * Build the resource guard tick (ADR 0032). Each tick reads every running
  * instance's CPU time and memory from the controller, stores one sample per
  * running workspace, throttles a workspace whose CPU average over the window
- * is above its threshold, flags one whose memory average is, and makes each
+ * is above its threshold, lifts a throttle once the workspace has been
+ * quiet, flags one whose memory average is, and makes each
  * instance's CPU allowance match the database. A failed allowance write is
  * audited once and retried on the next tick.
  */
@@ -95,6 +97,8 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 					"guard_window_minutes",
 					"cpu_throttle_share_percent",
 					"idle_stop_minutes",
+					"cpu_idle_lift_minutes",
+					"cpu_idle_lift_percent",
 				])
 				.where("id", "=", 1)
 				.executeTakeFirst();
@@ -122,7 +126,10 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 					await recordSample(row.id, inst, at);
 					if (settings) {
 						const effective = effectiveGuard(settings, row.guard_config);
-						if (!throttle) throttle = await judgeCpu(row.id, inst, effective, at);
+						const lift = idleLift(settings);
+						if (throttle && lift && (await judgeLift(row.id, inst, throttle, lift, at)))
+							throttle = null;
+						else if (!throttle) throttle = await judgeCpu(row.id, inst, effective, at);
 						if (!row.memory_flag) await judgeMemory(row.id, effective, at);
 					}
 					await syncAllowance(row.id, inst, throttle?.allowance ?? null);
@@ -172,28 +179,24 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 	}
 
 	/**
-	 * Throttle when CPU use over the last window of wall-clock time averages
-	 * above the threshold; returns the new row. Usage is remembered across
-	 * restarts (Todd's ruling, 2026-09-25): the CPU time between consecutive
-	 * samples is summed and stopped time counts as no use. Across a restart
-	 * (see restartedBetween) the later counter counts in full, plus the time
-	 * before the restart, up to one sample interval, as full use: a reboot
-	 * from inside the workspace must not hide what ran before it (security
-	 * review, SPEC.md 19.4). The first judgement waits until the
-	 * oldest kept sample is at least a window old, stopped time included.
+	 * The CPU average, in percent of the full limit, from the newest sample at
+	 * or before `windowStart` (and after `since`, when given) up to `at`, or
+	 * null with no such sample. See judgeCpu for how restarts count.
 	 */
-	async function judgeCpu(
+	async function averageCpu(
 		id: string,
 		inst: InstanceUsage,
-		effective: EffectiveGuard,
+		since: Date | null,
+		windowStart: Date,
 		at: Date,
-	): Promise<Throttle | null> {
-		const windowStart = new Date(at.getTime() - effective.windowMinutes * 60_000);
-		const anchor = await db
+	): Promise<number | null> {
+		let anchorQuery = db
 			.selectFrom("workspace_usage_samples")
 			.select("observed_at")
 			.where("workspace_id", "=", id)
-			.where("observed_at", "<=", windowStart)
+			.where("observed_at", "<=", windowStart);
+		if (since) anchorQuery = anchorQuery.where("observed_at", ">", since);
+		const anchor = await anchorQuery
 			.orderBy("observed_at", "desc")
 			.limit(1)
 			.executeTakeFirst();
@@ -223,7 +226,77 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 		}
 		const elapsedNs = (at.getTime() - anchor.observed_at.getTime()) * 1e6;
 		if (elapsedNs <= 0) return null;
-		const average = (Number(usedNs) / (elapsedNs * inst.cpuLimit)) * 100;
+		return (Number(usedNs) / (elapsedNs * inst.cpuLimit)) * 100;
+	}
+
+	/**
+	 * Lift a throttle once the workspace has been quiet (#596): the CPU
+	 * average over the last `lift.minutes`, counting only samples taken
+	 * after the throttle and measured against the full limit, is strictly
+	 * below `lift.percent`. Clears the row, drops the samples from before
+	 * the throttle and audits, together. Returns whether it lifted.
+	 */
+	async function judgeLift(
+		id: string,
+		inst: InstanceUsage,
+		throttle: Throttle,
+		lift: { minutes: number; percent: number },
+		at: Date,
+	): Promise<boolean> {
+		const throttledAt = new Date(throttle.at);
+		const windowStart = new Date(at.getTime() - lift.minutes * 60_000);
+		const average = await averageCpu(id, inst, throttledAt, windowStart, at);
+		if (average === null || !(average < lift.percent)) return false;
+		const averagePercent = round1(average);
+		const lifted = await db.transaction().execute(async (trx) => {
+			const updated = await trx
+				.updateTable("workspaces")
+				.set({ cpu_throttle: null })
+				.where("id", "=", id)
+				.where(sql<string>`cpu_throttle->>'at'`, "=", throttle.at)
+				.executeTakeFirst();
+			if (Number(updated.numUpdatedRows) === 0) return false;
+			await trx
+				.deleteFrom("workspace_usage_samples")
+				.where("workspace_id", "=", id)
+				.where("observed_at", "<=", throttledAt)
+				.execute();
+			await trx
+				.insertInto("audit_events")
+				.values({
+					actor: "worker",
+					target: id,
+					action: "workspace.cpu_throttle_lifted",
+					result: "ok",
+					metadata: JSON.stringify({ reason: "idle", averagePercent }),
+				})
+				.execute();
+			return true;
+		});
+		if (lifted) logger.info({ workspaceId: id, averagePercent }, "cpu throttle lifted");
+		return lifted;
+	}
+
+	/**
+	 * Throttle when CPU use over the last window of wall-clock time averages
+	 * above the threshold; returns the new row. Usage is remembered across
+	 * restarts (Todd's ruling, 2026-09-25): the CPU time between consecutive
+	 * samples is summed and stopped time counts as no use. Across a restart
+	 * (see restartedBetween) the later counter counts in full, plus the time
+	 * before the restart, up to one sample interval, as full use: a reboot
+	 * from inside the workspace must not hide what ran before it (security
+	 * review, SPEC.md 19.4). The first judgement waits until the
+	 * oldest kept sample is at least a window old, stopped time included.
+	 */
+	async function judgeCpu(
+		id: string,
+		inst: InstanceUsage,
+		effective: EffectiveGuard,
+		at: Date,
+	): Promise<Throttle | null> {
+		const windowStart = new Date(at.getTime() - effective.windowMinutes * 60_000);
+		const average = await averageCpu(id, inst, null, windowStart, at);
+		if (average === null) return null;
 		if (!(average > effective.cpuThresholdPercent)) return null;
 
 		const throttle: Throttle = {

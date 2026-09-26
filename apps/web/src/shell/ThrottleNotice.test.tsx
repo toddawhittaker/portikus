@@ -12,6 +12,8 @@ test("says why the workspace is slow, with the numbers from the row", () => {
 				thresholdPercent: 70,
 				windowMinutes: 45,
 				sharePercent: 50,
+				idleLiftMinutes: null,
+				idleLiftPercent: null,
 			}}
 			onDismiss={onDismiss}
 			onOpenWorkspace={onOpenWorkspace}
@@ -39,6 +41,8 @@ test("the notice is not itself a live region; the page's status region carries t
 		thresholdPercent: 70,
 		windowMinutes: 45,
 		sharePercent: 50,
+		idleLiftMinutes: null,
+		idleLiftPercent: null,
 	};
 	render(
 		<ThrottleNotice

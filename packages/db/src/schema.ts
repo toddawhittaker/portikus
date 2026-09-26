@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard and 0021_notifications
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications and 0023_guard_idle_lift
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -215,6 +215,10 @@ export interface SettingsTable {
 	cpu_throttle_share_percent: Generated<number>;
 	/** 0 means never stop by idle. */
 	idle_stop_minutes: Generated<number>;
+	/** Quiet minutes before a throttle lifts on its own (#596). */
+	cpu_idle_lift_minutes: Generated<number>;
+	/** CPU percent below which a throttled workspace counts as quiet; 0 turns lifting off. */
+	cpu_idle_lift_percent: Generated<number>;
 	/** Null means the built-in default statement. */
 	acceptable_use_text: string | null;
 	acceptable_use_version: Generated<number>;

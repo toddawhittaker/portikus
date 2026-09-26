@@ -630,3 +630,134 @@ test.skipIf(skip)(
 		expect(kept.observed_at.getTime()).toBe(T0);
 	},
 );
+
+// Automatic throttle lift (#596): busy until minute 5, then `quiet` of the four CPUs.
+function liftHarness(instance: string, quiet: number) {
+	return harness({ instance, busy: (minute) => (minute < 5 ? 1 : quiet) });
+}
+
+async function throttledAtMinute5(id: string, h: ReturnType<typeof harness>) {
+	await h.tick();
+	await h.steps(5);
+	const throttle = (await row(id)).cpu_throttle;
+	expect(throttle).toMatchObject({ at: h.now().toISOString() });
+	expect(h.allowance).toBe("100ms/100ms");
+}
+
+test.skipIf(skip)(
+	"a throttle lifts after five quiet minutes past it, not before",
+	async () => {
+		const ws = await insertWorkspace({
+			guard_config: JSON.stringify({ windowMinutes: 5 }),
+		});
+		const h = liftHarness(ws.instance, 0.05);
+		await throttledAtMinute5(ws.id, h);
+		const samplesBefore = await sampleCount(ws.id);
+
+		// Minute 10: five quiet minutes, but no sample after the throttle is five minutes old.
+		await h.steps(5);
+		expect((await row(ws.id)).cpu_throttle).not.toBeNull();
+		expect(h.allowance).toBe("100ms/100ms");
+
+		await h.step();
+		expect((await row(ws.id)).cpu_throttle).toBeNull();
+		// The same tick removes the allowance.
+		expect(h.allowance).toBeNull();
+		expect(h.allowanceCalls().map((c) => c.args)).toEqual([
+			[ws.instance, "100ms/100ms"],
+			[ws.instance, null],
+		]);
+		const rows = await audits(ws.id);
+		expect(rows.map((a) => a.action)).toEqual([
+			"workspace.cpu_throttled",
+			"workspace.cpu_throttle_lifted",
+		]);
+		expect(rows[1]).toMatchObject({
+			actor: "worker",
+			result: "ok",
+			metadata: { reason: "idle", averagePercent: 5 },
+		});
+		// Samples up to and including the throttle's go; the six after it stay.
+		expect(samplesBefore).toBe(6);
+		expect(await sampleCount(ws.id)).toBe(6);
+		const oldest = await tdb.db
+			.selectFrom("workspace_usage_samples")
+			.select(({ fn }) => fn.min("observed_at").as("first"))
+			.where("workspace_id", "=", ws.id)
+			.executeTakeFirstOrThrow();
+		expect(new Date(oldest.first as Date).getTime()).toBe(T0 + 6 * 60_000);
+
+		// Staying quiet does not throttle again.
+		await h.steps(10);
+		expect((await row(ws.id)).cpu_throttle).toBeNull();
+	},
+);
+
+test.skipIf(skip)(
+	"a quiet average exactly at the lift percent does not lift",
+	async () => {
+		const ws = await insertWorkspace({
+			guard_config: JSON.stringify({ windowMinutes: 5 }),
+		});
+		const h = liftHarness(ws.instance, 0.1);
+		await throttledAtMinute5(ws.id, h);
+		await h.steps(10);
+		expect((await row(ws.id)).cpu_throttle).not.toBeNull();
+		expect(h.allowance).toBe("100ms/100ms");
+	},
+);
+
+test.skipIf(skip)("a restart inside the lift window counts as full use", async () => {
+	const ws = await insertWorkspace({
+		guard_config: JSON.stringify({ windowMinutes: 5 }),
+	});
+	const h = liftHarness(ws.instance, 0);
+	await throttledAtMinute5(ws.id, h);
+	await h.steps(3);
+	await h.rebootStep(0);
+	// Minutes 10 and 11 would lift a quiet workspace; the restart's minute is 20% of five.
+	await h.steps(2);
+	expect((await row(ws.id)).cpu_throttle).not.toBeNull();
+	// Once the restart is out of the window it lifts.
+	await h.steps(3);
+	expect((await row(ws.id)).cpu_throttle).toBeNull();
+});
+
+test.skipIf(skip)("a lift percent of 0 never lifts", async () => {
+	await tdb.db.updateTable("settings").set({ cpu_idle_lift_percent: 0 }).execute();
+	const ws = await insertWorkspace({
+		guard_config: JSON.stringify({ windowMinutes: 5 }),
+	});
+	const h = liftHarness(ws.instance, 0);
+	await throttledAtMinute5(ws.id, h);
+	await h.steps(20);
+	expect((await row(ws.id)).cpu_throttle).not.toBeNull();
+	expect((await audits(ws.id)).map((a) => a.action)).toEqual([
+		"workspace.cpu_throttled",
+	]);
+});
+
+test.skipIf(skip)("the lift minutes setting sets the quiet spell", async () => {
+	await tdb.db.updateTable("settings").set({ cpu_idle_lift_minutes: 2 }).execute();
+	const ws = await insertWorkspace({
+		guard_config: JSON.stringify({ windowMinutes: 5 }),
+	});
+	const h = liftHarness(ws.instance, 0);
+	await throttledAtMinute5(ws.id, h);
+	await h.steps(2);
+	expect((await row(ws.id)).cpu_throttle).not.toBeNull();
+	await h.step();
+	expect((await row(ws.id)).cpu_throttle).toBeNull();
+});
+
+test.skipIf(skip)("no sample after the throttle means no lift decision", async () => {
+	const ws = await insertWorkspace({
+		guard_config: JSON.stringify({ windowMinutes: 5 }),
+	});
+	const h = liftHarness(ws.instance, 0);
+	await throttledAtMinute5(ws.id, h);
+	// Stopped for a while with its throttle kept (as if the stop cleanup had not run yet).
+	h.stopFor(30);
+	await h.tick();
+	expect((await row(ws.id)).cpu_throttle).not.toBeNull();
+});

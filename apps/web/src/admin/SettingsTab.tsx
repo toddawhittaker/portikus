@@ -1,8 +1,9 @@
 import {
+	CpuIdleLiftMinutes,
+	CpuIdleLiftPercent,
 	DEFAULT_ACCEPTABLE_USE_TEXT,
 	LogLevel,
 	MAX_ACCEPTABLE_USE_LENGTH,
-	type PlatformSettings,
 } from "@portikus/contracts";
 import {
 	Button,
@@ -13,6 +14,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useState } from "react";
+import type { z } from "zod";
 import { ApiError } from "../api/request.js";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./GuardDialog.js";
 import { graceText } from "./graceText.js";
@@ -57,15 +59,62 @@ export function SettingsTab() {
 }
 
 /** The platform setting behind each guard field. */
-const GUARD_SETTING: Record<
-	Exclude<GuardKey, "idleStopMinutes">,
-	keyof PlatformSettings
-> = {
+const GUARD_SETTING: Record<Exclude<GuardKey, "idleStopMinutes">, GuardSettingKey> = {
 	cpuThresholdPercent: "cpuGuardThresholdPercent",
 	memoryThresholdPercent: "memoryGuardThresholdPercent",
 	windowMinutes: "guardWindowMinutes",
 	throttleSharePercent: "cpuThrottleSharePercent",
 };
+
+type GuardSettingKey =
+	| "cpuGuardThresholdPercent"
+	| "memoryGuardThresholdPercent"
+	| "guardWindowMinutes"
+	| "cpuThrottleSharePercent"
+	| "cpuIdleLiftMinutes"
+	| "cpuIdleLiftPercent";
+
+interface GuardSettingField {
+	key: GuardSettingKey;
+	label: string;
+	schema: z.ZodType<number>;
+	rangeText: string;
+}
+
+/**
+ * The Resource guard section's fields: the per-workspace ones, then the
+ * automatic lift, which has no per-workspace override (#596). A function,
+ * because GuardDialog imports this module before GUARD_FIELDS exists.
+ */
+function guardSettingFields(): GuardSettingField[] {
+	return [
+		...GUARD_FIELDS.filter((field) => field.key !== "idleStopMinutes").map((field) => ({
+			...field,
+			key: GUARD_SETTING[field.key as Exclude<GuardKey, "idleStopMinutes">],
+		})),
+		{
+			key: "cpuIdleLiftMinutes",
+			label: "Quiet time to lift (minutes)",
+			schema: CpuIdleLiftMinutes,
+			rangeText: "Enter a whole number from 1 to 60.",
+		},
+		{
+			key: "cpuIdleLiftPercent",
+			label: "Quiet below (%)",
+			schema: CpuIdleLiftPercent,
+			rangeText: "Enter 0 to turn it off, or a whole number up to 100.",
+		},
+	];
+}
+
+/** Reads one Resource guard field, or null when the entry is not allowed. */
+export function parseGuardSetting(key: GuardSettingKey, text: string): number | null {
+	const field = guardSettingFields().find((item) => item.key === key);
+	const trimmed = text.trim();
+	if (!field || !/^\d+$/.test(trimmed)) return null;
+	const parsed = field.schema.safeParse(Number(trimmed));
+	return parsed.success ? parsed.data : null;
+}
 
 function IdleStopSection() {
 	const settings = usePlatformSettings();
@@ -137,25 +186,24 @@ function ResourceGuardSection() {
 	const settings = usePlatformSettings();
 	const update = useUpdatePlatformSettings();
 	const toast = useToast();
-	const [drafts, setDrafts] = useState<Partial<Record<GuardKey, string>>>({});
-	const [errors, setErrors] = useState<Partial<Record<GuardKey, string>>>({});
+	const [drafts, setDrafts] = useState<Partial<Record<GuardSettingKey, string>>>({});
+	const [errors, setErrors] = useState<Partial<Record<GuardSettingKey, string>>>({});
 	const [serverError, setServerError] = useState<string | null>(null);
-	const fields = GUARD_FIELDS.filter((field) => field.key !== "idleStopMinutes");
+	const fields = guardSettingFields();
 	const firstError = fields.find((field) => errors[field.key])?.key;
 
-	function fieldValue(key: Exclude<GuardKey, "idleStopMinutes">): string {
-		const saved = settings.data?.[GUARD_SETTING[key]];
-		return drafts[key] ?? (saved === undefined || saved === null ? "" : String(saved));
+	function fieldValue(key: GuardSettingKey): string {
+		const saved = settings.data?.[key];
+		return drafts[key] ?? (saved === undefined ? "" : String(saved));
 	}
 
 	function save() {
 		const body: Record<string, number> = {};
-		const found: Partial<Record<GuardKey, string>> = {};
+		const found: Partial<Record<GuardSettingKey, string>> = {};
 		for (const field of fields) {
-			const key = field.key as Exclude<GuardKey, "idleStopMinutes">;
-			const value = parseGuardValue(key, fieldValue(key));
-			if (value === null) found[key] = field.rangeText;
-			else body[GUARD_SETTING[key]] = value;
+			const value = parseGuardSetting(field.key, fieldValue(field.key));
+			if (value === null) found[field.key] = field.rangeText;
+			else body[field.key] = value;
 		}
 		setErrors(found);
 		setServerError(null);
@@ -176,14 +224,16 @@ function ResourceGuardSection() {
 			</h2>
 			<p className="pk-text-body pk-muted mt-1">
 				A workspace whose CPU average stays above the CPU threshold for the window is
-				slowed to the throttled share of its CPU until it is stopped and started, or an
-				administrator lifts it. One above the memory threshold is flagged for
-				administrators; nothing is slowed. A threshold of 100 turns that check off. Each
-				workspace can override these.
+				slowed to the throttled share of its CPU. It gets full speed back once its CPU
+				average stays below the quiet percent for the quiet time, when it is stopped and
+				started, or when an administrator lifts it. One above the memory threshold is
+				flagged; nothing is slowed. A threshold of 100 turns that check off, and a quiet
+				percent of 0 turns the automatic lift off. Each workspace can override all but
+				the two quiet settings.
 			</p>
 			<div className="mt-4 grid grid-cols-2 gap-4">
 				{fields.map((field) => {
-					const key = field.key as Exclude<GuardKey, "idleStopMinutes">;
+					const key = field.key;
 					const error = errors[key] ?? null;
 					return (
 						<TextField

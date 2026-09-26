@@ -59,17 +59,32 @@ export const IdleStopMinutes = z
 		message: "Must be 0 (never) or 10 to 1440 minutes",
 	});
 
-/** What the student is told about a throttle: the numbers from the row. */
-export const WorkspaceCpuThrottle = z.object({
+/** Quiet minutes before a throttle lifts on its own (#596). */
+export const CpuIdleLiftMinutes = z.number().int().min(1).max(60);
+
+/** CPU percent below which a throttled workspace counts as quiet; 0 turns lifting off. */
+export const CpuIdleLiftPercent = z.number().int().min(0).max(100);
+
+/** The throttle numbers every view of `workspaces.cpu_throttle` shares. */
+const CpuThrottleBase = z.object({
 	at: z.string().datetime(),
 	thresholdPercent: GuardThresholdPercent,
 	windowMinutes: GuardWindowMinutes,
 	sharePercent: ThrottleSharePercent,
 });
+
+/**
+ * What the student is told about a throttle: the numbers from the row, and
+ * when it lifts on its own. Both lift fields are null when lifting is off.
+ */
+export const WorkspaceCpuThrottle = CpuThrottleBase.extend({
+	idleLiftMinutes: CpuIdleLiftMinutes.nullable(),
+	idleLiftPercent: CpuIdleLiftPercent.nullable(),
+});
 export type WorkspaceCpuThrottle = z.infer<typeof WorkspaceCpuThrottle>;
 
 /** The whole `workspaces.cpu_throttle` row, as administrators see it. */
-export const CpuThrottle = WorkspaceCpuThrottle.extend({
+export const CpuThrottle = CpuThrottleBase.extend({
 	/** The CPU average over the window that set the throttle, in percent. */
 	averagePercent: z.number().nonnegative(),
 	/** The `limits.cpu.allowance` the worker applies, such as `100ms/100ms`. */
@@ -77,7 +92,7 @@ export const CpuThrottle = WorkspaceCpuThrottle.extend({
 });
 export type CpuThrottle = z.infer<typeof CpuThrottle>;
 
-/** The `workspaces.memory_flag` row; administrators only. */
+/** The `workspaces.memory_flag` row; the owner and administrators see it. */
 export const MemoryFlag = z.object({
 	at: z.string().datetime(),
 	averagePercent: z.number().nonnegative(),
@@ -115,6 +130,8 @@ export const Workspace = z.object({
 	archivedAt: z.string().datetime().nullable(),
 	/** Set while the resource guard has slowed the workspace (ADR 0032). */
 	cpuThrottle: WorkspaceCpuThrottle.nullable(),
+	/** Set while memory use has been above the guard's threshold (ADR 0032). */
+	memoryFlag: MemoryFlag.nullable(),
 	/** When the workspace stops unless the student answers "Still working?". */
 	idleStopAt: z.string().datetime().nullable(),
 	/** The owner's last activity the API recorded. */
