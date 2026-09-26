@@ -28,6 +28,7 @@ import { GuardDialog } from "./GuardDialog.js";
 import { defaultLabel, graceText } from "./graceText.js";
 import { logCommand } from "./logCommand.js";
 import { imageText, isCourseAccount, roleText, sourceText } from "./markers.js";
+import { ProcessesSection } from "./ProcessesSection.js";
 import { QuotaDialog } from "./QuotaDialog.js";
 import {
 	useAdminWorkspace,
@@ -208,6 +209,13 @@ function WorkspaceSections({
 			<StorageSection detail={detail} />
 
 			<GuardSection detail={detail} ownerName={ownerName} />
+
+			<ProcessesSection
+				key={workspace.id}
+				workspaceId={workspace.id}
+				running={workspace.state === "running"}
+				ownerName={ownerName}
+			/>
 
 			<section aria-labelledby="detail-ports" className="flex flex-col gap-2">
 				<h3 id="detail-ports" className="pk-text-label m-0">
