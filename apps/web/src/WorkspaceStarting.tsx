@@ -121,15 +121,17 @@ export function WorkspaceStarting({
 	const usage = useWorkspaceUsage(workspaceId, phase === "error", STORAGE_POLL_MS);
 	const storage = phase === "error" ? usage.data?.storage : undefined;
 	const [cleaning, setCleaning] = useState(false);
-	const cardRef = useRef<HTMLElement>(null);
 	const headingRef = useRef<HTMLHeadingElement>(null);
-	const focusInside = useRef(false);
-	// A button that vanishes with the phase must not drop focus to the page body.
+	const firstRender = useRef(true);
+	// A button that vanishes with the phase drops focus to the body; catch it there.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs on phase change only
 	useEffect(() => {
-		if (focusInside.current && !cardRef.current?.contains(document.activeElement)) {
-			headingRef.current?.focus();
+		if (firstRender.current) {
+			firstRender.current = false;
+			return;
 		}
+		const active = document.activeElement;
+		if (active === null || active === document.body) headingRef.current?.focus();
 	}, [phase, pending]);
 	const storageFull = phase === "error" && workspace?.errorCode === "STORAGE_FULL";
 
@@ -144,16 +146,7 @@ export function WorkspaceStarting({
 			)}
 			<div className="flex flex-1 items-center justify-center p-10">
 				<section
-					ref={cardRef}
 					className="pk-card pk-progress-card"
-					onFocus={() => {
-						focusInside.current = true;
-					}}
-					onBlur={(event) => {
-						// A removed button blurs with no target; that still counts as inside.
-						if (event.relatedTarget && !cardRef.current?.contains(event.relatedTarget))
-							focusInside.current = false;
-					}}
 					aria-labelledby="progress-title"
 					data-testid="workspace-progress"
 					data-phase={phase}

@@ -767,6 +767,8 @@ Archiving a project is reversible, so its menu item and confirmation are
 neutral (primary button, no red), and it ends with a success toast
 "<name> archived" that says where to find it. Duplicating ends with a
 success toast "<new name> created". Renaming shows no toast.
+The shared confirmation dialog is destructive (danger button, red) by
+default and has a neutral form for reversible actions such as archiving.
 
 Every toast shown is also recorded as a notification with its tone,
 title, body text, time, and whether it has been read. Notifications are
@@ -1828,6 +1830,8 @@ P0 should include:
 
 Error messages must suggest a next action where possible.
 
+The "Your workspace" dialog, opened from the status bar, puts the state and its Restart and Stop (or Start) buttons first. Below them come "Storage", with one meter per class that also states its figure as text ("X of Y"); "Docker", with Reset Docker and a line saying what it throws away and what it keeps; the rebuild note; and a collapsed "Technical details" with the desired state, connections and image.
+
 ### 18.4 Recognized run/build commands
 
 P1 may detect or configure common project commands, for example scripts in `package.json`, `Makefile` targets, or template-provided commands, and expose actions such as **Run**, **Test**, or **Build**.
@@ -2677,6 +2681,8 @@ ENOSPC
 
 Technical details should remain available for administrators and debugging.
 
+When a workspace fails to start and the workspace agent still reports storage figures, the error screen shows the storage meters. It offers "Clean up Docker…" (the Reset Docker confirmation) only when the error is `STORAGE_FULL` and Docker storage is at the critical level, because resetting Docker when project storage is what filled up would destroy data for nothing.
+
 ## 29. Epics and rough implementation effort
 
 The following breakdown is intended for planning by one strong AI-assisted engineer. It is not a contractual schedule.
@@ -3330,6 +3336,26 @@ Acceptance:
 - no sample, audit row or response carries a process name, command line or file name;
 - an administrator's actions and the workspace agent never count as a student's activity, and an unattended coding agent is stopped by idle stop;
 - while a gate is unmet, every route but that gate's answers 403 with its code, and the password gate comes first.
+
+### Epic 20 — Student interface polish
+
+Built on `epic/20-student-ux` from the student interface review of 2026-09-26 (issues #608 and #609). No migrations, contract changes or infrastructure. See sections 6.3, 8.3, 8.5, 14.6, 18.2, 18.3, 19.2 and 28 for the rules.
+
+Includes:
+
+- bordered status-bar buttons that keep their warning and error colours;
+- a way forward from each stuck screen: buttons on the empty work area, "Try again" and "Workspace details" on the error screen, and "Restart workspace…" on the throttle notice;
+- loading skeletons only while the workspace is starting;
+- neutral archiving with success toasts for archive and duplicate, and a segmented "What to create" choice in New project;
+- clickable preview picker rows and a Preview toolbar with a More menu;
+- right-pane headings kept for screen readers only, a visible Preview button on Running rows, and readable panel heads;
+- a reordered workspace dialog with storage meters, shared with the error screen;
+- clearer Settings groups, wrapping read-only values and a taller Settings dialog.
+
+Acceptance:
+
+- every button a student needs looks like a button, and each stuck screen offers a next step;
+- the error screen never offers a Docker reset unless Docker storage is what filled up.
 
 ### Estimated total
 
