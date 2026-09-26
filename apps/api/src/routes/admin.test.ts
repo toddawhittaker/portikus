@@ -1329,7 +1329,7 @@ test.skipIf(skip)(
 				headers: csrfHeaders(jar, PUBLIC_URL),
 				payload: { acceptableUseText },
 			});
-		// The administrator who saved a new text accepts it too (docs/EPIC-14-3.md ruling 31).
+		// The administrator who saved a new text accepts it too (SPEC.md section 5.1).
 		const accept = (version: number) =>
 			app.inject({
 				method: "POST",

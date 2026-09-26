@@ -4,7 +4,7 @@ import { dexLocalSubject } from "../packages/auth/dist/dex-subject.js";
 import { createStudent, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
 
 /**
- * The acceptable-use gate (docs/EPIC-14-3.md rulings 29 to 33). The run's
+ * The acceptable-use gate (SPEC.md section 5.1). The run's
  * users have accepted already (packages/db testing), so each test makes its
  * own account and clears that. The statement's version is never bumped
  * here: that would send every other spec running alongside to the gate. A

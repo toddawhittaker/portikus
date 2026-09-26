@@ -247,7 +247,7 @@ describe.skipIf(!ISSUER || !GRPC.DEX_GRPC_ADDR || !API || !API_DATABASE_URL)(
 			expect(await apiSignIn(adminEmail, first)).toBeNull();
 			const again = await apiSignIn(adminEmail, second);
 			expect(again).not.toBeNull();
-			// Then the acceptable-use gate, as for everyone (docs/EPIC-14-3.md ruling 32).
+			// Then the acceptable-use gate, as for everyone (SPEC.md section 5.1).
 			expect(await me(again)).toMatchObject({
 				role: "administrator",
 				mustChangePassword: false,

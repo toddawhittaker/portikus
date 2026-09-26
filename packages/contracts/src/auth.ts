@@ -23,7 +23,7 @@ export const AuthUser = z.object({
 	mustChangePassword: z.boolean(),
 	/**
 	 * While true the account can use only the acceptable-use page
-	 * (docs/EPIC-14-3.md ruling 32).
+	 * (SPEC.md section 5.1).
 	 */
 	mustAcceptUse: z.boolean(),
 });

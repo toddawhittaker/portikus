@@ -19,7 +19,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
 /**
- * The acceptable-use gate (docs/EPIC-14-3.md rulings 29 to 33): the second
+ * The acceptable-use gate (SPEC.md section 5.1): the second
  * gate on the session check, after the password gate.
  */
 

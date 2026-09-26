@@ -100,7 +100,7 @@ const FLAGGED_MOCK_USER = "gail";
 
 /**
  * An administrator who has not accepted the current acceptable-use
- * statement (docs/EPIC-14-3.md ruling 32), so no role check can hide the gate.
+ * statement (SPEC.md section 5.1), so no role check can hide the gate.
  */
 const UNACCEPTED_MOCK_USER = "frank";
 

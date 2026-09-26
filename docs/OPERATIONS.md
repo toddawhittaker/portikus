@@ -1034,6 +1034,66 @@ shares nothing with the pilot.
 - **Destroy it after every exercise** with `make rehearsal-destroy`,
   because it holds restored student data.
 
+## The resource guard and idle stop
+
+The worker slows a workspace that keeps its CPUs busy, marks one that
+keeps its memory near its limit, and stops one nobody has used for a
+while (SPEC.md sections 6.4 and 19.4, ADR 0032). Every value is a
+runtime setting; nothing is set in Ansible or an environment file.
+
+**Settings** (admin area, Settings tab):
+
+| Setting | Default | Allowed |
+|---|---|---|
+| CPU threshold | 80% | 1 to 100 (100 turns the CPU check off) |
+| Memory threshold | 90% | 1 to 100 (100 turns the memory check off) |
+| Window | 30 minutes | 5 to 240 minutes |
+| Throttle share | 25% of the CPU limit | 5 to 100 (100 means the throttle changes nothing) |
+| Idle stop | 60 minutes | 0 (never) or 10 to 1440 minutes |
+
+A change takes effect within a minute. Lowering the idle time never
+stops a workspace at once; its owner first sees "Still working?" for
+five minutes.
+
+**One workspace.** Open the workspace in the Workspaces tab. Its detail
+panel has a "Resource guard" section with the current state, the last
+activity time, and an overrides dialog for the same five values. An
+empty field uses the platform value. Use it to raise the CPU threshold
+for a course that runs long builds, or set idle stop to 0 for a
+workspace that must run an unattended job.
+
+**Lifting a throttle or clearing a flag.** Throttled and flagged
+workspaces show **Throttled** or **High memory** in the Workspaces
+table and are listed under "Resource guard" in the Health tab. In the
+workspace's detail panel, choose **Lift throttle** or **Clear memory
+flag**. The row clears at once, the workspace's usage history is
+dropped so it gets a full new window, and the worker restores full CPU
+within a minute. If the load is still there, the throttle returns one
+window later. A student can also restore full speed themselves by
+stopping and starting the workspace. Each throttle, lift and flag is in
+the audit log; look there for a workspace that is throttled again and
+again.
+
+On the pilot a workspace has 2 CPUs, so the default 25% share is an
+allowance of `50ms/100ms`, and the workspace's cgroup shows `cpu.max` as
+`50000 100000`. The average recorded with a throttle can be above 100%
+after the student rebooted the workspace from inside: the guard counts
+up to a minute before each restart as full use of every CPU, because
+that use is never seen.
+
+Memory is counted without page cache, but files in the workspace's
+`/tmp` live in memory (it is a tmpfs) and cannot be reclaimed, so large
+files there can raise the memory flag.
+
+**The acceptable-use statement.** Every account, administrators
+included, accepts it at first sign-in and again after any change to its
+text. Edit it in the Settings tab, "Acceptable use": plain text, blank
+lines between paragraphs, at most 10,000 characters. **Reset to
+default** returns to the built-in text. Saving any change sends
+everyone, including people signed in right now, to the statement at
+their next request; their workspaces keep running. Make changes outside
+class time where you can.
+
 ## Capacity and resizing
 
 docs/CAPACITY.md has the load test results, the cost of each workspace,

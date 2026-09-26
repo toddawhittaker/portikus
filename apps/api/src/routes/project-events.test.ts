@@ -406,7 +406,7 @@ test.skipIf(skip)(
 			const socket = await openEvents(workspaceId, projectId, alice);
 			expect(JSON.parse(await socket.next())).toEqual(READY);
 
-			// A new version gates every open session (docs/EPIC-14-3.md ruling 32).
+			// A new version gates every open session (SPEC.md section 5.1).
 			await testDb.db
 				.insertInto("settings")
 				.values({ id: 1, shutdown_grace_seconds: 900, acceptable_use_version: 2 })

@@ -8,7 +8,7 @@ import { ApiError, request } from "../api/request.js";
 import { StandalonePage } from "../pages/StandalonePage.js";
 import { useMe } from "../useMe.js";
 
-/** Plain text; a blank line starts a new paragraph (docs/EPIC-14-3.md ruling 29). */
+/** Plain text; a blank line starts a new paragraph (SPEC.md section 5.1). */
 export function paragraphs(text: string): string[] {
 	return text
 		.split(/\n\s*\n/)
@@ -18,7 +18,7 @@ export function paragraphs(text: string): string[] {
 
 /**
  * The acceptable-use statement every account accepts before anything else
- * (docs/EPIC-14-3.md rulings 31 to 33); the router sends every page here.
+ * (SPEC.md section 5.1); the router sends every page here.
  */
 export function AcceptableUsePage() {
 	const me = useMe();

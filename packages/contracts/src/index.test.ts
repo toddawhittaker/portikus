@@ -114,7 +114,7 @@ test("AuthUser round-trips and allows a null email", () => {
 	expect(AuthUser.parse(withSubject)).toEqual(withSubject);
 });
 
-test("AuthUser and MeResponse require both gate flags (SPEC.md section 5.3, EPIC-14-3 ruling 32)", () => {
+test("AuthUser and MeResponse require both gate flags (SPEC.md sections 5.1 and 5.3)", () => {
 	const user = {
 		id: "550e8400-e29b-41d4-a716-446655440111",
 		email: null,

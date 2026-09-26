@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 import { createStudent, query, settledAxe } from "./helpers";
 
 /**
- * axe on the acceptable-use page in light and dark (docs/EPIC-14-3.md
- * ruling 33, SPEC.md section 25.8). Each test clears its own student's
+ * axe on the acceptable-use page in light and dark (SPEC.md
+ * sections 5.1 and 25.8). Each test clears its own student's
  * acceptance, so no other spec meets the gate.
  */
 

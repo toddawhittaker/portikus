@@ -214,7 +214,7 @@ describe("users and sessions", () => {
 	);
 
 	test.skipIf(!hasTestDb())(
-		"mustAcceptUse compares the accepted version with the current one (EPIC-14-3 ruling 32)",
+		"mustAcceptUse compares the accepted version with the current one (SPEC.md section 5.1)",
 		async () => {
 			const user = await upsertUser(t.db, identity, "student");
 			const { token } = await createSession(t.db, user.id, 3600, {
