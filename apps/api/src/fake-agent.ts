@@ -579,6 +579,31 @@ export async function startFakeAgent(
 		return reply.status(204).send();
 	});
 
+	// The terminals unit's exit record, per workspace key (SPEC.md §9.7). A
+	// test stages a restart: the record is written and the terminal is gone.
+	const terminalsExit = new Map<string, { result: string; at: string }>();
+	app.post("/__test/terminals-exit", async (request, reply) => {
+		const body = request.body as {
+			key?: string;
+			result: string | null;
+			at?: string;
+			terminalId?: string;
+		};
+		if (body.result === null) {
+			terminalsExit.delete(body.key ?? "");
+			return reply.status(204).send();
+		}
+		terminalsExit.set(body.key ?? "", {
+			result: body.result,
+			at: body.at ?? new Date().toISOString(),
+		});
+		if (body.terminalId) terminals.delete(body.terminalId);
+		return reply.status(204).send();
+	});
+	app.get("/terminals/last-exit", async (request) => ({
+		exit: terminalsExit.get(keyOf(request)) ?? null,
+	}));
+
 	app.get("/health", async () => {
 		state.healthHits += 1;
 		return { ok: true };
@@ -1532,6 +1557,12 @@ export async function startFakeAgent(
 		(socket: WebSocket, request: FastifyRequest) => {
 			const id = (request.params as { id: string }).id;
 			if (!terminals.has(id)) {
+				// After a staged restart, answer as the real agent does.
+				if (terminalsExit.has(keyOf(request))) {
+					socket.send(JSON.stringify({ type: "error", code: "TERMINAL_NOT_FOUND" }));
+					socket.close(1008, "TERMINAL_NOT_FOUND");
+					return;
+				}
 				socket.close(4404, "no such terminal");
 				return;
 			}

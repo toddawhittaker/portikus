@@ -10,6 +10,7 @@ import {
 	UpdateTerminalRequest,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
+import type { TerminalGoneReason, TerminalServerMessage } from "@portikus/events";
 import type {
 	FastifyBaseLogger,
 	FastifyInstance,
@@ -636,6 +637,65 @@ interface PipeOptions {
 }
 
 /**
+ * Why a terminal's session is gone, judged from the terminals unit's last
+ * stop: only a stop after the terminal was created explains it (SPEC.md §9.7).
+ */
+export function terminalGoneReason(
+	exit: { result: string; at: string } | null,
+	createdAt: Date,
+): TerminalGoneReason | null {
+	if (!exit) return null;
+	const at = Date.parse(exit.at);
+	if (Number.isNaN(at) || at <= createdAt.getTime()) return null;
+	return exit.result === "oom-kill" ? "out_of_memory" : "restarted";
+}
+
+/** True for the agent's text frame saying the terminal's session is gone. */
+function isSessionGone(text: string): boolean {
+	try {
+		const frame = JSON.parse(text) as { type?: unknown; code?: unknown };
+		return frame.type === "error" && frame.code === "TERMINAL_NOT_FOUND";
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * The frame the browser gets for a terminal the agent no longer has, with a
+ * reason when the terminals unit's last stop explains it. Any failure to find
+ * out gives the plain frame, as before.
+ */
+async function sessionGoneFrame(
+	db: Kysely<Database>,
+	agent: AgentClient,
+	terminalId: string,
+): Promise<string> {
+	try {
+		const [exit, row] = await Promise.all([
+			agent.terminalsExit(),
+			db
+				.selectFrom("terminals")
+				.select("created_at")
+				.where("id", "=", terminalId)
+				.executeTakeFirst(),
+		]);
+		const reason = row && exit ? terminalGoneReason(exit, row.created_at) : null;
+		if (exit && reason) {
+			const frame: TerminalServerMessage = {
+				type: "error",
+				code: "TERMINAL_NOT_FOUND",
+				reason,
+				at: exit.at,
+			};
+			return JSON.stringify(frame);
+		}
+	} catch {
+		// An older agent has no record route; the plain frame still stands.
+	}
+	return JSON.stringify({ type: "error", code: "TERMINAL_NOT_FOUND" });
+}
+
+/**
  * Stop reading the agent socket while the browser socket is backed up, so a
  * runaway process cannot fill the control plane's memory (SPEC.md §9.7).
  * Returns a function that cancels any drain poll still running.
@@ -706,6 +766,7 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 	let queuedBytes = 0;
 	let closed = false;
 	let lastSessionCheck = Date.now();
+	let explaining: Promise<void> = Promise.resolve();
 
 	const backpressure = pipeBackpressure(socket, upstream);
 
@@ -773,15 +834,25 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 
 		upstream.on("message", (data: RawData, isBinary: boolean) => {
 			if (socket.readyState !== socket.OPEN) return;
+			if (!isBinary && isSessionGone(data.toString())) {
+				explaining = sessionGoneFrame(db, agent, terminalId).then((frame) => {
+					if (socket.readyState === socket.OPEN) socket.send(frame);
+				});
+				return;
+			}
 			socket.send(isBinary ? toBuffer(data) : data.toString(), { binary: isBinary });
 			backpressure.apply();
 		});
 
 		upstream.on("close", (code: number, reason: Buffer) => {
-			if (socket.readyState === socket.OPEN) {
-				socket.close(safeCloseCode(code), reason.toString());
-			}
-			finish();
+			// The agent closes straight after saying the session is gone, so
+			// the explanation must reach the browser before the close does.
+			void explaining.then(() => {
+				if (socket.readyState === socket.OPEN) {
+					socket.close(safeCloseCode(code), reason.toString());
+				}
+				finish();
+			});
 		});
 
 		upstream.on("error", (error: Error) => {

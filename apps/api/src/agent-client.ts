@@ -11,6 +11,7 @@ import {
 	AgentProjectList,
 	AgentRenameProjectRequest,
 	AgentRestoreRecoveryPointRequest,
+	AgentTerminalsExit,
 	type LogLevel,
 	LoopbackForward,
 	LoopbackForwardRequest,
@@ -120,6 +121,12 @@ export class AgentClient {
 	/** The Authorization header for the agent. Never log the result. */
 	authHeader(): string {
 		return `Bearer ${this.token}`;
+	}
+
+	/** How the workspace's terminals unit last stopped (SPEC.md §9.7). */
+	async terminalsExit(): Promise<AgentTerminalsExit["exit"]> {
+		return AgentTerminalsExit.parse(await this.call("GET", "/terminals/last-exit"))
+			.exit;
 	}
 
 	async createTerminal(

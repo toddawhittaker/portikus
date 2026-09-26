@@ -1,5 +1,7 @@
+import { readFile, stat } from "node:fs/promises";
 import type { WebSocket } from "@fastify/websocket";
 import {
+	type AgentTerminalsExit,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_INPUT_FRAME_BYTES,
 } from "@portikus/contracts";
@@ -59,6 +61,28 @@ interface Attachment {
 export interface AttachOptions {
 	cols?: number;
 	rows?: number;
+}
+
+/** Where the terminals unit records how it last stopped (SPEC.md §9.7). */
+export const TERMINALS_EXIT_PATH = "/run/portikus-terminals/last-exit";
+
+/**
+ * The terminals unit's last stop: systemd's `$SERVICE_RESULT` and the time
+ * the record was written. Null when there is none, as on older images. The
+ * student can write this file, so anything that is not a plain result word
+ * is treated as no record.
+ */
+export async function readTerminalsExit(
+	path: string = TERMINALS_EXIT_PATH,
+): Promise<AgentTerminalsExit["exit"]> {
+	try {
+		const [text, info] = await Promise.all([readFile(path, "utf8"), stat(path)]);
+		const result = text.trim();
+		if (!/^[a-z][a-z-]{0,63}$/.test(result)) return null;
+		return { result, at: info.mtime.toISOString() };
+	} catch {
+		return null;
+	}
 }
 
 function sendText(socket: WebSocket, message: TerminalServerMessage): void {
