@@ -36,6 +36,8 @@ export class FakeControllerClient implements ControllerClient {
 
 	startResult: StartInstanceResponse | Error = { ipv4: "10.0.0.2" };
 	stopResult: StopInstanceResponse | Error = { forced: false };
+	/** When set, every stop waits for this promise before answering. */
+	stopHold: Promise<void> | null = null;
 	listResult: ListInstancesResponse | Error = [];
 
 	async create(req: CreateInstanceRequest): Promise<CreateInstanceResponse> {
@@ -52,6 +54,7 @@ export class FakeControllerClient implements ControllerClient {
 
 	async stop(name: string, timeoutSeconds: number): Promise<StopInstanceResponse> {
 		this.calls.push({ method: "stop", args: [name, timeoutSeconds] });
+		if (this.stopHold) await this.stopHold;
 		if (this.stopResult instanceof Error) throw this.stopResult;
 		return this.stopResult;
 	}

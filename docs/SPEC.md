@@ -482,6 +482,8 @@ A stop should allow the workspace operating system and inner services a bounded 
 
 If graceful stop does not complete within the configured timeout, the platform may force-stop the workspace and must record the event.
 
+A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 15 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
+
 ### 6.6 Persistence contract
 
 The following must persist across a complete student workspace stop/start:

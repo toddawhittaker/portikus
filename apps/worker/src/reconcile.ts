@@ -397,7 +397,7 @@ export async function reconcile(
 		transitions++;
 		record(ws.id, "stop requested");
 		await endOpenTerminals(db, ws.id, now);
-		await doStop(db, controller, config, ws, now);
+		stopInBackground(db, controller, config, ws, now, log);
 	}
 
 	// A pending maintenance operation stops a running workspace without
@@ -423,7 +423,7 @@ export async function reconcile(
 		transitions++;
 		record(ws.id, `stop for ${ws.pending_operation}`);
 		await endOpenTerminals(db, ws.id, now);
-		await doStop(db, controller, config, ws, now);
+		stopInBackground(db, controller, config, ws, now, log);
 	}
 
 	// Deadline passed with zero connections: single UPDATE with count subquery.
@@ -455,7 +455,7 @@ export async function reconcile(
 		record(ws.id, "stop after grace period");
 		await endOpenTerminals(db, ws.id, now);
 		if (!ws.incus_instance_name) continue;
-		await doStop(db, controller, config, ws, now);
+		stopInBackground(db, controller, config, ws, now, log);
 	}
 
 	// Idle stop (ADR 0032): a workspace override wins over the platform value,
@@ -503,7 +503,7 @@ export async function reconcile(
 		});
 		await endOpenTerminals(db, ws.id, now);
 		if (!ws.incus_instance_name) continue;
-		await doStop(db, controller, config, ws, now);
+		stopInBackground(db, controller, config, ws, now, log);
 	}
 
 	// 3d: error with desired running (or restarting) -> retry a start, but
@@ -713,7 +713,7 @@ export async function reconcile(
 					}
 				}
 
-				if (ws.state === "stopping") {
+				if (ws.state === "stopping" && !stopsInFlight.has(ws.id)) {
 					if (inst.status === "Stopped") {
 						const updated = await casUpdate(
 							db,
@@ -969,6 +969,40 @@ async function startWorkspace(
 	}
 
 	return transitions;
+}
+
+/** Stops still running, by workspace id; step 5 leaves these rows alone. */
+const stopsInFlight = new Map<string, Promise<void>>();
+
+/**
+ * Start a stop without waiting for it, so a slow stop never delays the
+ * next sweep's starts (SPEC.md §6.5). On worker exit it is abandoned and
+ * step 5 resolves the row after the restart.
+ */
+function stopInBackground(
+	db: Kysely<Database>,
+	controller: ControllerClient,
+	config: ReconcileConfig,
+	ws: { id: string; incus_instance_name: string | null },
+	now: Date,
+	log: Logger,
+): void {
+	const running = doStop(db, controller, config, ws, now)
+		.catch((e: unknown) => {
+			log.error(
+				{ workspaceId: ws.id, error: e instanceof Error ? e.message : String(e) },
+				"background stop failed",
+			);
+		})
+		.finally(() => {
+			stopsInFlight.delete(ws.id);
+		});
+	stopsInFlight.set(ws.id, running);
+}
+
+/** Wait for every stop in flight to finish; for tests. */
+export async function settleStops(): Promise<void> {
+	await Promise.all(stopsInFlight.values());
 }
 
 /**
