@@ -10,6 +10,7 @@ export function ConfirmByLabelDialog({
 	onOpenChange,
 	title,
 	description,
+	children,
 	confirmLabel,
 	label,
 	pending,
@@ -20,6 +21,7 @@ export function ConfirmByLabelDialog({
 	onOpenChange: (open: boolean) => void;
 	title: string;
 	description: React.ReactNode;
+	children?: React.ReactNode;
 	confirmLabel: string;
 	label: string;
 	pending: boolean;
@@ -37,7 +39,9 @@ export function ConfirmByLabelDialog({
 				confirmText={label}
 				pending={pending}
 				onConfirm={onConfirm}
-			/>
+			>
+				{children}
+			</ConfirmDialog>
 		</ConfirmDialogRoot>
 	);
 }

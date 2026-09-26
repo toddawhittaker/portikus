@@ -1963,6 +1963,38 @@ number or null to remove it). The Settings tab edits the guard
 thresholds, window, throttle share and idle time, and the
 acceptable-use statement with **Reset to default** (section 5.1).
 
+The admin area is desktop-only: it is built for windows 1024 px wide and up,
+scrolls sideways below that, and has no tablet layout (Epic 18).
+
+The admin page is one frame (Epic 18): its heading, tab navigation and tab
+content sit in a container at most 1440 px wide, at compact density (28 px
+controls, above the 24 px minimum target of section 25.8), and `<main>` keeps
+the scroll. Each tab is an h2 section with an optional count and actions in
+its heading row, headings inside a tab are h3, and the browser title names
+the tab ("Users, Administration, Portikus"). Admin tables use the design's
+table classes, and their headers stick to the scrolling page, so nothing
+between a table and `<main>` may be a scroll container. The Users table has
+seven columns: selection, a two-line Account cell (name, then email or
+username), Role, Workspace, Last activity, Image (an "Older image" tag only
+when out of date) and Connections; source, last sign-in and storage are in
+the detail panel. The detail panel stays in view beside the table with its
+own scroll, and shows its head (name, state, Start, Stop, Restart) and then
+Error, Account, Workspace, Storage, Resource guard, Ports and connections,
+Logs and Recent audit. The Audit table shows the first 8 characters of an
+ID with the full ID in its title and accessible name, short times with the
+full time in the title, the result as a tag (red for anything but ok or
+success), and details clipped to one line per key with the full text
+available to screen readers. A target ID links to the Audit filter for
+that target, labelled "Target ID". Settings cards sit in a grid, each Save
+below its fields.
+
+Rebuild is also a bulk action on the Users table, with a "Rebuild all on
+older images…" shortcut while the Image filter is Older (Epic 18). The
+browser calls the single-workspace rebuild route once per workspace, so
+each request keeps its own audit row, CSRF check and pending-operation
+refusal; a refusal with 409 counts as skipped. There is no bulk API route,
+because it would only duplicate that logic.
+
 ### 20.2 User impersonation
 
 P0 must not require silent administrator impersonation of a student session.
@@ -3336,6 +3368,22 @@ Acceptance:
 - no sample, audit row or response carries a process name, command line or file name;
 - an administrator's actions and the workspace agent never count as a student's activity, and an unattended coding agent is stopped by idle stop;
 - while a gate is unmet, every route but that gate's answers 403 with its code, and the password gate comes first.
+
+### Epic 18 — Admin interface polish
+
+See section 20.1 for the rules and `docs/DESIGN.md` section 9 for the table styles; built on `epic/18-admin-ux` (issues #600, #601, #602, #604 and #629).
+
+Includes:
+
+- one width-capped, compact frame for the four admin tabs, with h2 tab headings and per-tab page titles;
+- the design's table classes on every admin table, with sticky headers;
+- a seven-column Users table, a reordered sticky detail panel, a tidier Audit table and a Settings card grid;
+- bulk Rebuild, and "Rebuild all on older images…", through the single-workspace route.
+
+Acceptance:
+
+- the admin content is at most 1440 px wide and the Users table does not scroll sideways at 1280 px with the detail panel open;
+- each bulk-rebuilt workspace gets its own audit row, and a pending operation counts as skipped, not failed.
 
 ### Epic 20 — Student interface polish
 

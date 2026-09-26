@@ -529,6 +529,47 @@ button.pk-statusbar-item:focus-visible {
 	border-color: transparent;
 	color: var(--status-warning);
 }
+.pk-tag--error {
+	background: var(--status-error-soft);
+	border-color: transparent;
+	color: var(--status-error);
+}
+
+/* Admin tables that scroll with the page (SPEC.md section 20.1). */
+.pk-table--page thead th {
+	/* The table scrolls with <main>, whose p-8 would otherwise show rows above the header. */
+	top: -2rem;
+}
+
+/* Admin workspace detail panel, from design/mockups/portikus-screens.css (SPEC.md section 20.1). */
+.pk-detail-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-3);
+	padding: var(--space-4);
+}
+.pk-detail-section {
+	display: grid;
+	gap: var(--space-3);
+	padding: var(--space-4);
+	border-top: 1px solid var(--line);
+}
+.pk-dl {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	column-gap: var(--space-4);
+	row-gap: var(--space-1);
+	margin: 0;
+	font-size: 13px;
+	line-height: 18px;
+}
+.pk-dl dt {
+	color: var(--ink-muted);
+}
+.pk-dl dd {
+	margin: 0;
+}
 
 /* StatusBar */
 .pk-statusbar {
@@ -729,7 +770,7 @@ button.pk-statusbar-item:hover {
 	color: var(--ink);
 }
 
-/* Storage meters in the workspace dialog and on the error screen (design/mockups/portikus-screens.css). */
+/* Storage meters in the workspace dialog, on the error screen and in the admin detail panel (design/mockups/portikus-screens.css). */
 .pk-meters {
 	display: grid;
 	gap: var(--space-4);
