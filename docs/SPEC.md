@@ -441,6 +441,8 @@ If an authenticated user opens the platform and the assigned workspace is stoppe
 
 If the workspace is stopped because the student stopped it by hand, the platform does not start it again on its own. The work area says the workspace is stopped and offers a button that starts it, which is the same request as the Start button in the workspace dialog. The platform never shows starting progress while no start has been requested.
 
+Loading skeletons appear only while the workspace is connecting, starting or reopening tabs; a stopped or failed workspace shows a plain message in the side panes instead. If the workspace failed to start, the work area offers "Try again", which is the same start request, and "Workspace details", which opens the workspace dialog. The raw error message and code sit under a collapsed "Technical details".
+
 Target cold-start performance is defined in the non-functional requirements.
 
 ### 6.4 Disconnect grace period
@@ -745,6 +747,10 @@ browser; it is not saved.
 
 Terminal panes must additionally support splitting.
 
+When a project has no tabs open, the centre pane says "No terminals open" and
+offers two buttons: "Open a terminal" (primary) and "Start Claude Code". The
+tab strip's "+" button, labelled "New tab", holds the rest (Codex, previews).
+
 ### 8.4 Right pane
 
 The right pane contains the selected project's file tree and Git decorations.
@@ -756,6 +762,11 @@ seconds, warnings and errors after 10. The timer pauses while the
 pointer or keyboard focus is on the toast, and the close button stays.
 A toast that carries an action the user must answer, such as replacing
 a file that already exists, stays until it is answered.
+
+Archiving a project is reversible, so its menu item and confirmation are
+neutral (primary button, no red), and it ends with a success toast
+"<name> archived" that says where to find it. Duplicating ends with a
+success toast "<new name> created". Renaming shows no toast.
 
 Every toast shown is also recorded as a notification with its tone,
 title, body text, time, and whether it has been read. Notifications are
@@ -1467,6 +1478,8 @@ The user may:
 - open the service within the center pane;
 - open it in a separate browser tab/window.
 
+In the "Open a preview" dialog each listening port is a bordered row with a trailing chevron, so it reads as a button. The Preview tab's toolbar holds the host, Back, Forward, Reload and Open in new tab; a "More preview actions" menu holds Copy URL, the frame width (one checkable item per width), Reset preview data and Show in Running.
+
 ### 14.7 Port discovery
 
 The workspace agent should detect listening TCP ports.
@@ -1855,7 +1868,9 @@ workspace has nothing to measure, and the UI says the figures are available
 when it runs. The status bar warns at 80% of any class and names it. At 95%
 the message also names a next step: Reset Docker or `docker system prune`
 for Docker, automatic removal of older points for Recovery, and deleting
-files for Projects & home. Quotas are environment configuration in this
+files for Projects & home. The warning, like the workspace state beside it, is a bordered
+button that opens the workspace dialog, and it keeps its warning or error
+colour. Quotas are environment configuration in this
 epic; changing them at runtime is Epic 11.
 
 ### 19.3 Denial behavior

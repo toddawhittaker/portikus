@@ -83,3 +83,27 @@
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: 2px;
 }
+
+/* Taller than the shared fit dialog, so more settings show without scrolling. */
+.pk-dialog--fit.pk-settings-dialog {
+	height: min(800px, calc(100vh - 64px));
+}
+
+/* Group titles stand apart from the field labels below them. */
+.pk-settings-group + .pk-settings-group {
+	border-top: 1px solid var(--line);
+	padding-top: 16px;
+}
+
+.pk-settings-group > h3 {
+	font-weight: 600;
+}
+
+/* Read-only values wrap instead of running out of the dialog. */
+.pk-settings-readonly {
+	display: block;
+	field-sizing: content;
+	resize: none;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+}

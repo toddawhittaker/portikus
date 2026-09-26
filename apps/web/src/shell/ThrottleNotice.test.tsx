@@ -4,6 +4,7 @@ import { ThrottleNotice, throttleAnnouncement } from "./ThrottleNotice.js";
 
 test("says why the workspace is slow, with the numbers from the row", () => {
 	const onDismiss = vi.fn();
+	const onOpenWorkspace = vi.fn();
 	render(
 		<ThrottleNotice
 			throttle={{
@@ -13,6 +14,7 @@ test("says why the workspace is slow, with the numbers from the row", () => {
 				sharePercent: 50,
 			}}
 			onDismiss={onDismiss}
+			onOpenWorkspace={onOpenWorkspace}
 		/>,
 	);
 
@@ -26,6 +28,9 @@ test("says why the workspace is slow, with the numbers from the row", () => {
 		screen.getByRole("button", { name: "Dismiss the slowed-down notice" }),
 	);
 	expect(onDismiss).toHaveBeenCalledTimes(1);
+
+	fireEvent.click(screen.getByRole("button", { name: "Restart workspace…" }));
+	expect(onOpenWorkspace).toHaveBeenCalledTimes(1);
 });
 
 test("the notice is not itself a live region; the page's status region carries the words", () => {
@@ -35,7 +40,13 @@ test("the notice is not itself a live region; the page's status region carries t
 		windowMinutes: 45,
 		sharePercent: 50,
 	};
-	render(<ThrottleNotice throttle={throttle} onDismiss={() => {}} />);
+	render(
+		<ThrottleNotice
+			throttle={throttle}
+			onDismiss={() => {}}
+			onOpenWorkspace={() => {}}
+		/>,
+	);
 	expect(screen.getByTestId("throttle-notice").getAttribute("role")).toBeNull();
 	expect(throttleAnnouncement(throttle)).toBe(
 		"Your workspace has been slowed down. It kept its CPUs more than 70% busy for 45 minutes, so it now gets 50% of its usual CPU. Stopping and starting the workspace restores full speed; an administrator can also lift this.",

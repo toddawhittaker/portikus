@@ -18,17 +18,18 @@
 	gap: var(--space-2);
 	padding: var(--space-1) var(--space-2);
 	border-bottom: 1px solid var(--line);
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 }
 
 .pk-preview-host {
-	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-family: var(--font-mono);
 	font-size: 12px;
 	color: var(--ink-muted);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	max-width: 40%;
+	flex: 1 1 auto;
+	min-width: 0;
 }
 
 .pk-preview-action {
@@ -39,14 +40,6 @@
 	background: transparent;
 	color: inherit;
 	cursor: pointer;
-}
-
-.pk-preview-width {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	font-size: 12px;
-	color: var(--ink-muted);
 }
 
 .pk-preview-body {
@@ -77,7 +70,7 @@
 	border: 1px solid var(--line);
 	border-radius: var(--radius-sm);
 	background: var(--surface-sunken);
-	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-family: var(--font-mono);
 	font-size: 12px;
 	text-align: left;
 	overflow-wrap: anywhere;
@@ -109,21 +102,44 @@
 	text-align: center;
 }
 
-/* The + Preview launcher popover. Its rows are the Running pane's rows, and
-   they are styled in apps/web/src/running/running.css. */
+/* The + Preview launcher. Its rows share .pk-portrow with the Running pane
+   (running.css); the rules below are scoped to the launcher so they read as
+   buttons here without changing Running. */
 
 .pk-portlist {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: var(--space-1);
 	min-width: 260px;
-	padding: var(--space-2);
+	padding: var(--space-2) 0;
+}
+
+.pk-portlist .pk-portrow {
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--ink);
+	cursor: pointer;
+	text-align: left;
+}
+
+.pk-portlist .pk-portrow:hover {
+	background: var(--surface-hover);
+}
+
+.pk-portlist .pk-portrow-kind {
+	font-size: 12px;
+}
+
+.pk-portlist .pk-portrow-chevron {
+	color: var(--ink-muted);
 }
 
 .pk-portform {
 	display: flex;
 	gap: var(--space-2);
 	align-items: end;
-	padding: var(--space-2);
+	padding: var(--space-2) 0 0;
 	border-top: 1px solid var(--line);
 }

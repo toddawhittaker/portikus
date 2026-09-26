@@ -1072,7 +1072,18 @@ test("the Edit and Diff swap keeps focus on the pressed button", async () => {
 
 /** Issue #369: the pressed view button is marked by more than colour. */
 test("the pressed view button is bold as well as tinted", async () => {
-	const css = readFileSync(`${import.meta.dirname}/work.css`, "utf8");
-	const rule = css.match(/\.pk-md-modes button\[aria-pressed="true"\] \{([^}]*)\}/);
+	const css = readFileSync(
+		`${import.meta.dirname}/../../../../packages/ui/src/primitives/primitives.css`,
+		"utf8",
+	);
+	const rule = css.match(/\.pk-segmented button\[aria-pressed="true"\] \{([^}]*)\}/);
 	expect(rule?.[1]).toContain("font-weight: 700");
+});
+
+/** Issue #609: Saved is plain muted text with a tick, not a green pill. */
+test("the saved status is a plain tick, not a pill", () => {
+	const css = readFileSync(`${import.meta.dirname}/work.css`, "utf8");
+	const rule = css.match(/\.pk-file-status\[data-status="saved"\] \{([^}]*)\}/);
+	expect(rule?.[1]).toContain("background: none");
+	expect(rule?.[1]).toContain("color: var(--ink-muted)");
 });

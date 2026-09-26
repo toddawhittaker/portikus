@@ -15,6 +15,7 @@ import {
 } from "@dnd-kit/core";
 import type { CodingAgent, Terminal } from "@portikus/contracts";
 import {
+	Button,
 	ConfirmDialog,
 	ConfirmDialogRoot,
 	EmptyState,
@@ -450,7 +451,7 @@ export function WorkArea({
 									<MenuTrigger asChild={true}>
 										<IconButton
 											icon="plus"
-											label="New"
+											label="New tab"
 											size="sm"
 											data-testid="launcher"
 											aria-haspopup="menu"
@@ -514,8 +515,30 @@ export function WorkArea({
 				) : null}
 
 				{layout.tabs.length === 0 ? (
-					<EmptyState icon="terminal" title="No terminals open">
-						Use New to open a terminal in {projectPath}.
+					<EmptyState
+						icon="terminal"
+						title="No terminals open"
+						actions={
+							<>
+								<Button
+									iconStart="terminal"
+									data-testid="empty-open-terminal"
+									onClick={() => void openTerminalTab()}
+								>
+									Open a terminal
+								</Button>
+								<Button
+									variant="secondary"
+									iconStart="agent"
+									data-testid="empty-open-claude"
+									onClick={() => void openAgent("claude")}
+								>
+									Start Claude Code
+								</Button>
+							</>
+						}
+					>
+						Or use + in the tab bar for Codex and previews.
 					</EmptyState>
 				) : (
 					layout.tabs.map((tab) => (

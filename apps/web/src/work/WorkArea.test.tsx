@@ -459,3 +459,32 @@ test("Leave terminal moves the keyboard to the active tab", async () => {
 	});
 	expect(document.activeElement).toBe(screen.getByTestId("tab-tab1"));
 });
+
+/** Issue #608 item 1: the empty work area offers the two launcher actions. */
+test("the empty work area opens a terminal or Claude Code from its buttons", async () => {
+	const { fetchMock } = stubFetch({ terminals: [] });
+	renderArea();
+
+	await screen.findByText("No terminals open");
+	expect(screen.getByTestId("launcher").getAttribute("aria-label")).toBe("New tab");
+
+	fireEvent.click(screen.getByRole("button", { name: "Start Claude Code" }));
+	await waitFor(() =>
+		expect(
+			fetchMock.mock.calls.some(
+				(call) =>
+					call[1]?.method === "POST" &&
+					JSON.parse(String(call[1]?.body)).agent === "claude",
+			),
+		).toBe(true),
+	);
+
+	cleanup();
+	const second = stubFetch({ terminals: [] });
+	renderArea();
+	fireEvent.click(await screen.findByRole("button", { name: "Open a terminal" }));
+	await waitFor(() => {
+		const post = second.fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
+		expect(JSON.parse(String(post?.[1]?.body))).toEqual({ projectId: PROJECT });
+	});
+});
