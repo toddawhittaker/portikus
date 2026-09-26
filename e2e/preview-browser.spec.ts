@@ -671,6 +671,7 @@ test.describe("the preview in a real browser", () => {
 		// Reset is driven from the Portikus page, which the worker does not
 		// control, so the reset request goes to the network and the edge answers
 		// it (BROWSER-HANDLING.md §12, §16.4).
+		await page.getByTestId("preview-more").click();
 		await page.getByTestId("preview-reset").click();
 		await expect(toast(page, "Preview data reset")).toBeVisible();
 		await expect.poll(() => seen.session(host), { timeout: 20_000 }).not.toBe(before);
@@ -701,6 +702,7 @@ test.describe("the preview in a real browser", () => {
 		const before = seen.session(host);
 		expect(before).toBeTruthy();
 
+		await page.getByTestId("preview-more").click();
 		await page.getByTestId("preview-reset").click();
 		await expect(toast(page, "Preview data reset")).toBeVisible();
 		await expect(appHeading(page)).toHaveText("Reset", { timeout: 20_000 });

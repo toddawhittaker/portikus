@@ -187,10 +187,7 @@ export function ProjectPane({
 												<MenuSeparator />
 											</>
 										)}
-										<MenuItem
-											danger
-											onSelect={() => setOpen({ kind: "archive", project })}
-										>
+										<MenuItem onSelect={() => setOpen({ kind: "archive", project })}>
 											<span data-testid="project-archive">Archive…</span>
 										</MenuItem>
 										<MenuSeparator />
@@ -277,6 +274,7 @@ export function ProjectPane({
 					onClose={() => setOpen({ kind: "none" })}
 					onDuplicated={(project) => {
 						setOpen({ kind: "none" });
+						toast.show({ tone: "success", title: `${project.name} created` });
 						goTo(project);
 					}}
 				/>
@@ -301,7 +299,14 @@ export function ProjectPane({
 					workspaceId={workspaceId}
 					project={open.project}
 					onClose={() => setOpen({ kind: "none" })}
-					onArchived={() => afterRemoval(open.project)}
+					onArchived={() => {
+						toast.show({
+							tone: "success",
+							title: `${open.project.name} archived`,
+							children: "Find it under Archived projects.",
+						});
+						afterRemoval(open.project);
+					}}
 				/>
 			)}
 		</nav>

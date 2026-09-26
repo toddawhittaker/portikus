@@ -1304,3 +1304,68 @@ the same way.
 with a unit test. Under half a day.
 
 **Source.** Epic 18 confirmation review.
+
+## Workspace usage in the error state
+
+**What.** The error screen already shows the storage meters and offers
+"Clean up Docker…" when Docker filled up (SPEC.md section 28), but the
+usage figures are not served while the workspace is in error, so neither
+appears today.
+
+**What it would take.** Serve the usage query in the error state when the
+workspace agent can still answer. When the button then shows, Reset
+Docker's inline error box lands inside the error screen's actions row and
+needs moving below it. About a day with tests.
+
+**Source.** Confirmation reviews of Epic 20 (issue #609).
+
+## Restart confirmation before the workspace moves
+
+**What.** A restart confirmation opened before the workspace starts moving
+(for example from the throttle notice while the state is still settling)
+does nothing when confirmed.
+
+**What it would take.** Find why the confirm sends no action, or disable
+it until the workspace can restart, with a unit test that reproduces it.
+Half a day.
+
+**Source.** Confirmation reviews of Epic 20 (issue #608).
+
+## A confirmation before "Reset preview data"
+
+**What.** "Reset preview data" in the Preview tab's More menu acts at once.
+
+**What it would take.** Reuse the neutral confirmation dialog and add an
+ellipsis to the item. Half a day with tests.
+
+**Source.** Left out of Epic 20 (issue #609).
+
+## A radio-item menu component
+
+**What.** The Preview frame width uses checkable menu items; a radio-item
+component would state "one of these" more precisely to assistive
+technology.
+
+**What it would take.** A new `packages/ui` export wrapping the Radix
+radio group item, used by the width menu. Half a day.
+
+**Source.** Left out of Epic 20 (issue #609).
+
+## The rest of the resource notices (#607)
+
+**What.** "See what's using CPU" on the throttle notice, a memory notice,
+a memory warning in the status bar, and Stop buttons in Monitor.
+
+**What it would take.** Its own epic, branched after Epic 20, per issue
+#607.
+
+**Source.** Left out of Epic 20.
+
+## A full accessibility audit of the student interface
+
+**What.** Epic 20's accessibility review covered only that epic's changes.
+
+**What it would take.** An a11y-reviewer pass over the whole student
+interface against SPEC.md section 25.8, with fixes filed as issues.
+
+**Source.** Left out of Epic 20.

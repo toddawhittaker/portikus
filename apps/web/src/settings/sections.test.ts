@@ -39,8 +39,8 @@ test("a section added to the list is found by its title and its control labels",
 test("matching ignores case and can hit several controls in one section", () => {
 	const hits = settingsHits(SETTINGS_SECTIONS, "color");
 	expect(hits.map((hit) => hit.controlId)).toEqual([
-		"terminal-colours",
 		"colour-scheme",
+		"terminal-colours",
 	]);
 });
 
@@ -48,4 +48,9 @@ test("search finds the SSO account link in Profile (docs/archive/epics/EPIC-13-1
 	expect(settingsHits(SETTINGS_SECTIONS, "sso")).toEqual([
 		{ sectionId: "profile", controlId: "sso-link", label: "Link to my SSO account" },
 	]);
+});
+
+test("Appearance comes first under Preferences, where students look for it", () => {
+	const preferences = SETTINGS_SECTIONS.find((section) => section.id === "preferences");
+	expect(preferences?.groups[0]?.title).toBe("Appearance");
 });
