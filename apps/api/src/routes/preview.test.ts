@@ -728,6 +728,22 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"an account that has not accepted the current statement gets no preview (SPEC.md section 5.1)",
+	async () => {
+		const token = await openPreview(5173);
+		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(200);
+
+		await testDb.db
+			.updateTable("users")
+			.set({ acceptable_use_version: null })
+			.where("oidc_subject", "=", "alice")
+			.execute();
+
+		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(403);
+	},
+);
+
 test.skipIf(skip)("a preview cookie is worthless on another host", async () => {
 	const token = await openPreview(5173);
 	// Another port of the same workspace, and another workspace's label.
@@ -1578,3 +1594,102 @@ test.skipIf(skip)("a bridge forward closes when the preview session ends", async
 	expect([...(agent.forwards.get(workspaceId) ?? [])]).toEqual([]);
 	expect((await bridge(token, "/__portikus/ports/3000/api")).statusCode).toBe(401);
 });
+
+// ── Activity for idle stop (ADR 0032) ──
+
+async function activityRow(): Promise<{
+	last_activity_at: Date | null;
+	idle_stop_at: Date | null;
+}> {
+	return testDb.db
+		.selectFrom("workspaces")
+		.select(["last_activity_at", "idle_stop_at"])
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+}
+
+async function pendingIdleStop(): Promise<void> {
+	await testDb.db
+		.updateTable("workspaces")
+		.set({
+			last_activity_at: null,
+			idle_stop_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+		})
+		.where("id", "=", workspaceId)
+		.execute();
+}
+
+test.skipIf(skip)(
+	"assets, fetches, sockets and script reloads in a preview are not activity",
+	async () => {
+		const token = await openPreview(5173);
+		await pendingIdleStop();
+		const cases: Record<string, string>[] = [
+			{ "sec-fetch-dest": "script" },
+			{ "sec-fetch-dest": "style" },
+			{ "sec-fetch-dest": "image", "sec-fetch-user": "?1" },
+			{ "sec-fetch-dest": "empty" },
+			{ "sec-fetch-dest": "iframe" },
+			// A reload the page started by script carries no Sec-Fetch-User.
+			{ "sec-fetch-dest": "document" },
+			{ "sec-fetch-dest": "document", "sec-fetch-user": "?0" },
+			{},
+		];
+		for (const extra of cases) {
+			const response = await authorize(token, previewHostFor(5173), { extra });
+			expect(response.statusCode).toBe(200);
+		}
+		const row = await activityRow();
+		expect(row.last_activity_at).toBeNull();
+		expect(row.idle_stop_at).not.toBeNull();
+	},
+);
+
+test.skipIf(skip)("a refused page load is not activity", async () => {
+	const token = await openPreview(5173);
+	await pendingIdleStop();
+	const response = await authorize(token, previewHostFor(3000), {
+		extra: { "sec-fetch-dest": "document", "sec-fetch-user": "?1" },
+	});
+	expect(response.statusCode).toBe(403);
+	expect((await activityRow()).last_activity_at).toBeNull();
+});
+
+test.skipIf(skip)(
+	"a user-started page load in a preview is activity, at most once a minute",
+	async () => {
+		const token = await openPreview(5173);
+		await pendingIdleStop();
+		const load = () =>
+			authorize(token, previewHostFor(5173), {
+				extra: { "sec-fetch-dest": "document", "sec-fetch-user": "?1" },
+			});
+
+		expect((await load()).statusCode).toBe(200);
+		let row = await activityRow();
+		expect(row.last_activity_at).not.toBeNull();
+		expect(row.idle_stop_at).toBeNull();
+
+		// A second load inside the minute writes nothing.
+		await pendingIdleStop();
+		expect((await load()).statusCode).toBe(200);
+		row = await activityRow();
+		expect(row.last_activity_at).toBeNull();
+		expect(row.idle_stop_at).not.toBeNull();
+	},
+);
+
+test.skipIf(skip)(
+	"a user-started load in the Preview tab iframe is activity",
+	async () => {
+		const token = await openPreview(5173);
+		await pendingIdleStop();
+		const response = await authorize(token, previewHostFor(5173), {
+			extra: { "sec-fetch-dest": "iframe", "sec-fetch-user": "?1" },
+		});
+		expect(response.statusCode).toBe(200);
+		const row = await activityRow();
+		expect(row.last_activity_at).not.toBeNull();
+		expect(row.idle_stop_at).toBeNull();
+	},
+);

@@ -5,11 +5,16 @@ import {
 	type AdminWorkspaceSummary,
 	type ApiError,
 	type AuditEvent,
+	type CpuThrottle,
+	effectiveGuard,
+	type GuardConfig,
 	HealthSample,
 	isQuotaGrowOnly,
+	type MemoryFlag,
 	QUOTA_SHRINK_MESSAGE,
 	type QuotaConfig,
 	type StorageFigure,
+	UpdateGuardRequest,
 	UpdateQuotaRequest,
 	WorkspaceUsage,
 } from "@portikus/contracts";
@@ -127,7 +132,15 @@ export function toWorkspaceSummary(
 			facts,
 		),
 		archivedAt: iso(row.archived_at),
+		cpuThrottle: toJson<CpuThrottle>(row.cpu_throttle),
+		memoryFlag: toJson<MemoryFlag>(row.memory_flag),
 	};
+}
+
+/** A jsonb column, or null when it is unset. */
+function toJson<T>(value: unknown): T | null {
+	if (value === null || value === undefined) return null;
+	return (typeof value === "string" ? JSON.parse(value) : value) as T;
 }
 
 /**
@@ -273,6 +286,21 @@ export function registerAdminWorkspaceRoutes(
 			.orderBy("created_at")
 			.execute();
 
+		const settings = await db
+			.selectFrom("settings")
+			.select([
+				"cpu_guard_threshold_percent",
+				"memory_guard_threshold_percent",
+				"guard_window_minutes",
+				"cpu_throttle_share_percent",
+				"idle_stop_minutes",
+			])
+			.where("id", "=", 1)
+			.executeTakeFirst();
+		if (!settings) {
+			return sendError(reply, 404, "NOT_FOUND", "Platform settings are not set yet");
+		}
+
 		const facts = await loadImageFacts(db);
 		const body: AdminWorkspaceDetail = {
 			workspace: toWorkspace(row, await countActive(db, id, config), config),
@@ -308,6 +336,10 @@ export function registerAdminWorkspaceRoutes(
 				rebuild: app.hasRoute({ method: "POST", url: REBUILD_ROUTE }),
 				resetDocker: app.hasRoute({ method: "POST", url: RESET_DOCKER_ROUTE }),
 			},
+			guardConfig: toJson<GuardConfig>(row.guard_config),
+			effectiveGuard: effectiveGuard(settings, toJson<GuardConfig>(row.guard_config)),
+			cpuThrottle: toJson<CpuThrottle>(row.cpu_throttle),
+			memoryFlag: toJson<MemoryFlag>(row.memory_flag),
 		};
 		return body;
 	});
@@ -440,4 +472,130 @@ export function registerAdminWorkspaceRoutes(
 		const updated = (await loadRow(id)) as Record<string, unknown>;
 		return toWorkspace(updated, await countActive(db, id, config), config);
 	});
+	// PUT /admin/workspaces/:id/guard -- per-workspace guard overrides (ADR 0032).
+	app.put("/admin/workspaces/:id/guard", adminOnly, async (request, reply) => {
+		const actor = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const body = UpdateGuardRequest.safeParse(request.body ?? {});
+		if (!body.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
+		}
+		const id = params.data.id;
+		const found = await db.transaction().execute(async (trx) => {
+			// Locked, so two administrators' edits merge rather than overwrite.
+			const row = await trx
+				.selectFrom("workspaces")
+				.select("guard_config")
+				.where("id", "=", id)
+				.forUpdate()
+				.executeTakeFirst();
+			if (!row) return false;
+			const from: GuardConfig = toJson<GuardConfig>(row.guard_config) ?? {};
+			const to: GuardConfig = { ...from };
+			for (const [key, value] of Object.entries(body.data)) {
+				if (value === undefined) continue;
+				const name = key as keyof GuardConfig;
+				if (value === null) delete to[name];
+				else to[name] = value;
+			}
+			if (JSON.stringify(from) === JSON.stringify(to)) return true;
+			await trx
+				.updateTable("workspaces")
+				.set({
+					guard_config: Object.keys(to).length > 0 ? JSON.stringify(to) : null,
+					updated_at: new Date().toISOString(),
+				})
+				.where("id", "=", id)
+				.execute();
+			await trx
+				.insertInto("audit_events")
+				.values({
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "workspace.guard_updated",
+					result: "ok",
+					metadata: JSON.stringify({ from, to }),
+				})
+				.execute();
+			return true;
+		});
+		if (!found) {
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		}
+		return reply.status(204).send();
+	});
+
+	/**
+	 * Lift a throttle or clear a memory flag. The samples go too, so the
+	 * workspace gets a full new window before it can be judged again; the
+	 * worker removes the allowance on its next tick (ADR 0032).
+	 */
+	async function clearGuardMark(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		mark: "cpu_throttle" | "memory_flag",
+	) {
+		const actor = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const id = params.data.id;
+		const outcome = await db.transaction().execute(async (trx) => {
+			const cleared = await trx
+				.updateTable("workspaces")
+				.set({ [mark]: null, updated_at: new Date().toISOString() })
+				.where("id", "=", id)
+				.where(mark, "is not", null)
+				.executeTakeFirst();
+			if (Number(cleared.numUpdatedRows) === 0) {
+				const exists = await trx
+					.selectFrom("workspaces")
+					.select("id")
+					.where("id", "=", id)
+					.executeTakeFirst();
+				return exists ? "not_set" : "not_found";
+			}
+			await trx
+				.deleteFrom("workspace_usage_samples")
+				.where("workspace_id", "=", id)
+				.execute();
+			await trx
+				.insertInto("audit_events")
+				.values({
+					actor: `user:${actor.id}`,
+					target: id,
+					action:
+						mark === "cpu_throttle"
+							? "workspace.cpu_throttle_lifted"
+							: "workspace.memory_flag_cleared",
+					result: "ok",
+					metadata: JSON.stringify({ reason: "administrator" }),
+				})
+				.execute();
+			return "cleared";
+		});
+		if (outcome === "not_found") {
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		}
+		if (outcome === "not_set") {
+			return mark === "cpu_throttle"
+				? sendError(reply, 409, "NOT_THROTTLED", "This workspace is not throttled.")
+				: sendError(reply, 409, "NOT_FLAGGED", "This workspace is not flagged.");
+		}
+		return reply.status(204).send();
+	}
+
+	app.post("/admin/workspaces/:id/lift-throttle", adminOnly, async (request, reply) =>
+		clearGuardMark(request, reply, "cpu_throttle"),
+	);
+
+	app.post(
+		"/admin/workspaces/:id/clear-memory-flag",
+		adminOnly,
+		async (request, reply) => clearGuardMark(request, reply, "memory_flag"),
+	);
 }

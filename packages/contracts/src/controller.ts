@@ -150,6 +150,52 @@ export const ListInstancesResponse = z.array(InstanceStatus);
 export type ListInstancesResponse = z.infer<typeof ListInstancesResponse>;
 
 /**
+ * One running instance's CPU time and memory from Incus, for the resource
+ * guard (ADR 0032). Totals only: no process, command line or file name.
+ */
+export const InstanceUsage = z.object({
+	name: z.string().min(1),
+	/** CPU time in nanoseconds since the instance started. */
+	// Not .int(): a counter above 2^53 is a valid, if imprecise, number.
+	cpuUsageNs: z.number().nonnegative(),
+	/**
+	 * Changes on every boot, including a reboot from inside the workspace:
+	 * the host PID of the instance's init. Null when Incus does not report it.
+	 */
+	bootMarker: z.number().int().positive().nullable(),
+	/** `limits.cpu` as a count, or the host's CPU count when unset. */
+	cpuLimit: z.number().int().positive(),
+	/** The working set: usage without reclaimable file cache. */
+	memoryBytes: z.number().int().nonnegative(),
+	memoryLimitBytes: z.number().int().positive(),
+	/** The current `limits.cpu.allowance` as Incus holds it, or null. */
+	cpuAllowance: z.string().nullable(),
+});
+export type InstanceUsage = z.infer<typeof InstanceUsage>;
+
+/** Response body for `GET /instances/usage`. */
+export const InstanceUsageResponse = z.object({ instances: z.array(InstanceUsage) });
+export type InstanceUsageResponse = z.infer<typeof InstanceUsageResponse>;
+
+/**
+ * A hard CPU cap as a time slice, such as `100ms/100ms` for one CPU's worth.
+ * Never a percentage, which Incus treats as a soft share (ADR 0032).
+ */
+export const CpuAllowance = z
+	.string()
+	.regex(/^\d{1,6}ms\/100ms$/, "Must be a time slice such as 100ms/100ms")
+	.refine((value) => Number.parseInt(value, 10) > 0, {
+		message: "Must be more than 0ms",
+	});
+export type CpuAllowance = z.infer<typeof CpuAllowance>;
+
+/** Request body for `PUT /instances/:name/cpu-allowance`; null removes it. */
+export const SetCpuAllowanceRequest = z
+	.object({ allowance: CpuAllowance.nullable() })
+	.strict();
+export type SetCpuAllowanceRequest = z.infer<typeof SetCpuAllowanceRequest>;
+
+/**
  * Error codes returned by the workspace controller (SPEC.md §27;
  * STACK.md §9).
  */

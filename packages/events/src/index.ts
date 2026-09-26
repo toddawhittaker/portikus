@@ -3,9 +3,13 @@ import { z } from "zod";
 
 /**
  * Messages a browser sends on the workspace WebSocket (SPEC.md §5.4, §6.4).
- * The heartbeat is what keeps the connection counted as present.
+ * The heartbeat keeps the connection counted as present; activity is a key
+ * press, click or paste by the owner, which holds off idle stop (ADR 0032).
  */
-export const ClientMessage = z.object({ type: z.literal("heartbeat") });
+export const ClientMessage = z.discriminatedUnion("type", [
+	z.object({ type: z.literal("heartbeat") }),
+	z.object({ type: z.literal("activity") }),
+]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
 /** Messages the API sends on the workspace WebSocket (SPEC.md §6.4). */

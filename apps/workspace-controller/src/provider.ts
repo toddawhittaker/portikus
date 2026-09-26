@@ -1,17 +1,26 @@
+import { availableParallelism } from "node:os";
 import {
+	CpuAllowance,
 	type CreateInstanceResponse,
 	type GrowVolumesRequest,
 	type GrowVolumesResponse,
 	type HostSnapshot,
 	InstanceName,
 	type InstanceStatus,
+	type InstanceUsage,
 	isSystemTimezone,
 	type RebuildInstanceResponse,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
-import { growVolumes, readHostSnapshot } from "./host.js";
+import {
+	countIncusCpus,
+	growVolumes,
+	parseIncusSize,
+	readHostSnapshot,
+	readInactiveFileBytes,
+} from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
 
 export interface WorkspaceProvider {
@@ -45,6 +54,10 @@ export interface WorkspaceProvider {
 	hostSnapshot(): Promise<HostSnapshot>;
 	/** Grow the home and Docker volumes; a smaller size is refused (SPEC.md §20.1). */
 	growVolumes(name: string, sizes: GrowVolumesRequest): Promise<GrowVolumesResponse>;
+	/** CPU time and memory of every running instance, from Incus (ADR 0032). */
+	usage(): Promise<InstanceUsage[]>;
+	/** Set or, with null, remove `limits.cpu.allowance` (ADR 0032). */
+	setCpuAllowance(name: string, allowance: string | null): Promise<void>;
 }
 
 /**
@@ -81,6 +94,9 @@ export const RECOVERY_PATH = "/var/lib/portikus/recovery";
 /** How long to wait for Incus to replace a root filesystem. */
 const REBUILD_TIMEOUT_SECONDS = 600;
 
+/** The Incus key the resource guard throttles with (ADR 0032). */
+const CPU_ALLOWANCE_KEY = "limits.cpu.allowance";
+
 /** The fields of an instance that Incus accepts back in a PUT. */
 interface InstanceConfig {
 	architecture: string;
@@ -91,6 +107,19 @@ interface InstanceConfig {
 	stateful: boolean;
 	description: string;
 	status?: string;
+}
+
+/** An instance as read, reduced to what Incus accepts back in a PUT. */
+function writableFields(inst: InstanceConfig): InstanceConfig {
+	return {
+		architecture: inst.architecture,
+		config: inst.config,
+		devices: inst.devices,
+		ephemeral: inst.ephemeral,
+		profiles: inst.profiles,
+		stateful: inst.stateful,
+		description: inst.description,
+	};
 }
 
 function assertStopped(name: string, status: string | undefined): void {
@@ -133,6 +162,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly imageAlias: string;
 	private readonly agentPort: number;
 	private readonly log: Logger;
+	private readonly cgroupRoot: string;
+	private readonly hostCpuCount: number;
 
 	constructor(opts: {
 		client: IncusClient;
@@ -141,6 +172,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		imageAlias: string;
 		agentPort: number;
 		logger?: Logger;
+		/** Where the host's cgroup tree is mounted; tests point it elsewhere. */
+		cgroupRoot?: string;
+		/** CPUs on the host, for an instance with no `limits.cpu`. */
+		hostCpuCount?: number;
 	}) {
 		this.client = opts.client;
 		this.pool = opts.pool;
@@ -148,6 +183,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		this.imageAlias = opts.imageAlias;
 		this.agentPort = opts.agentPort;
 		this.log = opts.logger ?? silentLogger();
+		this.cgroupRoot = opts.cgroupRoot ?? "/sys/fs/cgroup";
+		this.hostCpuCount = opts.hostCpuCount ?? availableParallelism();
 	}
 
 	async create(
@@ -265,6 +302,9 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		const recoveryAttached =
 			opts.recoveryGiB !== undefined &&
 			(await this.ensureRecoveryDevice(name, opts.recoveryGiB, signal));
+
+		// A throttle never outlives a stop: every start begins at full speed.
+		await this.writeCpuAllowance(name, null, signal);
 
 		await this.client.request(
 			"PUT",
@@ -708,19 +748,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			// PATCH cannot remove a device (Incus merges the map), so write the
 			// rest back exactly as read, guarded by the ETag.
 			const { docker: _removed, ...devices } = inst.devices;
-			await this.client.putIfMatch(
-				path,
-				{
-					architecture: inst.architecture,
-					config: inst.config,
-					devices,
-					ephemeral: inst.ephemeral,
-					profiles: inst.profiles,
-					stateful: inst.stateful,
-					description: inst.description,
-				},
-				etag,
-			);
+			await this.client.putIfMatch(path, { ...writableFields(inst), devices }, etag);
 		}
 
 		try {
@@ -774,6 +802,111 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		this.log.info({ instance: name, imageFingerprint }, "instance rebuilt");
 
 		return { imageFingerprint };
+	}
+
+	async setCpuAllowance(name: string, allowance: string | null): Promise<void> {
+		validateName(name);
+		// Checked again here: a percentage is only a soft share (ADR 0032).
+		if (allowance !== null && !CpuAllowance.safeParse(allowance).success) {
+			throw new IncusError("BAD_REQUEST", `invalid cpu allowance: ${allowance}`);
+		}
+		await this.writeCpuAllowance(name, allowance);
+		this.log.info({ instance: name, allowance }, "cpu allowance set");
+	}
+
+	/**
+	 * PATCH cannot remove a config key, so write the instance back as read,
+	 * with only the allowance changed, guarded by the ETag.
+	 */
+	private async writeCpuAllowance(
+		name: string,
+		allowance: string | null,
+		signal?: AbortSignal,
+	): Promise<void> {
+		const path = `/1.0/instances/${enc(name)}`;
+		const { metadata, etag } = await this.client.getWithEtag(path, signal);
+		const inst = metadata as InstanceConfig;
+		const { [CPU_ALLOWANCE_KEY]: current, ...config } = inst.config ?? {};
+		if ((current ?? null) === allowance) {
+			return;
+		}
+		if (allowance !== null) {
+			config[CPU_ALLOWANCE_KEY] = allowance;
+		}
+		await this.client.putIfMatch(
+			path,
+			{ ...writableFields(inst), config },
+			etag,
+			signal,
+		);
+	}
+
+	/**
+	 * One Incus listing for the resource guard (ADR 0032). Totals only: no
+	 * process, command line or file name is read (SPEC.md 20.1).
+	 */
+	async usage(): Promise<InstanceUsage[]> {
+		const instances = (await this.client.request(
+			"GET",
+			"/1.0/instances?recursion=2",
+		)) as Array<{
+			name: string;
+			status: string;
+			config?: Record<string, string>;
+			expanded_config?: Record<string, string>;
+			state?: {
+				pid?: number;
+				cpu?: { usage?: number };
+				memory?: { usage?: number; total?: number };
+			};
+		}>;
+
+		const result: InstanceUsage[] = [];
+		for (const inst of instances) {
+			if (inst.status !== "Running") continue;
+			const expanded = inst.expanded_config ?? {};
+			const memoryLimitBytes =
+				parseIncusSize(expanded["limits.memory"]) ?? inst.state?.memory?.total ?? 0;
+			if (!(memoryLimitBytes > 0)) {
+				this.log.warn({ instance: inst.name }, "no memory limit; usage skipped");
+				continue;
+			}
+			result.push({
+				name: inst.name,
+				cpuUsageNs: Math.max(0, Math.trunc(inst.state?.cpu?.usage ?? 0)),
+				bootMarker:
+					(inst.state?.pid ?? 0) > 0 ? Math.trunc(inst.state?.pid ?? 0) : null,
+				cpuLimit: countIncusCpus(expanded["limits.cpu"]) ?? this.hostCpuCount,
+				memoryBytes: await this.workingSetBytes(
+					inst.name,
+					inst.state?.memory?.usage ?? 0,
+				),
+				memoryLimitBytes: Math.trunc(memoryLimitBytes),
+				cpuAllowance: expanded[CPU_ALLOWANCE_KEY] ?? null,
+			});
+		}
+		return result;
+	}
+
+	/**
+	 * Incus's memory usage counts page cache, so take out the reclaimable
+	 * part (ADR 0032). If the cgroup cannot be read, report the raw figure.
+	 */
+	private async workingSetBytes(name: string, usage: number): Promise<number> {
+		try {
+			const inactive = await readInactiveFileBytes(
+				this.client.project,
+				name,
+				this.cgroupRoot,
+			);
+			return Math.max(0, Math.trunc(usage - inactive));
+		} catch (err) {
+			this.log.warn(
+				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				"could not read the instance's memory.stat; reporting usage with cache",
+			);
+			return Math.max(0, Math.trunc(usage));
+		}
 	}
 
 	private async ensureVolume(volName: string, sizeGiB: number): Promise<void> {

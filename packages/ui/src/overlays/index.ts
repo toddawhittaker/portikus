@@ -34,10 +34,13 @@ export {
 	tabPanelDomId,
 } from "./tabs";
 export {
+	nodeText,
+	TOAST_DURATION_MS,
 	Toast,
 	type ToastProps,
 	ToastProvider,
 	type ToastProviderProps,
+	type ToastRecord,
 	type ToastTone,
 	useToast,
 } from "./toast";

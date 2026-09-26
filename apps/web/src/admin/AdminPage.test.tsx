@@ -19,6 +19,17 @@ const ADMIN = {
 	role: "administrator" as const,
 };
 
+/** The resource guard and acceptable-use settings at their defaults. */
+const GUARD_SETTINGS = {
+	cpuGuardThresholdPercent: 80,
+	memoryGuardThresholdPercent: 90,
+	guardWindowMinutes: 30,
+	cpuThrottleSharePercent: 25,
+	idleStopMinutes: 60,
+	acceptableUseText: null,
+	acceptableUseVersion: 1,
+};
+
 const STUDENT_ROW = {
 	id: USER.id,
 	displayName: USER.displayName,
@@ -76,6 +87,7 @@ function stubAdmin(
 			const body = JSON.parse(String(init.body));
 			onWrite?.(url, body);
 			return json(200, {
+				...GUARD_SETTINGS,
 				shutdownGraceSeconds: body.shutdownGraceSeconds ?? graceSeconds,
 				logLevel: body.logLevel ?? null,
 				updatedAt: "2026-01-01T00:00:00.000Z",
@@ -83,6 +95,7 @@ function stubAdmin(
 		}
 		if (url === "/admin/settings") {
 			return json(200, {
+				...GUARD_SETTINGS,
 				shutdownGraceSeconds: graceSeconds,
 				logLevel: null,
 				updatedAt: null,
@@ -393,7 +406,12 @@ test("a failed log-level save is an alert tied to the select (issue #363)", asyn
 			return json(500, { error: "internal", message: "Something broke" });
 		}
 		if (url === "/admin/settings") {
-			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+			return json(200, {
+				...GUARD_SETTINGS,
+				shutdownGraceSeconds: 600,
+				logLevel: null,
+				updatedAt: null,
+			});
 		}
 		throw new Error(`unexpected request: ${url}`);
 	});
@@ -513,4 +531,117 @@ test("Open my workspace shows it is working, then an error as a toast", async ()
 	expect(status.textContent).toBe("");
 	expect(status.className).toContain("sr-only");
 	expect(router.state.location.pathname).toBe("/admin");
+});
+
+test("idle stop saves the minutes and refuses a value between 1 and 9", async () => {
+	const writes: { url: string; body: unknown }[] = [];
+	stubAdmin(600, (url, body) => writes.push({ url, body }));
+	renderApp("/admin?tab=settings");
+
+	const input = (await screen.findByTestId("idle-input")) as HTMLInputElement;
+	await waitFor(() => expect(input.value).toBe("60"));
+	fireEvent.change(input, { target: { value: "5" } });
+	fireEvent.click(screen.getByTestId("idle-save"));
+	expect((await screen.findByRole("alert")).textContent).toBe(
+		"Enter 0 for never, or a whole number from 10 to 1440.",
+	);
+	expect(writes).toEqual([]);
+
+	fireEvent.change(input, { target: { value: "0" } });
+	fireEvent.click(screen.getByTestId("idle-save"));
+	await waitFor(() => expect(writes.length).toBe(1));
+	expect(writes[0]).toEqual({ url: "/admin/settings", body: { idleStopMinutes: 0 } });
+});
+
+test("the resource guard saves its four values and names each bad one", async () => {
+	const writes: { url: string; body: unknown }[] = [];
+	stubAdmin(600, (url, body) => writes.push({ url, body }));
+	renderApp("/admin?tab=settings");
+
+	const cpu = (await screen.findByLabelText("CPU threshold (%)")) as HTMLInputElement;
+	await waitFor(() => expect(cpu.value).toBe("80"));
+	fireEvent.change(cpu, { target: { value: "0" } });
+	fireEvent.change(screen.getByLabelText("Window (minutes)"), {
+		target: { value: "300" },
+	});
+	fireEvent.click(screen.getByTestId("guard-settings-save"));
+
+	// One alert for the first problem; the second field is marked too.
+	expect((await screen.findByRole("alert")).textContent).toBe(
+		"Enter a whole number from 1 to 100.",
+	);
+	expect(screen.getByText("Enter a whole number from 5 to 240.")).toBeDefined();
+	expect(cpu.getAttribute("aria-invalid")).toBe("true");
+	expect(writes).toEqual([]);
+
+	fireEvent.change(cpu, { target: { value: "70" } });
+	fireEvent.change(screen.getByLabelText("Window (minutes)"), {
+		target: { value: "45" },
+	});
+	fireEvent.click(screen.getByTestId("guard-settings-save"));
+	await waitFor(() => expect(writes.length).toBe(1));
+	expect(writes[0]).toEqual({
+		url: "/admin/settings",
+		body: {
+			cpuGuardThresholdPercent: 70,
+			memoryGuardThresholdPercent: 90,
+			guardWindowMinutes: 45,
+			cpuThrottleSharePercent: 25,
+		},
+	});
+	expect(await screen.findByText("Resource guard saved")).toBeDefined();
+});
+
+test("the acceptable-use section starts on the default, says everyone accepts again, and saves", async () => {
+	const writes: { url: string; body: unknown }[] = [];
+	stubAdmin(600, (url, body) => writes.push({ url, body }));
+	renderApp("/admin?tab=settings");
+
+	const text = (await screen.findByLabelText("Statement")) as HTMLTextAreaElement;
+	await waitFor(() =>
+		expect(text.value).toContain("Your Portikus workspace is for coursework"),
+	);
+	expect(screen.getByText(/This is version 1\./)).toBeDefined();
+	const save = screen.getByTestId("aup-save");
+	const sentence = document.getElementById(save.getAttribute("aria-describedby") ?? "");
+	expect(sentence?.textContent).toContain(
+		"asks everyone, you included, to accept it again",
+	);
+
+	fireEvent.change(text, { target: { value: "   " } });
+	fireEvent.click(save);
+	expect((await screen.findByRole("alert")).textContent).toBe(
+		"Enter the statement, or reset it to the default.",
+	);
+	expect(writes).toEqual([]);
+
+	fireEvent.change(text, { target: { value: "Be kind." } });
+	fireEvent.click(save);
+	await waitFor(() => expect(writes.length).toBe(1));
+	expect(writes[0]).toEqual({
+		url: "/admin/settings",
+		body: { acceptableUseText: "Be kind." },
+	});
+
+	fireEvent.click(screen.getByTestId("aup-reset"));
+	await waitFor(() => expect(writes.length).toBe(2));
+	expect(writes[1]).toEqual({
+		url: "/admin/settings",
+		body: { acceptableUseText: null },
+	});
+});
+
+test("a statement over the limit is refused before any request", async () => {
+	const writes: unknown[] = [];
+	stubAdmin(600, (url, body) => writes.push({ url, body }));
+	renderApp("/admin?tab=settings");
+
+	const text = (await screen.findByLabelText("Statement")) as HTMLTextAreaElement;
+	fireEvent.change(text, { target: { value: "x".repeat(10_001) } });
+	expect(screen.getByText("10,001 of 10,000 characters")).toBeDefined();
+	fireEvent.click(screen.getByTestId("aup-save"));
+	expect((await screen.findByRole("alert")).textContent).toBe(
+		"The statement can be at most 10,000 characters.",
+	);
+	expect(writes).toEqual([]);
 });

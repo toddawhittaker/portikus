@@ -1,6 +1,13 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { Toast, ToastProvider, useToast } from "./toast";
+import {
+	nodeText,
+	TOAST_DURATION_MS,
+	Toast,
+	type ToastProps,
+	ToastProvider,
+	useToast,
+} from "./toast";
 
 function Fixture() {
 	const { show } = useToast();
@@ -83,5 +90,101 @@ describe("Toast", () => {
 		expect(viewport.querySelector("ol")?.className ?? "").toContain(
 			"z-[var(--z-toast)]",
 		);
+	});
+});
+
+function Shower({ toast }: { toast: ToastProps }) {
+	const { show } = useToast();
+	return (
+		<button type="button" onClick={() => show(toast)}>
+			Show
+		</button>
+	);
+}
+
+// SPEC.md section 8.5: every toast times out, warnings and errors later.
+describe("toast timing and recording", () => {
+	it.each([
+		["neutral", 5000],
+		["success", 5000],
+		["warning", 10_000],
+		["danger", 10_000],
+	] as const)("a %s toast goes after %i ms", (tone, ms) => {
+		expect(TOAST_DURATION_MS[tone]).toBe(ms);
+		vi.useFakeTimers();
+		try {
+			render(
+				<ToastProvider>
+					<Shower toast={{ tone, title: "Timed" }} />
+				</ToastProvider>,
+			);
+			fireEvent.click(screen.getByText("Show"));
+			act(() => {
+				vi.advanceTimersByTime(ms - 500);
+			});
+			expect(screen.queryByText("Timed")).not.toBeNull();
+			act(() => {
+				vi.advanceTimersByTime(1000);
+			});
+			expect(screen.queryByText("Timed")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps a toast that asks for an answer until it is answered", () => {
+		vi.useFakeTimers();
+		try {
+			render(
+				<ToastProvider>
+					<Shower
+						toast={{
+							tone: "warning",
+							title: "Changed on disk",
+							actions: <button type="button">Reload</button>,
+						}}
+					/>
+				</ToastProvider>,
+			);
+			fireEvent.click(screen.getByText("Show"));
+			act(() => {
+				vi.advanceTimersByTime(60 * 60 * 1000);
+			});
+			expect(screen.queryByText("Changed on disk")).not.toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("records every toast once, as text, including one that asks for an answer", () => {
+		const onShow = vi.fn();
+		render(
+			<ToastProvider onShow={onShow}>
+				<Shower
+					toast={{
+						tone: "danger",
+						title: "Upload failed",
+						children: (
+							<>
+								<code>notes.txt</code> already exists.
+							</>
+						),
+						actions: <button type="button">Replace</button>,
+					}}
+				/>
+			</ToastProvider>,
+		);
+		fireEvent.click(screen.getByText("Show"));
+		expect(onShow).toHaveBeenCalledTimes(1);
+		expect(onShow).toHaveBeenCalledWith({
+			tone: "danger",
+			title: "Upload failed",
+			body: "notes.txt already exists.",
+		});
+	});
+
+	it("nodeText reads strings, numbers, arrays and element children", () => {
+		expect(nodeText(undefined)).toBe("");
+		expect(nodeText(["a", 1, <b key="b">c</b>, null])).toBe("a1c");
 	});
 });

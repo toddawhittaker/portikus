@@ -346,7 +346,7 @@ sec_mint_user() {
   sec_created_subjects+=("$subject")
   token=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')
   hash=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
-  uid=$(sec_psql "WITH u AS (INSERT INTO users (oidc_issuer, oidc_subject, display_name, preferred_username, role) VALUES ('${SEC_ISSUER}', '${subject}', 'Security test ${key}', '${subject}', '${role}') RETURNING id), s AS (INSERT INTO sessions (id, user_id, expires_at) SELECT '${hash}', id, now() + interval '1 hour' FROM u) SELECT id FROM u")
+  uid=$(sec_psql "WITH u AS (INSERT INTO users (oidc_issuer, oidc_subject, display_name, preferred_username, role, acceptable_use_version, acceptable_use_accepted_at) VALUES ('${SEC_ISSUER}', '${subject}', 'Security test ${key}', '${subject}', '${role}', (SELECT COALESCE((SELECT acceptable_use_version FROM settings WHERE id = 1), 1)), now()) RETURNING id), s AS (INSERT INTO sessions (id, user_id, expires_at) SELECT '${hash}', id, now() + interval '1 hour' FROM u) SELECT id FROM u")
   if [ -z "$uid" ]; then
     sec_fail "mint ${role} user ${subject}"
     return 1

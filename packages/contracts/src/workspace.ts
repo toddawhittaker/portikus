@@ -42,6 +42,50 @@ export const RebuildWorkspaceRequest = z
 	.strict();
 export type RebuildWorkspaceRequest = z.infer<typeof RebuildWorkspaceRequest>;
 
+/** A CPU or memory threshold, in percent of the workspace's limit (ADR 0032). */
+export const GuardThresholdPercent = z.number().int().min(1).max(100);
+
+/** The rolling window the guard averages over, in minutes. */
+export const GuardWindowMinutes = z.number().int().min(5).max(240);
+
+/** The share of its CPU limit a throttled workspace keeps; 100 changes nothing. */
+export const ThrottleSharePercent = z.number().int().min(5).max(100);
+
+/** Minutes without activity before "Still working?"; 0 means never. */
+export const IdleStopMinutes = z
+	.number()
+	.int()
+	.refine((value) => value === 0 || (value >= 10 && value <= 1440), {
+		message: "Must be 0 (never) or 10 to 1440 minutes",
+	});
+
+/** What the student is told about a throttle: the numbers from the row. */
+export const WorkspaceCpuThrottle = z.object({
+	at: z.string().datetime(),
+	thresholdPercent: GuardThresholdPercent,
+	windowMinutes: GuardWindowMinutes,
+	sharePercent: ThrottleSharePercent,
+});
+export type WorkspaceCpuThrottle = z.infer<typeof WorkspaceCpuThrottle>;
+
+/** The whole `workspaces.cpu_throttle` row, as administrators see it. */
+export const CpuThrottle = WorkspaceCpuThrottle.extend({
+	/** The CPU average over the window that set the throttle, in percent. */
+	averagePercent: z.number().nonnegative(),
+	/** The `limits.cpu.allowance` the worker applies, such as `100ms/100ms`. */
+	allowance: z.string().min(1),
+});
+export type CpuThrottle = z.infer<typeof CpuThrottle>;
+
+/** The `workspaces.memory_flag` row; administrators only. */
+export const MemoryFlag = z.object({
+	at: z.string().datetime(),
+	averagePercent: z.number().nonnegative(),
+	thresholdPercent: GuardThresholdPercent,
+	windowMinutes: GuardWindowMinutes,
+});
+export type MemoryFlag = z.infer<typeof MemoryFlag>;
+
 /**
  * Workspace response body returned by the API (SPEC.md §26, §27).
  */
@@ -69,6 +113,12 @@ export const Workspace = z.object({
 	shutdownDeadline: z.string().datetime().nullable(),
 	/** Set when an administrator archived the workspace (SPEC.md §20.1). */
 	archivedAt: z.string().datetime().nullable(),
+	/** Set while the resource guard has slowed the workspace (ADR 0032). */
+	cpuThrottle: WorkspaceCpuThrottle.nullable(),
+	/** When the workspace stops unless the student answers "Still working?". */
+	idleStopAt: z.string().datetime().nullable(),
+	/** The owner's last activity the API recorded. */
+	lastActivityAt: z.string().datetime().nullable(),
 	createdAt: z.string().datetime(),
 	updatedAt: z.string().datetime(),
 });
@@ -179,8 +229,14 @@ export const ApiErrorCode = z.enum([
 	// Dex user management (docs/archive/epics/EPIC-14.md rulings 21 and 22).
 	"DEX_USER_EXISTS",
 	"DEX_UNAVAILABLE",
+	// Lift throttle or clear memory flag with nothing set (ADR 0032).
+	"NOT_THROTTLED",
+	"NOT_FLAGGED",
 	// The local administrator and password change (SPEC.md section 5.3).
 	"PASSWORD_CHANGE_REQUIRED",
+	// The acceptable-use gate (SPEC.md section 5.1).
+	"ACCEPTABLE_USE_REQUIRED",
+	"ACCEPTABLE_USE_CHANGED",
 	"NOT_LOCAL_PASSWORD",
 	"WRONG_PASSWORD",
 	"INTERNAL",

@@ -1,5 +1,5 @@
 import type { WebSocket } from "@fastify/websocket";
-import { loadSession, requireUser } from "@portikus/auth";
+import { loadSession, requireUser, sessionGate } from "@portikus/auth";
 import {
 	type ApiError,
 	CreateTerminalRequest,
@@ -651,9 +651,13 @@ export function pipeBackpressure(
 ): { apply: () => void; cancel: () => void } {
 	let drainTimer: NodeJS.Timeout | null = null;
 
+	// Resumes a paused upstream too: a paused socket never reads the agent's
+	// close reply, so closing it would hang for ws's 30 s close timeout.
 	function cancel(): void {
-		if (drainTimer) clearInterval(drainTimer);
+		if (!drainTimer) return;
+		clearInterval(drainTimer);
 		drainTimer = null;
+		upstream.resume();
 	}
 
 	return {
@@ -664,7 +668,6 @@ export function pipeBackpressure(
 			drainTimer = setInterval(() => {
 				if (socket.bufferedAmount >= limits.low) return;
 				cancel();
-				upstream.resume();
 			}, limits.pollMs);
 		},
 		cancel,
@@ -713,7 +716,7 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 	async function sessionStillValid(): Promise<boolean> {
 		lastSessionCheck = Date.now();
 		const user = sessionToken ? await loadSession(db, sessionToken) : null;
-		if (user) return true;
+		if (user && !sessionGate(user)) return true;
 		socket.close(4401, "session revoked");
 		return false;
 	}

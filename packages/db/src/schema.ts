@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes and 0019_local_admin
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard and 0021_notifications
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -26,6 +26,8 @@ export interface Database {
 	lti_memberships: LtiMembershipsTable;
 	account_links: AccountLinksTable;
 	account_link_intents: AccountLinkIntentsTable;
+	workspace_usage_samples: WorkspaceUsageSamplesTable;
+	notifications: NotificationsTable;
 }
 
 export interface UsersTable {
@@ -57,6 +59,17 @@ export interface UsersTable {
 	picture: Buffer | null;
 	picture_type: string | null;
 	picture_updated_at: ColumnType<Date | null, string | null, string | null>;
+	/** The acceptable-use version this user accepted; null for never. */
+	acceptable_use_version: ColumnType<
+		number | null,
+		number | null | undefined,
+		number | null
+	>;
+	acceptable_use_accepted_at: ColumnType<
+		Date | null,
+		string | null | undefined,
+		string | null
+	>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 }
@@ -106,6 +119,45 @@ export interface WorkspacesTable {
 		string | null,
 		string | null
 	>;
+	/** Per-workspace guard overrides; a missing key uses the settings value. */
+	guard_config: ColumnType<
+		{
+			cpuThresholdPercent?: number;
+			memoryThresholdPercent?: number;
+			windowMinutes?: number;
+			throttleSharePercent?: number;
+			idleStopMinutes?: number;
+		} | null,
+		string | null | undefined,
+		string | null
+	>;
+	/** Set while the guard has lowered the CPU allowance. */
+	cpu_throttle: ColumnType<
+		{
+			at: string;
+			averagePercent: number;
+			thresholdPercent: number;
+			windowMinutes: number;
+			sharePercent: number;
+			allowance: string;
+		} | null,
+		string | null | undefined,
+		string | null
+	>;
+	/** Set while the workspace is flagged for high memory. */
+	memory_flag: ColumnType<
+		{
+			at: string;
+			averagePercent: number;
+			thresholdPercent: number;
+			windowMinutes: number;
+		} | null,
+		string | null | undefined,
+		string | null
+	>;
+	last_activity_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	/** When the idle stop happens unless the student answers. */
+	idle_stop_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 }
@@ -156,6 +208,16 @@ export interface SettingsTable {
 	shutdown_grace_seconds: number;
 	/** Runtime log level for every service; null means use each LOG_LEVEL. */
 	log_level: string | null;
+	/** Resource guard defaults (ADR 0032); each has a column default. */
+	cpu_guard_threshold_percent: Generated<number>;
+	memory_guard_threshold_percent: Generated<number>;
+	guard_window_minutes: Generated<number>;
+	cpu_throttle_share_percent: Generated<number>;
+	/** 0 means never stop by idle. */
+	idle_stop_minutes: Generated<number>;
+	/** Null means the built-in default statement. */
+	acceptable_use_text: string | null;
+	acceptable_use_version: Generated<number>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 	updated_by: string | null;
 }
@@ -226,6 +288,20 @@ export interface HealthSamplesTable {
 	sample: ColumnType<Record<string, unknown>, string, never>;
 }
 
+/** One reading of a running workspace's CPU time and memory from Incus, each minute. */
+export interface WorkspaceUsageSamplesTable {
+	id: Generated<string>;
+	workspace_id: string;
+	observed_at: ColumnType<Date, string, never>;
+	/** Postgres returns bigint as a string. */
+	cpu_usage_ns: ColumnType<string, number | string, never>;
+	/** The instance's boot marker (host PID of its init), or null; see InstanceUsage. */
+	boot_marker: ColumnType<string | null, number | null | undefined, never>;
+	cpu_limit: number;
+	memory_bytes: ColumnType<string, number | string, never>;
+	memory_limit_bytes: ColumnType<string, number | string, never>;
+}
+
 /** Pending LTI third-party logins; `platform_issuer` is the plain issuer, without `lti:`. */
 export interface LtiLoginStatesTable {
 	state_hash: string;
@@ -273,4 +349,15 @@ export interface AccountLinkIntentsTable {
 	/** The SSO account, set by the OIDC callback. */
 	user_id: string | null;
 	expires_at: ColumnType<Date, string, string>;
+}
+
+/** One toast the user was shown, kept as their notification history (ADR 0033). */
+export interface NotificationsTable {
+	id: Generated<string>;
+	user_id: string;
+	tone: string;
+	title: string;
+	body: string;
+	created_at: ColumnType<Date, string | undefined, never>;
+	read_at: ColumnType<Date | null, string | null | undefined, string | null>;
 }

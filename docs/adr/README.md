@@ -59,3 +59,5 @@ has four sections:
 | [0029](0029-ansible-roles-in-the-package.md) | `apt install portikus` ships the Ansible roles and runs them locally (proposed, Epic 15) |
 | [0030](0030-workspace-image-jobs.md) | Workspace image jobs run in a path-activated root unit (proposed, Epic 15) |
 | [0031](0031-dex-is-the-only-front-door.md) | Dex is the only sign-in front door, with a local administrator made at install (accepted, not yet built) |
+| [0032](0032-resource-guard.md) | The resource guard: time-slice CPU throttle set through Incus, rolling averages remembered across restarts, and one ordered gate list (accepted, Epic 14.3) |
+| [0033](0033-notifications-on-the-server-by-polling.md) | Notifications live on the server, and browsers poll for them (accepted, Epic 14.3) |

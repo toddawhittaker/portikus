@@ -10,6 +10,7 @@ import {
 	loginCookieOptions,
 	sessionCookieName,
 	sessionCookieOptions,
+	sessionGate,
 } from "./plugin.js";
 import type { AuthOptions } from "./types.js";
 
@@ -153,6 +154,27 @@ describe("the LTI exemptions", () => {
 	test("any other /lti path still needs a session", async () => {
 		expect((await app.inject({ method: "GET", url: "/lti/launchx" })).statusCode).toBe(
 			401,
+		);
+	});
+});
+
+describe("sessionGate (SPEC.md sections 5.1 and 5.3)", () => {
+	test("no gate holds an account that changed its password and accepted", () => {
+		expect(sessionGate({ mustChangePassword: false, mustAcceptUse: false })).toBeNull();
+	});
+
+	test("each gate answers its own code", () => {
+		expect(sessionGate({ mustChangePassword: true, mustAcceptUse: false })?.code).toBe(
+			"PASSWORD_CHANGE_REQUIRED",
+		);
+		expect(sessionGate({ mustChangePassword: false, mustAcceptUse: true })?.code).toBe(
+			"ACCEPTABLE_USE_REQUIRED",
+		);
+	});
+
+	test("the password gate comes first", () => {
+		expect(sessionGate({ mustChangePassword: true, mustAcceptUse: true })?.code).toBe(
+			"PASSWORD_CHANGE_REQUIRED",
 		);
 	});
 });

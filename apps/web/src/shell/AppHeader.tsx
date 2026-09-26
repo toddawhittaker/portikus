@@ -15,9 +15,17 @@ import { useRef, useState } from "react";
 import { useOpenWorkspace } from "../api/workspace.js";
 import { useCourses } from "../course/queries.js";
 import { clearLocalLayouts } from "../layout/local.js";
+import { NotificationsDialog } from "../notifications/NotificationsDialog.js";
+import { useNotifications } from "../notifications/queries.js";
 import { useProfile } from "../settings/profileQueries.js";
 import { initials, SettingsDialog } from "../settings/SettingsDialog.js";
 import type { MeUser } from "../useMe.js";
+
+/** The badge text: the count, "9+" above nine, nothing at zero. */
+export function badgeText(unread: number): string | null {
+	if (unread <= 0) return null;
+	return unread > 9 ? "9+" : String(unread);
+}
 
 /**
  * The top bar: the mark, the project in view, and the account menu.
@@ -39,7 +47,13 @@ export function AppHeader({
 	context?: string;
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [notificationsOpen, setNotificationsOpen] = useState(false);
+	const unread = useNotifications().data?.unreadCount ?? 0;
+	const badge = badgeText(unread);
+	const unreadLabel = `${unread} unread notification${unread === 1 ? "" : "s"}`;
 	const signOutForm = useRef<HTMLFormElement>(null);
+	const accountButton = useRef<HTMLButtonElement>(null);
+	const badgeButton = useRef<HTMLButtonElement>(null);
 	const picture = useProfile().data?.picture ?? null;
 	const hasCourse = (useCourses().data?.length ?? 0) > 0;
 	const open = useOpenWorkspace();
@@ -114,75 +128,120 @@ export function AppHeader({
 				</span>
 			) : null}
 
-			<MenuRoot>
-				<MenuTrigger asChild>
-					<button type="button" className="pk-account" data-testid="me">
-						{picture ? (
-							<img
-								className="pk-initials object-cover"
-								src={picture}
-								alt=""
-								data-testid="account-picture"
-							/>
-						) : (
-							<span className="pk-initials">{initials(user.displayName)}</span>
-						)}
-						{/* The gap is only visual. This space is part of the button text. */}{" "}
-						<span>{user.displayName}</span>
-						<Icon name="chevron-down" size="sm" />
-					</button>
-				</MenuTrigger>
-				<Menu label="Account">
-					<MenuLabel>{user.email ?? user.displayName}</MenuLabel>
-					<MenuSeparator />
-					{user.role === "administrator" && workspaceId ? (
-						<>
-							{/* A new tab, so this tab keeps its sockets open and the
+			<span className="pk-account-wrap">
+				<MenuRoot>
+					<MenuTrigger asChild>
+						<button
+							type="button"
+							className="pk-account"
+							data-testid="me"
+							ref={accountButton}
+						>
+							{picture ? (
+								<img
+									className="pk-initials object-cover"
+									src={picture}
+									alt=""
+									data-testid="account-picture"
+								/>
+							) : (
+								<span className="pk-initials">{initials(user.displayName)}</span>
+							)}
+							{/* The gap is only visual. This space is part of the button text. */}{" "}
+							<span>{user.displayName}</span>
+							{badge ? <span className="sr-only">, {unreadLabel}</span> : null}
+							<Icon name="chevron-down" size="sm" />
+						</button>
+					</MenuTrigger>
+					<Menu label="Account">
+						<MenuLabel>{user.email ?? user.displayName}</MenuLabel>
+						<MenuSeparator />
+						{user.role === "administrator" && workspaceId ? (
+							<>
+								{/* A new tab, so this tab keeps its sockets open and the
 							    disconnect grace timer never starts (SPEC.md §6.4). */}
-							<MenuItem
-								icon="external"
-								href="/admin"
-								target="_blank"
-								rel="noopener"
-								testId="admin-link"
-							>
-								Administration
-							</MenuItem>
-							<MenuSeparator />
-						</>
-					) : null}
-					{user.role === "administrator" && !workspaceId ? (
-						<>
-							<MenuItem
-								onSelect={openMyWorkspace}
-								disabled={open.isPending}
-								testId="open-my-workspace"
-							>
-								{open.isPending ? "Opening your workspace…" : "Open my workspace"}
-							</MenuItem>
-							<MenuSeparator />
-						</>
-					) : null}
-					<MenuItem onSelect={() => setSettingsOpen(true)}>
-						<span data-testid="editor-settings">Settings</span>
-					</MenuItem>
-					<MenuSeparator />
-					<MenuItem
-						icon="sign-out"
-						onSelect={() => {
-							// The next person at this browser starts clean (SPEC.md §24.2).
-							clearLocalLayouts();
-							signOutForm.current?.requestSubmit();
+								<MenuItem
+									icon="external"
+									href="/admin"
+									target="_blank"
+									rel="noopener"
+									testId="admin-link"
+								>
+									Administration
+								</MenuItem>
+								<MenuSeparator />
+							</>
+						) : null}
+						{user.role === "administrator" && !workspaceId ? (
+							<>
+								<MenuItem
+									onSelect={openMyWorkspace}
+									disabled={open.isPending}
+									testId="open-my-workspace"
+								>
+									{open.isPending ? "Opening your workspace…" : "Open my workspace"}
+								</MenuItem>
+								<MenuSeparator />
+							</>
+						) : null}
+						<MenuItem
+							onSelect={() => setNotificationsOpen(true)}
+							testId="notifications-item"
+						>
+							{badge ? `Notifications (${unreadLabel})` : "Notifications"}
+						</MenuItem>
+						<MenuItem onSelect={() => setSettingsOpen(true)}>
+							<span data-testid="editor-settings">Settings</span>
+						</MenuItem>
+						<MenuSeparator />
+						<MenuItem
+							icon="sign-out"
+							onSelect={() => {
+								// The next person at this browser starts clean (SPEC.md §24.2).
+								clearLocalLayouts();
+								signOutForm.current?.requestSubmit();
+							}}
+						>
+							<span data-testid="signout">Sign out</span>
+						</MenuItem>
+					</Menu>
+				</MenuRoot>
+				{/* Its own button over the picture's corner, so a click opens the history directly. */}
+				{badge ? (
+					<button
+						type="button"
+						ref={badgeButton}
+						className="pk-account-badge"
+						data-testid="notifications-badge"
+						aria-label={`Notifications, ${unreadLabel}`}
+						onClick={() => {
+							// Focus the badge so the dialog returns focus to it on close.
+							badgeButton.current?.focus();
+							setNotificationsOpen(true);
 						}}
 					>
-						<span data-testid="signout">Sign out</span>
-					</MenuItem>
-				</Menu>
-			</MenuRoot>
+						{badge}
+					</button>
+				) : null}
+			</span>
 			{/* A real form post, so the session cookie is cleared by the server. */}
 			<form ref={signOutForm} method="post" action="/auth/logout" className="hidden" />
 
 			{settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
+			{notificationsOpen ? (
+				<NotificationsDialog
+					onClose={() => {
+						setNotificationsOpen(false);
+						// Once all is read the badge is gone; the account button always stays.
+						if (!badgeButton.current?.isConnected) {
+							requestAnimationFrame(() => {
+								if (!document.activeElement || document.activeElement === document.body)
+									accountButton.current?.focus();
+							});
+						}
+					}}
+				/>
+			) : null}
 		</header>
 	);
 }

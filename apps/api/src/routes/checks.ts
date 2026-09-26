@@ -1,5 +1,5 @@
 import type { WebSocket } from "@fastify/websocket";
-import { loadSession } from "@portikus/auth";
+import { loadSession, sessionGate } from "@portikus/auth";
 import { CheckId, CheckRun, ChecksResponse } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
@@ -220,7 +220,7 @@ async function pipeOutput(options: PipeOptions): Promise<void> {
 	const sessionTimer = setInterval(() => {
 		void (async () => {
 			const user = sessionToken ? await loadSession(db, sessionToken) : null;
-			if (!user) socket.close(4401, "session revoked");
+			if (!user || sessionGate(user)) socket.close(4401, "session revoked");
 		})().catch(() => {});
 	}, SESSION_CHECK_INTERVAL_MS);
 

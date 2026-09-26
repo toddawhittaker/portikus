@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TerminalTheme } from "./settings.js";
 
 /** Maximum terminals a single workspace may have open (SPEC.md §9.3). */
-export const MAX_TERMINALS_PER_WORKSPACE = 8;
+export const MAX_TERMINALS_PER_WORKSPACE = 20;
 
 /** Maximum browser attachments to one terminal (SPEC.md §9.5). */
 export const MAX_ATTACHMENTS_PER_TERMINAL = 4;

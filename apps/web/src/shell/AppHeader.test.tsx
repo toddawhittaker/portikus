@@ -181,7 +181,7 @@ test("on the admin page, Open my workspace sits in the account menu where Admini
 	openAccountMenu();
 
 	const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
-	expect(items).toEqual(["Open my workspace", "Settings", "Sign out"]);
+	expect(items).toEqual(["Open my workspace", "Notifications", "Settings", "Sign out"]);
 	expect(screen.queryByTestId("admin-link")).toBeNull();
 });
 
@@ -190,4 +190,69 @@ test("in a workspace, an administrator has no Open my workspace item", () => {
 	openAccountMenu();
 	expect(screen.queryByTestId("open-my-workspace")).toBeNull();
 	expect(screen.queryByTestId("open-my-workspace-status")).toBeNull();
+});
+
+function stubUnread(unreadCount: number) {
+	stubFetch((url) =>
+		url === "/me/notifications"
+			? json(200, { notifications: [], unreadCount })
+			: json(404, { code: "NOT_FOUND", message: "nope" }),
+	);
+}
+
+// SPEC.md section 8.5: the unread badge on the account button.
+test("the account button names the unread count and the badge shows it", async () => {
+	stubUnread(3);
+	renderHeader();
+	const badge = await screen.findByTestId("notifications-badge");
+	expect(badge.textContent).toBe("3");
+	expect(badge.getAttribute("aria-label")).toBe(
+		"Notifications, 3 unread notifications",
+	);
+	expect(screen.getByTestId("me").textContent).toContain(", 3 unread notifications");
+});
+
+test("the badge reads 9+ above nine and is hidden at zero", async () => {
+	stubUnread(12);
+	renderHeader();
+	expect((await screen.findByTestId("notifications-badge")).textContent).toBe("9+");
+});
+
+test("no badge and no count in the name at zero", async () => {
+	const fetchMock = stubFetch(() => json(200, { notifications: [], unreadCount: 0 }));
+	renderHeader();
+	await waitFor(() =>
+		expect(fetchMock).toHaveBeenCalledWith("/me/notifications", expect.anything()),
+	);
+	expect(screen.queryByTestId("notifications-badge")).toBeNull();
+	expect(screen.getByTestId("me").textContent).not.toContain("unread");
+});
+
+test("the badge and the menu item both open the Notifications dialog", async () => {
+	stubUnread(2);
+	renderHeader();
+	fireEvent.click(await screen.findByTestId("notifications-badge"));
+	expect(await screen.findByTestId("dialog-notifications")).toBeDefined();
+	fireEvent.click(screen.getByRole("button", { name: "Close" }));
+	await waitFor(() => expect(screen.queryByTestId("dialog-notifications")).toBeNull());
+
+	openAccountMenu();
+	fireEvent.click(
+		screen.getByRole("menuitem", { name: "Notifications (2 unread notifications)" }),
+	);
+	expect(await screen.findByTestId("dialog-notifications")).toBeDefined();
+});
+
+// Closed without reading, the badge still exists and takes focus back; the
+// mark-all-read case, where it is gone, is pinned in e2e/notifications.spec.ts.
+test("closing the dialog the badge opened returns focus to the badge", async () => {
+	stubUnread(2);
+	renderHeader();
+	fireEvent.click(await screen.findByTestId("notifications-badge"));
+	expect(await screen.findByTestId("dialog-notifications")).toBeDefined();
+	fireEvent.click(screen.getByRole("button", { name: "Close" }));
+	await waitFor(() => expect(screen.queryByTestId("dialog-notifications")).toBeNull());
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByTestId("notifications-badge")),
+	);
 });

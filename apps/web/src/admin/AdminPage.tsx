@@ -1,7 +1,7 @@
 import { Link, Navigate, useSearch } from "@tanstack/react-router";
 import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
-import { useMe } from "../useMe.js";
+import { gatePath, useMe } from "../useMe.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { HealthTab } from "./health/HealthTab.js";
 import { SettingsTab } from "./SettingsTab.js";
@@ -25,7 +25,8 @@ export function AdminPage() {
 	const tab = search.tab ?? "workspaces";
 	usePageTitle("Administration");
 
-	if (me.status === "loading") {
+	// A gated account is on its way to the gate's page; a second redirect would fight it.
+	if (me.status === "loading" || gatePath(me) !== null) {
 		return <div className="pk-root" aria-busy="true" />;
 	}
 	if (me.status === "anonymous") return <Navigate to="/" />;

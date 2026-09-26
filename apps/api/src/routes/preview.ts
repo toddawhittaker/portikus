@@ -10,6 +10,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { recordActivity } from "../activity.js";
 import { AgentCallError } from "../agent-client.js";
 import {
 	createPreviewDeniedAudit,
@@ -590,7 +591,7 @@ export function registerPreviewRoutes(
 		// The preview session lives with the main one (BROWSER-HANDLING §9.2).
 		const user = await loadMainSessionUser(db, session.session_id);
 		if (!user || user.id !== session.user_id) return page(reply, 401, signInPage());
-		// An account held at the change-password page gets no preview (SPEC.md section 5.3).
+		// An account held at any session gate gets no preview (SPEC.md sections 5.1 and 5.3).
 		if (sessionGate(user)) return page(reply, 403, refusedPage());
 
 		const { workspace_id: sessionWorkspaceId, user_id: sessionUserId } = session;
@@ -668,6 +669,17 @@ export function registerPreviewRoutes(
 				);
 				return page(reply, 503, inactiveServicePage(port));
 			}
+		}
+
+		// Only a user-started navigation of a page or the Preview iframe counts;
+		// browsers set Sec-Fetch-User only then and scripts cannot forge it, so
+		// self-reloads, assets and fetches never keep a workspace awake (ADR 0032).
+		const dest = headers["sec-fetch-dest"];
+		if (
+			(dest === "document" || dest === "iframe") &&
+			headers["sec-fetch-user"] === "?1"
+		) {
+			await recordActivity(db, workspace.id);
 		}
 
 		// The upstream comes from the workspace row and a port the registry

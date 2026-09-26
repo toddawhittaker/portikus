@@ -247,10 +247,24 @@ describe.skipIf(!ISSUER || !GRPC.DEX_GRPC_ADDR || !API || !API_DATABASE_URL)(
 			expect(await apiSignIn(adminEmail, first)).toBeNull();
 			const again = await apiSignIn(adminEmail, second);
 			expect(again).not.toBeNull();
+			// Then the acceptable-use gate, as for everyone (SPEC.md section 5.1).
 			expect(await me(again)).toMatchObject({
 				role: "administrator",
 				mustChangePassword: false,
+				mustAcceptUse: true,
 			});
+			const gated = await fetch(`${API}/admin/users`, {
+				headers: { cookie: again ?? "" },
+			});
+			expect(gated.status).toBe(403);
+			expect(await gated.json()).toMatchObject({ code: "ACCEPTABLE_USE_REQUIRED" });
+			const statement = await fetch(`${API}/me/acceptable-use`, {
+				headers: { cookie: again ?? "" },
+			});
+			const { version } = (await statement.json()) as { version: number };
+			const accepted = await post(again, "/me/acceptable-use", { version });
+			expect(accepted.status, await accepted.text()).toBe(204);
+			expect(await me(again)).toMatchObject({ mustAcceptUse: false });
 		});
 
 		test("a password made by Add user must be changed at first sign-in", async () => {

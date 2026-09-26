@@ -3,10 +3,12 @@ import {
 	AdminUser,
 	AdminUserList,
 	CreateDexUserRequest,
+	DEFAULT_ACCEPTABLE_USE_TEXT,
 	DEFAULT_TIMEZONE,
 	EDITOR_SETTINGS_DEFAULTS,
 	EditorSettings,
 	githubHref,
+	MAX_ACCEPTABLE_USE_LENGTH,
 	MeSettings,
 	PlatformSettings,
 	SetLogLevelRequest,
@@ -17,8 +19,126 @@ import {
 	UpdateProfileRequest,
 } from "./index.js";
 
+/** The resource guard and acceptable-use fields at their migration defaults. */
+const GUARD_SETTINGS = {
+	cpuGuardThresholdPercent: 80,
+	memoryGuardThresholdPercent: 90,
+	guardWindowMinutes: 30,
+	cpuThrottleSharePercent: 25,
+	idleStopMinutes: 60,
+	acceptableUseText: null,
+	acceptableUseVersion: 1,
+};
+
+test("PlatformSettings accepts the guard defaults and a custom statement", () => {
+	const base = { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null };
+	expect(PlatformSettings.parse({ ...base, ...GUARD_SETTINGS })).toEqual({
+		...base,
+		...GUARD_SETTINGS,
+	});
+	expect(
+		PlatformSettings.parse({
+			...base,
+			...GUARD_SETTINGS,
+			acceptableUseText: "Be kind.",
+			acceptableUseVersion: 3,
+		}).acceptableUseText,
+	).toBe("Be kind.");
+	expect(
+		PlatformSettings.safeParse({ ...base, ...GUARD_SETTINGS, acceptableUseVersion: 0 })
+			.success,
+	).toBe(false);
+	const { idleStopMinutes: _dropped, ...missing } = GUARD_SETTINGS;
+	expect(PlatformSettings.safeParse({ ...base, ...missing }).success).toBe(false);
+});
+
+test("UpdatePlatformSettingsRequest takes each guard field on its own, in range", () => {
+	const ok: Array<[string, number]> = [
+		["cpuGuardThresholdPercent", 1],
+		["cpuGuardThresholdPercent", 100],
+		["memoryGuardThresholdPercent", 1],
+		["memoryGuardThresholdPercent", 100],
+		["guardWindowMinutes", 5],
+		["guardWindowMinutes", 240],
+		["cpuThrottleSharePercent", 5],
+		["cpuThrottleSharePercent", 100],
+		["idleStopMinutes", 0],
+		["idleStopMinutes", 10],
+		["idleStopMinutes", 1440],
+	];
+	for (const [key, value] of ok) {
+		expect(UpdatePlatformSettingsRequest.safeParse({ [key]: value }).success, key).toBe(
+			true,
+		);
+	}
+	const bad: Array<[string, unknown]> = [
+		["cpuGuardThresholdPercent", 0],
+		["cpuGuardThresholdPercent", 101],
+		["memoryGuardThresholdPercent", 0],
+		["memoryGuardThresholdPercent", 101],
+		["guardWindowMinutes", 4],
+		["guardWindowMinutes", 241],
+		["cpuThrottleSharePercent", 4],
+		["cpuThrottleSharePercent", 101],
+		["idleStopMinutes", 9],
+		["idleStopMinutes", 1441],
+		["idleStopMinutes", -1],
+		["cpuGuardThresholdPercent", 80.5],
+		["guardWindowMinutes", "30"],
+		["idleStopMinutes", null],
+	];
+	for (const [key, value] of bad) {
+		expect(
+			UpdatePlatformSettingsRequest.safeParse({ [key]: value }).success,
+			`${key}=${String(value)}`,
+		).toBe(false);
+	}
+});
+
+test("UpdatePlatformSettingsRequest takes a statement, or null for the default", () => {
+	expect(
+		UpdatePlatformSettingsRequest.parse({ acceptableUseText: "  Be kind.  " })
+			.acceptableUseText,
+	).toBe("Be kind.");
+	expect(
+		UpdatePlatformSettingsRequest.parse({ acceptableUseText: null }).acceptableUseText,
+	).toBeNull();
+	expect(
+		UpdatePlatformSettingsRequest.safeParse({ acceptableUseText: "   " }).success,
+	).toBe(false);
+	expect(
+		UpdatePlatformSettingsRequest.safeParse({
+			acceptableUseText: "a".repeat(MAX_ACCEPTABLE_USE_LENGTH),
+		}).success,
+	).toBe(true);
+	expect(
+		UpdatePlatformSettingsRequest.safeParse({
+			acceptableUseText: "a".repeat(MAX_ACCEPTABLE_USE_LENGTH + 1),
+		}).success,
+	).toBe(false);
+	// The version is read-only.
+	expect(
+		UpdatePlatformSettingsRequest.safeParse({ acceptableUseVersion: 2 }).success,
+	).toBe(false);
+});
+
+test("the default statement is five short paragraphs within the limit", () => {
+	const paragraphs = DEFAULT_ACCEPTABLE_USE_TEXT.split("\n\n");
+	expect(paragraphs).toHaveLength(5);
+	for (const paragraph of paragraphs) expect(paragraph.trim()).toBe(paragraph);
+	expect(DEFAULT_ACCEPTABLE_USE_TEXT.length).toBeLessThanOrEqual(
+		MAX_ACCEPTABLE_USE_LENGTH,
+	);
+	expect(DEFAULT_ACCEPTABLE_USE_TEXT).toMatch(/coursework/);
+	expect(DEFAULT_ACCEPTABLE_USE_TEXT).toMatch(/mine cryptocurrency/);
+	expect(DEFAULT_ACCEPTABLE_USE_TEXT).toMatch(/not your files/);
+	expect(DEFAULT_ACCEPTABLE_USE_TEXT).toMatch(/end your access/);
+	expect(DEFAULT_ACCEPTABLE_USE_TEXT).toMatch(/institution's own rules/);
+});
+
 test("PlatformSettings accepts zero, meaning no shutdown", () => {
 	const parsed = PlatformSettings.parse({
+		...GUARD_SETTINGS,
 		shutdownGraceSeconds: 0,
 		logLevel: null,
 		updatedAt: null,
@@ -29,6 +149,7 @@ test("PlatformSettings accepts zero, meaning no shutdown", () => {
 
 test("PlatformSettings accepts an ISO timestamp", () => {
 	const parsed = PlatformSettings.parse({
+		...GUARD_SETTINGS,
 		shutdownGraceSeconds: 600,
 		logLevel: "debug",
 		updatedAt: "2026-09-17T10:00:00.000Z",
@@ -39,6 +160,7 @@ test("PlatformSettings accepts an ISO timestamp", () => {
 test("PlatformSettings rejects a non-ISO timestamp", () => {
 	expect(() =>
 		PlatformSettings.parse({
+			...GUARD_SETTINGS,
 			shutdownGraceSeconds: 600,
 			logLevel: null,
 			updatedAt: "yesterday",
@@ -49,6 +171,7 @@ test("PlatformSettings rejects a non-ISO timestamp", () => {
 test("PlatformSettings rejects a log level we do not have", () => {
 	expect(() =>
 		PlatformSettings.parse({
+			...GUARD_SETTINGS,
 			shutdownGraceSeconds: 600,
 			logLevel: "verbose",
 			updatedAt: null,

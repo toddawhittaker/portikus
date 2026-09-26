@@ -69,6 +69,11 @@ async function start(overrides: { AGENT_PORT?: number } = {}): Promise<void> {
 beforeEach(async () => {
 	if (skip) return;
 	await testDb.truncate();
+	// The worker seeds this row; the detail reads the platform guard values from it.
+	await testDb.db
+		.insertInto("settings")
+		.values({ id: 1, shutdown_grace_seconds: 600 })
+		.execute();
 	agent.listening.clear();
 	return async () => {
 		await app?.close();
@@ -241,6 +246,20 @@ test.skipIf(skip)(
 		expect((await auditActions()).map((a) => a.action)).toContain(
 			"workspace.rebuild_requested",
 		);
+	},
+);
+
+test.skipIf(skip)(
+	"the detail is 404, not 500, before platform settings exist",
+	async () => {
+		await start();
+		await testDb.db.deleteFrom("settings").execute();
+		const res = await detail();
+		expect(res.statusCode).toBe(404);
+		expect(res.json()).toMatchObject({
+			code: "NOT_FOUND",
+			message: "Platform settings are not set yet",
+		});
 	},
 );
 
@@ -633,4 +652,303 @@ test.skipIf(skip)("storage cannot shrink or pass the cap", async () => {
 		payload: { homeGiB: 30, dockerGiB: 30 },
 	});
 	expect(missing.statusCode).toBe(404);
+});
+
+// --- Resource guard overrides, lift and clear (ADR 0032, SPEC.md §24.11) ---
+
+function putGuard(payload: unknown, jar: CookieJar = carol) {
+	return app.inject({
+		method: "PUT",
+		url: `/admin/workspaces/${workspaceId}/guard`,
+		headers: csrfHeaders(jar, PUBLIC_URL),
+		payload: payload as Record<string, unknown>,
+	});
+}
+
+async function storedGuard(): Promise<unknown> {
+	const row = await testDb.db
+		.selectFrom("workspaces")
+		.select("guard_config")
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+	return row.guard_config;
+}
+
+const THROTTLE = {
+	at: "2026-09-25T12:00:00.000Z",
+	averagePercent: 97.5,
+	thresholdPercent: 80,
+	windowMinutes: 30,
+	sharePercent: 25,
+	allowance: "100ms/100ms",
+};
+
+const MEMORY_FLAG = {
+	at: "2026-09-25T12:00:00.000Z",
+	averagePercent: 93.1,
+	thresholdPercent: 90,
+	windowMinutes: 30,
+};
+
+async function addSamples(id: string, count: number): Promise<void> {
+	for (let i = 0; i < count; i++) {
+		await testDb.db
+			.insertInto("workspace_usage_samples")
+			.values({
+				workspace_id: id,
+				observed_at: new Date(Date.now() - i * 60_000).toISOString(),
+				cpu_usage_ns: 1_000_000 * i,
+				cpu_limit: 4,
+				memory_bytes: 1024,
+				memory_limit_bytes: 4096,
+			})
+			.execute();
+	}
+}
+
+async function sampleCount(id: string): Promise<number> {
+	const row = await testDb.db
+		.selectFrom("workspace_usage_samples")
+		.select((eb) => eb.fn.countAll<string>().as("n"))
+		.where("workspace_id", "=", id)
+		.executeTakeFirstOrThrow();
+	return Number(row.n);
+}
+
+describe("guard overrides", () => {
+	beforeEach(async () => {
+		if (skip) return;
+		await start();
+	});
+
+	test.skipIf(skip)(
+		"overrides merge, show in the detail, and audit from and to",
+		async () => {
+			expect((await putGuard({ cpuThresholdPercent: 95 })).statusCode).toBe(204);
+			expect((await putGuard({ idleStopMinutes: 0 })).statusCode).toBe(204);
+			expect(await storedGuard()).toEqual({
+				cpuThresholdPercent: 95,
+				idleStopMinutes: 0,
+			});
+
+			const body = (await detail()).json();
+			expect(body.guardConfig).toEqual({ cpuThresholdPercent: 95, idleStopMinutes: 0 });
+			expect(body.effectiveGuard).toEqual({
+				cpuThresholdPercent: 95,
+				memoryThresholdPercent: 90,
+				windowMinutes: 30,
+				throttleSharePercent: 25,
+				idleStopMinutes: 0,
+			});
+
+			const audits = (await auditActions()).filter(
+				(row) => row.action === "workspace.guard_updated",
+			);
+			expect(audits).toHaveLength(2);
+			expect(audits[0]?.actor).toBe(`user:${await carolId()}`);
+			expect(audits[1]?.metadata).toEqual({
+				from: { cpuThresholdPercent: 95 },
+				to: { cpuThresholdPercent: 95, idleStopMinutes: 0 },
+			});
+		},
+	);
+
+	test.skipIf(skip)(
+		"null clears one key, and clearing the last leaves no overrides",
+		async () => {
+			await putGuard({ windowMinutes: 10, throttleSharePercent: 50 });
+			await putGuard({ windowMinutes: null });
+			expect(await storedGuard()).toEqual({ throttleSharePercent: 50 });
+			await putGuard({ throttleSharePercent: null });
+			expect(await storedGuard()).toBeNull();
+			expect((await detail()).json().effectiveGuard.windowMinutes).toBe(30);
+		},
+	);
+
+	test.skipIf(skip)("a request that changes nothing writes no audit row", async () => {
+		await putGuard({ memoryThresholdPercent: 99 });
+		await putGuard({ memoryThresholdPercent: 99 });
+		await putGuard({ idleStopMinutes: null });
+		const audits = (await auditActions()).filter(
+			(row) => row.action === "workspace.guard_updated",
+		);
+		expect(audits).toHaveLength(1);
+	});
+
+	test.skipIf(skip)("out-of-range and unknown overrides are refused", async () => {
+		for (const payload of [
+			{},
+			{ cpuThresholdPercent: 0 },
+			{ memoryThresholdPercent: 101 },
+			{ windowMinutes: 4 },
+			{ windowMinutes: 241 },
+			{ throttleSharePercent: 4 },
+			{ idleStopMinutes: 5 },
+			{ idleStopMinutes: 1441 },
+			{ idleStopMinutes: "0" },
+			{ somethingElse: 1 },
+		]) {
+			const res = await putGuard(payload);
+			expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+			expect(res.json().code).toBe("VALIDATION_FAILED");
+		}
+		expect(await storedGuard()).toBeNull();
+	});
+
+	test.skipIf(skip)(
+		"a student cannot set overrides, and an unknown workspace is 404",
+		async () => {
+			expect((await putGuard({ idleStopMinutes: 0 }, alice)).statusCode).toBe(403);
+			expect(await storedGuard()).toBeNull();
+			const res = await app.inject({
+				method: "PUT",
+				url: `/admin/workspaces/${crypto.randomUUID()}/guard`,
+				headers: csrfHeaders(carol, PUBLIC_URL),
+				payload: { idleStopMinutes: 0 },
+			});
+			expect(res.statusCode).toBe(404);
+		},
+	);
+});
+
+describe("lift throttle and clear memory flag", () => {
+	beforeEach(async () => {
+		if (skip) return;
+		await start();
+	});
+
+	test.skipIf(skip)(
+		"lifting clears the throttle, deletes samples, and audits",
+		async () => {
+			await testDb.db
+				.updateTable("workspaces")
+				.set({
+					cpu_throttle: JSON.stringify(THROTTLE),
+					memory_flag: JSON.stringify(MEMORY_FLAG),
+				})
+				.where("id", "=", workspaceId)
+				.execute();
+			await addSamples(workspaceId, 5);
+			expect((await detail()).json().cpuThrottle).toEqual(THROTTLE);
+
+			const res = await post(carol, `/admin/workspaces/${workspaceId}/lift-throttle`);
+			expect(res.statusCode).toBe(204);
+
+			const row = await testDb.db
+				.selectFrom("workspaces")
+				.select(["cpu_throttle", "memory_flag"])
+				.where("id", "=", workspaceId)
+				.executeTakeFirstOrThrow();
+			expect(row.cpu_throttle).toBeNull();
+			// The memory flag is its own mark and stays.
+			expect(row.memory_flag).toEqual(MEMORY_FLAG);
+			expect(await sampleCount(workspaceId)).toBe(0);
+			const audits = (await auditActions()).filter(
+				(a) => a.action === "workspace.cpu_throttle_lifted",
+			);
+			expect(audits).toEqual([
+				{
+					action: "workspace.cpu_throttle_lifted",
+					actor: `user:${await carolId()}`,
+					metadata: { reason: "administrator" },
+				},
+			]);
+
+			// Nothing left to lift.
+			const again = await post(carol, `/admin/workspaces/${workspaceId}/lift-throttle`);
+			expect(again.statusCode).toBe(409);
+			expect(again.json().code).toBe("NOT_THROTTLED");
+		},
+	);
+
+	test.skipIf(skip)(
+		"clearing the memory flag clears it, deletes samples, and audits",
+		async () => {
+			await testDb.db
+				.updateTable("workspaces")
+				.set({ memory_flag: JSON.stringify(MEMORY_FLAG) })
+				.where("id", "=", workspaceId)
+				.execute();
+			await addSamples(workspaceId, 3);
+
+			const res = await post(
+				carol,
+				`/admin/workspaces/${workspaceId}/clear-memory-flag`,
+			);
+			expect(res.statusCode).toBe(204);
+			expect((await detail()).json().memoryFlag).toBeNull();
+			expect(await sampleCount(workspaceId)).toBe(0);
+			const audits = (await auditActions()).filter(
+				(a) => a.action === "workspace.memory_flag_cleared",
+			);
+			expect(audits).toHaveLength(1);
+			expect(audits[0]?.metadata).toEqual({ reason: "administrator" });
+
+			const again = await post(
+				carol,
+				`/admin/workspaces/${workspaceId}/clear-memory-flag`,
+			);
+			expect(again.statusCode).toBe(409);
+			expect(again.json().code).toBe("NOT_FLAGGED");
+		},
+	);
+
+	test.skipIf(skip)("nothing to lift is 409 and keeps the samples", async () => {
+		await addSamples(workspaceId, 2);
+		const lift = await post(carol, `/admin/workspaces/${workspaceId}/lift-throttle`);
+		expect(lift.statusCode).toBe(409);
+		expect(lift.json().code).toBe("NOT_THROTTLED");
+		const clear = await post(
+			carol,
+			`/admin/workspaces/${workspaceId}/clear-memory-flag`,
+		);
+		expect(clear.statusCode).toBe(409);
+		expect(clear.json().code).toBe("NOT_FLAGGED");
+		expect(await sampleCount(workspaceId)).toBe(2);
+		const guardAudits = (await auditActions()).filter((a) => a.action.includes("_"));
+		expect(guardAudits.map((a) => a.action)).toEqual(["workspace.provision_requested"]);
+	});
+
+	test.skipIf(skip)("another workspace's samples are untouched", async () => {
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+		const other = (
+			await app.inject({
+				method: "POST",
+				url: "/workspaces",
+				headers: csrfHeaders(bob, PUBLIC_URL),
+			})
+		).json().id as string;
+		await addSamples(other, 4);
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ cpu_throttle: JSON.stringify(THROTTLE) })
+			.where("id", "=", workspaceId)
+			.execute();
+		await post(carol, `/admin/workspaces/${workspaceId}/lift-throttle`);
+		expect(await sampleCount(other)).toBe(4);
+	});
+
+	test.skipIf(skip)(
+		"a student cannot lift, and an unknown workspace is 404",
+		async () => {
+			await testDb.db
+				.updateTable("workspaces")
+				.set({ cpu_throttle: JSON.stringify(THROTTLE) })
+				.where("id", "=", workspaceId)
+				.execute();
+			expect(
+				(await post(alice, `/admin/workspaces/${workspaceId}/lift-throttle`))
+					.statusCode,
+			).toBe(403);
+			expect((await detail()).json().cpuThrottle).toEqual(THROTTLE);
+			for (const action of ["lift-throttle", "clear-memory-flag"]) {
+				const res = await post(
+					carol,
+					`/admin/workspaces/${crypto.randomUUID()}/${action}`,
+				);
+				expect(res.statusCode).toBe(404);
+			}
+		},
+	);
 });

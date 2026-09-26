@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
 	deriveWorkspaceLabel,
+	IdleStopMinutes,
 	MAX_WORKSPACE_LABEL_LENGTH,
 	Workspace,
 } from "./workspace.js";
@@ -96,9 +97,60 @@ const SAMPLE_WORKSPACE = {
 	activeConnections: 0,
 	lastActiveConnectionAt: null,
 	shutdownDeadline: null,
+	cpuThrottle: null,
+	idleStopAt: null,
+	lastActivityAt: null,
 	createdAt: "2026-09-21T00:00:00.000Z",
 	updatedAt: "2026-09-21T00:00:00.000Z",
 };
+
+describe("the Workspace contract's resource guard fields", () => {
+	const at = "2026-09-25T10:00:00.000Z";
+	const throttle = { at, thresholdPercent: 80, windowMinutes: 30, sharePercent: 25 };
+
+	test("a throttle, an idle deadline and the last activity round-trip", () => {
+		const workspace = {
+			...SAMPLE_WORKSPACE,
+			cpuThrottle: throttle,
+			idleStopAt: at,
+			lastActivityAt: at,
+		};
+		expect(Workspace.parse(workspace)).toEqual(workspace);
+	});
+
+	test("the student's throttle never carries the average or the allowance", () => {
+		const parsed = Workspace.parse({
+			...SAMPLE_WORKSPACE,
+			cpuThrottle: { ...throttle, averagePercent: 99, allowance: "100ms/100ms" },
+		});
+		expect(parsed.cpuThrottle).toEqual(throttle);
+	});
+
+	test("each field is required, and a throttle's numbers are in range", () => {
+		for (const key of ["cpuThrottle", "idleStopAt", "lastActivityAt"] as const) {
+			const { [key]: _dropped, ...missing } = SAMPLE_WORKSPACE;
+			expect(Workspace.safeParse(missing).success, key).toBe(false);
+		}
+		expect(
+			Workspace.safeParse({
+				...SAMPLE_WORKSPACE,
+				cpuThrottle: { ...throttle, sharePercent: 4 },
+			}).success,
+		).toBe(false);
+		expect(
+			Workspace.safeParse({ ...SAMPLE_WORKSPACE, idleStopAt: "in five minutes" })
+				.success,
+		).toBe(false);
+	});
+});
+
+test("IdleStopMinutes is 0 for never, or 10 to 1440", () => {
+	for (const ok of [0, 10, 60, 1440])
+		expect(IdleStopMinutes.safeParse(ok).success).toBe(true);
+	for (const bad of [-1, 1, 9, 1441, 30.5]) {
+		expect(IdleStopMinutes.safeParse(bad).success, String(bad)).toBe(false);
+	}
+});
 
 test("the Workspace contract carries the label", () => {
 	expect(Workspace.safeParse(SAMPLE_WORKSPACE).success).toBe(true);

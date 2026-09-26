@@ -305,6 +305,21 @@ Added by Epic 14 (docs/archive/epics/EPIC-14.md, ADRs 0027 and 0028) and changed
 - Nobody becomes an administrator by signing in first; there is no setup code and no `/setup` page.
 - Only Dex reaches an outside provider, through a forward proxy that allows named hosts: the discovery hosts of its one connector (for `entra`, without the userinfo host, so no `graph.microsoft.com`). The API reaches only Dex, under the site's own name, and LMS keysets.
 
+Added by Epic 14.3 (ADR 0032): every account accepts the acceptable-use statement before it uses Portikus.
+
+- Everyone accepts: students, instructors and administrators, whether they signed in through Dex or launched from a course. An account accepts at its first sign-in and again whenever the statement's text changes.
+- The statement is an administrator setting, `settings.acceptable_use_text`, plain text with blank lines between paragraphs and at most 10,000 characters. Null means the built-in default, a constant in `packages/contracts`, which says in five short paragraphs: the workspace is for coursework and learning; no crypto mining, no public hosting or tunnels, no attacks on other systems, no sharing your account; heavy use is slowed automatically and administrators can see CPU and memory totals, not your files; breaking these rules can end your access; your institution's own rules also apply.
+- `settings.acceptable_use_version` starts at 1. Any saved change to the text, including a reset to the default from a custom text, adds one to it, so everyone must accept again. There is no "minor edit" that skips re-acceptance. The Settings tab says so beside the Save button.
+- `users.acceptable_use_version` records the version an account accepted (null for never) and `users.acceptable_use_accepted_at` when.
+- Acceptance is a gate on the same mechanism as "must change password" (section 5.3). The gates are one ordered list, `GATES` in `packages/auth/src/plugin.ts`, and the first unmet gate wins. Each gate allows only its own routes:
+  1. `must_change_password` is set: code `PASSWORD_CHANGE_REQUIRED`, allowed route `POST /me/password`, web page `/change-password`. A password-gated account can neither read nor accept the statement;
+  2. the account's accepted version differs from the current one: code `ACCEPTABLE_USE_REQUIRED`, allowed routes `GET /me/acceptable-use` (the statement and its version) and `POST /me/acceptable-use`, web page `/acceptable-use`.
+
+  So a new local administrator changes the password first, then accepts. While a gate is unmet, every other API route answers 403 with that gate's code, except `GET /auth/me`, `POST /auth/logout` and the routes that need no session. New WebSocket upgrades are refused, and open sockets (terminal, workspace, project events and checks) are closed at their periodic session re-check. The preview gateway refuses the account. `loadSession` decides both gates in its one query, left-joining the settings row (`id = 1`) and treating a missing row as version 1.
+- `GET /auth/me` carries `mustAcceptUse: boolean`, and the web sends every page to the first unmet gate. When any request answers with a gate code, the web fetches `/auth/me` again, so an open tab moves to the gate page. Both gate pages move focus to their heading on arrival. The acceptable-use page shows the text, **I accept** and **Sign out**.
+- `POST /me/acceptable-use {version}` is CSRF-checked. It is one conditional update of the account plus the audit row `user.acceptable_use_accepted` with `{version}`, in one transaction. When `version` is not the current one it answers 409 `ACCEPTABLE_USE_CHANGED` and records nothing, so nobody accepts a text they did not see.
+- The gate is checked on every request, so a text change reaches people already signed in at their next request. Their workspaces keep running. An administrator who saves a new text meets the gate too.
+
 ### 5.2 Authorization
 
 Access must be denied by default.
@@ -446,6 +461,20 @@ Connection presence must be determined server-side using active WebSocket/sessio
 The grace period is an administrator setting, not a deployment constant. There is one platform-wide default and an optional override for each user; a user's override wins over the default. An administrator changes either value while the platform runs, and the change takes effect immediately, including for workspaces that are already disconnected and counting down. Shortening the value below the time a workspace has already been disconnected stops it on the next sweep.
 
 A grace period of **0** disables the timer: the workspace keeps running until it is stopped by hand. This applies at both levels, so 0 as one user's override keeps that user's workspace up while everyone else's still stops.
+
+Added by Epic 14.3 (ADR 0032): a second timer, **idle stop**, stops a running workspace after a stretch with no activity, whether or not a browser is connected, so an open, forgotten tab no longer keeps it running.
+
+- Activity is something the workspace's owner did on purpose, never something an administrator did while looking at the workspace:
+  - a key press, click or paste anywhere in the Portikus page, which covers typing in a terminal and the editor. The web app sends `{type: "activity"}` on the workspace socket at most once a minute;
+  - a write through the API's file routes (save, delete, new folder, move);
+  - a page load in a preview that the person started: the preview authorization check sees `Sec-Fetch-Dest` of `document` or `iframe` together with `Sec-Fetch-User: ?1`. A new tab or the embedded Preview tab counts; a page reloading itself, a dev server's live reload, assets and fetches do not.
+- Nothing else counts. Terminal output and frames are not inspected, because the browser's terminal answers some program queries on its own. The workspace agent reports nothing, because anything inside the workspace can make it say anything. So an unattended coding agent is stopped with its workspace like anything else.
+- The API writes `workspaces.last_activity_at` at most once a minute per workspace and clears `idle_stop_at` in the same statement. The worker sets `last_activity_at` to the start time whenever it records a start, so a workspace never starts already idle.
+- The idle time is an administrator setting, `settings.idle_stop_minutes`, default **60**, 0 (never) or 10 to 1440 minutes. Each workspace may override it with the key `idleStopMinutes` in `workspaces.guard_config` (section 19.4); the override wins, and 0 at either level turns idle stop off.
+- In the reconcile sweep, a running workspace whose idle time is above 0 and whose `last_activity_at` plus the idle time has passed gets `idle_stop_at` set five minutes ahead. The five minutes is fixed. When `idle_stop_at` passes, the workspace is stopped by the usual stop path and `workspace.idle_stopped` is audited with `{idleMinutes}`.
+- While `idle_stop_at` is set, the workspace view carries `idleStopAt` and the work area shows "Still working?" with the stop time and a **Keep working** button that takes focus and sends an activity message. Any other activity also answers it. If the workspace then stops while the tab is open, the stopped screen says it stopped after that many minutes without activity.
+- A changed setting or override takes effect on the next sweep. Lowering the idle time below how long a workspace has already been idle shows the warning on the next sweep; it never stops the workspace at once.
+- The grace period above is unchanged and runs beside idle stop; whichever fires first stops the workspace. A new connection still starts a stopped workspace.
 
 ### 6.5 Graceful stop
 
@@ -720,6 +749,39 @@ Terminal panes must additionally support splitting.
 
 The right pane contains the selected project's file tree and Git decorations.
 
+### 8.5 Toasts and notifications
+
+Every toast goes away on its own: neutral and success toasts after 5
+seconds, warnings and errors after 10. The timer pauses while the
+pointer or keyboard focus is on the toast, and the close button stays.
+A toast that carries an action the user must answer, such as replacing
+a file that already exists, stays until it is answered.
+
+Every toast shown is also recorded as a notification with its tone,
+title, body text, time, and whether it has been read. Notifications are
+stored on the server (ADR 0033) in a `notifications` table, so they
+follow the user to any browser. Each user keeps at most 200 and none
+older than 90 days; the API trims as it records and the worker prunes
+hourly. The routes act only on the signed-in user's own rows:
+`GET /me/notifications` (newest first, paged, with the unread count),
+`POST /me/notifications` (record one), `PATCH /me/notifications/:id`
+(mark one read), `POST /me/notifications/read-all`, and
+`DELETE /me/notifications` (clear). The title is capped at 200
+characters and the body at 2,000, and recording is limited to 30 per
+user per minute. Titles and bodies are never logged, because they can
+name files and projects. If recording fails, the toast still shows, and
+the failure is neither retried nor reported.
+
+The account button in the top bar carries a badge with the unread count,
+"9+" above nine and hidden at zero, and its accessible name includes the
+count ("…, 3 unread notifications"). The browser polls the count every
+30 seconds and again when the window regains focus, so a read on one
+device clears the badge on another. A "Notifications" item in the
+account menu, or a click on the badge, opens the Notifications dialog:
+newest first, each with its tone icon, title, body and relative time,
+unread ones marked. The user can mark one read, mark all read, or clear
+the list. Opening the dialog marks nothing read by itself.
+
 ## 9. Terminal functionality
 
 ### 9.1 Terminal implementation
@@ -816,7 +878,10 @@ bytes without interpreting them:
 
 Limits, enforced by the server:
 
-- at most 8 terminals per workspace;
+- at most 20 terminals per workspace. The cap stops a runaway client from
+  creating terminals without end; it is not the resource limit, which is
+  the container's CPU, memory and process limits. A refused create shows
+  the user a toast naming the limit;
 - at most 4 simultaneous attachments per terminal;
 - at most 64 KiB of data in one input frame, and at most 1 MiB in any
   frame the browser sends;
@@ -1797,6 +1862,35 @@ Resource exhaustion must fail safely.
 
 One student's CPU, memory, storage, process count, or Docker workload must not materially degrade other users beyond the capacity limits of the shared host.
 
+### 19.4 Resource guard
+
+Added by Epic 14.3 (ADR 0032). The guard slows a workspace that keeps its CPUs busy for a long time and marks one that keeps its memory near the limit, so a crypto miner or a long-lived site cannot hold the platform's CPU. Programs, mining pools and tunnel services are not blocked by name; the throttle, the memory flag and the acceptable-use statement (section 5.1) are the whole response.
+
+**Measuring.**
+
+- The worker samples every running workspace every 60 seconds, on its own loop beside the host sampler (ADR 0022). The numbers come from Incus through the controller's `GET /instances/usage`, never from the workspace agent, which the student controls (section 24.2). For each running instance the route returns its CPU time since start (`state.cpu.usage`), its memory working set, its CPU limit (`limits.cpu`, or the host's CPU count when unset), its memory limit, its current CPU allowance, and a boot marker (Incus `state.pid`, the host PID of the instance's init, which changes on every boot, including a reboot from inside the workspace; null when Incus reports 0).
+- Memory is the working set: Incus's usage minus the `inactive_file` page cache from the instance's cgroup `memory.stat`, so reading large files does not look like memory pressure. If that file cannot be read, the controller reports the usage with cache and logs a warning.
+- No process list, command line or file name is read (section 20.1).
+- Each sample is a row in `workspace_usage_samples` (section 26). A workspace's samples are kept when it stops. Samples older than the longest allowed window plus five minutes (245 minutes) are pruned each tick.
+
+**Judging.** A rule fires when an average is strictly above its threshold, so a threshold of 100 turns that check off.
+
+- A restart between two consecutive samples is a changed boot marker (when both samples have one) or a CPU counter that went down.
+- CPU is judged across runs over a rolling window of wall-clock time, and usage is remembered across stops and restarts. The anchor is the newest sample at least one window old; with no such sample there is no decision yet. The CPU time used between each pair of consecutive samples from the anchor to now is summed. Across a restart, the later sample's whole counter counts, plus the time between the two samples, capped at one sample interval (60 seconds), times the CPU limit, as if the workspace had used every CPU before restarting. Stopped time has no samples and counts as no use. The average is the used CPU time divided by the time since the anchor times the CPU limit. So a student who runs 25 minutes and stops for one, over and over, is still throttled, while an honest restart in a quiet window adds at most one minute of assumed use. Because of that assumed use, the average recorded after a reboot from inside the workspace can exceed 100%.
+- Memory is judged per run: the mean of working set over memory limit across the samples in the last window that were taken since the latest restart, and only when there are at least half a window of them. For memory, a gap of more than two sample intervals also counts as a restart, since a stop leaves no samples.
+- A throttled workspace is still sampled but not judged for CPU again until the throttle is lifted; a flagged one is not judged for memory until the flag is cleared.
+
+**Throttling.**
+
+- A workspace whose CPU average is above the CPU threshold (default 80%) over the window (default 30 minutes) is throttled to the throttle share (default 25%) of its CPU limit. The throttle is Incus's `limits.cpu.allowance` written as a time slice, `<N>ms/100ms`, where N is the share times the CPU limit times 100 ms, rounded to a whole millisecond: 25% of a pilot workspace's 2 CPUs is `50ms/100ms`, half a CPU, which the cgroup shows as `cpu.max` `50000 100000`. It is never a percentage, which Incus treats as a soft weight that only applies when the host is busy.
+- The database is the source of truth. Throttling writes `workspaces.cpu_throttle` (when, the average, the threshold, the window, the share and the allowance) and the audit row `workspace.cpu_throttled` in one transaction, then asks the controller to set the allowance (`PUT /instances/:name/cpu-allowance`, which accepts only `^\d{1,6}ms/100ms$` or null). Every tick the worker compares each running workspace's allowance in Incus with its row and sets or removes it when they differ, so the throttle survives a restart of the worker or the controller and a lift reaches Incus even if the controller was down. A failed controller call is audited once as `workspace.cpu_throttle_failed` and retried next tick; the row stays throttled.
+- The throttle lifts at the next stop, or when an administrator lifts it. The controller removes any allowance before every start. When the worker records a stop by any path it clears `cpu_throttle`, deletes the workspace's samples taken at or before the throttle, so the next run starts a fresh window, and audits `workspace.cpu_throttle_lifted` with `{reason: "stopped"}`. An administrator's lift clears the row, deletes all the workspace's samples, and audits the same event with `{reason: "administrator"}`; the worker removes the allowance on its next tick.
+- The student sees a warning notice at once, with the numbers from the row: the workspace was slowed because it kept its CPUs busy, what share it now gets, and that stopping and starting restores full speed or an administrator can lift it. It is dismissible for the page's life. There is no warning before the throttle.
+
+**Memory flag.** A workspace whose memory average is above the memory threshold (default 90%) is flagged: `workspaces.memory_flag` (when, the average, the threshold, the window) and `workspace.memory_flagged`. Nothing is slowed, because memory already has a hard limit, and the student sees nothing. The flag clears at the next stop (`workspace.memory_flag_cleared` with `{reason: "stopped"}`) or when an administrator clears it (`{reason: "administrator"}`, which also deletes the workspace's samples).
+
+**Settings and overrides.** The platform values are columns on the `settings` row, edited in the admin Settings tab: CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing) and the idle time of section 6.4. Each workspace may override any of them in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes`; a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
+
 ## 20. Administration
 
 ### 20.1 Admin capabilities
@@ -1832,6 +1926,19 @@ signed in more recently; nothing is merged automatically. An administrator
 sees a workspace's aggregates (CPU, memory, disk, port numbers, short
 process names) but never its files, terminals, or process command lines.
 Logs stay in journald; the admin page has no log viewer.
+
+Added by Epic 14.3 (section 19.4, ADR 0032): administrators see throttled
+and flagged workspaces as **Throttled** and **High memory** tags in the
+Workspaces table and in a "Resource guard" section of the Health tab
+(`GET /admin/health` carries `guard`). The workspace detail panel shows
+the guard state and the last activity time, with **Lift throttle**
+(`POST /admin/workspaces/:id/lift-throttle`) and **Clear memory flag**
+(`POST /admin/workspaces/:id/clear-memory-flag`), each answering 409
+when there is nothing to lift or clear, and a dialog for the workspace's
+guard and idle overrides (`PUT /admin/workspaces/:id/guard`, each key a
+number or null to remove it). The Settings tab edits the guard
+thresholds, window, throttle share and idle time, and the
+acceptable-use statement with **Reset to default** (section 5.1).
 
 ### 20.2 User impersonation
 
@@ -2248,6 +2355,18 @@ Sign-ins that Dex refuses under a connector's admission rules never reach
 Portikus, so they are recorded in Dex's JSON log, not the audit table.
 `setup.code_issued` and `setup.code_claimed` are no longer written.
 
+As built (Epic 14.3, sections 5.1, 6.4 and 19.4): the worker (actor
+`worker`) writes `workspace.cpu_throttled`, `workspace.cpu_throttle_failed`,
+`workspace.memory_flagged` and `workspace.idle_stopped`, and
+`workspace.cpu_throttle_lifted` and `workspace.memory_flag_cleared` with
+`reason` `stopped`. An administrator (actor `user:<id>`) writes the same
+two with `reason` `administrator`, `workspace.guard_updated`,
+`settings.resource_guard_updated` and `settings.idle_stop_updated` (each
+with `{from, to}`), and `settings.acceptable_use_updated` with
+`{fromVersion, toVersion}`. The person accepting writes
+`user.acceptable_use_accepted` with `{version}`. No row holds a process
+name, a command line, a file name or the statement's text.
+
 ### 24.12 Dependency/security maintenance
 
 The project must define a process for:
@@ -2337,6 +2456,12 @@ The platform must expose sufficient logs and metrics to diagnose:
 - Docker reset/rebuild failures.
 
 Metrics should support capacity planning without exposing student source code or prompts.
+
+Added by Epic 14.3 (section 19.4): the worker records each running
+workspace's CPU time, memory working set and limits from Incus once a
+minute in `workspace_usage_samples`, keeping them for 245 minutes (the
+longest allowed guard window plus five). They hold no process, command
+or file names.
 
 ### 25.7 Maintainability
 
@@ -2483,6 +2608,17 @@ The exact schema is implementation-defined, but the platform must represent at l
 - timestamp;
 - result;
 - safe metadata.
+
+### Added by Epic 14.3
+
+Migration `0020_resource_guard` (sections 5.1, 6.4 and 19.4):
+
+- `settings` gains `cpu_guard_threshold_percent` (default 80, 1 to 100), `memory_guard_threshold_percent` (default 90, 1 to 100), `guard_window_minutes` (default 30, 5 to 240), `cpu_throttle_share_percent` (default 25, 5 to 100), `idle_stop_minutes` (default 60, 0 or 10 to 1440), each range a check constraint; `acceptable_use_text` (null for the built-in default) and `acceptable_use_version` (default 1).
+- `workspaces` gains `guard_config` (jsonb overrides), `cpu_throttle` and `memory_flag` (jsonb, null when clear), `last_activity_at` and `idle_stop_at`. On upgrade, every workspace whose owner has a grace-period override of 0 gets `{"idleStopMinutes": 0}`, so it keeps running as before, and every workspace not stopped gets `last_activity_at` set to the migration time.
+- `users` gains `acceptable_use_version` (null for never) and `acceptable_use_accepted_at`.
+- A new table, `workspace_usage_samples`: `id`, `workspace_id` (cascades on delete), `observed_at`, `cpu_usage_ns`, `boot_marker` (nullable), `cpu_limit`, `memory_bytes`, `memory_limit_bytes`, indexed on `(workspace_id, observed_at)`.
+
+Migration `0021_notifications` (section 8.5, ADR 0033): a new table, `notifications`: `id`, `user_id` (cascades on delete), `tone` (`neutral`, `success`, `warning` or `danger`), `title`, `body`, `created_at`, `read_at` (null while unread), indexed on `(user_id, created_at desc)`.
 
 ## 27. API principles
 
@@ -3152,6 +3288,29 @@ Acceptance:
 - while the flag is set, every route but the change-password ones answers 403, and WebSocket upgrades and previews are refused;
 - under `entra` a token from another tenant is refused, and under `entra` or `oidc` a person with none of the three roles or groups is refused by Dex;
 - moving the pilot keeps every account, `sub` and workspace, and adds only the local administrator.
+
+### Epic 14.3 — Resource guard
+
+See `docs/adr/0032-resource-guard.md` for the decision and sections 5.1, 6.4, 19.4, 20.1, 24.11, 25.6 and 26 for the rules; built on `epic/14-3-resource-guard` (issue #554).
+
+Includes:
+
+- per-workspace CPU and memory samples from Incus every minute, through the controller;
+- a CPU throttle by time-slice allowance after a rolling average above the threshold, remembered across restarts, with a student notice, admin tags, a Health section, lift, and audit rows;
+- a memory flag for administrators, with clear and audit rows;
+- idle stop by activity, with the "Still working?" notice, beside the unchanged grace period;
+- guard and idle settings with per-workspace overrides;
+- the acceptable-use statement, accepted at first sign-in and after every change, as the second gate after "must change password";
+- a notification history for toasts (issue #475, ADR 0033) and a terminal limit of 20 (issue #474).
+
+Acceptance:
+
+- a workspace at or below the CPU threshold over the window is never throttled; one above it is throttled once, with one audit row, and a stop-start or reboot cycle does not reset its usage;
+- a throttled running workspace always ends with the allowance set in Incus, and an unthrottled one without it, after restarting the worker, the controller or both;
+- the throttle and memory flag never outlive a stop, and a started workspace never carries an allowance;
+- no sample, audit row or response carries a process name, command line or file name;
+- an administrator's actions and the workspace agent never count as a student's activity, and an unattended coding agent is stopped by idle stop;
+- while a gate is unmet, every route but that gate's answers 403 with its code, and the password gate comes first.
 
 ### Estimated total
 

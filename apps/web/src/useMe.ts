@@ -38,3 +38,14 @@ export function useMe(): MeState {
 	if (query.isError) return { status: "anonymous" };
 	return { status: "loading" };
 }
+
+/**
+ * The page of the first gate still holding this account, or null when none
+ * does. The same order as the server's (SPEC.md section 5.1).
+ */
+export function gatePath(me: MeState): "/change-password" | "/acceptable-use" | null {
+	if (me.status !== "authenticated") return null;
+	if (me.user.mustChangePassword) return "/change-password";
+	if (me.user.mustAcceptUse) return "/acceptable-use";
+	return null;
+}

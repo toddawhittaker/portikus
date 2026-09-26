@@ -33,6 +33,8 @@ function summary(
 		quotaApplied: { homeGiB: 25, dockerGiB: 20 },
 		image: { label: "2026.09.9", fingerprint: "abc", current: true },
 		archivedAt: null,
+		cpuThrottle: null,
+		memoryFlag: null,
 		...overrides,
 	};
 }
@@ -195,6 +197,7 @@ const ADMIN_ME = {
 	displayName: "Carol Admin",
 	role: "administrator" as const,
 	mustChangePassword: false,
+	mustAcceptUse: false,
 	localPassword: false,
 };
 
@@ -423,4 +426,45 @@ test("bulk archive calls the workspace route only for rows that have a workspace
 		),
 	);
 	expect(writes).toEqual([`/admin/workspaces/${uuid(5)}/archive`]);
+});
+
+test("a throttled or memory-flagged workspace carries its tags beside the name", async () => {
+	const throttled = listed(1, "Alice Example", {
+		workspace: summary({
+			id: uuid(5),
+			cpuThrottle: {
+				at: "2026-09-25T12:00:00.000Z",
+				thresholdPercent: 80,
+				windowMinutes: 30,
+				sharePercent: 25,
+				averagePercent: 97,
+				allowance: "100ms/100ms",
+			},
+			memoryFlag: {
+				at: "2026-09-25T12:00:00.000Z",
+				averagePercent: 93,
+				thresholdPercent: 90,
+				windowMinutes: 30,
+			},
+		}),
+	});
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, ADMIN_ME);
+		if (url === "/admin/users") {
+			return json(200, { users: [throttled, ROWS[1]], dexUsers: false });
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	await openTable();
+	const row = screen.getByTestId(`account-row-${uuid(1)}`);
+	expect(row.dataset.markers).toBe("Throttled,High memory");
+	expect(within(row).getByText("Throttled")).toBeDefined();
+	expect(within(row).getByText("High memory")).toBeDefined();
+	expect(screen.getByTestId(`account-row-${uuid(2)}`).dataset.markers).toBe("");
+});
+
+test("an address naming a user opens that account's panel", async () => {
+	stubUsers();
+	renderApp(`/admin?tab=workspaces&user=${uuid(2)}`);
+	expect(await screen.findByRole("region", { name: "Bob Student" })).toBeDefined();
 });

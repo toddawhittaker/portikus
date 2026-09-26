@@ -113,27 +113,56 @@ function isExempt(request: FastifyRequest): boolean {
 	return request.method === "GET" && url === "/preview/authorize";
 }
 
-/** What a signed-in account may still reach while a gate holds it. */
-function passesGate(request: FastifyRequest): boolean {
-	if (isExempt(request)) return true;
-	return request.method === "POST" && request.routeOptions.url === "/me/password";
+type GateCode = "PASSWORD_CHANGE_REQUIRED" | "ACCEPTABLE_USE_REQUIRED";
+
+interface Gate {
+	code: GateCode;
+	message: string;
+	holds: (user: Pick<AuthUser, "mustChangePassword" | "mustAcceptUse">) => boolean;
+	/** Routes this gate allows beyond the exempt ones, as "METHOD url". */
+	allows: string[];
 }
 
 /**
- * Why this account may use nothing but the change-password page, or null
- * when it may use everything (SPEC.md section 5.3). The one place
- * the gate is decided; the preview gateway asks it too.
+ * The ordered gates a signed-in account passes before anything else
+ * (SPEC.md sections 5.1 and 5.3). The first unmet one wins.
+ */
+const GATES: Gate[] = [
+	{
+		code: "PASSWORD_CHANGE_REQUIRED",
+		message: "Choose a new password to continue.",
+		holds: (user) => user.mustChangePassword === true,
+		allows: ["POST /me/password"],
+	},
+	{
+		code: "ACCEPTABLE_USE_REQUIRED",
+		message: "Accept the acceptable-use statement to continue.",
+		holds: (user) => user.mustAcceptUse === true,
+		allows: ["GET /me/acceptable-use", "POST /me/acceptable-use"],
+	},
+];
+
+function firstGate(
+	user: Pick<AuthUser, "mustChangePassword" | "mustAcceptUse">,
+): Gate | undefined {
+	return GATES.find((gate) => gate.holds(user));
+}
+
+/** What a signed-in account may still reach while this gate holds it. */
+function passesGate(request: FastifyRequest, gate: Gate): boolean {
+	if (isExempt(request)) return true;
+	return gate.allows.includes(`${request.method} ${request.routeOptions.url}`);
+}
+
+/**
+ * The first gate holding this account, or null when it may use everything.
+ * The one place the gates are decided; the preview gateway asks it too.
  */
 export function sessionGate(
-	user: Pick<AuthUser, "mustChangePassword">,
-): { code: "PASSWORD_CHANGE_REQUIRED"; message: string } | null {
-	if (user.mustChangePassword === true) {
-		return {
-			code: "PASSWORD_CHANGE_REQUIRED",
-			message: "Choose a new password to continue.",
-		};
-	}
-	return null;
+	user: Pick<AuthUser, "mustChangePassword" | "mustAcceptUse">,
+): { code: GateCode; message: string } | null {
+	const gate = firstGate(user);
+	return gate ? { code: gate.code, message: gate.message } : null;
 }
 
 export interface AuthPluginOptions {
@@ -195,9 +224,9 @@ export const authPlugin = fp<AuthPluginOptions>(
 			}
 
 			// A WebSocket upgrade is never on the allowed list, so it is refused too.
-			const gate = request.user ? sessionGate(request.user) : null;
-			if (gate && !passesGate(request)) {
-				await reply.code(403).send(gate);
+			const gate = request.user ? firstGate(request.user) : undefined;
+			if (gate && !passesGate(request, gate)) {
+				await reply.code(403).send({ code: gate.code, message: gate.message });
 			}
 		});
 	},

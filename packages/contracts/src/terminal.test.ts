@@ -140,7 +140,7 @@ test("Terminal carries an optional review baseline", () => {
 });
 
 test("limits match the agreed transport budget", () => {
-	expect(MAX_TERMINALS_PER_WORKSPACE).toBe(8);
+	expect(MAX_TERMINALS_PER_WORKSPACE).toBe(20);
 	expect(MAX_ATTACHMENTS_PER_TERMINAL).toBe(4);
 	expect(MAX_INPUT_FRAME_BYTES).toBe(65536);
 });

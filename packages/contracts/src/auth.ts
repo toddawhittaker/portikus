@@ -21,6 +21,11 @@ export const AuthUser = z.object({
 	 * (SPEC.md section 5.3).
 	 */
 	mustChangePassword: z.boolean(),
+	/**
+	 * While true the account can use only the acceptable-use page
+	 * (SPEC.md section 5.1).
+	 */
+	mustAcceptUse: z.boolean(),
 });
 export type AuthUser = z.infer<typeof AuthUser>;
 
@@ -52,3 +57,16 @@ export const ChangePasswordRequest = z
 	})
 	.strict();
 export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequest>;
+
+/** `GET /me/acceptable-use`: the statement to accept and its version (ruling 33). */
+export const AcceptableUseResponse = z.object({
+	text: z.string(),
+	version: z.number().int().positive(),
+});
+export type AcceptableUseResponse = z.infer<typeof AcceptableUseResponse>;
+
+/** `POST /me/acceptable-use`: the version the person was shown. */
+export const AcceptUseRequest = z
+	.object({ version: z.number().int().positive() })
+	.strict();
+export type AcceptUseRequest = z.infer<typeof AcceptUseRequest>;

@@ -3,6 +3,10 @@ import type {
 	AdminStorage,
 	AdminUser,
 	AdminWorkspaceDetail,
+	CpuThrottle,
+	EffectiveGuard,
+	GuardConfig,
+	MemoryFlag,
 	QuotaConfig,
 } from "@portikus/contracts";
 import {
@@ -20,12 +24,14 @@ import { formatBytes, formatCpu } from "../monitor/format.js";
 import { PENDING_LABEL } from "../shell/StatusBar.js";
 import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
 import { DexUserActions } from "./DexUserDialogs.js";
+import { GuardDialog } from "./GuardDialog.js";
 import { defaultLabel, graceText } from "./graceText.js";
 import { logCommand } from "./logCommand.js";
 import { imageText, isCourseAccount, roleText, sourceText } from "./markers.js";
 import { QuotaDialog } from "./QuotaDialog.js";
 import {
 	useAdminWorkspace,
+	useGuardClear,
 	useLifecycleAction,
 	usePlatformSettings,
 	useRebuild,
@@ -34,6 +40,7 @@ import {
 	useSetDisabled,
 	useSetGrantedAdmin,
 	useSetGrantedInstructor,
+	useUpdateGuard,
 	useUpdateQuota,
 	useUpdateUserSettings,
 } from "./queries.js";
@@ -200,6 +207,8 @@ function WorkspaceSections({
 
 			<StorageSection detail={detail} />
 
+			<GuardSection detail={detail} ownerName={ownerName} />
+
 			<section aria-labelledby="detail-ports" className="flex flex-col gap-2">
 				<h3 id="detail-ports" className="pk-text-label m-0">
 					Preview ports
@@ -323,6 +332,192 @@ function StorageSection({ detail }: { detail: AdminWorkspaceDetail }) {
 			<p className="m-0 text-[13px]">
 				Image <span className="pk-mono-small">{imageText(detail.image)}</span>
 			</p>
+		</section>
+	);
+}
+
+/** "Throttled since Sep 25, 14:02: …", or "Normal" (ADR 0032). */
+export function throttleText(throttle: CpuThrottle | null): string {
+	if (!throttle) return "Normal";
+	return `Throttled since ${shortTime(throttle.at)}. It averaged ${Math.round(
+		throttle.averagePercent,
+	)}% over ${throttle.windowMinutes} minutes, above ${throttle.thresholdPercent}%, and now gets ${throttle.sharePercent}% of its CPU (${throttle.allowance}).`;
+}
+
+export function memoryFlagText(flag: MemoryFlag | null): string {
+	if (!flag) return "Normal";
+	return `High since ${shortTime(flag.at)}. It averaged ${Math.round(
+		flag.averagePercent,
+	)}% over ${flag.windowMinutes} minutes, above ${flag.thresholdPercent}%.`;
+}
+
+/** The limits this workspace runs with, marking the ones it overrides. */
+export function effectiveGuardText(
+	guard: EffectiveGuard,
+	config: GuardConfig | null,
+): string[] {
+	const mark = (key: keyof EffectiveGuard) =>
+		config?.[key] === undefined ? "" : " (override)";
+	return [
+		`CPU above ${guard.cpuThresholdPercent}%${mark("cpuThresholdPercent")} for ${guard.windowMinutes} minutes${mark("windowMinutes")} is slowed to ${guard.throttleSharePercent}%${mark("throttleSharePercent")}.`,
+		`Memory above ${guard.memoryThresholdPercent}%${mark("memoryThresholdPercent")} is flagged.`,
+		guard.idleStopMinutes === 0
+			? `Never stopped for inactivity${mark("idleStopMinutes")}.`
+			: `Stopped after ${guard.idleStopMinutes} minutes without activity${mark("idleStopMinutes")}.`,
+	];
+}
+
+/** Throttle and memory flag, overrides and last activity (ADR 0032, SPEC.md §20.1). */
+function GuardSection({
+	detail,
+	ownerName,
+}: {
+	detail: AdminWorkspaceDetail;
+	ownerName: string;
+}) {
+	const { workspace, cpuThrottle, memoryFlag } = detail;
+	const toast = useToast();
+	const clear = useGuardClear();
+	const update = useUpdateGuard();
+	const settings = usePlatformSettings();
+	const [editing, setEditing] = useState(false);
+	const headingRef = useRef<HTMLHeadingElement>(null);
+	const platform = settings.data
+		? {
+				cpuThresholdPercent: settings.data.cpuGuardThresholdPercent,
+				memoryThresholdPercent: settings.data.memoryGuardThresholdPercent,
+				windowMinutes: settings.data.guardWindowMinutes,
+				throttleSharePercent: settings.data.cpuThrottleSharePercent,
+				idleStopMinutes: settings.data.idleStopMinutes,
+			}
+		: null;
+
+	function run(action: "lift-throttle" | "clear-memory-flag") {
+		if (clear.isPending) return;
+		clear.mutate(
+			{ workspaceId: workspace.id, action },
+			{
+				onSuccess: () => {
+					toast.show({
+						tone: "success",
+						title:
+							action === "lift-throttle" ? "Throttle lifted" : "Memory flag cleared",
+					});
+					// The button goes with the state, so focus moves to the heading.
+					headingRef.current?.focus();
+				},
+				onError: (error) =>
+					toast.show({
+						tone: "danger",
+						title:
+							action === "lift-throttle"
+								? "Could not lift the throttle"
+								: "Could not clear the memory flag",
+						children: errorText(error),
+					}),
+			},
+		);
+	}
+
+	return (
+		<section aria-labelledby="detail-guard" className="flex flex-col gap-2">
+			<h3
+				id="detail-guard"
+				ref={headingRef}
+				tabIndex={-1}
+				className="pk-text-label m-0 outline-none"
+			>
+				Resource guard
+			</h3>
+			<dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+				<dt className="pk-muted">CPU</dt>
+				<dd
+					className={`m-0 ${cpuThrottle ? "text-status-warning" : ""}`}
+					data-testid="detail-guard-cpu"
+				>
+					{throttleText(cpuThrottle)}
+				</dd>
+				<dt className="pk-muted">Memory</dt>
+				<dd
+					className={`m-0 ${memoryFlag ? "text-status-warning" : ""}`}
+					data-testid="detail-guard-memory"
+				>
+					{memoryFlagText(memoryFlag)}
+				</dd>
+				<dt className="pk-muted">Last activity</dt>
+				<dd className="m-0" data-testid="detail-last-activity">
+					{workspace.lastActivityAt
+						? shortTime(workspace.lastActivityAt)
+						: "None recorded"}
+				</dd>
+			</dl>
+			<ul
+				className="m-0 flex list-none flex-col gap-0.5 p-0 text-[13px]"
+				data-testid="detail-guard-limits"
+			>
+				{effectiveGuardText(detail.effectiveGuard, detail.guardConfig).map((line) => (
+					<li key={line}>{line}</li>
+				))}
+			</ul>
+			<div className="flex flex-wrap gap-2">
+				{cpuThrottle ? (
+					<Button
+						size="sm"
+						data-testid="detail-lift-throttle"
+						aria-label={`Lift throttle on ${ownerName}'s workspace`}
+						loading={clear.isPending && clear.variables?.action === "lift-throttle"}
+						onClick={() => run("lift-throttle")}
+					>
+						Lift throttle
+					</Button>
+				) : null}
+				{memoryFlag ? (
+					<Button
+						size="sm"
+						data-testid="detail-clear-memory-flag"
+						aria-label={`Clear memory flag on ${ownerName}'s workspace`}
+						loading={clear.isPending && clear.variables?.action === "clear-memory-flag"}
+						onClick={() => run("clear-memory-flag")}
+					>
+						Clear memory flag
+					</Button>
+				) : null}
+				<Button
+					size="sm"
+					data-testid="detail-guard-edit"
+					aria-label={`Change overrides for ${ownerName}'s workspace`}
+					onClick={() => setEditing(true)}
+				>
+					Change overrides…
+				</Button>
+			</div>
+			{editing ? (
+				<GuardDialog
+					open
+					onOpenChange={(open) => {
+						if (!open) {
+							update.reset();
+							setEditing(false);
+						}
+					}}
+					current={detail.guardConfig}
+					defaults={platform}
+					ownerName={ownerName}
+					pending={update.isPending}
+					serverError={update.error ? errorText(update.error) : null}
+					onSave={(body) =>
+						update.mutate(
+							{ workspaceId: workspace.id, body },
+							{
+								onSuccess: () => {
+									toast.show({ tone: "success", title: "Overrides saved" });
+									setEditing(false);
+								},
+							},
+						)
+					}
+				/>
+			) : null}
 		</section>
 	);
 }

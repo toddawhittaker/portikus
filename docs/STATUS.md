@@ -2698,3 +2698,112 @@ not taken over the stored one (SPEC.md section 5.1).
 
 Gaps: an existing Dex account's name still cannot be changed from the
 Users view.
+
+## Epic 14.3 — Resource guard (in progress)
+
+### Terminal limit of 20, shown in a toast (#474)
+
+A workspace may now hold 20 terminals instead of 8. The API and the
+workspace agent both read the shared constant, and SPEC.md section 9
+says why the cap exists: it stops a runaway client, and the container's
+CPU, memory and process limits are the real resource limit. A refused
+create now shows a toast that names the limit ("You can have up to 20
+terminals open at once. Close one to open another."). Any other failure
+to create, rename, recolour or close a terminal shows a generic toast.
+The inline "Terminals are unavailable" line is kept only for a terminal
+list that will not load.
+
+The same pull request fixes a flaky API test. When a browser socket
+closed while the API had paused its agent socket for backpressure, the
+API never resumed that socket, so it could not read the agent's close
+reply. Both ends then waited for the WebSocket library's 30-second close
+timeout, which made the real-agent test's shutdown hook time out in CI.
+Stopping the backpressure poll now also resumes the agent socket.
+
+Gaps: the New terminal button is not disabled at the cap; the toast is
+enough for now.
+
+### Toasts time out, and a notification history (#475)
+
+Every toast now goes away on its own: neutral and success after 5
+seconds, warnings and errors after 10. A toast with an action the user
+must answer still stays until answered. Every toast shown is also
+recorded on the server as a notification (migration `0021_notifications`,
+ADR 0033). The account button shows an unread badge ("9+" above nine),
+its accessible name carries the count, and a Notifications dialog,
+opened from the account menu or the badge, lists the history with mark
+read, mark all read and clear. Browsers poll every 30 seconds and on
+window focus. The API caps title and body length, rate-limits recording
+to 30 a minute per user, trims each user to 200 rows, and never logs the
+text; the worker deletes rows older than 90 days every hour. The Epic
+12b backup already covers the table, because it dumps the whole
+database. SPEC.md section 8.5 describes it.
+
+Gaps: a toast whose text comes from a component that renders its own
+words is recorded without that text; every current toast passes plain
+text or elements. The dialog shows the newest 50 and has no "load more"
+yet, though the API pages. The a11y-reviewer pass on the badge and
+dialog is still to run at the epic review.
+
+### Resource guard, idle stop and acceptable use (#554)
+
+The rules are in SPEC.md sections 5.1, 6.4 and 19.4, and the choices in
+ADR 0032. Migration `0020_resource_guard` adds the settings, the
+per-workspace columns and the `workspace_usage_samples` table.
+
+Delivered:
+
+- The controller's `GET /instances/usage` reads every running
+  instance's CPU time, memory working set (page cache left out through
+  the cgroup's `memory.stat`), limits, CPU allowance and boot marker in
+  one Incus call. `PUT /instances/:name/cpu-allowance` sets or removes a
+  time-slice allowance, and every start removes it.
+- The worker samples every running workspace each minute. CPU is
+  judged across runs over a rolling window of wall-clock time, with
+  stopped time as no use; a restart, seen as a changed boot marker or a
+  CPU counter drop, counts up to 60 seconds of full use. Memory is
+  judged per run. A workspace above the CPU threshold is throttled to a
+  time slice; one above the memory threshold is flagged. The worker
+  makes Incus match the database every tick. A stop clears both, and a
+  stop that lifts a throttle drops the samples from before it.
+- Idle stop: the web app reports key presses, clicks and pastes, the
+  API counts file writes and user-started preview page loads, and the
+  worker warns after the idle time and stops five minutes later. The
+  grace period is unchanged. Workspaces whose owner had a grace override
+  of 0 got an idle override of 0 on upgrade.
+- The student sees a throttle notice and the "Still working?" notice.
+  Administrators see **Throttled** and **High memory** tags, a Resource
+  guard section in the Health tab and the detail panel, lift and clear
+  buttons, a guard overrides dialog, and the new settings.
+- Every change is audited (SPEC.md section 24.11).
+- The acceptable-use statement, an administrator-edited text with a
+  built-in default, accepted at first sign-in and after every change, as
+  the second gate after "must change password".
+
+Rehearsal: on the rehearsal VM (0.1.480+g77d322f) every live check
+passed: the units, page cache left out of memory (a 1.5 GB file read
+gave a sample equal to usage minus `inactive_file`), a `recursion=2`
+listing in 23 to 25 ms with three workspaces running, the throttle
+(`cpu.max` `50000 100000` on a 2-CPU workspace), the throttle surviving
+restarts of the worker and controller, lift, stop and start, a reboot
+seen by the boot marker, the memory flag, idle stop, and the
+acceptable-use gate through Caddy. `make smoke-test` passed 243 of 243
+and `make security-test` 242 of 242 with one warning (the mock LMS).
+PR #588 adds the `cpu.max` checks to `limits.sh` and the gate check to
+`preview-edge.sh`.
+
+Pilot: not yet deployed; the rehearsal VM results above are the live evidence.
+
+Gaps:
+
+- A student can run a heavy load, get throttled, restart and repeat
+  without limit. Each cycle is audited; a limit is in docs/BACKLOG.md.
+- A determined student can fake activity with a script that holds their
+  own session cookie. The throttle still catches heavy CPU.
+- A long unattended job, including a coding agent, is stopped by idle
+  stop unless an administrator sets that workspace's idle override to 0.
+- The CPU average recorded after a reboot from inside the workspace can
+  be above 100%, because up to a minute before each restart counts as
+  full use.
+- Files in the workspace's `/tmp`, a tmpfs, count as memory and can
+  raise the memory flag.

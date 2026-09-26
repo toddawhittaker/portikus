@@ -37,7 +37,13 @@ export async function upsertUser(
 	db: Kysely<Database>,
 	identity: OidcIdentity,
 	role: Role,
-): Promise<AuthUser & { disabledAt: string | null; previousRole: Role | null }> {
+): Promise<
+	// Acceptance is the session's business; loadSession decides it.
+	Omit<AuthUser, "mustAcceptUse"> & {
+		disabledAt: string | null;
+		previousRole: Role | null;
+	}
+> {
 	const now = new Date().toISOString();
 	const previous = await db
 		.selectFrom("users")
@@ -153,6 +159,7 @@ export async function loadSessionById(
 	const row = await db
 		.selectFrom("sessions")
 		.innerJoin("users", "users.id", "sessions.user_id")
+		.leftJoin("settings", (join) => join.on("settings.id", "=", 1))
 		.select([
 			"sessions.expires_at",
 			"users.id as user_id",
@@ -161,6 +168,8 @@ export async function loadSessionById(
 			"users.role",
 			"users.disabled_at",
 			"users.must_change_password",
+			"users.acceptable_use_version as accepted_use_version",
+			"settings.acceptable_use_version as current_use_version",
 		])
 		.where("sessions.id", "=", id)
 		.where((eb) =>
@@ -213,6 +222,8 @@ export async function loadSessionById(
 		displayName: row.display_name,
 		role: row.role as Role,
 		mustChangePassword: row.must_change_password,
+		// No settings row yet means version 1, the column default.
+		mustAcceptUse: row.accepted_use_version !== (row.current_use_version ?? 1),
 	};
 }
 

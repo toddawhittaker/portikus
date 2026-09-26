@@ -72,6 +72,13 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /me/picture": { access: "self" },
 	"PUT /me/picture": { access: "self" },
 	"DELETE /me/picture": { access: "self" },
+	// Every notification query is scoped to the caller (ADR 0033).
+	"GET /me/notifications": { access: "self" },
+	"HEAD /me/notifications": { access: "self" },
+	"POST /me/notifications": { access: "self" },
+	"DELETE /me/notifications": { access: "self" },
+	"PATCH /me/notifications/:id": { access: "self" },
+	"POST /me/notifications/read-all": { access: "self" },
 	"POST /workspaces": { access: "self" },
 	// Account linking (docs/archive/epics/EPIC-13-1.md, "The flow"); each checks its own state.
 	"GET /me/links": { access: "self" },
@@ -83,6 +90,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /me/links/:courseUserId/unlink": { access: "self" },
 	// Settings, Password (SPEC.md section 5.3); 404 without Dex's gRPC API.
 	"POST /me/password": { access: "self" },
+	// The acceptable-use gate's own routes (SPEC.md section 5.1).
+	"GET /me/acceptable-use": { access: "self" },
+	"HEAD /me/acceptable-use": { access: "self" },
+	"POST /me/acceptable-use": { access: "self" },
 
 	"GET /workspaces/:id": { access: "owner-or-admin" },
 	"HEAD /workspaces/:id": { access: "owner-or-admin" },
@@ -184,6 +195,9 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/workspaces/:id/archive": { access: "admin" },
 	"POST /admin/workspaces/:id/unarchive": { access: "admin" },
 	"PUT /admin/workspaces/:id/quota": { access: "admin" },
+	"PUT /admin/workspaces/:id/guard": { access: "admin" },
+	"POST /admin/workspaces/:id/lift-throttle": { access: "admin" },
+	"POST /admin/workspaces/:id/clear-memory-flag": { access: "admin" },
 	"POST /admin/workspaces/:id/rebuild": { access: "admin" },
 	"GET /admin/audit": { access: "admin" },
 	"HEAD /admin/audit": { access: "admin" },

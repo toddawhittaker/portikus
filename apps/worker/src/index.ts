@@ -4,8 +4,10 @@ import { createLogger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { httpAgentFactory } from "./agent-client.js";
 import { HttpControllerClient } from "./controller-client.js";
+import { startGuard } from "./guard.js";
 import { startHealthSampling } from "./health.js";
 import { createLogLevelSync } from "./log-level.js";
+import { startNotificationPrune } from "./notifications.js";
 import { startQuotaSync } from "./quota.js";
 import { reconcile, type SweepResult } from "./reconcile.js";
 import { recoverySweep } from "./recovery.js";
@@ -90,9 +92,11 @@ async function main(): Promise<void> {
 	logLevelTimer.unref();
 	void syncLogLevel();
 
-	// Host samples and quota grows each run on their own timer, off the sweep.
+	// Host samples, quota grows and the resource guard each run on their own timer, off the sweep.
 	startHealthSampling({ db, controller, logger });
 	startQuotaSync({ db, controller, logger });
+	startGuard({ db, controller, logger });
+	startNotificationPrune({ db, logger });
 
 	let lastRefreshAt: Date | null = null;
 	let controllerUnreachable = false;
