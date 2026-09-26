@@ -1810,8 +1810,9 @@ files:
   content: |-
     [Unit]
     Description=Portikus Workspace Agent
-    After=portikus-home-init.service network-online.target
-    Wants=network-online.target
+    # Wants, never Requires: a terminals restart must not restart the agent.
+    After=portikus-home-init.service network-online.target portikus-terminals.service
+    Wants=network-online.target portikus-terminals.service
     ConditionPathExists=/opt/portikus/workspace-agent/bin/workspace-agent
 
     [Service]
@@ -1829,12 +1830,82 @@ files:
     # /run is root-owned mode 0755, so the student cannot mkdir this.
     RuntimeDirectory=portikus
     RuntimeDirectoryMode=0700
+    # The agent uses the tmux server of portikus-terminals.service and never
+    # starts its own (docs/EPIC-16.md, rulings 5 and 12).
+    Environment=TMUX_EXTERNAL_SERVER=true
     ExecStart=/opt/portikus/workspace-agent/bin/workspace-agent
     Restart=on-failure
     RestartSec=5
-    # Terminals and student programs share this unit's cgroup, and the kernel
-    # already kills the biggest process; stopping the unit would kill tmux too.
+    # Checks still run in this unit's cgroup, and the kernel already kills the
+    # biggest process; stopping the unit would stop the agent with it.
     OOMPolicy=continue
+    # The container's pids.max is the only ceiling, so a fork bomb in a
+    # terminal (capped lower in the terminals unit) cannot starve the agent.
+    TasksMax=infinity
+    # Out of memory, the kernel picks terminals and Docker before the agent.
+    OOMScoreAdjust=-500
+
+    [Install]
+    WantedBy=multi-user.target
+
+# /tmp is a capped tmpfs, so a huge temporary file fails with "No space left
+# on device" instead of using the workspace's memory (issue #618).
+- path: /etc/fstab
+  generator: dump
+  mode: "0644"
+  content: |-
+    tmpfs /tmp tmpfs mode=1777,strictatime,nosuid,nodev,size=512M,nr_inodes=1m 0 0
+
+# systemd mounts /dev/shm before any unit runs, so the cap is a remount.
+- path: /etc/systemd/system/portikus-shm-size.service
+  generator: dump
+  mode: "0644"
+  content: |-
+    [Unit]
+    Description=Cap /dev/shm at 256M
+    DefaultDependencies=no
+    Before=sysinit.target
+    Conflicts=shutdown.target
+
+    [Service]
+    Type=oneshot
+    ExecStart=/bin/mount -o remount,size=256M /dev/shm
+    RemainAfterExit=yes
+
+    [Install]
+    WantedBy=sysinit.target
+
+# The tmux server for every terminal, in its own cgroup, so terminals survive
+# an agent restart and the agent can be shielded (issues #610 and #619).
+# -f /dev/null: no student or system tmux.conf; the agent sets every option.
+# -D: stay in the foreground and keep running with no sessions.
+- path: /etc/systemd/system/portikus-terminals.service
+  generator: dump
+  mode: "0644"
+  content: |-
+    [Unit]
+    Description=Portikus terminals (tmux server)
+    After=portikus-home-init.service
+    # Never give up restarting: the agent cannot start the server itself.
+    StartLimitIntervalSec=0
+
+    [Service]
+    User=student
+    Group=student
+    WorkingDirectory=/home/student
+    ExecStart=/usr/bin/tmux -L portikus -f /dev/null -D
+    # always, not on-failure: tmux kill-server exits 0.
+    Restart=always
+    RestartSec=1
+    # One program running out of memory must not stop every terminal.
+    OOMPolicy=continue
+    # Below the container's 2000, so the agent keeps room to fork.
+    TasksMax=1700
+    # The exit record (issue #625): why the terminals last stopped this boot.
+    RuntimeDirectory=portikus-terminals
+    RuntimeDirectoryMode=0755
+    RuntimeDirectoryPreserve=yes
+    ExecStopPost=/bin/sh -c 'printf "%%s\n" "$SERVICE_RESULT" > /run/portikus-terminals/last-exit'
 
     [Install]
     WantedBy=multi-user.target
@@ -2046,6 +2117,8 @@ actions:
 
     systemctl enable portikus-workspace-agent.service
     systemctl enable portikus-home-init.service
+    systemctl enable portikus-terminals.service
+    systemctl enable portikus-shm-size.service
 
     ln -sf xclip /usr/local/bin/xsel
     ln -sf xclip /usr/local/bin/pbcopy

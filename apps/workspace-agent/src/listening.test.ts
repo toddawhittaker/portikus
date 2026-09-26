@@ -6,8 +6,9 @@ import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
+	type DockerContainer,
 	decodeHexAddress,
 	isSystemListener,
 	ListeningMonitor,
@@ -679,4 +680,97 @@ test("a container row is stopped with docker stop, not a signal", async () => {
 	});
 	await monitor.stopListener(5432);
 	expect(stopped).toEqual(["abc123"]);
+});
+
+// --- scan cost (SPEC.md §18.2, issue #623) ---
+
+test("the timer does not scan while nothing watches, and resumes when something does", async () => {
+	await writeProcNet([HEADER, row("0100007F:1388", "0A", "1")].join("\n"));
+	let calls = 0;
+	let forwarded = new Set<number>();
+	const monitor = monitorFor({
+		docker: async () => {
+			calls += 1;
+			return [];
+		},
+		forwardedPorts: () => forwarded,
+	});
+	// An in-process subscriber, like the forwards' one, does not count.
+	monitor.subscribe(() => {});
+	await monitor.tick();
+	expect(calls).toBe(0);
+
+	const release = monitor.watch();
+	await monitor.tick();
+	expect(calls).toBe(1);
+	release();
+	release();
+
+	// Past the Docker cache, so each scan asks again.
+	vi.useFakeTimers({ now: Date.now() + 10_000, toFake: ["Date"] });
+	try {
+		await monitor.tick();
+		expect(calls).toBe(1);
+		forwarded = new Set([5000]);
+		await monitor.tick();
+		expect(calls).toBe(2);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("a tick is skipped while the previous scan is still running", async () => {
+	await writeProcNet([HEADER, row("0100007F:1388", "0A", "1")].join("\n"));
+	let calls = 0;
+	let finish: (value: DockerContainer[]) => void = () => {};
+	const monitor = monitorFor({
+		docker: () => {
+			calls += 1;
+			return new Promise((resolve) => {
+				finish = resolve;
+			});
+		},
+	});
+	monitor.watch();
+	const first = monitor.tick();
+	await vi.waitFor(() => expect(calls).toBe(1));
+	await monitor.tick();
+	expect(calls).toBe(1);
+	finish([]);
+	await first;
+});
+
+test("the fd walk is skipped while every listening inode's owner is known", async () => {
+	await writeProcNet([HEADER, row("0100007F:1388", "0A", "700")].join("\n"));
+	await fakeProcess(70, "first", [700]);
+	const monitor = monitorFor();
+	expect((await monitor.refresh())[0]?.process?.command).toBe("first");
+
+	// A walk would read the new name; the cache means none happens.
+	await writeFile(join(procRoot, "70", "comm"), "renamed\n");
+	expect((await monitor.refresh())[0]?.process?.command).toBe("first");
+
+	// A new inode makes the next scan walk again.
+	await fakeProcess(71, "second", [701]);
+	await writeProcNet(
+		[HEADER, row("0100007F:1388", "0A", "700"), row("0100007F:1F90", "0A", "701")].join(
+			"\n",
+		),
+	);
+	const services = await monitor.refresh();
+	expect(services.map((service) => service.process?.command)).toEqual([
+		"renamed",
+		"second",
+	]);
+});
+
+test("the fd walk runs again when a cached owner has exited", async () => {
+	await writeProcNet([HEADER, row("0100007F:1388", "0A", "800")].join("\n"));
+	await fakeProcess(80, "parent", [800]);
+	await fakeProcess(81, "child", [800]);
+	const monitor = monitorFor();
+	expect((await monitor.refresh())[0]?.process?.pid).toBe(80);
+
+	await rm(join(procRoot, "80"), { recursive: true });
+	expect((await monitor.refresh())[0]?.process?.pid).toBe(81);
 });
