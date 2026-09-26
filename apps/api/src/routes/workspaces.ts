@@ -57,7 +57,9 @@ export function registerWorkspaceRoutes(
 			const active = await countActive(db, existing.id as string, config);
 			return reply
 				.status(200)
-				.send(toWorkspace(existing as Record<string, unknown>, active, config));
+				.send(
+					await toWorkspace(db, existing as Record<string, unknown>, active, config),
+				);
 		}
 
 		// Generate id and instance name.
@@ -113,7 +115,7 @@ export function registerWorkspaceRoutes(
 				const active = await countActive(db, row.id as string, config);
 				return reply
 					.status(200)
-					.send(toWorkspace(row as Record<string, unknown>, active, config));
+					.send(await toWorkspace(db, row as Record<string, unknown>, active, config));
 			}
 			throw err;
 		}
@@ -135,7 +137,7 @@ export function registerWorkspaceRoutes(
 			.executeTakeFirstOrThrow();
 		return reply
 			.status(201)
-			.send(toWorkspace(created as Record<string, unknown>, 0, config));
+			.send(await toWorkspace(db, created as Record<string, unknown>, 0, config));
 	});
 
 	// GET /workspaces/:id
@@ -153,7 +155,7 @@ export function registerWorkspaceRoutes(
 		}
 
 		const active = await countActive(db, params.data.id, config);
-		return toWorkspace(row, active, config);
+		return toWorkspace(db, row, active, config);
 	});
 
 	// POST /workspaces/:id/start

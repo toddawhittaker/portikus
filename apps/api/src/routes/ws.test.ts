@@ -488,12 +488,15 @@ test.skipIf(skip)("throttle and idle-stop changes reach an open socket", async (
 		.where("id", "=", workspaceId)
 		.execute();
 	let message = await update;
-	// The student sees the numbers, never the allowance or the average.
+	// The student sees the numbers, never the allowance or the average; with no
+	// settings row there are no lift facts.
 	expect(message.workspace.cpuThrottle).toEqual({
 		at: throttle.at,
 		thresholdPercent: 80,
 		windowMinutes: 30,
 		sharePercent: 25,
+		idleLiftMinutes: null,
+		idleLiftPercent: null,
 	});
 
 	const idleStopAt = new Date(Date.now() + 5 * 60_000).toISOString();

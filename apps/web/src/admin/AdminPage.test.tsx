@@ -25,6 +25,8 @@ const GUARD_SETTINGS = {
 	memoryGuardThresholdPercent: 90,
 	guardWindowMinutes: 30,
 	cpuThrottleSharePercent: 25,
+	cpuIdleLiftMinutes: 5,
+	cpuIdleLiftPercent: 10,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
 	acceptableUseVersion: 1,
@@ -553,7 +555,7 @@ test("idle stop saves the minutes and refuses a value between 1 and 9", async ()
 	expect(writes[0]).toEqual({ url: "/admin/settings", body: { idleStopMinutes: 0 } });
 });
 
-test("the resource guard saves its four values and names each bad one", async () => {
+test("the resource guard saves its values and names each bad one", async () => {
 	const writes: { url: string; body: unknown }[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
 	renderApp("/admin?tab=settings");
@@ -587,9 +589,45 @@ test("the resource guard saves its four values and names each bad one", async ()
 			memoryGuardThresholdPercent: 90,
 			guardWindowMinutes: 45,
 			cpuThrottleSharePercent: 25,
+			cpuIdleLiftMinutes: 5,
+			cpuIdleLiftPercent: 10,
 		},
 	});
 	expect(await screen.findByText("Resource guard saved")).toBeDefined();
+});
+
+test("the automatic lift fields save, allow 0 to turn it off, and name a bad value", async () => {
+	const writes: { url: string; body: unknown }[] = [];
+	stubAdmin(600, (url, body) => writes.push({ url, body }));
+	renderApp("/admin?tab=settings");
+
+	const minutes = (await screen.findByLabelText(
+		"Quiet time to lift (minutes)",
+	)) as HTMLInputElement;
+	const percent = screen.getByLabelText("Quiet below (%)") as HTMLInputElement;
+	await waitFor(() => expect(minutes.value).toBe("5"));
+	expect(percent.value).toBe("10");
+
+	fireEvent.change(minutes, { target: { value: "61" } });
+	fireEvent.click(screen.getByTestId("guard-settings-save"));
+	const alert = await screen.findByRole("alert");
+	expect(alert.textContent).toBe("Enter a whole number from 1 to 60.");
+	expect(minutes.getAttribute("aria-invalid")).toBe("true");
+	// The error is tied to its field.
+	const described = document.getElementById(
+		minutes.getAttribute("aria-describedby") ?? "",
+	);
+	expect(described?.textContent).toContain("Enter a whole number from 1 to 60.");
+	expect(writes).toEqual([]);
+
+	fireEvent.change(minutes, { target: { value: "15" } });
+	fireEvent.change(percent, { target: { value: "0" } });
+	fireEvent.click(screen.getByTestId("guard-settings-save"));
+	await waitFor(() => expect(writes.length).toBe(1));
+	expect(writes[0]?.body).toMatchObject({
+		cpuIdleLiftMinutes: 15,
+		cpuIdleLiftPercent: 0,
+	});
 });
 
 test("the acceptable-use section starts on the default, says everyone accepts again, and saves", async () => {

@@ -1,28 +1,65 @@
 import type { ApiConfig } from "@portikus/config";
-import type { AuthUser, Workspace } from "@portikus/contracts";
+import { type AuthUser, idleLift, type Workspace } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 
-/** The throttle numbers the student is shown; never the allowance string. */
-function toStudentThrottle(value: unknown): Workspace["cpuThrottle"] {
+/** Parse a jsonb value that may arrive as text. */
+function fromJson<T>(value: unknown): T | null {
 	if (value === null || value === undefined) return null;
-	const raw = (typeof value === "string" ? JSON.parse(value) : value) as NonNullable<
-		Workspace["cpuThrottle"]
-	>;
+	return (typeof value === "string" ? JSON.parse(value) : value) as T;
+}
+
+/**
+ * The throttle numbers the student is shown, never the allowance string,
+ * with when it lifts on its own from the settings row (#596).
+ */
+function toStudentThrottle(
+	value: unknown,
+	lift: { minutes: number; percent: number } | null,
+): Workspace["cpuThrottle"] {
+	const raw = fromJson<NonNullable<Workspace["cpuThrottle"]>>(value);
+	if (!raw) return null;
 	return {
 		at: raw.at,
 		thresholdPercent: raw.thresholdPercent,
 		windowMinutes: raw.windowMinutes,
 		sharePercent: raw.sharePercent,
+		idleLiftMinutes: lift?.minutes ?? null,
+		idleLiftPercent: lift?.percent ?? null,
 	};
 }
 
-/** Map a workspaces row to the Workspace contract shape. */
-export function toWorkspace(
+/** The memory flag's numbers (ADR 0032). */
+function toMemoryFlag(value: unknown): Workspace["memoryFlag"] {
+	const raw = fromJson<NonNullable<Workspace["memoryFlag"]>>(value);
+	if (!raw) return null;
+	return {
+		at: raw.at,
+		averagePercent: raw.averagePercent,
+		thresholdPercent: raw.thresholdPercent,
+		windowMinutes: raw.windowMinutes,
+	};
+}
+
+/**
+ * Map a workspaces row to the Workspace contract shape. A throttled row
+ * reads the idle-lift settings so the student learns when it lifts.
+ */
+export async function toWorkspace(
+	db: Kysely<Database>,
 	row: Record<string, unknown>,
 	activeConnections: number,
 	config: ApiConfig,
-): Workspace {
+): Promise<Workspace> {
+	let lift: { minutes: number; percent: number } | null = null;
+	if (row.cpu_throttle) {
+		const settings = await db
+			.selectFrom("settings")
+			.select(["cpu_idle_lift_minutes", "cpu_idle_lift_percent"])
+			.where("id", "=", 1)
+			.executeTakeFirst();
+		lift = settings ? idleLift(settings) : null;
+	}
 	const quota =
 		typeof row.quota_config === "string"
 			? JSON.parse(row.quota_config)
@@ -51,7 +88,8 @@ export function toWorkspace(
 			? (row.shutdown_deadline as Date).toISOString()
 			: null,
 		archivedAt: row.archived_at ? (row.archived_at as Date).toISOString() : null,
-		cpuThrottle: toStudentThrottle(row.cpu_throttle),
+		cpuThrottle: toStudentThrottle(row.cpu_throttle, lift),
+		memoryFlag: toMemoryFlag(row.memory_flag),
 		idleStopAt: row.idle_stop_at ? (row.idle_stop_at as Date).toISOString() : null,
 		lastActivityAt: row.last_activity_at
 			? (row.last_activity_at as Date).toISOString()

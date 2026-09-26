@@ -68,7 +68,7 @@ export function registerWorkspaceSocket(
 			.executeTakeFirst();
 		if (!row) return null;
 		const active = await countActive(db, id, config);
-		return toWorkspace(row as Record<string, unknown>, active, config);
+		return toWorkspace(db, row as Record<string, unknown>, active, config);
 	}
 
 	function send(socket: WebSocket, workspace: Workspace): void {

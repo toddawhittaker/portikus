@@ -303,7 +303,7 @@ export function registerAdminWorkspaceRoutes(
 
 		const facts = await loadImageFacts(db);
 		const body: AdminWorkspaceDetail = {
-			workspace: toWorkspace(row, await countActive(db, id, config), config),
+			workspace: await toWorkspace(db, row, await countActive(db, id, config), config),
 			owner: {
 				id: owner.id,
 				displayName: owner.display_name,
@@ -386,7 +386,9 @@ export function registerAdminWorkspaceRoutes(
 			});
 		}
 		const updated = (await loadRow(id)) as Record<string, unknown>;
-		reply.send(toWorkspace(updated, await countActive(db, id, config), config));
+		reply.send(
+			await toWorkspace(db, updated, await countActive(db, id, config), config),
+		);
 	}
 
 	app.post("/admin/workspaces/:id/archive", adminOnly, async (request, reply) =>
@@ -470,7 +472,7 @@ export function registerAdminWorkspaceRoutes(
 			}
 		}
 		const updated = (await loadRow(id)) as Record<string, unknown>;
-		return toWorkspace(updated, await countActive(db, id, config), config);
+		return toWorkspace(db, updated, await countActive(db, id, config), config);
 	});
 	// PUT /admin/workspaces/:id/guard -- per-workspace guard overrides (ADR 0032).
 	app.put("/admin/workspaces/:id/guard", adminOnly, async (request, reply) => {
