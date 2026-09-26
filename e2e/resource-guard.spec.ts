@@ -147,3 +147,22 @@ test("the Health tab lists a throttled workspace and links to its panel", async 
 	await list.getByRole("link", { name: student.name }).click();
 	await expect(page.getByRole("region", { name: student.name })).toBeVisible();
 });
+
+test("the slowed-down notice's Restart workspace… opens Restart's confirmation", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await throttle(student.workspaceId);
+	await page.goto(workspacePath(student.workspaceId));
+	const notice = page.getByTestId("throttle-notice");
+	await expect(notice).toBeVisible({ timeout: 15_000 });
+
+	await notice.getByRole("button", { name: "Restart workspace…" }).click();
+	const confirm = page.getByTestId("dialog-workspace-restart");
+	await expect(confirm).toBeVisible();
+	// Cancel leaves the student in the workspace dialog, where Restart lives.
+	await confirm.getByRole("button", { name: "Cancel" }).click();
+	await expect(confirm).toHaveCount(0);
+	await expect(page.getByTestId("dialog-workspace-status")).toBeVisible();
+});
