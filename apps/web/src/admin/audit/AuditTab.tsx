@@ -4,6 +4,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { UUID } from "../../links.js";
+import { AdminSection } from "../AdminSection.js";
 import { type AuditFilters, useAuditPage } from "./queries.js";
 
 function text(value: unknown): string {
@@ -76,11 +77,8 @@ export function AuditTab() {
 	}
 
 	return (
-		<section className="pk-card mt-6 p-6" aria-labelledby="audit-title">
-			<h2 className="pk-text-heading m-0" id="audit-title">
-				Audit events
-			</h2>
-			<form className="pk-actions mt-4 items-end" onSubmit={apply}>
+		<AdminSection title="Audit">
+			<form className="pk-actions items-end" onSubmit={apply}>
 				<TextField
 					id="audit-workspace"
 					label="Workspace ID"
@@ -117,7 +115,7 @@ export function AuditTab() {
 			</form>
 			{/* Only the results re-key on new filters, so the focused form button stays. */}
 			<AuditResults key={key} filters={filters} />
-		</section>
+		</AdminSection>
 	);
 }
 
@@ -138,40 +136,43 @@ function AuditResults({ filters }: { filters: AuditFilters }) {
 	return (
 		<>
 			{page.isError ? (
-				<p className="pk-error mt-4 text-status-error" role="alert">
+				<p className="pk-error text-status-error" role="alert">
 					{page.error instanceof ApiError
 						? page.error.message
 						: "Audit events could not be loaded."}
 				</p>
 			) : null}
-			<table
-				className="mt-4 w-full text-left text-[13px]"
-				data-testid="audit-table"
-				aria-busy={page.isFetching}
-			>
-				<caption className="pk-text-label pk-muted text-left">
-					Audit events, newest first, {events.length} shown
-				</caption>
-				<thead>
-					<tr className="pk-text-label text-ink-muted">
-						<th className="py-2 pr-4 font-medium">Time</th>
-						<th className="py-2 pr-4 font-medium">Actor</th>
-						<th className="py-2 pr-4 font-medium">Action</th>
-						<th className="py-2 pr-4 font-medium">Target</th>
-						<th className="py-2 pr-4 font-medium">Result</th>
-						<th className="py-2 font-medium">Details</th>
-					</tr>
-				</thead>
-				<tbody>
-					{events.map((event) => (
-						<AuditRow key={event.id} event={event} />
-					))}
-				</tbody>
-			</table>
+			{/* overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main> (EPIC-18 ruling 5). */}
+			<div className="pk-table-wrap overflow-clip">
+				<table
+					className="pk-table"
+					data-testid="audit-table"
+					aria-busy={page.isFetching}
+				>
+					<caption className="sr-only">
+						Audit events, newest first, {events.length} shown
+					</caption>
+					<thead>
+						<tr>
+							<th>Time</th>
+							<th>Actor</th>
+							<th>Action</th>
+							<th>Target</th>
+							<th>Result</th>
+							<th>Details</th>
+						</tr>
+					</thead>
+					<tbody>
+						{events.map((event) => (
+							<AuditRow key={event.id} event={event} />
+						))}
+					</tbody>
+				</table>
+			</div>
 			{page.isSuccess && events.length === 0 ? (
-				<p className="pk-text-body pk-muted mt-4">No audit events match.</p>
+				<p className="pk-text-body pk-muted">No audit events match.</p>
 			) : null}
-			<div className="pk-actions mt-4 items-center">
+			<div className="pk-actions items-center">
 				{/* Unavailable buttons stay focusable so paging never drops focus. */}
 				<Button
 					data-testid="audit-newer"
@@ -208,20 +209,17 @@ export function pageText(pageNumber: number, count: number): string {
 function AuditRow({ event }: { event: AuditEvent }) {
 	const metadata = Object.entries(event.metadata ?? {});
 	return (
-		<tr
-			className="border-line border-t align-top"
-			data-testid={`audit-row-${event.id}`}
-		>
-			<td className="py-2 pr-4 whitespace-nowrap">
+		<tr className="align-top" data-testid={`audit-row-${event.id}`}>
+			<td className="py-2">
 				<time dateTime={event.at}>{new Date(event.at).toLocaleString()}</time>
 			</td>
-			<td className="py-2 pr-4" title={event.actor}>
+			<td className="py-2" title={event.actor}>
 				{event.actorName ?? event.actor}
 			</td>
-			<td className="py-2 pr-4 font-mono">{event.action}</td>
-			<td className="py-2 pr-4 font-mono break-all">{event.target}</td>
-			<td className="py-2 pr-4">{event.result}</td>
-			<td className="py-2">
+			<td className="py-2 font-mono">{event.action}</td>
+			<td className="py-2 font-mono whitespace-normal break-all">{event.target}</td>
+			<td className="py-2">{event.result}</td>
+			<td className="py-2 whitespace-normal">
 				{metadata.length === 0 ? (
 					"—"
 				) : (

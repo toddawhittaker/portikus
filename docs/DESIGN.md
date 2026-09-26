@@ -221,6 +221,17 @@ a sibling. That is fewer moving parts than the Radix primitive for no loss, so
 collapsing. The `Shell1024` mockup stands as the design for whenever narrow
 displays are taken up.
 
+**Table styles are CSS classes (Epic 18).** The Table rules from
+`design/system/components/bundle.css` and the cell classes from
+`design/mockups/portikus-screens.css` are ported into
+`packages/ui/src/primitives/primitives.css` as `.pk-table-wrap`, `.pk-table`,
+`.pk-num` and the `.pk-cell-*` classes, not a React component. They sit in
+Tailwind's components layer so a utility can override them, which is how the
+admin wraps swap `overflow: auto` for `overflow-clip` and let the sticky header
+stick to the scrolling page. One rule is added to the design: a row header
+(`tbody th`) looks like an ordinary cell. The sortable-header rules are left
+out until something sorts.
+
 ## 10. Which Monaco features are on
 
 Pilot feedback asked for the stock editor rather than a stripped-down one

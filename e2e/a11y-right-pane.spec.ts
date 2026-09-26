@@ -97,7 +97,9 @@ test.describe("admin and standalone page accessibility", () => {
 		await page.context().clearCookies();
 		await loginAs(page, "carol");
 		await page.goto("/admin");
-		await expect(page).toHaveTitle("Administration, Portikus", { timeout: 15_000 });
+		await expect(page).toHaveTitle("Users, Administration, Portikus", {
+			timeout: 15_000,
+		});
 
 		// Other tests add students with repeated names, so compare two known rows.
 		// Each row's details button is named after its user (Epic 11).
