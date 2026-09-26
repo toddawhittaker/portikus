@@ -323,7 +323,7 @@ test.skipIf(skip)("a steady 75% is not throttled across restarts", async () => {
 	expect(await audits(ws.id)).toEqual([]);
 });
 
-// A reboot from inside the workspace zeroes the counter (security review, EPIC-14-3 ruling 10).
+// A reboot from inside the workspace zeroes the counter (security review, SPEC.md 19.4).
 test.skipIf(skip)(
 	"a reboot loop at about 90% real use is throttled at the first full window",
 	async () => {
@@ -550,7 +550,7 @@ test.skipIf(skip)("memory above 90% is flagged; 89% is not", async () => {
 	expect((await row(low.id)).memory_flag).toBeNull();
 });
 
-// Memory is judged per run; CPU across runs (EPIC-14-3 ruling 10).
+// Memory is judged per run; CPU across runs (SPEC.md 19.4).
 test.skipIf(skip)(
 	"memory is judged per run while CPU is judged across the restart",
 	async () => {

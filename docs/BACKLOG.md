@@ -79,58 +79,23 @@ connector, and the local administrator is the way back from a mistake.
 
 **Source.** Todd, 2026-09-25.
 
-## Resource guard: idle stop, CPU throttling, memory flags
+## A limit on throttle-then-restart cycles
 
-**Scheduled as Epic 14.3, docs/EPIC-14-3.md.**
+**What.** Bound how often one workspace can be throttled and then lift
+its own throttle by stopping and starting.
 
-**What.** Stop students from running crypto miners or long-lived sites
-on the platform's CPU and memory. Rulings (Todd, 2026-09-25):
+**Why.** Stopping and starting a workspace lifts its throttle and starts
+a fresh usage window (SPEC.md section 19.4), so a student can run a
+heavy load for a full window, get throttled, restart, and repeat without
+end. Each cycle is audited in two rows, `workspace.cpu_throttled` and
+`workspace.cpu_throttle_lifted`, so an administrator can see it, but
+nothing stops it. This was accepted as a known limitation of Epic 14.3.
 
-1. **Heavy CPU is throttled.** No student needs more than 30 minutes of
-   heavy CPU. A workspace using more than 80% of its CPU limit for 30
-   minutes is throttled: its Incus CPU allowance drops to a low share
-   (default 25% of its limit). The student sees a banner saying why; the
-   admin area flags it and an audit row is written. The throttle lifts
-   when the workspace next stops and starts, or when an administrator
-   lifts it.
-2. **Heavy memory is flagged.** A workspace using more than 90% of its
-   memory limit for 30 minutes is flagged in the admin area with an
-   audit row. Not throttled: memory has a hard limit already.
-3. **Both are settings.** The thresholds, the 30 minutes and the throttled
-   share are admin settings in the admin area, with per-workspace
-   overrides, the way quotas are.
-4. **Idle stop by activity, not by an open tab.** Today an open tab keeps a
-   workspace running forever, because the grace period (SPEC.md 6.4) counts
-   connections. Keystrokes, terminal input, file saves and preview visits
-   count as activity; after 60 minutes with none the student sees "Still
-   working?", and the workspace stops 5 minutes later unless they answer.
-   An admin setting with per-user overrides, like the grace period.
-5. **An acceptable-use statement** at first sign-in.
+**What it would take.** A count of recent throttles per workspace, and a
+rule that keeps the throttle through a restart, or flags the workspace
+for an administrator, after a set number within a set time.
 
-**Why.** Previews are never public (SPEC.md 2.9, "A preview is never an
-unauthenticated public deployment"), but a student can keep a workspace
-alive with an open tab or run a miner inside the 4-CPU limit all day.
-
-**What it would take** (about two weeks):
-
-1. Per-workspace CPU and memory samples every minute. Today the worker
-   samples the host only (ADR 0022); the controller reads each instance's
-   CPU time and memory from Incus.
-2. The throttle and flag rules in the worker, `limits.cpu.allowance`
-   through the controller, audit rows, the student banner, and the admin
-   Health view showing throttled and flagged workspaces with a "Lift"
-   action.
-3. Activity reporting from the web app and the workspace agent, the idle
-   warning, and the stop.
-4. The settings with per-workspace overrides, and the acceptable-use
-   screen.
-
-Left out: blocking known miner programs by name, because administrators
-never see a student's process command lines (SPEC.md 20.1); and blocking
-mining-pool ports and tunnel services, because flagging, throttling and the
-acceptable-use statement are enough (Todd, 2026-09-25).
-
-**Source.** Todd, 2026-09-25.
+**Source.** Epic 14.3 review, 2026-09-25.
 
 ## Re-provision after a failed create
 

@@ -179,7 +179,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 	 * (see restartedBetween) the later counter counts in full, plus the time
 	 * before the restart, up to one sample interval, as full use: a reboot
 	 * from inside the workspace must not hide what ran before it (security
-	 * review, EPIC-14-3 ruling 10). The first judgement waits until the
+	 * review, SPEC.md 19.4). The first judgement waits until the
 	 * oldest kept sample is at least a window old, stopped time included.
 	 */
 	async function judgeCpu(
@@ -272,7 +272,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 	/**
 	 * Flag when memory averages above the threshold over the window, judged
 	 * per run: only samples since the latest restart count, and at least
-	 * half a window of them is needed (EPIC-14-3 ruling 10). A restart is
+	 * half a window of them is needed (SPEC.md 19.4). A restart is
 	 * what restartedBetween says, or a gap of more than two sample
 	 * intervals, which is where a stop left no samples.
 	 */

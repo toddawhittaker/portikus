@@ -2744,3 +2744,52 @@ words is recorded without that text; every current toast passes plain
 text or elements. The dialog shows the newest 50 and has no "load more"
 yet, though the API pages. The a11y-reviewer pass on the badge and
 dialog is still to run at the epic review.
+
+### Resource guard, idle stop and acceptable use (#554)
+
+The rules are in SPEC.md sections 5.1, 6.4 and 19.4, and the choices in
+ADR 0032. Migration `0020_resource_guard` adds the settings, the
+per-workspace columns and the `workspace_usage_samples` table.
+
+Delivered:
+
+- The controller's `GET /instances/usage` reads every running
+  instance's CPU time, memory working set (page cache left out through
+  the cgroup's `memory.stat`), limits, CPU allowance and boot marker in
+  one Incus call. `PUT /instances/:name/cpu-allowance` sets or removes a
+  time-slice allowance, and every start removes it.
+- The worker samples every running workspace each minute. CPU is
+  judged across runs over a rolling window of wall-clock time, with
+  stopped time as no use; a restart, seen as a changed boot marker or a
+  CPU counter drop, counts up to 60 seconds of full use. Memory is
+  judged per run. A workspace above the CPU threshold is throttled to a
+  time slice; one above the memory threshold is flagged. The worker
+  makes Incus match the database every tick. A stop clears both, and a
+  stop that lifts a throttle drops the samples from before it.
+- Idle stop: the web app reports key presses, clicks and pastes, the
+  API counts file writes and user-started preview page loads, and the
+  worker warns after the idle time and stops five minutes later. The
+  grace period is unchanged. Workspaces whose owner had a grace override
+  of 0 got an idle override of 0 on upgrade.
+- The student sees a throttle notice and the "Still working?" notice.
+  Administrators see **Throttled** and **High memory** tags, a Resource
+  guard section in the Health tab and the detail panel, lift and clear
+  buttons, a guard overrides dialog, and the new settings.
+- Every change is audited (SPEC.md section 24.11).
+- The acceptable-use statement, an administrator-edited text with a
+  built-in default, accepted at first sign-in and after every change, as
+  the second gate after "must change password".
+
+PILOT RESULTS: pending T7
+
+Gaps:
+
+- A student can run a heavy load, get throttled, restart and repeat
+  without limit. Each cycle is audited; a limit is in docs/BACKLOG.md.
+- A determined student can fake activity with a script that holds their
+  own session cookie. The throttle still catches heavy CPU.
+- A long unattended job, including a coding agent, is stopped by idle
+  stop unless an administrator sets that workspace's idle override to 0.
+- If the controller cannot read an instance's `memory.stat`, it reports
+  memory with page cache, which can flag a workspace that only read
+  large files. It logs a warning when that happens.
