@@ -82,8 +82,12 @@ export function attachArgs(id: string, server: TmuxServer): string[] {
  */
 const TMUX_MAX_OUTPUT_BYTES = 1024 * 1024;
 
-/** tmux's answers that mean "that session or server is not there". */
-const MISSING = /can't find session|no server running|error connecting/;
+/**
+ * tmux's answers that mean "that session or server is not there". A server
+ * started with -D that has no sessions says "no current target".
+ */
+const MISSING =
+	/can't find session|no current target|no server running|error connecting/;
 
 /** Thrown for a missing session or server, so callers can tell it from a real failure. */
 class TmuxMissing extends AgentFailure {}
