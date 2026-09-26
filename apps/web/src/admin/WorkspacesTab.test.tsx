@@ -268,7 +268,7 @@ async function openTable() {
 	await screen.findByTestId(`account-row-${uuid(1)}`);
 }
 
-test("the table has the seven columns of EPIC-18 ruling 11", async () => {
+test("the table has the seven columns of SPEC.md section 20.1", async () => {
 	stubUsers();
 	await openTable();
 	const table = screen.getByTestId("admin-accounts");

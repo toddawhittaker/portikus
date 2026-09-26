@@ -3,8 +3,8 @@ import { expect, test } from "@playwright/test";
 import { createStudent, loginAs, MOCK_ISSUER, query } from "./helpers";
 
 /**
- * The workspace detail panel's layout (docs/EPIC-18.md rulings 16 and 17,
- * issue #602, SPEC.md §20.1). Each test makes its own accounts, all named
+ * The workspace detail panel's layout (SPEC.md section 20.1,
+ * issue #602). Each test makes its own accounts, all named
  * with one tag, and filters the Users table down to them.
  */
 test.use({ viewport: { width: 1920, height: 1080 } });

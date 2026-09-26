@@ -96,7 +96,7 @@ async function insertWorkspace(userId: string, state: string): Promise<string> {
 	return id;
 }
 
-test("an administrator rebuilds several workspaces at once (EPIC-18 T6)", async ({
+test("an administrator rebuilds several workspaces at once (SPEC.md section 20.1)", async ({
 	page,
 }) => {
 	const tag = crypto.randomUUID().slice(0, 8);

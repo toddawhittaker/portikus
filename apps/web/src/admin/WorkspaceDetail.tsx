@@ -143,7 +143,7 @@ export function WorkspaceDetail({
 	);
 }
 
-/** The state badge and Start, Stop and Restart, directly under the name (EPIC-18 ruling 17). */
+/** The state badge and Start, Stop and Restart, directly under the name (SPEC.md section 20.1). */
 function HeadState({
 	detail,
 	ownerName,
@@ -677,7 +677,7 @@ export function capabilityNote(capabilities: AdminCapabilities): string | null {
 	return null;
 }
 
-/** Image, Rebuild, Reset Docker, Archive and the grace override (EPIC-18 ruling 17). */
+/** Image, Rebuild, Reset Docker, Archive and the grace override (SPEC.md section 20.1). */
 function WorkspaceSection({
 	detail,
 	user,

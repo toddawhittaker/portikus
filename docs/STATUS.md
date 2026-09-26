@@ -2814,3 +2814,38 @@ Gaps:
   full use.
 - Files in the workspace's `/tmp`, a tmpfs, count as memory and can
   raise the memory flag.
+
+## Epic 18 — Admin interface polish
+
+The rules are in SPEC.md section 20.1 and the table styles in DESIGN.md
+section 9. Task PRs #639, #647 to #649, #651, #652 and #656 on
+`epic/18-admin-ux`; issues #600, #601, #602, #604 and #629.
+
+Delivered:
+
+- The admin page is one frame at most 1440 px wide, at compact density,
+  with an h2 heading per tab through a small `AdminSection` component and
+  a page title naming the tab. The admin area is desktop-only.
+- The design's table classes are in `packages/ui` and on every admin
+  table. The Users and Audit headers stick to the scrolling page.
+- The Users table has seven columns, a two-line Account cell, an "Older
+  image" tag, and its count and "Add user…" in the heading row.
+- The detail panel has Start, Stop and Restart under the state badge,
+  divided sections in a fixed order, Storage as a list with meters, and
+  stays in view beside the table with its own scroll.
+- The Audit table shows short IDs and times, result tags, clipped details
+  with the full text for screen readers, and target links that fill the
+  "Target ID" filter.
+- Settings cards sit in a grid with each Save below its fields.
+- Bulk Rebuild and "Rebuild all on older images…" call the existing
+  single-workspace route once per workspace; a pending operation counts
+  as skipped.
+
+Gaps:
+
+- The Health tab layout (#603) is left to the observability epic.
+- No sortable columns and no React table component.
+- The admin tabs stay under the page heading, not in the app header.
+- No per-row "more" menus and no tablet layout.
+- The detail panel's storage meters do not share the student side's
+  StorageMeters thresholds.

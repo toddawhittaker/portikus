@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { loginAs } from "./helpers";
 
-/** The Settings tab layout (docs/EPIC-18.md ruling 15, issue #601). */
+/** The Settings tab layout (SPEC.md section 20.1, issue #601). */
 test.describe("admin settings layout", () => {
 	test.use({ viewport: { width: 1920, height: 1080 } });
 

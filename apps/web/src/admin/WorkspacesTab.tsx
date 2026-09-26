@@ -219,7 +219,7 @@ const BULK: Record<BulkAction, BulkCopy> = {
 	},
 };
 
-/** The rows "Rebuild all on older images…" acts on (EPIC-18 ruling 27). */
+/** The rows "Rebuild all on older images…" acts on (SPEC.md section 20.1). */
 export function olderImageTargets(rows: AdminUser[]): AdminUser[] {
 	return rows.filter(
 		(user) =>
@@ -432,7 +432,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				onDone={() => setChecked(new Set())}
 			/>
 			<div className="flex items-start gap-4">
-				{/* Not a scroll container, so the header sticks against <main> (EPIC-18 ruling 5). */}
+				{/* Not a scroll container, so the header sticks against <main> (SPEC.md section 20.1). */}
 				<div className="pk-table-wrap min-w-0 flex-1 overflow-clip">
 					<table className="pk-table pk-table--page" data-testid="admin-accounts">
 						<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
@@ -500,7 +500,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	);
 }
 
-/** Each opening starts with Reset Docker off (EPIC-18 ruling 26). */
+/** Each opening starts with Reset Docker off (SPEC.md section 20.1). */
 interface BulkConfirm {
 	action: BulkAction;
 	users: AdminUser[];
@@ -511,7 +511,6 @@ interface BulkConfirm {
  * The bar over the table while rows are ticked. Each action calls the
  * existing single-row route once per account (Epic 13.1 T4).
  */
-
 function BulkActions({
 	rows,
 	currentUserId,

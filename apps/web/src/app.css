@@ -526,17 +526,19 @@ button.pk-statusbar-item:focus-visible {
 	color: var(--status-error);
 }
 
-/* Admin workspace detail panel, from design/mockups/portikus-screens.css (EPIC-18 ruling 16). */
+/* Admin tables that scroll with the page (SPEC.md section 20.1). */
+.pk-table--page thead th {
+	/* The table scrolls with <main>, whose p-8 would otherwise show rows above the header. */
+	top: -2rem;
+}
+
+/* Admin workspace detail panel, from design/mockups/portikus-screens.css (SPEC.md section 20.1). */
 .pk-detail-head {
 	display: flex;
 	align-items: flex-start;
 	justify-content: space-between;
 	gap: var(--space-3);
 	padding: var(--space-4);
-}
-.pk-table--page thead th {
-	/* The table scrolls with <main>, whose p-8 would otherwise show rows above the header. */
-	top: -2rem;
 }
 .pk-detail-section {
 	display: grid;

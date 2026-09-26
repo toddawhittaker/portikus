@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { loginAs, MOCK_ISSUER, query } from "./helpers";
 
-/** The admin frame every tab shares (docs/EPIC-18.md rulings 1-10, SPEC.md §20.1). */
+/** The admin frame every tab shares (SPEC.md section 20.1). */
 test.describe("admin layout", () => {
 	test.use({ viewport: { width: 1920, height: 1080 } });
 
