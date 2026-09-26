@@ -13,8 +13,9 @@ import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
-import { createPreviewSession } from "../preview/store.js";
+import { createPreviewSession, PREVIEW_LOOKUP_TTL_MS } from "../preview/store.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { PREVIEW_SESSION_CAP } from "./preview.js";
 
 const skip = !hasTestDb();
 const AGENT_TOKEN = "preview-agent-token";
@@ -29,6 +30,11 @@ let alice: CookieJar;
 let bob: CookieJar;
 let workspaceId: string;
 let label: string;
+
+/** Revocations reach /preview/authorize up to this late (docs/EPIC-17.md ruling 11). */
+async function waitOutLookupCache(): Promise<void> {
+	await new Promise((resolve) => setTimeout(resolve, PREVIEW_LOOKUP_TTL_MS + 50));
+}
 
 /** Poll until a condition holds, so a registry tick does not need a sleep. */
 async function until(check: () => Promise<boolean> | boolean): Promise<void> {
@@ -708,6 +714,8 @@ test.skipIf(skip)("a preview session dies with its main session", async () => {
 		headers: csrfHeaders(alice, PUBLIC_URL),
 	});
 
+	// Sign-out reaches the gateway once the lookup cache window has passed.
+	await waitOutLookupCache();
 	const response = await authorize(token, previewHostFor(5173));
 	expect(response.statusCode).toBe(401);
 });
@@ -724,6 +732,7 @@ test.skipIf(skip)(
 			.where("oidc_subject", "=", "alice")
 			.execute();
 
+		await waitOutLookupCache();
 		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(403);
 	},
 );
@@ -740,6 +749,7 @@ test.skipIf(skip)(
 			.where("oidc_subject", "=", "alice")
 			.execute();
 
+		await waitOutLookupCache();
 		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(403);
 	},
 );
@@ -1692,4 +1702,57 @@ test.skipIf(skip)(
 		expect(row.last_activity_at).not.toBeNull();
 		expect(row.idle_stop_at).toBeNull();
 	},
+);
+
+// ── Load limits (docs/EPIC-17.md rulings 10 to 12) ──
+
+test.skipIf(skip)(
+	"a stopped workspace is refused once the lookup cache window passes",
+	async () => {
+		const token = await openPreview(5173);
+		// Fills the cache with the running workspace.
+		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(200);
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ state: "stopped", updated_at: new Date().toISOString() })
+			.where("id", "=", workspaceId)
+			.execute();
+		await waitOutLookupCache();
+		const response = await authorize(token, previewHostFor(5173));
+		expect(response.statusCode).toBe(503);
+		expect(response.headers["x-portikus-upstream"]).toBeUndefined();
+	},
+);
+
+test.skipIf(skip)(
+	"cached rows still get every request check: another host is refused",
+	async () => {
+		const token = await openPreview(5173);
+		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(200);
+		expect((await authorize(token, previewHostFor(3000))).statusCode).toBe(403);
+		expect(
+			(await authorize(token, previewHostFor(5173), { remoteAddress: "10.1.2.3" }))
+				.statusCode,
+		).toBe(403);
+	},
+);
+
+test.skipIf(skip)(
+	"one preview session gets 2,000 requests per 10 seconds, then a 429 page",
+	async () => {
+		const token = await openPreview(5173);
+		const other = await openPreview(5173);
+		for (let i = 0; i < PREVIEW_SESSION_CAP; i++) {
+			const ok = await authorize(token, previewHostFor(5173));
+			if (ok.statusCode !== 200) throw new Error(`request ${i} got ${ok.statusCode}`);
+		}
+		const refused = await authorize(token, previewHostFor(5173));
+		expect(refused.statusCode).toBe(429);
+		expect(refused.body).toContain("Too many requests");
+		expect(refused.headers["x-portikus-upstream"]).toBeUndefined();
+		expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
+		// Another preview session of the same student is not held.
+		expect((await authorize(other, previewHostFor(5173))).statusCode).toBe(200);
+	},
+	60_000,
 );

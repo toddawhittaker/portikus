@@ -24,19 +24,21 @@ import {
 	resetPage,
 	signInPage,
 	stoppedWorkspacePage,
+	tooManyRequestsPage,
 } from "../preview/pages.js";
 import { portAllowed, previewOriginFor, requestHost } from "../preview/policy.js";
 import type { ListeningRegistry } from "../preview/registry.js";
 import {
 	consumeGrant,
 	createGrant,
+	createPreviewLookupCache,
 	createPreviewSession,
-	loadMainSessionUser,
 	loadPreviewSession,
 	revokedForStoppedWorkspace,
 	revokePreviewSession,
 	revokeWorkspacePreviewSessions,
 } from "../preview/store.js";
+import { check, createCounter } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 
 /** The preview-host cookie, `__Host-` prefixed wherever the site is https. */
@@ -45,6 +47,10 @@ export function previewCookieName(config: ApiConfig): string {
 		? "__Host-portikus-preview"
 		: "portikus-preview";
 }
+
+/** Authorized requests one preview session may make per window (ruling 12). */
+export const PREVIEW_SESSION_CAP = 2000;
+const PREVIEW_SESSION_CAP_WINDOW_MS = 10_000;
 
 /** RFC 6265 cookie-name characters, so nothing else reaches a header. */
 const COOKIE_NAME = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/;
@@ -110,6 +116,8 @@ export function registerPreviewRoutes(
 	const secure = config.PUBLIC_URL.startsWith("https:");
 	const bridge = createBridgeForwards({ registry, logger });
 	const deniedAudit = createPreviewDeniedAudit(db);
+	const lookups = createPreviewLookupCache(db);
+	const sessionCap = createCounter(PREVIEW_SESSION_CAP, PREVIEW_SESSION_CAP_WINDOW_MS);
 
 	/** When each user's recent grants and probes were asked for, newest last. */
 	const requestTimes = new Map<string, number[]>();
@@ -449,6 +457,8 @@ export function registerPreviewRoutes(
 				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
 		}
 		await revokeWorkspacePreviewSessions(db, params.data.id);
+		// A reset in this process takes effect at once, not two seconds late.
+		lookups.clear();
 		await bridge.closeForWorkspace(params.data.id);
 		for (const service of servicesOf(params.data.id)) {
 			if (service.previewReachability !== "forwarded") continue;
@@ -540,6 +550,7 @@ export function registerPreviewRoutes(
 			const session = await loadPreviewSession(db, token);
 			if (session) {
 				await revokePreviewSession(db, session.id);
+				lookups.clear();
 				await bridge.closeForSession(session.id);
 			}
 		}
@@ -579,7 +590,9 @@ export function registerPreviewRoutes(
 
 		const token = request.cookies[cookieName];
 		if (!token) return page(reply, 401, signInPage());
-		const session = await loadPreviewSession(db, token);
+		// The rows may be up to two seconds old; every check below still runs
+		// on each request (docs/EPIC-17.md rulings 10 and 11).
+		const { session, user, workspace } = await lookups.get(token);
 		if (!session) {
 			// Stopping revokes the sessions; the more specific cause wins.
 			if (await revokedForStoppedWorkspace(db, token, host)) {
@@ -589,10 +602,22 @@ export function registerPreviewRoutes(
 		}
 
 		// The preview session lives with the main one (BROWSER-HANDLING §9.2).
-		const user = await loadMainSessionUser(db, session.session_id);
 		if (!user || user.id !== session.user_id) return page(reply, 401, signInPage());
 		// An account held at any session gate gets no preview (SPEC.md sections 5.1 and 5.3).
 		if (sessionGate(user)) return page(reply, 403, refusedPage());
+
+		// A runaway page is held to 2,000 requests per 10 seconds (ruling 12).
+		const capped = check(sessionCap, session.id);
+		if (!capped.allowed) {
+			if (capped.firstRefusal) {
+				request.log.warn(
+					{ workspaceId: session.workspace_id, previewSessionId: session.id },
+					"preview session request cap reached",
+				);
+			}
+			reply.header("retry-after", String(capped.retryAfterSeconds));
+			return page(reply, 429, tooManyRequestsPage());
+		}
 
 		const { workspace_id: sessionWorkspaceId, user_id: sessionUserId } = session;
 		/** Refuse with 403 and audit it, throttled (SPEC.md §24.11). */
@@ -613,11 +638,6 @@ export function registerPreviewRoutes(
 		if (session.port !== parsed.port) return denied("port_mismatch");
 		if (!portAllowed(config, session.port)) return denied("port_not_allowed");
 
-		const workspace = await db
-			.selectFrom("workspaces")
-			.select(["id", "label", "state", "owner_user_id", "agent_address"])
-			.where("id", "=", session.workspace_id)
-			.executeTakeFirst();
 		if (!workspace) return denied("workspace_missing");
 		if (workspace.owner_user_id !== session.user_id) return denied("not_owner");
 		if (workspace.label !== parsed.label) return denied("label_mismatch");

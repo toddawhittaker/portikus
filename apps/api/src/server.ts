@@ -2,7 +2,7 @@ import websocket from "@fastify/websocket";
 import { authPlugin, type DexApi, type OidcClient } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import { type ApiError, HealthResponse } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, isPoolTimeout } from "@portikus/db";
 import {
 	type Logger,
 	quietLogController,
@@ -150,6 +150,15 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 						: "The request was not valid.",
 			};
 			reply.status(status).send(body);
+			return;
+		}
+		if (isPoolTimeout(error)) {
+			request.log.warn("no database connection was free in time");
+			const body: ApiError = {
+				code: "SERVICE_BUSY",
+				message: "The server is busy. Try again in a moment.",
+			};
+			reply.status(503).send(body);
 			return;
 		}
 		request.log.error({ err: error }, "unhandled request error");

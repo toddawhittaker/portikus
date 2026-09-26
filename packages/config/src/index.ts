@@ -150,6 +150,10 @@ export const ApiConfigSchema = BaseConfig.extend({
 	SIGNIN_START_LIMIT_PER_MINUTE: positiveInt.default(150),
 	/** Dex password posts per address per ten minutes; ten times this overall (#398). */
 	PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES: positiveInt.default(30),
+	/** Workspace start, stop and restart requests per user per minute (docs/EPIC-17.md ruling 16). */
+	WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: positiveInt.default(20),
+	/** File and project writes per user per minute (docs/EPIC-17.md ruling 16). */
+	FILE_WRITE_LIMIT_PER_MINUTE: positiveInt.default(600),
 })
 	// Silently dropping a tenant or domain check would admit any account (SPEC.md 5.1).
 	.refine(

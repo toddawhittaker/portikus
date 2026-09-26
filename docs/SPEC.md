@@ -374,12 +374,25 @@ Browser sessions must:
 - defend state-changing requests against CSRF;
 - authenticate WebSocket upgrades;
 - expire according to configurable policy;
-- reject access immediately when server-side authorization is removed.
+- reject access immediately when server-side authorization is removed
+  (the preview gateway may lag by up to 2 seconds; see section 24.7).
 
 Sign-in is rate limited per client address in the API, since Dex has no
 lockout (Epic 12b, ADR 0023): sign-in starts and Dex password attempts have
 separate limits, the password attempts also have a site-wide total, and a
 refusal answers 429 `RATE_LIMITED` and is audited as `auth.throttled`.
+
+Added by Epic 17: each user may make 20 workspace start, stop and restart
+requests a minute in total, and 600 file and project writes a minute
+(every non-GET route under a project's files and projects; administrator
+routes are not limited). Over either limit the answer is 429
+`RATE_LIMITED`, "Too many requests just now. Try again in a minute.",
+with a `Retry-After` header; one warning is logged per user per window
+and nothing is audited. All of these limits, and the preview cap in
+section 24.7, count in fixed windows held in the API process. When no
+database connection frees up within 5 seconds the API answers 503
+`SERVICE_BUSY`; statements end after 30 seconds and idle transactions
+after 60.
 
 Added by Epic 14.2: an account that must change its password can use only
 the change-password page. Every other API route answers 403
@@ -2291,6 +2304,18 @@ The preview gateway must:
 - prevent target-host manipulation;
 - support WebSockets safely;
 - apply reasonable request/body/time limits while preserving development usability.
+
+As built (Epic 17): `GET /preview/authorize` keeps the preview session,
+main-session user and workspace rows behind a preview cookie in memory for
+2 seconds, and only when all three were found. It never keeps a decision:
+the host, port, label, owner, running state, bridge path, registry,
+bridge forward and activity checks run on every request from those rows.
+Sign-out, a workspace stop and a session gate therefore reach the gateway
+up to 2 seconds late; a preview reset made through the API takes effect at
+once. Each preview session may make 2,000 authorized requests per 10
+seconds; past that the gateway answers 429 with a small "Too many
+requests" page and a `Retry-After` header, and logs one warning per session
+per window.
 
 ### 24.8 Secrets
 
