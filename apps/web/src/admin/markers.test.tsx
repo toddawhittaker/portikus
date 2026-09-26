@@ -1,6 +1,5 @@
 import type { AdminUser } from "@portikus/contracts";
 import { expect, test } from "vitest";
-import { logCommand } from "./logCommand.js";
 import {
 	imageText,
 	isCourseAccount,
@@ -121,13 +120,6 @@ test("an issuer is shortened to its host", () => {
 	expect(shortIssuer("not a url at all, and rather long")).toBe(
 		"not a url at all, and ra…",
 	);
-});
-
-test("the log command greps for the workspace id and the instance name", () => {
-	expect(logCommand("w-1", "ws-abc")).toBe(
-		"journalctl -u portikus-api -u portikus-worker -u portikus-workspace-controller -o cat --since -1h | grep -E 'w-1|ws-abc'",
-	);
-	expect(logCommand("w-1", null)).toMatch(/grep -E 'w-1'$/);
 });
 
 test("the source is SSO, or Course with the platform host for a course account", () => {

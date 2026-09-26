@@ -13,6 +13,7 @@ import {
 import { useEffect } from "react";
 import { AcceptableUsePage } from "./acceptable-use/AcceptableUsePage.js";
 import { ADMIN_TABS, AdminPage } from "./admin/AdminPage.js";
+import { sanitizeLogSearch } from "./admin/logs/filters.js";
 import { CourseListPage, CourseMembersPage } from "./course/CoursePage.js";
 import { LinkPage } from "./link/LinkPage.js";
 import { LinkStartPage } from "./link/LinkStartPage.js";
@@ -109,7 +110,9 @@ function safeUuid(value: unknown): string | undefined {
 
 /**
  * `tab` names the admin tab so it can be linked; `workspace`, `user` and
- * `action` are the Audit tab's filters (SPEC.md §24.11).
+ * `action` are the Audit tab's filters (SPEC.md §24.11). The Logs tab
+ * shares `workspace` and `user` and adds `level`, `service`, `since`,
+ * `until` and `q` (docs/EPIC-19.md ruling 32).
  */
 const adminRoute = createRoute({
 	getParentRoute: () => rootRoute,
@@ -124,6 +127,7 @@ const adminRoute = createRoute({
 			search.action.length <= 100
 				? search.action
 				: undefined,
+		...sanitizeLogSearch(search),
 	}),
 	component: AdminPage,
 });
