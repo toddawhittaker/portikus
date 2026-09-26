@@ -7,6 +7,7 @@ import type { Project } from "@portikus/contracts";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
+import { DEFAULT_PROCESS_SORT } from "../monitor/sort.js";
 import { renderWithQuery } from "../test-utils.js";
 import { FilesPane } from "./FilesPane.js";
 import { type RightPane, RightPaneContext } from "./rightPane.js";
@@ -220,7 +221,14 @@ function SharedPane({ onShow }: { onShow: (show: (pane: RightPane) => void) => v
 	const [pane, setPane] = useState<RightPane>("files");
 	onShow(setPane);
 	return (
-		<RightPaneContext.Provider value={{ pane, show: setPane }}>
+		<RightPaneContext.Provider
+			value={{
+				pane,
+				show: setPane,
+				monitorSort: DEFAULT_PROCESS_SORT,
+				setMonitorSort: () => {},
+			}}
+		>
 			<FilesPane workspaceId={WORKSPACE} project={project()} />
 		</RightPaneContext.Provider>
 	);

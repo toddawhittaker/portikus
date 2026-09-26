@@ -4,7 +4,11 @@ import { Button, Icon, IconButton } from "@portikus/ui";
 export const THROTTLE_TITLE = "Your workspace has been slowed down";
 
 export function throttleBody(throttle: WorkspaceCpuThrottle): string {
-	return `It kept its CPUs more than ${throttle.thresholdPercent}% busy for ${throttle.windowMinutes} minutes, so it now gets ${throttle.sharePercent}% of its usual CPU. Stopping and starting the workspace restores full speed; an administrator can also lift this.`;
+	const lift =
+		throttle.idleLiftMinutes !== null && throttle.idleLiftPercent !== null
+			? ` It returns to full speed on its own after ${throttle.idleLiftMinutes} minutes under ${throttle.idleLiftPercent}% use.`
+			: "";
+	return `It kept its CPUs more than ${throttle.thresholdPercent}% busy for ${throttle.windowMinutes} minutes, so it now gets ${throttle.sharePercent}% of its usual CPU.${lift} Stopping and starting the workspace restores full speed; an administrator can also lift this.`;
 }
 
 /**
@@ -23,11 +27,14 @@ export function ThrottleNotice({
 	throttle,
 	onDismiss,
 	onOpenWorkspace,
+	onShowMonitor,
 }: {
 	throttle: WorkspaceCpuThrottle;
 	onDismiss: () => void;
 	/** Opens the workspace dialog with its restart confirmation on top. */
 	onOpenWorkspace: () => void;
+	/** Opens Monitor sorted by CPU, busiest first. */
+	onShowMonitor: () => void;
 }) {
 	return (
 		<div className="pk-notice pk-notice--warning" data-testid="throttle-notice">
@@ -39,6 +46,9 @@ export function ThrottleNotice({
 				<p className="pk-notice-body">{throttleBody(throttle)}</p>
 			</div>
 			<div className="pk-notice-actions">
+				<Button size="sm" data-testid="throttle-show-monitor" onClick={onShowMonitor}>
+					See what's using CPU
+				</Button>
 				<Button
 					size="sm"
 					aria-haspopup="dialog"

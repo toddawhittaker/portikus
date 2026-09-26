@@ -5,6 +5,7 @@ import { ThrottleNotice, throttleAnnouncement } from "./ThrottleNotice.js";
 test("says why the workspace is slow, with the numbers from the row", () => {
 	const onDismiss = vi.fn();
 	const onOpenWorkspace = vi.fn();
+	const onShowMonitor = vi.fn();
 	render(
 		<ThrottleNotice
 			throttle={{
@@ -17,6 +18,7 @@ test("says why the workspace is slow, with the numbers from the row", () => {
 			}}
 			onDismiss={onDismiss}
 			onOpenWorkspace={onOpenWorkspace}
+			onShowMonitor={onShowMonitor}
 		/>,
 	);
 
@@ -33,6 +35,31 @@ test("says why the workspace is slow, with the numbers from the row", () => {
 
 	fireEvent.click(screen.getByRole("button", { name: "Restart workspace…" }));
 	expect(onOpenWorkspace).toHaveBeenCalledTimes(1);
+
+	fireEvent.click(screen.getByRole("button", { name: "See what's using CPU" }));
+	expect(onShowMonitor).toHaveBeenCalledTimes(1);
+	expect(notice.textContent).not.toContain("on its own");
+});
+
+test("says when the throttle lifts on its own, when lifting is on", () => {
+	render(
+		<ThrottleNotice
+			throttle={{
+				at: "2026-09-25T12:00:00.000Z",
+				thresholdPercent: 70,
+				windowMinutes: 45,
+				sharePercent: 50,
+				idleLiftMinutes: 5,
+				idleLiftPercent: 10,
+			}}
+			onDismiss={() => {}}
+			onOpenWorkspace={() => {}}
+			onShowMonitor={() => {}}
+		/>,
+	);
+	expect(screen.getByTestId("throttle-notice").textContent).toContain(
+		"It returns to full speed on its own after 5 minutes under 10% use.",
+	);
 });
 
 test("the notice is not itself a live region; the page's status region carries the words", () => {
@@ -49,6 +76,7 @@ test("the notice is not itself a live region; the page's status region carries t
 			throttle={throttle}
 			onDismiss={() => {}}
 			onOpenWorkspace={() => {}}
+			onShowMonitor={() => {}}
 		/>,
 	);
 	expect(screen.getByTestId("throttle-notice").getAttribute("role")).toBeNull();
