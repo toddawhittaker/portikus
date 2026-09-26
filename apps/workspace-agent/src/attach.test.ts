@@ -64,7 +64,7 @@ function buildRegistry() {
 	return new TerminalRegistry(
 		"/home/student",
 		logger as unknown as FastifyBaseLogger,
-		"test-socket",
+		{ socketName: "test-socket", external: false },
 		(() => {
 			spawned += 1;
 			return {

@@ -357,8 +357,16 @@ export const AgentConfigSchema = BaseConfig.extend({
 	HOME_DIR: z.string().min(1).default("/home/student"),
 	/** Mount point of the recovery volume (ADR 0020). */
 	RECOVERY_ROOT: z.string().min(1).default("/var/lib/portikus/recovery"),
-	// Set only in tests, so they get a tmux server of their own.
-	TMUX_SOCKET_NAME: z.string().optional(),
+	/** The private tmux socket, /tmp/tmux-<uid>/portikus (SPEC.md §9.7). */
+	TMUX_SOCKET_NAME: z.string().min(1).default("portikus"),
+	/**
+	 * True when the terminals unit runs the tmux server and the agent must
+	 * never start one; the workspace image sets it (SPEC.md §9.7).
+	 */
+	TMUX_EXTERNAL_SERVER: z
+		.enum(["true", "false"])
+		.default("false")
+		.transform((value) => value === "true"),
 });
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 

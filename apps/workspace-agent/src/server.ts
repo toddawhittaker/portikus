@@ -67,11 +67,12 @@ import { registerSearchRoutes } from "./search-routes.js";
 import { TerminalRegistry } from "./terminals.js";
 import {
 	AgentFailure,
+	closeSession,
 	commandForAgent,
 	createSession,
 	hasSession,
-	killSession,
 	listSessions,
+	type TmuxServer,
 } from "./tmux.js";
 import { UsageSampler, type UsageSamplerOptions } from "./usage.js";
 import { ProjectWatchers } from "./watch.js";
@@ -112,7 +113,10 @@ const AttachQuery = z.object({
 export interface ServerOptions {
 	tokenPath: string;
 	homeDir: string;
+	/** The tmux socket name; `portikus` when unset (SPEC.md §9.7). */
 	tmuxSocketName?: string;
+	/** The terminals unit runs tmux, so the agent never starts it. */
+	tmuxExternalServer?: boolean;
 	/** The process logger. Tests default to one that writes nothing. */
 	logger?: Logger;
 	/** Overrides the cap on concurrent event sockets. For tests. */
@@ -154,11 +158,11 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// The level to return to when the API clears the override (ADR 0012).
 	const startLevel = rootLogger.level as LogLevel;
 
-	const registry = new TerminalRegistry(
-		options.homeDir,
-		app.log,
-		options.tmuxSocketName,
-	);
+	const tmuxServer: TmuxServer = {
+		socketName: options.tmuxSocketName ?? "portikus",
+		external: options.tmuxExternalServer ?? false,
+	};
+	const registry = new TerminalRegistry(options.homeDir, app.log, tmuxServer);
 	const watchers = options.watchers ?? new ProjectWatchers(app.log);
 
 	let closeBroker: () => Promise<void> = async () => {};
@@ -265,7 +269,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 
 		instance.get("/terminals", async (request, reply) => {
 			try {
-				const sessions = await listSessions(options.tmuxSocketName);
+				const sessions = await listSessions(tmuxServer);
 				return {
 					terminals: sessions.map((session) => ({
 						id: session.id,
@@ -289,10 +293,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				});
 			}
 			try {
-				if (await hasSession(parsed.data.id, options.tmuxSocketName)) {
+				if (await hasSession(parsed.data.id, tmuxServer)) {
 					throw new AgentFailure("TERMINAL_EXISTS", "terminal already exists");
 				}
-				const sessions = await listSessions(options.tmuxSocketName);
+				const sessions = await listSessions(tmuxServer);
 				if (sessions.length >= MAX_TERMINALS_PER_WORKSPACE) {
 					throw new AgentFailure(
 						"TERMINAL_LIMIT",
@@ -305,7 +309,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					options.homeDir,
 					parsed.data.theme,
 					parsed.data.timezone,
-					options.tmuxSocketName,
+					tmuxServer,
 					parsed.data.agent
 						? {
 								command: commandForAgent(parsed.data.agent),
@@ -339,11 +343,19 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 			const { terminalId } = params.data;
 			try {
-				if (!(await hasSession(terminalId, options.tmuxSocketName))) {
+				if (!(await hasSession(terminalId, tmuxServer))) {
 					throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 				}
-				await killSession(terminalId, options.tmuxSocketName);
+				const { stopped } = await closeSession(terminalId, tmuxServer);
 				registry.closeAll(terminalId, 1000, "terminal deleted");
+				// Stragglers get their SIGKILL after the grace period, without
+				// holding the response (SPEC.md §9.7).
+				stopped.catch((error: unknown) => {
+					request.log.warn(
+						{ terminalId, error: error instanceof Error ? error.message : error },
+						"could not stop a closed terminal's processes",
+					);
+				});
 				request.log.debug(
 					{ terminalId, session: `pk-${terminalId}` },
 					"tmux session killed",
