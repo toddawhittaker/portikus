@@ -9,7 +9,16 @@ import type { KyselyPlugin, PluginTransformQueryArgs, RootOperationNode } from "
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
-import { doStop, type ReconcileConfig, reconcile } from "./reconcile.js";
+import { doStop, type ReconcileConfig, reconcile, settleStops } from "./reconcile.js";
+
+/** One sweep, then wait for the stops it began in the background. */
+async function sweep(
+	...args: Parameters<typeof reconcile>
+): ReturnType<typeof reconcile> {
+	const result = await reconcile(...args);
+	await settleStops();
+	return result;
+}
 
 /** Workspace labels are unique, so each test row needs its own. */
 let labelCounter = 0;
@@ -55,6 +64,7 @@ beforeEach(async () => {
 	};
 	fake.startResult = { ipv4: "10.0.0.2" };
 	fake.stopResult = { forced: false };
+	fake.stopHold = null;
 	fake.listResult = [];
 	await setGlobalGrace(cfg.SHUTDOWN_GRACE_SECONDS);
 });
@@ -134,7 +144,7 @@ test.skipIf(skip)("connect -> sweep -> start called -> running", async () => {
 	await insertConnection(id);
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -165,7 +175,7 @@ test.skipIf(skip)("the start request carries the owner's timezone", async () => 
 	await insertConnection(id);
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const startCall = fake.calls.find((c) => c.method === "start");
 	expect(startCall?.args[1]).toMatchObject({ timezone: "Europe/Berlin" });
@@ -179,7 +189,7 @@ test.skipIf(skip)("disconnect -> sweep -> deadline set, still running", async ()
 	// No connections.
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -199,7 +209,7 @@ test.skipIf(skip)("reconnect -> sweep -> deadline cleared", async () => {
 	});
 	await insertConnection(id);
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -221,7 +231,7 @@ test.skipIf(skip)(
 		});
 		// No connections.
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -240,7 +250,7 @@ test.skipIf(skip)("forced stop writes workspace.force_stop audit", async () => {
 		desired_state: "stopped",
 	});
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
@@ -253,7 +263,7 @@ test.skipIf(skip)("provisioning -> create -> stopped", async () => {
 	const id = await insertWorkspace({ state: "provisioning" });
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
@@ -274,7 +284,7 @@ test.skipIf(skip)(
 		await insertConnection(id);
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -287,7 +297,7 @@ test.skipIf(skip)("create failure -> error with user-terms message", async () =>
 	const id = await insertWorkspace({ state: "provisioning" });
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("error");
@@ -305,13 +315,13 @@ test.skipIf(skip)(
 		const now = new Date();
 
 		// First sweep: running -> stopping -> stopped (desired set to running).
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 		let ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
 		expect(ws.desired_state).toBe("running");
 
 		// Second sweep: stopped with desired running -> starting -> running.
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 		ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
 	},
@@ -331,7 +341,7 @@ test.skipIf(skip)(
 		const now = new Date();
 
 		// Force refresh by passing null lastRefreshAt.
-		await reconcile(tdb.db, fake, cfg, now, null);
+		await sweep(tdb.db, fake, cfg, now, null);
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -349,7 +359,7 @@ test.skipIf(skip)("stale starting row resolved from list", async () => {
 	fake.listResult = [{ name: "ws-stale-start", status: "Running", ipv4: "10.0.0.5" }];
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, null);
+	await sweep(tdb.db, fake, cfg, now, null);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -369,7 +379,7 @@ test.skipIf(skip)("compare-and-set skips a row changed underneath", async () => 
 		.execute();
 
 	const now = new Date();
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	// Should not have called start because CAS failed.
 	const ws = await getWorkspace(id);
@@ -414,7 +424,7 @@ test.skipIf(skip)("an unreachable controller is reported once per streak", async
 	await insertConnection(id);
 	const now = new Date();
 
-	const first = await reconcile(tdb.db, fake, cfg, now, null);
+	const first = await sweep(tdb.db, fake, cfg, now, null);
 	expect(first.controllerUnreachable).toBe(true);
 	expect(first.refreshError?.code).toBe("INCUS_UNAVAILABLE");
 
@@ -431,7 +441,7 @@ test.skipIf(skip)("an unreachable controller is reported once per streak", async
 
 	// Second failure in the same streak does not write another row.
 	const later = new Date(now.getTime() + cfg.STATUS_REFRESH_SECONDS * 1000);
-	await reconcile(tdb.db, fake, cfg, later, first.lastRefreshAt, true);
+	await sweep(tdb.db, fake, cfg, later, first.lastRefreshAt, true);
 	const stillOne = await tdb.db
 		.selectFrom("audit_events")
 		.selectAll()
@@ -470,7 +480,7 @@ test.skipIf(skip)("a connect during a stop is not overwritten", async () => {
 
 	// The next sweep starts it again.
 	fake.listResult = [{ name: "ws-connect-during-stop", status: "Stopped", ipv4: null }];
-	await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
 	ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
 });
@@ -490,7 +500,7 @@ test.skipIf(skip)(
 		});
 
 		// Deadline pass moves it to stopping and stops it.
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 		expect((await getWorkspace(id)).state).toBe("stopped");
 
 		// A connect arriving now must bring it back up on the next sweep.
@@ -500,7 +510,7 @@ test.skipIf(skip)(
 			.set({ desired_state: "running" })
 			.where("id", "=", id)
 			.execute();
-		await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+		await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
 		expect((await getWorkspace(id)).state).toBe("running");
 	},
 );
@@ -517,7 +527,7 @@ test.skipIf(skip)(
 		fake.listResult = [];
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, null);
+		await sweep(tdb.db, fake, cfg, now, null);
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("error");
@@ -534,7 +544,7 @@ test.skipIf(skip)("restart on a stopped workspace starts it", async () => {
 	});
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -549,7 +559,7 @@ test.skipIf(skip)("a failed start is audited with the controller message", async
 	});
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const audits = await getAudits(id);
 	const failed = audits.find((a) => a.action === "workspace.start_failed");
@@ -568,11 +578,11 @@ test.skipIf(skip)("an errored workspace is not retried every second", async () =
 		updated_at: now.toISOString(),
 	});
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 	expect(fake.calls.some((c) => c.method === "start")).toBe(false);
 
 	const later = new Date(now.getTime() + 11000);
-	await reconcile(tdb.db, fake, cfg, later, later);
+	await sweep(tdb.db, fake, cfg, later, later);
 	expect(fake.calls.some((c) => c.method === "start")).toBe(true);
 	expect((await getWorkspace(id)).state).toBe("running");
 });
@@ -611,7 +621,7 @@ test.skipIf(skip)(
 		const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 		const first = (await getWorkspace(id)).agent_token;
 		expect(first).toMatch(/^[0-9a-f]{64}$/);
 
@@ -622,7 +632,7 @@ test.skipIf(skip)(
 			.where("id", "=", id)
 			.execute();
 		const later = new Date(now.getTime() + 1000);
-		await reconcile(tdb.db, fake, cfg, later, later);
+		await sweep(tdb.db, fake, cfg, later, later);
 
 		const second = (await getWorkspace(id)).agent_token;
 		expect(second).toMatch(/^[0-9a-f]{64}$/);
@@ -646,7 +656,7 @@ test.skipIf(skip)("a successful start records the agent address", async () => {
 	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	expect((await getWorkspace(id)).agent_address).toBe("10.200.0.44");
 });
@@ -666,7 +676,7 @@ test.skipIf(skip)("the drift refresh updates a changed agent address", async () 
 	];
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, null);
+	await sweep(tdb.db, fake, cfg, now, null);
 
 	expect((await getWorkspace(id)).agent_address).toBe("10.200.0.99");
 });
@@ -687,7 +697,7 @@ test.skipIf(skip)(
 		const open = await insertTerminal(id);
 		const alreadyEnded = await insertTerminal(id, past);
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 
 		expect((await getTerminal(open)).ended_at).not.toBeNull();
 		const ended = await getTerminal(alreadyEnded);
@@ -702,7 +712,7 @@ test.skipIf(skip)("an explicit stop ends open terminals", async () => {
 	const open = await insertTerminal(id);
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	expect((await getTerminal(open)).ended_at).not.toBeNull();
 });
@@ -732,7 +742,7 @@ test.skipIf(skip)("a global grace of 0 never arms a deadline", async () => {
 	const { id } = await runningWorkspace();
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -743,11 +753,11 @@ test.skipIf(skip)("a global grace of 0 never arms a deadline", async () => {
 test.skipIf(skip)("setting the grace to 0 clears an armed deadline", async () => {
 	const { id } = await runningWorkspace();
 	const now = new Date();
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 	expect((await getWorkspace(id)).shutdown_deadline).not.toBeNull();
 
 	await setGlobalGrace(0);
-	await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -757,11 +767,11 @@ test.skipIf(skip)("setting the grace to 0 clears an armed deadline", async () =>
 test.skipIf(skip)("raising the grace moves the deadline forward", async () => {
 	const { id } = await runningWorkspace();
 	const now = new Date();
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 	const first = deadlineMs((await getWorkspace(id)).shutdown_deadline);
 
 	await setGlobalGrace(1200);
-	await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
 
 	const second = deadlineMs((await getWorkspace(id)).shutdown_deadline);
 	expect(second - first).toBe(600_000);
@@ -772,11 +782,11 @@ test.skipIf(skip)(
 	async () => {
 		const { id } = await runningWorkspace();
 		const now = new Date();
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 
 		await setGlobalGrace(60);
 		const later = new Date(now.getTime() + 120_000);
-		await reconcile(tdb.db, fake, cfg, later, later);
+		await sweep(tdb.db, fake, cfg, later, later);
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -791,11 +801,11 @@ test.skipIf(skip)(
 		const mortal = await runningWorkspace();
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 		expect((await getWorkspace(forever.id)).shutdown_deadline).toBeNull();
 
 		const later = new Date(now.getTime() + (cfg.SHUTDOWN_GRACE_SECONDS + 1) * 1000);
-		await reconcile(tdb.db, fake, cfg, later, later);
+		await sweep(tdb.db, fake, cfg, later, later);
 
 		expect((await getWorkspace(forever.id)).state).toBe("running");
 		expect((await getWorkspace(mortal.id)).state).toBe("stopped");
@@ -807,11 +817,11 @@ test.skipIf(skip)("an override of 30 applies even when the global is 0", async (
 	const { id } = await runningWorkspace({ shutdown_grace_seconds: 30 });
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 	expect((await getWorkspace(id)).shutdown_deadline).not.toBeNull();
 
 	const later = new Date(now.getTime() + 31_000);
-	await reconcile(tdb.db, fake, cfg, later, later);
+	await sweep(tdb.db, fake, cfg, later, later);
 
 	expect((await getWorkspace(id)).state).toBe("stopped");
 });
@@ -819,7 +829,7 @@ test.skipIf(skip)("an override of 30 applies even when the global is 0", async (
 test.skipIf(skip)("clearing an override falls back to the global", async () => {
 	const { id, ownerId } = await runningWorkspace({ shutdown_grace_seconds: 30 });
 	const now = new Date();
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 	const withOverride = deadlineMs((await getWorkspace(id)).shutdown_deadline);
 
 	await tdb.db
@@ -827,7 +837,7 @@ test.skipIf(skip)("clearing an override falls back to the global", async () => {
 		.set({ shutdown_grace_seconds: null })
 		.where("id", "=", ownerId)
 		.execute();
-	await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
 
 	const after = deadlineMs((await getWorkspace(id)).shutdown_deadline);
 	expect(after - withOverride).toBe((cfg.SHUTDOWN_GRACE_SECONDS - 30) * 1000);
@@ -838,7 +848,7 @@ test.skipIf(skip)("without a settings row the config value is used", async () =>
 	const { id } = await runningWorkspace();
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const ws = await getWorkspace(id);
 	const expected = now.getTime() + cfg.SHUTDOWN_GRACE_SECONDS * 1000;
@@ -858,7 +868,7 @@ test.skipIf(skip)(
 			updated_at: new Date(now.getTime() - 60_000).toISOString(),
 		});
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 		let ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
 		expect(ws.disconnected_at).toBeNull();
@@ -866,7 +876,7 @@ test.skipIf(skip)(
 
 		// A sweep with no connections arms a fresh deadline instead of stopping.
 		const later = new Date(now.getTime() + 1000);
-		await reconcile(tdb.db, fake, cfg, later, later);
+		await sweep(tdb.db, fake, cfg, later, later);
 
 		ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
@@ -878,7 +888,7 @@ test.skipIf(skip)("the agent token never appears in audit metadata", async () =>
 	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 	const token = (await getWorkspace(id)).agent_token as string;
 
 	const audits = await tdb.db.selectFrom("audit_events").selectAll().execute();
@@ -909,7 +919,7 @@ test.skipIf(skip)(
 			{ name: "ws-log-b", status: "Stopped", ipv4: "10.0.0.3" },
 		];
 
-		await reconcile(tdb.db, fake, cfg, new Date(), null, false, log);
+		await sweep(tdb.db, fake, cfg, new Date(), null, false, log);
 
 		const decisions = lines.filter((line) => line.msg === "workspace decision");
 		expect(decisions.length).toBe(2);
@@ -1003,7 +1013,7 @@ test.skipIf(skip)(
 		await insertConnection(id);
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 
 		expect(methods()).toEqual(["stop", "resetDocker"]);
 		expect(fake.calls[1]?.args[1]).toEqual({
@@ -1019,7 +1029,7 @@ test.skipIf(skip)(
 		);
 		expect(audit?.result).toBe("ok");
 
-		await reconcile(tdb.db, fake, cfg, new Date(), now);
+		await sweep(tdb.db, fake, cfg, new Date(), now);
 		ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
 		expect(methods()).toEqual(["stop", "resetDocker", "start"]);
@@ -1030,7 +1040,7 @@ test.skipIf(skip)("no start while an operation is pending", async () => {
 	const id = await insertPending("reset-docker", { desired_state: "running" });
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	// The start step runs before the operation step, so a start here would
 	// have come first.
@@ -1042,8 +1052,8 @@ test.skipIf(skip)("a workspace that should stay stopped stays stopped", async ()
 	const id = await insertPending("reset-docker");
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
-	await reconcile(tdb.db, fake, cfg, new Date(), now);
+	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, new Date(), now);
 
 	expect(methods()).toEqual(["resetDocker"]);
 	expect((await getWorkspace(id)).state).toBe("stopped");
@@ -1061,7 +1071,7 @@ test.skipIf(skip)(
 		});
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 
 		expect(methods()).toEqual(["rebuild"]);
 		expect(fake.calls[0]?.args[1]).toEqual({
@@ -1081,7 +1091,7 @@ test.skipIf(skip)(
 			imageFingerprint: "rebuilt456",
 		});
 
-		await reconcile(tdb.db, fake, cfg, new Date(), now);
+		await sweep(tdb.db, fake, cfg, new Date(), now);
 		expect((await getWorkspace(id)).state).toBe("running");
 	},
 );
@@ -1092,7 +1102,7 @@ test.skipIf(skip)(
 		await insertPending("rebuild-reset-docker");
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 
 		expect(fake.calls[0]).toEqual({
 			method: "rebuild",
@@ -1114,7 +1124,7 @@ test.skipIf(skip)(
 		const id = await insertPending("rebuild", { desired_state: "running" });
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("error");
@@ -1134,7 +1144,7 @@ test.skipIf(skip)("a failed docker reset is audited as such", async () => {
 	const id = await insertPending("reset-docker");
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("error");
@@ -1164,7 +1174,7 @@ test.skipIf(skip)(
 			.executeTakeFirstOrThrow();
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 		expect(methods()).toEqual([]);
 		expect((await getWorkspace(id)).state).toBe("running");
 
@@ -1175,7 +1185,7 @@ test.skipIf(skip)(
 			.where("id", "=", project.id)
 			.execute();
 
-		await reconcile(tdb.db, fake, cfg, new Date(), now);
+		await sweep(tdb.db, fake, cfg, new Date(), now);
 		expect(methods()).toEqual(["stop", "rebuild"]);
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -1187,8 +1197,8 @@ test.skipIf(skip)("create and start send the recovery volume size", async () => 
 	const id = await insertWorkspace({ state: "provisioning", desired_state: "running" });
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
-	await reconcile(tdb.db, fake, cfg, new Date(), now);
+	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, new Date(), now);
 
 	const create = fake.calls.find((c) => c.method === "create");
 	expect(create?.args[0]).toMatchObject({ recoveryGiB: 3 });
@@ -1216,7 +1226,7 @@ test.skipIf(skip)(
 			updated_at: new Date(now.getTime() - 3_600_000).toISOString(),
 		});
 
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 
 		expect(fake.calls.filter((c) => c.method === "start")).toEqual([]);
 		expect((await getWorkspace(stopped)).state).toBe("stopped");
@@ -1233,8 +1243,8 @@ test.skipIf(skip)(
 		});
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, now);
-		await reconcile(tdb.db, fake, cfg, new Date(), now);
+		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, new Date(), now);
 
 		expect(methods()).toEqual(["resetDocker", "start"]);
 		expect(fake.calls[0]?.args[1]).toEqual({ dockerGiB: 40 });
@@ -1249,7 +1259,7 @@ test.skipIf(skip)("rebuild uses the row's Docker size too", async () => {
 	});
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	expect(fake.calls[0]?.args[1]).toEqual({ resetDocker: true, dockerGiB: 40 });
 });
@@ -1270,8 +1280,8 @@ test.skipIf(skip)(
 			archived_at: archivedAt,
 		});
 
-		await reconcile(tdb.db, fake, cfg, now, now);
-		await reconcile(tdb.db, fake, cfg, new Date(), now);
+		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, new Date(), now);
 
 		expect(fake.calls.filter((c) => c.method === "start")).toEqual([]);
 		expect(fake.calls.filter((c) => c.method === "stop")).toHaveLength(1);
@@ -1323,7 +1333,7 @@ test.skipIf(skip)(
 		const now = new Date();
 
 		const began = Date.now();
-		const result = await reconcile(tdb.db, slow, cfg, now, now);
+		const result = await sweep(tdb.db, slow, cfg, now, now);
 		const took = Date.now() - began;
 
 		// Every parallel start is counted, none lost to a read before the await.
@@ -1331,7 +1341,8 @@ test.skipIf(skip)(
 
 		expect(slow.maxInFlight).toBe(6);
 		expect(took).toBeGreaterThanOrEqual(2 * startMs);
-		expect(took).toBeLessThan(3 * startMs);
+		// Half of the 12-in-series time; database work on a slow runner adds a few hundred ms.
+		expect(took).toBeLessThan(6 * startMs);
 		for (const id of ids) {
 			expect((await getWorkspace(id)).state).toBe("running");
 		}
@@ -1356,7 +1367,7 @@ test.skipIf(skip)("a failing start leaves the parallel others unaffected", async
 	}
 	const now = new Date();
 
-	await reconcile(tdb.db, slow, cfg, now, now);
+	await sweep(tdb.db, slow, cfg, now, now);
 
 	expect((await getWorkspace(bad)).state).toBe("error");
 	for (const id of good) {
@@ -1387,7 +1398,7 @@ test.skipIf(skip)(
 		const now = new Date();
 
 		// The create lands in step 3a and the start follows in 3b of the same sweep.
-		await reconcile(tdb.db, flaky, cfg, now, now, false, undefined, [10, 10]);
+		await sweep(tdb.db, flaky, cfg, now, now, false, undefined, [10, 10]);
 		expect((await getWorkspace(id)).state).toBe("running");
 		expect(flaky.calls.filter((c) => c.method === "create")).toHaveLength(2);
 	},
@@ -1400,7 +1411,7 @@ test.skipIf(skip)(
 		const id = await insertWorkspace({ state: "provisioning" });
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, now, false, undefined, [5, 5]);
+		await sweep(tdb.db, fake, cfg, now, now, false, undefined, [5, 5]);
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("error");
@@ -1416,7 +1427,7 @@ test.skipIf(skip)(
 		await insertWorkspace({ state: "provisioning" });
 		const now = new Date();
 
-		await reconcile(tdb.db, fake, cfg, now, now, false, undefined, [5, 5]);
+		await sweep(tdb.db, fake, cfg, now, now, false, undefined, [5, 5]);
 
 		expect(fake.calls.filter((c) => c.method === "create")).toHaveLength(1);
 	},
@@ -1431,7 +1442,7 @@ test.skipIf(skip)("an instance that already exists is adopted", async () => {
 	const id = await insertWorkspace({ state: "provisioning" });
 	const now = new Date();
 
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
@@ -1470,7 +1481,7 @@ async function sweepAt(at: Date): Promise<void> {
 		.updateTable("workspace_connections")
 		.set({ last_seen_at: at.toISOString() })
 		.execute();
-	await reconcile(tdb.db, fake, cfg, at, at);
+	await sweep(tdb.db, fake, cfg, at, at);
 }
 
 test.skipIf(skip)(
@@ -1615,9 +1626,9 @@ test.skipIf(skip)(
 			desired_state: "running",
 			last_activity_at: now.toISOString(),
 		});
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 		const later = new Date(now.getTime() + cfg.SHUTDOWN_GRACE_SECONDS * 1000);
-		await reconcile(tdb.db, fake, cfg, later, later);
+		await sweep(tdb.db, fake, cfg, later, later);
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
 		const actions = (await getAudits(id)).map((a) => a.action);
@@ -1636,7 +1647,7 @@ test.skipIf(skip)(
 			idle_stop_at: new Date(now.getTime() - MIN).toISOString(),
 		});
 		await insertConnection(id, now);
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
 		expect(ws.last_activity_at?.getTime()).toBe(now.getTime());
@@ -1697,7 +1708,7 @@ test.skipIf(skip)(
 		await addSample(id);
 		await addSample(id, "2026-09-25T12:01:00.000Z");
 		const now = new Date();
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -1721,7 +1732,7 @@ test.skipIf(skip)(
 		const id = await insertWorkspace({ state: "running", desired_state: "stopped" });
 		await addSample(id);
 		const now = new Date();
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
 		expect((await getAudits(id)).map((a) => a.action)).toEqual(["workspace.stop"]);
 		// Usage is remembered across restarts (Todd's ruling, 2026-09-25).
 		expect(await sampleRows(id)).toBe(1);
@@ -1741,7 +1752,7 @@ test.skipIf(skip)(
 		await insertConnection(id);
 		await addSample(id);
 		fake.listResult = [{ name: instance, status: "Stopped", ipv4: null }];
-		await reconcile(tdb.db, fake, cfg, new Date(), null);
+		await sweep(tdb.db, fake, cfg, new Date(), null);
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -1752,3 +1763,56 @@ test.skipIf(skip)(
 		);
 	},
 );
+
+test.skipIf(skip)(
+	"a hung stop does not delay the next sweep's start",
+	async () => {
+		let release = (): void => {};
+		fake.stopHold = new Promise<void>((r) => {
+			release = r;
+		});
+		const now = new Date();
+		const stuck = await insertWorkspace({ state: "running", desired_state: "stopped" });
+		await reconcile(tdb.db, fake, cfg, now, now);
+		expect((await getWorkspace(stuck)).state).toBe("stopping");
+
+		const other = await insertWorkspace({ state: "stopped", desired_state: "running" });
+		await insertConnection(other);
+		const second = reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+		const outcome = await Promise.race([
+			second.then(() => "done"),
+			new Promise((r) => setTimeout(() => r("hung"), 8000)),
+		]);
+		expect(outcome).toBe("done");
+		expect((await getWorkspace(other)).state).toBe("running");
+
+		release();
+		await settleStops();
+		expect((await getWorkspace(stuck)).state).toBe("stopped");
+	},
+	15_000,
+);
+
+test.skipIf(skip)("the list check leaves a stop in flight alone", async () => {
+	let release = (): void => {};
+	fake.stopHold = new Promise<void>((r) => {
+		release = r;
+	});
+	const now = new Date();
+	const name = "ws-stop-in-flight";
+	const id = await insertWorkspace({
+		state: "running",
+		desired_state: "stopped",
+		incus_instance_name: name,
+	});
+	await reconcile(tdb.db, fake, cfg, now, now);
+
+	// The instance still reads Running while its stop is under way.
+	fake.listResult = [{ name, status: "Running", ipv4: "10.0.0.9" }];
+	await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 60_000), null);
+	expect((await getWorkspace(id)).state).toBe("stopping");
+
+	release();
+	await settleStops();
+	expect((await getWorkspace(id)).state).toBe("stopped");
+});

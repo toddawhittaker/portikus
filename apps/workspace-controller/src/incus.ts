@@ -1,6 +1,9 @@
 import * as http from "node:http";
 import type { ControllerErrorCode } from "@portikus/contracts";
 
+/** Bound for an Incus request whose caller passed no signal (EPIC-17 ruling 8). */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 export class IncusError extends Error {
 	readonly code: ControllerErrorCode;
 	constructor(code: ControllerErrorCode, message: string) {
@@ -147,8 +150,17 @@ export class IncusClient {
 		body?: unknown,
 		signal?: AbortSignal,
 		raw?: { headers: Record<string, string>; body: string },
+		timeoutMs: number | undefined = signal ? undefined : DEFAULT_REQUEST_TIMEOUT_MS,
 	): Promise<IncusEnvelope> {
 		return new Promise<IncusEnvelope>((resolve, reject) => {
+			const timer =
+				timeoutMs === undefined
+					? undefined
+					: setTimeout(() => {
+							reject(new IncusError("TIMEOUT", "request timed out"));
+							req.destroy();
+						}, timeoutMs);
+			const settle = (): void => clearTimeout(timer);
 			const payload = raw
 				? raw.body
 				: body !== undefined
@@ -174,6 +186,7 @@ export class IncusClient {
 					const chunks: Buffer[] = [];
 					res.on("data", (chunk: Buffer) => chunks.push(chunk));
 					res.on("end", () => {
+						settle();
 						try {
 							const text = Buffer.concat(chunks).toString();
 							const envelope = JSON.parse(text) as IncusEnvelope;
@@ -197,6 +210,7 @@ export class IncusClient {
 			);
 
 			req.on("error", (err: NodeJS.ErrnoException) => {
+				settle();
 				if (
 					err.code === "ECONNREFUSED" ||
 					err.code === "ENOENT" ||
@@ -250,7 +264,15 @@ export class IncusClient {
 		signal?: AbortSignal,
 	): Promise<unknown> {
 		const waitPath = `${operationUrl}/wait?timeout=${timeout}`;
-		const envelope = await this.rawRequest("GET", waitPath, undefined, signal);
+		// The wait itself is bounded by Incus; the HTTP request gets 5 s more.
+		const envelope = await this.rawRequest(
+			"GET",
+			waitPath,
+			undefined,
+			signal,
+			undefined,
+			(timeout + 5) * 1000,
+		);
 
 		if (envelope.status_code === 200) {
 			return envelope.metadata;

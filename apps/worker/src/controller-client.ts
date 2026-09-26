@@ -25,6 +25,21 @@ import {
 	StopInstanceResponse as StopInstanceResponseSchema,
 } from "@portikus/contracts";
 
+/** Time budgets for each call (EPIC-17 ruling 7), so a hung controller never hangs the worker. */
+const SHORT_BUDGET_MS = 30_000;
+const CREATE_BUDGET_MS = 300_000;
+const MAINTENANCE_BUDGET_MS = 15 * 60_000;
+
+/** A stop may take a graceful and a forced try, plus margin. */
+export function stopBudgetMs(timeoutSeconds: number): number {
+	return (2 * timeoutSeconds + 15) * 1000;
+}
+
+/** A start may wait for the agent for its timeout, plus margin. */
+export function startBudgetMs(timeoutSeconds: number): number {
+	return (timeoutSeconds + 30) * 1000;
+}
+
 /** Error thrown by the controller client, carrying the error code. */
 export class ControllerClientError extends Error {
 	readonly code: ControllerErrorCode;
@@ -71,7 +86,7 @@ export class HttpControllerClient implements ControllerClient {
 	}
 
 	async create(req: CreateInstanceRequest): Promise<CreateInstanceResponse> {
-		const res = await this.request("POST", "/instances", req);
+		const res = await this.request("POST", "/instances", req, CREATE_BUDGET_MS);
 		return CreateInstanceResponseSchema.parse(res);
 	}
 
@@ -80,6 +95,7 @@ export class HttpControllerClient implements ControllerClient {
 			"POST",
 			`/instances/${encodeURIComponent(name)}/start`,
 			req,
+			startBudgetMs(req.timeoutSeconds),
 		);
 		return StartInstanceResponseSchema.parse(res);
 	}
@@ -89,17 +105,18 @@ export class HttpControllerClient implements ControllerClient {
 			"POST",
 			`/instances/${encodeURIComponent(name)}/stop`,
 			{ timeoutSeconds },
+			stopBudgetMs(timeoutSeconds),
 		);
 		return StopInstanceResponseSchema.parse(res);
 	}
 
 	async list(): Promise<ListInstancesResponse> {
-		const res = await this.request("GET", "/instances");
+		const res = await this.request("GET", "/instances", undefined, SHORT_BUDGET_MS);
 		return ListInstancesResponseSchema.parse(res);
 	}
 
 	async setLogLevel(level: LogLevel | null): Promise<void> {
-		await this.request("PUT", "/log-level", { level });
+		await this.request("PUT", "/log-level", { level }, SHORT_BUDGET_MS);
 	}
 
 	async resetDocker(name: string, req: ResetDockerRequest): Promise<void> {
@@ -107,6 +124,7 @@ export class HttpControllerClient implements ControllerClient {
 			"POST",
 			`/instances/${encodeURIComponent(name)}/reset-docker`,
 			req,
+			MAINTENANCE_BUDGET_MS,
 		);
 	}
 
@@ -118,6 +136,7 @@ export class HttpControllerClient implements ControllerClient {
 			"POST",
 			`/instances/${encodeURIComponent(name)}/rebuild`,
 			req,
+			MAINTENANCE_BUDGET_MS,
 		);
 		return RebuildInstanceResponseSchema.parse(res);
 	}
@@ -125,42 +144,65 @@ export class HttpControllerClient implements ControllerClient {
 	private async request(
 		method: string,
 		path: string,
-		body?: unknown,
+		body: unknown,
+		budgetMs: number,
 		signal?: AbortSignal,
 	): Promise<unknown> {
-		let res: Response;
+		const budget = new AbortController();
+		const timer = setTimeout(() => budget.abort(), budgetMs);
+		const combined = signal ? AbortSignal.any([signal, budget.signal]) : budget.signal;
 		try {
-			res = await fetch(`${this.baseUrl}${path}`, {
-				method,
-				headers: {
-					Authorization: `Bearer ${this.token}`,
-					...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-				},
-				body: body !== undefined ? JSON.stringify(body) : undefined,
-				signal,
-			});
-		} catch {
-			throw new ControllerClientError("INCUS_UNAVAILABLE", "Controller is unreachable");
-		}
-
-		const json = await res.json().catch(() => null);
-
-		if (!res.ok) {
-			const parsed = ControllerError.safeParse(json);
-			if (parsed.success) {
-				throw new ControllerClientError(parsed.data.code, parsed.data.message);
+			let res: Response;
+			try {
+				res = await fetch(`${this.baseUrl}${path}`, {
+					method,
+					headers: {
+						Authorization: `Bearer ${this.token}`,
+						...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+					},
+					body: body !== undefined ? JSON.stringify(body) : undefined,
+					signal: combined,
+				});
+			} catch {
+				throw this.failure(budget.signal);
 			}
-			throw new ControllerClientError(
-				"INCUS_UNAVAILABLE",
-				`Controller returned ${res.status}`,
-			);
-		}
 
-		return json;
+			let json: unknown;
+			try {
+				json = await res.json();
+			} catch {
+				if (budget.signal.aborted) throw this.failure(budget.signal);
+				json = null;
+			}
+
+			if (!res.ok) {
+				const parsed = ControllerError.safeParse(json);
+				if (parsed.success) {
+					throw new ControllerClientError(parsed.data.code, parsed.data.message);
+				}
+				throw new ControllerClientError(
+					"INCUS_UNAVAILABLE",
+					`Controller returned ${res.status}`,
+				);
+			}
+
+			return json;
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	/** The error for a failed fetch: over budget, or unreachable. */
+	private failure(budget: AbortSignal): ControllerClientError {
+		return budget.aborted
+			? new ControllerClientError("TIMEOUT", "Controller call ran over its time budget")
+			: new ControllerClientError("INCUS_UNAVAILABLE", "Controller is unreachable");
 	}
 
 	async hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot> {
-		return HostSnapshot.parse(await this.request("GET", "/host", undefined, signal));
+		return HostSnapshot.parse(
+			await this.request("GET", "/host", undefined, SHORT_BUDGET_MS, signal),
+		);
 	}
 
 	async growVolumes(
@@ -171,18 +213,28 @@ export class HttpControllerClient implements ControllerClient {
 			"POST",
 			`/instances/${encodeURIComponent(name)}/volumes`,
 			req,
+			CREATE_BUDGET_MS,
 		);
 		return GrowVolumesResponse.parse(res);
 	}
 
 	async usage(signal?: AbortSignal): Promise<InstanceUsage[]> {
-		const res = await this.request("GET", "/instances/usage", undefined, signal);
+		const res = await this.request(
+			"GET",
+			"/instances/usage",
+			undefined,
+			SHORT_BUDGET_MS,
+			signal,
+		);
 		return InstanceUsageResponse.parse(res).instances;
 	}
 
 	async setCpuAllowance(name: string, allowance: string | null): Promise<void> {
-		await this.request("PUT", `/instances/${encodeURIComponent(name)}/cpu-allowance`, {
-			allowance,
-		});
+		await this.request(
+			"PUT",
+			`/instances/${encodeURIComponent(name)}/cpu-allowance`,
+			{ allowance },
+			SHORT_BUDGET_MS,
+		);
 	}
 }

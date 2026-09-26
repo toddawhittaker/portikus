@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll, expect, test } from "vitest";
-import { IncusClient, IncusError } from "./incus.js";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import { DEFAULT_REQUEST_TIMEOUT_MS, IncusClient, IncusError } from "./incus.js";
 
 let socketPath: string;
 let server: http.Server;
@@ -402,4 +402,56 @@ test("putIfMatch maps a 412 stale ETag to OPERATION_FAILED", async () => {
 		code: "OPERATION_FAILED",
 		message: "ETag doesn't match",
 	});
+});
+
+test("a request with no signal times out at the default", async () => {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		handler = () => {
+			// Never answer.
+		};
+		const client = new IncusClient({ socketPath, project: "testproj" });
+		const caught = client.request("GET", "/1.0/hang").catch((e: unknown) => e);
+		await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS - 1);
+		expect(await Promise.race([caught, Promise.resolve("pending")])).toBe("pending");
+		await vi.advanceTimersByTimeAsync(1);
+		const err = await caught;
+		expect(err).toBeInstanceOf(IncusError);
+		expect((err as IncusError).code).toBe("TIMEOUT");
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("an operation wait is bounded at its own timeout plus 5 seconds", async () => {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		let waitArrived = (): void => {};
+		const waiting = new Promise<void>((r) => {
+			waitArrived = r;
+		});
+		handler = (req, res) => {
+			if (req.url?.includes("/wait")) {
+				waitArrived(); // and never answer
+				return;
+			}
+			respond(res, 202, {
+				type: "async",
+				status: "Operation created",
+				status_code: 100,
+				operation: "/1.0/operations/op1",
+			});
+		};
+		const client = new IncusClient({ socketPath, project: "testproj" });
+		const caught = client
+			.request("POST", "/1.0/instances", {}, undefined, 100)
+			.catch((e: unknown) => e);
+		await waiting;
+		await vi.advanceTimersByTimeAsync(104_000);
+		expect(await Promise.race([caught, Promise.resolve("pending")])).toBe("pending");
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect((await caught) as IncusError).toMatchObject({ code: "TIMEOUT" });
+	} finally {
+		vi.useRealTimers();
+	}
 });
