@@ -3,7 +3,8 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
-import { StatusBar } from "./StatusBar.js";
+import { RightPaneContext } from "./rightPane.js";
+import { MEMORY_ANNOUNCEMENT, memoryWarning, StatusBar } from "./StatusBar.js";
 import type { WorkspaceDialogMode } from "./WorkspaceDialog.js";
 
 afterEach(() => {
@@ -393,4 +394,64 @@ test("the dialog puts the state and its actions first and folds the technical de
 	expect(within(details).getByText("Desired state")).toBeDefined();
 	expect(within(details).getByText("Connections")).toBeDefined();
 	expect(within(details).getByText("Image")).toBeDefined();
+});
+
+test("the memory warning appears at 85% of the limit and not at 84.9%", () => {
+	expect(memoryWarning({ usedBytes: 849, totalBytes: 1000 })).toBeNull();
+	expect(memoryWarning({ usedBytes: 85 * GB, totalBytes: 100 * GB })).toBe(
+		"Memory 85.0 GB of 100 GB",
+	);
+	expect(memoryWarning({ usedBytes: 1, totalBytes: 0 })).toBeNull();
+	expect(memoryWarning(undefined)).toBeNull();
+});
+
+test("at 85% memory the status bar warns, announces it, and opens Monitor by memory", async () => {
+	stubFetch((url) =>
+		String(url).endsWith("/usage")
+			? json(200, {
+					...usage({}),
+					memory: { usedBytes: 90 * GB, totalBytes: 100 * GB },
+				})
+			: json(202, { ok: true }),
+	);
+	const api = {
+		pane: "files" as const,
+		show: vi.fn(),
+		monitorSort: { column: "cpu" as const, direction: "desc" as const },
+		setMonitorSort: vi.fn(),
+	};
+	renderWithQuery(
+		<RightPaneContext.Provider value={api}>
+			<Bar workspace={WORKSPACE} />
+		</RightPaneContext.Provider>,
+	);
+
+	const warning = await screen.findByTestId("memory-warning");
+	expect(warning.textContent).toBe("Memory 90.0 GB of 100 GB");
+	// The alert icon, not colour alone, marks it as a warning.
+	expect(warning.querySelector("svg")).not.toBeNull();
+	expect(screen.getByTestId("storage-warning-announce").textContent).toBe(
+		MEMORY_ANNOUNCEMENT,
+	);
+	fireEvent.click(warning);
+	expect(api.setMonitorSort).toHaveBeenCalledWith({
+		column: "memory",
+		direction: "desc",
+	});
+	expect(api.show).toHaveBeenCalledWith("monitor");
+});
+
+test("below 85% memory the status bar shows nothing about memory", async () => {
+	const fetchMock = stubFetch((url) =>
+		String(url).endsWith("/usage")
+			? json(200, {
+					...usage({}),
+					memory: { usedBytes: 84 * GB, totalBytes: 100 * GB },
+				})
+			: json(202, { ok: true }),
+	);
+	renderBar();
+	await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+	await waitFor(() => expect(screen.queryByTestId("memory-warning")).toBeNull());
+	expect(screen.getByTestId("storage-warning-announce").textContent).toBe("");
 });

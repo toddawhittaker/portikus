@@ -1620,6 +1620,7 @@ export async function startFakeAgent(
 	const restoreFailure = new Map<string, [number, string]>();
 	const storage = new Map<string, FakeStorage>();
 	const processes = new Map<string, FakeProcess[]>();
+	const memory = new Map<string, { usedBytes: number; totalBytes: number }>();
 	function processesFor(key: string): FakeProcess[] {
 		let list = processes.get(key);
 		if (!list) {
@@ -1778,7 +1779,7 @@ export async function startFakeAgent(
 	app.get("/usage", async (request) => ({
 		observedAt: "2026-01-01T00:00:00.000Z",
 		cpuPercent: 1.5,
-		memory: { usedBytes: 100, totalBytes: 200 },
+		memory: memory.get(keyOf(request)) ?? { usedBytes: 100, totalBytes: 200 },
 		disk: { usedBytes: 300, totalBytes: 400 },
 		network: { receiveBytesPerSecond: 10, transmitBytesPerSecond: 20 },
 		processes: processesFor(keyOf(request)).map((one) => ({
@@ -1796,6 +1797,20 @@ export async function startFakeAgent(
 			recovery: null,
 		},
 	}));
+
+	/** Set the memory figure `/usage` reports, for the status bar's warning. */
+	app.post("/__test/memory", async (request, reply) => {
+		const body = (request.body ?? {}) as {
+			key?: string;
+			usedBytes: number;
+			totalBytes: number;
+		};
+		memory.set(body.key ?? "", {
+			usedBytes: body.usedBytes,
+			totalBytes: body.totalBytes,
+		});
+		return reply.status(204).send();
+	});
 
 	/** Replace a workspace's process list. */
 	app.post("/__test/processes", async (request, reply) => {
