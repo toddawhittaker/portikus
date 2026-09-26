@@ -268,7 +268,7 @@ async function openTable() {
 	await screen.findByTestId(`account-row-${uuid(1)}`);
 }
 
-test("the table has the seven columns of SPEC.md section 20.1", async () => {
+test("the table has the columns of SPEC.md section 20.1 and a Logs link", async () => {
 	stubUsers();
 	await openTable();
 	const table = screen.getByTestId("admin-accounts");
@@ -284,7 +284,11 @@ test("the table has the seven columns of SPEC.md section 20.1", async () => {
 		"Last activity",
 		"Image",
 		"Connections",
+		"Logs",
 	]);
+	// Each row's "View logs" opens the Logs tab filtered to that user (docs/EPIC-19.md ruling 36).
+	const link = within(table).getByRole("link", { name: "View logs for Alice Example" });
+	expect(link.getAttribute("href")).toBe(`/admin?tab=logs&user=${uuid(1)}`);
 });
 
 test("the Account cell is the name, then the email or else the username", async () => {

@@ -4,16 +4,24 @@ import { AppHeader } from "../shell/AppHeader.js";
 import { gatePath, useMe } from "../useMe.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { HealthTab } from "./health/HealthTab.js";
+import { LogsTab } from "./logs/LogsTab.js";
 import { SettingsTab } from "./SettingsTab.js";
 import { WorkspacesTab } from "./WorkspacesTab.js";
 
-export const ADMIN_TABS = ["workspaces", "audit", "health", "settings"] as const;
+export const ADMIN_TABS = [
+	"workspaces",
+	"audit",
+	"logs",
+	"health",
+	"settings",
+] as const;
 export type AdminTab = (typeof ADMIN_TABS)[number];
 
 const TAB_LABEL: Record<AdminTab, string> = {
 	// The address stays ?tab=workspaces so old links keep working (docs/archive/epics/EPIC-13-1.md ruling 24).
 	workspaces: "Users",
 	audit: "Audit",
+	logs: "Logs",
 	health: "Health",
 	settings: "Settings",
 };
@@ -72,6 +80,7 @@ export function AdminPage() {
 					</nav>
 					{tab === "workspaces" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
 					{tab === "audit" ? <AuditTab /> : null}
+					{tab === "logs" ? <LogsTab /> : null}
 					{tab === "health" ? <HealthTab /> : null}
 					{tab === "settings" ? <SettingsTab /> : null}
 				</div>

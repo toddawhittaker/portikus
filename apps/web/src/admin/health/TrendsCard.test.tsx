@@ -51,6 +51,9 @@ function series(
 test("the charts load for the stored range and switch with the control", async () => {
 	const requested: string[] = [];
 	stubFetch((url) => {
+		// The errors chart reads its own route; this test is about the series.
+		if (url.startsWith("/admin/logs/counts"))
+			return json(503, { code: "LOGS_UNAVAILABLE", message: "No journal." });
 		requested.push(url);
 		if (url.endsWith("range=1d")) return json(200, series("1d", 900, 86_400));
 		if (url.endsWith("range=1h")) return json(200, series("1h", 60, 3600));

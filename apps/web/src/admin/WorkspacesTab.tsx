@@ -13,7 +13,7 @@ import {
 	type WorkspaceState,
 } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
-import { useSearch } from "@tanstack/react-router";
+import { Link, useSearch } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { z } from "zod";
 import { ApiError, request } from "../api/request.js";
@@ -460,6 +460,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 								<th scope="col">Last activity</th>
 								<th scope="col">Image</th>
 								<th scope="col">Connections</th>
+								<th scope="col">Logs</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -820,6 +821,17 @@ function AccountRow({
 				) : null}
 			</td>
 			<td className="py-2">{workspace ? workspace.activeConnections : "—"}</td>
+			<td className="py-2">
+				<Link
+					to="/admin"
+					search={{ tab: "logs", user: user.id }}
+					className="pk-focus-ring pk-link text-[var(--accent-text)] underline"
+					aria-label={`View logs for ${user.displayName}`}
+					data-testid={`account-logs-${user.id}`}
+				>
+					View logs
+				</Link>
+			</td>
 		</tr>
 	);
 }
