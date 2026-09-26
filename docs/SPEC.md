@@ -2333,7 +2333,8 @@ the host, port, label, owner, running state, bridge path, registry,
 bridge forward and activity checks run on every request from those rows.
 Any removal of authorization (sign-out, account disable, session expiry,
 a workspace stop or delete, a session gate) therefore reaches the gateway
-up to 2 seconds late; a preview reset made through the API takes effect at
+up to 2 seconds late, and so can regaining it, such as accepting the
+acceptable-use statement; a preview reset made through the API takes effect at
 once. Each preview session may make 2,000 authorized requests per 10
 seconds; past that the gateway answers 429 with a small "Too many
 requests" page and a `Retry-After` header, and logs one warning per session

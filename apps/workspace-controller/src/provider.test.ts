@@ -396,7 +396,7 @@ test("start fails when the image has no file for the chosen zone", async () => {
 	handler = async (req, res) => {
 		await readBody(req);
 		if (req.url?.includes("/operations/exec-1/wait")) {
-			respond(res, 200, sync({ metadata: { return: 1 } }));
+			respond(res, 200, sync({ status_code: 200, metadata: { return: 1 } }));
 		} else if (req.url?.includes("/exec")) {
 			// Incus runs an exec as an operation and reports the exit status.
 			respond(res, 202, {
@@ -548,6 +548,46 @@ test("stop graceful failure retries with force true", async () => {
 	expect(result.forced).toBe(true);
 	expect(callCount).toBe(2);
 });
+
+// Incus answers the wait with a success reply even when the graceful stop
+// failed or is still running; the forced stop must follow all the same.
+for (const [outcome, operation] of [
+	[
+		"fails",
+		{
+			status_code: 400,
+			status: "Failure",
+			err: 'Failed shutting down instance, status is "Running": context deadline exceeded',
+		},
+	],
+	["is still running", { status_code: 103, status: "Running", err: "" }],
+] as const) {
+	test(`a graceful stop whose operation ${outcome} is retried with force`, async () => {
+		const puts: Array<{ force?: boolean }> = [];
+		handler = async (req, res) => {
+			const body = await readBody(req);
+			if (req.method === "PUT" && req.url?.includes("/state")) {
+				puts.push(JSON.parse(body));
+				respond(res, 202, {
+					type: "async",
+					status: "Operation created",
+					status_code: 100,
+					operation: `/1.0/operations/stop-${puts.length}`,
+				});
+			} else if (req.url?.includes("/operations/stop-1/wait")) {
+				respond(res, 200, sync(operation));
+			} else if (req.url?.includes("/operations/stop-2/wait")) {
+				respond(res, 200, sync({ status_code: 200, status: "Success", err: "" }));
+			} else {
+				respond(res, 200, sync({ status: "Running" }));
+			}
+		};
+
+		const result = await provider.stop("ws-test", { timeoutSeconds: 5 });
+		expect(result.forced).toBe(true);
+		expect(puts.map((p) => p.force)).toEqual([false, true]);
+	});
+}
 
 test("stop on an already-stopped instance is a no-op", async () => {
 	let puts = 0;

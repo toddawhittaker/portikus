@@ -277,19 +277,16 @@ export class IncusClient {
 			(timeout + 5) * 1000,
 		);
 
-		if (envelope.status_code === 200) {
+		// The reply itself always says success; the operation's outcome is inside it.
+		const op = envelope.metadata as { status_code?: number; err?: string } | undefined;
+		const code = op?.status_code ?? 0;
+		if (code === 200) {
 			return envelope.metadata;
 		}
-		if (envelope.status_code === 103) {
-			throw new IncusError("TIMEOUT", "operation timed out");
+		if (code >= 400) {
+			throw new IncusError("OPERATION_FAILED", op?.err || "operation failed");
 		}
-		if (envelope.status_code === 400) {
-			const meta = envelope.metadata as Record<string, unknown> | undefined;
-			const errMsg = (meta?.err as string) ?? envelope.error ?? "operation failed";
-			throw new IncusError("OPERATION_FAILED", errMsg);
-		}
-
-		return envelope.metadata;
+		throw new IncusError("TIMEOUT", "operation timed out");
 	}
 
 	async ping(signal?: AbortSignal): Promise<boolean> {

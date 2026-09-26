@@ -31,6 +31,12 @@ function respond(res: http.ServerResponse, status: number, body: unknown): void 
 	res.end(json);
 }
 
+// Incus answers an operation wait with a plain success reply whatever the
+// operation's outcome; the outcome is in the operation it carries.
+function waitReply(operation: Record<string, unknown>) {
+	return { type: "sync", status: "Success", status_code: 200, metadata: operation };
+}
+
 test("sync envelope returns metadata", async () => {
 	handler = (_req, res) => {
 		respond(res, 200, {
@@ -99,12 +105,11 @@ test("async envelope followed by wait success", async () => {
 				metadata: { id: "op1" },
 			});
 		} else {
-			respond(res, 200, {
-				type: "sync",
-				status: "Success",
-				status_code: 200,
-				metadata: { done: true },
-			});
+			respond(
+				res,
+				200,
+				waitReply({ status_code: 200, status: "Success", metadata: { done: true } }),
+			);
 		}
 	};
 	const client = new IncusClient({
@@ -114,7 +119,7 @@ test("async envelope followed by wait success", async () => {
 	const result = await client.request("POST", "/1.0/instances", {
 		name: "test",
 	});
-	expect(result).toEqual({ done: true });
+	expect(result).toMatchObject({ status_code: 200, metadata: { done: true } });
 	expect(callCount).toBe(2);
 });
 
@@ -130,12 +135,7 @@ test("wait 103 maps to TIMEOUT", async () => {
 				operation: "/1.0/operations/op2",
 			});
 		} else {
-			respond(res, 200, {
-				type: "sync",
-				status: "Running",
-				status_code: 103,
-				metadata: {},
-			});
+			respond(res, 200, waitReply({ status_code: 103, status: "Running", err: "" }));
 		}
 	};
 	const client = new IncusClient({
@@ -151,6 +151,37 @@ test("wait 103 maps to TIMEOUT", async () => {
 		expect(err).toBeInstanceOf(IncusError);
 		expect((err as IncusError).code).toBe("TIMEOUT");
 	}
+});
+
+test("a failed operation maps to OPERATION_FAILED with Incus's message", async () => {
+	handler = (req, res) => {
+		if (req.url?.includes("/wait")) {
+			respond(
+				res,
+				200,
+				waitReply({
+					status_code: 400,
+					status: "Failure",
+					err: 'Failed shutting down instance, status is "Running": context deadline exceeded',
+				}),
+			);
+			return;
+		}
+		respond(res, 202, {
+			type: "async",
+			status: "Operation created",
+			status_code: 100,
+			operation: "/1.0/operations/op3",
+		});
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(
+		client.request("PUT", "/1.0/instances/x/state", { action: "stop" }),
+	).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+		message:
+			'Failed shutting down instance, status is "Running": context deadline exceeded',
+	});
 });
 
 test("404 maps to NOT_FOUND", async () => {
@@ -365,12 +396,7 @@ test("putIfMatch sends If-Match and the JSON body, then waits for the operation"
 					operation: "/1.0/operations/op2",
 				});
 			} else {
-				respond(res, 200, {
-					type: "sync",
-					status: "Success",
-					status_code: 200,
-					metadata: {},
-				});
+				respond(res, 200, waitReply({ status_code: 200, status: "Success" }));
 			}
 		});
 	};
