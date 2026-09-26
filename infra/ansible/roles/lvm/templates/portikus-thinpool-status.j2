@@ -1,0 +1,15 @@
+#!/bin/sh
+# Managed by Ansible (lvm role).  Writes the thin pool's data and metadata
+# use for the controller, which runs unprivileged and cannot run lvs itself.
+set -eu
+out=/run/portikus-thinpool.json
+use=$(LC_ALL=C lvs --noheadings --nosuffix --separator , \
+  -o data_percent,metadata_percent {{ lvm_vg_name }}/{{ lvm_thinpool_name }} | tr -d ' ')
+tmp=$(mktemp /run/portikus-thinpool.json.XXXXXX)
+trap 'rm -f "$tmp"' EXIT
+# --argjson refuses anything that is not a number, so a bad reading never lands.
+jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --argjson data "${use%%,*}" --argjson meta "${use#*,}" \
+  '{observedAt: $at, dataPercent: $data, metadataPercent: $meta}' >"$tmp"
+chmod 0644 "$tmp"
+mv "$tmp" "$out"

@@ -3,3 +3,8 @@
   ansible.builtin.systemd_service:
     name: systemd-journald
     state: restarted
+
+# A daemon reload applies the slice's new settings to its running cgroup.
+- name: Reload systemd for the platform slice
+  ansible.builtin.systemd_service:
+    daemon_reload: true

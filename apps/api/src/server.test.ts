@@ -116,6 +116,30 @@ test("an unexpected error returns a generic INTERNAL body", async () => {
 	await app.close();
 });
 
+test("a busy database pool answers 503 SERVICE_BUSY (docs/EPIC-17.md ruling 14)", async () => {
+	const busy: OidcClient = {
+		buildLoginRedirect: async () => {
+			throw new Error("timeout exceeded when trying to connect");
+		},
+		completeLogin: async () => {
+			throw new Error("unused");
+		},
+	};
+	const app = buildServer({
+		db: {} as unknown as Kysely<Database>,
+		config: testConfig("http://127.0.0.1:3002"),
+		logger: silentLogger(),
+		oidc: busy,
+	});
+	const response = await app.inject({ method: "GET", url: "/auth/login" });
+	expect(response.statusCode).toBe(503);
+	expect(response.json()).toEqual({
+		code: "SERVICE_BUSY",
+		message: "The server is busy. Try again in a moment.",
+	});
+	await app.close();
+});
+
 /** One keep-alive request, resolving with the status and the local port used. */
 function request(
 	port: number,

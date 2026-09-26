@@ -69,3 +69,12 @@ export function resetPage(): string {
 			"Open the preview again from Portikus to start a fresh session.",
 	);
 }
+
+/** One preview session asked too often (docs/EPIC-17.md ruling 12). */
+export function tooManyRequestsPage(): string {
+	return previewPage(
+		"Too many requests",
+		"This preview made too many requests in a short time. Wait a few " +
+			"seconds, then reload it.",
+	);
+}

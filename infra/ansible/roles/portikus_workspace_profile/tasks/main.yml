@@ -120,23 +120,28 @@
 # Anti-spoofing on the bridged NIC (SPEC.md 23.5): a student must not be
 # able to take another workspace's address and impersonate its agent.
 # Incus installs the filter rules from the address it manages for the NIC.
-- name: Get current agent NIC filtering settings
+# The bandwidth limits keep one workspace from filling the VM's uplink
+# (docs/CAPACITY.md).  Incus applies a changed profile device to running
+# containers too.
+- name: Get current eth0 filtering and bandwidth settings
   ansible.builtin.command:
     cmd: >-
-      incus profile device get workspace eth0 {{ item }}
+      incus profile device get workspace eth0 {{ item.key }}
       --project {{ incus_project_name }}
   loop:
-    - security.mac_filtering
-    - security.ipv4_filtering
-  register: portikus_workspace_profile_nic_filtering
+    - { key: "security.mac_filtering", value: "true" }
+    - { key: "security.ipv4_filtering", value: "true" }
+    - { key: "limits.ingress", value: "{{ workspace_network_limit }}" }
+    - { key: "limits.egress", value: "{{ workspace_network_limit }}" }
+  register: portikus_workspace_profile_nic
   changed_when: false
   failed_when: false
 
-- name: Enable NIC anti-spoofing filtering
+- name: Set eth0 filtering and bandwidth
   ansible.builtin.command:
     cmd: >-
-      incus profile device set workspace eth0 {{ item.item }}=true
+      incus profile device set workspace eth0 {{ item.item.key }}={{ item.item.value }}
       --project {{ incus_project_name }}
-  loop: "{{ portikus_workspace_profile_nic_filtering.results }}"
-  when: item.stdout | default('') | trim != 'true'
+  loop: "{{ portikus_workspace_profile_nic.results }}"
+  when: item.stdout | default('') | trim != item.item.value
   changed_when: true

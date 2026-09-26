@@ -278,3 +278,29 @@ test.skipIf(skip)(
 		expect(row.desired_state).toBe("stopped");
 	},
 );
+
+// ── The per-user lifecycle limit (docs/EPIC-17.md rulings 16 and 17) ──
+
+test.skipIf(skip)(
+	"start, stop and restart share a limit of 20 a minute per user",
+	async () => {
+		const id = (await post("/workspaces", alice)).json().id;
+		const paths = ["start", "stop", "restart"];
+		for (let i = 0; i < 20; i++) {
+			const res = await post(`/workspaces/${id}/${paths[i % 3]}`, alice);
+			expect(res.statusCode).not.toBe(429);
+		}
+		const refused = await post(`/workspaces/${id}/start`, alice);
+		expect(refused.statusCode).toBe(429);
+		expect(refused.json().code).toBe("RATE_LIMITED");
+		expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
+		// Reading the workspace is not limited.
+		expect((await get(`/workspaces/${id}`, alice)).statusCode).toBe(200);
+
+		// Another student has a count of their own.
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+		const bobs = (await post("/workspaces", bob)).json().id;
+		expect((await post(`/workspaces/${bobs}/start`, bob)).statusCode).not.toBe(429);
+	},
+);
