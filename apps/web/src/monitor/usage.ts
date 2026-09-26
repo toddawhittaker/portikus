@@ -9,7 +9,7 @@ import { request } from "../api/request.js";
 /** How often a visible surface asks again. */
 export const USAGE_POLL_MS = 1000;
 
-/** The status bar only watches storage, so it asks far less often. */
+/** The status bar only watches storage and memory, so it asks far less often. */
 export const STORAGE_POLL_MS = 30_000;
 
 export function useWorkspaceUsage(

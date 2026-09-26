@@ -1852,6 +1852,20 @@ line goes only to the student; it is never logged, audited or shown to an
 administrator. Memory used is the cgroup's working set: `memory.current`
 less `inactive_file` from `memory.stat`, as the guard counts it (19.4).
 
+In Monitor, a row whose process is `stoppable` has a Stop icon button named
+"Stop {name} (PID {pid})". It opens a confirmation, "Stop {name}?" with the
+PID. If the process outlives the stop, the dialog stays open, says "{name}
+is still running." and offers **Force stop**; nothing is killed until the
+student presses it. Refusals show in the dialog in plain words ("That
+program has already stopped.", "That process ID now belongs to a different
+program. Refresh and try again.", "Portikus needs this process, so it
+cannot be stopped here."). A stopped row leaves the list at once, the
+result is announced, and focus moves to the list's heading. A row with a
+`commandLine` has a disclosure button ("Show the full command for PID
+{pid}") that shows the command line in a row below it, in the monospace
+face. Monitor's sort is held by the right pane, so a notice or the status
+bar can open Monitor sorted by CPU or memory, largest first.
+
 ### 18.4 Recognized run/build commands
 
 P1 may detect or configure common project commands, for example scripts in `package.json`, `Makefile` targets, or template-provided commands, and expose actions such as **Run**, **Test**, or **Build**.
@@ -1897,6 +1911,12 @@ button that opens the workspace dialog, and it keeps its warning or error
 colour. Quotas are environment configuration in this
 epic; changing them at runtime is Epic 11.
 
+Memory has a warning of its own (Epic 21): when the working set is at or
+above 85% of the limit, the status bar shows "Memory {used} of {total}" in
+the warning tone with the alert icon, as a button that opens Monitor sorted
+by memory. Below 85% it shows nothing. It uses the same 30-second usage
+poll, and the crossing is announced through the same status region.
+
 ### 19.3 Denial behavior
 
 Resource exhaustion must fail safely.
@@ -1929,9 +1949,9 @@ Added by Epic 14.3 (ADR 0032). The guard slows a workspace that keeps its CPUs b
 - A workspace whose CPU average is above the CPU threshold (default 80%) over the window (default 30 minutes) is throttled to the throttle share (default 25%) of its CPU limit. The throttle is Incus's `limits.cpu.allowance` written as a time slice, `<N>ms/100ms`, where N is the share times the CPU limit times 100 ms, rounded to a whole millisecond: 25% of a pilot workspace's 2 CPUs is `50ms/100ms`, half a CPU, which the cgroup shows as `cpu.max` `50000 100000`. It is never a percentage, which Incus treats as a soft weight that only applies when the host is busy.
 - The database is the source of truth. Throttling writes `workspaces.cpu_throttle` (when, the average, the threshold, the window, the share and the allowance) and the audit row `workspace.cpu_throttled` in one transaction, then asks the controller to set the allowance (`PUT /instances/:name/cpu-allowance`, which accepts only `^\d{1,6}ms/100ms$` or null). Every tick the worker compares each running workspace's allowance in Incus with its row and sets or removes it when they differ, so the throttle survives a restart of the worker or the controller and a lift reaches Incus even if the controller was down. A failed controller call is audited once as `workspace.cpu_throttle_failed` and retried next tick; the row stays throttled.
 - The throttle lifts on its own after a quiet spell (above), at the next stop, or when an administrator lifts it. An automatic lift clears `cpu_throttle`, deletes the samples taken at or before the throttle, and audits `workspace.cpu_throttle_lifted` with `{reason: "idle", averagePercent}` in one transaction; the same tick removes the allowance from Incus. The controller removes any allowance before every start. When the worker records a stop by any path it clears `cpu_throttle`, deletes the workspace's samples taken at or before the throttle, so the next run starts a fresh window, and audits `workspace.cpu_throttle_lifted` with `{reason: "stopped"}`. An administrator's lift clears the row, deletes all the workspace's samples, and audits the same event with `{reason: "administrator"}`; the worker removes the allowance on its next tick.
-- The student sees a warning notice at once, with the numbers from the row (the student's `cpuThrottle` also carries `idleLiftMinutes` and `idleLiftPercent` from the settings row, both null when automatic lifting is off): the workspace was slowed because it kept its CPUs busy, what share it now gets, and that stopping and starting restores full speed or an administrator can lift it. It is dismissible for the page's life. There is no warning before the throttle.
+- The student sees a warning notice at once, with the numbers from the row (the student's `cpuThrottle` also carries `idleLiftMinutes` and `idleLiftPercent` from the settings row, both null when automatic lifting is off): the workspace was slowed because it kept its CPUs busy, what share it now gets, and that stopping and starting restores full speed or an administrator can lift it. When lifting is on, the notice adds "It returns to full speed on its own after {minutes} minutes under {percent}% use." Its **See what's using CPU** button opens Monitor sorted by CPU. It is dismissible for the page's life. There is no warning before the throttle. When a throttle the open page was showing goes away, the page shows the toast "Your workspace is back to full speed"; the worker writes no notification.
 
-**Memory flag.** A workspace whose memory average is above the memory threshold (default 90%) is flagged: `workspaces.memory_flag` (when, the average, the threshold, the window) and `workspace.memory_flagged`. Nothing is slowed, because memory already has a hard limit. The owner's workspace view carries the flag as `memoryFlag` (when, the average, the threshold, the window). The flag clears at the next stop (`workspace.memory_flag_cleared` with `{reason: "stopped"}`) or when an administrator clears it (`{reason: "administrator"}`, which also deletes the workspace's samples).
+**Memory flag.** A workspace whose memory average is above the memory threshold (default 90%) is flagged: `workspaces.memory_flag` (when, the average, the threshold, the window) and `workspace.memory_flagged`. Nothing is slowed, because memory already has a hard limit. The owner's workspace view carries the flag as `memoryFlag` (when, the average, the threshold, the window). The student sees a warning notice, dismissible for the page's life per flag: "Your workspace has been near its memory limit", "For {window} minutes it used more than {threshold}% of its memory. If it runs out, the biggest program is stopped.", with a **See what's using memory** button that opens Monitor sorted by memory. The flag clears at the next stop (`workspace.memory_flag_cleared` with `{reason: "stopped"}`) or when an administrator clears it (`{reason: "administrator"}`, which also deletes the workspace's samples).
 
 **Settings and overrides.** The platform values are columns on the `settings` row, edited in the admin Settings tab: CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing), the automatic lift's quiet time (`cpu_idle_lift_minutes`, 1 to 60, default 5) and quiet percent (`cpu_idle_lift_percent`, 0 to 100, default 10; 0 turns automatic lifting off), and the idle time of section 6.4. The two lift settings have no per-workspace override. Each workspace may override any of them in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes`; a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
 
