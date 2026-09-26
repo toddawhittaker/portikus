@@ -588,12 +588,14 @@ test.describe("application preview", () => {
 		const menu = page.getByRole("menu", { name: "More preview actions" });
 		await expect(menu.getByRole("menuitem", { name: "Copy URL" })).toBeVisible();
 		await expect(menu.getByText("Width", { exact: true })).toBeVisible();
-		await expect(menu.getByRole("menuitemcheckbox", { name: "Fit" })).toBeChecked();
+		await expect(
+			menu.getByRole("menuitemcheckbox", { name: "Fit width" }),
+		).toBeChecked();
 		await expect(
 			menu.getByRole("menuitem", { name: "Reset preview data" }),
 		).toBeVisible();
 		await expect(menu.getByRole("menuitem", { name: "Show in Running" })).toBeVisible();
-		await menu.getByRole("menuitemcheckbox", { name: "768 px" }).click();
+		await menu.getByRole("menuitemcheckbox", { name: "768 px wide" }).click();
 		await expect(page.getByTestId("preview-frame")).toHaveCSS("max-width", "768px");
 	});
 });

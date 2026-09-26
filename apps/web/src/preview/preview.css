@@ -116,7 +116,7 @@
 
 .pk-portlist .pk-portrow {
 	padding: var(--space-2) var(--space-3);
-	border: 1px solid var(--line);
+	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-md);
 	background: transparent;
 	color: var(--ink);

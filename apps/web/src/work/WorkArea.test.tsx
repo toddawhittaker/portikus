@@ -467,6 +467,14 @@ test("the empty work area opens a terminal or Claude Code from its buttons", asy
 
 	await screen.findByText("No terminals open");
 	expect(screen.getByTestId("launcher").getAttribute("aria-label")).toBe("New tab");
+	// The main action is the primary button; Claude Code stays secondary.
+	expect(screen.getByTestId("empty-open-terminal").className).toContain(
+		"bg-surface-inverse",
+	);
+	expect(screen.getByTestId("empty-open-claude").className).not.toContain(
+		"bg-surface-inverse",
+	);
+	expect(screen.getByText(/Or use New tab \(\+\) in the tab bar/)).toBeDefined();
 
 	fireEvent.click(screen.getByRole("button", { name: "Start Claude Code" }));
 	await waitFor(() =>

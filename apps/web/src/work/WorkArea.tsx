@@ -521,6 +521,7 @@ export function WorkArea({
 						actions={
 							<>
 								<Button
+									variant="primary"
 									iconStart="terminal"
 									data-testid="empty-open-terminal"
 									onClick={() => void openTerminalTab()}
@@ -538,7 +539,7 @@ export function WorkArea({
 							</>
 						}
 					>
-						Or use + in the tab bar for Codex and previews.
+						Or use New tab (+) in the tab bar for Codex and previews.
 					</EmptyState>
 				) : (
 					layout.tabs.map((tab) => (

@@ -11,7 +11,7 @@ import {
 	type WorkspaceDialogMode,
 } from "./WorkspaceDialog.js";
 
-export { PENDING_LABEL, type WorkspaceDialogMode } from "./WorkspaceDialog.js";
+export { PENDING_LABEL } from "./WorkspaceDialog.js";
 
 const TONE_CLASS: Record<string, string> = {
 	running: "pk-tone-running",

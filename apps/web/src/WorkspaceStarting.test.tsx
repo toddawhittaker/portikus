@@ -1,5 +1,9 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import type { Workspace } from "@portikus/contracts";
+import { ToastProvider } from "@portikus/ui";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { createQueryClient } from "./api/queryClient.js";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "./test-utils.js";
 import {
 	offerDockerCleanup,
@@ -8,6 +12,25 @@ import {
 } from "./WorkspaceStarting.js";
 
 const noop = () => {};
+
+/** Renders the screen twice through one provider, to see a phase change. */
+function renderPhases(first: Workspace, second: Workspace) {
+	stubFetch(() => json(503, { code: "AGENT_UNAVAILABLE", message: "no" }));
+	const client = createQueryClient(() => {});
+	const ui = (workspace: Workspace) => (
+		<QueryClientProvider client={client}>
+			<ToastProvider>
+				<WorkspaceStarting
+					workspaceId={WORKSPACE.id}
+					workspace={workspace}
+					onOpenWorkspace={noop}
+				/>
+			</ToastProvider>
+		</QueryClientProvider>
+	);
+	const { rerender } = render(ui(first));
+	return () => rerender(ui(second));
+}
 
 test("no workspace yet means connecting", () => {
 	expect(startingPhase(null)).toBe("connecting");
@@ -252,6 +275,25 @@ test("with Docker not full the error screen shows the meters but no Clean up Doc
 });
 
 test("with no figures the error screen offers only Try again and Workspace details", async () => {
+	const fetchMock = stubFetch(() =>
+		json(503, { code: "AGENT_UNAVAILABLE", message: "no" }),
+	);
+	const client = renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "error", errorCode: "STORAGE_FULL" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+
+	await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+	await waitFor(() => expect(client.isFetching()).toBe(0));
+	expect(screen.queryByTestId("storage-meters")).toBeNull();
+	const names = screen.getAllByRole("button").map((button) => button.textContent);
+	expect(names).toEqual(["Try again", "Workspace details"]);
+});
+
+test("a full storage says so in plain words instead of blaming nothing", () => {
 	stubFetch(() => json(503, { code: "AGENT_UNAVAILABLE", message: "no" }));
 	renderWithQuery(
 		<WorkspaceStarting
@@ -260,8 +302,58 @@ test("with no figures the error screen offers only Try again and Workspace detai
 			onOpenWorkspace={noop}
 		/>,
 	);
+	const sub = screen.getByTestId("progress-sub").textContent;
+	expect(sub).toContain("Your storage is full.");
+	expect(sub).not.toContain("Nothing you did caused this");
+});
 
-	expect(screen.queryByTestId("storage-meters")).toBeNull();
-	const names = screen.getAllByRole("button").map((button) => button.textContent);
-	expect(names).toEqual(["Try again", "Workspace details"]);
+test("other errors keep the reassurance", () => {
+	stubFetch(() => json(503, { code: "AGENT_UNAVAILABLE", message: "no" }));
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "error", errorCode: "BOOT_FAILED" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+	expect(screen.getByTestId("progress-sub").textContent).toContain(
+		"Nothing you did caused this",
+	);
+});
+
+test("only the heading and subtitle are a live region, not the buttons or meters", () => {
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "stopped", desiredState: "stopped" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+	expect(screen.getByTestId("workspace-progress").getAttribute("aria-live")).toBeNull();
+	const live = screen.getByRole("heading").closest("[aria-live]");
+	expect(live?.getAttribute("aria-live")).toBe("polite");
+	expect(live?.contains(screen.getByTestId("workspace-resume"))).toBe(false);
+});
+
+test("when the focused button goes away with the phase, focus moves to the heading", () => {
+	const stopped = {
+		...WORKSPACE,
+		state: "stopped" as const,
+		desiredState: "stopped" as const,
+	};
+	const change = renderPhases(stopped, { ...stopped, desiredState: "running" });
+	screen.getByTestId("workspace-resume").focus();
+	change();
+	expect(document.activeElement).toBe(screen.getByRole("heading"));
+});
+
+test("a phase change does not take focus when it was elsewhere", () => {
+	const stopped = {
+		...WORKSPACE,
+		state: "stopped" as const,
+		desiredState: "stopped" as const,
+	};
+	const change = renderPhases(stopped, { ...stopped, desiredState: "running" });
+	change();
+	expect(document.activeElement).toBe(document.body);
 });

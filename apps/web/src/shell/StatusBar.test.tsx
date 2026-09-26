@@ -3,7 +3,8 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
-import { StatusBar, type WorkspaceDialogMode } from "./StatusBar.js";
+import { StatusBar } from "./StatusBar.js";
+import type { WorkspaceDialogMode } from "./WorkspaceDialog.js";
 
 afterEach(() => {
 	vi.unstubAllGlobals();

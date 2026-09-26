@@ -1,6 +1,6 @@
 import type { PendingOperation, Workspace, WorkspaceUsage } from "@portikus/contracts";
 import { Button, Icon, Skeleton, useToast } from "@portikus/ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWorkspaceAction } from "./api/workspace.js";
 import { STORAGE_POLL_MS, useWorkspaceUsage } from "./monitor/usage.js";
 import { storageLevel } from "./recovery/storage.js";
@@ -98,7 +98,7 @@ export function offerDockerCleanup(
 
 /**
  * The center of the shell while the workspace is not running yet
- * (SPEC.md §6.3): what is happening, in order, and nothing to click.
+ * (SPEC.md §6.3): what is happening, in order.
  */
 export function WorkspaceStarting({
 	workspaceId,
@@ -121,6 +121,17 @@ export function WorkspaceStarting({
 	const usage = useWorkspaceUsage(workspaceId, phase === "error", STORAGE_POLL_MS);
 	const storage = phase === "error" ? usage.data?.storage : undefined;
 	const [cleaning, setCleaning] = useState(false);
+	const cardRef = useRef<HTMLElement>(null);
+	const headingRef = useRef<HTMLHeadingElement>(null);
+	const focusInside = useRef(false);
+	// A button that vanishes with the phase must not drop focus to the page body.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs on phase change only
+	useEffect(() => {
+		if (focusInside.current && !cardRef.current?.contains(document.activeElement)) {
+			headingRef.current?.focus();
+		}
+	}, [phase, pending]);
+	const storageFull = phase === "error" && workspace?.errorCode === "STORAGE_FULL";
 
 	return (
 		<>
@@ -133,8 +144,16 @@ export function WorkspaceStarting({
 			)}
 			<div className="flex flex-1 items-center justify-center p-10">
 				<section
+					ref={cardRef}
 					className="pk-card pk-progress-card"
-					aria-live="polite"
+					onFocus={() => {
+						focusInside.current = true;
+					}}
+					onBlur={(event) => {
+						// A removed button blurs with no target; that still counts as inside.
+						if (event.relatedTarget && !cardRef.current?.contains(event.relatedTarget))
+							focusInside.current = false;
+					}}
 					aria-labelledby="progress-title"
 					data-testid="workspace-progress"
 					data-phase={phase}
@@ -147,10 +166,21 @@ export function WorkspaceStarting({
 							</div>
 						)}
 						<div className="flex flex-col gap-2">
-							<h1 id="progress-title" className="pk-text-title">
-								{heading}
-							</h1>
-							<p className="pk-text-body pk-muted">{sub}</p>
+							<div className="flex flex-col gap-2" aria-live="polite">
+								<h1
+									id="progress-title"
+									ref={headingRef}
+									tabIndex={-1}
+									className="pk-text-title"
+								>
+									{heading}
+								</h1>
+								<p className="pk-text-body pk-muted" data-testid="progress-sub">
+									{storageFull && !pending
+										? "Portikus could not start the machine behind this window. Your storage is full."
+										: sub}
+								</p>
+							</div>
 							{idleStop && (phase === "stopping" || phase === "stopped") && (
 								<p className="pk-text-body" data-testid="idle-stopped">
 									{idleStop.minutes === null
@@ -221,7 +251,9 @@ export function WorkspaceStarting({
 							</div>
 							{(workspace?.errorMessage || workspace?.errorCode) && (
 								<details data-testid="workspace-error-details">
-									<summary className="pk-text-body">Technical details</summary>
+									<summary className="pk-text-body pk-summary">
+										Technical details
+									</summary>
 									<div className="pk-techdetail mt-2 flex flex-col gap-1">
 										{workspace.errorMessage && (
 											<p className="m-0">{workspace.errorMessage}</p>
