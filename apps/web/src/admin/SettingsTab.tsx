@@ -14,6 +14,7 @@ import {
 } from "@portikus/ui";
 import { useState } from "react";
 import { ApiError } from "../api/request.js";
+import { AdminSection } from "./AdminSection.js";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./GuardDialog.js";
 import { graceText } from "./graceText.js";
 import { usePlatformSettings, useUpdatePlatformSettings } from "./queries.js";
@@ -46,13 +47,18 @@ export function announced(error: string | null) {
  */
 export function SettingsTab() {
 	return (
-		<>
-			<GraceSection />
-			<IdleStopSection />
-			<ResourceGuardSection />
-			<AcceptableUseSection />
-			<LogLevelSection />
-		</>
+		<AdminSection title="Settings">
+			<div
+				className="grid grid-cols-[repeat(auto-fill,minmax(420px,1fr))] items-start gap-6"
+				data-testid="settings-grid"
+			>
+				<GraceSection />
+				<IdleStopSection />
+				<ResourceGuardSection />
+				<AcceptableUseSection />
+				<LogLevelSection />
+			</div>
+		</AdminSection>
 	);
 }
 
@@ -97,29 +103,29 @@ function IdleStopSection() {
 	}
 
 	return (
-		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="idle-title">
-			<h2 className="pk-text-heading m-0" id="idle-title">
+		<section className="pk-card p-6" aria-labelledby="idle-title">
+			<h3 className="pk-text-heading m-0" id="idle-title">
 				Idle stop
-			</h2>
+			</h3>
 			<p className="pk-text-body pk-muted mt-1">
 				How long a running workspace may go without a key press, click, file save or
 				preview visit before the student is asked "Still working?". It stops five
 				minutes later unless they answer. 0 means never. Each workspace can override
 				this.
 			</p>
-			<div className="pk-actions mt-4 items-end">
-				<TextField
-					id="idle-minutes"
-					label="Minutes"
-					className="w-48"
-					inputMode="numeric"
-					data-testid="idle-input"
-					value={value}
-					// A read failure is shown once, in the grace section above.
-					error={announced(error)}
-					disabled={settings.isLoading}
-					onChange={(event) => setDraft(event.target.value)}
-				/>
+			<TextField
+				className="mt-4 w-48"
+				id="idle-minutes"
+				label="Minutes"
+				inputMode="numeric"
+				data-testid="idle-input"
+				value={value}
+				// A read failure is shown once, in the grace section above.
+				error={announced(error)}
+				disabled={settings.isLoading}
+				onChange={(event) => setDraft(event.target.value)}
+			/>
+			<div className="pk-actions mt-4">
 				<Button
 					variant="primary"
 					data-testid="idle-save"
@@ -170,10 +176,10 @@ function ResourceGuardSection() {
 	}
 
 	return (
-		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="guard-title">
-			<h2 className="pk-text-heading m-0" id="guard-title">
+		<section className="pk-card p-6" aria-labelledby="guard-title">
+			<h3 className="pk-text-heading m-0" id="guard-title">
 				Resource guard
-			</h2>
+			</h3>
 			<p className="pk-text-body pk-muted mt-1">
 				A workspace whose CPU average stays above the CPU threshold for the window is
 				slowed to the throttled share of its CPU until it is stopped and started, or an
@@ -181,7 +187,7 @@ function ResourceGuardSection() {
 				administrators; nothing is slowed. A threshold of 100 turns that check off. Each
 				workspace can override these.
 			</p>
-			<div className="mt-4 grid grid-cols-2 gap-4">
+			<div className="mt-4 grid grid-cols-[repeat(2,max-content)] gap-x-4 gap-y-3">
 				{fields.map((field) => {
 					const key = field.key as Exclude<GuardKey, "idleStopMinutes">;
 					const error = errors[key] ?? null;
@@ -189,6 +195,7 @@ function ResourceGuardSection() {
 						<TextField
 							key={key}
 							id={`settings-${key}`}
+							className="w-48"
 							label={field.label}
 							inputMode="numeric"
 							data-testid={`settings-${key}`}
@@ -266,10 +273,10 @@ function AcceptableUseSection() {
 	}
 
 	return (
-		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="aup-title">
-			<h2 className="pk-text-heading m-0" id="aup-title">
+		<section className="pk-card p-6" aria-labelledby="aup-title">
+			<h3 className="pk-text-heading m-0" id="aup-title">
 				Acceptable use
-			</h2>
+			</h3>
 			<p className="pk-text-body pk-muted mt-1">
 				The statement everyone accepts before using Portikus. Plain text; a blank line
 				starts a new paragraph.
@@ -361,28 +368,28 @@ function GraceSection() {
 	}
 
 	return (
-		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="grace-title">
-			<h2 className="pk-text-heading m-0" id="grace-title">
+		<section className="pk-card p-6" aria-labelledby="grace-title">
+			<h3 className="pk-text-heading m-0" id="grace-title">
 				Disconnect grace period
-			</h2>
+			</h3>
 			<p className="pk-text-body pk-muted mt-1">
 				How long a workspace keeps running after the last browser disconnects.
 			</p>
-			<div className="pk-actions mt-4 items-end">
-				<TextField
-					id="grace-seconds"
-					label="Seconds"
-					className="w-48"
-					inputMode="numeric"
-					data-testid="grace-input"
-					value={value}
-					hint={seconds === null ? undefined : graceText(seconds)}
-					error={announced(
-						error ?? (settings.isError ? errorText(settings.error) : null),
-					)}
-					disabled={settings.isLoading}
-					onChange={(event) => setDraft(event.target.value)}
-				/>
+			<TextField
+				className="mt-4 w-48"
+				id="grace-seconds"
+				label="Seconds"
+				inputMode="numeric"
+				data-testid="grace-input"
+				value={value}
+				hint={seconds === null ? undefined : graceText(seconds)}
+				error={announced(
+					error ?? (settings.isError ? errorText(settings.error) : null),
+				)}
+				disabled={settings.isLoading}
+				onChange={(event) => setDraft(event.target.value)}
+			/>
+			<div className="pk-actions mt-4">
 				<Button
 					variant="primary"
 					data-testid="grace-save"
@@ -430,45 +437,45 @@ function LogLevelSection() {
 	}
 
 	return (
-		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="log-level-title">
-			<h2 className="pk-text-heading m-0" id="log-level-title">
+		<section className="pk-card p-6" aria-labelledby="log-level-title">
+			<h3 className="pk-text-heading m-0" id="log-level-title">
 				Log level
-			</h2>
+			</h3>
 			<p className="pk-text-body pk-muted mt-1">
 				How much every service logs. Takes effect within a few seconds.
 			</p>
-			<div className="pk-actions mt-4 items-end">
-				<div className={FIELD_CLASS}>
-					<label className={LABEL_CLASS} htmlFor="log-level">
-						Level
-					</label>
-					<select
-						id="log-level"
-						className={`${CONTROL_CLASS} w-48 cursor-pointer disabled:border-line disabled:bg-surface-sunken disabled:text-ink-faint`}
-						data-testid="log-level-select"
-						value={value}
-						disabled={settings.isLoading}
-						aria-invalid={error ? true : undefined}
-						aria-describedby={error ? "log-level-err" : undefined}
-						onChange={(event) => setDraft(event.target.value)}
+			<div className={`${FIELD_CLASS} mt-4 w-48`}>
+				<label className={LABEL_CLASS} htmlFor="log-level">
+					Level
+				</label>
+				<select
+					id="log-level"
+					className={`${CONTROL_CLASS} cursor-pointer disabled:border-line disabled:bg-surface-sunken disabled:text-ink-faint`}
+					data-testid="log-level-select"
+					value={value}
+					disabled={settings.isLoading}
+					aria-invalid={error ? true : undefined}
+					aria-describedby={error ? "log-level-err" : undefined}
+					onChange={(event) => setDraft(event.target.value)}
+				>
+					<option value={SERVICE_DEFAULT}>Use service default</option>
+					{LogLevel.options.map((level) => (
+						<option key={level} value={level}>
+							{level}
+						</option>
+					))}
+				</select>
+				{error ? (
+					<p
+						className="pk-error m-0 text-[12px] leading-4 text-status-error"
+						id="log-level-err"
+						role="alert"
 					>
-						<option value={SERVICE_DEFAULT}>Use service default</option>
-						{LogLevel.options.map((level) => (
-							<option key={level} value={level}>
-								{level}
-							</option>
-						))}
-					</select>
-					{error ? (
-						<p
-							className="pk-error m-0 text-[12px] leading-4 text-status-error"
-							id="log-level-err"
-							role="alert"
-						>
-							{error}
-						</p>
-					) : null}
-				</div>
+						{error}
+					</p>
+				) : null}
+			</div>
+			<div className="pk-actions mt-4">
 				<Button
 					variant="primary"
 					data-testid="log-level-save"

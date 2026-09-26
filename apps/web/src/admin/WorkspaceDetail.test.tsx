@@ -226,7 +226,7 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 		"Home disk 2.0 GB of 10.0 GB · CPU 12.5% · Memory 1.0 GB of 4.0 GB",
 	);
 	expect(within(panel).getByTestId("detail-quota").textContent).toBe(
-		"Configured: Home 10 GiB · Docker 10 GiB",
+		"Home 10 GiB · Docker 10 GiB",
 	);
 	expect(within(panel).queryByTestId("detail-quota-pending")).toBeNull();
 	expect(within(panel).getByRole("table", { name: "Listening ports" })).toBeDefined();
@@ -242,6 +242,94 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 	expect(
 		screen.getByTestId(`account-row-${USER.id}`).getAttribute("aria-current"),
 	).toBe("true");
+});
+
+test("the panel's sections come in the order of SPEC.md section 20.1", async () => {
+	stubDetail(
+		detail({
+			workspace: {
+				...WORKSPACE,
+				state: "error",
+				errorCode: "X",
+				errorMessage: "Broken.",
+			},
+		}),
+	);
+	const panel = await openAlice();
+	const headings = within(panel)
+		.getAllByRole("heading")
+		.map((heading) => `${heading.tagName} ${heading.textContent}`);
+	expect(headings).toEqual([
+		"H3 Alice Example",
+		"H4 Error",
+		"H4 Account",
+		"H4 Workspace",
+		"H4 Storage",
+		"H4 Resource guard",
+		"H4 Ports and connections",
+		"H4 Logs",
+		"H4 Recent audit events",
+	]);
+});
+
+test("every section heading sits in a padded, divided detail section", async () => {
+	stubDetail(detail());
+	const panel = await openAlice();
+	const h4s = within(panel)
+		.getAllByRole("heading")
+		.filter((heading) => heading.tagName === "H4");
+	expect(h4s.length).toBeGreaterThan(0);
+	for (const heading of h4s) {
+		expect(
+			heading.closest(".pk-detail-section"),
+			heading.textContent ?? "",
+		).not.toBeNull();
+	}
+});
+
+test("Start, Stop and Restart sit in the head, directly under the state badge", async () => {
+	stubDetail(detail());
+	const panel = await openAlice();
+	const head = within(panel).getByTestId("detail-state").closest(".pk-detail-head");
+	expect(head).not.toBeNull();
+	for (const action of ["Start", "Stop", "Restart"]) {
+		expect(
+			within(head as HTMLElement).getByRole("button", {
+				name: `${action} Alice Example's workspace`,
+			}),
+		).toBeDefined();
+	}
+});
+
+test("Edit quotas sits in the Storage heading row", async () => {
+	stubDetail(detail());
+	const panel = await openAlice();
+	const storage = within(panel).getByRole("region", { name: "Storage" });
+	const heading = within(storage).getByRole("heading", { name: "Storage" });
+	const edit = within(storage).getByRole("button", {
+		name: "Edit quotas for Alice Example's workspace",
+	});
+	expect(edit.textContent).toBe("Edit quotas…");
+	expect(edit.parentElement).toBe(heading.parentElement);
+});
+
+test("the Account section shows source, last sign-in, username and email", async () => {
+	const signedIn = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+	stubDetail(detail(), { users: [{ ...ALICE_ROW, lastLoginAt: signedIn }, ADMIN_ROW] });
+	const panel = await openAlice();
+	const account = within(panel).getByRole("region", { name: "Account" });
+	expect(within(account).getByTestId("detail-last-sign-in").textContent).toBe(
+		"31 days ago",
+	);
+	expect(within(account).getByText("Source")).toBeDefined();
+	expect(within(account).getByText("alice")).toBeDefined();
+	expect(within(account).getByTestId("detail-email").textContent).toBe(USER.email);
+});
+
+test("an account that never signed in says Never", async () => {
+	stubDetail(detail());
+	const panel = await openAlice();
+	expect(within(panel).getByTestId("detail-last-sign-in").textContent).toBe("Never");
 });
 
 test("a stopped workspace and a silent agent are said plainly, not as errors", async () => {
@@ -278,7 +366,8 @@ test("the error sentence comes first, then the technical detail", async () => {
 	const panel = await openAlice();
 	const error = within(panel).getByRole("region", { name: "Error" });
 	expect(error.textContent).toContain("STORAGE_FULL");
-	expect(error.firstElementChild?.textContent).toBe(
+	expect(error.children[0]?.textContent).toBe("Error");
+	expect(error.children[1]?.textContent).toBe(
 		"The workspace could not start because its storage is full.",
 	);
 });
@@ -365,6 +454,15 @@ test("Rebuild asks for the exact workspace label before it calls the route", asy
 	const dialog = await screen.findByTestId("rebuild-dialog");
 	const confirm = within(dialog).getByTestId("dialog-confirm") as HTMLButtonElement;
 	expect(confirm.disabled).toBe(true);
+	// SPEC.md §22.3: the warning names what a rebuild loses.
+	const described = document.getElementById(
+		dialog.getAttribute("aria-describedby") ?? "",
+	);
+	expect(described?.textContent).toContain(
+		"System packages installed with sudo apt are lost",
+	);
+	// The checkbox is a sibling of the description, not read as part of it.
+	expect(described?.contains(within(dialog).getByRole("checkbox"))).toBe(false);
 
 	const typed = within(dialog).getByRole("textbox");
 	fireEvent.change(typed, { target: { value: "TW7" } });
@@ -475,7 +573,7 @@ test("a shrink is refused in the dialog, and a grow is sent", async () => {
 
 	fireEvent.click(
 		within(panel).getByRole("button", {
-			name: "Change storage for Alice Example's workspace",
+			name: "Edit quotas for Alice Example's workspace",
 		}),
 	);
 	const dialog = await screen.findByTestId("quota-dialog");

@@ -199,3 +199,52 @@ test.skipIf(skip)(
 		expect((await resetDocker(alice)).statusCode).toBe(202);
 	},
 );
+
+test.skipIf(skip)(
+	"rebuilding two workspaces in turn audits each with the administrator as actor",
+	async () => {
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+		const bobWorkspaceId = (
+			await app.inject({
+				method: "POST",
+				url: "/workspaces",
+				headers: csrfHeaders(bob, PUBLIC_URL),
+			})
+		).json().id as string;
+		// Bulk Rebuild in the admin view calls the single route once per workspace (SPEC.md section 20.1).
+		for (const id of [workspaceId, bobWorkspaceId]) {
+			const response = await app.inject({
+				method: "POST",
+				url: `/admin/workspaces/${id}/rebuild`,
+				headers: csrfHeaders(carol, PUBLIC_URL),
+				payload: { resetDocker: false },
+			});
+			expect(response.statusCode).toBe(202);
+		}
+		const carolId = (
+			await testDb.db
+				.selectFrom("users")
+				.select("id")
+				.where("oidc_subject", "=", "carol")
+				.executeTakeFirstOrThrow()
+		).id;
+		const audit = await auditRows("workspace.rebuild_requested");
+		expect(audit.map((row) => row.target).sort()).toEqual(
+			[workspaceId, bobWorkspaceId].sort(),
+		);
+		expect(audit.every((row) => row.actor === `user:${carolId}`)).toBe(true);
+	},
+);
+
+test.skipIf(skip)("a rebuild without CSRF headers is refused", async () => {
+	const response = await app.inject({
+		method: "POST",
+		url: `/admin/workspaces/${workspaceId}/rebuild`,
+		headers: { cookie: carol.cookieHeader() },
+		payload: { resetDocker: false },
+	});
+	expect(response.statusCode).toBe(403);
+	expect((await workspaceRow()).pending_operation).toBeNull();
+	expect(await auditRows("workspace.rebuild_requested")).toHaveLength(0);
+});

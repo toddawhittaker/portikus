@@ -2,6 +2,8 @@ import type { HealthReport } from "@portikus/contracts";
 import { Link } from "@tanstack/react-router";
 import { ApiError } from "../../api/request.js";
 import { formatBytes } from "../../monitor/format.js";
+import { AdminSection } from "../AdminSection.js";
+import { shortTime } from "../shortTime.js";
 import { useHealth } from "./queries.js";
 import { Sparkline } from "./Sparkline.js";
 
@@ -41,23 +43,30 @@ export function HealthTab() {
 
 	if (health.isError) {
 		return (
-			<p className="pk-error mt-6 text-status-error" role="alert">
-				{health.error instanceof ApiError
-					? health.error.message
-					: "Platform health could not be loaded."}
-			</p>
+			<AdminSection title="Health">
+				<p className="pk-error text-status-error" role="alert">
+					{health.error instanceof ApiError
+						? health.error.message
+						: "Platform health could not be loaded."}
+				</p>
+			</AdminSection>
 		);
 	}
-	if (!health.data) {
-		return <div className="mt-6" aria-busy="true" data-testid="health-loading" />;
-	}
-	return <HealthView report={health.data} now={Date.now()} />;
+	return (
+		<AdminSection title="Health">
+			{health.data ? (
+				<HealthView report={health.data} now={Date.now()} />
+			) : (
+				<div aria-busy="true" data-testid="health-loading" />
+			)}
+		</AdminSection>
+	);
 }
 
 export function HealthView({ report, now }: { report: HealthReport; now: number }) {
 	const { host } = report;
 	return (
-		<div className="mt-6 flex flex-col gap-6" data-testid="health">
+		<div className="flex flex-col gap-6" data-testid="health">
 			{report.workerStale ? (
 				<div
 					className="pk-card border-status-warning bg-status-warning-soft p-4 text-status-warning"
@@ -72,9 +81,9 @@ export function HealthView({ report, now }: { report: HealthReport; now: number 
 			) : null}
 
 			<section className="pk-card p-6" aria-labelledby="health-platform-title">
-				<h2 className="pk-text-heading m-0" id="health-platform-title">
+				<h3 className="pk-text-heading m-0" id="health-platform-title">
 					Platform
-				</h2>
+				</h3>
 				<dl className="mt-4 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-[13px]">
 					<dt className="pk-muted">Controller</dt>
 					<dd className="m-0" data-testid="health-controller">
@@ -144,45 +153,41 @@ export function HealthView({ report, now }: { report: HealthReport; now: number 
 			<GuardList guard={report.guard} />
 
 			<section className="pk-card p-6" aria-labelledby="health-trend-title">
-				<h2 className="pk-text-heading m-0" id="health-trend-title">
+				<h3 className="pk-text-heading m-0" id="health-trend-title">
 					Last 24 hours
-				</h2>
+				</h3>
 				<Trends report={report} />
 			</section>
 
 			<section className="pk-card p-6" aria-labelledby="health-counts-title">
-				<h2 className="pk-text-heading m-0" id="health-counts-title">
+				<h3 className="pk-text-heading m-0" id="health-counts-title">
 					Events
-				</h2>
-				<div className="mt-4 flex flex-wrap gap-12">
-					<table className="text-left text-[13px]" data-testid="health-counts">
+				</h3>
+				<div className="mt-4 flex flex-wrap items-start gap-12">
+					<table className="pk-table w-auto" data-testid="health-counts">
 						<caption className="pk-text-label pk-muted text-left">
 							Failures in the last 24 hours
 						</caption>
 						<tbody>
 							{Object.entries(COUNT_LABELS).map(([key, label]) => (
-								<tr key={key} className="border-line border-t">
-									<th scope="row" className="py-1 pr-6 font-normal">
-										{label}
-									</th>
-									<td className="py-1 tabular-nums">
+								<tr key={key}>
+									<th scope="row">{label}</th>
+									<td className="pk-num">
 										{report.last24h[key as keyof HealthReport["last24h"]]}
 									</td>
 								</tr>
 							))}
 						</tbody>
 					</table>
-					<table className="text-left text-[13px]" data-testid="health-states">
+					<table className="pk-table w-auto" data-testid="health-states">
 						<caption className="pk-text-label pk-muted text-left">
 							Workspaces by state
 						</caption>
 						<tbody>
 							{Object.entries(report.workspacesByState).map(([state, count]) => (
-								<tr key={state} className="border-line border-t">
-									<th scope="row" className="py-1 pr-6 font-normal">
-										{state}
-									</th>
-									<td className="py-1 tabular-nums">{count}</td>
+								<tr key={state}>
+									<th scope="row">{state}</th>
+									<td className="pk-num">{count}</td>
 								</tr>
 							))}
 						</tbody>
@@ -226,62 +231,49 @@ function GuardList({ guard }: { guard: HealthReport["guard"] }) {
 	const rows = guardRows(guard);
 	return (
 		<section className="pk-card p-6" aria-labelledby="health-guard-title">
-			<h2 className="pk-text-heading m-0" id="health-guard-title">
+			<h3 className="pk-text-heading m-0" id="health-guard-title">
 				Resource guard
-			</h2>
+			</h3>
 			{rows.length === 0 ? (
 				<p className="pk-muted m-0 mt-4 text-[13px]" data-testid="health-guard-empty">
 					No workspace is throttled or flagged.
 				</p>
 			) : (
-				<table className="mt-4 text-left text-[13px]" data-testid="health-guard">
-					<caption className="sr-only">Throttled and flagged workspaces</caption>
-					<thead>
-						<tr className="text-ink-muted">
-							<th scope="col" className="py-1 pr-6 font-medium">
-								Owner
-							</th>
-							<th scope="col" className="py-1 pr-6 font-medium">
-								State
-							</th>
-							<th scope="col" className="py-1 pr-6 font-medium">
-								Since
-							</th>
-							<th scope="col" className="py-1 font-medium">
-								Average that set it
-							</th>
-						</tr>
-					</thead>
-					<tbody>
-						{rows.map((row) => (
-							<tr key={row.key} className="border-line border-t">
-								<td className="py-1 pr-6">
-									<Link
-										to="/admin"
-										search={{ tab: "workspaces", user: row.owner.id }}
-										className="pk-link text-[var(--accent-text)] underline"
-									>
-										{row.owner.displayName}
-									</Link>
-								</td>
-								<td className="py-1 pr-6">
-									<span className="pk-tag pk-tag--warning">{row.which}</span>
-								</td>
-								<td className="py-1 pr-6">
-									<time dateTime={row.at}>
-										{new Date(row.at).toLocaleString(undefined, {
-											month: "short",
-											day: "numeric",
-											hour: "2-digit",
-											minute: "2-digit",
-										})}
-									</time>
-								</td>
-								<td className="py-1">{row.average}</td>
+				<div className="pk-table-wrap mt-4">
+					<table className="pk-table" data-testid="health-guard">
+						<caption className="sr-only">Throttled and flagged workspaces</caption>
+						<thead>
+							<tr>
+								<th scope="col">Owner</th>
+								<th scope="col">State</th>
+								<th scope="col">Since</th>
+								<th scope="col">Average that set it</th>
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{rows.map((row) => (
+								<tr key={row.key}>
+									<td>
+										<Link
+											to="/admin"
+											search={{ tab: "workspaces", user: row.owner.id }}
+											className="pk-link text-[var(--accent-text)] underline"
+										>
+											{row.owner.displayName}
+										</Link>
+									</td>
+									<td>
+										<span className="pk-tag pk-tag--warning">{row.which}</span>
+									</td>
+									<td>
+										<time dateTime={row.at}>{shortTime(row.at)}</time>
+									</td>
+									<td>{row.average}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 			)}
 		</section>
 	);
