@@ -7,16 +7,22 @@ import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/eve
 import type { FastifyBaseLogger } from "fastify";
 import { type IPty, spawn } from "node-pty";
 import { type PaneWatcher, watchPanes } from "./cwd.js";
-import { AgentFailure, attachArgs, captureHistory, hasSession } from "./tmux.js";
+import {
+	AgentFailure,
+	attachArgs,
+	captureHistory,
+	hasSession,
+	type TmuxServer,
+} from "./tmux.js";
 
 /** Pause the PTY once this much output is waiting on the socket (SPEC.md §9.7). */
-const HIGH_WATER_BYTES = 1024 * 1024;
+export const HIGH_WATER_BYTES = 1024 * 1024;
 
 /** Resume once the socket has drained back below this (SPEC.md §9.7). */
-const LOW_WATER_BYTES = 256 * 1024;
+export const LOW_WATER_BYTES = 256 * 1024;
 
 /** How often a paused attachment checks whether its socket has drained. */
-const DRAIN_POLL_MS = 50;
+export const DRAIN_POLL_MS = 50;
 
 /**
  * How long a new attachment holds input while its `tmux attach-session`
@@ -70,11 +76,11 @@ export class TerminalRegistry {
 	constructor(
 		private readonly homeDir: string,
 		private readonly log: FastifyBaseLogger,
-		private readonly socketName?: string,
+		private readonly server: TmuxServer,
 		/** Overridden by tests so they can drive a fake PTY. */
 		private readonly spawnPty: typeof spawn = spawn,
 		/** One pane poll for the whole agent (SPEC.md §9.1, §9.3). */
-		private readonly panes: PaneWatcher = watchPanes(socketName),
+		private readonly panes: PaneWatcher = watchPanes(server),
 	) {}
 
 	/** How many browsers are attached to one terminal. */
@@ -132,7 +138,7 @@ export class TerminalRegistry {
 			}
 		});
 
-		if (!(await hasSession(id, this.socketName))) {
+		if (!(await hasSession(id, this.server))) {
 			this.forget(id, attachment);
 			throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 		}
@@ -151,7 +157,7 @@ export class TerminalRegistry {
 		// attachment that has already been forgotten would never be killed.
 		if (attachment.closed) return;
 
-		const pty = this.spawnPty("tmux", attachArgs(id, this.socketName), {
+		const pty = this.spawnPty("tmux", attachArgs(id, this.server), {
 			name: "xterm-256color",
 			cols,
 			rows,
@@ -221,7 +227,7 @@ export class TerminalRegistry {
 	): Promise<void> {
 		let history: string;
 		try {
-			history = await captureHistory(id, this.socketName);
+			history = await captureHistory(id, this.server);
 		} catch (error) {
 			// A terminal with no history to show is worth no more than a log line.
 			this.log.warn(

@@ -13,6 +13,7 @@ import { createSession, killSession } from "./tmux.js";
 
 const run = promisify(execFile);
 const SOCKET_NAME = `portikus-queue-${process.pid}`;
+const SERVER = { socketName: SOCKET_NAME, external: false };
 
 let homeDir: string;
 
@@ -123,13 +124,13 @@ interface PendingHarness extends Omit<Harness, "pty"> {
  */
 async function startAttach(options: AttachOptions = {}): Promise<PendingHarness> {
 	const id = makeId();
-	await createSession(id, homeDir, homeDir, "dark", "America/New_York", SOCKET_NAME);
+	await createSession(id, homeDir, homeDir, "dark", "America/New_York", SERVER);
 	let pty: FakePty | null = null;
 	const { logger, lines } = collectingLogger();
 	const registry = new TerminalRegistry(
 		homeDir,
 		logger as unknown as FastifyBaseLogger,
-		SOCKET_NAME,
+		SERVER,
 		((_file: string, _args: string[], opts: { cols: number; rows: number }) => {
 			pty = new FakePty(opts.cols, opts.rows);
 			return pty as unknown as IPty;
@@ -174,7 +175,7 @@ test.skipIf(!haveTmux)(
 		expect(pty.writes).toEqual(["one", "two", "three"]);
 
 		registry.closeAll(id, 1000, "done");
-		await killSession(id, SOCKET_NAME);
+		await killSession(id, SERVER);
 	},
 );
 
@@ -193,7 +194,7 @@ test.skipIf(!haveTmux)("early input is flushed after the queue timeout", async (
 	await vi.waitFor(() => expect(pty.writes).toEqual(["silent"]), { timeout: 2000 });
 
 	registry.closeAll(id, 1000, "done");
-	await killSession(id, SOCKET_NAME);
+	await killSession(id, SERVER);
 });
 
 test.skipIf(!haveTmux)(
@@ -216,7 +217,7 @@ test.skipIf(!haveTmux)(
 		expect(pty.writes).toEqual(["first", big]);
 
 		registry.closeAll(id, 1000, "done");
-		await killSession(id, SOCKET_NAME);
+		await killSession(id, SERVER);
 	},
 );
 
@@ -232,7 +233,7 @@ test.skipIf(!haveTmux)("closing the socket drops the queue and its timer", async
 	expect(pty.writes).toEqual([]);
 	expect(pty.killed).toBe(true);
 
-	await killSession(id, SOCKET_NAME);
+	await killSession(id, SERVER);
 });
 
 test.skipIf(!haveTmux)(
@@ -249,7 +250,7 @@ test.skipIf(!haveTmux)(
 		expect({ cols: pty?.cols, rows: pty?.rows }).toEqual({ cols: 60, rows: 13 });
 
 		pending.registry.closeAll(pending.id, 1000, "done");
-		await killSession(pending.id, SOCKET_NAME);
+		await killSession(pending.id, SERVER);
 	},
 );
 
@@ -263,7 +264,7 @@ test.skipIf(!haveTmux)("only the last early resize is used", async () => {
 	expect({ cols: pty?.cols, rows: pty?.rows }).toEqual({ cols: 60, rows: 13 });
 
 	pending.registry.closeAll(pending.id, 1000, "done");
-	await killSession(pending.id, SOCKET_NAME);
+	await killSession(pending.id, SERVER);
 });
 
 test.skipIf(!haveTmux)(
@@ -282,7 +283,7 @@ test.skipIf(!haveTmux)(
 		expect(pty.writes).toEqual(["early", "late"]);
 
 		pending.registry.closeAll(pending.id, 1000, "done");
-		await killSession(pending.id, SOCKET_NAME);
+		await killSession(pending.id, SERVER);
 	},
 );
 
@@ -297,7 +298,7 @@ test.skipIf(!haveTmux)(
 		expect(pending.ptyOf()).toBeNull();
 		expect(pending.registry.countAttachments(pending.id)).toBe(0);
 
-		await killSession(pending.id, SOCKET_NAME);
+		await killSession(pending.id, SERVER);
 	},
 );
 
@@ -325,6 +326,6 @@ test.skipIf(!haveTmux)(
 		expect(pty.writes).toEqual(["first", big]);
 
 		pending.registry.closeAll(pending.id, 1000, "done");
-		await killSession(pending.id, SOCKET_NAME);
+		await killSession(pending.id, SERVER);
 	},
 );

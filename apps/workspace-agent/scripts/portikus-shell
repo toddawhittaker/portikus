@@ -1,0 +1,18 @@
+#!/bin/bash
+# Starts the shell of an ordinary Portikus terminal (SPEC.md §9.7).
+
+# A tmux command typed in the pane must not reach the Portikus server.
+unset TMUX TMUX_PANE
+
+start=$EPOCHREALTIME
+"${SHELL:-/bin/bash}" -l
+status=$?
+end=$EPOCHREALTIME
+
+# EPOCHREALTIME is seconds with six decimals; the separator follows the locale.
+elapsed=$(( 10#${end//[.,]/} - 10#${start//[.,]/} ))
+if (( elapsed < 1000000 )); then
+	printf '%s\n' "Your ~/.bashrc made the shell exit; this terminal skipped it."
+	exec bash --noprofile --norc
+fi
+exit "$status"
