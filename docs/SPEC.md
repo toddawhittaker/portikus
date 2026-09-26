@@ -1886,6 +1886,8 @@ The Running surface is not intended to replace `ps`, `top`, `docker ps`, or a ge
 
 Each row shows the port, then the process or container name with its tags (Docker, reserved port, system service) on a second line, so the name keeps the row's width. A previewable row's first action is a visible **Preview** button named "Preview port <n>" for assistive technology; opening in a new tab and Stop stay icon buttons. The details panel under a selected row is a key-and-value list on the page surface, not terminal-styled. In the tabbed right pane (Files, Checks, Running, Monitor) the tab names the pane, so each pane's heading is kept for screen readers only and no title row repeats it.
 
+The workspace agent finds listening ports by scanning `/proc` on a timer. A scan never starts while the previous one runs, and the timer scans only while a browser or the control plane watches the port events or a forward exists; `GET /listening` still scans on demand. A socket's owner is remembered from the last scan, and the `/proc/<pid>/fd` links are walked only for a new socket or an owner that has exited. Stopping a listener always walks afresh, and fails with `STOP_FAILED` rather than act on stale data when that scan fails.
+
 ### 18.3 Workspace status
 
 A compact status surface should show information useful to non-technical users.
@@ -1955,7 +1957,11 @@ Resource exhaustion must fail safely.
 
 One student's CPU, memory, storage, process count, or Docker workload must not materially degrade other users beyond the capacity limits of the shared host.
 
-When a workspace reaches its memory limit, the kernel kills the biggest process in it, and only that process: the workspace agent's unit sets `OOMPolicy=continue`, because terminals and student programs run in the agent's cgroup, so the agent and every open terminal keep running.
+When a workspace reaches its memory limit, the kernel kills the biggest process in it, and only that process: both the workspace agent's unit and the terminals unit set `OOMPolicy=continue`, so the rest keep running.
+
+On images from 2026.09.11 the tmux server, every shell and every program started in a terminal run in their own unit, `portikus-terminals.service` (`tmux -L portikus -f /dev/null -D` as the student, `Restart=always` after one second, `TasksMax=1700`), so an agent restart or an out-of-memory kill of the agent leaves terminals open, and a terminal's runaway program cannot starve the agent of processes. The agent's unit has `TasksMax=infinity`; the container's `pids.max` of 2000 is its only ceiling, which Docker containers share. The agent unit wants and orders after the terminals unit but never requires it, so a terminals restart never restarts the agent. No unit sets `OOMScoreAdjust` (ADR 0035).
+
+`/tmp` is a tmpfs capped at 512 MB and `/dev/shm` at 256 MB, so a big temporary file fails with "No space left on device" instead of using up the workspace's memory.
 
 ### 19.4 Resource guard
 
@@ -2201,7 +2207,8 @@ It should include at least:
 - Claude Code;
 - Codex;
 - tmux or the selected PTY persistence layer;
-- workspace-agent and service definition.
+- workspace-agent and service definition;
+- the terminals unit and its exit record (§9.7, §19.3).
 
 Additional language runtimes may be added according to course requirements.
 
@@ -3476,6 +3483,25 @@ Acceptance:
 
 - every button a student needs looks like a button, and each stuck screen offers a next step;
 - the error screen never offers a Docker reset unless Docker storage is what filled up.
+
+### Epic 16 — Workspace resilience
+
+See `docs/adr/0035-terminals-in-their-own-unit.md` for the decision and sections 9.7, 11.4, 13.5, 18.1, 18.2, 19.3 and 21.7 for the rules; built on `epic/16-workspace-resilience` (issues #610, #618 to #625). Workspace image 2026.09.11.
+
+Includes:
+
+- `/tmp` and `/dev/shm` capped as tmpfs;
+- the tmux server in its own unit on a private socket, with the agent in external mode, a 5-second timeout on every tmux call, and the `portikus-shell` wrapper for a shell whose settings make it exit;
+- terminal close and Check stop that stop the whole process tree, and backpressure for Check output;
+- a port scanner that does not overlap itself, idles when unwatched, and caches socket owners;
+- a file watcher that skips more generated folders, stops at 20,000 folders with a "too large to update live" notice, and `STORAGE_FULL` on every agent route for a full disk;
+- a toast that says why terminals closed when the terminals unit stopped, from the unit's exit record.
+
+Acceptance:
+
+- a `tmux kill-server` typed in a pane, a broken `~/.tmux.conf` or `~/.bashrc`, a 600 MB file in `/tmp`, and an agent restart each leave the student's terminals working;
+- a full home folder gives the home-folder-full sentences, never a tmux error;
+- an agent that reports a terminal gone causes at most one exit-record lookup per connection.
 
 ### Estimated total
 
