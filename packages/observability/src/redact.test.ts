@@ -71,3 +71,36 @@ test("the logger's redaction paths come from the same key list", () => {
 	expect(text).not.toContain("u:p");
 	expect(text).not.toContain("sk-1");
 });
+
+test("keys match whatever their letter case", () => {
+	expect(
+		redactLine({
+			Authorization: "a",
+			PASSWORD: "p",
+			Session_Secret: "s",
+			Set_Cookie: 1,
+		}),
+	).toEqual({
+		Authorization: "[redacted]",
+		PASSWORD: "[redacted]",
+		Session_Secret: "[redacted]",
+		Set_Cookie: 1,
+	});
+	expect(redactLine({ "Set-Cookie": "c", database_url: "postgres://x" })).toEqual({
+		"Set-Cookie": "[redacted]",
+		database_url: "[redacted]",
+	});
+});
+
+test("bearer tokens and URL credentials inside strings are scrubbed", () => {
+	expect(
+		redactLine({
+			error: "upstream said Authorization: Bearer abc.def-123 was bad",
+			url: "cloning https://alice:ghp_secret@github.com/a/b.git failed",
+		}),
+	).toEqual({
+		error: "upstream said Authorization: Bearer [redacted] was bad",
+		url: "cloning https://[redacted]@github.com/a/b.git failed",
+	});
+	expect(redactLine("see https://github.com/a@b")).toBe("see https://github.com/a@b");
+});

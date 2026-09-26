@@ -69,8 +69,15 @@ export interface JournalChild {
 
 export type SpawnJournal = (path: string, args: readonly string[]) => JournalChild;
 
+// journalctl gets no copy of the API's secrets, which a core dump would record.
+export const JOURNAL_ENV = { PATH: "/usr/bin:/bin", LANG: "C.UTF-8" };
+
 const spawnWithoutShell: SpawnJournal = (path, args) =>
-	nodeSpawn(path, args, { shell: false, stdio: ["ignore", "pipe", "pipe"] });
+	nodeSpawn(path, args, {
+		shell: false,
+		stdio: ["ignore", "pipe", "pipe"],
+		env: JOURNAL_ENV,
+	});
 
 // The `--grep` alternatives for each level; fatal counts as error.
 const LEVEL_PATTERN: Record<LogLevel, string> = {
@@ -209,12 +216,23 @@ export class JournalReader {
 			let stderr = "";
 			let failed = false;
 
+			let settled = false;
+			const settle = (result: ReadResult) => {
+				if (settled) return;
+				settled = true;
+				resolve(result);
+			};
 			const stop = (reason: "stopped" | "limit") => {
 				if (stopReason) return;
 				stopReason = reason;
 				child.kill("SIGKILL");
 			};
-			const timer = setTimeout(() => stop("limit"), this.timeoutMs);
+			// Settle at the time cap even if the killed process never closes
+			// (stuck in disk I/O), so its slot is freed.
+			const timer = setTimeout(() => {
+				stop("limit");
+				settle({ lastCursor, reason: stopReason ?? "limit" });
+			}, this.timeoutMs);
 
 			const handleLine = (text: string) => {
 				if (stopReason || text === "") return;
@@ -243,13 +261,15 @@ export class JournalReader {
 			child.on("error", (error) => {
 				failed = true;
 				clearTimeout(timer);
+				if (settled) return;
+				settled = true;
 				reject(new LogsUnavailableError(`journalctl failed: ${error.message}`));
 			});
 			child.on("close", (code) => {
 				clearTimeout(timer);
-				if (failed) return;
+				if (failed || settled) return;
 				if (stopReason) {
-					resolve({ lastCursor, reason: stopReason });
+					settle({ lastCursor, reason: stopReason });
 					return;
 				}
 				// A truncated last line (no newline) is dropped as unreadable.
@@ -257,6 +277,7 @@ export class JournalReader {
 				// With --grep, journalctl exits 1 and prints nothing when no entry matches.
 				const noMatch = code === 1 && stderr.trim() === "";
 				if (refused || (code !== 0 && !noMatch)) {
+					settled = true;
 					reject(
 						new LogsUnavailableError(
 							refused
@@ -266,7 +287,7 @@ export class JournalReader {
 					);
 					return;
 				}
-				resolve({ lastCursor, reason: "end" });
+				settle({ lastCursor, reason: "end" });
 			});
 		});
 	}

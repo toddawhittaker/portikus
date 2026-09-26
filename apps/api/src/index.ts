@@ -6,6 +6,7 @@ import { toAuthOptions } from "./auth-options.js";
 import { startLogLevelSync } from "./log-level.js";
 import { loadLtiDeps } from "./routes/lti.js";
 import { buildServer } from "./server.js";
+import { closeOnSigterm } from "./shutdown.js";
 
 const config = loadConfig(ApiConfigSchema);
 const logger = createLogger({
@@ -40,6 +41,7 @@ app.addHook("onClose", async () => {
 	levelSync.stop();
 	dex?.close();
 });
+closeOnSigterm(app);
 
 await app.listen({ port: config.PORT, host: "127.0.0.1" });
 logger.info({ port: config.PORT }, "api listening");

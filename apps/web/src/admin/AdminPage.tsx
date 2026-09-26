@@ -1,7 +1,9 @@
 import { Link, Navigate, useSearch } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { gatePath, useMe } from "../useMe.js";
+import { focusAdminHeading } from "./AdminSection.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { HealthTab } from "./health/HealthTab.js";
 import { LogsTab } from "./logs/LogsTab.js";
@@ -32,6 +34,15 @@ export function AdminPage() {
 	const search = useSearch({ from: "/admin" });
 	const tab = search.tab ?? "workspaces";
 	usePageTitle(`${TAB_LABEL[tab]}, Administration`);
+	const shownTab = useRef(tab);
+	// A link inside one tab that opens another (a chart bar, "View logs") is
+	// gone once the tab switches; put focus on the new tab's heading.
+	useEffect(() => {
+		if (shownTab.current === tab) return;
+		shownTab.current = tab;
+		const lost = !document.activeElement || document.activeElement === document.body;
+		if (lost) focusAdminHeading();
+	}, [tab]);
 
 	// A gated account is on its way to the gate's page; a second redirect would fight it.
 	if (me.status === "loading" || gatePath(me) !== null) {

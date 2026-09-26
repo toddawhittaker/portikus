@@ -299,7 +299,7 @@ function DataSections({
 				<Link
 					to="/admin"
 					search={{ tab: "logs", workspace: workspace.id, since: "1h" }}
-					className="pk-link text-[13px] text-[var(--accent-text)] underline"
+					className="pk-link text-[13px]"
 					data-testid="detail-view-logs"
 				>
 					View logs
@@ -326,7 +326,7 @@ function DataSections({
 				<Link
 					to="/admin"
 					search={{ tab: "audit", workspace: workspace.id }}
-					className="pk-link text-[13px] text-[var(--accent-text)] underline"
+					className="pk-link text-[13px]"
 					data-testid="detail-all-events"
 				>
 					All events for this workspace
@@ -1154,6 +1154,14 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 					{user.issuer ?? "—"}
 				</dd>
 			</dl>
+			<Link
+				to="/admin"
+				search={{ tab: "logs", user: user.id }}
+				className="pk-link text-[13px]"
+				data-testid="detail-user-logs"
+			>
+				View this user's logs
+			</Link>
 			<div className="flex flex-wrap gap-2">
 				<Button
 					size="sm"

@@ -70,7 +70,8 @@ export interface LegendEntry {
  *
  * `describe(index)` gives the readout's values for a bucket, such as "42%".
  * `onKey` lets a chart claim extra keys (a bar chart's Up, Down and Enter);
- * it returns true when it handled the key.
+ * it returns true when it handled the key, or text to announce. `keysHint`
+ * names those extra keys in the plot's name and under the chart.
  */
 export function ChartShell({
 	testId,
@@ -82,6 +83,7 @@ export function ChartShell({
 	legend,
 	describe,
 	onKey,
+	keysHint,
 	children,
 }: {
 	testId: string;
@@ -92,7 +94,8 @@ export function ChartShell({
 	summary: string;
 	legend?: readonly LegendEntry[];
 	describe: (index: number) => string;
-	onKey?: (key: string, index: number) => boolean;
+	onKey?: (key: string, index: number) => boolean | string;
+	keysHint?: string;
 	children: (cursor: number | null) => ReactNode;
 }) {
 	const [cursor, setCursor] = useState<number | null>(null);
@@ -106,8 +109,10 @@ export function ChartShell({
 			: `${readoutTime(bucketStart(frame, cursor), frame.range)}, ${describe(cursor)}`;
 
 	function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-		if (cursor !== null && onKey?.(event.key, cursor)) {
+		const handled = cursor === null ? false : onKey?.(event.key, cursor);
+		if (handled) {
 			event.preventDefault();
+			if (typeof handled === "string") setAnnouncement(handled);
 			return;
 		}
 		const next = moveCursor(event.key, cursor, frame.count);
@@ -138,7 +143,9 @@ export function ChartShell({
 				aria-roledescription="chart"
 				// biome-ignore lint/a11y/noNoninteractiveTabindex: one tab stop per chart for the keyboard readout
 				tabIndex={0}
-				aria-label={`${label}, use the left and right arrow keys to read values`}
+				aria-label={`${label}, use the left and right arrow keys to read values${
+					keysHint ? `, ${keysHint}` : ""
+				}`}
 				aria-describedby={summaryId}
 				onKeyDown={onKeyDown}
 				onBlur={() => setCursor(null)}
@@ -233,6 +240,15 @@ export function ChartShell({
 			>
 				{summary}
 			</p>
+			{keysHint ? (
+				<p
+					className="pk-text-body pk-muted m-0 mt-1 text-[12px]"
+					aria-hidden="true"
+					data-testid={`${testId}-keys`}
+				>
+					Keyboard: left and right arrows read values, {keysHint}.
+				</p>
+			) : null}
 		</figure>
 	);
 }

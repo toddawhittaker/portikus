@@ -390,7 +390,6 @@ test.describe("the Users table layout", () => {
 			"Last activity",
 			"Image",
 			"Connections",
-			"Logs",
 		]);
 
 		// The checkbox and the count sit on the middle of the select controls.

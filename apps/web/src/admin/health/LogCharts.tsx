@@ -115,6 +115,7 @@ export function LogCharts({ range }: { range: HealthRange }) {
 			format={(value) => String(Math.round(value))}
 			summary={countSummary(errors, warnings, range, data.complete)}
 			onOpen={open}
+			openHint="open the logs"
 		/>
 	);
 }

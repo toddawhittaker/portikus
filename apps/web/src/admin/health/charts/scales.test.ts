@@ -76,6 +76,29 @@ test("X labels fall on whole clock steps for each range", () => {
 	).toEqual([0, 24, 48, 72, 96, 120, 144]);
 });
 
+test("at 7 days each local date gets a label, even in a half-hour time zone", () => {
+	const zone = process.env.TZ;
+	process.env.TZ = "Asia/Kolkata";
+	try {
+		// Whole UTC hours are :30 past in India, so no bucket starts at local midnight.
+		const from = Date.UTC(2026, 8, 19, 0, 0);
+		const indexes = timeTickIndexes({
+			range: "7d",
+			from,
+			bucketSeconds: 3600,
+			count: 168,
+		});
+		expect(indexes).toHaveLength(7);
+		for (const index of indexes) {
+			const start = new Date(from + index * 3_600_000);
+			expect(start.getHours()).toBe(0);
+			expect(start.getMinutes()).toBe(30);
+		}
+	} finally {
+		process.env.TZ = zone;
+	}
+});
+
 test("count charts name their bucket", () => {
 	expect(bucketPhrase(60)).toBe("per minute");
 	expect(bucketPhrase(300)).toBe("per 5 minutes");

@@ -290,7 +290,7 @@ function GuardList({ guard }: { guard: HealthReport["guard"] }) {
 										<Link
 											to="/admin"
 											search={{ tab: "workspaces", user: row.owner.id }}
-											className="pk-link text-[var(--accent-text)] underline"
+											className="pk-link"
 										>
 											{row.owner.displayName}
 										</Link>

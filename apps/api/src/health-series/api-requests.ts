@@ -42,42 +42,45 @@ export async function apiRequestSeries(
 		client_errors: number;
 		server_errors: number;
 		websocket_upgrades: number;
-		latency: number[] | null;
+		latency_buckets: number[];
 	}>`
-		with binned as (
-			select date_bin(${bucketInterval(window)}::interval, minute, ${window.from}) as at, *
-			from api_request_samples
-			where minute >= ${window.from} and minute < ${window.to}
-		)
 		select
-			b.at,
-			sum(b.requests)::int as requests,
-			sum(b.client_errors)::int as client_errors,
-			sum(b.server_errors)::int as server_errors,
-			sum(b.websocket_upgrades)::int as websocket_upgrades,
-			(
-				select array_agg(total order by i)
-				from (
-					select u.i, sum(u.v)::int as total
-					from binned b2, unnest(b2.latency_buckets) with ordinality as u(v, i)
-					where b2.at = b.at
-					group by u.i
-				) sums
-			) as latency
-		from binned b
-		group by b.at
-		order by b.at
+			date_bin(${bucketInterval(window)}::interval, minute, ${window.from}) as at,
+			requests, client_errors, server_errors, websocket_upgrades, latency_buckets
+		from api_request_samples
+		where minute >= ${window.from} and minute < ${window.to}
+		order by minute
 	`.execute(db);
-	return result.rows.map((row) => {
-		const latency = row.latency ?? [];
-		return {
-			at: new Date(row.at).toISOString(),
-			requests: row.requests,
-			clientErrors: row.client_errors,
-			serverErrors: row.server_errors,
-			webSocketUpgrades: row.websocket_upgrades,
-			medianMs: latencyPercentile(latency, 0.5),
-			p95Ms: latencyPercentile(latency, 0.95),
-		};
-	});
+
+	type Bucket = HealthSeries["api"][number] & { latency: number[] };
+	const buckets = new Map<string, Bucket>();
+	for (const row of result.rows) {
+		const at = new Date(row.at).toISOString();
+		let bucket = buckets.get(at);
+		if (!bucket) {
+			bucket = {
+				at,
+				requests: 0,
+				clientErrors: 0,
+				serverErrors: 0,
+				webSocketUpgrades: 0,
+				medianMs: null,
+				p95Ms: null,
+				latency: [],
+			};
+			buckets.set(at, bucket);
+		}
+		bucket.requests += row.requests;
+		bucket.clientErrors += row.client_errors;
+		bucket.serverErrors += row.server_errors;
+		bucket.webSocketUpgrades += row.websocket_upgrades;
+		row.latency_buckets.forEach((count, index) => {
+			bucket.latency[index] = (bucket.latency[index] ?? 0) + count;
+		});
+	}
+	return [...buckets.values()].map(({ latency, ...bucket }) => ({
+		...bucket,
+		medianMs: latencyPercentile(latency, 0.5),
+		p95Ms: latencyPercentile(latency, 0.95),
+	}));
 }

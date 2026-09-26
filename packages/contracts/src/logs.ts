@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HealthSeriesQuery } from "./health-series.js";
 import { LogLevel } from "./settings.js";
 
 /** The platform services whose journal the Logs tab reads (docs/adr/0036). */
@@ -70,10 +71,8 @@ export const LogPage = z.object({
 });
 export type LogPage = z.infer<typeof LogPage>;
 
-/** The Health tab's ranges; the same four as the series route. */
-export const LogCountsQuery = z
-	.object({ range: z.enum(["1h", "6h", "1d", "7d"]) })
-	.strict();
+/** The same query as the Health series route, so the charts line up. */
+export const LogCountsQuery = HealthSeriesQuery;
 export type LogCountsQuery = z.infer<typeof LogCountsQuery>;
 
 /** Error (with fatal) and warn lines per bucket; empty buckets are absent. */
@@ -88,7 +87,7 @@ export const LogCounts = z.object({
 			warnings: z.number().int().nonnegative(),
 		}),
 	),
-	/** False until the API has read the whole window since it started. */
+	/** False while older minutes of the window are not yet all counted. */
 	complete: z.boolean(),
 	/** The oldest entry the journal still holds for the three units. */
 	oldestAt: z.string().datetime().nullable(),

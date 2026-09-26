@@ -15,12 +15,18 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
 const skip = !hasTestDb();
-// The e2e fake reads FAKE_JOURNAL_FILE as the API's journal.
-const FAKE = fileURLToPath(
-	new URL("../../../../e2e/fake-journalctl.mjs", import.meta.url),
+// The e2e fake reads FAKE_JOURNAL_FILE as the API's journal. journalctl gets
+// only PATH and LANG, so a wrapper names the file and the node binary.
+const dir = mkdtempSync(join(tmpdir(), "portikus-logs-"));
+const journalFile = join(dir, "journal.log");
+const FAKE = join(dir, "journalctl");
+writeFileSync(
+	FAKE,
+	`#!/bin/sh\nFAKE_JOURNAL_FILE='${journalFile}' exec '${process.execPath}' '${fileURLToPath(
+		new URL("../../../../e2e/fake-journalctl.mjs", import.meta.url),
+	)}' "$@"\n`,
+	{ mode: 0o755 },
 );
-const journalFile = join(mkdtempSync(join(tmpdir(), "portikus-logs-")), "journal.log");
-process.env.FAKE_JOURNAL_FILE = journalFile;
 
 let testDb: TestDb;
 let mock: MockOidcProvider;

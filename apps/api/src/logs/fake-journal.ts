@@ -28,9 +28,11 @@ export class FakeChild extends EventEmitter implements JournalChild {
 	stdout = new PassThrough();
 	stderr = new PassThrough();
 	killed: string | null = null;
+	/** Set to model a process stuck in disk I/O that never exits. */
+	stuck = false;
 	kill(signal?: NodeJS.Signals): boolean {
 		this.killed = signal ?? "SIGTERM";
-		setImmediate(() => this.emit("close", null));
+		if (!this.stuck) setImmediate(() => this.emit("close", null));
 		return true;
 	}
 	/** Write the lines and exit with `code`. */
