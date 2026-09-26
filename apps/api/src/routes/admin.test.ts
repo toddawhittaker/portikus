@@ -1329,6 +1329,14 @@ test.skipIf(skip)(
 				headers: csrfHeaders(jar, PUBLIC_URL),
 				payload: { acceptableUseText },
 			});
+		// The administrator who saved a new text accepts it too (docs/EPIC-14-3.md ruling 31).
+		const accept = (version: number) =>
+			app.inject({
+				method: "POST",
+				url: "/me/acceptable-use",
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload: { version },
+			});
 
 		const first = await save("Be kind to the servers.");
 		expect(first.statusCode).toBe(200);
@@ -1336,6 +1344,7 @@ test.skipIf(skip)(
 			acceptableUseText: "Be kind to the servers.",
 			acceptableUseVersion: 2,
 		});
+		expect((await accept(2)).statusCode).toBe(204);
 
 		// Saving the same text again asks nobody to accept again.
 		const same = await save("Be kind to the servers.");

@@ -98,11 +98,26 @@ afterAll(async () => {
  */
 const FLAGGED_MOCK_USER = "gail";
 
-type World = MatrixWorld & { flagged: CookieJar };
+/**
+ * An administrator who has not accepted the current acceptable-use
+ * statement (docs/EPIC-14-3.md ruling 32), so no role check can hide the gate.
+ */
+const UNACCEPTED_MOCK_USER = "frank";
+
+type World = MatrixWorld & { flagged: CookieJar; unaccepted: CookieJar };
 
 /** Routes a flagged account may still reach: `/auth/*` and the change form. */
 function passesGate(key: string): boolean {
 	return splitKey(key).url.startsWith("/auth/") || key === "POST /me/password";
+}
+
+/** Routes an account that has not accepted may still reach: `/auth/*` and the statement. */
+function passesUseGate(key: string): boolean {
+	return (
+		splitKey(key).url.startsWith("/auth/") ||
+		key === "GET /me/acceptable-use" ||
+		key === "POST /me/acceptable-use"
+	);
 }
 
 /** A fresh server and world, so one route's writes cannot reach the next. */
@@ -125,7 +140,18 @@ async function withWorld(
 			})
 			.where("oidc_subject", "=", FLAGGED_MOCK_USER)
 			.execute();
-		const world: World = { ...matrix, flagged };
+		const unaccepted = new CookieJar();
+		await loginAs(app, UNACCEPTED_MOCK_USER, unaccepted);
+		await testDb.db
+			.updateTable("users")
+			.set({
+				acceptable_use_version: null,
+				granted_role: "administrator",
+				role: "administrator",
+			})
+			.where("oidc_subject", "=", UNACCEPTED_MOCK_USER)
+			.execute();
+		const world: World = { ...matrix, flagged, unaccepted };
 		pointId = crypto.randomUUID();
 		await testDb.db
 			.insertInto("recovery_points")
@@ -175,6 +201,7 @@ const QUERIES: Record<string, string> = {
 const PAYLOADS: Record<string, object> = {
 	"POST /me/notifications": { tone: "neutral", title: "Saved" },
 	"PATCH /me/notifications/:id": { read: true },
+	"POST /me/acceptable-use": { version: 1 },
 	"PUT /me/settings": { timezone: "America/New_York" },
 	"PUT /me/profile": { github: null },
 	"PUT /admin/settings": { logLevel: null },
@@ -267,6 +294,10 @@ function actorsOf(world: World) {
 		flagged: {
 			name: "administrator who must change their password",
 			headers: { cookie: world.flagged.cookieHeader() },
+		},
+		unaccepted: {
+			name: "administrator who has not accepted the acceptable-use statement",
+			headers: { cookie: world.unaccepted.cookieHeader() },
 		},
 		bearer: {
 			name: "A's agent token, no cookie",
@@ -490,6 +521,17 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 					}
 				}
 
+				if (signedInOnly.includes(access) && !passesUseGate(key)) {
+					const unaccepted = withOrigin(key, actors.unaccepted);
+					await expectRefused(app, world, key, own, unaccepted, 403);
+					if (!key.startsWith("HEAD ")) {
+						const { res } = await send(app, key, own, unaccepted.headers);
+						expect(res.json().code, `${key} for the unaccepted account`).toBe(
+							"ACCEPTABLE_USE_REQUIRED",
+						);
+					}
+				}
+
 				const a = withOrigin(key, actors.a);
 				const b = withOrigin(key, actors.b);
 				const admin = withOrigin(key, actors.admin);
@@ -541,7 +583,8 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 						const headers = withOrigin(key, actor).headers;
 						const { res, calls } = await send(app, key, own, headers);
 						// The gate may refuse a flagged account outright, which is no more.
-						const refusals = actor === actors.flagged ? [401, 403] : [401];
+						const gated = actor === actors.flagged || actor === actors.unaccepted;
+						const refusals = gated ? [401, 403] : [401];
 						expect(
 							[stranger.res.statusCode, ...refusals],
 							`${key} for ${actor.name} answered ${res.statusCode}`,

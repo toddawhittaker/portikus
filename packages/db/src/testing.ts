@@ -102,6 +102,26 @@ function isProcessAlive(pid: number): boolean {
 const TEST_POOL_SIZE = 4;
 
 /**
+ * Test users have accepted the current acceptable-use statement unless a
+ * test says otherwise, so only the gate's own tests meet the gate
+ * (docs/EPIC-14-3.md, "Test plan, per task", T6). Read through jsonb so the
+ * trigger does nothing while the migration tests step below migration 0020.
+ */
+const ACCEPT_USE_FOR_TEST_USERS = [
+	`CREATE FUNCTION test_accept_use() RETURNS trigger LANGUAGE plpgsql AS $$
+	BEGIN
+		IF to_jsonb(NEW) ? 'acceptable_use_version' AND to_jsonb(NEW)->>'acceptable_use_version' IS NULL THEN
+			NEW := jsonb_populate_record(NEW, jsonb_build_object(
+				'acceptable_use_version',
+				coalesce((SELECT acceptable_use_version FROM settings WHERE id = 1), 1),
+				'acceptable_use_accepted_at', now()));
+		END IF;
+		RETURN NEW;
+	END $$`,
+	"CREATE TRIGGER test_accept_use BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION test_accept_use()",
+];
+
+/**
  * Create a database of this test file's own, run migrations, and return
  * helpers. Throws if TEST_DATABASE_URL is not set.
  *
@@ -130,6 +150,7 @@ export async function createTestDb(): Promise<TestDb> {
 
 	const db = createDb(ownUrl, TEST_POOL_SIZE);
 	await migrateToLatest(db);
+	await runOnServer(ownUrl, ACCEPT_USE_FOR_TEST_USERS);
 
 	const truncate = async () => {
 		await db.deleteFrom("notifications").execute();
@@ -186,6 +207,7 @@ export async function createRunDatabase(
 	} finally {
 		await db.destroy();
 	}
+	await runOnServer(ownUrl, ACCEPT_USE_FOR_TEST_USERS);
 	return { url: ownUrl, name };
 }
 

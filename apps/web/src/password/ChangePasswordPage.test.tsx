@@ -10,6 +10,7 @@ const FLAGGED = {
 	displayName: "Local administrator",
 	role: "administrator" as const,
 	mustChangePassword: true,
+	mustAcceptUse: false,
 	localPassword: true,
 };
 

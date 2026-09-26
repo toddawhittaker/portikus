@@ -208,7 +208,41 @@ describe("users and sessions", () => {
 				...expected
 			} = user;
 			const loaded = await loadSession(t.db, token);
-			expect(loaded).toEqual(expected);
+			// Test users have accepted (packages/db testing).
+			expect(loaded).toEqual({ ...expected, mustAcceptUse: false });
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"mustAcceptUse compares the accepted version with the current one (EPIC-14-3 ruling 32)",
+		async () => {
+			const user = await upsertUser(t.db, identity, "student");
+			const { token } = await createSession(t.db, user.id, 3600, {
+				method: "oidc",
+				courseUserId: null,
+			});
+			const setAccepted = (version: number | null) =>
+				t.db
+					.updateTable("users")
+					.set({ acceptable_use_version: version })
+					.where("id", "=", user.id)
+					.execute();
+
+			// With no settings row the current version is 1, the column default.
+			await t.db.deleteFrom("settings").execute();
+			await setAccepted(null);
+			expect((await loadSession(t.db, token))?.mustAcceptUse).toBe(true);
+			await setAccepted(1);
+			expect((await loadSession(t.db, token))?.mustAcceptUse).toBe(false);
+
+			await t.db
+				.insertInto("settings")
+				.values({ id: 1, shutdown_grace_seconds: 900, acceptable_use_version: 2 })
+				.execute();
+			expect((await loadSession(t.db, token))?.mustAcceptUse).toBe(true);
+			await setAccepted(2);
+			expect((await loadSession(t.db, token))?.mustAcceptUse).toBe(false);
+			await t.db.deleteFrom("settings").execute();
 		},
 	);
 

@@ -234,6 +234,9 @@ export const ApiErrorCode = z.enum([
 	"NOT_FLAGGED",
 	// The local administrator and password change (SPEC.md section 5.3).
 	"PASSWORD_CHANGE_REQUIRED",
+	// The acceptable-use gate (docs/EPIC-14-3.md rulings 32 and 33).
+	"ACCEPTABLE_USE_REQUIRED",
+	"ACCEPTABLE_USE_CHANGED",
 	"NOT_LOCAL_PASSWORD",
 	"WRONG_PASSWORD",
 	"INTERNAL",

@@ -107,13 +107,14 @@ test("AuthUser round-trips and allows a null email", () => {
 		displayName: "Alice",
 		role: "student" as const,
 		mustChangePassword: false,
+		mustAcceptUse: false,
 	};
 	expect(AuthUser.parse(input)).toEqual(input);
 	const withSubject = { ...input, signInName: "alice" };
 	expect(AuthUser.parse(withSubject)).toEqual(withSubject);
 });
 
-test("AuthUser and MeResponse require the password flags (SPEC.md section 5.3)", () => {
+test("AuthUser and MeResponse require both gate flags (SPEC.md section 5.3, EPIC-14-3 ruling 32)", () => {
 	const user = {
 		id: "550e8400-e29b-41d4-a716-446655440111",
 		email: null,
@@ -127,6 +128,14 @@ test("AuthUser and MeResponse require the password flags (SPEC.md section 5.3)",
 	expect(
 		MeResponse.safeParse({ ...user, mustChangePassword: true, localPassword: true })
 			.success,
+	).toBe(false);
+	expect(
+		MeResponse.safeParse({
+			...user,
+			mustChangePassword: true,
+			mustAcceptUse: true,
+			localPassword: true,
+		}).success,
 	).toBe(true);
 });
 

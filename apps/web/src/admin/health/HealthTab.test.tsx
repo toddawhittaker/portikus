@@ -241,6 +241,7 @@ test("each guard row links to the owner's detail panel", async () => {
 				displayName: "Carol Admin",
 				role: "administrator",
 				mustChangePassword: false,
+				mustAcceptUse: false,
 				localPassword: false,
 			});
 		}
