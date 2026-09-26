@@ -351,64 +351,6 @@ test("stopping a check stops its setsid and nohup children too (#624)", async ()
 	);
 });
 
-test("a check runs under choom so it does not inherit the agent's OOM score", () => {
-	const calls: { file: string; args: string[] }[] = [];
-	const fakePty = { onData: () => {}, onExit: () => {}, kill: () => {} };
-	const runner = new CheckRunner(quietLog, ((file: string, args: string[]) => {
-		calls.push({ file, args });
-		return fakePty;
-	}) as unknown as Parameters<typeof CheckRunner.prototype.start>[0] & never);
-	runner.start({
-		slug: SLUG,
-		check: { id: "t", name: "T", command: "npm test" },
-		cwd: homeDir,
-	});
-	expect(calls).toEqual([
-		{ file: "choom", args: ["-n", "0", "--", "bash", "-lc", "npm test"] },
-	]);
-});
-
-test("a check's program has oom_score_adj 0 whatever the agent's is", async () => {
-	// An unprivileged process may raise its own score but not lower it, so the
-	// test raises this process's and checks the command is put back to 0.
-	const own = "/proc/self/oom_score_adj";
-	const before = (await readFile(own, "utf8")).trim();
-	await writeFile(own, "200");
-	try {
-		await writeChecks(
-			JSON.stringify({
-				checks: [{ id: "oom", name: "OOM", command: "cat /proc/self/oom_score_adj" }],
-			}),
-		);
-		await call("POST", `/projects/${SLUG}/checks/oom/runs`);
-		await vi.waitFor(
-			async () => {
-				const runs = (await call("GET", `/projects/${SLUG}/checks`)).json().runs;
-				expect(runs[0].state).toBe("passed");
-			},
-			{ timeout: 10_000 },
-		);
-	} finally {
-		await writeFile(own, before).catch(() => undefined);
-	}
-	const ws = new WebSocket(
-		`ws://127.0.0.1:${port}/projects/${SLUG}/checks/oom/runs/current`,
-		{ headers: { authorization: `Bearer ${TOKEN}` } } as unknown as string[],
-	);
-	const frames: Record<string, unknown>[] = [];
-	ws.addEventListener("message", (event) => {
-		frames.push(JSON.parse(event.data as string));
-	});
-	await new Promise<void>((resolve) => {
-		ws.addEventListener("close", () => resolve(), { once: true });
-	});
-	const text = frames
-		.filter((frame) => frame.type === "output")
-		.map((frame) => Buffer.from(frame.data as string, "base64").toString("utf8"))
-		.join("");
-	expect(text.trim()).toBe("0");
-});
-
 test("a check's output pauses under a slow watcher and resumes when it drains", async () => {
 	vi.useFakeTimers();
 	try {

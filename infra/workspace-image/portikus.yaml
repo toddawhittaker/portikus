@@ -1842,8 +1842,6 @@ files:
     # The container's pids.max is the only ceiling, so a fork bomb in a
     # terminal (capped lower in the terminals unit) cannot starve the agent.
     TasksMax=infinity
-    # Out of memory, the kernel picks terminals and Docker before the agent.
-    OOMScoreAdjust=-500
 
     [Install]
     WantedBy=multi-user.target
@@ -1878,6 +1876,21 @@ files:
     [Install]
     WantedBy=sysinit.target
 
+# Writes the terminals unit's exit record (issue #625). With OOMPolicy=continue
+# systemd reports an out-of-memory kill of tmux as "signal", so the unit's
+# cgroup memory.events tells the two apart.
+- path: /usr/local/sbin/portikus-terminals-exit
+  generator: dump
+  mode: "0755"
+  content: |-
+    #!/bin/sh
+    result=$SERVICE_RESULT
+    cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)
+    if [ "$EXIT_STATUS" = KILL ] && grep -q '^oom_kill [1-9]' "$cg/memory.events"; then
+      result=oom-kill
+    fi
+    printf '%s\n' "$result" > /run/portikus-terminals/last-exit
+
 # The tmux server for every terminal, in its own cgroup, so terminals survive
 # an agent restart and the agent can be shielded (issues #610 and #619).
 # -f /dev/null: no student or system tmux.conf; the agent sets every option.
@@ -1908,7 +1921,7 @@ files:
     RuntimeDirectory=portikus-terminals
     RuntimeDirectoryMode=0755
     RuntimeDirectoryPreserve=yes
-    ExecStopPost=/bin/sh -c 'printf "%%s\n" "$SERVICE_RESULT" > /run/portikus-terminals/last-exit'
+    ExecStopPost=/usr/local/sbin/portikus-terminals-exit
 
     [Install]
     WantedBy=multi-user.target

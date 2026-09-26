@@ -302,13 +302,11 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
     "continue" ws_exec "systemctl show -p OOMPolicy --value portikus-workspace-agent"
 
   # 17aa. Terminals live in their own unit, so the agent can restart without
-  # them and be shielded from the OOM killer and from a fork bomb (issues
-  # #610 and #619, SPEC.md 19.3).
+  # them and be shielded from a fork bomb (issues #610 and #619, SPEC.md
+  # 19.3).
   unit_prop() { ws_exec "systemctl show -p $2 --value $1"; }
   check_output "agent unit has no task cap of its own (TasksMax=infinity)" \
     "infinity" unit_prop portikus-workspace-agent TasksMax
-  check_output "agent unit is set to OOMScoreAdjust=-500" \
-    "-500" unit_prop portikus-workspace-agent OOMScoreAdjust
   check_output "agent unit uses the terminals unit's tmux server" \
     "TMUX_EXTERNAL_SERVER=true" ws_exec "systemctl show -p Environment --value portikus-workspace-agent | tr ' ' '\n' | grep -x TMUX_EXTERNAL_SERVER=true"
   check_output "terminals unit is running" "active" unit_prop portikus-terminals ActiveState
@@ -329,22 +327,12 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "the tmux server runs in the terminals unit's cgroup" \
     "0::/system.slice/portikus-terminals.service" \
     ws_exec "cat /proc/\$(systemctl show -p MainPID --value portikus-terminals)/cgroup"
-  # The kernel honours the setting only if the container may lower the value.
-  check_output "the agent's real oom_score_adj is -500" "-500" \
-    ws_exec "cat /proc/\$(systemctl show -p MainPID --value portikus-workspace-agent)/oom_score_adj"
   # A shell in a pane of the Portikus server, as the agent would start one.
   ws_student "tmux -L portikus -N new-session -d -s smoke-shell bash" >/dev/null 2>&1
   pane_pid() { ws_student "tmux -L portikus -N display-message -p -t smoke-shell '#{pane_pid}'"; }
   shell_pid=$(pane_pid)
   check_output "a pane's shell runs in the terminals unit's cgroup" \
     "0::/system.slice/portikus-terminals.service" ws_exec "cat /proc/${shell_pid:-0}/cgroup"
-  agent_below_shell() {
-    local a s
-    a=$(ws_exec "cat /proc/\$(systemctl show -p MainPID --value portikus-workspace-agent)/oom_score_adj")
-    s=$(ws_exec "cat /proc/${shell_pid:-0}/oom_score_adj")
-    [ -n "$a" ] && [ -n "$s" ] && [ "$a" -lt "$s" ]
-  }
-  check "the agent's oom_score_adj is lower than a pane's shell's" agent_below_shell
   # Shells get what they got before, less the agent's own settings.
   # HOME is the control that the environment was read at all.
   check_output "the tmux server has none of the agent's settings in its environment" "HOME=/home/student" \
