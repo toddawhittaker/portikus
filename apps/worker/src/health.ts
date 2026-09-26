@@ -38,18 +38,30 @@ export function createHealthSampler(
 		inFlight = true;
 		try {
 			let sample: HealthSample;
+			// The database, not the controller, is the source of truth for state.
+			const running = await db
+				.selectFrom("workspaces")
+				.select((eb) => eb.fn.countAll<string>().as("n"))
+				.where("state", "=", "running")
+				.executeTakeFirstOrThrow();
+			const runningWorkspaces = Number(running.n);
 			try {
 				sample = {
 					controller: { reachable: true, errorCode: null },
 					host: await controller.hostSnapshot(
 						AbortSignal.timeout(HOST_SNAPSHOT_TIMEOUT_MS),
 					),
+					runningWorkspaces,
 				};
 			} catch (e) {
 				const errorCode =
 					e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
 				logger.debug({ errorCode }, "host snapshot failed");
-				sample = { controller: { reachable: false, errorCode }, host: null };
+				sample = {
+					controller: { reachable: false, errorCode },
+					host: null,
+					runningWorkspaces,
+				};
 			}
 			const at = now();
 			const inserted = await db

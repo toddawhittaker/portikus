@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard and 0021_notifications
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications and 0022_api_request_samples
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -28,6 +28,7 @@ export interface Database {
 	account_link_intents: AccountLinkIntentsTable;
 	workspace_usage_samples: WorkspaceUsageSamplesTable;
 	notifications: NotificationsTable;
+	api_request_samples: ApiRequestSamplesTable;
 }
 
 export interface UsersTable {
@@ -360,4 +361,18 @@ export interface NotificationsTable {
 	body: string;
 	created_at: ColumnType<Date, string | undefined, never>;
 	read_at: ColumnType<Date | null, string | null | undefined, string | null>;
+}
+
+/**
+ * The API's response totals for one minute: counts and a latency histogram,
+ * nothing that names a route, user or workspace (docs/EPIC-19.md ruling 20).
+ */
+export interface ApiRequestSamplesTable {
+	minute: Date;
+	requests: number;
+	client_errors: number;
+	server_errors: number;
+	websocket_upgrades: number;
+	/** Counts per bound of API_LATENCY_BOUNDS_MS, plus one overflow bucket. */
+	latency_buckets: number[];
 }

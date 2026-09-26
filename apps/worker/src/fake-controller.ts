@@ -96,6 +96,7 @@ export class FakeControllerClient implements ControllerClient {
 		profileLimits: { cpu: "2", memory: "4GB", processes: "2000" },
 		image: { fingerprint: "abc123", serial: "2026.09.9" },
 		instances: [],
+		rates: null,
 	};
 
 	async hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot> {
