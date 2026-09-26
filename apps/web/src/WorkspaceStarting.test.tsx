@@ -1,11 +1,19 @@
-import { screen } from "@testing-library/react";
-import { expect, test } from "vitest";
-import { renderWithQuery, WORKSPACE } from "./test-utils.js";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import { json, renderWithQuery, stubFetch, WORKSPACE } from "./test-utils.js";
 import { startingPhase, WorkspaceStarting } from "./WorkspaceStarting.js";
+
+const noop = () => {};
 
 test("no workspace yet means connecting", () => {
 	expect(startingPhase(null)).toBe("connecting");
-	renderWithQuery(<WorkspaceStarting workspaceId={WORKSPACE.id} workspace={null} />);
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={null}
+			onOpenWorkspace={noop}
+		/>,
+	);
 	expect(screen.getByRole("heading").textContent).toBe("Connecting to your workspace");
 });
 
@@ -13,7 +21,11 @@ test("a stopped workspace that should run is starting", () => {
 	const workspace = { ...WORKSPACE, state: "stopped" as const };
 	expect(startingPhase(workspace)).toBe("starting");
 	renderWithQuery(
-		<WorkspaceStarting workspaceId={WORKSPACE.id} workspace={workspace} />,
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={workspace}
+			onOpenWorkspace={noop}
+		/>,
 	);
 	expect(screen.getByRole("heading").textContent).toBe("Starting your workspace");
 });
@@ -32,7 +44,13 @@ test("stopping and error have their own copy, and the error shows the detail", (
 	};
 	expect(startingPhase(failed)).toBe("error");
 
-	renderWithQuery(<WorkspaceStarting workspaceId={WORKSPACE.id} workspace={failed} />);
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={failed}
+			onOpenWorkspace={noop}
+		/>,
+	);
 	expect(screen.getByRole("heading").textContent).toBe(
 		"Your workspace could not be started",
 	);
@@ -40,6 +58,46 @@ test("stopping and error have their own copy, and the error shows the detail", (
 		screen.getByText("Your workspace could not start because its storage is full."),
 	).toBeDefined();
 	expect(screen.getByText("STORAGE_FULL")).toBeDefined();
+	// The raw detail is folded away under "Technical details".
+	const details = screen.getByTestId("workspace-error-details") as HTMLDetailsElement;
+	expect(details.open).toBe(false);
+	expect(details.querySelector("summary")?.textContent).toBe("Technical details");
+	// Nothing is loading, so no skeleton.
+	expect(document.querySelector(".pk-tabs-skeleton")).toBeNull();
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+test("the error screen's Try again starts the workspace and Workspace details opens the dialog", async () => {
+	const calls: string[] = [];
+	stubFetch((url, init) => {
+		calls.push(`${init?.method ?? "GET"} ${url} ${String(init?.body ?? "")}`);
+		return json(202, { ...WORKSPACE, state: "starting" });
+	});
+	const onOpenWorkspace = vi.fn();
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "error" }}
+			onOpenWorkspace={onOpenWorkspace}
+		/>,
+	);
+
+	fireEvent.click(screen.getByRole("button", { name: "Workspace details" }));
+	expect(onOpenWorkspace).toHaveBeenCalledTimes(1);
+	fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+	await waitFor(() => expect(calls.some((call) => call.includes("start"))).toBe(true));
+});
+
+test("the skeleton shows while starting, not while stopped", () => {
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "starting" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+	expect(document.querySelector(".pk-tabs-skeleton")).not.toBeNull();
 });
 
 test("a workspace the student stopped offers a way to start it again", () => {
@@ -51,7 +109,11 @@ test("a workspace the student stopped offers a way to start it again", () => {
 	expect(startingPhase(workspace)).toBe("stopped");
 
 	renderWithQuery(
-		<WorkspaceStarting workspaceId={WORKSPACE.id} workspace={workspace} />,
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={workspace}
+			onOpenWorkspace={noop}
+		/>,
 	);
 	expect(screen.getByRole("heading").textContent).toBe("Your workspace is stopped");
 	expect(screen.getByTestId("workspace-resume")).toBeDefined();
@@ -62,6 +124,7 @@ test("a workspace the student stopped offers a way to start it again", () => {
 test("a pending Reset Docker or Rebuild says so instead of the phase", () => {
 	renderWithQuery(
 		<WorkspaceStarting
+			onOpenWorkspace={noop}
 			workspaceId={WORKSPACE.id}
 			workspace={{ ...WORKSPACE, state: "stopping", pendingOperation: "reset-docker" }}
 		/>,
@@ -73,6 +136,7 @@ test("a pending Reset Docker or Rebuild says so instead of the phase", () => {
 test("a pending rebuild reads Rebuilding and says projects are kept", () => {
 	renderWithQuery(
 		<WorkspaceStarting
+			onOpenWorkspace={noop}
 			workspaceId={WORKSPACE.id}
 			workspace={{ ...WORKSPACE, state: "stopped", pendingOperation: "rebuild" }}
 		/>,
@@ -86,6 +150,7 @@ test("a pending rebuild reads Rebuilding and says projects are kept", () => {
 test("a stop after an unanswered Still working? says why", () => {
 	renderWithQuery(
 		<WorkspaceStarting
+			onOpenWorkspace={noop}
 			workspaceId={WORKSPACE.id}
 			workspace={{ ...WORKSPACE, state: "stopped", desiredState: "stopped" }}
 			idleStop={{ minutes: 60 }}
@@ -99,6 +164,7 @@ test("a stop after an unanswered Still working? says why", () => {
 test("without an idle stop the stopped screen says nothing about it", () => {
 	renderWithQuery(
 		<WorkspaceStarting
+			onOpenWorkspace={noop}
 			workspaceId={WORKSPACE.id}
 			workspace={{ ...WORKSPACE, state: "stopped", desiredState: "stopped" }}
 		/>,

@@ -441,6 +441,8 @@ If an authenticated user opens the platform and the assigned workspace is stoppe
 
 If the workspace is stopped because the student stopped it by hand, the platform does not start it again on its own. The work area says the workspace is stopped and offers a button that starts it, which is the same request as the Start button in the workspace dialog. The platform never shows starting progress while no start has been requested.
 
+Loading skeletons appear only while the workspace is connecting, starting or reopening tabs; a stopped or failed workspace shows a plain message in the side panes instead. If the workspace failed to start, the work area offers "Try again", which is the same start request, and "Workspace details", which opens the workspace dialog. The raw error message and code sit under a collapsed "Technical details".
+
 Target cold-start performance is defined in the non-functional requirements.
 
 ### 6.4 Disconnect grace period
@@ -1855,7 +1857,9 @@ workspace has nothing to measure, and the UI says the figures are available
 when it runs. The status bar warns at 80% of any class and names it. At 95%
 the message also names a next step: Reset Docker or `docker system prune`
 for Docker, automatic removal of older points for Recovery, and deleting
-files for Projects & home. Quotas are environment configuration in this
+files for Projects & home. The warning, like the workspace state beside it, is a bordered
+button that opens the workspace dialog, and it keeps its warning or error
+colour. Quotas are environment configuration in this
 epic; changing them at runtime is Epic 11.
 
 ### 19.3 Denial behavior

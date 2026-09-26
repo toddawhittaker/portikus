@@ -62,6 +62,10 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 		title: "Preferences",
 		groups: [
 			{
+				title: "Appearance",
+				controls: [{ id: "colour-scheme", label: "Color scheme" }],
+			},
+			{
 				title: "Editor",
 				controls: [
 					{ id: "auto-save", label: "Auto-save" },
@@ -80,10 +84,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 			{
 				title: "Workspace",
 				controls: [{ id: "workspace-timezone", label: "Workspace timezone" }],
-			},
-			{
-				title: "Appearance",
-				controls: [{ id: "colour-scheme", label: "Color scheme" }],
 			},
 		],
 	},

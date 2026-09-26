@@ -10,6 +10,7 @@ import {
 	ConfirmDialogRoot,
 	Dialog,
 	DialogRoot,
+	Icon,
 	resolveWorkspaceState,
 	useToast,
 } from "@portikus/ui";
@@ -63,6 +64,9 @@ function resolveStatus(workspace: Workspace | null): {
 
 type Confirming = "stop" | "restart" | "reset-docker" | null;
 
+/** Whether the workspace dialog is open, and whether with Restart's confirmation on top. */
+export type WorkspaceDialogMode = "closed" | "open" | "restart";
+
 /** Image fingerprints are 64 characters; a student only ever needs the head of one. */
 function shortImage(imageVersion: string | null): string {
 	if (!imageVersion) return "—";
@@ -74,14 +78,25 @@ export function StatusBar({
 	workspaceId,
 	project,
 	workspace,
+	dialog,
+	onDialogChange,
 }: {
 	workspaceId: string;
 	project: Project | undefined;
 	workspace: Workspace | null;
+	dialog: WorkspaceDialogMode;
+	onDialogChange: (mode: WorkspaceDialogMode) => void;
 }) {
-	const [statusOpen, setStatusOpen] = useState(false);
+	const statusOpen = dialog !== "closed";
+	const setStatusOpen = (open: boolean) => onDialogChange(open ? "open" : "closed");
 	// The confirmation open on top of the workspace dialog, if any.
-	const [confirming, setConfirming] = useState<Confirming>(null);
+	const [chosen, setChosen] = useState<Confirming>(null);
+	const confirming: Confirming = dialog === "restart" ? "restart" : chosen;
+	const setConfirming = (next: Confirming) => {
+		// Leaving the confirmation the page opened keeps the dialog under it.
+		if (dialog === "restart") onDialogChange("open");
+		setChosen(next);
+	};
 	const resolved = resolveStatus(workspace);
 	const running = workspace?.state === "running";
 	const usage = useWorkspaceUsage(workspaceId, running, STORAGE_POLL_MS);
@@ -117,11 +132,12 @@ export function StatusBar({
 					onClick={() => setStatusOpen(true)}
 				>
 					{warning.text}
+					<Icon name="chevron-up" size="sm" />
 				</button>
 			) : null}
 			<button
 				type="button"
-				className="pk-statusbar-item"
+				className="pk-statusbar-item pk-statusbar-plain"
 				aria-haspopup="dialog"
 				data-testid="workspace-status"
 				onClick={() => setStatusOpen(true)}
@@ -133,6 +149,7 @@ export function StatusBar({
 				<span data-testid="workspace-state" role="status">
 					{resolved.label}
 				</span>
+				<Icon name="chevron-up" size="sm" />
 			</button>
 
 			<DialogRoot

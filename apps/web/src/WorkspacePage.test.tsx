@@ -112,3 +112,26 @@ test("Still working? sends activity, and an unanswered stop says why", async () 
 	);
 	expect(screen.queryByTestId("idle-notice")).toBeNull();
 });
+
+test("the throttle notice's Restart workspace… opens the workspace dialog with Restart's confirmation", async () => {
+	const { push } = await openShell();
+	push({ cpuThrottle: THROTTLE });
+	fireEvent.click(await screen.findByRole("button", { name: "Restart workspace…" }));
+	expect(screen.getByTestId("dialog-workspace-status")).toBeDefined();
+	expect(screen.getByTestId("dialog-workspace-restart")).toBeDefined();
+});
+
+test("side panes show skeletons while starting and a static message once stopped", async () => {
+	const { push } = await openShell();
+	push({ state: "starting" });
+	expect(
+		screen.getByRole("region", { name: "Projects" }).getAttribute("aria-busy"),
+	).toBe("true");
+	push({ state: "stopped", desiredState: "stopped" });
+	expect(
+		screen.getByRole("region", { name: "Projects" }).getAttribute("aria-busy"),
+	).toBeNull();
+	expect(screen.getByText("Start your workspace to see your projects")).toBeDefined();
+	expect(screen.getByText("Start your workspace to see its files")).toBeDefined();
+	expect(document.querySelector("[aria-busy='true']")).toBeNull();
+});
