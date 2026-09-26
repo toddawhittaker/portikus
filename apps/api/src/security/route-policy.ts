@@ -90,6 +90,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /me/links/:courseUserId/unlink": { access: "self" },
 	// Settings, Password (SPEC.md section 5.3); 404 without Dex's gRPC API.
 	"POST /me/password": { access: "self" },
+	// The acceptable-use gate's own routes (docs/EPIC-14-3.md ruling 33).
+	"GET /me/acceptable-use": { access: "self" },
+	"HEAD /me/acceptable-use": { access: "self" },
+	"POST /me/acceptable-use": { access: "self" },
 
 	"GET /workspaces/:id": { access: "owner-or-admin" },
 	"HEAD /workspaces/:id": { access: "owner-or-admin" },

@@ -8,6 +8,8 @@ export interface AuthUser {
 	role: Role;
 	/** The account must change its password before anything else (SPEC.md section 5.3). */
 	mustChangePassword: boolean;
+	/** The account has not accepted the current acceptable-use statement (EPIC-14-3 ruling 32). */
+	mustAcceptUse: boolean;
 }
 
 /** Everything the auth helpers need, validated by the service's config loader. */

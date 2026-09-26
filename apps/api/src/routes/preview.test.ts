@@ -728,6 +728,22 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"an account that has not accepted the current statement gets no preview (EPIC-14-3 ruling 32)",
+	async () => {
+		const token = await openPreview(5173);
+		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(200);
+
+		await testDb.db
+			.updateTable("users")
+			.set({ acceptable_use_version: null })
+			.where("oidc_subject", "=", "alice")
+			.execute();
+
+		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(403);
+	},
+);
+
 test.skipIf(skip)("a preview cookie is worthless on another host", async () => {
 	const token = await openPreview(5173);
 	// Another port of the same workspace, and another workspace's label.

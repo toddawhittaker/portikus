@@ -11,6 +11,7 @@ import {
 	useRouterState,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { AcceptableUsePage } from "./acceptable-use/AcceptableUsePage.js";
 import { ADMIN_TABS, AdminPage } from "./admin/AdminPage.js";
 import { CourseListPage, CourseMembersPage } from "./course/CoursePage.js";
 import { LinkPage } from "./link/LinkPage.js";
@@ -25,11 +26,9 @@ import { Unlinked } from "./pages/Unlinked.js";
 import { ChangePasswordPage } from "./password/ChangePasswordPage.js";
 import { ProjectIndex } from "./projects/ProjectIndex.js";
 import { useProjects } from "./projects/queries.js";
-import { useMe } from "./useMe.js";
+import { gatePath, useMe } from "./useMe.js";
 import { WorkspacePage } from "./WorkspacePage.js";
 import { WorkArea } from "./work/WorkArea.js";
-
-const CHANGE_PASSWORD_PATH = "/change-password";
 
 const rootRoute = createRootRoute({
 	component: function Root() {
@@ -38,13 +37,11 @@ const rootRoute = createRootRoute({
 		const navigate = useNavigate();
 		const pathname = useRouterState({ select: (state) => state.location.pathname });
 		// The server refuses everything else anyway (SPEC.md section 5.3).
-		const sendAway =
-			me.status === "authenticated" &&
-			me.user.mustChangePassword &&
-			pathname !== CHANGE_PASSWORD_PATH;
+		const gate = gatePath(me);
+		const sendAway = gate !== null && pathname !== gate;
 		useEffect(() => {
-			if (sendAway) void navigate({ to: CHANGE_PASSWORD_PATH, replace: true });
-		}, [sendAway, navigate]);
+			if (sendAway && gate) void navigate({ to: gate, replace: true });
+		}, [sendAway, gate, navigate]);
 		if (sendAway) return <div className="pk-root" aria-busy="true" />;
 		return <Outlet />;
 	},
@@ -65,8 +62,14 @@ const sessionEndedRoute = createRoute({
 
 const changePasswordRoute = createRoute({
 	getParentRoute: () => rootRoute,
-	path: CHANGE_PASSWORD_PATH,
+	path: "/change-password",
 	component: ChangePasswordPage,
+});
+
+const acceptableUseRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/acceptable-use",
+	component: AcceptableUsePage,
 });
 
 const unlinkedRoute = createRoute({
@@ -253,6 +256,7 @@ export const routeTree = rootRoute.addChildren([
 	sessionEndedRoute,
 	notAuthorizedRoute,
 	changePasswordRoute,
+	acceptableUseRoute,
 	unlinkedRoute,
 	linkRoute,
 	linkStartRoute,

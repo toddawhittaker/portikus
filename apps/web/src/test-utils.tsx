@@ -17,6 +17,7 @@ export const USER = {
 	displayName: "Alice Example",
 	role: "student" as const,
 	mustChangePassword: false,
+	mustAcceptUse: false,
 	localPassword: false,
 };
 

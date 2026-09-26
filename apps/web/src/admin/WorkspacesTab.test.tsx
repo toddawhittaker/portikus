@@ -197,6 +197,7 @@ const ADMIN_ME = {
 	displayName: "Carol Admin",
 	role: "administrator" as const,
 	mustChangePassword: false,
+	mustAcceptUse: false,
 	localPassword: false,
 };
 

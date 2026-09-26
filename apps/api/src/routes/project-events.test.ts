@@ -391,3 +391,33 @@ test.skipIf(skip)("a revoked session closes the socket with 4401", async () => {
 		vi.useRealTimers();
 	}
 });
+
+test.skipIf(skip)(
+	"a new acceptable-use statement closes the socket at the next re-check",
+	async () => {
+		// Only intervals are faked, so the sockets and the database keep real IO.
+		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setInterval"] });
+		const fresh = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
+		const previous = app;
+		try {
+			await fresh.listen({ port: 0, host: "127.0.0.1" });
+			app = fresh;
+
+			const socket = await openEvents(workspaceId, projectId, alice);
+			expect(JSON.parse(await socket.next())).toEqual(READY);
+
+			// A new version gates every open session (docs/EPIC-14-3.md ruling 32).
+			await testDb.db
+				.insertInto("settings")
+				.values({ id: 1, shutdown_grace_seconds: 900, acceptable_use_version: 2 })
+				.execute();
+			vi.advanceTimersByTime(1500);
+			expect((await socket.closed).code).toBe(4401);
+		} finally {
+			app = previous;
+			await fresh.close();
+			vi.useRealTimers();
+			await testDb.db.deleteFrom("settings").execute();
+		}
+	},
+);
