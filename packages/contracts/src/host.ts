@@ -2,6 +2,21 @@ import { z } from "zod";
 import { MAX_QUOTA_GIB } from "./admin.js";
 
 const bytes = z.number().int().nonnegative();
+const perSecond = z.number().nonnegative();
+
+/**
+ * Host CPU, network and disk rates, as deltas between two controller readings
+ * (docs/EPIC-19.md ruling 16). Null on the first reading after a restart and
+ * when a counter went backwards.
+ */
+export const HostRates = z.object({
+	cpuPercent: z.number().min(0).max(100),
+	netRxBytesPerSecond: perSecond,
+	netTxBytesPerSecond: perSecond,
+	diskReadBytesPerSecond: perSecond,
+	diskWriteBytesPerSecond: perSecond,
+});
+export type HostRates = z.infer<typeof HostRates>;
 
 /**
  * One look at the platform VM, taken by the controller for `GET /host`
@@ -38,6 +53,8 @@ export const HostSnapshot = z.object({
 			imageSerial: z.string().nullable(),
 		}),
 	),
+	/** Null in samples written before Epic 19. */
+	rates: HostRates.nullable().default(null),
 });
 export type HostSnapshot = z.infer<typeof HostSnapshot>;
 
@@ -52,6 +69,8 @@ export const HealthSample = z.object({
 		errorCode: z.string().nullable(),
 	}),
 	host: HostSnapshot.nullable(),
+	/** Workspaces the database says are running; null in samples before Epic 19. */
+	runningWorkspaces: z.number().int().nonnegative().nullable().default(null),
 });
 export type HealthSample = z.infer<typeof HealthSample>;
 

@@ -70,7 +70,9 @@ function sample(
 			instances: [
 				{ name: "ws-secret-name", imageFingerprint: "abc", imageSerial: "2026.09.9" },
 			],
+			rates: null,
 		},
+		runningWorkspaces: null,
 	};
 }
 
@@ -167,6 +169,7 @@ test.skipIf(skip)("an unreachable controller sample has no host facts", async ()
 		{
 			controller: { reachable: false, errorCode: "CONTROLLER_UNREACHABLE" },
 			host: null,
+			runningWorkspaces: null,
 		},
 		0,
 	);
@@ -376,8 +379,11 @@ test.skipIf(skip)("the series buckets host maxima for the range", async () => {
 	expect(peak?.memoryPercent).toBe(62.5);
 	expect(peak?.load1).toBe(3);
 	expect(series.host.some((point) => point.load1 === 9)).toBe(false);
-	// The other families are stubs until later tasks fill them.
-	expect(series.platform).toEqual([]);
+	// The platform family shares the buckets; its figures are tested in health-series.
+	expect(series.platform.map((point) => point.at)).toEqual(
+		series.host.map((point) => point.at),
+	);
+	// The API family is a stub until a later task fills it.
 	expect(series.api).toEqual([]);
 	// Instance names stay out.
 	expect(res.body).not.toContain("ws-secret-name");
