@@ -251,17 +251,6 @@ export const HealthReport = z.object({
 		signInFailures: z.number().int().nonnegative(),
 		previewRefusals: z.number().int().nonnegative(),
 	}),
-	/** Up to 96 fifteen-minute maxima, oldest first. */
-	series: z.array(
-		z.object({
-			at: z.string().datetime(),
-			poolUsedBytes: bytes,
-			poolTotalBytes: bytes,
-			memoryUsedBytes: bytes,
-			memoryTotalBytes: bytes,
-			load1: z.number().nonnegative(),
-		}),
-	),
 	/** Throttled or memory-flagged workspaces (ADR 0032). */
 	guard: z.array(
 		z.object({

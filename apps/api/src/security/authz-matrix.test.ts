@@ -201,6 +201,7 @@ const QUERIES: Record<string, string> = {
 	"/workspaces/:id/projects/:pid/search": "?q=secret",
 	"/workspaces/:id/preview/embeddable": "?port=5173",
 	"/__portikus/bootstrap": "?t=forged-ticket",
+	"/admin/health/series": "?range=1h",
 	"/admin/logs/counts": "?range=1h",
 };
 

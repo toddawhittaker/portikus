@@ -32,7 +32,7 @@ import { adminActionUrl, useAdminUsers } from "./queries.js";
 import { errorText } from "./SettingsTab.js";
 import { WorkspaceDetail } from "./WorkspaceDetail.js";
 
-const KNOWN_STATES: readonly string[] = [
+export const KNOWN_STATES: readonly string[] = [
 	"provisioning",
 	"starting",
 	"running",

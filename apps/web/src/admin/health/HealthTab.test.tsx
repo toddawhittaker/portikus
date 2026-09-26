@@ -1,4 +1,4 @@
-import type { HealthReport } from "@portikus/contracts";
+import type { HealthReport, HealthSeries } from "@portikus/contracts";
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, renderWithQuery, stubFetch } from "../../test-utils.js";
@@ -8,14 +8,27 @@ import {
 	HealthView,
 	isNearlyFull,
 	sampleAge,
+	stateRows,
 	usedPercent,
 } from "./HealthTab.js";
-import { sparklinePoints } from "./Sparkline.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
 const NOW = Date.parse("2026-09-22T12:00:00.000Z");
 const GIB = 1024 ** 3;
+
+const SERIES: HealthSeries = {
+	range: "1d",
+	bucketSeconds: 900,
+	from: "2026-09-21T12:15:00.000Z",
+	to: "2026-09-22T12:15:00.000Z",
+	cpuCount: 4,
+	host: [],
+	platform: [],
+	events: [],
+	usage: { retentionMinutes: 0, from: "2026-09-21T12:15:00.000Z", workspaces: [] },
+	api: [],
+};
 
 function report(overrides: Partial<HealthReport> = {}): HealthReport {
 	return {
@@ -41,24 +54,6 @@ function report(overrides: Partial<HealthReport> = {}): HealthReport {
 			signInFailures: 4,
 			previewRefusals: 2,
 		},
-		series: [
-			{
-				at: "2026-09-22T11:30:00.000Z",
-				poolUsedBytes: 40 * GIB,
-				poolTotalBytes: 100 * GIB,
-				memoryUsedBytes: 2 * GIB,
-				memoryTotalBytes: 16 * GIB,
-				load1: 1,
-			},
-			{
-				at: "2026-09-22T11:45:00.000Z",
-				poolUsedBytes: 50 * GIB,
-				poolTotalBytes: 100 * GIB,
-				memoryUsedBytes: 4 * GIB,
-				memoryTotalBytes: 16 * GIB,
-				load1: 0.5,
-			},
-		],
 		guard: [],
 		...overrides,
 	};
@@ -75,11 +70,6 @@ test("sample ages read as plain words", () => {
 	expect(sampleAge("2026-09-22T11:59:30.000Z", NOW)).toBe("less than a minute ago");
 	expect(sampleAge("2026-09-22T11:57:00.000Z", NOW)).toBe("3 minutes ago");
 	expect(sampleAge("2026-09-22T10:00:00.000Z", NOW)).toBe("2 hours ago");
-});
-
-test("sparkline points span the box and cap at the maximum", () => {
-	expect(sparklinePoints([], 100)).toBe("");
-	expect(sparklinePoints([0, 50, 200], 100)).toBe("0,40 120,20 240,0");
 });
 
 test("a healthy report shows the figures and no warnings", () => {
@@ -100,14 +90,7 @@ test("a healthy report shows the figures and no warnings", () => {
 	);
 	expect(counts.getByRole("row", { name: "Start failures 3" })).toBeDefined();
 	const states = within(screen.getByRole("table", { name: "Workspaces by state" }));
-	expect(states.getByRole("row", { name: "stopped 5" })).toBeDefined();
-	// The chart has a text alternative.
-	expect(
-		screen.getByRole("img", { name: "Storage pool used: Now 50%, highest 50%." }),
-	).toBeDefined();
-	expect(
-		screen.getByRole("img", { name: "Load, 1 minute: Now 0.50, highest 1.00." }),
-	).toBeDefined();
+	expect(states.getByRole("row", { name: /stopped 5$/i })).toBeDefined();
 });
 
 test("pool and memory at 80 percent or more are flagged", () => {
@@ -131,6 +114,9 @@ test("pool and memory at 80 percent or more are flagged", () => {
 	expect(screen.getByTestId("health-memory-warning").textContent).toBe(
 		"Memory is over 80% full",
 	);
+	expect(screen.getByTestId("health-pool-warning").className).toContain(
+		"pk-tag pk-tag--warning",
+	);
 });
 
 test("a stale worker shows a banner with the sample's age", () => {
@@ -151,7 +137,7 @@ test("a stale worker shows a banner with the sample's age", () => {
 test("with no sample at all the banner says so", () => {
 	render(
 		<HealthView
-			report={report({ workerStale: true, sampledAt: null, host: null, series: [] })}
+			report={report({ workerStale: true, sampledAt: null, host: null })}
 			now={NOW}
 		/>,
 	);
@@ -160,9 +146,6 @@ test("with no sample at all the banner says so", () => {
 		"Worker not reporting. No health sample has been taken yet.",
 	);
 	expect(screen.getByText("No host figures in the newest sample.")).toBeDefined();
-	expect(
-		screen.getByRole("img", { name: "Memory used: No samples in the last 24 hours." }),
-	).toBeDefined();
 });
 
 test("an unreachable controller shows its error code", () => {
@@ -184,6 +167,7 @@ test("an unreachable controller shows its error code", () => {
 test("the tab loads the report from the API", async () => {
 	stubFetch((url) => {
 		if (url === "/admin/health") return json(200, report());
+		if (url.startsWith("/admin/health/series")) return json(200, SERIES);
 		throw new Error(`unexpected request: ${url}`);
 	});
 
@@ -246,6 +230,7 @@ test("each guard row links to the owner's detail panel", async () => {
 			});
 		}
 		if (url === "/admin/health") return json(200, report({ guard: [GUARDED] }));
+		if (url.startsWith("/admin/health/series")) return json(200, SERIES);
 		throw new Error(`unexpected request: ${url}`);
 	});
 	renderApp("/admin?tab=health");
@@ -262,4 +247,38 @@ test("a failed load is announced", async () => {
 	renderWithQuery(<HealthTab />);
 
 	expect((await screen.findByRole("alert")).textContent).toBe("Administrators only.");
+});
+
+test("states follow the Workspaces tab's order with zero counts, then newer ones", () => {
+	expect(stateRows({ running: 2, stopped: 5, archived: 1 })).toEqual([
+		{ state: "provisioning", count: 0 },
+		{ state: "starting", count: 0 },
+		{ state: "running", count: 2 },
+		{ state: "stopping", count: 0 },
+		{ state: "stopped", count: 5 },
+		{ state: "error", count: 0 },
+		{ state: "archived", count: 1 },
+	]);
+});
+
+test("the tab lays out Platform, the trends, then Failures and states", async () => {
+	stubFetch((url) => {
+		if (url === "/admin/health") return json(200, report());
+		if (url.startsWith("/admin/health/series")) return json(200, SERIES);
+		throw new Error(`unexpected request: ${url}`);
+	});
+
+	renderWithQuery(<HealthTab />);
+
+	await screen.findByTestId("health-trends");
+	const headings = screen
+		.getAllByRole("heading", { level: 3 })
+		.map((h) => h.textContent);
+	expect(headings).toEqual([
+		"Platform",
+		"Resource guard",
+		"Trends",
+		"Failures",
+		"Workspaces by state",
+	]);
 });

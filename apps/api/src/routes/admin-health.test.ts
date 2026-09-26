@@ -5,7 +5,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { HealthReport, type HealthSample } from "@portikus/contracts";
+import { HealthReport, type HealthSample, HealthSeries } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
@@ -133,16 +133,11 @@ test.skipIf(skip)("with no sample the worker is stale and host is null", async (
 	expect(report.sampledAt).toBeNull();
 	expect(report.workerStale).toBe(true);
 	expect(report.host).toBeNull();
-	expect(report.series).toEqual([]);
 	expect(report.controller.reachable).toBe(false);
 });
 
-test.skipIf(skip)("reports the newest sample and fifteen-minute maxima", async () => {
-	// Two samples in one fifteen-minute bucket 3 hours ago, one a day and a
-	// half ago that falls outside the series, and the newest one now.
-	await seedSample(sample(100, 10, 1), 180);
+test.skipIf(skip)("reports the newest sample and no series", async () => {
 	await seedSample(sample(300, 20, 3), 181);
-	await seedSample(sample(450, 30, 9), 36 * 60);
 	await seedSample(sample(410, 12, 2), 0);
 
 	const res = await getHealth();
@@ -156,17 +151,8 @@ test.skipIf(skip)("reports the newest sample and fifteen-minute maxima", async (
 	// Instance names stay out of the report.
 	expect(res.body).not.toContain("ws-secret-name");
 
-	expect(report.series.length).toBeGreaterThanOrEqual(2);
-	expect(report.series.length).toBeLessThanOrEqual(3);
-	const maxima = report.series.find((point) => point.poolUsedBytes === 300 * GiB);
-	expect(maxima?.memoryUsedBytes).toBe(20 * GiB);
-	expect(maxima?.load1).toBe(3);
-	expect(report.series.some((point) => point.load1 === 9)).toBe(false);
-	const times = report.series.map((point) => point.at);
-	expect(times).toEqual([...times].sort());
-	for (const point of report.series) {
-		expect(new Date(point.at).getUTCMinutes() % 15).toBe(0);
-	}
+	// The trends moved to /admin/health/series (Epic 19).
+	expect(res.json()).not.toHaveProperty("series");
 });
 
 test.skipIf(skip)("a sample older than two minutes flags the worker", async () => {
@@ -191,7 +177,6 @@ test.skipIf(skip)("an unreachable controller sample has no host facts", async ()
 		errorCode: "CONTROLLER_UNREACHABLE",
 	});
 	expect(report.host).toBeNull();
-	expect(report.series).toEqual([]);
 });
 
 test.skipIf(skip)("counts workspaces by state and probes running agents", async () => {
@@ -348,4 +333,56 @@ test.skipIf(skip)("the guard list is empty when nothing is marked", async () => 
 		headers: { cookie: carol.cookieHeader() },
 	});
 	expect(res.json().guard).toEqual([]);
+});
+
+async function getSeries(query: string, jar: CookieJar | null = carol) {
+	return app.inject({
+		method: "GET",
+		url: `/admin/health/series${query}`,
+		headers: jar ? { cookie: jar.cookieHeader() } : {},
+	});
+}
+
+test.skipIf(skip)("only an administrator may read the series", async () => {
+	expect((await getSeries("?range=1h", null)).statusCode).toBe(401);
+	const alice = new CookieJar();
+	await loginAs(app, "alice", alice);
+	expect((await getSeries("?range=1h", alice)).statusCode).toBe(403);
+});
+
+test.skipIf(skip)("the series refuses an unknown or missing range", async () => {
+	expect((await getSeries("?range=2h")).statusCode).toBe(400);
+	expect((await getSeries("")).statusCode).toBe(400);
+});
+
+test.skipIf(skip)("the series buckets host maxima for the range", async () => {
+	// Two samples 3 hours ago in one fifteen-minute bucket, one a day and a
+	// half ago, outside the day, and the newest now.
+	await seedSample(sample(100, 10, 1), 180);
+	await seedSample(sample(300, 20, 3), 181);
+	await seedSample(sample(450, 30, 9), 36 * 60);
+	await seedSample(sample(410, 12, 2), 0);
+
+	const res = await getSeries("?range=1d");
+	expect(res.statusCode).toBe(200);
+	expect(res.headers["cache-control"]).toBe("no-store");
+	const series = HealthSeries.parse(res.json());
+	expect(series.bucketSeconds).toBe(900);
+	expect(Date.parse(series.to) - Date.parse(series.from)).toBe(24 * 3600_000);
+	expect(series.cpuCount).toBe(8);
+	expect(series.host.length).toBeGreaterThanOrEqual(2);
+	expect(series.host.length).toBeLessThanOrEqual(3);
+	const peak = series.host.find((point) => point.poolPercent === 60);
+	expect(peak?.memoryPercent).toBe(62.5);
+	expect(peak?.load1).toBe(3);
+	expect(series.host.some((point) => point.load1 === 9)).toBe(false);
+	// The other families are stubs until later tasks fill them.
+	expect(series.platform).toEqual([]);
+	expect(series.api).toEqual([]);
+	// Instance names stay out.
+	expect(res.body).not.toContain("ws-secret-name");
+
+	const week = HealthSeries.parse((await getSeries("?range=7d")).json());
+	expect(week.bucketSeconds).toBe(3600);
+	expect(week.host.some((point) => point.load1 === 9)).toBe(true);
 });
