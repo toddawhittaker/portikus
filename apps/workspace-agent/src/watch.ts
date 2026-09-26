@@ -2,8 +2,9 @@ import { relative, sep } from "node:path";
 import {
 	FS_EVENT_BATCH_MS,
 	type FsEvent,
-	GENERATED_NAMES,
 	MAX_FS_EVENT_PATHS,
+	MAX_WATCHED_DIRS,
+	WATCH_SKIP_NAMES,
 } from "@portikus/contracts";
 import { type FSWatcher, watch } from "chokidar";
 import type { FastifyBaseLogger } from "fastify";
@@ -18,7 +19,7 @@ export type FsListener = (event: FsEvent | null) => void;
 
 /** Names skipped outright; `.git` is handled separately (SPEC.md §11.4). */
 const SKIPPED: ReadonlySet<string> = new Set<string>(
-	GENERATED_NAMES.filter((name) => name !== ".git"),
+	WATCH_SKIP_NAMES.filter((name) => name !== ".git"),
 );
 
 /** How long a watcher may take to become ready before we give up. */
@@ -39,6 +40,17 @@ function isIgnored(root: string, path: string): boolean {
 		if (segment === ".git" && segments[index + 1] === "objects") return true;
 	}
 	return false;
+}
+
+/**
+ * The project has more folders than one watcher follows. The watcher is
+ * already closed; the caller sends `watch_limited` once (SPEC.md §11.4).
+ */
+export class WatchLimitedError extends Error {
+	constructor() {
+		super("project too large to watch");
+		this.name = "WatchLimitedError";
+	}
 }
 
 /** The errno code of a filesystem error, safe to log: it holds no path. */
@@ -66,7 +78,11 @@ export class ProjectWatchers {
 	private readonly entries = new Map<string, Entry>();
 	private readonly starting = new Map<string, Promise<Entry>>();
 
-	constructor(private readonly log: FastifyBaseLogger) {}
+	constructor(
+		private readonly log: FastifyBaseLogger,
+		/** Overrides the folder cap. For tests. */
+		private readonly maxDirs: number = MAX_WATCHED_DIRS,
+	) {}
 
 	/** How many project watchers are open. For tests and diagnostics. */
 	size(): number {
@@ -129,8 +145,10 @@ export class ProjectWatchers {
 	}
 
 	private async start(root: string): Promise<Entry> {
+		// The first scan's events are wanted only to count folders against the
+		// cap; nothing is recorded until the watcher is ready.
 		const watcher = watch(root, {
-			ignoreInitial: true,
+			ignoreInitial: false,
 			followSymlinks: false,
 			ignored: (path: string) => isIgnored(root, path),
 		});
@@ -144,6 +162,7 @@ export class ProjectWatchers {
 			timer: null,
 			failed: false,
 		};
+		let dirs = 0;
 		try {
 			// Chokidar never emits `ready` when the first scan fails, so wait on
 			// all three outcomes rather than only the happy one.
@@ -154,8 +173,17 @@ export class ProjectWatchers {
 				);
 				// A start that is still waiting must not hold the process open.
 				timer.unref();
+				const countDir = () => {
+					dirs += 1;
+					if (dirs > this.maxDirs) {
+						clearTimeout(timer);
+						reject(new WatchLimitedError());
+					}
+				};
+				watcher.on("addDir", countDir);
 				watcher.once("ready", () => {
 					clearTimeout(timer);
+					watcher.off("addDir", countDir);
 					resolve();
 				});
 				watcher.once("error", (error) => {
@@ -164,6 +192,11 @@ export class ProjectWatchers {
 				});
 			});
 		} catch (error) {
+			if (error instanceof WatchLimitedError) {
+				this.log.info({ maxDirs: this.maxDirs }, "project too large to watch");
+				await watcher.close().catch(() => {});
+				throw error;
+			}
 			this.log.warn({ code: errnoCode(error) }, "project watcher failed to start");
 			this.log.debug(
 				{ error: error instanceof Error ? error.message : String(error) },

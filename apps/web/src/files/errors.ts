@@ -8,6 +8,19 @@ import { MAX_DOWNLOAD_BYTES, MAX_UPLOAD_BYTES } from "@portikus/contracts";
 import type { ToastProps } from "@portikus/ui";
 import { ApiError } from "../api/request.js";
 
+/** What a file action says when the home folder is full (SPEC.md §28). */
+export const STORAGE_FULL_MESSAGE =
+	"Your home folder is full. Delete files, then try again.";
+
+/** What a failed save says when the home folder is full (SPEC.md §28). */
+export const STORAGE_FULL_SAVE_MESSAGE =
+	"Your home folder is full. Delete files, then save again.";
+
+/** True when the failure is the home folder being full. */
+export function isStorageFull(error: unknown): boolean {
+	return error instanceof ApiError && error.code === "STORAGE_FULL";
+}
+
 /** The upload cap in whole megabytes, for the messages that mention it. */
 export const MAX_UPLOAD_MB = Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024));
 
@@ -42,6 +55,7 @@ const MESSAGES: Record<string, string> = {
 	AGENT_UNAVAILABLE: "The workspace is not responding. Try again in a moment.",
 	FILE_EXISTS: "Something with that name already exists here",
 	FILE_TOO_LARGE: `Files must be ${MAX_UPLOAD_MB} MB or smaller`,
+	STORAGE_FULL: STORAGE_FULL_MESSAGE,
 };
 
 /** True when the failure is an upload that clashed with an existing file. */

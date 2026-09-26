@@ -556,6 +556,29 @@ export async function startFakeAgent(
 		}
 	});
 
+	// Workspace keys whose home folder is full: every write route fails with
+	// STORAGE_FULL, as the real agent's does (SPEC.md §13.5).
+	const diskFull = new Set<string>();
+	const WRITE_ROUTES = new Set([
+		"PUT /projects/:slug/file",
+		"POST /projects/:slug/mkdir",
+		"POST /projects/:slug/move",
+		"POST /projects",
+	]);
+	app.addHook("onRequest", async (request, reply) => {
+		if (!diskFull.has(keyOf(request))) return;
+		if (!WRITE_ROUTES.has(`${request.method} ${request.routeOptions.url}`)) return;
+		return reply.status(507).send({
+			error: { code: "STORAGE_FULL", message: "no space left in the home folder" },
+		});
+	});
+	app.post("/__test/disk-full", async (request, reply) => {
+		const body = request.body as { key?: string; full: boolean };
+		if (body.full) diskFull.add(body.key ?? "");
+		else diskFull.delete(body.key ?? "");
+		return reply.status(204).send();
+	});
+
 	app.get("/health", async () => {
 		state.healthHits += 1;
 		return { ok: true };
@@ -1286,6 +1309,10 @@ export async function startFakeAgent(
 			if (peer.readyState !== peer.OPEN) continue;
 			peer.send(JSON.stringify(frame));
 			sent += 1;
+			// Like the real agent, a project too large to watch is done.
+			if ((frame as { type?: string } | null)?.type === "watch_limited") {
+				peer.close(1000, "WATCH_LIMITED");
+			}
 		}
 		return sent;
 	}

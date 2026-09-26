@@ -264,3 +264,59 @@ test("a browser open frame is handed up and does not refetch files", () => {
 	expect(onBrowserOpen).toHaveBeenCalledWith(frame);
 	expect(invalidate).not.toHaveBeenCalled();
 });
+
+test("a project too large to watch stops reconnecting and refreshes on focus and after actions", async () => {
+	const client = new QueryClient();
+	const invalidate = vi
+		.spyOn(client, "invalidateQueries")
+		.mockReturnValue(Promise.resolve());
+	const view = renderHook(() => useProjectEvents("ws", "pid"), {
+		wrapper: ({ children }) => (
+			<QueryClientProvider client={client}>{children}</QueryClientProvider>
+		),
+	});
+	expect(view.result.current.limited).toBe(false);
+	act(() => {
+		FakeWebSocket.last?.onopen?.();
+		FakeWebSocket.last?.onmessage?.({
+			data: JSON.stringify({ type: "watch_limited" }),
+		});
+	});
+	expect(view.result.current.limited).toBe(true);
+	closeLatest(1000, 60_000);
+	expect(FakeWebSocket.all).toHaveLength(1);
+
+	expect(invalidate).not.toHaveBeenCalled();
+	act(() => {
+		window.dispatchEvent(new Event("focus"));
+	});
+	expect(invalidate).toHaveBeenCalled();
+
+	invalidate.mockClear();
+	await act(async () => {
+		await client
+			.getMutationCache()
+			.build(client, {
+				mutationKey: fileKeys.actions("ws", "pid"),
+				mutationFn: async () => "ok",
+			})
+			.execute(undefined);
+	});
+	expect(invalidate).toHaveBeenCalled();
+
+	// Mutations that are not file actions of this project do not refresh it.
+	invalidate.mockClear();
+	await act(async () => {
+		await client
+			.getMutationCache()
+			.build(client, { mutationFn: async () => "ok" })
+			.execute(undefined);
+	});
+	expect(invalidate).not.toHaveBeenCalled();
+
+	// Leaving the project drops the fallback with it.
+	view.unmount();
+	invalidate.mockClear();
+	window.dispatchEvent(new Event("focus"));
+	expect(invalidate).not.toHaveBeenCalled();
+});

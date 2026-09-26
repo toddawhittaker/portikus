@@ -1058,6 +1058,18 @@ should appear in the tree promptly.
 
 Target event latency is defined in the non-functional section.
 
+The watcher does not follow generated folders (the names the tree hides,
+section 11.3) or other common caches and environments: `venv`, `env`,
+`.next`, `.cache`, `vendor`, `coverage`, `.gradle`, `.pytest_cache`,
+`.mypy_cache` and `.tox`. The tree still shows those extra names. A project
+with more than 20,000 folders is not watched at all: the agent closes that
+watcher and sends one `{type: "watch_limited"}` frame instead of an error,
+because a retry would scan the whole tree again. The browser then stops
+reconnecting for that project, refreshes Files and Changes when the window
+regains focus and after the student's own file actions, and the Files pane
+says once: "This project is too large to update live. It refreshes when you
+return to the window."
+
 ### 11.5 Project-wide search
 
 Project-wide text search is P0. It is primarily a friction-reduction feature rather than a teaching objective.
@@ -1315,6 +1327,12 @@ The editor must:
 - coordinate with filesystem events so changes made by an agent or second browser are not silently overwritten;
 - preserve unsaved local text long enough to resolve a detected conflict;
 - surface save failures clearly.
+
+A write that fails because the disk or quota is full (`ENOSPC` or `EDQUOT`)
+is `STORAGE_FULL` (HTTP 507) on every agent route, and the control plane
+relays it as such. A failed save then says "Your home folder is full. Delete
+files, then save again."; upload, new folder, move and project create say
+"Your home folder is full. Delete files, then try again."
 
 An explicit keyboard save command such as `Ctrl/Cmd+S` may force an immediate save, but students should not need to remember to save manually for normal operation.
 

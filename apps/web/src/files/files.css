@@ -127,6 +127,12 @@
 	font-size: 12px;
 	text-align: center;
 }
+.pk-watch-limited {
+	margin: 0;
+	padding: var(--space-1) var(--space-2);
+	color: var(--ink-muted);
+	font-size: 12px;
+}
 .pk-tree-face {
 	flex: 1;
 	min-width: 0;

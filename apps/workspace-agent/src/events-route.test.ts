@@ -161,3 +161,21 @@ test("the upgrade needs the token", async () => {
 	});
 	expect(code).not.toBe(1000);
 });
+
+test("a project past the folder cap sends one watch_limited frame and closes normally", async () => {
+	const watchers = new ProjectWatchers(app.log, 0);
+	const other = buildServer({
+		tokenPath: join(homeDir, "agent.token"),
+		homeDir,
+		watchers,
+	});
+	await other.listen({ port: 0, host: "127.0.0.1" });
+	const otherPort = (other.server.address() as { port: number }).port;
+	try {
+		const socket = await openEvents("demo", otherPort);
+		expect(await socket.closed).toBe(1000);
+		expect(socket.frames).toEqual([{ type: "watch_limited" }]);
+	} finally {
+		await other.close();
+	}
+});
