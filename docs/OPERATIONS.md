@@ -678,6 +678,32 @@ This was tested on the rehearsal VM on 2026-09-23. With a start limit of
 400, 160 starts from one address in a minute all got through, where the
 default refuses the last 10.
 
+## Per-user limits on workspace actions and file writes
+
+Since Epic 17 the API limits each signed-in user, counted in the API's
+memory per minute (SPEC.md section 5.3, ADR 0034):
+
+- `WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE`, default 20: workspace start,
+  stop and restart requests together.
+- `FILE_WRITE_LIMIT_PER_MINUTE`, default 600: every request other than a
+  read (GET) to the files and projects APIs, such as saves, uploads,
+  renames and deletes. Recovery points and check runs are not counted.
+
+Administrator routes are not limited. A request over a limit gets 429
+`RATE_LIMITED`, "Too many requests just now. Try again in a minute.", with
+a `Retry-After` header, and the API logs one warning per user per minute.
+Restarting `portikus-api` clears the counts.
+
+To change a limit, use a systemd drop-in, as for the sign-in throttle
+above (`sudo systemctl edit portikus-api`), for example:
+
+```ini
+[Service]
+Environment=FILE_WRITE_LIMIT_PER_MINUTE=1200
+```
+
+Then run `sudo systemctl restart portikus-api`.
+
 ## Signing in from a learning management system (LTI 1.3)
 
 A learning management system (LMS), such as Canvas or Moodle, can open
@@ -1093,6 +1119,15 @@ default** returns to the built-in text. Saving any change sends
 everyone, including people signed in right now, to the statement at
 their next request; their workspaces keep running. Make changes outside
 class time where you can.
+
+## First deploy of Epic 17
+
+The first deploy that includes Epic 17 (platform resilience) restarts
+Caddy once and PostgreSQL once, because their systemd drop-ins change and
+a new memory protection only takes effect on a restart. The API and worker
+restart with PostgreSQL. Expect a few seconds of errors during the play.
+Later deploys restart neither unless those drop-ins change again. Changing
+the workspace bandwidth limit does not need workspaces stopped.
 
 ## Capacity and resizing
 

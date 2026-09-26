@@ -3,13 +3,14 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { HostSnapshot } from "@portikus/contracts";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import {
 	countIncusCpus,
 	parseIncusSize,
 	readHostSnapshot,
 	readInactiveFileBytes,
 	readLoadAverage,
+	readThinPoolMetadata,
 } from "./host.js";
 import { IncusClient, IncusError } from "./incus.js";
 import { IncusWorkspaceProvider } from "./provider.js";
@@ -131,6 +132,16 @@ function provider(): IncusWorkspaceProvider {
 	});
 }
 
+/** Write a thin-pool status file as the lvm role's timer does, and return its path. */
+function writeStatus(observedAt: string, metadataPercent: unknown): string {
+	const file = path.join(dir, "thinpool.json");
+	fs.writeFileSync(
+		file,
+		JSON.stringify({ observedAt, dataPercent: 40, metadataPercent }),
+	);
+	return file;
+}
+
 const load = async () => [0.24, 0.09, 0.02] as [number, number, number];
 
 test("the snapshot reads the host, pool, profile, image and instances", async () => {
@@ -140,6 +151,7 @@ test("the snapshot reads the host, pool, profile, image and instances", async ()
 		imageAlias: "portikus",
 		loadAverage: load,
 		now: () => new Date("2026-09-22T12:00:00Z"),
+		thinPoolStatusPath: writeStatus("2026-09-22T11:59:30Z", 12.5),
 	});
 
 	expect(HostSnapshot.parse(snap)).toEqual(snap);
@@ -148,7 +160,12 @@ test("the snapshot reads the host, pool, profile, image and instances", async ()
 		loadAverage: [0.24, 0.09, 0.02],
 		cpuCount: 4,
 		memory: { usedBytes: 1954467840, totalBytes: 8589934592 },
-		pool: { name: "workspace-data", usedBytes: 9055681432, totalBytes: 96439631872 },
+		pool: {
+			name: "workspace-data",
+			usedBytes: 9055681432,
+			totalBytes: 96439631872,
+			metadataPercent: 12.5,
+		},
 		profileLimits: { cpu: "2", memory: "4GB", processes: "2000" },
 		image: { fingerprint: FP, serial: "2026.09.9" },
 		instances: [
@@ -306,4 +323,31 @@ test("readInactiveFileBytes reads the instance's cgroup under its project", asyn
 	expect(await readInactiveFileBytes("portikus", "ws-a", root)).toBe(500);
 	expect(await readInactiveFileBytes("default", "ws-b", root)).toBe(7);
 	await expect(readInactiveFileBytes("portikus", "ws-none", root)).rejects.toThrow();
+});
+
+describe("thin-pool metadata", () => {
+	const now = new Date("2026-09-22T12:00:00Z");
+
+	test("a fresh status file gives its metadata use", async () => {
+		expect(
+			await readThinPoolMetadata(now, writeStatus("2026-09-22T11:59:00Z", 71.2)),
+		).toBe(71.2);
+	});
+
+	test("a file older than five minutes is ignored", async () => {
+		expect(
+			await readThinPoolMetadata(now, writeStatus("2026-09-22T11:54:59Z", 71.2)),
+		).toBeNull();
+	});
+
+	test("a missing or unreadable file gives null", async () => {
+		expect(await readThinPoolMetadata(now, path.join(dir, "absent.json"))).toBeNull();
+		const file = path.join(dir, "garbage.json");
+		fs.writeFileSync(file, "not json");
+		expect(await readThinPoolMetadata(now, file)).toBeNull();
+		expect(
+			await readThinPoolMetadata(now, writeStatus("2026-09-22T11:59:00Z", "71")),
+		).toBeNull();
+		expect(await readThinPoolMetadata(now, writeStatus("not a time", 71))).toBeNull();
+	});
 });

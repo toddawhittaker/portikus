@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll, expect, test } from "vitest";
-import { IncusClient, IncusError } from "./incus.js";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import { DEFAULT_REQUEST_TIMEOUT_MS, IncusClient, IncusError } from "./incus.js";
 
 let socketPath: string;
 let server: http.Server;
@@ -29,6 +29,12 @@ function respond(res: http.ServerResponse, status: number, body: unknown): void 
 	const json = JSON.stringify(body);
 	res.writeHead(status, { "Content-Type": "application/json" });
 	res.end(json);
+}
+
+// Incus answers an operation wait with a plain success reply whatever the
+// operation's outcome; the outcome is in the operation it carries.
+function waitReply(operation: Record<string, unknown>) {
+	return { type: "sync", status: "Success", status_code: 200, metadata: operation };
 }
 
 test("sync envelope returns metadata", async () => {
@@ -99,12 +105,11 @@ test("async envelope followed by wait success", async () => {
 				metadata: { id: "op1" },
 			});
 		} else {
-			respond(res, 200, {
-				type: "sync",
-				status: "Success",
-				status_code: 200,
-				metadata: { done: true },
-			});
+			respond(
+				res,
+				200,
+				waitReply({ status_code: 200, status: "Success", metadata: { done: true } }),
+			);
 		}
 	};
 	const client = new IncusClient({
@@ -114,7 +119,7 @@ test("async envelope followed by wait success", async () => {
 	const result = await client.request("POST", "/1.0/instances", {
 		name: "test",
 	});
-	expect(result).toEqual({ done: true });
+	expect(result).toMatchObject({ status_code: 200, metadata: { done: true } });
 	expect(callCount).toBe(2);
 });
 
@@ -130,12 +135,7 @@ test("wait 103 maps to TIMEOUT", async () => {
 				operation: "/1.0/operations/op2",
 			});
 		} else {
-			respond(res, 200, {
-				type: "sync",
-				status: "Running",
-				status_code: 103,
-				metadata: {},
-			});
+			respond(res, 200, waitReply({ status_code: 103, status: "Running", err: "" }));
 		}
 	};
 	const client = new IncusClient({
@@ -151,6 +151,64 @@ test("wait 103 maps to TIMEOUT", async () => {
 		expect(err).toBeInstanceOf(IncusError);
 		expect((err as IncusError).code).toBe("TIMEOUT");
 	}
+});
+
+test("a failed operation maps to OPERATION_FAILED with Incus's message", async () => {
+	handler = (req, res) => {
+		if (req.url?.includes("/wait")) {
+			respond(
+				res,
+				200,
+				waitReply({
+					status_code: 400,
+					status: "Failure",
+					err: 'Failed shutting down instance, status is "Running": context deadline exceeded',
+				}),
+			);
+			return;
+		}
+		respond(res, 202, {
+			type: "async",
+			status: "Operation created",
+			status_code: 100,
+			operation: "/1.0/operations/op3",
+		});
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(
+		client.request("PUT", "/1.0/instances/x/state", { action: "stop" }),
+	).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+		message:
+			'Failed shutting down instance, status is "Running": context deadline exceeded',
+	});
+});
+
+test("a pool that fills during an operation maps to STORAGE_FULL", async () => {
+	handler = (req, res) => {
+		if (req.url?.includes("/wait")) {
+			respond(
+				res,
+				200,
+				waitReply({
+					status_code: 400,
+					status: "Failure",
+					err: "write: no space left on device",
+				}),
+			);
+			return;
+		}
+		respond(res, 202, {
+			type: "async",
+			status: "Operation created",
+			status_code: 100,
+			operation: "/1.0/operations/op4",
+		});
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(client.request("POST", "/1.0/instances", {})).rejects.toMatchObject({
+		code: "STORAGE_FULL",
+	});
 });
 
 test("404 maps to NOT_FOUND", async () => {
@@ -365,12 +423,7 @@ test("putIfMatch sends If-Match and the JSON body, then waits for the operation"
 					operation: "/1.0/operations/op2",
 				});
 			} else {
-				respond(res, 200, {
-					type: "sync",
-					status: "Success",
-					status_code: 200,
-					metadata: {},
-				});
+				respond(res, 200, waitReply({ status_code: 200, status: "Success" }));
 			}
 		});
 	};
@@ -402,4 +455,75 @@ test("putIfMatch maps a 412 stale ETag to OPERATION_FAILED", async () => {
 		code: "OPERATION_FAILED",
 		message: "ETag doesn't match",
 	});
+});
+
+test("a request with no signal times out at the default", async () => {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		handler = () => {
+			// Never answer.
+		};
+		const client = new IncusClient({ socketPath, project: "testproj" });
+		const caught = client.request("GET", "/1.0/hang").catch((e: unknown) => e);
+		await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS - 1);
+		expect(await Promise.race([caught, Promise.resolve("pending")])).toBe("pending");
+		await vi.advanceTimersByTimeAsync(1);
+		const err = await caught;
+		expect(err).toBeInstanceOf(IncusError);
+		expect((err as IncusError).code).toBe("TIMEOUT");
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("a request can be given its own longer bound", async () => {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		handler = () => {
+			// Never answer.
+		};
+		const client = new IncusClient({ socketPath, project: "testproj" });
+		const caught = client
+			.request("POST", "/1.0/hang", {}, undefined, undefined, 60_000)
+			.catch((e: unknown) => e);
+		await vi.advanceTimersByTimeAsync(59_999);
+		expect(await Promise.race([caught, Promise.resolve("pending")])).toBe("pending");
+		await vi.advanceTimersByTimeAsync(1);
+		expect((await caught) as IncusError).toMatchObject({ code: "TIMEOUT" });
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("an operation wait is bounded at its own timeout plus 5 seconds", async () => {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		let waitArrived = (): void => {};
+		const waiting = new Promise<void>((r) => {
+			waitArrived = r;
+		});
+		handler = (req, res) => {
+			if (req.url?.includes("/wait")) {
+				waitArrived(); // and never answer
+				return;
+			}
+			respond(res, 202, {
+				type: "async",
+				status: "Operation created",
+				status_code: 100,
+				operation: "/1.0/operations/op1",
+			});
+		};
+		const client = new IncusClient({ socketPath, project: "testproj" });
+		const caught = client
+			.request("POST", "/1.0/instances", {}, undefined, 100)
+			.catch((e: unknown) => e);
+		await waiting;
+		await vi.advanceTimersByTimeAsync(104_000);
+		expect(await Promise.race([caught, Promise.resolve("pending")])).toBe("pending");
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect((await caught) as IncusError).toMatchObject({ code: "TIMEOUT" });
+	} finally {
+		vi.useRealTimers();
+	}
 });

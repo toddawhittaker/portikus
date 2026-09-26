@@ -10,6 +10,7 @@ import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Insertable } from "kysely";
 import { z } from "zod";
+import { lifecycleLimit } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 import { countActive, findOwnedWorkspace, toWorkspace } from "./workspace-view.js";
 
@@ -35,6 +36,8 @@ export function registerWorkspaceRoutes(
 	app: FastifyInstance,
 	{ db, config }: ServerDeps,
 ): void {
+	const limitLifecycle = lifecycleLimit(config);
+
 	// POST /workspaces -- idempotent create for the signed-in user
 	app.post("/workspaces", async (request, reply) => {
 		const user = requireUser(request);
@@ -179,6 +182,7 @@ export function registerWorkspaceRoutes(
 		action: string,
 	): Promise<void> {
 		const user = requireUser(request);
+		if (!(await limitLifecycle(request, reply))) return;
 
 		const params = UuidParam.safeParse(request.params);
 		if (!params.success) {
