@@ -612,7 +612,7 @@ export async function startFakeAgent(
 			for (const id of ids) {
 				for (const peer of attached.get(id) ?? []) {
 					if (peer.readyState === peer.OPEN)
-						peer.send(JSON.stringify({ type: "exit" }));
+						peer.send(JSON.stringify({ type: "exit", serverGone: true }));
 				}
 			}
 			const key = body.key ?? "";
@@ -1664,7 +1664,7 @@ export async function startFakeAgent(
 					if (inputData.includes("\u0004")) {
 						for (const peer of peers) {
 							if (peer.readyState === peer.OPEN) {
-								peer.send(JSON.stringify({ type: "exit" }));
+								peer.send(JSON.stringify({ type: "exit", serverGone: false }));
 							}
 						}
 					}

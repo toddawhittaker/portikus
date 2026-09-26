@@ -16,6 +16,7 @@ import {
 	captureHistory,
 	hasSession,
 	type TmuxServer,
+	tmuxServerGone,
 } from "./tmux.js";
 
 /** Pause the PTY once this much output is waiting on the socket (SPEC.md §9.7). */
@@ -224,8 +225,14 @@ export class TerminalRegistry {
 
 		pty.onExit(() => {
 			this.forget(id, attachment);
-			sendText(socket, { type: "exit" });
-			socket.close(1000, "terminal exited");
+			// Whether the server died tells the control plane if a crash
+			// record is worth waiting for (SPEC.md §9.7).
+			void tmuxServerGone(this.server)
+				.catch(() => false)
+				.then((serverGone) => {
+					sendText(socket, { type: "exit", serverGone });
+					socket.close(1000, "terminal exited");
+				});
 		});
 	}
 

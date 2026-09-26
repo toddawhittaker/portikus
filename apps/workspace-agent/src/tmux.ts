@@ -340,6 +340,20 @@ export async function listSessions(server: TmuxServer): Promise<TmuxSession[]> {
 	return sessions;
 }
 
+/**
+ * True when the terminals unit's tmux server is gone (SPEC.md §9.7). Only in
+ * external mode: otherwise tmux exits on its own after the last session.
+ */
+export async function tmuxServerGone(server: TmuxServer): Promise<boolean> {
+	if (!server.external) return false;
+	try {
+		await tmux(["list-sessions", "-F", "#{session_name}"], server);
+		return false;
+	} catch (error) {
+		return error instanceof TmuxMissing;
+	}
+}
+
 export async function hasSession(id: string, server: TmuxServer): Promise<boolean> {
 	try {
 		await tmux(["has-session", "-t", sessionName(id)], server);

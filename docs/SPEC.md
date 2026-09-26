@@ -929,13 +929,18 @@ When the terminals unit stops, systemd's `$SERVICE_RESULT` is written to
 the file's modification time, or `{"exit":null}` when there is no record
 (images before 2026.09.11) or the record is not a plain result word. When
 the agent says a terminal's session is gone (`TERMINAL_NOT_FOUND` on
-attach), or ends an open terminal with `exit`, the control plane asks for
-that record (after an `exit` it asks again for up to 2 seconds, because
-the unit writes the record only once its processes are gone), and if the
+attach), or ends an open terminal with `{"type":"exit","serverGone":true}`
+(the agent checks with tmux after the pane's attach client exits, and
+`serverGone` is true only when the terminals unit's tmux server is not
+there), the control plane asks for that record (after an `exit` it asks
+again for up to 2 seconds, because the unit writes the record only once
+its processes are gone), and if the
 stop came after the terminal's creation time, sends the browser
 `{"type":"error","code":"TERMINAL_NOT_FOUND","reason":"…","at":"…"}`, where
 `reason` is `out_of_memory` for `oom-kill` and `restarted` for anything
-else; otherwise the agent's own frame passes through. The agent is
+else; otherwise the agent's own frame passes through. An `exit` without
+`serverGone: true`, including one from an older agent, is an ordinary
+exit and reaches the browser at once with no lookup. The agent is
 untrusted, so the control plane makes at most one record lookup per
 terminal connection and drops whatever the agent sends after the ending
 frame. The browser then closes the pane and shows a warning toast, once per

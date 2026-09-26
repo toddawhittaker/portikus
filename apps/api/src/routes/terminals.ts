@@ -651,10 +651,16 @@ export function terminalGoneReason(
 }
 
 /** The agent's text frames that end a terminal's attachment. */
-function endingFrame(text: string): "gone" | "exit" | null {
+function endingFrame(text: string): "gone" | "exit" | "server-gone" | null {
 	try {
-		const frame = JSON.parse(text) as { type?: unknown; code?: unknown };
-		if (frame.type === "exit") return "exit";
+		const frame = JSON.parse(text) as {
+			type?: unknown;
+			code?: unknown;
+			serverGone?: unknown;
+		};
+		// An older agent sends no `serverGone`: an ordinary exit.
+		if (frame.type === "exit")
+			return frame.serverGone === true ? "server-gone" : "exit";
 		if (frame.type === "error" && frame.code === "TERMINAL_NOT_FOUND") return "gone";
 		return null;
 	} catch {
@@ -662,26 +668,26 @@ function endingFrame(text: string): "gone" | "exit" | null {
 	}
 }
 
-/** How long an `exit` waits for the terminals unit's record, and how often it asks. */
+/** How long a server-gone `exit` waits for the terminals unit's record, and how often it asks. */
 export const EXIT_RECORD_WAIT_MS = 2000;
 const EXIT_RECORD_POLL_MS = 250;
 
 /**
  * The frame the browser gets when the agent ends a terminal's attachment,
  * with a reason when the terminals unit's last stop explains it (SPEC.md
- * §9.7). An `exit` waits a moment for the record, because the unit writes it
- * only after its processes are gone. Any failure to find out gives the
+ * §9.7). An `exit` whose tmux server died waits a moment for the record,
+ * because the unit writes it only after its processes are gone. Any failure to find out gives the
  * agent's own frame, as before.
  */
 async function explainedFrame(
 	db: Kysely<Database>,
 	agent: AgentClient,
 	terminalId: string,
-	kind: "gone" | "exit",
+	kind: "gone" | "server-gone",
 	waitMs: number,
 ): Promise<string> {
 	const plain =
-		kind === "exit"
+		kind === "server-gone"
 			? JSON.stringify({ type: "exit" })
 			: JSON.stringify({ type: "error", code: "TERMINAL_NOT_FOUND" });
 	try {
@@ -861,9 +867,15 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 				return;
 			}
 			const kind = isBinary ? null : endingFrame(data.toString());
+			if (kind === "exit") {
+				// An ordinary exit closes the pane at once, with no lookup.
+				ending = true;
+				socket.send(JSON.stringify({ type: "exit" }));
+				return;
+			}
 			if (kind) {
 				ending = true;
-				const waitMs = kind === "exit" ? EXIT_RECORD_WAIT_MS : 0;
+				const waitMs = kind === "server-gone" ? EXIT_RECORD_WAIT_MS : 0;
 				explaining = explainedFrame(db, agent, terminalId, kind, waitMs).then(
 					(frame) => {
 						if (socket.readyState === socket.OPEN) socket.send(frame);

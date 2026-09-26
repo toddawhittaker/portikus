@@ -6,7 +6,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createSession, hasSession, listSessions } from "./tmux.js";
+import { createSession, hasSession, listSessions, tmuxServerGone } from "./tmux.js";
 
 const server = { socketName: "fake", external: true };
 const ID = "0b8c9a53-4c55-4b8e-9d0e-6f2a1b3c4d5e";
@@ -53,5 +53,17 @@ describe("createSession", () => {
 		).rejects.toMatchObject({ code: "TMUX_FAILED" });
 		const calls = await readFile(join(dir, "calls"), "utf8");
 		expect(calls).toContain(`kill-session -t pk-${ID}`);
+	});
+});
+
+describe("tmuxServerGone", () => {
+	it("is true only when the external server is not there", async () => {
+		await fakeTmux(`echo "no server running on /tmp/tmux-1000/fake" >&2; exit 1`);
+		expect(await tmuxServerGone(server)).toBe(true);
+		expect(await tmuxServerGone({ ...server, external: false })).toBe(false);
+		await fakeTmux(`echo "server exited unexpectedly" >&2; exit 1`);
+		expect(await tmuxServerGone(server)).toBe(false);
+		await fakeTmux("exit 0");
+		expect(await tmuxServerGone(server)).toBe(false);
 	});
 });

@@ -584,12 +584,48 @@ test.skipIf(skip)(
 	},
 );
 
-test.skipIf(skip)("an exit with no newer record stays a plain exit", async () => {
+test.skipIf(skip)("an ordinary exit closes at once with no record lookup", async () => {
 	const socket = await openTerminal(workspaceId, terminalId, alice);
 	await socket.next();
+	const before = agent.lastExitHits;
+	const started = Date.now();
 	socket.ws.send(JSON.stringify({ type: "input", data: "\u0004" }));
 	let frame = await socket.next();
 	while (frame.startsWith("echo:")) frame = await socket.next();
 	expect(JSON.parse(frame)).toEqual({ type: "exit" });
+	expect(Date.now() - started).toBeLessThan(500);
+	expect(agent.lastExitHits).toBe(before);
 	await socket.close();
 });
+
+test.skipIf(skip)(
+	"an exit from an older agent, with no serverGone, is ordinary",
+	async () => {
+		const socket = await openTerminal(workspaceId, terminalId, alice);
+		await socket.next();
+		const before = agent.lastExitHits;
+		const started = Date.now();
+		await agentPost(`/__test/terminals/${terminalId}/frames`, {
+			frames: [JSON.stringify({ type: "exit" })],
+		});
+		expect(JSON.parse(await socket.next())).toEqual({ type: "exit" });
+		expect(Date.now() - started).toBeLessThan(500);
+		expect(agent.lastExitHits).toBe(before);
+		await socket.close();
+	},
+);
+
+test.skipIf(skip)(
+	"a server-gone exit with no newer record stays a plain exit",
+	async () => {
+		const socket = await openTerminal(workspaceId, terminalId, alice);
+		await socket.next();
+		const before = agent.lastExitHits;
+		await agentPost(`/__test/terminals/${terminalId}/frames`, {
+			frames: [JSON.stringify({ type: "exit", serverGone: true })],
+		});
+		expect(JSON.parse(await socket.next())).toEqual({ type: "exit" });
+		expect(agent.lastExitHits - before).toBeGreaterThan(1);
+		await socket.close();
+	},
+);
