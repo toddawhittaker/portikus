@@ -101,7 +101,10 @@ export function StatusBar({
 
 	return (
 		<footer className="pk-statusbar" data-testid="status-bar">
-			<span className="pk-statusbar-item pk-statusbar-mono pk-statusbar-path">
+			<span
+				className="pk-statusbar-item pk-statusbar-mono pk-statusbar-path"
+				title={project ? `~/projects/${project.slug}` : "~/projects"}
+			>
 				{project ? `~/projects/${project.slug}` : "~/projects"}
 			</span>
 			{project && !project.missing ? (
@@ -208,6 +211,7 @@ function MeterButton({
 	onClick: () => void;
 }) {
 	const high = meter.level !== "ok";
+	const note = meter.level === "full" ? ", nearly full" : high ? ", high" : "";
 	return (
 		<button
 			type="button"
@@ -215,7 +219,7 @@ function MeterButton({
 			data-testid={testId}
 			data-level={meter.level}
 			aria-haspopup={dialog ? "dialog" : undefined}
-			aria-label={`${label} ${meter.value}${high ? ", high" : ""}. ${action}`}
+			aria-label={`${label} ${meter.value}${note}. ${action}`}
 			onClick={onClick}
 		>
 			<span className="pk-meter-label">{label}</span>
@@ -251,7 +255,8 @@ function GitSegment({
 			: "";
 	return (
 		<span
-			className={`pk-statusbar-item ${tone}`}
+			className={`pk-statusbar-item pk-statusbar-git ${tone}`}
+			title={bar.text}
 			data-testid="git-status"
 			data-conflicts={bar.conflicts > 0 ? "true" : undefined}
 		>

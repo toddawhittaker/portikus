@@ -5,7 +5,15 @@
  * whatever figures a test seeds for its workspace.
  */
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, seedStorage, workspacePath } from "./helpers";
+import {
+	createProject,
+	createStudent,
+	query,
+	seedGit,
+	seedStorage,
+	workspacePath,
+} from "./helpers";
+import { FAKE_AGENT_URL } from "./ports";
 
 const GIB = 1024 ** 3;
 const percent = (value: number) => ({ usedBytes: value * GIB, totalBytes: 100 * GIB });
@@ -206,30 +214,89 @@ test("the disk meter always shows the home volume and opens the workspace dialog
 	);
 	await expect(page.getByTestId("storage-warning")).toHaveCount(0);
 	await disk.click();
-	await expect(page.getByTestId("dialog-workspace-status")).toBeVisible();
+	const dialog = page.getByTestId("dialog-workspace-status");
+	await expect(dialog).toBeVisible();
 	await expect(page.getByTestId("storage-home")).toHaveText("40.0 GB of 100 GB");
+	await page.keyboard.press("Escape");
+	await expect(dialog).toHaveCount(0);
+	await expect(disk).toBeFocused();
 });
 
-test("the meters fit the status bar at the smallest supported width", async ({
+test("at the smallest supported width the path and Git line give way, and Running stays whole", async ({
 	page,
 	context,
 }) => {
 	const student = await createStudent(context);
 	await seedStorage(student.workspaceId, { home: percent(96), docker: percent(97) });
+	const memory = await fetch(`${FAKE_AGENT_URL}/__test/memory`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: student.workspaceId, ...percent(90) }),
+	});
+	expect(memory.ok).toBe(true);
+	const project = await createProject(student.workspaceId, {
+		name: "A project with a rather long folder name",
+	});
+	const entries = Array.from({ length: 3 }, (_, index) => ({
+		path: `file-${index}.ts`,
+		x: ".",
+		y: "M",
+		unmerged: false,
+	}));
+	await seedGit(student.workspaceId, project.slug, {
+		status: {
+			repo: true,
+			branch: "feature/a-branch-name-that-goes-on-for-quite-a-while",
+			detached: false,
+			upstream: null,
+			ahead: 0,
+			behind: 0,
+			conflicts: 0,
+			entries,
+			ignored: [],
+			truncated: false,
+		},
+	});
+	// A countdown too, the widest the bar gets.
+	await query(
+		"update workspaces set shutdown_deadline = now() + interval '10 minutes' where id = $1",
+		[student.workspaceId],
+	);
 	// The shell's minimum width (DESIGN.md, "The 1024-wide rail collapse is deferred").
 	await page.setViewportSize({ width: 1024, height: 720 });
-	await page.goto(workspacePath(student.workspaceId));
+	await page.goto(workspacePath(student.workspaceId, project.id));
 	await expect(page.getByTestId("disk-meter")).toHaveAttribute("data-level", "full", {
 		timeout: 15_000,
 	});
+	await expect(page.getByTestId("memory-meter")).toHaveAttribute(
+		"data-level",
+		"warning",
+	);
 	await expect(page.getByTestId("storage-warning")).toBeVisible();
-	const fits = await page.getByTestId("status-bar").evaluate((bar) => {
+	const git = page.getByTestId("git-status");
+	await expect(git).toContainText("feature/a-branch-name");
+	await expect(page.getByTestId("status-bar")).toContainText("Stopping in");
+
+	// The Git line keeps its full text for screen readers and on hover.
+	const full = await git.textContent();
+	await expect(git).toHaveAttribute("title", full ?? "");
+	const layout = await page.getByTestId("status-bar").evaluate((bar) => {
 		const edge = bar.getBoundingClientRect().right;
-		return [...bar.querySelectorAll("button")].every(
-			(button) =>
-				button.getBoundingClientRect().right <= edge &&
-				button.scrollWidth <= button.clientWidth,
-		);
+		const buttons = [...bar.querySelectorAll("button")];
+		const gitLine = bar.querySelector('[data-testid="git-status"]') as HTMLElement;
+		return {
+			buttonsWhole: buttons.every(
+				(button) =>
+					button.getBoundingClientRect().right <= edge &&
+					button.scrollWidth <= button.clientWidth,
+			),
+			gitTruncated: gitLine.scrollWidth > gitLine.clientWidth,
+		};
 	});
-	expect(fits).toBe(true);
+	expect(layout.buttonsWhole).toBe(true);
+	expect(layout.gitTruncated).toBe(true);
+	const running = page.getByTestId("workspace-status");
+	await expect(running).toBeInViewport({ ratio: 1 });
+	await running.focus();
+	await expect(running).toBeFocused();
 });

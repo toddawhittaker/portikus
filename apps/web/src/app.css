@@ -546,6 +546,7 @@ button.pk-statusbar-item:focus-visible {
 	color: var(--ink-muted);
 }
 .pk-statusbar-item {
+	flex: none;
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1\.5);
@@ -801,12 +802,19 @@ button.pk-statusbar-item:hover {
 .pk-statusbar-meter .pk-meter-fill {
 	display: block;
 }
-/* When space is tight the project path gives way first, with an ellipsis. */
-.pk-statusbar-path {
+/* When space is tight the project path gives way first, then the Git line, each with an ellipsis; the buttons never shrink. */
+.pk-statusbar-path,
+.pk-statusbar-git {
 	display: block;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+.pk-statusbar-path {
+	flex: 0 1000 auto;
+}
+.pk-statusbar-git {
+	flex: 0 1 auto;
 }
 
 /* The Git line of the status bar is muted when there is no repository. */

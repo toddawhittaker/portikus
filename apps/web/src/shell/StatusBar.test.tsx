@@ -525,6 +525,9 @@ test("a full home volume draws the disk meter in the error tone", async () => {
 	const disk = await screen.findByTestId("disk-meter");
 	await waitFor(() => expect(disk.dataset.level).toBe("full"));
 	expect(disk.className).toContain("pk-meter--full");
+	expect(disk.getAttribute("aria-label")).toBe(
+		"Disk 97.0 GB of 100 GB, nearly full. Open workspace storage",
+	);
 });
 
 test("with no home figure there is no disk meter", async () => {
