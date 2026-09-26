@@ -64,6 +64,16 @@ test("choosing a listening port opens it", () => {
 	expect(onOpen).toHaveBeenCalledWith(5173);
 });
 
+test("each row reads as a button with a trailing chevron", () => {
+	show([service({ port: 5173 })], vi.fn());
+	const row = screen.getByTestId("preview-port-5173");
+	expect(row.tagName).toBe("BUTTON");
+	expect(row.querySelector(".pk-portrow-chevron")?.getAttribute("aria-hidden")).toBe(
+		"true",
+	);
+	expect(screen.getByText("Pick a running port below, or type one.")).toBeTruthy();
+});
+
 test("a port the server marked denied is not offered", () => {
 	show([service({ port: 3000, previewReachability: "denied" })], vi.fn());
 	expect(screen.queryByTestId("preview-port-3000")).toBeNull();

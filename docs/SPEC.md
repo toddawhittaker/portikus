@@ -1469,6 +1469,8 @@ The user may:
 - open the service within the center pane;
 - open it in a separate browser tab/window.
 
+In the "Open a preview" dialog each listening port is a bordered row with a trailing chevron, so it reads as a button. The Preview tab's toolbar holds the host, Back, Forward, Reload and Open in new tab; a "More preview actions" menu holds Copy URL, the frame width (one checkable item per width), Reset preview data and Show in Running.
+
 ### 14.7 Port discovery
 
 The workspace agent should detect listening TCP ports.
