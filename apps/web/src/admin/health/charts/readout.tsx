@@ -19,11 +19,12 @@ export interface SeriesStyle {
 	dash?: string;
 }
 
-/** The first series is solid accent; the second dashed; the third dotted. */
+/** Solid accent, then dashed, dotted and dash-dot, so no series relies on colour. */
 export const LINE_STYLES: readonly SeriesStyle[] = [
 	{ className: "stroke-accent" },
 	{ className: "stroke-ink-muted", dash: "6 4" },
 	{ className: "stroke-ink-muted", dash: "1 4" },
+	{ className: "stroke-ink-muted", dash: "10 3 1 3" },
 ];
 
 export function bucketCenterX(frame: ChartFrame, index: number): number {
