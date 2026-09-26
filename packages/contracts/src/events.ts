@@ -15,6 +15,17 @@ export const FsEvent = z.object({
 });
 export type FsEvent = z.infer<typeof FsEvent>;
 
+/**
+ * Sent once when a project has more folders than the watcher follows. The
+ * watcher is closed; the browser stops reconnecting and refreshes on focus
+ * instead (SPEC.md §11.4).
+ */
+export const WatchLimited = z.object({ type: z.literal("watch_limited") });
+export type WatchLimited = z.infer<typeof WatchLimited>;
+
+/** The most folders one project watcher follows (SPEC.md §11.4). */
+export const MAX_WATCHED_DIRS = 20_000;
+
 /** How long changes are collected before a batch is sent (SPEC.md §25.1). */
 export const FS_EVENT_BATCH_MS = 150;
 

@@ -60,6 +60,14 @@ export function sendError(
 			.code(ERROR_STATUS[error.code])
 			.send({ error: { code: error.code, message: error.message } });
 	}
+	// A full disk or quota is the student's to fix, whichever route hit it
+	// (SPEC.md §13.5).
+	const errno = (error as NodeJS.ErrnoException | null)?.code;
+	if (errno === "ENOSPC" || errno === "EDQUOT") {
+		return reply.code(ERROR_STATUS.STORAGE_FULL).send({
+			error: { code: "STORAGE_FULL", message: "no space left in the home folder" },
+		});
+	}
 	// An expected failure needs no log call: its code and message are on the
 	// body, which the request logging hook reads. An unexpected one does,
 	// because its real message never reaches the body. Only the code and

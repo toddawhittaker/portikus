@@ -224,11 +224,15 @@ export function FileTreePane({
 	// One socket per open project keeps the tree, the open files and the Git
 	// status fresh without polling (SPEC.md §11.4, §25.1). The same socket
 	// carries browser-open requests (BROWSER-HANDLING.md §18).
-	useProjectEvents(workspaceId, project.id, (request) => {
-		if (seenOpens.current.has(request.requestId)) return;
-		seenOpens.current.add(request.requestId);
-		setBrowserOpens((queue) => [...queue, request]);
-	});
+	const { limited: watchLimited } = useProjectEvents(
+		workspaceId,
+		project.id,
+		(request) => {
+			if (seenOpens.current.has(request.requestId)) return;
+			seenOpens.current.add(request.requestId);
+			setBrowserOpens((queue) => [...queue, request]);
+		},
+	);
 	const gitStatus = useGitStatus(workspaceId, project.id);
 	const baselineStatus = useGitStatus(workspaceId, project.id, {
 		baseline: reviewSession ? (session?.baselineObjectId ?? undefined) : undefined,
@@ -661,6 +665,16 @@ export function FileTreePane({
 							uploadInto(dir, event.dataTransfer.files);
 						}}
 					>
+						{watchLimited ? (
+							<p
+								className="pk-watch-limited"
+								role="status"
+								data-testid="files-watch-limited"
+							>
+								This project is too large to update live. It refreshes when you return
+								to the window.
+							</p>
+						) : null}
 						{uploadDrag && (dropDir === "" || dropDir === null) ? (
 							<p className="pk-upload-hint" data-testid="file-tree-root-hint">
 								Drop to upload to {project.name}

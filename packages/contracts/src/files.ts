@@ -104,6 +104,25 @@ export const GENERATED_NAMES = [
 ] as const;
 
 /**
+ * Folders the project watcher does not follow: the generated ones plus other
+ * common caches and environments. The tree still shows these extra names
+ * (SPEC.md §11.4).
+ */
+export const WATCH_SKIP_NAMES = [
+	...GENERATED_NAMES,
+	"venv",
+	"env",
+	".next",
+	".cache",
+	"vendor",
+	"coverage",
+	".gradle",
+	".pytest_cache",
+	".mypy_cache",
+	".tox",
+] as const;
+
+/**
  * An attachment Content-Disposition for a name the student chose. Control
  * characters would let a name inject a header line, so they are dropped; the
  * quoted form is plain ASCII, and `filename*` carries the real name for

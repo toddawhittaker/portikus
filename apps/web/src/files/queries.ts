@@ -30,6 +30,9 @@ export const fileKeys = {
 		["git-diff", workspaceId, projectId, path] as const,
 	git: (workspaceId: string, projectId: string, hidden: boolean) =>
 		["git-status", workspaceId, projectId, hidden] as const,
+	/** The student's own file actions, so a project too large to watch can refresh after them. */
+	actions: (workspaceId: string, projectId: string) =>
+		["file-action", workspaceId, projectId] as const,
 };
 
 function treeUrl(workspaceId: string, projectId: string, dir: string): string {
@@ -171,7 +174,10 @@ export function useFileMutations(
 
 	// A create must not overwrite what is already there, so it is conditional
 	// on the file not existing (SPEC.md §13.5).
+	const mutationKey = fileKeys.actions(workspaceId, projectId);
+
 	const createFile = useMutation({
+		mutationKey,
 		mutationFn: (path: string) =>
 			request(WriteFileResponse, url(path), {
 				method: "PUT",
@@ -185,6 +191,7 @@ export function useFileMutations(
 	});
 
 	const createDirectory = useMutation({
+		mutationKey,
 		mutationFn: (path: string) =>
 			request(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, {
 				method: "POST",
@@ -195,6 +202,7 @@ export function useFileMutations(
 	});
 
 	const move = useMutation({
+		mutationKey,
 		mutationFn: ({ from, to }: { from: string; to: string }) =>
 			request(z.undefined(), `${base(workspaceId, projectId)}/move`, {
 				method: "POST",
@@ -209,6 +217,7 @@ export function useFileMutations(
 	});
 
 	const remove = useMutation({
+		mutationKey,
 		mutationFn: (path: string) =>
 			request(z.undefined(), url(path), { method: "DELETE" }),
 		onSuccess: (_data, path) => {
@@ -222,6 +231,7 @@ export function useFileMutations(
 	// on every write, and "must not exist" is the safe one here. A clash comes
 	// back as 409 and the tree offers to replace instead (SPEC.md §11.2, §13.5).
 	const upload = useMutation({
+		mutationKey,
 		mutationFn: ({
 			path,
 			file,
@@ -340,6 +350,7 @@ function writeHeaders(etag: string | null): Record<string, string> {
 export function useSaveFile(workspaceId: string, projectId: string, path: string) {
 	const queryClient = useQueryClient();
 	return useMutation({
+		mutationKey: fileKeys.actions(workspaceId, projectId),
 		// A saved file changes its diff, and this is the quickest way to say
 		// so; the project events socket would get there a moment later.
 		onSuccess: () => {

@@ -2,7 +2,7 @@ import type { WebSocket } from "@fastify/websocket";
 import { type FsEvent, MAX_EVENT_SOCKETS } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { AgentFailure } from "./tmux.js";
-import { ProjectWatchers } from "./watch.js";
+import { ProjectWatchers, WatchLimitedError } from "./watch.js";
 
 export interface EventsRouteOptions {
 	homeDir: string;
@@ -17,6 +17,9 @@ const NOT_FOUND_CLOSE = 4404;
 
 /** Close code for a request the client should not retry as-is. */
 const POLICY_CLOSE = 1008;
+
+/** Close code for a socket that is done and should not be retried. */
+const NORMAL_CLOSE = 1000;
 
 /** Close code for a failure on our side. */
 const SERVER_ERROR_CLOSE = 1011;
@@ -86,6 +89,13 @@ export async function eventsRoute(
 				send(socket, { type: "fs", paths: [], git: true, truncated: true });
 				request.log.debug({ slug }, "project events subscribed");
 			} catch (error) {
+				if (error instanceof WatchLimitedError) {
+					// Sent instead of an error: a retry would scan the whole tree
+					// again, so the browser refreshes on focus (SPEC.md §11.4).
+					send(socket, { type: "watch_limited" });
+					socket.close(NORMAL_CLOSE, "WATCH_LIMITED");
+					return;
+				}
 				const code = error instanceof AgentFailure ? error.code : "WATCH_FAILED";
 				send(socket, { type: "error", code });
 				socket.close(closeCodeFor(code), code);

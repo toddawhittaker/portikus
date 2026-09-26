@@ -1,6 +1,8 @@
 import { type Project, slugify } from "@portikus/contracts";
 import { Button, Checkbox, Dialog, DialogRoot, Select, TextField } from "@portikus/ui";
 import { useState } from "react";
+import { ApiError } from "../api/request.js";
+import { isStorageFull, STORAGE_FULL_MESSAGE } from "../files/errors.js";
 import { cloneUrlForRequest, projectNameFromCloneUrl } from "./cloneUrl.js";
 import { DialogError } from "./DialogError.js";
 import { useCreateProject, useProjects, useProjectTemplates } from "./queries.js";
@@ -207,7 +209,13 @@ export function CreateProjectDialog({
 					{/* Enter submits the form even though the button is in the footer. */}
 					<button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
 				</form>
-				<DialogError error={create.error} />
+				<DialogError
+					error={
+						isStorageFull(create.error)
+							? new ApiError(507, STORAGE_FULL_MESSAGE, "STORAGE_FULL")
+							: create.error
+					}
+				/>
 			</Dialog>
 		</DialogRoot>
 	);

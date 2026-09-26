@@ -10,7 +10,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import type { FSWatcher } from "chokidar";
 import type { FastifyBaseLogger } from "fastify";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { ProjectWatchers } from "./watch.js";
+import { ProjectWatchers, WatchLimitedError } from "./watch.js";
 
 let homeDir: string;
 let project: string;
@@ -178,4 +178,51 @@ test("a failed watcher tells its subscribers and is replaced by the next one", a
 		() => expect(events(second).flatMap((frame) => frame.paths)).toContain("after.txt"),
 		{ timeout: 5000 },
 	);
+});
+
+test("changes under each extra skipped folder produce nothing", async () => {
+	const extra = [
+		"venv",
+		"env",
+		".next",
+		".cache",
+		"vendor",
+		"coverage",
+		".gradle",
+		".pytest_cache",
+		".mypy_cache",
+		".tox",
+	];
+	for (const name of extra) await mkdir(join(project, name), { recursive: true });
+	const frames = await listen();
+	for (const name of extra) await writeFile(join(project, name, "x.txt"), "x");
+	await writeFile(join(project, "seen.txt"), "x");
+	await vi.waitFor(
+		() => expect(events(frames).flatMap((f) => f.paths)).toContain("seen.txt"),
+		{ timeout: 5000 },
+	);
+	const paths = events(frames).flatMap((frame) => frame.paths);
+	for (const name of extra) {
+		expect(paths.some((path) => path.startsWith(`${name}/`))).toBe(false);
+	}
+});
+
+test("a project past the folder cap is refused with WatchLimitedError and no watcher is kept", async () => {
+	const { logger } = collectingLogger();
+	const capped = new ProjectWatchers(logger as unknown as FastifyBaseLogger, 3);
+	for (const name of ["a", "b", "c", "d"]) await mkdir(join(project, name));
+	await expect(capped.subscribe(homeDir, "demo", () => {})).rejects.toBeInstanceOf(
+		WatchLimitedError,
+	);
+	expect(capped.size()).toBe(0);
+});
+
+test("a project at the folder cap is watched", async () => {
+	const { logger } = collectingLogger();
+	const capped = new ProjectWatchers(logger as unknown as FastifyBaseLogger, 3);
+	// The project root counts, so two folders make three.
+	for (const name of ["a", "b"]) await mkdir(join(project, name));
+	const stop = await capped.subscribe(homeDir, "demo", () => {});
+	expect(capped.size()).toBe(1);
+	stop();
 });
