@@ -161,6 +161,14 @@ test.describe("admin health", () => {
 		await seedSample(42, 0);
 		await openHealth(page);
 		await page.getByRole("button", { name: "1 hour" }).click();
+		// Wait for the 1-hour data, not the previous range kept on screen.
+		await expect(page.getByTestId("health-trends")).toHaveAttribute(
+			"aria-busy",
+			"false",
+		);
+		await expect(
+			page.getByTestId("health-chart-pool").locator("svg text"),
+		).toContainText([/:/]);
 
 		const plot = page.getByRole("application", {
 			name: "Storage pool used, use the left and right arrow keys to read values",

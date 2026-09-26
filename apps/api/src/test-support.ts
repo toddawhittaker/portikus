@@ -54,6 +54,8 @@ export function testConfig(
 		PREVIEW_TICKET_TTL_SECONDS: 30,
 		SIGNIN_START_LIMIT_PER_MINUTE: 150,
 		PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES: 30,
+		// No real journal in tests; the logs routes answer LOGS_UNAVAILABLE.
+		JOURNALCTL_PATH: "/nonexistent/journalctl",
 		previewDeniedPorts: [22, 2375, 2376, 5432, 7400],
 		...overrides,
 	};
