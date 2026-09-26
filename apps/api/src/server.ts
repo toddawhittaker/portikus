@@ -12,6 +12,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
 import { createListeningRegistry } from "./preview/registry.js";
+import { registerRequestMetrics } from "./request-metrics.js";
 import { registerAcceptableUseRoutes } from "./routes/acceptable-use.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
@@ -73,6 +74,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// One line per response, including every 4xx the routes send (ADR 0012).
 	registerRequestLogging(app, { debugPaths: ["/health"] });
+	registerRequestMetrics(app, { db: deps.db, logger: deps.logger });
 
 	// A refused upgrade is answered with plain HTTP over a socket Fastify does
 	// not track, so close it here or shutdown waits for it forever. Only that
