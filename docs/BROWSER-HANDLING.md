@@ -324,8 +324,9 @@ As built (Epic 17): the endpoint keeps the three database rows behind a
 preview cookie (preview session, main-session user, workspace) for 2
 seconds, so a page of hundreds of assets costs three queries instead of
 three per asset. Every check above still runs on each request from those
-rows. The cost is that sign-out, a workspace stop and a session gate take
-effect up to 2 seconds late; a preview reset takes effect at once. A cookie
+rows. The cost is that any removal of authorization (sign-out, account
+disable, session expiry, a workspace stop or delete, a session gate)
+takes effect up to 2 seconds late; a preview reset takes effect at once. A cookie
 that matches no live session is never kept. One preview session may make
 2,000 authorized requests per 10 seconds; past that it gets a 429 "Too many
 requests" page with `Retry-After` (SPEC.md section 24.7).

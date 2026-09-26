@@ -184,6 +184,15 @@ describe.skipIf(skip)("createPreviewLookupCache", () => {
 		expect(cache.size).toBe(0);
 	});
 
+	test("a lookup in flight when the cache is cleared does not store its rows", async () => {
+		const { token } = await world();
+		const cache = createPreviewLookupCache(testDb.db);
+		const pending = cache.get(token);
+		cache.clear();
+		expect((await pending).user).not.toBeNull();
+		expect(cache.size).toBe(0);
+	});
+
 	test("drops expired entries as it adds new ones", async () => {
 		const a = await world();
 		const b = await world();

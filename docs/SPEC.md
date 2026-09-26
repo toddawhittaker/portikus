@@ -384,8 +384,8 @@ refusal answers 429 `RATE_LIMITED` and is audited as `auth.throttled`.
 
 Added by Epic 17: each user may make 20 workspace start, stop and restart
 requests a minute in total, and 600 file and project writes a minute
-(every non-GET route under a project's files and projects; administrator
-routes are not limited). Over either limit the answer is 429
+(every non-GET route in the files and projects APIs; recovery points,
+check runs and administrator routes are not limited). Over either limit the answer is 429
 `RATE_LIMITED`, "Too many requests just now. Try again in a minute.",
 with a `Retry-After` header; one warning is logged per user per window
 and nothing is audited. All of these limits, and the preview cap in
@@ -2331,7 +2331,8 @@ main-session user and workspace rows behind a preview cookie in memory for
 2 seconds, and only when all three were found. It never keeps a decision:
 the host, port, label, owner, running state, bridge path, registry,
 bridge forward and activity checks run on every request from those rows.
-Sign-out, a workspace stop and a session gate therefore reach the gateway
+Any removal of authorization (sign-out, account disable, session expiry,
+a workspace stop or delete, a session gate) therefore reaches the gateway
 up to 2 seconds late; a preview reset made through the API takes effect at
 once. Each preview session may make 2,000 authorized requests per 10
 seconds; past that the gateway answers 429 with a small "Too many

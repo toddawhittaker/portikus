@@ -1,6 +1,6 @@
 import type { ApiConfig } from "@portikus/config";
 import type { ApiError } from "@portikus/contracts";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
 /**
  * Fixed-window request counters kept in this process, which the pilot runs
@@ -125,21 +125,15 @@ export function createUserLimit(scope: string, counter: Counter): UserLimit {
 	return (request, reply) => allowUser(counter, scope, request, reply);
 }
 
-// files.ts and projects.ts share one file-write count per server, so it
-// hangs off the root instance both of them are handed.
-const fileWriteLimits = new WeakMap<FastifyInstance, UserLimit>();
-
-/** The per-user limit on file and project writes (ruling 16). */
-export function fileWriteLimit(app: FastifyInstance, config: ApiConfig): UserLimit {
-	let limit = fileWriteLimits.get(app);
-	if (!limit) {
-		limit = createUserLimit(
-			"file-write",
-			createCounter(config.FILE_WRITE_LIMIT_PER_MINUTE, MINUTE_MS),
-		);
-		fileWriteLimits.set(app, limit);
-	}
-	return limit;
+/**
+ * The per-user limit on file and project writes (ruling 16). buildServer
+ * makes one and hands it to both the files and projects routes.
+ */
+export function fileWriteLimit(config: ApiConfig): UserLimit {
+	return createUserLimit(
+		"file-write",
+		createCounter(config.FILE_WRITE_LIMIT_PER_MINUTE, MINUTE_MS),
+	);
 }
 
 /** The per-user limit on workspace start, stop and restart (ruling 16). */

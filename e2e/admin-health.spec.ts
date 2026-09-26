@@ -82,7 +82,7 @@ test.describe("admin health", () => {
 		await expect(page.getByTestId("health-pool")).toContainText("(20%)");
 		await expect(page.getByTestId("health-pool-metadata")).toHaveText("75% used");
 		await expect(page.getByTestId("health-pool-warning")).toHaveText(
-			"Storage pool is over 70% full",
+			"Storage pool metadata is over 70% full",
 		);
 	});
 

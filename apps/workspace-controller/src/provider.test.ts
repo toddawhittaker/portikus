@@ -2,12 +2,13 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { IncusClient } from "./incus.js";
 import {
 	AGENT_HEALTH_TIMEOUT_MS,
 	IncusWorkspaceProvider,
 	InstanceNotStoppedError,
+	VOLUME_CREATE_TIMEOUT_MS,
 } from "./provider.js";
 
 let socketPath: string;
@@ -121,7 +122,13 @@ function poolAt(used: number, requests: string[]) {
 	return async (req: http.IncomingMessage, res: http.ServerResponse) => {
 		await readBody(req);
 		requests.push(`${req.method} ${req.url}`);
-		if (req.url?.includes("/storage-pools/mypool/resources")) {
+		if (req.method === "GET" && req.url?.startsWith("/1.0/instances/")) {
+			respond(res, 404, {
+				type: "error",
+				status_code: 404,
+				error: "Instance not found",
+			});
+		} else if (req.url?.includes("/storage-pools/mypool/resources")) {
 			respond(res, 200, sync({ space: { used, total: 100 } }));
 		} else if (req.url?.includes("/images/aliases/")) {
 			respond(res, 200, sync({ target: "sha256abc" }));
@@ -140,8 +147,48 @@ test("create is refused with POOL_FULL at 90% data use, before any volume is mad
 		code: "POOL_FULL",
 	});
 	expect(requests).toEqual([
+		"GET /1.0/instances/ws-test?project=testproj",
 		"GET /1.0/storage-pools/mypool/resources?project=testproj",
 	]);
+});
+
+test("a full pool does not refuse adopting an instance that already exists", async () => {
+	const requests: string[] = [];
+	const full = poolAt(95, requests);
+	handler = async (req, res) => {
+		if (req.method === "GET" && req.url?.startsWith("/1.0/instances/ws-test")) {
+			await readBody(req);
+			respond(res, 200, sync({ name: "ws-test", status: "Stopped" }));
+		} else if (req.method === "POST" && req.url?.startsWith("/1.0/instances?")) {
+			await readBody(req);
+			respond(res, 409, { type: "error", status_code: 409, error: "already exists" });
+		} else {
+			await full(req, res);
+		}
+	};
+	expect((await provider.create("ws-test", SIZES)).created).toBe(false);
+	expect(requests.some((r) => r.includes("/resources"))).toBe(false);
+});
+
+test("volume creates get their own longer bound than the 30 s default", async () => {
+	expect(VOLUME_CREATE_TIMEOUT_MS).toBeGreaterThan(30_000);
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	const spy = vi.spyOn(client, "request");
+	const own = new IncusWorkspaceProvider({
+		client,
+		pool: "mypool",
+		profile: "workspace",
+		imageAlias: "portikus",
+		agentPort,
+		thinPoolStatusPath: statusPath,
+	});
+	handler = poolAt(10, []);
+	await own.create("ws-test", SIZES);
+	const volumeCalls = spy.mock.calls.filter((c) =>
+		String(c[1]).includes("/volumes/custom"),
+	);
+	expect(volumeCalls).toHaveLength(3);
+	for (const call of volumeCalls) expect(call[5]).toBe(VOLUME_CREATE_TIMEOUT_MS);
 });
 
 test("create is refused when metadata use reaches 90%, even with data room", async () => {

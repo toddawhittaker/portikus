@@ -136,6 +136,12 @@ function assertStopped(name: string, status: string | undefined): void {
  * is its own budget, not the rest of the start timeout, so one broken agent
  * cannot hold the worker's serial start loop for the whole start deadline.
  */
+/**
+ * A volume create on a busy thin pool can pass the default 30 s; three of
+ * these plus the instance create still fit the worker's 300 s create bound.
+ */
+export const VOLUME_CREATE_TIMEOUT_MS = 60_000;
+
 export const AGENT_HEALTH_TIMEOUT_MS = 15_000;
 
 function validateName(name: string): void {
@@ -200,19 +206,22 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	): Promise<CreateInstanceResponse> {
 		validateName(name);
 
-		// Refuse before any volume is made; start, stop and rebuild are never refused.
-		const use = await readPoolUse(
-			this.client,
-			this.pool,
-			new Date(),
-			this.thinPoolStatusPath,
-		);
-		const fill = poolFillPercent(use);
-		if (fill >= POOL_FULL_PERCENT) {
-			throw new IncusError(
-				"POOL_FULL",
-				`storage pool is ${Math.floor(fill)}% full; new workspaces are refused`,
+		// Refuse before any volume is made; start, stop, rebuild and adopting an
+		// instance that already exists are never refused.
+		if (!(await this.instanceExists(name))) {
+			const use = await readPoolUse(
+				this.client,
+				this.pool,
+				new Date(),
+				this.thinPoolStatusPath,
 			);
+			const fill = poolFillPercent(use);
+			if (fill >= POOL_FULL_PERCENT) {
+				throw new IncusError(
+					"POOL_FULL",
+					`storage pool is ${Math.floor(fill)}% full; new workspaces are refused`,
+				);
+			}
 		}
 
 		await this.ensureVolume(`${name}-home`, sizes.homeGiB);
@@ -246,6 +255,16 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 
 		return { created: true, imageFingerprint, quota };
+	}
+
+	private async instanceExists(name: string): Promise<boolean> {
+		try {
+			await this.client.request("GET", `/1.0/instances/${enc(name)}`);
+			return true;
+		} catch (err) {
+			if (err instanceof IncusError && err.code === "NOT_FOUND") return false;
+			throw err;
+		}
 	}
 
 	private async imageFingerprint(): Promise<string> {
@@ -940,6 +959,9 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					name: volName,
 					config: { size: `${sizeGiB}GiB` },
 				},
+				undefined,
+				undefined,
+				VOLUME_CREATE_TIMEOUT_MS,
 			);
 		} catch (err) {
 			if (err instanceof IncusError && err.code === "ALREADY_EXISTS") {

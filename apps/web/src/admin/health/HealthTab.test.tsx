@@ -152,7 +152,7 @@ test("metadata use is shown, and warns on its own when it passes 70 percent", ()
 	);
 	expect(screen.getByTestId("health-pool-metadata").textContent).toBe("72% used");
 	expect(screen.getByTestId("health-pool-warning").textContent).toBe(
-		"Storage pool is over 70% full",
+		"Storage pool metadata is over 70% full",
 	);
 });
 

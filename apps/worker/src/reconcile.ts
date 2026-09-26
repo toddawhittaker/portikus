@@ -403,7 +403,7 @@ export async function reconcile(
 		transitions++;
 		record(ws.id, "stop requested");
 		await endOpenTerminals(db, ws.id, now);
-		stopInBackground(db, controller, config, ws, now, log);
+		stopInBackground(db, controller, config, ws, log);
 	}
 
 	// A pending maintenance operation stops a running workspace without
@@ -429,7 +429,7 @@ export async function reconcile(
 		transitions++;
 		record(ws.id, `stop for ${ws.pending_operation}`);
 		await endOpenTerminals(db, ws.id, now);
-		stopInBackground(db, controller, config, ws, now, log);
+		stopInBackground(db, controller, config, ws, log);
 	}
 
 	// Deadline passed with zero connections: single UPDATE with count subquery.
@@ -461,7 +461,7 @@ export async function reconcile(
 		record(ws.id, "stop after grace period");
 		await endOpenTerminals(db, ws.id, now);
 		if (!ws.incus_instance_name) continue;
-		stopInBackground(db, controller, config, ws, now, log);
+		stopInBackground(db, controller, config, ws, log);
 	}
 
 	// Idle stop (ADR 0032): a workspace override wins over the platform value,
@@ -509,7 +509,7 @@ export async function reconcile(
 		});
 		await endOpenTerminals(db, ws.id, now);
 		if (!ws.incus_instance_name) continue;
-		stopInBackground(db, controller, config, ws, now, log);
+		stopInBackground(db, controller, config, ws, log);
 	}
 
 	// 3d: error with desired running (or restarting) -> retry a start, but
@@ -575,6 +575,8 @@ export async function reconcile(
 
 	if (shouldRefresh) {
 		let instances: Awaited<ReturnType<ControllerClient["list"]>> | null = null;
+		// A stop that ends while list() runs leaves a list older than the row.
+		const stoppingDuringList = new Set(stopsInFlight.keys());
 		try {
 			instances = await controller.list();
 			// Only count a refresh that actually happened.
@@ -664,7 +666,11 @@ export async function reconcile(
 				}
 
 				// Drift: row says stopped but instance is Running.
-				if (ws.state === "stopped" && inst.status === "Running") {
+				if (
+					ws.state === "stopped" &&
+					inst.status === "Running" &&
+					!stoppingDuringList.has(ws.id)
+				) {
 					const updated = await casUpdate(
 						db,
 						ws.id,
@@ -719,7 +725,11 @@ export async function reconcile(
 					}
 				}
 
-				if (ws.state === "stopping" && !stopsInFlight.has(ws.id)) {
+				if (
+					ws.state === "stopping" &&
+					!stopsInFlight.has(ws.id) &&
+					!stoppingDuringList.has(ws.id)
+				) {
 					if (inst.status === "Stopped") {
 						const updated = await casUpdate(
 							db,
@@ -1008,10 +1018,9 @@ function stopInBackground(
 	controller: ControllerClient,
 	config: ReconcileConfig,
 	ws: { id: string; incus_instance_name: string | null },
-	now: Date,
 	log: Logger,
 ): void {
-	const running = doStop(db, controller, config, ws, now)
+	const running = doStop(db, controller, config, ws)
 		.catch((e: unknown) => {
 			log.error(
 				{ workspaceId: ws.id, error: e instanceof Error ? e.message : String(e) },
@@ -1038,7 +1047,6 @@ export async function doStop(
 	controller: ControllerClient,
 	config: ReconcileConfig,
 	ws: { id: string; incus_instance_name: string | null },
-	now: Date,
 ): Promise<void> {
 	if (!ws.incus_instance_name) return;
 	try {
@@ -1056,7 +1064,8 @@ export async function doStop(
 				desired_state: settleRestarting,
 				disconnected_at: null,
 			},
-			now,
+			// The stop may have taken minutes; stamp when it ended.
+			new Date(),
 		);
 		// The stop happened, so record it even if another pass already
 		// moved the row out of 'stopping' (SPEC.md §6.5).
@@ -1076,7 +1085,8 @@ export async function doStop(
 				error_code: err.code,
 				error_message: userMessage(err.code),
 			},
-			now,
+			// The stop may have taken minutes; stamp when it ended.
+			new Date(),
 		);
 		await audit(db, ws.id, "workspace.stop_failed", "failed", {
 			errorCode: err.code,

@@ -26,7 +26,7 @@ import {
 	type AgentClient,
 	readAgentError,
 } from "../agent-client.js";
-import { fileWriteLimit } from "../rate-limit.js";
+import type { UserLimit } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 import { cappedDownload } from "./files.js";
 import {
@@ -220,9 +220,9 @@ async function moveProjectRow(
 export function registerProjectRoutes(
 	app: FastifyInstance,
 	{ db, config }: ServerDeps,
+	/** Shared with the files routes (docs/EPIC-17.md ruling 16). */
+	allowWrite: UserLimit,
 ): void {
-	/** Every project write shares the file-write limit (docs/EPIC-17.md ruling 16). */
-	const allowWrite = fileWriteLimit(app, config);
 	async function limitWrites(request: FastifyRequest, reply: FastifyReply) {
 		if (!(await allowWrite(request, reply))) return reply;
 	}

@@ -13,7 +13,9 @@ const logger = createLogger({
 	level: config.LOG_LEVEL,
 	pretty: config.NODE_ENV === "development",
 });
-const db = createDb(config.DATABASE_URL);
+const db = createDb(config.DATABASE_URL, undefined, (error) =>
+	logger.warn({ err: error }, "database connection lost"),
+);
 const oidc = createOidcClient(toAuthOptions(config));
 const lti = await loadLtiDeps(config);
 if (lti) logger.info({ platforms: lti.platforms.length }, "lti enabled");

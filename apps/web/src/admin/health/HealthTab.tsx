@@ -120,11 +120,7 @@ export function HealthView({ report, now }: { report: HealthReport; now: number 
 									testId="health-pool"
 									used={host.pool.usedBytes}
 									total={host.pool.totalBytes}
-									warning={
-										poolFillPercent(host.pool) >= POOL_WARN_PERCENT
-											? `Storage pool is over ${POOL_WARN_PERCENT}% full`
-											: null
-									}
+									warning={poolWarning(host.pool)}
 								/>
 							</dd>
 							<dt className="pk-muted">Pool metadata</dt>
@@ -373,4 +369,17 @@ function Trends({ report }: { report: HealthReport }) {
 			/>
 		</div>
 	);
+}
+
+/** Names metadata when it, not data, is the figure over the line. */
+function poolWarning(pool: {
+	usedBytes: number;
+	totalBytes: number;
+	metadataPercent: number | null;
+}): string | null {
+	if (poolFillPercent(pool) < POOL_WARN_PERCENT) return null;
+	const data = pool.totalBytes > 0 ? (pool.usedBytes / pool.totalBytes) * 100 : 0;
+	return (pool.metadataPercent ?? 0) > data
+		? `Storage pool metadata is over ${POOL_WARN_PERCENT}% full`
+		: `Storage pool is over ${POOL_WARN_PERCENT}% full`;
 }

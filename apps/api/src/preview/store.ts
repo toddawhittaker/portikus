@@ -308,6 +308,8 @@ export function createPreviewLookupCache(
 	now: () => number = Date.now,
 ) {
 	const entries = new Map<string, { at: number; lookup: PreviewLookup }>();
+	// Bumped by clear() so a lookup that started before it cannot store stale rows.
+	let generation = 0;
 
 	async function load(token: string): Promise<PreviewLookup> {
 		const session = await loadPreviewSession(db, token);
@@ -331,8 +333,10 @@ export function createPreviewLookupCache(
 			if (hit && at - hit.at < PREVIEW_LOOKUP_TTL_MS) return hit.lookup;
 			if (hit) entries.delete(key);
 
+			const started = generation;
 			const lookup = await load(token);
 			if (!lookup.session || !lookup.user || !lookup.workspace) return lookup;
+			if (started !== generation) return lookup;
 			// Map order is insertion order, so the oldest entries come first.
 			for (const [k, entry] of entries) {
 				if (
@@ -348,6 +352,7 @@ export function createPreviewLookupCache(
 		},
 		/** Forget everything, after a revocation made in this process. */
 		clear(): void {
+			generation += 1;
 			entries.clear();
 		},
 		/** How many entries are held; for tests. */

@@ -14,7 +14,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { recordActivity } from "../activity.js";
 import { AGENT_TIMEOUT_MS, readAgentError, readJson } from "../agent-client.js";
-import { fileWriteLimit } from "../rate-limit.js";
+import type { UserLimit } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 import { agentUrl, scopedProject, sendAgentError, sendError } from "./project-scope.js";
 
@@ -106,10 +106,12 @@ function queryPath(
  * is only called with the per-workspace token after the caller has been shown
  * to own the workspace and the project (SPEC.md §5.2, §24.6).
  */
-export function registerFileRoutes(app: FastifyInstance, deps: ServerDeps): void {
+export function registerFileRoutes(
+	app: FastifyInstance,
+	deps: ServerDeps,
+	limitWrites: UserLimit,
+): void {
 	const { db, config } = deps;
-
-	const limitWrites = fileWriteLimit(app, config);
 
 	app.register(async (instance) => {
 		// Every file route but a read counts against the user's write limit.
