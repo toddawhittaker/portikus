@@ -1,9 +1,11 @@
-import type { Project, Workspace } from "@portikus/contracts";
+import type { Project, Workspace, WorkspaceUsage } from "@portikus/contracts";
 import { Icon } from "@portikus/ui";
 import { gitBar } from "../files/gitStatus.js";
 import { useGitStatus } from "../files/useGitStatus.js";
+import { formatBytes } from "../monitor/format.js";
 import { STORAGE_POLL_MS, useWorkspaceUsage } from "../monitor/usage.js";
 import { storageWarning } from "../recovery/storage.js";
+import { useShowMonitor } from "./rightPane.js";
 import { useCountdown } from "./useCountdown.js";
 import {
 	resolveStatus,
@@ -21,6 +23,24 @@ const TONE_CLASS: Record<string, string> = {
 	stopped: "pk-tone-stopped",
 	error: "pk-tone-error",
 };
+
+/** The status bar warns about memory only from this share of the limit up. */
+export const MEMORY_WARN_AT = 0.85;
+
+/** Fixed text for the live region, so a changing figure is not re-announced. */
+export const MEMORY_ANNOUNCEMENT = "Your workspace is using most of its memory.";
+
+/**
+ * "Memory {used} of {total}" when the working set is at or above 85% of the
+ * limit, else null (docs/EPIC-21.md ruling 24).
+ */
+export function memoryWarning(
+	memory: WorkspaceUsage["memory"] | undefined,
+): string | null {
+	if (!memory || memory.totalBytes <= 0) return null;
+	if (memory.usedBytes / memory.totalBytes < MEMORY_WARN_AT) return null;
+	return `Memory ${formatBytes(memory.usedBytes)} of ${formatBytes(memory.totalBytes)}`;
+}
 
 /** The bottom bar: where you are, and the workspace state, which opens its dialog. */
 export function StatusBar({
@@ -42,6 +62,8 @@ export function StatusBar({
 	const usage = useWorkspaceUsage(workspaceId, running, STORAGE_POLL_MS);
 	const storage = running ? usage.data?.storage : undefined;
 	const warning = storageWarning(storage);
+	const memory = running ? memoryWarning(usage.data?.memory) : null;
+	const showMonitor = useShowMonitor();
 	const countdown = useCountdown(workspace?.shutdownDeadline ?? null);
 
 	return (
@@ -58,10 +80,24 @@ export function StatusBar({
 					Stopping in {countdown.clock}
 				</span>
 			)}
-			{/* Announces a class crossing a threshold (SPEC.md §19.2). */}
+			{/* Announces a storage class or memory crossing a threshold (SPEC.md §19.2). */}
 			<span role="status" className="sr-only" data-testid="storage-warning-announce">
-				{warning?.announcement ?? ""}
+				{[warning?.announcement, memory ? MEMORY_ANNOUNCEMENT : null]
+					.filter(Boolean)
+					.join(" ")}
 			</span>
+			{memory ? (
+				<button
+					type="button"
+					className="pk-statusbar-item pk-tone-warning"
+					data-testid="memory-warning"
+					aria-label={`${memory}. See what's using memory`}
+					onClick={() => showMonitor("memory")}
+				>
+					<Icon name="alert" size="sm" />
+					{memory}
+				</button>
+			) : null}
 			{warning ? (
 				<button
 					type="button"

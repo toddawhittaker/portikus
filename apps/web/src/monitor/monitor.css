@@ -1,6 +1,6 @@
 /*
  * The Monitor tab (SPEC.md §18.3). Tall and narrow: a few figures, then the
- * process list. No chart and no way to kill a process.
+ * process list, where a student can stop their own processes. No chart.
  */
 
 /* The same side gutter as the other right-pane bodies. */
@@ -85,8 +85,28 @@
 	white-space: nowrap;
 }
 
-.pk-monitor-procs td:last-child {
+/* The command column takes what is left and truncates, so the actions stay in view. */
+.pk-monitor-procs td.pk-monitor-command {
 	overflow: hidden;
 	text-overflow: ellipsis;
-	max-width: 8rem;
+	width: 100%;
+	max-width: 0;
+}
+
+.pk-monitor-procs td.pk-monitor-actions {
+	padding-right: 0;
+	text-align: right;
+	vertical-align: middle;
+}
+
+/* The student's full command line, wrapped so it can be read in a narrow pane. */
+.pk-monitor-procs .pk-monitor-cmdline-row td {
+	padding: 2px 6px 6px 0;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	color: var(--ink-muted);
+}
+
+.pk-monitor-dialog-line {
+	display: block;
 }

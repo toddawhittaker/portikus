@@ -1,6 +1,7 @@
-import { EmptyState, PaneHandle, Skeleton } from "@portikus/ui";
+import type { Workspace } from "@portikus/contracts";
+import { EmptyState, PaneHandle, Skeleton, useToast } from "@portikus/ui";
 import { Navigate, Outlet, useNavigate, useParams } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import {
 	useEditorSettings,
@@ -16,7 +17,8 @@ import { AppHeader } from "./shell/AppHeader.js";
 import { DisconnectNotice } from "./shell/DisconnectNotice.js";
 import { FilesPane } from "./shell/FilesPane.js";
 import { IdleNotice, idleMinutes, useIdleStopReason } from "./shell/IdleNotice.js";
-import { type RightPane, RightPaneContext } from "./shell/rightPane.js";
+import { MemoryNotice, memoryAnnouncement } from "./shell/MemoryNotice.js";
+import { RightPaneContext, showMonitor, useRightPaneStore } from "./shell/rightPane.js";
 import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
 import { StatusBar } from "./shell/StatusBar.js";
 import { ThrottleNotice, throttleAnnouncement } from "./shell/ThrottleNotice.js";
@@ -64,6 +66,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	);
 	// A throttle is dismissed for the page's life; a new one shows again (ADR 0032).
 	const [dismissedThrottleAt, setDismissedThrottleAt] = useState<string | null>(null);
+	const [dismissedMemoryAt, setDismissedMemoryAt] = useState<string | null>(null);
+	useThrottleLiftToast(workspace);
 	const idleStopReason = useIdleStopReason(workspace);
 	// The status bar, the error screen and the throttle notice all open this dialog.
 	const [workspaceDialog, setWorkspaceDialog] = useState<WorkspaceDialogMode>("closed");
@@ -82,11 +86,9 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	// The work area and the file tree share one layout store, so a file
 	// opened in the tree becomes a tab in the work area (SPEC.md §8.3, §8.4).
 	const layoutStore = useLayoutStore(projectId ?? "none");
-	const [rightPane, setRightPane] = useState<RightPane>("files");
-	const rightPaneApi = useMemo(
-		() => ({ pane: rightPane, show: setRightPane }),
-		[rightPane],
-	);
+	const rightPaneApi = useRightPaneStore();
+	const memoryFlag = workspace?.memoryFlag ?? null;
+	const showMemoryNotice = memoryFlag !== null && memoryFlag.at !== dismissedMemoryAt;
 	// The socket's list is the newer of the two, so it wins once it arrives
 	// (SPEC.md §18.2).
 	const firstListening = useListeningQuery(workspaceId, running);
@@ -161,12 +163,27 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 														resolveStatus(workspace).moving ? "open" : "restart",
 													)
 												}
+												onShowMonitor={() => showMonitor(rightPaneApi, "cpu")}
 												onDismiss={() => {
 													setDismissedThrottleAt(workspace.cpuThrottle?.at ?? null);
 													workRef.current?.focus();
 												}}
 											/>
 										)}
+									{/* Always mounted, so a new memory flag is announced (SPEC.md §25.8). */}
+									<span role="status" className="sr-only" data-testid="memory-announce">
+										{showMemoryNotice ? memoryAnnouncement(memoryFlag) : ""}
+									</span>
+									{showMemoryNotice && (
+										<MemoryNotice
+											flag={memoryFlag}
+											onShowMonitor={() => showMonitor(rightPaneApi, "memory")}
+											onDismiss={() => {
+												setDismissedMemoryAt(memoryFlag.at);
+												workRef.current?.focus();
+											}}
+										/>
+									)}
 									{workspace?.idleStopAt && (
 										<IdleNotice
 											deadline={workspace.idleStopAt}
@@ -220,6 +237,24 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 			</ListeningContext.Provider>
 		</LayoutStoreContext.Provider>
 	);
+}
+
+/**
+ * Says so when a throttle this page was showing goes away, which is how the
+ * student learns of an idle lift (docs/EPIC-21.md ruling 5).
+ */
+function useThrottleLiftToast(workspace: Workspace | null) {
+	const toast = useToast();
+	const throttledAt = useRef<string | null>(null);
+	useEffect(() => {
+		// A missing workspace is a reconnect, not a lift.
+		if (!workspace) return;
+		const now = workspace.cpuThrottle?.at ?? null;
+		if (throttledAt.current !== null && now === null) {
+			toast.show({ tone: "success", title: "Your workspace is back to full speed" });
+		}
+		throttledAt.current = now;
+	}, [workspace, toast]);
 }
 
 /** A pane that is waiting for the workspace (design/mockups/WorkspaceStarting). */
