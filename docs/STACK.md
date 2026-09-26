@@ -785,7 +785,10 @@ If a framework/library requires ESLint-specific rules that materially improve sa
 
 Operational metrics live in PostgreSQL, not in OpenTelemetry (ADR 0022). The
 worker writes one host snapshot a minute to `health_samples`, kept 7 days, and
-failures are counted from `audit_events`. `GET /admin/health` reads both and
+failures are counted from `audit_events`. The API counts its own responses
+per minute in memory and writes the totals to `api_request_samples`, kept 7
+days: requests, 4xx and 5xx counts, WebSocket upgrades and a latency
+histogram, with no route, user or workspace. `GET /admin/health` reads these and
 the administrator page shows them. There is no OpenTelemetry SDK and no
 metrics endpoint until a second VM or an external monitor needs one.
 
