@@ -184,6 +184,33 @@ test("a failed operation maps to OPERATION_FAILED with Incus's message", async (
 	});
 });
 
+test("a pool that fills during an operation maps to STORAGE_FULL", async () => {
+	handler = (req, res) => {
+		if (req.url?.includes("/wait")) {
+			respond(
+				res,
+				200,
+				waitReply({
+					status_code: 400,
+					status: "Failure",
+					err: "write: no space left on device",
+				}),
+			);
+			return;
+		}
+		respond(res, 202, {
+			type: "async",
+			status: "Operation created",
+			status_code: 100,
+			operation: "/1.0/operations/op4",
+		});
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(client.request("POST", "/1.0/instances", {})).rejects.toMatchObject({
+		code: "STORAGE_FULL",
+	});
+});
+
 test("404 maps to NOT_FOUND", async () => {
 	handler = (_req, res) => {
 		respond(res, 404, {

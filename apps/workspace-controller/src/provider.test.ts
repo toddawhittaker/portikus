@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from "vi
 import { IncusClient } from "./incus.js";
 import {
 	AGENT_HEALTH_TIMEOUT_MS,
+	INSTANCE_CREATE_WAIT_SECONDS,
 	IncusWorkspaceProvider,
 	InstanceNotStoppedError,
 	VOLUME_CREATE_TIMEOUT_MS,
@@ -168,6 +169,27 @@ test("a full pool does not refuse adopting an instance that already exists", asy
 	};
 	expect((await provider.create("ws-test", SIZES)).created).toBe(false);
 	expect(requests.some((r) => r.includes("/resources"))).toBe(false);
+});
+
+test("the instance create waits long enough for a slow first create, inside the worker's 300 s", async () => {
+	expect(INSTANCE_CREATE_WAIT_SECONDS).toBeGreaterThan(60);
+	expect(INSTANCE_CREATE_WAIT_SECONDS).toBeLessThan(300);
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	const spy = vi.spyOn(client, "request");
+	const own = new IncusWorkspaceProvider({
+		client,
+		pool: "mypool",
+		profile: "workspace",
+		imageAlias: "portikus",
+		agentPort,
+		thinPoolStatusPath: statusPath,
+	});
+	handler = poolAt(10, []);
+	await own.create("ws-test", SIZES);
+	const create = spy.mock.calls.find(
+		(c) => c[0] === "POST" && c[1] === "/1.0/instances",
+	);
+	expect(create?.[4]).toBe(INSTANCE_CREATE_WAIT_SECONDS);
 });
 
 test("volume creates get their own longer bound than the 30 s default", async () => {
@@ -588,6 +610,46 @@ for (const [outcome, operation] of [
 		expect(puts.map((p) => p.force)).toEqual([false, true]);
 	});
 }
+
+/** A fake Incus for stop: both stop PUTs fail inside their operation; the state read reports `after`. */
+function stopsFail(after: string, puts: Array<{ force?: boolean }>) {
+	return async (req: http.IncomingMessage, res: http.ServerResponse) => {
+		const body = await readBody(req);
+		if (req.method === "PUT" && req.url?.includes("/state")) {
+			puts.push(JSON.parse(body));
+			respond(res, 202, {
+				type: "async",
+				status: "Operation created",
+				status_code: 100,
+				operation: `/1.0/operations/stop-${puts.length}`,
+			});
+		} else if (req.url?.includes("/wait")) {
+			respond(
+				res,
+				200,
+				sync({ status_code: 400, status: "Failure", err: "stop failed" }),
+			);
+		} else {
+			// The first read is stop()'s own check; later ones follow the failed stops.
+			respond(res, 200, sync({ status: puts.length === 0 ? "Running" : after }));
+		}
+	};
+}
+
+test("a forced stop that fails because the graceful stop just finished still reports stopped", async () => {
+	const puts: Array<{ force?: boolean }> = [];
+	handler = stopsFail("Stopped", puts);
+	const result = await provider.stop("ws-test", { timeoutSeconds: 5 });
+	expect(result.forced).toBe(true);
+	expect(puts.map((p) => p.force)).toEqual([false, true]);
+});
+
+test("a forced stop that fails while the instance still runs is an error", async () => {
+	handler = stopsFail("Running", []);
+	await expect(provider.stop("ws-test", { timeoutSeconds: 5 })).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+	});
+});
 
 test("stop on an already-stopped instance is a no-op", async () => {
 	let puts = 0;
@@ -1469,6 +1531,76 @@ test("start removes an allowance left on the stopped instance before starting it
 	expect(state.config["limits.cpu.allowance"]).toBeUndefined();
 	expect(state.status).toBe("Running");
 });
+
+/** Wraps serveIncus: counts start PUTs and answers them with a failed operation when `fail` is set. */
+function countStarts(state: FakeIncus, fail: string | null) {
+	serveIncus(state);
+	const original = handler;
+	const seen = { starts: 0 };
+	handler = (req, res) => {
+		if (req.method === "PUT" && req.url?.startsWith("/1.0/instances/ws-test/state")) {
+			seen.starts++;
+			if (fail !== null) {
+				respond(res, 202, {
+					type: "async",
+					status: "Operation created",
+					status_code: 100,
+					operation: "/1.0/operations/start-1",
+				});
+				return;
+			}
+		}
+		if (fail !== null && req.url?.includes("/operations/start-1/wait")) {
+			respond(res, 200, sync({ status_code: 400, status: "Failure", err: fail }));
+			return;
+		}
+		original(req, res);
+	};
+	return seen;
+}
+
+test("a retried start of an instance Incus already runs skips the start and finishes the rest", async () => {
+	const state = fakeIncus();
+	state.status = "Running";
+	const seen = countStarts(state, null);
+
+	await provider.start("ws-test", START);
+
+	expect(seen.starts).toBe(0);
+	expect(agentRequests).toBeGreaterThan(0);
+});
+
+test("a start that Incus refuses because the instance is already running goes on", async () => {
+	const state = fakeIncus();
+	const seen = countStarts(state, "The instance is already running");
+
+	await provider.start("ws-test", START);
+
+	expect(seen.starts).toBe(1);
+});
+
+test("a start that fails while the instance is not running is an error", async () => {
+	const state = fakeIncus();
+	countStarts(state, "Failed to run: startup failed");
+	serveIncusStateAs("Stopped");
+
+	await expect(provider.start("ws-test", START)).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+		message: "Failed to run: startup failed",
+	});
+});
+
+/** Makes the state read report `status` instead of a running instance. */
+function serveIncusStateAs(status: string): void {
+	const original = handler;
+	handler = (req, res) => {
+		if (req.method === "GET" && req.url?.startsWith("/1.0/instances/ws-test/state")) {
+			respond(res, 200, sync({ status }));
+			return;
+		}
+		original(req, res);
+	};
+}
 
 test("start without an allowance makes no guarded write", async () => {
 	const state = fakeIncus();

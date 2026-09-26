@@ -13,6 +13,13 @@ export class IncusError extends Error {
 	}
 }
 
+function failure(message: string): IncusError {
+	if (message.includes("no space") || message.includes("not enough")) {
+		return new IncusError("STORAGE_FULL", message);
+	}
+	return new IncusError("OPERATION_FAILED", message);
+}
+
 interface IncusEnvelope {
 	type: string;
 	status: string;
@@ -250,13 +257,7 @@ export class IncusClient {
 			return new IncusError("ALREADY_EXISTS", envelope.error ?? "already exists");
 		}
 		if (httpStatus >= 400 && envelope.error) {
-			if (
-				envelope.error.includes("no space") ||
-				envelope.error.includes("not enough")
-			) {
-				return new IncusError("STORAGE_FULL", envelope.error);
-			}
-			return new IncusError("OPERATION_FAILED", envelope.error);
+			return failure(envelope.error);
 		}
 		return null;
 	}
@@ -284,7 +285,7 @@ export class IncusClient {
 			return envelope.metadata;
 		}
 		if (code >= 400) {
-			throw new IncusError("OPERATION_FAILED", op?.err || "operation failed");
+			throw failure(op?.err || "operation failed");
 		}
 		throw new IncusError("TIMEOUT", "operation timed out");
 	}

@@ -144,6 +144,9 @@ export const VOLUME_CREATE_TIMEOUT_MS = 60_000;
 
 export const AGENT_HEALTH_TIMEOUT_MS = 15_000;
 
+/** The instance create's operation wait, inside the worker's 300 s create budget. */
+export const INSTANCE_CREATE_WAIT_SECONDS = 240;
+
 function validateName(name: string): void {
 	const result = InstanceName.safeParse(name);
 	if (!result.success) {
@@ -232,21 +235,27 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		const quota = { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
 
 		try {
-			await this.client.request("POST", "/1.0/instances", {
-				name,
-				source: { type: "image", alias: this.imageAlias },
-				profiles: [this.profile],
-				devices: {
-					home: {
-						type: "disk",
-						pool: this.pool,
-						source: `${name}-home`,
-						path: "/home/student",
+			await this.client.request(
+				"POST",
+				"/1.0/instances",
+				{
+					name,
+					source: { type: "image", alias: this.imageAlias },
+					profiles: [this.profile],
+					devices: {
+						home: {
+							type: "disk",
+							pool: this.pool,
+							source: `${name}-home`,
+							path: "/home/student",
+						},
+						docker: this.dockerDevice(name),
+						recovery: this.recoveryDevice(name),
 					},
-					docker: this.dockerDevice(name),
-					recovery: this.recoveryDevice(name),
 				},
-			});
+				undefined,
+				INSTANCE_CREATE_WAIT_SECONDS,
+			);
 		} catch (err) {
 			if (err instanceof IncusError && err.code === "ALREADY_EXISTS") {
 				return { created: false, imageFingerprint, quota };
@@ -345,15 +354,24 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			(await this.ensureRecoveryDevice(name, opts.recoveryGiB, signal));
 
 		// A throttle never outlives a stop: every start begins at full speed.
-		await this.writeCpuAllowance(name, null, signal);
+		const status = await this.writeCpuAllowance(name, null, signal);
 
-		await this.client.request(
-			"PUT",
-			`/1.0/instances/${enc(name)}/state`,
-			{ action: "start" },
-			signal,
-			opts.timeoutSeconds,
-		);
+		// A retry after a start that failed late finds the container running.
+		if (status !== "Running") {
+			try {
+				await this.client.request(
+					"PUT",
+					`/1.0/instances/${enc(name)}/state`,
+					{ action: "start" },
+					signal,
+					opts.timeoutSeconds,
+				);
+			} catch (err) {
+				if ((await this.instanceStatus(name, signal).catch(() => null)) !== "Running") {
+					throw err;
+				}
+			}
+		}
 
 		const deadline = Date.now() + opts.timeoutSeconds * 1000;
 		const ipv4 = await this.waitForAddress(name, deadline, signal);
@@ -690,19 +708,39 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			);
 			return { forced: false };
 		} catch {
-			await this.client.request(
-				"PUT",
-				`/1.0/instances/${enc(name)}/state`,
-				{
-					action: "stop",
-					timeout: opts.timeoutSeconds,
-					force: true,
-				},
-				AbortSignal.timeout((opts.timeoutSeconds + 5) * 1000),
-				opts.timeoutSeconds,
-			);
+			try {
+				await this.client.request(
+					"PUT",
+					`/1.0/instances/${enc(name)}/state`,
+					{
+						action: "stop",
+						timeout: opts.timeoutSeconds,
+						force: true,
+					},
+					AbortSignal.timeout((opts.timeoutSeconds + 5) * 1000),
+					opts.timeoutSeconds,
+				);
+			} catch (err) {
+				// The graceful stop may have finished just as its wait gave up.
+				if ((await this.instanceStatus(name).catch(() => null)) !== "Stopped") {
+					throw err;
+				}
+			}
 			return { forced: true };
 		}
+	}
+
+	private async instanceStatus(
+		name: string,
+		signal?: AbortSignal,
+	): Promise<string | undefined> {
+		const state = (await this.client.request(
+			"GET",
+			`/1.0/instances/${enc(name)}/state`,
+			undefined,
+			signal,
+		)) as { status?: string } | undefined;
+		return state?.status;
 	}
 
 	async list(): Promise<InstanceStatus[]> {
@@ -863,13 +901,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		name: string,
 		allowance: string | null,
 		signal?: AbortSignal,
-	): Promise<void> {
+	): Promise<string | undefined> {
 		const path = `/1.0/instances/${enc(name)}`;
 		const { metadata, etag } = await this.client.getWithEtag(path, signal);
 		const inst = metadata as InstanceConfig;
 		const { [CPU_ALLOWANCE_KEY]: current, ...config } = inst.config ?? {};
 		if ((current ?? null) === allowance) {
-			return;
+			return inst.status;
 		}
 		if (allowance !== null) {
 			config[CPU_ALLOWANCE_KEY] = allowance;
@@ -880,6 +918,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			etag,
 			signal,
 		);
+		return inst.status;
 	}
 
 	/**
