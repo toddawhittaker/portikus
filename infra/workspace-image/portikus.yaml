@@ -1869,7 +1869,10 @@ files:
 
     [Service]
     Type=oneshot
-    ExecStart=/bin/mount -o remount,size=256M /dev/shm
+    # ignore stops mount replaying the host-side uid= option, which an
+    # unprivileged container cannot map; nosuid,nodev are restated because
+    # that mode drops them too.
+    ExecStart=/bin/mount --options-mode=ignore -o remount,nosuid,nodev,size=256M /dev/shm
     RemainAfterExit=yes
 
     [Install]
