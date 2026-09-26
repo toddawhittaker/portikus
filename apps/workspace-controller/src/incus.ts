@@ -50,12 +50,15 @@ export class IncusClient {
 		body?: unknown,
 		signal?: AbortSignal,
 		waitTimeout?: number,
+		requestTimeoutMs?: number,
 	): Promise<unknown> {
 		const envelope = await this.rawRequest(
 			method,
 			this.withProject(path),
 			body,
 			signal,
+			undefined,
+			requestTimeoutMs,
 		);
 
 		if (envelope.type === "async" && envelope.operation) {

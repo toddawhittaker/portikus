@@ -24,4 +24,8 @@ test("a new workspace waiting for room in the storage pool says why", async ({
 	const progress = page.getByTestId("workspace-progress");
 	await expect(progress).toHaveAttribute("data-phase", "starting", { timeout: 15_000 });
 	await expect(page.getByTestId("workspace-waiting")).toHaveText(MESSAGE);
+	await expect(
+		page.getByRole("heading", { name: "Waiting for room for your workspace" }),
+	).toBeVisible();
+	await expect(progress.locator(".pk-spin")).toHaveCount(0);
 });

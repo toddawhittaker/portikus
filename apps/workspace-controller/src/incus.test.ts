@@ -423,6 +423,25 @@ test("a request with no signal times out at the default", async () => {
 	}
 });
 
+test("a request can be given its own longer bound", async () => {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		handler = () => {
+			// Never answer.
+		};
+		const client = new IncusClient({ socketPath, project: "testproj" });
+		const caught = client
+			.request("POST", "/1.0/hang", {}, undefined, undefined, 60_000)
+			.catch((e: unknown) => e);
+		await vi.advanceTimersByTimeAsync(59_999);
+		expect(await Promise.race([caught, Promise.resolve("pending")])).toBe("pending");
+		await vi.advanceTimersByTimeAsync(1);
+		expect((await caught) as IncusError).toMatchObject({ code: "TIMEOUT" });
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
 test("an operation wait is bounded at its own timeout plus 5 seconds", async () => {
 	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 	try {

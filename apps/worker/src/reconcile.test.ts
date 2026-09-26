@@ -6,7 +6,7 @@ import {
 } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { KyselyPlugin, PluginTransformQueryArgs, RootOperationNode } from "kysely";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
 import { doStop, type ReconcileConfig, reconcile, settleStops } from "./reconcile.js";
@@ -67,6 +67,25 @@ beforeEach(async () => {
 	fake.stopHold = null;
 	fake.listResult = [];
 	await setGlobalGrace(cfg.SHUTDOWN_GRACE_SECONDS);
+});
+
+/** Held stops still waiting; afterEach releases them so a failure cannot cascade. */
+let heldStops: Array<() => void> = [];
+
+/** Make every stop wait until the returned function is called. */
+function holdStops(): () => void {
+	let release = (): void => {};
+	fake.stopHold = new Promise<void>((r) => {
+		release = r;
+	});
+	heldStops.push(release);
+	return release;
+}
+
+afterEach(async () => {
+	for (const release of heldStops) release();
+	heldStops = [];
+	await settleStops();
 });
 
 /** Set (or insert) the platform-wide grace period. */
@@ -426,20 +445,13 @@ test.skipIf(skip)(
 	"forced stop is audited even when the row already moved to stopped",
 	async () => {
 		fake.stopResult = { forced: true };
-		const now = new Date();
 		const id = await insertWorkspace({
 			state: "stopped",
 			desired_state: "stopped",
 			incus_instance_name: "ws-already-stopped",
 		});
 
-		await doStop(
-			tdb.db,
-			fake,
-			cfg,
-			{ id, incus_instance_name: "ws-already-stopped" },
-			now,
-		);
+		await doStop(tdb.db, fake, cfg, { id, incus_instance_name: "ws-already-stopped" });
 
 		const audits = await getAudits(id);
 		expect(audits.some((a) => a.action === "workspace.stop")).toBe(true);
@@ -499,13 +511,10 @@ test.skipIf(skip)("a connect during a stop is not overwritten", async () => {
 		.where("id", "=", id)
 		.execute();
 
-	await doStop(
-		tdb.db,
-		fake,
-		cfg,
-		{ id, incus_instance_name: "ws-connect-during-stop" },
-		now,
-	);
+	await doStop(tdb.db, fake, cfg, {
+		id,
+		incus_instance_name: "ws-connect-during-stop",
+	});
 
 	let ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
@@ -1800,10 +1809,7 @@ test.skipIf(skip)(
 test.skipIf(skip)(
 	"a hung stop does not delay the next sweep's start",
 	async () => {
-		let release = (): void => {};
-		fake.stopHold = new Promise<void>((r) => {
-			release = r;
-		});
+		const release = holdStops();
 		const now = new Date();
 		const stuck = await insertWorkspace({ state: "running", desired_state: "stopped" });
 		await reconcile(tdb.db, fake, cfg, now, now);
@@ -1827,10 +1833,7 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)("the list check leaves a stop in flight alone", async () => {
-	let release = (): void => {};
-	fake.stopHold = new Promise<void>((r) => {
-		release = r;
-	});
+	const release = holdStops();
 	const now = new Date();
 	const name = "ws-stop-in-flight";
 	const id = await insertWorkspace({
@@ -1848,4 +1851,55 @@ test.skipIf(skip)("the list check leaves a stop in flight alone", async () => {
 	release();
 	await settleStops();
 	expect((await getWorkspace(id)).state).toBe("stopped");
+});
+
+test.skipIf(skip)(
+	"a stop that ends while the list is read is not undone by the stale list",
+	async () => {
+		const release = holdStops();
+		const now = new Date();
+		const name = "ws-stop-during-list";
+		const id = await insertWorkspace({
+			state: "running",
+			desired_state: "stopped",
+			incus_instance_name: name,
+		});
+		await reconcile(tdb.db, fake, cfg, now, now);
+		expect((await getWorkspace(id)).state).toBe("stopping");
+
+		// The list was taken before the stop finished, so it still says Running.
+		const list = fake.list;
+		fake.list = async () => {
+			release();
+			await settleStops();
+			return [{ name, status: "Running", ipv4: "10.0.0.9" }];
+		};
+		try {
+			await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 60_000), null);
+		} finally {
+			fake.list = list;
+		}
+
+		expect((await getWorkspace(id)).state).toBe("stopped");
+		expect((await getAudits(id)).map((a) => a.action)).not.toContain(
+			"workspace.observed_running",
+		);
+	},
+);
+
+test.skipIf(skip)("a stop records the time it finished, not the sweep's", async () => {
+	const release = holdStops();
+	const sweepAt = new Date(Date.now() - 60 * 60 * 1000);
+	const id = await insertWorkspace({
+		state: "running",
+		desired_state: "stopped",
+		incus_instance_name: "ws-stop-time",
+	});
+	await reconcile(tdb.db, fake, cfg, sweepAt, sweepAt);
+	const beforeRelease = Date.now();
+	release();
+	await settleStops();
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("stopped");
+	expect(new Date(ws.updated_at).getTime()).toBeGreaterThanOrEqual(beforeRelease);
 });

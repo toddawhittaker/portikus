@@ -416,11 +416,15 @@ setTimeout(() => process.exit(1), 60000);'
   check "heavy: the site answers within 15 s of Caddy being killed" test "$lim_took" != never -a "${lim_took/never/99}" -le 15
   check "heavy: Caddy runs as a new process" test "$(lim_main_pid caddy)" != "$lim_pid_before"
   lim_pid_before=$(lim_main_pid postgresql@17-main)
+  lim_api_pid=$(lim_main_pid portikus-api)
+  lim_worker_pid=$(lim_main_pid portikus-worker)
   sec_ssh "sudo systemctl kill -s KILL postgresql@17-main"
   lim_took=$(lim_back_in 40 lim_db_ok)
   echo "PostgreSQL killed: the API read the database again after ${lim_took} s"
   check "heavy: the API reads the database within 30 s of PostgreSQL being killed" test "$lim_took" != never -a "${lim_took/never/99}" -le 30
   check "heavy: PostgreSQL runs as a new process" test "$(lim_main_pid postgresql@17-main)" != "$lim_pid_before"
+  check "heavy: the API survives PostgreSQL being killed" test "$(lim_main_pid portikus-api)" = "$lim_api_pid"
+  check "heavy: the worker survives PostgreSQL being killed" test "$(lim_main_pid portikus-worker)" = "$lim_worker_pid"
   check "heavy: the API, worker and controller are all active afterwards" \
     sec_ssh systemctl is-active portikus-api portikus-worker portikus-controller
   sec_hold_presence a

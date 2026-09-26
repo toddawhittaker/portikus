@@ -44,6 +44,12 @@ const COPY: Record<StartingPhase, [string, string]> = {
 	],
 };
 
+/** A new workspace waiting for room in the storage pool (SPEC.md §20.1). */
+const POOL_FULL_COPY: [string, string] = [
+	"Waiting for room for your workspace",
+	"Portikus will create it as soon as there is room. You can leave this page open or come back later.",
+];
+
 /** What the wait is while a maintenance operation runs (SPEC.md §16.4, §17.2, §27). */
 const PENDING_COPY: Record<PendingOperation, [string, string]> = {
 	"reset-docker": [
@@ -89,8 +95,15 @@ export function WorkspaceStarting({
 }) {
 	const phase = startingPhase(workspace);
 	const pending = workspace?.pendingOperation ?? null;
-	const [heading, sub] = pending ? PENDING_COPY[pending] : COPY[phase];
-	const at = STEPS.indexOf(phase as (typeof STEPS)[number]);
+	const waitingForRoom =
+		workspace?.state === "provisioning" && workspace.errorCode === "POOL_FULL";
+	const [heading, sub] = pending
+		? PENDING_COPY[pending]
+		: waitingForRoom
+			? POOL_FULL_COPY
+			: COPY[phase];
+	// No spinner while waiting for room: nothing is starting yet.
+	const at = waitingForRoom ? -1 : STEPS.indexOf(phase as (typeof STEPS)[number]);
 
 	return (
 		<>

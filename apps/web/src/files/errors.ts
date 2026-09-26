@@ -42,6 +42,8 @@ const MESSAGES: Record<string, string> = {
 	AGENT_UNAVAILABLE: "The workspace is not responding. Try again in a moment.",
 	FILE_EXISTS: "Something with that name already exists here",
 	FILE_TOO_LARGE: `Files must be ${MAX_UPLOAD_MB} MB or smaller`,
+	RATE_LIMITED: "Too many file changes just now. Wait a minute, then try again.",
+	SERVICE_BUSY: "Portikus is busy. Try again in a moment.",
 };
 
 /** True when the failure is an upload that clashed with an existing file. */

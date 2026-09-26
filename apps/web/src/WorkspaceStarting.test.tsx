@@ -31,6 +31,10 @@ test("a new workspace waiting for room says why", () => {
 	expect(screen.getByTestId("workspace-waiting").textContent).toBe(
 		"There is no room for a new workspace right now. Your administrator has been told.",
 	);
+	expect(screen.getByRole("heading").textContent).toBe(
+		"Waiting for room for your workspace",
+	);
+	expect(document.querySelector(".pk-spin")).toBeNull();
 });
 
 test("a running workspace is reopening tabs", () => {

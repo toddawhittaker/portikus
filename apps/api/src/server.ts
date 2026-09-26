@@ -2,7 +2,7 @@ import websocket from "@fastify/websocket";
 import { authPlugin, type DexApi, type OidcClient } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import { type ApiError, HealthResponse } from "@portikus/contracts";
-import { type Database, isPoolTimeout } from "@portikus/db";
+import { type Database, isDatabaseUnavailable } from "@portikus/db";
 import {
 	type Logger,
 	quietLogController,
@@ -12,6 +12,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
 import { createListeningRegistry } from "./preview/registry.js";
+import { fileWriteLimit } from "./rate-limit.js";
 import { registerAcceptableUseRoutes } from "./routes/acceptable-use.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
@@ -152,8 +153,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 			reply.status(status).send(body);
 			return;
 		}
-		if (isPoolTimeout(error)) {
-			request.log.warn("no database connection was free in time");
+		if (isDatabaseUnavailable(error)) {
+			request.log.warn("no database connection was available");
 			const body: ApiError = {
 				code: "SERVICE_BUSY",
 				message: "The server is busy. Try again in a moment.",
@@ -192,6 +193,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// Every route lives inside this plugin, so an onRoute hook added after
 	// buildServer returns still sees all of them (authz-matrix.test.ts).
+	// One file-write count for the files and projects routes together.
+	const limitFileWrites = fileWriteLimit(deps.config);
 	app.register(async (instance) => {
 		instance.get("/health", () => {
 			const body: HealthResponse = {
@@ -209,9 +212,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerWorkspaceSocket(instance, routeDeps);
 		registerPreviewRoutes(instance, routeDeps);
 		registerTerminalRoutes(instance, deps);
-		registerProjectRoutes(instance, deps);
+		registerProjectRoutes(instance, deps, limitFileWrites);
 		registerRecoveryRoutes(instance, deps);
-		registerFileRoutes(instance, deps);
+		registerFileRoutes(instance, deps, limitFileWrites);
 		registerGitSearchRoutes(instance, deps);
 		registerCheckRoutes(instance, deps);
 		registerUsageRoutes(instance, deps);
