@@ -166,6 +166,41 @@ With the caps in place, the security suite also checks that each service except 
 
 What this shows: a workspace that allocates past its own limit is stopped inside its own control group, and nothing else notices, with or without the adjustment. The adjustment matters when the VM as a whole runs out, which happens when several workspaces each stay under 4 GB. There, the kernel ranks by OOM score, and the platform's scores dropped from about 668 to about 70, below any workspace process with real memory use. A VM-wide out-of-memory event was not forced on the shared rehearsal VM.
 
+## When a service crashes
+
+Every platform service restarts on its own after a crash or a kill: the API, the worker, the controller, Dex, Caddy and PostgreSQL 5 seconds after it stops, and the egress proxy (Squid) after 2 seconds. Each has `Restart=on-failure`. The Portikus units set it in `packaging/systemd`, Dex's unit is written by the `dex` role, Squid's drop-in by the `egress_proxy` role, and Caddy and PostgreSQL get it in the same drop-ins that set their out-of-memory adjustment. A clean stop, such as `systemctl stop`, is not restarted. With a 5-second delay, systemd's default start limit (5 starts in 10 seconds) can never trip, so a service that keeps crashing keeps being retried rather than being left down for good.
+
+There are no systemd watchdogs. A process that is still running but stuck would not be restarted. Adding them needs each service to report its health to systemd, and nothing so far suggests the services get stuck.
+
+The heavy security tests (`PORTIKUS_SECURITY_HEAVY=1`) kill Caddy and PostgreSQL with `SIGKILL`. The site must answer again within 15 seconds of Caddy's kill, and the API must read the database again within 30 seconds of PostgreSQL's, without anyone restarting a unit.
+
+## When the VM is busy
+
+Linux shares a busy CPU among sibling control groups by their CPU weight. Every platform service (the API, the worker, the controller, Caddy, PostgreSQL, Dex and the Incus daemon) runs in `system.slice`, and each workspace is its own `lxc.payload.*` group beside it. By default each has a weight of 100, so the whole platform counts as one busy workspace. The `base` role gives `system.slice` a weight of 1000, so when the CPUs are full the platform gets about ten times the share of any one busy workspace. A workspace still uses every CPU it is given when the platform is idle; the weight only matters when they compete.
+
+Memory works in a similar way. `MemoryLow` asks the kernel to reclaim a group's memory, such as its cached database pages, only after it has reclaimed from groups without protection. PostgreSQL and the API each have `MemoryLow=256M`. A unit's protection only counts up to what its parent is given, so `system.slice` has `MemoryLow=512M` and PostgreSQL's own slice, `system-postgresql.slice`, has 256M. The out-of-memory order is unchanged (see "When memory runs out").
+
+Disk is not weighted. Weights for disk I/O only take effect with the BFQ disk scheduler, which the VM's virtual disks do not use. PostgreSQL and the journal are on the root disk, and workspaces are on the data disk, so they do not compete for the same device inside the VM. The workspace profile sets no `limits.cpu.priority` either; the slice weight alone gives the platform its priority.
+
+The heavy security tests check this. Workspaces `a` and `b` each fill their CPUs and write to disk for 45 seconds, while `/health` through the edge and a terminal echo in `b` must each answer within one second. This contends the platform only when the two workspaces' CPUs cover the whole VM, as on the pilot's 4 vCPUs.
+
+## Network bandwidth
+
+Each workspace's network interface is limited to 200 Mbit/s in each direction, about 25 MB/s (`workspace_network_limit` in `infra/ansible/site.yml`, set as `limits.ingress` and `limits.egress` on the workspace profile's `eth0`). No single workspace can then fill the VM's uplink, which every student shares to reach the site and each other's previews, while Docker image pulls and previews stay comfortable. Changing the value and running `make configure-vm` applies it to running workspaces too.
+
+The connection-tracking table (262,144 entries) and the DNS and DHCP service on the workspace bridge are still shared by all workspaces. There is no sign of pressure on either, so neither has a per-workspace limit.
+
+## When the storage pool fills
+
+Workspace volumes are thin: each promises more space than it uses, and together they promise several times the pool's real size. The pool can therefore fill even though no single workspace is over its quota. The pool has two parts that can fill: the data itself, and the metadata, the pool's own record of which blocks belong to which volume. Either one full stops all writes.
+
+- **A full pool fails writes at once.** The `lvm` role sets the pool to `--errorwhenfull y`. With LVM's default, a full pool holds every write for about 60 seconds before failing it, which freezes every running workspace at the same moment and can hang Incus operations, and with them the worker. Now the program that writes gets "No space left on device" straight away, and the platform keeps working.
+- **Metadata use is measured.** Incus reports only data use, and the controller runs without the privileges `lvs` needs. So a root timer, `portikus-thinpool-status.timer`, writes both figures to `/run/portikus-thinpool.json` every minute, as `{"observedAt": ..., "dataPercent": ..., "metadataPercent": ...}`. The controller treats a missing file, or one more than five minutes old, as "unknown".
+- **70% warns the administrator.** The pool's fill is the larger of data and metadata use. From 70% the Health tab shows a warning, and every administrator gets a notification without having to open the tab.
+- **90% refuses new workspaces.** From 90% the controller refuses to create a workspace, and the student sees that there is no room right now. Starting, stopping and rebuilding existing workspaces still work. The refused workspace is created once space is freed.
+
+The smoke test reads back the pool's full behaviour, the timer and the status file on every run.
+
 ## Backups in the thin pool
 
 The nightly backup (docs/adr/0024-backups-pulled-to-host.md) uses the same thin pool as the workspaces, `workspace-data`:
