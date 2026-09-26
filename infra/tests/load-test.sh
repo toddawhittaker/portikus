@@ -148,7 +148,7 @@ mint_users() {
     values="${values}${values:+,}('${subject}', '${hash}')"
     tokens+=("{\"key\":\"${key}\",\"token\":\"${token}\"}")
   done
-  psql_vm "WITH v(subject, hash) AS (VALUES ${values}), u AS (INSERT INTO users (oidc_issuer, oidc_subject, display_name, preferred_username, role) SELECT '${ISSUER}', subject, 'Load test ' || subject, subject, 'student' FROM v RETURNING id, oidc_subject) INSERT INTO sessions (id, user_id, expires_at) SELECT v.hash, u.id, now() + interval '3 hours' FROM u JOIN v ON v.subject = u.oidc_subject" >/dev/null \
+  psql_vm "WITH v(subject, hash) AS (VALUES ${values}), u AS (INSERT INTO users (oidc_issuer, oidc_subject, display_name, preferred_username, role, acceptable_use_version, acceptable_use_accepted_at) SELECT '${ISSUER}', subject, 'Load test ' || subject, subject, 'student', (SELECT COALESCE((SELECT acceptable_use_version FROM settings WHERE id = 1), 1)), now() FROM v RETURNING id, oidc_subject) INSERT INTO sessions (id, user_id, expires_at) SELECT v.hash, u.id, now() + interval '3 hours' FROM u JOIN v ON v.subject = u.oidc_subject" >/dev/null \
     || { echo "Could not create the load-test users." >&2; return 1; }
   echo "Created ${N} student users under ${ISSUER}."
   STUDENTS_JSON="[$(IFS=,; echo "${tokens[*]}")]"
