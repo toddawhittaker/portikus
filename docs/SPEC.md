@@ -2512,6 +2512,22 @@ whose arrow keys read each bucket aloud. The host charts show pool and
 memory use and the 1, 5 and 15 minute load, each the maximum in its
 bucket, with the CPU count as a reference line.
 
+As built (Epic 19, activity): the Trends card has a per-workspace heat
+map, one row per workspace with a guard sample in the window and one
+cell per bucket, capped at the 50 highest peaks and sorted by owner
+name. A cell holds the highest CPU % (the guard's arithmetic: CPU time
+over the limit's allowance) or memory % (working set over the limit) in
+the bucket, with a CPU and Memory toggle. Cells shade in four steps of
+the accent colour, and a cell at or over the workspace's effective guard
+threshold is hatched in the warning colour. The map is an HTML table, so
+each cell's value and threshold are read aloud, and each row shows its
+peak as text and links to the owner's detail panel. Usage samples are
+kept about 4 hours, so the map covers at most that and says so on longer
+ranges; stopped workspaces have none. Two count charts show guard events
+(throttles, memory flags, idle stops, and lifts) and activity (start
+requests, stop requests including idle stops, and successful sign-ins)
+per bucket from the audit log, with totals for the range as the summary.
+
 ### 25.7 Maintainability
 
 Major subsystems should have clear interfaces.
