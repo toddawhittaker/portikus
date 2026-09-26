@@ -42,6 +42,26 @@ const INPUT_QUEUE_MAX_BYTES = 64 * 1024;
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 
+/** Enough of the attach client's output to hold its final exit line. */
+const TAIL_CHARS = 128;
+
+/**
+ * Whether the tmux attach client's last line says the server died: tmux
+ * 3.4 and 3.5a print "[exited]" when the session ends and "[server exited]"
+ * or "[server exited unexpectedly]" when the server goes. Only the final
+ * line counts, because the client prints it after the pane's output, so a
+ * student's own "[server exited]" is overwritten by "[exited]". A forged
+ * line that ends the stream costs one bounded exit-record lookup (§9.7).
+ * Undefined means no such line, so the caller asks tmux instead.
+ */
+export function attachExitReason(tail: string): boolean | undefined {
+	const match = /\[(exited|server exited|server exited unexpectedly)\]\r?\n?$/.exec(
+		tail,
+	);
+	if (!match) return undefined;
+	return match[1] !== "exited";
+}
+
 interface Attachment {
 	terminalId: string;
 	socket: WebSocket;
@@ -56,6 +76,8 @@ interface Attachment {
 	pendingResize: { cols: number; rows: number } | null;
 	/** Set when the socket closes, including before the PTY exists. */
 	closed: boolean;
+	/** The end of the attach client's output, for its exit line. */
+	tail: string;
 	/** The full early-input queue has already been logged for this socket. */
 	warnedQueueFull: boolean;
 }
@@ -151,6 +173,7 @@ export class TerminalRegistry {
 			pendingTimer: null,
 			pendingResize: null,
 			closed: false,
+			tail: "",
 			warnedQueueFull: false,
 		};
 		existing.add(attachment);
@@ -219,6 +242,7 @@ export class TerminalRegistry {
 
 		pty.onData((data) => {
 			this.flushPendingInput(attachment);
+			attachment.tail = (attachment.tail + data).slice(-TAIL_CHARS);
 			socket.send(Buffer.from(data, "utf8"), { binary: true });
 			this.applyBackpressure(attachment);
 		});
@@ -228,12 +252,15 @@ export class TerminalRegistry {
 			if (attachment.closed) return;
 			// Whether the server died tells the control plane if a crash
 			// record is worth waiting for (SPEC.md §9.7).
-			void tmuxServerGone(this.server)
-				.catch(() => false)
-				.then((serverGone) => {
-					sendText(socket, { type: "exit", serverGone });
-					socket.close(1000, "terminal exited");
-				});
+			const said = attachExitReason(attachment.tail);
+			const gone =
+				said === undefined
+					? tmuxServerGone(this.server).catch(() => false)
+					: Promise.resolve(said);
+			void gone.then((serverGone) => {
+				sendText(socket, { type: "exit", serverGone });
+				socket.close(1000, "terminal exited");
+			});
 		});
 	}
 

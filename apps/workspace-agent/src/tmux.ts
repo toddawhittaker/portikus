@@ -350,28 +350,13 @@ export async function listSessions(server: TmuxServer): Promise<TmuxSession[]> {
  */
 export async function tmuxServerGone(server: TmuxServer): Promise<boolean> {
 	if (!server.external) return false;
-	// A server that is shutting down can still answer with no sessions or
-	// drop the client mid-reply, so both are asked again before they count.
-	for (let attempt = 0; ; attempt++) {
-		let sessions = "";
-		try {
-			sessions = await tmux(["list-sessions", "-F", "#{session_name}"], server);
-		} catch (error) {
-			if (error instanceof TmuxMissing) return true;
-			if (
-				!(error instanceof Error) ||
-				!/server exited|lost server/.test(error.message)
-			) {
-				return false;
-			}
-		}
-		if (sessions.trim() !== "" || attempt >= SERVER_GONE_RETRIES) return false;
-		await new Promise((resolve) => setTimeout(resolve, SERVER_GONE_RETRY_MS));
+	try {
+		await tmux(["list-sessions", "-F", "#{session_name}"], server);
+		return false;
+	} catch (error) {
+		return error instanceof TmuxMissing;
 	}
 }
-
-const SERVER_GONE_RETRIES = 10;
-const SERVER_GONE_RETRY_MS = 100;
 
 export async function hasSession(id: string, server: TmuxServer): Promise<boolean> {
 	try {

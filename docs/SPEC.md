@@ -945,9 +945,12 @@ the file's modification time, or `{"exit":null}` when there is no record
 (images before 2026.09.11) or the record is not a plain result word. When
 the agent says a terminal's session is gone (`TERMINAL_NOT_FOUND` on
 attach), or ends an open terminal with `{"type":"exit","serverGone":true}`
-(the agent checks with tmux after the pane's attach client exits, and
-`serverGone` is true only when the terminals unit's tmux server is not
-there), the control plane asks for that record (after an `exit` it asks
+(the agent reads the attach client's final line, where tmux prints
+`[exited]` for an ended session and `[server exited]` or
+`[server exited unexpectedly]` when the server died, and asks tmux only
+when no such line ends the output; `serverGone` is true only when the
+terminals unit's tmux server is gone, and a line a student forges costs
+at most the one bounded record lookup), the control plane asks for that record (after an `exit` it asks
 again for up to 2 seconds, because the unit writes the record only once
 its processes are gone), and if the
 stop came after the terminal's creation time, sends the browser

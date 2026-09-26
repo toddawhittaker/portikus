@@ -66,14 +66,4 @@ describe("tmuxServerGone", () => {
 		await fakeTmux("exit 0");
 		expect(await tmuxServerGone(server)).toBe(false);
 	});
-
-	it("asks again while a stopping server still answers, then says gone", async () => {
-		for (const dying of [`echo "server exited unexpectedly" >&2; exit 1`, "exit 0"]) {
-			await rm(join(dir, "calls"), { force: true });
-			await fakeTmux(
-				`if [ "$(wc -l < "${dir}/calls")" -lt 3 ]; then ${dying}; fi\necho "no server running on /tmp/tmux-1000/fake" >&2; exit 1`,
-			);
-			expect(await tmuxServerGone(server)).toBe(true);
-		}
-	});
 });

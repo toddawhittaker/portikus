@@ -659,17 +659,11 @@ export class ListeningMonitor {
 	private async scanOrFail(): Promise<void> {
 		let failed = false;
 		// Other callers share this promise, so it never rejects for them.
-		this.inFlight = this.scan().then(
-			(services) => this.publish(services),
-			(error: unknown) => {
-				failed = true;
-				this.logger?.debug(
-					{ error: error instanceof Error ? error.message : String(error) },
-					"listening scan failed",
-				);
-				return this.services;
-			},
-		);
+		this.inFlight = this.tryScan().then((services) => {
+			if (services) return this.publish(services);
+			failed = true;
+			return this.services;
+		});
 		try {
 			await this.inFlight;
 		} finally {
@@ -685,17 +679,21 @@ export class ListeningMonitor {
 	}
 
 	private async runScan(): Promise<AgentListeningService[]> {
-		let services: AgentListeningService[];
+		const services = await this.tryScan();
+		return services ? this.publish(services) : this.services;
+	}
+
+	/** One scan, or null when it failed, which is logged here. */
+	private async tryScan(): Promise<AgentListeningService[] | null> {
 		try {
-			services = await this.scan();
+			return await this.scan();
 		} catch (error) {
 			this.logger?.debug(
 				{ error: error instanceof Error ? error.message : String(error) },
 				"listening scan failed",
 			);
-			return this.services;
+			return null;
 		}
-		return this.publish(services);
 	}
 
 	private publish(services: AgentListeningService[]): AgentListeningService[] {

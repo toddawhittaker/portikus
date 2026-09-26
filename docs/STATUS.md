@@ -2934,8 +2934,8 @@ Delivered:
   read, and tmux failures no longer mistaken for a missing session.
 - The closing task fixed a race that made a unit test flaky: a tmux
   server that is shutting down can still answer with no sessions or drop
-  the client, and the agent now asks again before deciding the server is
-  still there.
+  the client. The agent now takes whether the server died from the attach
+  client's final line, and asks tmux only when that line is missing.
 
 Gaps:
 
