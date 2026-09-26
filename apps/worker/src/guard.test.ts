@@ -707,6 +707,25 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"a workspace busy at its small throttle share does not lift",
+	async () => {
+		const ws = await insertWorkspace({
+			guard_config: JSON.stringify({ windowMinutes: 5, throttleSharePercent: 10 }),
+		});
+		// 9% is under the 10% quiet percent but not under half the 10% share.
+		const h = liftHarness(ws.instance, 0.09);
+		await h.tick();
+		await h.steps(5);
+		expect((await row(ws.id)).cpu_throttle).toMatchObject({ sharePercent: 10 });
+		await h.steps(15);
+		expect((await row(ws.id)).cpu_throttle).not.toBeNull();
+		expect((await audits(ws.id)).map((a) => a.action)).toEqual([
+			"workspace.cpu_throttled",
+		]);
+	},
+);
+
 test.skipIf(skip)("a restart inside the lift window counts as full use", async () => {
 	const ws = await insertWorkspace({
 		guard_config: JSON.stringify({ windowMinutes: 5 }),

@@ -59,3 +59,22 @@ function compareColumn(
 			});
 	}
 }
+
+/**
+ * `rows` in the order `keys` names, with rows it does not name after them in
+ * their own order. Holds the list still while focus is inside it (SPEC.md
+ * §25.8), so the row under a keyboard user does not move.
+ */
+export function keepOrder<T>(
+	rows: readonly T[],
+	keys: readonly string[],
+	keyOf: (row: T) => string,
+): T[] {
+	const rank = new Map(keys.map((key, index) => [key, index]));
+	const known = rows
+		.filter((row) => rank.has(keyOf(row)))
+		.sort(
+			(left, right) => (rank.get(keyOf(left)) ?? 0) - (rank.get(keyOf(right)) ?? 0),
+		);
+	return [...known, ...rows.filter((row) => !rank.has(keyOf(row)))];
+}

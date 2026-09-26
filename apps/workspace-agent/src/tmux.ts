@@ -301,6 +301,18 @@ export async function hasSession(id: string, socketName?: string): Promise<boole
 	}
 }
 
+/** The tmux server's PID on this socket, or null when no server runs. */
+export async function serverPid(socketName?: string): Promise<number | null> {
+	try {
+		const pid = Number(
+			(await tmux(["display-message", "-p", "#{pid}"], socketName)).trim(),
+		);
+		return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+	} catch {
+		return null;
+	}
+}
+
 /** Create the tmux session that backs one terminal (SPEC.md §9.7, §10.2). */
 export async function createSession(
 	id: string,

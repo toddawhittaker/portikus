@@ -1,11 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
-import {
-	GuardDialog,
-	guardDrafts,
-	guardRequest,
-	parseGuardValue,
-} from "./GuardDialog.js";
+import { GuardDialog, guardDrafts, guardRequest } from "./GuardDialog.js";
+import { parseGuardValue } from "./guardFields.js";
 
 test("each guard value keeps to the ranges the platform allows", () => {
 	expect(parseGuardValue("cpuThresholdPercent", "1")).toBe(1);

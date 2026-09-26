@@ -164,6 +164,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 													)
 												}
 												onShowMonitor={() => showMonitor(rightPaneApi, "cpu")}
+												fallbackFocus={workRef}
 												onDismiss={() => {
 													setDismissedThrottleAt(workspace.cpuThrottle?.at ?? null);
 													workRef.current?.focus();
@@ -178,6 +179,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 										<MemoryNotice
 											flag={memoryFlag}
 											onShowMonitor={() => showMonitor(rightPaneApi, "memory")}
+											fallbackFocus={workRef}
 											onDismiss={() => {
 												setDismissedMemoryAt(memoryFlag.at);
 												workRef.current?.focus();
@@ -250,7 +252,8 @@ function useThrottleLiftToast(workspace: Workspace | null) {
 		// A missing workspace is a reconnect, not a lift.
 		if (!workspace) return;
 		const now = workspace.cpuThrottle?.at ?? null;
-		if (throttledAt.current !== null && now === null) {
+		// A stop or restart clears the throttle too; that is not "back to full speed".
+		if (throttledAt.current !== null && now === null && workspace.state === "running") {
 			toast.show({ tone: "success", title: "Your workspace is back to full speed" });
 		}
 		throttledAt.current = now;

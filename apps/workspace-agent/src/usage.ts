@@ -44,6 +44,8 @@ export interface UsageSamplerOptions {
 	selfPid?: number;
 	/** The student's uid. Defaults to the uid the agent runs as. */
 	studentUid?: number;
+	/** The terminals' tmux server PID, never stoppable. Defaults to none. */
+	tmuxPid?: () => Promise<number | null>;
 	now?: () => number;
 	statfs?: (path: string) => Promise<DiskStat>;
 }
@@ -102,28 +104,6 @@ export function parseTotalCpu(text: string): number | null {
 	const fields = line.trim().split(/\s+/).slice(1, 9).map(Number);
 	if (fields.length < 8 || fields.some((value) => !Number.isFinite(value))) return null;
 	return fields.reduce((sum, value) => sum + value, 0);
-}
-
-/**
- * utime and stime from `/proc/<pid>/stat`. The command field is in
- * parentheses and may itself contain spaces and parentheses, so the fields
- * are counted from the last `)`.
- */
-export function parseProcessStat(
-	text: string,
-): { utime: number; stime: number } | null {
-	const end = text.lastIndexOf(")");
-	if (end < 0) return null;
-	const fields = text
-		.slice(end + 1)
-		.trim()
-		.split(/\s+/);
-	// utime is field 14 and stime field 15, which are indexes 11 and 12
-	// of what follows the command.
-	const utime = Number(fields[11]);
-	const stime = Number(fields[12]);
-	if (!Number.isFinite(utime) || !Number.isFinite(stime)) return null;
-	return { utime, stime };
 }
 
 export function parseStatus(
@@ -248,6 +228,7 @@ export class UsageSampler {
 	private readonly cgroupRoot: string | null;
 	private readonly selfPid: number;
 	private readonly studentUid: number;
+	private readonly tmuxPid: () => Promise<number | null>;
 	private readonly now: () => number;
 	private readonly readDisk: (path: string) => Promise<DiskStat>;
 	private previous: Sample | null = null;
@@ -262,6 +243,7 @@ export class UsageSampler {
 		this.readDisk = options.statfs ?? readDisk;
 		this.selfPid = options.selfPid ?? process.pid;
 		this.studentUid = options.studentUid ?? process.getuid?.() ?? 1000;
+		this.tmuxPid = options.tmuxPid ?? (async () => null);
 		if (options.cgroupRoot === null) this.cgroupRoot = null;
 		else if (typeof options.cgroupRoot === "string")
 			this.cgroupRoot = options.cgroupRoot;
@@ -374,6 +356,11 @@ export class UsageSampler {
 		} catch {
 			return found;
 		}
+		const owner = {
+			selfPid: this.selfPid,
+			studentUid: this.studentUid,
+			tmuxPid: await this.tmuxPid(),
+		};
 		await Promise.all(
 			names.map(async (name) => {
 				if (!/^[1-9]\d*$/.test(name)) return;
@@ -383,20 +370,18 @@ export class UsageSampler {
 					readText(join(this.procRoot, name, "status")),
 				]);
 				if (statText === null || statusText === null) return;
-				const stat = parseProcessStat(statText);
+				const stat = parseStatLine(statText);
 				const status = parseStatus(statusText);
-				const life = parseStatLine(statText);
 				const uids = parseStatusUids(statusText);
-				if (!stat || !status || !life || !uids) return;
-				const facts = { pid, ...life, uids };
-				const owner = { selfPid: this.selfPid, studentUid: this.studentUid };
+				if (!stat || !status || !uids) return;
+				const facts = { pid, ...stat, uids };
 				// Anyone else's command line is never read (SPEC.md §24.11).
 				const commandLine = ownedByStudent(facts, owner)
 					? await readCommandLine(this.procRoot, pid)
 					: null;
 				found.set(pid, {
 					ticks: stat.utime + stat.stime,
-					startTicks: life.startTicks,
+					startTicks: stat.startTicks,
 					stoppable: !isProtected(facts, owner),
 					commandLine,
 					residentBytes: status.residentBytes,

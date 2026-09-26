@@ -6,12 +6,13 @@
  */
 import type { UsageProcess, WorkspaceUsage } from "@portikus/contracts";
 import { ConfirmDialog, ConfirmDialogRoot, IconButton } from "@portikus/ui";
-import { useEffect, useRef, useState } from "react";
+import { type FocusEvent, useEffect, useRef, useState } from "react";
 import "./monitor.css";
 import { useRightPaneState } from "../shell/rightPane.js";
 import { formatBytes, formatCpu, formatRate } from "./format.js";
 import {
 	compareProcesses,
+	keepOrder,
 	type ProcessColumn,
 	type ProcessSort,
 	toggleProcessSort,
@@ -22,10 +23,21 @@ import { useWorkspaceUsage } from "./usage.js";
 export function MonitorPane({ workspaceId }: { workspaceId: string }) {
 	const query = useWorkspaceUsage(workspaceId, true);
 	const usage = query.data;
+	const { monitorFocus, setMonitorFocus } = useRightPaneState();
+	const titleRef = useRef<HTMLHeadingElement>(null);
+
+	// A notice or the status bar opened Monitor; focus follows the pane change.
+	useEffect(() => {
+		if (!monitorFocus) return;
+		setMonitorFocus(false);
+		titleRef.current?.focus();
+	}, [monitorFocus, setMonitorFocus]);
 
 	return (
 		<>
-			<h2 className="sr-only">Monitor</h2>
+			<h2 className="sr-only" ref={titleRef} tabIndex={-1} data-testid="monitor-title">
+				Monitor
+			</h2>
 			<div className="pk-pane-body pk-monitor" data-testid="monitor">
 				{usage ? (
 					<Figures workspaceId={workspaceId} usage={usage} />
@@ -67,10 +79,47 @@ function Figures({
 	const [announcement, setAnnouncement] = useState("");
 	const [focusHeading, setFocusHeading] = useState(false);
 	const headingRef = useRef<HTMLHeadingElement>(null);
+	// The row that holds focus, and the order shown while focus is in the list.
+	const focusedKey = useRef<string | null>(null);
+	const heldOrder = useRef<string[] | null>(null);
+	const [focusInList, setFocusInList] = useState(false);
 
-	const processes = usage.processes
+	const sorted = usage.processes
 		.filter((process) => !stopped.has(processKey(process)))
 		.sort((left, right) => compareProcesses(left, right, sort));
+	const processes =
+		focusInList && heldOrder.current
+			? keepOrder(sorted, heldOrder.current, processKey)
+			: sorted;
+	heldOrder.current = focusInList ? processes.map(processKey) : null;
+
+	// A sample can take away the row that held focus (it exited, or was
+	// stopped elsewhere); focus then goes to the heading, not the page.
+	useEffect(() => {
+		const key = focusedKey.current;
+		if (key === null || stopping) return;
+		if (processes.some((process) => processKey(process) === key)) return;
+		const active = document.activeElement;
+		if (active && active !== document.body) return;
+		focusedKey.current = null;
+		setFocusInList(false);
+		headingRef.current?.focus();
+	});
+
+	function onListFocus(event: FocusEvent<HTMLTableSectionElement>) {
+		const row = (event.target as HTMLElement).closest("tr[data-key]");
+		focusedKey.current = row?.getAttribute("data-key") ?? null;
+		setFocusInList(true);
+	}
+
+	function onListBlur(event: FocusEvent<HTMLTableSectionElement>) {
+		const next = event.relatedTarget as Node | null;
+		if (next && event.currentTarget.contains(next)) return;
+		// A removed row blurs with nothing next; the effect above handles that.
+		if (!next && !(event.target as HTMLElement).isConnected) return;
+		focusedKey.current = null;
+		setFocusInList(false);
+	}
 
 	// The Stop button that had focus has gone with its row, so focus moves to
 	// the list's heading rather than falling to the page.
@@ -83,7 +132,12 @@ function Figures({
 	function close() {
 		const current = stopping?.process;
 		setStopping(null);
-		if (current && !processes.some((row) => processKey(row) === processKey(current))) {
+		if (!current) return;
+		if (processes.some((row) => processKey(row) === processKey(current))) {
+			// Focus goes back to its Stop button; if a later sample takes the
+			// row away ("already stopped"), the effect above moves it on.
+			focusedKey.current = processKey(current);
+		} else {
 			setFocusHeading(true);
 		}
 	}
@@ -167,7 +221,7 @@ function Figures({
 						</th>
 					</tr>
 				</thead>
-				<tbody>
+				<tbody onFocus={onListFocus} onBlur={onListBlur}>
 					{processes.length === 0 ? (
 						<tr>
 							<td colSpan={5}>No processes</td>
@@ -247,7 +301,10 @@ function ProcessRow({
 	const detailId = `monitor-command-${process.pid}`;
 	return (
 		<>
-			<tr data-testid={`monitor-process-${process.pid}`}>
+			<tr
+				data-testid={`monitor-process-${process.pid}`}
+				data-key={`${process.pid}:${process.startTicks}`}
+			>
 				<td>{process.pid}</td>
 				<td>{formatCpu(process.cpuPercent)}</td>
 				<td>{formatBytes(process.residentBytes)}</td>

@@ -85,10 +85,13 @@
 	white-space: nowrap;
 }
 
-/* The command column takes what is left and truncates, so the actions stay in view. */
+/*
+ * The command column takes what is left and wraps rather than truncates, so a
+ * long name is readable without hovering and the actions stay in view.
+ */
 .pk-monitor-procs td.pk-monitor-command {
-	overflow: hidden;
-	text-overflow: ellipsis;
+	white-space: normal;
+	overflow-wrap: anywhere;
 	width: 100%;
 	max-width: 0;
 }

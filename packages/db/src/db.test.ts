@@ -2156,7 +2156,6 @@ describe("resource guard migration", () => {
 						.values({
 							workspace_id: ws.id,
 							requested_at: new Date().toISOString(),
-							requested_by: owner,
 						})
 						.execute();
 					await trx.deleteFrom("workspaces").where("id", "=", ws.id).execute();

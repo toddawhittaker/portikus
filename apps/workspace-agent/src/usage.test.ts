@@ -9,6 +9,7 @@ import { WorkspaceUsage } from "@portikus/contracts";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, expect, test } from "vitest";
+import { parseStatLine } from "./processes.js";
 import { buildServer } from "./server.js";
 import {
 	bytesPerSecond,
@@ -17,7 +18,6 @@ import {
 	parseMeminfo,
 	parseMountPoints,
 	parseNetDev,
-	parseProcessStat,
 	parseTotalCpu,
 	roundPercent,
 	statValue,
@@ -36,10 +36,10 @@ test("cpu percent is the change in utime+stime over the change in total CPU time
 	expect(previousTotal).toBe(1000);
 	expect(nextTotal).toBe(1100);
 
-	const previous = parseProcessStat(statLine(7, "node (worker)", 10, 0));
-	const next = parseProcessStat(statLine(7, "node (worker)", 15, 5));
-	expect(previous).toEqual({ utime: 10, stime: 0 });
-	expect(next).toEqual({ utime: 15, stime: 5 });
+	const previous = parseStatLine(statLine(7, "node (worker)", 10, 0));
+	const next = parseStatLine(statLine(7, "node (worker)", 15, 5));
+	expect(previous).toMatchObject({ utime: 10, stime: 0 });
+	expect(next).toMatchObject({ utime: 15, stime: 5 });
 
 	expect(
 		cpuPercentBetween(
@@ -88,6 +88,8 @@ test("two samples produce process and workspace CPU from every process", async (
 		statfs: async () => ({ blocks: 10, bfree: 4, bsize: 1024 }),
 		studentUid: STUDENT,
 		selfPid: 4242,
+		// The agent's tmux server is never stoppable, whatever its name.
+		tmuxPid: async () => 9,
 	});
 	try {
 		await writeSample(root, {
@@ -170,7 +172,7 @@ test("two samples produce process and workspace CPU from every process", async (
 				residentBytes: 10 * 1024,
 				command: "fresh",
 				startTicks: 90,
-				stoppable: true,
+				stoppable: false,
 				commandLine: null,
 			},
 		]);

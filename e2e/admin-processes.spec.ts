@@ -139,10 +139,14 @@ test("an administrator reads the processes, stops one, and force-stops another",
 	await expect(table.locator("b")).toHaveCount(0);
 	await table.getByRole("button", { name: "Memory" }).click();
 	await expect(rows.nth(0)).toContainText("stubborn");
-	// The agent is protected: no Stop button.
+	// The agent is protected: no Stop button, and the row says why.
 	await expect(
 		section.getByRole("button", { name: /Stop portikus-agent/ }),
 	).toHaveCount(0);
+	await expect(section.getByTestId(`processes-protected-${AGENT.pid}`)).toHaveText(
+		"Protected: the system or Portikus needs this process, so it cannot be stopped here.",
+	);
+	await expect(table.getByRole("button", { name: "Memory" })).toHaveText("Memory ↓");
 
 	await section.getByRole("button", { name: "Stop <b>miner</b> (PID 42)" }).click();
 	const dialog = page.getByTestId("dialog-admin-stop-process");
@@ -170,13 +174,13 @@ test("an administrator reads the processes, stops one, and force-stops another",
 	await expect(studentPage.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 	await studentPage.getByTestId("me").click();
 	await studentPage.getByRole("menuitem", { name: "Notifications" }).click();
+	// Two stops ended processes; the Stop that stubborn survived told nobody.
 	await expect(
 		studentPage
 			.getByTestId("dialog-notifications")
 			.getByTestId("notification")
-			.filter({ hasText: "An administrator stopped a process in your workspace" })
-			.first(),
-	).toBeVisible();
+			.filter({ hasText: "An administrator stopped a process in your workspace" }),
+	).toHaveCount(2);
 	await context.close();
 });
 

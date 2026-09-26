@@ -227,6 +227,8 @@ function SharedPane({ onShow }: { onShow: (show: (pane: RightPane) => void) => v
 				show: setPane,
 				monitorSort: DEFAULT_PROCESS_SORT,
 				setMonitorSort: () => {},
+				monitorFocus: false,
+				setMonitorFocus: () => {},
 			}}
 		>
 			<FilesPane workspaceId={WORKSPACE} project={project()} />

@@ -84,6 +84,8 @@ test("See what's using CPU opens Monitor sorted by CPU, and the notice says when
 
 	await notice.getByRole("button", { name: "See what's using CPU" }).click();
 	await expectMonitorSortedBy(page, "CPU");
+	// Focus follows the pane change.
+	await expect(page.getByTestId("monitor-title")).toBeFocused();
 });
 
 test("the memory notice explains the flag and opens Monitor sorted by memory", async ({
@@ -91,10 +93,14 @@ test("the memory notice explains the flag and opens Monitor sorted by memory", a
 	context,
 }) => {
 	const student = await createStudent(context);
-	await flagMemory(student.workspaceId);
 	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("workspace-state")).toHaveText("Running", {
+		timeout: 15_000,
+	});
+	// Flagged while the page is open: the socket must bring it.
+	await flagMemory(student.workspaceId);
 	const notice = page.getByTestId("memory-notice");
-	await expect(notice).toBeVisible({ timeout: 15_000 });
+	await expect(notice).toBeVisible();
 	await expect(notice).toContainText("Your workspace has been near its memory limit");
 	await expect(notice).toContainText(
 		"For 10 minutes it used more than 90% of its memory. If it runs out, the biggest program is stopped.",
@@ -105,8 +111,28 @@ test("the memory notice explains the flag and opens Monitor sorted by memory", a
 
 	await notice.getByRole("button", { name: "See what's using memory" }).click();
 	await expectMonitorSortedBy(page, "Memory");
+	await expect(page.getByTestId("monitor-title")).toBeFocused();
 
 	await notice.getByRole("button", { name: "Dismiss the memory notice" }).click();
+	await expect(notice).toHaveCount(0);
+	await expect(page.getByRole("main", { name: "Work area" })).toBeFocused();
+});
+
+test("an administrator clearing the memory flag takes the notice away on an open page", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await flagMemory(student.workspaceId);
+	await page.goto(workspacePath(student.workspaceId));
+	const notice = page.getByTestId("memory-notice");
+	await expect(notice).toBeVisible({ timeout: 15_000 });
+	// The notice holds focus when it goes, so focus must land on the work area.
+	await notice.getByRole("button", { name: "Dismiss the memory notice" }).focus();
+	await query(
+		"update workspaces set memory_flag = null, updated_at = now() where id = $1",
+		[student.workspaceId],
+	);
 	await expect(notice).toHaveCount(0);
 	await expect(page.getByRole("main", { name: "Work area" })).toBeFocused();
 });
@@ -118,15 +144,20 @@ test("the status bar warns about memory at 85% and opens Monitor sorted by memor
 	const student = await createStudent(context);
 	await seedMemory(student.workspaceId, 90 * GIB, 100 * GIB);
 	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("workspace-state")).toHaveText("Running", {
+		timeout: 15_000,
+	});
 
+	// Until its first sample the status bar asks every 2 s, not every 30 s.
 	const warning = page.getByTestId("memory-warning");
-	await expect(warning).toBeVisible({ timeout: 15_000 });
+	await expect(warning).toBeVisible({ timeout: 5000 });
 	await expect(warning).toHaveText("Memory 90.0 GB of 100 GB");
-	await expect(page.getByTestId("storage-warning-announce")).toHaveText(
+	await expect(page.getByTestId("memory-warning-announce")).toHaveText(
 		"Your workspace is using most of its memory.",
 	);
 	await warning.click();
 	await expectMonitorSortedBy(page, "Memory");
+	await expect(page.getByTestId("monitor-title")).toBeFocused();
 });
 
 test("below 85% the status bar says nothing about memory", async ({
@@ -163,4 +194,23 @@ test("a toast says so when the throttle lifts while the page is open", async ({
 		timeout: 15_000,
 	});
 	await expect(page.getByTestId("throttle-notice")).toHaveCount(0);
+});
+
+test("stopping a throttled workspace shows no back-to-full-speed toast", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await throttle(student.workspaceId);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("throttle-notice")).toBeVisible({ timeout: 15_000 });
+
+	// What the worker does when it records a stop: the throttle goes with it.
+	await query(
+		"update workspaces set state = 'stopping', desired_state = 'stopped', cpu_throttle = null, updated_at = now() where id = $1",
+		[student.workspaceId],
+	);
+	await expect(page.getByTestId("throttle-notice")).toHaveCount(0);
+	await expect(page.getByTestId("workspace-state")).toHaveText("Stopping");
+	await expect(toast(page, "Your workspace is back to full speed")).toHaveCount(0);
 });

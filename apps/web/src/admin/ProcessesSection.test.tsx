@@ -85,12 +85,15 @@ function renderSection(running = true) {
 	render(<ProcessesSection workspaceId={WS} running={running} ownerName="Ada" />);
 }
 
-test("a snapshot counts only when taken at or after this browser's request", () => {
+test("a snapshot counts only when taken after this browser's request, as the worker judges", () => {
 	expect(snapshotAnswers(snapshot({ takenAt: null }), REQUESTED)).toBe(false);
 	expect(
 		snapshotAnswers(snapshot({ takenAt: "2026-09-26T09:59:59.999Z" }), REQUESTED),
 	).toBe(false);
-	expect(snapshotAnswers(snapshot({ takenAt: REQUESTED }), REQUESTED)).toBe(true);
+	expect(snapshotAnswers(snapshot({ takenAt: REQUESTED }), REQUESTED)).toBe(false);
+	expect(
+		snapshotAnswers(snapshot({ takenAt: "2026-09-26T10:00:00.001Z" }), REQUESTED),
+	).toBe(true);
 });
 
 test("rows sort highest first by CPU or memory, and owners are student or system", () => {
@@ -140,10 +143,22 @@ test("Refresh polls past an old snapshot, then shows the table sorted by CPU wit
 	// A hostile name is text, not markup.
 	expect(within(table).getByText("<b>miner</b>")).toBeTruthy();
 	expect(table.querySelector("b")).toBeNull();
-	// The protected agent row has no Stop button.
+	// The protected agent row has no Stop button; it says why instead.
 	expect(screen.queryByTestId("processes-stop-50")).toBeNull();
+	expect(screen.getByTestId("processes-protected-50").textContent).toBe(
+		"Protected: the system or Portikus needs this process, so it cannot be stopped here.",
+	);
 	expect(screen.getByTestId("processes-stop-200")).toBeTruthy();
+	expect(table.querySelector("caption")?.textContent).toBe(
+		"Processes, highest CPU first",
+	);
+	// The sorted column shows its arrow; the button's name stays the column's.
+	const cpu = screen.getByRole("button", { name: "CPU" });
+	expect(cpu.textContent).toBe("CPU ↓");
+	expect(cpu.className).toContain("pk-focus-ring");
 	fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+	expect(screen.getByRole("button", { name: "Memory" }).textContent).toBe("Memory ↓");
+	expect(screen.getByRole("button", { name: "CPU" }).textContent).toBe("CPU");
 	expect(
 		within(screen.getByTestId("processes-table"))
 			.getAllByRole("row")[1]

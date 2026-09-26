@@ -20,6 +20,9 @@ export interface RightPaneApi {
 	show: (pane: RightPane) => void;
 	monitorSort: ProcessSort;
 	setMonitorSort: (sort: ProcessSort) => void;
+	/** Set when a button elsewhere opened Monitor; Monitor focuses its heading and clears it. */
+	monitorFocus: boolean;
+	setMonitorFocus: (focus: boolean) => void;
 }
 
 /** Null outside a workspace screen, the way the layout store context is. */
@@ -29,10 +32,11 @@ export const RightPaneContext = createContext<RightPaneApi | null>(null);
 export function useRightPaneStore(): RightPaneApi {
 	const [pane, show] = useState<RightPane>("files");
 	const [monitorSort, setMonitorSort] = useState<ProcessSort>(DEFAULT_PROCESS_SORT);
+	const [monitorFocus, setMonitorFocus] = useState(false);
 	// One object per change, so context readers re-render only when it moves.
 	return useMemo(
-		() => ({ pane, show, monitorSort, setMonitorSort }),
-		[pane, monitorSort],
+		() => ({ pane, show, monitorSort, setMonitorSort, monitorFocus, setMonitorFocus }),
+		[pane, monitorSort, monitorFocus],
 	);
 }
 
@@ -52,9 +56,13 @@ export function useShowRightPane(): (pane: RightPane) => void {
 	return shared?.show ?? (() => {});
 }
 
-/** Open Monitor sorted by one column, largest first. */
+/**
+ * Open Monitor sorted by one column, largest first, and move focus to it, so
+ * a keyboard or screen reader user lands where the pane changed.
+ */
 export function showMonitor(api: RightPaneApi, column: ProcessColumn): void {
 	api.setMonitorSort({ column, direction: "desc" });
+	api.setMonitorFocus(true);
 	api.show("monitor");
 }
 
