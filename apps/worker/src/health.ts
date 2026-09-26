@@ -78,8 +78,10 @@ export function createHealthSampler(
 }
 
 /** Run the sampler now and then every HEALTH_SAMPLE_SECONDS; returns a stop function. */
-export function startHealthSampling(options: HealthSamplerOptions): () => void {
-	const tick = createHealthSampler(options);
+export function startHealthSampling(
+	options: HealthSamplerOptions,
+	tick: () => Promise<void> = createHealthSampler(options),
+): () => void {
 	const timer = setInterval(() => {
 		void tick();
 	}, HEALTH_SAMPLE_SECONDS * 1000);
