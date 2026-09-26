@@ -2814,3 +2814,134 @@ Gaps:
   full use.
 - Files in the workspace's `/tmp`, a tmpfs, count as memory and can
   raise the memory flag.
+
+## Epic 18 — Admin interface polish
+
+The rules are in SPEC.md section 20.1 and the table styles in DESIGN.md
+section 9. Task PRs #639, #647 to #649, #651, #652 and #656 on
+`epic/18-admin-ux`; issues #600, #601, #602, #604 and #629.
+
+Delivered:
+
+- The admin page is one frame at most 1440 px wide, at compact density,
+  with an h2 heading per tab through a small `AdminSection` component and
+  a page title naming the tab. The admin area is desktop-only.
+- The design's table classes are in `packages/ui` and on every admin
+  table. The Users and Audit headers stick to the scrolling page.
+- The Users table has seven columns, a two-line Account cell, an "Older
+  image" tag, and its count and "Add user…" in the heading row.
+- The detail panel has Start, Stop and Restart under the state badge,
+  divided sections in a fixed order, Storage as a list with meters, and
+  stays in view beside the table with its own scroll.
+- The Audit table shows short IDs and times, result tags, clipped details
+  with the full text for screen readers, and target links that fill the
+  "Target ID" filter.
+- Settings cards sit in a grid with each Save below its fields.
+- Bulk Rebuild and "Rebuild all on older images…" call the existing
+  single-workspace route once per workspace; a pending operation counts
+  as skipped.
+
+Gaps:
+
+- The Health tab layout (#603) is left to the observability epic.
+- No sortable columns and no React table component.
+- The admin tabs stay under the page heading, not in the app header.
+- No per-row "more" menus and no tablet layout.
+- The detail panel's storage meters do not share the student side's
+  StorageMeters thresholds.
+
+## Epic 20 — Student interface polish
+
+Built on `epic/20-student-ux` from the student interface review of
+2026-09-26 (issues #608 and #609). Only `apps/web`, `packages/ui` and the
+end-to-end tests changed; there are no migrations, contract changes or
+infrastructure changes. The rules are in SPEC.md sections 6.3, 8.3, 8.5,
+14.6, 18.2, 18.3, 19.2 and 28, and DESIGN.md section 9 records where the
+build departs from the mockups on purpose.
+
+Delivered:
+
+- The status bar's state and storage-warning items are bordered buttons,
+  and the warning keeps its warning or error colour.
+- Each stuck screen has a way forward. The empty work area offers "Open
+  a terminal" and "Start Claude Code". The error screen offers "Try
+  again" and "Workspace details", with the raw error under a collapsed
+  "Technical details". The throttle notice's "Restart workspace…" opens
+  the workspace dialog with the restart confirmation on top.
+- Loading skeletons show only while the workspace is starting; stopped
+  and failed workspaces show a plain message in the side panes.
+- `ConfirmDialog` in `packages/ui` gained a neutral form. Archiving uses
+  it and ends with a success toast, as does Duplicate. New project's
+  "What to create" is a segmented control, and "Saved" is plain text.
+- The Preview picker's rows look clickable, and the Preview toolbar
+  moved Copy URL, width, Reset preview data and Show in Running into a
+  More menu.
+- The right-pane tabs no longer repeat their titles (the headings stay
+  for screen readers). Running rows have a visible Preview button and
+  tags on a second line, and the panel heads are readable in the light
+  theme.
+- The workspace dialog moved into its own file and puts its actions
+  first, then storage meters, Docker, the rebuild note and technical
+  details. The error screen shares the meters.
+- Settings groups have clearer titles, long read-only values wrap, the
+  dialog can grow taller, and Appearance comes first.
+- After a phase change on the starting screen, focus moves to the
+  heading only when the button that had it vanished; focus elsewhere,
+  such as on a status-bar button, is left alone.
+
+Gaps:
+
+- The workspace usage figures are not served while the workspace is in
+  error, so the error screen's meters and "Clean up Docker…" do not
+  appear yet (BACKLOG, "Workspace usage in the error state").
+- A restart confirmation opened before the workspace starts moving does
+  nothing on confirm (BACKLOG).
+- "Reset preview data" still acts without a confirmation, and issue
+  #607's resource notices are left to their own epic (BACKLOG).
+
+## Epic 16 — Workspace resilience
+
+The rules are in SPEC.md sections 9.7, 11.4, 13.5, 18.1, 18.2, 19.3 and
+21.7, and the unit split is ADR 0035. Task PRs #635, #636, #642, #646,
+#654, #659, #661, #675 and the closing task on
+`epic/16-workspace-resilience`; issues #610 and #618 to #625. Workspace
+image 2026.09.11. Not yet deployed to the pilot, and existing workspaces
+get the image changes only when rebuilt.
+
+Delivered:
+
+- `/tmp` is a 512 MB tmpfs and `/dev/shm` a 256 MB one, so a big
+  temporary file fails with "No space left on device".
+- The tmux server runs in its own unit, `portikus-terminals.service`, on
+  a private socket, so an agent restart leaves terminals open. The agent
+  unit's process limit is lifted; the terminals unit is capped at 1700.
+- Every tmux call times out after 5 seconds. A student's `~/.tmux.conf` is
+  never read, `tmux kill-server` typed in a pane reaches only the
+  student's own server, and a `~/.bashrc` that exits falls back to a
+  plain shell with a message.
+- Closing a terminal and stopping a Check stop the whole process tree,
+  and Check output pauses for a slow watcher.
+- The port scanner never overlaps itself, idles when nobody watches, and
+  remembers socket owners. Stopping a listener always scans afresh and
+  fails if that scan fails.
+- The file watcher skips more generated folders and stops at 20,000
+  folders with a "too large to update live" notice. A full disk gives
+  `STORAGE_FULL` and "Your home folder is full" on every file action.
+- When the terminals unit stops, open panes and later attaches get a
+  toast saying why: out of memory, or a restart.
+- Review fixes: at most one exit-record lookup per terminal connection,
+  start-time checks before killing a process tree, a hardened exit-record
+  read, and tmux failures no longer mistaken for a missing session.
+- The closing task fixed a race that made a unit test flaky: a tmux
+  server that is shutting down can still answer with no sessions or drop
+  the client. The agent now takes whether the server died from the attach
+  client's final line, and asks tmux only when that line is missing.
+
+Gaps:
+
+- The agent's planned OOM score of -500 was dropped because the kernel
+  refuses it in an unprivileged container (ADR 0035).
+- The exit record can wrongly say `oom-kill` after an earlier pane OOM
+  kill (ADR 0035, BACKLOG).
+- Checks still run in the agent's cgroup, and the items the plan left out
+  are in BACKLOG.

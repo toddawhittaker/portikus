@@ -1,6 +1,11 @@
-import type { PendingOperation, Workspace } from "@portikus/contracts";
+import type { PendingOperation, Workspace, WorkspaceUsage } from "@portikus/contracts";
 import { Button, Icon, Skeleton, useToast } from "@portikus/ui";
+import { useEffect, useRef, useState } from "react";
 import { useWorkspaceAction } from "./api/workspace.js";
+import { STORAGE_POLL_MS, useWorkspaceUsage } from "./monitor/usage.js";
+import { storageLevel } from "./recovery/storage.js";
+import { StorageMeters } from "./shell/StorageMeters.js";
+import { ResetDocker } from "./shell/WorkspaceDialog.js";
 
 export type StartingPhase =
 	| "connecting"
@@ -73,54 +78,122 @@ export function startingPhase(workspace: Workspace | null): StartingPhase {
 	return "starting";
 }
 
+/** Whether any storage class reported a figure. */
+function hasFigures(storage: WorkspaceUsage["storage"] | undefined): boolean {
+	return !!storage && Object.values(storage).some((figure) => figure !== null);
+}
+
+/**
+ * Offer a Docker reset from the error screen only when Docker is what filled
+ * up; resetting it for full project storage would destroy data for nothing.
+ */
+export function offerDockerCleanup(
+	errorCode: string | null | undefined,
+	storage: WorkspaceUsage["storage"] | undefined,
+): boolean {
+	return (
+		errorCode === "STORAGE_FULL" && storageLevel(storage?.docker ?? null) === "critical"
+	);
+}
+
 /**
  * The center of the shell while the workspace is not running yet
- * (SPEC.md §6.3): what is happening, in order, and nothing to click.
+ * (SPEC.md §6.3): what is happening, in order.
  */
 export function WorkspaceStarting({
 	workspaceId,
 	workspace,
 	idleStop,
+	onOpenWorkspace,
 }: {
 	workspaceId: string;
 	workspace: Workspace | null;
 	/** Set when this page saw "Still working?" go unanswered (ADR 0032). */
 	idleStop?: { minutes: number | null } | undefined;
+	/** Opens the "Your workspace" dialog. */
+	onOpenWorkspace: () => void;
 }) {
 	const phase = startingPhase(workspace);
 	const pending = workspace?.pendingOperation ?? null;
 	const [heading, sub] = pending ? PENDING_COPY[pending] : COPY[phase];
 	const at = STEPS.indexOf(phase as (typeof STEPS)[number]);
+	// The agent may still answer while the workspace is in error (SPEC.md §18.3).
+	const usage = useWorkspaceUsage(workspaceId, phase === "error", STORAGE_POLL_MS);
+	const storage = phase === "error" ? usage.data?.storage : undefined;
+	const [cleaning, setCleaning] = useState(false);
+	const headingRef = useRef<HTMLHeadingElement>(null);
+	const cardRef = useRef<HTMLElement>(null);
+	const lastFocused = useRef<Element | null>(null);
+	// A focused button that vanishes with the phase drops focus to the body; catch it there.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs on phase change only
+	useEffect(() => {
+		const gone = lastFocused.current && !lastFocused.current.isConnected;
+		const active = document.activeElement;
+		if (gone && (active === null || active === document.body)) {
+			lastFocused.current = null;
+			headingRef.current?.focus();
+		}
+	}, [phase, pending]);
+	const storageFull = phase === "error" && workspace?.errorCode === "STORAGE_FULL";
 
 	return (
 		<>
-			<div className="pk-tabs-skeleton" aria-hidden="true">
-				<Skeleton variant="block" width="140px" height="14px" />
-				<Skeleton variant="block" width="96px" height="14px" />
-			</div>
+			{/* A skeleton says something is loading, so only while it is. */}
+			{at >= 0 && (
+				<div className="pk-tabs-skeleton" aria-hidden="true">
+					<Skeleton variant="block" width="140px" height="14px" />
+					<Skeleton variant="block" width="96px" height="14px" />
+				</div>
+			)}
 			<div className="flex flex-1 items-center justify-center p-10">
 				<section
+					ref={cardRef}
 					className="pk-card pk-progress-card"
-					aria-live="polite"
+					onFocus={(event) => {
+						lastFocused.current = event.target;
+					}}
+					onBlur={(event) => {
+						// A removed button blurs with no target; keep it so the effect can see it went.
+						if (event.relatedTarget && !cardRef.current?.contains(event.relatedTarget))
+							lastFocused.current = null;
+					}}
 					aria-labelledby="progress-title"
 					data-testid="workspace-progress"
 					data-phase={phase}
 					data-pending={pending ?? undefined}
 				>
-					<div className="flex flex-col gap-2">
-						<h1 id="progress-title" className="pk-text-title">
-							{heading}
-						</h1>
-						<p className="pk-text-body pk-muted">{sub}</p>
-						{idleStop && (phase === "stopping" || phase === "stopped") && (
-							<p className="pk-text-body" data-testid="idle-stopped">
-								{idleStop.minutes === null
-									? "Stopped because nothing happened in it for a while."
-									: `Stopped after ${idleStop.minutes} ${
-											idleStop.minutes === 1 ? "minute" : "minutes"
-										} without activity.`}
-							</p>
+					<div className="flex items-start gap-3">
+						{phase === "error" && (
+							<div className="pk-dialog-status bg-status-error-soft text-status-error">
+								<Icon name="alert" size="lg" />
+							</div>
 						)}
+						<div className="flex flex-col gap-2">
+							<div className="flex flex-col gap-2" aria-live="polite">
+								<h1
+									id="progress-title"
+									ref={headingRef}
+									tabIndex={-1}
+									className="pk-text-title"
+								>
+									{heading}
+								</h1>
+								<p className="pk-text-body pk-muted" data-testid="progress-sub">
+									{storageFull && !pending
+										? "Portikus could not start the machine behind this window. Your storage is full."
+										: sub}
+								</p>
+							</div>
+							{idleStop && (phase === "stopping" || phase === "stopped") && (
+								<p className="pk-text-body" data-testid="idle-stopped">
+									{idleStop.minutes === null
+										? "Stopped because nothing happened in it for a while."
+										: `Stopped after ${idleStop.minutes} ${
+												idleStop.minutes === 1 ? "minute" : "minutes"
+											} without activity.`}
+								</p>
+							)}
+						</div>
 					</div>
 					{at >= 0 && (
 						<ol className="pk-steps">
@@ -147,16 +220,53 @@ export function WorkspaceStarting({
 							})}
 						</ol>
 					)}
-					{phase === "stopped" && <StartAgain workspaceId={workspaceId} />}
-					{phase === "error" && workspace?.errorMessage && (
+					{phase === "stopped" && (
+						<div className="flex">
+							<StartButton workspaceId={workspaceId} testId="workspace-resume">
+								Start workspace
+							</StartButton>
+						</div>
+					)}
+					{phase === "error" && (
 						<>
-							<hr className="pk-divider" />
-							<div className="flex flex-col gap-3">
-								<p className="pk-text-body">{workspace.errorMessage}</p>
-								{workspace.errorCode && (
-									<p className="pk-techdetail">{workspace.errorCode}</p>
+							{storage && hasFigures(storage) && <StorageMeters storage={storage} />}
+							<div className="pk-actions">
+								<StartButton workspaceId={workspaceId} testId="workspace-retry">
+									Try again
+								</StartButton>
+								<Button
+									aria-haspopup="dialog"
+									data-testid="workspace-details"
+									onClick={onOpenWorkspace}
+								>
+									Workspace details
+								</Button>
+								{offerDockerCleanup(workspace?.errorCode, storage) && (
+									<ResetDocker
+										workspaceId={workspaceId}
+										workspace={workspace}
+										label="Clean up Docker…"
+										testId="workspace-clean-docker"
+										confirming={cleaning}
+										setConfirming={setCleaning}
+									/>
 								)}
 							</div>
+							{(workspace?.errorMessage || workspace?.errorCode) && (
+								<details data-testid="workspace-error-details">
+									<summary className="pk-text-body pk-summary">
+										Technical details
+									</summary>
+									<div className="pk-techdetail mt-2 flex flex-col gap-1">
+										{workspace.errorMessage && (
+											<p className="m-0">{workspace.errorMessage}</p>
+										)}
+										{workspace.errorCode && (
+											<p className="m-0">{workspace.errorCode}</p>
+										)}
+									</div>
+								</details>
+							)}
 						</>
 					)}
 				</section>
@@ -166,33 +276,39 @@ export function WorkspaceStarting({
 }
 
 /**
- * The way back from a workspace the student stopped by hand. It asks for the
- * same desired-state change as the Start button in the workspace dialog, and
- * the presence socket reports the workspace running (SPEC.md §6.2, §6.3).
+ * The way back from a stopped or failed workspace. It asks for the same
+ * desired-state change as the Start button in the workspace dialog, and the
+ * presence socket reports the workspace running (SPEC.md §6.2, §6.3).
  */
-function StartAgain({ workspaceId }: { workspaceId: string }) {
+function StartButton({
+	workspaceId,
+	testId,
+	children,
+}: {
+	workspaceId: string;
+	testId: string;
+	children: string;
+}) {
 	const action = useWorkspaceAction(workspaceId);
 	const toast = useToast();
 
 	return (
-		<div className="flex">
-			<Button
-				variant="primary"
-				disabled={action.isPending}
-				data-testid="workspace-resume"
-				onClick={() =>
-					action.mutate("start", {
-						onError: (error) =>
-							toast.show({
-								tone: "danger",
-								title: "The workspace did not start",
-								children: error instanceof Error ? error.message : undefined,
-							}),
-					})
-				}
-			>
-				Start workspace
-			</Button>
-		</div>
+		<Button
+			variant="primary"
+			disabled={action.isPending}
+			data-testid={testId}
+			onClick={() =>
+				action.mutate("start", {
+					onError: (error) =>
+						toast.show({
+							tone: "danger",
+							title: "The workspace did not start",
+							children: error instanceof Error ? error.message : undefined,
+						}),
+				})
+			}
+		>
+			{children}
+		</Button>
 	);
 }

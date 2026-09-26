@@ -12,6 +12,7 @@
 
 import type { ListeningService, WorkspaceUsage } from "@portikus/contracts";
 import {
+	Button,
 	ConfirmDialog,
 	ConfirmDialogRoot,
 	EmptyState,
@@ -90,7 +91,7 @@ export function RunningPane({
 	}
 
 	const list = (
-		<div className="pk-pane-body" data-testid="running-list">
+		<div className="pk-pane-body pk-running-list" data-testid="running-list">
 			{services.length === 0 ? (
 				<EmptyState icon="play" title="Nothing is running yet">
 					Start an application in a terminal and its port appears here.
@@ -122,35 +123,42 @@ export function RunningPane({
 							onClick={() => setSelectedPort(service.port)}
 						>
 							<span className="pk-portrow-port">{service.port}</span>
-							{/* The column truncates, so the full command is the tooltip. */}
-							<span title={command}>{command}</span>
-							{isDocker(service) ? (
-								<span className="pk-portrow-kind">Docker</span>
-							) : (
-								<span />
-							)}
+							<span className="pk-portrow-main">
+								{/* The name truncates, so the full command is the tooltip. */}
+								<span className="pk-portrow-name" title={command}>
+									{command}
+								</span>
+								{isDocker(service) || reason !== null ? (
+									<span className="pk-portrow-tags pk-text-caption">
+										{isDocker(service) ? (
+											<span className="pk-portrow-kind">Docker</span>
+										) : null}
+										{reason !== null ? (
+											<span
+												className="pk-portrow-kind"
+												data-testid={`running-reason-${service.port}`}
+											>
+												{reason}
+											</span>
+										) : null}
+									</span>
+								) : null}
+							</span>
 						</button>
 						<span className="pk-portrow-actions">
-							{reason !== null ? (
-								<span
-									className="pk-portrow-kind"
-									data-testid={`running-reason-${service.port}`}
-								>
-									{reason}
-								</span>
-							) : null}
 							{isPreviewable(service) && !service.system ? (
 								<>
-									<IconButton
-										icon="preview"
-										label={`Open preview of port ${service.port}`}
+									<Button
 										size="sm"
+										aria-label={`Preview port ${service.port}`}
 										data-testid={`running-open-${service.port}`}
 										onClick={() => {
 											setSelectedPort(service.port);
 											onOpenPreview(service.port);
 										}}
-									/>
+									>
+										Preview
+									</Button>
 									<IconButton
 										icon="external"
 										label={`Open port ${service.port} in a new tab`}

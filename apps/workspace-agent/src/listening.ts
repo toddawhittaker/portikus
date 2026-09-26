@@ -533,7 +533,8 @@ export class ListeningMonitor {
 		// A fresh fd walk: a cached owner's pid may since belong to another process.
 		while (this.inFlight) await this.inFlight;
 		this.owners.clear();
-		await this.refresh();
+		// Stale data could name a process that no longer owns the port.
+		await this.scanOrFail();
 		const service = this.services.find((entry) => entry.port === port);
 		if (!service)
 			throw new StopFailure(
@@ -655,17 +656,47 @@ export class ListeningMonitor {
 		return this.inFlight;
 	}
 
-	private async runScan(): Promise<AgentListeningService[]> {
-		let services: AgentListeningService[];
+	private async scanOrFail(): Promise<void> {
+		let failed = false;
+		// Other callers share this promise, so it never rejects for them.
+		this.inFlight = this.tryScan().then((services) => {
+			if (services) return this.publish(services);
+			failed = true;
+			return this.services;
+		});
 		try {
-			services = await this.scan();
+			await this.inFlight;
+		} finally {
+			this.inFlight = null;
+		}
+		if (failed) {
+			throw new StopFailure(
+				409,
+				"STOP_FAILED",
+				"the listening ports could not be read",
+			);
+		}
+	}
+
+	private async runScan(): Promise<AgentListeningService[]> {
+		const services = await this.tryScan();
+		return services ? this.publish(services) : this.services;
+	}
+
+	/** One scan, or null when it failed, which is logged here. */
+	private async tryScan(): Promise<AgentListeningService[] | null> {
+		try {
+			return await this.scan();
 		} catch (error) {
 			this.logger?.debug(
 				{ error: error instanceof Error ? error.message : String(error) },
 				"listening scan failed",
 			);
-			return this.services;
+			return null;
 		}
+	}
+
+	private publish(services: AgentListeningService[]): AgentListeningService[] {
 		const print = fingerprint(services);
 		if (print === this.print) return this.services;
 		this.print = print;

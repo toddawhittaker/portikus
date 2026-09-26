@@ -283,6 +283,9 @@
 
 .pk-file-status {
 	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
 	padding: 2px var(--space-2);
 	border-radius: 999px;
 	background: var(--surface-sunken);
@@ -295,9 +298,10 @@
 	color: var(--status-error);
 }
 
+/* Saved is the calm, usual state: plain muted text with a tick, no pill. */
 .pk-file-status[data-status="saved"] {
-	background: var(--status-running-soft);
-	color: var(--status-running);
+	background: none;
+	color: var(--ink-muted);
 }
 
 .pk-file-conflict {
@@ -342,44 +346,10 @@
 }
 
 /* The Diff control on a Markdown tab (SPEC.md §13.4, issue #218), and the
-   Edit | Diff control on every other file tab (issue #160). */
-.pk-md-modes {
-	flex: none;
-	display: flex;
-	margin: 0 0 0 auto;
-	padding: 0;
-	border: 1px solid var(--line);
-	border-radius: 6px;
-	overflow: hidden;
-}
-
-.pk-md-modes button {
-	padding: 2px var(--space-2);
-	border: none;
-	border-left: 1px solid var(--line);
-	background: var(--surface);
-	color: var(--ink-muted);
-	font: inherit;
-	cursor: pointer;
-}
-
-.pk-md-modes button:first-child {
-	border-left: none;
-}
-
-.pk-md-modes button:hover {
-	background: var(--surface-hover);
-}
-
-.pk-md-modes button[aria-pressed="true"] {
-	font-weight: 700;
-	background: var(--accent-soft);
-	color: var(--accent-text);
-}
-
-.pk-md-modes button:focus-visible {
-	outline: 2px solid var(--focus);
-	outline-offset: -2px;
+   Edit | Diff control on every other file tab (issue #160). The look is the
+   shared .pk-segmented; here it only sits at the right of the file bar. */
+.pk-segmented.pk-view-modes {
+	margin-left: auto;
 }
 
 /* The change badge on a diff tab, lettered and styled by the same kinds the

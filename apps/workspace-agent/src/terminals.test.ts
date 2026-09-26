@@ -7,8 +7,8 @@ import type { WebSocket } from "@fastify/websocket";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyBaseLogger } from "fastify";
 import type { IPty, spawn } from "node-pty";
-import { afterAll, beforeAll, expect, test, vi } from "vitest";
-import { type AttachOptions, TerminalRegistry } from "./terminals.js";
+import { afterAll, beforeAll, describe, expect, it, test, vi } from "vitest";
+import { type AttachOptions, attachExitReason, TerminalRegistry } from "./terminals.js";
 import { createSession, killSession } from "./tmux.js";
 
 const run = promisify(execFile);
@@ -365,14 +365,99 @@ test.skipIf(!haveTmux)(
 				.find((frame) => frame.type === "exit");
 
 		// A shell that ends leaves the server running: an ordinary exit.
+		ptys[0]?.emit("[exited]\r\n");
 		ptys[0]?.exit();
 		await vi.waitFor(() => expect(exitFrame(sockets[0] as FakeSocket)).toBeDefined());
 		expect(exitFrame(sockets[0] as FakeSocket)?.serverGone).toBe(false);
 
 		// The unit dies and takes the server with it.
 		await run("tmux", ["-L", socketName, "kill-server"]);
+		ptys[1]?.emit("\x1b[?1049l[server exited]\r\n");
 		ptys[1]?.exit();
 		await vi.waitFor(() => expect(exitFrame(sockets[1] as FakeSocket)).toBeDefined());
 		expect(exitFrame(sockets[1] as FakeSocket)?.serverGone).toBe(true);
+	},
+);
+
+test.skipIf(!haveTmux)(
+	"a pty that exits after its socket closed sends nothing",
+	async () => {
+		const socketName = `portikus-closed-${process.pid}`;
+		const server = { socketName, external: true };
+		const id = makeId();
+		await createSession(id, homeDir, homeDir, "dark", "UTC", {
+			socketName,
+			external: false,
+		});
+		const ptys: FakePty[] = [];
+		const { logger } = collectingLogger();
+		const registry = new TerminalRegistry(
+			homeDir,
+			logger as unknown as FastifyBaseLogger,
+			server,
+			((_file: string, _args: string[], opts: { cols: number; rows: number }) => {
+				const pty = new FakePty(opts.cols, opts.rows);
+				ptys.push(pty);
+				return pty as unknown as IPty;
+			}) as unknown as typeof spawn,
+		);
+		const socket = new FakeSocket();
+		await registry.attach(id, socket as unknown as WebSocket, {});
+		socket.close();
+		const sentBefore = socket.sent.length;
+		ptys[0]?.exit();
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(socket.sent.length).toBe(sentBefore);
+		await run("tmux", ["-L", socketName, "kill-server"]);
+	},
+);
+
+describe("attachExitReason", () => {
+	it("reads the attach client's final line", () => {
+		expect(attachExitReason("\x1b[23;0;0t[exited]\r\n")).toBe(false);
+		expect(attachExitReason("\x1b[23;0;0t[server exited]\r\n")).toBe(true);
+		expect(attachExitReason("[server exited unexpectedly]\n")).toBe(true);
+		expect(attachExitReason("prompt$ ")).toBeUndefined();
+	});
+
+	it("ignores a student's own line that tmux's exit line follows", () => {
+		expect(attachExitReason("[server exited]\r\n$ exit\r\n[exited]\r\n")).toBe(false);
+		expect(attachExitReason("[server exited]\r\nmore output\r\n")).toBeUndefined();
+	});
+});
+
+test.skipIf(!haveTmux)(
+	"the last terminal's ordinary exit sends its exit frame at once",
+	async () => {
+		const socketName = `portikus-last-${process.pid}`;
+		const id = makeId();
+		await createSession(id, homeDir, homeDir, "dark", "UTC", {
+			socketName,
+			external: false,
+		});
+		const ptys: FakePty[] = [];
+		const { logger } = collectingLogger();
+		const registry = new TerminalRegistry(
+			homeDir,
+			logger as unknown as FastifyBaseLogger,
+			{ socketName, external: true },
+			((_file: string, _args: string[], opts: { cols: number; rows: number }) => {
+				const pty = new FakePty(opts.cols, opts.rows);
+				ptys.push(pty);
+				return pty as unknown as IPty;
+			}) as unknown as typeof spawn,
+		);
+		const socket = new FakeSocket();
+		await registry.attach(id, socket as unknown as WebSocket, {});
+		ptys[0]?.emit("[exited]\r\n");
+		ptys[0]?.exit();
+		await Promise.resolve();
+		await Promise.resolve();
+		const exit = socket.sent
+			.filter((frame): frame is string => typeof frame === "string")
+			.map((frame) => JSON.parse(frame) as { type: string; serverGone?: boolean })
+			.find((frame) => frame.type === "exit");
+		expect(exit).toEqual({ type: "exit", serverGone: false });
+		await run("tmux", ["-L", socketName, "kill-server"]);
 	},
 );

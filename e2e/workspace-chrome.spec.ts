@@ -19,6 +19,12 @@ test("the status bar state opens the workspace dialog", async ({ page, context }
 	).toHaveCount(0);
 
 	await expect(page.getByTestId("workspace-state")).toHaveText("Running");
+	// It looks like a control: a visible border (issue #608 item 2).
+	const border = await page.getByTestId("workspace-status").evaluate((node) => {
+		const style = getComputedStyle(node);
+		return `${style.borderTopWidth} ${style.borderTopStyle}`;
+	});
+	expect(border).toBe("1px solid");
 	await page.getByTestId("workspace-status").click();
 	await expect(page.getByTestId("dialog-workspace-status")).toBeVisible();
 	await expect(page.getByTestId("workspace-restart")).toBeVisible();

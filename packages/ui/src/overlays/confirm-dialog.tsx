@@ -10,6 +10,8 @@ export interface ConfirmDialogProps {
 	id?: string;
 	title: string;
 	description?: React.ReactNode;
+	/** Controls shown under the description, kept out of the accessible description. */
+	children?: React.ReactNode;
 	lost?: React.ReactNode[];
 	survives?: React.ReactNode[];
 	confirmLabel: string;
@@ -24,6 +26,8 @@ export interface ConfirmDialogProps {
 	testId?: string;
 	/** Preview only: start with this text already typed. */
 	typedValue?: string;
+	/** False for a reversible action: primary button, info icon, neutral colours. */
+	destructive?: boolean;
 }
 
 /** The destructive confirmation. Render it inside a ConfirmDialogRoot. */
@@ -31,6 +35,7 @@ export function ConfirmDialog({
 	id = "pk-confirm",
 	title,
 	description,
+	children,
 	lost,
 	survives,
 	confirmLabel,
@@ -42,6 +47,7 @@ export function ConfirmDialog({
 	inline,
 	testId,
 	typedValue,
+	destructive = true,
 }: ConfirmDialogProps): React.ReactElement {
 	const [typed, setTyped] = React.useState(typedValue ?? "");
 	const ready = !confirmText || typed === confirmText;
@@ -59,8 +65,10 @@ export function ConfirmDialog({
 				className={`pk-dialog ${inline ? "pk-dialog--inline" : ""}`}
 			>
 				<div className="flex items-start gap-3 px-6 pt-6">
-					<div className="pk-dialog-status">
-						<Icon name="alert" size="lg" />
+					<div
+						className={`pk-dialog-status ${destructive ? "" : "pk-dialog-status--neutral"}`}
+					>
+						<Icon name={destructive ? "alert" : "info"} size="lg" />
 					</div>
 					<div className="min-w-0">
 						<RadixAlertDialog.Title className="m-0 text-xl font-semibold text-ink">
@@ -71,6 +79,7 @@ export function ConfirmDialog({
 								{description}
 							</RadixAlertDialog.Description>
 						) : null}
+						{children ? <div className="mt-2">{children}</div> : null}
 					</div>
 				</div>
 				{lost || survives || confirmText ? (
@@ -78,7 +87,9 @@ export function ConfirmDialog({
 						{lost || survives ? (
 							<div className="pk-consequence">
 								<div className="pk-lost rounded-md bg-surface-sunken p-3">
-									<h3 className="mb-1 text-sm font-semibold text-status-danger">
+									<h3
+										className={`mb-1 text-sm font-semibold ${destructive ? "text-status-danger" : "text-ink"}`}
+									>
 										Will be removed
 									</h3>
 									<ul className="m-0 list-disc pl-4 text-ink-muted">
@@ -127,7 +138,7 @@ export function ConfirmDialog({
 					</RadixAlertDialog.Cancel>
 					<Button
 						data-testid="dialog-confirm"
-						variant="danger"
+						variant={destructive ? "danger" : "primary"}
 						disabled={!ready}
 						loading={pending}
 						onClick={onConfirm}

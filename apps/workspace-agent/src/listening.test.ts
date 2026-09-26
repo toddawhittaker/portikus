@@ -820,3 +820,26 @@ test("a stop walks the fds afresh, so a reused cached pid is never signalled", a
 	await monitor.stopListener(5173);
 	expect(signals).toEqual([91]);
 });
+
+test("a stop fails rather than act on stale data when the fresh scan fails", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "900", 1000)].join("\n"));
+	await fakeProcess(90, "server", [900]);
+	const signals: number[] = [];
+	let broken = false;
+	const monitor = monitorFor({
+		forwardedPorts: () => {
+			if (broken) throw new Error("scan failed");
+			return new Set<number>();
+		},
+		kill: (pid) => {
+			signals.push(pid);
+		},
+	});
+	await monitor.refresh();
+	broken = true;
+	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
+		status: 409,
+		code: "STOP_FAILED",
+	});
+	expect(signals).toEqual([]);
+});

@@ -69,8 +69,8 @@ export function ChecksPane({
 
 	return (
 		<>
-			<div className="pk-pane-head">
-				<h2 className="pk-pane-title">Checks</h2>
+			<div className="pk-pane-head pk-pane-head--actions">
+				<h2 className="sr-only">Checks</h2>
 				<IconButton
 					icon="more"
 					label="Edit checks"
