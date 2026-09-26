@@ -101,6 +101,16 @@ test.describe("file resilience", () => {
 		const student = await createStudent(context);
 		const project = await createProject(student.workspaceId, { name: "Huge" });
 		await seedFile(student.workspaceId, project.slug, "README.md", "# hi\n");
+		// Count this project's events sockets, and note when each one closes.
+		const sockets: { closed: boolean }[] = [];
+		page.on("websocket", (ws) => {
+			if (!ws.url().includes(`/projects/${project.id}/events`)) return;
+			const entry = { closed: false };
+			sockets.push(entry);
+			ws.on("close", () => {
+				entry.closed = true;
+			});
+		});
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(row(page, "README.md")).toBeVisible({ timeout: 15_000 });
 
@@ -114,10 +124,25 @@ test.describe("file resilience", () => {
 			"This project is too large to update live. It refreshes when you return to the window.",
 		);
 
-		// The socket is closed and not reopened, so a change on disk waits for focus.
+		// No live updates any more: the socket closes and is never reopened.
+		// (The tree's own refetch-on-focus may still show new files, which is
+		// the intended fallback, so the test does not assert a file stays hidden.)
+		await expect.poll(() => sockets.every((socket) => socket.closed)).toBe(true);
+		const opened = sockets.length;
+		await page.waitForTimeout(3_000);
+		expect(sockets.length).toBe(opened);
+		await expect
+			.poll(() =>
+				pushEvent(student.workspaceId, project.slug, {
+					type: "fs",
+					paths: [],
+					git: true,
+					truncated: true,
+				}),
+			)
+			.toBe(0);
+
 		await seedFile(student.workspaceId, project.slug, "later.txt", "x\n");
-		await page.waitForTimeout(1_500);
-		await expect(row(page, "later.txt")).toHaveCount(0);
 		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 		await expect(row(page, "later.txt")).toBeVisible();
 		await expect(notice).toHaveCount(1);
