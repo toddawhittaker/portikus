@@ -82,4 +82,20 @@ test.describe("admin audit", () => {
 		// Only the results re-render, so Apply keeps focus (Gate E).
 		await expect(apply).toBeFocused();
 	});
+
+	test("the filter buttons line up with the bottoms of the inputs", async ({
+		page,
+	}) => {
+		await loginAs(page, "carol");
+		await page.goto("/admin?tab=audit");
+		const input = page.getByLabel("Workspace ID");
+		const apply = page.getByRole("button", { name: "Apply filters" });
+		await expect(apply).toBeVisible({ timeout: 15_000 });
+		const inputBox = await input.boundingBox();
+		const applyBox = await apply.boundingBox();
+		if (!inputBox || !applyBox) throw new Error("filter controls have no box");
+		expect(
+			Math.abs(inputBox.y + inputBox.height - (applyBox.y + applyBox.height)),
+		).toBeLessThanOrEqual(1);
+	});
 });

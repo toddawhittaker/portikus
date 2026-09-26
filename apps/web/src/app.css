@@ -134,11 +134,14 @@ body {
 	border: 0;
 	margin: 0;
 }
-.pk-actions {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-2);
+/* Layered so Tailwind utilities such as items-end can override it. */
+@layer components {
+	.pk-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2);
+	}
 }
 .pk-card {
 	box-sizing: border-box;
