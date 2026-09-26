@@ -1,4 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
 import type { WebSocket } from "@fastify/websocket";
 import {
 	type AgentTerminalsExit,
@@ -15,6 +16,7 @@ import {
 	captureHistory,
 	hasSession,
 	type TmuxServer,
+	tmuxServerGone,
 } from "./tmux.js";
 
 /** Pause the PTY once this much output is waiting on the socket (SPEC.md §9.7). */
@@ -75,13 +77,26 @@ export const TERMINALS_EXIT_PATH = "/run/portikus-terminals/last-exit";
 export async function readTerminalsExit(
 	path: string = TERMINALS_EXIT_PATH,
 ): Promise<AgentTerminalsExit["exit"]> {
+	let handle: Awaited<ReturnType<typeof open>> | undefined;
 	try {
-		const [text, info] = await Promise.all([readFile(path, "utf8"), stat(path)]);
-		const result = text.trim();
-		if (!/^[a-z][a-z-]{0,63}$/.test(result)) return null;
+		// No symlink, no FIFO that blocks, and never more than a result word.
+		handle = await open(
+			path,
+			constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+		);
+		const info = await handle.stat();
+		if (!info.isFile()) return null;
+		const buffer = Buffer.alloc(64);
+		const { bytesRead } = await handle.read(buffer, 0, 64, 0);
+		// A full buffer means the record may go on: not a plain result word.
+		if (bytesRead === buffer.length) return null;
+		const result = buffer.subarray(0, bytesRead).toString("utf8").trim();
+		if (!/^[a-z][a-z-]{0,62}$/.test(result)) return null;
 		return { result, at: info.mtime.toISOString() };
 	} catch {
 		return null;
+	} finally {
+		await handle?.close();
 	}
 }
 
@@ -210,8 +225,14 @@ export class TerminalRegistry {
 
 		pty.onExit(() => {
 			this.forget(id, attachment);
-			sendText(socket, { type: "exit" });
-			socket.close(1000, "terminal exited");
+			// Whether the server died tells the control plane if a crash
+			// record is worth waiting for (SPEC.md §9.7).
+			void tmuxServerGone(this.server)
+				.catch(() => false)
+				.then((serverGone) => {
+					sendText(socket, { type: "exit", serverGone });
+					socket.close(1000, "terminal exited");
+				});
 		});
 	}
 

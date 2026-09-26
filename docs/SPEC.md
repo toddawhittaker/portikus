@@ -860,14 +860,20 @@ the agent sets every option it needs on each `new-session`. On images that
 run tmux in its own unit (`TMUX_EXTERNAL_SERVER=true`), the agent passes
 `-N` and never starts a server: a missing server is `TMUX_FAILED` saying the
 terminal service restarts within seconds. Every tmux call is killed after 5
-seconds and reported as `TMUX_FAILED`. An ordinary terminal starts in the
+seconds and reported as `TMUX_FAILED`; only tmux's own "no such session"
+or "no server" answers count as a missing session, and a `new-session`
+whose later setup fails is killed rather than left behind. An ordinary terminal starts in the
 agent's `portikus-shell` wrapper, which unsets `TMUX` and `TMUX_PANE` (so a
 `tmux` typed in a pane is the student's own server) and, when the login
-shell exits within a second, says the `~/.bashrc` made it exit and starts
+shell exits within a second, prints "Your shell settings (~/.bashrc or
+~/.profile) made the shell exit, so this terminal started a plain shell.
+Fix the file, then open a new terminal." and starts
 `bash --noprofile --norc` once. Closing a terminal stops the pane's whole
 process tree, its descendants and every process in its session, with
-`SIGTERM`, then `SIGKILL` after 3 seconds; a program that double-forks out
-of both escapes.
+`SIGTERM`, then `SIGKILL` after 3 seconds to whatever is left, including
+anything that joined the session meanwhile; a zombie counts as gone, and a
+root whose start time no longer matches is left alone. A program that
+double-forks out of both escapes.
 
 Terminal metadata (§9.6, §26) is a durable control-plane row holding at
 least the terminal ID, its workspace, display name, working directory,
@@ -923,15 +929,26 @@ When the terminals unit stops, systemd's `$SERVICE_RESULT` is written to
 the file's modification time, or `{"exit":null}` when there is no record
 (images before 2026.09.11) or the record is not a plain result word. When
 the agent says a terminal's session is gone (`TERMINAL_NOT_FOUND` on
-attach), the control plane asks for that record, and if the stop came
-after the terminal's creation time, sends the browser
+attach), or ends an open terminal with `{"type":"exit","serverGone":true}`
+(the agent checks with tmux after the pane's attach client exits, and
+`serverGone` is true only when the terminals unit's tmux server is not
+there), the control plane asks for that record (after an `exit` it asks
+again for up to 2 seconds, because the unit writes the record only once
+its processes are gone), and if the
+stop came after the terminal's creation time, sends the browser
 `{"type":"error","code":"TERMINAL_NOT_FOUND","reason":"…","at":"…"}`, where
 `reason` is `out_of_memory` for `oom-kill` and `restarted` for anything
-else. The browser then closes the pane and shows a warning toast, once per
-restart (`at`): "Your workspace ran out of memory and its terminals were
-restarted." or "Your workspace's terminals were restarted." Terminals open
-at the moment of the stop close as before. Only the terminals unit's stop
-is explained; an agent restart no longer loses terminals.
+else; otherwise the agent's own frame passes through. An `exit` without
+`serverGone: true`, including one from an older agent, is an ordinary
+exit and reaches the browser at once with no lookup. The agent is
+untrusted, so the control plane makes at most one record lookup per
+terminal connection and drops whatever the agent sends after the ending
+frame. The browser then closes the pane and shows a warning toast, once per
+restart (`at`), titled "Your workspace ran out of memory, so its terminals
+were closed." or "Your workspace's terminals were closed.", with the body
+"Open a new terminal to carry on." When a pane that ends held the keyboard
+focus, focus moves to the work area's New control. Only the terminals
+unit's stop is explained; an agent restart no longer loses terminals.
 
 ## 10. Coding-agent integration
 
@@ -1094,7 +1111,8 @@ The watcher does not follow generated folders (the names the tree hides,
 section 11.3) or other common caches and environments: `venv`, `env`,
 `.next`, `.cache`, `vendor`, `coverage`, `.gradle`, `.pytest_cache`,
 `.mypy_cache` and `.tox`. The tree still shows those extra names. A project
-with more than 20,000 folders is not watched at all: the agent closes that
+with more than 20,000 folders, or whose first scan takes more than 10
+seconds, is not watched at all: the agent closes that
 watcher and sends one `{type: "watch_limited"}` frame instead of an error,
 because a retry would scan the whole tree again. The browser then stops
 reconnecting for that project, refreshes Files and Changes when the window

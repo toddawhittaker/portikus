@@ -9,7 +9,8 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { SHELL_WRAPPER } from "./tmux.js";
 
-const MESSAGE = "Your ~/.bashrc made the shell exit; this terminal skipped it.";
+const MESSAGE =
+	"Your shell settings (~/.bashrc or ~/.profile) made the shell exit, so this terminal started a plain shell. Fix the file, then open a new terminal.";
 
 /** A stand-in login shell with the given body. */
 async function fakeShell(body: string): Promise<string> {

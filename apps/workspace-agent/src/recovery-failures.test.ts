@@ -166,6 +166,7 @@ test("a caller hanging up after the archive is finished leaves no archive behind
 	const tokenPath = join(base, "agent.token");
 	await writeFile(tokenPath, `${token}\n`, { mode: 0o600 });
 	const app = buildServer({
+		tmuxSocketName: "portikus-test",
 		tokenPath,
 		homeDir: paths.homeDir,
 		recoveryRoot: paths.recoveryRoot,
@@ -222,6 +223,7 @@ test("a caller hanging up stops the point, removes the partial file, and frees t
 	const tokenPath = join(base, "agent.token");
 	await writeFile(tokenPath, `${token}\n`, { mode: 0o600 });
 	const app = buildServer({
+		tmuxSocketName: "portikus-test",
 		tokenPath,
 		homeDir: paths.homeDir,
 		recoveryRoot: paths.recoveryRoot,

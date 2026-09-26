@@ -1,4 +1,5 @@
-import { mkdtemp, utimes, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
@@ -37,6 +38,20 @@ test("a record that is not a plain result word gives null", async () => {
 	expect(await readTerminalsExit(path)).toBeNull();
 });
 
+test("a symlink, a FIFO, or an overlong record gives null", async () => {
+	const target = join(dir, "target");
+	await writeFile(target, "oom-kill\n");
+	const link = join(dir, "link");
+	await symlink(target, link);
+	expect(await readTerminalsExit(link)).toBeNull();
+	const fifo = join(dir, "fifo");
+	execFileSync("mkfifo", [fifo]);
+	expect(await readTerminalsExit(fifo)).toBeNull();
+	const long = join(dir, "long");
+	await writeFile(long, `${"a".repeat(64)}b\n`);
+	expect(await readTerminalsExit(long)).toBeNull();
+});
+
 let app: ReturnType<typeof buildServer> | undefined;
 
 afterAll(async () => {
@@ -47,7 +62,12 @@ test("the route reports the record, or null", async () => {
 	const tokenPath = join(dir, "agent.token");
 	await writeFile(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
 	const path = join(dir, "last-exit");
-	app = buildServer({ tokenPath, homeDir: dir, terminalsExitPath: path });
+	app = buildServer({
+		tmuxSocketName: "portikus-test",
+		tokenPath,
+		homeDir: dir,
+		terminalsExitPath: path,
+	});
 	const headers = { authorization: `Bearer ${TOKEN}` };
 
 	const none = await app.inject({

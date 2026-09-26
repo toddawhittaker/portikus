@@ -226,3 +226,13 @@ test("a project at the folder cap is watched", async () => {
 	expect(capped.size()).toBe(1);
 	stop();
 });
+
+test("a project that takes too long to scan is refused with WatchLimitedError", async () => {
+	const { logger } = collectingLogger();
+	const slow = new ProjectWatchers(logger as unknown as FastifyBaseLogger, 1000, 1);
+	for (const name of ["a", "b", "c", "d"]) await mkdir(join(project, name));
+	await expect(slow.subscribe(homeDir, "demo", () => {})).rejects.toBeInstanceOf(
+		WatchLimitedError,
+	);
+	expect(slow.size()).toBe(0);
+});

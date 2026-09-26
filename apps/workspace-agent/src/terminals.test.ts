@@ -329,3 +329,50 @@ test.skipIf(!haveTmux)(
 		await killSession(pending.id, SERVER);
 	},
 );
+
+test.skipIf(!haveTmux)(
+	"an exit says whether the terminals unit's tmux server is gone",
+	async () => {
+		const socketName = `portikus-gone-${process.pid}`;
+		const external = { socketName, external: true };
+		const ids = [makeId(), makeId()];
+		for (const id of ids) {
+			await createSession(id, homeDir, homeDir, "dark", "UTC", {
+				socketName,
+				external: false,
+			});
+		}
+		const ptys: FakePty[] = [];
+		const { logger } = collectingLogger();
+		const registry = new TerminalRegistry(
+			homeDir,
+			logger as unknown as FastifyBaseLogger,
+			external,
+			((_file: string, _args: string[], opts: { cols: number; rows: number }) => {
+				const pty = new FakePty(opts.cols, opts.rows);
+				ptys.push(pty);
+				return pty as unknown as IPty;
+			}) as unknown as typeof spawn,
+		);
+		const sockets = ids.map(() => new FakeSocket());
+		for (const [index, id] of ids.entries()) {
+			await registry.attach(id, sockets[index] as unknown as WebSocket, {});
+		}
+		const exitFrame = (socket: FakeSocket) =>
+			socket.sent
+				.filter((frame): frame is string => typeof frame === "string")
+				.map((frame) => JSON.parse(frame) as { type: string; serverGone?: boolean })
+				.find((frame) => frame.type === "exit");
+
+		// A shell that ends leaves the server running: an ordinary exit.
+		ptys[0]?.exit();
+		await vi.waitFor(() => expect(exitFrame(sockets[0] as FakeSocket)).toBeDefined());
+		expect(exitFrame(sockets[0] as FakeSocket)?.serverGone).toBe(false);
+
+		// The unit dies and takes the server with it.
+		await run("tmux", ["-L", socketName, "kill-server"]);
+		ptys[1]?.exit();
+		await vi.waitFor(() => expect(exitFrame(sockets[1] as FakeSocket)).toBeDefined());
+		expect(exitFrame(sockets[1] as FakeSocket)?.serverGone).toBe(true);
+	},
+);

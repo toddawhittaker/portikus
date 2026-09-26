@@ -650,49 +650,73 @@ export function terminalGoneReason(
 	return exit.result === "oom-kill" ? "out_of_memory" : "restarted";
 }
 
-/** True for the agent's text frame saying the terminal's session is gone. */
-function isSessionGone(text: string): boolean {
+/** The agent's text frames that end a terminal's attachment. */
+function endingFrame(text: string): "gone" | "exit" | "server-gone" | null {
 	try {
-		const frame = JSON.parse(text) as { type?: unknown; code?: unknown };
-		return frame.type === "error" && frame.code === "TERMINAL_NOT_FOUND";
+		const frame = JSON.parse(text) as {
+			type?: unknown;
+			code?: unknown;
+			serverGone?: unknown;
+		};
+		// An older agent sends no `serverGone`: an ordinary exit.
+		if (frame.type === "exit")
+			return frame.serverGone === true ? "server-gone" : "exit";
+		if (frame.type === "error" && frame.code === "TERMINAL_NOT_FOUND") return "gone";
+		return null;
 	} catch {
-		return false;
+		return null;
 	}
 }
 
+/** How long a server-gone `exit` waits for the terminals unit's record, and how often it asks. */
+export const EXIT_RECORD_WAIT_MS = 2000;
+const EXIT_RECORD_POLL_MS = 250;
+
 /**
- * The frame the browser gets for a terminal the agent no longer has, with a
- * reason when the terminals unit's last stop explains it. Any failure to find
- * out gives the plain frame, as before.
+ * The frame the browser gets when the agent ends a terminal's attachment,
+ * with a reason when the terminals unit's last stop explains it (SPEC.md
+ * §9.7). An `exit` whose tmux server died waits a moment for the record,
+ * because the unit writes it only after its processes are gone. Any failure to find out gives the
+ * agent's own frame, as before.
  */
-async function sessionGoneFrame(
+async function explainedFrame(
 	db: Kysely<Database>,
 	agent: AgentClient,
 	terminalId: string,
+	kind: "gone" | "server-gone",
+	waitMs: number,
 ): Promise<string> {
+	const plain =
+		kind === "server-gone"
+			? JSON.stringify({ type: "exit" })
+			: JSON.stringify({ type: "error", code: "TERMINAL_NOT_FOUND" });
 	try {
-		const [exit, row] = await Promise.all([
-			agent.terminalsExit(),
-			db
-				.selectFrom("terminals")
-				.select("created_at")
-				.where("id", "=", terminalId)
-				.executeTakeFirst(),
-		]);
-		const reason = row && exit ? terminalGoneReason(exit, row.created_at) : null;
-		if (exit && reason) {
-			const frame: TerminalServerMessage = {
-				type: "error",
-				code: "TERMINAL_NOT_FOUND",
-				reason,
-				at: exit.at,
-			};
-			return JSON.stringify(frame);
+		const row = await db
+			.selectFrom("terminals")
+			.select("created_at")
+			.where("id", "=", terminalId)
+			.executeTakeFirst();
+		if (!row) return plain;
+		const deadline = Date.now() + waitMs;
+		while (true) {
+			const exit = await agent.terminalsExit();
+			const reason = exit ? terminalGoneReason(exit, row.created_at) : null;
+			if (exit && reason) {
+				const frame: TerminalServerMessage = {
+					type: "error",
+					code: "TERMINAL_NOT_FOUND",
+					reason,
+					at: exit.at,
+				};
+				return JSON.stringify(frame);
+			}
+			if (Date.now() >= deadline) return plain;
+			await new Promise((resolve) => setTimeout(resolve, EXIT_RECORD_POLL_MS));
 		}
 	} catch {
 		// An older agent has no record route; the plain frame still stands.
+		return plain;
 	}
-	return JSON.stringify({ type: "error", code: "TERMINAL_NOT_FOUND" });
 }
 
 /**
@@ -767,6 +791,9 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 	let closed = false;
 	let lastSessionCheck = Date.now();
 	let explaining: Promise<void> = Promise.resolve();
+	// The agent is student-controlled, so it gets one record lookup per
+	// connection and no more (SPEC.md §24).
+	let ending = false;
 
 	const backpressure = pipeBackpressure(socket, upstream);
 
@@ -834,10 +861,26 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 
 		upstream.on("message", (data: RawData, isBinary: boolean) => {
 			if (socket.readyState !== socket.OPEN) return;
-			if (!isBinary && isSessionGone(data.toString())) {
-				explaining = sessionGoneFrame(db, agent, terminalId).then((frame) => {
-					if (socket.readyState === socket.OPEN) socket.send(frame);
-				});
+			if (ending) {
+				// Nothing follows the end of a terminal; the agent is told to stop.
+				upstream.close(1000, "terminal ended");
+				return;
+			}
+			const kind = isBinary ? null : endingFrame(data.toString());
+			if (kind === "exit") {
+				// An ordinary exit closes the pane at once, with no lookup.
+				ending = true;
+				socket.send(JSON.stringify({ type: "exit" }));
+				return;
+			}
+			if (kind) {
+				ending = true;
+				const waitMs = kind === "server-gone" ? EXIT_RECORD_WAIT_MS : 0;
+				explaining = explainedFrame(db, agent, terminalId, kind, waitMs).then(
+					(frame) => {
+						if (socket.readyState === socket.OPEN) socket.send(frame);
+					},
+				);
 				return;
 			}
 			socket.send(isBinary ? toBuffer(data) : data.toString(), { binary: isBinary });

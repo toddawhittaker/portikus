@@ -54,7 +54,9 @@ export type TerminalGoneReason = z.infer<typeof TerminalGoneReason>;
  * Text messages the API sends on the terminal WebSocket (SPEC.md §9.2, §27).
  */
 export const TerminalServerMessage = z.discriminatedUnion("type", [
-	z.object({ type: z.literal("exit") }),
+	// `serverGone` is the agent's word that the tmux server itself died, as
+	// when the terminals unit stops; absent or false is an ordinary exit.
+	z.object({ type: z.literal("exit"), serverGone: z.boolean().optional() }),
 	// The terminal's directory, resent by the agent whenever it changes.
 	z.object({ type: z.literal("cwd"), path: z.string().min(1) }),
 	// Whether a full-screen program such as nano holds the terminal, resent by

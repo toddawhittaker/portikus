@@ -82,6 +82,12 @@ export function attachArgs(id: string, server: TmuxServer): string[] {
  */
 const TMUX_MAX_OUTPUT_BYTES = 1024 * 1024;
 
+/** tmux's answers that mean "that session or server is not there". */
+const MISSING = /can't find session|no server running|error connecting/;
+
+/** Thrown for a missing session or server, so callers can tell it from a real failure. */
+class TmuxMissing extends AgentFailure {}
+
 async function tmux(args: string[], server: TmuxServer): Promise<string> {
 	try {
 		const { stdout } = await run("tmux", [...serverArgs(server), ...args], {
@@ -97,11 +103,12 @@ async function tmux(args: string[], server: TmuxServer): Promise<string> {
 		}
 		const stderr = typeof failure.stderr === "string" ? failure.stderr.trim() : "";
 		if (server.external && /no server running|error connecting/.test(stderr)) {
-			throw new AgentFailure(
+			throw new TmuxMissing(
 				"TMUX_FAILED",
 				"The terminal service is not running; it restarts on its own within seconds.",
 			);
 		}
+		if (MISSING.test(stderr)) throw new TmuxMissing("TMUX_FAILED", stderr);
 		throw new AgentFailure("TMUX_FAILED", stderr || String(error));
 	}
 }
@@ -319,9 +326,10 @@ export async function listSessions(server: TmuxServer): Promise<TmuxSession[]> {
 			["list-sessions", "-F", "#{session_name}\t#{session_path}"],
 			server,
 		);
-	} catch {
-		// No server running yet means no sessions, which is not an error.
-		return [];
+	} catch (error) {
+		// No server running yet means no sessions; a timeout is a real failure.
+		if (error instanceof TmuxMissing) return [];
+		throw error;
 	}
 	const sessions: TmuxSession[] = [];
 	for (const line of stdout.split("\n")) {
@@ -332,12 +340,27 @@ export async function listSessions(server: TmuxServer): Promise<TmuxSession[]> {
 	return sessions;
 }
 
+/**
+ * True when the terminals unit's tmux server is gone (SPEC.md §9.7). Only in
+ * external mode: otherwise tmux exits on its own after the last session.
+ */
+export async function tmuxServerGone(server: TmuxServer): Promise<boolean> {
+	if (!server.external) return false;
+	try {
+		await tmux(["list-sessions", "-F", "#{session_name}"], server);
+		return false;
+	} catch (error) {
+		return error instanceof TmuxMissing;
+	}
+}
+
 export async function hasSession(id: string, server: TmuxServer): Promise<boolean> {
 	try {
 		await tmux(["has-session", "-t", sessionName(id)], server);
 		return true;
-	} catch {
-		return false;
+	} catch (error) {
+		if (error instanceof TmuxMissing) return false;
+		throw error;
 	}
 }
 
@@ -364,6 +387,25 @@ export async function createSession(
 		}
 	}
 	const command = launch?.command;
+	try {
+		await createTmuxSession(name, real, theme, timezone, server, command, launch);
+	} catch (error) {
+		// A half-made session would linger as an orphan terminal.
+		await tmux(["kill-session", "-t", name], server).catch(() => undefined);
+		throw error;
+	}
+	return { id, cwd: real, ...baseline };
+}
+
+async function createTmuxSession(
+	name: string,
+	real: string,
+	theme: TerminalTheme,
+	timezone: string,
+	server: TmuxServer,
+	command: readonly string[] | undefined,
+	launch: SessionLaunch | undefined,
+): Promise<void> {
 	await tmux(
 		[
 			...serverOptionArgs(),
@@ -398,7 +440,6 @@ export async function createSession(
 	// attachment does not shrink the terminal to the smallest window.
 	await tmux(["set-option", "-t", name, "window-size", "latest"], server);
 	await tmux(["set-option", "-t", name, "status", "off"], server);
-	return { id, cwd: real, ...baseline };
 }
 
 export interface PaneState {
@@ -456,5 +497,5 @@ export async function closeSession(
 	);
 	const tree = Number.isInteger(pid) ? await collectProcessTree(pid) : [];
 	await killSession(id, server);
-	return { stopped: stopProcesses(tree) };
+	return { stopped: stopProcesses(tree, undefined, pid) };
 }

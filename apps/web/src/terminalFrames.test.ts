@@ -32,10 +32,10 @@ test("an unknown reason is dropped", () => {
 
 test("each reason has its sentence", () => {
 	expect(terminalGoneMessage("out_of_memory")).toBe(
-		"Your workspace ran out of memory and its terminals were restarted.",
+		"Your workspace ran out of memory, so its terminals were closed.",
 	);
 	expect(terminalGoneMessage("restarted")).toBe(
-		"Your workspace's terminals were restarted.",
+		"Your workspace's terminals were closed.",
 	);
 });
 

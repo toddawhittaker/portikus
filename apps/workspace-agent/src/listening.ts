@@ -425,7 +425,8 @@ export class ListeningMonitor {
 	private dockerCache: { at: number; containers: DockerContainer[] } | null = null;
 	/** Open `/listening/events` sockets; the in-process subscribers do not count. */
 	private watchers = 0;
-	private scanning = false;
+	/** The scan in progress, shared by every caller that asks meanwhile. */
+	private inFlight: Promise<AgentListeningService[]> | null = null;
 	/** Socket inode to owner from the last walk; null when no readable process held it. */
 	private owners = new Map<string, SocketOwner | null>();
 
@@ -473,7 +474,7 @@ export class ListeningMonitor {
 
 	/** One timer tick: skipped while nobody watches or a scan is still running. */
 	async tick(): Promise<void> {
-		if (this.scanning) return;
+		if (this.inFlight) return;
 		if (this.watchers === 0 && this.forwardedPorts().size === 0) return;
 		await this.refresh();
 	}
@@ -529,6 +530,9 @@ export class ListeningMonitor {
 	 * SIGKILL. The agent runs as the student, so this needs no new privilege.
 	 */
 	async stopListener(port: number): Promise<void> {
+		// A fresh fd walk: a cached owner's pid may since belong to another process.
+		while (this.inFlight) await this.inFlight;
+		this.owners.clear();
 		await this.refresh();
 		const service = this.services.find((entry) => entry.port === port);
 		if (!service)
@@ -638,10 +642,21 @@ export class ListeningMonitor {
 		}
 	}
 
-	/** One scan. Subscribers hear about it only if the set changed. */
-	async refresh(): Promise<AgentListeningService[]> {
+	/**
+	 * One scan, or the one already running. Subscribers hear about it only if
+	 * the set changed.
+	 */
+	refresh(): Promise<AgentListeningService[]> {
+		if (!this.inFlight) {
+			this.inFlight = this.runScan().finally(() => {
+				this.inFlight = null;
+			});
+		}
+		return this.inFlight;
+	}
+
+	private async runScan(): Promise<AgentListeningService[]> {
 		let services: AgentListeningService[];
-		this.scanning = true;
 		try {
 			services = await this.scan();
 		} catch (error) {
@@ -650,8 +665,6 @@ export class ListeningMonitor {
 				"listening scan failed",
 			);
 			return this.services;
-		} finally {
-			this.scanning = false;
 		}
 		const print = fingerprint(services);
 		if (print === this.print) return this.services;

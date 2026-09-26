@@ -55,6 +55,7 @@ beforeAll(async () => {
 	const tokenPath = join(base, "agent.token");
 	await writeFile(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
 	app = buildServer({
+		tmuxSocketName: "portikus-test",
 		tokenPath,
 		homeDir,
 		recoveryRoot,
