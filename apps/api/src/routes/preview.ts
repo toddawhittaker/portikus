@@ -1,4 +1,4 @@
-import { hashSessionToken, requireUser } from "@portikus/auth";
+import { hashSessionToken, requireUser, sessionGate } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import {
 	type ListeningService,
@@ -591,6 +591,8 @@ export function registerPreviewRoutes(
 		// The preview session lives with the main one (BROWSER-HANDLING §9.2).
 		const user = await loadMainSessionUser(db, session.session_id);
 		if (!user || user.id !== session.user_id) return page(reply, 401, signInPage());
+		// An account held at the change-password page gets no preview (SPEC.md section 5.3).
+		if (sessionGate(user)) return page(reply, 403, refusedPage());
 
 		const { workspace_id: sessionWorkspaceId, user_id: sessionUserId } = session;
 		/** Refuse with 403 and audit it, throttled (SPEC.md §24.11). */

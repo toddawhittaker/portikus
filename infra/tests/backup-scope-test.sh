@@ -11,9 +11,11 @@
 #   - a failed or empty listing never becomes a set that looks complete, and
 #     one volume that fails to export does not stop the others;
 #   - restore.sh verifies a set, and refuses the wrong VM, an older release,
-#     or a VM that already holds workspace volumes or rows, before stopping
-#     anything; a restore leaves every workspace stopped, skips Dex's
+#     or a VM that already holds workspace volumes or rows other than the
+#     local administrator, before stopping anything; a restore leaves every workspace stopped, skips Dex's
 #     accounts on a VM without Dex, and starts Dex again if loading fails;
+#     a set without Dex's accounts makes the local administrator change its
+#     password, since Dex still holds the VM's one-time password;
 #   - neither script trusts what came from the VM: a lying VM or a doctored
 #     set is refused before any of it reaches a file name or a command, and a
 #     file name with a control character is left out of the checks rather
@@ -176,7 +178,8 @@ case "\$cmd" in
     printf 'sql %s\n' "\$sql" >>"\$FAKE_LOG"
     case "\$sql" in
       *"'users '"*) echo "users 3 workspaces 1 projects 6" ;;
-      *"FROM users) +"*) echo "\${FAKE_ROWS:-0}" ;;
+      *"FROM users WHERE"*) echo "\${FAKE_ROWS:-0}" ;;
+      *"column_name = 'must_change_password'"*) echo 1 ;;
     esac ;;
   *"systemctl cat portikus-dex"*) [ -n "\${FAKE_NO_DEX:-}" ] && echo no || echo yes ;;
   *pg_restore*)
@@ -351,6 +354,12 @@ expect "restore ends every session and preview session in the same transaction" 
   "[[ \"\$restore_sql\" == 'sql BEGIN; '*'DELETE FROM preview_sessions; DELETE FROM sessions; COMMIT;' ]]"
 expect "restore loads Dex's accounts with Dex stopped, then starts it" \
   "grep -A2 'systemctl stop portikus-dex' '$log' | grep -q 'pg_restore' && grep -q 'systemctl start portikus-dex' '$log'"
+# The protobuf IDTokenSubject{user_id: "local-admin", conn_id: "local"}, as
+# packages/auth's dexLocalSubject encodes it, worked out here independently.
+# shellcheck disable=SC2034  # read inside expect's eval
+admin_subject=$(python3 -c 'import base64; print(base64.urlsafe_b64encode(b"\x0a\x0blocal-admin\x12\x05local").decode().rstrip("="))')
+expect "restore counts every user but the local administrator, found by its Dex subject and username" \
+  "grep -q \"^sql SELECT (SELECT count(\\*) FROM users WHERE NOT (oidc_subject = '\${admin_subject}' AND preferred_username = 'admin')) + (SELECT count(\\*) FROM workspaces) + (SELECT count(\\*) FROM projects)\$\" '$log'"
 expect "restore samples the plainly named file" "grep -q 'file pull .*projects/demo/a.txt' '$log'"
 expect "restore leaves the names with a tab or a newline out of the sample" "! grep -qE 'tab|line\\.txt' '$log'"
 
@@ -370,6 +379,22 @@ else
 fi
 expect "a failed Dex load still starts Dex again" \
   "grep -A10 'systemctl stop portikus-dex' '$log' | grep -q 'systemctl start portikus-dex'"
+expect "a set with Dex's accounts leaves the local administrator's flag alone" \
+  "! grep -q 'must_change_password = true' '$log'"
+
+# A set without Dex's accounts, onto a VM whose Dex holds a fresh one-time password.
+sleep 1
+FAKE_HAS_DEX=0 run_backup >/dev/null 2>&1
+no_dex=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
+: >"$log"
+if [ ! -e "${no_dex}/dex.dump.age" ] \
+  && run_restore --target-name portikus-rehearsal 10.101.0.210 "$no_dex" >"${work}/restore.out" 2>&1; then
+  ok "restore of a set without Dex's accounts completes"
+else
+  bad "restore of a set without Dex's accounts completes"; cat "${work}/restore.out"
+fi
+expect "without Dex's accounts, restore makes the local administrator change its password" \
+  "grep -qx \"sql UPDATE users SET must_change_password = true WHERE oidc_subject = '\${admin_subject}' AND preferred_username = 'admin'\" '$log'"
 
 echo "--- hostile input ---"
 lying_vm() { # LABEL ENV...

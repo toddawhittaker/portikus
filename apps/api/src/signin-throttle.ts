@@ -62,6 +62,8 @@ function createCounter(limit: number, windowMs: number, now: () => number) {
 			window.count += 1;
 			return window;
 		},
+		/** The window as it stands, without counting. */
+		peek: current,
 		limit,
 	};
 }
@@ -197,13 +199,24 @@ export function registerSigninThrottleRoute(app: FastifyInstance): void {
 	app.get(EDGE_THROTTLE_PATH, async (_request, reply) => reply.status(204).send());
 }
 
-/** Setup-code attempts: ten per address in ten minutes (docs/archive/epics/EPIC-14.md ruling 17). */
-export function createSetupThrottle(now: () => number = Date.now) {
+/**
+ * Wrong current passwords on the change form: ten per account in ten
+ * minutes (SPEC.md section 5.3; Todd's ruling of 2026-09-25). Each try is
+ * counted before Dex is asked, so parallel requests cannot slip past the
+ * limit, and handed back when it was not a wrong password.
+ */
+export function createPasswordChangeThrottle(now: () => number = Date.now) {
 	const attempts = createCounter(10, TEN_MINUTES_MS, now);
 	return {
-		check(ip: string): ThrottleDecision {
-			const window = attempts.hit(ip);
+		/** Count one try for this account; refused once the limit is used up. */
+		attempt(userId: string): ThrottleDecision {
+			const window = attempts.hit(userId);
 			return decide(window, window.count > attempts.limit);
+		},
+		/** Give back a try that turned out not to be a wrong password. */
+		giveBack(userId: string): void {
+			const window = attempts.peek(userId);
+			if (window.count > 0) window.count -= 1;
 		},
 	};
 }

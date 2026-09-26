@@ -1,8 +1,9 @@
 ---
 # Renders the dex role's real configuration and unit templates and checks
 # them, with no VM: PostgreSQL storage, the gRPC API behind mutual TLS, each
-# upstream connector, and the guards on the settings and the users file
-# (docs/archive/epics/EPIC-14.md rulings 11, 13, 19, 20, 23 and 28).  `make infra-check`
+# upstream connector, the sign-in lines of api.env, and the guards on the
+# settings and the users file (docs/archive/epics/EPIC-14.md rulings 11, 13,
+# 19, 20, 23 and 28; SPEC.md section 5.1).  `make infra-check`
 # runs it; the CI dex-signin job runs it to get a configuration it can
 # start Dex with:
 #
@@ -39,12 +40,23 @@
     dex_grpc_dir: /etc/portikus/dex-grpc
     # A test value; Ansible generates the real one on the VM.
     dex_client_secret: portikus-ci-dex-client-secret-not-a-real-one
+    portikus_idp: dex
     portikus_dex_upstream: none
-    portikus_entra_tenant_id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-    portikus_google_domains: [example.edu, example.org]
+    portikus_entra_tenant_id: "{{ dex_render_connector.portikus_entra_tenant_id }}"
+    portikus_entra_issuer: "https://login.microsoftonline.com/{{ portikus_entra_tenant_id }}/v2.0"
+    portikus_google_domains: "{{ dex_render_connector.portikus_google_domains }}"
+    portikus_dex_upstream_issuer: "{{ dex_render_connector.portikus_dex_upstream_issuer }}"
+    portikus_oidc_upstream_groups_claim: "{{ dex_render_connector.portikus_oidc_upstream_groups_claim }}"
+    portikus_oidc_upstream_extra_scopes: "{{ dex_render_connector.portikus_oidc_upstream_extra_scopes }}"
     dex_render_upstream_client:
       portikus_dex_upstream_client_id: dex-upstream-client
       portikus_dex_upstream_client_secret: not-a-real-upstream-secret
+    dex_render_connector:
+      portikus_entra_tenant_id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+      portikus_google_domains: [example.edu, example.org]
+      portikus_dex_upstream_issuer: https://sso.example.edu/oauth2/default
+      portikus_oidc_upstream_groups_claim: memberOf
+      portikus_oidc_upstream_extra_scopes: [groups]
     dex_render_ldap:
       portikus_ldap_host: ldap.example.edu:636
       portikus_ldap_schema: ad
@@ -56,12 +68,37 @@
       portikus_ldap_root_ca: ""
       portikus_ldap_ip_allow: [192.0.2.10/32, 198.51.100.0/28]
     dex_render_upstreams:
-      - {name: ad, upstream: ldap, schema: ad}
-      - {name: openldap, upstream: ldap, schema: openldap, group_base_dn: "", root_ca: /srv/ldap-ca.crt}
-      - {name: microsoft, upstream: microsoft}
-      - {name: google, upstream: google}
-    # Each is the working settings with one change; only the first is accepted.
+      - {name: ad, upstream: ldap, type: ldap, schema: ad}
+      - {name: openldap, upstream: ldap, type: ldap, schema: openldap, group_base_dn: "", root_ca: /srv/ldap-ca.crt}
+      - {name: entra, upstream: entra, type: oidc}
+      - {name: google, upstream: google, type: google}
+      - {name: oidc, upstream: oidc, type: oidc}
+    # Each is the working settings with one change; accept says whether the
+    # guards should let it through.
     dex_render_guards:
+      - {name: standalone Dex, accept: true, upstream: none, change: {}}
+      - {name: the mock provider, accept: true, idp: mock, upstream: none, change: {}}
+      - {name: PORTIKUS_IDP=entra, accept: false, idp: entra, upstream: none, change: {}}
+      - {name: PORTIKUS_IDP=google, accept: false, idp: google, upstream: none, change: {}}
+      - {name: PORTIKUS_IDP=external, accept: false, idp: external, upstream: none, change: {}}
+      - {name: an unknown PORTIKUS_IDP, accept: false, idp: saml, upstream: none, change: {}}
+      - {name: PORTIKUS_DEX_UPSTREAM=microsoft, accept: false, upstream: microsoft, change: {}}
+      - {name: an unknown upstream, accept: false, upstream: okta, change: {}}
+      - {name: complete Entra settings, accept: true, upstream: entra, change: {}}
+      - {name: an Entra tenant ID that is not a GUID, accept: false, upstream: entra, change: {portikus_entra_tenant_id: contoso.onmicrosoft.com}}
+      - {name: Entra without a tenant ID, accept: false, upstream: entra, change: {portikus_entra_tenant_id: ""}}
+      - {name: Entra without a client secret, accept: false, upstream: entra, change: {portikus_dex_upstream_client_secret: ""}}
+      - {name: complete OIDC settings, accept: true, upstream: oidc, change: {}}
+      - {name: OIDC without an issuer, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: ""}}
+      - {name: an OIDC issuer over plain HTTP, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: "http://sso.example.edu"}}
+      - {name: Entra through the generic OIDC connector, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: "https://login.microsoftonline.com/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0"}}
+      - {name: Entra US Government through the generic OIDC connector, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: "https://login.microsoftonline.us/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0"}}
+      - {name: Entra China through the generic OIDC connector, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: "https://login.partner.microsoftonline.cn/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0"}}
+      - {name: Entra v1 issuer through the generic OIDC connector, accept: false, upstream: oidc, change: {portikus_dex_upstream_issuer: "https://STS.Windows.net/3fa85f64-5717-4562-b3fc-2c963f66afa6/"}}
+      - {name: OIDC without a client ID, accept: false, upstream: oidc, change: {portikus_dex_upstream_client_id: ""}}
+      - {name: an OIDC groups claim with a space, accept: false, upstream: oidc, change: {portikus_oidc_upstream_groups_claim: "my groups"}}
+      - {name: complete Google settings, accept: true, upstream: google, change: {}}
+      - {name: Google without domains, accept: false, upstream: google, change: {portikus_google_domains: []}}
       - {name: complete LDAP settings, accept: true, upstream: ldap, change: {}}
       - {name: LDAP without a user filter, accept: false, upstream: ldap, change: {portikus_ldap_user_filter: ""}}
       - {name: an LDAP filter without parentheses, accept: false, upstream: ldap, change: {portikus_ldap_user_filter: "memberOf=x"}}
@@ -70,7 +107,6 @@
       - {name: an LDAP address that is a host name, accept: false, upstream: ldap, change: {portikus_ldap_ip_allow: [ldap.example.edu]}}
       - {name: LDAP without a bind password, accept: false, upstream: ldap, change: {portikus_ldap_bind_password: ""}}
       - {name: an LDAP root certificate file that is missing, accept: false, upstream: ldap, change: {portikus_ldap_root_ca: /nonexistent/ca.crt}}
-      - {name: Microsoft without a client secret, accept: false, upstream: microsoft, change: {portikus_dex_upstream_client_secret: ""}}
       - {name: Google without a client ID, accept: false, upstream: google, change: {portikus_dex_upstream_client_id: ""}}
     dex_render_instructor:
       username: ivy
@@ -236,7 +272,77 @@
       when: dex_render_web | bool
       become: true
 
-    # ── Upstream connectors (rulings 11, 13 and 28) ────────────
+    # ── What Portikus asks Dex for (SPEC.md section 5.1) ──
+    # site.yml's own rules for api.env's sign-in lines, rendered for each
+    # upstream.  Groups are asked for everywhere but behind Google, whose
+    # connector has none.  The group names feed the connectors below.
+    - name: Copy site.yml's sign-in rules into api.env lines
+      ansible.builtin.copy:
+        content: |
+          {% for key, var in dex_env_rules.items() %}
+          {{ key }}={{ site_vars[var] }}
+          {% endfor %}
+        dest: "{{ dex_render_workdir.path }}/api-env.j2"
+        mode: "0600"
+      vars:
+        site_vars: "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/../ansible/site.yml') | from_yaml)[0].vars }}"
+        dex_env_rules:
+          OIDC_SCOPES: portikus_oidc_scopes
+          OIDC_GROUPS_CLAIM: portikus_oidc_groups_claim
+          OIDC_DEFAULT_ROLE: portikus_oidc_default_role
+          OIDC_STUDENT_GROUP: portikus_oidc_student_group
+          OIDC_INSTRUCTOR_GROUP: portikus_oidc_instructor_group
+          OIDC_ADMIN_GROUP: portikus_oidc_admin_group
+
+    - name: Render api.env's sign-in lines for each setup
+      ansible.builtin.set_fact:
+        dex_env: >-
+          {{ dex_env | default({}) | combine({item.0 ~ '-' ~ item.1: dict(
+               lookup('ansible.builtin.template', dex_render_workdir.path ~ '/api-env.j2',
+                      template_vars={'portikus_idp': item.0, 'portikus_dex_upstream': item.1}).splitlines()
+               | map('trim') | select | map('split', '=', 1) | list)}) }}
+      loop: "{{ ['dex'] | product(['none', 'ldap', 'entra', 'google', 'oidc']) | list + [['mock', 'none']] }}"
+      loop_control:
+        label: "{{ item.0 }} {{ item.1 }}"
+
+    - name: Check api.env asks for groups everywhere but behind Google
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_env['dex-' ~ item].OIDC_SCOPES.split() == ['openid', 'profile', 'email', 'groups']
+          - dex_env['dex-' ~ item].OIDC_GROUPS_CLAIM == 'groups'
+        fail_msg: "{{ item }}: {{ dex_env['dex-' ~ item] | to_json }}"
+      loop: [none, ldap, entra, oidc]
+
+    - name: Check api.env reads no groups behind Google
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_env['dex-google'].OIDC_SCOPES.split() == ['openid', 'profile', 'email']
+          - dex_env['dex-google'].OIDC_GROUPS_CLAIM == ''
+        fail_msg: "{{ dex_env['dex-google'] | to_json }}"
+
+    # The local administrator and guests have no groups, so on Dex nobody is
+    # refused for lacking one; the mock's group-less user still is.
+    - name: Check the default role
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_env | dict2items | selectattr('key', 'match', '^dex-') | map(attribute='value.OIDC_DEFAULT_ROLE') | unique | list == ['student']
+          - dex_env['mock-none'].OIDC_DEFAULT_ROLE == 'none'
+        fail_msg: "{{ dex_env | to_json }}"
+
+    - name: Check Entra's groups are its app roles and the rest keep Portikus's names
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - "[dex_env['dex-entra'].OIDC_STUDENT_GROUP, dex_env['dex-entra'].OIDC_INSTRUCTOR_GROUP, dex_env['dex-entra'].OIDC_ADMIN_GROUP]
+             == ['Portikus.Student', 'Portikus.Instructor', 'Portikus.Administrator']"
+          - "[dex_env['dex-oidc'].OIDC_STUDENT_GROUP, dex_env['dex-oidc'].OIDC_INSTRUCTOR_GROUP, dex_env['dex-oidc'].OIDC_ADMIN_GROUP]
+             == ['portikus-students', 'portikus-instructors', 'portikus-administrators']"
+        fail_msg: "{{ dex_env | to_json }}"
+
+    # ── Upstream connectors (rulings 11, 13 and 28; SPEC.md section 5.1) ──
 
     - name: Render each upstream connector
       ansible.builtin.template:
@@ -256,6 +362,9 @@
         portikus_ldap_group_base_dn: "{{ item.0.group_base_dn | default(dex_render_ldap.portikus_ldap_group_base_dn) }}"
         portikus_ldap_root_ca: "{{ item.0.root_ca | default('') }}"
         portikus_ldap_ip_allow: "{{ dex_render_ldap.portikus_ldap_ip_allow }}"
+        portikus_oidc_student_group: "{{ dex_env['dex-' ~ item.0.upstream].OIDC_STUDENT_GROUP }}"
+        portikus_oidc_instructor_group: "{{ dex_env['dex-' ~ item.0.upstream].OIDC_INSTRUCTOR_GROUP }}"
+        portikus_oidc_admin_group: "{{ dex_env['dex-' ~ item.0.upstream].OIDC_ADMIN_GROUP }}"
       loop: "{{ dex_render_upstreams | product(['config.yaml', 'portikus-dex.service']) | list }}"
       loop_control:
         label: "{{ item.0.name }} {{ item.1 }}"
@@ -276,7 +385,7 @@
         that:
           - dex_up[item.name].config.enablePasswordDB
           - dex_up[item.name].config.connectors | length == 1
-          - dex_up[item.name].config.connectors[0].type == item.upstream
+          - dex_up[item.name].config.connectors[0].type == item.type
           - dex_up[item.name].config.connectors[0].id == item.upstream
           - dex_up[item.name].config.storage.type == 'postgres'
       loop: "{{ dex_render_upstreams }}"
@@ -322,19 +431,53 @@
       vars:
         ol: "{{ dex_up.openldap.config.connectors[0].config }}"
 
-    - name: Check the Microsoft connector is held to the tenant and goes through the proxy
+    # Held to the tenant's own issuer, so another tenant's token fails;
+    # roles come from the ID token's roles claim, and Graph is never called.
+    - name: Check the Entra connector reads the tenant's app roles and goes through the proxy
       ansible.builtin.assert:
         quiet: true
         that:
-          - ms.clientID == 'dex-upstream-client'
-          - ms.clientSecret == 'not-a-real-upstream-secret'
-          - ms.redirectURI == portikus_dex_issuer ~ '/callback'
-          - ms.tenant == portikus_entra_tenant_id
-          - ms.groups is not defined
-          - "'Environment=HTTPS_PROXY=http://127.0.0.1:3128' in dex_up.microsoft.unit"
-          - "'IPAddressAllow=127.0.0.0/8\nIPAddressDeny=any' in dex_up.microsoft.unit"
+          - dex_up.entra.config.connectors[0].name == 'Microsoft'
+          - en.issuer == 'https://login.microsoftonline.com/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0'
+          - en.clientID == 'dex-upstream-client'
+          - en.clientSecret == 'not-a-real-upstream-secret'
+          - en.redirectURI == portikus_dex_issuer ~ '/callback'
+          - en.scopes == ['openid', 'profile', 'email']
+          - not en.getUserInfo
+          - en.insecureSkipEmailVerified
+          - en.insecureEnableGroups
+          - en.overrideClaimMapping
+          - "en.claimMapping == {'groups': 'roles'}"
+          - en.allowedGroups == ['Portikus.Student', 'Portikus.Instructor', 'Portikus.Administrator']
+          - en.pkceChallenge == 'S256'
+          - en.tenant is not defined
+          - "'Environment=HTTPS_PROXY=http://127.0.0.1:3128' in dex_up.entra.unit"
+          - "'IPAddressAllow=127.0.0.0/8\nIPAddressDeny=any' in dex_up.entra.unit"
+        fail_msg: "{{ en | to_json }}"
       vars:
-        ms: "{{ dex_up.microsoft.config.connectors[0].config }}"
+        en: "{{ dex_up.entra.config.connectors[0].config }}"
+
+    # Admits only members of the three groups, read from the configured claim.
+    - name: Check the generic OIDC connector
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - oi.issuer == 'https://sso.example.edu/oauth2/default'
+          - oi.clientID == 'dex-upstream-client'
+          - oi.redirectURI == portikus_dex_issuer ~ '/callback'
+          - oi.scopes == ['openid', 'profile', 'email', 'groups']
+          - oi.getUserInfo
+          - oi.insecureSkipEmailVerified is not defined
+          - oi.insecureEnableGroups
+          - oi.overrideClaimMapping
+          - "oi.claimMapping == {'groups': 'memberOf'}"
+          - oi.allowedGroups == ['portikus-students', 'portikus-instructors', 'portikus-administrators']
+          - oi.pkceChallenge == 'S256'
+          - "'Environment=HTTPS_PROXY=http://127.0.0.1:3128' in dex_up.oidc.unit"
+          - "'IPAddressAllow=127.0.0.0/8\nIPAddressDeny=any' in dex_up.oidc.unit"
+        fail_msg: "{{ oi | to_json }}"
+      vars:
+        oi: "{{ dex_up.oidc.config.connectors[0].config }}"
 
     - name: Check the Google connector is held to the domains and goes through the proxy
       ansible.builtin.assert:
@@ -345,59 +488,6 @@
           - "'Environment=HTTPS_PROXY=http://127.0.0.1:3128' in dex_up.google.unit"
       vars:
         gg: "{{ dex_up.google.config.connectors[0].config }}"
-
-    # ── The scopes Portikus asks Dex for ────────────────────────
-    # Behind Dex's Microsoft connector the groups claim holds groups students
-    # can create, so only local passwords and LDAP ask for it.  This renders
-    # site.yml's own rule rather than a copy of it.
-    - name: Copy site.yml's scope rule to a template
-      ansible.builtin.copy:
-        content: "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/../ansible/site.yml') | from_yaml)[0].vars.portikus_oidc_scopes }}"
-        dest: "{{ dex_render_workdir.path }}/scopes.j2"
-        mode: "0600"
-
-    - name: Render the scopes for each Dex upstream
-      ansible.builtin.set_fact:
-        dex_scopes: >-
-          {{ dex_scopes | default({}) | combine({item: (lookup('ansible.builtin.template', dex_render_workdir.path ~ '/scopes.j2',
-               template_vars={'portikus_idp': 'dex', 'portikus_dex_upstream': item}) | trim).split()}) }}
-      loop: [none, ldap, microsoft, google]
-
-    - name: Check groups are asked for only where an administrator controls them
-      ansible.builtin.assert:
-        quiet: true
-        that:
-          - "'groups' in dex_scopes.none"
-          - "'groups' in dex_scopes.ldap"
-          - "'groups' not in dex_scopes.microsoft"
-          - "'groups' not in dex_scopes.google"
-          - dex_scopes.microsoft == ['openid', 'profile', 'email']
-        fail_msg: "{{ dex_scopes | to_json }}"
-
-    # A student can add the groups scope to the Dex authorize URL, so behind
-    # Microsoft or Google the API's api.env names no groups claim at all.
-    - name: Copy site.yml's groups-claim rule into an api.env line
-      ansible.builtin.copy:
-        content: "OIDC_GROUPS_CLAIM={{ (lookup('ansible.builtin.file', playbook_dir ~ '/../ansible/site.yml') | from_yaml)[0].vars.portikus_oidc_groups_claim }}"
-        dest: "{{ dex_render_workdir.path }}/groups-claim.j2"
-        mode: "0600"
-
-    - name: Render api.env's groups claim for each Dex upstream
-      ansible.builtin.set_fact:
-        dex_claims: >-
-          {{ dex_claims | default({}) | combine({item: (lookup('ansible.builtin.template', dex_render_workdir.path ~ '/groups-claim.j2',
-               template_vars={'portikus_idp': 'dex', 'portikus_dex_upstream': item}) | trim)}) }}
-      loop: [none, ldap, microsoft, google]
-
-    - name: Check api.env reads groups only where an administrator controls them
-      ansible.builtin.assert:
-        quiet: true
-        that:
-          - dex_claims.none == 'OIDC_GROUPS_CLAIM=groups'
-          - dex_claims.ldap == 'OIDC_GROUPS_CLAIM=groups'
-          - dex_claims.microsoft == 'OIDC_GROUPS_CLAIM='
-          - dex_claims.google == 'OIDC_GROUPS_CLAIM='
-        fail_msg: "{{ dex_claims | to_json }}"
 
     # ── The settings guards ─────────────────────────────────────
 

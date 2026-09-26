@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, and 0017_session_method
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard and 0021_notifications
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -26,7 +26,6 @@ export interface Database {
 	lti_memberships: LtiMembershipsTable;
 	account_links: AccountLinksTable;
 	account_link_intents: AccountLinkIntentsTable;
-	setup_codes: SetupCodesTable;
 	workspace_usage_samples: WorkspaceUsageSamplesTable;
 	notifications: NotificationsTable;
 }
@@ -46,6 +45,8 @@ export interface UsersTable {
 	/** The `preferred_username` claim; the workspace label comes from it. */
 	preferred_username: string | null;
 	disabled_at: ColumnType<Date | null, string | null, string | null>;
+	/** While set, the account can only change its password (SPEC.md section 5.3). */
+	must_change_password: ColumnType<boolean, boolean | undefined, boolean>;
 	/** Per-user grace period override; null means use the global setting. */
 	shutdown_grace_seconds: number | null;
 	/** Editor preferences the user has changed; the API fills in the rest. */
@@ -348,16 +349,6 @@ export interface AccountLinkIntentsTable {
 	/** The SSO account, set by the OIDC callback. */
 	user_id: string | null;
 	expires_at: ColumnType<Date, string, string>;
-}
-
-/** A one-time code that makes its claimer the administrator; only its hash is kept. */
-export interface SetupCodesTable {
-	id: Generated<string>;
-	code_hash: string;
-	created_at: ColumnType<Date, string | undefined, never>;
-	expires_at: ColumnType<Date, string, never>;
-	used_at: ColumnType<Date | null, string | null | undefined, string | null>;
-	used_by: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 /** One toast the user was shown, kept as their notification history (ADR 0033). */

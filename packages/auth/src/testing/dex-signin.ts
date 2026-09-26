@@ -37,3 +37,44 @@ export async function submitDexPasswordForm(
 	}
 	throw new Error("too many redirects");
 }
+
+/**
+ * What a browser does when a person picks an upstream connector on Dex's
+ * sign-in page and signs in at the mock provider as mockUser: follow Dex to
+ * the connector, pick the user on the mock's page, and follow on. Returns the
+ * callback URL when Dex sends the browser back, or null with the last page.
+ */
+export async function signInThroughDexUpstream(
+	loginUrl: string,
+	callbackUrl: string,
+	connectorId: string,
+	mockUser: string,
+): Promise<{ callback: URL | null; page: string }> {
+	let url = loginUrl;
+	for (let hop = 0; hop < 15; hop++) {
+		const res = await fetch(url, { redirect: "manual" });
+		const location = res.headers.get("location");
+		if (res.status >= 300 && res.status < 400 && location) {
+			const next = new URL(location, url);
+			if (next.href.startsWith(callbackUrl)) return { callback: next, page: "" };
+			// The mock's authorize endpoint lists its users; choose one.
+			if (next.pathname.endsWith("/authorize") && !next.searchParams.has("user")) {
+				next.searchParams.set("user", mockUser);
+			}
+			url = next.href;
+			continue;
+		}
+		const page = await res.text();
+		// Dex's chooser, shown because local passwords sit beside the connector.
+		const link = new RegExp(`href="([^"]*/auth/${connectorId}\\?[^"]*)"`).exec(
+			page,
+		)?.[1];
+		if (res.status !== 200 || !link) return { callback: null, page };
+		// Go's templates escape "+" in the scope as &#43;.
+		const decoded = link
+			.replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(Number(code)))
+			.replaceAll("&amp;", "&");
+		url = new URL(decoded, url).href;
+	}
+	throw new Error("too many redirects");
+}

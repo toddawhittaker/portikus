@@ -6,6 +6,8 @@ export interface AuthUser {
 	email: string | null;
 	displayName: string;
 	role: Role;
+	/** The account must change its password before anything else (SPEC.md section 5.3). */
+	mustChangePassword: boolean;
 }
 
 /** Everything the auth helpers need, validated by the service's config loader. */
@@ -22,19 +24,11 @@ export interface AuthOptions {
 	instructorGroup: string;
 	cookieSecret: string;
 	sessionTtlSeconds: number;
-	/** OIDC_PROVIDER (docs/archive/epics/EPIC-14.md); absent means generic OIDC. */
-	provider?: OidcProvider;
-	/** OIDC_ALLOWED_TENANT: the one Entra tenant ID (ruling 8). */
-	allowedTenant?: string | null;
-	/** OIDC_ALLOWED_DOMAINS, lowercased: the Google `hd` values (ruling 3). */
-	allowedDomains?: readonly string[];
 	/** OIDC_DEFAULT_ROLE: the role when no group matches (ruling 11); absent means none. */
 	defaultRole?: "none" | "student";
 	/** OUTBOUND_PROXY_URL (ruling 27); absent means direct. */
 	outboundProxyUrl?: string | null;
 }
-
-export type OidcProvider = "oidc" | "entra" | "google";
 
 export const SESSION_COOKIE = "portikus_session";
 export const LOGIN_COOKIE = "portikus_login";

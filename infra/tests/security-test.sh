@@ -10,7 +10,7 @@
 # Usage: ./infra/tests/security-test.sh <vm-ip> [--sweep]
 #   --sweep  also remove sectest users and workspaces an earlier run left.
 # Environment: PORTIKUS_PUBLIC_HOST, PORTIKUS_PUBLIC_PORT as for the smoke
-# test; PORTIKUS_IDP as the VM was configured (dex, entra, google, external or mock);
+# test; PORTIKUS_IDP as the VM was configured (dex or mock);
 # PORTIKUS_SECURITY_HEAVY=1 turns on the heavy limit tests, which need
 # a VM with no other workspace.
 set -uo pipefail

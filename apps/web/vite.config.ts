@@ -49,8 +49,6 @@ export default defineConfig({
 			// the web app's own /course pages stay in the bundle.
 			"^/lti(/|\\?|$)": api,
 			"^/courses(/|\\?|$)": api,
-			// The /setup page is in the bundle; /setup/* is its data (docs/archive/epics/EPIC-14.md).
-			"/setup/": api,
 			// /admin is the administration screen in the bundle; /admin/*
 			// is its data. Only the document navigation stays in the browser.
 			"/admin": {

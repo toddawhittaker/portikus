@@ -79,7 +79,14 @@ export async function upsertUser(
 				updated_at: now,
 			}),
 		)
-		.returning(["id", "email", "display_name", "role", "disabled_at"])
+		.returning([
+			"id",
+			"email",
+			"display_name",
+			"role",
+			"disabled_at",
+			"must_change_password",
+		])
 		.executeTakeFirstOrThrow();
 
 	return {
@@ -87,6 +94,7 @@ export async function upsertUser(
 		email: row.email,
 		displayName: row.display_name,
 		role: row.role as Role,
+		mustChangePassword: row.must_change_password,
 		disabledAt:
 			row.disabled_at === null ? null : new Date(row.disabled_at).toISOString(),
 		previousRole: previous ? (previous.role as Role) : null,
@@ -152,6 +160,7 @@ export async function loadSessionById(
 			"users.display_name",
 			"users.role",
 			"users.disabled_at",
+			"users.must_change_password",
 		])
 		.where("sessions.id", "=", id)
 		.where((eb) =>
@@ -203,6 +212,7 @@ export async function loadSessionById(
 		email: row.email,
 		displayName: row.display_name,
 		role: row.role as Role,
+		mustChangePassword: row.must_change_password,
 	};
 }
 

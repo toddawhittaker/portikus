@@ -399,6 +399,31 @@ jobs:
           # A second run finds the import already recorded and imports nothing.
           run_import | tee "$DEX_DIR/import-2.txt"
           grep -q '^The users file was already imported on .*; it is retired and nothing was imported.$' "$DEX_DIR/import-2.txt"
+      # The built API in front of this Dex, so the tests can take the local
+      # administrator from `reset-admin` through a real password change
+      # (SPEC.md sections 5.1 to 5.3, ADR 0031).
+      - name: Start the API with Dex as its issuer
+        env:
+          PGPASSWORD: portikus
+          DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_api
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -c 'create database portikus_api'
+          pnpm exec tsc -b apps/api
+          node packages/db/dist/migrate.js
+          NODE_ENV=test PORT=3000 PUBLIC_URL=http://127.0.0.1:3000 \
+          OIDC_ISSUER_URL=http://127.0.0.1:5556/dex OIDC_CLIENT_ID=portikus \
+          OIDC_CLIENT_SECRET=portikus-ci-dex-client-secret-not-a-real-one \
+          OIDC_SCOPES='openid profile email groups' OIDC_DEFAULT_ROLE=student \
+          DEX_GRPC_ADDR=127.0.0.1:5557 DEX_GRPC_CA="$DEX_DIR/grpc/ca.crt" \
+          DEX_GRPC_CERT="$DEX_DIR/grpc/client.crt" DEX_GRPC_KEY="$DEX_DIR/grpc/client.key" \
+            node apps/api/dist/index.js >"$DEX_DIR/api.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:3000/health >/dev/null && exit 0
+            sleep 1
+          done
+          cat "$DEX_DIR/api.log"
+          exit 1
       - name: Sign in through Dex, and manage Dex users through its gRPC API
         run: >-
           pnpm exec vitest run
@@ -406,6 +431,8 @@ jobs:
           packages/auth/src/dex-api.integration.test.ts
         env:
           DEX_TEST_ISSUER: http://127.0.0.1:5556/dex
+          DEX_TEST_API_URL: http://127.0.0.1:3000
+          DEX_TEST_API_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_api
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
           DEX_GRPC_ADDR: 127.0.0.1:5557
           DEX_GRPC_CA: ${{ env.DEX_DIR }}/grpc/ca.crt
@@ -413,9 +440,64 @@ jobs:
           DEX_GRPC_KEY: ${{ env.DEX_DIR }}/grpc/client.key
           DEX_GRPC_OTHER_CERT: ${{ env.DEX_DIR }}/grpc-other/client.crt
           DEX_GRPC_OTHER_KEY: ${{ env.DEX_DIR }}/grpc-other/client.key
-      - name: Show the Dex log
+      # The role's template with one upstream connector pointed at the mock
+      # provider: the generic oidc connector, then the entra preset.  The
+      # second Dex listens on 5566 and has no gRPC API.
+      - name: Render Dex with the mock provider as its upstream
+        run: |
+          set -euo pipefail
+          for upstream in oidc entra; do
+            ansible localhost -c local -m ansible.builtin.template \
+              -a "src=infra/ansible/roles/dex/templates/config.yaml.j2 dest=$DEX_DIR/$upstream.yaml mode=0600" \
+              -e @infra/tests/fixtures/dex-upstream-mock.yml \
+              -e portikus_dex_upstream="$upstream" -e dex_web_dir="$DEX_DIR/web"
+            UPSTREAM=$upstream yq -i '
+              .storage = {"type": "postgres", "config": {"host": "127.0.0.1", "port": 5432,
+                "database": "dex_" + strenv(UPSTREAM), "user": "postgres", "password": "portikus",
+                "ssl": {"mode": "disable"}}} |
+              del(.grpc)
+            ' "$DEX_DIR/$upstream.yaml"
+            PGPASSWORD=portikus psql -h 127.0.0.1 -U postgres -c "create database dex_$upstream"
+          done
+      - name: Start the mock provider for Dex
+        env:
+          MOCK_OIDC_PORT: "3002"
+          MOCK_OIDC_CLIENT_ID: dex-upstream-client
+          MOCK_OIDC_CLIENT_SECRET: not-a-real-upstream-secret
+          MOCK_OIDC_REDIRECT_URI: http://127.0.0.1:5566/dex/callback
+        run: |
+          set -euo pipefail
+          node packages/auth/dist/testing/mock-oidc-main.js >"$DEX_DIR/mock.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:3002/.well-known/openid-configuration >/dev/null && exit 0
+            sleep 1
+          done
+          cat "$DEX_DIR/mock.log"
+          exit 1
+      - name: Sign in through Dex's oidc connector and its entra preset
+        env:
+          DEX_TEST_UPSTREAM_ISSUER: http://127.0.0.1:5566/dex
+        run: |
+          set -euo pipefail
+          for upstream in oidc entra; do
+            "$DEX_DIR/out/dex" serve "$DEX_DIR/$upstream.yaml" >"$DEX_DIR/dex-$upstream.log" 2>&1 &
+            dex_pid=$!
+            for _ in $(seq 1 30); do
+              curl -sf http://127.0.0.1:5566/dex/.well-known/openid-configuration >/dev/null && break
+              sleep 1
+            done
+            DEX_TEST_UPSTREAM=$upstream pnpm exec vitest run packages/auth/src/dex.integration.test.ts
+            kill "$dex_pid"
+            wait "$dex_pid" || true
+          done
+      - name: Show the Dex, API and mock logs
         if: failure()
-        run: cat "$DEX_DIR/dex.log" || true
+        run: |
+          for log in dex api mock dex-oidc dex-entra; do
+            echo "::group::$log"
+            cat "$DEX_DIR/$log.log" || true
+            echo "::endgroup::"
+          done
 
   infra:
     name: Infrastructure checks
@@ -454,7 +536,7 @@ jobs:
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         # age is for the backup scope test below.
-        run: sudo apt-get install -y shellcheck age && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* infra/host/portikus-backup-export
+        run: sudo apt-get install -y shellcheck age && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus infra/host/portikus-backup-export
       - name: Smoke test cleanup scope
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/cleanup-scope-test.sh

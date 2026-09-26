@@ -1,6 +1,7 @@
 ---
 # Renders the egress proxy's squid configuration from a sample allow list and
-# checks the rules and their order, with no VM (ADR 0027).  `make infra-check`
+# checks the rules and their order, with no VM (ADR 0027), then checks which
+# sign-in hosts each Dex connector puts on the list.  `make infra-check`
 # runs it.  The rehearsal VM checks the same rules against a running squid.
 - name: Render and check the egress proxy configuration
   hosts: localhost
@@ -95,3 +96,98 @@
         that:
           - egress_empty == ['http_access deny !localhost', 'http_access deny portikus_ip_literal', 'http_access deny portikus_private', 'http_access deny all']
         fail_msg: "{{ egress_empty }}"
+
+    # ── The sign-in hosts (SPEC.md section 5.1) ─────────
+    # Only Dex's connector reaches a provider.  This renders site.yml's own
+    # rule, then builds the list with the role's own tasks from sample
+    # discovery documents.
+    - name: Make a working directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: egress_workdir
+
+    - name: Copy site.yml's discovery rule to a template
+      ansible.builtin.copy:
+        content: >-
+          {{ ((lookup('ansible.builtin.file', playbook_dir ~ '/../ansible/site.yml') | from_yaml)[0].roles
+              | selectattr('role', 'equalto', 'egress_proxy') | first).vars.egress_proxy_discovery }}
+        dest: "{{ egress_workdir.path }}/discovery.j2"
+        mode: "0600"
+
+    - name: Render the discovery list for each sign-in setup
+      ansible.builtin.set_fact:
+        egress_discovery: >-
+          {{ egress_discovery | default({}) | combine({item.name: (lookup('ansible.builtin.template', egress_workdir.path ~ '/discovery.j2',
+               template_vars={'portikus_idp': item.idp, 'portikus_dex_upstream': item.upstream,
+                              'portikus_entra_issuer': egress_entra_issuer,
+                              'portikus_google_issuer': 'https://accounts.google.com',
+                              'portikus_dex_upstream_issuer': 'https://sso.example.edu/oauth2/default'}) | trim | from_yaml)}) }}
+      loop:
+        - {name: none, idp: dex, upstream: none}
+        - {name: ldap, idp: dex, upstream: ldap}
+        - {name: entra, idp: dex, upstream: entra}
+        - {name: google, idp: dex, upstream: google}
+        - {name: oidc, idp: dex, upstream: oidc}
+        - {name: mock, idp: mock, upstream: entra}
+      vars:
+        egress_entra_issuer: https://login.microsoftonline.com/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0
+
+    - name: Check each connector's discovery source
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - egress_discovery.none == []
+          - egress_discovery.ldap == []
+          - egress_discovery.mock == []
+          - "egress_discovery.entra == [{'issuer': 'https://login.microsoftonline.com/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0', 'userinfo': false}]"
+          - "egress_discovery.google == [{'issuer': 'https://accounts.google.com', 'userinfo': true}]"
+          - "egress_discovery.oidc == [{'issuer': 'https://sso.example.edu/oauth2/default', 'userinfo': true}]"
+        fail_msg: "{{ egress_discovery | to_json }}"
+
+    # Entra's real v2.0 document names Microsoft Graph as its userinfo endpoint.
+    - name: Build an Entra site's allow list with the role's tasks
+      ansible.builtin.include_tasks: ../ansible/roles/egress_proxy/tasks/allow_list.yml
+      vars:
+        egress_proxy_hosts: []
+        egress_proxy_discovery_documents:
+          results:
+            - item: "{{ egress_discovery.entra[0] }}"
+              json:
+                issuer: https://login.microsoftonline.com/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0
+                authorization_endpoint: https://login.microsoftonline.com/3fa85f64-5717-4562-b3fc-2c963f66afa6/oauth2/v2.0/authorize
+                token_endpoint: https://login.microsoftonline.com/3fa85f64-5717-4562-b3fc-2c963f66afa6/oauth2/v2.0/token
+                jwks_uri: https://login.microsoftonline.com/3fa85f64-5717-4562-b3fc-2c963f66afa6/discovery/v2.0/keys
+                userinfo_endpoint: https://graph.microsoft.com/oidc/userinfo
+
+    - name: Check an Entra site reaches the tenant's hosts and not Microsoft Graph
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - egress_proxy_allowed == ['login.microsoftonline.com:443']
+        fail_msg: "{{ egress_proxy_allowed }}"
+
+    - name: Build an OIDC site's allow list with the role's tasks
+      ansible.builtin.include_tasks: ../ansible/roles/egress_proxy/tasks/allow_list.yml
+      vars:
+        egress_proxy_hosts: []
+        egress_proxy_discovery_documents:
+          results:
+            - item: "{{ egress_discovery.oidc[0] }}"
+              json:
+                issuer: https://sso.example.edu/oauth2/default
+                authorization_endpoint: https://sso.example.edu/oauth2/default/v1/authorize
+                token_endpoint: https://sso.example.edu/oauth2/default/v1/token
+                jwks_uri: https://keys.example.edu/oauth2/default/v1/keys
+                userinfo_endpoint: https://userinfo.example.edu/v1/userinfo
+
+    - name: Check an OIDC site reaches its provider's hosts, userinfo included
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - egress_proxy_allowed == ['keys.example.edu:443', 'sso.example.edu:443', 'userinfo.example.edu:443']
+        fail_msg: "{{ egress_proxy_allowed }}"
+
+    - name: Remove the working directory
+      ansible.builtin.file:
+        path: "{{ egress_workdir.path }}"
+        state: absent

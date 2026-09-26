@@ -32,7 +32,6 @@ export * from "./project.js";
 export * from "./recovery.js";
 export * from "./search.js";
 export * from "./settings.js";
-export * from "./setup.js";
 export * from "./terminal.js";
 export * from "./usage.js";
 export * from "./workspace.js";

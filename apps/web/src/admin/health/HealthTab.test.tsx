@@ -240,6 +240,8 @@ test("each guard row links to the owner's detail panel", async () => {
 				email: "carol@example.invalid",
 				displayName: "Carol Admin",
 				role: "administrator",
+				mustChangePassword: false,
+				localPassword: false,
 			});
 		}
 		if (url === "/admin/health") return json(200, report({ guard: [GUARDED] }));

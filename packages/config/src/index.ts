@@ -83,14 +83,6 @@ function parsePorts(value: string): number[] {
 	return ports;
 }
 
-/** Split a comma-separated domain list, lowercased, blanks dropped. */
-function parseDomains(value: string): string[] {
-	return value
-		.split(",")
-		.map((part) => part.trim().toLowerCase())
-		.filter((part) => part !== "");
-}
-
 /**
  * Environment contract for the API process (STACK.md §5, §9).
  */
@@ -108,20 +100,18 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_CLIENT_ID: z.string().min(1).default("portikus-dev"),
 	OIDC_CLIENT_SECRET: z.string().min(1).default(DEV_CLIENT_SECRET),
 	OIDC_SCOPES: z.string().min(1).default("openid profile email"),
-	/** Empty means no claim carries roles (Dex's Microsoft or Google upstream, docs/archive/epics/EPIC-14.md ruling 11). */
+	/** Empty means no claim carries roles (Dex's Google upstream sends no groups). */
 	OIDC_GROUPS_CLAIM: z.string().default("groups"),
 	OIDC_STUDENT_GROUP: z.string().min(1).default("portikus-students"),
 	OIDC_ADMIN_GROUP: z.string().min(1).default("portikus-administrators"),
 	/** The group whose members are instructors (docs/archive/epics/EPIC-13.md ruling 4). */
 	OIDC_INSTRUCTOR_GROUP: z.string().min(1).default("portikus-instructors"),
-	/** Which sign-in provider the site uses (docs/archive/epics/EPIC-14.md ruling 1). */
-	OIDC_PROVIDER: z.enum(["oidc", "entra", "google"]).default("oidc"),
-	/** The one Entra tenant ID whose `tid` may sign in (docs/archive/epics/EPIC-14.md ruling 8). */
-	OIDC_ALLOWED_TENANT: z.string().min(1).optional(),
-	/** Comma-separated Google Workspace domains whose `hd` may sign in (ruling 3). */
-	OIDC_ALLOWED_DOMAINS: z.string().default(""),
-	/** What an admitted person gets when no group or app role matches (ruling 11). */
+	/** What a signed-in person gets when no group matches (SPEC.md section 5.1). */
 	OIDC_DEFAULT_ROLE: z.enum(["none", "student"]).default("none"),
+	/** Retired by ADR 0031; read only so an old api.env stops the API instead of being ignored. */
+	OIDC_PROVIDER: z.string().optional(),
+	OIDC_ALLOWED_TENANT: z.string().optional(),
+	OIDC_ALLOWED_DOMAINS: z.string().optional(),
 	/** Forward proxy for discovery, token, keyset and LMS keyset requests (ruling 27). */
 	OUTBOUND_PROXY_URL: z.string().url().optional(),
 	/** Dex gRPC API address and mutual TLS files; unset turns the Dex user routes off (rulings 20, 24). */
@@ -161,6 +151,21 @@ export const ApiConfigSchema = BaseConfig.extend({
 	/** Dex password posts per address per ten minutes; ten times this overall (#398). */
 	PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES: positiveInt.default(30),
 })
+	// Silently dropping a tenant or domain check would admit any account (SPEC.md 5.1).
+	.refine(
+		(config) =>
+			(config.OIDC_PROVIDER === undefined ||
+				config.OIDC_PROVIDER === "" ||
+				config.OIDC_PROVIDER === "oidc") &&
+			!config.OIDC_ALLOWED_TENANT &&
+			!config.OIDC_ALLOWED_DOMAINS,
+		{
+			message:
+				"OIDC_PROVIDER, OIDC_ALLOWED_TENANT and OIDC_ALLOWED_DOMAINS are no longer supported: " +
+				"Dex is now the only front door (SPEC.md 5.1); rerun the play to move this site's sign-in to Dex",
+			path: ["OIDC_PROVIDER"],
+		},
+	)
 	.refine(requireProductionHttps("PUBLIC_URL"), {
 		message: productionHttpsMessage("PUBLIC_URL"),
 		path: ["PUBLIC_URL"],
@@ -169,30 +174,6 @@ export const ApiConfigSchema = BaseConfig.extend({
 		message: productionHttpsMessage("OIDC_ISSUER_URL"),
 		path: ["OIDC_ISSUER_URL"],
 	})
-	.refine(
-		(config) => config.OIDC_PROVIDER !== "entra" || !!config.OIDC_ALLOWED_TENANT,
-		{
-			message: "OIDC_ALLOWED_TENANT must be set when OIDC_PROVIDER is entra",
-			path: ["OIDC_ALLOWED_TENANT"],
-		},
-	)
-	.refine(
-		(config) =>
-			config.OIDC_PROVIDER !== "google" ||
-			parseDomains(config.OIDC_ALLOWED_DOMAINS).length > 0,
-		{
-			message: "OIDC_ALLOWED_DOMAINS must be set when OIDC_PROVIDER is google",
-			path: ["OIDC_ALLOWED_DOMAINS"],
-		},
-	)
-	.refine(
-		(config) =>
-			parseDomains(config.OIDC_ALLOWED_DOMAINS).every((d) => DNS_NAME.test(d)),
-		{
-			message: "OIDC_ALLOWED_DOMAINS must be comma-separated DNS names",
-			path: ["OIDC_ALLOWED_DOMAINS"],
-		},
-	)
 	.refine(
 		(config) => {
 			const set = [
@@ -289,7 +270,6 @@ export const ApiConfigSchema = BaseConfig.extend({
 
 		return {
 			...config,
-			oidcAllowedDomains: parseDomains(config.OIDC_ALLOWED_DOMAINS),
 			projectTemplates,
 			// The agent port is never a student's to reach, whatever the list says.
 			previewDeniedPorts: [...new Set([...denied, config.AGENT_PORT])].sort(
