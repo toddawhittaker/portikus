@@ -2780,6 +2780,18 @@ Delivered:
   built-in default, accepted at first sign-in and after every change, as
   the second gate after "must change password".
 
+Rehearsal: on the rehearsal VM (0.1.480+g77d322f) every live check
+passed: the units, page cache left out of memory (a 1.5 GB file read
+gave a sample equal to usage minus `inactive_file`), a `recursion=2`
+listing in 23 to 25 ms with three workspaces running, the throttle
+(`cpu.max` `50000 100000` on a 2-CPU workspace), the throttle surviving
+restarts of the worker and controller, lift, stop and start, a reboot
+seen by the boot marker, the memory flag, idle stop, and the
+acceptable-use gate through Caddy. `make smoke-test` passed 243 of 243
+and `make security-test` 242 of 242 with one warning (the mock LMS).
+PR #588 adds the `cpu.max` checks to `limits.sh` and the gate check to
+`preview-edge.sh`.
+
 PILOT RESULTS: pending T7
 
 Gaps:
@@ -2790,6 +2802,8 @@ Gaps:
   own session cookie. The throttle still catches heavy CPU.
 - A long unattended job, including a coding agent, is stopped by idle
   stop unless an administrator sets that workspace's idle override to 0.
-- If the controller cannot read an instance's `memory.stat`, it reports
-  memory with page cache, which can flag a workspace that only read
-  large files. It logs a warning when that happens.
+- The CPU average recorded after a reboot from inside the workspace can
+  be above 100%, because up to a minute before each restart counts as
+  full use.
+- Files in the workspace's `/tmp`, a tmpfs, count as memory and can
+  raise the memory flag.

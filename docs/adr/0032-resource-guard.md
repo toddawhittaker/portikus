@@ -8,7 +8,7 @@
 ## Context
 
 A student can keep a workspace running all day with an open tab, or run
-a crypto miner on its four CPUs. The platform needs to slow sustained
+a crypto miner on every CPU it has. The platform needs to slow sustained
 heavy CPU, point administrators at sustained high memory, stop
 workspaces nobody is using, and have everyone accept an acceptable-use
 statement. Five choices shape how.
@@ -17,7 +17,7 @@ statement. Five choices shape how.
 
 1. **The throttle is a time slice.** The guard sets Incus's
    `limits.cpu.allowance` to `<N>ms/100ms`, the share of the CPU limit in
-   milliseconds of CPU time per 100 ms (25% of 4 CPUs is `100ms/100ms`).
+   milliseconds of CPU time per 100 ms (25% of 2 CPUs is `50ms/100ms`).
    A percentage allowance is only a soft weight that applies when the
    host is busy, so a miner on a quiet host would keep every CPU.
 2. **The numbers come from Incus, not the workspace agent.** The

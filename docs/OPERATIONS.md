@@ -1074,6 +1074,17 @@ stopping and starting the workspace. Each throttle, lift and flag is in
 the audit log; look there for a workspace that is throttled again and
 again.
 
+On the pilot a workspace has 2 CPUs, so the default 25% share is an
+allowance of `50ms/100ms`, and the workspace's cgroup shows `cpu.max` as
+`50000 100000`. The average recorded with a throttle can be above 100%
+after the student rebooted the workspace from inside: the guard counts
+up to a minute before each restart as full use of every CPU, because
+that use is never seen.
+
+Memory is counted without page cache, but files in the workspace's
+`/tmp` live in memory (it is a tmpfs) and cannot be reclaimed, so large
+files there can raise the memory flag.
+
 **The acceptable-use statement.** Every account, administrators
 included, accepts it at first sign-in and again after any change to its
 text. Edit it in the Settings tab, "Acceptable use": plain text, blank
