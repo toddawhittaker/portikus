@@ -45,6 +45,9 @@ lim_cpu_count() {
 }
 check_output "a's CPU set has as many CPUs as the profile" "$lim_cpu" lim_cpu_count
 check_output "a's cpu.max sets no time quota beyond the CPU count" "max 100000" lim_cgroup cpu.max
+# Terminals run in the agent's cgroup, so an OOM kill must not stop the unit.
+check_output "a's agent unit keeps running after an OOM kill (OOMPolicy=continue)" "continue" \
+  sec_exec a root "systemctl show -p OOMPolicy --value portikus-workspace-agent"
 
 # ── The platform is protected from the out-of-memory killer ──────
 
@@ -250,6 +253,30 @@ if [ "$SEC_HEAVY" = "1" ]; then
   check_output "heavy: PostgreSQL and the API kept running (same main PIDs)" "$lim_pids_before" lim_main_pids
   check "heavy: the API and b's agent answered within two seconds while a ran out of memory" \
     lim_watch_ok "$lim_mem_watch"
+  # The same allocation from a tmux pane inside the agent's cgroup, where the
+  # agent starts terminals: only the program dies, the agent and tmux stay.
+  # setpriv, not su, so PAM does not move tmux into a login session's cgroup.
+  lim_tmux="setpriv --reuid=1000 --regid=1000 --init-groups env HOME=/home/student tmux -L sectest-oom"
+  lim_agent_pid() { sec_exec a root "systemctl show -p MainPID --value portikus-workspace-agent"; }
+  lim_agent_before=$(lim_agent_pid)
+  lim_kills_before=$(lim_oom_kills)
+  sec_exec a root "echo \$\$ > /sys/fs/cgroup/system.slice/portikus-workspace-agent.service/cgroup.procs \
+    && ${lim_tmux} new-session -d -s oom bash \
+    && ${lim_tmux} send-keys -t oom 'python3 -c \"b = b\\\"x\\\" * (${lim_over} * 1048576)\"; echo sectest-done' Enter" >/dev/null 2>&1
+  lim_pane_done() {
+    local i
+    for ((i = 0; i < 120; i += 2)); do
+      sec_exec a root "${lim_tmux} capture-pane -p -t oom" 2>/dev/null | grep -qx sectest-done && return 0
+      sleep 2
+    done
+    return 1
+  }
+  check "heavy: the allocation in a's terminal pane finished" lim_pane_done
+  check "heavy: it was an OOM kill (memory.events oom_kill went up)" \
+    test "$(lim_oom_kills)" -gt "${lim_kills_before:-0}"
+  check_output "heavy: a's agent kept running (same main PID)" "$lim_agent_before" lim_agent_pid
+  check "heavy: a's tmux session survived the OOM kill" sec_exec a root "${lim_tmux} has-session -t oom"
+  sec_exec a root "${lim_tmux} kill-server" >/dev/null 2>&1 || true
   # A protected service still dies at its own cap, so a flood against Dex
   # or the API cannot take the VM: a throwaway unit with Dex's settings.
   # The output is captured first: grep -q would close the pipe early, and
