@@ -546,6 +546,7 @@ button.pk-statusbar-item:focus-visible {
 	color: var(--ink-muted);
 }
 .pk-statusbar-item {
+	flex: none;
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1\.5);
@@ -780,6 +781,40 @@ button.pk-statusbar-item:hover {
 .pk-meter--full .pk-meter-value {
 	color: var(--status-error);
 	font-weight: 600;
+}
+
+/* The status bar's always-visible memory and disk meters (docs/EPIC-21.md ruling 24). No transition, so reduced motion needs nothing. */
+.pk-statusbar-meter {
+	display: inline-flex;
+	gap: var(--space-1\.5);
+	font-size: inherit;
+	line-height: inherit;
+}
+.pk-statusbar-meter .pk-meter-label {
+	font-weight: 500;
+}
+.pk-statusbar-meter .pk-meter-track {
+	display: block;
+	flex: none;
+	width: 40px;
+	height: 4px;
+}
+.pk-statusbar-meter .pk-meter-fill {
+	display: block;
+}
+/* When space is tight the project path gives way first, then the Git line, each with an ellipsis; the buttons never shrink. */
+.pk-statusbar-path,
+.pk-statusbar-git {
+	display: block;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.pk-statusbar-path {
+	flex: 0 1000 auto;
+}
+.pk-statusbar-git {
+	flex: 0 1 auto;
 }
 
 /* The Git line of the status bar is muted when there is no repository. */

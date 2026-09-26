@@ -4,7 +4,7 @@ import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
 import { RightPaneContext } from "./rightPane.js";
-import { MEMORY_ANNOUNCEMENT, memoryWarning, StatusBar } from "./StatusBar.js";
+import { MEMORY_ANNOUNCEMENT, StatusBar, usageMeter } from "./StatusBar.js";
 import type { WorkspaceDialogMode } from "./WorkspaceDialog.js";
 
 afterEach(() => {
@@ -396,33 +396,36 @@ test("the dialog puts the state and its actions first and folds the technical de
 	expect(within(details).getByText("Image")).toBeDefined();
 });
 
-test("the memory warning appears at 85% of the limit and not at 84.9%", () => {
-	expect(memoryWarning({ usedBytes: 849, totalBytes: 1000 })).toBeNull();
-	expect(memoryWarning({ usedBytes: 85 * GB, totalBytes: 100 * GB })).toBe(
-		"Memory 85.0 GB of 100 GB",
-	);
-	expect(memoryWarning({ usedBytes: 1, totalBytes: 0 })).toBeNull();
-	expect(memoryWarning(undefined)).toBeNull();
+test("a meter warns at 85% of the limit and not at 84.9%", () => {
+	expect(usageMeter({ usedBytes: 849, totalBytes: 1000 })?.level).toBe("ok");
+	expect(usageMeter({ usedBytes: 85 * GB, totalBytes: 100 * GB })).toEqual({
+		value: "85.0 GB of 100 GB",
+		percent: 85,
+		level: "warning",
+	});
+	expect(usageMeter({ usedBytes: 1, totalBytes: 0 })).toBeNull();
+	expect(usageMeter(undefined)).toBeNull();
+	expect(usageMeter(null)).toBeNull();
 });
 
-test("a shown memory warning stays until use falls below 80%", () => {
+test("a warning meter stays so until use falls below 80%", () => {
 	const at = (value: number) => ({ usedBytes: value * GB, totalBytes: 100 * GB });
-	expect(memoryWarning(at(82))).toBeNull();
-	expect(memoryWarning(at(82), true)).toBe("Memory 82.0 GB of 100 GB");
-	expect(memoryWarning(at(80), true)).not.toBeNull();
-	expect(memoryWarning(at(79.9), true)).toBeNull();
+	expect(usageMeter(at(82))?.level).toBe("ok");
+	expect(usageMeter(at(82), true)?.level).toBe("warning");
+	expect(usageMeter(at(80), true)?.level).toBe("warning");
+	expect(usageMeter(at(79.9), true)?.level).toBe("ok");
 });
 
-test("at 85% memory the status bar warns, announces it, and opens Monitor by memory", async () => {
-	stubFetch((url) =>
-		String(url).endsWith("/usage")
-			? json(200, {
-					...usage({}),
-					memory: { usedBytes: 90 * GB, totalBytes: 100 * GB },
-				})
-			: json(202, { ok: true }),
-	);
-	const api = {
+test("only the disk meter turns full at 95%, and the bar never passes 100%", () => {
+	const at = (value: number) => ({ usedBytes: value * GB, totalBytes: 100 * GB });
+	expect(usageMeter(at(95))?.level).toBe("warning");
+	expect(usageMeter(at(95), false, true)?.level).toBe("full");
+	expect(usageMeter(at(94.9), false, true)?.level).toBe("warning");
+	expect(usageMeter(at(120))?.percent).toBe(100);
+});
+
+function rightPane() {
+	return {
 		pane: "files" as const,
 		show: vi.fn(),
 		monitorSort: { column: "cpu" as const, direction: "desc" as const },
@@ -430,22 +433,65 @@ test("at 85% memory the status bar warns, announces it, and opens Monitor by mem
 		monitorFocus: false,
 		setMonitorFocus: vi.fn(),
 	};
+}
+
+function stubMemory(usedPercent: number, storage: Parameters<typeof usage>[0] = {}) {
+	return stubFetch((url) =>
+		String(url).endsWith("/usage")
+			? json(200, {
+					...usage(storage),
+					memory: { usedBytes: usedPercent * GB, totalBytes: 100 * GB },
+				})
+			: json(202, { ok: true }),
+	);
+}
+
+test("below 85% both meters show in the plain tone and nothing is announced", async () => {
+	stubMemory(40, { home: percent(30) });
+	renderBar();
+
+	const memory = await screen.findByTestId("memory-meter");
+	expect(memory.tagName).toBe("BUTTON");
+	expect(memory.textContent).toBe("Memory40.0 GB of 100 GB");
+	expect(memory.dataset.level).toBe("ok");
+	expect(memory.getAttribute("aria-label")).toBe(
+		"Memory 40.0 GB of 100 GB. See what's using memory",
+	);
+	expect(memory.querySelector("svg")).toBeNull();
+	const disk = await screen.findByTestId("disk-meter");
+	expect(disk.dataset.level).toBe("ok");
+	expect(disk.getAttribute("aria-label")).toBe(
+		"Disk 30.0 GB of 100 GB. Open workspace storage",
+	);
+	expect(disk.querySelector(".pk-meter-fill")?.getAttribute("style")).toContain("30%");
+	expect(screen.getByTestId("memory-warning-announce").textContent).toBe("");
+	expect(screen.getByTestId("storage-warning-announce").textContent).toBe("");
+	expect(screen.queryByTestId("storage-warning")).toBeNull();
+});
+
+test("at 85% memory the meter warns, announces it, and opens Monitor by memory", async () => {
+	stubMemory(90);
+	const api = rightPane();
 	renderWithQuery(
 		<RightPaneContext.Provider value={api}>
 			<Bar workspace={WORKSPACE} />
 		</RightPaneContext.Provider>,
 	);
 
-	const warning = await screen.findByTestId("memory-warning");
-	expect(warning.textContent).toBe("Memory 90.0 GB of 100 GB");
-	// The alert icon, not colour alone, marks it as a warning.
-	expect(warning.querySelector("svg")).not.toBeNull();
+	const meter = await screen.findByTestId("memory-meter");
+	await waitFor(() => expect(meter.dataset.level).toBe("warning"));
+	expect(meter.className).toContain("pk-meter--warning");
+	// The alert icon and "high", not colour alone, mark it as a warning.
+	expect(meter.querySelector("svg")).not.toBeNull();
+	expect(meter.getAttribute("aria-label")).toBe(
+		"Memory 90.0 GB of 100 GB, high. See what's using memory",
+	);
 	// Memory has its own live region, so a storage change does not repeat it.
 	expect(screen.getByTestId("memory-warning-announce").textContent).toBe(
 		MEMORY_ANNOUNCEMENT,
 	);
 	expect(screen.getByTestId("storage-warning-announce").textContent).toBe("");
-	fireEvent.click(warning);
+	fireEvent.click(meter);
 	expect(api.setMonitorSort).toHaveBeenCalledWith({
 		column: "memory",
 		direction: "desc",
@@ -454,18 +500,47 @@ test("at 85% memory the status bar warns, announces it, and opens Monitor by mem
 	expect(api.setMonitorFocus).toHaveBeenCalledWith(true);
 });
 
-test("below 85% memory the status bar shows nothing about memory", async () => {
-	const fetchMock = stubFetch((url) =>
-		String(url).endsWith("/usage")
-			? json(200, {
-					...usage({}),
-					memory: { usedBytes: 84 * GB, totalBytes: 100 * GB },
-				})
-			: json(202, { ok: true }),
+test("the disk meter shows the home volume, warns at 85%, and opens the workspace dialog", async () => {
+	stubMemory(10, { home: percent(88), docker: percent(10) });
+	renderBar();
+
+	const disk = await screen.findByTestId("disk-meter");
+	await waitFor(() => expect(disk.dataset.level).toBe("warning"));
+	expect(disk.getAttribute("aria-haspopup")).toBe("dialog");
+	expect(disk.getAttribute("aria-label")).toBe(
+		"Disk 88.0 GB of 100 GB, high. Open workspace storage",
 	);
+	// The storage warning keeps its own wording beside it.
+	expect(screen.getByTestId("storage-warning").textContent).toBe(
+		"Projects & home storage is 88% full",
+	);
+	fireEvent.click(disk);
+	expect(screen.getByTestId("dialog-workspace-status")).toBeDefined();
+});
+
+test("a full home volume draws the disk meter in the error tone", async () => {
+	stubMemory(10, { home: percent(97) });
+	renderBar();
+
+	const disk = await screen.findByTestId("disk-meter");
+	await waitFor(() => expect(disk.dataset.level).toBe("full"));
+	expect(disk.className).toContain("pk-meter--full");
+	expect(disk.getAttribute("aria-label")).toBe(
+		"Disk 97.0 GB of 100 GB, nearly full. Open workspace storage",
+	);
+});
+
+test("with no home figure there is no disk meter", async () => {
+	const fetchMock = stubMemory(10);
 	renderBar();
 	await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-	await waitFor(() => expect(screen.queryByTestId("memory-warning")).toBeNull());
-	expect(screen.getByTestId("storage-warning-announce").textContent).toBe("");
-	expect(screen.getByTestId("memory-warning-announce").textContent).toBe("");
+	await screen.findByTestId("memory-meter");
+	expect(screen.queryByTestId("disk-meter")).toBeNull();
+});
+
+test("a stopped workspace shows no meters", () => {
+	stubMemory(90, { home: percent(90) });
+	renderBar({ ...WORKSPACE, state: "stopped", desiredState: "stopped" });
+	expect(screen.queryByTestId("memory-meter")).toBeNull();
+	expect(screen.queryByTestId("disk-meter")).toBeNull();
 });

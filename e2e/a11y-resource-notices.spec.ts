@@ -2,10 +2,16 @@
  * Automated accessibility checks (SPEC.md section 25.8) on the student's
  * resource tools (docs/EPIC-21.md rulings 20 to 24): Monitor with the stop
  * dialog open at its Force stop step, both notices, and the status bar's
- * memory warning, in the light and dark themes.
+ * memory and disk meters (at the warning tone), in the light and dark themes.
  */
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, query, settledAxe, workspacePath } from "./helpers";
+import {
+	createStudent,
+	query,
+	seedStorage,
+	settledAxe,
+	workspacePath,
+} from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 async function expectNoViolations(page: Page) {
@@ -13,6 +19,35 @@ async function expectNoViolations(page: Page) {
 		.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
 		.analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+}
+
+/** The WCAG 2 contrast ratio between two rgb() colours. */
+function contrast(first: string, second: string): number {
+	const luminance = (colour: string) => {
+		const [r, g, b] = (colour.match(/[\d.]+/g) ?? []).slice(0, 3).map((part) => {
+			const channel = Number(part) / 255;
+			return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+		});
+		return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
+	};
+	const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+	return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
+}
+
+/** Each meter's fill against its track is 3:1, and its value text 4.5:1 on the bar. */
+async function expectMeterContrast(page: Page) {
+	for (const id of ["memory-meter", "disk-meter"]) {
+		const colours = await page.getByTestId(id).evaluate((node) => ({
+			fill: getComputedStyle(node.querySelector(".pk-meter-fill") as Element)
+				.backgroundColor,
+			track: getComputedStyle(node.querySelector(".pk-meter-track") as Element)
+				.backgroundColor,
+			text: getComputedStyle(node.querySelector(".pk-meter-value") as Element).color,
+			back: getComputedStyle(node.closest("footer") as Element).backgroundColor,
+		}));
+		expect(contrast(colours.fill, colours.track)).toBeGreaterThanOrEqual(3);
+		expect(contrast(colours.text, colours.back)).toBeGreaterThanOrEqual(4.5);
+	}
 }
 
 async function seed(path: string, body: unknown) {
@@ -49,7 +84,7 @@ async function flagBoth(workspaceId: string): Promise<void> {
 }
 
 for (const scheme of ["light", "dark"] as const) {
-	test(`the notices and the memory warning have no automatic violations (${scheme})`, async ({
+	test(`the notices and the status bar meters have no automatic violations (${scheme})`, async ({
 		page,
 		context,
 	}) => {
@@ -61,10 +96,39 @@ for (const scheme of ["light", "dark"] as const) {
 			usedBytes: 90 * 1024 ** 3,
 			totalBytes: 100 * 1024 ** 3,
 		});
+		await seedStorage(student.workspaceId, {
+			home: { usedBytes: 88 * 1024 ** 3, totalBytes: 100 * 1024 ** 3 },
+		});
 		await page.goto(workspacePath(student.workspaceId));
 		await expect(page.getByTestId("throttle-notice")).toBeVisible({ timeout: 15_000 });
 		await expect(page.getByTestId("memory-notice")).toBeVisible();
-		await expect(page.getByTestId("memory-warning")).toBeVisible();
+		await expect(page.getByTestId("memory-meter")).toHaveAttribute(
+			"data-level",
+			"warning",
+		);
+		await expect(page.getByTestId("disk-meter")).toHaveAttribute(
+			"data-level",
+			"warning",
+		);
+		await expectNoViolations(page);
+		await expectMeterContrast(page);
+	});
+
+	test(`the meters in the plain tone have no automatic violations (${scheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		const student = await createStudent(context);
+		await seedStorage(student.workspaceId, {
+			home: { usedBytes: 30 * 1024 ** 3, totalBytes: 100 * 1024 ** 3 },
+		});
+		await page.goto(workspacePath(student.workspaceId));
+		await expect(page.getByTestId("disk-meter")).toHaveAttribute("data-level", "ok", {
+			timeout: 15_000,
+		});
+		await expect(page.getByTestId("memory-meter")).toBeVisible();
+		await expectMeterContrast(page);
 		await expectNoViolations(page);
 	});
 
