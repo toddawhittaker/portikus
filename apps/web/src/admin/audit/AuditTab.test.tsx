@@ -269,8 +269,44 @@ test("a row shows short IDs with the full ID kept for titles and screen readers"
 	expect(link.getAttribute("href")).toContain(`workspace=${WORKSPACE_ID}`);
 	expect(row.getByText(`user:${USER_ID}`).className).toBe("sr-only");
 	expect(row.getByText("denied").className).toBe("pk-tag pk-tag--error");
-	const time = row.getByText(shortTime("2026-09-22T10:00:00.000Z"));
-	expect(time.getAttribute("dateTime")).toBe("2026-09-22T10:00:00.000Z");
+	const short = row.getByText(shortTime("2026-09-22T10:00:00.000Z"));
+	expect(short.getAttribute("aria-hidden")).toBe("true");
+	const time = short.closest("time");
+	expect(time?.getAttribute("dateTime")).toBe("2026-09-22T10:00:00.000Z");
+	// Screen readers hear the full date and time, not the short form.
+	const full = new Date("2026-09-22T10:00:00.000Z").toLocaleString();
+	expect(row.getByText(full).className).toBe("sr-only");
 	// The whole detail value stays in the page even though it is clipped.
-	expect(row.getByText("x".repeat(200))).toBeDefined();
+	expect(row.getAllByText("x".repeat(200)).length).toBeGreaterThan(0);
+	// A clipped value can be read in full by opening a native disclosure.
+	const details = row.getByTestId("audit-details-full");
+	expect(details.tagName).toBe("DETAILS");
+	expect(within(details).getByText("Show full details").tagName).toBe("SUMMARY");
+	expect(within(details).getByText("x".repeat(200))).toBeDefined();
+});
+
+test("a row with only short details has no disclosure", async () => {
+	stubFetch(() =>
+		json(200, {
+			events: [event(9, { metadata: { note: "short" } })],
+			nextBefore: null,
+		}),
+	);
+
+	renderTab("/admin?tab=audit");
+
+	const row = within(await screen.findByTestId("audit-row-9"));
+	expect(row.getByText("short")).toBeDefined();
+	expect(row.queryByTestId("audit-details-full")).toBeNull();
+});
+
+test("every column header is scoped to its column", async () => {
+	stubFetch(() => json(200, { events: [event(1)], nextBefore: null }));
+
+	renderTab("/admin?tab=audit");
+
+	const table = await screen.findByTestId("audit-table");
+	const headers = within(table).getAllByRole("columnheader");
+	expect(headers).toHaveLength(6);
+	for (const header of headers) expect(header.getAttribute("scope")).toBe("col");
 });

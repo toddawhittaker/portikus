@@ -45,6 +45,7 @@ import {
 	useUpdateUserSettings,
 } from "./queries.js";
 import { announced, errorText, parseSeconds } from "./SettingsTab.js";
+import { shortTime } from "./shortTime.js";
 import { storageText, timeAgo, WorkspaceStateBadge } from "./WorkspacesTab.js";
 
 /** A storage class at or above this share of its limit is flagged (SPEC.md §19.2). */
@@ -351,15 +352,6 @@ function DataSections({
 	);
 }
 
-function shortTime(iso: string): string {
-	return new Date(iso).toLocaleString(undefined, {
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-}
-
 function StorageSection({
 	detail,
 	ownerName,
@@ -526,7 +518,7 @@ function GuardSection({
 	}
 
 	return (
-		<section aria-labelledby="detail-guard" className="flex flex-col gap-2">
+		<section aria-labelledby="detail-guard" className="pk-detail-section">
 			<h4
 				id="detail-guard"
 				ref={headingRef}
@@ -849,16 +841,7 @@ function WorkspaceActions({
 				onOpenChange={(open) => (open ? undefined : close())}
 				testId="rebuild-dialog"
 				title={`Rebuild ${ownerName}'s workspace?`}
-				description={
-					<>
-						The workspace is recreated from the current image. Projects and home stay.{" "}
-						<Checkbox
-							label="Keep Docker images and volumes"
-							checked={preserveDocker}
-							onChange={(event) => setPreserveDocker(event.target.checked)}
-						/>
-					</>
-				}
+				description="The workspace is recreated from the current image. System packages installed with sudo apt are lost. Projects and home stay."
 				confirmLabel="Rebuild"
 				label={workspace.label}
 				pending={rebuild.isPending}
@@ -874,7 +857,13 @@ function WorkspaceActions({
 						},
 					)
 				}
-			/>
+			>
+				<Checkbox
+					label="Keep Docker images and volumes"
+					checked={preserveDocker}
+					onChange={(event) => setPreserveDocker(event.target.checked)}
+				/>
+			</ConfirmByLabelDialog>
 
 			<ConfirmByLabelDialog
 				open={dialog === "reset"}
@@ -1102,7 +1091,7 @@ function InstructorChange({ user }: { user: AdminUser }) {
 	);
 }
 
-/** Disable or enable the account, and its grace override (SPEC.md §6.4, §20.1). */
+/** Disable or enable the account (SPEC.md §6.4, §20.1). */
 function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 	const toast = useToast();
 	const wasDexLocal = useRef(user.dexLocal);
@@ -1256,7 +1245,7 @@ function UserGrace({ user }: { user: AdminUser }) {
 	}
 
 	return (
-		<div className="pk-actions items-end">
+		<div className="pk-actions items-start">
 			<TextField
 				id={`user-grace-${user.id}`}
 				label="Grace period override (seconds)"
@@ -1269,7 +1258,10 @@ function UserGrace({ user }: { user: AdminUser }) {
 				error={announced(error)}
 				onChange={(event) => setDraft(event.target.value)}
 			/>
+			{/* mt-6 is LABEL_CLASS's 18 px line plus FIELD_CLASS's 6 px gap, so Save
+			    lines up with the input even when the hint or an error shows. */}
 			<Button
+				className="mt-6"
 				data-testid={`user-grace-save-${user.id}`}
 				loading={update.isPending}
 				aria-label={`Save ${user.displayName}`}

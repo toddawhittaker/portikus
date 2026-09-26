@@ -534,6 +534,10 @@ button.pk-statusbar-item:focus-visible {
 	gap: var(--space-3);
 	padding: var(--space-4);
 }
+.pk-table--page thead th {
+	/* The table scrolls with <main>, whose p-8 would otherwise show rows above the header. */
+	top: -2rem;
+}
 .pk-detail-section {
 	display: grid;
 	gap: var(--space-3);

@@ -34,6 +34,11 @@ test.describe("admin settings layout", () => {
 		await expect(cards).toHaveCount(5);
 		// At 1920 px the first two cards share a row.
 		expect(await top(cards.nth(1))).toBe(await top(cards.nth(0)));
+		// Cards keep their own height instead of stretching to the tallest in the row.
+		await expect(page.getByTestId("settings-grid")).toHaveCSS(
+			"align-items",
+			"flex-start",
+		);
 	});
 
 	test("every Save sits below its fields", async ({ page }) => {

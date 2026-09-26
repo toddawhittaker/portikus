@@ -624,3 +624,51 @@ test("Rebuild all on older images appears only under the Older filter", async ()
 		"Bob Student.",
 	);
 });
+
+test("Also reset Docker starts unticked on every opening and a tick is sent", async () => {
+	const posts: { url: string; body: unknown }[] = [];
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, ADMIN_ME);
+		if (url === "/admin/users") return json(200, { users: ROWS, dexUsers: false });
+		if (init?.method === "POST") {
+			posts.push({ url, body: JSON.parse(String(init.body)) });
+			return json(202, { ok: true });
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	await openTable();
+	fireEvent.change(screen.getByTestId("admin-filter-image"), {
+		target: { value: "older" },
+	});
+	fireEvent.click(screen.getByRole("checkbox", { name: "Select Bob Student" }));
+	fireEvent.click(screen.getByTestId("bulk-rebuild"));
+	let dialog = await screen.findByRole("alertdialog", { name: "Rebuild 1 workspace?" });
+	fireEvent.click(within(dialog).getByRole("checkbox", { name: "Also reset Docker" }));
+	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+
+	fireEvent.click(screen.getByTestId("rebuild-older"));
+	dialog = await screen.findByRole("alertdialog", { name: "Rebuild 1 workspace?" });
+	const reset = within(dialog).getByRole("checkbox", {
+		name: "Also reset Docker",
+	}) as HTMLInputElement;
+	expect(reset.checked).toBe(false);
+	// The checkbox sits after the description, not inside it (a11y finding A6).
+	const describedBy = dialog.getAttribute("aria-describedby") ?? "";
+	expect(document.getElementById(describedBy)?.contains(reset)).toBe(false);
+
+	fireEvent.click(reset);
+	fireEvent.click(within(dialog).getByRole("button", { name: "Rebuild" }));
+	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	expect(posts).toEqual([
+		{ url: `/admin/workspaces/${uuid(6)}/rebuild`, body: { resetDocker: true } },
+	]);
+});
+
+test("the Account cell's second line carries the full contact as a title", async () => {
+	stubUsers();
+	await openTable();
+	const contact = screen.getByTestId(`account-contact-${ROWS[0]?.id}`);
+	expect(contact.getAttribute("title")).toBe(contact.textContent);
+	expect(contact.className).toContain("truncate");
+});

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { loginAs, query } from "./helpers";
+import { loginAs, MOCK_ISSUER, query } from "./helpers";
 
 /** The admin frame every tab shares (docs/EPIC-18.md rulings 1-10, SPEC.md §20.1). */
 test.describe("admin layout", () => {
@@ -68,10 +68,50 @@ test.describe("admin layout", () => {
 		expect(mainBox).not.toBeNull();
 		expect(headerBox).not.toBeNull();
 		if (!mainBox || !headerBox) return;
-		// Stuck inside <main>'s 32 px padding, while the first row has scrolled away above it.
-		expect(headerBox.y).toBeGreaterThanOrEqual(mainBox.y - 1);
-		expect(headerBox.y).toBeLessThan(mainBox.y + 40);
+		// Stuck at <main>'s top edge, so no row shows through <main>'s padding above it.
+		expect(Math.abs(headerBox.y - mainBox.y)).toBeLessThanOrEqual(1);
 		const firstRow = await table.locator("tbody tr").first().boundingBox();
 		expect(firstRow?.y ?? 0).toBeLessThan(mainBox.y);
+	});
+
+	test("Shift+Tab up a long Users list never hides the focused row under the header", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 600 });
+		const tag = randomUUID().slice(0, 8);
+		await query(
+			`insert into users (oidc_issuer, oidc_subject, email, display_name, role, last_login_at)
+			 select $1, 'e2e-' || $2 || '-' || n, 'focus-' || $2 || '-' || n || '@example.edu',
+			        'Focus ' || $2 || ' ' || lpad(n::text, 2, '0'), 'student', now()
+			 from generate_series(1, 40) as n`,
+			[MOCK_ISSUER, tag],
+		);
+		await loginAs(page, "carol");
+		await page.goto("/admin");
+		const table = page.getByTestId("admin-accounts");
+		await expect(table).toBeVisible({ timeout: 15_000 });
+		await page.getByTestId("admin-filter-text").fill(`Focus ${tag}`);
+		const rows = page.locator("[data-testid^=account-row-]");
+		await expect(rows).toHaveCount(40);
+
+		await rows.last().getByRole("button").focus();
+		const header = table.locator("thead th").first();
+		let checked = 0;
+		for (let step = 0; step < 80; step++) {
+			await page.keyboard.press("Shift+Tab");
+			const focused = await page.evaluate(() => {
+				const el = document.activeElement as HTMLElement | null;
+				return el?.tagName === "BUTTON" && el.id
+					? el.getBoundingClientRect().top
+					: null;
+			});
+			if (focused === null) continue;
+			const headerBox = await header.boundingBox();
+			if (!headerBox) throw new Error("the header has no box");
+			expect(focused).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+			checked++;
+		}
+		// The walk really reached the rows that sat under the header.
+		expect(checked).toBeGreaterThan(30);
 	});
 });

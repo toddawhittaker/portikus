@@ -151,7 +151,7 @@ function AuditResults({ filters }: { filters: AuditFilters }) {
 			{/* overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main> (EPIC-18 ruling 5). */}
 			<div className="pk-table-wrap overflow-clip">
 				<table
-					className="pk-table"
+					className="pk-table pk-table--page"
 					data-testid="audit-table"
 					aria-busy={page.isFetching}
 				>
@@ -160,12 +160,12 @@ function AuditResults({ filters }: { filters: AuditFilters }) {
 					</caption>
 					<thead>
 						<tr>
-							<th>Time</th>
-							<th>Actor</th>
-							<th>Action</th>
-							<th>Target</th>
-							<th>Result</th>
-							<th>Details</th>
+							<th scope="col">Time</th>
+							<th scope="col">Actor</th>
+							<th scope="col">Action</th>
+							<th scope="col">Target</th>
+							<th scope="col">Result</th>
+							<th scope="col">Details</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -236,7 +236,8 @@ function AuditRow({ event }: { event: AuditEvent }) {
 		<tr className="align-top" data-testid={`audit-row-${event.id}`}>
 			<td>
 				<time dateTime={event.at} title={new Date(event.at).toLocaleString()}>
-					{shortTime(event.at)}
+					<span aria-hidden="true">{shortTime(event.at)}</span>
+					<span className="sr-only">{new Date(event.at).toLocaleString()}</span>
 				</time>
 			</td>
 			<td title={event.actor}>
@@ -262,25 +263,54 @@ function AuditRow({ event }: { event: AuditEvent }) {
 			<td>
 				<span className={resultTagClass(event.result)}>{event.result}</span>
 			</td>
-			<td className="max-w-[48ch]">
-				{metadata.length === 0 ? (
-					"—"
-				) : (
-					<dl className="m-0">
-						{metadata.map(([key, value]) => {
-							const full = detailText(value);
-							return (
-								<div key={key} className="truncate" title={`${key}: ${full}`}>
-									{/* truncate only clips visually; screen readers get the whole value. */}
-									<dt className="pk-muted inline">{key}:</dt>
-									<dd className="m-0 ml-1 inline font-mono">{full}</dd>
-								</div>
-							);
-						})}
-					</dl>
-				)}
-			</td>
+			<td>{metadata.length === 0 ? "—" : <AuditDetails metadata={metadata} />}</td>
 		</tr>
+	);
+}
+
+/** Values longer than this are clipped in the row, so the row offers a way to read them. */
+const CLIPPED_AT = 48;
+
+function DetailLines({
+	metadata,
+	clip,
+}: {
+	metadata: [string, unknown][];
+	clip: boolean;
+}) {
+	return (
+		<dl className="m-0 max-w-[48ch]">
+			{metadata.map(([key, value]) => {
+				const full = detailText(value);
+				return (
+					<div
+						key={key}
+						className={clip ? "truncate" : "whitespace-normal break-all"}
+						title={clip ? `${key}: ${full}` : undefined}
+					>
+						{/* truncate only clips visually; screen readers get the whole value. */}
+						<dt className="pk-muted inline">{key}:</dt>
+						<dd className="m-0 ml-1 inline font-mono">{full}</dd>
+					</div>
+				);
+			})}
+		</dl>
+	);
+}
+
+function AuditDetails({ metadata }: { metadata: [string, unknown][] }) {
+	const long = metadata.some(([, value]) => detailText(value).length > CLIPPED_AT);
+	if (!long) return <DetailLines metadata={metadata} clip />;
+	return (
+		<>
+			<DetailLines metadata={metadata} clip />
+			<details data-testid="audit-details-full">
+				<summary className="pk-link cursor-pointer text-[var(--accent-text)]">
+					Show full details
+				</summary>
+				<DetailLines metadata={metadata} clip={false} />
+			</details>
+		</>
 	);
 }
 

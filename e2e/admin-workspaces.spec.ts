@@ -419,8 +419,8 @@ test.describe("the Users table layout", () => {
 			200,
 		);
 		const headerBox = await header.boundingBox();
-		expect(headerBox?.y ?? -1).toBeGreaterThanOrEqual(mainTop - 1);
-		expect(headerBox?.y ?? 9999).toBeLessThan(mainTop + 40);
+		// At <main>'s top edge, so no row shows through <main>'s padding above it.
+		expect(Math.abs((headerBox?.y ?? -99) - mainTop)).toBeLessThanOrEqual(1);
 
 		// With the detail panel open at 1280 px the table does not scroll sideways.
 		await page
