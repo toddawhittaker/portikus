@@ -526,6 +526,80 @@ button.pk-statusbar-item:focus-visible {
 	color: var(--status-error);
 }
 
+/* Admin workspace detail panel, from design/mockups/portikus-screens.css (EPIC-18 ruling 16). */
+.pk-detail-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-3);
+	padding: var(--space-4);
+}
+.pk-detail-section {
+	display: grid;
+	gap: var(--space-3);
+	padding: var(--space-4);
+	border-top: 1px solid var(--line);
+}
+.pk-dl {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	column-gap: var(--space-4);
+	row-gap: var(--space-1);
+	margin: 0;
+	font-size: 13px;
+	line-height: 18px;
+}
+.pk-dl dt {
+	color: var(--ink-muted);
+}
+.pk-dl dd {
+	margin: 0;
+}
+.pk-meters {
+	display: grid;
+	gap: var(--space-4);
+}
+.pk-meter {
+	display: grid;
+	gap: var(--space-1\.5);
+}
+.pk-meter-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-3);
+	font-size: 13px;
+	line-height: 18px;
+}
+.pk-meter-label {
+	font-weight: 500;
+	color: var(--ink);
+}
+.pk-meter-value {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--ink-muted);
+	font-variant-numeric: tabular-nums;
+}
+.pk-meter-track {
+	height: 6px;
+	border-radius: var(--radius-xs);
+	background: var(--surface-hover);
+	overflow: hidden;
+}
+.pk-meter-fill {
+	height: 100%;
+	background: var(--accent);
+}
+.pk-meter--warning .pk-meter-fill {
+	background: var(--status-warning);
+}
+.pk-meter--warning .pk-meter-value {
+	color: var(--status-warning);
+	font-weight: 600;
+}
+
 /* StatusBar */
 .pk-statusbar {
 	flex: none;

@@ -45,7 +45,7 @@ import {
 	useUpdateUserSettings,
 } from "./queries.js";
 import { announced, errorText, parseSeconds } from "./SettingsTab.js";
-import { storageText, WorkspaceStateBadge } from "./WorkspacesTab.js";
+import { storageText, timeAgo, WorkspaceStateBadge } from "./WorkspacesTab.js";
 
 /** A storage class at or above this share of its limit is flagged (SPEC.md §19.2). */
 export const STORAGE_WARN_RATIO = 0.8;
@@ -66,7 +66,7 @@ export function quotaPending(
 export const NOT_AVAILABLE_TEXT =
 	"Rebuild and Reset Docker are not available in this release.";
 
-type DialogName = "rebuild" | "reset" | "quota" | "disable" | "archive";
+type DialogName = "rebuild" | "reset" | "archive";
 
 /** The panel beside the table for one account and its workspace (SPEC.md §20.1). */
 export function WorkspaceDetail({
@@ -92,51 +92,147 @@ export function WorkspaceDetail({
 	return (
 		<section
 			id="workspace-detail"
-			className="pk-card flex w-[400px] flex-none flex-col gap-4 p-5"
+			// Sticks against the scrolling <main>: the window less the 48 px .pk-appbar and main's 32 px bottom padding.
+			className="pk-card sticky top-0 flex max-h-[calc(100vh-80px)] w-[400px] flex-none flex-col self-start overflow-auto"
 			aria-labelledby="detail-title"
 			data-testid="workspace-detail"
 		>
-			<div className="flex items-start gap-3">
-				<div className="flex min-w-0 flex-col gap-0.5">
-					<h3
-						id="detail-title"
-						ref={headingRef}
-						tabIndex={-1}
-						className="pk-text-heading m-0 outline-none"
-					>
-						{user.displayName}
-					</h3>
-					<span className="pk-mono-small pk-muted">
-						{[user.workspace?.label, user.email].filter(Boolean).join(" · ")}
-					</span>
+			<div className="pk-detail-head">
+				<div className="flex min-w-0 flex-col gap-2">
+					<div className="flex flex-col gap-0.5">
+						<h3
+							id="detail-title"
+							ref={headingRef}
+							tabIndex={-1}
+							className="pk-text-heading m-0 outline-none"
+						>
+							{user.displayName}
+						</h3>
+						{user.workspace ? (
+							<span className="pk-mono-small pk-muted">{user.workspace.label}</span>
+						) : null}
+					</div>
+					{data ? <HeadState detail={data} ownerName={user.displayName} /> : null}
 				</div>
 				<IconButton
 					icon="x"
 					size="sm"
-					className="ml-auto"
 					label={`Close details for ${user.displayName}`}
 					onClick={onClose}
 				/>
 			</div>
-			{workspaceId === null ? (
-				<p className="pk-text-body pk-muted m-0">This account has no workspace.</p>
-			) : data ? (
-				<WorkspaceSections detail={data} ownerName={user.displayName} />
-			) : detail.isError ? (
-				<p className="m-0 text-status-error" role="alert">
-					{errorText(detail.error)}
-				</p>
-			) : (
-				<p className="pk-muted m-0" aria-busy="true">
-					Loading…
-				</p>
-			)}
+			{workspaceId !== null && !data ? (
+				<div className="pk-detail-section">
+					{detail.isError ? (
+						<p className="m-0 text-status-error" role="alert">
+							{errorText(detail.error)}
+						</p>
+					) : (
+						<p className="pk-muted m-0" aria-busy="true">
+							Loading…
+						</p>
+					)}
+				</div>
+			) : null}
+			{data ? <ErrorSection detail={data} /> : null}
 			<AccountSection user={user} isSelf={isSelf} />
+			<WorkspaceSection detail={data} user={user} hasWorkspace={workspaceId !== null} />
+			{data ? <DataSections detail={data} ownerName={user.displayName} /> : null}
 		</section>
 	);
 }
 
-function WorkspaceSections({
+/** The state badge and Start, Stop and Restart, directly under the name (EPIC-18 ruling 17). */
+function HeadState({
+	detail,
+	ownerName,
+}: {
+	detail: AdminWorkspaceDetail;
+	ownerName: string;
+}) {
+	const { workspace } = detail;
+	const toast = useToast();
+	const lifecycle = useLifecycleAction();
+
+	function runLifecycle(action: "start" | "stop" | "restart") {
+		if (lifecycle.isPending) return;
+		lifecycle.mutate(
+			{ workspaceId: workspace.id, action },
+			{
+				onSuccess: () =>
+					toast.show({
+						tone: "success",
+						title: `${ACTION_DONE[action]} ${ownerName}'s workspace`,
+					}),
+				onError: (error) =>
+					toast.show({
+						tone: "danger",
+						title: `Could not ${action} the workspace`,
+						children: errorText(error),
+					}),
+			},
+		);
+	}
+
+	return (
+		<>
+			<div className="flex items-center gap-2">
+				{/* Announces each state change while the panel refreshes. */}
+				<span role="status" data-testid="detail-state">
+					<WorkspaceStateBadge
+						state={workspace.state}
+						desiredState={workspace.desiredState}
+						statusRole={false}
+					/>
+				</span>
+				{workspace.archivedAt ? <span className="pk-tag">Archived</span> : null}
+			</div>
+			<div className="flex flex-wrap gap-2">
+				{(["start", "stop", "restart"] as const).map((action) => (
+					<Button
+						key={action}
+						size="sm"
+						data-testid={`detail-${action}`}
+						aria-label={`${ACTION_LABEL[action]} ${ownerName}'s workspace`}
+						loading={lifecycle.isPending && lifecycle.variables?.action === action}
+						aria-disabled={lifecycle.isPending ? true : undefined}
+						onClick={() => runLifecycle(action)}
+					>
+						{ACTION_LABEL[action]}
+					</Button>
+				))}
+			</div>
+		</>
+	);
+}
+
+function ErrorSection({ detail }: { detail: AdminWorkspaceDetail }) {
+	const { workspace } = detail;
+	if (!workspace.errorCode && !workspace.errorMessage) return null;
+	return (
+		<section aria-labelledby="detail-error" className="pk-detail-section">
+			<h4 id="detail-error" className="pk-text-label m-0">
+				Error
+			</h4>
+			<p className="pk-text-compact m-0">
+				{workspace.errorMessage ?? "The workspace reported an error."}
+			</p>
+			<dl className="pk-techdetail">
+				<div>
+					<dt className="inline">errorCode: </dt>
+					<dd className="inline">{workspace.errorCode ?? "—"}</dd>
+				</div>
+				<div>
+					<dt className="inline">errorMessage: </dt>
+					<dd className="inline">{workspace.errorMessage ?? "—"}</dd>
+				</div>
+			</dl>
+		</section>
+	);
+}
+
+/** Storage, Resource guard, Ports and connections, Logs and Recent audit, in that order. */
+function DataSections({
 	detail,
 	ownerName,
 }: {
@@ -161,57 +257,13 @@ function WorkspaceSections({
 
 	return (
 		<>
-			<div className="flex items-center gap-2">
-				{/* Announces each state change while the panel refreshes. */}
-				<span role="status" data-testid="detail-state">
-					<WorkspaceStateBadge
-						state={workspace.state}
-						desiredState={workspace.desiredState}
-						statusRole={false}
-					/>
-				</span>
-				{workspace.archivedAt ? <span className="pk-tag">Archived</span> : null}
-			</div>
-
-			{workspace.errorCode || workspace.errorMessage ? (
-				<section aria-label="Error" className="flex flex-col gap-2">
-					<p className="pk-text-compact m-0">
-						{workspace.errorMessage ?? "The workspace reported an error."}
-					</p>
-					<dl className="pk-techdetail">
-						<div>
-							<dt className="inline">errorCode: </dt>
-							<dd className="inline">{workspace.errorCode ?? "—"}</dd>
-						</div>
-						<div>
-							<dt className="inline">errorMessage: </dt>
-							<dd className="inline">{workspace.errorMessage ?? "—"}</dd>
-						</div>
-					</dl>
-				</section>
-			) : null}
-
-			<section aria-labelledby="detail-logs" className="flex flex-col gap-2">
-				<h4 id="detail-logs" className="pk-text-label m-0">
-					Logs
-				</h4>
-				<code className="pk-techdetail break-all" data-testid="log-command">
-					{command}
-				</code>
-				<div>
-					<Button size="sm" onClick={() => void copyCommand()}>
-						Copy log command
-					</Button>
-				</div>
-			</section>
-
-			<StorageSection detail={detail} />
+			<StorageSection detail={detail} ownerName={ownerName} />
 
 			<GuardSection detail={detail} ownerName={ownerName} />
 
-			<section aria-labelledby="detail-ports" className="flex flex-col gap-2">
+			<section aria-labelledby="detail-ports" className="pk-detail-section">
 				<h4 id="detail-ports" className="pk-text-label m-0">
-					Preview ports
+					Ports and connections
 				</h4>
 				{detail.ports.length === 0 ? (
 					<p className="pk-muted m-0 text-[13px]">No listening ports.</p>
@@ -255,7 +307,21 @@ function WorkspaceSections({
 				</p>
 			</section>
 
-			<section aria-labelledby="detail-audit" className="flex flex-col gap-2">
+			<section aria-labelledby="detail-logs" className="pk-detail-section">
+				<h4 id="detail-logs" className="pk-text-label m-0">
+					Logs
+				</h4>
+				<code className="pk-techdetail break-all" data-testid="log-command">
+					{command}
+				</code>
+				<div>
+					<Button size="sm" onClick={() => void copyCommand()}>
+						Copy log command
+					</Button>
+				</div>
+			</section>
+
+			<section aria-labelledby="detail-audit" className="pk-detail-section">
 				<h4 id="detail-audit" className="pk-text-label m-0">
 					Recent audit events
 				</h4>
@@ -281,8 +347,6 @@ function WorkspaceSections({
 					All events for this workspace
 				</Link>
 			</section>
-
-			<WorkspaceActions detail={detail} ownerName={ownerName} />
 		</>
 	);
 }
@@ -296,17 +360,49 @@ function shortTime(iso: string): string {
 	});
 }
 
-function StorageSection({ detail }: { detail: AdminWorkspaceDetail }) {
+function StorageSection({
+	detail,
+	ownerName,
+}: {
+	detail: AdminWorkspaceDetail;
+	ownerName: string;
+}) {
 	const { workspace } = detail;
+	const toast = useToast();
+	const quota = useUpdateQuota();
+	const [editing, setEditing] = useState(false);
 	const pending = quotaPending(workspace.quotaConfig, detail.quotaApplied);
 	return (
-		<section aria-labelledby="detail-storage" className="flex flex-col gap-2">
-			<h4 id="detail-storage" className="pk-text-label m-0">
-				Storage and usage
-			</h4>
-			<p className="m-0 text-[13px]" data-testid="detail-quota">
-				Configured: {storageText(workspace.quotaConfig)}
-			</p>
+		<section aria-labelledby="detail-storage" className="pk-detail-section">
+			<div className="flex items-center justify-between gap-3">
+				<h4 id="detail-storage" className="pk-text-label m-0">
+					Storage
+				</h4>
+				<Button
+					size="sm"
+					data-testid="detail-quota-edit"
+					aria-label={`Edit quotas for ${ownerName}'s workspace`}
+					onClick={() => setEditing(true)}
+				>
+					Edit quotas…
+				</Button>
+			</div>
+			<dl className="pk-dl">
+				<dt>Configured</dt>
+				<dd data-testid="detail-quota">{storageText(workspace.quotaConfig)}</dd>
+				<dt>Usage</dt>
+				<dd data-testid="detail-usage">
+					{detail.agent === "stopped"
+						? "Stopped"
+						: detail.agent === "not_answering" || !detail.usage
+							? "Agent not answering"
+							: `Home disk ${formatBytes(detail.usage.disk.usedBytes)} of ${formatBytes(
+									detail.usage.disk.totalBytes,
+								)} · CPU ${formatCpu(detail.usage.cpuPercent)} · Memory ${formatBytes(
+									detail.usage.memory.usedBytes,
+								)} of ${formatBytes(detail.usage.memory.totalBytes)}`}
+				</dd>
+			</dl>
 			{pending ? (
 				<p
 					className="m-0 text-[13px] text-status-warning"
@@ -316,20 +412,32 @@ function StorageSection({ detail }: { detail: AdminWorkspaceDetail }) {
 				</p>
 			) : null}
 			{detail.storage ? <StorageMeters storage={detail.storage} /> : null}
-			<p className="m-0 text-[13px]" data-testid="detail-usage">
-				{detail.agent === "stopped"
-					? "Stopped"
-					: detail.agent === "not_answering" || !detail.usage
-						? "Agent not answering"
-						: `Home disk ${formatBytes(detail.usage.disk.usedBytes)} of ${formatBytes(
-								detail.usage.disk.totalBytes,
-							)} · CPU ${formatCpu(detail.usage.cpuPercent)} · Memory ${formatBytes(
-								detail.usage.memory.usedBytes,
-							)} of ${formatBytes(detail.usage.memory.totalBytes)}`}
-			</p>
-			<p className="m-0 text-[13px]">
-				Image <span className="pk-mono-small">{imageText(detail.image)}</span>
-			</p>
+			{editing ? (
+				<QuotaDialog
+					open
+					onOpenChange={(open) => {
+						if (!open) {
+							quota.reset();
+							setEditing(false);
+						}
+					}}
+					current={workspace.quotaConfig}
+					ownerName={ownerName}
+					pending={quota.isPending}
+					serverError={quota.error ? errorText(quota.error) : null}
+					onSave={(next) =>
+						quota.mutate(
+							{ workspaceId: workspace.id, quota: next },
+							{
+								onSuccess: () => {
+									toast.show({ tone: "success", title: "Storage change requested" });
+									setEditing(false);
+								},
+							},
+						)
+					}
+				/>
+			) : null}
 		</section>
 	);
 }
@@ -427,23 +535,23 @@ function GuardSection({
 			>
 				Resource guard
 			</h4>
-			<dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
-				<dt className="pk-muted">CPU</dt>
+			<dl className="pk-dl">
+				<dt>CPU</dt>
 				<dd
-					className={`m-0 ${cpuThrottle ? "text-status-warning" : ""}`}
+					className={cpuThrottle ? "text-status-warning" : undefined}
 					data-testid="detail-guard-cpu"
 				>
 					{throttleText(cpuThrottle)}
 				</dd>
-				<dt className="pk-muted">Memory</dt>
+				<dt>Memory</dt>
 				<dd
-					className={`m-0 ${memoryFlag ? "text-status-warning" : ""}`}
+					className={memoryFlag ? "text-status-warning" : undefined}
 					data-testid="detail-guard-memory"
 				>
 					{memoryFlagText(memoryFlag)}
 				</dd>
-				<dt className="pk-muted">Last activity</dt>
-				<dd className="m-0" data-testid="detail-last-activity">
+				<dt>Last activity</dt>
+				<dd data-testid="detail-last-activity">
 					{workspace.lastActivityAt
 						? shortTime(workspace.lastActivityAt)
 						: "None recorded"}
@@ -528,7 +636,7 @@ const STORAGE_LABEL: Record<keyof AdminStorage, string> = {
 
 function StorageMeters({ storage }: { storage: AdminStorage }) {
 	return (
-		<div className="flex flex-col gap-2">
+		<div className="pk-meters">
 			{(Object.keys(STORAGE_LABEL) as (keyof AdminStorage)[]).map((key) => {
 				const { usedBytes, limitBytes } = storage[key];
 				const ratio = limitBytes > 0 ? usedBytes / limitBytes : 0;
@@ -538,20 +646,29 @@ function StorageMeters({ storage }: { storage: AdminStorage }) {
 				}`;
 				const id = `storage-${key}`;
 				return (
-					<div key={key} className="flex flex-col text-[13px]">
-						<div className="flex justify-between">
-							<label htmlFor={id}>{STORAGE_LABEL[key]}</label>
-							<span className={warn ? "text-status-warning" : undefined}>{text}</span>
+					<div key={key} className={warn ? "pk-meter pk-meter--warning" : "pk-meter"}>
+						<div className="pk-meter-head">
+							<label htmlFor={id} className="pk-meter-label">
+								{STORAGE_LABEL[key]}
+							</label>
+							<span className="pk-meter-value">{text}</span>
 						</div>
+						{/* The native meter carries the value for screen readers; the track is drawn. */}
 						<meter
 							id={id}
-							className="w-full"
+							className="sr-only"
 							min={0}
 							max={Math.max(limitBytes, 1)}
 							high={limitBytes * STORAGE_WARN_RATIO}
 							value={usedBytes}
 							aria-valuetext={text}
 						/>
+						<div className="pk-meter-track" aria-hidden="true">
+							<div
+								className="pk-meter-fill"
+								style={{ width: `${Math.min(100, Math.round(ratio * 100))}%` }}
+							/>
+						</div>
 					</div>
 				);
 			})}
@@ -568,6 +685,31 @@ export function capabilityNote(capabilities: AdminCapabilities): string | null {
 	return null;
 }
 
+/** Image, Rebuild, Reset Docker, Archive and the grace override (EPIC-18 ruling 17). */
+function WorkspaceSection({
+	detail,
+	user,
+	hasWorkspace,
+}: {
+	detail: AdminWorkspaceDetail | null;
+	user: AdminUser;
+	hasWorkspace: boolean;
+}) {
+	return (
+		<section aria-labelledby="detail-workspace" className="pk-detail-section">
+			<h4 id="detail-workspace" className="pk-text-label m-0">
+				Workspace
+			</h4>
+			{detail ? (
+				<WorkspaceActions detail={detail} ownerName={user.displayName} />
+			) : hasWorkspace ? null : (
+				<p className="pk-text-body pk-muted m-0">This account has no workspace.</p>
+			)}
+			<UserGrace user={user} />
+		</section>
+	);
+}
+
 function WorkspaceActions({
 	detail,
 	ownerName,
@@ -577,11 +719,9 @@ function WorkspaceActions({
 }) {
 	const { workspace, capabilities } = detail;
 	const toast = useToast();
-	const lifecycle = useLifecycleAction();
 	const rebuild = useRebuild();
 	const resetDocker = useResetDocker();
 	const archive = useSetArchived();
-	const quota = useUpdateQuota();
 	const [dialog, setDialog] = useState<DialogName | null>(null);
 	const [preserveDocker, setPreserveDocker] = useState(true);
 	const archived = workspace.archivedAt !== null;
@@ -593,21 +733,6 @@ function WorkspaceActions({
 	function fail(title: string) {
 		return (error: unknown) =>
 			toast.show({ tone: "danger", title, children: errorText(error) });
-	}
-
-	function runLifecycle(action: "start" | "stop" | "restart") {
-		if (lifecycle.isPending) return;
-		lifecycle.mutate(
-			{ workspaceId: workspace.id, action },
-			{
-				onSuccess: () =>
-					toast.show({
-						tone: "success",
-						title: `${ACTION_DONE[action]} ${ownerName}'s workspace`,
-					}),
-				onError: fail(`Could not ${action} the workspace`),
-			},
-		);
 	}
 
 	const close = () => setDialog(null);
@@ -631,47 +756,12 @@ function WorkspaceActions({
 	}
 
 	return (
-		<section aria-labelledby="detail-actions" className="flex flex-col gap-2">
-			<h4 id="detail-actions" className="pk-text-label m-0">
-				Workspace actions
-			</h4>
+		<>
+			<dl className="pk-dl">
+				<dt>Image</dt>
+				<dd className="pk-mono-small">{imageText(detail.image)}</dd>
+			</dl>
 			<div className="flex flex-wrap gap-2">
-				{(["start", "stop", "restart"] as const).map((action) => (
-					<Button
-						key={action}
-						size="sm"
-						data-testid={`detail-${action}`}
-						aria-label={`${ACTION_LABEL[action]} ${ownerName}'s workspace`}
-						loading={lifecycle.isPending && lifecycle.variables?.action === action}
-						aria-disabled={lifecycle.isPending ? true : undefined}
-						onClick={() => runLifecycle(action)}
-					>
-						{ACTION_LABEL[action]}
-					</Button>
-				))}
-				<Button
-					size="sm"
-					data-testid="detail-quota-edit"
-					aria-label={`Change storage for ${ownerName}'s workspace`}
-					onClick={() => setDialog("quota")}
-				>
-					Change storage…
-				</Button>
-				<Button
-					size="sm"
-					data-testid="detail-archive"
-					aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
-					loading={archived && archive.isPending}
-					aria-disabled={archive.isPending ? true : undefined}
-					onClick={() => {
-						// A second dialog mid-request would only race the first.
-						if (archive.isPending) return;
-						if (archived) unarchive();
-						else setDialog("archive");
-					}}
-				>
-					{archived ? "Unarchive" : "Archive workspace…"}
-				</Button>
 				<Button
 					size="sm"
 					data-testid="detail-rebuild"
@@ -692,6 +782,21 @@ function WorkspaceActions({
 				>
 					Reset Docker…
 				</Button>
+				<Button
+					size="sm"
+					data-testid="detail-archive"
+					aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
+					loading={archived && archive.isPending}
+					aria-disabled={archive.isPending ? true : undefined}
+					onClick={() => {
+						// A second dialog mid-request would only race the first.
+						if (archive.isPending) return;
+						if (archived) unarchive();
+						else setDialog("archive");
+					}}
+				>
+					{archived ? "Unarchive" : "Archive workspace…"}
+				</Button>
 			</div>
 			{workspace.pendingOperation ? (
 				<p
@@ -711,33 +816,6 @@ function WorkspaceActions({
 				>
 					{note}
 				</p>
-			) : null}
-
-			{dialog === "quota" ? (
-				<QuotaDialog
-					open
-					onOpenChange={(open) => {
-						if (!open) {
-							quota.reset();
-							close();
-						}
-					}}
-					current={workspace.quotaConfig}
-					ownerName={ownerName}
-					pending={quota.isPending}
-					serverError={quota.error ? errorText(quota.error) : null}
-					onSave={(next) =>
-						quota.mutate(
-							{ workspaceId: workspace.id, quota: next },
-							{
-								onSuccess: () => {
-									toast.show({ tone: "success", title: "Storage change requested" });
-									close();
-								},
-							},
-						)
-					}
-				/>
 			) : null}
 
 			<ConfirmDialogRoot
@@ -820,7 +898,7 @@ function WorkspaceActions({
 					)
 				}
 			/>
-		</section>
+		</>
 	);
 }
 
@@ -1070,23 +1148,38 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 	}
 
 	return (
-		<section aria-labelledby="detail-account" className="flex flex-col gap-2">
+		<section aria-labelledby="detail-account" className="pk-detail-section">
 			<h4 id="detail-account" className="pk-text-label m-0">
 				Account
 			</h4>
-			<dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 text-[13px]">
-				<dt className="pk-muted">Role</dt>
-				<dd className="m-0" data-testid="detail-role">
-					{roleText(user)}
+			<dl className="pk-dl">
+				<dt>Role</dt>
+				<dd data-testid="detail-role">{roleText(user)}</dd>
+				<dt>Source</dt>
+				<dd>{sourceText(user.issuer)}</dd>
+				<dt>Last sign-in</dt>
+				<dd data-testid="detail-last-sign-in">
+					{user.lastLoginAt ? (
+						<time
+							dateTime={user.lastLoginAt}
+							title={new Date(user.lastLoginAt).toLocaleString()}
+						>
+							{timeAgo(user.lastLoginAt, Date.now())}
+						</time>
+					) : (
+						"Never"
+					)}
 				</dd>
-				<dt className="pk-muted">Source</dt>
-				<dd className="m-0">{sourceText(user.issuer)}</dd>
-				<dt className="pk-muted">Issuer</dt>
-				<dd className="pk-mono-small m-0 break-all" data-testid="detail-issuer">
+				<dt>Username</dt>
+				<dd className="pk-mono-small">{user.preferredUsername ?? "—"}</dd>
+				<dt>Email</dt>
+				<dd className="break-all" data-testid="detail-email">
+					{user.email ?? "—"}
+				</dd>
+				<dt>Issuer</dt>
+				<dd className="pk-mono-small break-all" data-testid="detail-issuer">
 					{user.issuer ?? "—"}
 				</dd>
-				<dt className="pk-muted">Username</dt>
-				<dd className="pk-mono-small m-0">{user.preferredUsername ?? "—"}</dd>
 			</dl>
 			<div className="flex flex-wrap gap-2">
 				<Button
@@ -1124,7 +1217,6 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 					onConfirm={() => run(true)}
 				/>
 			</ConfirmDialogRoot>
-			<UserGrace user={user} />
 		</section>
 	);
 }

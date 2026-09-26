@@ -107,6 +107,10 @@ test("an account with no sign-in for 31 days is marked Stale", async ({ page }) 
 
 	const row = page.getByTestId(`account-row-${id}`);
 	await expect(row.getByText("Stale", { exact: true })).toBeVisible();
+	// Last sign-in left the table (EPIC-18 ruling 11) and shows in the detail panel.
+	await page.getByRole("button", { name: `Show details for Stale ${tag}` }).click();
+	const panel = page.getByRole("region", { name: `Stale ${tag}` });
+	await expect(panel.getByTestId("detail-last-sign-in")).toHaveText("31 days ago");
 });
 
 test("an administrator stops another user's workspace, and it is audited", async ({
@@ -268,7 +272,7 @@ test("storage can only grow, and a grow shows as pending", async ({
 	await expect(panel.getByTestId("detail-quota-pending")).toHaveCount(0);
 
 	await panel
-		.getByRole("button", { name: `Change storage for ${student.name}'s workspace` })
+		.getByRole("button", { name: `Edit quotas for ${student.name}'s workspace` })
 		.click();
 	const dialog = page.getByTestId("quota-dialog");
 	await dialog.getByTestId("quota-home").fill(String(before.home - 1));
@@ -281,7 +285,7 @@ test("storage can only grow, and a grow shows as pending", async ({
 	await expect(dialog).toHaveCount(0);
 
 	await expect(panel.getByTestId("detail-quota")).toHaveText(
-		`Configured: Home ${before.home + 5} GiB · Docker ${before.docker} GiB`,
+		`Home ${before.home + 5} GiB · Docker ${before.docker} GiB`,
 	);
 	await expect(panel.getByTestId("detail-quota-pending")).toBeVisible();
 });
