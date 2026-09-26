@@ -924,7 +924,9 @@ open terminal WebSocket at most once a second and closes the socket when
 the session is gone.
 
 When the terminals unit stops, systemd's `$SERVICE_RESULT` is written to
-`/run/portikus-terminals/last-exit`, and the agent reports it on
+`/run/portikus-terminals/last-exit`, or `oom-kill` when tmux died of
+`SIGKILL` and the unit's cgroup `memory.events` counts an `oom_kill`
+(with `OOMPolicy=continue` systemd itself says only `signal`), and the agent reports it on
 `GET /terminals/last-exit` as `{"exit":{"result":"…","at":"…"}}`, with `at`
 the file's modification time, or `{"exit":null}` when there is no record
 (images before 2026.09.11) or the record is not a plain result word. When
@@ -1840,8 +1842,6 @@ Requirements:
 - projects without configured checks must remain usable;
 - an agent may run the same commands directly, and resulting state should be reflected when practical;
 - test execution must obey ordinary workspace resource limits.
-- a check runs under `choom -n 0`, so it does not inherit the agent's
-  lowered out-of-memory score;
 - stopping a check stops its whole process tree as closing a terminal does
   (§9.7), and a check's output pauses for a slow watcher as a terminal's does.
 

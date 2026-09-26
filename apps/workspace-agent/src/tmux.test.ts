@@ -3,7 +3,7 @@
  * checked against a real tmux server on its own socket so the test cannot
  * disturb, or be disturbed by, a tmux the developer already has running.
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -218,6 +218,34 @@ test.skipIf(!haveTmux)(
 			expect(await hasSession(id, server)).toBe(true);
 		} finally {
 			await killServer(server.socketName);
+		}
+	},
+);
+
+test.skipIf(!haveTmux)(
+	"in external mode the first terminal opens on a -D server with no sessions",
+	async () => {
+		// The terminals unit's server, as a fresh workspace has it: tmux answers
+		// has-session there with "no current target", not "can't find session".
+		const server = { socketName: `portikus-ext-empty-${process.pid}`, external: true };
+		const home = await mkdtemp(join(tmpdir(), "portikus-ext-empty-"));
+		const daemon = spawn("tmux", ["-L", server.socketName, "-f", "/dev/null", "-D"], {
+			stdio: "ignore",
+		});
+		try {
+			await vi.waitFor(
+				() => run("tmux", ["-L", server.socketName, "-N", "list-sessions"]),
+				{
+					timeout: 5000,
+				},
+			);
+			const id = "00000000-0000-4000-8000-000000009104";
+			expect(await hasSession(id, server)).toBe(false);
+			await createSession(id, home, home, "dark", "UTC", server);
+			expect(await hasSession(id, server)).toBe(true);
+		} finally {
+			await killServer(server.socketName);
+			daemon.kill();
 		}
 	},
 );
