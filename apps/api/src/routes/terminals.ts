@@ -1,5 +1,5 @@
 import type { WebSocket } from "@fastify/websocket";
-import { loadSession, requireUser } from "@portikus/auth";
+import { loadSession, requireUser, sessionGate } from "@portikus/auth";
 import {
 	type ApiError,
 	CreateTerminalRequest,
@@ -716,7 +716,7 @@ async function pipeTerminal(options: PipeOptions): Promise<void> {
 	async function sessionStillValid(): Promise<boolean> {
 		lastSessionCheck = Date.now();
 		const user = sessionToken ? await loadSession(db, sessionToken) : null;
-		if (user) return true;
+		if (user && !sessionGate(user)) return true;
 		socket.close(4401, "session revoked");
 		return false;
 	}

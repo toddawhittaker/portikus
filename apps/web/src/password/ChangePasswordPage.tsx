@@ -1,7 +1,7 @@
 import { Button, useToast } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, useNavigate } from "@tanstack/react-router";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { StandalonePage } from "../pages/StandalonePage.js";
 import { useMe } from "../useMe.js";
 import { ChangePasswordForm } from "./ChangePasswordForm.js";
@@ -16,6 +16,11 @@ export function ChangePasswordPage() {
 	const navigate = useNavigate();
 	const toast = useToast();
 	const signOutForm = useRef<HTMLFormElement>(null);
+	const heading = useRef<HTMLHeadingElement>(null);
+	// The heading renders once the session loads, so focus it then.
+	useEffect(() => {
+		if (me.status === "authenticated") heading.current?.focus();
+	}, [me.status]);
 
 	if (me.status === "loading") return <div className="pk-root" aria-busy="true" />;
 	if (me.status !== "authenticated") return <Navigate to="/" replace />;
@@ -33,7 +38,7 @@ export function ChangePasswordPage() {
 	return (
 		<StandalonePage title="Set a new password" testId="page-change-password">
 			<div className="flex flex-col gap-2">
-				<h1 id="page-title" className="pk-text-display">
+				<h1 id="page-title" className="pk-text-display" tabIndex={-1} ref={heading}>
 					Set a new password
 				</h1>
 				<p className="pk-text-body">
