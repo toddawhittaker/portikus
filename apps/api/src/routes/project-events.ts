@@ -1,5 +1,5 @@
 import type { WebSocket } from "@fastify/websocket";
-import { loadSession } from "@portikus/auth";
+import { loadSession, sessionGate } from "@portikus/auth";
 import { MAX_EVENT_SOCKETS_PER_WORKSPACE } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
@@ -161,7 +161,7 @@ async function pipeEvents(options: PipeOptions): Promise<void> {
 
 	async function sessionStillValid(): Promise<void> {
 		const user = sessionToken ? await loadSession(db, sessionToken) : null;
-		if (user) return;
+		if (user && !sessionGate(user)) return;
 		socket.close(4401, "session revoked");
 	}
 
