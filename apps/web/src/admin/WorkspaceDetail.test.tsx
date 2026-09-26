@@ -244,7 +244,7 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 	).toBe("true");
 });
 
-test("the panel's sections come in the order of EPIC-18 ruling 17", async () => {
+test("the panel's sections come in the order of SPEC.md section 20.1", async () => {
 	stubDetail(
 		detail({
 			workspace: {

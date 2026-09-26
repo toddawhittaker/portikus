@@ -362,7 +362,7 @@ test("the grace field is named by its visible label and Save after the user (WCA
 	).toBeDefined();
 });
 
-test("the page title names the tab (issue #374, EPIC-18 ruling 8)", async () => {
+test("the page title names the tab (issue #374, SPEC.md section 20.1)", async () => {
 	stubAdmin(600);
 
 	renderApp("/admin");
@@ -382,7 +382,7 @@ test("the Settings tab has its own title and an h2 naming it", async () => {
 	expect(document.title).toBe("Settings, Administration, Portikus");
 });
 
-test("the admin page is compact (EPIC-18 ruling 2)", async () => {
+test("the admin page is compact (SPEC.md section 20.1)", async () => {
 	stubAdmin(600);
 
 	renderApp("/admin");

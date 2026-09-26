@@ -107,7 +107,7 @@ test("an account with no sign-in for 31 days is marked Stale", async ({ page }) 
 
 	const row = page.getByTestId(`account-row-${id}`);
 	await expect(row.getByText("Stale", { exact: true })).toBeVisible();
-	// Last sign-in left the table (EPIC-18 ruling 11) and shows in the detail panel.
+	// Last sign-in left the table (SPEC.md section 20.1) and shows in the detail panel.
 	await page.getByRole("button", { name: `Show details for Stale ${tag}` }).click();
 	const panel = page.getByRole("region", { name: `Stale ${tag}` });
 	await expect(panel.getByTestId("detail-last-sign-in")).toHaveText("31 days ago");
@@ -363,7 +363,7 @@ for (const { name, button, dialogId, confirmLabel, done, operation, action } of 
 	});
 }
 
-/** The Users table after EPIC-18 T2 (rulings 5, 11-13). */
+/** The Users table of SPEC.md section 20.1. */
 test.describe("the Users table layout", () => {
 	test.use({ viewport: { width: 1280, height: 600 } });
 

@@ -1237,3 +1237,70 @@ rather than over it, with at least 12px text, and a design check against
 design/. Half a day with the header tests.
 
 **Source.** Accessibility review of Epic 14.3 (issue #475).
+
+## Health tab layout
+
+**What.** The Health tab in three rows, with state badges, a warning
+coloured pool tag and chart tokens (issue #603).
+
+**What it would take.** Goes to the observability epic with the Health
+charts (#597, #598, #599, #476).
+
+**Source.** Admin UX review of 2026-09-26, left out of Epic 18.
+
+## Sortable admin tables and a table component
+
+**What.** Sortable column headers and a React `<Table>` component.
+
+**What it would take.** Port the design's sortable-header rules and add
+sort state per table. Worth a component only once column definitions
+repeat.
+
+**Source.** Left out of Epic 18; the CSS classes are enough today.
+
+## Admin tabs in the app header
+
+**What.** Move the admin tab navigation into the app header, as the
+mockup's `.pk-adminnav` does, to save about 110 px of height.
+
+**What it would take.** A header change that knows about admin routes,
+with the header tests and e2e updated.
+
+**Source.** Left out of Epic 18.
+
+## Per-row "more" menus in admin tables
+
+**What.** A menu on each Users row with its actions, from the mockup.
+
+**What it would take.** A menu per row reusing the detail panel's
+actions. Bulk selection and the detail panel already carry them.
+
+**Source.** Left out of Epic 18.
+
+## A tablet admin layout
+
+**What.** An admin area usable below 1024 px.
+
+**What it would take.** A narrow layout for the tables and detail panel.
+The admin area is desktop-only today (SPEC.md section 20.1).
+
+**Source.** Left out of Epic 18.
+
+## A process list in the admin detail panel
+
+**What.** A section listing a workspace's processes in the detail panel.
+
+**What it would take.** Issue #595 adds its own section.
+
+**Source.** Left out of Epic 18.
+
+## Shared storage thresholds for the admin detail panel
+
+**What.** The admin detail panel could reuse the student side's
+StorageMeters and storageLevel thresholds, so both sides colour usage
+the same way.
+
+**What it would take.** Import the shared helper in the panel's meters,
+with a unit test. Under half a day.
+
+**Source.** Epic 18 confirmation review.

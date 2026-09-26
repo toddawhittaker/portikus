@@ -148,7 +148,7 @@ function AuditResults({ filters }: { filters: AuditFilters }) {
 						: "Audit events could not be loaded."}
 				</p>
 			) : null}
-			{/* overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main> (EPIC-18 ruling 5). */}
+			{/* overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main> (SPEC.md section 20.1). */}
 			<div className="pk-table-wrap overflow-clip">
 				<table
 					className="pk-table pk-table--page"
@@ -249,7 +249,7 @@ function AuditRow({ event }: { event: AuditEvent }) {
 					<Link
 						to="/admin"
 						search={{ tab: "audit", workspace: event.target }}
-						className="pk-link pk-mono-small text-[var(--accent-text)] underline"
+						className="pk-focus-ring pk-mono-small text-[var(--accent-text)] underline"
 						title={event.target}
 						aria-label={`Show events for target ${event.target}`}
 						data-testid="audit-target-link"
@@ -305,7 +305,7 @@ function AuditDetails({ metadata }: { metadata: [string, unknown][] }) {
 		<>
 			<DetailLines metadata={metadata} clip />
 			<details data-testid="audit-details-full">
-				<summary className="pk-link cursor-pointer text-[var(--accent-text)]">
+				<summary className="pk-focus-ring cursor-pointer text-[var(--accent-text)]">
 					Show full details
 				</summary>
 				<DetailLines metadata={metadata} clip={false} />

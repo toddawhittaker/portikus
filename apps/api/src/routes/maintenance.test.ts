@@ -212,7 +212,7 @@ test.skipIf(skip)(
 				headers: csrfHeaders(bob, PUBLIC_URL),
 			})
 		).json().id as string;
-		// Bulk Rebuild in the admin view calls the single route once per workspace (EPIC-18 ruling 24).
+		// Bulk Rebuild in the admin view calls the single route once per workspace (SPEC.md section 20.1).
 		for (const id of [workspaceId, bobWorkspaceId]) {
 			const response = await app.inject({
 				method: "POST",
