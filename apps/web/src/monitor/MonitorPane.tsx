@@ -22,9 +22,7 @@ export function MonitorPane({ workspaceId }: { workspaceId: string }) {
 
 	return (
 		<>
-			<div className="pk-pane-head">
-				<h2 className="pk-pane-title">Monitor</h2>
-			</div>
+			<h2 className="sr-only">Monitor</h2>
 			<div className="pk-pane-body pk-monitor" data-testid="monitor">
 				{usage ? (
 					<Figures usage={usage} />

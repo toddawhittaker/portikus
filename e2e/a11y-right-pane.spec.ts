@@ -4,8 +4,10 @@ import {
 	createStudent,
 	loginAs,
 	query,
+	seedFile,
 	seedListening,
 	seedSearch,
+	settledAxe,
 	workspacePath,
 } from "./helpers";
 
@@ -87,6 +89,71 @@ test.describe("right pane accessibility", () => {
 		const project = await createProject(student.workspaceId, { name: "Titled" });
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(page).toHaveTitle("Titled, Portikus", { timeout: 15_000 });
+	});
+});
+
+test.describe("right pane headings and panel contrast (Epic 20)", () => {
+	test("each tab's pane has a screen-reader heading and no repeated visible title", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Headings" });
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		for (const name of ["Files", "Checks", "Running", "Monitor"]) {
+			await page.getByRole("tab", { name }).click();
+			const panel = page.getByRole("tabpanel", { name });
+			const heading = panel.getByRole("heading", { level: 2, name, exact: true });
+			await expect(heading).toHaveCount(1, { timeout: 15_000 });
+			await expect(heading).toHaveClass("sr-only");
+			await expect(panel.locator(".pk-pane-title")).toHaveCount(0);
+		}
+	});
+
+	test("the Checks and Running panel heads pass contrast in the light theme", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await query(
+			"update users set editor_settings = editor_settings || $1::jsonb where id = $2",
+			[JSON.stringify({ appearance: "light" }), student.userId],
+		);
+		await seedListening(student.workspaceId, [
+			{ port: 3000, process: { pid: 42, command: "node", commandLine: "node app" } },
+		]);
+		const project = await createProject(student.workspaceId, { name: "Contrast" });
+		await seedFile(
+			student.workspaceId,
+			project.slug,
+			".portikus/checks.json",
+			JSON.stringify({ checks: [{ id: "tests", name: "Tests", command: "npm test" }] }),
+		);
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "light", {
+			timeout: 15_000,
+		});
+
+		await page.getByTestId("right-pane-tab-checks").click();
+		await page.getByTestId("check-run-tests").click();
+		await expect(page.locator(".pk-check-panel-head")).toBeVisible({ timeout: 15_000 });
+		const checks = await (await settledAxe(page))
+			.include(".pk-check-panel-head")
+			.withRules(["color-contrast"])
+			.analyze();
+		expect(checks.violations).toEqual([]);
+
+		await page.getByTestId("right-pane-tab-running").click();
+		await page
+			.getByTestId("running-row-3000")
+			.locator("button.pk-portrow-select")
+			.click({ timeout: 20_000 });
+		await expect(page.locator(".pk-running-panel-head")).toBeVisible();
+		const running = await (await settledAxe(page))
+			.include(".pk-running-panel")
+			.withRules(["color-contrast"])
+			.analyze();
+		expect(running.violations).toEqual([]);
 	});
 });
 

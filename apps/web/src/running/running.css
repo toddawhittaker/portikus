@@ -42,7 +42,8 @@
 }
 .pk-portrow-select {
 	display: grid;
-	grid-template-columns: 4.5rem minmax(0, 1fr) auto;
+	/* The port column fits five digits, leaving the rest to the name. */
+	grid-template-columns: auto minmax(0, 1fr);
 	align-items: center;
 	gap: var(--space-2);
 	min-width: 0;
@@ -57,9 +58,21 @@
 }
 .pk-portrow-select > span {
 	min-width: 0;
+}
+/* The name on the first line, its tags (Docker, reserved port) under it. */
+.pk-portrow-main {
+	display: flex;
+	flex-direction: column;
+}
+.pk-portrow-name {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+.pk-portrow-tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
 }
 .pk-portrow-select:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
@@ -100,11 +113,12 @@
 }
 
 .pk-portrow-port {
-	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	min-width: 5ch;
+	font-family: var(--font-mono);
 }
 
 .pk-portrow-kind {
-	font-size: 11px;
+	font-size: 12px;
 	color: var(--ink-muted);
 }
 
@@ -117,8 +131,13 @@
 	padding: 4px 6px;
 	border-top: 1px solid var(--line);
 	color: var(--ink-muted);
-	font-size: 11px;
+	font-size: 12px;
 	cursor: pointer;
+}
+
+/* The same side gutter as the other right-pane bodies. */
+.pk-pane-body.pk-running-list {
+	padding-inline: var(--space-4);
 }
 
 /*
@@ -132,8 +151,9 @@
 	min-height: 0;
 	height: 45%;
 	border-top: 1px solid var(--line);
-	background: var(--terminal-bg);
-	color: var(--terminal-fg);
+	/* A key-and-value list, not terminal output, so it uses the page surface. */
+	background: var(--surface-raised);
+	color: var(--ink);
 }
 .pk-running-panel-head {
 	flex: none;
@@ -162,7 +182,7 @@
 }
 .pk-running-details dt {
 	margin: 0;
-	color: var(--terminal-muted);
+	color: var(--ink-muted);
 }
 .pk-running-details dd {
 	margin: 0;

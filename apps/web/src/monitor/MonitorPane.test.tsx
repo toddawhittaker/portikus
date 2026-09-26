@@ -121,3 +121,13 @@ test("refreshes once a second while shown and stops when it goes away", async ()
 	});
 	expect(calls.mock.calls.length).toBe(shown);
 });
+
+test("the Monitor heading is for screen readers only; the tab names the pane", () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => json(USAGE)),
+	);
+	renderPane();
+	const heading = screen.getByRole("heading", { level: 2, name: "Monitor" });
+	expect(heading.className).toBe("sr-only");
+});
