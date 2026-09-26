@@ -1,5 +1,8 @@
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
 import type { WebSocket } from "@fastify/websocket";
 import {
+	type AgentTerminalsExit,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_INPUT_FRAME_BYTES,
 } from "@portikus/contracts";
@@ -7,16 +10,23 @@ import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/eve
 import type { FastifyBaseLogger } from "fastify";
 import { type IPty, spawn } from "node-pty";
 import { type PaneWatcher, watchPanes } from "./cwd.js";
-import { AgentFailure, attachArgs, captureHistory, hasSession } from "./tmux.js";
+import {
+	AgentFailure,
+	attachArgs,
+	captureHistory,
+	hasSession,
+	type TmuxServer,
+	tmuxServerGone,
+} from "./tmux.js";
 
 /** Pause the PTY once this much output is waiting on the socket (SPEC.md §9.7). */
-const HIGH_WATER_BYTES = 1024 * 1024;
+export const HIGH_WATER_BYTES = 1024 * 1024;
 
 /** Resume once the socket has drained back below this (SPEC.md §9.7). */
-const LOW_WATER_BYTES = 256 * 1024;
+export const LOW_WATER_BYTES = 256 * 1024;
 
 /** How often a paused attachment checks whether its socket has drained. */
-const DRAIN_POLL_MS = 50;
+export const DRAIN_POLL_MS = 50;
 
 /**
  * How long a new attachment holds input while its `tmux attach-session`
@@ -32,6 +42,26 @@ const INPUT_QUEUE_MAX_BYTES = 64 * 1024;
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 
+/** Enough of the attach client's output to hold its final exit line. */
+const TAIL_CHARS = 128;
+
+/**
+ * Whether the tmux attach client's last line says the server died: tmux
+ * 3.4 and 3.5a print "[exited]" when the session ends and "[server exited]"
+ * or "[server exited unexpectedly]" when the server goes. Only the final
+ * line counts, because the client prints it after the pane's output, so a
+ * student's own "[server exited]" is overwritten by "[exited]". A forged
+ * line that ends the stream costs one bounded exit-record lookup (§9.7).
+ * Undefined means no such line, so the caller asks tmux instead.
+ */
+export function attachExitReason(tail: string): boolean | undefined {
+	const match = /\[(exited|server exited|server exited unexpectedly)\]\r?\n?$/.exec(
+		tail,
+	);
+	if (!match) return undefined;
+	return match[1] !== "exited";
+}
+
 interface Attachment {
 	terminalId: string;
 	socket: WebSocket;
@@ -46,6 +76,8 @@ interface Attachment {
 	pendingResize: { cols: number; rows: number } | null;
 	/** Set when the socket closes, including before the PTY exists. */
 	closed: boolean;
+	/** The end of the attach client's output, for its exit line. */
+	tail: string;
 	/** The full early-input queue has already been logged for this socket. */
 	warnedQueueFull: boolean;
 }
@@ -53,6 +85,41 @@ interface Attachment {
 export interface AttachOptions {
 	cols?: number;
 	rows?: number;
+}
+
+/** Where the terminals unit records how it last stopped (SPEC.md §9.7). */
+export const TERMINALS_EXIT_PATH = "/run/portikus-terminals/last-exit";
+
+/**
+ * The terminals unit's last stop: systemd's `$SERVICE_RESULT` and the time
+ * the record was written. Null when there is none, as on older images. The
+ * student can write this file, so anything that is not a plain result word
+ * is treated as no record.
+ */
+export async function readTerminalsExit(
+	path: string = TERMINALS_EXIT_PATH,
+): Promise<AgentTerminalsExit["exit"]> {
+	let handle: Awaited<ReturnType<typeof open>> | undefined;
+	try {
+		// No symlink, no FIFO that blocks, and never more than a result word.
+		handle = await open(
+			path,
+			constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+		);
+		const info = await handle.stat();
+		if (!info.isFile()) return null;
+		const buffer = Buffer.alloc(64);
+		const { bytesRead } = await handle.read(buffer, 0, 64, 0);
+		// A full buffer means the record may go on: not a plain result word.
+		if (bytesRead === buffer.length) return null;
+		const result = buffer.subarray(0, bytesRead).toString("utf8").trim();
+		if (!/^[a-z][a-z-]{0,62}$/.test(result)) return null;
+		return { result, at: info.mtime.toISOString() };
+	} catch {
+		return null;
+	} finally {
+		await handle?.close();
+	}
 }
 
 function sendText(socket: WebSocket, message: TerminalServerMessage): void {
@@ -70,11 +137,11 @@ export class TerminalRegistry {
 	constructor(
 		private readonly homeDir: string,
 		private readonly log: FastifyBaseLogger,
-		private readonly socketName?: string,
+		private readonly server: TmuxServer,
 		/** Overridden by tests so they can drive a fake PTY. */
 		private readonly spawnPty: typeof spawn = spawn,
 		/** One pane poll for the whole agent (SPEC.md §9.1, §9.3). */
-		private readonly panes: PaneWatcher = watchPanes(socketName),
+		private readonly panes: PaneWatcher = watchPanes(server),
 	) {}
 
 	/** How many browsers are attached to one terminal. */
@@ -106,6 +173,7 @@ export class TerminalRegistry {
 			pendingTimer: null,
 			pendingResize: null,
 			closed: false,
+			tail: "",
 			warnedQueueFull: false,
 		};
 		existing.add(attachment);
@@ -132,7 +200,7 @@ export class TerminalRegistry {
 			}
 		});
 
-		if (!(await hasSession(id, this.socketName))) {
+		if (!(await hasSession(id, this.server))) {
 			this.forget(id, attachment);
 			throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 		}
@@ -151,7 +219,7 @@ export class TerminalRegistry {
 		// attachment that has already been forgotten would never be killed.
 		if (attachment.closed) return;
 
-		const pty = this.spawnPty("tmux", attachArgs(id, this.socketName), {
+		const pty = this.spawnPty("tmux", attachArgs(id, this.server), {
 			name: "xterm-256color",
 			cols,
 			rows,
@@ -174,14 +242,25 @@ export class TerminalRegistry {
 
 		pty.onData((data) => {
 			this.flushPendingInput(attachment);
+			attachment.tail = (attachment.tail + data).slice(-TAIL_CHARS);
 			socket.send(Buffer.from(data, "utf8"), { binary: true });
 			this.applyBackpressure(attachment);
 		});
 
 		pty.onExit(() => {
 			this.forget(id, attachment);
-			sendText(socket, { type: "exit" });
-			socket.close(1000, "terminal exited");
+			if (attachment.closed) return;
+			// Whether the server died tells the control plane if a crash
+			// record is worth waiting for (SPEC.md §9.7).
+			const said = attachExitReason(attachment.tail);
+			const gone =
+				said === undefined
+					? tmuxServerGone(this.server).catch(() => false)
+					: Promise.resolve(said);
+			void gone.then((serverGone) => {
+				sendText(socket, { type: "exit", serverGone });
+				socket.close(1000, "terminal exited");
+			});
 		});
 	}
 
@@ -221,7 +300,7 @@ export class TerminalRegistry {
 	): Promise<void> {
 		let history: string;
 		try {
-			history = await captureHistory(id, this.socketName);
+			history = await captureHistory(id, this.server);
 		} catch (error) {
 			// A terminal with no history to show is worth no more than a log line.
 			this.log.warn(
