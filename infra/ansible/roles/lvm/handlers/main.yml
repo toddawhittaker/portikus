@@ -1,0 +1,10 @@
+---
+- name: Reload systemd for the thin pool status
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+# Writes the file now rather than at the timer's next tick.
+- name: Refresh the thin pool status
+  ansible.builtin.systemd_service:
+    name: portikus-thinpool-status.service
+    state: started

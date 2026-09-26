@@ -7,9 +7,11 @@
 # reaches a's cpu.max and leaves it again, and fallocate past each
 # volume's size is refused for lack of space, and the platform services
 # carry a negative OOM score adjustment.  Meanwhile the API and
-# b's agent keep answering within two seconds.  The heavy tests, memory past
-# the limit while PostgreSQL and the API keep running, run only with
-# PORTIKUS_SECURITY_HEAVY=1 on an otherwise empty VM.
+# b's agent keep answering within two seconds.  The heavy tests run only
+# with PORTIKUS_SECURITY_HEAVY=1 on an otherwise empty VM: memory past the
+# limit while PostgreSQL and the API keep running; both workspaces burning
+# CPU and disk while /health and a terminal echo stay quick; and Caddy and
+# PostgreSQL killed outright and coming back on their own.
 # shellcheck disable=SC2154  # pass, fail and the SEC_ globals come from lib.sh
 # shellcheck disable=SC2016  # the probe scripts expand inside the workspace
 
@@ -293,3 +295,134 @@ fi
 lim_watch=$(lim_watch_stop)
 echo "Liveness while a was under pressure: ${lim_watch}"
 check "the API and b's agent answered within two seconds throughout" lim_watch_ok "$lim_watch"
+
+# ── Heavy: two busy workspaces and the platform (docs/CAPACITY.md) ──
+
+if [ "$SEC_HEAVY" = "1" ]; then
+  # The platform's slice outweighs each workspace ten to one, so while a and
+  # b fill every CPU they have and write to disk, /health through the edge
+  # and a terminal echo in b through the API must stay quick.  This only
+  # contends the platform when the workspaces' CPUs cover the VM's, as on
+  # the pilot's 4 vCPUs; on a bigger VM it measures the quiet case.
+  lim_bound_ms=1000
+  lim_burn_s=45
+  echo "VM CPUs: $(sec_ssh nproc); CPUs a and b burn: $((2 * lim_cpu)); bound for /health and a terminal echo: ${lim_bound_ms} ms"
+  # The marker is typed in two quoted halves, so only the command's output
+  # holds it whole, never the echo of the typing.  Prints "max median" in ms.
+  lim_echo_js='import fs from "node:fs";
+const [url, origin, rounds] = process.argv.slice(2);
+const cookie = fs.readFileSync(0, "utf8").trim();
+const ws = new WebSocket(url, { headers: { origin, cookie } });
+ws.binaryType = "arraybuffer";
+let screen = "", round = -1, want = "", sentAt = 0;
+const times = [];
+function next() {
+	round++;
+	if (round >= Number(rounds)) {
+		times.sort((x, y) => x - y);
+		console.log(`${Math.round(times.at(-1))} ${Math.round(times[times.length >> 1])}`);
+		process.exit(0);
+	}
+	screen = "";
+	want = `E${round}Q${round}Z`;
+	sentAt = performance.now();
+	ws.send(JSON.stringify({ type: "input", data: `echo E${round}Q"${round}Z"\r` }));
+}
+ws.addEventListener("message", (event) => {
+	if (round === -1 && sentAt === 0) {
+		sentAt = 1;
+		setTimeout(next, 1000);
+		return;
+	}
+	screen += typeof event.data === "string" ? event.data : Buffer.from(event.data).toString("utf8");
+	if (want && screen.includes(want)) {
+		want = "";
+		times.push(performance.now() - sentAt);
+		setTimeout(next, 250);
+	}
+});
+ws.addEventListener("error", () => process.exit(1));
+setTimeout(() => process.exit(1), 60000);'
+  printf '%s\n' "$lim_echo_js" | sec_ssh_stdin "cat > ${SEC_REMOTE_DIR}/echo.mjs"
+  lim_b_tid=""
+  if [ "$(sec_http b POST "/workspaces/$(sec_ws_id b)/terminals" -H 'Content-Type: application/json' --data '{}')" = "201" ]; then
+    lim_b_tid=$(jq -r '.id // empty' "$SEC_LAST_BODY" 2>/dev/null)
+  fi
+  lim_echo() {
+    sec_ssh_stdin "NODE_EXTRA_CA_CERTS=${SEC_CA} node ${SEC_REMOTE_DIR}/echo.mjs \
+      '${SEC_API/https/wss}/workspaces/$(sec_ws_id b)/terminals/${lim_b_tid}/ws' '${SEC_API}' 10" \
+      <"${SEC_LOCAL_DIR}/b.cookie" 2>/dev/null
+  }
+  # Twenty requests half a second apart; prints "max failed", max in ms.
+  lim_health() {
+    sec_ssh "for i in \$(seq 20); do curl -s -o /dev/null -w '%{http_code} %{time_total}\n' --max-time 5 --cacert ${SEC_CA} ${SEC_API}/health; sleep 0.5; done" \
+      | awk '$1 != 200 { bad++ } { t = $2 * 1000; if (t > max) max = t } END { printf "%d %d", max, bad }'
+  }
+  # lim_quick "MAX ..." -- the first figure is within the bound.
+  lim_quick() { [ -n "$1" ] && [ "${1%% *}" -le "$lim_bound_ms" ]; }
+  lim_usec() { sec_ssh "cat /sys/fs/cgroup/lxc.payload.portikus_$(sec_instance "$1")/cpu.stat" | awk '$1 == "usage_usec" { print $2 }'; }
+  lim_calm_health=$(lim_health)
+  lim_calm_echo=$(lim_echo)
+  echo "Quiet: /health max ${lim_calm_health% *} ms (${lim_calm_health#* } failed); terminal echo in b max and median ${lim_calm_echo:-none} ms"
+  check "heavy: a terminal echo in b works while the VM is quiet (control)" test -n "$lim_calm_echo"
+  # One busy loop per CPU and a direct-I/O write loop in each workspace.
+  lim_burn="f=\$HOME/.sectest-burn-${SEC_RUN_ID}; for i in \$(seq ${lim_cpu}); do timeout ${lim_burn_s} sh -c 'while :; do :; done' & done; \
+    timeout ${lim_burn_s} sh -c \"while :; do dd if=/dev/zero of=\$f bs=1M count=512 oflag=direct 2>/dev/null; done\"; rm -f \$f; wait"
+  lim_a_before=$(lim_usec a); lim_b_before=$(lim_usec b)
+  lim_burn_start=$(date +%s%N)
+  sec_exec a student "$lim_burn" >/dev/null 2>&1 &
+  lim_burn_a=$!
+  sec_exec b student "$lim_burn" >/dev/null 2>&1 &
+  lim_burn_b=$!
+  sleep 5
+  lim_busy_health=$(lim_health)
+  lim_busy_echo=$(lim_echo)
+  wait "$lim_burn_a" "$lim_burn_b"
+  lim_burn_ns=$(($(date +%s%N) - lim_burn_start))
+  lim_pct() { awk -v u="$1" -v ns="$lim_burn_ns" -v c="$lim_cpu" 'BEGIN { printf "%d", 100 * u * 1000 / (ns * c) }'; }
+  lim_a_busy=$(lim_pct "$(($(lim_usec a) - ${lim_a_before:-0}))")
+  lim_b_busy=$(lim_pct "$(($(lim_usec b) - ${lim_b_before:-0}))")
+  echo "Busy: a ${lim_a_busy}% and b ${lim_b_busy}% of ${lim_cpu} CPUs each; /health max ${lim_busy_health% *} ms (${lim_busy_health#* } failed); terminal echo in b max and median ${lim_busy_echo:-none} ms"
+  check "heavy: a and b kept their CPUs at least 70% busy (control)" \
+    test "$lim_a_busy" -ge 70 -a "$lim_b_busy" -ge 70
+  check "heavy: every /health answered 200 while a and b were busy" test "${lim_busy_health#* }" = 0
+  check "heavy: /health answered within ${lim_bound_ms} ms while a and b were busy" lim_quick "$lim_busy_health"
+  check "heavy: a terminal echo in b came back within ${lim_bound_ms} ms while a and b were busy" \
+    lim_quick "$lim_busy_echo"
+  [ -n "$lim_b_tid" ] && sec_http b DELETE "/workspaces/$(sec_ws_id b)/terminals/${lim_b_tid}" >/dev/null
+
+  # ── Heavy: Caddy and PostgreSQL come back on their own ─────────
+
+  # Killing Caddy drops every connection, including the suite's presence
+  # sockets, so presence is held again afterwards.
+  # lim_back_in SECONDS CMD... -- seconds until CMD succeeds, or "never".
+  lim_back_in() {
+    local limit="$1" i; shift
+    for ((i = 1; i <= limit; i++)); do
+      sleep 1
+      if "$@" >/dev/null 2>&1; then echo "$i"; return 0; fi
+    done
+    echo never
+  }
+  lim_edge_ok() {
+    [ "$(sec_ssh "curl -s -o /dev/null -w '%{http_code}' --max-time 2 --cacert ${SEC_CA} ${SEC_API}/health")" = 200 ]
+  }
+  lim_db_ok() { [ "$(sec_http a GET "/workspaces/$(sec_ws_id a)")" = 200 ]; }
+  lim_main_pid() { sec_ssh "systemctl show -p MainPID --value $1"; }
+  lim_pid_before=$(lim_main_pid caddy)
+  sec_ssh "sudo systemctl kill -s KILL caddy"
+  lim_took=$(lim_back_in 20 lim_edge_ok)
+  echo "Caddy killed: the site answered again after ${lim_took} s"
+  check "heavy: the site answers within 15 s of Caddy being killed" test "$lim_took" != never -a "${lim_took/never/99}" -le 15
+  check "heavy: Caddy runs as a new process" test "$(lim_main_pid caddy)" != "$lim_pid_before"
+  lim_pid_before=$(lim_main_pid postgresql@17-main)
+  sec_ssh "sudo systemctl kill -s KILL postgresql@17-main"
+  lim_took=$(lim_back_in 40 lim_db_ok)
+  echo "PostgreSQL killed: the API read the database again after ${lim_took} s"
+  check "heavy: the API reads the database within 30 s of PostgreSQL being killed" test "$lim_took" != never -a "${lim_took/never/99}" -le 30
+  check "heavy: PostgreSQL runs as a new process" test "$(lim_main_pid postgresql@17-main)" != "$lim_pid_before"
+  check "heavy: the API, worker and controller are all active afterwards" \
+    sec_ssh systemctl is-active portikus-api portikus-worker portikus-controller
+  sec_hold_presence a
+  sec_hold_presence b
+fi

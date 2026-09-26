@@ -14,9 +14,11 @@
 
 # Debian's postgresql@ unit already sets -900; the drop-in keeps it if the
 # packaging ever drops it, so the kernel kills workspace processes first
-# when memory runs out (docs/CAPACITY.md).  The running server already has
-# that value, so only systemd reloads.  No memory cap: PostgreSQL's own
-# settings bound it, and only the API and worker reach it.
+# when memory runs out (docs/CAPACITY.md).  No memory cap: PostgreSQL's own
+# settings bound it, and only the API and worker reach it.  MemoryLow keeps
+# its page cache from being reclaimed first, and a crash restarts it after
+# 5 seconds (docs/CAPACITY.md).  A daemon reload applies all
+# of this to the running server without a restart.
 - name: Create the PostgreSQL drop-in directory
   ansible.builtin.file:
     path: /etc/systemd/system/postgresql@.service.d
@@ -25,12 +27,36 @@
     group: root
     mode: "0755"
 
-- name: Protect PostgreSQL from the out-of-memory killer
+- name: Protect PostgreSQL from the out-of-memory killer and restart it on failure
   ansible.builtin.copy:
     dest: /etc/systemd/system/postgresql@.service.d/10-portikus-oom.conf
     content: |
       [Service]
       OOMScoreAdjust=-900
+      MemoryLow=256M
+      Restart=on-failure
+      RestartSec=5
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd for PostgreSQL
+
+# The server runs in system-postgresql.slice, and a unit's MemoryLow only
+# protects it up to what its parent slice is given.
+- name: Create the PostgreSQL slice drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/system-postgresql.slice.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Pass the memory protection down to PostgreSQL's slice
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/system-postgresql.slice.d/10-portikus.conf
+    content: |
+      [Slice]
+      MemoryLow=256M
     owner: root
     group: root
     mode: "0644"
