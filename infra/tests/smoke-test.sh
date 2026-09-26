@@ -296,10 +296,102 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "workspace agent unit sets RuntimeDirectory=portikus" \
     "RuntimeDirectory=portikus" \
     ws_exec "grep -F -x 'RuntimeDirectory=portikus' /etc/systemd/system/portikus-workspace-agent.service"
-  # Terminals share the agent's cgroup, so an out-of-memory kill of one
-  # student process must not stop the unit and every terminal with it.
+  # Checks run in the agent's cgroup, so an out-of-memory kill of one
+  # student process must not stop the agent's unit.
   check_output "workspace agent unit keeps running after an OOM kill (OOMPolicy=continue)" \
     "continue" ws_exec "systemctl show -p OOMPolicy --value portikus-workspace-agent"
+
+  # 17aa. Terminals live in their own unit, so the agent can restart without
+  # them and be shielded from the OOM killer and from a fork bomb (issues
+  # #610 and #619, SPEC.md 19.3).
+  unit_prop() { ws_exec "systemctl show -p $2 --value $1"; }
+  check_output "agent unit has no task cap of its own (TasksMax=infinity)" \
+    "infinity" unit_prop portikus-workspace-agent TasksMax
+  check_output "agent unit is set to OOMScoreAdjust=-500" \
+    "-500" unit_prop portikus-workspace-agent OOMScoreAdjust
+  check_output "agent unit uses the terminals unit's tmux server" \
+    "TMUX_EXTERNAL_SERVER=true" ws_exec "systemctl show -p Environment --value portikus-workspace-agent | tr ' ' '\n' | grep -x TMUX_EXTERNAL_SERVER=true"
+  check_output "terminals unit is running" "active" unit_prop portikus-terminals ActiveState
+  check_output "terminals unit runs as the student" "student" unit_prop portikus-terminals User
+  check_output "terminals unit caps its tasks (TasksMax=1700)" "1700" unit_prop portikus-terminals TasksMax
+  check_output "terminals unit keeps running after an OOM kill (OOMPolicy=continue)" \
+    "continue" unit_prop portikus-terminals OOMPolicy
+  check_output "terminals unit always restarts (Restart=always)" "always" unit_prop portikus-terminals Restart
+  # A terminals restart must never restart the agent.
+  check_output "agent unit Wants the terminals unit" "portikus-terminals.service" \
+    ws_exec "systemctl show -p Wants --value portikus-workspace-agent | tr ' ' '\\n' | grep -x portikus-terminals.service"
+  check "agent unit neither Requires nor BindsTo the terminals unit" \
+    ws_exec "d=\$(systemctl show -p Requires -p BindsTo --value portikus-workspace-agent) && ! grep -q -F portikus-terminals <<<\"\$d\""
+  term_main() { unit_prop portikus-terminals MainPID; }
+  agent_main() { unit_prop portikus-workspace-agent MainPID; }
+  check_output "the terminals unit's main process is tmux" "tmux: server" \
+    ws_exec "ps -o comm= -p \$(systemctl show -p MainPID --value portikus-terminals)"
+  check_output "the tmux server runs in the terminals unit's cgroup" \
+    "0::/system.slice/portikus-terminals.service" \
+    ws_exec "cat /proc/\$(systemctl show -p MainPID --value portikus-terminals)/cgroup"
+  # The kernel honours the setting only if the container may lower the value.
+  check_output "the agent's real oom_score_adj is -500" "-500" \
+    ws_exec "cat /proc/\$(systemctl show -p MainPID --value portikus-workspace-agent)/oom_score_adj"
+  # A shell in a pane of the Portikus server, as the agent would start one.
+  ws_student "tmux -L portikus -N new-session -d -s smoke-shell bash" >/dev/null 2>&1
+  pane_pid() { ws_student "tmux -L portikus -N display-message -p -t smoke-shell '#{pane_pid}'"; }
+  shell_pid=$(pane_pid)
+  check_output "a pane's shell runs in the terminals unit's cgroup" \
+    "0::/system.slice/portikus-terminals.service" ws_exec "cat /proc/${shell_pid:-0}/cgroup"
+  agent_below_shell() {
+    local a s
+    a=$(ws_exec "cat /proc/\$(systemctl show -p MainPID --value portikus-workspace-agent)/oom_score_adj")
+    s=$(ws_exec "cat /proc/${shell_pid:-0}/oom_score_adj")
+    [ -n "$a" ] && [ -n "$s" ] && [ "$a" -lt "$s" ]
+  }
+  check "the agent's oom_score_adj is lower than a pane's shell's" agent_below_shell
+  # Shells get what they got before, less the agent's own settings.
+  # HOME is the control that the environment was read at all.
+  check_output "the tmux server has none of the agent's settings in its environment" "HOME=/home/student" \
+    ws_exec "tr '\\0' '\\n' < /proc/\$(systemctl show -p MainPID --value portikus-terminals)/environ | grep -E '^(NODE_ENV|LOG_LEVEL|TMUX_EXTERNAL_SERVER|HOME)='"
+
+  # 17ab0. /tmp and /dev/shm are capped tmpfs mounts, so a huge temporary
+  # file fails for lack of space instead of using the workspace's memory
+  # (issue #618).
+  check_output "/tmp is a tmpfs" "tmpfs" ws_exec "findmnt -n -o FSTYPE /tmp"
+  check_output "/tmp is capped at 512M" "536870912" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
+  check_output "/dev/shm is capped at 256M" "268435456" ws_exec "df -B1 --output=size /dev/shm | tail -1 | tr -d ' '"
+  agent_before=$(agent_main)
+  term_before=$(term_main)
+  tmp_fill_refused() {
+    local said
+    said=$(ws_student "head -c 600M /dev/zero > /tmp/smoke-fill; rc=\$?; rm -f /tmp/smoke-fill; exit \$rc" 2>&1)
+    [[ "$said" == *"No space left on device"* ]]
+  }
+  check "writing 600 MB to /tmp fails with No space left on device" tmp_fill_refused
+  check_output "the agent kept running through the full /tmp (same main PID)" "$agent_before" agent_main
+  check_output "the tmux server kept running through the full /tmp (same main PID)" "$term_before" term_main
+  check "the pane's shell kept running through the full /tmp" ws_exec "kill -0 ${shell_pid:-0}"
+
+  # 17ab1. The terminals unit comes back on its own and leaves an exit
+  # record saying why it stopped (issue #625).
+  term_back_after() { # OLD_PID -- a new tmux server within ten seconds
+    local i p
+    for ((i = 0; i < 10; i++)); do
+      sleep 1
+      p=$(term_main)
+      [ -n "$p" ] && [ "$p" != 0 ] && [ "$p" != "$1" ] && [ "$(unit_prop portikus-terminals ActiveState)" = active ] && return 0
+    done
+    return 1
+  }
+  check "no exit record while the terminals have not stopped this boot" \
+    ws_exec "test -d /run/portikus-terminals && test ! -e /run/portikus-terminals/last-exit"
+  term_before=$(term_main)
+  ws_exec "kill -KILL ${term_before:-0}" >/dev/null 2>&1
+  check "the terminals unit is back within ten seconds of a SIGKILL" term_back_after "$term_before"
+  check_output "its exit record says it was killed by a signal" "signal" \
+    ws_exec "cat /run/portikus-terminals/last-exit"
+  term_before=$(term_main)
+  ws_student "tmux -L portikus -N kill-server" >/dev/null 2>&1
+  check "the terminals unit is back within ten seconds of tmux kill-server" term_back_after "$term_before"
+  check_output "its exit record says it stopped cleanly" "success" \
+    ws_exec "cat /run/portikus-terminals/last-exit"
+  check_output "the agent kept running through both (same main PID)" "$agent_before" agent_main
   check_output "Codex update check is off" \
     "check_for_update_on_startup = false" \
     ws_exec "grep -F -x 'check_for_update_on_startup = false' /etc/codex/config.toml"
@@ -364,6 +456,9 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
 
   check "projects marker survives restart"      ws_student "cat ~/projects/.smoke-marker"
   check "Docker images survive restart"         ws_student "docker images -q"
+  # /run is cleared on stop, so an old exit record cannot explain anything.
+  check "no exit record after the workspace restarts" \
+    ws_exec "test -d /run/portikus-terminals && test ! -e /run/portikus-terminals/last-exit"
 
 else
   echo "Workspace image not imported; skipping Epic 2 checks."
@@ -1513,7 +1608,7 @@ TERMPROBE
 
     # The tmux sessions the student user can see inside the workspace.
     tmux_has_session() {
-      ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- su -l student -c 'tmux list-sessions -F \"#{session_name}\"'" 2>/dev/null \
+      ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- su -l student -c 'tmux -L portikus -N list-sessions -F \"#{session_name}\"'" 2>/dev/null \
         | grep -qx "pk-$1"
     }
     tmux_lacks_session() { ! tmux_has_session "$1"; }
@@ -1612,6 +1707,53 @@ TERMPROBE
       sleep 3
       term_probe "$term_id" "echo ${mark2_a}\"${mark2_b}\"" "$mark2" - 30000 >/dev/null 2>&1
       check "second socket on the same terminal sees new output" wait "$watcher_pid"
+
+      # The tmux server lives in its own unit, so an agent restart keeps the
+      # terminal and reattaching replays it (issue #610).
+      echo ""
+      echo "Restarting the workspace agent..."
+      in_ws() { ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- $*"; }
+      agent_listening() {
+        local i
+        for ((i = 0; i < 30; i++)); do
+          in_ws "ss -Hltn sport = :7400" 2>/dev/null | grep -q . && return 0
+          sleep 1
+        done
+        return 1
+      }
+      in_ws systemctl restart portikus-workspace-agent >/dev/null 2>&1
+      check "the agent listens again after a restart" agent_listening
+      check "the terminal's tmux session survived the agent restart" tmux_has_session "$term_id"
+      check "reattaching after the agent restart replays the terminal" \
+        term_probe "$term_id" - "$mark2" - 30000
+
+      # A tutorial's tmux kill-server reaches the student's own tmux, not
+      # the Portikus server, because the shell has no TMUX (issue #620).
+      kill_a="KILL-${RANDOM}"
+      kill_b="${RANDOM}"
+      check "tmux kill-server typed in a terminal runs" \
+        term_probe "$term_id" "tmux kill-server; echo ${kill_a}\"${kill_b}\"" "${kill_a}${kill_b}" - 30000
+      check "the terminal's tmux session survived tmux kill-server" tmux_has_session "$term_id"
+
+      # A broken ~/.tmux.conf and a ~/.bashrc that exits still let a new
+      # terminal open; the shell skips the .bashrc and says so (issue #620).
+      in_ws su -l student -c "'cp ~/.bashrc ~/.bashrc.smoke && echo exit >> ~/.bashrc \
+        && echo \"set -g default-command exit\" > ~/.tmux.conf'" >/dev/null 2>&1
+      broken_id=$(new_terminal | json_field id)
+      if [ -z "$broken_id" ]; then
+        printf '\033[1;31mFAIL\033[0m  POST /terminals with a broken ~/.bashrc returned no id\n'
+        fail=$((fail + 1))
+      else
+        broken_a="BASHRC-${RANDOM}"
+        broken_b="${RANDOM}"
+        check "a terminal opens with a broken ~/.bashrc and says it skipped it" \
+          term_probe "$broken_id" - "made the shell exit" - 30000
+        check "that terminal's shell runs commands" \
+          term_probe "$broken_id" "echo ${broken_a}\"${broken_b}\"" "${broken_a}${broken_b}" - 30000
+        http_status alice "${API}/workspaces/${ws_id}/terminals/${broken_id}" \
+          "-X DELETE -H 'Origin: ${API}'" >/dev/null
+      fi
+      in_ws su -l student -c "'mv ~/.bashrc.smoke ~/.bashrc; rm -f ~/.tmux.conf'" >/dev/null 2>&1
 
       # A terminal socket counts as presence on its own (SPEC.md 6.4):
       # hold one open, drop the presence socket, and the workspace stays up.
