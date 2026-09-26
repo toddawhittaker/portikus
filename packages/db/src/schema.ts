@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications and 0023_guard_idle_lift
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0023_guard_idle_lift and 0024_process_snapshots
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -28,6 +28,7 @@ export interface Database {
 	account_link_intents: AccountLinkIntentsTable;
 	workspace_usage_samples: WorkspaceUsageSamplesTable;
 	notifications: NotificationsTable;
+	workspace_process_snapshots: WorkspaceProcessSnapshotsTable;
 }
 
 export interface UsersTable {
@@ -364,4 +365,17 @@ export interface NotificationsTable {
 	body: string;
 	created_at: ColumnType<Date, string | undefined, never>;
 	read_at: ColumnType<Date | null, string | null | undefined, string | null>;
+}
+
+/**
+ * An administrator's latest process snapshot of one workspace (ADR 0037).
+ * Short names only, never command lines (SPEC.md §20.1).
+ */
+export interface WorkspaceProcessSnapshotsTable {
+	workspace_id: string;
+	requested_at: ColumnType<Date, string, string>;
+	requested_by: string | null;
+	taken_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	processes: ColumnType<unknown | null, string | null | undefined, string | null>;
+	error: string | null;
 }

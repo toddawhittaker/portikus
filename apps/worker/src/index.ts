@@ -8,6 +8,7 @@ import { startGuard } from "./guard.js";
 import { startHealthSampling } from "./health.js";
 import { createLogLevelSync } from "./log-level.js";
 import { startNotificationPrune } from "./notifications.js";
+import { startProcessSnapshots } from "./process-snapshots.js";
 import { startQuotaSync } from "./quota.js";
 import { reconcile, type SweepResult } from "./reconcile.js";
 import { recoverySweep } from "./recovery.js";
@@ -97,6 +98,7 @@ async function main(): Promise<void> {
 	startQuotaSync({ db, controller, logger });
 	startGuard({ db, controller, logger });
 	startNotificationPrune({ db, logger });
+	startProcessSnapshots({ db, controller, logger });
 
 	let lastRefreshAt: Date | null = null;
 	let controllerUnreachable = false;

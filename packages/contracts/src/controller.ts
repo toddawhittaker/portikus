@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { InstanceProcess } from "./admin.js";
 import { Timezone } from "./settings.js";
 
 /**
@@ -176,6 +177,12 @@ export type InstanceUsage = z.infer<typeof InstanceUsage>;
 /** Response body for `GET /instances/usage`. */
 export const InstanceUsageResponse = z.object({ instances: z.array(InstanceUsage) });
 export type InstanceUsageResponse = z.infer<typeof InstanceUsageResponse>;
+
+/** Response body for `GET /instances/:name/processes`: at most 20 rows. */
+export const InstanceProcessesResponse = z.object({
+	processes: z.array(InstanceProcess).max(20),
+});
+export type InstanceProcessesResponse = z.infer<typeof InstanceProcessesResponse>;
 
 /**
  * A hard CPU cap as a time slice, such as `100ms/100ms` for one CPU's worth.
