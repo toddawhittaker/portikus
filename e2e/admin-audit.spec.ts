@@ -33,7 +33,7 @@ test.describe("admin audit", () => {
 
 		const table = page.getByRole("table", { name: /Audit events, newest first/ });
 		await expect(table).toBeVisible({ timeout: 15_000 });
-		await expect(page.getByLabel("Workspace ID")).toHaveValue(workspaceId);
+		await expect(page.getByLabel("Target ID")).toHaveValue(workspaceId);
 		const rows = table.locator("tbody tr");
 		await expect(rows).toHaveCount(50);
 		await expect(rows.first()).toContainText("n:55");
@@ -69,7 +69,7 @@ test.describe("admin audit", () => {
 		const table = page.getByRole("table", { name: /Audit events, newest first/ });
 		await expect(table).toBeVisible({ timeout: 15_000 });
 
-		await page.getByLabel("Workspace ID").fill(workspaceId);
+		await page.getByLabel("Target ID").fill(workspaceId);
 		const apply = page.getByRole("button", { name: "Apply filters" });
 		await apply.click();
 		// The filter is in the address, so the view can be linked.
@@ -77,25 +77,77 @@ test.describe("admin audit", () => {
 
 		const rows = table.locator("tbody tr");
 		await expect(rows).toHaveCount(2);
-		await expect(rows.first()).toContainText(workspaceId);
+		await expect(rows.first()).toContainText(workspaceId.slice(0, 8));
 		await expect(rows.first()).toContainText("n:2");
 		// Only the results re-render, so Apply keeps focus (Gate E).
 		await expect(apply).toBeFocused();
 	});
 
-	test("the filter buttons line up with the bottoms of the inputs", async ({
+	test("the filter buttons line up with the inputs, with and without an error", async ({
 		page,
 	}) => {
 		await loginAs(page, "carol");
 		await page.goto("/admin?tab=audit");
-		const input = page.getByLabel("Workspace ID");
+		const input = page.getByLabel("Target ID");
 		const apply = page.getByRole("button", { name: "Apply filters" });
 		await expect(apply).toBeVisible({ timeout: 15_000 });
-		const inputBox = await input.boundingBox();
-		const applyBox = await apply.boundingBox();
-		if (!inputBox || !applyBox) throw new Error("filter controls have no box");
-		expect(
-			Math.abs(inputBox.y + inputBox.height - (applyBox.y + applyBox.height)),
-		).toBeLessThanOrEqual(1);
+		async function expectAligned() {
+			const inputBox = await input.boundingBox();
+			const applyBox = await apply.boundingBox();
+			if (!inputBox || !applyBox) throw new Error("filter controls have no box");
+			expect(
+				Math.abs(inputBox.y + inputBox.height - (applyBox.y + applyBox.height)),
+			).toBeLessThanOrEqual(1);
+		}
+		await expectAligned();
+		await input.fill("not-an-id");
+		await apply.click();
+		await expect(input).toHaveAttribute("aria-invalid", "true");
+		await expectAligned();
+	});
+
+	test("rows show short IDs, result tags, and a target link that filters", async ({
+		page,
+	}) => {
+		const target = randomUUID();
+		const other = randomUUID();
+		const [carol] = await query<{ id: string }>(
+			"select id from users where oidc_subject = 'carol'",
+		);
+		const actor = `user:${carol?.id}`;
+		// A made-up action prefix keeps other tests' rows out of the first page.
+		const prefix = `e2e.t4_${target.slice(0, 8)}.`;
+		await query(
+			`insert into audit_events (actor, target, action, result, metadata)
+			 values ($1, $2, $4 || 'a', 'ok', null),
+			        ($1, $2, $4 || 'a', 'denied', null),
+			        ('worker', $2, $4 || 'b', 'failure', null),
+			        ('worker', $3, $4 || 'b', 'ok', null)`,
+			[actor, target, other, prefix],
+		);
+
+		await loginAs(page, "carol");
+		await page.goto(`/admin?tab=audit&action=${prefix}`);
+		const table = page.getByRole("table", { name: /Audit events, newest first/ });
+		await expect(table).toBeVisible({ timeout: 15_000 });
+
+		const link = table.getByRole("link", { name: new RegExp(target) }).first();
+		await expect(link).toHaveText(target.slice(0, 8));
+		await expect(link).toHaveAttribute("title", target);
+
+		await link.click();
+		await expect(page).toHaveURL(new RegExp(`workspace=${target}`));
+		await expect(page.getByLabel("Target ID")).toHaveValue(target);
+		await expect(table.locator("tbody tr")).toHaveCount(3);
+		await expect(table).not.toContainText(other.slice(0, 8));
+		for (const [result, cls] of [
+			["ok", /^pk-tag$/],
+			["denied", /pk-tag--error/],
+			["failure", /pk-tag--error/],
+		] as const) {
+			await expect(
+				table.locator("span.pk-tag", { hasText: new RegExp(`^${result}$`) }).first(),
+			).toHaveClass(cls);
+		}
 	});
 });

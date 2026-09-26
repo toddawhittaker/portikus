@@ -520,6 +520,11 @@ button.pk-statusbar-item:focus-visible {
 	border-color: transparent;
 	color: var(--status-warning);
 }
+.pk-tag--error {
+	background: var(--status-error-soft);
+	border-color: transparent;
+	color: var(--status-error);
+}
 
 /* StatusBar */
 .pk-statusbar {
