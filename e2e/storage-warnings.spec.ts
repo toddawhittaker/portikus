@@ -32,6 +32,18 @@ async function warningContrast(page: Page): Promise<number> {
 	return contrast(colours.text, colours.back);
 }
 
+/** The warning's text colour, and what the named status token resolves to beside it. */
+async function warningColour(page: Page, token: string) {
+	return page.getByTestId("storage-warning").evaluate((node, name) => {
+		const probe = document.createElement("span");
+		probe.style.color = `var(${name})`;
+		node.parentElement?.appendChild(probe);
+		const expected = getComputedStyle(probe).color;
+		probe.remove();
+		return { actual: getComputedStyle(node).color, expected };
+	}, token);
+}
+
 test("the dialog lists Projects & home, Docker and Recovery", async ({
 	page,
 	context,
@@ -135,6 +147,9 @@ for (const theme of ["light", "dark"] as const) {
 		await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
 		await expect(page.getByTestId("storage-warning")).toBeVisible({ timeout: 15_000 });
 		expect(await warningContrast(page)).toBeGreaterThanOrEqual(4.5);
+		// The tone colour wins over the button's own (issue #608 item 3).
+		const warning = await warningColour(page, "--status-warning");
+		expect(warning.actual).toBe(warning.expected);
 
 		await seedStorage(student.workspaceId, { docker: percent(97) });
 		await page.reload();
@@ -144,5 +159,7 @@ for (const theme of ["light", "dark"] as const) {
 			{ timeout: 15_000 },
 		);
 		expect(await warningContrast(page)).toBeGreaterThanOrEqual(4.5);
+		const critical = await warningColour(page, "--status-error");
+		expect(critical.actual).toBe(critical.expected);
 	});
 }

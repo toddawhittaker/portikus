@@ -255,7 +255,7 @@ button.pk-statusbar-item:focus-visible {
 	background: var(--surface-sunken);
 	border: 1px solid var(--line);
 	color: var(--ink-muted);
-	font-size: 11px;
+	font-size: 12px;
 	font-weight: 600;
 }
 /* Notifications (SPEC.md section 8.5) */
@@ -275,7 +275,7 @@ button.pk-statusbar-item:focus-visible {
 	background: var(--status-danger);
 	color: var(--on-danger);
 	font: inherit;
-	font-size: 10px;
+	font-size: 12px;
 	font-weight: 700;
 	line-height: 14px;
 	cursor: pointer;
@@ -542,15 +542,21 @@ button.pk-statusbar-item:focus-visible {
 	gap: var(--space-1\.5);
 	white-space: nowrap;
 }
+/* No colour here, so the tone classes win; see .pk-statusbar-plain. */
 button.pk-statusbar-item {
+	box-sizing: border-box;
+	height: 20px;
 	margin: 0;
-	padding: 0;
-	border: 0;
+	padding: 0 var(--space-2);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-sm);
 	background: transparent;
-	color: inherit;
 	font: inherit;
 	line-height: inherit;
 	cursor: pointer;
+}
+.pk-statusbar-plain {
+	color: var(--ink-muted);
 }
 button.pk-statusbar-item:hover {
 	background: var(--surface-hover);
