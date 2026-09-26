@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
 	type AgentErrorCode,
@@ -8,6 +9,7 @@ import {
 	TerminalId,
 	type TerminalTheme,
 } from "@portikus/contracts";
+import { collectProcessTree, stopProcesses } from "./process-tree.js";
 
 const run = promisify(execFile);
 
@@ -22,13 +24,42 @@ export class AgentFailure extends Error {
 	}
 }
 
-/**
- * Tests run against their own tmux server so they cannot disturb, or be
- * disturbed by, the one a real user already has running.
- */
-function socketArgs(socketName?: string): string[] {
-	return socketName ? ["-L", socketName] : [];
+/** Which tmux server the agent talks to (SPEC.md §9.7). */
+export interface TmuxServer {
+	/** The socket name, `portikus` in a workspace; tests pass their own. */
+	socketName: string;
+	/**
+	 * True when the terminals unit runs the server. The agent then never
+	 * starts one, so a missing server is an error rather than a new server
+	 * in the agent's own cgroup.
+	 */
+	external: boolean;
 }
+
+/**
+ * `-f /dev/null` so a student's `~/.tmux.conf` can never break a terminal:
+ * every option the agent needs is set on each `new-session` instead.
+ */
+function serverArgs(server: TmuxServer): string[] {
+	return [
+		"-L",
+		server.socketName,
+		"-f",
+		"/dev/null",
+		...(server.external ? ["-N"] : []),
+	];
+}
+
+/** How long any one tmux command may take before it is killed. */
+const TMUX_TIMEOUT_MS = 5000;
+
+/**
+ * The wrapper every ordinary terminal starts in (SPEC.md §9.7). It ships in
+ * this package, so it reaches every workspace through the agent's bind mount.
+ */
+export const SHELL_WRAPPER = fileURLToPath(
+	new URL("../scripts/portikus-shell", import.meta.url),
+);
 
 /** The tmux session name for a terminal (SPEC.md §9.7). */
 export function sessionName(id: string): string {
@@ -39,8 +70,8 @@ export function sessionName(id: string): string {
 }
 
 /** The command line every attachment uses, so both sides agree on the socket. */
-export function attachArgs(id: string, socketName?: string): string[] {
-	return [...socketArgs(socketName), "attach-session", "-t", sessionName(id)];
+export function attachArgs(id: string, server: TmuxServer): string[] {
+	return [...serverArgs(server), "attach-session", "-t", sessionName(id)];
 }
 
 /**
@@ -51,17 +82,37 @@ export function attachArgs(id: string, socketName?: string): string[] {
  */
 const TMUX_MAX_OUTPUT_BYTES = 1024 * 1024;
 
-async function tmux(args: string[], socketName?: string): Promise<string> {
+/**
+ * tmux's answers that mean "that session or server is not there". A server
+ * started with -D that has no sessions says "no current target".
+ */
+const MISSING =
+	/can't find session|no current target|no server running|error connecting/;
+
+/** Thrown for a missing session or server, so callers can tell it from a real failure. */
+class TmuxMissing extends AgentFailure {}
+
+async function tmux(args: string[], server: TmuxServer): Promise<string> {
 	try {
-		const { stdout } = await run("tmux", [...socketArgs(socketName), ...args], {
+		const { stdout } = await run("tmux", [...serverArgs(server), ...args], {
 			maxBuffer: TMUX_MAX_OUTPUT_BYTES,
+			timeout: TMUX_TIMEOUT_MS,
+			killSignal: "SIGKILL",
 		});
 		return stdout;
 	} catch (error) {
-		const stderr =
-			typeof (error as { stderr?: unknown }).stderr === "string"
-				? (error as { stderr: string }).stderr.trim()
-				: "";
+		const failure = error as { stderr?: unknown; killed?: boolean; signal?: unknown };
+		if (failure.killed && failure.signal === "SIGKILL") {
+			throw new AgentFailure("TMUX_FAILED", "tmux did not answer in time");
+		}
+		const stderr = typeof failure.stderr === "string" ? failure.stderr.trim() : "";
+		if (server.external && /no server running|error connecting/.test(stderr)) {
+			throw new TmuxMissing(
+				"TMUX_FAILED",
+				"The terminal service is not running; it restarts on its own within seconds.",
+			);
+		}
+		if (MISSING.test(stderr)) throw new TmuxMissing("TMUX_FAILED", stderr);
 		throw new AgentFailure("TMUX_FAILED", stderr || String(error));
 	}
 }
@@ -178,11 +229,11 @@ function newestLinesWithin(text: string, budget: number): string {
  * A re-attaching tmux repaints only the visible screen, so without this a
  * reload leaves the student with nothing above the prompt.
  */
-export async function captureHistory(id: string, socketName?: string): Promise<string> {
+export async function captureHistory(id: string, server: TmuxServer): Promise<string> {
 	const name = sessionName(id);
 	const size = Number.parseInt(
 		(
-			await tmux(["display-message", "-p", "-t", name, "#{history_size}"], socketName)
+			await tmux(["display-message", "-p", "-t", name, "#{history_size}"], server)
 		).trim(),
 		10,
 	);
@@ -200,7 +251,7 @@ export async function captureHistory(id: string, socketName?: string): Promise<s
 			"-t",
 			name,
 		],
-		socketName,
+		server,
 	);
 	if (text === "") return "";
 	// CRLF first, then the cut, so the budget is what actually goes on the
@@ -272,16 +323,17 @@ function credentialArgs(env: SessionLaunch["institutionalEnv"]): string[] {
 }
 
 /** Every `pk-*` session on this tmux server (SPEC.md §9.7). */
-export async function listSessions(socketName?: string): Promise<TmuxSession[]> {
+export async function listSessions(server: TmuxServer): Promise<TmuxSession[]> {
 	let stdout: string;
 	try {
 		stdout = await tmux(
 			["list-sessions", "-F", "#{session_name}\t#{session_path}"],
-			socketName,
+			server,
 		);
-	} catch {
-		// No server running yet means no sessions, which is not an error.
-		return [];
+	} catch (error) {
+		// No server running yet means no sessions; a timeout is a real failure.
+		if (error instanceof TmuxMissing) return [];
+		throw error;
 	}
 	const sessions: TmuxSession[] = [];
 	for (const line of stdout.split("\n")) {
@@ -292,12 +344,27 @@ export async function listSessions(socketName?: string): Promise<TmuxSession[]> 
 	return sessions;
 }
 
-export async function hasSession(id: string, socketName?: string): Promise<boolean> {
+/**
+ * True when the terminals unit's tmux server is gone (SPEC.md §9.7). Only in
+ * external mode: otherwise tmux exits on its own after the last session.
+ */
+export async function tmuxServerGone(server: TmuxServer): Promise<boolean> {
+	if (!server.external) return false;
 	try {
-		await tmux(["has-session", "-t", sessionName(id)], socketName);
-		return true;
-	} catch {
+		await tmux(["list-sessions", "-F", "#{session_name}"], server);
 		return false;
+	} catch (error) {
+		return error instanceof TmuxMissing;
+	}
+}
+
+export async function hasSession(id: string, server: TmuxServer): Promise<boolean> {
+	try {
+		await tmux(["has-session", "-t", sessionName(id)], server);
+		return true;
+	} catch (error) {
+		if (error instanceof TmuxMissing) return false;
+		throw error;
 	}
 }
 
@@ -308,7 +375,7 @@ export async function createSession(
 	homeDir: string,
 	theme: TerminalTheme,
 	timezone: string,
-	socketName?: string,
+	server: TmuxServer,
 	launch?: SessionLaunch,
 ): Promise<TmuxSession & SessionBaseline> {
 	const name = sessionName(id);
@@ -324,6 +391,25 @@ export async function createSession(
 		}
 	}
 	const command = launch?.command;
+	try {
+		await createTmuxSession(name, real, theme, timezone, server, command, launch);
+	} catch (error) {
+		// A half-made session would linger as an orphan terminal.
+		await tmux(["kill-session", "-t", name], server).catch(() => undefined);
+		throw error;
+	}
+	return { id, cwd: real, ...baseline };
+}
+
+async function createTmuxSession(
+	name: string,
+	real: string,
+	theme: TerminalTheme,
+	timezone: string,
+	server: TmuxServer,
+	command: readonly string[] | undefined,
+	launch: SessionLaunch | undefined,
+): Promise<void> {
 	await tmux(
 		[
 			...serverOptionArgs(),
@@ -348,15 +434,16 @@ export async function createSession(
 			// Keys ride on this session only, and only for an agent command
 			// (SPEC.md §10.6).
 			...(command ? credentialArgs(launch?.institutionalEnv) : []),
-			...(command ?? []),
+			// An ordinary terminal starts in the wrapper, which clears TMUX and
+			// survives a ~/.bashrc that exits (SPEC.md §9.7).
+			...(command ?? [SHELL_WRAPPER]),
 		],
-		socketName,
+		server,
 	);
 	// `latest` sizes the session to the most recent client, so a second
 	// attachment does not shrink the terminal to the smallest window.
-	await tmux(["set-option", "-t", name, "window-size", "latest"], socketName);
-	await tmux(["set-option", "-t", name, "status", "off"], socketName);
-	return { id, cwd: real, ...baseline };
+	await tmux(["set-option", "-t", name, "window-size", "latest"], server);
+	await tmux(["set-option", "-t", name, "status", "off"], server);
 }
 
 export interface PaneState {
@@ -371,7 +458,7 @@ export interface PaneState {
  * terminal id. One tmux call for the whole workspace, because this is polled
  * several times a second and a workspace can have eight terminals.
  */
-export async function listPanes(socketName?: string): Promise<Map<string, PaneState>> {
+export async function listPanes(server: TmuxServer): Promise<Map<string, PaneState>> {
 	const stdout = await tmux(
 		[
 			"list-panes",
@@ -379,7 +466,7 @@ export async function listPanes(socketName?: string): Promise<Map<string, PaneSt
 			"-F",
 			"#{session_name}\t#{pane_current_path}\t#{alternate_on}",
 		],
-		socketName,
+		server,
 	);
 	const panes = new Map<string, PaneState>();
 	for (const line of stdout.split("\n")) {
@@ -393,6 +480,26 @@ export async function listPanes(socketName?: string): Promise<Map<string, PaneSt
 	return panes;
 }
 
-export async function killSession(id: string, socketName?: string): Promise<void> {
-	await tmux(["kill-session", "-t", sessionName(id)], socketName);
+export async function killSession(id: string, server: TmuxServer): Promise<void> {
+	await tmux(["kill-session", "-t", sessionName(id)], server);
+}
+
+/**
+ * Close a terminal and stop everything its shell started, `nohup` and
+ * `setsid` children included (SPEC.md §9.7). The tree is collected before
+ * the session goes, while the shell is still its root. Resolves once the
+ * session is gone; the processes are stopped in the background.
+ */
+export async function closeSession(
+	id: string,
+	server: TmuxServer,
+): Promise<{ stopped: Promise<void> }> {
+	const name = sessionName(id);
+	const pid = Number.parseInt(
+		(await tmux(["display-message", "-p", "-t", name, "#{pane_pid}"], server)).trim(),
+		10,
+	);
+	const tree = Number.isInteger(pid) ? await collectProcessTree(pid) : [];
+	await killSession(id, server);
+	return { stopped: stopProcesses(tree, undefined, pid) };
 }

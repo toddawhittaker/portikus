@@ -90,3 +90,19 @@ test("every agent error code maps to a client or server status", () => {
 	expect(ERROR_STATUS.UNAUTHORIZED).toBe(401);
 	expect(ERROR_STATUS.PROJECT_NOT_FOUND).toBe(404);
 });
+
+test.each(["ENOSPC", "EDQUOT"])("%s is 507 STORAGE_FULL on any route", (code) => {
+	const { request, reply, sent } = stubs();
+	const error = Object.assign(new Error(`${code}: no space, write '/home/u/x'`), {
+		code,
+	});
+	sendError(request, reply, error, "INTERNAL");
+	expect(sent.code).toBe(507);
+	expect(sent.body).toEqual({
+		error: { code: "STORAGE_FULL", message: "no space left in the home folder" },
+	});
+	expect(JSON.stringify(sent.body)).not.toContain("/home/u");
+	const other = stubs();
+	sendError(other.request, other.reply, error);
+	expect(other.sent.code).toBe(507);
+});

@@ -54,7 +54,7 @@ beforeAll(async () => {
 	homeDir = await mkdtemp(join(tmpdir(), "portikus-escape-"));
 	const tokenPath = join(homeDir, "agent.token");
 	await writeFile(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
-	app = buildServer({ tokenPath, homeDir });
+	app = buildServer({ tmuxSocketName: "portikus-test", tokenPath, homeDir });
 	await app.ready();
 });
 
