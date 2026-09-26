@@ -2041,7 +2041,7 @@ describe("resource guard migration", () => {
 	);
 });
 
-// ── Pool guard rails (docs/EPIC-17.md ruling 14) ──
+// ── Pool guard rails (ADR 0034 ruling 14) ──
 
 describe("pool options", () => {
 	test("bound the wait for a connection, a statement and an idle transaction", () => {

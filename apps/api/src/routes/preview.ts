@@ -591,7 +591,7 @@ export function registerPreviewRoutes(
 		const token = request.cookies[cookieName];
 		if (!token) return page(reply, 401, signInPage());
 		// The rows may be up to two seconds old; every check below still runs
-		// on each request (docs/EPIC-17.md rulings 10 and 11).
+		// on each request (ADR 0034 rulings 10 and 11).
 		const { session, user, workspace } = await lookups.get(token);
 		if (!session) {
 			// Stopping revokes the sessions; the more specific cause wins.

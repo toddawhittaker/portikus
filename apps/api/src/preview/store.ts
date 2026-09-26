@@ -291,7 +291,7 @@ export interface PreviewLookup {
 	workspace: PreviewWorkspaceRow | null;
 }
 
-/** How long a found set of rows is reused (docs/EPIC-17.md rulings 10 and 11). */
+/** How long a found set of rows is reused (ADR 0034 rulings 10 and 11). */
 export const PREVIEW_LOOKUP_TTL_MS = 2000;
 export const PREVIEW_LOOKUP_MAX_ENTRIES = 10_000;
 

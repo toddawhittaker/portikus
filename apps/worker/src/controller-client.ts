@@ -25,7 +25,7 @@ import {
 	StopInstanceResponse as StopInstanceResponseSchema,
 } from "@portikus/contracts";
 
-/** Time budgets for each call (EPIC-17 ruling 7), so a hung controller never hangs the worker. */
+/** Time budgets for each call (ADR 0034 ruling 7), so a hung controller never hangs the worker. */
 const SHORT_BUDGET_MS = 30_000;
 const CREATE_BUDGET_MS = 300_000;
 const MAINTENANCE_BUDGET_MS = 15 * 60_000;

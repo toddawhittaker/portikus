@@ -4,7 +4,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 
 /**
  * Fixed-window request counters kept in this process, which the pilot runs
- * one of (docs/EPIC-17.md ruling 15). The sign-in throttle, the preview
+ * one of (ADR 0034 ruling 15). The sign-in throttle, the preview
  * cap and the per-user limits all count with them.
  */
 

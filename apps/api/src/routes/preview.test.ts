@@ -31,7 +31,7 @@ let bob: CookieJar;
 let workspaceId: string;
 let label: string;
 
-/** Revocations reach /preview/authorize up to this late (docs/EPIC-17.md ruling 11). */
+/** Revocations reach /preview/authorize up to this late (ADR 0034 ruling 11). */
 async function waitOutLookupCache(): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, PREVIEW_LOOKUP_TTL_MS + 50));
 }
@@ -1704,7 +1704,7 @@ test.skipIf(skip)(
 	},
 );
 
-// ── Load limits (docs/EPIC-17.md rulings 10 to 12) ──
+// ── Load limits (ADR 0034 rulings 10 to 12) ──
 
 test.skipIf(skip)(
 	"a stopped workspace is refused once the lookup cache window passes",

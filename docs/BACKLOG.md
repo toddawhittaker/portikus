@@ -1369,3 +1369,91 @@ a memory warning in the status bar, and Stop buttons in Monitor.
 interface against SPEC.md section 25.8, with fixes filed as issues.
 
 **Source.** Left out of Epic 20.
+
+## One deadline for a workspace create
+
+**What.** A workspace create has no single shared deadline. Each step has
+its own bound (60 s per volume create, 240 s for the instance create's
+wait), so on paper the steps can add up to about 420 s, past the worker's
+300 s create budget. The rehearsal measured 17 to 30 s under load, and a
+retry adopts whatever the first try already made, so nothing is lost.
+
+**What it would take.** Pass one deadline from the worker's call down
+through the controller's create steps, with a unit test. About half a day.
+
+**Source.** Left out of Epic 17 (ADR 0034).
+
+## Clone and template on a full disk
+
+**What.** Cloning a repository or creating a project from a template on a
+full disk still reports `GIT_FAILED`, not `STORAGE_FULL`, so the student
+is not told that storage is the cause.
+
+**What it would take.** Have the workspace agent recognise "No space left
+on device" in the git or copy output and answer `STORAGE_FULL`, with unit
+tests. Under a day.
+
+**Source.** Left out of Epic 17.
+
+## Systemd watchdogs for the Node services
+
+**What.** systemd could restart a Portikus service that hangs without
+crashing.
+
+**What it would take.** `sd_notify` support in each Node service and
+`WatchdogSec=` on its unit. No process has been seen wedged so far.
+
+**Source.** Left out of Epic 17 (ADR 0034).
+
+## Disk I/O priority between the platform and workspaces
+
+**What.** `IOWeight` on the platform's services or `limits.disk.priority`
+on workspaces. Neither works without the BFQ disk scheduler, and the VM's
+disks use `none`. Contention between the VM's two disks on the host was
+not measured.
+
+**What it would take.** Measure host-level contention first; if it
+matters, switch the VM's disks to BFQ and set weights.
+
+**Source.** Left out of Epic 17 (ADR 0034).
+
+## A per-address limit on made-up preview cookies
+
+**What.** A made-up preview cookie is neither cached nor capped; each costs
+two indexed lookups, bounded only by the database pool timeouts.
+
+**What it would take.** Reuse the sign-in edge throttle for
+`/preview/authorize` misses, per address.
+
+**Source.** Left out of Epic 17.
+
+## Connection-tracking and dnsmasq limits per workspace
+
+**What.** Workspaces share the host's connection-tracking table (262,144
+entries) and dnsmasq. No pressure has been measured.
+
+**What it would take.** Measure under load, then add per-workspace limits
+if one workspace can fill either.
+
+**Source.** Left out of Epic 17.
+
+## Rate limits on reads and recovery points
+
+**What.** File reads and project reads are not rate-limited, and recovery
+points and check runs are outside the new file-write limit. Reads are
+cheap and bounded by size caps; recovery points already have their own
+limit.
+
+**What it would take.** Add counters with the shared
+`apps/api/src/rate-limit.ts` if a need appears.
+
+**Source.** Left out of Epic 17.
+
+## Remove the pilot's pre-epic snapshots
+
+**What.** The pilot's `pre-epic*` snapshots are Todd's rollback kits.
+
+**What it would take.** Delete them on Todd's schedule, 2026-10-01 to
+2026-10-03.
+
+**Source.** Epic 17 plan.

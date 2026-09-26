@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { check, createCounter } from "./rate-limit.js";
 
-describe("the fixed-window counter (docs/EPIC-17.md ruling 15)", () => {
+describe("the fixed-window counter (ADR 0034 ruling 15)", () => {
 	function fixture(limit = 3, windowMs = 60_000) {
 		let clock = 1_000_000;
 		const counter = createCounter(limit, windowMs, () => clock);

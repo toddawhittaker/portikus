@@ -90,7 +90,7 @@ export async function readHostSnapshot(
 	};
 }
 
-/** Written every minute by the lvm role's root timer (EPIC-17 ruling 18). */
+/** Written every minute by the lvm role's root timer (ADR 0034 ruling 18). */
 export const THIN_POOL_STATUS_PATH = "/run/portikus-thinpool.json";
 
 /** A status file older than this is ignored, since its timer has stopped. */

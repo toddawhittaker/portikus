@@ -66,7 +66,13 @@ test("a new workspace waiting for room says why", () => {
 			"There is no room for a new workspace right now. Your administrator has been told.",
 	};
 	expect(startingPhase(waiting)).toBe("starting");
-	renderWithQuery(<WorkspaceStarting workspaceId={WORKSPACE.id} workspace={waiting} />);
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={waiting}
+			onOpenWorkspace={noop}
+		/>,
+	);
 	expect(screen.getByTestId("workspace-waiting").textContent).toBe(
 		"There is no room for a new workspace right now. Your administrator has been told.",
 	);

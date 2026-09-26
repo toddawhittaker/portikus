@@ -243,6 +243,12 @@ Requirements:
 5. A simple Incus `dir` backend is acceptable for an early developer proof of concept, but not the preferred pilot configuration.
 6. A future bare-metal deployment may use ZFS without requiring application-level changes.
 
+Storage pool rules (Epic 17, ADR 0034):
+
+1. The thin pool fails writes at once when full (`lv_when_full` is `error`), so a full pool gives the writing program "No space left on device" instead of freezing every workspace.
+2. A root timer writes the pool's data and metadata use to `/run/portikus-thinpool.json` every minute; the controller reads metadata use from it (section 20.1).
+3. The pool's fill is the larger of data and metadata use. At 70% the Health tab warns and administrators are notified; at 90% new workspaces are refused with `POOL_FULL` and wait in `provisioning` until there is room (section 20.1).
+
 ### 4.4 Workspace filesystem model
 
 The implementation should separate replaceable system state from persistent user data.
@@ -2521,6 +2527,14 @@ A control-plane failure must not silently destroy workspaces.
 
 A host/VM failure may terminate running processes in P0, but persisted data must remain recoverable according to backup policy.
 
+One crashed service or one busy workspace must not take the platform down for everyone (Epic 17, ADR 0034):
+
+- Caddy, PostgreSQL, Dex and every Portikus service restart on failure after 5 seconds.
+- The platform's services outrank workspaces: `system.slice` has CPU weight 1000 (a workspace has 100) and `MemoryLow=512M`, and PostgreSQL and the API each have `MemoryLow=256M`.
+- Each workspace's network is capped at 200 Mbit/s each way (`workspace_network_limit` in `site.yml`).
+- Every worker call to the controller and every controller call to Incus has a time budget, and stops run in the background so a stuck stop never delays a start (section 6.5).
+- The database pool waits at most 5 s for a connection, a statement at most 30 s, and an idle transaction at most 60 s; a pool timeout or an unreachable database answers 503 `SERVICE_BUSY`.
+
 ### 25.4 Availability
 
 High availability is not required for P0.
@@ -3452,6 +3466,24 @@ Acceptance:
 
 - every button a student needs looks like a button, and each stuck screen offers a next step;
 - the error screen never offers a Docker reset unless Docker storage is what filled up.
+
+### Epic 17 — Platform resilience
+
+Built on `epic/17-platform-resilience` from the platform resilience audit of 2026-09-26 (issues #611 to #617). See sections 4.3, 5.3, 6.5, 20.1, 24.7 and 25.3 and ADR 0034.
+
+Includes:
+
+- restart on failure for Caddy and PostgreSQL, and CPU and memory priority for the platform's services over workspaces;
+- time budgets on every worker and controller call, and stops in the background;
+- a 2-second preview lookup cache, a per-session preview cap, database pool timeouts, and per-user limits on workspace lifecycle requests and file writes;
+- storage pool metadata on the Health tab, administrator notifications at 70% and 90%, refusal of new workspaces at 90%, and a pool that errors when full;
+- a 200 Mbit/s network cap per workspace.
+
+Acceptance:
+
+- killing Caddy or PostgreSQL brings the site back within about 10 s without restarting the API or worker;
+- a workspace whose stop hangs does not delay another workspace's start;
+- a write to a full pool fails at once, and a new workspace waits in `provisioning` until there is room.
 
 ### Estimated total
 

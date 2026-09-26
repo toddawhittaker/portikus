@@ -75,7 +75,7 @@ describe.skipIf(skip)("loadMainSessionUser", () => {
 	});
 });
 
-// ── The authorize lookup cache (docs/EPIC-17.md rulings 10 and 11) ──
+// ── The authorize lookup cache (ADR 0034 rulings 10 and 11) ──
 
 describe.skipIf(skip)("createPreviewLookupCache", () => {
 	async function world() {

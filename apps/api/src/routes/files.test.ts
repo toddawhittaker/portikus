@@ -941,7 +941,7 @@ test.skipIf(skip)(
 	},
 );
 
-// ── The per-user write limit (docs/EPIC-17.md rulings 16 and 17) ──
+// ── The per-user write limit (ADR 0034 rulings 16 and 17) ──
 
 test.skipIf(skip)(
 	"file and project writes share one per-user limit; reads and other users are not held",
