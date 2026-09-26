@@ -300,8 +300,9 @@ export const PREVIEW_LOOKUP_MAX_ENTRIES = 10_000;
  * hundreds of assets costs three queries rather than three per asset. Only
  * the rows are kept, never a decision: the caller runs every check on them
  * each time. A lookup missing any row is not kept, so a made-up or revoked
- * cookie always goes to the database. Sign-out, a stop and a session gate
- * therefore reach the gateway up to two seconds late.
+ * cookie always goes to the database. Any removal of authorization (sign-out,
+ * account disable, session expiry, workspace stop or delete, a session gate)
+ * therefore reaches the gateway up to two seconds late.
  */
 export function createPreviewLookupCache(
 	db: Kysely<Database>,

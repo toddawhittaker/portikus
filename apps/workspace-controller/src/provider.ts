@@ -132,16 +132,17 @@ function assertStopped(name: string, status: string | undefined): void {
 }
 
 /**
+ * A volume create on a busy thin pool can pass the default 30 s, so each gets
+ * 60 s. The instance create's wait is 240 s and the worker's whole create
+ * budget is 300 s; a retry adopts whatever already exists.
+ */
+export const VOLUME_CREATE_TIMEOUT_MS = 60_000;
+
+/**
  * How long the agent has to answer /health once the instance is running. This
  * is its own budget, not the rest of the start timeout, so one broken agent
  * cannot hold the worker's serial start loop for the whole start deadline.
  */
-/**
- * A volume create on a busy thin pool can pass the default 30 s; three of
- * these plus the instance create still fit the worker's 300 s create bound.
- */
-export const VOLUME_CREATE_TIMEOUT_MS = 60_000;
-
 export const AGENT_HEALTH_TIMEOUT_MS = 15_000;
 
 /** The instance create's operation wait, inside the worker's 300 s create budget. */
