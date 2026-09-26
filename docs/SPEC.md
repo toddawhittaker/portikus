@@ -1945,6 +1945,13 @@ acceptable-use statement with **Reset to default** (section 5.1).
 The admin area is desktop-only: it is built for windows 1024 px wide and up,
 scrolls sideways below that, and has no tablet layout (Epic 18).
 
+Rebuild is also a bulk action on the Users table, with a "Rebuild all on
+older images…" shortcut while the Image filter is Older (Epic 18). The
+browser calls the single-workspace rebuild route once per workspace, so
+each request keeps its own audit row, CSRF check and pending-operation
+refusal; a refusal with 409 counts as skipped. There is no bulk API route,
+because it would only duplicate that logic.
+
 ### 20.2 User impersonation
 
 P0 must not require silent administrator impersonation of a student session.

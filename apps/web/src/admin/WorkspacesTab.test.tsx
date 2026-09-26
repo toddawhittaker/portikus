@@ -1,13 +1,18 @@
 import type { AdminUser, AdminWorkspaceSummary } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { ApiError } from "../api/request.js";
 import { json, renderApp, stubFetch } from "../test-utils.js";
 import {
 	bulkApplies,
+	bulkOutcome,
 	filterAccounts,
 	joinNames,
 	lastActivity,
 	NO_FILTERS,
+	olderImageTargets,
+	rebuildTitle,
+	rebuildWarning,
 	timeAgo,
 } from "./WorkspacesTab.js";
 
@@ -365,7 +370,7 @@ test("select all ticks every shown row and each box is named by the account", as
 		within(bar)
 			.getAllByRole("button")
 			.map((b) => b.textContent),
-	).toEqual(["Disable…", "Enable…", "Archive workspace…"]);
+	).toEqual(["Disable…", "Enable…", "Archive workspace…", "Rebuild workspace…"]);
 	fireEvent.click(all);
 	expect(screen.queryByTestId("bulk-actions")).toBeNull();
 });
@@ -519,4 +524,103 @@ test("an address naming a user opens that account's panel", async () => {
 	stubUsers();
 	renderApp(`/admin?tab=workspaces&user=${uuid(2)}`);
 	expect(await screen.findByRole("region", { name: "Bob Student" })).toBeDefined();
+});
+
+test("bulk Rebuild targets every unarchived workspace", () => {
+	expect(bulkApplies("rebuild", alice, "me")).toBe(true);
+	expect(bulkApplies("rebuild", carol, "me")).toBe(false);
+	expect(bulkApplies("rebuild", dave, "me")).toBe(false);
+	// An administrator may rebuild their own workspace.
+	expect(bulkApplies("rebuild", alice, alice.id)).toBe(true);
+});
+
+test("the older-image shortcut takes only unarchived rows on an older image", () => {
+	const archivedOld = account(
+		"Old",
+		summary({
+			archivedAt: "2026-09-01T00:00:00.000Z",
+			image: { label: "old", fingerprint: "x", current: false },
+		}),
+	);
+	expect(olderImageTargets([alice, bob, carol, dave, archivedOld])).toEqual([bob]);
+});
+
+test("a 409 is skipped and any other error is a failure", () => {
+	expect(bulkOutcome(new ApiError(409, "pending", "OPERATION_PENDING"))).toBe(
+		"skipped",
+	);
+	expect(bulkOutcome(new ApiError(409, "busy", "OPERATION_IN_PROGRESS"))).toBe(
+		"skipped",
+	);
+	expect(bulkOutcome(new ApiError(404, "gone", "WORKSPACE_NOT_FOUND"))).toBe("failed");
+	expect(bulkOutcome(new Error("network"))).toBe("failed");
+});
+
+test("the Rebuild dialog counts workspaces, keeps Docker, and names who restarts", () => {
+	expect(rebuildTitle(1)).toBe("Rebuild 1 workspace?");
+	expect(rebuildTitle(2)).toBe("Rebuild 2 workspaces?");
+	const withRunning = rebuildWarning([alice, bob], false);
+	expect(withRunning[0]).toBe("Alice and Bob.");
+	expect(withRunning[1]).toContain("sudo apt are lost");
+	expect(withRunning[1]).toContain("so do Docker images and volumes");
+	expect(withRunning[2]).toBe("Alice is running and will restart.");
+	const stoppedOnly = rebuildWarning([bob], true);
+	expect(stoppedOnly).toHaveLength(2);
+	expect(stoppedOnly[1]).toContain("Docker images and volumes are removed");
+});
+
+test("bulk Rebuild posts each workspace in turn and reports done and skipped", async () => {
+	const posts: { url: string; body: unknown }[] = [];
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, ADMIN_ME);
+		if (url === "/admin/users") return json(200, { users: ROWS, dexUsers: false });
+		if (init?.method === "POST") {
+			posts.push({ url, body: JSON.parse(String(init.body)) });
+			if (url.includes(uuid(6))) {
+				return json(409, { code: "OPERATION_PENDING", message: "waiting" });
+			}
+			return json(202, { ok: true });
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	await openTable();
+	fireEvent.click(screen.getByRole("checkbox", { name: "Select Alice Example" }));
+	fireEvent.click(screen.getByRole("checkbox", { name: "Select Bob Student" }));
+	fireEvent.click(screen.getByRole("checkbox", { name: "Select Sam Course" }));
+	fireEvent.click(screen.getByTestId("bulk-rebuild"));
+
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Rebuild 2 workspaces?",
+	});
+	const reset = within(dialog).getByRole("checkbox", {
+		name: "Also reset Docker",
+	}) as HTMLInputElement;
+	expect(reset.checked).toBe(false);
+	fireEvent.click(within(dialog).getByRole("button", { name: "Rebuild" }));
+
+	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	expect(posts).toEqual([
+		{ url: `/admin/workspaces/${uuid(5)}/rebuild`, body: { resetDocker: false } },
+		{ url: `/admin/workspaces/${uuid(6)}/rebuild`, body: { resetDocker: false } },
+	]);
+	const result = screen.getByTestId("bulk-result").textContent;
+	expect(result).toContain("Rebuild requested for Alice Example.");
+	expect(result).toContain("Skipped Bob Student");
+	expect(result).not.toContain("Could not");
+});
+
+test("Rebuild all on older images appears only under the Older filter", async () => {
+	stubUsers();
+	await openTable();
+	expect(screen.queryByTestId("rebuild-older")).toBeNull();
+	fireEvent.change(screen.getByTestId("admin-filter-image"), {
+		target: { value: "older" },
+	});
+	fireEvent.click(screen.getByTestId("rebuild-older"));
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Rebuild 1 workspace?",
+	});
+	expect(within(dialog).getByTestId("bulk-dialog-names").textContent).toBe(
+		"Bob Student.",
+	);
 });

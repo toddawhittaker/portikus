@@ -16,7 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { z } from "zod";
-import { request } from "../api/request.js";
+import { ApiError, request } from "../api/request.js";
 import { AdminSection } from "./AdminSection.js";
 import { AddDexUser } from "./DexUserDialogs.js";
 import {
@@ -146,13 +146,14 @@ const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
 	student: "Student",
 };
 
-export type BulkAction = "disable" | "enable" | "archive" | "unarchive";
+export type BulkAction = "disable" | "enable" | "archive" | "unarchive" | "rebuild";
 
 export const BULK_ACTIONS: readonly BulkAction[] = [
 	"disable",
 	"enable",
 	"archive",
 	"unarchive",
+	"rebuild",
 ];
 
 interface BulkCopy {
@@ -206,7 +207,39 @@ const BULK: Record<BulkAction, BulkCopy> = {
 		consequence: "Each workspace stays stopped until someone starts it.",
 		url: (user) => adminActionUrl("workspaces", user.workspace?.id ?? "", "unarchive"),
 	},
+	rebuild: {
+		button: "Rebuild workspace…",
+		verb: "rebuild the workspace of",
+		title: "Rebuild",
+		confirm: "Rebuild",
+		done: "Rebuild requested for",
+		// The dialog builds its own text for Rebuild; see RebuildDescription.
+		consequence: "",
+		url: (user) => `/admin/workspaces/${user.workspace?.id ?? ""}/rebuild`,
+	},
 };
+
+/** The rows "Rebuild all on older images…" acts on (EPIC-18 ruling 27). */
+export function olderImageTargets(rows: AdminUser[]): AdminUser[] {
+	return rows.filter(
+		(user) =>
+			user.workspace !== null &&
+			user.workspace.archivedAt === null &&
+			user.workspace.image.current === false,
+	);
+}
+
+/** A 409 means another operation already waits or runs, so the row is skipped (ruling 25). */
+export function bulkOutcome(error: unknown): "skipped" | "failed" {
+	return error instanceof ApiError && error.status === 409 ? "skipped" : "failed";
+}
+
+/** The names of the targets whose workspace is running and so will restart. */
+export function runningNames(users: AdminUser[]): string[] {
+	return users
+		.filter((user) => user.workspace?.state === "running")
+		.map((user) => user.displayName);
+}
 
 /** Whether one bulk action does anything for one account. Nobody disables themselves. */
 export function bulkApplies(
@@ -223,6 +256,8 @@ export function bulkApplies(
 			return user.workspace !== null && user.workspace.archivedAt === null;
 		case "unarchive":
 			return user.workspace !== null && user.workspace.archivedAt !== null;
+		case "rebuild":
+			return user.workspace !== null && user.workspace.archivedAt === null;
 	}
 }
 
@@ -235,6 +270,7 @@ export function joinNames(names: string[]): string {
 interface BulkResult {
 	action: BulkAction;
 	done: string[];
+	skipped: string[];
 	failed: { id: string; name: string; reason: string }[];
 }
 
@@ -246,6 +282,8 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	const search = useSearch({ strict: false }) as { user?: string };
 	const [selectedId, setSelectedId] = useState<string | null>(search.user ?? null);
 	const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
+	// The targets are fixed when the dialog opens, so a refetch cannot change them.
+	const [confirming, setConfirming] = useState<BulkConfirm | null>(null);
 
 	const all = sortAccounts(users.data?.users ?? []);
 	const rows = filterAccounts(all, filters);
@@ -278,7 +316,23 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				</span>
 			}
 			// Only when the site runs Dex's own passwords (docs/archive/epics/EPIC-14.md ruling 24).
-			actions={users.data?.dexUsers ? <AddDexUser /> : undefined}
+			actions={
+				<>
+					{filters.image === "older" ? (
+						<Button
+							size="sm"
+							data-testid="rebuild-older"
+							disabled={olderImageTargets(rows).length === 0}
+							onClick={() =>
+								setConfirming({ action: "rebuild", users: olderImageTargets(rows) })
+							}
+						>
+							Rebuild all on older images…
+						</Button>
+					) : null}
+					{users.data?.dexUsers ? <AddDexUser /> : null}
+				</>
+			}
 		>
 			<div className="flex flex-wrap items-end gap-3">
 				<TextField
@@ -369,6 +423,8 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 			<BulkActions
 				rows={checkedRows}
 				currentUserId={currentUserId}
+				confirming={confirming}
+				setConfirming={setConfirming}
 				onDone={() => setChecked(new Set())}
 			/>
 			<div className="flex items-start gap-4">
@@ -444,23 +500,29 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
  * The bar over the table while rows are ticked. Each action calls the
  * existing single-row route once per account (Epic 13.1 T4).
  */
+interface BulkConfirm {
+	action: BulkAction;
+	users: AdminUser[];
+}
+
 function BulkActions({
 	rows,
 	currentUserId,
+	confirming,
+	setConfirming,
 	onDone,
 }: {
 	rows: AdminUser[];
 	currentUserId: string;
+	confirming: BulkConfirm | null;
+	setConfirming: (next: BulkConfirm | null) => void;
 	onDone: () => void;
 }) {
 	const client = useQueryClient();
 	const resultRef = useRef<HTMLDivElement>(null);
-	// The targets are fixed when the dialog opens, so a refetch cannot change them.
-	const [confirming, setConfirming] = useState<{
-		action: BulkAction;
-		users: AdminUser[];
-	} | null>(null);
 	const [running, setRunning] = useState(false);
+	// Off by default: Docker images and volumes stay (EPIC-18 ruling 26).
+	const [resetDocker, setResetDocker] = useState(false);
 	const [result, setResult] = useState<BulkResult | null>(null);
 
 	const targets = (action: BulkAction) =>
@@ -470,13 +532,25 @@ function BulkActions({
 	async function run(action: BulkAction, users: AdminUser[]) {
 		if (running) return;
 		setRunning(true);
-		const outcome: BulkResult = { action, done: [], failed: [] };
+		const outcome: BulkResult = { action, done: [], skipped: [], failed: [] };
+		const init: RequestInit =
+			action === "rebuild"
+				? {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ resetDocker }),
+					}
+				: { method: "POST" };
 		// One at a time, so each refusal is tied to its row.
 		for (const user of users) {
 			try {
-				await request(z.unknown(), BULK[action].url(user), { method: "POST" });
+				await request(z.unknown(), BULK[action].url(user), init);
 				outcome.done.push(user.displayName);
 			} catch (error) {
+				if (action === "rebuild" && bulkOutcome(error) === "skipped") {
+					outcome.skipped.push(user.displayName);
+					continue;
+				}
 				outcome.failed.push({
 					id: user.id,
 					name: user.displayName,
@@ -486,6 +560,7 @@ function BulkActions({
 		}
 		setRunning(false);
 		setConfirming(null);
+		setResetDocker(false);
 		setResult(outcome);
 		onDone();
 		// Refetch once for the whole run, not once per row.
@@ -509,7 +584,10 @@ function BulkActions({
 							key={action}
 							size="sm"
 							data-testid={`bulk-${action}`}
-							onClick={() => setConfirming({ action, users: targets(action) })}
+							onClick={() => {
+								setResetDocker(false);
+								setConfirming({ action, users: targets(action) });
+							}}
 						>
 							{BULK[action].button}
 						</Button>
@@ -531,14 +609,26 @@ function BulkActions({
 					<ConfirmDialog
 						id="bulk-dialog"
 						testId="bulk-dialog"
-						title={`${BULK[confirming.action].title} ${confirming.users.length} ${confirming.users.length === 1 ? "account" : "accounts"}?`}
+						title={
+							confirming.action === "rebuild"
+								? rebuildTitle(confirming.users.length)
+								: `${BULK[confirming.action].title} ${confirming.users.length} ${confirming.users.length === 1 ? "account" : "accounts"}?`
+						}
 						description={
-							<>
-								<span className="block" data-testid="bulk-dialog-names">
-									{joinNames(confirming.users.map((user) => user.displayName))}.
-								</span>
-								<span className="block">{BULK[confirming.action].consequence}</span>
-							</>
+							confirming.action === "rebuild" ? (
+								<RebuildDescription
+									users={confirming.users}
+									resetDocker={resetDocker}
+									onResetDocker={setResetDocker}
+								/>
+							) : (
+								<>
+									<span className="block" data-testid="bulk-dialog-names">
+										{joinNames(confirming.users.map((user) => user.displayName))}.
+									</span>
+									<span className="block">{BULK[confirming.action].consequence}</span>
+								</>
+							)
 						}
 						confirmLabel={BULK[confirming.action].confirm}
 						pending={running}
@@ -550,6 +640,54 @@ function BulkActions({
 	);
 }
 
+export function rebuildTitle(count: number): string {
+	return `Rebuild ${count} ${count === 1 ? "workspace" : "workspaces"}?`;
+}
+
+/** The single Rebuild dialog's warning, plus who restarts (SPEC.md §22.3, ruling 26). */
+export function rebuildWarning(users: AdminUser[], resetDocker: boolean): string[] {
+	const lines = [
+		`${joinNames(users.map((user) => user.displayName))}.`,
+		`Each workspace is recreated from the current image. System packages installed with sudo apt are lost. Projects and home stay${resetDocker ? "; Docker images and volumes are removed." : ", and so do Docker images and volumes."}`,
+	];
+	const restarting = runningNames(users);
+	if (restarting.length > 0) {
+		lines.push(
+			`${joinNames(restarting)} ${restarting.length === 1 ? "is" : "are"} running and will restart.`,
+		);
+	}
+	return lines;
+}
+
+function RebuildDescription({
+	users,
+	resetDocker,
+	onResetDocker,
+}: {
+	users: AdminUser[];
+	resetDocker: boolean;
+	onResetDocker: (on: boolean) => void;
+}) {
+	const [names, ...rest] = rebuildWarning(users, resetDocker);
+	return (
+		<>
+			<span className="block" data-testid="bulk-dialog-names">
+				{names}
+			</span>
+			{rest.map((line) => (
+				<span key={line} className="block">
+					{line}
+				</span>
+			))}
+			<Checkbox
+				label="Also reset Docker"
+				checked={resetDocker}
+				onChange={(event) => onResetDocker(event.target.checked)}
+			/>
+		</>
+	);
+}
+
 function BulkSummary({ result }: { result: BulkResult }) {
 	const copy = BULK[result.action];
 	return (
@@ -557,6 +695,12 @@ function BulkSummary({ result }: { result: BulkResult }) {
 			{result.done.length > 0 ? (
 				<p className="m-0">
 					{copy.done} {joinNames(result.done)}.
+				</p>
+			) : null}
+			{result.skipped.length > 0 ? (
+				<p className="m-0">
+					Skipped {joinNames(result.skipped)}: another operation is already waiting or
+					running.
 				</p>
 			) : null}
 			{result.failed.length > 0 ? (
