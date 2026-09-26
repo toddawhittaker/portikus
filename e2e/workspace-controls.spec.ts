@@ -123,3 +123,19 @@ test("closing the dialog on a stopped workspace shows a Start button, not a spin
 		.poll(() => desiredState(student.workspaceId), { timeout: 15_000 })
 		.toBe("running");
 });
+
+test("secondary buttons in the workspace dialog show their border", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await page.goto(workspacePath(student.workspaceId));
+
+	await page.getByTestId("workspace-status").click();
+	const restart = page
+		.getByTestId("dialog-workspace-status")
+		.getByRole("button", { name: "Restart workspace" });
+	await expect(restart).toBeVisible();
+	const border = await restart.evaluate((el) => getComputedStyle(el).borderTopColor);
+	expect(border).not.toBe("rgba(0, 0, 0, 0)");
+});

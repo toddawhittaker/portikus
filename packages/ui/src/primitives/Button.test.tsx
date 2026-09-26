@@ -38,4 +38,20 @@ describe("Button", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Link accounts" }));
 		expect(onClick).not.toHaveBeenCalled();
 	});
+
+	it("shows a border on secondary and keeps primary borderless", () => {
+		render(
+			<>
+				<Button variant="secondary">Restart workspace</Button>
+				<Button variant="primary">Start workspace</Button>
+			</>,
+		);
+		const secondary = screen.getByRole("button", {
+			name: "Restart workspace",
+		}).className;
+		expect(secondary).toContain("border-line-strong");
+		expect(secondary).not.toContain("border-transparent");
+		const primary = screen.getByRole("button", { name: "Start workspace" }).className;
+		expect(primary).toContain("border-transparent");
+	});
 });
