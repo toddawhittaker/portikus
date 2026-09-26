@@ -12,6 +12,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
 import { createListeningRegistry } from "./preview/registry.js";
+import { registerAcceptableUseRoutes } from "./routes/acceptable-use.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
 import { registerAdminDexUserRoutes } from "./routes/admin-dex-users.js";
@@ -208,6 +209,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerProjectEventsSocket(instance, deps);
 		registerMeRoutes(instance, deps);
 		registerMePasswordRoutes(instance, deps);
+		registerAcceptableUseRoutes(instance, deps);
 		registerNotificationRoutes(instance, deps);
 		registerLinkRoutes(instance, deps);
 		registerAdminRoutes(instance, deps);
