@@ -403,3 +403,17 @@ test("putIfMatch maps a 412 stale ETag to OPERATION_FAILED", async () => {
 		message: "ETag doesn't match",
 	});
 });
+
+test("getBytes reads raw output and refuses more than the cap", async () => {
+	handler = (_req, res) => {
+		res.writeHead(200, { "Content-Type": "application/octet-stream" });
+		res.end(Buffer.alloc(2048, 0x61));
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	expect((await client.getBytes("/1.0/instances/a/logs/x.stdout", 4096)).length).toBe(
+		2048,
+	);
+	await expect(
+		client.getBytes("/1.0/instances/a/logs/x.stdout", 1024),
+	).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+});

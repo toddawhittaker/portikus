@@ -3,6 +3,7 @@ import type {
 	CreateInstanceRequest,
 	CreateInstanceResponse,
 	GrowVolumesRequest,
+	InstanceProcess,
 	InstanceUsage,
 	ListInstancesResponse,
 	LogLevel,
@@ -18,6 +19,7 @@ import {
 	CreateInstanceResponse as CreateInstanceResponseSchema,
 	GrowVolumesResponse,
 	HostSnapshot,
+	InstanceProcessesResponse,
 	InstanceUsageResponse,
 	ListInstancesResponse as ListInstancesResponseSchema,
 	RebuildInstanceResponse as RebuildInstanceResponseSchema,
@@ -55,6 +57,8 @@ export interface ControllerClient {
 	usage(signal?: AbortSignal): Promise<InstanceUsage[]>;
 	/** Set a time-slice CPU allowance, or remove it with null (ADR 0032). */
 	setCpuAllowance(name: string, allowance: string | null): Promise<void>;
+	/** The heaviest processes of a running instance, short names only (ADR 0037). */
+	processes(name: string, signal?: AbortSignal): Promise<InstanceProcess[]>;
 }
 
 /**
@@ -184,5 +188,15 @@ export class HttpControllerClient implements ControllerClient {
 		await this.request("PUT", `/instances/${encodeURIComponent(name)}/cpu-allowance`, {
 			allowance,
 		});
+	}
+
+	async processes(name: string, signal?: AbortSignal): Promise<InstanceProcess[]> {
+		const res = await this.request(
+			"GET",
+			`/instances/${encodeURIComponent(name)}/processes`,
+			undefined,
+			signal,
+		);
+		return InstanceProcessesResponse.parse(res).processes;
 	}
 }

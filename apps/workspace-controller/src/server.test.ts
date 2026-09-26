@@ -1,4 +1,8 @@
-import { HostSnapshot, InstanceUsageResponse } from "@portikus/contracts";
+import {
+	HostSnapshot,
+	InstanceProcessesResponse,
+	InstanceUsageResponse,
+} from "@portikus/contracts";
 import type { LogLevel } from "@portikus/observability";
 import { collectingLogger, lineAt } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
@@ -868,4 +872,45 @@ test("the fake's start clears an allowance, as the real one does", async () => {
 	await provider.setCpuAllowance("ws-abc", "100ms/100ms");
 	await provider.start("ws-abc", START_BODY);
 	expect(provider.instances.get("ws-abc")?.cpuAllowance).toBeNull();
+});
+
+test("GET /instances/:name/processes answers the provider's rows", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	await provider.start("ws-abc", START_BODY);
+	const res = await app.inject({
+		method: "GET",
+		url: "/instances/ws-abc/processes",
+		headers: auth(),
+	});
+	expect(res.statusCode).toBe(200);
+	expect(InstanceProcessesResponse.parse(res.json()).processes).toEqual(
+		provider.processRows,
+	);
+});
+
+test("GET /instances/:name/processes refuses bad names, unknown and stopped instances", async () => {
+	const bad = await app.inject({
+		method: "GET",
+		url: "/instances/NOT_OK/processes",
+		headers: auth(),
+	});
+	expect(bad.statusCode).toBe(400);
+	const missing = await app.inject({
+		method: "GET",
+		url: "/instances/ws-none/processes",
+		headers: auth(),
+	});
+	expect(missing.statusCode).toBe(404);
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	const stopped = await app.inject({
+		method: "GET",
+		url: "/instances/ws-abc/processes",
+		headers: auth(),
+	});
+	expect(stopped.statusCode).toBe(500);
+	const anonymous = await app.inject({
+		method: "GET",
+		url: "/instances/ws-abc/processes",
+	});
+	expect(anonymous.statusCode).toBe(401);
 });

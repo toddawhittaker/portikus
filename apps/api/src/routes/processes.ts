@@ -10,7 +10,7 @@ export const PROCESS_STOPS_PER_MINUTE = 30;
 const WINDOW_MS = 60_000;
 
 /** The status each agent refusal keeps when passed on. */
-const REFUSAL_STATUS: Record<ProcessStopErrorCode, number> = {
+export const REFUSAL_STATUS: Record<ProcessStopErrorCode, number> = {
 	PROCESS_NOT_FOUND: 404,
 	PROCESS_CHANGED: 409,
 	PROCESS_PROTECTED: 403,
@@ -122,7 +122,7 @@ export function registerProcessRoutes(app: FastifyInstance, deps: ServerDeps): v
 }
 
 /** Our own wording, so nothing the agent wrote reaches the browser. */
-function refusalMessage(code: ProcessStopErrorCode): string {
+export function refusalMessage(code: ProcessStopErrorCode): string {
 	switch (code) {
 		case "PROCESS_NOT_FOUND":
 			return "That process has already stopped.";

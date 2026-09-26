@@ -200,6 +200,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/workspaces/:id/lift-throttle": { access: "admin" },
 	"POST /admin/workspaces/:id/clear-memory-flag": { access: "admin" },
 	"POST /admin/workspaces/:id/rebuild": { access: "admin" },
+	// The administrator's process list and stop (ADR 0037).
+	"GET /admin/workspaces/:id/processes": { access: "admin" },
+	"HEAD /admin/workspaces/:id/processes": { access: "admin" },
+	"POST /admin/workspaces/:id/processes/refresh": { access: "admin" },
+	"POST /admin/workspaces/:id/processes/:pid/stop": { access: "admin" },
 	"GET /admin/audit": { access: "admin" },
 	"HEAD /admin/audit": { access: "admin" },
 	"GET /admin/health": { access: "admin" },

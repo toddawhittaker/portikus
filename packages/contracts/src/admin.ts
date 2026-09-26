@@ -273,3 +273,40 @@ export const HealthReport = z.object({
 	),
 });
 export type HealthReport = z.infer<typeof HealthReport>;
+
+/**
+ * One process of a running instance, read from `/proc` through Incus for the
+ * administrator (ADR 0037). The short name only, never a command line
+ * (SPEC.md §20.1); the controller has already cleaned it.
+ */
+export const InstanceProcess = z
+	.object({
+		pid: z.number().int().positive(),
+		uid: z.number().int().nonnegative(),
+		/** The kernel's short name, at most 15 characters, no control characters. */
+		name: z
+			.string()
+			.max(15)
+			.regex(/^[^\p{Cc}\p{Cf}]*$/u),
+		startTicks: z.number().int().nonnegative(),
+		/** CPU over one second, as a share of the instance's whole CPU limit. */
+		cpuPercent: z.number().nonnegative(),
+		residentBytes: z.number().int().nonnegative(),
+		/** PID 1, another user's process, the agent or the tmux server. */
+		protected: z.boolean(),
+	})
+	.strict();
+export type InstanceProcess = z.infer<typeof InstanceProcess>;
+
+/**
+ * The administrator's latest process snapshot of a workspace (ADR 0037).
+ * `takenAt` stays null until the worker has answered the newest request;
+ * `error` is a code, never text from the workspace.
+ */
+export const AdminProcessSnapshot = z.object({
+	requestedAt: z.string().datetime().nullable(),
+	takenAt: z.string().datetime().nullable(),
+	processes: z.array(InstanceProcess),
+	error: z.string().nullable(),
+});
+export type AdminProcessSnapshot = z.infer<typeof AdminProcessSnapshot>;

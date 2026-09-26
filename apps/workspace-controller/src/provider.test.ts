@@ -2,12 +2,22 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "vitest";
 import { IncusClient } from "./incus.js";
+import { PROCESS_SNAPSHOT_SCRIPT } from "./processes.js";
 import {
 	AGENT_HEALTH_TIMEOUT_MS,
 	IncusWorkspaceProvider,
 	InstanceNotStoppedError,
+	recordedOutputPaths,
 } from "./provider.js";
 
 let socketPath: string;
@@ -1339,4 +1349,157 @@ test("start without an allowance makes no guarded write", async () => {
 	await provider.start("ws-test", START);
 
 	expect(state.puts).toHaveLength(0);
+});
+
+describe("processes", () => {
+	const LOG_OUT = "/1.0/instances/ws-test/logs/exec-output/exec_1.stdout";
+	const LOG_ERR = "/1.0/instances/ws-test/logs/exec-output/exec_1.stderr";
+	const STAT_REST = Array.from({ length: 22 }, () => "0").join(" ");
+
+	function fakeIncus(opts: {
+		status?: string;
+		exitCode?: number;
+		output?: string;
+		logPath?: string;
+	}) {
+		const seen = {
+			execBody: null as Record<string, unknown> | null,
+			deleted: [] as string[],
+			read: [] as string[],
+		};
+		handler = async (req, res) => {
+			const body = await readBody(req);
+			const url = req.url ?? "";
+			const p = url.split("?")[0];
+			if (req.method === "POST" && p === "/1.0/instances/ws-test/exec") {
+				seen.execBody = JSON.parse(body);
+				respond(res, 202, {
+					type: "async",
+					status: "Operation created",
+					status_code: 100,
+					operation: "/1.0/operations/exec-9",
+				});
+			} else if (url.startsWith("/1.0/operations/exec-9/wait")) {
+				respond(
+					res,
+					200,
+					sync({
+						metadata: {
+							return: opts.exitCode ?? 0,
+							output: { "1": opts.logPath ?? LOG_OUT, "2": LOG_ERR },
+						},
+					}),
+				);
+			} else if (req.method === "GET" && p === LOG_OUT) {
+				seen.read.push(p);
+				res.writeHead(200, { "Content-Type": "application/octet-stream" });
+				res.end(opts.output ?? "");
+			} else if (req.method === "DELETE") {
+				seen.deleted.push(p ?? "");
+				respond(res, 200, sync({}));
+			} else if (req.method === "GET" && p === "/1.0/instances/ws-test") {
+				respond(
+					res,
+					200,
+					sync({
+						status: opts.status ?? "Running",
+						expanded_config: { "limits.cpu": "2" },
+					}),
+				);
+			} else {
+				respond(res, 404, { type: "error", error: "not found", error_code: 404 });
+			}
+		};
+		return seen;
+	}
+
+	const goodOutput = [
+		"T 100 4096",
+		"U 10.0",
+		`P 1000 77 (burn) ${STAT_REST}`,
+		"U 11.0",
+		`P 1000 77 (burn) ${STAT_REST.replace(/^((?:\S+ ){11})0/, "$1150")}`,
+		"A 5",
+		"",
+	].join("\0");
+
+	test("runs a fixed command as uid 1000 with recorded output and deletes the logs", async () => {
+		const seen = fakeIncus({ output: goodOutput });
+		const rows = await provider.processes("ws-test");
+		expect(rows).toEqual([
+			{
+				pid: 77,
+				uid: 1000,
+				name: "burn",
+				startTicks: 0,
+				cpuPercent: 75,
+				residentBytes: 0,
+				protected: false,
+			},
+		]);
+		const body = seen.execBody as Record<string, unknown>;
+		expect(body.user).toBe(1000);
+		expect(body.group).toBe(1000);
+		expect(body["record-output"]).toBe(true);
+		expect(body.command).toEqual(["/bin/sh", "-c", PROCESS_SNAPSHOT_SCRIPT]);
+		expect(seen.deleted.sort()).toEqual([LOG_ERR, LOG_OUT].sort());
+	});
+
+	test("deletes the logs when the command fails, and reports the failure", async () => {
+		const seen = fakeIncus({ exitCode: 2, output: goodOutput });
+		await expect(provider.processes("ws-test")).rejects.toMatchObject({
+			code: "OPERATION_FAILED",
+		});
+		expect(seen.read).toEqual([]);
+		expect(seen.deleted).toHaveLength(2);
+	});
+
+	test("fails on truncated output and still deletes the logs", async () => {
+		const seen = fakeIncus({ output: goodOutput.slice(0, 20) });
+		await expect(provider.processes("ws-test")).rejects.toMatchObject({
+			code: "OPERATION_FAILED",
+		});
+		expect(seen.deleted).toHaveLength(2);
+	});
+
+	test("never reads a log path outside this instance's logs", async () => {
+		const seen = fakeIncus({
+			output: goodOutput,
+			logPath: "/1.0/instances/other/logs/x",
+		});
+		await expect(provider.processes("ws-test")).rejects.toMatchObject({
+			code: "OPERATION_FAILED",
+		});
+		expect(seen.read).toEqual([]);
+		expect(seen.deleted).toEqual([LOG_ERR]);
+	});
+
+	test("refuses a stopped instance without running anything", async () => {
+		const seen = fakeIncus({ status: "Stopped" });
+		await expect(provider.processes("ws-test")).rejects.toMatchObject({
+			code: "OPERATION_FAILED",
+		});
+		expect(seen.execBody).toBeNull();
+	});
+});
+
+test("recordedOutputPaths keeps only this instance's plain log paths", () => {
+	const meta = (out: Record<string, unknown>) => ({ metadata: { output: out } });
+	expect(
+		recordedOutputPaths(
+			"ws-a",
+			meta({ "1": "/1.0/instances/ws-a/logs/exec-output/e.stdout" }),
+		),
+	).toEqual({
+		stdout: "/1.0/instances/ws-a/logs/exec-output/e.stdout",
+		all: ["/1.0/instances/ws-a/logs/exec-output/e.stdout"],
+	});
+	for (const bad of [
+		"/1.0/instances/ws-a/logs/../../ws-b/logs/x",
+		"/1.0/instances/ws-b/logs/x",
+		"/1.0/instances/ws-a/logs/a b",
+		42,
+	]) {
+		expect(recordedOutputPaths("ws-a", meta({ "1": bad })).stdout).toBeNull();
+	}
 });

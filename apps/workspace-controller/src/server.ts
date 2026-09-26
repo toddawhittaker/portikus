@@ -307,6 +307,24 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		}
 	});
 
+	// The worker asks for this when an administrator presses Refresh (ADR 0037).
+	app.get("/instances/:name/processes", async (request, reply) => {
+		const params = request.params as { name: string };
+		if (!InstanceName.safeParse(params.name).success) {
+			return reply
+				.code(400)
+				.send({ code: "INVALID_NAME", message: "invalid instance name" });
+		}
+		try {
+			const processes = await singleFlight(`processes:${params.name}`, () =>
+				provider.processes(params.name),
+			);
+			return reply.code(200).send({ processes });
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
 	app.put("/instances/:name/cpu-allowance", async (request, reply) => {
 		const params = request.params as { name: string };
 		if (!InstanceName.safeParse(params.name).success) {
