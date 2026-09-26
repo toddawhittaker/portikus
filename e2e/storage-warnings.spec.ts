@@ -189,3 +189,47 @@ for (const theme of ["light", "dark"] as const) {
 		expect(critical.actual).toBe(critical.expected);
 	});
 }
+
+test("the disk meter always shows the home volume and opens the workspace dialog", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await seedStorage(student.workspaceId, { home: percent(40) });
+	await page.goto(workspacePath(student.workspaceId));
+
+	const disk = page.getByTestId("disk-meter");
+	await expect(disk).toHaveText("Disk40.0 GB of 100 GB", { timeout: 15_000 });
+	await expect(disk).toHaveAttribute("data-level", "ok");
+	await expect(disk).toHaveAccessibleName(
+		"Disk 40.0 GB of 100 GB. Open workspace storage",
+	);
+	await expect(page.getByTestId("storage-warning")).toHaveCount(0);
+	await disk.click();
+	await expect(page.getByTestId("dialog-workspace-status")).toBeVisible();
+	await expect(page.getByTestId("storage-home")).toHaveText("40.0 GB of 100 GB");
+});
+
+test("the meters fit the status bar at the smallest supported width", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await seedStorage(student.workspaceId, { home: percent(96), docker: percent(97) });
+	// The shell's minimum width (DESIGN.md, "The 1024-wide rail collapse is deferred").
+	await page.setViewportSize({ width: 1024, height: 720 });
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("disk-meter")).toHaveAttribute("data-level", "full", {
+		timeout: 15_000,
+	});
+	await expect(page.getByTestId("storage-warning")).toBeVisible();
+	const fits = await page.getByTestId("status-bar").evaluate((bar) => {
+		const edge = bar.getBoundingClientRect().right;
+		return [...bar.querySelectorAll("button")].every(
+			(button) =>
+				button.getBoundingClientRect().right <= edge &&
+				button.scrollWidth <= button.clientWidth,
+		);
+	});
+	expect(fits).toBe(true);
+});

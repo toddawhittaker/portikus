@@ -1922,14 +1922,21 @@ button that opens the workspace dialog, and it keeps its warning or error
 colour. Quotas are environment configuration in this
 epic; changing them at runtime is Epic 11.
 
-Memory has a warning of its own (Epic 21): when the working set is at or
-above 85% of the limit, the status bar shows "Memory {used} of {total}" in
-the warning tone with the alert icon, as a button that opens Monitor sorted
-by memory. Once shown, it stays until the working set falls below 80%, so
-it does not flicker near the line; below 85% it otherwise shows nothing. It
-uses the same 30-second usage poll, which asks every 2 seconds until its
-first sample arrives, and the crossing is announced through a status region
-of its own, so a storage change does not repeat it.
+The status bar always shows two compact meters while the workspace runs
+(Epic 21): "Memory {used} of {total}", the working set against the limit
+(19.4), and "Disk {used} of {total}", the Projects & home volume. Each is a
+bordered button with a small bar: Memory opens Monitor sorted by memory, Disk
+opens the workspace dialog and its storage meters. A meter turns to the
+warning tone with the alert icon at or above 85% of its limit and stays so
+until use falls below 80%, so it does not flicker near the line; Disk turns
+to the error tone at 95%. Its accessible name starts with the visible text
+and adds "high" when warning. The storage warning above keeps its own
+wording and tone beside them. A meter with no figure is not drawn. The
+meters use the same 30-second usage poll, which asks every 2 seconds until
+its first sample arrives. Only a crossing is announced, never a new figure:
+memory into warning through a status region of its own, so a storage change
+does not repeat it, and storage through the storage warning's region. When
+the bar is short of room the project path gives way first, with an ellipsis.
 
 ### 19.3 Denial behavior
 

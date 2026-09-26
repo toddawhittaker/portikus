@@ -1,11 +1,11 @@
-import type { Project, Workspace, WorkspaceUsage } from "@portikus/contracts";
+import type { Project, Workspace } from "@portikus/contracts";
 import { Icon } from "@portikus/ui";
 import { useRef } from "react";
 import { gitBar } from "../files/gitStatus.js";
 import { useGitStatus } from "../files/useGitStatus.js";
 import { formatBytes } from "../monitor/format.js";
 import { STORAGE_POLL_MS, useWorkspaceUsage } from "../monitor/usage.js";
-import { storageWarning } from "../recovery/storage.js";
+import { CRITICAL_AT, storageWarning } from "../recovery/storage.js";
 import { useShowMonitor } from "./rightPane.js";
 import { useCountdown } from "./useCountdown.js";
 import {
@@ -25,28 +25,49 @@ const TONE_CLASS: Record<string, string> = {
 	error: "pk-tone-error",
 };
 
-/** The status bar warns about memory only from this share of the limit up. */
-export const MEMORY_WARN_AT = 0.85;
+/** A status bar meter turns to the warning tone from this share of the limit up. */
+export const METER_WARN_AT = 0.85;
 
-/** Once shown, the warning stays until use falls below this, so it does not flicker. */
-export const MEMORY_CLEAR_BELOW = 0.8;
+/** Once warning, a meter stays so until use falls below this, so it does not flicker. */
+export const METER_CLEAR_BELOW = 0.8;
+
+/** Disk turns to the error tone here, the storage warning's "nearly full" line. */
+export const METER_FULL_AT = CRITICAL_AT;
 
 /** Fixed text for the live region, so a changing figure is not re-announced. */
 export const MEMORY_ANNOUNCEMENT = "Your workspace is using most of its memory.";
 
+export interface Meter {
+	/** "{used} of {total}". */
+	value: string;
+	/** How full, 0 to 100, for the bar. */
+	percent: number;
+	level: "ok" | "warning" | "full";
+}
+
 /**
- * "Memory {used} of {total}" when the working set is at or above 85% of the
- * limit, or at or above 80% while the warning is already `showing`, else
- * null (docs/EPIC-21.md ruling 24).
+ * One status bar meter: warning at or above 85% of the limit, or at or above
+ * 80% while it is already `warning`, and full from 95% when `canBeFull`
+ * (docs/EPIC-21.md ruling 24). Null when there is no figure to show.
  */
-export function memoryWarning(
-	memory: WorkspaceUsage["memory"] | undefined,
-	showing = false,
-): string | null {
-	if (!memory || memory.totalBytes <= 0) return null;
-	const share = memory.usedBytes / memory.totalBytes;
-	if (share < (showing ? MEMORY_CLEAR_BELOW : MEMORY_WARN_AT)) return null;
-	return `Memory ${formatBytes(memory.usedBytes)} of ${formatBytes(memory.totalBytes)}`;
+export function usageMeter(
+	figure: { usedBytes: number; totalBytes: number } | null | undefined,
+	warning = false,
+	canBeFull = false,
+): Meter | null {
+	if (!figure || figure.totalBytes <= 0) return null;
+	const share = figure.usedBytes / figure.totalBytes;
+	const level =
+		canBeFull && share >= METER_FULL_AT
+			? "full"
+			: share >= (warning ? METER_CLEAR_BELOW : METER_WARN_AT)
+				? "warning"
+				: "ok";
+	return {
+		value: `${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}`,
+		percent: Math.min(100, share * 100),
+		level,
+	};
 }
 
 /** The bottom bar: where you are, and the workspace state, which opens its dialog. */
@@ -69,17 +90,18 @@ export function StatusBar({
 	const usage = useWorkspaceUsage(workspaceId, running, STORAGE_POLL_MS);
 	const storage = running ? usage.data?.storage : undefined;
 	const warning = storageWarning(storage);
-	const memoryShown = useRef(false);
-	const memory = running
-		? memoryWarning(usage.data?.memory, memoryShown.current)
-		: null;
-	memoryShown.current = memory !== null;
+	const memoryWarned = useRef(false);
+	const memory = running ? usageMeter(usage.data?.memory, memoryWarned.current) : null;
+	memoryWarned.current = memory !== null && memory.level !== "ok";
+	const diskWarned = useRef(false);
+	const disk = running ? usageMeter(storage?.home, diskWarned.current, true) : null;
+	diskWarned.current = disk !== null && disk.level !== "ok";
 	const showMonitor = useShowMonitor();
 	const countdown = useCountdown(workspace?.shutdownDeadline ?? null);
 
 	return (
 		<footer className="pk-statusbar" data-testid="status-bar">
-			<span className="pk-statusbar-item pk-statusbar-mono">
+			<span className="pk-statusbar-item pk-statusbar-mono pk-statusbar-path">
 				{project ? `~/projects/${project.slug}` : "~/projects"}
 			</span>
 			{project && !project.missing ? (
@@ -96,19 +118,26 @@ export function StatusBar({
 				{warning?.announcement ?? ""}
 			</span>
 			<span role="status" className="sr-only" data-testid="memory-warning-announce">
-				{memory ? MEMORY_ANNOUNCEMENT : ""}
+				{memory && memory.level !== "ok" ? MEMORY_ANNOUNCEMENT : ""}
 			</span>
 			{memory ? (
-				<button
-					type="button"
-					className="pk-statusbar-item pk-tone-warning"
-					data-testid="memory-warning"
-					aria-label={`${memory}. See what's using memory`}
+				<MeterButton
+					label="Memory"
+					meter={memory}
+					action="See what's using memory"
+					testId="memory-meter"
 					onClick={() => showMonitor("memory")}
-				>
-					<Icon name="alert" size="sm" />
-					{memory}
-				</button>
+				/>
+			) : null}
+			{disk ? (
+				<MeterButton
+					label="Disk"
+					meter={disk}
+					action="Open workspace storage"
+					testId="disk-meter"
+					dialog
+					onClick={() => setStatusOpen(true)}
+				/>
 			) : null}
 			{warning ? (
 				<button
@@ -149,6 +178,55 @@ export function StatusBar({
 				warningDetail={warning?.detail ?? null}
 			/>
 		</footer>
+	);
+}
+
+const METER_CLASS: Record<Meter["level"], string> = {
+	ok: "",
+	warning: "pk-meter--warning",
+	full: "pk-meter--full",
+};
+
+/**
+ * An always-visible meter (docs/EPIC-21.md ruling 24). Its name starts with
+ * the visible text; the bar is decoration. High use adds the alert icon and
+ * "high" to the name, so it is not told by colour alone.
+ */
+function MeterButton({
+	label,
+	meter,
+	action,
+	testId,
+	dialog = false,
+	onClick,
+}: {
+	label: string;
+	meter: Meter;
+	action: string;
+	testId: string;
+	dialog?: boolean;
+	onClick: () => void;
+}) {
+	const high = meter.level !== "ok";
+	return (
+		<button
+			type="button"
+			className={`pk-statusbar-item pk-statusbar-meter pk-meter ${METER_CLASS[meter.level]}`}
+			data-testid={testId}
+			data-level={meter.level}
+			aria-haspopup={dialog ? "dialog" : undefined}
+			aria-label={`${label} ${meter.value}${high ? ", high" : ""}. ${action}`}
+			onClick={onClick}
+		>
+			<span className="pk-meter-label">{label}</span>
+			<span className="pk-meter-value">
+				{high ? <Icon name="alert" size="sm" /> : null}
+				{meter.value}
+			</span>
+			<span className="pk-meter-track" aria-hidden="true">
+				<span className="pk-meter-fill" style={{ width: `${meter.percent}%` }} />
+			</span>
+		</button>
 	);
 }
 

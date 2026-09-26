@@ -137,7 +137,7 @@ test("an administrator clearing the memory flag takes the notice away on an open
 	await expect(page.getByRole("main", { name: "Work area" })).toBeFocused();
 });
 
-test("the status bar warns about memory at 85% and opens Monitor sorted by memory", async ({
+test("the status bar memory meter warns at 85% and opens Monitor sorted by memory", async ({
 	page,
 	context,
 }) => {
@@ -149,9 +149,12 @@ test("the status bar warns about memory at 85% and opens Monitor sorted by memor
 	});
 
 	// Until its first sample the status bar asks every 2 s, not every 30 s.
-	const warning = page.getByTestId("memory-warning");
-	await expect(warning).toBeVisible({ timeout: 5000 });
-	await expect(warning).toHaveText("Memory 90.0 GB of 100 GB");
+	const warning = page.getByTestId("memory-meter");
+	await expect(warning).toHaveAttribute("data-level", "warning", { timeout: 5000 });
+	await expect(warning).toHaveText("Memory90.0 GB of 100 GB");
+	await expect(warning).toHaveAccessibleName(
+		"Memory 90.0 GB of 100 GB, high. See what's using memory",
+	);
 	await expect(page.getByTestId("memory-warning-announce")).toHaveText(
 		"Your workspace is using most of its memory.",
 	);
@@ -160,7 +163,7 @@ test("the status bar warns about memory at 85% and opens Monitor sorted by memor
 	await expect(page.getByTestId("monitor-title")).toBeFocused();
 });
 
-test("below 85% the status bar says nothing about memory", async ({
+test("below 85% the status bar still shows memory, in the plain tone and unannounced", async ({
 	page,
 	context,
 }) => {
@@ -173,7 +176,12 @@ test("below 85% the status bar says nothing about memory", async ({
 	// Monitor shows the same sample, so once it is there the status bar has it too.
 	await page.getByRole("tab", { name: "Monitor" }).click();
 	await expect(page.getByTestId("monitor-memory")).toHaveText("84.0 GB / 100 GB");
-	await expect(page.getByTestId("memory-warning")).toHaveCount(0);
+	const meter = page.getByTestId("memory-meter");
+	await expect(meter).toHaveAttribute("data-level", "ok");
+	await expect(meter).toHaveAccessibleName(
+		"Memory 84.0 GB of 100 GB. See what's using memory",
+	);
+	await expect(page.getByTestId("memory-warning-announce")).toHaveText("");
 });
 
 test("a toast says so when the throttle lifts while the page is open", async ({

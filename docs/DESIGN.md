@@ -225,8 +225,9 @@ displays are taken up.
 dropped or moved deliberately; do not restore them to match `design/`. The
 project list shows no change count. The file tree's "Show hidden and
 generated files" lives in the pane's "…" menu, not a footer checkbox. The
-status bar has no save state, listening port or storage line ("4.1 GB of
-10 GB"); storage shows in the workspace dialog and as a warning at 80%. The
+status bar has no save state or listening port. It does show compact
+"Memory X of Y" and "Disk X of Y" meters (Epic 21), with the full storage
+breakdown in the workspace dialog and a warning at 80%. The
 launcher has no File… item. The header has no search and no role tag, and
 there is no leave-terminal hint. In the right pane the tab names the pane,
 so no visible title row repeats it. The Preview frame width is a set of
