@@ -2,7 +2,7 @@ import { AcceptableUseResponse } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate, useNavigate } from "@tanstack/react-router";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { z } from "zod";
 import { ApiError, request } from "../api/request.js";
 import { StandalonePage } from "../pages/StandalonePage.js";
@@ -25,6 +25,11 @@ export function AcceptableUsePage() {
 	const client = useQueryClient();
 	const navigate = useNavigate();
 	const signOutForm = useRef<HTMLFormElement>(null);
+	const heading = useRef<HTMLHeadingElement>(null);
+	// The heading renders once the session loads, so focus it then.
+	useEffect(() => {
+		if (me.status === "authenticated") heading.current?.focus();
+	}, [me.status]);
 	const statement = useQuery({
 		queryKey: ["acceptable-use"],
 		queryFn: () => request(AcceptableUseResponse, "/me/acceptable-use"),
@@ -56,7 +61,7 @@ export function AcceptableUsePage() {
 	return (
 		<StandalonePage title="Acceptable use" testId="page-acceptable-use">
 			<div className="flex flex-col gap-2">
-				<h1 id="page-title" className="pk-text-display">
+				<h1 id="page-title" className="pk-text-display" tabIndex={-1} ref={heading}>
 					Acceptable use
 				</h1>
 				<p className="pk-text-body">
@@ -99,7 +104,7 @@ export function AcceptableUsePage() {
 				</Button>
 				<Button
 					variant="primary"
-					disabled={!statement.data || statement.isFetching}
+					disabled={!statement.data}
 					loading={accept.isPending}
 					onClick={() => {
 						if (statement.data) accept.mutate(statement.data.version);

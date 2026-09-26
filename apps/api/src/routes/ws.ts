@@ -1,5 +1,5 @@
 import type { WebSocket } from "@fastify/websocket";
-import { loadSession } from "@portikus/auth";
+import { loadSession, sessionGate } from "@portikus/auth";
 import type { ListeningService, Workspace } from "@portikus/contracts";
 import { ClientMessage, type ServerMessage } from "@portikus/events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -96,7 +96,7 @@ export function registerWorkspaceSocket(
 			const user = subscriber.sessionToken
 				? await loadSession(db, subscriber.sessionToken)
 				: null;
-			if (user) continue;
+			if (user && !sessionGate(user)) continue;
 			watcher.sockets.delete(subscriber);
 			subscriber.socket.close(4401, "session revoked");
 			await dropConnection(subscriber.connectionId);
@@ -247,7 +247,7 @@ export function registerWorkspaceSocket(
 						const user = request.sessionToken
 							? await loadSession(db, request.sessionToken)
 							: null;
-						if (!user) {
+						if (!user || sessionGate(user)) {
 							socket.close(4401, "session expired");
 							return;
 						}
