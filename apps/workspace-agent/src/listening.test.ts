@@ -774,3 +774,49 @@ test("the fd walk runs again when a cached owner has exited", async () => {
 	await rm(join(procRoot, "80"), { recursive: true });
 	expect((await monitor.refresh())[0]?.process?.pid).toBe(81);
 });
+
+test("callers during a scan share it rather than start another", async () => {
+	await writeProcNet([HEADER, row("0100007F:1388", "0A", "1")].join("\n"));
+	let calls = 0;
+	let finish: (value: DockerContainer[]) => void = () => {};
+	const monitor = monitorFor({
+		docker: () => {
+			calls += 1;
+			return new Promise((resolve) => {
+				finish = resolve;
+			});
+		},
+	});
+	const first = monitor.refresh();
+	const second = monitor.refresh();
+	await vi.waitFor(() => expect(calls).toBe(1));
+	finish([]);
+	expect(await second).toBe(await first);
+	expect(calls).toBe(1);
+});
+
+test("a stop walks the fds afresh, so a reused cached pid is never signalled", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "900", 1000)].join("\n"));
+	await fakeProcess(90, "server", [900]);
+	const signals: number[] = [];
+	let alive = true;
+	const monitor = monitorFor({
+		kill: (pid, signal) => {
+			if (Number(signal) === 0) {
+				if (!alive) throw killError("ESRCH");
+				return;
+			}
+			signals.push(pid);
+			alive = false;
+			clearProcNet();
+		},
+		graceMs: 500,
+	});
+	await monitor.refresh();
+	// Pid 90 now belongs to another process and 91 holds the socket.
+	await rm(join(procRoot, "90"), { recursive: true });
+	await fakeProcess(90, "tmux", []);
+	await fakeProcess(91, "server", [900]);
+	await monitor.stopListener(5173);
+	expect(signals).toEqual([91]);
+});

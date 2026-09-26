@@ -113,8 +113,8 @@ const AttachQuery = z.object({
 export interface ServerOptions {
 	tokenPath: string;
 	homeDir: string;
-	/** The tmux socket name; `portikus` when unset (SPEC.md §9.7). */
-	tmuxSocketName?: string;
+	/** The tmux socket name, `portikus` in a workspace (SPEC.md §9.7). */
+	tmuxSocketName: string;
 	/** The terminals unit runs tmux, so the agent never starts it. */
 	tmuxExternalServer?: boolean;
 	/** The process logger. Tests default to one that writes nothing. */
@@ -161,7 +161,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	const startLevel = rootLogger.level as LogLevel;
 
 	const tmuxServer: TmuxServer = {
-		socketName: options.tmuxSocketName ?? "portikus",
+		socketName: options.tmuxSocketName,
 		external: options.tmuxExternalServer ?? false,
 	};
 	const registry = new TerminalRegistry(options.homeDir, app.log, tmuxServer);

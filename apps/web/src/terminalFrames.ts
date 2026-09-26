@@ -58,9 +58,12 @@ export function decodeTerminalFrame(data: unknown): TerminalFrame {
 /** The toast for terminals lost to a terminals unit restart (SPEC.md §9.7). */
 export function terminalGoneMessage(reason: TerminalGoneReason): string {
 	return reason === "out_of_memory"
-		? "Your workspace ran out of memory and its terminals were restarted."
-		: "Your workspace's terminals were restarted.";
+		? "Your workspace ran out of memory, so its terminals were closed."
+		: "Your workspace's terminals were closed.";
 }
+
+/** What the student can do about it, the toast's body. */
+export const TERMINAL_GONE_NEXT_STEP = "Open a new terminal to carry on.";
 
 // Restarts already told to the student, so panes lost together toast once.
 const toldRestarts = new Set<string>();

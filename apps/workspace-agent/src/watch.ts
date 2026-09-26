@@ -82,6 +82,8 @@ export class ProjectWatchers {
 		private readonly log: FastifyBaseLogger,
 		/** Overrides the folder cap. For tests. */
 		private readonly maxDirs: number = MAX_WATCHED_DIRS,
+		/** Overrides how long a start may take. For tests. */
+		private readonly readyTimeoutMs: number = READY_TIMEOUT_MS,
 	) {}
 
 	/** How many project watchers are open. For tests and diagnostics. */
@@ -167,9 +169,10 @@ export class ProjectWatchers {
 			// Chokidar never emits `ready` when the first scan fails, so wait on
 			// all three outcomes rather than only the happy one.
 			await new Promise<void>((resolve, reject) => {
+				// A scan this slow is a project too big to watch, not a fault.
 				const timer = setTimeout(
-					() => reject(new Error("watcher did not become ready")),
-					READY_TIMEOUT_MS,
+					() => reject(new WatchLimitedError()),
+					this.readyTimeoutMs,
 				);
 				// A start that is still waiting must not hold the process open.
 				timer.unref();

@@ -75,6 +75,8 @@ export interface FakeAgent {
 	readonly searchAborted: number;
 	/** How many `GET /health` calls the fake answered. */
 	readonly healthHits: number;
+	/** How many `GET /terminals/last-exit` calls the fake answered. */
+	readonly lastExitHits: number;
 	/** While true, the next events socket is refused as over the cap. */
 	eventLimit: boolean;
 	/** Projects whose watcher fails, keyed like the Git answers. */
@@ -396,6 +398,7 @@ export async function startFakeAgent(
 		failLogLevel: false,
 		searchAborted: 0,
 		healthHits: 0,
+		lastExitHits: 0,
 		eventLimit: false,
 		eventsReceived: 0,
 		failForward: false,
@@ -580,7 +583,9 @@ export async function startFakeAgent(
 	});
 
 	// The terminals unit's exit record, per workspace key (SPEC.md §9.7). A
-	// test stages a restart: the record is written and the terminal is gone.
+	// test stages a restart: the record is written and the terminals are gone.
+	// With `live`, open panes first get `exit` the way a dying unit ends them,
+	// and the record lands `recordDelayMs` later, as ExecStopPost writes it.
 	const terminalsExit = new Map<string, { result: string; at: string }>();
 	app.post("/__test/terminals-exit", async (request, reply) => {
 		const body = request.body as {
@@ -588,21 +593,52 @@ export async function startFakeAgent(
 			result: string | null;
 			at?: string;
 			terminalId?: string;
+			terminalIds?: string[];
+			live?: boolean;
+			recordDelayMs?: number;
 		};
 		if (body.result === null) {
 			terminalsExit.delete(body.key ?? "");
 			return reply.status(204).send();
 		}
-		terminalsExit.set(body.key ?? "", {
-			result: body.result,
-			at: body.at ?? new Date().toISOString(),
-		});
-		if (body.terminalId) terminals.delete(body.terminalId);
+		const ids = [
+			...(body.terminalIds ?? []),
+			...(body.terminalId ? [body.terminalId] : []),
+		];
+		const at = body.at ?? new Date().toISOString();
+		const record = { result: body.result, at };
+		for (const id of ids) terminals.delete(id);
+		if (body.live) {
+			for (const id of ids) {
+				for (const peer of attached.get(id) ?? []) {
+					if (peer.readyState === peer.OPEN)
+						peer.send(JSON.stringify({ type: "exit" }));
+				}
+			}
+			const key = body.key ?? "";
+			setTimeout(() => terminalsExit.set(key, record), body.recordDelayMs ?? 0);
+		} else {
+			terminalsExit.set(body.key ?? "", record);
+		}
 		return reply.status(204).send();
 	});
-	app.get("/terminals/last-exit", async (request) => ({
-		exit: terminalsExit.get(keyOf(request)) ?? null,
-	}));
+	app.get("/terminals/last-exit", async (request) => {
+		state.lastExitHits += 1;
+		return { exit: terminalsExit.get(keyOf(request)) ?? null };
+	});
+
+	// Send raw text frames to a terminal's attachments, as a misbehaving
+	// agent might.
+	app.post("/__test/terminals/:id/frames", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const body = request.body as { frames: string[] };
+		for (const peer of attached.get(id) ?? []) {
+			for (const frame of body.frames) {
+				if (peer.readyState === peer.OPEN) peer.send(frame);
+			}
+		}
+		return reply.status(204).send();
+	});
 
 	app.get("/health", async () => {
 		state.healthHits += 1;
@@ -1996,6 +2032,9 @@ export async function startFakeAgent(
 		},
 		get healthHits() {
 			return state.healthHits;
+		},
+		get lastExitHits() {
+			return state.lastExitHits;
 		},
 		get eventsReceived() {
 			return state.eventsReceived;

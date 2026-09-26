@@ -528,3 +528,68 @@ test.skipIf(skip)(
 		}
 	},
 );
+
+async function agentPost(path: string, body: unknown): Promise<void> {
+	const response = await fetch(`http://127.0.0.1:${agent.port}${path}`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
+	expect(response.ok).toBe(true);
+}
+
+test.skipIf(skip)(
+	"a flood of session-gone frames from the agent costs one record lookup",
+	async () => {
+		const socket = await openTerminal(workspaceId, terminalId, alice);
+		await socket.next();
+		const before = agent.lastExitHits;
+		const gone = JSON.stringify({ type: "error", code: "TERMINAL_NOT_FOUND" });
+		await agentPost(`/__test/terminals/${terminalId}/frames`, {
+			frames: Array.from({ length: 50 }, () => gone),
+		});
+		expect(JSON.parse(await socket.next())).toEqual({
+			type: "error",
+			code: "TERMINAL_NOT_FOUND",
+		});
+		await socket.closed;
+		expect(agent.lastExitHits - before).toBe(1);
+		expect(
+			socket.text.filter((frame) => frame.includes("TERMINAL_NOT_FOUND")),
+		).toHaveLength(1);
+	},
+);
+
+test.skipIf(skip)(
+	"an exit followed shortly by an out-of-memory record is explained",
+	async () => {
+		const socket = await openTerminal(workspaceId, terminalId, alice);
+		await socket.next();
+		try {
+			await agentPost("/__test/terminals-exit", {
+				result: "oom-kill",
+				terminalIds: [terminalId],
+				live: true,
+				recordDelayMs: 600,
+			});
+			expect(JSON.parse(await socket.next())).toMatchObject({
+				type: "error",
+				code: "TERMINAL_NOT_FOUND",
+				reason: "out_of_memory",
+			});
+		} finally {
+			await socket.close();
+			await stageTerminalsExit(null);
+		}
+	},
+);
+
+test.skipIf(skip)("an exit with no newer record stays a plain exit", async () => {
+	const socket = await openTerminal(workspaceId, terminalId, alice);
+	await socket.next();
+	socket.ws.send(JSON.stringify({ type: "input", data: "\u0004" }));
+	let frame = await socket.next();
+	while (frame.startsWith("echo:")) frame = await socket.next();
+	expect(JSON.parse(frame)).toEqual({ type: "exit" });
+	await socket.close();
+});

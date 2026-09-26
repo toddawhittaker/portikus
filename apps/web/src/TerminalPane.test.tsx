@@ -196,9 +196,10 @@ test("a terminal lost to a restart closes its pane and says why in a toast", asy
 	});
 	expect(onExited).toHaveBeenCalledWith(terminal.id);
 	const toast = await view.findByText(
-		"Your workspace ran out of memory and its terminals were restarted.",
+		"Your workspace ran out of memory, so its terminals were closed.",
 	);
 	expect(toast.closest("[role=alert]")).not.toBeNull();
+	expect(view.getByText("Open a new terminal to carry on.")).toBeTruthy();
 });
 
 test("the first output frame makes the pane say its size again", async () => {

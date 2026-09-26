@@ -12,7 +12,7 @@ end=$EPOCHREALTIME
 # EPOCHREALTIME is seconds with six decimals; the separator follows the locale.
 elapsed=$(( 10#${end//[.,]/} - 10#${start//[.,]/} ))
 if (( elapsed < 1000000 )); then
-	printf '%s\n' "Your ~/.bashrc made the shell exit; this terminal skipped it."
+	printf '%s\n' "Your shell settings (~/.bashrc or ~/.profile) made the shell exit, so this terminal started a plain shell. Fix the file, then open a new terminal."
 	exec bash --noprofile --norc
 fi
 exit "$status"

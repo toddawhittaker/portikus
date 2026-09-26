@@ -20,7 +20,7 @@ import {
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { type IPty, spawn } from "node-pty";
 import { sendError } from "./errors.js";
-import { killProcessTree } from "./process-tree.js";
+import { killProcessTree, readStartTime } from "./process-tree.js";
 import { resolveProject } from "./projects.js";
 import { DRAIN_POLL_MS, HIGH_WATER_BYTES, LOW_WATER_BYTES } from "./terminals.js";
 import { AgentFailure } from "./tmux.js";
@@ -47,6 +47,8 @@ interface LiveRun {
 	bytes: number;
 	/** Null once the command has ended or never started. */
 	pty: IPty | null;
+	/** The PTY root's start time, so a stop never hits a reused pid. */
+	ptyStart: Promise<string | null>;
 	watchers: Set<WebSocket>;
 	/** The frame that ended this run, replayed to a late watcher. */
 	final: CheckOutputFrame | null;
@@ -116,6 +118,7 @@ export class CheckRunner {
 			chunks: [],
 			bytes: 0,
 			pty: null,
+			ptyStart: Promise.resolve(null),
 			watchers: new Set(),
 			final: null,
 			drainTimer: null,
@@ -152,6 +155,7 @@ export class CheckRunner {
 			return run.meta;
 		}
 		run.pty = pty;
+		run.ptyStart = readStartTime(pty.pid);
 
 		pty.onData((data: string) => {
 			const chunk = Buffer.from(data, "utf8");
@@ -185,12 +189,15 @@ export class CheckRunner {
 		}
 		// The whole tree, so a background child cannot outlive the stop
 		// (SPEC.md §18.1); onExit still settles the run.
-		killProcessTree(run.pty.pid).catch((error: unknown) => {
-			this.log.warn(
-				{ error: error instanceof Error ? error.message : String(error) },
-				"could not stop a check's processes",
-			);
-		});
+		const pid = run.pty.pid;
+		run.ptyStart
+			.then((start) => (start === null ? undefined : killProcessTree(pid, start)))
+			.catch((error: unknown) => {
+				this.log.warn(
+					{ error: error instanceof Error ? error.message : String(error) },
+					"could not stop a check's processes",
+				);
+			});
 	}
 
 	/**

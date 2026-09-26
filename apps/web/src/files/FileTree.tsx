@@ -665,16 +665,15 @@ export function FileTreePane({
 							uploadInto(dir, event.dataTransfer.files);
 						}}
 					>
-						{watchLimited ? (
-							<p
-								className="pk-watch-limited"
-								role="status"
-								data-testid="files-watch-limited"
-							>
-								This project is too large to update live. It refreshes when you return
-								to the window.
-							</p>
-						) : null}
+						{/* The live region exists before its text, so the text is announced. */}
+						<div role="status" data-testid="files-watch-limited-region">
+							{watchLimited ? (
+								<p className="pk-watch-limited" data-testid="files-watch-limited">
+									This project is too large to update live. It refreshes when you return
+									to the window.
+								</p>
+							) : null}
+						</div>
 						{uploadDrag && (dropDir === "" || dropDir === null) ? (
 							<p className="pk-upload-hint" data-testid="file-tree-root-hint">
 								Drop to upload to {project.name}

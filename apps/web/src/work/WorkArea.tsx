@@ -239,6 +239,18 @@ export function WorkArea({
 		void terminals.close(terminalId).catch(() => {});
 	}
 
+	/**
+	 * A shell that ended takes its pane away. If the student was typing in it,
+	 * focus goes to the New control rather than being lost (SPEC.md §9.7).
+	 */
+	function terminalExited(terminalId: string) {
+		const pane = document.querySelector(`[data-testid="terminal-pane-${terminalId}"]`);
+		if (pane?.contains(document.activeElement)) {
+			strip.current?.querySelector<HTMLElement>('[data-testid="launcher"]')?.focus();
+		}
+		closeTerminal(terminalId);
+	}
+
 	function closeTab(tabId: string) {
 		const tab = layout.tabs.find((item) => item.id === tabId);
 		if (!tab) return;
@@ -533,7 +545,7 @@ export function WorkArea({
 							onRename={(id, name) => void terminals.rename(id, name)}
 							onSetTheme={(id, theme) => void terminals.setTheme(id, theme)}
 							onClose={closeTerminal}
-							onExited={closeTerminal}
+							onExited={terminalExited}
 							onReplace={(id) => void replace(id)}
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
 							onSessionEnded={onSessionEnded}

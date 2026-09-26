@@ -29,6 +29,7 @@ import { useProjects } from "./projects/queries.js";
 import {
 	decodeTerminalFrame,
 	firstNoticeOf,
+	TERMINAL_GONE_NEXT_STEP,
 	terminalGoneMessage,
 } from "./terminalFrames.js";
 import { currentPlatform, decide } from "./work/terminalClipboard.js";
@@ -729,6 +730,7 @@ export function TerminalPane({
 						handlers.current.toast.show({
 							tone: "warning",
 							title: terminalGoneMessage(frame.reason),
+							children: TERMINAL_GONE_NEXT_STEP,
 						});
 					}
 					handlers.current.onExited(terminalId);

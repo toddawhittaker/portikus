@@ -17,6 +17,7 @@ interface ProcStat {
 	pid: number;
 	ppid: number;
 	session: number;
+	state: string;
 	startTime: string;
 }
 
@@ -27,13 +28,14 @@ function parseStat(text: string): ProcStat | null {
 	const pid = Number.parseInt(text, 10);
 	// After the name: state ppid pgrp session ... with starttime as field 22.
 	const fields = text.slice(close + 2).split(" ");
+	const state = fields[0] ?? "";
 	const ppid = Number(fields[1]);
 	const session = Number(fields[3]);
 	const startTime = fields[19];
 	if (!Number.isInteger(pid) || !Number.isInteger(ppid) || startTime === undefined) {
 		return null;
 	}
-	return { pid, ppid, session, startTime };
+	return { pid, ppid, session, state, startTime };
 }
 
 async function readStat(pid: number): Promise<ProcStat | null> {
@@ -42,6 +44,11 @@ async function readStat(pid: number): Promise<ProcStat | null> {
 	} catch {
 		return null;
 	}
+}
+
+/** The start time of a live process, to pin its identity against pid reuse. */
+export async function readStartTime(pid: number): Promise<string | null> {
+	return (await readStat(pid))?.startTime ?? null;
 }
 
 function allProcesses(): ProcStat[] {
@@ -64,10 +71,15 @@ function allProcesses(): ProcStat[] {
  * The root, every descendant by parent pid, and, when the root leads its own
  * session, every process in that session. Never the agent itself.
  */
-export async function collectProcessTree(rootPid: number): Promise<TreeProcess[]> {
+export async function collectProcessTree(
+	rootPid: number,
+	rootStartTime?: string,
+): Promise<TreeProcess[]> {
 	const processes = allProcesses();
 	const root = processes.find((entry) => entry.pid === rootPid);
 	if (!root) return [];
+	// A pid reused since the root started belongs to someone else.
+	if (rootStartTime !== undefined && root.startTime !== rootStartTime) return [];
 	const children = new Map<number, ProcStat[]>();
 	for (const entry of processes) {
 		const list = children.get(entry.ppid) ?? [];
@@ -96,7 +108,18 @@ export async function collectProcessTree(rootPid: number): Promise<TreeProcess[]
 
 async function alive(target: TreeProcess): Promise<boolean> {
 	const stat = await readStat(target.pid);
-	return stat !== null && stat.startTime === target.startTime;
+	// A zombie has already exited; only its parent's wait is missing.
+	return stat !== null && stat.state !== "Z" && stat.startTime === target.startTime;
+}
+
+/**
+ * Members of a session started during the grace period. A session id is never
+ * handed out again while a member still holds it, so this cannot hit a stranger.
+ */
+function sessionMembers(session: number): TreeProcess[] {
+	return allProcesses()
+		.filter((entry) => entry.session === session && entry.pid !== process.pid)
+		.map(({ pid, startTime }) => ({ pid, startTime }));
 }
 
 function signal(pid: number, name: NodeJS.Signals): void {
@@ -109,10 +132,14 @@ function signal(pid: number, name: NodeJS.Signals): void {
 
 const POLL_MS = 100;
 
-/** SIGTERM every process, then SIGKILL whatever is left after the grace period. */
+/**
+ * SIGTERM every process, then SIGKILL whatever is left after the grace period,
+ * plus anything that joined the root's session meanwhile.
+ */
 export async function stopProcesses(
 	targets: readonly TreeProcess[],
 	graceMs: number = STOP_GRACE_MS,
+	rootPid?: number,
 ): Promise<void> {
 	for (const target of targets) {
 		if (await alive(target)) signal(target.pid, "SIGTERM");
@@ -125,6 +152,12 @@ export async function stopProcesses(
 		for (const target of left) if (await alive(target)) still.push(target);
 		left = still;
 	}
+	if (rootPid !== undefined && targets.length > 0) {
+		const known = new Set(left.map((target) => target.pid));
+		for (const member of sessionMembers(rootPid)) {
+			if (!known.has(member.pid)) left.push(member);
+		}
+	}
 	for (const target of left) {
 		if (await alive(target)) signal(target.pid, "SIGKILL");
 	}
@@ -133,7 +166,12 @@ export async function stopProcesses(
 /** Stop a process and everything it started (SPEC.md §9.7, §18.1). */
 export async function killProcessTree(
 	rootPid: number,
+	rootStartTime?: string,
 	graceMs: number = STOP_GRACE_MS,
 ): Promise<void> {
-	await stopProcesses(await collectProcessTree(rootPid), graceMs);
+	await stopProcesses(
+		await collectProcessTree(rootPid, rootStartTime),
+		graceMs,
+		rootPid,
+	);
 }

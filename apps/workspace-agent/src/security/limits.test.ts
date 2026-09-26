@@ -30,7 +30,12 @@ beforeAll(async () => {
 	const tokenPath = join(homeDir, "agent.token");
 	await writeFile(tokenPath, TOKEN, { mode: 0o600 });
 	brokerPath = join(homeDir, "broker.sock");
-	app = buildServer({ tokenPath, homeDir, brokerSocketPath: brokerPath });
+	app = buildServer({
+		tmuxSocketName: "portikus-test",
+		tokenPath,
+		homeDir,
+		brokerSocketPath: brokerPath,
+	});
 	app.addHook("onRoute", (route) => {
 		const methods = Array.isArray(route.method) ? route.method : [route.method];
 		for (const method of methods) routes.push({ method, url: route.url });

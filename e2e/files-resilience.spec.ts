@@ -113,6 +113,11 @@ test.describe("file resilience", () => {
 		});
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(row(page, "README.md")).toBeVisible({ timeout: 15_000 });
+		// The live region is there, empty, before the notice arrives, so a
+		// screen reader announces the notice when it is inserted.
+		const region = page.getByTestId("files-watch-limited-region");
+		await expect(region).toHaveAttribute("role", "status");
+		await expect(region).toBeEmpty();
 
 		await expect
 			.poll(() =>
@@ -123,6 +128,7 @@ test.describe("file resilience", () => {
 		await expect(notice).toHaveText(
 			"This project is too large to update live. It refreshes when you return to the window.",
 		);
+		await expect(region.getByTestId("files-watch-limited")).toBeVisible();
 
 		// No live updates any more: the socket closes and is never reopened.
 		// (The tree's own refetch-on-focus may still show new files, which is

@@ -55,7 +55,7 @@ beforeAll(async () => {
 	homeDir = await mkdtemp(join(tmpdir(), "pk-checks-"));
 	const tokenPath = join(homeDir, "token");
 	await writeFile(tokenPath, TOKEN);
-	app = buildServer({ tokenPath, homeDir });
+	app = buildServer({ tmuxSocketName: "portikus-test", tokenPath, homeDir });
 	await app.listen({ port: 0, host: "127.0.0.1" });
 	port = (app.server.address() as { port: number }).port;
 	expect(port).toBeGreaterThan(0);
