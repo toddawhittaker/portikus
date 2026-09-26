@@ -1,5 +1,5 @@
 import type { WorkspaceCpuThrottle } from "@portikus/contracts";
-import { Icon, IconButton } from "@portikus/ui";
+import { Button, Icon, IconButton } from "@portikus/ui";
 
 export const THROTTLE_TITLE = "Your workspace has been slowed down";
 
@@ -22,9 +22,12 @@ export function throttleAnnouncement(throttle: WorkspaceCpuThrottle): string {
 export function ThrottleNotice({
 	throttle,
 	onDismiss,
+	onOpenWorkspace,
 }: {
 	throttle: WorkspaceCpuThrottle;
 	onDismiss: () => void;
+	/** Opens the workspace dialog with its restart confirmation on top. */
+	onOpenWorkspace: () => void;
 }) {
 	return (
 		<div className="pk-notice pk-notice--warning" data-testid="throttle-notice">
@@ -36,6 +39,14 @@ export function ThrottleNotice({
 				<p className="pk-notice-body">{throttleBody(throttle)}</p>
 			</div>
 			<div className="pk-notice-actions">
+				<Button
+					size="sm"
+					aria-haspopup="dialog"
+					data-testid="throttle-restart"
+					onClick={onOpenWorkspace}
+				>
+					Restart workspace…
+				</Button>
 				<IconButton
 					icon="x"
 					size="sm"

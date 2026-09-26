@@ -6,7 +6,19 @@
  * student's application is what the frame ends up showing. Nothing about
  * the application is rewritten, stripped or proxied here.
  */
-import { EmptyState, IconButton, useToast } from "@portikus/ui";
+import {
+	Button,
+	EmptyState,
+	IconButton,
+	Menu,
+	MenuCheckboxItem,
+	MenuItem,
+	MenuLabel,
+	MenuRoot,
+	MenuSeparator,
+	MenuTrigger,
+	useToast,
+} from "@portikus/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/request.js";
 import { useListening } from "../running/services.js";
@@ -401,23 +413,23 @@ export function PreviewLeaf({
 				{/* Always enabled: the frame is cross-origin, so whether it has
 				    somewhere to go back to cannot be read (issue #271). A press
 				    with nothing behind it does nothing and says so. */}
-				<button
-					type="button"
-					className="pk-preview-action"
+				<Button
+					variant="quiet"
+					size="sm"
 					data-testid="preview-back"
 					title={backHint}
 					onClick={goBack}
 				>
 					Back
-				</button>
-				<button
-					type="button"
-					className="pk-preview-action"
+				</Button>
+				<Button
+					variant="quiet"
+					size="sm"
 					data-testid="preview-forward"
 					onClick={goForward}
 				>
 					Forward
-				</button>
+				</Button>
 				<IconButton
 					icon="restart"
 					label="Reload preview"
@@ -432,45 +444,40 @@ export function PreviewLeaf({
 					data-testid="preview-new-tab"
 					onClick={() => void openInNewTab()}
 				/>
-				<button
-					type="button"
-					className="pk-preview-action"
-					data-testid="preview-copy"
-					onClick={() => void copyUrl()}
-				>
-					Copy URL
-				</button>
-				<label className="pk-preview-width" htmlFor={`preview-width-${port}`}>
-					Width
-					<select
-						id={`preview-width-${port}`}
-						data-testid="preview-width"
-						value={width}
-						onChange={(event) => setWidth(event.target.value as Width)}
-					>
+				<MenuRoot>
+					<MenuTrigger asChild>
+						<IconButton
+							icon="more"
+							label="More preview actions"
+							size="sm"
+							data-testid="preview-more"
+						/>
+					</MenuTrigger>
+					<Menu label="More preview actions">
+						<MenuItem testId="preview-copy" onSelect={() => void copyUrl()}>
+							Copy URL
+						</MenuItem>
+						<MenuSeparator />
+						<MenuLabel>Width</MenuLabel>
 						{WIDTHS.map((option) => (
-							<option key={option} value={option}>
+							<MenuCheckboxItem
+								key={option}
+								testId={`preview-width-${option}`}
+								checked={width === option}
+								onCheckedChange={() => setWidth(option)}
+							>
 								{option === "fit" ? "Fit" : `${option} px`}
-							</option>
+							</MenuCheckboxItem>
 						))}
-					</select>
-				</label>
-				<button
-					type="button"
-					className="pk-preview-action"
-					data-testid="preview-reset"
-					onClick={() => void resetData()}
-				>
-					Reset preview data
-				</button>
-				<button
-					type="button"
-					className="pk-preview-action"
-					data-testid="preview-running-link"
-					onClick={onShowRunning}
-				>
-					Running
-				</button>
+						<MenuSeparator />
+						<MenuItem testId="preview-reset" onSelect={() => void resetData()}>
+							Reset preview data
+						</MenuItem>
+						<MenuItem testId="preview-running-link" onSelect={onShowRunning}>
+							Show in Running
+						</MenuItem>
+					</Menu>
+				</MenuRoot>
 			</div>
 
 			{/* Always rendered, so each change is announced rather than missed. */}

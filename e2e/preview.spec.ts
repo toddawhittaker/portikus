@@ -522,6 +522,7 @@ test.describe("application preview", () => {
 		await expect(page.getByTestId("preview-host")).toContainText(".preview.localhost", {
 			timeout: 20_000,
 		});
+		await page.getByTestId("preview-more").click();
 		await page.getByTestId("preview-copy").click();
 		await expect(
 			toast(page, "This link only works while you are signed in."),
@@ -542,9 +543,57 @@ test.describe("application preview", () => {
 		await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
 		await expect(appHeading(page)).toHaveText("Reset me", { timeout: 20_000 });
 
+		await page.getByTestId("preview-more").click();
 		await page.getByTestId("preview-reset").click();
 		await expect(toast(page, "Preview data reset")).toBeVisible();
 		// A fresh grant and a fresh preview session put the application back.
 		await expect(appHeading(page)).toHaveText("Reset me", { timeout: 20_000 });
+	});
+
+	test("a picker row opens its port, and the toolbar's extra actions sit in a menu", async ({
+		page,
+		context,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		const student = await createStudent(context);
+		await previewGateway(page);
+		const port = await startPreviewApp(student.workspaceId, "Picked");
+		await openProject(page, student.workspaceId);
+
+		await page.getByTestId("launcher").click();
+		await page.getByTestId("launcher-preview").click();
+		const dialog = page.getByTestId("dialog-preview-port");
+		await expect(
+			dialog.getByText("Pick a running port below, or type one."),
+		).toBeVisible();
+		const row = dialog.getByTestId(`preview-port-${port}`);
+		await expect(row).toBeVisible({ timeout: 20_000 });
+		// The row looks like something to click: it has a border of its own.
+		expect(await row.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe(
+			"solid",
+		);
+		await row.click();
+		await expect(appHeading(page)).toHaveText("Picked", { timeout: 20_000 });
+
+		// The bar stays on one line at 1280 px: every control shares one centre line.
+		const centres = await page.locator(".pk-preview-bar > *").evaluateAll((els) =>
+			els.map((el) => {
+				const box = el.getBoundingClientRect();
+				return Math.round(box.top + box.height / 2);
+			}),
+		);
+		expect(Math.max(...centres) - Math.min(...centres)).toBeLessThanOrEqual(1);
+
+		await page.getByRole("button", { name: "More preview actions" }).click();
+		const menu = page.getByRole("menu", { name: "More preview actions" });
+		await expect(menu.getByRole("menuitem", { name: "Copy URL" })).toBeVisible();
+		await expect(menu.getByText("Width", { exact: true })).toBeVisible();
+		await expect(menu.getByRole("menuitemcheckbox", { name: "Fit" })).toBeChecked();
+		await expect(
+			menu.getByRole("menuitem", { name: "Reset preview data" }),
+		).toBeVisible();
+		await expect(menu.getByRole("menuitem", { name: "Show in Running" })).toBeVisible();
+		await menu.getByRole("menuitemcheckbox", { name: "768 px" }).click();
+		await expect(page.getByTestId("preview-frame")).toHaveCSS("max-width", "768px");
 	});
 });

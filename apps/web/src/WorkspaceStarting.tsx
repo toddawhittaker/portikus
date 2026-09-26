@@ -81,11 +81,14 @@ export function WorkspaceStarting({
 	workspaceId,
 	workspace,
 	idleStop,
+	onOpenWorkspace,
 }: {
 	workspaceId: string;
 	workspace: Workspace | null;
 	/** Set when this page saw "Still working?" go unanswered (ADR 0032). */
 	idleStop?: { minutes: number | null } | undefined;
+	/** Opens the "Your workspace" dialog. */
+	onOpenWorkspace: () => void;
 }) {
 	const phase = startingPhase(workspace);
 	const pending = workspace?.pendingOperation ?? null;
@@ -94,10 +97,13 @@ export function WorkspaceStarting({
 
 	return (
 		<>
-			<div className="pk-tabs-skeleton" aria-hidden="true">
-				<Skeleton variant="block" width="140px" height="14px" />
-				<Skeleton variant="block" width="96px" height="14px" />
-			</div>
+			{/* A skeleton says something is loading, so only while it is. */}
+			{at >= 0 && (
+				<div className="pk-tabs-skeleton" aria-hidden="true">
+					<Skeleton variant="block" width="140px" height="14px" />
+					<Skeleton variant="block" width="96px" height="14px" />
+				</div>
+			)}
 			<div className="flex flex-1 items-center justify-center p-10">
 				<section
 					className="pk-card pk-progress-card"
@@ -147,16 +153,40 @@ export function WorkspaceStarting({
 							})}
 						</ol>
 					)}
-					{phase === "stopped" && <StartAgain workspaceId={workspaceId} />}
-					{phase === "error" && workspace?.errorMessage && (
+					{phase === "stopped" && (
+						<div className="flex">
+							<StartButton workspaceId={workspaceId} testId="workspace-resume">
+								Start workspace
+							</StartButton>
+						</div>
+					)}
+					{phase === "error" && (
 						<>
-							<hr className="pk-divider" />
-							<div className="flex flex-col gap-3">
-								<p className="pk-text-body">{workspace.errorMessage}</p>
-								{workspace.errorCode && (
-									<p className="pk-techdetail">{workspace.errorCode}</p>
-								)}
+							<div className="pk-actions">
+								<StartButton workspaceId={workspaceId} testId="workspace-retry">
+									Try again
+								</StartButton>
+								<Button
+									aria-haspopup="dialog"
+									data-testid="workspace-details"
+									onClick={onOpenWorkspace}
+								>
+									Workspace details
+								</Button>
 							</div>
+							{(workspace?.errorMessage || workspace?.errorCode) && (
+								<details data-testid="workspace-error-details">
+									<summary className="pk-text-body">Technical details</summary>
+									<div className="pk-techdetail mt-2 flex flex-col gap-1">
+										{workspace.errorMessage && (
+											<p className="m-0">{workspace.errorMessage}</p>
+										)}
+										{workspace.errorCode && (
+											<p className="m-0">{workspace.errorCode}</p>
+										)}
+									</div>
+								</details>
+							)}
 						</>
 					)}
 				</section>
@@ -166,33 +196,39 @@ export function WorkspaceStarting({
 }
 
 /**
- * The way back from a workspace the student stopped by hand. It asks for the
- * same desired-state change as the Start button in the workspace dialog, and
- * the presence socket reports the workspace running (SPEC.md §6.2, §6.3).
+ * The way back from a stopped or failed workspace. It asks for the same
+ * desired-state change as the Start button in the workspace dialog, and the
+ * presence socket reports the workspace running (SPEC.md §6.2, §6.3).
  */
-function StartAgain({ workspaceId }: { workspaceId: string }) {
+function StartButton({
+	workspaceId,
+	testId,
+	children,
+}: {
+	workspaceId: string;
+	testId: string;
+	children: string;
+}) {
 	const action = useWorkspaceAction(workspaceId);
 	const toast = useToast();
 
 	return (
-		<div className="flex">
-			<Button
-				variant="primary"
-				disabled={action.isPending}
-				data-testid="workspace-resume"
-				onClick={() =>
-					action.mutate("start", {
-						onError: (error) =>
-							toast.show({
-								tone: "danger",
-								title: "The workspace did not start",
-								children: error instanceof Error ? error.message : undefined,
-							}),
-					})
-				}
-			>
-				Start workspace
-			</Button>
-		</div>
+		<Button
+			variant="primary"
+			disabled={action.isPending}
+			data-testid={testId}
+			onClick={() =>
+				action.mutate("start", {
+					onError: (error) =>
+						toast.show({
+							tone: "danger",
+							title: "The workspace did not start",
+							children: error instanceof Error ? error.message : undefined,
+						}),
+				})
+			}
+		>
+			{children}
+		</Button>
 	);
 }

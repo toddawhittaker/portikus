@@ -1,17 +1,39 @@
 import type { Workspace } from "@portikus/contracts";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
-import { StatusBar } from "./StatusBar.js";
+import { StatusBar, type WorkspaceDialogMode } from "./StatusBar.js";
 
 afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-function renderBar(workspace: Workspace | null = WORKSPACE) {
-	renderWithQuery(
-		<StatusBar workspaceId={WORKSPACE.id} project={undefined} workspace={workspace} />,
+/** The page's side of the dialog state, as WorkspacePage holds it. */
+function Bar({
+	workspace,
+	initial = "closed",
+}: {
+	workspace: Workspace | null;
+	initial?: WorkspaceDialogMode;
+}) {
+	const [dialog, setDialog] = useState<WorkspaceDialogMode>(initial);
+	return (
+		<StatusBar
+			workspaceId={WORKSPACE.id}
+			project={undefined}
+			workspace={workspace}
+			dialog={dialog}
+			onDialogChange={setDialog}
+		/>
 	);
+}
+
+function renderBar(
+	workspace: Workspace | null = WORKSPACE,
+	initial: WorkspaceDialogMode = "closed",
+) {
+	renderWithQuery(<Bar workspace={workspace} initial={initial} />);
 }
 
 /** Open the "Your workspace" dialog from the state button. */
@@ -334,4 +356,22 @@ test("a refused Reset Docker is shown as an alert in the workspace dialog", asyn
 	const alert = await screen.findByTestId("dialog-error");
 	expect(alert.getAttribute("role")).toBe("alert");
 	expect(alert.textContent).toContain("Another operation is pending.");
+});
+
+test("the state button is plain muted text, not a tone, and has a trailing chevron", () => {
+	renderBar();
+
+	const button = screen.getByTestId("workspace-status");
+	expect(button.classList.contains("pk-statusbar-plain")).toBe(true);
+	expect(button.querySelector("svg[aria-hidden='true']")).not.toBeNull();
+});
+
+test("opened in restart mode, the dialog shows Restart's confirmation; Cancel leaves the dialog open", () => {
+	renderBar(WORKSPACE, "restart");
+
+	expect(screen.getByTestId("dialog-workspace-status")).toBeDefined();
+	expect(screen.getByTestId("dialog-workspace-restart")).toBeDefined();
+	fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+	expect(screen.queryByTestId("dialog-workspace-restart")).toBeNull();
+	expect(screen.getByTestId("dialog-workspace-status")).toBeDefined();
 });
