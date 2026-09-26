@@ -46,6 +46,10 @@ export type TerminalClientMessage = z.infer<typeof TerminalClientMessage>;
 export const TerminalErrorCode = z.union([AgentErrorCode, z.literal("BAD_FRAME")]);
 export type TerminalErrorCode = z.infer<typeof TerminalErrorCode>;
 
+/** Why a terminal vanished: the terminals unit ran out of memory, or restarted. */
+export const TerminalGoneReason = z.enum(["out_of_memory", "restarted"]);
+export type TerminalGoneReason = z.infer<typeof TerminalGoneReason>;
+
 /**
  * Text messages the API sends on the terminal WebSocket (SPEC.md §9.2, §27).
  */
@@ -57,6 +61,13 @@ export const TerminalServerMessage = z.discriminatedUnion("type", [
 	// the agent whenever it changes. The browser sends arrow keys rather than
 	// scrolling its own buffer while it does (SPEC.md §9.1).
 	z.object({ type: z.literal("screen"), alternate: z.boolean() }),
-	z.object({ type: z.literal("error"), code: TerminalErrorCode }),
+	z.object({
+		type: z.literal("error"),
+		code: TerminalErrorCode,
+		// Why a terminal's session is gone, when the terminals unit's last
+		// stop explains it; `at` is that stop's time (SPEC.md §9.7).
+		reason: TerminalGoneReason.optional(),
+		at: z.string().optional(),
+	}),
 ]);
 export type TerminalServerMessage = z.infer<typeof TerminalServerMessage>;

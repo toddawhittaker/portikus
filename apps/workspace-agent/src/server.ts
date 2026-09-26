@@ -64,7 +64,7 @@ import {
 } from "./projects.js";
 import { registerRecoveryRoutes } from "./recovery-routes.js";
 import { registerSearchRoutes } from "./search-routes.js";
-import { TerminalRegistry } from "./terminals.js";
+import { readTerminalsExit, TerminalRegistry } from "./terminals.js";
 import {
 	AgentFailure,
 	closeSession,
@@ -136,6 +136,8 @@ export interface ServerOptions {
 	usage?: UsageSamplerOptions;
 	/** Mount point of the recovery volume (ADR 0020). */
 	recoveryRoot?: string;
+	/** Overrides where the terminals unit's exit record is read. For tests. */
+	terminalsExitPath?: string;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -281,6 +283,13 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				return sendError(request, reply, error);
 			}
 		});
+
+		// How the terminals unit last stopped, so the control plane can explain
+		// terminals that vanished (SPEC.md §9.7). Registered before the
+		// terminal id routes so the path is not read as an id.
+		instance.get("/terminals/last-exit", async () => ({
+			exit: await readTerminalsExit(options.terminalsExitPath),
+		}));
 
 		instance.post("/terminals", async (request, reply) => {
 			const parsed = AgentCreateTerminalRequest.safeParse(request.body);

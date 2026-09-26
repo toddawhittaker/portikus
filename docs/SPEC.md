@@ -917,6 +917,22 @@ returns only that project's terminals. The control plane re-checks the session o
 open terminal WebSocket at most once a second and closes the socket when
 the session is gone.
 
+When the terminals unit stops, systemd's `$SERVICE_RESULT` is written to
+`/run/portikus-terminals/last-exit`, and the agent reports it on
+`GET /terminals/last-exit` as `{"exit":{"result":"…","at":"…"}}`, with `at`
+the file's modification time, or `{"exit":null}` when there is no record
+(images before 2026.09.11) or the record is not a plain result word. When
+the agent says a terminal's session is gone (`TERMINAL_NOT_FOUND` on
+attach), the control plane asks for that record, and if the stop came
+after the terminal's creation time, sends the browser
+`{"type":"error","code":"TERMINAL_NOT_FOUND","reason":"…","at":"…"}`, where
+`reason` is `out_of_memory` for `oom-kill` and `restarted` for anything
+else. The browser then closes the pane and shows a warning toast, once per
+restart (`at`): "Your workspace ran out of memory and its terminals were
+restarted." or "Your workspace's terminals were restarted." Terminals open
+at the moment of the stop close as before. Only the terminals unit's stop
+is explained; an agent restart no longer loses terminals.
+
 ## 10. Coding-agent integration
 
 ### 10.1 Supported agents

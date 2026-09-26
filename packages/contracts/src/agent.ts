@@ -133,6 +133,20 @@ export const AgentDuplicateProjectRequest = z
 	.strict();
 export type AgentDuplicateProjectRequest = z.infer<typeof AgentDuplicateProjectRequest>;
 
+/**
+ * Response body for `GET /terminals/last-exit` on the agent: how the
+ * terminals unit last stopped, or null when there is no record (SPEC.md §9.7).
+ */
+export const AgentTerminalsExit = z.object({
+	exit: z
+		.object({
+			result: z.string().min(1).max(64),
+			at: z.string().datetime(),
+		})
+		.nullable(),
+});
+export type AgentTerminalsExit = z.infer<typeof AgentTerminalsExit>;
+
 /** Error codes returned by the workspace agent (SPEC.md §27; STACK.md §10). */
 export const AgentErrorCode = z.enum([
 	"BAD_REQUEST",

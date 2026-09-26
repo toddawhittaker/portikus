@@ -14,6 +14,7 @@ import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import WebSocketClient from "ws";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { terminalGoneReason } from "./terminals.js";
 
 /**
  * The terminal transport (SPEC.md §9.7, ADR 0009): the API forwards frames
@@ -454,4 +455,76 @@ test.skipIf(skip)(
 		}
 	},
 	20_000,
+);
+
+/** Stage a terminals unit stop in the fake agent, or clear it with null. */
+async function stageTerminalsExit(
+	result: string | null,
+	options: { at?: string; terminalId?: string } = {},
+): Promise<void> {
+	const response = await fetch(`http://127.0.0.1:${agent.port}/__test/terminals-exit`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ result, ...options }),
+	});
+	expect(response.ok).toBe(true);
+}
+
+test("a stop after the terminal was made explains it; an older one does not", () => {
+	const created = new Date("2026-09-26T10:00:00Z");
+	const after = "2026-09-26T10:05:00.000Z";
+	expect(terminalGoneReason({ result: "oom-kill", at: after }, created)).toBe(
+		"out_of_memory",
+	);
+	expect(terminalGoneReason({ result: "signal", at: after }, created)).toBe(
+		"restarted",
+	);
+	expect(terminalGoneReason({ result: "success", at: after }, created)).toBe(
+		"restarted",
+	);
+	expect(
+		terminalGoneReason({ result: "oom-kill", at: "2026-09-26T09:00:00.000Z" }, created),
+	).toBeNull();
+	expect(terminalGoneReason({ result: "oom-kill", at: "garbage" }, created)).toBeNull();
+	expect(terminalGoneReason(null, created)).toBeNull();
+});
+
+test.skipIf(skip)(
+	"a terminal lost to an out-of-memory restart is explained to the browser",
+	async () => {
+		await stageTerminalsExit("oom-kill", { terminalId });
+		try {
+			const socket = await openTerminal(workspaceId, terminalId, alice);
+			const frame = JSON.parse(await socket.next());
+			expect(frame).toMatchObject({
+				type: "error",
+				code: "TERMINAL_NOT_FOUND",
+				reason: "out_of_memory",
+			});
+			expect(typeof frame.at).toBe("string");
+			expect(await socket.closed).toBe(1008);
+		} finally {
+			await stageTerminalsExit(null);
+		}
+	},
+);
+
+test.skipIf(skip)(
+	"a restart older than the terminal gives the plain frame",
+	async () => {
+		await stageTerminalsExit("oom-kill", {
+			terminalId,
+			at: "2000-01-01T00:00:00.000Z",
+		});
+		try {
+			const socket = await openTerminal(workspaceId, terminalId, alice);
+			expect(JSON.parse(await socket.next())).toEqual({
+				type: "error",
+				code: "TERMINAL_NOT_FOUND",
+			});
+			expect(await socket.closed).toBe(1008);
+		} finally {
+			await stageTerminalsExit(null);
+		}
+	},
 );
