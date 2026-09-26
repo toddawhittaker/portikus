@@ -315,7 +315,6 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					{all.length} accounts · {running} running
 				</span>
 			}
-			// Only when the site runs Dex's own passwords (docs/archive/epics/EPIC-14.md ruling 24).
 			actions={
 				<>
 					{filters.image === "older" ? (
@@ -324,12 +323,17 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 							data-testid="rebuild-older"
 							disabled={olderImageTargets(rows).length === 0}
 							onClick={() =>
-								setConfirming({ action: "rebuild", users: olderImageTargets(rows) })
+								setConfirming({
+									action: "rebuild",
+									users: olderImageTargets(rows),
+									resetDocker: false,
+								})
 							}
 						>
 							Rebuild all on older images…
 						</Button>
 					) : null}
+					{/* Only when the site runs Dex's own passwords (docs/archive/epics/EPIC-14.md ruling 24). */}
 					{users.data?.dexUsers ? <AddDexUser /> : null}
 				</>
 			}
@@ -430,7 +434,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 			<div className="flex items-start gap-4">
 				{/* Not a scroll container, so the header sticks against <main> (EPIC-18 ruling 5). */}
 				<div className="pk-table-wrap min-w-0 flex-1 overflow-clip">
-					<table className="pk-table" data-testid="admin-accounts">
+					<table className="pk-table pk-table--page" data-testid="admin-accounts">
 						<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
 							Accounts and their workspaces. Choose a name to see details.
 						</caption>
@@ -496,14 +500,17 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	);
 }
 
+/** Each opening starts with Reset Docker off (EPIC-18 ruling 26). */
+interface BulkConfirm {
+	action: BulkAction;
+	users: AdminUser[];
+	resetDocker: boolean;
+}
+
 /**
  * The bar over the table while rows are ticked. Each action calls the
  * existing single-row route once per account (Epic 13.1 T4).
  */
-interface BulkConfirm {
-	action: BulkAction;
-	users: AdminUser[];
-}
 
 function BulkActions({
 	rows,
@@ -521,15 +528,13 @@ function BulkActions({
 	const client = useQueryClient();
 	const resultRef = useRef<HTMLDivElement>(null);
 	const [running, setRunning] = useState(false);
-	// Off by default: Docker images and volumes stay (EPIC-18 ruling 26).
-	const [resetDocker, setResetDocker] = useState(false);
 	const [result, setResult] = useState<BulkResult | null>(null);
 
 	const targets = (action: BulkAction) =>
 		rows.filter((user) => bulkApplies(action, user, currentUserId));
 	const offered = BULK_ACTIONS.filter((action) => targets(action).length > 0);
 
-	async function run(action: BulkAction, users: AdminUser[]) {
+	async function run(action: BulkAction, users: AdminUser[], resetDocker: boolean) {
 		if (running) return;
 		setRunning(true);
 		const outcome: BulkResult = { action, done: [], skipped: [], failed: [] };
@@ -560,7 +565,6 @@ function BulkActions({
 		}
 		setRunning(false);
 		setConfirming(null);
-		setResetDocker(false);
 		setResult(outcome);
 		onDone();
 		// Refetch once for the whole run, not once per row.
@@ -584,10 +588,9 @@ function BulkActions({
 							key={action}
 							size="sm"
 							data-testid={`bulk-${action}`}
-							onClick={() => {
-								setResetDocker(false);
-								setConfirming({ action, users: targets(action) });
-							}}
+							onClick={() =>
+								setConfirming({ action, users: targets(action), resetDocker: false })
+							}
 						>
 							{BULK[action].button}
 						</Button>
@@ -618,8 +621,7 @@ function BulkActions({
 							confirming.action === "rebuild" ? (
 								<RebuildDescription
 									users={confirming.users}
-									resetDocker={resetDocker}
-									onResetDocker={setResetDocker}
+									resetDocker={confirming.resetDocker}
 								/>
 							) : (
 								<>
@@ -632,8 +634,20 @@ function BulkActions({
 						}
 						confirmLabel={BULK[confirming.action].confirm}
 						pending={running}
-						onConfirm={() => void run(confirming.action, confirming.users)}
-					/>
+						onConfirm={() =>
+							void run(confirming.action, confirming.users, confirming.resetDocker)
+						}
+					>
+						{confirming.action === "rebuild" ? (
+							<Checkbox
+								label="Also reset Docker"
+								checked={confirming.resetDocker}
+								onChange={(event) =>
+									setConfirming({ ...confirming, resetDocker: event.target.checked })
+								}
+							/>
+						) : null}
+					</ConfirmDialog>
 				) : null}
 			</ConfirmDialogRoot>
 		</>
@@ -662,11 +676,9 @@ export function rebuildWarning(users: AdminUser[], resetDocker: boolean): string
 function RebuildDescription({
 	users,
 	resetDocker,
-	onResetDocker,
 }: {
 	users: AdminUser[];
 	resetDocker: boolean;
-	onResetDocker: (on: boolean) => void;
 }) {
 	const [names, ...rest] = rebuildWarning(users, resetDocker);
 	return (
@@ -679,11 +691,6 @@ function RebuildDescription({
 					{line}
 				</span>
 			))}
-			<Checkbox
-				label="Also reset Docker"
-				checked={resetDocker}
-				onChange={(event) => onResetDocker(event.target.checked)}
-			/>
 		</>
 	);
 }
@@ -763,7 +770,7 @@ function AccountRow({
 					onChange={(event) => onCheck(event.target.checked)}
 				/>
 			</td>
-			<td className="py-2">
+			<td className="py-2 whitespace-normal">
 				<div className="pk-cell-stack" data-testid={`account-name-${user.id}`}>
 					<span className="pk-cell-primary">
 						<button
@@ -780,7 +787,8 @@ function AccountRow({
 						<Markers markers={user.markers} workspace={workspace} />
 					</span>
 					<span
-						className="pk-cell-secondary"
+						className="pk-cell-secondary block max-w-[28ch] truncate"
+						title={accountContact(user)}
 						data-testid={`account-contact-${user.id}`}
 					>
 						{accountContact(user)}
@@ -790,7 +798,7 @@ function AccountRow({
 			<td className="py-2" data-testid={`account-role-${user.id}`}>
 				{roleText(user)}
 			</td>
-			<td className="py-2">
+			<td className="py-2 whitespace-normal">
 				{workspace ? (
 					<div className="flex flex-col items-start gap-1">
 						<span className="pk-mono-small">{workspace.label}</span>

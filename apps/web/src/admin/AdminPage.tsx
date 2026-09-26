@@ -37,12 +37,13 @@ export function AdminPage() {
 		<div className="pk-root">
 			<AppHeader user={me.user} workspace={null} project={undefined} />
 			<main
-				className="flex-1 overflow-auto p-8"
+				className="flex-1 scroll-pt-16 overflow-auto p-8"
 				data-testid="page-admin"
 				data-density="compact"
 				aria-labelledby="admin-title"
 			>
-				{/* <main> keeps the scroll, so the scrollbar stays at the window edge (EPIC-18 ruling 1). */}
+				{/* <main> keeps the scroll, so the scrollbar stays at the window edge (EPIC-18 ruling 1).
+				    scroll-pt-16 keeps a focused row clear of the sticky table header. */}
 				<div className="mx-auto w-full max-w-[1440px]" data-testid="admin-content">
 					<h1 className="pk-text-title" id="admin-title">
 						Administration

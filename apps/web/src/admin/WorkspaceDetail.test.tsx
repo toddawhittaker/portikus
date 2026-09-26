@@ -272,6 +272,21 @@ test("the panel's sections come in the order of EPIC-18 ruling 17", async () => 
 	]);
 });
 
+test("every section heading sits in a padded, divided detail section", async () => {
+	stubDetail(detail());
+	const panel = await openAlice();
+	const h4s = within(panel)
+		.getAllByRole("heading")
+		.filter((heading) => heading.tagName === "H4");
+	expect(h4s.length).toBeGreaterThan(0);
+	for (const heading of h4s) {
+		expect(
+			heading.closest(".pk-detail-section"),
+			heading.textContent ?? "",
+		).not.toBeNull();
+	}
+});
+
 test("Start, Stop and Restart sit in the head, directly under the state badge", async () => {
 	stubDetail(detail());
 	const panel = await openAlice();
@@ -439,6 +454,15 @@ test("Rebuild asks for the exact workspace label before it calls the route", asy
 	const dialog = await screen.findByTestId("rebuild-dialog");
 	const confirm = within(dialog).getByTestId("dialog-confirm") as HTMLButtonElement;
 	expect(confirm.disabled).toBe(true);
+	// SPEC.md §22.3: the warning names what a rebuild loses.
+	const described = document.getElementById(
+		dialog.getAttribute("aria-describedby") ?? "",
+	);
+	expect(described?.textContent).toContain(
+		"System packages installed with sudo apt are lost",
+	);
+	// The checkbox is a sibling of the description, not read as part of it.
+	expect(described?.contains(within(dialog).getByRole("checkbox"))).toBe(false);
 
 	const typed = within(dialog).getByRole("textbox");
 	fireEvent.change(typed, { target: { value: "TW7" } });

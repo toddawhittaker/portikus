@@ -49,7 +49,7 @@ export function SettingsTab() {
 	return (
 		<AdminSection title="Settings">
 			<div
-				className="grid grid-cols-[repeat(auto-fill,minmax(420px,1fr))] gap-6"
+				className="grid grid-cols-[repeat(auto-fill,minmax(420px,1fr))] items-start gap-6"
 				data-testid="settings-grid"
 			>
 				<GraceSection />
