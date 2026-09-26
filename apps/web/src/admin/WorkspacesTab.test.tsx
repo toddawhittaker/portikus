@@ -215,10 +215,18 @@ const ROWS = [
 		issuer: "https://login.example.edu",
 	}),
 	listed(2, "Bob Student", {
-		workspace: summary({ id: uuid(6), label: "bob" }),
+		workspace: summary({
+			id: uuid(6),
+			label: "bob",
+			image: { label: "2026.09.8", fingerprint: "old", current: false },
+		}),
 		issuer: "https://login.example.edu",
 	}),
-	listed(3, "Sam Course", { issuer: "lti:https://canvas.example.edu" }),
+	listed(3, "Sam Course", {
+		issuer: "lti:https://canvas.example.edu",
+		email: null,
+		preferredUsername: "sam7",
+	}),
 	listed(9, "Carol Admin", { role: "administrator", providerRole: "administrator" }),
 	listed(4, "Gina Granted", {
 		role: "administrator",
@@ -255,7 +263,60 @@ async function openTable() {
 	await screen.findByTestId(`account-row-${uuid(1)}`);
 }
 
-test("the table shows each account's role label and source", async () => {
+test("the table has the seven columns of EPIC-18 ruling 11", async () => {
+	stubUsers();
+	await openTable();
+	const table = screen.getByTestId("admin-accounts");
+	expect(
+		within(table)
+			.getAllByRole("columnheader")
+			.map((th) => th.textContent),
+	).toEqual([
+		"Select all shown accounts",
+		"Account",
+		"Role",
+		"Workspace",
+		"Last activity",
+		"Image",
+		"Connections",
+	]);
+});
+
+test("the Account cell is the name, then the email or else the username", async () => {
+	stubUsers();
+	await openTable();
+	const alice = screen.getByTestId(`account-name-${uuid(1)}`);
+	expect(within(alice).getByRole("button").textContent).toBe("Alice Example");
+	expect(screen.getByTestId(`account-contact-${uuid(1)}`).textContent).toBe(
+		"alice example@example.edu",
+	);
+	expect(screen.getByTestId(`account-contact-${uuid(3)}`).textContent).toBe("sam7");
+	// The markers sit on the name's line.
+	expect(
+		within(screen.getByTestId(`account-name-${uuid(4)}`)).getByText("Disabled"),
+	).toBeDefined();
+});
+
+test("only an out-of-date image shows the Older image tag", async () => {
+	stubUsers();
+	await openTable();
+	const older = within(screen.getByTestId(`account-image-${uuid(2)}`)).getByText(
+		"Older image",
+	);
+	expect(older.className).toBe("pk-tag pk-tag--warning");
+	expect(older.title).toBe("2026.09.8 · older");
+	expect(screen.getByTestId(`account-image-${uuid(1)}`).textContent).toBe("");
+	expect(screen.getByTestId(`account-image-${uuid(3)}`).textContent).toBe("");
+});
+
+test("the heading row carries the account count", async () => {
+	stubUsers();
+	await openTable();
+	const heading = screen.getByRole("heading", { level: 2, name: "Users" });
+	expect(heading.parentElement?.textContent).toContain("5 accounts · 2 running");
+});
+
+test("the table shows each account's role label", async () => {
 	stubUsers();
 	await openTable();
 	expect(screen.getByTestId(`account-role-${uuid(1)}`).textContent).toBe("Student");
@@ -265,15 +326,6 @@ test("the table shows each account's role label and source", async () => {
 	expect(screen.getByTestId(`account-role-${uuid(4)}`).textContent).toBe(
 		"Administrator (granted)",
 	);
-	expect(screen.getByTestId(`account-source-${uuid(1)}`).textContent).toBe("SSO");
-	expect(screen.getByTestId(`account-source-${uuid(1)}`).title).toBe(
-		"https://login.example.edu",
-	);
-	expect(screen.getByTestId(`account-source-${uuid(3)}`).textContent).toBe(
-		"Course: canvas.example.edu",
-	);
-	expect(screen.getByRole("columnheader", { name: "Source" })).toBeDefined();
-	expect(screen.queryByRole("columnheader", { name: "Issuer" })).toBeNull();
 	// Badges in cells are not live regions; only the header's open-workspace
 	// status, the count and the bulk result are.
 	expect(screen.getAllByRole("status").map((node) => node.dataset.testid)).toEqual([
