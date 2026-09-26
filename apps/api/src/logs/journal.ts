@@ -90,8 +90,10 @@ const LEVEL_PATTERN: Record<LogLevel, string> = {
 // What journalctl prints, exiting 0, when it may not read the system journal.
 const PERMISSION_HINTS = ["insufficient permissions", "not seeing messages"];
 
-function epochSeconds(date: Date): string {
-	return `@${Math.floor(date.getTime() / 1000)}`;
+// journalctl takes whole seconds; --since rounds down and --until up, so a
+// slice never skips lines at its edges (callers drop entries outside it).
+function epochSeconds(date: Date, round: (n: number) => number): string {
+	return `@${round(date.getTime() / 1000)}`;
 }
 
 /**
@@ -110,8 +112,8 @@ export function journalArgs(request: ReadRequest): string[] {
 		...Object.keys(PORTIKUS_UNITS).map((unit) => `--unit=${unit}`),
 	];
 	if (request.reverse) args.push("--reverse");
-	if (request.since) args.push(`--since=${epochSeconds(request.since)}`);
-	if (request.until) args.push(`--until=${epochSeconds(request.until)}`);
+	if (request.since) args.push(`--since=${epochSeconds(request.since, Math.floor)}`);
+	if (request.until) args.push(`--until=${epochSeconds(request.until, Math.ceil)}`);
 	if (request.afterCursor) args.push(`--after-cursor=${request.afterCursor}`);
 	const levels = request.levels ?? [];
 	const all = (Object.keys(LEVEL_PATTERN) as LogLevel[]).every((l) =>
