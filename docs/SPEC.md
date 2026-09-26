@@ -1810,6 +1810,8 @@ P0 should include:
 
 The Running surface is not intended to replace `ps`, `top`, `docker ps`, or a general process manager.
 
+Each row shows the port, then the process or container name with its tags (Docker, reserved port, system service) on a second line, so the name keeps the row's width. A previewable row's first action is a visible **Preview** button named "Preview port <n>" for assistive technology; opening in a new tab and Stop stay icon buttons. The details panel under a selected row is a key-and-value list on the page surface, not terminal-styled. In the tabbed right pane (Files, Checks, Running, Monitor) the tab names the pane, so each pane's heading is kept for screen readers only and no title row repeats it.
+
 ### 18.3 Workspace status
 
 A compact status surface should show information useful to non-technical users.

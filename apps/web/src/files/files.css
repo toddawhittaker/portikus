@@ -141,7 +141,7 @@
 	width: 12px;
 	text-align: center;
 	font-family: var(--font-mono);
-	font-size: 11px;
+	font-size: 12px;
 	font-weight: 600;
 	color: var(--git-modified);
 }
@@ -179,7 +179,7 @@
 .pk-tree-tag {
 	flex: none;
 	color: var(--ink-muted);
-	font-size: 11px;
+	font-size: 12px;
 }
 
 /* A folder in the Move to picker (issue #370). */
@@ -294,4 +294,14 @@
 	white-space: nowrap;
 	font-family: var(--font-mono);
 	font-size: 12px;
+}
+
+/*
+ * A right-pane head that keeps only its action buttons: the tab already
+ * names the pane, so the title is screen-reader-only (Epic 20, ruling 18).
+ * Checks uses it too; this file loads with the right pane.
+ */
+.pk-pane-head.pk-pane-head--actions {
+	justify-content: flex-end;
+	height: 32px;
 }

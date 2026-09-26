@@ -275,3 +275,13 @@ test("the output divider is a keyboard-focusable handle and keeps its height", a
 	expect(sessionStorage.getItem(key)).toBe(saved);
 	expect(document.getElementById("pk-checks-output-panel")?.style.flexGrow).toBe("30");
 });
+
+test("the Checks heading is for screen readers only and Edit checks stays", async () => {
+	stubBrowserApis();
+	stubChecks({ checks: [], error: null, runs: [] });
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	const heading = await screen.findByRole("heading", { level: 2, name: "Checks" });
+	expect(heading.className).toBe("sr-only");
+	expect(screen.getByTestId("checks-edit")).toBeTruthy();
+});

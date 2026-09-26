@@ -158,8 +158,8 @@ export function FilesPane({
 			</TabsContent>
 			<TabsContent value="files" className="pk-pane-panel">
 				<aside className="pk-pane pk-pane--right" aria-label="Files">
-					<div className="pk-pane-head">
-						<h2 className="pk-pane-title">Files</h2>
+					<div className="pk-pane-head pk-pane-head--actions">
+						<h2 className="sr-only">Files</h2>
 						<IconButton icon="plus" label="New file or folder" size="sm" disabled />
 						<IconButton icon="search" label="Find in files" size="sm" disabled />
 						<IconButton icon="more" label="More file actions" size="sm" disabled />
@@ -262,9 +262,7 @@ function RunningSurface({
 		activeTab && activeTab.root.type === "preview" ? activeTab.root.port : null;
 	return (
 		<>
-			<div className="pk-pane-head">
-				<h2 className="pk-pane-title">Running</h2>
-			</div>
+			<h2 className="sr-only">Running</h2>
 			<RunningPane
 				workspaceId={workspaceId}
 				activePort={projectId ? activePort : null}
