@@ -29,9 +29,8 @@ const count = z.number().int().nonnegative();
 const rate = z.number().nonnegative().nullable();
 
 /**
- * Body of `GET /admin/health/series` (docs/EPIC-19.md, "The HealthSeries
- * contract"). Every array holds one entry per bucket that has data, oldest
- * first, keyed by the bucket's start `at`; a bucket with no data is absent,
+ * Body of `GET /admin/health/series` (SPEC.md section 25.6). Every array holds
+ * one entry per bucket that has data, oldest first, keyed by the bucket's start `at`; a bucket with no data is absent,
  * and the chart draws a gap there.
  */
 export const HealthSeries = z.object({

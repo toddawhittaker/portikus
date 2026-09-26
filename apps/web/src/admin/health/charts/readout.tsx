@@ -62,7 +62,7 @@ export interface LegendEntry {
 }
 
 /**
- * The parts every Health chart shares (docs/EPIC-19.md ruling 8): a caption,
+ * The parts every Health chart shares (SPEC.md section 25.6): a caption,
  * one focusable plot whose SVG is `role="img"` named by the summary, gridlines
  * and Y ticks, X time labels, the cursor with a hover and keyboard readout,
  * a polite live region, the visible summary, and a legend when there is more

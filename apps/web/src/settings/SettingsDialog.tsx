@@ -428,7 +428,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 		<DialogRoot open onOpenChange={(open) => !open && onClose()}>
 			<Dialog
 				testId="dialog-editor-settings"
-				className="pk-dialog--fit"
+				className="pk-dialog--fit pk-settings-dialog"
 				size="lg"
 				title="Settings"
 				description="Your settings follow you to any browser you sign in from."
@@ -539,7 +539,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 									{PREFERENCES?.groups.map((group) => (
 										<section
 											key={group.title}
-											className="grid gap-4"
+											className="pk-settings-group grid gap-4"
 											aria-labelledby={`settings-${group.title}`}
 										>
 											<h3
@@ -648,7 +648,7 @@ function KeyboardHelp() {
 			<h2 id="settings-section-keyboard" className="pk-text-heading text-ink">
 				Keyboard and screen readers
 			</h2>
-			<section className="grid gap-3" aria-labelledby="settings-keys">
+			<section className="pk-settings-group grid gap-3" aria-labelledby="settings-keys">
 				<h3 id="settings-keys" className="pk-text-label text-ink">
 					Keys
 				</h3>
@@ -663,7 +663,10 @@ function KeyboardHelp() {
 					))}
 				</dl>
 			</section>
-			<section className="grid gap-3" aria-labelledby="settings-limits">
+			<section
+				className="pk-settings-group grid gap-3"
+				aria-labelledby="settings-limits"
+			>
 				<h3 id="settings-limits" className="pk-text-label text-ink">
 					What the terminal and editor cannot do
 				</h3>
@@ -863,7 +866,10 @@ function ProfilePane({
 			) : null}
 			{ready ? (
 				<>
-					<section className="grid gap-4" aria-labelledby="settings-profile-signin">
+					<section
+						className="pk-settings-group grid gap-4"
+						aria-labelledby="settings-profile-signin"
+					>
 						<h3 id="settings-profile-signin" className="pk-text-label text-ink">
 							{signIn?.title}
 						</h3>
@@ -880,18 +886,22 @@ function ProfilePane({
 									<label className={LABEL_CLASS} htmlFor={`account-${control.id}`}>
 										{control.label}
 									</label>
-									<input
+									{/* A textarea, because an input cannot wrap a long email. */}
+									<textarea
 										id={`account-${control.id}`}
-										type="text"
 										readOnly
+										rows={1}
 										value={signInValue(control.id)}
-										className="pk-focus-ring w-full break-all border-0 bg-transparent p-0 text-[14px] leading-5 text-ink"
+										className="pk-settings-readonly pk-focus-ring w-full border-0 bg-transparent p-0 text-[14px] leading-5 text-ink"
 									/>
 								</div>
 							</ControlFrame>
 						))}
 					</section>
-					<section className="grid gap-4" aria-labelledby="settings-profile-about">
+					<section
+						className="pk-settings-group grid gap-4"
+						aria-labelledby="settings-profile-about"
+					>
 						<h3 id="settings-profile-about" className="pk-text-label text-ink">
 							{about?.title}
 						</h3>
@@ -908,7 +918,10 @@ function ProfilePane({
 							</ControlFrame>
 						))}
 					</section>
-					<section className="grid gap-4" aria-labelledby="settings-profile-linked">
+					<section
+						className="pk-settings-group grid gap-4"
+						aria-labelledby="settings-profile-linked"
+					>
 						<h3
 							id="settings-profile-linked"
 							className="pk-text-label text-ink"

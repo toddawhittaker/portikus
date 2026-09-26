@@ -209,3 +209,20 @@ test("a name filled from a clone URL warns about a clash too", async () => {
 		true,
 	);
 });
+
+/** Issue #608 item 5: one segmented control, exactly one option pressed. */
+test("What to create is a segmented control with one pressed option", async () => {
+	stubLists();
+	open();
+
+	const group = screen.getByRole("group", { name: "What to create" });
+	expect(group.classList.contains("pk-segmented")).toBe(true);
+	const pressed = () =>
+		Array.from(group.querySelectorAll("button")).filter(
+			(button) => button.getAttribute("aria-pressed") === "true",
+		);
+	expect(pressed().map((button) => button.textContent)).toEqual(["New project"]);
+
+	fireEvent.click(screen.getByRole("button", { name: "Clone repository" }));
+	expect(pressed().map((button) => button.textContent)).toEqual(["Clone repository"]);
+});

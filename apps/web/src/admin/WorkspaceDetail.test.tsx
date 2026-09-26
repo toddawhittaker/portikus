@@ -235,7 +235,7 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 	expect(allEvents.getAttribute("href")).toBe(
 		`/admin?tab=audit&workspace=${WORKSPACE.id}`,
 	);
-	// "View logs" replaces the printed journalctl command (docs/EPIC-19.md ruling 36).
+	// "View logs" replaces the printed journalctl command (SPEC.md section 24.11).
 	const viewLogs = within(panel).getByRole("link", { name: "View logs" });
 	expect(viewLogs.getAttribute("href")).toBe(
 		`/admin?tab=logs&workspace=${WORKSPACE.id}&since=1h`,

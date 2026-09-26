@@ -98,7 +98,7 @@ export function stripSummary(
 }
 
 /**
- * The availability strip (docs/EPIC-19.md ruling 14): each bucket is a
+ * The availability strip (SPEC.md section 25.6): each bucket is a
  * column filled by its share of minutes. Outages and missing samples use
  * status-error with a stripe or a dot pattern, so they never rely on colour.
  */

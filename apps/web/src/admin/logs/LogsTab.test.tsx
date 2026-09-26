@@ -105,6 +105,47 @@ test("Auto refresh is a visible toggle with a note saying what it does (WCAG 2.2
 	);
 });
 
+test("Auto refresh stays off when a new filter is applied", async () => {
+	stubLogs(() => json(200, page([logLine(1, { msg: "one" })])));
+	renderApp("/admin?tab=logs");
+	await screen.findByText("one");
+	fireEvent.click(screen.getByRole("button", { name: "Auto refresh" }));
+	fireEvent.click(screen.getByRole("checkbox", { name: "Info" }));
+	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+	await waitFor(() =>
+		expect(screen.getByTestId("logs-refresh-note").textContent).toBe(
+			"Automatic refresh is off.",
+		),
+	);
+	await screen.findByText("one");
+	expect(
+		screen.getByRole("button", { name: "Auto refresh" }).getAttribute("aria-pressed"),
+	).toBe("false");
+});
+
+test("Refresh announces the count again even when it has not changed", async () => {
+	stubLogs((params) =>
+		params.get("cursor")
+			? json(200, page([logLine(1, { msg: "older" })], cursor(1)))
+			: json(
+					200,
+					page([logLine(5, { msg: "newest" }), logLine(4, { msg: "next" })], cursor(4)),
+				),
+	);
+	renderApp("/admin?tab=logs");
+	await screen.findByText("newest");
+	fireEvent.click(screen.getByRole("button", { name: "Load older lines" }));
+	await screen.findByText("older");
+	const announce = screen.getByTestId("logs-announce");
+	const seen: string[] = [];
+	const observer = new MutationObserver(() => seen.push(announce.textContent ?? ""));
+	observer.observe(announce, { childList: true, subtree: true, characterData: true });
+	fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+	await waitFor(() => expect(seen.at(-1)).toMatch(/^2 lines/));
+	observer.disconnect();
+	expect(seen).toContain("");
+});
+
 test("older pages keep the first page's start time, so a preset window does not slide", async () => {
 	const requested = stubLogs((params) =>
 		params.get("cursor")
@@ -349,4 +390,12 @@ test("a bad ID or no level is refused in the form", async () => {
 	await waitFor(() =>
 		expect(document.activeElement).toBe(screen.getByLabelText("Workspace ID")),
 	);
+
+	// Enter in the bad field itself: focus leaves and returns, so the error is heard again.
+	const workspace = screen.getByLabelText("Workspace ID");
+	const focused = vi.fn();
+	workspace.addEventListener("focus", focused);
+	fireEvent.submit(workspace.closest("form") as HTMLFormElement);
+	expect(focused).toHaveBeenCalledTimes(1);
+	expect(document.activeElement).toBe(workspace);
 });

@@ -365,7 +365,7 @@ export interface NotificationsTable {
 
 /**
  * The API's response totals for one minute: counts and a latency histogram,
- * nothing that names a route, user or workspace (docs/EPIC-19.md ruling 20).
+ * nothing that names a route, user or workspace (SPEC.md section 25.6).
  */
 export interface ApiRequestSamplesTable {
 	minute: Date;

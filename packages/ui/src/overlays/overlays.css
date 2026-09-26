@@ -87,6 +87,10 @@
 	box-shadow: var(--shadow-lg);
 	z-index: var(--z-dialog);
 }
+/* Controls keep their own focus rings; the dialog box itself needs none. */
+.pk-dialog:focus {
+	outline: none;
+}
 .pk-dialog--inline {
 	position: absolute;
 }
@@ -123,6 +127,10 @@
 	border-radius: var(--radius-full);
 	background: var(--status-danger-soft);
 	color: var(--status-danger);
+}
+.pk-dialog-status--neutral {
+	background: var(--surface-sunken);
+	color: var(--ink);
 }
 .pk-consequence {
 	display: grid;

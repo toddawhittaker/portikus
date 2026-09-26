@@ -127,8 +127,11 @@ export function registerRequestLogging<Log extends FastifyBaseLogger>(
 		const log = request.log;
 		// Anyone can request an unknown path, so it must not flood the warn lines.
 		const unmatched = status === 404 && request.routeOptions.url === undefined;
+		// A signed-out browser polling /me is routine, not a warning.
+		const signedOut = status === 401 && line.userId === undefined;
 		if (status >= 500) log.error(line, "request");
 		else if (unmatched) log.debug(line, "request");
+		else if (signedOut) log.info(line, "request");
 		else if (status >= 400) log.warn(line, "request");
 		else if (opts.debugPaths.includes(path)) log.debug(line, "request");
 		else log.info(line, "request");

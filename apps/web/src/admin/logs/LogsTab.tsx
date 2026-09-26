@@ -83,7 +83,7 @@ const FIELD_IDS: Record<Exclude<(typeof FIELD_ORDER)[number], "levels">, string>
 export const INVALID_ID_TEXT = "Enter a full ID, as shown in the detail panel.";
 
 /**
- * The Logs tab (docs/EPIC-19.md rulings 31 to 36): the platform's own JSON
+ * The Logs tab (SPEC.md section 24.11): the platform's own JSON
  * lines from the journal, filtered by the URL, newest first.
  */
 export function LogsTab() {
@@ -94,6 +94,8 @@ export function LogsTab() {
 	const [draft, setDraft] = useState(() => draftOf(filters));
 	const [draftKey, setDraftKey] = useState(key);
 	const [invalid, setInvalid] = useState<Record<string, string>>({});
+	// Kept here, not in the results, so a new filter does not reset it.
+	const [auto, setAuto] = useState(true);
 	const formRef = useRef<HTMLFormElement>(null);
 	// A new link (a chart bar, "View logs") refills the form.
 	if (draftKey !== key) {
@@ -127,6 +129,8 @@ export function LogsTab() {
 				first === "levels"
 					? formRef.current?.querySelector<HTMLElement>("[data-level-checks] input")
 					: document.getElementById(FIELD_IDS[first]);
+			// Focusing the field that already has focus says nothing, so leave it first.
+			if (target && target === document.activeElement) target.blur();
 			target?.focus();
 			return;
 		}
@@ -296,7 +300,7 @@ export function LogsTab() {
 				</div>
 			</form>
 			{/* Only the results re-key on new filters, so the focused form button stays. */}
-			<LogResults key={key} filters={filters} />
+			<LogResults key={key} filters={filters} auto={auto} setAuto={setAuto} />
 		</AdminSection>
 	);
 }
@@ -341,8 +345,15 @@ export function partialText(canContinue: boolean): string {
 		: "The search stopped at its time limit before it found a line. Narrow the time range and try again.";
 }
 
-function LogResults({ filters }: { filters: LogFilters }) {
-	const [auto, setAuto] = useState(true);
+function LogResults({
+	filters,
+	auto,
+	setAuto,
+}: {
+	filters: LogFilters;
+	auto: boolean;
+	setAuto: (auto: boolean) => void;
+}) {
 	const pages = useLogPages(filters, auto);
 	const client = useQueryClient();
 	const loaded = pages.data?.pages ?? [];
@@ -387,6 +398,8 @@ function LogResults({ filters }: { filters: LogFilters }) {
 
 	function refresh() {
 		announceNext.current = true;
+		// Cleared first, so an unchanged count is still announced.
+		setAnnouncement("");
 		void client.resetQueries({ queryKey: logPagesKey(filters), exact: true });
 		// Refresh leaves once the list starts over, so the heading takes focus.
 		focusAdminHeading();

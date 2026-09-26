@@ -8,7 +8,7 @@ import { bucketInterval, type SeriesWindow } from "./range.js";
  * The response time below which `fraction` of the counted requests fall,
  * interpolated linearly inside the bucket that holds it. The overflow bucket
  * has no upper bound, so it reports its lower bound. Null when empty
- * (docs/EPIC-19.md ruling 22).
+ * (SPEC.md section 25.6).
  */
 export function latencyPercentile(
 	buckets: readonly number[],

@@ -3,7 +3,7 @@ import { createStudent, loginAs, settledAxe, WEB_ORIGIN } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Logs tab with
- * a row expanded, in both themes (docs/EPIC-19.md, "After every task").
+ * a row expanded, in both themes (SPEC.md section 24.11).
  */
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`the Logs tab has no automatic accessibility violations (${colorScheme})`, async ({

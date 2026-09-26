@@ -9,7 +9,7 @@ function numberOrNull(value: number | string | null): number | null {
 
 /**
  * Availability, running count, CPU %, network and disk per bucket from the
- * worker's `health_samples` (docs/EPIC-19.md rulings 4, 14 to 17). Minutes
+ * worker's `health_samples` (SPEC.md section 25.6). Minutes
  * are counted once however many samples fall in them. The running count and
  * CPU % are the bucket's maximum; throughput is its average. Samples from
  * before Epic 19 have no rates or count, so those values are null.

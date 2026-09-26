@@ -141,7 +141,7 @@
 	width: 12px;
 	text-align: center;
 	font-family: var(--font-mono);
-	font-size: 11px;
+	font-size: 12px;
 	font-weight: 600;
 	color: var(--git-modified);
 }
@@ -179,7 +179,7 @@
 .pk-tree-tag {
 	flex: none;
 	color: var(--ink-muted);
-	font-size: 11px;
+	font-size: 12px;
 }
 
 /* A folder in the Move to picker (issue #370). */

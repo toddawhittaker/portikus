@@ -21,7 +21,7 @@ export function formatMs(value: number): string {
 
 /**
  * The API's request rate, error rate and response time over the range
- * (docs/EPIC-19.md ruling 25, issue #599).
+ * (SPEC.md section 25.6, issue #599).
  */
 export function ApiCharts({
 	series,

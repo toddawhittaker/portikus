@@ -441,6 +441,8 @@ If an authenticated user opens the platform and the assigned workspace is stoppe
 
 If the workspace is stopped because the student stopped it by hand, the platform does not start it again on its own. The work area says the workspace is stopped and offers a button that starts it, which is the same request as the Start button in the workspace dialog. The platform never shows starting progress while no start has been requested.
 
+Loading skeletons appear only while the workspace is connecting, starting or reopening tabs; a stopped or failed workspace shows a plain message in the side panes instead. If the workspace failed to start, the work area offers "Try again", which is the same start request, and "Workspace details", which opens the workspace dialog. The raw error message and code sit under a collapsed "Technical details".
+
 Target cold-start performance is defined in the non-functional requirements.
 
 ### 6.4 Disconnect grace period
@@ -745,6 +747,10 @@ browser; it is not saved.
 
 Terminal panes must additionally support splitting.
 
+When a project has no tabs open, the centre pane says "No terminals open" and
+offers two buttons: "Open a terminal" (primary) and "Start Claude Code". The
+tab strip's "+" button, labelled "New tab", holds the rest (Codex, previews).
+
 ### 8.4 Right pane
 
 The right pane contains the selected project's file tree and Git decorations.
@@ -756,6 +762,13 @@ seconds, warnings and errors after 10. The timer pauses while the
 pointer or keyboard focus is on the toast, and the close button stays.
 A toast that carries an action the user must answer, such as replacing
 a file that already exists, stays until it is answered.
+
+Archiving a project is reversible, so its menu item and confirmation are
+neutral (primary button, no red), and it ends with a success toast
+"<name> archived" that says where to find it. Duplicating ends with a
+success toast "<new name> created". Renaming shows no toast.
+The shared confirmation dialog is destructive (danger button, red) by
+default and has a neutral form for reversible actions such as archiving.
 
 Every toast shown is also recorded as a notification with its tone,
 title, body text, time, and whether it has been read. Notifications are
@@ -1467,6 +1480,8 @@ The user may:
 - open the service within the center pane;
 - open it in a separate browser tab/window.
 
+In the "Open a preview" dialog each listening port is a bordered row with a trailing chevron, so it reads as a button. The Preview tab's toolbar holds the host, Back, Forward, Reload and Open in new tab; a "More preview actions" menu holds Copy URL, the frame width (one checkable item per width), Reset preview data and Show in Running.
+
 ### 14.7 Port discovery
 
 The workspace agent should detect listening TCP ports.
@@ -1797,6 +1812,8 @@ P0 should include:
 
 The Running surface is not intended to replace `ps`, `top`, `docker ps`, or a general process manager.
 
+Each row shows the port, then the process or container name with its tags (Docker, reserved port, system service) on a second line, so the name keeps the row's width. A previewable row's first action is a visible **Preview** button named "Preview port <n>" for assistive technology; opening in a new tab and Stop stay icon buttons. The details panel under a selected row is a key-and-value list on the page surface, not terminal-styled. In the tabbed right pane (Files, Checks, Running, Monitor) the tab names the pane, so each pane's heading is kept for screen readers only and no title row repeats it.
+
 ### 18.3 Workspace status
 
 A compact status surface should show information useful to non-technical users.
@@ -1812,6 +1829,8 @@ P0 should include:
 - configured check/test status when a recent result exists.
 
 Error messages must suggest a next action where possible.
+
+The "Your workspace" dialog, opened from the status bar, puts the state and its Restart and Stop (or Start) buttons first. Below them come "Storage", with one meter per class that also states its figure as text ("X of Y"); "Docker", with Reset Docker and a line saying what it throws away and what it keeps; the rebuild note; and a collapsed "Technical details" with the desired state, connections and image.
 
 ### 18.4 Recognized run/build commands
 
@@ -1853,7 +1872,9 @@ workspace has nothing to measure, and the UI says the figures are available
 when it runs. The status bar warns at 80% of any class and names it. At 95%
 the message also names a next step: Reset Docker or `docker system prune`
 for Docker, automatic removal of older points for Recovery, and deleting
-files for Projects & home. Quotas are environment configuration in this
+files for Projects & home. The warning, like the workspace state beside it, is a bordered
+button that opens the workspace dialog, and it keeps its warning or error
+colour. Quotas are environment configuration in this
 epic; changing them at runtime is Epic 11.
 
 ### 19.3 Denial behavior
@@ -1914,7 +1935,8 @@ P0 administration must support:
 - inspect base-image version;
 - view recent lifecycle/audit events;
 - archive or disable a user workspace;
-- revoke platform access.
+- revoke platform access;
+- view the platform's own error, warning, info and debug log lines (Epic 19, section 24.11).
 
 As built (Epic 11, ADR 0022): revoking access and disabling are one action,
 Disable account, which ends the user's sessions and preview sessions and
@@ -1927,7 +1949,8 @@ process limits are shown but not edited. An account is marked stale after
 signed in more recently; nothing is merged automatically. An administrator
 sees a workspace's aggregates (CPU, memory, disk, port numbers, short
 process names) but never its files, terminals, or process command lines.
-Logs stay in journald; the admin page has no log viewer.
+Logs stay in journald; since Epic 19 (ADR 0036) the admin page's Logs
+tab shows the platform's own lines from it (section 24.11).
 
 Added by Epic 14.3 (section 19.4, ADR 0032): administrators see throttled
 and flagged workspaces as **Throttled** and **High memory** tags in the
@@ -2429,7 +2452,28 @@ Health tab's Trends card has a stacked errors and warnings bar chart from
 `GET /admin/logs/counts`, with warnings hatched; a click anywhere in a
 bucket's column opens the Logs tab for its time span and the level under
 the pointer, and from the keyboard Up and Down pick the level, announced,
-and Enter opens it. Reading logs is not audited.
+and Enter opens it. Reading logs is not audited, because it is a read by
+an administrator like the Audit tab and a row per refresh would be noise.
+
+How the journal is read (Epic 19, ADR 0036): only the units
+`portikus-api.service`, `portikus-worker.service` and
+`portikus-controller.service`, always named by the API. `journalctl` is
+spawned from `JOURNALCTL_PATH` with an argument array and no shell;
+request text never reaches an argument, and the text, user and workspace
+filters run in the API after parsing. Only the API process has the
+`systemd-journal` group, through its systemd unit. One request reads at
+most 20,000 entries or 5 seconds and says when it stopped short; at most
+two reads run at once, and a third gets 429 `RATE_LIMITED`; a missing or
+refused `journalctl` gives 503 `LOGS_UNAVAILABLE`. Lines that are not
+Portikus JSON (systemd's own lines, raw stack traces) are skipped and
+counted. Every line is redacted with the logger's own list of sensitive
+keys before it leaves the server. A workspace filter also matches the
+controller's `instance` field for that workspace. The errors chart's
+counts are kept in the API's memory at one-minute resolution for 7 days
+and fill in over several requests; until the window is counted the chart
+says "Still counting older lines". Workspace agents' logs, Dex, Caddy
+and PostgreSQL lines are not shown; `journalctl` on the VM remains the
+tool for those and for when the API is down (OPERATIONS.md).
 
 ### 24.12 Dependency/security maintenance
 
@@ -2557,6 +2601,34 @@ ranges; stopped workspaces have none. Two count charts show guard events
 (throttles, memory flags, idle stops, and lifts) and activity (start
 requests, stop requests including idle stops, and successful sign-ins)
 per bucket from the audit log, with totals for the range as the summary.
+
+As built (Epic 19, platform): the controller measures host CPU %,
+network and disk throughput from `/proc` as deltas against its previous
+reading (`HostSnapshot.rates`, null on the first reading after a restart
+or when a counter goes backwards). Network counts only the default-route
+interface, and disk only whole block devices, not `loop`, `ram`, `zram`
+or `dm-` devices, so nothing is counted twice. The worker stores the
+running workspace count from the database in each health sample.
+Percentages, load, CPU % and the running count use the bucket's maximum;
+throughput uses the average bytes per second; counts are sums. An
+availability strip shows, per bucket, the share of minutes with a sample
+and where the controller was unreachable, with a pattern as well as
+colour. Buckets with no data are left out of the series, and charts draw
+a gap.
+
+As built (Epic 19, API requests): the API counts every response per
+minute in memory (requests, 4xx, 5xx, WebSocket upgrades apart from
+requests and latency, and a latency histogram with bounds 5 ms to 10 s
+plus an overflow bucket), except `/health` polls, and adds the totals to
+`api_request_samples` once a minute and at shutdown. It stores no route,
+path, user or workspace. A failed write is logged and dropped, and the
+API prunes rows older than 7 days at most once an hour. The Trends card
+charts the request rate, the 4xx and 5xx share, and the median and 95th
+percentile response time, interpolated inside the histogram bucket.
+
+Request lines are logged at warn for 4xx answers, except an unmatched
+path (404) at debug and a 401 without a session at info, so a signed-out
+browser polling `/me` does not fill the Warn view or the errors chart.
 
 ### 25.7 Maintainability
 
@@ -2752,6 +2824,8 @@ ENOSPC
 ```
 
 Technical details should remain available for administrators and debugging.
+
+When a workspace fails to start and the workspace agent still reports storage figures, the error screen shows the storage meters. It offers "Clean up Docker…" (the Reset Docker confirmation) only when the error is `STORAGE_FULL` and Docker storage is at the critical level, because resetting Docker when project storage is what filled up would destroy data for nothing.
 
 ## 29. Epics and rough implementation effort
 
@@ -3422,6 +3496,41 @@ Acceptance:
 
 - the admin content is at most 1440 px wide and the Users table does not scroll sideways at 1280 px with the detail panel open;
 - each bulk-rebuilt workspace gets its own audit row, and a pending operation counts as skipped, not failed.
+
+### Epic 20 — Student interface polish
+
+Built on `epic/20-student-ux` from the student interface review of 2026-09-26 (issues #608 and #609). No migrations, contract changes or infrastructure. See sections 6.3, 8.3, 8.5, 14.6, 18.2, 18.3, 19.2 and 28 for the rules.
+
+Includes:
+
+- bordered status-bar buttons that keep their warning and error colours;
+- a way forward from each stuck screen: buttons on the empty work area, "Try again" and "Workspace details" on the error screen, and "Restart workspace…" on the throttle notice;
+- loading skeletons only while the workspace is starting;
+- neutral archiving with success toasts for archive and duplicate, and a segmented "What to create" choice in New project;
+- clickable preview picker rows and a Preview toolbar with a More menu;
+- right-pane headings kept for screen readers only, a visible Preview button on Running rows, and readable panel heads;
+- a reordered workspace dialog with storage meters, shared with the error screen;
+- clearer Settings groups, wrapping read-only values and a taller Settings dialog.
+
+Acceptance:
+
+- every button a student needs looks like a button, and each stuck screen offers a next step;
+- the error screen never offers a Docker reset unless Docker storage is what filled up.
+
+### Epic 19 — Admin observability
+
+Built on `epic/19-admin-observability` (issues #476, #597, #598, #599 and #603). See sections 20.1, 24.11 and 25.6, ADR 0036 and STACK.md section 15 for the rules.
+
+Includes:
+
+- a Health tab in three rows with a Trends card of hand-drawn SVG charts over 1 hour, 6 hours, 1 day or 7 days, from one `GET /admin/health/series` route;
+- host charts (pool, memory, load, CPU %, network, disk, running workspaces and availability), a per-workspace heat map, guard event and activity counts, and API request rate, error rate and response time from a new `api_request_samples` table;
+- a Logs tab reading the three Portikus units' journal lines through `journalctl`, filtered, redacted and linkable, with "View logs" links from the detail panel and an errors and warnings chart on Health.
+
+Acceptance:
+
+- an administrator can find a platform warning from the browser without a shell on the VM, and a student gets 403 on every logs and series route;
+- only the API process can read the journal, and no request text reaches a `journalctl` argument.
 
 ### Estimated total
 

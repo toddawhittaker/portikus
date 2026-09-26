@@ -112,7 +112,7 @@ function safeUuid(value: unknown): string | undefined {
  * `tab` names the admin tab so it can be linked; `workspace`, `user` and
  * `action` are the Audit tab's filters (SPEC.md §24.11). The Logs tab
  * shares `workspace` and `user` and adds `level`, `service`, `since`,
- * `until` and `q` (docs/EPIC-19.md ruling 32).
+ * `until` and `q` (SPEC.md section 24.11).
  */
 const adminRoute = createRoute({
 	getParentRoute: () => rootRoute,

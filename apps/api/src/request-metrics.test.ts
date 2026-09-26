@@ -10,7 +10,7 @@ import {
 	registerRequestMetrics,
 } from "./request-metrics.js";
 
-/** Per-minute API totals (docs/EPIC-19.md rulings 21 to 24, issue #599). */
+/** Per-minute API totals (SPEC.md section 25.6, issue #599). */
 
 describe("latencyBucket", () => {
 	test("puts a time in the first bucket whose bound it does not exceed", () => {

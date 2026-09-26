@@ -2849,3 +2849,94 @@ Gaps:
 - No per-row "more" menus and no tablet layout.
 - The detail panel's storage meters do not share the student side's
   StorageMeters thresholds.
+
+## Epic 20 — Student interface polish
+
+Built on `epic/20-student-ux` from the student interface review of
+2026-09-26 (issues #608 and #609). Only `apps/web`, `packages/ui` and the
+end-to-end tests changed; there are no migrations, contract changes or
+infrastructure changes. The rules are in SPEC.md sections 6.3, 8.3, 8.5,
+14.6, 18.2, 18.3, 19.2 and 28, and DESIGN.md section 9 records where the
+build departs from the mockups on purpose.
+
+Delivered:
+
+- The status bar's state and storage-warning items are bordered buttons,
+  and the warning keeps its warning or error colour.
+- Each stuck screen has a way forward. The empty work area offers "Open
+  a terminal" and "Start Claude Code". The error screen offers "Try
+  again" and "Workspace details", with the raw error under a collapsed
+  "Technical details". The throttle notice's "Restart workspace…" opens
+  the workspace dialog with the restart confirmation on top.
+- Loading skeletons show only while the workspace is starting; stopped
+  and failed workspaces show a plain message in the side panes.
+- `ConfirmDialog` in `packages/ui` gained a neutral form. Archiving uses
+  it and ends with a success toast, as does Duplicate. New project's
+  "What to create" is a segmented control, and "Saved" is plain text.
+- The Preview picker's rows look clickable, and the Preview toolbar
+  moved Copy URL, width, Reset preview data and Show in Running into a
+  More menu.
+- The right-pane tabs no longer repeat their titles (the headings stay
+  for screen readers). Running rows have a visible Preview button and
+  tags on a second line, and the panel heads are readable in the light
+  theme.
+- The workspace dialog moved into its own file and puts its actions
+  first, then storage meters, Docker, the rebuild note and technical
+  details. The error screen shares the meters.
+- Settings groups have clearer titles, long read-only values wrap, the
+  dialog can grow taller, and Appearance comes first.
+- After a phase change on the starting screen, focus moves to the
+  heading only when the button that had it vanished; focus elsewhere,
+  such as on a status-bar button, is left alone.
+
+Gaps:
+
+- The workspace usage figures are not served while the workspace is in
+  error, so the error screen's meters and "Clean up Docker…" do not
+  appear yet (BACKLOG, "Workspace usage in the error state").
+- A restart confirmation opened before the workspace starts moving does
+  nothing on confirm (BACKLOG).
+- "Reset preview data" still acts without a confirmation, and issue
+  #607's resource notices are left to their own epic (BACKLOG).
+
+## Epic 19 — Admin observability
+
+The rules are in SPEC.md sections 20.1, 24.11 and 25.6, ADR 0036 and
+STACK.md section 15. Task PRs #666, #667, #671, #672, #673, #677 and #683
+on `epic/19-admin-observability`, plus the final sync and fold; issues
+#476, #597, #598, #599 and #603.
+
+Delivered:
+
+- The Health tab is in three rows: Platform and Resource guard, a
+  full-width Trends card, then Failures and Workspaces by state.
+- The Trends card has a range control (1 hour, 6 hours, 1 day, 7 days,
+  remembered per browser) and hand-drawn SVG charts with axes, legends,
+  text summaries and a keyboard readout, all from one
+  `GET /admin/health/series` route.
+- Charts cover pool and memory use, load, host CPU %, network and disk
+  (measured by the controller), running workspaces, availability, a
+  per-workspace heat map, guard events, activity, and the API's request
+  rate, error rate and response time. The API writes per-minute totals
+  to the new `api_request_samples` table (migration 0022).
+- A Logs tab shows the three Portikus services' JSON lines from the
+  journal, filtered by level, service, time, text, user and workspace,
+  with the filters in the URL and every line redacted. The detail panel
+  links to it, and the Health tab has an errors and warnings chart whose
+  bars open it.
+- Only the API process has the `systemd-journal` group. A 401 without a
+  session is logged at info, so signed-out polling does not fill the
+  Warn view.
+
+Gaps:
+
+- The rehearsal on a throwaway VM (the plan's T6: journal access,
+  `--grep` and backwards paging on Debian 13, plausible host rates, and
+  the new smoke and security checks) had not run when the plan was
+  folded; it runs before the epic merges.
+- The heat map's cell values are not readable by sighted keyboard users;
+  the Peak column is the summary.
+- Everything under "Left out of Epic 19" in BACKLOG.md: per-route
+  request figures, custom windows, agent, Dex, Caddy and PostgreSQL lines,
+  non-JSON lines, alerts, longer per-workspace history, faster sampling
+  and OpenTelemetry.

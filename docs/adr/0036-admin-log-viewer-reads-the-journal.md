@@ -1,6 +1,6 @@
 # 0036. The admin Logs tab reads the journal through journalctl
 
-- **Status**: Accepted
+- **Status**: Accepted; built by Epic 19
 - **Date**: 2026-09-26
 - **References**: STACK.md section 15, SPEC.md sections 24.11 and 25.6, ADR 0012, issue #476
 
@@ -28,7 +28,7 @@ administrators only. Reading logs is not audited, like reading the audit log.
   `__REALTIME_TIMESTAMP`; the three units `portikus-api.service`,
   `portikus-worker.service` and `portikus-controller.service`, always passed
   by the API; `--since` and `--until` as epoch seconds the server computed from
-  validated dates; `--after-cursor` with a cursor that matched journald's
+  validated dates, rounded outwards so a slice never skips lines at its edges; `--after-cursor` with a cursor that matched journald's
   syntax; and `--grep` built only from a fixed map of level names. Text, user
   and workspace filters run in the API after parsing, so request text never
   reaches an argument.

@@ -2,7 +2,7 @@ import { type Browser, expect, type Page, test } from "@playwright/test";
 import { createStudent, loginAs, query, WEB_ORIGIN } from "./helpers";
 
 /**
- * The Logs tab (docs/EPIC-19.md rulings 31 to 37, issue #476). The e2e API's
+ * The Logs tab (SPEC.md section 24.11, issue #476). The e2e API's
  * standard output is the fake journalctl's journal, so a warning the API
  * really logs shows up here. Each test makes its own student, so it can
  * filter to lines no other test wrote. The API runs at most two journalctl

@@ -47,6 +47,16 @@ describe("journalArgs", () => {
 		expect(args).not.toContain("--reverse");
 	});
 
+	test("--until rounds up so a slice ending mid-second keeps its last lines", () => {
+		const args = journalArgs({
+			reverse: true,
+			since: new Date("2026-09-26T12:00:07.499Z"),
+			until: new Date("2026-09-26T12:00:07.499Z"),
+		});
+		expect(args).toContain("--since=@1790424007");
+		expect(args).toContain("--until=@1790424008");
+	});
+
 	test("all four levels need no --grep", () => {
 		const args = journalArgs({
 			reverse: true,

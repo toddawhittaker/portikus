@@ -11,7 +11,7 @@ import { UsageHeatMap } from "./UsageHeatMap.js";
 
 /**
  * The Trends card: the range control and every chart for that range, two
- * per row from 1280 px (docs/EPIC-19.md rulings 5, 6 and 9).
+ * per row from 1280 px (SPEC.md section 25.6).
  */
 export function TrendsCard({ warnPercent }: { warnPercent: number }) {
 	const [range, setRange] = useHealthRange();

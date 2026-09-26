@@ -144,7 +144,7 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 	expect(within(nav).getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
 		"/admin?tab=settings",
 	);
-	// Logs sits between Audit and Health (docs/EPIC-19.md, T5).
+	// Logs sits between Audit and Health (SPEC.md section 24.11).
 	expect(
 		within(nav)
 			.getAllByRole("link")

@@ -5,7 +5,7 @@ import { bucketInterval, type SeriesWindow } from "./range.js";
 
 /**
  * Pool and memory percentages and the three load averages, the maximum in
- * each bucket, from the worker's `health_samples` (docs/EPIC-19.md ruling 4).
+ * each bucket, from the worker's `health_samples` (SPEC.md section 25.6).
  * Samples taken while the controller was unreachable have no host and are
  * left out, so their buckets are gaps.
  */

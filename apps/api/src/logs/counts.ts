@@ -101,8 +101,8 @@ export class LogCounter {
 	/**
 	 * Count [from, to) and return the new frontier: the far end when the read
 	 * finished, or the last entry's time when it hit the scan cap. journalctl's
-	 * --since and --until are whole seconds and inclusive, so entries outside
-	 * [from, to) are dropped here.
+	 * --since and --until are whole seconds (rounded outwards) and inclusive,
+	 * so entries outside [from, to) are dropped here.
 	 */
 	private async countSlice(
 		from: number,

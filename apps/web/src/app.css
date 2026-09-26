@@ -240,6 +240,7 @@ body {
 .pk-account:hover {
 	background: var(--surface-hover);
 }
+.pk-summary:focus-visible,
 .pk-account:focus-visible,
 .pk-wsbutton:focus-visible,
 button.pk-statusbar-item:focus-visible {
@@ -255,7 +256,7 @@ button.pk-statusbar-item:focus-visible {
 	background: var(--surface-sunken);
 	border: 1px solid var(--line);
 	color: var(--ink-muted);
-	font-size: 11px;
+	font-size: 12px;
 	font-weight: 600;
 }
 /* Notifications (SPEC.md section 8.5) */
@@ -275,7 +276,7 @@ button.pk-statusbar-item:focus-visible {
 	background: var(--status-danger);
 	color: var(--on-danger);
 	font: inherit;
-	font-size: 10px;
+	font-size: 12px;
 	font-weight: 700;
 	line-height: 14px;
 	cursor: pointer;
@@ -376,6 +377,14 @@ button.pk-statusbar-item:focus-visible {
 	height: 40px;
 	padding: 0 var(--space-1) 0 var(--space-4);
 	overflow: hidden;
+}
+/*
+ * A right-pane head that keeps only its action buttons: the tab already
+ * names the pane, so the title is screen-reader-only (Epic 20, ruling 18).
+ */
+.pk-pane-head.pk-pane-head--actions {
+	justify-content: flex-end;
+	height: 32px;
 }
 /* Keep the head's buttons on screen when the pane is dragged narrow. */
 .pk-pane-head .pk-iconbtn {
@@ -561,50 +570,6 @@ button.pk-statusbar-item:focus-visible {
 .pk-dl dd {
 	margin: 0;
 }
-.pk-meters {
-	display: grid;
-	gap: var(--space-4);
-}
-.pk-meter {
-	display: grid;
-	gap: var(--space-1\.5);
-}
-.pk-meter-head {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: var(--space-3);
-	font-size: 13px;
-	line-height: 18px;
-}
-.pk-meter-label {
-	font-weight: 500;
-	color: var(--ink);
-}
-.pk-meter-value {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-1);
-	color: var(--ink-muted);
-	font-variant-numeric: tabular-nums;
-}
-.pk-meter-track {
-	height: 6px;
-	border-radius: var(--radius-xs);
-	background: var(--surface-hover);
-	overflow: hidden;
-}
-.pk-meter-fill {
-	height: 100%;
-	background: var(--accent);
-}
-.pk-meter--warning .pk-meter-fill {
-	background: var(--status-warning);
-}
-.pk-meter--warning .pk-meter-value {
-	color: var(--status-warning);
-	font-weight: 600;
-}
 
 /* StatusBar */
 .pk-statusbar {
@@ -627,15 +592,21 @@ button.pk-statusbar-item:focus-visible {
 	gap: var(--space-1\.5);
 	white-space: nowrap;
 }
+/* No colour here, so the tone classes win; see .pk-statusbar-plain. */
 button.pk-statusbar-item {
+	box-sizing: border-box;
+	height: 20px;
 	margin: 0;
-	padding: 0;
-	border: 0;
+	padding: 0 var(--space-2);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-sm);
 	background: transparent;
-	color: inherit;
 	font: inherit;
 	line-height: inherit;
 	cursor: pointer;
+}
+.pk-statusbar-plain {
+	color: var(--ink-muted);
 }
 button.pk-statusbar-item:hover {
 	background: var(--surface-hover);
@@ -797,6 +768,59 @@ button.pk-statusbar-item:hover {
 	font-size: 12px;
 	line-height: 16px;
 	color: var(--ink);
+}
+
+/* Storage meters in the workspace dialog, on the error screen and in the admin detail panel (design/mockups/portikus-screens.css). */
+.pk-meters {
+	display: grid;
+	gap: var(--space-4);
+}
+.pk-meter {
+	display: grid;
+	gap: 6px;
+}
+.pk-meter-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-3);
+	font-size: 13px;
+	line-height: 18px;
+}
+.pk-meter-label {
+	font-weight: 500;
+	color: var(--ink);
+}
+.pk-meter-value {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--ink-muted);
+	font-variant-numeric: tabular-nums;
+}
+.pk-meter-track {
+	height: 6px;
+	border-radius: var(--radius-xs);
+	background: var(--surface-hover);
+	overflow: hidden;
+}
+.pk-meter-fill {
+	height: 100%;
+	background: var(--accent);
+}
+.pk-meter--warning .pk-meter-fill {
+	background: var(--status-warning);
+}
+.pk-meter--warning .pk-meter-value {
+	color: var(--status-warning);
+	font-weight: 600;
+}
+.pk-meter--full .pk-meter-fill {
+	background: var(--status-error);
+}
+.pk-meter--full .pk-meter-value {
+	color: var(--status-error);
+	font-weight: 600;
 }
 
 /* The Git line of the status bar is muted when there is no repository. */

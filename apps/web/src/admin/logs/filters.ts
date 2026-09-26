@@ -27,7 +27,7 @@ export const DEFAULT_LEVELS: readonly LogLevel[] = ["error", "warn"];
 export const DEFAULT_WINDOW: LogWindow = "1d";
 
 /**
- * The Logs tab's filters (docs/EPIC-19.md ruling 32). `since` is a preset
+ * The Logs tab's filters (SPEC.md section 24.11). `since` is a preset
  * window or an ISO time; `until` is an ISO time or empty for "now". Empty
  * `services` means every service; empty strings mean "any".
  */
