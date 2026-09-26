@@ -32,6 +32,12 @@ const OLD = project({
 	archivedAt: "2026-02-01T00:00:00.000Z",
 });
 
+const COPY = project({
+	id: "88888888-8888-4888-8888-888888888888",
+	slug: "todo-api-copy",
+	name: "todo-api copy",
+});
+
 afterEach(() => vi.unstubAllGlobals());
 
 /** Mounts the shell on the todo-api project with the given project lists. */
@@ -40,8 +46,10 @@ async function mount(
 	archived = [OLD],
 	path = `/workspaces/${WORKSPACE.id}/projects/${TODO.id}`,
 ) {
-	stubFetch((url) => {
+	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, USER);
+		if (init?.method === "PATCH") return json(200, { ...TODO, state: "archived" });
+		if (url.endsWith("/duplicate")) return json(200, COPY);
 		if (url.endsWith("/templates")) return json(200, { templates: [] });
 		if (url.includes("state=archived")) return json(200, { projects: archived });
 		if (url.includes("/projects")) return json(200, { projects: active });
@@ -206,4 +214,33 @@ test("with no projects at all the centre invites you to make one", async () => {
 	await mount([], [], `/workspaces/${WORKSPACE.id}`);
 
 	expect(await screen.findByTestId("empty-projects")).toBeDefined();
+});
+
+/** Issue #608 item 9: archiving is reversible, so it is not styled as danger. */
+test("archive is a neutral action and confirms with a success toast", async () => {
+	await mount();
+	openMenu(TODO.id);
+	const item = screen.getByTestId("project-archive").closest(".pk-menu-item");
+	expect(item?.classList.contains("pk-menu-item--danger")).toBe(false);
+	fireEvent.click(screen.getByTestId("project-archive"));
+
+	const surface = await screen.findByTestId("dialog-archive-project");
+	const confirm = within(surface).getByTestId("dialog-confirm");
+	expect(confirm.className).not.toContain("bg-status-danger");
+	fireEvent.click(confirm);
+
+	const toast = await screen.findByText(`${TODO.name} archived`);
+	expect(toast).toBeDefined();
+	expect(screen.getByText("Find it under Archived projects.")).toBeDefined();
+});
+
+test("duplicating shows a success toast naming the new project", async () => {
+	await mount();
+	openMenu(TODO.id);
+	fireEvent.click(screen.getByTestId("project-duplicate"));
+
+	const surface = await screen.findByTestId("dialog-duplicate-project");
+	fireEvent.click(within(surface).getByTestId("dialog-confirm"));
+
+	expect(await screen.findByText(`${COPY.name} created`)).toBeDefined();
 });

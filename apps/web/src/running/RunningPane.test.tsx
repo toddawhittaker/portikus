@@ -142,16 +142,20 @@ test("the Docker chip appears only for a container, and never a Preview chip", (
 		}),
 	]);
 	expect(screen.getByTestId("running-row-3000").textContent).not.toContain("Docker");
-	expect(screen.getByTestId("running-row-3000").textContent).not.toContain("Preview");
+	const tags = screen
+		.getByTestId("running-row-3000")
+		.querySelector(".pk-portrow-select");
+	expect(tags?.textContent).not.toContain("Preview");
 	expect(screen.getByTestId("running-row-8080").textContent).toContain("Docker");
 });
 
-test("a previewable port offers preview, a new tab and stop as icon buttons", () => {
+test("a previewable port offers a visible Preview button, then a new tab and stop icons", () => {
 	show([service({ port: 3000 })]);
 	const open = screen.getByTestId("running-open-3000");
-	expect(open.getAttribute("aria-label")).toBe("Open preview of port 3000");
-	expect(open.querySelector("[data-icon=preview]")).toBeTruthy();
-	expect(open.textContent).toBe("");
+	// The accessible name contains the visible word (WCAG 2.5.3).
+	expect(open.getAttribute("aria-label")).toBe("Preview port 3000");
+	expect(open.textContent).toBe("Preview");
+	expect(screen.getByRole("button", { name: "Preview port 3000" })).toBe(open);
 	const tab = screen.getByTestId("running-new-tab-3000");
 	expect(tab.getAttribute("aria-label")).toBe("Open port 3000 in a new tab");
 	expect(tab.querySelector("[data-icon=external]")).toBeTruthy();
@@ -390,4 +394,18 @@ test("usage polling stops when the row is no longer selected", async () => {
 	} finally {
 		vi.useRealTimers();
 	}
+});
+
+test("Docker and reserved-port tags sit on a second line under the name", () => {
+	show([
+		service({
+			port: 8080,
+			process: { command: "postgres" },
+			container: { id: "abc", name: "postgres" },
+		}),
+	]);
+	const row = screen.getByTestId("running-row-8080");
+	const tags = row.querySelector(".pk-portrow-main .pk-portrow-tags");
+	expect(tags?.textContent).toContain("Docker");
+	expect(row.querySelector(".pk-portrow-name")?.textContent).toBe("postgres");
 });

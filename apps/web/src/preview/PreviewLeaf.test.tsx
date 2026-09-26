@@ -401,7 +401,8 @@ test("copying the URL copies the origin and warns that sign-in is needed", async
 	vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
 	show({});
 	await screen.findByTestId("preview-frame");
-	fireEvent.click(screen.getByTestId("preview-copy"));
+	openMore();
+	fireEvent.click(await screen.findByTestId("preview-copy"));
 	await waitFor(() => expect(writeText).toHaveBeenCalledWith(GRANT.previewOrigin));
 	expect(
 		await screen.findByText("This link only works while you are signed in."),
@@ -413,8 +414,13 @@ test("a viewport preset limits the width of the frame", async () => {
 	show({});
 	const frame = await screen.findByTestId("preview-frame");
 	expect(frame.style.maxWidth).toBe("");
-	fireEvent.change(screen.getByTestId("preview-width"), { target: { value: "768" } });
+	openMore();
+	fireEvent.click(await screen.findByTestId("preview-width-768"));
 	expect(screen.getByTestId("preview-frame").style.maxWidth).toBe("768px");
+	openMore();
+	expect(
+		(await screen.findByTestId("preview-width-768")).getAttribute("aria-checked"),
+	).toBe("true");
 });
 
 test("resetting preview data revokes, clears the origin, and re-grants", async () => {
@@ -431,7 +437,8 @@ test("resetting preview data revokes, clears the origin, and re-grants", async (
 	show({});
 	await screen.findByTestId("preview-frame");
 	const grantsBefore = seen.filter((url) => url.endsWith("/preview-grants")).length;
-	fireEvent.click(screen.getByTestId("preview-reset"));
+	openMore();
+	fireEvent.click(await screen.findByTestId("preview-reset"));
 
 	await waitFor(() =>
 		expect(
@@ -445,6 +452,75 @@ test("resetting preview data revokes, clears the origin, and re-grants", async (
 	expect(clear).toBeGreaterThan(revoke);
 	expect(regrant).toBeGreaterThan(clear);
 	expect(modes[clear]).toBe("no-cors");
+});
+
+/** Open the toolbar's "more" menu (Radix opens a dropdown on pointer down). */
+function openMore() {
+	fireEvent.pointerDown(screen.getByTestId("preview-more"), {
+		button: 0,
+		ctrlKey: false,
+	});
+}
+
+test("the bar keeps host, Back, Forward, Reload and new tab; the rest is in the menu", async () => {
+	stubFetch(() => json(200, GRANT));
+	show({});
+	await screen.findByTestId("preview-frame");
+	for (const id of [
+		"preview-host",
+		"preview-back",
+		"preview-forward",
+		"preview-reload",
+		"preview-new-tab",
+	]) {
+		expect(screen.getByTestId(id)).toBeTruthy();
+	}
+	expect(screen.queryByTestId("preview-copy")).toBeNull();
+	expect(screen.getByRole("button", { name: "More preview actions" })).toBeTruthy();
+
+	openMore();
+	const menu = await screen.findByRole("menu", { name: "More preview actions" });
+	const names = Array.from(
+		menu.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"]'),
+	).map((item) => item.textContent);
+	expect(names).toEqual([
+		"Copy URL",
+		"Fit width",
+		"375 px wide",
+		"768 px wide",
+		"1024 px wide",
+		"1440 px wide",
+		"Reset preview data",
+		"Show in Running",
+	]);
+	expect(menu.textContent).toContain("Width");
+	expect(screen.getByTestId("preview-width-fit").getAttribute("aria-checked")).toBe(
+		"true",
+	);
+	expect(screen.getByTestId("preview-width-768").getAttribute("aria-checked")).toBe(
+		"false",
+	);
+});
+
+test("Show in Running calls back to the shell", async () => {
+	stubFetch(() => json(200, GRANT));
+	const onShowRunning = vi.fn();
+	render(
+		<ToastProvider>
+			<ListeningContext.Provider value={{ services: [service(5173)], loaded: true }}>
+				<PreviewLeaf
+					workspaceId={WORKSPACE}
+					port={5173}
+					visible
+					onShowRunning={onShowRunning}
+				/>
+			</ListeningContext.Provider>
+		</ToastProvider>,
+	);
+	await screen.findByTestId("preview-frame");
+	openMore();
+	fireEvent.click(await screen.findByTestId("preview-running-link"));
+	expect(onShowRunning).toHaveBeenCalledOnce();
 });
 
 /** A stand-in for the window a click opens, with the parts the tab uses. */

@@ -34,6 +34,7 @@ export function ArchiveConfirm({
 					"its recovery points",
 				]}
 				confirmLabel="Archive project"
+				destructive={false}
 				pending={archive.isPending}
 				onCancel={onClose}
 				onConfirm={() => {

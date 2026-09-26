@@ -441,6 +441,8 @@ If an authenticated user opens the platform and the assigned workspace is stoppe
 
 If the workspace is stopped because the student stopped it by hand, the platform does not start it again on its own. The work area says the workspace is stopped and offers a button that starts it, which is the same request as the Start button in the workspace dialog. The platform never shows starting progress while no start has been requested.
 
+Loading skeletons appear only while the workspace is connecting, starting or reopening tabs; a stopped or failed workspace shows a plain message in the side panes instead. If the workspace failed to start, the work area offers "Try again", which is the same start request, and "Workspace details", which opens the workspace dialog. The raw error message and code sit under a collapsed "Technical details".
+
 Target cold-start performance is defined in the non-functional requirements.
 
 ### 6.4 Disconnect grace period
@@ -745,6 +747,10 @@ browser; it is not saved.
 
 Terminal panes must additionally support splitting.
 
+When a project has no tabs open, the centre pane says "No terminals open" and
+offers two buttons: "Open a terminal" (primary) and "Start Claude Code". The
+tab strip's "+" button, labelled "New tab", holds the rest (Codex, previews).
+
 ### 8.4 Right pane
 
 The right pane contains the selected project's file tree and Git decorations.
@@ -756,6 +762,13 @@ seconds, warnings and errors after 10. The timer pauses while the
 pointer or keyboard focus is on the toast, and the close button stays.
 A toast that carries an action the user must answer, such as replacing
 a file that already exists, stays until it is answered.
+
+Archiving a project is reversible, so its menu item and confirmation are
+neutral (primary button, no red), and it ends with a success toast
+"<name> archived" that says where to find it. Duplicating ends with a
+success toast "<new name> created". Renaming shows no toast.
+The shared confirmation dialog is destructive (danger button, red) by
+default and has a neutral form for reversible actions such as archiving.
 
 Every toast shown is also recorded as a notification with its tone,
 title, body text, time, and whether it has been read. Notifications are
@@ -1537,6 +1550,8 @@ The user may:
 - open the service within the center pane;
 - open it in a separate browser tab/window.
 
+In the "Open a preview" dialog each listening port is a bordered row with a trailing chevron, so it reads as a button. The Preview tab's toolbar holds the host, Back, Forward, Reload and Open in new tab; a "More preview actions" menu holds Copy URL, the frame width (one checkable item per width), Reset preview data and Show in Running.
+
 ### 14.7 Port discovery
 
 The workspace agent should detect listening TCP ports.
@@ -1869,6 +1884,8 @@ P0 should include:
 
 The Running surface is not intended to replace `ps`, `top`, `docker ps`, or a general process manager.
 
+Each row shows the port, then the process or container name with its tags (Docker, reserved port, system service) on a second line, so the name keeps the row's width. A previewable row's first action is a visible **Preview** button named "Preview port <n>" for assistive technology; opening in a new tab and Stop stay icon buttons. The details panel under a selected row is a key-and-value list on the page surface, not terminal-styled. In the tabbed right pane (Files, Checks, Running, Monitor) the tab names the pane, so each pane's heading is kept for screen readers only and no title row repeats it.
+
 ### 18.3 Workspace status
 
 A compact status surface should show information useful to non-technical users.
@@ -1884,6 +1901,8 @@ P0 should include:
 - configured check/test status when a recent result exists.
 
 Error messages must suggest a next action where possible.
+
+The "Your workspace" dialog, opened from the status bar, puts the state and its Restart and Stop (or Start) buttons first. Below them come "Storage", with one meter per class that also states its figure as text ("X of Y"); "Docker", with Reset Docker and a line saying what it throws away and what it keeps; the rebuild note; and a collapsed "Technical details" with the desired state, connections and image.
 
 ### 18.4 Recognized run/build commands
 
@@ -1925,7 +1944,9 @@ workspace has nothing to measure, and the UI says the figures are available
 when it runs. The status bar warns at 80% of any class and names it. At 95%
 the message also names a next step: Reset Docker or `docker system prune`
 for Docker, automatic removal of older points for Recovery, and deleting
-files for Projects & home. Quotas are environment configuration in this
+files for Projects & home. The warning, like the workspace state beside it, is a bordered
+button that opens the workspace dialog, and it keeps its warning or error
+colour. Quotas are environment configuration in this
 epic; changing them at runtime is Epic 11.
 
 ### 19.3 Denial behavior
@@ -2013,6 +2034,38 @@ guard and idle overrides (`PUT /admin/workspaces/:id/guard`, each key a
 number or null to remove it). The Settings tab edits the guard
 thresholds, window, throttle share and idle time, and the
 acceptable-use statement with **Reset to default** (section 5.1).
+
+The admin area is desktop-only: it is built for windows 1024 px wide and up,
+scrolls sideways below that, and has no tablet layout (Epic 18).
+
+The admin page is one frame (Epic 18): its heading, tab navigation and tab
+content sit in a container at most 1440 px wide, at compact density (28 px
+controls, above the 24 px minimum target of section 25.8), and `<main>` keeps
+the scroll. Each tab is an h2 section with an optional count and actions in
+its heading row, headings inside a tab are h3, and the browser title names
+the tab ("Users, Administration, Portikus"). Admin tables use the design's
+table classes, and their headers stick to the scrolling page, so nothing
+between a table and `<main>` may be a scroll container. The Users table has
+seven columns: selection, a two-line Account cell (name, then email or
+username), Role, Workspace, Last activity, Image (an "Older image" tag only
+when out of date) and Connections; source, last sign-in and storage are in
+the detail panel. The detail panel stays in view beside the table with its
+own scroll, and shows its head (name, state, Start, Stop, Restart) and then
+Error, Account, Workspace, Storage, Resource guard, Ports and connections,
+Logs and Recent audit. The Audit table shows the first 8 characters of an
+ID with the full ID in its title and accessible name, short times with the
+full time in the title, the result as a tag (red for anything but ok or
+success), and details clipped to one line per key with the full text
+available to screen readers. A target ID links to the Audit filter for
+that target, labelled "Target ID". Settings cards sit in a grid, each Save
+below its fields.
+
+Rebuild is also a bulk action on the Users table, with a "Rebuild all on
+older images…" shortcut while the Image filter is Older (Epic 18). The
+browser calls the single-workspace rebuild route once per workspace, so
+each request keeps its own audit row, CSRF check and pending-operation
+refusal; a refusal with 409 counts as skipped. There is no bulk API route,
+because it would only duplicate that logic.
 
 ### 20.2 User impersonation
 
@@ -2732,6 +2785,8 @@ ENOSPC
 
 Technical details should remain available for administrators and debugging.
 
+When a workspace fails to start and the workspace agent still reports storage figures, the error screen shows the storage meters. It offers "Clean up Docker…" (the Reset Docker confirmation) only when the error is `STORAGE_FULL` and Docker storage is at the critical level, because resetting Docker when project storage is what filled up would destroy data for nothing.
+
 ## 29. Epics and rough implementation effort
 
 The following breakdown is intended for planning by one strong AI-assisted engineer. It is not a contractual schedule.
@@ -3385,6 +3440,42 @@ Acceptance:
 - no sample, audit row or response carries a process name, command line or file name;
 - an administrator's actions and the workspace agent never count as a student's activity, and an unattended coding agent is stopped by idle stop;
 - while a gate is unmet, every route but that gate's answers 403 with its code, and the password gate comes first.
+
+### Epic 18 — Admin interface polish
+
+See section 20.1 for the rules and `docs/DESIGN.md` section 9 for the table styles; built on `epic/18-admin-ux` (issues #600, #601, #602, #604 and #629).
+
+Includes:
+
+- one width-capped, compact frame for the four admin tabs, with h2 tab headings and per-tab page titles;
+- the design's table classes on every admin table, with sticky headers;
+- a seven-column Users table, a reordered sticky detail panel, a tidier Audit table and a Settings card grid;
+- bulk Rebuild, and "Rebuild all on older images…", through the single-workspace route.
+
+Acceptance:
+
+- the admin content is at most 1440 px wide and the Users table does not scroll sideways at 1280 px with the detail panel open;
+- each bulk-rebuilt workspace gets its own audit row, and a pending operation counts as skipped, not failed.
+
+### Epic 20 — Student interface polish
+
+Built on `epic/20-student-ux` from the student interface review of 2026-09-26 (issues #608 and #609). No migrations, contract changes or infrastructure. See sections 6.3, 8.3, 8.5, 14.6, 18.2, 18.3, 19.2 and 28 for the rules.
+
+Includes:
+
+- bordered status-bar buttons that keep their warning and error colours;
+- a way forward from each stuck screen: buttons on the empty work area, "Try again" and "Workspace details" on the error screen, and "Restart workspace…" on the throttle notice;
+- loading skeletons only while the workspace is starting;
+- neutral archiving with success toasts for archive and duplicate, and a segmented "What to create" choice in New project;
+- clickable preview picker rows and a Preview toolbar with a More menu;
+- right-pane headings kept for screen readers only, a visible Preview button on Running rows, and readable panel heads;
+- a reordered workspace dialog with storage meters, shared with the error screen;
+- clearer Settings groups, wrapping read-only values and a taller Settings dialog.
+
+Acceptance:
+
+- every button a student needs looks like a button, and each stuck screen offers a next step;
+- the error screen never offers a Docker reset unless Docker storage is what filled up.
 
 ### Estimated total
 

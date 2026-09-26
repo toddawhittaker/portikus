@@ -5,7 +5,7 @@
  * System services stay off that list unless Running is showing them
  * (SPEC.md §18.2).
  */
-import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
+import { Button, Dialog, DialogRoot, Icon, TextField } from "@portikus/ui";
 import { useState } from "react";
 import {
 	isDocker,
@@ -60,7 +60,7 @@ export function PreviewPicker({
 			<Dialog
 				testId="dialog-preview-port"
 				title="Open a preview"
-				description="Pick a port that is listening, or enter one yourself."
+				description="Pick a running port below, or type one."
 				onClose={onClose}
 				footer={
 					<Button variant="primary" onClick={submit} data-testid="preview-open-port">
@@ -84,6 +84,9 @@ export function PreviewPicker({
 								<span>{serviceCommand(service)}</span>
 								<span className="pk-portrow-kind">
 									{isDocker(service) ? "Docker" : ""}
+								</span>
+								<span className="pk-portrow-chevron" aria-hidden="true">
+									<Icon name="chevron-right" size="sm" />
 								</span>
 							</button>
 						))
