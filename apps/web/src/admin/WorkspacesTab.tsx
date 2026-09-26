@@ -16,7 +16,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { z } from "zod";
-import { request } from "../api/request.js";
+import { ApiError, request } from "../api/request.js";
+import { AdminSection } from "./AdminSection.js";
 import { AddDexUser } from "./DexUserDialogs.js";
 import {
 	imageText,
@@ -145,13 +146,14 @@ const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
 	student: "Student",
 };
 
-export type BulkAction = "disable" | "enable" | "archive" | "unarchive";
+export type BulkAction = "disable" | "enable" | "archive" | "unarchive" | "rebuild";
 
 export const BULK_ACTIONS: readonly BulkAction[] = [
 	"disable",
 	"enable",
 	"archive",
 	"unarchive",
+	"rebuild",
 ];
 
 interface BulkCopy {
@@ -205,7 +207,39 @@ const BULK: Record<BulkAction, BulkCopy> = {
 		consequence: "Each workspace stays stopped until someone starts it.",
 		url: (user) => adminActionUrl("workspaces", user.workspace?.id ?? "", "unarchive"),
 	},
+	rebuild: {
+		button: "Rebuild workspace…",
+		verb: "rebuild the workspace of",
+		title: "Rebuild",
+		confirm: "Rebuild",
+		done: "Rebuild requested for",
+		// The dialog builds its own text for Rebuild; see RebuildDescription.
+		consequence: "",
+		url: (user) => `/admin/workspaces/${user.workspace?.id ?? ""}/rebuild`,
+	},
 };
+
+/** The rows "Rebuild all on older images…" acts on (SPEC.md section 20.1). */
+export function olderImageTargets(rows: AdminUser[]): AdminUser[] {
+	return rows.filter(
+		(user) =>
+			user.workspace !== null &&
+			user.workspace.archivedAt === null &&
+			user.workspace.image.current === false,
+	);
+}
+
+/** A 409 means another operation already waits or runs, so the row is skipped (ruling 25). */
+export function bulkOutcome(error: unknown): "skipped" | "failed" {
+	return error instanceof ApiError && error.status === 409 ? "skipped" : "failed";
+}
+
+/** The names of the targets whose workspace is running and so will restart. */
+export function runningNames(users: AdminUser[]): string[] {
+	return users
+		.filter((user) => user.workspace?.state === "running")
+		.map((user) => user.displayName);
+}
 
 /** Whether one bulk action does anything for one account. Nobody disables themselves. */
 export function bulkApplies(
@@ -222,6 +256,8 @@ export function bulkApplies(
 			return user.workspace !== null && user.workspace.archivedAt === null;
 		case "unarchive":
 			return user.workspace !== null && user.workspace.archivedAt !== null;
+		case "rebuild":
+			return user.workspace !== null && user.workspace.archivedAt === null;
 	}
 }
 
@@ -234,6 +270,7 @@ export function joinNames(names: string[]): string {
 interface BulkResult {
 	action: BulkAction;
 	done: string[];
+	skipped: string[];
 	failed: { id: string; name: string; reason: string }[];
 }
 
@@ -245,6 +282,8 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	const search = useSearch({ strict: false }) as { user?: string };
 	const [selectedId, setSelectedId] = useState<string | null>(search.user ?? null);
 	const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
+	// The targets are fixed when the dialog opens, so a refetch cannot change them.
+	const [confirming, setConfirming] = useState<BulkConfirm | null>(null);
 
 	const all = sortAccounts(users.data?.users ?? []);
 	const rows = filterAccounts(all, filters);
@@ -269,14 +308,36 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	}
 
 	return (
-		<div className="mt-6 flex flex-col gap-4">
-			<div className="flex items-center gap-3">
-				<p className="pk-text-compact pk-muted m-0">
+		<AdminSection
+			title="Users"
+			count={
+				<span data-testid="admin-account-count">
 					{all.length} accounts · {running} running
-				</p>
-				{/* Only when the site runs Dex's own passwords (docs/archive/epics/EPIC-14.md ruling 24). */}
-				{users.data?.dexUsers ? <AddDexUser /> : null}
-			</div>
+				</span>
+			}
+			actions={
+				<>
+					{filters.image === "older" ? (
+						<Button
+							size="sm"
+							data-testid="rebuild-older"
+							disabled={olderImageTargets(rows).length === 0}
+							onClick={() =>
+								setConfirming({
+									action: "rebuild",
+									users: olderImageTargets(rows),
+									resetDocker: false,
+								})
+							}
+						>
+							Rebuild all on older images…
+						</Button>
+					) : null}
+					{/* Only when the site runs Dex's own passwords (docs/archive/epics/EPIC-14.md ruling 24). */}
+					{users.data?.dexUsers ? <AddDexUser /> : null}
+				</>
+			}
+		>
 			<div className="flex flex-wrap items-end gap-3">
 				<TextField
 					id="admin-filter-text"
@@ -344,35 +405,42 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 						<option value="older">Older</option>
 					</select>
 				</div>
-				<Checkbox
-					className="mb-2"
-					label="Show archived"
-					checked={filters.showArchived}
-					onChange={(event) => set({ showArchived: event.target.checked })}
-				/>
+				{/* Centred on the controls' row, not on the labelled fields. */}
+				<div className="flex h-[var(--pk-control)] items-center">
+					<Checkbox
+						label="Show archived"
+						checked={filters.showArchived}
+						onChange={(event) => set({ showArchived: event.target.checked })}
+					/>
+				</div>
 				<span className="flex-grow" />
-				<span
-					className="pk-text-compact pk-muted"
-					role="status"
-					data-testid="admin-row-count"
-				>
-					Showing {rows.length} of {all.length}
-				</span>
+				<div className="flex h-[var(--pk-control)] items-center">
+					<span
+						className="pk-text-compact pk-muted"
+						role="status"
+						data-testid="admin-row-count"
+					>
+						Showing {rows.length} of {all.length}
+					</span>
+				</div>
 			</div>
 			<BulkActions
 				rows={checkedRows}
 				currentUserId={currentUserId}
+				confirming={confirming}
+				setConfirming={setConfirming}
 				onDone={() => setChecked(new Set())}
 			/>
 			<div className="flex items-start gap-4">
-				<div className="min-w-0 flex-1 overflow-x-auto">
-					<table className="w-full text-left text-[13px]" data-testid="admin-accounts">
+				{/* Not a scroll container, so the header sticks against <main> (SPEC.md section 20.1). */}
+				<div className="pk-table-wrap min-w-0 flex-1 overflow-clip">
+					<table className="pk-table pk-table--page" data-testid="admin-accounts">
 						<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
 							Accounts and their workspaces. Choose a name to see details.
 						</caption>
 						<thead>
-							<tr className="pk-text-label text-ink-muted">
-								<th scope="col" className="py-2 pr-2 pl-2 font-medium">
+							<tr>
+								<th scope="col">
 									<Checkbox
 										label={<span className="sr-only">Select all shown accounts</span>}
 										checked={allChecked}
@@ -386,33 +454,12 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 										}
 									/>
 								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Account
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Role
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Source
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Workspace
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Last activity
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Last sign-in
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Storage
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Image
-								</th>
-								<th scope="col" className="py-2 font-medium">
-									Connections
-								</th>
+								<th scope="col">Account</th>
+								<th scope="col">Role</th>
+								<th scope="col">Workspace</th>
+								<th scope="col">Last activity</th>
+								<th scope="col">Image</th>
+								<th scope="col">Connections</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -430,7 +477,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 						</tbody>
 					</table>
 					{users.isSuccess && rows.length === 0 ? (
-						<p className="pk-text-body pk-muted mt-4">No accounts match.</p>
+						<p className="pk-text-body pk-muted p-4">No accounts match.</p>
 					) : null}
 				</div>
 				{selected ? (
@@ -449,8 +496,15 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					/>
 				) : null}
 			</div>
-		</div>
+		</AdminSection>
 	);
+}
+
+/** Each opening starts with Reset Docker off (SPEC.md section 20.1). */
+interface BulkConfirm {
+	action: BulkAction;
+	users: AdminUser[];
+	resetDocker: boolean;
 }
 
 /**
@@ -460,19 +514,18 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 function BulkActions({
 	rows,
 	currentUserId,
+	confirming,
+	setConfirming,
 	onDone,
 }: {
 	rows: AdminUser[];
 	currentUserId: string;
+	confirming: BulkConfirm | null;
+	setConfirming: (next: BulkConfirm | null) => void;
 	onDone: () => void;
 }) {
 	const client = useQueryClient();
 	const resultRef = useRef<HTMLDivElement>(null);
-	// The targets are fixed when the dialog opens, so a refetch cannot change them.
-	const [confirming, setConfirming] = useState<{
-		action: BulkAction;
-		users: AdminUser[];
-	} | null>(null);
 	const [running, setRunning] = useState(false);
 	const [result, setResult] = useState<BulkResult | null>(null);
 
@@ -480,16 +533,28 @@ function BulkActions({
 		rows.filter((user) => bulkApplies(action, user, currentUserId));
 	const offered = BULK_ACTIONS.filter((action) => targets(action).length > 0);
 
-	async function run(action: BulkAction, users: AdminUser[]) {
+	async function run(action: BulkAction, users: AdminUser[], resetDocker: boolean) {
 		if (running) return;
 		setRunning(true);
-		const outcome: BulkResult = { action, done: [], failed: [] };
+		const outcome: BulkResult = { action, done: [], skipped: [], failed: [] };
+		const init: RequestInit =
+			action === "rebuild"
+				? {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ resetDocker }),
+					}
+				: { method: "POST" };
 		// One at a time, so each refusal is tied to its row.
 		for (const user of users) {
 			try {
-				await request(z.unknown(), BULK[action].url(user), { method: "POST" });
+				await request(z.unknown(), BULK[action].url(user), init);
 				outcome.done.push(user.displayName);
 			} catch (error) {
+				if (action === "rebuild" && bulkOutcome(error) === "skipped") {
+					outcome.skipped.push(user.displayName);
+					continue;
+				}
 				outcome.failed.push({
 					id: user.id,
 					name: user.displayName,
@@ -522,7 +587,9 @@ function BulkActions({
 							key={action}
 							size="sm"
 							data-testid={`bulk-${action}`}
-							onClick={() => setConfirming({ action, users: targets(action) })}
+							onClick={() =>
+								setConfirming({ action, users: targets(action), resetDocker: false })
+							}
 						>
 							{BULK[action].button}
 						</Button>
@@ -544,21 +611,85 @@ function BulkActions({
 					<ConfirmDialog
 						id="bulk-dialog"
 						testId="bulk-dialog"
-						title={`${BULK[confirming.action].title} ${confirming.users.length} ${confirming.users.length === 1 ? "account" : "accounts"}?`}
+						title={
+							confirming.action === "rebuild"
+								? rebuildTitle(confirming.users.length)
+								: `${BULK[confirming.action].title} ${confirming.users.length} ${confirming.users.length === 1 ? "account" : "accounts"}?`
+						}
 						description={
-							<>
-								<span className="block" data-testid="bulk-dialog-names">
-									{joinNames(confirming.users.map((user) => user.displayName))}.
-								</span>
-								<span className="block">{BULK[confirming.action].consequence}</span>
-							</>
+							confirming.action === "rebuild" ? (
+								<RebuildDescription
+									users={confirming.users}
+									resetDocker={confirming.resetDocker}
+								/>
+							) : (
+								<>
+									<span className="block" data-testid="bulk-dialog-names">
+										{joinNames(confirming.users.map((user) => user.displayName))}.
+									</span>
+									<span className="block">{BULK[confirming.action].consequence}</span>
+								</>
+							)
 						}
 						confirmLabel={BULK[confirming.action].confirm}
 						pending={running}
-						onConfirm={() => void run(confirming.action, confirming.users)}
-					/>
+						onConfirm={() =>
+							void run(confirming.action, confirming.users, confirming.resetDocker)
+						}
+					>
+						{confirming.action === "rebuild" ? (
+							<Checkbox
+								label="Also reset Docker"
+								checked={confirming.resetDocker}
+								onChange={(event) =>
+									setConfirming({ ...confirming, resetDocker: event.target.checked })
+								}
+							/>
+						) : null}
+					</ConfirmDialog>
 				) : null}
 			</ConfirmDialogRoot>
+		</>
+	);
+}
+
+export function rebuildTitle(count: number): string {
+	return `Rebuild ${count} ${count === 1 ? "workspace" : "workspaces"}?`;
+}
+
+/** The single Rebuild dialog's warning, plus who restarts (SPEC.md §22.3, ruling 26). */
+export function rebuildWarning(users: AdminUser[], resetDocker: boolean): string[] {
+	const lines = [
+		`${joinNames(users.map((user) => user.displayName))}.`,
+		`Each workspace is recreated from the current image. System packages installed with sudo apt are lost. Projects and home stay${resetDocker ? "; Docker images and volumes are removed." : ", and so do Docker images and volumes."}`,
+	];
+	const restarting = runningNames(users);
+	if (restarting.length > 0) {
+		lines.push(
+			`${joinNames(restarting)} ${restarting.length === 1 ? "is" : "are"} running and will restart.`,
+		);
+	}
+	return lines;
+}
+
+function RebuildDescription({
+	users,
+	resetDocker,
+}: {
+	users: AdminUser[];
+	resetDocker: boolean;
+}) {
+	const [names, ...rest] = rebuildWarning(users, resetDocker);
+	return (
+		<>
+			<span className="block" data-testid="bulk-dialog-names">
+				{names}
+			</span>
+			{rest.map((line) => (
+				<span key={line} className="block">
+					{line}
+				</span>
+			))}
 		</>
 	);
 }
@@ -572,6 +703,12 @@ function BulkSummary({ result }: { result: BulkResult }) {
 					{copy.done} {joinNames(result.done)}.
 				</p>
 			) : null}
+			{result.skipped.length > 0 ? (
+				<p className="m-0">
+					Skipped {joinNames(result.skipped)}: another operation is already waiting or
+					running.
+				</p>
+			) : null}
 			{result.failed.length > 0 ? (
 				<ul className="m-0 list-none p-0 text-status-error">
 					{result.failed.map((failure) => (
@@ -583,6 +720,13 @@ function BulkSummary({ result }: { result: BulkResult }) {
 			) : null}
 		</div>
 	);
+}
+
+/** The Account cell's second line: the email, or the username when there is none. */
+export function accountContact(
+	user: Pick<AdminUser, "email" | "preferredUsername">,
+): string {
+	return user.email ?? user.preferredUsername ?? "—";
 }
 
 export function rowButtonId(userId: string): string {
@@ -608,13 +752,13 @@ function AccountRow({
 	const labels = markerLabels(user.markers, workspace);
 	return (
 		<tr
-			className={`border-line border-t align-top ${selected ? "bg-surface-hover" : ""}`}
+			className={`align-top ${selected ? "bg-surface-hover" : ""}`}
 			aria-current={selected ? "true" : undefined}
 			data-testid={`account-row-${user.id}`}
 			data-markers={labels.join(",")}
 		>
 			<td
-				className="py-2 pr-2 pl-2"
+				className="py-2"
 				// The ink bar marks the selected row without relying on colour (issue #369).
 				style={selected ? { boxShadow: "var(--row-current-bar)" } : undefined}
 				data-testid={`account-cell-${user.id}`}
@@ -625,35 +769,35 @@ function AccountRow({
 					onChange={(event) => onCheck(event.target.checked)}
 				/>
 			</td>
-			<td className="py-2 pr-4">
-				<button
-					type="button"
-					id={rowButtonId(user.id)}
-					className="pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink"
-					aria-label={`Show details for ${user.displayName}, ${user.email ?? user.preferredUsername ?? user.id}`}
-					aria-expanded={selected}
-					aria-controls={selected ? "workspace-detail" : undefined}
-					onClick={onSelect}
-				>
-					{user.displayName}
-				</button>
-				<Markers markers={user.markers} workspace={workspace} />
-				<div className="pk-muted">{user.email ?? "—"}</div>
-				{user.preferredUsername ? (
-					<div className="pk-mono-small pk-muted">{user.preferredUsername}</div>
-				) : null}
+			<td className="py-2 whitespace-normal">
+				<div className="pk-cell-stack" data-testid={`account-name-${user.id}`}>
+					<span className="pk-cell-primary">
+						<button
+							type="button"
+							id={rowButtonId(user.id)}
+							className="pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink"
+							aria-label={`Show details for ${user.displayName}, ${user.email ?? user.preferredUsername ?? user.id}`}
+							aria-expanded={selected}
+							aria-controls={selected ? "workspace-detail" : undefined}
+							onClick={onSelect}
+						>
+							{user.displayName}
+						</button>
+						<Markers markers={user.markers} workspace={workspace} />
+					</span>
+					<span
+						className="pk-cell-secondary block max-w-[28ch] truncate"
+						title={accountContact(user)}
+						data-testid={`account-contact-${user.id}`}
+					>
+						{accountContact(user)}
+					</span>
+				</div>
 			</td>
-			<td className="py-2 pr-4" data-testid={`account-role-${user.id}`}>
+			<td className="py-2" data-testid={`account-role-${user.id}`}>
 				{roleText(user)}
 			</td>
-			<td
-				className="py-2 pr-4"
-				title={user.issuer ?? undefined}
-				data-testid={`account-source-${user.id}`}
-			>
-				{sourceText(user.issuer)}
-			</td>
-			<td className="py-2 pr-4">
+			<td className="py-2 whitespace-normal">
 				{workspace ? (
 					<div className="flex flex-col items-start gap-1">
 						<span className="pk-mono-small">{workspace.label}</span>
@@ -667,17 +811,13 @@ function AccountRow({
 					<span className="pk-muted">No workspace</span>
 				)}
 			</td>
-			<td className="py-2 pr-4">{workspace ? lastActivity(workspace, now) : "—"}</td>
-			<td className="py-2 pr-4">{timeAgo(user.lastLoginAt, now)}</td>
-			<td className="py-2 pr-4">
-				{workspace ? storageText(workspace.quotaConfig) : "—"}
-			</td>
-			<td className="py-2 pr-4">
-				{workspace ? (
-					<span className="pk-mono-small">{imageText(workspace.image)}</span>
-				) : (
-					"—"
-				)}
+			<td className="py-2">{workspace ? lastActivity(workspace, now) : "—"}</td>
+			<td className="py-2" data-testid={`account-image-${user.id}`}>
+				{workspace?.image.current === false ? (
+					<span className="pk-tag pk-tag--warning" title={imageText(workspace.image)}>
+						Older image
+					</span>
+				) : null}
 			</td>
 			<td className="py-2">{workspace ? workspace.activeConnections : "—"}</td>
 		</tr>
