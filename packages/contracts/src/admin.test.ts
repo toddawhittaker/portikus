@@ -213,7 +213,7 @@ describe("admin contracts", () => {
 				loadAverage: [0.5, 0.4, 0.3],
 				cpuCount: 8,
 				memory: { usedBytes: 1, totalBytes: 2 },
-				pool: { usedBytes: 1, totalBytes: 2 },
+				pool: { usedBytes: 1, totalBytes: 2, metadataPercent: 40 },
 				profileLimits: { cpu: "2", memory: "4GiB", processes: "2000" },
 				image: { fingerprint: "abc", serial: "2026.09.9" },
 			},

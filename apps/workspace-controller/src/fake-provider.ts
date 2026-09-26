@@ -203,6 +203,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 				name: "workspace-data",
 				usedBytes: 10 * 2 ** 30,
 				totalBytes: 90 * 2 ** 30,
+				metadataPercent: null,
 			},
 			profileLimits: { cpu: "2", memory: "4GB", processes: "2000" },
 			image: { fingerprint: "abc123", serial: "2026.09.9" },

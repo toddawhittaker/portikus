@@ -26,7 +26,7 @@ function report(overrides: Partial<HealthReport> = {}): HealthReport {
 			loadAverage: [0.5, 0.4, 0.3],
 			cpuCount: 4,
 			memory: { usedBytes: 4 * GIB, totalBytes: 16 * GIB },
-			pool: { usedBytes: 50 * GIB, totalBytes: 100 * GIB },
+			pool: { usedBytes: 50 * GIB, totalBytes: 100 * GIB, metadataPercent: 20.4 },
 			profileLimits: { cpu: "2", memory: "4GiB", processes: "2000" },
 			image: { fingerprint: "abcdef0123456789abcdef", serial: "2026.09.9" },
 		},
@@ -110,14 +110,14 @@ test("a healthy report shows the figures and no warnings", () => {
 	).toBeDefined();
 });
 
-test("pool and memory at 80 percent or more are flagged", () => {
+test("the pool at 70 percent or more and memory at 80 or more are flagged", () => {
 	const base = report();
 	render(
 		<HealthView
 			report={report({
 				host: base.host && {
 					...base.host,
-					pool: { usedBytes: 85 * GIB, totalBytes: 100 * GIB },
+					pool: { usedBytes: 70 * GIB, totalBytes: 100 * GIB, metadataPercent: 5 },
 					memory: { usedBytes: 13 * GIB, totalBytes: 16 * GIB },
 				},
 			})}
@@ -126,11 +126,51 @@ test("pool and memory at 80 percent or more are flagged", () => {
 	);
 
 	expect(screen.getByTestId("health-pool-warning").textContent).toBe(
-		"Storage pool is over 80% full",
+		"Storage pool is over 70% full",
 	);
 	expect(screen.getByTestId("health-memory-warning").textContent).toBe(
 		"Memory is over 80% full",
 	);
+});
+
+test("metadata use is shown, and warns on its own when it passes 70 percent", () => {
+	const base = report();
+	const { unmount } = render(<HealthView report={base} now={NOW} />);
+	expect(screen.getByTestId("health-pool-metadata").textContent).toBe("20% used");
+	unmount();
+
+	render(
+		<HealthView
+			report={report({
+				host: base.host && {
+					...base.host,
+					pool: { usedBytes: 10 * GIB, totalBytes: 100 * GIB, metadataPercent: 72 },
+				},
+			})}
+			now={NOW}
+		/>,
+	);
+	expect(screen.getByTestId("health-pool-metadata").textContent).toBe("72% used");
+	expect(screen.getByTestId("health-pool-warning").textContent).toBe(
+		"Storage pool is over 70% full",
+	);
+});
+
+test("metadata use the host has not reported reads as such", () => {
+	const base = report();
+	render(
+		<HealthView
+			report={report({
+				host: base.host && {
+					...base.host,
+					pool: { usedBytes: 10 * GIB, totalBytes: 100 * GIB, metadataPercent: null },
+				},
+			})}
+			now={NOW}
+		/>,
+	);
+	expect(screen.getByTestId("health-pool-metadata").textContent).toBe("Not reported");
+	expect(screen.queryByTestId("health-pool-warning")).toBeNull();
 });
 
 test("a stale worker shows a banner with the sample's age", () => {

@@ -141,7 +141,7 @@ function sample(overrides: Partial<HealthSample["host"] & object> = {}): HealthS
 			loadAverage: [0.1, 0.2, 0.3],
 			cpuCount: 4,
 			memory: { usedBytes: 1, totalBytes: 2 },
-			pool: { name: "default", usedBytes: 1, totalBytes: 2 },
+			pool: { name: "default", usedBytes: 1, totalBytes: 2, metadataPercent: null },
 			profileLimits: { cpu: "2", memory: "4GiB", processes: "2000" },
 			image: { fingerprint: "newfingerprint0000", serial: "2026.09.9" },
 			instances: [],

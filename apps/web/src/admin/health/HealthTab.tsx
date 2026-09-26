@@ -1,11 +1,15 @@
-import type { HealthReport } from "@portikus/contracts";
+import {
+	type HealthReport,
+	POOL_WARN_PERCENT,
+	poolFillPercent,
+} from "@portikus/contracts";
 import { Link } from "@tanstack/react-router";
 import { ApiError } from "../../api/request.js";
 import { formatBytes } from "../../monitor/format.js";
 import { useHealth } from "./queries.js";
 import { Sparkline } from "./Sparkline.js";
 
-/** Pool or memory use at or above this share gets a warning (SPEC.md §19.2). */
+/** Memory use at or above this share gets a warning (SPEC.md §19.2). */
 export const WARN_RATIO = 0.8;
 
 export function usedPercent(used: number, total: number): number {
@@ -101,19 +105,33 @@ export function HealthView({ report, now }: { report: HealthReport; now: number 
 							<dd className="m-0">
 								<Usage
 									testId="health-memory"
-									name="Memory"
 									used={host.memory.usedBytes}
 									total={host.memory.totalBytes}
+									warning={
+										isNearlyFull(host.memory.usedBytes, host.memory.totalBytes)
+											? "Memory is over 80% full"
+											: null
+									}
 								/>
 							</dd>
 							<dt className="pk-muted">Storage pool</dt>
 							<dd className="m-0">
 								<Usage
 									testId="health-pool"
-									name="Storage pool"
 									used={host.pool.usedBytes}
 									total={host.pool.totalBytes}
+									warning={
+										poolFillPercent(host.pool) >= POOL_WARN_PERCENT
+											? `Storage pool is over ${POOL_WARN_PERCENT}% full`
+											: null
+									}
 								/>
+							</dd>
+							<dt className="pk-muted">Pool metadata</dt>
+							<dd className="m-0" data-testid="health-pool-metadata">
+								{host.pool.metadataPercent === null
+									? "Not reported"
+									: `${Math.round(host.pool.metadataPercent)}% used`}
 							</dd>
 							<dt className="pk-muted">Workspace limits</dt>
 							<dd className="m-0">
@@ -288,26 +306,26 @@ function GuardList({ guard }: { guard: HealthReport["guard"] }) {
 }
 
 function Usage({
-	name,
 	used,
 	total,
 	testId,
+	warning,
 }: {
-	name: string;
 	used: number;
 	total: number;
 	testId: string;
+	/** Shown as text beside the figures, so the warning never rests on colour. */
+	warning: string | null;
 }) {
-	const warn = isNearlyFull(used, total);
 	return (
 		<span data-testid={testId}>
 			{formatBytes(used)} of {formatBytes(total)} ({usedPercent(used, total)}%)
-			{warn ? (
+			{warning ? (
 				<span
 					className="pk-tag ml-2 bg-status-warning-soft text-status-warning"
 					data-testid={`${testId}-warning`}
 				>
-					{name} is over 80% full
+					{warning}
 				</span>
 			) : null}
 		</span>

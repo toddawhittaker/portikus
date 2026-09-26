@@ -306,6 +306,39 @@ test.skipIf(skip)("create failure -> error with user-terms message", async () =>
 });
 
 test.skipIf(skip)(
+	"a full storage pool keeps the workspace provisioning and retries each sweep",
+	async () => {
+		const saved = fake.createResult;
+		fake.createResult = new ControllerClientError("POOL_FULL", "pool is 91% full");
+		const id = await insertWorkspace({ state: "provisioning" });
+		const now = new Date();
+
+		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, now);
+
+		let ws = await getWorkspace(id);
+		expect(ws.state).toBe("provisioning");
+		expect(ws.error_code).toBe("POOL_FULL");
+		expect(ws.error_message).toBe(
+			"There is no room for a new workspace right now. Your administrator has been told.",
+		);
+		expect(fake.calls.filter((c) => c.method === "create")).toHaveLength(2);
+		const refusals = (await getAudits(id)).filter(
+			(a) => a.action === "workspace.provision_refused",
+		);
+		expect(refusals).toHaveLength(1);
+
+		// Space freed: the next sweep creates it and clears the message.
+		fake.createResult = saved;
+		await sweep(tdb.db, fake, cfg, now, now);
+		ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(ws.error_code).toBeNull();
+		expect(ws.error_message).toBeNull();
+	},
+);
+
+test.skipIf(skip)(
 	"restart flow: running -> stopping -> stopped -> desired running -> starting -> running",
 	async () => {
 		const id = await insertWorkspace({

@@ -98,8 +98,10 @@ afterEach(() => {
 });
 
 let provider: IncusWorkspaceProvider;
+let statusPath: string;
 
 beforeEach(() => {
+	statusPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "thinpool-")), "s.json");
 	const client = new IncusClient({
 		socketPath,
 		project: "testproj",
@@ -110,7 +112,56 @@ beforeEach(() => {
 		profile: "workspace",
 		imageAlias: "portikus",
 		agentPort,
+		thinPoolStatusPath: statusPath,
 	});
+});
+
+/** A fake Incus whose pool is `used` of 100 bytes full; records every request. */
+function poolAt(used: number, requests: string[]) {
+	return async (req: http.IncomingMessage, res: http.ServerResponse) => {
+		await readBody(req);
+		requests.push(`${req.method} ${req.url}`);
+		if (req.url?.includes("/storage-pools/mypool/resources")) {
+			respond(res, 200, sync({ space: { used, total: 100 } }));
+		} else if (req.url?.includes("/images/aliases/")) {
+			respond(res, 200, sync({ target: "sha256abc" }));
+		} else {
+			respond(res, 200, sync({}));
+		}
+	};
+}
+
+const SIZES = { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 };
+
+test("create is refused with POOL_FULL at 90% data use, before any volume is made", async () => {
+	const requests: string[] = [];
+	handler = poolAt(90, requests);
+	await expect(provider.create("ws-test", SIZES)).rejects.toMatchObject({
+		code: "POOL_FULL",
+	});
+	expect(requests).toEqual([
+		"GET /1.0/storage-pools/mypool/resources?project=testproj",
+	]);
+});
+
+test("create is refused when metadata use reaches 90%, even with data room", async () => {
+	fs.writeFileSync(
+		statusPath,
+		JSON.stringify({
+			observedAt: new Date().toISOString(),
+			dataPercent: 10,
+			metadataPercent: 90.5,
+		}),
+	);
+	handler = poolAt(10, []);
+	await expect(provider.create("ws-test", SIZES)).rejects.toMatchObject({
+		code: "POOL_FULL",
+	});
+});
+
+test("create goes ahead just under 90%", async () => {
+	handler = poolAt(89, []);
+	expect((await provider.create("ws-test", SIZES)).created).toBe(true);
 });
 
 test("create sends both disk devices in one POST and returns created", async () => {

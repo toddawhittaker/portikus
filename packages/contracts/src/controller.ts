@@ -206,6 +206,8 @@ export const ControllerErrorCode = z.enum([
 	"ALREADY_EXISTS",
 	"IMAGE_NOT_FOUND",
 	"STORAGE_FULL",
+	// The shared storage pool is too full for a new workspace (SPEC.md §20.1).
+	"POOL_FULL",
 	"OPERATION_FAILED",
 	"TIMEOUT",
 	"INCUS_UNAVAILABLE",

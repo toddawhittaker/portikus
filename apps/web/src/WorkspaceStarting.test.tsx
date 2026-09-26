@@ -18,6 +18,21 @@ test("a stopped workspace that should run is starting", () => {
 	expect(screen.getByRole("heading").textContent).toBe("Starting your workspace");
 });
 
+test("a new workspace waiting for room says why", () => {
+	const waiting = {
+		...WORKSPACE,
+		state: "provisioning" as const,
+		errorCode: "POOL_FULL",
+		errorMessage:
+			"There is no room for a new workspace right now. Your administrator has been told.",
+	};
+	expect(startingPhase(waiting)).toBe("starting");
+	renderWithQuery(<WorkspaceStarting workspaceId={WORKSPACE.id} workspace={waiting} />);
+	expect(screen.getByTestId("workspace-waiting").textContent).toBe(
+		"There is no room for a new workspace right now. Your administrator has been told.",
+	);
+});
+
 test("a running workspace is reopening tabs", () => {
 	expect(startingPhase(WORKSPACE)).toBe("restoring");
 });

@@ -34,6 +34,7 @@ const ERROR_STATUS: Record<ControllerErrorCode, number> = {
 	OPERATION_FAILED: 500,
 	IMAGE_NOT_FOUND: 404,
 	STORAGE_FULL: 507,
+	POOL_FULL: 507,
 };
 
 interface ServerOptions {

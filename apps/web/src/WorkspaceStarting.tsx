@@ -112,6 +112,12 @@ export function WorkspaceStarting({
 							{heading}
 						</h1>
 						<p className="pk-text-body pk-muted">{sub}</p>
+						{workspace?.state === "provisioning" && workspace.errorMessage && (
+							// A new workspace waiting for room in the storage pool (SPEC.md §20.1).
+							<p className="pk-text-body" data-testid="workspace-waiting">
+								{workspace.errorMessage}
+							</p>
+						)}
 						{idleStop && (phase === "stopping" || phase === "stopped") && (
 							<p className="pk-text-body" data-testid="idle-stopped">
 								{idleStop.minutes === null
