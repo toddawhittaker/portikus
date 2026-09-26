@@ -66,7 +66,7 @@ export function registerAdminProcessRoutes(
 						oc.column("workspace_id").doUpdateSet({ requested_at: requestedAt }),
 					)
 					.execute();
-				// Refresh runs a command in a student's container (SPEC.md §24.11).
+				// Reading what a student runs is audited (SPEC.md §24.11).
 				await trx
 					.insertInto("audit_events")
 					.values({
