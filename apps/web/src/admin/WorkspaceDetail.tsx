@@ -26,7 +26,6 @@ import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
 import { DexUserActions } from "./DexUserDialogs.js";
 import { GuardDialog } from "./GuardDialog.js";
 import { defaultLabel, graceText } from "./graceText.js";
-import { logCommand } from "./logCommand.js";
 import { imageText, isCourseAccount, roleText, sourceText } from "./markers.js";
 import { QuotaDialog } from "./QuotaDialog.js";
 import {
@@ -241,21 +240,6 @@ function DataSections({
 	ownerName: string;
 }) {
 	const workspace = detail.workspace;
-	const toast = useToast();
-	const command = logCommand(workspace.id, workspace.incusInstanceName);
-
-	async function copyCommand() {
-		try {
-			await navigator.clipboard.writeText(command);
-			toast.show({ tone: "success", title: "Log command copied" });
-		} catch {
-			toast.show({
-				tone: "danger",
-				title: "Could not copy. Select the command instead.",
-			});
-		}
-	}
-
 	return (
 		<>
 			<StorageSection detail={detail} ownerName={ownerName} />
@@ -312,14 +296,14 @@ function DataSections({
 				<h4 id="detail-logs" className="pk-text-label m-0">
 					Logs
 				</h4>
-				<code className="pk-techdetail break-all" data-testid="log-command">
-					{command}
-				</code>
-				<div>
-					<Button size="sm" onClick={() => void copyCommand()}>
-						Copy log command
-					</Button>
-				</div>
+				<Link
+					to="/admin"
+					search={{ tab: "logs", workspace: workspace.id, since: "1h" }}
+					className="pk-link text-[13px] text-[var(--accent-text)] underline"
+					data-testid="detail-view-logs"
+				>
+					View logs
+				</Link>
 			</section>
 
 			<section aria-labelledby="detail-audit" className="pk-detail-section">

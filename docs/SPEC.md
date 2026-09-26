@@ -2401,6 +2401,27 @@ with `{from, to}`), and `settings.acceptable_use_updated` with
 `user.acceptable_use_accepted` with `{version}`. No row holds a process
 name, a command line, a file name or the statement's text.
 
+As built (Epic 19, the Logs tab): the admin page has a Logs tab between
+Audit and Health. It reads `GET /admin/logs` and shows the platform's own
+JSON log lines, newest first, 100 a page, with "Load older lines" for
+more. Filters are level (Error, which includes fatal, Warn, Info and
+Debug; Error and Warn by default), service, time (last hour, last day,
+last 7 days, or custom from and to), text, user ID and workspace ID, and
+they live in the URL (`level`, `service`, `since`, `until`, `q`, `user`,
+`workspace`), so a view can be linked. Each row shows the time, the level
+as a word in a tag, service, code, message, route, status, user and
+workspace, and a disclosure button shows the whole redacted line as JSON.
+Every value is shown as text, never as HTML. The list refreshes every 30
+seconds until older lines are loaded; then a Refresh button starts over.
+A busy journal (429) is retried twice a second apart before its message
+shows; an unreadable one (503) shows its message at once. The workspace
+detail panel's Logs section is a "View logs" link filtered to that
+workspace and the last hour, replacing the printed `journalctl` command,
+and each row of the Users table has a "View logs" link filtered to that
+user. The Health tab's Trends card has a stacked errors and warnings bar
+chart from `GET /admin/logs/counts`; a bar opens the Logs tab for its time
+span and the level picked in the bar. Reading logs is not audited.
+
 ### 24.12 Dependency/security maintenance
 
 The project must define a process for:

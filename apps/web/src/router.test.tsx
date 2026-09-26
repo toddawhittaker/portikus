@@ -200,3 +200,42 @@ test("the files route drops an unsafe path and a fractional line", async () => {
 		line: undefined,
 	});
 });
+
+test("the Logs tab's filters come from the URL, and unknown values are dropped (docs/EPIC-19.md ruling 32)", async () => {
+	const requested: string[] = [];
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url.startsWith("/admin/logs")) {
+			requested.push(url);
+			return json(200, {
+				lines: [],
+				nextCursor: null,
+				scanComplete: true,
+				skippedLines: 0,
+			});
+		}
+		return json(200, {});
+	});
+	const user = "11111111-2222-4333-8444-555555555555";
+
+	const { router } = renderApp(
+		`/admin?tab=logs&level=info,bogus,debug&service=worker&since=yesterday&until=2026-09-26T10:00:00.000Z&q=boom&user=${user}&workspace=not-a-uuid`,
+	);
+
+	await waitFor(() => expect(requested.length).toBeGreaterThan(0));
+	expect(router.state.location.search).toMatchObject({
+		tab: "logs",
+		level: "info,debug",
+		service: "worker",
+		until: "2026-09-26T10:00:00.000Z",
+		q: "boom",
+		user,
+	});
+	expect(router.state.location.search).not.toHaveProperty("since", "yesterday");
+	const params = new URLSearchParams(requested[0]?.split("?")[1]);
+	expect(params.get("level")).toBe("info,debug");
+	expect(params.get("service")).toBe("worker");
+	expect(params.get("q")).toBe("boom");
+	expect(params.get("user")).toBe(user);
+	expect(params.has("workspace")).toBe(false);
+});
