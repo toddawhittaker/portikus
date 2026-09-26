@@ -1,6 +1,6 @@
-# 0037. The administrator reads processes from Incus and stops them through the agent
+# 0037. The administrator reads processes from the host and stops them through the agent
 
-- **Status**: Accepted (built in Epic 21, task T4)
+- **Status**: Accepted (built in Epic 21, task T4; the read moved to the host in the Epic 21 security review)
 - **Date**: 2026-09-26
 - **References**: SPEC.md sections 20.1, 24.11 and 26; ADRs 0005, 0006, 0022, 0032; issue #595
 
@@ -15,26 +15,50 @@ would let a compromised API act on every instance. Process names are
 student-controlled text, and command lines can hold secrets, so SPEC.md 20.1
 allows the administrator short names only.
 
+The first version ran a fixed shell command in the instance through Incus
+exec, as uid 1000, and read its output from Incus's recorded log. The
+security review rejected it. A student with sudo can replace `/bin/sh` in
+the container, so that command could print any list it liked, and it could
+keep writing to the recorded log, which lives on the host's root disk. It
+also recognised the terminals' tmux server by its short name, which any
+program can set to `tmux: server` to protect itself.
+
 ## Decision
 
-The list is read from Incus. **Refresh** writes a request row in
-`workspace_process_snapshots` and answers 202. A worker loop, once a second,
-serves each pending request by calling the controller's
+The list is read by the controller on the host. **Refresh** writes a request
+row in `workspace_process_snapshots` and answers 202. A worker loop, once a
+second, serves each pending request by calling the controller's
 `GET /instances/:name/processes` with a 10-second timeout, and writes the
 rows or an error code. The browser polls the API's read route. Rows older
 than an hour are deleted.
 
-The controller runs one Incus exec, as uid 1000 and gid 1000, with a fixed
-POSIX shell command and no caller input. It prints each process's uid (from
-`status`, whose name line the kernel escapes) and its `/proc/<pid>/stat`
-line, sleeps one second, prints them again, and prints the agent's
-`MainPID` from `systemctl show`. Records are separated by NUL bytes. The
-output is read from Incus's recorded output log, capped at 4 MiB, and the
-logs are deleted afterwards. The controller computes CPU percent over that
-second against the instance's CPU limit and resident memory from `rss`, and
-returns the union of the top ten by each. The short name is taken between
-the first `(` and the last `)`, control and format characters become `?`,
-and it is cut to 15 characters. Command lines are never read.
+The controller asks Incus only for metadata: the instance's state (it must be
+running, and its init's host PID) and its config (`limits.cpu` and
+`volatile.idmap.current`). It then walks the instance's cgroup tree on the
+host (`/sys/fs/cgroup/lxc.payload.<project>_<instance>`, every
+`cgroup.procs` below it) and reads the host's `/proc/<pid>/stat` and
+`/proc/<pid>/status` for each PID, twice, one second apart:
+
+- The PID shown is the process's PID in the workspace: the `NSpid` entry at
+  the level where the instance's init is PID 1, so a nested Docker container
+  does not change it.
+- The uid is the real uid from `status`, mapped back through the instance's
+  idmap to the uid the workspace sees. A host uid outside the map shows as
+  65534.
+- CPU percent is the change in `utime + stime` over the host's uptime
+  change, against the instance's CPU limit; memory is `VmRSS`.
+- The short name is taken from `stat` between the first `(` and the last
+  `)`; control and format characters become `?`, and it is cut to 15
+  characters. Command lines are never read.
+- A PID that vanishes between the cgroup read and the `/proc` read is left
+  out.
+
+A row is protected when its workspace PID is 1, its uid is not 1000, or it is
+the main process of `portikus-workspace-agent.service` or
+`portikus-terminals.service`. The main process is the oldest process in the
+unit's cgroup inside the container, because every other process in a unit
+descends from it; the name plays no part. The union of the top ten by CPU and
+the top ten by memory is returned.
 
 The administrator's **Stop** goes through the agent's checked stop route,
 the same one the student uses (PID, start ticks, protected list). It writes
@@ -43,12 +67,23 @@ that names no process.
 
 ## Consequences
 
-- A tampered agent cannot hide a process from the list, and the API still
-  never calls the controller.
+- No code runs inside the workspace and nothing is written to disk, so the
+  student cannot slow the read, fill the host's disk, or feed it false text
+  beyond a process's own short name.
+- The PID, uid, cgroup, CPU and memory come from the host kernel, so a
+  student cannot forge them. A student with sudo can still run a program as
+  root or move it into a protected unit's cgroup inside the container; the
+  first makes it protected (it is root's, not the student's), the second
+  does not, because it is not the unit's oldest process. Neither hides it
+  from the list.
+- The controller needs only read access to `/proc` and `/sys/fs/cgroup`,
+  which it has as an ordinary user while `/proc` is mounted without
+  `hidepid`.
 - The list is a snapshot a second or two old, not live, which is what the
   issue asked for.
 - If the agent is down, the administrator cannot stop one process; stopping
   or restarting the workspace still works. A root-level kill path in the
   controller was rejected as more to secure than that case is worth.
-- The one-second sample forks once per process, which is fine at a
-  workspace's process limit but would not scale to a whole host.
+- CPU ticks are counted at 100 a second (Linux's fixed USER_HZ), and
+  `startTicks` comes from the host's `stat`, which matches the agent's view
+  as long as instances have no time namespace (Incus does not give them one).

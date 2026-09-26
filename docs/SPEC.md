@@ -2009,13 +2009,15 @@ workspace's heaviest processes and stop one. The list comes from Incus
 through the worker, never from the workspace agent. **Refresh**
 (`POST /admin/workspaces/:id/processes/refresh`, 202, 409 when the
 workspace is not running) records a request; the worker, within a second,
-asks the controller (`GET /instances/:name/processes`), which runs one
-fixed command in the instance as uid 1000 and returns the top ten
+asks the controller (`GET /instances/:name/processes`), which reads the
+instance's cgroup tree and `/proc` on the host, running nothing inside the
+instance and writing nothing, and returns the top ten
 processes by CPU over one second and the top ten by resident memory,
 each with PID, uid, short name (control characters replaced, at most 15
 characters), start ticks, CPU percent of the instance's CPU limit,
-resident bytes and whether it is protected (PID 1, not uid 1000, the
-agent, or `tmux: server`). `GET /admin/workspaces/:id/processes` returns
+resident bytes and whether it is protected (PID 1, not uid 1000, or the
+main process of the agent's unit or of `portikus-terminals.service`,
+recognised by its cgroup, not its name). `GET /admin/workspaces/:id/processes` returns
 the latest snapshot, with `takenAt` null until it is served and `error`
 set to a code when it could not be read. Snapshots are deleted after an
 hour. **Stop** (`POST /admin/workspaces/:id/processes/:pid/stop`, body
