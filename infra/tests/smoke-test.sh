@@ -944,7 +944,7 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
     created_user_subjects+=("$subject")
     token=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')
     hash=$(printf '%s' "$token" | sha256sum | awk '{ print $1 }')
-    uid=$(printf '%s\n' "WITH u AS (INSERT INTO users (oidc_issuer, oidc_subject, display_name, preferred_username, role) VALUES ('${SMOKE_ISSUER}', '${subject}', '${display}', '${name}', '${role}') RETURNING id), s AS (INSERT INTO sessions (id, user_id, expires_at) SELECT '${hash}', id, now() + interval '1 hour' FROM u) SELECT id FROM u" \
+    uid=$(printf '%s\n' "WITH u AS (INSERT INTO users (oidc_issuer, oidc_subject, display_name, preferred_username, role, acceptable_use_version, acceptable_use_accepted_at) VALUES ('${SMOKE_ISSUER}', '${subject}', '${display}', '${name}', '${role}', (SELECT COALESCE((SELECT acceptable_use_version FROM settings WHERE id = 1), 1)), now()) RETURNING id), s AS (INSERT INTO sessions (id, user_id, expires_at) SELECT '${hash}', id, now() + interval '1 hour' FROM u) SELECT id FROM u" \
       | ssh_cmd_stdin "sudo -u postgres psql -X -q -t -A -v ON_ERROR_STOP=1 -d portikus" 2>/dev/null)
     if [ -z "$uid" ]; then
       printf '\033[1;31mFAIL\033[0m  make %s %s in PostgreSQL\n' "$role" "$subject"
@@ -1161,6 +1161,9 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
         created_user_subjects+=("$mock_user")
       fi
     done
+    # The acceptable-use gate would answer 403 to every check below; the
+    # gate itself is checked by the security test.
+    ssh_cmd "sudo -u postgres psql -X -q -d portikus -c \"UPDATE users SET acceptable_use_version = (SELECT COALESCE((SELECT acceptable_use_version FROM settings WHERE id = 1), 1)), acceptable_use_accepted_at = now() WHERE oidc_subject IN ('alice','bob','carol') AND acceptable_use_version IS DISTINCT FROM (SELECT COALESCE((SELECT acceptable_use_version FROM settings WHERE id = 1), 1))\"" >/dev/null 2>&1 || true
   else
     echo "Making alice, bob, and carol under ${SMOKE_ISSUER}, run ${SMOKE_RUN_ID}..."
     mint_user alice "Alice Student" student
