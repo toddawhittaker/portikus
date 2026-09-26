@@ -2792,7 +2792,7 @@ and `make security-test` 242 of 242 with one warning (the mock LMS).
 PR #588 adds the `cpu.max` checks to `limits.sh` and the gate check to
 `preview-edge.sh`.
 
-PILOT RESULTS: pending T7
+Pilot: not yet deployed; the rehearsal VM results above are the live evidence.
 
 Gaps:
 
