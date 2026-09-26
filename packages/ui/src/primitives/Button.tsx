@@ -3,10 +3,11 @@ import { cx } from "./cx.js";
 import { Icon, type IconName } from "./Icon.js";
 
 const VARIANT_CLASS = {
-	primary: "bg-surface-inverse text-ink-inverse hover:bg-surface-inverse-hover",
+	primary:
+		"border-transparent bg-surface-inverse text-ink-inverse hover:bg-surface-inverse-hover",
 	secondary: "bg-surface-raised text-ink border-line-strong hover:bg-surface-hover",
-	quiet: "bg-transparent text-ink hover:bg-surface-hover",
-	danger: "bg-status-danger text-on-danger hover:bg-danger-hover",
+	quiet: "border-transparent bg-transparent text-ink hover:bg-surface-hover",
+	danger: "border-transparent bg-status-danger text-on-danger hover:bg-danger-hover",
 } as const;
 
 const SIZE_CLASS = {
@@ -40,7 +41,7 @@ export function Button({
 			type="button"
 			{...rest}
 			className={cx(
-				"pk-btn pk-focus-ring inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-sm border border-transparent font-semibold leading-none transition-colors duration-[var(--duration-fast)]",
+				"pk-btn pk-focus-ring inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-sm border font-semibold leading-none transition-colors duration-[var(--duration-fast)]",
 				VARIANT_CLASS[variant],
 				SIZE_CLASS[size],
 				className,
