@@ -132,20 +132,14 @@ export class CheckRunner {
 		let pty: IPty;
 		try {
 			// A login shell is what the student would type the command in, so
-			// their own PATH and version managers apply (SPEC.md §18.1). choom
-			// puts the command back to an ordinary OOM score, so it does not
-			// inherit the protection the agent has.
-			pty = this.spawnPty(
-				"choom",
-				["-n", "0", "--", "bash", "-lc", options.check.command],
-				{
-					name: "xterm-256color",
-					cols: CHECK_COLS,
-					rows: CHECK_ROWS,
-					cwd: options.cwd,
-					env: { ...process.env } as Record<string, string>,
-				},
-			);
+			// their own PATH and version managers apply (SPEC.md §18.1).
+			pty = this.spawnPty("bash", ["-lc", options.check.command], {
+				name: "xterm-256color",
+				cols: CHECK_COLS,
+				rows: CHECK_ROWS,
+				cwd: options.cwd,
+				env: { ...process.env } as Record<string, string>,
+			});
 		} catch (error) {
 			this.log.error(
 				{ error: error instanceof Error ? error.message : String(error) },
