@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useRef } from "react";
 import { expect, test, vi } from "vitest";
 import { MemoryNotice, memoryAnnouncement } from "./MemoryNotice.js";
 
@@ -32,5 +33,39 @@ test("says the workspace has been near its memory limit, with the flag's numbers
 test("the announcement carries the title and the body", () => {
 	expect(memoryAnnouncement(FLAG)).toBe(
 		"Your workspace has been near its memory limit. For 10 minutes it used more than 90% of its memory. If it runs out, the biggest program is stopped.",
+	);
+});
+
+function Page({ shown }: { shown: boolean }) {
+	const work = useRef<HTMLElement>(null);
+	return (
+		<>
+			<main ref={work} tabIndex={-1} data-testid="work" />
+			<button type="button">elsewhere</button>
+			{shown ? (
+				<MemoryNotice
+					flag={FLAG}
+					onDismiss={() => {}}
+					onShowMonitor={() => {}}
+					fallbackFocus={work}
+				/>
+			) : null}
+		</>
+	);
+}
+
+test("focus goes to the work area when the notice goes away on its own while focused", () => {
+	const view = render(<Page shown />);
+	screen.getByRole("button", { name: "See what's using memory" }).focus();
+	view.rerender(<Page shown={false} />);
+	expect(document.activeElement).toBe(screen.getByTestId("work"));
+});
+
+test("focus elsewhere stays put when the notice goes away", () => {
+	const view = render(<Page shown />);
+	screen.getByRole("button", { name: "elsewhere" }).focus();
+	view.rerender(<Page shown={false} />);
+	expect(document.activeElement).toBe(
+		screen.getByRole("button", { name: "elsewhere" }),
 	);
 });

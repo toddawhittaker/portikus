@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ApiError, request } from "../api/request.js";
 import { formatBytes, formatCpu } from "../monitor/format.js";
+import { stopErrorText } from "../monitor/stop.js";
 
 /** The browser polls once a second for at most 20 seconds (docs/EPIC-21.md ruling 16). */
 export const POLL_MS = 1000;
@@ -21,13 +22,13 @@ export const TIMEOUT_TEXT =
 
 const RefreshAnswer = z.object({ requestedAt: z.string() });
 
-/** A snapshot answers this browser's request only if taken at or after it. */
+/** A snapshot answers this browser's request only if taken after it, as the worker judges. */
 export function snapshotAnswers(
 	snapshot: AdminProcessSnapshot,
 	requestedAt: string,
 ): boolean {
 	return (
-		snapshot.takenAt !== null && Date.parse(snapshot.takenAt) >= Date.parse(requestedAt)
+		snapshot.takenAt !== null && Date.parse(snapshot.takenAt) > Date.parse(requestedAt)
 	);
 }
 
@@ -52,16 +53,14 @@ export function snapshotErrorText(code: string): string {
 	return `The processes could not be read (${code}). Press Refresh to try again.`;
 }
 
-/** The dialog's words for a refused or failed stop; the refusals match Monitor's. */
+/** The dialog's words for a refused or failed stop; the refusals are Monitor's own. */
 export function adminStopErrorText(error: unknown): string {
 	const code = error instanceof ApiError ? error.code : undefined;
 	switch (code) {
 		case "PROCESS_NOT_FOUND":
-			return "That program has already stopped.";
 		case "PROCESS_CHANGED":
-			return "That process ID now belongs to a different program. Refresh and try again.";
 		case "PROCESS_PROTECTED":
-			return "Portikus needs this process, so it cannot be stopped here.";
+			return stopErrorText(error);
 		case "WORKSPACE_NOT_RUNNING":
 			return "The workspace is not running.";
 		case "STOP_IN_PROGRESS":
@@ -279,7 +278,9 @@ export function ProcessesSection({
 						Read at {readTime(reading.snapshot.takenAt ?? "")}
 					</p>
 					<table className="w-full text-left text-[13px]" data-testid="processes-table">
-						<caption className="sr-only">Processes, highest {sort} first</caption>
+						<caption className="sr-only">
+							Processes, highest {sort === "cpu" ? "CPU" : "memory"} first
+						</caption>
 						<thead>
 							<tr>
 								<th scope="col">PID</th>
@@ -311,7 +312,18 @@ export function ProcessesSection({
 										<td>{formatCpu(row.cpuPercent)}</td>
 										<td>{formatBytes(row.residentBytes)}</td>
 										<td>
-											{row.protected ? null : (
+											{row.protected ? (
+												<span
+													className="pk-muted"
+													data-testid={`processes-protected-${row.pid}`}
+												>
+													Protected
+													<span className="sr-only">
+														: the system or Portikus needs this process, so it cannot be
+														stopped here.
+													</span>
+												</span>
+											) : (
 												<IconButton
 													icon="stop"
 													size="sm"
@@ -389,8 +401,13 @@ function SortHeader({
 }) {
 	return (
 		<th scope="col" aria-sort={sort === column ? "descending" : "none"}>
-			<button type="button" onClick={() => onSort(column)}>
+			<button
+				type="button"
+				className="pk-focus-ring rounded-sm"
+				onClick={() => onSort(column)}
+			>
 				{label}
+				{sort === column ? <span aria-hidden="true"> ↓</span> : null}
 			</button>
 		</th>
 	);

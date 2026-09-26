@@ -99,6 +99,15 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)("a small share lowers the quiet percent to half of it", async () => {
+	const row = await workspaceRow({
+		cpu_throttle: JSON.stringify({ ...throttle, sharePercent: 5 }),
+	});
+	expect((await toWorkspace(tdb.db, row, 0, config)).cpuThrottle).toMatchObject({
+		idleLiftPercent: 2,
+	});
+});
+
 test.skipIf(skip)("the memory flag reaches the owner's view", async () => {
 	const row = await workspaceRow({ memory_flag: JSON.stringify(flag) });
 	const view = await toWorkspace(tdb.db, row, 0, config);

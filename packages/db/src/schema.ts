@@ -374,7 +374,6 @@ export interface NotificationsTable {
 export interface WorkspaceProcessSnapshotsTable {
 	workspace_id: string;
 	requested_at: ColumnType<Date, string, string>;
-	requested_by: string | null;
 	taken_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	processes: ColumnType<unknown | null, string | null | undefined, string | null>;
 	error: string | null;

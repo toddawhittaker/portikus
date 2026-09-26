@@ -201,6 +201,18 @@ test.skipIf(skip)(
 			.executeTakeFirstOrThrow();
 		expect(row.requested_at.toISOString()).toBe(requestedAt);
 		expect(row.taken_at).toBeNull();
+		const reads = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "workspace.processes_read")
+			.execute();
+		expect(reads).toHaveLength(1);
+		expect(reads[0]).toMatchObject({
+			target: workspaceId,
+			result: "ok",
+			metadata: null,
+		});
+		expect(reads[0]?.actor).not.toBe(`user:${await ownerOf(workspaceId)}`);
 		expect(agent.processes.get("")?.map((p) => p.pid)).toEqual([1, 7, 8]);
 		const again = await refresh(carol);
 		expect(again.statusCode).toBe(202);
@@ -324,7 +336,34 @@ test.skipIf(skip)("Force stop goes through the agent with SIGKILL", async () => 
 			{ pid: 8, signal: "SIGKILL", exited: true },
 		]),
 	);
+	// Only the stop that ended the process tells the student.
+	expect(await notificationsFor(await ownerOf(workspaceId))).toHaveLength(1);
 });
+
+test.skipIf(skip)("a stop that did not end the process tells nobody", async () => {
+	expect((await stop(carol, 8, { startTicks: 200 })).json().exited).toBe(false);
+	expect(await audits()).toHaveLength(1);
+	expect(await notificationsFor(await ownerOf(workspaceId))).toEqual([]);
+});
+
+test.skipIf(skip)(
+	"a student's and an administrator's stop share one lock",
+	async () => {
+		const hold = agent.holdNextStop();
+		const first = app.inject({
+			method: "POST",
+			url: `/workspaces/${workspaceId}/processes/7/stop`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { startTicks: 100 },
+		});
+		await hold.reached;
+		const second = await stop(carol, 8, { startTicks: 200 });
+		expect(second.statusCode).toBe(409);
+		expect(second.json().code).toBe("STOP_IN_PROGRESS");
+		hold.release();
+		expect((await first).statusCode).toBe(200);
+	},
+);
 
 test.skipIf(skip)(
 	"the agent's refusals pass through with no audit or notification",

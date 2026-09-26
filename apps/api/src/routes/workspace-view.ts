@@ -25,7 +25,10 @@ function toStudentThrottle(
 		windowMinutes: raw.windowMinutes,
 		sharePercent: raw.sharePercent,
 		idleLiftMinutes: lift?.minutes ?? null,
-		idleLiftPercent: lift?.percent ?? null,
+		// The worker lifts under half the share too; whole percents, rounded down.
+		idleLiftPercent: lift
+			? Math.min(lift.percent, Math.floor(raw.sharePercent / 2))
+			: null,
 	};
 }
 

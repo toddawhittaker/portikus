@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useRef } from "react";
 import { expect, test, vi } from "vitest";
 import { ThrottleNotice, throttleAnnouncement } from "./ThrottleNotice.js";
 
@@ -83,4 +84,35 @@ test("the notice is not itself a live region; the page's status region carries t
 	expect(throttleAnnouncement(throttle)).toBe(
 		"Your workspace has been slowed down. It kept its CPUs more than 70% busy for 45 minutes, so it now gets 50% of its usual CPU. Stopping and starting the workspace restores full speed; an administrator can also lift this.",
 	);
+});
+
+test("focus goes to the work area when the throttle lifts while the notice has focus", () => {
+	function Page({ shown }: { shown: boolean }) {
+		const work = useRef<HTMLElement>(null);
+		return (
+			<>
+				<main ref={work} tabIndex={-1} data-testid="work" />
+				{shown ? (
+					<ThrottleNotice
+						throttle={{
+							at: "2026-09-25T12:00:00.000Z",
+							thresholdPercent: 80,
+							windowMinutes: 30,
+							sharePercent: 25,
+							idleLiftMinutes: null,
+							idleLiftPercent: null,
+						}}
+						onDismiss={() => {}}
+						onOpenWorkspace={() => {}}
+						onShowMonitor={() => {}}
+						fallbackFocus={work}
+					/>
+				) : null}
+			</>
+		);
+	}
+	const view = render(<Page shown />);
+	screen.getByRole("button", { name: "See what's using CPU" }).focus();
+	view.rerender(<Page shown={false} />);
+	expect(document.activeElement).toBe(screen.getByTestId("work"));
 });

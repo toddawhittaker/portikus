@@ -16,8 +16,8 @@ import {
 import { useState } from "react";
 import type { z } from "zod";
 import { ApiError } from "../api/request.js";
-import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./GuardDialog.js";
 import { graceText } from "./graceText.js";
+import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
 import { usePlatformSettings, useUpdatePlatformSettings } from "./queries.js";
 
 /**
@@ -83,33 +83,30 @@ interface GuardSettingField {
 
 /**
  * The Resource guard section's fields: the per-workspace ones, then the
- * automatic lift, which has no per-workspace override (#596). A function,
- * because GuardDialog imports this module before GUARD_FIELDS exists.
+ * automatic lift, which has no per-workspace override (#596).
  */
-function guardSettingFields(): GuardSettingField[] {
-	return [
-		...GUARD_FIELDS.filter((field) => field.key !== "idleStopMinutes").map((field) => ({
-			...field,
-			key: GUARD_SETTING[field.key as Exclude<GuardKey, "idleStopMinutes">],
-		})),
-		{
-			key: "cpuIdleLiftMinutes",
-			label: "Quiet time to lift (minutes)",
-			schema: CpuIdleLiftMinutes,
-			rangeText: "Enter a whole number from 1 to 60.",
-		},
-		{
-			key: "cpuIdleLiftPercent",
-			label: "Quiet below (%)",
-			schema: CpuIdleLiftPercent,
-			rangeText: "Enter 0 to turn it off, or a whole number up to 100.",
-		},
-	];
-}
+const GUARD_SETTING_FIELDS: GuardSettingField[] = [
+	...GUARD_FIELDS.filter((field) => field.key !== "idleStopMinutes").map((field) => ({
+		...field,
+		key: GUARD_SETTING[field.key as Exclude<GuardKey, "idleStopMinutes">],
+	})),
+	{
+		key: "cpuIdleLiftMinutes",
+		label: "Quiet time to lift (minutes)",
+		schema: CpuIdleLiftMinutes,
+		rangeText: "Enter a whole number from 1 to 60.",
+	},
+	{
+		key: "cpuIdleLiftPercent",
+		label: "Quiet below (%)",
+		schema: CpuIdleLiftPercent,
+		rangeText: "Enter 0 to turn it off, or a whole number up to 100.",
+	},
+];
 
 /** Reads one Resource guard field, or null when the entry is not allowed. */
 export function parseGuardSetting(key: GuardSettingKey, text: string): number | null {
-	const field = guardSettingFields().find((item) => item.key === key);
+	const field = GUARD_SETTING_FIELDS.find((item) => item.key === key);
 	const trimmed = text.trim();
 	if (!field || !/^\d+$/.test(trimmed)) return null;
 	const parsed = field.schema.safeParse(Number(trimmed));
@@ -189,7 +186,7 @@ function ResourceGuardSection() {
 	const [drafts, setDrafts] = useState<Partial<Record<GuardSettingKey, string>>>({});
 	const [errors, setErrors] = useState<Partial<Record<GuardSettingKey, string>>>({});
 	const [serverError, setServerError] = useState<string | null>(null);
-	const fields = guardSettingFields();
+	const fields = GUARD_SETTING_FIELDS;
 	const firstError = fields.find((field) => errors[field.key])?.key;
 
 	function fieldValue(key: GuardSettingKey): string {

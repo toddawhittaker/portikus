@@ -9,6 +9,8 @@ test("showMonitor selects Monitor and sorts that column largest first", () => {
 
 	act(() => showMonitor(result.current, "memory"));
 	expect(result.current.pane).toBe("monitor");
+	// Monitor moves focus to itself when a button elsewhere opened it.
+	expect(result.current.monitorFocus).toBe(true);
 	expect(result.current.monitorSort).toEqual({ column: "memory", direction: "desc" });
 
 	act(() => result.current.setMonitorSort({ column: "cpu", direction: "asc" }));

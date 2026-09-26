@@ -1,16 +1,11 @@
 import { requireRole, requireUser } from "@portikus/auth";
-import {
-	type AdminProcessSnapshot,
-	InstanceProcess,
-	ProcessStopErrorCode,
-	ProcessStopRequest,
-} from "@portikus/contracts";
+import { type AdminProcessSnapshot, InstanceProcess } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { AgentCallError, agentClientFor } from "../agent-client.js";
+import { agentClientFor } from "../agent-client.js";
 import type { ServerDeps } from "../server.js";
 import { recordNotification } from "./notifications.js";
-import { REFUSAL_STATUS, refusalMessage } from "./processes.js";
+import { parseStop, stopThroughAgent } from "./processes.js";
 import { sendError } from "./project-scope.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
@@ -32,7 +27,6 @@ export function registerAdminProcessRoutes(
 	deps: ServerDeps,
 ): void {
 	const { db, config } = deps;
-	const stopping = new Set<string>();
 
 	async function loadWorkspace(id: string) {
 		return db
@@ -64,19 +58,25 @@ export function registerAdminProcessRoutes(
 			}
 			// Millisecond precision, so the worker can match the request it served.
 			const requestedAt = new Date().toISOString();
-			await db
-				.insertInto("workspace_process_snapshots")
-				.values({
-					workspace_id: row.id,
-					requested_at: requestedAt,
-					requested_by: admin.id,
-				})
-				.onConflict((oc) =>
-					oc
-						.column("workspace_id")
-						.doUpdateSet({ requested_at: requestedAt, requested_by: admin.id }),
-				)
-				.execute();
+			await db.transaction().execute(async (trx) => {
+				await trx
+					.insertInto("workspace_process_snapshots")
+					.values({ workspace_id: row.id, requested_at: requestedAt })
+					.onConflict((oc) =>
+						oc.column("workspace_id").doUpdateSet({ requested_at: requestedAt }),
+					)
+					.execute();
+				// Refresh runs a command in a student's container (SPEC.md §24.11).
+				await trx
+					.insertInto("audit_events")
+					.values({
+						actor: `user:${admin.id}`,
+						target: row.id,
+						action: "workspace.processes_read",
+						result: "ok",
+					})
+					.execute();
+			});
 			return reply.status(202).send({ requestedAt });
 		},
 	);
@@ -110,15 +110,8 @@ export function registerAdminProcessRoutes(
 		async (request, reply) => {
 			const admin = requireUser(request);
 			const params = UuidParam.safeParse({ id: (request.params as { id: string }).id });
-			const { pid: rawPid } = request.params as { pid: string };
-			const pid = /^[1-9]\d{0,9}$/.test(rawPid) ? Number(rawPid) : Number.NaN;
-			const body = ProcessStopRequest.safeParse(request.body ?? {});
-			if (
-				!params.success ||
-				!Number.isSafeInteger(pid) ||
-				pid > 2 ** 31 - 1 ||
-				!body.success
-			) {
+			const parsed = parseStop((request.params as { pid: string }).pid, request.body);
+			if (!params.success || !parsed) {
 				return sendError(reply, 400, "VALIDATION_FAILED", "invalid process id or body");
 			}
 			const row = await loadWorkspace(params.data.id);
@@ -141,62 +134,23 @@ export function registerAdminProcessRoutes(
 					"The workspace agent is not reachable.",
 				);
 			}
-			if (stopping.has(row.id)) {
-				return sendError(
-					reply,
-					409,
-					"STOP_IN_PROGRESS",
-					"A process in this workspace is already being stopped",
-				);
-			}
-			stopping.add(row.id);
-			let exited: boolean;
-			try {
-				({ exited } = await agent.stopProcess(pid, body.data));
-			} catch (error) {
-				const refusal =
-					error instanceof AgentCallError
-						? ProcessStopErrorCode.safeParse(error.code)
-						: null;
-				if (refusal?.success) {
-					return sendError(
-						reply,
-						REFUSAL_STATUS[refusal.data],
-						refusal.data,
-						refusalMessage(refusal.data),
-					);
-				}
-				if (!(error instanceof AgentCallError)) {
-					request.log.error({ err: error }, "admin process stop failed");
-				}
-				return sendError(
-					reply,
-					502,
-					"AGENT_UNAVAILABLE",
-					"The workspace did not answer",
-				);
-			} finally {
-				stopping.delete(row.id);
-			}
-			const signal = body.data.force ? "SIGKILL" : "SIGTERM";
-			await db.transaction().execute(async (trx) => {
-				await trx
-					.insertInto("audit_events")
-					.values({
-						actor: `user:${admin.id}`,
-						target: row.id,
-						action: "workspace.process_stopped",
-						result: "ok",
-						metadata: JSON.stringify({ pid, signal, exited }),
-					})
-					.execute();
-				await recordNotification(trx, row.owner_user_id, {
-					tone: "neutral",
-					title: ADMIN_STOP_NOTIFICATION_TITLE,
-					body: "",
-				});
+			// The student hears only of a stop that happened (docs/EPIC-21.md ruling 14).
+			return stopThroughAgent({
+				db,
+				agent,
+				workspaceId: row.id,
+				actorId: admin.id,
+				pid: parsed.pid,
+				body: parsed.body,
+				reply,
+				log: request.log,
+				onExited: (trx) =>
+					recordNotification(trx, row.owner_user_id, {
+						tone: "neutral",
+						title: ADMIN_STOP_NOTIFICATION_TITLE,
+						body: "",
+					}),
 			});
-			return { pid, exited };
 		},
 	);
 }

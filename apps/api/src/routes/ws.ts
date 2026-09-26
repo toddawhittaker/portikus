@@ -40,9 +40,10 @@ function signatureOf(workspace: Workspace): string {
 		// A Reset Docker or Rebuild request must reach the browser at once (SPEC.md §27).
 		workspace.pendingOperation,
 		workspace.archivedAt,
-		// The throttle notice and "Still working?" must appear at once (ADR 0032).
+		// The throttle and memory notices and "Still working?" must appear at once (ADR 0032).
 		workspace.cpuThrottle,
 		workspace.idleStopAt,
+		workspace.memoryFlag,
 	]);
 }
 

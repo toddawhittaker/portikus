@@ -50,6 +50,7 @@ import {
 	workspaceInterfaceAddress,
 } from "./listening.js";
 import { listeningRoutes } from "./listening-route.js";
+import { tmuxPidSource } from "./processes.js";
 import { processesRoutes } from "./processes-route.js";
 import {
 	archiveDir,
@@ -73,6 +74,7 @@ import {
 	hasSession,
 	killSession,
 	listSessions,
+	serverPid,
 } from "./tmux.js";
 import { UsageSampler, type UsageSamplerOptions } from "./usage.js";
 import { ProjectWatchers } from "./watch.js";
@@ -208,8 +210,13 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	monitor.start();
 
 	const recoveryRoot = options.recoveryRoot ?? "/var/lib/portikus/recovery";
+	// The terminals' tmux server is protected by PID (docs/EPIC-21.md ruling 10).
+	const tmuxPid = tmuxPidSource(options.usage?.procRoot ?? "/proc", () =>
+		serverPid(options.tmuxSocketName),
+	);
 	const usage = new UsageSampler({
 		homePath: options.homeDir,
+		tmuxPid,
 		recoveryPath: recoveryRoot,
 		...options.usage,
 	});
@@ -614,7 +621,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		registerRecoveryRoutes(instance, { homeDir: options.homeDir, recoveryRoot });
 		instance.register(checksRoute, { homeDir: options.homeDir });
 		instance.register(listeningRoutes, { monitor, forwards });
-		instance.register(processesRoutes, { procRoot: options.usage?.procRoot });
+		instance.register(processesRoutes, { procRoot: options.usage?.procRoot, tmuxPid });
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,
 			maxSockets: options.maxEventSockets,

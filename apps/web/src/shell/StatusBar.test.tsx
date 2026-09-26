@@ -405,6 +405,14 @@ test("the memory warning appears at 85% of the limit and not at 84.9%", () => {
 	expect(memoryWarning(undefined)).toBeNull();
 });
 
+test("a shown memory warning stays until use falls below 80%", () => {
+	const at = (value: number) => ({ usedBytes: value * GB, totalBytes: 100 * GB });
+	expect(memoryWarning(at(82))).toBeNull();
+	expect(memoryWarning(at(82), true)).toBe("Memory 82.0 GB of 100 GB");
+	expect(memoryWarning(at(80), true)).not.toBeNull();
+	expect(memoryWarning(at(79.9), true)).toBeNull();
+});
+
 test("at 85% memory the status bar warns, announces it, and opens Monitor by memory", async () => {
 	stubFetch((url) =>
 		String(url).endsWith("/usage")
@@ -419,6 +427,8 @@ test("at 85% memory the status bar warns, announces it, and opens Monitor by mem
 		show: vi.fn(),
 		monitorSort: { column: "cpu" as const, direction: "desc" as const },
 		setMonitorSort: vi.fn(),
+		monitorFocus: false,
+		setMonitorFocus: vi.fn(),
 	};
 	renderWithQuery(
 		<RightPaneContext.Provider value={api}>
@@ -430,15 +440,18 @@ test("at 85% memory the status bar warns, announces it, and opens Monitor by mem
 	expect(warning.textContent).toBe("Memory 90.0 GB of 100 GB");
 	// The alert icon, not colour alone, marks it as a warning.
 	expect(warning.querySelector("svg")).not.toBeNull();
-	expect(screen.getByTestId("storage-warning-announce").textContent).toBe(
+	// Memory has its own live region, so a storage change does not repeat it.
+	expect(screen.getByTestId("memory-warning-announce").textContent).toBe(
 		MEMORY_ANNOUNCEMENT,
 	);
+	expect(screen.getByTestId("storage-warning-announce").textContent).toBe("");
 	fireEvent.click(warning);
 	expect(api.setMonitorSort).toHaveBeenCalledWith({
 		column: "memory",
 		direction: "desc",
 	});
 	expect(api.show).toHaveBeenCalledWith("monitor");
+	expect(api.setMonitorFocus).toHaveBeenCalledWith(true);
 });
 
 test("below 85% memory the status bar shows nothing about memory", async () => {
@@ -454,4 +467,5 @@ test("below 85% memory the status bar shows nothing about memory", async () => {
 	await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 	await waitFor(() => expect(screen.queryByTestId("memory-warning")).toBeNull());
 	expect(screen.getByTestId("storage-warning-announce").textContent).toBe("");
+	expect(screen.getByTestId("memory-warning-announce").textContent).toBe("");
 });

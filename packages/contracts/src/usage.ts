@@ -18,12 +18,14 @@ export const UsageProcess = z.object({
 	/** Resident size, from VmRSS. */
 	residentBytes: z.number().int().nonnegative(),
 	command: z.string().min(1).max(15),
+	// The three defaults let an agent older than Epic 21, still running until
+	// its workspace restarts, parse: its rows show no Stop and no command line.
 	/** Field 22 of `/proc/<pid>/stat`; with the pid it names one process. */
-	startTicks: z.number().int().nonnegative(),
+	startTicks: z.number().int().nonnegative().default(0),
 	/** False for a protected process: PID 1, another user's, the agent, tmux. */
-	stoppable: z.boolean(),
+	stoppable: z.boolean().default(false),
 	/** The student's own process's command line, NULs as spaces; else null. */
-	commandLine: z.string().max(PROCESS_COMMAND_LINE_LIMIT).nullable(),
+	commandLine: z.string().max(PROCESS_COMMAND_LINE_LIMIT).nullable().default(null),
 });
 export type UsageProcess = z.infer<typeof UsageProcess>;
 

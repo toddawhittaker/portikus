@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { createSession } from "./tmux.js";
+import { createSession, serverPid } from "./tmux.js";
 
 const run = promisify(execFile);
 const SOCKET_NAME = `portikus-options-${process.pid}`;
@@ -127,3 +127,17 @@ test.skipIf(!haveTmux)(
 		expect(stdout.trim()).toBe("5000");
 	},
 );
+
+test.skipIf(!haveTmux)("the server PID comes from the agent's own socket", async () => {
+	const pid = await serverPid(SOCKET_NAME);
+	expect(pid).toBeGreaterThan(1);
+	const { stdout } = await run("tmux", [
+		"-L",
+		SOCKET_NAME,
+		"display-message",
+		"-p",
+		"#{pid}",
+	]);
+	expect(pid).toBe(Number(stdout.trim()));
+	expect(await serverPid(`${SOCKET_NAME}-none`)).toBeNull();
+});

@@ -1,5 +1,7 @@
 import type { MemoryFlag } from "@portikus/contracts";
 import { Button, Icon, IconButton } from "@portikus/ui";
+import type { RefObject } from "react";
+import { useFocusFallback } from "./useFocusFallback.js";
 
 export const MEMORY_TITLE = "Your workspace has been near its memory limit";
 
@@ -20,14 +22,18 @@ export function MemoryNotice({
 	flag,
 	onDismiss,
 	onShowMonitor,
+	fallbackFocus,
 }: {
 	flag: MemoryFlag;
 	onDismiss: () => void;
 	/** Opens Monitor sorted by memory, largest first. */
 	onShowMonitor: () => void;
+	/** Takes focus if the notice goes away on its own while holding it. */
+	fallbackFocus?: RefObject<HTMLElement | null>;
 }) {
+	const ref = useFocusFallback<HTMLDivElement>(fallbackFocus);
 	return (
-		<div className="pk-notice pk-notice--warning" data-testid="memory-notice">
+		<div ref={ref} className="pk-notice pk-notice--warning" data-testid="memory-notice">
 			<span className="pk-notice-icon">
 				<Icon name="alert" size="md" />
 			</span>

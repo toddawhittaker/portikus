@@ -233,7 +233,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 	 * Lift a throttle once the workspace has been quiet (#596): the CPU
 	 * average over the last `lift.minutes`, counting only samples taken
 	 * after the throttle and measured against the full limit, is strictly
-	 * below `lift.percent`. Clears the row, drops the samples from before
+	 * below `lift.percent` and half the throttle share. Clears the row, drops the samples from before
 	 * the throttle and audits, together. Returns whether it lifted.
 	 */
 	async function judgeLift(
@@ -246,7 +246,10 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 		const throttledAt = new Date(throttle.at);
 		const windowStart = new Date(at.getTime() - lift.minutes * 60_000);
 		const average = await averageCpu(id, inst, throttledAt, windowStart, at);
-		if (average === null || !(average < lift.percent)) return false;
+		// A throttled workspace cannot use more than its share, so a busy one
+		// at or under the quiet percent would lift and re-throttle forever.
+		const quiet = Math.min(lift.percent, throttle.sharePercent / 2);
+		if (average === null || !(average < quiet)) return false;
 		const averagePercent = round1(average);
 		const lifted = await db.transaction().execute(async (trx) => {
 			const updated = await trx

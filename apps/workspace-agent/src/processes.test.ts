@@ -17,11 +17,13 @@ import {
 	parseStatusUids,
 	readProcess,
 	stopProcess,
+	tmuxPidSource,
 } from "./processes.js";
 import { processesRoutes } from "./processes-route.js";
 
 const STUDENT = 1000;
 const SELF = 4242;
+const TMUX = 305;
 let fakeProc: string;
 const signals: [number, string][] = [];
 
@@ -52,6 +54,7 @@ function fakeOptions() {
 		procRoot: fakeProc,
 		selfPid: SELF,
 		studentUid: STUDENT,
+		tmuxPid: async () => TMUX,
 		kill: (pid: number, signal: string) => {
 			signals.push([pid, signal]);
 		},
@@ -64,7 +67,9 @@ beforeAll(async () => {
 	fakeProc = await mkdtemp(join(tmpdir(), "portikus-proc-"));
 	await fakeProcess(1, "systemd", 0, 1);
 	await fakeProcess(SELF, "node", STUDENT, 50);
+	// A student's process that renamed itself; the real server is 305.
 	await fakeProcess(300, "tmux: server", STUDENT, 60);
+	await fakeProcess(TMUX, "tmux: server", STUDENT, 65);
 	await fakeProcess(301, "sshd", 0, 70);
 	await fakeProcess(302, "evil (x) y", STUDENT, 80);
 	await fakeProcess(303, "defunct", STUDENT, 90, "Z");
@@ -87,6 +92,8 @@ test("the stat line is read between the first ( and the last )", () => {
 		name: "a) b (c",
 		state: "R",
 		startTicks: 1234,
+		utime: 0,
+		stime: 0,
 	});
 	expect(parseStatLine("9 (short) S 1 2")).toBeNull();
 	expect(parseStatLine("garbage")).toBeNull();
@@ -94,22 +101,49 @@ test("the stat line is read between the first ( and the last )", () => {
 	expect(parseStatusUids("Name:\tx\n")).toBeNull();
 });
 
-test("PID 1, the agent, tmux servers and anyone else's process are protected", async () => {
-	const owner = { selfPid: SELF, studentUid: STUDENT };
-	const protectedPids = [1, SELF, 300, 301, 304];
+test("PID 1, the agent, its tmux server and anyone else's process are protected", async () => {
+	const owner = { selfPid: SELF, studentUid: STUDENT, tmuxPid: TMUX };
+	const protectedPids = [1, SELF, TMUX, 301, 304];
 	for (const pid of protectedPids) {
 		const facts = await readProcess(fakeProc, pid);
 		expect(facts && isProtected(facts, owner), String(pid)).toBe(true);
 	}
-	const own = await readProcess(fakeProc, 302);
-	expect(own && isProtected(own, owner)).toBe(false);
+	// Protection goes by the agent's tmux PID, never by the name.
+	for (const pid of [300, 302]) {
+		const own = await readProcess(fakeProc, pid);
+		expect(own && isProtected(own, owner), String(pid)).toBe(false);
+	}
+});
+
+test("a process that calls itself tmux: server can be stopped", async () => {
+	expect(
+		await stopProcess(300, { startTicks: 60, force: false }, fakeOptions()),
+	).toEqual({ pid: 300, exited: false });
+	expect(signals).toEqual([[300, "SIGTERM"]]);
+});
+
+test("the tmux PID is asked for again only when that process is gone", async () => {
+	let asked = 0;
+	let answer: number | null = TMUX;
+	const source = tmuxPidSource(fakeProc, async () => {
+		asked++;
+		return answer;
+	});
+	expect(await source()).toBe(TMUX);
+	expect(await source()).toBe(TMUX);
+	expect(asked).toBe(1);
+	await rm(join(fakeProc, String(TMUX)), { recursive: true });
+	answer = null;
+	expect(await source()).toBeNull();
+	expect(asked).toBe(2);
+	await fakeProcess(TMUX, "tmux: server", STUDENT, 65);
 });
 
 test("a refused stop sends no signal", async () => {
 	const cases: [number, number, string][] = [
 		[1, 1, "PROCESS_PROTECTED"],
 		[SELF, 50, "PROCESS_PROTECTED"],
-		[300, 60, "PROCESS_PROTECTED"],
+		[TMUX, 65, "PROCESS_PROTECTED"],
 		[301, 70, "PROCESS_PROTECTED"],
 		[304, 95, "PROCESS_PROTECTED"],
 		[302, 81, "PROCESS_CHANGED"],
@@ -194,6 +228,7 @@ function realOptions() {
 		procRoot: "/proc",
 		selfPid: process.pid,
 		studentUid: process.getuid?.() ?? 0,
+		tmuxPid: async () => null,
 		kill: (pid: number, signal: NodeJS.Signals) => process.kill(pid, signal),
 		graceMs: 1000,
 	};

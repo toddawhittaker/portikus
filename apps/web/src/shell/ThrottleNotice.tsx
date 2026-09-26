@@ -1,5 +1,7 @@
 import type { WorkspaceCpuThrottle } from "@portikus/contracts";
 import { Button, Icon, IconButton } from "@portikus/ui";
+import type { RefObject } from "react";
+import { useFocusFallback } from "./useFocusFallback.js";
 
 export const THROTTLE_TITLE = "Your workspace has been slowed down";
 
@@ -28,6 +30,7 @@ export function ThrottleNotice({
 	onDismiss,
 	onOpenWorkspace,
 	onShowMonitor,
+	fallbackFocus,
 }: {
 	throttle: WorkspaceCpuThrottle;
 	onDismiss: () => void;
@@ -35,9 +38,16 @@ export function ThrottleNotice({
 	onOpenWorkspace: () => void;
 	/** Opens Monitor sorted by CPU, busiest first. */
 	onShowMonitor: () => void;
+	/** Takes focus if the notice goes away on its own while holding it. */
+	fallbackFocus?: RefObject<HTMLElement | null>;
 }) {
+	const ref = useFocusFallback<HTMLDivElement>(fallbackFocus);
 	return (
-		<div className="pk-notice pk-notice--warning" data-testid="throttle-notice">
+		<div
+			ref={ref}
+			className="pk-notice pk-notice--warning"
+			data-testid="throttle-notice"
+		>
 			<span className="pk-notice-icon">
 				<Icon name="alert" size="md" />
 			</span>

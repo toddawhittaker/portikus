@@ -2,15 +2,12 @@
  * Reading and stopping one of the student's processes (SPEC.md §18.3;
  * docs/EPIC-21.md rulings 8 to 11). The agent runs as the student, so the
  * kernel already refuses anyone else's process; the protected list keeps
- * the agent, the terminals' tmux server and PID 1 from being signalled by
- * accident. Command lines are returned to the student only and never logged.
+ * the agent, the tmux server the agent runs the terminals in, and PID 1 from
+ * being signalled by accident. Command lines are returned to the student only and never logged.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PROCESS_COMMAND_LINE_LIMIT } from "@portikus/contracts";
-
-/** The short name of every tmux server, whoever started it. */
-export const TMUX_SERVER_NAME = "tmux: server";
 
 /** How long a stopped process has to exit before the answer is "still running". */
 export const STOP_GRACE_MS = 3000;
@@ -25,6 +22,8 @@ export interface ProcessFacts {
 	/** Single-letter state; `Z` is a zombie. */
 	state: string;
 	startTicks: number;
+	utime: number;
+	stime: number;
 	/** Real and effective uid from `status`. */
 	uids: [number, number];
 }
@@ -35,12 +34,25 @@ export interface ProcessOwner {
 	selfPid: number;
 	/** The student's uid, which the agent runs as. */
 	studentUid: number;
+	/**
+	 * The terminals' tmux server, found by the agent's own socket, or null
+	 * when none runs. By PID, not by name: any process can call itself
+	 * "tmux: server".
+	 */
+	tmuxPid: number | null;
 }
 
-/** Parse the fields a stop needs from a stat line. The name may hold spaces and parentheses. */
-export function parseStatLine(
-	text: string,
-): { name: string; state: string; startTicks: number } | null {
+/** The fields of a stat line that a stop and a usage sample need. */
+export interface StatLine {
+	name: string;
+	state: string;
+	startTicks: number;
+	utime: number;
+	stime: number;
+}
+
+/** Parse a stat line. The name may hold spaces and parentheses. */
+export function parseStatLine(text: string): StatLine | null {
 	const open = text.indexOf("(");
 	const close = text.lastIndexOf(")");
 	if (open < 0 || close < open) return null;
@@ -48,11 +60,15 @@ export function parseStatLine(
 		.slice(close + 1)
 		.trim()
 		.split(/\s+/);
-	// Field 3 (state) is index 0 after the name; field 22 (starttime) is index 19.
+	// Field 3 (state) is index 0 after the name; utime (14) and stime (15)
+	// are indexes 11 and 12; starttime (22) is index 19.
 	const state = fields[0];
+	const utime = Number(fields[11]);
+	const stime = Number(fields[12]);
 	const startTicks = Number(fields[19]);
 	if (!state || !Number.isSafeInteger(startTicks) || startTicks < 0) return null;
-	return { name: text.slice(open + 1, close), state, startTicks };
+	if (!Number.isFinite(utime) || !Number.isFinite(stime)) return null;
+	return { name: text.slice(open + 1, close), state, startTicks, utime, stime };
 }
 
 /** Real and effective uid from a `status` file. */
@@ -91,7 +107,7 @@ export function isProtected(facts: ProcessFacts, owner: ProcessOwner): boolean {
 		facts.pid === 1 ||
 		facts.pid === owner.selfPid ||
 		!ownedByStudent(facts, owner) ||
-		facts.name === TMUX_SERVER_NAME
+		facts.pid === owner.tmuxPid
 	);
 }
 
@@ -123,7 +139,33 @@ export class ProcessStopFailure extends Error {
 	}
 }
 
-export interface StopOptions extends ProcessOwner {
+/**
+ * Remembers the tmux server's PID while that process lives, so a usage
+ * sample each second does not start a tmux client each second. `lookup`
+ * asks tmux itself; a PID left over from a dead server is asked again.
+ */
+export function tmuxPidSource(
+	procRoot: string,
+	lookup: () => Promise<number | null>,
+): () => Promise<number | null> {
+	let known: { pid: number; startTicks: number } | null = null;
+	return async () => {
+		if (known) {
+			const facts = await readProcess(procRoot, known.pid);
+			if (facts && facts.startTicks === known.startTicks) return known.pid;
+			known = null;
+		}
+		const pid = await lookup();
+		if (pid === null) return null;
+		const facts = await readProcess(procRoot, pid);
+		if (facts) known = { pid, startTicks: facts.startTicks };
+		return pid;
+	};
+}
+
+export interface StopOptions extends Omit<ProcessOwner, "tmuxPid"> {
+	/** The terminals' tmux server PID, or null when none runs. */
+	tmuxPid: () => Promise<number | null>;
 	procRoot: string;
 	/** Sends the signal. Tests may replace it; production is `process.kill`. */
 	kill: (pid: number, signal: NodeJS.Signals) => void;
@@ -145,7 +187,8 @@ export async function stopProcess(
 	if (facts.startTicks !== request.startTicks) {
 		throw new ProcessStopFailure(409, "PROCESS_CHANGED", "the process id was reused");
 	}
-	if (isProtected(facts, options)) {
+	const owner = { ...options, tmuxPid: await options.tmuxPid() };
+	if (isProtected(facts, owner)) {
 		throw new ProcessStopFailure(403, "PROCESS_PROTECTED", "this process is protected");
 	}
 	try {

@@ -339,6 +339,8 @@ test("the sort comes from the right pane, so a notice can open Monitor sorted", 
 					show: () => {},
 					monitorSort: { column: "memory", direction: "desc" },
 					setMonitorSort: () => {},
+					monitorFocus: false,
+					setMonitorFocus: () => {},
 				}}
 			>
 				<MonitorPane workspaceId={WORKSPACE} />
@@ -354,4 +356,107 @@ test("the sort comes from the right pane, so a notice can open Monitor sorted", 
 	expect(
 		screen.getByRole("columnheader", { name: "Memory" }).getAttribute("aria-sort"),
 	).toBe("descending");
+});
+
+/** Usage answers with whatever `list.rows` holds when asked. */
+function stubLive(rows: unknown[], stops: Response[] = []) {
+	const list = { rows };
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			if (String(input).endsWith("/stop")) {
+				return stops.shift() ?? json({ pid: 7, exited: true });
+			}
+			return json({ ...USAGE, processes: list.rows });
+		}),
+	);
+	return list;
+}
+
+test("when a sample takes away the focused row, focus goes to the Processes heading", async () => {
+	const list = stubLive([OWN, SYSTEM]);
+	renderPane();
+	const stop = await screen.findByRole("button", { name: "Stop node (PID 7)" });
+	stop.focus();
+	list.rows = [SYSTEM];
+	await waitFor(() => expect(screen.queryByTestId("monitor-process-7")).toBeNull(), {
+		timeout: 3000,
+	});
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			screen.getByTestId("monitor-processes-heading"),
+		),
+	);
+});
+
+test("after 'already stopped' and Cancel, the row leaving moves focus to the heading", async () => {
+	const list = stubLive([OWN, SYSTEM], [errorBody(404, "PROCESS_NOT_FOUND")]);
+	renderPane();
+	fireEvent.click(await screen.findByRole("button", { name: "Stop node (PID 7)" }));
+	const dialog = screen.getByTestId("dialog-stop-process");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Stop" }));
+	await waitFor(() =>
+		expect(screen.getByTestId("stop-process-status").textContent).toBe(
+			"That program has already stopped.",
+		),
+	);
+	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	await waitFor(() => expect(screen.queryByTestId("dialog-stop-process")).toBeNull());
+	list.rows = [SYSTEM];
+	await waitFor(
+		() =>
+			expect(document.activeElement).toBe(
+				screen.getByTestId("monitor-processes-heading"),
+			),
+		{ timeout: 3000 },
+	);
+});
+
+test("the row order holds while focus is in the list, and sorts again when it leaves", async () => {
+	const busy = { ...OWN, pid: 3, cpuPercent: 90 };
+	const quiet = { ...OWN, pid: 4, cpuPercent: 1 };
+	const list = stubLive([busy, quiet]);
+	renderPane();
+	const order = () =>
+		screen
+			.getAllByTestId(/monitor-process-\d/)
+			.map((row) => row.getAttribute("data-testid"));
+	(await screen.findByRole("button", { name: "Stop node (PID 4)" })).focus();
+	expect(order()).toEqual(["monitor-process-3", "monitor-process-4"]);
+	list.rows = [busy, { ...quiet, cpuPercent: 99 }];
+	await waitFor(
+		() => expect(screen.getByTestId("monitor-process-4").textContent).toContain("99"),
+		{
+			timeout: 3000,
+		},
+	);
+	expect(order()).toEqual(["monitor-process-3", "monitor-process-4"]);
+	act(() => screen.getByTestId("monitor-processes-heading").focus());
+	await waitFor(() =>
+		expect(order()).toEqual(["monitor-process-4", "monitor-process-3"]),
+	);
+});
+
+test("opened by a notice or the status bar, Monitor takes focus on its heading", async () => {
+	stubLive([OWN]);
+	const setMonitorFocus = vi.fn();
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	render(
+		<QueryClientProvider client={client}>
+			<RightPaneContext.Provider
+				value={{
+					pane: "monitor",
+					show: () => {},
+					monitorSort: { column: "cpu", direction: "desc" },
+					setMonitorSort: () => {},
+					monitorFocus: true,
+					setMonitorFocus,
+				}}
+			>
+				<MonitorPane workspaceId={WORKSPACE} />
+			</RightPaneContext.Provider>
+		</QueryClientProvider>,
+	);
+	expect(document.activeElement).toBe(screen.getByTestId("monitor-title"));
+	expect(setMonitorFocus).toHaveBeenCalledWith(false);
 });

@@ -1,5 +1,6 @@
 import type { Project, Workspace, WorkspaceUsage } from "@portikus/contracts";
 import { Icon } from "@portikus/ui";
+import { useRef } from "react";
 import { gitBar } from "../files/gitStatus.js";
 import { useGitStatus } from "../files/useGitStatus.js";
 import { formatBytes } from "../monitor/format.js";
@@ -27,18 +28,24 @@ const TONE_CLASS: Record<string, string> = {
 /** The status bar warns about memory only from this share of the limit up. */
 export const MEMORY_WARN_AT = 0.85;
 
+/** Once shown, the warning stays until use falls below this, so it does not flicker. */
+export const MEMORY_CLEAR_BELOW = 0.8;
+
 /** Fixed text for the live region, so a changing figure is not re-announced. */
 export const MEMORY_ANNOUNCEMENT = "Your workspace is using most of its memory.";
 
 /**
  * "Memory {used} of {total}" when the working set is at or above 85% of the
- * limit, else null (docs/EPIC-21.md ruling 24).
+ * limit, or at or above 80% while the warning is already `showing`, else
+ * null (docs/EPIC-21.md ruling 24).
  */
 export function memoryWarning(
 	memory: WorkspaceUsage["memory"] | undefined,
+	showing = false,
 ): string | null {
 	if (!memory || memory.totalBytes <= 0) return null;
-	if (memory.usedBytes / memory.totalBytes < MEMORY_WARN_AT) return null;
+	const share = memory.usedBytes / memory.totalBytes;
+	if (share < (showing ? MEMORY_CLEAR_BELOW : MEMORY_WARN_AT)) return null;
 	return `Memory ${formatBytes(memory.usedBytes)} of ${formatBytes(memory.totalBytes)}`;
 }
 
@@ -62,7 +69,11 @@ export function StatusBar({
 	const usage = useWorkspaceUsage(workspaceId, running, STORAGE_POLL_MS);
 	const storage = running ? usage.data?.storage : undefined;
 	const warning = storageWarning(storage);
-	const memory = running ? memoryWarning(usage.data?.memory) : null;
+	const memoryShown = useRef(false);
+	const memory = running
+		? memoryWarning(usage.data?.memory, memoryShown.current)
+		: null;
+	memoryShown.current = memory !== null;
 	const showMonitor = useShowMonitor();
 	const countdown = useCountdown(workspace?.shutdownDeadline ?? null);
 
@@ -80,11 +91,12 @@ export function StatusBar({
 					Stopping in {countdown.clock}
 				</span>
 			)}
-			{/* Announces a storage class or memory crossing a threshold (SPEC.md §19.2). */}
+			{/* Announce a storage class or memory crossing a threshold (SPEC.md §19.2). */}
 			<span role="status" className="sr-only" data-testid="storage-warning-announce">
-				{[warning?.announcement, memory ? MEMORY_ANNOUNCEMENT : null]
-					.filter(Boolean)
-					.join(" ")}
+				{warning?.announcement ?? ""}
+			</span>
+			<span role="status" className="sr-only" data-testid="memory-warning-announce">
+				{memory ? MEMORY_ANNOUNCEMENT : ""}
 			</span>
 			{memory ? (
 				<button

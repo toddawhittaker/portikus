@@ -148,3 +148,44 @@ test("the full command line shows below the row when asked for", async ({
 	await page.keyboard.press("Enter");
 	await expect(page.getByTestId("monitor-command-42")).toHaveCount(0);
 });
+
+test("when a focused process exits on its own, focus moves to the Processes heading", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await seedProcesses(student.workspaceId, [BUSY, TMUX]);
+	await openMonitor(page, student.workspaceId);
+	await page.getByRole("button", { name: "Stop busy (PID 42)" }).focus();
+	await seedProcesses(student.workspaceId, [TMUX]);
+	await expect(page.getByTestId("monitor-process-42")).toHaveCount(0);
+	await expect(page.getByTestId("monitor-processes-heading")).toBeFocused();
+});
+
+test("the rows hold still while focus is in the list, and a long name wraps", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const busy = { ...BUSY, cpuPercent: 50 };
+	const quiet = { ...STUBBORN, cpuPercent: 1, ignoresTerm: false };
+	await seedProcesses(student.workspaceId, [busy, quiet]);
+	await openMonitor(page, student.workspaceId);
+	const rows = page.locator("[data-testid^='monitor-process-']");
+	await expect(rows).toHaveCount(2);
+	await expect(rows.first()).toHaveAttribute("data-testid", "monitor-process-42");
+
+	// Names are readable without hovering: the cell wraps, it does not cut off.
+	await expect(page.getByTestId("monitor-process-42").locator("td").nth(3)).toHaveCSS(
+		"white-space",
+		"normal",
+	);
+
+	await page.getByRole("button", { name: "Stop stubborn (PID 43)" }).focus();
+	await seedProcesses(student.workspaceId, [busy, { ...quiet, cpuPercent: 99 }]);
+	await expect(page.getByTestId("monitor-process-43")).toContainText("99");
+	await expect(rows.first()).toHaveAttribute("data-testid", "monitor-process-42");
+
+	await page.getByTestId("monitor-processes-heading").focus();
+	await expect(rows.first()).toHaveAttribute("data-testid", "monitor-process-43");
+});
