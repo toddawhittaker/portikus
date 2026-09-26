@@ -41,15 +41,6 @@ async function samples() {
 		.execute();
 }
 
-/** Wait on real time for the database to catch up with a fake-clock tick. */
-async function until(check: () => Promise<boolean>): Promise<void> {
-	for (let i = 0; i < 200; i++) {
-		if (await check()) return;
-		await new Promise((r) => setTimeout(r, 10));
-	}
-	throw new Error("condition not met");
-}
-
 test.skipIf(skip)(
 	"a reachable controller gives a sample with the host snapshot",
 	async () => {
@@ -165,37 +156,53 @@ test.skipIf(skip)("a database failure is logged and does not throw", async () =>
 	expect(lines.some((l) => l.msg === "health sample failed")).toBe(true);
 });
 
+test("the sampler runs once at start, then once every 60 seconds until stopped", () => {
+	vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+	let calls = 0;
+	const tick = async () => {
+		calls++;
+	};
+	const { logger } = collectingLogger();
+	const stop = startHealthSampling(
+		{ db: {} as TestDb["db"], controller: new FakeControllerClient(), logger },
+		tick,
+	);
+	expect(calls).toBe(1);
+	vi.advanceTimersByTime(HEALTH_SAMPLE_SECONDS * 1000 - 1);
+	expect(calls).toBe(1);
+	vi.advanceTimersByTime(1);
+	expect(calls).toBe(2);
+	vi.advanceTimersByTime(HEALTH_SAMPLE_SECONDS * 1000);
+	expect(calls).toBe(3);
+	vi.advanceTimersByTime(HEALTH_SAMPLE_SECONDS * 1000);
+	expect(calls).toBe(4);
+	stop();
+	vi.advanceTimersByTime(HEALTH_SAMPLE_SECONDS * 5000);
+	expect(calls).toBe(4);
+});
+
 test.skipIf(skip)(
-	"one sample is written now and then one every 60 seconds",
+	"each sample is stamped with the clock time of its tick",
 	async () => {
-		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
-		vi.setSystemTime(new Date("2026-09-22T12:00:00Z"));
-		const controller = new FakeControllerClient();
+		const start = new Date("2026-09-22T12:00:00Z").getTime();
+		let at = start;
 		const { logger } = collectingLogger();
-		const stop = startHealthSampling({ db: tdb.db, controller, logger });
-		try {
-			await until(async () => (await samples()).length === 1);
-
-			vi.advanceTimersByTime(HEALTH_SAMPLE_SECONDS * 1000 - 1);
-			await new Promise((r) => setTimeout(r, 50));
-			expect(await samples()).toHaveLength(1);
-
-			for (let n = 2; n <= 4; n++) {
-				vi.advanceTimersByTime(n === 2 ? 1 : HEALTH_SAMPLE_SECONDS * 1000);
-				await until(async () => (await samples()).length === n);
-			}
-			const times = (await samples()).map((r) => r.observed_at.toISOString());
-			expect(times).toEqual([
-				"2026-09-22T12:00:00.000Z",
-				"2026-09-22T12:01:00.000Z",
-				"2026-09-22T12:02:00.000Z",
-				"2026-09-22T12:03:00.000Z",
-			]);
-		} finally {
-			stop();
+		const tick = createHealthSampler({
+			db: tdb.db,
+			controller: new FakeControllerClient(),
+			logger,
+			now: () => new Date(at),
+		});
+		for (let n = 0; n < 4; n++) {
+			at = start + n * HEALTH_SAMPLE_SECONDS * 1000;
+			await tick();
 		}
-		vi.advanceTimersByTime(HEALTH_SAMPLE_SECONDS * 5000);
-		await new Promise((r) => setTimeout(r, 50));
-		expect(await samples()).toHaveLength(4);
+		const times = (await samples()).map((r) => r.observed_at.toISOString());
+		expect(times).toEqual([
+			"2026-09-22T12:00:00.000Z",
+			"2026-09-22T12:01:00.000Z",
+			"2026-09-22T12:02:00.000Z",
+			"2026-09-22T12:03:00.000Z",
+		]);
 	},
 );
