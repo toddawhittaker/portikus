@@ -110,7 +110,7 @@ beforeAll(async () => {
 	await mkdir(linked, { recursive: true });
 	await symlink(outside, join(linked, "escape"));
 
-	app = buildServer({ tokenPath, homeDir });
+	app = buildServer({ tmuxSocketName: "portikus-test", tokenPath, homeDir });
 	await app.ready();
 });
 

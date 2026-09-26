@@ -432,6 +432,18 @@ test("AgentConfigSchema applies the workspace agent defaults", () => {
 	expect(config.PORT).toBe(7400);
 	expect(config.TOKEN_PATH).toBe("/etc/portikus/agent.token");
 	expect(config.HOME_DIR).toBe("/home/student");
+	expect(config.TMUX_SOCKET_NAME).toBe("portikus");
+	expect(config.TMUX_EXTERNAL_SERVER).toBe(false);
+});
+
+test("AgentConfigSchema reads TMUX_EXTERNAL_SERVER and refuses other values", () => {
+	expect(
+		loadConfig(AgentConfigSchema, { TMUX_EXTERNAL_SERVER: "true" })
+			.TMUX_EXTERNAL_SERVER,
+	).toBe(true);
+	expect(() =>
+		loadConfig(AgentConfigSchema, { TMUX_EXTERNAL_SERVER: "yes" }),
+	).toThrow();
 });
 
 test("AgentConfigSchema coerces an overridden PORT", () => {

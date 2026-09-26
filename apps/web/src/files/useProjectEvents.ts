@@ -9,9 +9,10 @@ import {
 	type BrowserOpenRequest,
 	BrowserOpenRequest as BrowserOpenRequestSchema,
 	FsEvent,
+	WatchLimited,
 } from "@portikus/contracts";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { wsUrl } from "../api/ws.js";
 import { parentOf } from "./paths.js";
 import { fileKeys } from "./queries.js";
@@ -125,22 +126,38 @@ export function applyInvalidations(
 	}
 }
 
+/** Refetch everything the project shows: tree, open files, Git status. */
+function refreshAll(client: QueryClient, workspaceId: string, projectId: string): void {
+	applyInvalidations(client, workspaceId, projectId, {
+		git: true,
+		trees: [],
+		files: [],
+		all: true,
+	});
+}
+
 /**
  * Keep one events socket open while the project is on screen. A socket that
  * drops is opened again with a backoff, because a workspace that is
  * restarting should not be hammered, and a socket the server refuses is not
- * opened again at all.
+ * opened again at all. A project too large to watch is not reconnected; it
+ * refreshes when the window regains focus and after the student's own
+ * actions instead, and `limited` says so (SPEC.md §11.4).
  */
 export function useProjectEvents(
 	workspaceId: string,
 	projectId: string,
 	onBrowserOpen?: (request: BrowserOpenRequest) => void,
-): void {
+): { limited: boolean } {
 	const client = useQueryClient();
 	const onBrowserOpenRef = useRef(onBrowserOpen);
 	onBrowserOpenRef.current = onBrowserOpen;
+	const [limited, setLimited] = useState(false);
 
 	useEffect(() => {
+		setLimited(false);
+		let limitedHere = false;
+		let stopFallback: (() => void) | undefined;
 		let stopped = false;
 		let socket: WebSocket | null = null;
 		let retry: ReturnType<typeof setTimeout> | undefined;
@@ -157,6 +174,21 @@ export function useProjectEvents(
 			applyInvalidations(client, workspaceId, projectId, invalidationsFor(frames));
 		}
 
+		function startFallback(): void {
+			const refresh = () => refreshAll(client, workspaceId, projectId);
+			window.addEventListener("focus", refresh);
+			// The student's own file actions change the tree, and nothing else says so.
+			const actionKey = JSON.stringify(fileKeys.actions(workspaceId, projectId));
+			const unsubscribe = client.getMutationCache().subscribe((event) => {
+				if (event.type !== "updated" || event.action.type !== "success") return;
+				if (JSON.stringify(event.mutation.options.mutationKey) === actionKey) refresh();
+			});
+			stopFallback = () => {
+				window.removeEventListener("focus", refresh);
+				unsubscribe();
+			};
+		}
+
 		function connect(): void {
 			if (stopped) return;
 			const next = new WebSocket(
@@ -169,12 +201,7 @@ export function useProjectEvents(
 				if (everOpened) {
 					// Frames sent while the socket was down are lost, so everything
 					// this project shows is refetched once (SPEC.md §11.4).
-					applyInvalidations(client, workspaceId, projectId, {
-						git: true,
-						trees: [],
-						files: [],
-						all: true,
-					});
+					refreshAll(client, workspaceId, projectId);
 				}
 				everOpened = true;
 			};
@@ -193,6 +220,15 @@ export function useProjectEvents(
 					onBrowserOpenRef.current?.(browser.data);
 					return;
 				}
+				if (WatchLimited.safeParse(frame).success) {
+					if (limitedHere) return;
+					limitedHere = true;
+					setLimited(true);
+					startFallback();
+					// The agent has closed its watcher, so this socket carries nothing more.
+					next.close();
+					return;
+				}
 				const parsed = FsEvent.safeParse(frame);
 				if (!parsed.success) return;
 				pending.push(parsed.data);
@@ -202,7 +238,7 @@ export function useProjectEvents(
 
 			next.onclose = (event: CloseEvent) => {
 				if (stopped) return;
-				if (REFUSED_CODES.has(event.code)) return;
+				if (limitedHere || REFUSED_CODES.has(event.code)) return;
 				const wait = backoffMs;
 				// A socket that died young is a failing connection, so wait longer
 				// next time; one that worked for a while starts over from the top.
@@ -224,7 +260,10 @@ export function useProjectEvents(
 			stopped = true;
 			if (retry !== undefined) clearTimeout(retry);
 			if (debounce !== undefined) clearTimeout(debounce);
+			stopFallback?.();
 			socket?.close();
 		};
 	}, [client, workspaceId, projectId]);
+
+	return { limited };
 }

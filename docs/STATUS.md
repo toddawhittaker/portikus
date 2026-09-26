@@ -2898,3 +2898,50 @@ Gaps:
   nothing on confirm (BACKLOG).
 - "Reset preview data" still acts without a confirmation, and issue
   #607's resource notices are left to their own epic (BACKLOG).
+
+## Epic 16 — Workspace resilience
+
+The rules are in SPEC.md sections 9.7, 11.4, 13.5, 18.1, 18.2, 19.3 and
+21.7, and the unit split is ADR 0035. Task PRs #635, #636, #642, #646,
+#654, #659, #661, #675 and the closing task on
+`epic/16-workspace-resilience`; issues #610 and #618 to #625. Workspace
+image 2026.09.11. Not yet deployed to the pilot, and existing workspaces
+get the image changes only when rebuilt.
+
+Delivered:
+
+- `/tmp` is a 512 MB tmpfs and `/dev/shm` a 256 MB one, so a big
+  temporary file fails with "No space left on device".
+- The tmux server runs in its own unit, `portikus-terminals.service`, on
+  a private socket, so an agent restart leaves terminals open. The agent
+  unit's process limit is lifted; the terminals unit is capped at 1700.
+- Every tmux call times out after 5 seconds. A student's `~/.tmux.conf` is
+  never read, `tmux kill-server` typed in a pane reaches only the
+  student's own server, and a `~/.bashrc` that exits falls back to a
+  plain shell with a message.
+- Closing a terminal and stopping a Check stop the whole process tree,
+  and Check output pauses for a slow watcher.
+- The port scanner never overlaps itself, idles when nobody watches, and
+  remembers socket owners. Stopping a listener always scans afresh and
+  fails if that scan fails.
+- The file watcher skips more generated folders and stops at 20,000
+  folders with a "too large to update live" notice. A full disk gives
+  `STORAGE_FULL` and "Your home folder is full" on every file action.
+- When the terminals unit stops, open panes and later attaches get a
+  toast saying why: out of memory, or a restart.
+- Review fixes: at most one exit-record lookup per terminal connection,
+  start-time checks before killing a process tree, a hardened exit-record
+  read, and tmux failures no longer mistaken for a missing session.
+- The closing task fixed a race that made a unit test flaky: a tmux
+  server that is shutting down can still answer with no sessions or drop
+  the client. The agent now takes whether the server died from the attach
+  client's final line, and asks tmux only when that line is missing.
+
+Gaps:
+
+- The agent's planned OOM score of -500 was dropped because the kernel
+  refuses it in an unprivileged container (ADR 0035).
+- The exit record can wrongly say `oom-kill` after an earlier pane OOM
+  kill (ADR 0035, BACKLOG).
+- Checks still run in the agent's cgroup, and the items the plan left out
+  are in BACKLOG.

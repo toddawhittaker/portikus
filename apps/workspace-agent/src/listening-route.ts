@@ -33,7 +33,12 @@ export async function listeningRoutes(
 		const unsubscribe = monitor.subscribe((services) => {
 			send(socket, services);
 		});
-		socket.on("close", unsubscribe);
+		// An open events socket is what keeps the timer scanning (SPEC.md §18.2).
+		const unwatch = monitor.watch();
+		socket.on("close", () => {
+			unsubscribe();
+			unwatch();
+		});
 		// The first frame is the whole list, so a client that connects
 		// between changes still knows what is running.
 		send(socket, monitor.current());
