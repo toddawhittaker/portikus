@@ -90,6 +90,22 @@ def state_cookie_attributes(headers, state):
     return ""
 
 
+def accept_use(op, site):
+    """Reads the current statement and accepts its version; returns the status."""
+    status, _, body = request(op, f"{site}/me/acceptable-use")
+    if status != 200:
+        return status
+    version = json.loads(body).get("version")
+    req = urllib.request.Request(
+        f"{site}/me/acceptable-use", data=json.dumps({"version": version}).encode(),
+        headers={"Content-Type": "application/json", "Origin": site}, method="POST")
+    try:
+        with op.open(req, timeout=15) as res:
+            return res.status
+    except urllib.error.HTTPError as err:
+        return err.code
+
+
 def launch(mock, site, person, course):
     jar = http.cookiejar.CookieJar()
     follow, stay = opener(jar, True), opener(jar, False)
@@ -131,6 +147,10 @@ def launch(mock, site, person, course):
     if status == 200:
         me = json.loads(body)
         out["role"] = me.get("role")
+        # A new account accepts the acceptable-use statement first, as a
+        # person would, so the checks below are not refused by that gate.
+        if me.get("mustAcceptUse"):
+            out["accepted_use"] = accept_use(stay, site)
     status, _, body = request(stay, f"{site}/courses")
     out["courses"] = status
     if status == 200:

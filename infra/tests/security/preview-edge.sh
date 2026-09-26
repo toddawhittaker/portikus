@@ -187,6 +187,29 @@ else
   check_output "/__portikus/reset on the main site is only the front page" "same" \
     pe_main_site /__portikus/reset -H "@${SEC_REMOTE_DIR}/pe-a.cookie"
 
+  # The acceptable-use gate (SPEC.md 5.3): while a has not accepted the
+  # current statement, the API, the workspace socket and the preview host
+  # all refuse a, through the real Caddy.  a accepts again afterwards.
+  pe_aup_version="(SELECT COALESCE((SELECT acceptable_use_version FROM settings WHERE id = 1), 1))"
+  pe_aup_set() { sec_psql "UPDATE users SET acceptable_use_version = $1 WHERE id = '${SEC_USER_ID[a]}'"; }
+  pe_gate_code() { # METHOD PATH -- "status code"
+    local status; status=$(sec_http a "$1" "$2")
+    echo "${status} $(jq -r '.code // empty' "$SEC_LAST_BODY" 2>/dev/null)"
+  }
+  pe_aup_set NULL
+  check_output "a without acceptance gets 403 ACCEPTABLE_USE_REQUIRED on its workspace" \
+    "403 ACCEPTABLE_USE_REQUIRED" pe_gate_code GET "/workspaces/$(sec_ws_id a)"
+  check_output "a without acceptance gets 403 ACCEPTABLE_USE_REQUIRED on a preview grant" \
+    "403 ACCEPTABLE_USE_REQUIRED" pe_gate_code POST "/workspaces/$(sec_ws_id a)/preview-grants"
+  check_output "a without acceptance can still read the statement" "200" \
+    sec_http a GET /me/acceptable-use
+  check "a without acceptance cannot open its workspace socket" \
+    test "$(sec_ws_upgrade a "/workspaces/$(sec_ws_id a)/ws" "$SEC_API")" != 101
+  pe_refused "a's preview session is refused while a has not accepted" 403 pe-a.cookie "${pe_a_origin}/"
+  pe_aup_set "$pe_aup_version"
+  check_output "a's preview works again once a has accepted (control)" "200 sectest-pe-a" \
+    pe_serves pe-a.cookie "${pe_a_origin}/"
+
   # Denied ports (BROWSER-HANDLING.md 8): no grant, no bridge, no host.
   for pe_denied in 22 2375 2376 5432 7400; do
     check_output "a gets no grant for denied port ${pe_denied}" "403" pe_grant a "$pe_denied"

@@ -3,7 +3,8 @@
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # a's cgroup limits match the profile, a bounded fork loop hits the process
-# limit, busy loops fill a's CPUs for 20 seconds, and fallocate past each
+# limit, busy loops fill a's CPUs for 20 seconds, a resource-guard throttle
+# reaches a's cpu.max and leaves it again, and fallocate past each
 # volume's size is refused for lack of space, and the platform services
 # carry a negative OOM score adjustment.  Meanwhile the API and
 # b's agent keep answering within two seconds.  The heavy tests, memory past
@@ -161,6 +162,43 @@ echo "CPU loops in a: ${lim_busy}% of ${lim_cpu} CPUs over $((lim_burn_ns / 1000
 check "a's busy loops kept its CPUs at least 80% busy (control)" test "$lim_busy" -ge 80
 check "the API and b's agent answered within two seconds while a used all its CPUs" \
   lim_watch_ok "$lim_cpu_watch"
+
+# ── CPU throttle (resource guard) ────────────────────────────────
+
+# The database is the source of truth and the worker makes Incus match it
+# each minute, so a throttle row written here must reach a's cgroup as a
+# hard time slice, and clearing it must remove the quota again.  The row is
+# the one the guard writes at the default 25% share.
+lim_share=25
+lim_allow_ms=$((lim_share * lim_cpu))
+lim_throttle_json="{\"at\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\", \"averagePercent\": 100, \"thresholdPercent\": 80, \"windowMinutes\": 30, \"sharePercent\": ${lim_share}, \"allowance\": \"${lim_allow_ms}ms/100ms\"}"
+lim_set_throttle() { sec_psql "UPDATE workspaces SET cpu_throttle = $1 WHERE id = '$(sec_ws_id a)'"; }
+# lim_wait_cpu_max WANT -- the worker's tick is a minute; allow two.
+lim_wait_cpu_max() {
+  local i got
+  for ((i = 0; i < 130; i += 5)); do
+    got=$(lim_cgroup cpu.max)
+    [ "$got" = "$1" ] && break
+    sleep 5
+  done
+  echo "$got"
+}
+lim_set_throttle "'${lim_throttle_json}'::jsonb"
+check_output "a throttled to ${lim_share}% of ${lim_cpu} CPUs gets cpu.max of its allowance" \
+  "$((lim_allow_ms * 1000)) 100000" lim_wait_cpu_max "$((lim_allow_ms * 1000)) 100000"
+# The container's cgroup root is its own, but the limit files stay the host's
+# root's, unmapped inside, so the refusal must be for permission.
+lim_root_refused_cpu_max() {
+  local said
+  said=$(sec_exec a root "test -r /sys/fs/cgroup/cpu.max && echo max 100000 > /sys/fs/cgroup/cpu.max" 2>&1) && return 1
+  [[ "$said" == *"Permission denied"* ]]
+}
+check "root inside throttled a cannot write its own cpu.max (permission denied)" lim_root_refused_cpu_max
+check_output "a's cpu.max is unchanged after root inside a tried to write it" \
+  "$((lim_allow_ms * 1000)) 100000" lim_cgroup cpu.max
+lim_set_throttle NULL
+check_output "a's cpu.max returns to no quota once the throttle is cleared" \
+  "max 100000" lim_wait_cpu_max "max 100000"
 
 # ── Disk ─────────────────────────────────────────────────────────
 
