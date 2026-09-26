@@ -98,14 +98,14 @@ export function WorkspaceDetail({
 		>
 			<div className="flex items-start gap-3">
 				<div className="flex min-w-0 flex-col gap-0.5">
-					<h2
+					<h3
 						id="detail-title"
 						ref={headingRef}
 						tabIndex={-1}
 						className="pk-text-heading m-0 outline-none"
 					>
 						{user.displayName}
-					</h2>
+					</h3>
 					<span className="pk-mono-small pk-muted">
 						{[user.workspace?.label, user.email].filter(Boolean).join(" · ")}
 					</span>
@@ -192,9 +192,9 @@ function WorkspaceSections({
 			) : null}
 
 			<section aria-labelledby="detail-logs" className="flex flex-col gap-2">
-				<h3 id="detail-logs" className="pk-text-label m-0">
+				<h4 id="detail-logs" className="pk-text-label m-0">
 					Logs
-				</h3>
+				</h4>
 				<code className="pk-techdetail break-all" data-testid="log-command">
 					{command}
 				</code>
@@ -210,40 +210,38 @@ function WorkspaceSections({
 			<GuardSection detail={detail} ownerName={ownerName} />
 
 			<section aria-labelledby="detail-ports" className="flex flex-col gap-2">
-				<h3 id="detail-ports" className="pk-text-label m-0">
+				<h4 id="detail-ports" className="pk-text-label m-0">
 					Preview ports
-				</h3>
+				</h4>
 				{detail.ports.length === 0 ? (
 					<p className="pk-muted m-0 text-[13px]">No listening ports.</p>
 				) : (
-					<table className="w-full text-left text-[13px]" data-testid="detail-ports">
-						<caption className="sr-only">Listening ports</caption>
-						<thead>
-							<tr className="text-ink-muted">
-								<th scope="col" className="font-medium">
-									Port
-								</th>
-								<th scope="col" className="font-medium">
-									Process
-								</th>
-								<th scope="col" className="font-medium">
-									Preview
-								</th>
-							</tr>
-						</thead>
-						<tbody>
-							{detail.ports.map((port) => (
-								<tr key={port.port}>
-									<td className="pk-mono-small">{port.port}</td>
-									<td>
-										{port.command ?? "—"}
-										{port.system ? <span className="pk-tag ml-1">System</span> : null}
-									</td>
-									<td>{port.previewReachability}</td>
+					<div className="pk-table-wrap">
+						<table className="pk-table" data-testid="detail-ports">
+							<caption className="sr-only">Listening ports</caption>
+							<thead>
+								<tr>
+									<th scope="col" className="pk-num">
+										Port
+									</th>
+									<th scope="col">Process</th>
+									<th scope="col">Preview</th>
 								</tr>
-							))}
-						</tbody>
-					</table>
+							</thead>
+							<tbody>
+								{detail.ports.map((port) => (
+									<tr key={port.port}>
+										<td className="pk-num pk-mono-small">{port.port}</td>
+										<td>
+											{port.command ?? "—"}
+											{port.system ? <span className="pk-tag ml-1">System</span> : null}
+										</td>
+										<td>{port.previewReachability}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
 				)}
 				<p className="m-0 text-[13px]" data-testid="detail-sessions">
 					{detail.previewSessions.length === 0
@@ -258,9 +256,9 @@ function WorkspaceSections({
 			</section>
 
 			<section aria-labelledby="detail-audit" className="flex flex-col gap-2">
-				<h3 id="detail-audit" className="pk-text-label m-0">
+				<h4 id="detail-audit" className="pk-text-label m-0">
 					Recent audit events
-				</h3>
+				</h4>
 				<ul className="m-0 flex list-none flex-col gap-1 p-0 text-[13px]">
 					{detail.recentAudit.map((event) => (
 						<li key={event.id} className="flex gap-2">
@@ -303,9 +301,9 @@ function StorageSection({ detail }: { detail: AdminWorkspaceDetail }) {
 	const pending = quotaPending(workspace.quotaConfig, detail.quotaApplied);
 	return (
 		<section aria-labelledby="detail-storage" className="flex flex-col gap-2">
-			<h3 id="detail-storage" className="pk-text-label m-0">
+			<h4 id="detail-storage" className="pk-text-label m-0">
 				Storage and usage
-			</h3>
+			</h4>
 			<p className="m-0 text-[13px]" data-testid="detail-quota">
 				Configured: {storageText(workspace.quotaConfig)}
 			</p>
@@ -421,14 +419,14 @@ function GuardSection({
 
 	return (
 		<section aria-labelledby="detail-guard" className="flex flex-col gap-2">
-			<h3
+			<h4
 				id="detail-guard"
 				ref={headingRef}
 				tabIndex={-1}
 				className="pk-text-label m-0 outline-none"
 			>
 				Resource guard
-			</h3>
+			</h4>
 			<dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
 				<dt className="pk-muted">CPU</dt>
 				<dd
@@ -634,9 +632,9 @@ function WorkspaceActions({
 
 	return (
 		<section aria-labelledby="detail-actions" className="flex flex-col gap-2">
-			<h3 id="detail-actions" className="pk-text-label m-0">
+			<h4 id="detail-actions" className="pk-text-label m-0">
 				Workspace actions
-			</h3>
+			</h4>
 			<div className="flex flex-wrap gap-2">
 				{(["start", "stop", "restart"] as const).map((action) => (
 					<Button
@@ -1073,9 +1071,9 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 
 	return (
 		<section aria-labelledby="detail-account" className="flex flex-col gap-2">
-			<h3 id="detail-account" className="pk-text-label m-0">
+			<h4 id="detail-account" className="pk-text-label m-0">
 				Account
-			</h3>
+			</h4>
 			<dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 text-[13px]">
 				<dt className="pk-muted">Role</dt>
 				<dd className="m-0" data-testid="detail-role">

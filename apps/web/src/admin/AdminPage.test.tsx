@@ -362,13 +362,33 @@ test("the grace field is named by its visible label and Save after the user (WCA
 	).toBeDefined();
 });
 
-test("the page is titled Administration (issue #374)", async () => {
+test("the page title names the tab (issue #374, EPIC-18 ruling 8)", async () => {
 	stubAdmin(600);
 
 	renderApp("/admin");
 
 	await screen.findByTestId("page-admin");
-	expect(document.title).toBe("Administration, Portikus");
+	expect(document.title).toBe("Users, Administration, Portikus");
+});
+
+test("the Settings tab has its own title and an h2 naming it", async () => {
+	stubAdmin(600);
+
+	renderApp("/admin?tab=settings");
+
+	expect(
+		await screen.findByRole("heading", { level: 2, name: "Settings" }),
+	).toBeDefined();
+	expect(document.title).toBe("Settings, Administration, Portikus");
+});
+
+test("the admin page is compact (EPIC-18 ruling 2)", async () => {
+	stubAdmin(600);
+
+	renderApp("/admin");
+
+	const main = await screen.findByTestId("page-admin");
+	expect(main.getAttribute("data-density")).toBe("compact");
 });
 
 test("grace-period errors are announced as alerts (issue #363)", async () => {

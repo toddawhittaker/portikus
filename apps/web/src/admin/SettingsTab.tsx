@@ -14,6 +14,7 @@ import {
 } from "@portikus/ui";
 import { useState } from "react";
 import { ApiError } from "../api/request.js";
+import { AdminSection } from "./AdminSection.js";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./GuardDialog.js";
 import { graceText } from "./graceText.js";
 import { usePlatformSettings, useUpdatePlatformSettings } from "./queries.js";
@@ -46,13 +47,13 @@ export function announced(error: string | null) {
  */
 export function SettingsTab() {
 	return (
-		<>
+		<AdminSection title="Settings">
 			<GraceSection />
 			<IdleStopSection />
 			<ResourceGuardSection />
 			<AcceptableUseSection />
 			<LogLevelSection />
-		</>
+		</AdminSection>
 	);
 }
 
@@ -98,9 +99,9 @@ function IdleStopSection() {
 
 	return (
 		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="idle-title">
-			<h2 className="pk-text-heading m-0" id="idle-title">
+			<h3 className="pk-text-heading m-0" id="idle-title">
 				Idle stop
-			</h2>
+			</h3>
 			<p className="pk-text-body pk-muted mt-1">
 				How long a running workspace may go without a key press, click, file save or
 				preview visit before the student is asked "Still working?". It stops five
@@ -171,9 +172,9 @@ function ResourceGuardSection() {
 
 	return (
 		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="guard-title">
-			<h2 className="pk-text-heading m-0" id="guard-title">
+			<h3 className="pk-text-heading m-0" id="guard-title">
 				Resource guard
-			</h2>
+			</h3>
 			<p className="pk-text-body pk-muted mt-1">
 				A workspace whose CPU average stays above the CPU threshold for the window is
 				slowed to the throttled share of its CPU until it is stopped and started, or an
@@ -267,9 +268,9 @@ function AcceptableUseSection() {
 
 	return (
 		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="aup-title">
-			<h2 className="pk-text-heading m-0" id="aup-title">
+			<h3 className="pk-text-heading m-0" id="aup-title">
 				Acceptable use
-			</h2>
+			</h3>
 			<p className="pk-text-body pk-muted mt-1">
 				The statement everyone accepts before using Portikus. Plain text; a blank line
 				starts a new paragraph.
@@ -362,9 +363,9 @@ function GraceSection() {
 
 	return (
 		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="grace-title">
-			<h2 className="pk-text-heading m-0" id="grace-title">
+			<h3 className="pk-text-heading m-0" id="grace-title">
 				Disconnect grace period
-			</h2>
+			</h3>
 			<p className="pk-text-body pk-muted mt-1">
 				How long a workspace keeps running after the last browser disconnects.
 			</p>
@@ -431,9 +432,9 @@ function LogLevelSection() {
 
 	return (
 		<section className="pk-card mt-6 max-w-160 p-6" aria-labelledby="log-level-title">
-			<h2 className="pk-text-heading m-0" id="log-level-title">
+			<h3 className="pk-text-heading m-0" id="log-level-title">
 				Log level
-			</h2>
+			</h3>
 			<p className="pk-text-body pk-muted mt-1">
 				How much every service logs. Takes effect within a few seconds.
 			</p>

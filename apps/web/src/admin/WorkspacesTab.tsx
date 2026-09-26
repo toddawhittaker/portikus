@@ -17,6 +17,7 @@ import { useSearch } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { z } from "zod";
 import { request } from "../api/request.js";
+import { AdminSection } from "./AdminSection.js";
 import { AddDexUser } from "./DexUserDialogs.js";
 import {
 	imageText,
@@ -269,7 +270,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	}
 
 	return (
-		<div className="mt-6 flex flex-col gap-4">
+		<AdminSection title="Users">
 			<div className="flex items-center gap-3">
 				<p className="pk-text-compact pk-muted m-0">
 					{all.length} accounts · {running} running
@@ -365,14 +366,14 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				onDone={() => setChecked(new Set())}
 			/>
 			<div className="flex items-start gap-4">
-				<div className="min-w-0 flex-1 overflow-x-auto">
-					<table className="w-full text-left text-[13px]" data-testid="admin-accounts">
+				<div className="pk-table-wrap min-w-0 flex-1 overflow-x-auto">
+					<table className="pk-table" data-testid="admin-accounts">
 						<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
 							Accounts and their workspaces. Choose a name to see details.
 						</caption>
 						<thead>
-							<tr className="pk-text-label text-ink-muted">
-								<th scope="col" className="py-2 pr-2 pl-2 font-medium">
+							<tr>
+								<th scope="col">
 									<Checkbox
 										label={<span className="sr-only">Select all shown accounts</span>}
 										checked={allChecked}
@@ -386,33 +387,15 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 										}
 									/>
 								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Account
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Role
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Source
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Workspace
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Last activity
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Last sign-in
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Storage
-								</th>
-								<th scope="col" className="py-2 pr-4 font-medium">
-									Image
-								</th>
-								<th scope="col" className="py-2 font-medium">
-									Connections
-								</th>
+								<th scope="col">Account</th>
+								<th scope="col">Role</th>
+								<th scope="col">Source</th>
+								<th scope="col">Workspace</th>
+								<th scope="col">Last activity</th>
+								<th scope="col">Last sign-in</th>
+								<th scope="col">Storage</th>
+								<th scope="col">Image</th>
+								<th scope="col">Connections</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -430,7 +413,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 						</tbody>
 					</table>
 					{users.isSuccess && rows.length === 0 ? (
-						<p className="pk-text-body pk-muted mt-4">No accounts match.</p>
+						<p className="pk-text-body pk-muted p-4">No accounts match.</p>
 					) : null}
 				</div>
 				{selected ? (
@@ -449,7 +432,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					/>
 				) : null}
 			</div>
-		</div>
+		</AdminSection>
 	);
 }
 
@@ -608,13 +591,13 @@ function AccountRow({
 	const labels = markerLabels(user.markers, workspace);
 	return (
 		<tr
-			className={`border-line border-t align-top ${selected ? "bg-surface-hover" : ""}`}
+			className={`align-top ${selected ? "bg-surface-hover" : ""}`}
 			aria-current={selected ? "true" : undefined}
 			data-testid={`account-row-${user.id}`}
 			data-markers={labels.join(",")}
 		>
 			<td
-				className="py-2 pr-2 pl-2"
+				className="py-2"
 				// The ink bar marks the selected row without relying on colour (issue #369).
 				style={selected ? { boxShadow: "var(--row-current-bar)" } : undefined}
 				data-testid={`account-cell-${user.id}`}
@@ -625,7 +608,7 @@ function AccountRow({
 					onChange={(event) => onCheck(event.target.checked)}
 				/>
 			</td>
-			<td className="py-2 pr-4">
+			<td className="py-2">
 				<button
 					type="button"
 					id={rowButtonId(user.id)}
@@ -643,17 +626,17 @@ function AccountRow({
 					<div className="pk-mono-small pk-muted">{user.preferredUsername}</div>
 				) : null}
 			</td>
-			<td className="py-2 pr-4" data-testid={`account-role-${user.id}`}>
+			<td className="py-2" data-testid={`account-role-${user.id}`}>
 				{roleText(user)}
 			</td>
 			<td
-				className="py-2 pr-4"
+				className="py-2"
 				title={user.issuer ?? undefined}
 				data-testid={`account-source-${user.id}`}
 			>
 				{sourceText(user.issuer)}
 			</td>
-			<td className="py-2 pr-4">
+			<td className="py-2">
 				{workspace ? (
 					<div className="flex flex-col items-start gap-1">
 						<span className="pk-mono-small">{workspace.label}</span>
@@ -667,12 +650,10 @@ function AccountRow({
 					<span className="pk-muted">No workspace</span>
 				)}
 			</td>
-			<td className="py-2 pr-4">{workspace ? lastActivity(workspace, now) : "—"}</td>
-			<td className="py-2 pr-4">{timeAgo(user.lastLoginAt, now)}</td>
-			<td className="py-2 pr-4">
-				{workspace ? storageText(workspace.quotaConfig) : "—"}
-			</td>
-			<td className="py-2 pr-4">
+			<td className="py-2">{workspace ? lastActivity(workspace, now) : "—"}</td>
+			<td className="py-2">{timeAgo(user.lastLoginAt, now)}</td>
+			<td className="py-2">{workspace ? storageText(workspace.quotaConfig) : "—"}</td>
+			<td className="py-2">
 				{workspace ? (
 					<span className="pk-mono-small">{imageText(workspace.image)}</span>
 				) : (

@@ -1942,6 +1942,9 @@ number or null to remove it). The Settings tab edits the guard
 thresholds, window, throttle share and idle time, and the
 acceptable-use statement with **Reset to default** (section 5.1).
 
+The admin area is desktop-only: it is built for windows 1024 px wide and up,
+scrolls sideways below that, and has no tablet layout (Epic 18).
+
 ### 20.2 User impersonation
 
 P0 must not require silent administrator impersonation of a student session.
