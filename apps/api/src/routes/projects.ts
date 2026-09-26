@@ -220,7 +220,7 @@ async function moveProjectRow(
 export function registerProjectRoutes(
 	app: FastifyInstance,
 	{ db, config }: ServerDeps,
-	/** Shared with the files routes (docs/EPIC-17.md ruling 16). */
+	/** Shared with the files routes (ADR 0034 ruling 16). */
 	allowWrite: UserLimit,
 ): void {
 	async function limitWrites(request: FastifyRequest, reply: FastifyReply) {

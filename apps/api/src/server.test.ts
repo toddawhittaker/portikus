@@ -116,7 +116,7 @@ test("an unexpected error returns a generic INTERNAL body", async () => {
 	await app.close();
 });
 
-test("a busy database pool answers 503 SERVICE_BUSY (docs/EPIC-17.md ruling 14)", async () => {
+test("a busy database pool answers 503 SERVICE_BUSY (ADR 0034 ruling 14)", async () => {
 	const busy: OidcClient = {
 		buildLoginRedirect: async () => {
 			throw new Error("timeout exceeded when trying to connect");

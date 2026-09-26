@@ -2814,3 +2814,135 @@ Gaps:
   full use.
 - Files in the workspace's `/tmp`, a tmpfs, count as memory and can
   raise the memory flag.
+
+## Epic 18 — Admin interface polish
+
+The rules are in SPEC.md section 20.1 and the table styles in DESIGN.md
+section 9. Task PRs #639, #647 to #649, #651, #652 and #656 on
+`epic/18-admin-ux`; issues #600, #601, #602, #604 and #629.
+
+Delivered:
+
+- The admin page is one frame at most 1440 px wide, at compact density,
+  with an h2 heading per tab through a small `AdminSection` component and
+  a page title naming the tab. The admin area is desktop-only.
+- The design's table classes are in `packages/ui` and on every admin
+  table. The Users and Audit headers stick to the scrolling page.
+- The Users table has seven columns, a two-line Account cell, an "Older
+  image" tag, and its count and "Add user…" in the heading row.
+- The detail panel has Start, Stop and Restart under the state badge,
+  divided sections in a fixed order, Storage as a list with meters, and
+  stays in view beside the table with its own scroll.
+- The Audit table shows short IDs and times, result tags, clipped details
+  with the full text for screen readers, and target links that fill the
+  "Target ID" filter.
+- Settings cards sit in a grid with each Save below its fields.
+- Bulk Rebuild and "Rebuild all on older images…" call the existing
+  single-workspace route once per workspace; a pending operation counts
+  as skipped.
+
+Gaps:
+
+- The Health tab layout (#603) is left to the observability epic.
+- No sortable columns and no React table component.
+- The admin tabs stay under the page heading, not in the app header.
+- No per-row "more" menus and no tablet layout.
+- The detail panel's storage meters do not share the student side's
+  StorageMeters thresholds.
+
+## Epic 20 — Student interface polish
+
+Built on `epic/20-student-ux` from the student interface review of
+2026-09-26 (issues #608 and #609). Only `apps/web`, `packages/ui` and the
+end-to-end tests changed; there are no migrations, contract changes or
+infrastructure changes. The rules are in SPEC.md sections 6.3, 8.3, 8.5,
+14.6, 18.2, 18.3, 19.2 and 28, and DESIGN.md section 9 records where the
+build departs from the mockups on purpose.
+
+Delivered:
+
+- The status bar's state and storage-warning items are bordered buttons,
+  and the warning keeps its warning or error colour.
+- Each stuck screen has a way forward. The empty work area offers "Open
+  a terminal" and "Start Claude Code". The error screen offers "Try
+  again" and "Workspace details", with the raw error under a collapsed
+  "Technical details". The throttle notice's "Restart workspace…" opens
+  the workspace dialog with the restart confirmation on top.
+- Loading skeletons show only while the workspace is starting; stopped
+  and failed workspaces show a plain message in the side panes.
+- `ConfirmDialog` in `packages/ui` gained a neutral form. Archiving uses
+  it and ends with a success toast, as does Duplicate. New project's
+  "What to create" is a segmented control, and "Saved" is plain text.
+- The Preview picker's rows look clickable, and the Preview toolbar
+  moved Copy URL, width, Reset preview data and Show in Running into a
+  More menu.
+- The right-pane tabs no longer repeat their titles (the headings stay
+  for screen readers). Running rows have a visible Preview button and
+  tags on a second line, and the panel heads are readable in the light
+  theme.
+- The workspace dialog moved into its own file and puts its actions
+  first, then storage meters, Docker, the rebuild note and technical
+  details. The error screen shares the meters.
+- Settings groups have clearer titles, long read-only values wrap, the
+  dialog can grow taller, and Appearance comes first.
+- After a phase change on the starting screen, focus moves to the
+  heading only when the button that had it vanished; focus elsewhere,
+  such as on a status-bar button, is left alone.
+
+Gaps:
+
+- The workspace usage figures are not served while the workspace is in
+  error, so the error screen's meters and "Clean up Docker…" do not
+  appear yet (BACKLOG, "Workspace usage in the error state").
+- A restart confirmation opened before the workspace starts moving does
+  nothing on confirm (BACKLOG).
+- "Reset preview data" still acts without a confirmation, and issue
+  #607's resource notices are left to their own epic (BACKLOG).
+
+## Epic 17 — Platform resilience
+
+Built on `epic/17-platform-resilience` from the platform resilience audit
+of 2026-09-26. Task PRs #637, #644, #645, #653, #657, #685 and this fold;
+issues #611 to #617. The rules are in SPEC.md sections 4.3, 5.3, 6.5,
+20.1, 24.7 and 25.3, and the reasons in ADR 0034. No migrations.
+
+Delivered:
+
+- Caddy and PostgreSQL restart on failure after 5 seconds. On the
+  rehearsal VM each answered again 5 s after a kill, and the API and
+  worker survived a PostgreSQL kill without restarting.
+- The platform's services outrank workspaces: CPU weight 1000 and
+  `MemoryLow=512M` on `system.slice`, and `MemoryLow=256M` on PostgreSQL
+  and the API.
+- Every worker call to the controller and every controller call to Incus
+  has a time budget. Stops run in the background, so a stop that hangs
+  for ten minutes did not delay another workspace's start.
+- Incus operation waits now read the operation's own status, so a
+  graceful stop that times out is followed by a forced stop; start, stop
+  and create were made tolerant of real failures.
+- The preview gateway caches its three database lookups for 2 seconds and
+  caps each preview session at 2,000 requests per 10 seconds. Removing or
+  regaining access can take up to 2 seconds to reach the gateway.
+- The database pool times out connections at 5 s, statements at 30 s and
+  idle transactions at 60 s; a busy or unreachable database answers 503
+  `SERVICE_BUSY`, and a pool error no longer crashes a process.
+- Per-user limits: 20 workspace start, stop and restart requests and 600
+  file writes a minute, answering 429 `RATE_LIMITED`.
+- The thin pool errors when full instead of freezing writes. A root timer
+  reports metadata use, which the Health tab shows. Administrators are
+  notified at 70% and 90%, and at 90% new workspaces wait in
+  `provisioning` with a message until there is room.
+- Each workspace's network is capped at 200 Mbit/s each way.
+- The first deploy restarts Caddy and PostgreSQL once (OPERATIONS.md,
+  "First deploy of Epic 17").
+
+Gaps:
+
+- A create has no single shared deadline; on paper its steps can pass the
+  worker's 300 s budget, though a retry adopts what exists (BACKLOG).
+- Clone and template on a full disk still report `GIT_FAILED` (BACKLOG).
+- No watchdogs, no disk I/O priority, no per-address limit on made-up
+  preview cookies, no connection-tracking limits, and no limits on reads
+  (BACKLOG).
+- At the rehearsal's load the CPU weight made no measurable difference to
+  `/health` or terminal latency, because the platform's work is short.

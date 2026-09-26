@@ -1,9 +1,11 @@
 import type { AuditEvent } from "@portikus/contracts";
 import { Button, TextField } from "@portikus/ui";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { UUID } from "../../links.js";
+import { AdminSection } from "../AdminSection.js";
+import { shortTime } from "../shortTime.js";
 import { type AuditFilters, useAuditPage } from "./queries.js";
 
 function text(value: unknown): string {
@@ -21,7 +23,8 @@ export function filtersFromSearch(search: Record<string, unknown>): AuditFilters
 
 /**
  * The Audit tab of the admin page (SPEC.md §24.11): newest first, 50 rows a
- * page, filtered by workspace, user and action prefix.
+ * page, filtered by target, user and action prefix. The target filter keeps
+ * the `workspace` URL key so older links still work.
  */
 export function AuditTab() {
 	const search = useSearch({ strict: false }) as Record<string, unknown>;
@@ -76,14 +79,11 @@ export function AuditTab() {
 	}
 
 	return (
-		<section className="pk-card mt-6 p-6" aria-labelledby="audit-title">
-			<h2 className="pk-text-heading m-0" id="audit-title">
-				Audit events
-			</h2>
-			<form className="pk-actions mt-4 items-end" onSubmit={apply}>
+		<AdminSection title="Audit">
+			<form className="pk-actions items-end" onSubmit={apply}>
 				<TextField
 					id="audit-workspace"
-					label="Workspace ID"
+					label="Target ID"
 					className="w-80"
 					data-testid="audit-filter-workspace"
 					value={draft.workspace}
@@ -108,16 +108,20 @@ export function AuditTab() {
 					value={draft.action}
 					onChange={(event) => setDraft({ ...draft, action: event.target.value })}
 				/>
-				<Button variant="primary" type="submit" data-testid="audit-filter-apply">
-					Apply filters
-				</Button>
-				<Button type="button" data-testid="audit-filter-clear" onClick={clear}>
-					Clear
-				</Button>
+				{/* mt-6 is LABEL_CLASS's 18 px line plus FIELD_CLASS's 6 px gap, so the
+				    buttons line up with the inputs even when a field shows an error. */}
+				<div className="mt-6 flex gap-2 self-start">
+					<Button variant="primary" type="submit" data-testid="audit-filter-apply">
+						Apply filters
+					</Button>
+					<Button type="button" data-testid="audit-filter-clear" onClick={clear}>
+						Clear
+					</Button>
+				</div>
 			</form>
 			{/* Only the results re-key on new filters, so the focused form button stays. */}
 			<AuditResults key={key} filters={filters} />
-		</section>
+		</AdminSection>
 	);
 }
 
@@ -138,40 +142,43 @@ function AuditResults({ filters }: { filters: AuditFilters }) {
 	return (
 		<>
 			{page.isError ? (
-				<p className="pk-error mt-4 text-status-error" role="alert">
+				<p className="pk-error text-status-error" role="alert">
 					{page.error instanceof ApiError
 						? page.error.message
 						: "Audit events could not be loaded."}
 				</p>
 			) : null}
-			<table
-				className="mt-4 w-full text-left text-[13px]"
-				data-testid="audit-table"
-				aria-busy={page.isFetching}
-			>
-				<caption className="pk-text-label pk-muted text-left">
-					Audit events, newest first, {events.length} shown
-				</caption>
-				<thead>
-					<tr className="pk-text-label text-ink-muted">
-						<th className="py-2 pr-4 font-medium">Time</th>
-						<th className="py-2 pr-4 font-medium">Actor</th>
-						<th className="py-2 pr-4 font-medium">Action</th>
-						<th className="py-2 pr-4 font-medium">Target</th>
-						<th className="py-2 pr-4 font-medium">Result</th>
-						<th className="py-2 font-medium">Details</th>
-					</tr>
-				</thead>
-				<tbody>
-					{events.map((event) => (
-						<AuditRow key={event.id} event={event} />
-					))}
-				</tbody>
-			</table>
+			{/* overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main> (SPEC.md section 20.1). */}
+			<div className="pk-table-wrap overflow-clip">
+				<table
+					className="pk-table pk-table--page"
+					data-testid="audit-table"
+					aria-busy={page.isFetching}
+				>
+					<caption className="sr-only">
+						Audit events, newest first, {events.length} shown
+					</caption>
+					<thead>
+						<tr>
+							<th scope="col">Time</th>
+							<th scope="col">Actor</th>
+							<th scope="col">Action</th>
+							<th scope="col">Target</th>
+							<th scope="col">Result</th>
+							<th scope="col">Details</th>
+						</tr>
+					</thead>
+					<tbody>
+						{events.map((event) => (
+							<AuditRow key={event.id} event={event} />
+						))}
+					</tbody>
+				</table>
+			</div>
 			{page.isSuccess && events.length === 0 ? (
-				<p className="pk-text-body pk-muted mt-4">No audit events match.</p>
+				<p className="pk-text-body pk-muted">No audit events match.</p>
 			) : null}
-			<div className="pk-actions mt-4 items-center">
+			<div className="pk-actions items-center">
 				{/* Unavailable buttons stay focusable so paging never drops focus. */}
 				<Button
 					data-testid="audit-newer"
@@ -205,38 +212,115 @@ export function pageText(pageNumber: number, count: number): string {
 	return `Page ${pageNumber}, ${count} ${count === 1 ? "event" : "events"}`;
 }
 
+/** The first 8 characters of a UUID, keeping a `user:` style prefix. */
+export function shortId(value: string): string {
+	const colon = value.indexOf(":");
+	const prefix = colon === -1 ? "" : value.slice(0, colon + 1);
+	const rest = value.slice(prefix.length);
+	return UUID.test(rest) ? `${prefix}${rest.slice(0, 8)}` : value;
+}
+
+/** "ok" and "success" are neutral; every other result is shown as an error. */
+export function resultTagClass(result: string): string {
+	return result === "ok" || result === "success" ? "pk-tag" : "pk-tag pk-tag--error";
+}
+
+function detailText(value: unknown): string {
+	return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 function AuditRow({ event }: { event: AuditEvent }) {
 	const metadata = Object.entries(event.metadata ?? {});
+	const actorShort = shortId(event.actor);
 	return (
-		<tr
-			className="border-line border-t align-top"
-			data-testid={`audit-row-${event.id}`}
-		>
-			<td className="py-2 pr-4 whitespace-nowrap">
-				<time dateTime={event.at}>{new Date(event.at).toLocaleString()}</time>
+		<tr className="align-top" data-testid={`audit-row-${event.id}`}>
+			<td>
+				<time dateTime={event.at} title={new Date(event.at).toLocaleString()}>
+					<span aria-hidden="true">{shortTime(event.at)}</span>
+					<span className="sr-only">{new Date(event.at).toLocaleString()}</span>
+				</time>
 			</td>
-			<td className="py-2 pr-4" title={event.actor}>
-				{event.actorName ?? event.actor}
+			<td title={event.actor}>
+				{event.actorName ?? <IdText full={event.actor} short={actorShort} />}
 			</td>
-			<td className="py-2 pr-4 font-mono">{event.action}</td>
-			<td className="py-2 pr-4 font-mono break-all">{event.target}</td>
-			<td className="py-2 pr-4">{event.result}</td>
-			<td className="py-2">
-				{metadata.length === 0 ? (
-					"—"
+			<td className="font-mono">{event.action}</td>
+			<td>
+				{UUID.test(event.target) ? (
+					<Link
+						to="/admin"
+						search={{ tab: "audit", workspace: event.target }}
+						className="pk-focus-ring pk-mono-small text-[var(--accent-text)] underline"
+						title={event.target}
+						aria-label={`Show events for target ${event.target}`}
+						data-testid="audit-target-link"
+					>
+						{shortId(event.target)}
+					</Link>
 				) : (
-					<dl className="m-0">
-						{metadata.map(([key, value]) => (
-							<div key={key} className="flex gap-1">
-								<dt className="pk-muted">{key}:</dt>
-								<dd className="m-0 font-mono break-all">
-									{typeof value === "string" ? value : JSON.stringify(value)}
-								</dd>
-							</div>
-						))}
-					</dl>
+					<span className="pk-mono-small">{event.target}</span>
 				)}
 			</td>
+			<td>
+				<span className={resultTagClass(event.result)}>{event.result}</span>
+			</td>
+			<td>{metadata.length === 0 ? "—" : <AuditDetails metadata={metadata} />}</td>
 		</tr>
+	);
+}
+
+/** Values longer than this are clipped in the row, so the row offers a way to read them. */
+const CLIPPED_AT = 48;
+
+function DetailLines({
+	metadata,
+	clip,
+}: {
+	metadata: [string, unknown][];
+	clip: boolean;
+}) {
+	return (
+		<dl className="m-0 max-w-[48ch]">
+			{metadata.map(([key, value]) => {
+				const full = detailText(value);
+				return (
+					<div
+						key={key}
+						className={clip ? "truncate" : "whitespace-normal break-all"}
+						title={clip ? `${key}: ${full}` : undefined}
+					>
+						{/* truncate only clips visually; screen readers get the whole value. */}
+						<dt className="pk-muted inline">{key}:</dt>
+						<dd className="m-0 ml-1 inline font-mono">{full}</dd>
+					</div>
+				);
+			})}
+		</dl>
+	);
+}
+
+function AuditDetails({ metadata }: { metadata: [string, unknown][] }) {
+	const long = metadata.some(([, value]) => detailText(value).length > CLIPPED_AT);
+	if (!long) return <DetailLines metadata={metadata} clip />;
+	return (
+		<>
+			<DetailLines metadata={metadata} clip />
+			<details data-testid="audit-details-full">
+				<summary className="pk-focus-ring cursor-pointer text-[var(--accent-text)]">
+					Show full details
+				</summary>
+				<DetailLines metadata={metadata} clip={false} />
+			</details>
+		</>
+	);
+}
+
+/** A shortened ID that screen readers still read in full. */
+function IdText({ full, short }: { full: string; short: string }) {
+	if (full === short) return <span className="pk-mono-small">{full}</span>;
+	return (
+		<span className="pk-mono-small">
+			<span aria-hidden="true">{short}</span>
+			<span className="sr-only">{full}</span>
+		</span>
 	);
 }

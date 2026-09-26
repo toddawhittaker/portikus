@@ -70,7 +70,7 @@ export function resetPage(): string {
 	);
 }
 
-/** One preview session asked too often (docs/EPIC-17.md ruling 12). */
+/** One preview session asked too often (ADR 0034 ruling 12). */
 export function tooManyRequestsPage(): string {
 	return previewPage(
 		"Too many requests",

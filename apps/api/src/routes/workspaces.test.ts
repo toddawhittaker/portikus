@@ -279,7 +279,7 @@ test.skipIf(skip)(
 	},
 );
 
-// ── The per-user lifecycle limit (docs/EPIC-17.md rulings 16 and 17) ──
+// ── The per-user lifecycle limit (ADR 0034 rulings 16 and 17) ──
 
 test.skipIf(skip)(
 	"start, stop and restart share a limit of 20 a minute per user",
