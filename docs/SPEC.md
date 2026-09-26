@@ -1832,6 +1832,26 @@ Error messages must suggest a next action where possible.
 
 The "Your workspace" dialog, opened from the status bar, puts the state and its Restart and Stop (or Start) buttons first. Below them come "Storage", with one meter per class that also states its figure as text ("X of Y"); "Docker", with Reset Docker and a line saying what it throws away and what it keeps; the rebuild note; and a collapsed "Technical details" with the desired state, connections and image.
 
+Stopping one process (Epic 21): the agent's `POST /processes/:pid/stop`
+takes `{startTicks, force}`. It rereads `/proc/<pid>/stat` and `status`
+first and refuses a gone PID (404 `PROCESS_NOT_FOUND`), different start
+ticks (field 22 of `stat`, which catches a reused PID; 409
+`PROCESS_CHANGED`), and a protected process (403 `PROCESS_PROTECTED`):
+PID 1, the agent itself, anything whose real or effective uid is not the
+student's, and any process named `tmux: server`. Otherwise it sends
+SIGTERM, or SIGKILL when `force` is set, waits up to 3 seconds, and answers
+`{pid, exited}`; a zombie or a vanished PID has exited. It never escalates
+to SIGKILL on its own. The student reaches it through
+`POST /workspaces/:id/processes/:pid/stop` (owner only, 409
+`WORKSPACE_NOT_RUNNING` when stopped, one stop per workspace at a time with
+409 `STOP_IN_PROGRESS`, 30 stops per student a minute). Each usage row
+carries `startTicks`, `stoppable` (false for a protected process) and
+`commandLine`: the student's own processes' `/proc/<pid>/cmdline` with NULs
+as spaces, capped at 1024 characters, null for anyone else's. The command
+line goes only to the student; it is never logged, audited or shown to an
+administrator. Memory used is the cgroup's working set: `memory.current`
+less `inactive_file` from `memory.stat`, as the guard counts it (19.4).
+
 ### 18.4 Recognized run/build commands
 
 P1 may detect or configure common project commands, for example scripts in `package.json`, `Makefile` targets, or template-provided commands, and expose actions such as **Run**, **Test**, or **Build**.
@@ -2389,6 +2409,11 @@ with `{from, to}`), and `settings.acceptable_use_updated` with
 `{fromVersion, toVersion}`. The person accepting writes
 `user.acceptable_use_accepted` with `{version}`. No row holds a process
 name, a command line, a file name or the statement's text.
+
+As built (Epic 21): each stop signal sent to a workspace process writes
+`workspace.process_stopped` (actor `user:<id>`, target the workspace) with
+`{pid, signal, exited}`. A refused stop is not audited. The row holds no
+process name or command line.
 
 ### 24.12 Dependency/security maintenance
 

@@ -214,6 +214,11 @@ export const ApiErrorCode = z.enum([
 	"PREVIEW_PORT_NOT_ALLOWED",
 	"PREVIEW_FORWARD_FAILED",
 	"PREVIEW_RATE_LIMITED",
+	// Stopping one process (SPEC.md §18.3).
+	"STOP_IN_PROGRESS",
+	"PROCESS_NOT_FOUND",
+	"PROCESS_CHANGED",
+	"PROCESS_PROTECTED",
 	// Too many sign-in attempts from one address (#398).
 	"RATE_LIMITED",
 	"CHECK_NOT_FOUND",

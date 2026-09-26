@@ -223,6 +223,8 @@ const PAYLOADS: Record<string, object> = {
 	"POST /workspaces/:id/projects/:pid/mkdir": { path: "made" },
 	"POST /workspaces/:id/projects/:pid/move": { from: "notes.txt", to: "moved.txt" },
 	"POST /workspaces/:id/preview-grants": { port: 5173, presentation: "embedded" },
+	// The fake agent's own node process.
+	"POST /workspaces/:id/processes/:pid/stop": { startTicks: 100 },
 	"PUT /admin/workspaces/:id/quota": { homeGiB: 100, dockerGiB: 100 },
 	"PUT /admin/workspaces/:id/guard": { idleStopMinutes: 0 },
 	"POST /admin/workspaces/:id/rebuild": { resetDocker: false },
@@ -239,6 +241,8 @@ function sampleFor(
 ): Sample {
 	const { url: pattern } = splitKey(key);
 	let url = pattern
+		// A process id is a number inside the workspace, not a project.
+		.replace("/processes/:pid/", "/processes/7/")
 		.replace(":pid", ids.projectId)
 		.replace(":tid", ids.terminalId)
 		.replace(":checkId", "lint")
@@ -667,7 +671,11 @@ describe.skipIf(skip)("allowed callers get through", () => {
 
 // --- Done item 3: A's workspace with B's child id is a 404 -----------------
 
-const childKeys = httpKeys.filter((key) => /:(pid|tid|checkId|rpid)/.test(key));
+// A process id belongs to whichever workspace's agent is asked, so it has no
+// owner of its own to mix in.
+const childKeys = httpKeys.filter(
+	(key) => /:(pid|tid|checkId|rpid)/.test(key) && !key.includes("/processes/"),
+);
 
 describe.skipIf(skip)("A's workspace id with B's child id is a 404", () => {
 	for (const key of childKeys) {

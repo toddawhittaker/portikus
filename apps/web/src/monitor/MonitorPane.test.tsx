@@ -23,8 +23,24 @@ const USAGE = {
 	disk: { usedBytes: 2 * 1024 * 1024, totalBytes: 4 * 1024 * 1024 },
 	network: { receiveBytesPerSecond: 2048, transmitBytesPerSecond: null },
 	processes: [
-		{ pid: 7, cpuPercent: 10, residentBytes: 4096, command: "node" },
-		{ pid: 9, cpuPercent: 1, residentBytes: 1024, command: "python" },
+		{
+			pid: 7,
+			cpuPercent: 10,
+			residentBytes: 4096,
+			command: "node",
+			startTicks: 100,
+			stoppable: true,
+			commandLine: null,
+		},
+		{
+			pid: 9,
+			cpuPercent: 1,
+			residentBytes: 1024,
+			command: "python",
+			startTicks: 100,
+			stoppable: true,
+			commandLine: null,
+		},
 	],
 	storage: { home: null, docker: null, recovery: null },
 };
@@ -80,8 +96,24 @@ test("clicking a column sorts it, and clicking again reverses it", async () => {
 			json({
 				...USAGE,
 				processes: [
-					{ pid: 10, cpuPercent: 50, residentBytes: 100, command: "node10" },
-					{ pid: 2, cpuPercent: 1, residentBytes: 5000, command: "node2" },
+					{
+						pid: 10,
+						cpuPercent: 50,
+						residentBytes: 100,
+						command: "node10",
+						startTicks: 100,
+						stoppable: true,
+						commandLine: null,
+					},
+					{
+						pid: 2,
+						cpuPercent: 1,
+						residentBytes: 5000,
+						command: "node2",
+						startTicks: 100,
+						stoppable: true,
+						commandLine: null,
+					},
 				],
 			}),
 		),

@@ -1,11 +1,15 @@
 import { z } from "zod";
 
+/** The longest command line a usage sample carries. */
+export const PROCESS_COMMAND_LINE_LIMIT = 1024;
+
 /**
  * One process inside the workspace (SPEC.md §18.2, §18.3).
  *
- * `command` is the short name from `/proc/<pid>/status`, not the command
- * line. Arguments can carry secrets, so the line is never read and this
- * name is never logged (STACK.md §15).
+ * `command` is the short name from `/proc/<pid>/status`. Arguments can carry
+ * secrets, so `commandLine` is filled only for the student's own processes,
+ * goes only to the student, and is never logged or audited (STACK.md §15,
+ * SPEC.md §24.11).
  */
 export const UsageProcess = z.object({
 	pid: z.number().int().positive(),
@@ -14,6 +18,12 @@ export const UsageProcess = z.object({
 	/** Resident size, from VmRSS. */
 	residentBytes: z.number().int().nonnegative(),
 	command: z.string().min(1).max(15),
+	/** Field 22 of `/proc/<pid>/stat`; with the pid it names one process. */
+	startTicks: z.number().int().nonnegative(),
+	/** False for a protected process: PID 1, another user's, the agent, tmux. */
+	stoppable: z.boolean(),
+	/** The student's own process's command line, NULs as spaces; else null. */
+	commandLine: z.string().max(PROCESS_COMMAND_LINE_LIMIT).nullable(),
 });
 export type UsageProcess = z.infer<typeof UsageProcess>;
 
