@@ -17,8 +17,9 @@
 # when memory runs out (docs/CAPACITY.md).  No memory cap: PostgreSQL's own
 # settings bound it, and only the API and worker reach it.  MemoryLow keeps
 # its page cache from being reclaimed first, and a crash restarts it after
-# 5 seconds (docs/CAPACITY.md).  A daemon reload applies all
-# of this to the running server without a restart.
+# 5 seconds (docs/CAPACITY.md).  A daemon reload does not write MemoryLow
+# into a running server's cgroup (seen on systemd 257), so a change here or to
+# the slice below restarts it.
 - name: Create the PostgreSQL drop-in directory
   ansible.builtin.file:
     path: /etc/systemd/system/postgresql@.service.d
@@ -39,7 +40,9 @@
     owner: root
     group: root
     mode: "0644"
-  notify: Reload systemd for PostgreSQL
+  notify:
+    - Reload systemd for PostgreSQL
+    - Restart PostgreSQL
 
 # The server runs in system-postgresql.slice, and a unit's MemoryLow only
 # protects it up to what its parent slice is given.
@@ -60,7 +63,9 @@
     owner: root
     group: root
     mode: "0644"
-  notify: Reload systemd for PostgreSQL
+  notify:
+    - Reload systemd for PostgreSQL
+    - Restart PostgreSQL
 
 - name: Enable and start PostgreSQL
   ansible.builtin.systemd:
