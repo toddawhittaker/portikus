@@ -1862,6 +1862,8 @@ Resource exhaustion must fail safely.
 
 One student's CPU, memory, storage, process count, or Docker workload must not materially degrade other users beyond the capacity limits of the shared host.
 
+When a workspace reaches its memory limit, the kernel kills the biggest process in it, and only that process: the workspace agent's unit sets `OOMPolicy=continue`, because terminals and student programs run in the agent's cgroup, so the agent and every open terminal keep running.
+
 ### 19.4 Resource guard
 
 Added by Epic 14.3 (ADR 0032). The guard slows a workspace that keeps its CPUs busy for a long time and marks one that keeps its memory near the limit, so a crypto miner or a long-lived site cannot hold the platform's CPU. Programs, mining pools and tunnel services are not blocked by name; the throttle, the memory flag and the acceptable-use statement (section 5.1) are the whole response.

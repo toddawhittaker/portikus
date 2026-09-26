@@ -1832,6 +1832,9 @@ files:
     ExecStart=/opt/portikus/workspace-agent/bin/workspace-agent
     Restart=on-failure
     RestartSec=5
+    # Terminals and student programs share this unit's cgroup, and the kernel
+    # already kills the biggest process; stopping the unit would kill tmux too.
+    OOMPolicy=continue
 
     [Install]
     WantedBy=multi-user.target

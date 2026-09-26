@@ -1913,6 +1913,13 @@ each has its own memory cap. Growing the data disk now also grows the
 storage pool (PR #467, `docs/CAPACITY.md`, "When memory runs out" and
 "Resizing the pilot").
 
+**Terminals survive an out-of-memory kill (2026-09-26).** Terminals and
+student programs run in the workspace agent's systemd unit. systemd used
+to stop that whole unit when the kernel killed one program for memory,
+which closed every terminal. The unit now sets `OOMPolicy=continue`, so
+only the program dies. Workspaces get this from the next workspace image
+and a rebuild; moving terminals into their own cgroup is left for later.
+
 **Rebuild from code (B5).** On 2026-09-23 the rehearsal VM was rebuilt
 twice from the repository with Make targets only, and nothing was done by
 hand on the VM. From an empty host to a green smoke test (209 checks,

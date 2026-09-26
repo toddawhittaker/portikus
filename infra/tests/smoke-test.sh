@@ -296,6 +296,10 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "workspace agent unit sets RuntimeDirectory=portikus" \
     "RuntimeDirectory=portikus" \
     ws_exec "grep -F -x 'RuntimeDirectory=portikus' /etc/systemd/system/portikus-workspace-agent.service"
+  # Terminals share the agent's cgroup, so an out-of-memory kill of one
+  # student process must not stop the unit and every terminal with it.
+  check_output "workspace agent unit keeps running after an OOM kill (OOMPolicy=continue)" \
+    "continue" ws_exec "systemctl show -p OOMPolicy --value portikus-workspace-agent"
   check_output "Codex update check is off" \
     "check_for_update_on_startup = false" \
     ws_exec "grep -F -x 'check_for_update_on_startup = false' /etc/codex/config.toml"
