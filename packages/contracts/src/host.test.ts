@@ -17,9 +17,46 @@ const snapshot = {
 	instances: [{ name: "ws-alice", imageFingerprint: "abc", imageSerial: null }],
 };
 
+const rates = {
+	cpuPercent: 12.5,
+	netRxBytesPerSecond: 1000,
+	netTxBytesPerSecond: 500,
+	diskReadBytesPerSecond: 0,
+	diskWriteBytesPerSecond: 4096,
+};
+
 describe("host contracts", () => {
 	test("a host snapshot round-trips", () => {
-		expect(HostSnapshot.parse(snapshot)).toEqual(snapshot);
+		const withRates = { ...snapshot, rates };
+		expect(HostSnapshot.parse(withRates)).toEqual(withRates);
+	});
+
+	test("a snapshot from before Epic 19 parses with null rates", () => {
+		expect(HostSnapshot.parse(snapshot)).toEqual({ ...snapshot, rates: null });
+	});
+
+	test("rates reject a CPU percentage over 100 and negative throughput", () => {
+		expect(
+			HostSnapshot.safeParse({ ...snapshot, rates: { ...rates, cpuPercent: 101 } })
+				.success,
+		).toBe(false);
+		expect(
+			HostSnapshot.safeParse({
+				...snapshot,
+				rates: { ...rates, netRxBytesPerSecond: -1 },
+			}).success,
+		).toBe(false);
+	});
+
+	test("a sample from before Epic 19 parses with a null running count", () => {
+		const old = { controller: { reachable: true, errorCode: null }, host: snapshot };
+		expect(HealthSample.parse(old)).toEqual({
+			...old,
+			host: { ...snapshot, rates: null },
+			runningWorkspaces: null,
+		});
+		const counted = { ...old, host: { ...snapshot, rates }, runningWorkspaces: 3 };
+		expect(HealthSample.parse(counted)).toEqual(counted);
 	});
 
 	test("a host snapshot needs exactly three load averages", () => {
@@ -29,11 +66,16 @@ describe("host contracts", () => {
 	});
 
 	test("a health sample holds a snapshot, or null when the controller is down", () => {
-		const up = { controller: { reachable: true, errorCode: null }, host: snapshot };
+		const up = {
+			controller: { reachable: true, errorCode: null },
+			host: { ...snapshot, rates },
+			runningWorkspaces: 2,
+		};
 		expect(HealthSample.parse(up)).toEqual(up);
 		const down = {
 			controller: { reachable: false, errorCode: "CONTROLLER_UNAVAILABLE" },
 			host: null,
+			runningWorkspaces: 0,
 		};
 		expect(HealthSample.parse(down)).toEqual(down);
 	});

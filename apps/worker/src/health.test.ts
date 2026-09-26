@@ -1,5 +1,10 @@
 import { HealthSample } from "@portikus/contracts";
-import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import {
+	createTestDb,
+	hasTestDb,
+	insertTestUser,
+	type TestDb,
+} from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
@@ -58,6 +63,35 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"each sample counts the workspaces the database says are running",
+	async () => {
+		for (const [i, state] of ["running", "running", "stopped", "starting"].entries()) {
+			await tdb.db
+				.insertInto("workspaces")
+				.values({
+					label: `ws-health-${i}`,
+					owner_user_id: await insertTestUser(tdb.db),
+					incus_instance_name: `ws-health-${i}`,
+					state,
+					desired_state: "running",
+				})
+				.execute();
+		}
+		const controller = new FakeControllerClient();
+		const { logger } = collectingLogger();
+		const tick = createHealthSampler({ db: tdb.db, controller, logger });
+		await tick();
+		controller.hostResult = new ControllerClientError("INCUS_UNAVAILABLE", "down");
+		await tick();
+
+		const counts = (await samples()).map(
+			(row) => HealthSample.parse(row.sample).runningWorkspaces,
+		);
+		expect(counts).toEqual([2, 2]);
+	},
+);
+
 test.skipIf(skip)("the host snapshot is asked with a 20 second timeout", async () => {
 	const controller = new FakeControllerClient();
 	const timeout = vi.spyOn(AbortSignal, "timeout");
@@ -101,6 +135,7 @@ test.skipIf(skip)(
 		expect(HealthSample.parse(rows[0]?.sample)).toEqual({
 			controller: { reachable: false, errorCode: "INCUS_UNAVAILABLE" },
 			host: null,
+			runningWorkspaces: 0,
 		});
 	},
 );

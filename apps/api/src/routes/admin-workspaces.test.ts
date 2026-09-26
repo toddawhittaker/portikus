@@ -145,8 +145,10 @@ function sample(overrides: Partial<HealthSample["host"] & object> = {}): HealthS
 			profileLimits: { cpu: "2", memory: "4GiB", processes: "2000" },
 			image: { fingerprint: "newfingerprint0000", serial: "2026.09.9" },
 			instances: [],
+			rates: null,
 			...overrides,
 		},
+		runningWorkspaces: null,
 	};
 }
 
