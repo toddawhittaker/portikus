@@ -1864,6 +1864,10 @@ packages:
     - less
     - vim-tiny
     - openssh-client
+    # System monitors for watching a workspace while experimenting (neofetch left
+    # Debian after 12; fastfetch is its maintained successor).
+    - btop
+    - fastfetch
     - iproute2
     - systemd-resolved
     - iptables
