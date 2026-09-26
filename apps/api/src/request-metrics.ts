@@ -3,7 +3,7 @@ import type { Logger } from "@portikus/observability";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
 
-/** Upper bounds of the latency histogram; one overflow bucket follows (docs/EPIC-19.md ruling 22). */
+/** Upper bounds of the latency histogram; one overflow bucket follows (SPEC.md section 25.6). */
 export const API_LATENCY_BOUNDS_MS = [
 	5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000,
 ] as const;
@@ -59,7 +59,7 @@ export interface RequestMetricsOptions {
 
 /**
  * Count every API response per minute and write the totals to
- * `api_request_samples` (docs/EPIC-19.md rulings 20 to 24). Only counts and
+ * `api_request_samples` (SPEC.md section 25.6). Only counts and
  * a latency histogram are kept: no route, path, user or workspace.
  */
 export function registerRequestMetrics(

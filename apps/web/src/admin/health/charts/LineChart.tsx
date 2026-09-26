@@ -46,8 +46,8 @@ export function linePath(
 }
 
 /**
- * A line chart of up to three series over the range (docs/EPIC-19.md rulings
- * 6 to 8). `ticks` is the Y axis, from 0 to its last value; `format` writes a
+ * A line chart of up to three series over the range (SPEC.md
+ * section 25.6). `ticks` is the Y axis, from 0 to its last value; `format` writes a
  * value with its unit for the ticks and the readout. Reference lines mark a
  * threshold or capacity in the warning colour, with a label.
  */

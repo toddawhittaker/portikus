@@ -6,7 +6,7 @@ const perSecond = z.number().nonnegative();
 
 /**
  * Host CPU, network and disk rates, as deltas between two controller readings
- * (docs/EPIC-19.md ruling 16). Null on the first reading after a restart and
+ * (SPEC.md section 25.6). Null on the first reading after a restart and
  * when a counter went backwards.
  */
 export const HostRates = z.object({

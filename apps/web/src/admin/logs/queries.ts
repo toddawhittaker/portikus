@@ -26,7 +26,7 @@ export interface LogPageParam {
 /**
  * Pages of log lines, newest first. The first page refreshes every 30
  * seconds unless the admin paused it; once older pages are loaded the list
- * holds still (ruling 35). Older pages reuse the first page's time, so a
+ * holds still (SPEC.md section 24.11). Older pages reuse the first page's time, so a
  * preset window such as "Last day" does not slide while paging.
  */
 export function useLogPages(filters: LogFilters, auto = true) {

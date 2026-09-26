@@ -201,7 +201,7 @@ test("the files route drops an unsafe path and a fractional line", async () => {
 	});
 });
 
-test("the Logs tab's filters come from the URL, and unknown values are dropped (docs/EPIC-19.md ruling 32)", async () => {
+test("the Logs tab's filters come from the URL, and unknown values are dropped (SPEC.md section 24.11)", async () => {
 	const requested: string[] = [];
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });

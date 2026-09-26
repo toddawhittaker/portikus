@@ -3,7 +3,7 @@ import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 import { bucketInterval, type SeriesWindow } from "./range.js";
 
-/** Every action the two event charts count (docs/EPIC-19.md ruling 19). */
+/** Every action the two event charts count (SPEC.md section 25.6). */
 const ACTIONS = [
 	"workspace.cpu_throttled",
 	"workspace.memory_flagged",

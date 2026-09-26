@@ -79,7 +79,7 @@ export function stateRows(byState: HealthReport["workspacesByState"]) {
 }
 
 /**
- * Three rows (docs/EPIC-19.md ruling 9): Platform and Resource guard, then
+ * Three rows (SPEC.md section 25.6): Platform and Resource guard, then
  * the Trends card in full width, then Failures and Workspaces by state.
  */
 export function HealthView({

@@ -1,6 +1,6 @@
 import { type Kysely, sql } from "kysely";
 
-/** Per-minute API response totals for the Health charts (docs/EPIC-19.md ruling 21). */
+/** Per-minute API response totals for the Health charts (SPEC.md section 25.6). */
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`create table api_request_samples (
 		minute timestamptz primary key,

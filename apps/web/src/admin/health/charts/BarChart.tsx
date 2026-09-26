@@ -13,7 +13,7 @@ import { bucketStart, type ChartFrame } from "./scales.js";
 const WARNING_PATTERN = "health-bar-warning";
 
 /**
- * Bar tones from the existing tokens (docs/EPIC-19.md ruling 7). Warnings are
+ * Bar tones from the existing tokens (SPEC.md section 25.6). Warnings are
  * hatched, since error and warning colours are too close to tell apart.
  */
 const TONES: Record<BarSeries["tone"], SeriesStyle> = {
@@ -43,7 +43,7 @@ export function seriesAt(stack: readonly number[], value: number): number {
  * Stacked count bars, the first series at the bottom. The readout names each
  * series' count. With `onOpen`, Up and Down pick a series in the selected
  * bar and Enter calls `onOpen(bucketIndex, seriesIndex)`, so a bar can
- * follow a link without being its own tab stop (docs/EPIC-19.md ruling 8).
+ * follow a link without being its own tab stop (SPEC.md section 25.6).
  * A click anywhere in a bucket's column opens the series under the pointer.
  */
 export function BarChart({

@@ -3,7 +3,7 @@ import type { HealthRange } from "@portikus/contracts";
 /**
  * Where a chart's buckets sit in time: bucket `i` starts at
  * `from + i * bucketSeconds`. Every chart on the Health tab shares one frame
- * per range (docs/EPIC-19.md rulings 2 and 3).
+ * per range (SPEC.md section 25.6).
  */
 export interface ChartFrame {
 	range: HealthRange;
@@ -126,7 +126,7 @@ export function readoutTime(time: number, range: HealthRange): string {
 	return `${date.toLocaleDateString(undefined, { weekday: "short", day: "numeric" })} ${clock}`;
 }
 
-/** How count charts name their bucket (docs/EPIC-19.md ruling 3). */
+/** How count charts name their bucket (SPEC.md section 25.6). */
 export function bucketPhrase(bucketSeconds: number): string {
 	const minutes = bucketSeconds / 60;
 	if (minutes === 1) return "per minute";

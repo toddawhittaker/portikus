@@ -58,7 +58,7 @@ export function countSummary(
 }
 
 /**
- * The errors chart on the Health tab (docs/EPIC-19.md ruling 37). Each bar
+ * The errors chart on the Health tab (SPEC.md section 24.11). Each bar
  * opens the Logs tab for its time span and the level picked in the bar.
  */
 export function LogCharts({ range }: { range: HealthRange }) {

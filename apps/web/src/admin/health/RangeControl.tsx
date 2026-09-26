@@ -15,7 +15,7 @@ export function readStoredRange(): HealthRange {
 	}
 }
 
-/** The Health tab's range, remembered per browser (docs/EPIC-19.md ruling 5). */
+/** The Health tab's range, remembered per browser (SPEC.md section 25.6). */
 export function useHealthRange(): [HealthRange, (range: HealthRange) => void] {
 	const [range, setRange] = useState<HealthRange>(readStoredRange);
 	function choose(next: HealthRange) {

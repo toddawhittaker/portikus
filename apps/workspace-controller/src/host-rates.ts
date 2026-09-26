@@ -136,7 +136,7 @@ export async function readHostCounters(
 
 /**
  * A reader that keeps its previous reading in memory and returns the rates
- * since then (docs/EPIC-19.md rulings 16 and 17). The first call, and any
+ * since then (SPEC.md section 25.6). The first call, and any
  * call whose files cannot be read, returns null; rates are a nice-to-have
  * and never fail the host snapshot.
  */

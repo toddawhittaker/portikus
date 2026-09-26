@@ -10,7 +10,7 @@ import type { SeriesWindow } from "./range.js";
  */
 export const USAGE_RETENTION_MINUTES = 245;
 
-/** The heat map shows at most this many workspaces, the busiest (ruling 18). */
+/** The heat map shows at most this many workspaces, the busiest (SPEC.md section 25.6). */
 export const USAGE_MAX_ROWS = 50;
 
 /** One guard sample interval, for the restart tail (apps/worker/src/guard.ts). */
@@ -65,7 +65,7 @@ export function usageFrom(window: SeriesWindow): Date {
 type Row = HealthSeries["usage"]["workspaces"][number];
 
 /**
- * The per-workspace heat map (docs/EPIC-19.md ruling 18): one row per
+ * The per-workspace heat map (SPEC.md section 25.6): one row per
  * workspace with a sample in the window, one cell per bucket holding the
  * highest CPU % and memory % in it, the thresholds the guard applies to that
  * workspace, capped at the 50 highest peaks and sorted by owner name.
@@ -170,7 +170,7 @@ export async function usageSeries(
 			cpuPercent: null,
 			memoryPercent: null,
 		};
-		// Percentages keep the highest value in the bucket (ruling 4).
+		// Percentages keep the highest value in the bucket (SPEC.md section 25.6).
 		if (cpu !== null) cell.cpuPercent = Math.max(cell.cpuPercent ?? 0, round1(cpu));
 		if (memory !== null)
 			cell.memoryPercent = Math.max(cell.memoryPercent ?? 0, round1(memory));

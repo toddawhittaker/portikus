@@ -2898,3 +2898,45 @@ Gaps:
   nothing on confirm (BACKLOG).
 - "Reset preview data" still acts without a confirmation, and issue
   #607's resource notices are left to their own epic (BACKLOG).
+
+## Epic 19 — Admin observability
+
+The rules are in SPEC.md sections 20.1, 24.11 and 25.6, ADR 0036 and
+STACK.md section 15. Task PRs #666, #667, #671, #672, #673, #677 and #683
+on `epic/19-admin-observability`, plus the final sync and fold; issues
+#476, #597, #598, #599 and #603.
+
+Delivered:
+
+- The Health tab is in three rows: Platform and Resource guard, a
+  full-width Trends card, then Failures and Workspaces by state.
+- The Trends card has a range control (1 hour, 6 hours, 1 day, 7 days,
+  remembered per browser) and hand-drawn SVG charts with axes, legends,
+  text summaries and a keyboard readout, all from one
+  `GET /admin/health/series` route.
+- Charts cover pool and memory use, load, host CPU %, network and disk
+  (measured by the controller), running workspaces, availability, a
+  per-workspace heat map, guard events, activity, and the API's request
+  rate, error rate and response time. The API writes per-minute totals
+  to the new `api_request_samples` table (migration 0022).
+- A Logs tab shows the three Portikus services' JSON lines from the
+  journal, filtered by level, service, time, text, user and workspace,
+  with the filters in the URL and every line redacted. The detail panel
+  links to it, and the Health tab has an errors and warnings chart whose
+  bars open it.
+- Only the API process has the `systemd-journal` group. A 401 without a
+  session is logged at info, so signed-out polling does not fill the
+  Warn view.
+
+Gaps:
+
+- The rehearsal on a throwaway VM (the plan's T6: journal access,
+  `--grep` and backwards paging on Debian 13, plausible host rates, and
+  the new smoke and security checks) had not run when the plan was
+  folded; it runs before the epic merges.
+- The heat map's cell values are not readable by sighted keyboard users;
+  the Peak column is the summary.
+- Everything under "Left out of Epic 19" in BACKLOG.md: per-route
+  request figures, custom windows, agent, Dex, Caddy and PostgreSQL lines,
+  non-JSON lines, alerts, longer per-workspace history, faster sampling
+  and OpenTelemetry.
