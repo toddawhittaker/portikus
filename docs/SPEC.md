@@ -747,6 +747,10 @@ browser; it is not saved.
 
 Terminal panes must additionally support splitting.
 
+When a project has no tabs open, the centre pane says "No terminals open" and
+offers two buttons: "Open a terminal" (primary) and "Start Claude Code". The
+tab strip's "+" button, labelled "New tab", holds the rest (Codex, previews).
+
 ### 8.4 Right pane
 
 The right pane contains the selected project's file tree and Git decorations.
@@ -758,6 +762,11 @@ seconds, warnings and errors after 10. The timer pauses while the
 pointer or keyboard focus is on the toast, and the close button stays.
 A toast that carries an action the user must answer, such as replacing
 a file that already exists, stays until it is answered.
+
+Archiving a project is reversible, so its menu item and confirmation are
+neutral (primary button, no red), and it ends with a success toast
+"<name> archived" that says where to find it. Duplicating ends with a
+success toast "<new name> created". Renaming shows no toast.
 
 Every toast shown is also recorded as a notification with its tone,
 title, body text, time, and whether it has been read. Notifications are

@@ -37,6 +37,46 @@
 	cursor: progress;
 }
 
+/* A segmented control: a fieldset of aria-pressed buttons, one pressed at a time. */
+.pk-segmented {
+	flex: none;
+	display: flex;
+	margin: 0;
+	padding: 0;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.pk-segmented button {
+	padding: 2px var(--space-2);
+	border: none;
+	border-left: 1px solid var(--line);
+	background: var(--surface);
+	color: var(--ink-muted);
+	font: inherit;
+	cursor: pointer;
+}
+
+.pk-segmented button:first-of-type {
+	border-left: none;
+}
+
+.pk-segmented button:hover {
+	background: var(--surface-hover);
+}
+
+.pk-segmented button[aria-pressed="true"] {
+	font-weight: 700;
+	background: var(--accent-soft);
+	color: var(--accent-text);
+}
+
+.pk-segmented button:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: -2px;
+}
+
 /* The spinner is the only continuous motion in the system. */
 .pk-spin {
 	flex: none;
