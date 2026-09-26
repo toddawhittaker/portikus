@@ -21,9 +21,6 @@ export interface LoginState {
 	nonce: string;
 }
 
-/** Why an otherwise valid sign-in was not admitted (docs/archive/epics/EPIC-14.md ruling 9). */
-export type AdmissionRefusal = "tenant_not_allowed" | "domain_not_allowed";
-
 export interface OidcClient {
 	/**
 	 * `prompt: "login"` asks the provider to re-authenticate the user, the
@@ -38,8 +35,6 @@ export interface OidcClient {
 	): Promise<{
 		identity: OidcIdentity;
 		claims: Record<string, unknown>;
-		/** Non-null when the Entra tenant or Google domain check refused the ID token. */
-		refusal: AdmissionRefusal | null;
 	}>;
 }
 
@@ -48,30 +43,7 @@ function pickString(claims: Record<string, unknown>, key: string): string | null
 	return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-/**
- * The Entra `tid` and Google `hd` checks. They read only the signed ID
- * token's claims, and a missing claim is a refusal (ruling 9).
- */
-function checkAdmission(
-	idClaims: Record<string, unknown>,
-	opts: AuthOptions,
-): AdmissionRefusal | null {
-	if (opts.provider === "entra") {
-		const tid = pickString(idClaims, "tid")?.toLowerCase();
-		const allowed = opts.allowedTenant?.toLowerCase();
-		return allowed && tid === allowed ? null : "tenant_not_allowed";
-	}
-	if (opts.provider === "google") {
-		const hd = pickString(idClaims, "hd")?.toLowerCase();
-		return hd && (opts.allowedDomains ?? []).includes(hd) ? null : "domain_not_allowed";
-	}
-	return null;
-}
-
 export function createOidcClient(opts: AuthOptions): OidcClient {
-	// Entra and Google put everything in the ID token; skipping userinfo
-	// keeps a second host off the egress allow list (ruling 10).
-	const useUserinfo = opts.provider !== "entra" && opts.provider !== "google";
 	const outboundFetch = createOutboundFetch(opts.outboundProxyUrl);
 	const redirectUri = new URL("/auth/callback", opts.publicUrl).href;
 	// Discovery is lazy and memoised so the service starts even when the
@@ -122,10 +94,6 @@ export function createOidcClient(opts: AuthOptions): OidcClient {
 				state,
 				nonce,
 				...(options.prompt ? { prompt: options.prompt } : {}),
-				// Only a hint for Google's account picker; the callback check decides.
-				...(opts.provider === "google" && opts.allowedDomains?.[0]
-					? { hd: opts.allowedDomains[0] }
-					: {}),
 			});
 
 			return { url: url.href, state: { verifier, state, nonce } };
@@ -150,21 +118,18 @@ export function createOidcClient(opts: AuthOptions): OidcClient {
 				throw new OidcError("the identity provider returned no ID token claims");
 			}
 
-			const refusal = checkAdmission(idClaims, opts);
-
-			let claims: Record<string, unknown> = { ...idClaims };
-			if (useUserinfo) {
-				try {
-					const userinfo = await client.fetchUserInfo(
-						config,
-						tokens.access_token,
-						idClaims.sub,
-					);
-					// Userinfo is the fresher source, so it wins on conflict.
-					claims = { ...claims, ...userinfo };
-				} catch {
-					throw new OidcError("the userinfo request failed");
-				}
+			// Dex puts `groups` in userinfo, so it is always asked (SPEC.md section 5.1).
+			let claims: Record<string, unknown>;
+			try {
+				const userinfo = await client.fetchUserInfo(
+					config,
+					tokens.access_token,
+					idClaims.sub,
+				);
+				// Userinfo is the fresher source, so it wins on conflict.
+				claims = { ...idClaims, ...userinfo };
+			} catch {
+				throw new OidcError("the userinfo request failed");
 			}
 
 			const subject = pickString(claims, "sub");
@@ -185,7 +150,6 @@ export function createOidcClient(opts: AuthOptions): OidcClient {
 					preferredUsername,
 				},
 				claims,
-				refusal,
 			};
 		},
 	};

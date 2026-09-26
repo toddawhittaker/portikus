@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import bcrypt from "bcryptjs";
 
 /**
  * A stand-in for Dex's gRPC API with mutual TLS, holding passwords in
@@ -105,7 +106,7 @@ export function writeDexGrpcCerts(dir: string, name = "test"): DexGrpcCerts {
 		`${name}-server`,
 		certs.ca,
 		certs.caKey,
-		"subjectAltName=IP:127.0.0.1\nextendedKeyUsage=serverAuth",
+		"subjectAltName=IP:127.0.0.1,DNS:localhost\nextendedKeyUsage=serverAuth",
 	);
 	issue(dir, `${name}-client`, certs.ca, certs.caKey, "extendedKeyUsage=clientAuth");
 	return certs;
@@ -124,6 +125,8 @@ export interface FakeDexGrpc {
 	passwords: Map<string, StoredPassword>;
 	/** When set, every call fails with UNAVAILABLE. */
 	failing: boolean;
+	/** How many VerifyPassword calls arrived. */
+	readonly verifyCalls: number;
 	close(): Promise<void>;
 }
 
@@ -146,7 +149,7 @@ export async function startFakeDexGrpc(
 		Dex: { service: grpc.ServiceDefinition };
 	};
 	const passwords = new Map<string, StoredPassword>();
-	const fake = { failing: false };
+	const fake = { failing: false, verifyCalls: 0 };
 	const unavailable = {
 		code: grpc.status.UNAVAILABLE,
 		details: "the fake is failing on purpose",
@@ -179,6 +182,13 @@ export async function startFakeDexGrpc(
 		DeletePassword: handle((request: { email: string }) => ({
 			not_found: !passwords.delete(request.email.toLowerCase()),
 		})),
+		VerifyPassword: handle((request: { email: string; password: string }) => {
+			fake.verifyCalls += 1;
+			const stored = passwords.get(request.email.toLowerCase());
+			if (!stored) return { verified: false, not_found: true };
+			const hash = stored.hash.toString("utf8");
+			return { verified: bcrypt.compareSync(request.password, hash), not_found: false };
+		}),
 		ListPasswords: handle(() => ({
 			passwords: [...passwords.values()].map((p) => ({ ...p, hash: Buffer.alloc(0) })),
 		})),
@@ -206,6 +216,9 @@ export async function startFakeDexGrpc(
 		},
 		set failing(value: boolean) {
 			fake.failing = value;
+		},
+		get verifyCalls() {
+			return fake.verifyCalls;
 		},
 		close: () =>
 			new Promise<void>((resolve) => {

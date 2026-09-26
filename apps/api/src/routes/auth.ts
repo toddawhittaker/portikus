@@ -5,6 +5,7 @@ import {
 	hashSessionToken,
 	type LinkIntent,
 	type LoginState,
+	localDexUserId,
 	loginCookieName,
 	loginCookieOptions,
 	mapRole,
@@ -29,7 +30,7 @@ const DENIED_MESSAGE = "Your account is not authorized to use Portikus";
 /** Login, logout, and the current-user route (SPEC.md §5.1, §5.2, §5.3). */
 export function registerAuthRoutes(
 	app: FastifyInstance,
-	{ db, config, oidc }: ServerDeps,
+	{ db, config, oidc, dex }: ServerDeps,
 ): void {
 	const auth = toAuthOptions(config);
 	const sessionCookie = sessionCookieName(auth);
@@ -126,8 +127,8 @@ export function registerAuthRoutes(
 			throw error;
 		}
 
-		const { identity, claims, refusal } = completed;
-		const role = refusal ? null : mapRole(claims, auth);
+		const { identity, claims } = completed;
+		const role = mapRole(claims, auth);
 		if (!role) {
 			// Prefix the subject so a crafted one cannot look like `user:<uuid>`.
 			await writeAudit(
@@ -136,8 +137,7 @@ export function registerAuthRoutes(
 				`subject:${identity.subject}`,
 				identity.subject,
 				"denied",
-				// The tenant or domain refusal is named (docs/archive/epics/EPIC-14.md ruling 9).
-				{ ...(refusal ? { reason: refusal } : {}), ...requestMetadata(request) },
+				requestMetadata(request),
 			);
 			return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		}
@@ -196,7 +196,7 @@ export function registerAuthRoutes(
 			if (error instanceof OidcError) return refuse("failed", "failed", null);
 			throw error;
 		}
-		if (completed.refusal || !mapRole(completed.claims, auth)) {
+		if (!mapRole(completed.claims, auth)) {
 			return refuse("not_authorized", "denied", null);
 		}
 
@@ -257,7 +257,7 @@ export function registerAuthRoutes(
 		// The session user has no sign-in name; it lives on the user row.
 		const row = await db
 			.selectFrom("users")
-			.select(["oidc_subject", "preferred_username"])
+			.select(["oidc_issuer", "oidc_subject", "preferred_username"])
 			.where("id", "=", request.user.id)
 			.executeTakeFirst();
 		if (!row) {
@@ -265,7 +265,10 @@ export function registerAuthRoutes(
 		}
 		// A Dex subject is an opaque blob, so prefer the username.
 		const signInName = row.preferred_username || row.oidc_subject;
-		const body: MeResponse = { ...request.user, signInName };
+		// Settings offers Password only where POST /me/password can work (SPEC.md section 5.3).
+		const localPassword =
+			dex !== undefined && localDexUserId(row, config.OIDC_ISSUER_URL) !== null;
+		const body: MeResponse = { ...request.user, signInName, localPassword };
 		return reply.send(body);
 	});
 }

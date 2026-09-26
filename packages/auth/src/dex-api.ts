@@ -49,6 +49,11 @@ export interface DexApi {
 	deletePassword(email: string): Promise<"deleted" | "not_found">;
 	/** Every password Dex holds. */
 	listPasswords(): Promise<DexPassword[]>;
+	/** Whether `password` is the one Dex holds for this email (SPEC.md section 5.3). */
+	verifyPassword(
+		email: string,
+		password: string,
+	): Promise<"verified" | "wrong" | "not_found">;
 	close(): void;
 }
 
@@ -98,19 +103,26 @@ interface RawDexClient extends grpc.Client {
 	>;
 	DeletePassword: Method<{ email: string }, { not_found: boolean }>;
 	ListPasswords: Method<Record<string, never>, { passwords: RawPassword[] }>;
+	VerifyPassword: Method<
+		{ email: string; password: string },
+		{ verified: boolean; not_found: boolean }
+	>;
 }
 
-function loadServiceClient(): new (
+type ClientConstructor = new (
 	address: string,
 	credentials: grpc.ChannelCredentials,
-) => RawDexClient {
+	options: grpc.ChannelOptions,
+) => RawDexClient;
+
+function loadServiceClient(): ClientConstructor {
 	const definition = protoLoader.loadSync(PROTO_PATH, {
 		keepCase: true,
 		longs: String,
 		defaults: true,
 	});
 	const api = grpc.loadPackageDefinition(definition).api as unknown as {
-		Dex: new (address: string, credentials: grpc.ChannelCredentials) => RawDexClient;
+		Dex: ClientConstructor;
 	};
 	return api.Dex;
 }
@@ -135,6 +147,8 @@ export function createDexApi(connection: DexApiConnection): DexApi {
 	const client = new Client(
 		connection.address,
 		grpc.credentials.createSsl(connection.ca, connection.key, connection.cert),
+		// Check the certificate against a name, not the IP, which Node warns about (DEP0123).
+		{ "grpc.ssl_target_name_override": "localhost" },
 	);
 	return {
 		async createPassword(input) {
@@ -168,6 +182,11 @@ export function createDexApi(connection: DexApiConnection): DexApi {
 				username: p.username,
 				userId: p.user_id,
 			}));
+		},
+		async verifyPassword(email, password) {
+			const res = await call(client, client.VerifyPassword, { email, password });
+			if (res.not_found) return "not_found";
+			return res.verified ? "verified" : "wrong";
 		},
 		close() {
 			client.close();

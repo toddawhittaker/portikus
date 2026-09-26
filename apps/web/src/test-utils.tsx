@@ -16,6 +16,8 @@ export const USER = {
 	email: "alice@example.invalid",
 	displayName: "Alice Example",
 	role: "student" as const,
+	mustChangePassword: false,
+	localPassword: false,
 };
 
 export const WORKSPACE = {
@@ -104,7 +106,7 @@ export function renderApp(path: string) {
 	const queryClient = createQueryClient(() => {
 		void router.navigate({ to: "/session-ended" });
 	});
-	render(
+	const { unmount } = render(
 		<QueryClientProvider client={queryClient}>
 			<ToastProvider>
 				{/* biome-ignore lint/suspicious/noExplicitAny: the test router is not the registered one */}
@@ -112,7 +114,7 @@ export function renderApp(path: string) {
 			</ToastProvider>
 		</QueryClientProvider>,
 	);
-	return { router };
+	return { router, unmount };
 }
 
 /**

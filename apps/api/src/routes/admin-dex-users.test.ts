@@ -65,6 +65,9 @@ function stubDex() {
 				userId,
 			}));
 		},
+		async verifyPassword() {
+			return "not_found";
+		},
 		close() {},
 	};
 	return { dex, passwords, state };
@@ -235,9 +238,11 @@ describe.skipIf(skip)("Add user", () => {
 				"role",
 				"provider_role",
 				"granted_role",
+				"must_change_password",
 			])
 			.where("id", "=", user.id)
 			.executeTakeFirstOrThrow();
+		// They choose their own password at first sign-in (SPEC.md section 5.2).
 		expect(row).toEqual({
 			oidc_issuer: mock.issuer,
 			oidc_subject: dexLocalSubject(stored?.userId ?? ""),
@@ -247,6 +252,7 @@ describe.skipIf(skip)("Add user", () => {
 			role: "student",
 			provider_role: "student",
 			granted_role: null,
+			must_change_password: true,
 		});
 		expect(user).toMatchObject({ dexLocal: true, role: "student", grantedRole: null });
 	});
@@ -480,9 +486,21 @@ describe.skipIf(skip)("Reset password", () => {
 			role: "student",
 		});
 		await openSessions(user.id);
+		// As if they had already chosen their own password.
+		await testDb.db
+			.updateTable("users")
+			.set({ must_change_password: false })
+			.where("id", "=", user.id)
+			.execute();
 		const res = await post(carol, `/admin/dex-users/${user.id}/reset-password`);
 		expect(res.statusCode).toBe(200);
 		const { password } = res.json() as { password: string };
+		const flag = await testDb.db
+			.selectFrom("users")
+			.select("must_change_password")
+			.where("id", "=", user.id)
+			.executeTakeFirstOrThrow();
+		expect(flag.must_change_password).toBe(true);
 		expect(password).toMatch(/^[A-Za-z0-9]{20}$/);
 		expect(password).not.toBe(first);
 		const hash = stub.passwords.get("hal@example.edu")?.hash ?? "";

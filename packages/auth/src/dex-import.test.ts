@@ -54,6 +54,9 @@ function fakeDex(failOnCreate?: number, failDelete = false) {
 				userId,
 			}));
 		},
+		async verifyPassword() {
+			return "not_found";
+		},
 		close() {},
 	};
 	return { dex, passwords };

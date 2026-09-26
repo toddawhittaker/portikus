@@ -1,6 +1,6 @@
 # 0023. Dex with static users as the pilot's sign-in provider
 
-- **Status**: Accepted; its users file and in-memory storage are superseded by ADR 0028
+- **Status**: Accepted; its users file and in-memory storage are superseded by ADR 0028, and Dex is the only sign-in front door on every site since Epic 14.2 (ADR 0031)
 - **Date**: 2026-09-22
 - **References**: SPEC.md §5, §24; STACK.md §8, §27; ADR 0004, ADR 0008; docs/archive/epics/EPIC-12B.md
 

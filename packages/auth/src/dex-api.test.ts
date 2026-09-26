@@ -108,6 +108,24 @@ describe("the gRPC client", () => {
 		expect(await dex.deletePassword("nobody@example.edu")).toBe("not_found");
 	});
 
+	test("verifies a password against the stored hash", async () => {
+		await dex.createPassword({
+			email: "vera@example.edu",
+			username: "vera",
+			userId: crypto.randomUUID(),
+			hash: await hashDexPassword("the-right-password"),
+		});
+		expect(await dex.verifyPassword("vera@example.edu", "the-right-password")).toBe(
+			"verified",
+		);
+		expect(await dex.verifyPassword("vera@example.edu", "a-wrong-password")).toBe(
+			"wrong",
+		);
+		expect(await dex.verifyPassword("nobody@example.edu", "anything")).toBe(
+			"not_found",
+		);
+	});
+
 	test("rejects when Dex fails", async () => {
 		fake.failing = true;
 		try {

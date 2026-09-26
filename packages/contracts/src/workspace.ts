@@ -232,6 +232,10 @@ export const ApiErrorCode = z.enum([
 	// Lift throttle or clear memory flag with nothing set (ADR 0032).
 	"NOT_THROTTLED",
 	"NOT_FLAGGED",
+	// The local administrator and password change (SPEC.md section 5.3).
+	"PASSWORD_CHANGE_REQUIRED",
+	"NOT_LOCAL_PASSWORD",
+	"WRONG_PASSWORD",
 	"INTERNAL",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;

@@ -18,8 +18,9 @@ import { errorText } from "./SettingsTab.js";
 
 /** Standalone Dex users in the Users view (docs/archive/epics/EPIC-14.md rulings 21 and 22). */
 
+/** They must choose their own at first sign-in (SPEC.md section 5.2). */
 export const PASSWORD_ONCE_TEXT =
-	"Give this to them privately. It will not be shown again.";
+	"Give this to them privately. It will not be shown again. They will choose their own password when they first sign in.";
 
 const ROLE_LABEL: Record<Role, string> = {
 	student: "Student",

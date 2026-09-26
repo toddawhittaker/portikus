@@ -6,8 +6,11 @@ import {
 	Outlet,
 	redirect,
 	type SearchSchemaInput,
+	useNavigate,
 	useParams,
+	useRouterState,
 } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { ADMIN_TABS, AdminPage } from "./admin/AdminPage.js";
 import { CourseListPage, CourseMembersPage } from "./course/CoursePage.js";
 import { LinkPage } from "./link/LinkPage.js";
@@ -15,20 +18,37 @@ import { LinkStartPage } from "./link/LinkStartPage.js";
 import { useLinkedReload } from "./link/useLinkedReload.js";
 import { MIN_PREVIEW_PORT, UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
+import { NotFound } from "./pages/NotFound.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
 import { SignIn } from "./pages/SignIn.js";
 import { Unlinked } from "./pages/Unlinked.js";
+import { ChangePasswordPage } from "./password/ChangePasswordPage.js";
 import { ProjectIndex } from "./projects/ProjectIndex.js";
 import { useProjects } from "./projects/queries.js";
-import { SetupPage } from "./setup/SetupPage.js";
+import { useMe } from "./useMe.js";
 import { WorkspacePage } from "./WorkspacePage.js";
 import { WorkArea } from "./work/WorkArea.js";
+
+const CHANGE_PASSWORD_PATH = "/change-password";
 
 const rootRoute = createRootRoute({
 	component: function Root() {
 		useLinkedReload();
+		const me = useMe();
+		const navigate = useNavigate();
+		const pathname = useRouterState({ select: (state) => state.location.pathname });
+		// The server refuses everything else anyway (SPEC.md section 5.3).
+		const sendAway =
+			me.status === "authenticated" &&
+			me.user.mustChangePassword &&
+			pathname !== CHANGE_PASSWORD_PATH;
+		useEffect(() => {
+			if (sendAway) void navigate({ to: CHANGE_PASSWORD_PATH, replace: true });
+		}, [sendAway, navigate]);
+		if (sendAway) return <div className="pk-root" aria-busy="true" />;
 		return <Outlet />;
 	},
+	notFoundComponent: NotFound,
 });
 
 const indexRoute = createRoute({
@@ -43,17 +63,16 @@ const sessionEndedRoute = createRoute({
 	component: SessionEnded,
 });
 
+const changePasswordRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: CHANGE_PASSWORD_PATH,
+	component: ChangePasswordPage,
+});
+
 const unlinkedRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/unlinked",
 	component: Unlinked,
-});
-
-/** The first administrator's one-time setup code (docs/archive/epics/EPIC-14.md rulings 15 to 18). */
-const setupRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/setup",
-	component: SetupPage,
 });
 
 const notAuthorizedRoute = createRoute({
@@ -233,7 +252,7 @@ export const routeTree = rootRoute.addChildren([
 	indexRoute,
 	sessionEndedRoute,
 	notAuthorizedRoute,
-	setupRoute,
+	changePasswordRoute,
 	unlinkedRoute,
 	linkRoute,
 	linkStartRoute,

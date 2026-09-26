@@ -11,9 +11,14 @@ export function SignIn() {
 	const me = useMe();
 	// An administrator gets a workspace only by opening one (SPEC.md §6.1).
 	const isAdmin = me.status === "authenticated" && me.user.role === "administrator";
-	const workspace = useEnsureWorkspace(me.status === "authenticated" && !isAdmin);
+	// The root route sends this account to the change page (SPEC.md section 5.3).
+	const mustChange = me.status === "authenticated" && me.user.mustChangePassword;
+	const workspace = useEnsureWorkspace(
+		me.status === "authenticated" && !isAdmin && !mustChange,
+	);
 
-	if (me.status === "loading") return <div className="pk-root" aria-busy="true" />;
+	if (me.status === "loading" || mustChange)
+		return <div className="pk-root" aria-busy="true" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
 	if (isAdmin) return <Navigate to="/admin" replace />;
 	if (me.status === "authenticated") {

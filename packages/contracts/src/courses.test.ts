@@ -15,6 +15,7 @@ test("AuthUser accepts the instructor role", () => {
 			email: null,
 			displayName: "Ivy",
 			role: "instructor",
+			mustChangePassword: false,
 		}).success,
 	).toBe(true);
 });

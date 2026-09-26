@@ -633,6 +633,8 @@ describe("database migrations and schema", () => {
 				expect(down19.error).toBeUndefined();
 				const down20 = await migrator.migrateDown();
 				expect(down20.error).toBeUndefined();
+				const down21 = await migrator.migrateDown();
+				expect(down21.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -654,6 +656,7 @@ describe("database migrations and schema", () => {
 					"0016_account_links",
 					"0017_session_method",
 					"0018_setup_codes",
+					"0019_local_admin",
 					"0020_resource_guard",
 					"0021_notifications",
 				]);
@@ -682,6 +685,9 @@ describe("database migrations and schema", () => {
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0020_resource_guard",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0019_local_admin",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0018_setup_codes",
@@ -732,29 +738,53 @@ describe("database migrations and schema", () => {
 		},
 	);
 
-	// --- migration 0018: setup codes (Epic 14, rulings 16 and 17) ---
+	// --- migration 0019: the local administrator (Epic 14.2) ---
 
 	test.skipIf(!hasTestDb())(
-		"0018 keeps one row per code hash and outlives the account that used it",
+		"0019 adds must_change_password, drops setup_codes, and rolls back cleanly",
 		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
 			const userId = await insertTestUser(t.db);
-			const expires = new Date(Date.now() + 3_600_000).toISOString();
-			await t.db
-				.insertInto("setup_codes")
-				.values({ code_hash: "h1", expires_at: expires, used_by: userId })
-				.execute();
-			await expect(
-				t.db
-					.insertInto("setup_codes")
-					.values({ code_hash: "h1", expires_at: expires })
-					.execute(),
-			).rejects.toThrow();
-			await t.db.deleteFrom("users").where("id", "=", userId).execute();
-			const row = await t.db
-				.selectFrom("setup_codes")
-				.select("used_by")
+			const flag = await t.db
+				.selectFrom("users")
+				.select("must_change_password")
+				.where("id", "=", userId)
 				.executeTakeFirstOrThrow();
-			expect(row.used_by).toBeNull();
+			expect(flag.must_change_password).toBe(false);
+			const table = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.tables
+				where table_name = 'setup_codes'`;
+			const column = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.columns
+				where table_name = 'users' and column_name = 'must_change_password'`;
+			expect((await table.execute(t.db)).rows[0]?.n).toBe(0);
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					// Past 0021 and 0020 (Epic 14.3) first.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					const down = await migrator.migrateDown();
+					expect(down.error).toBeUndefined();
+					expect(down.results?.[0]?.migrationName).toBe("0019_local_admin");
+					expect((await table.execute(trx)).rows[0]?.n).toBe(1);
+					expect((await column.execute(trx)).rows[0]?.n).toBe(0);
+					const empty = await sql<{ n: number }>`
+						select count(*)::int as n from setup_codes`.execute(trx);
+					expect(empty.rows[0]?.n).toBe(0);
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+					expect((await table.execute(trx)).rows[0]?.n).toBe(0);
+					expect((await column.execute(trx)).rows[0]?.n).toBe(1);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
 		},
 	);
 
@@ -803,6 +833,9 @@ describe("database migrations and schema", () => {
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0020_resource_guard",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0019_local_admin",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0018_setup_codes",
@@ -1152,6 +1185,9 @@ describe("database migrations and schema", () => {
 						"0020_resource_guard",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0019_local_admin",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0018_setup_codes",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1202,6 +1238,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
@@ -1632,7 +1669,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Down past 0021 and 0020 (Epic 14.3), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					// Down past 0021 and 0020 (Epic 14.3), 0019 (Epic 14.2), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -1955,29 +1993,26 @@ describe("resource guard migration", () => {
 			const { migrateToLatest } = await import("./migrate.js");
 			const { Migrator } = await import("kysely/migration");
 			const { migrations } = await import("./migrations/index.js");
-			const standin = {
-				up: async (db: Kysely<unknown>) => {
-					await db.schema
-						.createTable("standin_0019")
-						.addColumn("id", "integer")
-						.execute();
-				},
-				down: async (db: Kysely<unknown>) => {
-					await db.schema.dropTable("standin_0019").execute();
-				},
-			};
-			const withLate = { ...migrations, "0019_local_admin": standin };
+			const { "0019_local_admin": _late, ...without0019 } = migrations;
 			const rollback = new Error("rollback");
 
 			await expect(
 				t.db.transaction().execute(async (trx) => {
-					// A database that already has 0020 takes 0019 when it arrives.
-					expect(await migrateToLatest(trx, withLate)).toEqual(["0019_local_admin"]);
 					const migrator = new Migrator({
 						db: trx,
-						provider: { getMigrations: async () => withLate },
+						provider: { getMigrations: async () => migrations },
 						allowUnorderedMigrations: true,
 					});
+					// Build a database that took 0020 and 0021 before 0019 existed.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect(await migrateToLatest(trx, without0019)).toEqual([
+						"0020_resource_guard",
+						"0021_notifications",
+					]);
+					// It takes 0019 when it arrives.
+					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
 					// Undo 0019, 0021, 0020 and 0018 (they were applied 0018, 0020, 0021, 0019).
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();

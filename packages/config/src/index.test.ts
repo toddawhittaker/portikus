@@ -631,63 +631,59 @@ test("a zero recovery interval is a config error", () => {
 	).toThrow(/RECOVERY_INTERVAL_SECONDS/);
 });
 
-// --- Sign-in provider settings (docs/archive/epics/EPIC-14.md, "API settings") ---
+// --- Sign-in provider settings (SPEC.md section 5.1) ---
 
 const apiDevBase = { DATABASE_URL: "postgres://localhost/portikus" };
 
-test("ApiConfig defaults to generic OIDC, no default role, no proxy, no Dex gRPC", () => {
+test("ApiConfig defaults to no default role, no proxy, no Dex gRPC", () => {
 	const config = loadConfig(ApiConfigSchema, apiDevBase);
-	expect(config.OIDC_PROVIDER).toBe("oidc");
 	expect(config.OIDC_DEFAULT_ROLE).toBe("none");
-	expect(config.OIDC_ALLOWED_TENANT).toBeUndefined();
-	expect(config.oidcAllowedDomains).toEqual([]);
 	expect(config.OUTBOUND_PROXY_URL).toBeUndefined();
 	expect(config.DEX_GRPC_ADDR).toBeUndefined();
 });
 
-test("ApiConfig refuses entra without a tenant", () => {
-	expectConfigError({ ...apiDevBase, OIDC_PROVIDER: "entra" }, "OIDC_ALLOWED_TENANT");
+test("ApiConfig refuses a retired provider, tenant or domain setting (ADR 0031)", () => {
+	for (const env of [
+		{ OIDC_PROVIDER: "google" },
+		{ OIDC_PROVIDER: "entra" },
+		{ OIDC_ALLOWED_TENANT: "11111111-2222-3333-4444-555555555555" },
+		{ OIDC_ALLOWED_DOMAINS: "school.edu" },
+		{ OIDC_PROVIDER: "oidc", OIDC_ALLOWED_DOMAINS: "school.edu" },
+	]) {
+		try {
+			loadConfig(ApiConfigSchema, { ...apiDevBase, ...env });
+			expect.unreachable("should have thrown");
+		} catch (error) {
+			expect(error).toBeInstanceOf(ConfigError);
+			expect((error as ConfigError).message).toContain("rerun the play");
+		}
+	}
 });
 
-test("ApiConfig accepts entra with a tenant", () => {
-	const config = loadConfig(ApiConfigSchema, {
-		...apiDevBase,
-		OIDC_PROVIDER: "entra",
-		OIDC_ALLOWED_TENANT: "11111111-2222-3333-4444-555555555555",
-	});
-	expect(config.OIDC_ALLOWED_TENANT).toBe("11111111-2222-3333-4444-555555555555");
+test("ApiConfig accepts an empty or oidc provider with no tenant or domains", () => {
+	for (const OIDC_PROVIDER of ["", "oidc"]) {
+		expect(() =>
+			loadConfig(ApiConfigSchema, {
+				...apiDevBase,
+				OIDC_PROVIDER,
+				OIDC_ALLOWED_TENANT: "",
+				OIDC_ALLOWED_DOMAINS: "",
+			}),
+		).not.toThrow();
+	}
 });
 
-test("ApiConfig refuses google without domains", () => {
-	expectConfigError({ ...apiDevBase, OIDC_PROVIDER: "google" }, "OIDC_ALLOWED_DOMAINS");
-	expectConfigError(
-		{ ...apiDevBase, OIDC_PROVIDER: "google", OIDC_ALLOWED_DOMAINS: " , " },
-		"OIDC_ALLOWED_DOMAINS",
-	);
-});
-
-test("ApiConfig parses google domains, trimmed and lowercased", () => {
-	const config = loadConfig(ApiConfigSchema, {
-		...apiDevBase,
-		OIDC_PROVIDER: "google",
-		OIDC_ALLOWED_DOMAINS: "School.edu, staff.school.edu",
-	});
-	expect(config.oidcAllowedDomains).toEqual(["school.edu", "staff.school.edu"]);
-});
-
-test("ApiConfig refuses a domain that is not a DNS name", () => {
-	expectConfigError(
-		{
+test("ApiConfig takes none and student as the default role", () => {
+	for (const role of ["none", "student"] as const) {
+		const config = loadConfig(ApiConfigSchema, {
 			...apiDevBase,
-			OIDC_PROVIDER: "google",
-			OIDC_ALLOWED_DOMAINS: "https://school.edu",
-		},
-		"OIDC_ALLOWED_DOMAINS",
-	);
+			OIDC_DEFAULT_ROLE: role,
+		});
+		expect(config.OIDC_DEFAULT_ROLE).toBe(role);
+	}
 });
 
-test("ApiConfig refuses an unknown provider or default role", () => {
-	expectConfigError({ ...apiDevBase, OIDC_PROVIDER: "saml" }, "OIDC_PROVIDER");
+test("ApiConfig refuses an unknown default role", () => {
 	expectConfigError(
 		{ ...apiDevBase, OIDC_DEFAULT_ROLE: "instructor" },
 		"OIDC_DEFAULT_ROLE",

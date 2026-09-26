@@ -69,20 +69,25 @@ export function registerWorkspaceRoutes(
 		// (SPEC.md Epic 8; BROWSER-HANDLING.md section 8).
 		const owner = await db
 			.selectFrom("users")
-			.select(["preferred_username", "oidc_issuer", "oidc_subject"])
+			.select(["preferred_username", "email", "oidc_issuer", "oidc_subject"])
 			.where("id", "=", ownerUserId)
 			.executeTakeFirst();
 		const hex = randomHex8();
 		const hexLabel = `ws-${hex}`;
-		// A course (LTI) account falls back to its LTI user ID, never random hex (SPEC.md, Epic 8).
-		const subLabel =
-			owner && isCourseIssuer(owner.oidc_issuer)
-				? deriveWorkspaceLabel(owner.oidc_subject, hex)
-				: hexLabel;
+		// A course (LTI) account falls back to its email's local part, then its
+		// LTI user ID, never random hex (SPEC.md, Epic 8).
+		const isCourse = owner !== undefined && isCourseIssuer(owner.oidc_issuer);
+		const subLabel = isCourse
+			? deriveWorkspaceLabel(owner.oidc_subject, hex)
+			: hexLabel;
+		const emailLocal = isCourse ? (owner.email?.split("@")[0] ?? null) : null;
+		const emailLabel = deriveWorkspaceLabel(emailLocal, hex);
 		const username = deriveWorkspaceLabel(owner?.preferred_username ?? null, hex);
-		const baseLabel = username === hexLabel ? subLabel : username;
-		// Used once the suffixes run out, so a crowded label never fails creation.
-		const lastResort = [subLabel, hexLabel].filter((label) => label !== baseLabel);
+		const baseLabel =
+			[username, emailLabel, subLabel].find((label) => label !== hexLabel) ?? hexLabel;
+		const lastResort = [...new Set([emailLabel, subLabel, hexLabel])].filter(
+			(label) => label !== baseLabel,
+		);
 
 		try {
 			await insertWithLabel(db, baseLabel, lastResort, {
