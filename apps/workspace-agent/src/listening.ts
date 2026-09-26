@@ -7,7 +7,7 @@
  * failing the scan.
  */
 import { execFile } from "node:child_process";
-import { readdir, readFile, readlink } from "node:fs/promises";
+import { access, readdir, readFile, readlink } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import type { AgentListeningService } from "@portikus/contracts";
@@ -403,7 +403,9 @@ function fingerprint(services: AgentListeningService[]): string {
 
 /**
  * Scans for listening ports on a timer and tells its subscribers whenever the
- * set changes (BROWSER-HANDLING.md §17).
+ * set changes (BROWSER-HANDLING.md §17). The timer scans only while someone
+ * watches, never overlaps itself, and walks the `/proc/<pid>/fd` links only when a
+ * listening socket's owner is not already known (SPEC.md §18.2, issue #623).
  */
 export class ListeningMonitor {
 	private readonly procRoot: string;
@@ -421,6 +423,11 @@ export class ListeningMonitor {
 	private print = fingerprint([]);
 	private timer: NodeJS.Timeout | null = null;
 	private dockerCache: { at: number; containers: DockerContainer[] } | null = null;
+	/** Open `/listening/events` sockets; the in-process subscribers do not count. */
+	private watchers = 0;
+	private scanning = false;
+	/** Socket inode to owner from the last walk; null when no readable process held it. */
+	private owners = new Map<string, SocketOwner | null>();
 
 	constructor(options: ListeningMonitorOptions = {}) {
 		this.procRoot = options.procRoot ?? "/proc";
@@ -441,7 +448,7 @@ export class ListeningMonitor {
 	start(): void {
 		if (this.timer) return;
 		this.timer = setInterval(() => {
-			void this.refresh();
+			void this.tick();
 		}, this.intervalMs);
 		// The scan must not keep a shutting-down process alive.
 		this.timer.unref();
@@ -451,6 +458,24 @@ export class ListeningMonitor {
 		if (this.timer) clearInterval(this.timer);
 		this.timer = null;
 		this.listeners.clear();
+	}
+
+	/** Count an events socket as watching until the returned function runs. */
+	watch(): () => void {
+		this.watchers += 1;
+		let released = false;
+		return () => {
+			if (released) return;
+			released = true;
+			this.watchers -= 1;
+		};
+	}
+
+	/** One timer tick: skipped while nobody watches or a scan is still running. */
+	async tick(): Promise<void> {
+		if (this.scanning) return;
+		if (this.watchers === 0 && this.forwardedPorts().size === 0) return;
+		await this.refresh();
 	}
 
 	current(): AgentListeningService[] {
@@ -616,6 +641,7 @@ export class ListeningMonitor {
 	/** One scan. Subscribers hear about it only if the set changed. */
 	async refresh(): Promise<AgentListeningService[]> {
 		let services: AgentListeningService[];
+		this.scanning = true;
 		try {
 			services = await this.scan();
 		} catch (error) {
@@ -624,6 +650,8 @@ export class ListeningMonitor {
 				"listening scan failed",
 			);
 			return this.services;
+		} finally {
+			this.scanning = false;
 		}
 		const print = fingerprint(services);
 		if (print === this.print) return this.services;
@@ -638,7 +666,7 @@ export class ListeningMonitor {
 			...parseProcNetTcp(await this.readProcFile("net/tcp")),
 			...parseProcNetTcp(await this.readProcFile("net/tcp6")),
 		];
-		const owners = await readSocketOwners(this.procRoot);
+		const owners = await this.socketOwners(rows.map((row) => row.inode));
 		const containers = await this.containers();
 		const forwarded = this.forwardedPorts();
 		const observedAt = new Date().toISOString();
@@ -655,7 +683,7 @@ export class ListeningMonitor {
 			const addresses = [...new Set(listeners.map((entry) => entry.address))].sort();
 			const found = listeners
 				.map((entry) => owners.get(entry.inode))
-				.filter((entry) => entry !== undefined);
+				.filter((entry) => entry !== undefined && entry !== null);
 			// The agent's own forward is never the service: if another process
 			// holds this port too, that one is the owner (issue #299).
 			const owner = found.find((entry) => entry.pid !== this.selfPid) ?? found[0];
@@ -689,6 +717,42 @@ export class ListeningMonitor {
 		}
 		services.sort((left, right) => left.port - right.port);
 		return services;
+	}
+
+	/**
+	 * Owners for these inodes. The fd walk is the costly part of a scan, so it
+	 * runs only when an inode is new or its cached owner has exited.
+	 */
+	private async socketOwners(
+		inodes: string[],
+	): Promise<Map<string, SocketOwner | null>> {
+		let stale = false;
+		for (const inode of inodes) {
+			const cached = this.owners.get(inode);
+			if (
+				cached === undefined ||
+				(cached !== null && !(await this.exists(cached.pid)))
+			) {
+				stale = true;
+				break;
+			}
+		}
+		if (stale) {
+			const walked = await readSocketOwners(this.procRoot);
+			const next = new Map<string, SocketOwner | null>();
+			for (const inode of inodes) next.set(inode, walked.get(inode) ?? null);
+			this.owners = next;
+		}
+		return this.owners;
+	}
+
+	private async exists(pid: number): Promise<boolean> {
+		try {
+			await access(join(this.procRoot, String(pid)));
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	private reachability(
