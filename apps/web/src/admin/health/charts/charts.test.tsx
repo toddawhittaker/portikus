@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import { BarChart } from "./BarChart.js";
+import { BarChart, seriesAt } from "./BarChart.js";
 import { LineChart, linePath } from "./LineChart.js";
 import { moveCursor } from "./readout.js";
 import type { ChartFrame } from "./scales.js";
@@ -119,4 +119,70 @@ test("Up and Down pick a series in a bar and Enter opens it", () => {
 	fireEvent.keyDown(plot, { key: "Enter" });
 	expect(onOpen).toHaveBeenLastCalledWith(3, 0);
 	expect(document.querySelectorAll("rect[data-series]")).toHaveLength(4);
+});
+
+function renderBars(onOpen = vi.fn()) {
+	render(
+		<BarChart
+			testId="bars"
+			label="Errors and warnings"
+			frame={FRAME}
+			series={[
+				{ name: "Errors", tone: "error", values: [1, 0, null, 2] },
+				{ name: "Warnings", tone: "warning", values: [3, 0, null, 1] },
+			]}
+			ticks={[0, 2, 4]}
+			format={String}
+			summary="3 errors, 4 warnings."
+			onOpen={onOpen}
+			openHint="open the logs"
+		/>,
+	);
+	return onOpen;
+}
+
+test("warnings are hatched and sit 1px above the errors, so colour is not the only cue", () => {
+	renderBars();
+	const warning = document.querySelector('rect[data-series="1"]');
+	const error = document.querySelector('rect[data-series="0"]');
+	expect(warning?.getAttribute("class")).toBe("fill-[url(#health-bar-warning)]");
+	expect(document.getElementById("health-bar-warning")?.tagName).toBe("pattern");
+	const errorTop = Number(error?.getAttribute("y"));
+	const warningBottom =
+		Number(warning?.getAttribute("y")) + Number(warning?.getAttribute("height"));
+	expect(errorTop - warningBottom).toBeCloseTo(1);
+});
+
+test("Up and Down announce the chosen level, and the keys are named", () => {
+	renderBars();
+	const plot = screen.getByTestId("bars-plot");
+	expect(plot.getAttribute("aria-label")).toBe(
+		"Errors and warnings, use the left and right arrow keys to read values, up and down to choose errors or warnings, Enter to open the logs",
+	);
+	expect(screen.getByTestId("bars-keys").textContent).toContain(
+		"Enter to open the logs",
+	);
+	fireEvent.keyDown(plot, { key: "Home" });
+	fireEvent.keyDown(plot, { key: "ArrowUp" });
+	expect(screen.getByText("Warnings 3 selected")).toBeDefined();
+	fireEvent.keyDown(plot, { key: "ArrowDown" });
+	expect(screen.getByText("Errors 1 selected")).toBeDefined();
+});
+
+test("each bucket has a full-height click column that opens the series under the pointer", () => {
+	const onOpen = renderBars();
+	const columns = document.querySelectorAll("rect[data-hit]");
+	expect(columns).toHaveLength(4);
+	const first = columns[0] as SVGRectElement;
+	expect(Number(first.getAttribute("height"))).toBeGreaterThan(100);
+	fireEvent.click(first);
+	expect(onOpen).toHaveBeenCalledWith(0, expect.any(Number));
+	expect(seriesAt([1, 3], 0.5)).toBe(0);
+	expect(seriesAt([1, 3], 2)).toBe(1);
+	expect(seriesAt([1, 3], 9)).toBe(0);
+});
+
+test("a bucket with no data draws a dotted baseline", () => {
+	renderBars();
+	expect(document.querySelectorAll("line[data-gap]")).toHaveLength(1);
 });

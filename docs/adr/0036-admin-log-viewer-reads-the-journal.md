@@ -42,14 +42,21 @@ administrators only. Reading logs is not audited, like reading the audit log.
   and stop lines and raw stack traces stay a `journalctl` job on the VM.
 - **Redaction.** `packages/observability` keeps one list of sensitive key
   names. The logger's pino redaction paths are built from it, and
-  `redactLine` uses it to replace those keys' values at any depth with
-  `"[redacted]"` and to cut strings over 2,000 characters. The API redacts
+  `redactLine` uses it, in any letter case, to replace those keys' values at
+  any depth with `"[redacted]"`, scrubs bearer tokens and URL credentials
+  inside strings, and cuts strings over 2,000 characters. The API redacts
   every line before filtering or sending it, and sends only the parsed
   message, the service, the journal time and the cursor.
 - **Counts.** The API keeps error and warn counts per minute for 7 days in
-  memory, filled by reading error, warn and fatal lines forward from the last
-  cursor it read, under the same limits. Until a read has reached the end,
-  `complete` is false.
+  memory. It counts the last hour first, then moves forward to the present
+  and backward to the start of the window in slices of a day, one
+  `journalctl` read of error, warn and fatal lines each, under the same
+  limits. A frontier moves only past fully counted time: a slice that hits
+  a limit resumes from its last entry. A day that yields nothing at all
+  within the limit is retried an hour at a time, and an hour that still
+  yields nothing is passed over, so counting never stalls. Until the
+  whole window is counted with nothing passed over, `complete` is false.
+  The journal's oldest entry is looked up at most once an hour.
 
 ## Consequences
 

@@ -85,12 +85,21 @@ const LABEL_EVERY_MINUTES: Record<HealthRange, number> = {
 	"7d": 1440,
 };
 
-/** Bucket indexes that get an X-axis label: whole local clock steps. */
+/**
+ * Bucket indexes that get an X-axis label: whole local clock steps, or at 7
+ * days the first bucket of each local date, since hourly buckets never start
+ * at local midnight in a half-hour time zone.
+ */
 export function timeTickIndexes(frame: ChartFrame): number[] {
 	const every = LABEL_EVERY_MINUTES[frame.range];
 	const indexes: number[] = [];
 	for (let index = 0; index < frame.count; index++) {
 		const date = new Date(bucketStart(frame, index));
+		if (frame.range === "7d") {
+			const before = new Date(bucketStart(frame, index - 1));
+			if (before.getDate() !== date.getDate()) indexes.push(index);
+			continue;
+		}
 		const minuteOfDay = date.getHours() * 60 + date.getMinutes();
 		if (minuteOfDay % every === 0) indexes.push(index);
 	}

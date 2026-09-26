@@ -106,6 +106,16 @@ test("a table row per workspace reads each bucket, hatches the threshold and lin
 	expect(over?.getAttribute("data-over")).toBe("true");
 	expect(over?.getAttribute("style")).toContain("repeating-linear-gradient");
 	expect(cells[0]?.querySelector("div")?.className).toContain("bg-accent/10");
+	// Filled cells are outlined and empty ones dotted, so low use never looks like no data.
+	expect(cells[0]?.querySelector("div")?.className).toContain("border-line-strong");
+	const empty = cells[1]?.querySelector("div");
+	expect(empty?.getAttribute("data-empty")).toBe("true");
+	expect(empty?.className).not.toContain("border-line-strong");
+	expect(empty?.getAttribute("style")).toContain("radial-gradient");
+	// The figure is named by its caption.
+	expect(
+		screen.getByRole("figure", { name: "Per-workspace CPU, highest per minute" }),
+	).toBeDefined();
 
 	const link = within(rows[0] as HTMLElement).getByRole("link", { name: "Ann Lee" });
 	expect(link.getAttribute("href")).toBe(`/admin?tab=workspaces&user=${OWNER}`);

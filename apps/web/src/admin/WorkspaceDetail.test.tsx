@@ -241,9 +241,11 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 		`/admin?tab=logs&workspace=${WORKSPACE.id}&since=1h`,
 	);
 	expect(within(panel).queryByText(/journalctl/)).toBeNull();
-	// Styled as a link, not body text (Gate E).
-	expect(allEvents.className).toContain("underline");
-	expect(allEvents.className).toContain("text-[var(--accent-text)]");
+	// The account's own logs live in the Account section, not a table column (SPEC.md §20.1).
+	const userLogs = within(panel).getByRole("link", { name: "View this user's logs" });
+	expect(userLogs.getAttribute("href")).toBe(`/admin?tab=logs&user=${USER.id}`);
+	// Styled as a link, not body text (Gate E); primitives.css styles pk-link.
+	expect(allEvents.className).toContain("pk-link");
 	// The selected row is marked as the current one.
 	expect(
 		screen.getByTestId(`account-row-${USER.id}`).getAttribute("aria-current"),

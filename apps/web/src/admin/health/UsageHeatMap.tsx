@@ -1,7 +1,7 @@
 import type { HealthSeries } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
 	bucketPhrase,
 	bucketStart,
@@ -18,6 +18,15 @@ export const HEAT_MAP_MAX_ROWS = 50;
 
 /** Accent steps for values under the threshold, lightest first. */
 const STEPS = ["bg-accent/10", "bg-accent/30", "bg-accent/55", "bg-accent/80"];
+
+/** Filled cells get a strong outline, so even the lightest step stands apart from "no data" (WCAG 1.4.11). */
+const FILLED = "border border-line-strong";
+
+/** No data: an empty cell with a small centred dot. */
+const NO_DATA = {
+	backgroundImage:
+		"radial-gradient(circle, var(--ink-muted) 1.25px, transparent 1.5px)",
+};
 
 /** Stripes over the warning colour, so "at the threshold" is not colour alone. */
 const HATCH = {
@@ -65,14 +74,16 @@ export function UsageHeatMap({
 	const rangeMinutes = (frame.count * frame.bucketSeconds) / 60;
 	const name = measure === "cpu" ? "CPU" : "memory";
 	const per = bucketPhrase(frame.bucketSeconds);
+	const captionId = useId();
 
 	return (
 		<figure
 			className="m-0 min-w-0 min-[1280px]:col-span-2"
 			data-testid="health-heat-map"
+			aria-labelledby={captionId}
 		>
 			<div className="flex flex-wrap items-center justify-between gap-3">
-				<figcaption className="pk-text-label text-ink-muted">
+				<figcaption id={captionId} className="pk-text-label text-ink-muted">
 					Per-workspace {name}, highest {per}
 				</figcaption>
 				<fieldset className="pk-actions m-0 border-0 p-0">
@@ -182,7 +193,7 @@ function HeatRow({
 				<Link
 					to="/admin"
 					search={{ tab: "workspaces", user: row.owner.id }}
-					className="pk-link text-[var(--accent-text)] underline"
+					className="pk-link"
 				>
 					{row.owner.displayName}
 				</Link>
@@ -195,9 +206,10 @@ function HeatRow({
 				return (
 					<td key={index} className="p-px" title={text}>
 						<div
-							className={`h-4 rounded-[2px] ${shade}`}
-							style={over ? HATCH : undefined}
+							className={`h-4 rounded-[2px] ${value === null ? "" : FILLED} ${shade}`}
+							style={over ? HATCH : value === null ? NO_DATA : undefined}
 							data-over={over ? "true" : undefined}
+							data-empty={value === null ? "true" : undefined}
 						>
 							<span className="sr-only">{text}</span>
 						</div>
@@ -220,9 +232,13 @@ function HeatLegend() {
 		>
 			<li className="flex items-center gap-1.5">
 				{STEPS.map((step) => (
-					<span key={step} className={`${swatch} ${step}`} />
+					<span key={step} className={`${swatch} border-line-strong ${step}`} />
 				))}
 				0 to 100%
+			</li>
+			<li className="flex items-center gap-1.5">
+				<span className={swatch} style={NO_DATA} />
+				No data
 			</li>
 			<li className="flex items-center gap-1.5">
 				<span className={swatch} style={HATCH} />

@@ -1,3 +1,6 @@
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cursorAt, fakeSpawn, journalLine } from "./fake-journal.js";
 import {
@@ -140,6 +143,42 @@ describe("JournalReader", () => {
 		await vi.advanceTimersByTimeAsync(SCAN_TIMEOUT_MS);
 		await expect(done).resolves.toEqual({ lastCursor: cursorAt(1), reason: "limit" });
 		expect(calls[0]?.child.killed).toBe("SIGKILL");
+	});
+
+	test("the time cap frees the slot even when the killed process never exits", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const { spawn, calls } = fakeSpawn();
+		const reader = new JournalReader({ path: "j", spawn, maxConcurrent: 1 });
+		const done = reader.read({ reverse: true }, () => "continue");
+		if (calls[0]) calls[0].child.stuck = true;
+		await vi.advanceTimersByTimeAsync(SCAN_TIMEOUT_MS);
+		await expect(done).resolves.toEqual({ lastCursor: null, reason: "limit" });
+		const next = reader.read({ reverse: true }, () => "continue");
+		calls[1]?.child.finish([]);
+		await expect(next).resolves.toEqual({ lastCursor: null, reason: "end" });
+	});
+
+	test("journalctl starts with only PATH and LANG in its environment", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "journal-env-"));
+		const script = join(dir, "journalctl");
+		const out = join(dir, "env.txt");
+		writeFileSync(script, `#!/bin/sh\nenv > ${out}\n`);
+		chmodSync(script, 0o755);
+		process.env.PORTIKUS_TEST_SECRET = "hunter2";
+		try {
+			await new JournalReader({ path: script }).read(
+				{ reverse: true },
+				() => "continue",
+			);
+		} finally {
+			delete process.env.PORTIKUS_TEST_SECRET;
+		}
+		const names = readFileSync(out, "utf8")
+			.split("\n")
+			.filter(Boolean)
+			.map((line) => line.split("=")[0])
+			.filter((name) => name !== "PWD" && name !== "SHLVL" && name !== "_");
+		expect(names.sort()).toEqual(["LANG", "PATH"]);
 	});
 
 	test(`a read beyond ${MAX_CONCURRENT_READS} at once is refused as busy`, async () => {

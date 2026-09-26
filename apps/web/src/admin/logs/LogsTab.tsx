@@ -8,10 +8,10 @@ import {
 import { Button, Checkbox, Select, TextField } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { UUID } from "../../links.js";
-import { AdminSection } from "../AdminSection.js";
+import { AdminSection, focusAdminHeading } from "../AdminSection.js";
 import { shortId } from "../audit/AuditTab.js";
 import { shortTime } from "../shortTime.js";
 import {
@@ -71,6 +71,15 @@ function toggled<T>(list: readonly T[], item: T, on: boolean): T[] {
 	return on ? [...list, item] : list.filter((value) => value !== item);
 }
 
+/** The form's checked fields, in the order they appear. */
+const FIELD_ORDER = ["levels", "from", "to", "user", "workspace"] as const;
+const FIELD_IDS: Record<Exclude<(typeof FIELD_ORDER)[number], "levels">, string> = {
+	from: "logs-from",
+	to: "logs-to",
+	user: "logs-user",
+	workspace: "logs-workspace",
+};
+
 export const INVALID_ID_TEXT = "Enter a full ID, as shown in the detail panel.";
 
 /**
@@ -85,6 +94,7 @@ export function LogsTab() {
 	const [draft, setDraft] = useState(() => draftOf(filters));
 	const [draftKey, setDraftKey] = useState(key);
 	const [invalid, setInvalid] = useState<Record<string, string>>({});
+	const formRef = useRef<HTMLFormElement>(null);
 	// A new link (a chart bar, "View logs") refills the form.
 	if (draftKey !== key) {
 		setDraftKey(key);
@@ -110,7 +120,16 @@ export function LogsTab() {
 			errors.to = "The end must not be before the start.";
 		}
 		setInvalid(errors);
-		if (Object.keys(errors).length > 0) return;
+		const first = FIELD_ORDER.find((name) => errors[name]);
+		if (first) {
+			// Focus the first bad field so a screen reader hears its error.
+			const target =
+				first === "levels"
+					? formRef.current?.querySelector<HTMLElement>("[data-level-checks] input")
+					: document.getElementById(FIELD_IDS[first]);
+			target?.focus();
+			return;
+		}
 		show({
 			levels: draft.levels,
 			services: draft.services,
@@ -137,14 +156,19 @@ export function LogsTab() {
 
 	return (
 		<AdminSection title="Logs">
-			<form className="flex flex-col gap-4" onSubmit={apply} data-testid="logs-filters">
+			<form
+				ref={formRef}
+				className="flex flex-col gap-4"
+				onSubmit={apply}
+				data-testid="logs-filters"
+			>
 				<div className="flex flex-wrap gap-8">
 					<fieldset
 						className="m-0 flex flex-col gap-1.5 border-0 p-0"
 						aria-describedby={invalid.levels ? "logs-levels-err" : undefined}
 					>
 						<legend className="pk-text-label mb-1.5 p-0">Levels</legend>
-						<div className="flex flex-wrap gap-4">
+						<div className="flex flex-wrap gap-4" data-level-checks>
 							{LOG_LEVELS.map((level) => (
 								<Checkbox
 									key={level}
@@ -304,14 +328,69 @@ export function linesText(count: number, more: boolean): string {
 	return `${count} ${count === 1 ? "line" : "lines"}${more ? ", older lines available" : ""}`;
 }
 
+/** The visible note on automatic refresh (WCAG 2.2.2). */
+export function refreshNote(auto: boolean, paused: boolean): string {
+	if (paused) return "Automatic refresh is paused while older lines are shown.";
+	return auto ? "Refreshes every 30 seconds." : "Automatic refresh is off.";
+}
+
+/** The note under a scan that stopped at its time limit. */
+export function partialText(canContinue: boolean): string {
+	return canContinue
+		? "The search stopped at its time limit before it read the whole range. Load older lines to keep searching."
+		: "The search stopped at its time limit before it found a line. Narrow the time range and try again.";
+}
+
 function LogResults({ filters }: { filters: LogFilters }) {
-	const pages = useLogPages(filters);
+	const [auto, setAuto] = useState(true);
+	const pages = useLogPages(filters, auto);
 	const client = useQueryClient();
 	const loaded = pages.data?.pages ?? [];
 	const lines = loaded.flatMap((page) => page.lines);
 	const last = loaded[loaded.length - 1];
 	const skipped = loaded.reduce((sum, page) => sum + page.skippedLines, 0);
 	const paused = loaded.length > 1;
+	const tableRef = useRef<HTMLTableElement>(null);
+	const countRef = useRef<HTMLSpanElement>(null);
+	// Where focus goes once "Load older lines" finishes: the first new row.
+	const firstNewRow = useRef<number | null>(null);
+	// The count is announced after the admin acts, not after each auto refresh.
+	const announceNext = useRef(true);
+	const [announcement, setAnnouncement] = useState("");
+	const settled = pages.isSuccess && !pages.isFetching;
+	const countText = pages.isSuccess
+		? linesText(lines.length, Boolean(last?.nextCursor))
+		: "";
+
+	useEffect(() => {
+		if (!settled) return;
+		if (announceNext.current) {
+			announceNext.current = false;
+			setAnnouncement(countText);
+		}
+		const index = firstNewRow.current;
+		if (index === null) return;
+		firstNewRow.current = null;
+		// The button stays (and keeps focus) while there are older lines.
+		if (last?.nextCursor) return;
+		const toggles = tableRef.current?.querySelectorAll<HTMLElement>(
+			"[data-testid=log-row-toggle]",
+		);
+		(toggles?.[index] ?? countRef.current)?.focus();
+	}, [settled, countText, last?.nextCursor]);
+
+	function loadOlder() {
+		firstNewRow.current = lines.length;
+		announceNext.current = true;
+		void pages.fetchNextPage();
+	}
+
+	function refresh() {
+		announceNext.current = true;
+		void client.resetQueries({ queryKey: logPagesKey(filters), exact: true });
+		// Refresh leaves once the list starts over, so the heading takes focus.
+		focusAdminHeading();
+	}
 
 	return (
 		<>
@@ -322,12 +401,26 @@ function LogResults({ filters }: { filters: LogFilters }) {
 						: "The logs could not be loaded."}
 				</p>
 			) : null}
+			<div className="pk-actions items-center">
+				<Button
+					size="sm"
+					aria-pressed={auto}
+					data-testid="logs-auto-refresh"
+					onClick={() => setAuto(!auto)}
+				>
+					Auto refresh
+				</Button>
+				<span className="pk-text-compact pk-muted" data-testid="logs-refresh-note">
+					{refreshNote(auto, paused)}
+				</span>
+			</div>
 			{/* overflow-clip keeps the header sticking to the scrolling <main> (SPEC.md section 20.1). */}
 			<div className="pk-table-wrap overflow-clip">
 				<table
+					ref={tableRef}
 					className="pk-table pk-table--page"
 					data-testid="logs-table"
-					aria-busy={pages.isFetching}
+					aria-busy={pages.isLoading}
 				>
 					<caption className="sr-only">Log lines, newest first</caption>
 					<thead>
@@ -362,8 +455,7 @@ function LogResults({ filters }: { filters: LogFilters }) {
 			) : null}
 			{last && !last.scanComplete ? (
 				<p className="pk-text-body pk-muted m-0 text-[13px]" data-testid="logs-partial">
-					The search stopped at its time limit before it read the whole range. Load
-					older lines to keep searching.
+					{partialText(Boolean(last.nextCursor))}
 				</p>
 			) : null}
 			{skipped > 0 ? (
@@ -377,28 +469,27 @@ function LogResults({ filters }: { filters: LogFilters }) {
 				{last?.nextCursor ? (
 					<Button
 						data-testid="logs-older"
-						disabled={pages.isFetchingNextPage}
-						onClick={() => void pages.fetchNextPage()}
+						loading={pages.isFetchingNextPage}
+						onClick={loadOlder}
 					>
 						Load older lines
 					</Button>
 				) : null}
 				{paused ? (
-					<Button
-						data-testid="logs-refresh"
-						onClick={() =>
-							void client.resetQueries({ queryKey: logPagesKey(filters), exact: true })
-						}
-					>
+					<Button data-testid="logs-refresh" onClick={refresh}>
 						Refresh
 					</Button>
 				) : null}
 				<span
+					ref={countRef}
+					tabIndex={-1}
 					className="pk-text-compact pk-muted"
-					role="status"
 					data-testid="logs-count"
 				>
-					{pages.isSuccess ? linesText(lines.length, Boolean(last?.nextCursor)) : ""}
+					{countText}
+				</span>
+				<span className="sr-only" role="status" data-testid="logs-announce">
+					{announcement}
 				</span>
 			</div>
 		</>
@@ -431,7 +522,7 @@ function LogRow({ line }: { line: LogLine }) {
 				<td>
 					<button
 						type="button"
-						className="pk-focus-ring cursor-pointer rounded-sm bg-transparent px-1 text-[var(--accent-text)]"
+						className="pk-focus-ring inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center rounded-sm bg-transparent text-[var(--accent-text)]"
 						aria-expanded={open}
 						aria-controls={open ? detailId : undefined}
 						aria-label={`Full line, ${shortTime(line.at)}`}

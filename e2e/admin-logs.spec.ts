@@ -121,7 +121,7 @@ test.describe("admin logs", () => {
 		);
 	});
 
-	test("View logs opens from a workspace detail panel and from a user row", async ({
+	test("View logs opens from a workspace detail panel and from its Account section", async ({
 		page,
 		browser,
 	}) => {
@@ -130,12 +130,21 @@ test.describe("admin logs", () => {
 		// Wait for the line to reach the journal before following the links.
 		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "TERMINAL_LIMIT");
 
+		// The Users table keeps its seven columns; the user's logs link is in the panel.
 		await page.goto("/admin");
 		await page.getByTestId("admin-filter-text").fill(warned.name);
-		await page.getByRole("link", { name: `View logs for ${warned.name}` }).click();
+		await page.getByRole("button", { name: `Show details for ${warned.name}` }).click();
+		const account = page.getByRole("region", { name: warned.name });
+		const userLogs = account.getByRole("link", { name: "View this user's logs" });
+		// pk-link is styled: underlined in the accent text colour.
+		await expect(userLogs).toHaveCSS("text-decoration-line", "underline");
+		await userLogs.focus();
+		await page.keyboard.press("Enter");
 		await expect(page).toHaveURL(new RegExp(`tab=logs.*user=${warned.userId}`));
 		await expect(page.getByLabel("User ID")).toHaveValue(warned.userId);
 		await expect(logRows(page).first()).toContainText("TERMINAL_LIMIT");
+		// Focus lands on the Logs heading, not the top of the page.
+		await expect(page.getByRole("heading", { level: 2, name: "Logs" })).toBeFocused();
 
 		await page.goto("/admin");
 		await page.getByTestId("admin-filter-text").fill(warned.name);
@@ -169,11 +178,15 @@ test.describe("admin logs", () => {
 			"warning",
 		);
 
-		await page
+		// A click anywhere in the warning segment's column, through the hit area.
+		const warningBar = page
 			.getByTestId("health-chart-logs")
 			.locator('rect[data-series="1"]')
-			.last()
-			.click();
+			.last();
+		await warningBar.scrollIntoViewIfNeeded();
+		const bar = await warningBar.boundingBox();
+		if (!bar) throw new Error("the warning bar has no box");
+		await page.mouse.click(bar.x + bar.width / 2, bar.y + bar.height / 2);
 		await expect(page).toHaveURL(/tab=logs.*level=warn.*since=.*until=/);
 		await expect(page.getByRole("checkbox", { name: "Warn" })).toBeChecked();
 		await expect(page.getByRole("checkbox", { name: "Error" })).not.toBeChecked();
@@ -198,6 +211,7 @@ test.describe("admin logs", () => {
 		);
 		await page.keyboard.press("Enter");
 		await expect(page).toHaveURL(/tab=logs.*level=warn/);
+		await expect(page.getByRole("heading", { level: 2, name: "Logs" })).toBeFocused();
 
 		// Logs: a filter typed and applied with Enter, a checkbox with Space.
 		await page.getByRole("checkbox", { name: "Error" }).focus();

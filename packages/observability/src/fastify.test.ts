@@ -59,14 +59,23 @@ test("a debug path is silent at info and logged at debug", async () => {
 	expect(lineAt(loud.requests(), 0).level).toBe("debug");
 });
 
-test("an unmatched route logs a warn line with Fastify's own message", async () => {
-	const { app, requests } = buildApp();
+test("an unmatched route logs only at debug, with Fastify's own message", async () => {
+	const quiet = buildApp("info");
+	await quiet.app.inject({ method: "GET", url: "/nope" });
+	expect(quiet.requests()).toHaveLength(0);
+	const { app, requests } = buildApp("debug");
 	await app.inject({ method: "GET", url: "/nope" });
 	const line = lineAt(requests(), 0);
-	expect(line.level).toBe("warn");
+	expect(line.level).toBe("debug");
 	expect(line.status).toBe(404);
 	expect(line.route).toBeNull();
 	expect(line.error).toContain("Route GET:/nope not found");
+});
+
+test("a long path is cut to 200 characters", async () => {
+	const { app, requests } = buildApp("debug");
+	await app.inject({ method: "GET", url: `/${"a".repeat(5000)}` });
+	expect(String(lineAt(requests(), 0).path).length).toBe(201);
 });
 
 test("an error body's code and message reach the line", async () => {

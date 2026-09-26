@@ -109,6 +109,14 @@ function stubAdmin(
 		if (url === "/admin/users") {
 			return json(200, { users: [STUDENT_ROW, ADMIN_ROW], dexUsers: false });
 		}
+		if (url.startsWith("/admin/logs?")) {
+			return json(200, {
+				lines: [],
+				nextCursor: null,
+				scanComplete: true,
+				skippedLines: 0,
+			});
+		}
 		throw new Error(`unexpected request: ${url}`);
 	});
 }
@@ -375,6 +383,29 @@ test("the page title names the tab (issue #374, SPEC.md section 20.1)", async ()
 
 	await screen.findByTestId("page-admin");
 	expect(document.title).toBe("Users, Administration, Portikus");
+});
+
+test("a link that switches tabs puts focus on the new tab's heading", async () => {
+	stubAdmin(600);
+	renderApp("/admin");
+	await openDetail(USER.displayName);
+	const link = screen.getByRole("link", { name: "View this user's logs" });
+	expect(link.getAttribute("href")).toBe(`/admin?tab=logs&user=${USER.id}`);
+	link.focus();
+	fireEvent.click(link);
+	const heading = await screen.findByRole("heading", { level: 2, name: "Logs" });
+	await waitFor(() => expect(document.activeElement).toBe(heading));
+});
+
+test("choosing a tab in the tab bar leaves focus on that tab link", async () => {
+	stubAdmin(600);
+	renderApp("/admin");
+	await screen.findByTestId("admin-accounts");
+	const tab = screen.getByTestId("admin-tab-settings");
+	tab.focus();
+	fireEvent.click(tab);
+	await screen.findByRole("heading", { level: 2, name: "Settings" });
+	expect(document.activeElement).toBe(tab);
 });
 
 test("the Settings tab has its own title and an h2 naming it", async () => {

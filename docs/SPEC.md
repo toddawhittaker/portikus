@@ -2413,14 +2413,23 @@ as a word in a tag, service, code, message, route, status, user and
 workspace, and a disclosure button shows the whole redacted line as JSON.
 Every value is shown as text, never as HTML. The list refreshes every 30
 seconds until older lines are loaded; then a Refresh button starts over.
+An "Auto refresh" toggle pauses and resumes the refresh, and a visible
+note says which is in force (WCAG 2.2.2). Older pages keep the first
+page's start time, so a preset window does not slide while paging. A
+search that hit its time limit before finding any line asks the
+administrator to narrow the time range. A link that switches admin tabs
+puts focus on the new tab's heading.
 A busy journal (429) is retried twice a second apart before its message
 shows; an unreadable one (503) shows its message at once. The workspace
 detail panel's Logs section is a "View logs" link filtered to that
 workspace and the last hour, replacing the printed `journalctl` command,
-and each row of the Users table has a "View logs" link filtered to that
-user. The Health tab's Trends card has a stacked errors and warnings bar
-chart from `GET /admin/logs/counts`; a bar opens the Logs tab for its time
-span and the level picked in the bar. Reading logs is not audited.
+and the panel's Account section has a "View this user's logs" link
+filtered to that user; the Users table keeps its seven columns. The
+Health tab's Trends card has a stacked errors and warnings bar chart from
+`GET /admin/logs/counts`, with warnings hatched; a click anywhere in a
+bucket's column opens the Logs tab for its time span and the level under
+the pointer, and from the keyboard Up and Down pick the level, announced,
+and Enter opens it. Reading logs is not audited.
 
 ### 24.12 Dependency/security maintenance
 

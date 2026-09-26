@@ -67,6 +67,14 @@ const dexCerts = writeDexGrpcCerts(dexCertDir, "e2e");
 // The API's standard output, copied here, is the journal the fake journalctl
 // reads for the Logs tab (docs/adr/0036). `tee` empties it when the API starts.
 const journalFile = join(tmpdir(), `portikus-e2e-journal-${API_PORT}.log`);
+// The API starts journalctl with only PATH and LANG, so a wrapper names the
+// journal file and the node binary itself.
+const fakeJournalctl = join(tmpdir(), `portikus-e2e-journalctl-${API_PORT}.sh`);
+writeFileSync(
+	fakeJournalctl,
+	`#!/bin/sh\nFAKE_JOURNAL_FILE='${journalFile}' exec '${process.execPath}' '${join(process.cwd(), "e2e/fake-journalctl.mjs")}' "$@"\n`,
+	{ mode: 0o755 },
+);
 
 export default defineConfig({
 	testDir: "./e2e",
@@ -164,8 +172,7 @@ export default defineConfig({
 				// One full local run makes more than 150 sign-in starts a minute
 				// from 127.0.0.1 (issue #540); unit tests keep the real limit.
 				SIGNIN_START_LIMIT_PER_MINUTE: "100000",
-				JOURNALCTL_PATH: join(process.cwd(), "e2e/fake-journalctl.mjs"),
-				FAKE_JOURNAL_FILE: journalFile,
+				JOURNALCTL_PATH: fakeJournalctl,
 			},
 			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,
