@@ -7,7 +7,8 @@ import {
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
-import { AuditTab, filtersFromSearch } from "./AuditTab.js";
+import { shortTime } from "../shortTime.js";
+import { AuditTab, filtersFromSearch, resultTagClass, shortId } from "./AuditTab.js";
 import { auditQueryString } from "./queries.js";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -191,7 +192,7 @@ test("an ID that is not a full ID is refused before any request", async () => {
 	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
 
 	// The error is tied to the field at fault.
-	const field = screen.getByRole("textbox", { name: "Workspace ID" });
+	const field = screen.getByRole("textbox", { name: "Target ID" });
 	await waitFor(() => expect(field.getAttribute("aria-invalid")).toBe("true"));
 	const described = document.getElementById(
 		field.getAttribute("aria-describedby") ?? "",
@@ -221,4 +222,91 @@ test("an API error is announced", async () => {
 	expect((await screen.findByRole("alert")).textContent).toBe(
 		"The workspace filter is not valid.",
 	);
+});
+
+test("IDs shorten to their first 8 characters, keeping a prefix", () => {
+	expect(shortId(WORKSPACE_ID)).toBe("22222222");
+	expect(shortId(`user:${USER_ID}`)).toBe("user:11111111");
+	expect(shortId("worker")).toBe("worker");
+	expect(shortId("subject:not-a-uuid")).toBe("subject:not-a-uuid");
+});
+
+test("the short time names month, day, hour and minute but not the year", () => {
+	const text = shortTime("2026-09-22T10:00:00.000Z");
+	expect(text).toMatch(/Sep/);
+	expect(text).not.toMatch(/2026/);
+});
+
+test("ok and success are neutral tags; anything else is an error tag", () => {
+	expect(resultTagClass("ok")).toBe("pk-tag");
+	expect(resultTagClass("success")).toBe("pk-tag");
+	expect(resultTagClass("denied")).toBe("pk-tag pk-tag--error");
+	expect(resultTagClass("failure")).toBe("pk-tag pk-tag--error");
+	expect(resultTagClass("failed")).toBe("pk-tag pk-tag--error");
+});
+
+test("a row shows short IDs with the full ID kept for titles and screen readers", async () => {
+	stubFetch(() =>
+		json(200, {
+			events: [
+				event(8, {
+					actorName: null,
+					target: WORKSPACE_ID,
+					result: "denied",
+					metadata: { note: "x".repeat(200) },
+				}),
+			],
+			nextBefore: null,
+		}),
+	);
+
+	renderTab("/admin?tab=audit");
+
+	const row = within(await screen.findByTestId("audit-row-8"));
+	const link = row.getByRole("link", { name: new RegExp(WORKSPACE_ID) });
+	expect(link.textContent).toBe("22222222");
+	expect(link.getAttribute("title")).toBe(WORKSPACE_ID);
+	expect(link.getAttribute("href")).toContain(`workspace=${WORKSPACE_ID}`);
+	expect(row.getByText(`user:${USER_ID}`).className).toBe("sr-only");
+	expect(row.getByText("denied").className).toBe("pk-tag pk-tag--error");
+	const short = row.getByText(shortTime("2026-09-22T10:00:00.000Z"));
+	expect(short.getAttribute("aria-hidden")).toBe("true");
+	const time = short.closest("time");
+	expect(time?.getAttribute("dateTime")).toBe("2026-09-22T10:00:00.000Z");
+	// Screen readers hear the full date and time, not the short form.
+	const full = new Date("2026-09-22T10:00:00.000Z").toLocaleString();
+	expect(row.getByText(full).className).toBe("sr-only");
+	// The whole detail value stays in the page even though it is clipped.
+	expect(row.getAllByText("x".repeat(200)).length).toBeGreaterThan(0);
+	// A clipped value can be read in full by opening a native disclosure.
+	const details = row.getByTestId("audit-details-full");
+	expect(details.tagName).toBe("DETAILS");
+	expect(within(details).getByText("Show full details").tagName).toBe("SUMMARY");
+	expect(within(details).getByText("x".repeat(200))).toBeDefined();
+});
+
+test("a row with only short details has no disclosure", async () => {
+	stubFetch(() =>
+		json(200, {
+			events: [event(9, { metadata: { note: "short" } })],
+			nextBefore: null,
+		}),
+	);
+
+	renderTab("/admin?tab=audit");
+
+	const row = within(await screen.findByTestId("audit-row-9"));
+	expect(row.getByText("short")).toBeDefined();
+	expect(row.queryByTestId("audit-details-full")).toBeNull();
+});
+
+test("every column header is scoped to its column", async () => {
+	stubFetch(() => json(200, { events: [event(1)], nextBefore: null }));
+
+	renderTab("/admin?tab=audit");
+
+	const table = await screen.findByTestId("audit-table");
+	const headers = within(table).getAllByRole("columnheader");
+	expect(headers).toHaveLength(6);
+	for (const header of headers) expect(header.getAttribute("scope")).toBe("col");
 });

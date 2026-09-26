@@ -31,6 +31,34 @@ test("Claude Code starts from the New menu", async ({ page, context }) => {
 	await expect(page.getByRole("tab", { name: /Claude Code/ })).toBeVisible();
 });
 
+/** Issue #608 item 1: the empty work area offers the launcher's two main actions. */
+test("the empty work area's buttons open a terminal and Claude Code", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Empty Start" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(page.getByText("No terminals open")).toBeVisible({ timeout: 15_000 });
+	await expect(page.getByTestId("launcher")).toHaveAccessibleName("New tab");
+
+	await page.getByRole("button", { name: "Open a terminal" }).click();
+	await expect(page.getByRole("tab", { name: /Terminal/ })).toBeVisible();
+
+	const posted = page.waitForRequest(
+		(request) => request.method() === "POST" && request.url().includes("/terminals"),
+	);
+	// The work area is no longer empty, so reach Claude Code through a fresh project.
+	const other = await createProject(student.workspaceId, { name: "Empty Agent" });
+	await page.goto(workspacePath(student.workspaceId, other.id));
+	await page.getByRole("button", { name: "Start Claude Code" }).click();
+	expect((await posted).postDataJSON()).toEqual({
+		projectId: other.id,
+		agent: "claude",
+	});
+	await expect(page.getByRole("tab", { name: /Claude Code/ })).toBeVisible();
+});
+
 test("a javascript URL is refused and an https URL opens only after the click", async ({
 	page,
 	context,

@@ -10,6 +10,7 @@ import {
 	removeProjectDir,
 	seedFile,
 	seedProjectDir,
+	toast,
 	WEB_ORIGIN,
 	workspacePath,
 } from "./helpers";
@@ -147,6 +148,27 @@ test.describe("projects", () => {
 			.toBe(true);
 		await page.getByTestId(`project-menu-${projectId}`).click();
 		await expect(page.getByRole("menuitem", { name: "Initialize Git" })).toHaveCount(0);
+	});
+
+	/** Issue #608 item 5: What to create is one segmented control. */
+	test("New project shows exactly one pressed option and switches fields", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await page.goto(workspacePath(student.workspaceId));
+		await startCreate(page, "New project");
+
+		const group = page.getByRole("group", { name: "What to create" });
+		const pressed = group.locator('button[aria-pressed="true"]');
+		await expect(pressed).toHaveCount(1);
+		await expect(pressed).toHaveText("New project");
+		await expect(page.getByTestId("field-url")).toHaveCount(0);
+
+		await group.getByRole("button", { name: "Clone repository" }).click();
+		await expect(pressed).toHaveCount(1);
+		await expect(pressed).toHaveText("Clone repository");
+		await expect(page.getByTestId("field-url")).toBeVisible();
 	});
 
 	test("cloning a repository creates the project", async ({ page, context }) => {
@@ -302,6 +324,7 @@ test.describe("projects", () => {
 			.poll(async () => (await projectIds(student.workspaceId)).length)
 			.toBe(2);
 		await expect(page.getByTestId("project-list")).toContainText("Original Copy");
+		await expect(toast(page, "Original Copy created")).toBeVisible();
 	});
 
 	test("downloading a project gives a zip named after the slug", async ({
@@ -336,9 +359,16 @@ test.describe("projects", () => {
 		await expect(page.getByTestId(`project-item-${project.id}`)).toBeVisible();
 
 		await projectAction(page, project.id, "Archive");
-		await page.getByTestId("dialog-confirm").click();
+		// Archiving is reversible, so it confirms with the primary button, not danger.
+		const confirm = page.getByTestId("dialog-confirm");
+		await expect(confirm).not.toHaveClass(/bg-status-danger/);
+		await expect(confirm).toHaveClass(/bg-surface-inverse/);
+		await confirm.click();
 
 		await expect(page.getByTestId(`project-item-${project.id}`)).toHaveCount(0);
+		await expect(toast(page, "Done With archived")).toContainText(
+			"Find it under Archived projects.",
+		);
 		// Archiving never destroys the data (SPEC.md §7.4).
 		expect(
 			await query<{ state: string }>("select state from projects where id = $1", [

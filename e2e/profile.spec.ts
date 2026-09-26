@@ -113,3 +113,43 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 		/^\/me\/picture\?v=\d+$/,
 	);
 });
+
+test("group titles stand apart and a long email wraps inside the dialog (issue #609)", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const email = `a-very-long-address-that-would-run-out-of-the-dialog-${student.userId}@students.example.edu`;
+	await query("update users set email = $1 where id = $2", [email, student.userId]);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+
+	const dialog = await openProfile(page);
+	const field = dialog.getByLabel("Email");
+	await expect(field).toHaveValue(email);
+	const fits = await field.evaluate((el) => {
+		const box = el.getBoundingClientRect();
+		const pane = el.closest(".pk-dialog")?.getBoundingClientRect();
+		return {
+			wraps: box.height > 30,
+			inside: pane !== undefined && box.right <= pane.right,
+			noScroll: el.scrollWidth <= el.clientWidth,
+		};
+	});
+	expect(fits).toEqual({ wraps: true, inside: true, noScroll: true });
+
+	// The second group title is bold and has a rule above it; the first has none.
+	const first = dialog.getByRole("heading", { level: 3 }).first();
+	const second = dialog.getByRole("heading", { name: "About you" });
+	expect(await second.evaluate((el) => getComputedStyle(el).fontWeight)).toBe("600");
+	expect(
+		await second.evaluate(
+			(el) => getComputedStyle(el.parentElement as Element).borderTopWidth,
+		),
+	).toBe("1px");
+	expect(
+		await first.evaluate(
+			(el) => getComputedStyle(el.parentElement as Element).borderTopWidth,
+		),
+	).toBe("0px");
+});

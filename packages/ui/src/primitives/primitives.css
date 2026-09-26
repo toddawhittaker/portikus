@@ -37,6 +37,46 @@
 	cursor: progress;
 }
 
+/* A segmented control: a fieldset of aria-pressed buttons, one pressed at a time. */
+.pk-segmented {
+	flex: none;
+	display: flex;
+	margin: 0;
+	padding: 0;
+	border: 1px solid var(--line-strong);
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.pk-segmented button {
+	padding: 2px var(--space-2);
+	border: none;
+	border-left: 1px solid var(--line);
+	background: var(--surface);
+	color: var(--ink-muted);
+	font: inherit;
+	cursor: pointer;
+}
+
+.pk-segmented button:first-of-type {
+	border-left: none;
+}
+
+.pk-segmented button:hover {
+	background: var(--surface-hover);
+}
+
+.pk-segmented button[aria-pressed="true"] {
+	font-weight: 700;
+	background: var(--accent-soft);
+	color: var(--accent-text);
+}
+
+.pk-segmented button:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: -2px;
+}
+
 /* The spinner is the only continuous motion in the system. */
 .pk-spin {
 	flex: none;
@@ -86,5 +126,105 @@
 
 	.pk-skel {
 		animation: none;
+	}
+}
+
+/* Table, ported from design/system/components/bundle.css (sorting rules left out).
+ * In the components layer so a utility such as overflow-clip can override it. */
+@layer components {
+	.pk-table-wrap {
+		overflow: auto;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--surface-raised);
+	}
+
+	.pk-table {
+		width: 100%;
+		border-collapse: separate;
+		border-spacing: 0;
+		font-size: var(--pk-font);
+	}
+
+	.pk-table th {
+		position: sticky;
+		top: 0;
+		z-index: var(--z-sticky);
+		height: var(--pk-row);
+		padding: 0 var(--pk-pad);
+		background: var(--surface-sunken);
+		border-bottom: 1px solid var(--line);
+		color: var(--ink-muted);
+		font-size: 12px;
+		font-weight: 600;
+		text-align: left;
+		white-space: nowrap;
+	}
+
+	.pk-table td {
+		height: calc(var(--pk-row) + 8px);
+		padding: 0 var(--pk-pad);
+		border-bottom: 1px solid var(--line);
+		white-space: nowrap;
+	}
+
+	/* A row header reads like a cell; only column headers are sunken and sticky. */
+	.pk-table tbody th {
+		position: static;
+		height: calc(var(--pk-row) + 8px);
+		background: none;
+		color: var(--ink);
+		font-size: inherit;
+		font-weight: 400;
+	}
+
+	.pk-table tr:last-child td,
+	.pk-table tr:last-child th {
+		border-bottom: 0;
+	}
+
+	.pk-table tbody tr:hover td {
+		background: var(--surface-hover);
+	}
+
+	.pk-table tbody tr[aria-selected="true"] td {
+		background: var(--surface-selected);
+	}
+
+	.pk-num {
+		font-variant-numeric: tabular-nums;
+	}
+
+	.pk-table .pk-num {
+		text-align: right;
+	}
+
+	.pk-table .pk-cell-muted {
+		color: var(--ink-muted);
+	}
+
+	.pk-table .pk-cell-actions {
+		width: 1%;
+		text-align: right;
+	}
+
+	.pk-cell-stack {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.pk-cell-primary {
+		font-size: 13px;
+		line-height: 16px;
+		color: var(--ink);
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1\.5);
+	}
+
+	.pk-cell-secondary {
+		font-size: 12px;
+		line-height: 16px;
+		color: var(--ink-muted);
 	}
 }

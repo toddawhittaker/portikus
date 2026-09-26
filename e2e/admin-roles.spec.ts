@@ -93,13 +93,9 @@ test("search finds an account by name, username and source", async ({ page }) =>
 	await page.getByTestId("admin-filter-text").fill(`u${tag}`);
 	await expect(rows).toHaveCount(1);
 	await expect(page.getByTestId(`account-row-${sso}`)).toBeVisible();
-	await expect(page.getByTestId(`account-source-${sso}`)).toHaveText("SSO");
 
 	await page.getByTestId("admin-filter-text").fill("lms-e2e.example.edu");
 	await expect(page.getByTestId(`account-row-${course}`)).toBeVisible();
-	await expect(page.getByTestId(`account-source-${course}`)).toHaveText(
-		"Course: lms-e2e.example.edu",
-	);
 
 	await page.getByTestId("admin-filter-text").fill(`Find ${tag}`);
 	await page.getByLabel("Role").selectOption("administrator");

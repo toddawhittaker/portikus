@@ -4,7 +4,7 @@
  * without the student clicking a button.
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
-import { Button, EmptyState, PaneHandle } from "@portikus/ui";
+import { Button, EmptyState, Icon, PaneHandle } from "@portikus/ui";
 import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import { ApiError } from "../api/request.js";
@@ -618,7 +618,7 @@ export function FileLeaf({
 	// A Markdown tab has one Diff button that turns the diff on and off;
 	// every other tab swaps between the editor and the diff, so it needs both.
 	const toggle = markdown ? (
-		<fieldset className="pk-md-modes pk-view-modes">
+		<fieldset className="pk-segmented pk-view-modes">
 			<legend className="pk-visually-hidden">File view</legend>
 			<button
 				type="button"
@@ -631,7 +631,7 @@ export function FileLeaf({
 			</button>
 		</fieldset>
 	) : (
-		<fieldset className="pk-md-modes pk-view-modes">
+		<fieldset className="pk-segmented pk-view-modes">
 			<legend className="pk-visually-hidden">File view</legend>
 			<button
 				type="button"
@@ -672,6 +672,7 @@ export function FileLeaf({
 							data-testid={`file-status-${path}`}
 							data-status={status}
 						>
+							{status === "saved" ? <Icon name="check" size="sm" /> : null}
 							{STATUS_LABEL[status]}
 						</span>
 					) : null}
