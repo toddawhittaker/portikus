@@ -1,7 +1,7 @@
 # 0031. Dex is the only sign-in front door, with a local administrator made at install
 
-- **Status**: Accepted (Todd, 2026-09-25); not yet built
-- **Date**: 2026-09-25; amended the same day after docs/EPIC-14-2.md's open questions
+- **Status**: Accepted (Todd, 2026-09-25); built by Epic 14.2 (issue #537)
+- **Date**: 2026-09-25; amended the same day after the Epic 14.2 brief's open questions (Entra through the `oidc` connector; administrator-set passwords must be changed)
 - **References**: SPEC.md sections 5.1, 5.2 and 24.11; docs/archive/epics/EPIC-14.md
   rulings 1 to 3, 6, 13 and 15 to 18; docs/EPIC-15.md rulings 3, 14, 15
   and 20; ADR 0023; ADR 0028 (first-administrator part superseded)

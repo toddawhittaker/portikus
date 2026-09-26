@@ -1,6 +1,7 @@
 /**
  * Runs an in-memory stand-in for Dex's gRPC API, with mutual TLS, so the
- * browser tests can add, reset and remove Dex users (docs/archive/epics/EPIC-14.md ruling 31).
+ * browser tests can add, reset and remove Dex users (docs/archive/epics/EPIC-14.md ruling 31)
+ * and check and change a password with VerifyPassword (SPEC.md section 5.3).
  * The real Dex is tested by the CI dex-signin job.
  */
 import {

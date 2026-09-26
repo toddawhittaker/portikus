@@ -712,6 +712,22 @@ test.skipIf(skip)("a preview session dies with its main session", async () => {
 	expect(response.statusCode).toBe(401);
 });
 
+test.skipIf(skip)(
+	"an account that must change its password gets no preview (SPEC.md section 5.3)",
+	async () => {
+		const token = await openPreview(5173);
+		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(200);
+
+		await testDb.db
+			.updateTable("users")
+			.set({ must_change_password: true })
+			.where("oidc_subject", "=", "alice")
+			.execute();
+
+		expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(403);
+	},
+);
+
 test.skipIf(skip)("a preview cookie is worthless on another host", async () => {
 	const token = await openPreview(5173);
 	// Another port of the same workspace, and another workspace's label.

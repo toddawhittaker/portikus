@@ -72,9 +72,11 @@ The VM address is read from the OpenTofu output automatically; pass
 make configure-vm
 ```
 
-On a new VM the play ends by printing a one-time setup code. Open
-`https://<public-host>:<port>/setup` within the hour and enter it to
-create the first administrator.
+On a new VM the play makes the local administrator and ends by printing
+how to read its one-time password: `sudo cat /etc/portikus/admin-password`
+on the VM. Sign in with it at `https://<public-host>:<port>` ("Log in with
+Email", email `admin@<public-host>`) and choose a new password
+(docs/OPERATIONS.md, "The local administrator").
 
 This installs Incus, creates the LVM thin pool on the data disk, sets
 up the workspace network, profile, and project, and applies the firewall.
@@ -364,41 +366,44 @@ leaves libvirt's own rules alone, so the VM keeps its outbound access.
 
 ### Identity provider
 
-`PORTIKUS_IDP` picks how people sign in (ADR 0023, docs/archive/epics/EPIC-14.md). A
-site has one provider; LTI launches work beside any of them.
+Every site signs in through Dex (ADR 0023, ADR 0031, SPEC.md section
+5.1); LTI launches work beside it. `PORTIKUS_IDP` is one of:
 
 - `dex`, the default: Dex runs on the VM and keeps its own passwords,
-  which administrators manage in the Users view. It can also sit in front
-  of an LDAP or Active Directory directory, Entra or Google
-  (`PORTIKUS_DEX_UPSTREAM`). This is what the pilot uses.
-- `entra`: Microsoft Entra ID, one tenant, roles from app roles.
-- `google`: Google Workspace, the listed domains, everyone a student
-  until an administrator grants more.
-- `external`: any other OpenID Connect (OIDC) provider, such as Okta,
-  Keycloak or Shibboleth with its OIDC plugin.
+  which administrators manage in the Users view. An institution's
+  provider is added as one Dex connector with `PORTIKUS_DEX_UPSTREAM`:
+  `ldap` (LDAP or Active Directory), `entra` (Microsoft Entra ID, one
+  tenant, roles from app roles), `google` (Google Workspace, the listed
+  domains) or `oidc` (any other OpenID Connect provider, such as Okta,
+  Keycloak or Shibboleth with its OIDC plugin). `none`, the default, is
+  what the pilot uses.
 - `mock`: the in-repo test provider (ADR 0008), where anyone who reaches
   the site can pick any account, the administrator included. For
   development and tests only; never on a VM others can reach.
 
-docs/OPERATIONS.md, "Sign-in providers", says how to register Portikus
+The removed values `PORTIKUS_IDP=entra`, `google` and `external`, and
+`PORTIKUS_DEX_UPSTREAM=microsoft`, stop the play with a message naming
+docs/OPERATIONS.md, "Sign-in providers", which says how to register Dex
 with each provider and which settings to pass. Only the chosen provider
-runs. Ansible stops and disables the others and removes their
-configuration and secrets, and Caddy answers `/dex` and `/mock-idp` with
-404 when they are not the provider. The old `PORTIKUS_MOCK_IDP=true` is
-refused with a message; use `PORTIKUS_IDP=mock`.
+runs. Ansible stops and disables the other and removes its configuration
+and secrets, and Caddy answers `/dex` or `/mock-idp` with 404 when it is
+not the provider. The old `PORTIKUS_MOCK_IDP=true` is refused with a
+message; use `PORTIKUS_IDP=mock`.
 
 The settings, all read from the environment by `make configure-vm`:
 
 | Setting | Used with | What it is |
 |---|---|---|
-| `PORTIKUS_ENTRA_TENANT_ID` | `entra`, or Dex's `microsoft` connector | The tenant's ID, a GUID. The issuer is derived from it. |
-| `PORTIKUS_GOOGLE_DOMAINS` | `google`, or Dex's `google` connector | The allowed domains, separated by commas. |
-| `PORTIKUS_OIDC_ISSUER` | `external` | The provider's issuer URL. |
-| `PORTIKUS_OIDC_CLIENT_ID`, `PORTIKUS_OIDC_CLIENT_SECRET` | `entra`, `google`, `external` | The client Portikus is registered as. The secret needs 32 characters or more. |
-| `PORTIKUS_OIDC_SCOPES` | any | Defaults to `openid profile email`, plus `groups` for Dex with its own passwords or LDAP. Never `groups` behind Dex's `microsoft` or `google` connector, where students can create groups; the play refuses it. |
-| `PORTIKUS_OIDC_STUDENT_GROUP`, `PORTIKUS_OIDC_INSTRUCTOR_GROUP`, `PORTIKUS_OIDC_ADMIN_GROUP` | any | The group or app role names that give each role. They default to `portikus-students` and so on, or `Portikus.Student` and so on under Entra. |
-| `PORTIKUS_DEX_UPSTREAM` | `dex` | `none` (the default), `ldap`, `microsoft` or `google`. |
-| `PORTIKUS_DEX_UPSTREAM_CLIENT_ID`, `PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET` | Dex's `microsoft` or `google` connector | The client Dex is registered as. The secret needs 16 characters or more. |
+| `PORTIKUS_DEX_UPSTREAM` | `dex` | `none` (the default), `ldap`, `entra`, `google` or `oidc`. |
+| `PORTIKUS_DEX_UPSTREAM_CLIENT_ID`, `PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET` | `entra`, `google`, `oidc` | The client Dex is registered as, with the redirect URI `https://<public-host>:<port>/dex/callback`. The secret needs 16 characters or more. |
+| `PORTIKUS_ENTRA_TENANT_ID` | `entra` | The tenant's ID, a GUID. Dex's issuer for it is derived from it. |
+| `PORTIKUS_GOOGLE_DOMAINS` | `google` | The allowed domains, separated by commas. |
+| `PORTIKUS_DEX_UPSTREAM_ISSUER` | `oidc` | The provider's `https` issuer URL. |
+| `PORTIKUS_OIDC_UPSTREAM_GROUPS_CLAIM` | `oidc` | The claim that holds the provider's groups. Defaults to `groups`. |
+| `PORTIKUS_OIDC_UPSTREAM_EXTRA_SCOPES` | `oidc` | Scopes Dex asks for beyond `openid profile email`, separated by commas. |
+| `PORTIKUS_OIDC_STUDENT_GROUP`, `PORTIKUS_OIDC_INSTRUCTOR_GROUP`, `PORTIKUS_OIDC_ADMIN_GROUP` | `ldap`, `entra`, `oidc` | The group or app role names that give each role. They default to `portikus-students` and so on, or `Portikus.Student` and so on under `entra`. Under `entra` and `oidc` Dex admits only people holding one of them, so an `oidc` site whose provider uses other names must set all three. |
+| `PORTIKUS_OIDC_SCOPES` | any | The scopes the API asks Dex for. Defaults to `openid profile email groups`, without `groups` under `google`, where the play refuses it. |
+| `PORTIKUS_ADMIN_EMAIL` | `dex` | The local administrator's email, used only when the play creates it. Defaults to `admin@<public-host>`. |
 | `PORTIKUS_LDAP_HOST`, `PORTIKUS_LDAP_SCHEMA`, `PORTIKUS_LDAP_BIND_DN`, `PORTIKUS_LDAP_BIND_PASSWORD`, `PORTIKUS_LDAP_USER_BASE_DN`, `PORTIKUS_LDAP_USER_FILTER`, `PORTIKUS_LDAP_GROUP_BASE_DN`, `PORTIKUS_LDAP_ROOT_CA`, `PORTIKUS_LDAP_IP_ALLOW` | Dex's `ldap` connector | The directory. The user filter and the directory's addresses are required. |
 | `PORTIKUS_EGRESS_EXTRA_HOSTS` | any | More hosts the API may reach through the egress proxy, as `host` or `host:port`. |
 | `PORTIKUS_USERS_FILE` | `dex` | The retired users file, imported once (below). |
@@ -409,16 +414,23 @@ secrets never appear in a recipe line. Keep them out of shell history too:
 before anything on the VM changes.
 
 Ansible turns them into these API settings in `/etc/portikus/api.env`:
-`OIDC_PROVIDER` (`oidc`, `entra` or `google`), `OIDC_ALLOWED_TENANT`,
-`OIDC_ALLOWED_DOMAINS`, `OIDC_DEFAULT_ROLE` (`student` under Dex and
-Google, `none` otherwise, which refuses someone no group matches),
-`OUTBOUND_PROXY_URL`, and, under Dex only, `DEX_GRPC_ADDR`, `DEX_GRPC_CA`,
-`DEX_GRPC_CERT` and `DEX_GRPC_KEY`.
+`OIDC_ISSUER_URL` (always Dex's issuer, or the mock's), the client Dex
+made for Portikus, `OIDC_SCOPES`, `OIDC_GROUPS_CLAIM` and the three
+group settings, `OIDC_DEFAULT_ROLE` (`student` under Dex, `none` under
+the mock, which refuses someone no group matches), `OUTBOUND_PROXY_URL`,
+and, under Dex only, `DEX_GRPC_ADDR`, `DEX_GRPC_CA`, `DEX_GRPC_CERT` and
+`DEX_GRPC_KEY`. The API has no provider-specific settings.
 
-When no enabled administrator exists, the play ends by printing a
-one-time setup code for `https://<public-host>:<port>/setup`. The first
-person to enter it becomes the administrator (docs/OPERATIONS.md, "The
-first administrator").
+The package ships `/usr/bin/portikus`, a root-only host command with one
+subcommand, `reset-admin`. At the end of every Dex play, Ansible runs
+`portikus reset-admin --if-missing --email <PORTIKUS_ADMIN_EMAIL>`. On
+the first run it creates the local administrator and writes its one-time
+password to `/etc/portikus/admin-password` (root, mode 0600), and the
+play prints only the command that reads it. While that password is
+unchanged each run prints the reminder again; once the administrator has
+chosen their own, the next run deletes the file. `sudo portikus
+reset-admin` on the VM is the recovery path (docs/OPERATIONS.md, "The
+local administrator").
 
 #### Dex
 
@@ -463,17 +475,19 @@ file.
 #### The egress proxy
 
 The API's systemd unit may reach only loopback and the workspace bridge.
-It reaches its provider and each LMS's keyset through Squid, a forward
+It reaches each LMS's keyset through Squid, a forward
 proxy that the `egress_proxy` role runs on `127.0.0.1:3128` (ADR 0027).
 Squid allows only HTTPS to the named hosts, refuses a name that resolves
 to a private address, refuses any address given directly unless it is
 listed, never matches a name through reverse DNS, and caches nothing. The play builds the list from
-the provider's discovery document, the LMS keyset URLs and
+the Dex connector's discovery document, the LMS keyset URLs and
 `PORTIKUS_EGRESS_EXTRA_HOSTS`, prints it, and checks the configuration
 with `squid -k parse` before installing it. `PORTIKUS_API_IP_ALLOW` and
 its `10-idp-egress.conf` drop-in are gone; a play that still sets the
-variable stops with a message. Dex's `microsoft` and `google` connectors
-use the same proxy. An LDAP directory is reached directly, through Dex's
+variable stops with a message. The API itself reaches no sign-in
+provider; Dex's `entra`, `google` and `oidc` connectors use the proxy,
+and the list holds their discovery hosts (under `entra` without the
+userinfo host, so not `graph.microsoft.com`). An LDAP directory is reached directly, through Dex's
 own `IPAddressAllow` drop-in built from `PORTIKUS_LDAP_IP_ALLOW`.
 
 #### The mock, for development
@@ -636,9 +650,9 @@ make smoke-test VM_IP=192.0.2.10 \
 
 The playbook already installed the newest published release, so `make
 deploy-app` is only for testing a local build. Trust Caddy's certificate
-as described under "Browser access", and claim the setup code the
-playbook prints to create the first administrator (see "Identity
-provider").
+as described under "Browser access", and sign in as the local
+administrator with the one-time password the playbook says how to read
+(see "Identity provider").
 
 ### Limits today
 

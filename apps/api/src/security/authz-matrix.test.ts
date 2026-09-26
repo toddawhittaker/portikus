@@ -1,4 +1,9 @@
-import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/testing";
+import {
+	CookieJar,
+	loginAs,
+	type MockOidcProvider,
+	startMockOidcProvider,
+} from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -51,7 +56,7 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/dex-users": 404,
 	"POST /admin/dex-users/:id/reset-password": 404,
 	"POST /admin/dex-users/:id/remove": 404,
-	"POST /setup/claim": 400,
+	"POST /me/password": 404,
 };
 
 // The smallest PNG: one transparent pixel.
@@ -82,15 +87,40 @@ afterAll(async () => {
 	await agent.close();
 });
 
+/**
+ * An administrator who must change their password, as the local
+ * administrator is at first sign-in (SPEC.md section 5.3).
+ */
+const FLAGGED_MOCK_USER = "gail";
+
+type World = MatrixWorld & { flagged: CookieJar };
+
+/** Routes a flagged account may still reach: `/auth/*` and the change form. */
+function passesGate(key: string): boolean {
+	return splitKey(key).url.startsWith("/auth/") || key === "POST /me/password";
+}
+
 /** A fresh server and world, so one route's writes cannot reach the next. */
 async function withWorld(
-	run: (app: FastifyInstance, world: MatrixWorld) => Promise<void>,
+	run: (app: FastifyInstance, world: World) => Promise<void>,
 ): Promise<void> {
 	await testDb.truncate();
 	const app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
 	await app.ready();
 	try {
-		const world = await buildMatrixWorld(app, testDb.db, AGENT_TOKEN);
+		const matrix = await buildMatrixWorld(app, testDb.db, AGENT_TOKEN);
+		const flagged = new CookieJar();
+		await loginAs(app, FLAGGED_MOCK_USER, flagged);
+		await testDb.db
+			.updateTable("users")
+			.set({
+				must_change_password: true,
+				granted_role: "administrator",
+				role: "administrator",
+			})
+			.where("oidc_subject", "=", FLAGGED_MOCK_USER)
+			.execute();
+		const world: World = { ...matrix, flagged };
 		pointId = crypto.randomUUID();
 		await testDb.db
 			.insertInto("recovery_points")
@@ -212,7 +242,7 @@ interface Actor {
 	headers: Record<string, string>;
 }
 
-function actorsOf(world: MatrixWorld) {
+function actorsOf(world: World) {
 	return {
 		anonymous: { name: "anonymous", headers: {} },
 		a: { name: "student A", headers: { cookie: world.a.jar.cookieHeader() } },
@@ -225,6 +255,10 @@ function actorsOf(world: MatrixWorld) {
 		disabled: {
 			name: "disabled user",
 			headers: { cookie: world.disabled.cookieHeader() },
+		},
+		flagged: {
+			name: "administrator who must change their password",
+			headers: { cookie: world.flagged.cookieHeader() },
 		},
 		bearer: {
 			name: "A's agent token, no cookie",
@@ -437,6 +471,17 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 					}
 				}
 
+				if (signedInOnly.includes(access) && !passesGate(key)) {
+					const flagged = withOrigin(key, actors.flagged);
+					await expectRefused(app, world, key, own, flagged, 403);
+					if (!key.startsWith("HEAD ")) {
+						const { res } = await send(app, key, own, flagged.headers);
+						expect(res.json().code, `${key} for the flagged account`).toBe(
+							"PASSWORD_CHANGE_REQUIRED",
+						);
+					}
+				}
+
 				const a = withOrigin(key, actors.a);
 				const b = withOrigin(key, actors.b);
 				const admin = withOrigin(key, actors.admin);
@@ -487,8 +532,10 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 					for (const actor of Object.values(actors)) {
 						const headers = withOrigin(key, actor).headers;
 						const { res, calls } = await send(app, key, own, headers);
+						// The gate may refuse a flagged account outright, which is no more.
+						const refusals = actor === actors.flagged ? [401, 403] : [401];
 						expect(
-							[stranger.res.statusCode, 401],
+							[stranger.res.statusCode, ...refusals],
 							`${key} for ${actor.name} answered ${res.statusCode}`,
 						).toContain(res.statusCode);
 						expect(calls).toEqual([]);

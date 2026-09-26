@@ -506,37 +506,57 @@ describe.skipIf(skip)("a good launch", () => {
 		expect(label).toBe("jdoe");
 	});
 
-	test("with no username the label is the cleaned LTI user ID, not random hex", async () => {
-		expect(await labelFor("5D0C1C7E-1f7a-4c1e-9a51-0b8e6f3a1003")).toBe(
-			"u5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a1003",
-		);
-		expect(await labelFor("Opaque_ID|42")).toBe("opaque-id-42");
+	const noEmail = (c: Record<string, unknown>) => {
+		delete c.email;
+	};
+
+	test("with no username the label is the email's local part (issue #558)", async () => {
+		expect(await labelFor("s-1")).toBe("sam");
+		expect(
+			await labelFor("s-2", (c) => {
+				c.email = "Ivy.Lee@mock-lms.test";
+			}),
+		).toBe("ivy-lee");
 	});
 
-	test("a username that cleans to nothing falls through to the LTI user ID", async () => {
+	test("with no username and no email the label is the cleaned LTI user ID, not random hex", async () => {
+		expect(await labelFor("5D0C1C7E-1f7a-4c1e-9a51-0b8e6f3a1003", noEmail)).toBe(
+			"u5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a1003",
+		);
+		expect(await labelFor("Opaque_ID|42", noEmail)).toBe("opaque-id-42");
+	});
+
+	test("an email local part that cleans to nothing falls through to the LTI user ID", async () => {
+		const label = await labelFor("s-6", (c) => {
+			c.email = "アダ@mock-lms.test";
+		});
+		expect(label).toBe("s-6");
+	});
+
+	test("a username that cleans to nothing falls through to the email", async () => {
 		const label = await labelFor("s-9", (c) => {
 			c.preferred_username = "アダ";
 		});
-		expect(label).toBe("s-9");
+		expect(label).toBe("sam");
 	});
 
-	test("an unfilled substitution variable falls through to the LTI user ID", async () => {
+	test("an unfilled substitution variable falls through to the email", async () => {
 		const label = await labelFor("s-8", (c) => {
 			c["https://purl.imsglobal.org/spec/lti/claim/custom"] = {
 				username: "$User.username",
 			};
 		});
-		expect(label).toBe("s-8");
+		expect(label).toBe("sam");
 	});
 
 	test("suffixed labels stay within 40 characters", async () => {
 		const prefix = "a".repeat(40);
-		expect(await labelFor(`${prefix}x`)).toBe(prefix);
-		const second = await labelFor(`${prefix}y`);
+		expect(await labelFor(`${prefix}x`, noEmail)).toBe(prefix);
+		const second = await labelFor(`${prefix}y`, noEmail);
 		expect(second).toBe(`${"a".repeat(38)}-2`);
 	});
 
-	test("when the suffixes run out, the LTI user ID label is used", async () => {
+	test("when the suffixes run out, the email label, then the LTI user ID label, is used", async () => {
 		const values = ["crowd", ...Array.from({ length: 19 }, (_, i) => `crowd-${i + 2}`)];
 		for (const label of values) {
 			const owner = await insertTestUser(testDb.db, {});
@@ -556,12 +576,22 @@ describe.skipIf(skip)("a good launch", () => {
 		const label = await labelFor("s-7", (c) => {
 			c.preferred_username = "crowd";
 		});
-		expect(label).toBe("s-7");
+		expect(label).toBe("sam");
+		const next = await labelFor("s-5", (c) => {
+			c.preferred_username = "crowd";
+			c.email = "sam@other.test";
+		});
+		expect(next).toBe("s-5");
 	});
 
 	test("a clashing LTI user ID gets the -2 suffix", async () => {
-		expect(await labelFor("student_1")).toBe("student-1");
-		expect(await labelFor("Student.1")).toBe("student-1-2");
+		expect(await labelFor("student_1", noEmail)).toBe("student-1");
+		expect(await labelFor("Student.1", noEmail)).toBe("student-1-2");
+	});
+
+	test("a clashing email label gets the -2 suffix", async () => {
+		expect(await labelFor("s-1")).toBe("sam");
+		expect(await labelFor("s-2")).toBe("sam-2");
 	});
 
 	test("a returning launch refreshes the stored username", async () => {

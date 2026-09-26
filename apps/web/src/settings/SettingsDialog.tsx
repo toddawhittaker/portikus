@@ -30,6 +30,7 @@ import {
 	useUpdateEditorSettings,
 } from "../editor/settingsQueries.js";
 import { LINK_CHANNEL, type LinkMessage } from "../link/channel.js";
+import { ChangePasswordForm } from "../password/ChangePasswordForm.js";
 import {
 	readThemePreference,
 	rememberThemePreference,
@@ -100,6 +101,7 @@ function ChoiceField({
 const PREFERENCES = SETTINGS_SECTIONS.find((section) => section.id === "preferences");
 const PROFILE = SETTINGS_SECTIONS.find((section) => section.id === "profile");
 const KEYBOARD = SETTINGS_SECTIONS.find((section) => section.id === "keyboard");
+const PASSWORD = SETTINGS_SECTIONS.find((section) => section.id === "password");
 
 /** The profile links the student has typed but not saved yet. */
 interface LinkDraft {
@@ -237,13 +239,16 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 			? `Give a whole number of seconds between ${MIN_DELAY} and ${MAX_DELAY}.`
 			: null;
 
+	const me = useMe();
+	const localPassword = me.status === "authenticated" && me.user.localPassword;
+	const sections = SETTINGS_SECTIONS.filter(
+		(section) => section.id !== PASSWORD?.id || localPassword,
+	);
 	const filtering = query.trim() !== "";
-	const hits = settingsHits(SETTINGS_SECTIONS, query);
+	const hits = settingsHits(sections, query);
 	const listed = filtering
-		? SETTINGS_SECTIONS.filter((section) =>
-				hits.some((hit) => hit.sectionId === section.id),
-			)
-		: SETTINGS_SECTIONS;
+		? sections.filter((section) => hits.some((hit) => hit.sectionId === section.id))
+		: sections;
 
 	useShowSetting(highlightId, sectionId === PREFERENCES?.id);
 
@@ -507,6 +512,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						<div className="min-h-0 flex-1 overflow-y-auto p-4">
 							{sectionId === KEYBOARD?.id ? (
 								<KeyboardHelp />
+							) : sectionId === PASSWORD?.id && localPassword ? (
+								<PasswordPane highlightId={highlightId} />
 							) : sectionId === PROFILE?.id ? (
 								<ProfilePane
 									highlightId={highlightId}
@@ -576,6 +583,37 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 				</div>
 			</Dialog>
 		</DialogRoot>
+	);
+}
+
+/** Settings, Password: change a Dex local password (SPEC.md section 5.3). */
+function PasswordPane({ highlightId }: { highlightId: string | null }) {
+	const [changed, setChanged] = useState(false);
+	useShowSetting(highlightId, true);
+	return (
+		<section className="grid gap-4" aria-labelledby="settings-section-password">
+			<h2 id="settings-section-password" className="pk-text-heading text-ink">
+				Password
+			</h2>
+			<p className="pk-text-body m-0 text-ink-muted">
+				The password you sign in with on the Portikus sign-in page. Changing it signs
+				you out everywhere else.
+			</p>
+			<div id="settings-control-change-password">
+				<ChangePasswordForm
+					idPrefix="settings-password"
+					onSubmitStart={() => setChanged(false)}
+					onChanged={() => setChanged(true)}
+				/>
+			</div>
+			<p
+				role="status"
+				className="pk-text-body m-0 text-ink"
+				data-testid="password-changed"
+			>
+				{changed ? "Your password has been changed." : ""}
+			</p>
+		</section>
 	);
 }
 

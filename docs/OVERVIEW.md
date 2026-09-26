@@ -14,13 +14,16 @@ the operations runbook (`docs/OPERATIONS.md`), signing in by an LTI 1.3
 launch from a learning management system with an `instructor` role and a
 read-only Course page (`docs/archive/epics/EPIC-13.md`, ADR 0025), and linking a course
 account to a single-sign-on (SSO) account, with administrator grants and
-an admin Users view (`docs/archive/epics/EPIC-13-1.md`, ADR 0026). Epic 14 is in
-progress on its epic branch and already runs on the pilot: a choice of
-sign-in provider (Microsoft Entra ID, Google Workspace, LDAP or Active
-Directory through Dex, Dex's own passwords managed from the Users view,
-or any other OpenID Connect provider), a one-time setup code for the
-first administrator, and API egress by host name through a forward proxy
-(`docs/archive/epics/EPIC-14.md`, ADRs 0027 and 0028). Epic 15 (`docs/EPIC-15.md`)
+an admin Users view (`docs/archive/epics/EPIC-13-1.md`, ADR 0026). Epic 14 added
+Dex's own passwords managed from the Users view and API egress by host
+name through a forward proxy (`docs/archive/epics/EPIC-14.md`, ADRs 0027
+and 0028). Epic 14.2, on its epic branch until it merges, makes Dex the
+only sign-in front door (ADR 0031):
+an institution's provider (Microsoft Entra ID, Google Workspace, LDAP or
+Active Directory, or any other OpenID Connect provider) is one Dex
+connector, and every install has a local administrator with a one-time
+password, recovered with `sudo portikus reset-admin` on the host
+(SPEC.md section 5.1). Epic 15 (`docs/EPIC-15.md`)
 packages the platform for `apt install portikus` next.
 
 ## Planned architecture

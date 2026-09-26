@@ -20,6 +20,17 @@ export function dexLocalSubject(userId: string): string {
 }
 
 /**
+ * The Dex user ID of an account that signs in with a Dex local password:
+ * its subject is a local one from this site's own Dex. Null otherwise.
+ */
+export function localDexUserId(
+	row: { oidc_issuer: string; oidc_subject: string },
+	issuer: string,
+): string | null {
+	return row.oidc_issuer === issuer ? dexLocalUserId(row.oidc_subject) : null;
+}
+
+/**
  * The Dex user ID inside a local-password subject, or null when the subject
  * is not one (another connector, or not Dex's encoding at all).
  */

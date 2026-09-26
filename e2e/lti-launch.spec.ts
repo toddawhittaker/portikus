@@ -61,11 +61,13 @@ test("a second launch finds the same account instead of making another", async (
 for (const [person, username, label] of [
 	["sam", "sam.student", "sam-student"],
 	["lee", "lee", "lee"],
+	["ivy", null, "ivy"],
 ] as const) {
-	test(`an LTI student's workspace is named after their LMS username (${person})`, async ({
+	test(`an LTI user's workspace is named after their LMS username, else their email (${person})`, async ({
 		page,
 	}) => {
-		// Sam's username comes as the custom claim, Lee's as preferred_username (issue #549).
+		// Sam's username comes as the custom claim, Lee's as preferred_username (issue #549);
+		// Ivy has none, so her email's local part names it (issue #558).
 		await launchAs(page, { person });
 		await expect(page.getByTestId("workspace-state")).toBeVisible({ timeout: 15_000 });
 		const [user] = await ltiUsers(person);
@@ -73,7 +75,7 @@ for (const [person, username, label] of [
 			"select preferred_username from users where id = $1",
 			[user?.id],
 		);
-		expect(row?.preferred_username).toBe(username);
+		expect(row?.preferred_username ?? null).toBe(username);
 		await expect
 			.poll(async () => {
 				const rows = await query<{ label: string }>(

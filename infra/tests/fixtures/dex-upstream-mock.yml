@@ -1,0 +1,25 @@
+---
+# Settings for rendering the dex role's configuration with an upstream
+# connector pointed at the mock provider (mock-oidc-main.ts on port 3002).
+# The CI dex-signin job renders it twice, with -e portikus_dex_upstream=oidc
+# and with =entra, and signs in through the real Dex with each
+# (SPEC.md sections 5.1 and 5.2).
+portikus_public_url: http://127.0.0.1:3000
+portikus_dex_issuer: http://127.0.0.1:5566/dex
+dex_port: 5566
+# The job removes the gRPC block; these only satisfy the template.
+dex_grpc_addr: 127.0.0.1:5567
+dex_grpc_dir: /nonexistent
+# A test value; Ansible generates the real one on the VM.
+dex_client_secret: portikus-ci-dex-client-secret-not-a-real-one
+portikus_dex_upstream_client_id: dex-upstream-client
+portikus_dex_upstream_client_secret: not-a-real-upstream-secret
+# The mock stands in for both a generic provider and an Entra tenant.
+portikus_dex_upstream_issuer: http://127.0.0.1:3002
+portikus_entra_issuer: http://127.0.0.1:3002
+portikus_oidc_upstream_groups_claim: groups
+portikus_oidc_upstream_extra_scopes: [groups]
+# The names site.yml picks for each upstream; dex-render-test.yml checks them.
+portikus_oidc_student_group: "{{ 'Portikus.Student' if portikus_dex_upstream == 'entra' else 'portikus-students' }}"
+portikus_oidc_instructor_group: "{{ 'Portikus.Instructor' if portikus_dex_upstream == 'entra' else 'portikus-instructors' }}"
+portikus_oidc_admin_group: "{{ 'Portikus.Administrator' if portikus_dex_upstream == 'entra' else 'portikus-administrators' }}"
