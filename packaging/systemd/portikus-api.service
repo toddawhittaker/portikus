@@ -9,6 +9,9 @@ ConditionPathExists=/etc/portikus/api.env
 Type=simple
 User=portikus
 Group=portikus
+# Reads the journal for the admin Logs tab; the API process only, not the
+# portikus user, so the worker does not get it (docs/adr/0036).
+SupplementaryGroups=systemd-journal
 EnvironmentFile=/etc/portikus/api.env
 EnvironmentFile=-/etc/portikus/api.override.env
 ExecStartPre=/usr/bin/node /usr/lib/portikus/api/node_modules/@portikus/db/dist/migrate.js

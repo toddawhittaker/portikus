@@ -201,6 +201,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/workspaces/:id/rebuild": { access: "admin" },
 	"GET /admin/audit": { access: "admin" },
 	"HEAD /admin/audit": { access: "admin" },
+	"GET /admin/logs": { access: "admin" },
+	"HEAD /admin/logs": { access: "admin" },
+	"GET /admin/logs/counts": { access: "admin" },
+	"HEAD /admin/logs/counts": { access: "admin" },
 	"GET /admin/health": { access: "admin" },
 	"HEAD /admin/health": { access: "admin" },
 

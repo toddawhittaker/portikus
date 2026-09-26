@@ -716,3 +716,12 @@ test("ApiConfig requires the Dex gRPC settings together", () => {
 	});
 	expect(config.DEX_GRPC_ADDR).toBe("127.0.0.1:5557");
 });
+
+test("JOURNALCTL_PATH defaults to the system journalctl and can be overridden", () => {
+	const base = { DATABASE_URL: "postgres://localhost/portikus" };
+	expect(loadConfig(ApiConfigSchema, base).JOURNALCTL_PATH).toBe("/usr/bin/journalctl");
+	expect(
+		loadConfig(ApiConfigSchema, { ...base, JOURNALCTL_PATH: "/opt/fake-journalctl" })
+			.JOURNALCTL_PATH,
+	).toBe("/opt/fake-journalctl");
+});

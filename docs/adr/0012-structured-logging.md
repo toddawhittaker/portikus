@@ -1,6 +1,6 @@
 # 0012. Structured logging with pino and a runtime log level
 
-- **Status**: Accepted
+- **Status**: Accepted; the "no log viewer" position is superseded by ADR 0036
 - **Date**: 2026-09-17
 - **References**: STACK.md sections 13 and 15, SPEC.md sections 25.6 and 24.11
 
