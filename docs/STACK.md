@@ -824,8 +824,18 @@ a bootstrap ticket travels in a query string (`docs/BROWSER-HANDLING.md`
 section 16.5).
 
 Audit metadata follows the same rule as the logs: no tokens, command lines,
-prompts or file contents. Logs stay in journald, and the administrator page
-has no log viewer.
+prompts or file contents. Logs stay in journald.
+
+The administrator page reads them back through `GET /admin/logs` and
+`GET /admin/logs/counts` (ADR 0036). The API runs `journalctl` itself, found at
+`JOURNALCTL_PATH`, with a fixed argument list and no shell: JSON output, the
+three Portikus units only, dates it computed, a cursor checked against
+journald's syntax, and a level pattern from a fixed map. Text, user and
+workspace filters run in the API, so request text never reaches an argument.
+One request reads at most 20,000 entries or 5 seconds, and at most two
+`journalctl` processes run at once. Only Portikus JSON lines are shown, and
+each is redacted with the logger's own key list before it leaves the server.
+The unit gives the API process, and no other, the `systemd-journal` group.
 
 # Part II — Infrastructure stack
 

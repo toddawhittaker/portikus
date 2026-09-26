@@ -150,6 +150,8 @@ export const ApiConfigSchema = BaseConfig.extend({
 	SIGNIN_START_LIMIT_PER_MINUTE: positiveInt.default(150),
 	/** Dex password posts per address per ten minutes; ten times this overall (#398). */
 	PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES: positiveInt.default(30),
+	/** The journal reader behind the Logs tab (docs/adr/0036); e2e points it at a fake. */
+	JOURNALCTL_PATH: z.string().min(1).default("/usr/bin/journalctl"),
 })
 	// Silently dropping a tenant or domain check would admit any account (SPEC.md 5.1).
 	.refine(

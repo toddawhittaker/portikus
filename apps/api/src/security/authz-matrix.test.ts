@@ -62,6 +62,11 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	// The matrix world records no notifications; each is its owner's alone.
 	"PATCH /me/notifications/:id": 404,
 	"POST /me/password": 404,
+	// Tests have no journal (test-support.ts points JOURNALCTL_PATH nowhere).
+	"GET /admin/logs": 503,
+	"HEAD /admin/logs": 503,
+	"GET /admin/logs/counts": 503,
+	"HEAD /admin/logs/counts": 503,
 };
 
 // The smallest PNG: one transparent pixel.
@@ -196,6 +201,7 @@ const QUERIES: Record<string, string> = {
 	"/workspaces/:id/projects/:pid/search": "?q=secret",
 	"/workspaces/:id/preview/embeddable": "?port=5173",
 	"/__portikus/bootstrap": "?t=forged-ticket",
+	"/admin/logs/counts": "?range=1h",
 };
 
 const PAYLOADS: Record<string, object> = {
