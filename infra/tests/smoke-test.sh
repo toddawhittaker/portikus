@@ -356,6 +356,8 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "/tmp is a tmpfs" "tmpfs" ws_exec "findmnt -n -o FSTYPE /tmp"
   check_output "/tmp is capped at 512M" "536870912" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
   check_output "/dev/shm is capped at 256M" "268435456" ws_exec "df -B1 --output=size /dev/shm | tail -1 | tr -d ' '"
+  check "/dev/shm keeps nosuid and nodev after the remount" \
+    ws_exec "findmnt -no OPTIONS /dev/shm | tr , '\\n' | grep -qx nosuid && findmnt -no OPTIONS /dev/shm | tr , '\\n' | grep -qx nodev"
   agent_before=$(agent_main)
   term_before=$(term_main)
   tmp_fill_refused() {
