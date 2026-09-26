@@ -3,7 +3,8 @@
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # a's cgroup limits match the profile, a bounded fork loop hits the process
-# limit, busy loops fill a's CPUs for 20 seconds, a resource-guard throttle
+# limit, another in the terminals unit hits that unit's cap while a's agent
+# still answers, busy loops fill a's CPUs for 20 seconds, a resource-guard throttle
 # reaches a's cpu.max and leaves it again, and fallocate past each
 # volume's size is refused for lack of space, and the platform services
 # carry a negative OOM score adjustment.  Meanwhile the API and
@@ -45,9 +46,12 @@ lim_cpu_count() {
 }
 check_output "a's CPU set has as many CPUs as the profile" "$lim_cpu" lim_cpu_count
 check_output "a's cpu.max sets no time quota beyond the CPU count" "max 100000" lim_cgroup cpu.max
-# Terminals run in the agent's cgroup, so an OOM kill must not stop the unit.
+# Checks run in the agent's cgroup and terminals in their own unit's, so an
+# OOM kill must stop neither unit (issues #610 and #619).
 check_output "a's agent unit keeps running after an OOM kill (OOMPolicy=continue)" "continue" \
   sec_exec a root "systemctl show -p OOMPolicy --value portikus-workspace-agent"
+check_output "a's terminals unit keeps running after an OOM kill (OOMPolicy=continue)" "continue" \
+  sec_exec a root "systemctl show -p OOMPolicy --value portikus-terminals"
 
 # ── The platform is protected from the out-of-memory killer ──────
 
@@ -145,6 +149,53 @@ echo "Fork loop in a: ${lim_fork:-no output} (children, error); container limit 
 check "a bounded fork loop in a is refused (EAGAIN)" test "${lim_fork##* }" = "EAGAIN"
 check "the refusal came from a's container limit (pids.events max went up)" \
   test "${lim_hits_after:-0}" -gt "${lim_hits_before:-0}"
+
+# ── Processes in the terminals unit ──────────────────────────────
+
+# The same loop as the student, in the terminals unit's cgroup where every
+# shell runs: its TasksMax stops it below the container's limit, so the
+# agent can still answer while the children are held (issue #619).  The
+# loop writes a marker once it is refused, and holds the children for ten
+# seconds so the agent can be asked meanwhile.
+lim_term_cg="/sys/fs/cgroup/system.slice/portikus-terminals.service"
+lim_term_max=$(sec_exec a root "systemctl show -p TasksMax --value portikus-terminals" 2>/dev/null)
+lim_full="/tmp/sectest-full-${SEC_RUN_ID}"
+lim_hold="open('${lim_full}', 'w').close()
+time.sleep(10)"
+lim_term_fork_py="${lim_fork_py/time.sleep(5)/"$lim_hold"}"
+lim_term_hits() { sec_exec a root "awk '\$1 == \"max\" { print \$2 }' ${lim_term_cg}/pids.events"; }
+lim_term_hits_before=$(lim_term_hits)
+lim_term_out="$(mktemp)"
+printf '%s\n' "$lim_term_fork_py" | sec_ssh_stdin "incus exec ${lim_a} --project ${SEC_PROJECT} -- sh -c \
+  'echo \$\$ > ${lim_term_cg}/cgroup.procs && exec setpriv --reuid=1000 --regid=1000 --init-groups env HOME=/home/student timeout 90 python3 -'" \
+  >"$lim_term_out" 2>/dev/null &
+lim_term_fork_pid=$!
+lim_wait_full() {
+  local i
+  for ((i = 0; i < 60; i++)); do
+    sec_exec a root "test -e ${lim_full}" && return 0
+    sleep 1
+  done
+  return 1
+}
+sec_agent_header a
+lim_a_ip=$(sec_ws_ip a)
+lim_a_health() {
+  sec_ssh "curl -s -o /dev/null -w '%{http_code}' --max-time 2 -H @${SEC_REMOTE_DIR}/a.agent http://${lim_a_ip}:7400/health"
+}
+check "a fork loop in a's terminals unit reaches its limit" lim_wait_full
+check_output "a's agent answers while the terminals unit is out of processes" "200" lim_a_health
+wait "$lim_term_fork_pid"
+lim_term_fork=$(cat "$lim_term_out")
+rm -f "$lim_term_out"
+sec_exec a root "rm -f ${lim_full}" >/dev/null 2>&1
+lim_term_hits_after=$(lim_term_hits)
+echo "Fork loop in a's terminals unit (TasksMax ${lim_term_max:-?}): ${lim_term_fork:-no output} (children, error); unit limit hits ${lim_term_hits_before:-?} before, ${lim_term_hits_after:-?} after"
+check "the loop in the terminals unit is refused (EAGAIN)" test "${lim_term_fork##* }" = "EAGAIN"
+check "the refusal came from the terminals unit's limit (its pids.events max went up)" \
+  test "${lim_term_hits_after:-0}" -gt "${lim_term_hits_before:-0}"
+check "the terminals unit held fewer children than the container limit" \
+  test "${lim_term_fork%% *}" -lt "$lim_pids"
 
 # ── CPU ──────────────────────────────────────────────────────────
 
@@ -253,20 +304,28 @@ if [ "$SEC_HEAVY" = "1" ]; then
   check_output "heavy: PostgreSQL and the API kept running (same main PIDs)" "$lim_pids_before" lim_main_pids
   check "heavy: the API and b's agent answered within two seconds while a ran out of memory" \
     lim_watch_ok "$lim_mem_watch"
-  # The same allocation from a tmux pane inside the agent's cgroup, where the
-  # agent starts terminals: only the program dies, the agent and tmux stay.
-  # setpriv, not su, so PAM does not move tmux into a login session's cgroup.
-  lim_tmux="setpriv --reuid=1000 --regid=1000 --init-groups env HOME=/home/student tmux -L sectest-oom"
+  # The same allocation from a pane of the Portikus tmux server, which lives
+  # in the terminals unit: only the program dies, the agent and tmux stay.
+  # setpriv, not su, so PAM does not move anything into a login session;
+  # -N so a missing server is an error, not a new one in the wrong cgroup.
+  lim_tmux="setpriv --reuid=1000 --regid=1000 --init-groups env HOME=/home/student tmux -L portikus -N"
+  lim_oom_s="sectest-oom-${SEC_RUN_ID}"
   lim_agent_pid() { sec_exec a root "systemctl show -p MainPID --value portikus-workspace-agent"; }
+  lim_term_pid() { sec_exec a root "systemctl show -p MainPID --value portikus-terminals"; }
   lim_agent_before=$(lim_agent_pid)
+  lim_term_before=$(lim_term_pid)
   lim_kills_before=$(lim_oom_kills)
-  sec_exec a root "echo \$\$ > /sys/fs/cgroup/system.slice/portikus-workspace-agent.service/cgroup.procs \
-    && ${lim_tmux} new-session -d -s oom bash \
-    && ${lim_tmux} send-keys -t oom 'python3 -c \"b = b\\\"x\\\" * (${lim_over} * 1048576)\"; echo sectest-done' Enter" >/dev/null 2>&1
+  sec_exec a root "${lim_tmux} new-session -d -s ${lim_oom_s} bash \
+    && ${lim_tmux} send-keys -t ${lim_oom_s} 'python3 -c \"b = b\\\"x\\\" * (${lim_over} * 1048576)\"; echo sectest-done' Enter" >/dev/null 2>&1
+  lim_pane_cgroup() {
+    sec_exec a root "cat /proc/\$(${lim_tmux} display-message -p -t ${lim_oom_s} '#{pane_pid}')/cgroup"
+  }
+  check_output "heavy: the pane runs in a's terminals unit" \
+    "0::/system.slice/portikus-terminals.service" lim_pane_cgroup
   lim_pane_done() {
     local i
     for ((i = 0; i < 120; i += 2)); do
-      sec_exec a root "${lim_tmux} capture-pane -p -t oom" 2>/dev/null | grep -qx sectest-done && return 0
+      sec_exec a root "${lim_tmux} capture-pane -p -t ${lim_oom_s}" 2>/dev/null | grep -qx sectest-done && return 0
       sleep 2
     done
     return 1
@@ -275,8 +334,9 @@ if [ "$SEC_HEAVY" = "1" ]; then
   check "heavy: it was an OOM kill (memory.events oom_kill went up)" \
     test "$(lim_oom_kills)" -gt "${lim_kills_before:-0}"
   check_output "heavy: a's agent kept running (same main PID)" "$lim_agent_before" lim_agent_pid
-  check "heavy: a's tmux session survived the OOM kill" sec_exec a root "${lim_tmux} has-session -t oom"
-  sec_exec a root "${lim_tmux} kill-server" >/dev/null 2>&1 || true
+  check_output "heavy: a's terminals unit kept running (same main PID)" "$lim_term_before" lim_term_pid
+  check "heavy: a's tmux session survived the OOM kill" sec_exec a root "${lim_tmux} has-session -t ${lim_oom_s}"
+  sec_exec a root "${lim_tmux} kill-session -t ${lim_oom_s}" >/dev/null 2>&1 || true
   # A protected service still dies at its own cap, so a flood against Dex
   # or the API cannot take the VM: a throwaway unit with Dex's settings.
   # The output is captured first: grep -q would close the pipe early, and

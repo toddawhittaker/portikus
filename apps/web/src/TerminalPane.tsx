@@ -26,7 +26,12 @@ import {
 	wrappedUrlsOnRow,
 } from "./links.js";
 import { useProjects } from "./projects/queries.js";
-import { decodeTerminalFrame } from "./terminalFrames.js";
+import {
+	decodeTerminalFrame,
+	firstNoticeOf,
+	TERMINAL_GONE_NEXT_STEP,
+	terminalGoneMessage,
+} from "./terminalFrames.js";
 import { currentPlatform, decide } from "./work/terminalClipboard.js";
 
 const RECONNECT_MS = 3_000;
@@ -713,6 +718,23 @@ export function TerminalPane({
 				}
 				if (frame.kind === "screen") {
 					alternateScreen = frame.alternate;
+					return;
+				}
+				if (frame.kind === "error" && frame.reason) {
+					// The session went with a terminals restart: close the pane
+					// and say why, once per restart (SPEC.md §9.7).
+					stopped = true;
+					setReconnecting(false);
+					setConnected(false);
+					if (firstNoticeOf(frame.at ?? "")) {
+						handlers.current.toast.show({
+							tone: "warning",
+							title: terminalGoneMessage(frame.reason),
+							children: TERMINAL_GONE_NEXT_STEP,
+						});
+					}
+					handlers.current.onExited(terminalId);
+					next.close();
 					return;
 				}
 				if (frame.kind === "error") {

@@ -62,7 +62,7 @@ beforeAll(async () => {
 	projectsRoot = join(homeDir, "projects");
 	const tokenPath = join(homeDir, "agent.token");
 	await writeFileFs(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
-	app = buildServer({ tokenPath, homeDir });
+	app = buildServer({ tmuxSocketName: "portikus-test", tokenPath, homeDir });
 	await app.ready();
 });
 
@@ -700,7 +700,11 @@ test("a download carries a matching length and no etag", async () => {
 // --- SPEC.md §13.5: a streaming client is answered, not reset -------------
 
 async function withListeningAgent<T>(body: (base: string) => Promise<T>): Promise<T> {
-	const server = buildServer({ tokenPath: join(homeDir, "agent.token"), homeDir });
+	const server = buildServer({
+		tmuxSocketName: "portikus-test",
+		tokenPath: join(homeDir, "agent.token"),
+		homeDir,
+	});
 	await server.listen({ host: "127.0.0.1", port: 0 });
 	const address = server.server.address();
 	const port = typeof address === "object" && address ? address.port : 0;

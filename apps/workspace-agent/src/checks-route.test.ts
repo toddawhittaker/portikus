@@ -4,7 +4,7 @@
  * only one run of a check goes at a time, and the output kept for replay is
  * capped.
  */
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_CHECK_OUTPUT_BYTES } from "@portikus/contracts";
@@ -12,6 +12,7 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { CheckRunner, readChecksFile } from "./checks-route.js";
 import { buildServer } from "./server.js";
+import { HIGH_WATER_BYTES, LOW_WATER_BYTES } from "./terminals.js";
 
 const TOKEN = "d".repeat(64);
 const SLUG = "essay";
@@ -54,7 +55,7 @@ beforeAll(async () => {
 	homeDir = await mkdtemp(join(tmpdir(), "pk-checks-"));
 	const tokenPath = join(homeDir, "token");
 	await writeFile(tokenPath, TOKEN);
-	app = buildServer({ tokenPath, homeDir });
+	app = buildServer({ tmuxSocketName: "portikus-test", tokenPath, homeDir });
 	await app.listen({ port: 0, host: "127.0.0.1" });
 	port = (app.server.address() as { port: number }).port;
 	expect(port).toBeGreaterThan(0);
@@ -305,4 +306,132 @@ test("a long-lived agent forgets its oldest finished runs", () => {
 	expect(runner.current(SLUG, "check-9")).toBeUndefined();
 	expect(runner.current(SLUG, "check-10")).toBeDefined();
 	expect(runner.current(SLUG, "check-59")).toBeDefined();
+});
+
+/** Whether a pid is still running (and not a zombie waiting to be reaped). */
+async function running(pid: number): Promise<boolean> {
+	try {
+		const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+		return stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3) !== "Z";
+	} catch {
+		return false;
+	}
+}
+
+test("stopping a check stops its setsid and nohup children too (#624)", async () => {
+	const pidFile = join(homeDir, "check-children");
+	await writeChecks(
+		JSON.stringify({
+			checks: [
+				{
+					id: "forks",
+					name: "Forks",
+					command: `setsid sleep 311 & a=$!; nohup sleep 312 >/dev/null 2>&1 & echo "$a $!" > ${pidFile}; wait`,
+				},
+			],
+		}),
+	);
+	await call("POST", `/projects/${SLUG}/checks/forks/runs`);
+	const pids = await vi.waitFor(
+		async () => {
+			const text = (await readFile(pidFile, "utf8")).trim();
+			expect(text).toMatch(/^\d+ \d+$/);
+			return text.split(" ").map(Number);
+		},
+		{ timeout: 10_000 },
+	);
+	expect(
+		(await call("DELETE", `/projects/${SLUG}/checks/forks/runs/current`)).statusCode,
+	).toBe(204);
+	await vi.waitFor(
+		async () => {
+			for (const pid of pids) expect(await running(pid)).toBe(false);
+		},
+		{ timeout: 10_000 },
+	);
+});
+
+test("a check's output pauses under a slow watcher and resumes when it drains", async () => {
+	vi.useFakeTimers();
+	try {
+		const handlers: { data?: (text: string) => void } = {};
+		const fakePty = {
+			paused: false,
+			onData: (fn: (text: string) => void) => {
+				handlers.data = fn;
+			},
+			onExit: () => {},
+			kill: () => {},
+			pause() {
+				this.paused = true;
+			},
+			resume() {
+				this.paused = false;
+			},
+		};
+		const runner = new CheckRunner(
+			quietLog,
+			(() => fakePty) as unknown as Parameters<typeof CheckRunner.prototype.start>[0] &
+				never,
+		);
+		runner.start({
+			slug: SLUG,
+			check: { id: "flood", name: "Flood", command: "yes" },
+			cwd: homeDir,
+		});
+		const slow = {
+			bufferedAmount: 0,
+			readyState: 1,
+			OPEN: 1,
+			send: () => {},
+			close: () => {},
+			on: () => {},
+		};
+		runner.attach(SLUG, "flood", slow as never);
+
+		handlers.data?.("x");
+		expect(fakePty.paused).toBe(false);
+
+		slow.bufferedAmount = HIGH_WATER_BYTES + 1;
+		handlers.data?.("x");
+		expect(fakePty.paused).toBe(true);
+
+		// Still above the low-water mark: stays paused.
+		slow.bufferedAmount = LOW_WATER_BYTES;
+		await vi.advanceTimersByTimeAsync(200);
+		expect(fakePty.paused).toBe(true);
+
+		slow.bufferedAmount = 0;
+		await vi.advanceTimersByTimeAsync(200);
+		expect(fakePty.paused).toBe(false);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("a check with no watchers never pauses", () => {
+	let paused = false;
+	const handlers: { data?: (text: string) => void } = {};
+	const fakePty = {
+		onData: (fn: (text: string) => void) => {
+			handlers.data = fn;
+		},
+		onExit: () => {},
+		kill: () => {},
+		pause: () => {
+			paused = true;
+		},
+	};
+	const runner = new CheckRunner(
+		quietLog,
+		(() => fakePty) as unknown as Parameters<typeof CheckRunner.prototype.start>[0] &
+			never,
+	);
+	runner.start({
+		slug: SLUG,
+		check: { id: "alone", name: "Alone", command: "yes" },
+		cwd: homeDir,
+	});
+	handlers.data?.("x".repeat(2 * HIGH_WATER_BYTES));
+	expect(paused).toBe(false);
 });
