@@ -121,13 +121,16 @@ export function WorkspaceStarting({
 	const usage = useWorkspaceUsage(workspaceId, phase === "error", STORAGE_POLL_MS);
 	const storage = phase === "error" ? usage.data?.storage : undefined;
 	const [cleaning, setCleaning] = useState(false);
-	const cardRef = useRef<HTMLElement>(null);
 	const headingRef = useRef<HTMLHeadingElement>(null);
-	const focusInside = useRef(false);
-	// A button that vanishes with the phase must not drop focus to the page body.
+	const cardRef = useRef<HTMLElement>(null);
+	const lastFocused = useRef<Element | null>(null);
+	// A focused button that vanishes with the phase drops focus to the body; catch it there.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs on phase change only
 	useEffect(() => {
-		if (focusInside.current && !cardRef.current?.contains(document.activeElement)) {
+		const gone = lastFocused.current && !lastFocused.current.isConnected;
+		const active = document.activeElement;
+		if (gone && (active === null || active === document.body)) {
+			lastFocused.current = null;
 			headingRef.current?.focus();
 		}
 	}, [phase, pending]);
@@ -146,13 +149,13 @@ export function WorkspaceStarting({
 				<section
 					ref={cardRef}
 					className="pk-card pk-progress-card"
-					onFocus={() => {
-						focusInside.current = true;
+					onFocus={(event) => {
+						lastFocused.current = event.target;
 					}}
 					onBlur={(event) => {
-						// A removed button blurs with no target; that still counts as inside.
+						// A removed button blurs with no target; keep it so the effect can see it went.
 						if (event.relatedTarget && !cardRef.current?.contains(event.relatedTarget))
-							focusInside.current = false;
+							lastFocused.current = null;
 					}}
 					aria-labelledby="progress-title"
 					data-testid="workspace-progress"

@@ -2814,3 +2814,52 @@ Gaps:
   full use.
 - Files in the workspace's `/tmp`, a tmpfs, count as memory and can
   raise the memory flag.
+
+## Epic 20 — Student interface polish
+
+Built on `epic/20-student-ux` from the student interface review of
+2026-09-26 (issues #608 and #609). Only `apps/web`, `packages/ui` and the
+end-to-end tests changed; there are no migrations, contract changes or
+infrastructure changes. The rules are in SPEC.md sections 6.3, 8.3, 8.5,
+14.6, 18.2, 18.3, 19.2 and 28, and DESIGN.md section 9 records where the
+build departs from the mockups on purpose.
+
+Delivered:
+
+- The status bar's state and storage-warning items are bordered buttons,
+  and the warning keeps its warning or error colour.
+- Each stuck screen has a way forward. The empty work area offers "Open
+  a terminal" and "Start Claude Code". The error screen offers "Try
+  again" and "Workspace details", with the raw error under a collapsed
+  "Technical details". The throttle notice's "Restart workspace…" opens
+  the workspace dialog with the restart confirmation on top.
+- Loading skeletons show only while the workspace is starting; stopped
+  and failed workspaces show a plain message in the side panes.
+- `ConfirmDialog` in `packages/ui` gained a neutral form. Archiving uses
+  it and ends with a success toast, as does Duplicate. New project's
+  "What to create" is a segmented control, and "Saved" is plain text.
+- The Preview picker's rows look clickable, and the Preview toolbar
+  moved Copy URL, width, Reset preview data and Show in Running into a
+  More menu.
+- The right-pane tabs no longer repeat their titles (the headings stay
+  for screen readers). Running rows have a visible Preview button and
+  tags on a second line, and the panel heads are readable in the light
+  theme.
+- The workspace dialog moved into its own file and puts its actions
+  first, then storage meters, Docker, the rebuild note and technical
+  details. The error screen shares the meters.
+- Settings groups have clearer titles, long read-only values wrap, the
+  dialog can grow taller, and Appearance comes first.
+- After a phase change on the starting screen, focus moves to the
+  heading only when the button that had it vanished; focus elsewhere,
+  such as on a status-bar button, is left alone.
+
+Gaps:
+
+- The workspace usage figures are not served while the workspace is in
+  error, so the error screen's meters and "Clean up Docker…" do not
+  appear yet (BACKLOG, "Workspace usage in the error state").
+- A restart confirmation opened before the workspace starts moving does
+  nothing on confirm (BACKLOG).
+- "Reset preview data" still acts without a confirmation, and issue
+  #607's resource notices are left to their own epic (BACKLOG).

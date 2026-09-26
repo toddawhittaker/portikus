@@ -347,13 +347,36 @@ test("when the focused button goes away with the phase, focus moves to the headi
 	expect(document.activeElement).toBe(screen.getByRole("heading"));
 });
 
-test("a phase change does not take focus when it was elsewhere", () => {
+test("a phase change leaves focus alone when it is elsewhere, like a status-bar button", () => {
 	const stopped = {
 		...WORKSPACE,
 		state: "stopped" as const,
 		desiredState: "stopped" as const,
 	};
+	const outside = document.createElement("button");
+	document.body.append(outside);
 	const change = renderPhases(stopped, { ...stopped, desiredState: "running" });
+	outside.focus();
 	change();
+	expect(document.activeElement).toBe(outside);
+	outside.remove();
+});
+
+test("a fresh load with focus on the body does not take focus when the phase moves on", () => {
+	const change = renderPhases(
+		{ ...WORKSPACE, state: "starting", desiredState: "running" },
+		{ ...WORKSPACE, state: "running", desiredState: "running" },
+	);
+	change();
+	expect(document.activeElement).toBe(document.body);
+});
+
+test("the first render does not take focus", () => {
+	const stopped = {
+		...WORKSPACE,
+		state: "stopped" as const,
+		desiredState: "stopped" as const,
+	};
+	renderPhases(stopped, stopped);
 	expect(document.activeElement).toBe(document.body);
 });
