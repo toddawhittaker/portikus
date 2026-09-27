@@ -4,6 +4,7 @@ import {
 	createStudent,
 	query,
 	seedListening,
+	settledAxe,
 	startPreviewApp,
 	toast,
 	workspacePath,
@@ -543,9 +544,31 @@ test.describe("application preview", () => {
 		await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
 		await expect(appHeading(page)).toHaveText("Reset me", { timeout: 20_000 });
 
+		const resets: string[] = [];
+		page.on("request", (request) => {
+			if (request.url().endsWith("/preview/reset")) resets.push(request.url());
+		});
+
+		// Cancel leaves the data alone: nothing is revoked or cleared.
 		await page.getByTestId("preview-more").click();
 		await page.getByTestId("preview-reset").click();
+		const dialog = page.getByTestId("dialog-preview-reset");
+		await expect(dialog).toBeVisible();
+		const results = await (await settledAxe(page))
+			.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+			.include('[data-testid="dialog-preview-reset"]')
+			.analyze();
+		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(dialog).toBeHidden();
+		await expect(appHeading(page)).toHaveText("Reset me");
+		expect(resets).toEqual([]);
+
+		await page.getByTestId("preview-more").click();
+		await page.getByTestId("preview-reset").click();
+		await page.getByTestId("dialog-confirm").click();
 		await expect(toast(page, "Preview data reset")).toBeVisible();
+		expect(resets).toHaveLength(1);
 		// A fresh grant and a fresh preview session put the application back.
 		await expect(appHeading(page)).toHaveText("Reset me", { timeout: 20_000 });
 	});
@@ -592,7 +615,7 @@ test.describe("application preview", () => {
 			menu.getByRole("menuitemcheckbox", { name: "Fit width" }),
 		).toBeChecked();
 		await expect(
-			menu.getByRole("menuitem", { name: "Reset preview data" }),
+			menu.getByRole("menuitem", { name: "Reset preview data…" }),
 		).toBeVisible();
 		await expect(menu.getByRole("menuitem", { name: "Show in Running" })).toBeVisible();
 		await menu.getByRole("menuitemcheckbox", { name: "768 px wide" }).click();

@@ -673,6 +673,7 @@ test.describe("the preview in a real browser", () => {
 		// it (BROWSER-HANDLING.md §12, §16.4).
 		await page.getByTestId("preview-more").click();
 		await page.getByTestId("preview-reset").click();
+		await page.getByTestId("dialog-confirm").click();
 		await expect(toast(page, "Preview data reset")).toBeVisible();
 		await expect.poll(() => seen.session(host), { timeout: 20_000 }).not.toBe(before);
 
@@ -704,6 +705,7 @@ test.describe("the preview in a real browser", () => {
 
 		await page.getByTestId("preview-more").click();
 		await page.getByTestId("preview-reset").click();
+		await page.getByTestId("dialog-confirm").click();
 		await expect(toast(page, "Preview data reset")).toBeVisible();
 		await expect(appHeading(page)).toHaveText("Reset", { timeout: 20_000 });
 
