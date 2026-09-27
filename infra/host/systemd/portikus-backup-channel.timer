@@ -1,0 +1,11 @@
+# Every 30 seconds.  A run that is still busy with a long request makes the
+# timer skip; that run reports its progress itself.
+[Unit]
+Description=Poll the Portikus VM for backup requests
+
+[Timer]
+OnCalendar=*-*-* *:*:00/30
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

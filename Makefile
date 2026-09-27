@@ -5,7 +5,7 @@
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy \
-       backup-setup backup backup-install-timer restore \
+       backup-setup backup backup-install-timer backup-install-channel backup-install-key restore \
        mock-lms lti-mock-register lti-mock-unregister
 
 help: ## Show the available targets
@@ -143,6 +143,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-playbook infra/tests/dex-render-test.yml
 	ansible-playbook infra/tests/egress-proxy-render-test.yml
 	bash infra/tests/backup-scope-test.sh
+	bash infra/tests/backup-channel-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
 	bash infra/host/dev-libvirt/bootstrap.sh
@@ -298,7 +299,7 @@ backup-setup:
 	@if [ ! -f "$(PORTIKUS_BACKUP_IDENTITY)" ] && [ ! -s "$(PORTIKUS_BACKUP_RECIPIENTS)" ]; then \
 		install -d -m 0700 "$(dir $(PORTIKUS_BACKUP_IDENTITY))"; \
 		(umask 077 && age-keygen -o "$(PORTIKUS_BACKUP_IDENTITY)" 2>/dev/null); \
-		echo "backup-setup: made the backup key $(PORTIKUS_BACKUP_IDENTITY). Store it in your password manager, then remove it from this host: backups need only the public half, and without the private half no backup can be read."; \
+		echo "backup-setup: made the backup key $(PORTIKUS_BACKUP_IDENTITY). Store it in your password manager, install it for restores from the admin page with make backup-install-key KEY=$(PORTIKUS_BACKUP_IDENTITY), then delete it from your home directory."; \
 	fi
 	@test -s "$(PORTIKUS_BACKUP_RECIPIENTS)" || age-keygen -y "$(PORTIKUS_BACKUP_IDENTITY)" >"$(PORTIKUS_BACKUP_RECIPIENTS)"
 	@test -w "$(PORTIKUS_BACKUP_DIR)" || sudo install -d -m 0700 -o "$$(id -un)" -g "$$(id -gn)" "$(PORTIKUS_BACKUP_DIR)"
@@ -324,6 +325,37 @@ backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pi
 	sudo systemctl daemon-reload
 	sudo systemctl enable --now portikus-backup.timer
 	systemctl list-timers portikus-backup.timer --no-pager
+	$(MAKE) --no-print-directory backup-install-channel
+
+# The admin page's requests (docs/adr/0039-backup-channel-and-host-held-key.md).
+# One channel per host: installing it for the rehearsal VM repoints it there,
+# and make backup-install-timer points it back at the pilot.
+backup-install-channel: backup-setup ## Install the host timer that runs backup requests from the admin page, for the VM in TOFU_ENV
+	@test -n "$(VM_IP)" || { echo "backup-install-channel: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-channel: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
+	sudo install -m 0755 infra/host/backup.sh /usr/local/sbin/portikus-backup
+	sudo install -m 0644 infra/host/portikus-backup-export /usr/local/sbin/portikus-backup-export
+	sudo install -m 0755 infra/host/backup-channel.sh /usr/local/sbin/portikus-backup-channel
+	sudo install -m 0755 infra/host/restore-copy.sh /usr/local/sbin/portikus-restore-copy
+	sed -e "s|@USER@|$$(id -un)|" -e "s|@BACKUP_DIR@|$(PORTIKUS_BACKUP_DIR)|" \
+		-e "s|@RECIPIENTS@|$(abspath $(PORTIKUS_BACKUP_RECIPIENTS))|" -e "s|@VM_IP@|$(VM_IP)|" -e "s|@VM_NAME@|$(TOFU_VM_NAME)|" \
+		-e "s|@NIGHTLY@|$(if $(filter dev-libvirt,$(TOFU_ENV)),portikus-backup,)|" \
+		infra/host/systemd/portikus-backup-channel.service | sudo tee /etc/systemd/system/portikus-backup-channel.service >/dev/null
+	sudo install -m 0644 infra/host/systemd/portikus-backup-channel.timer /etc/systemd/system/portikus-backup-channel.timer
+	sudo systemctl daemon-reload
+	sudo systemctl enable --now portikus-backup-channel.timer
+	systemctl list-timers portikus-backup-channel.timer --no-pager
+
+# Root-only on the host, so restores from the admin page can read the sets;
+# whoever takes the host can then read every backup (ADR 0039).
+backup-install-key: ## Install the private backup key root-only at /etc/portikus-backup/age-key.txt (KEY=<path>)
+	@test -n "$(KEY)" && test -s "$(KEY)" || { echo "backup-install-key: KEY=<path to the private age key> is required"; exit 1; }
+	@test -s "$(PORTIKUS_BACKUP_RECIPIENTS)" || { echo "backup-install-key: no recipients file at $(PORTIKUS_BACKUP_RECIPIENTS) to check the key against"; exit 1; }
+	@pub=$$(age-keygen -y "$(KEY)") && grep -qxF "$$pub" "$(PORTIKUS_BACKUP_RECIPIENTS)" \
+		|| { echo "backup-install-key: $(KEY) is not the key backups are encrypted to ($(PORTIKUS_BACKUP_RECIPIENTS)); nothing installed"; exit 1; }
+	sudo install -d -m 0700 -o root -g root /etc/portikus-backup
+	sudo install -m 0600 -o root -g root "$(KEY)" /etc/portikus-backup/age-key.txt
+	@echo "backup-install-key: installed /etc/portikus-backup/age-key.txt (root, 0600). Keep your password-manager copy and delete $(KEY) if it is in your home directory."
 
 # Replaces the target's database, so it refuses the pilot's environment, and
 # restore.sh refuses any VM whose hostname is not the one in the state.
