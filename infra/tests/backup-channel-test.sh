@@ -122,6 +122,16 @@ echo "${PORTIKUS_BACKUP_MIN_AGE_DAYS:-unset} ${PORTIKUS_BACKUP_KEEP_COMPLETE:-un
 [ -z "${FAKE_BACKUP_FAILS:-}" ] || { echo "[backup] FAIL: vm said no" >&2; exit 1; }
 mkdir -p "$PORTIKUS_BACKUP_DIR/portikus/20260928T120000Z"
 EOF
+# df: fixed free space, so no test depends on this host's disk.  It reports
+# FAKE_FREE_BYTES (default 100 GiB) less the size of FAKE_USED_FILE, if any.
+cat >"${work}/bin/df" <<'EOF'
+#!/usr/bin/env bash
+free=${FAKE_FREE_BYTES:-107374182400}
+if [ -n "${FAKE_USED_FILE:-}" ] && [ -e "$FAKE_USED_FILE" ]; then
+  free=$((free - $(stat -c %s "$FAKE_USED_FILE")))
+fi
+printf 'Avail\n%s\n' "$free"
+EOF
 chmod +x "${work}/bin/"*
 export FAKE_DIR="$fakes"
 

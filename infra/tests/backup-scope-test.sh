@@ -199,6 +199,17 @@ case "\$cmd" in
 esac
 EOF
 chmod +x "${work}/bin/ssh"
+# df: fixed free space, so no test depends on this host's disk.  It reports
+# FAKE_FREE_BYTES (default 100 GiB) less the size of FAKE_USED_FILE, if any.
+cat >"${work}/bin/df" <<'EOF'
+#!/usr/bin/env bash
+free=${FAKE_FREE_BYTES:-107374182400}
+if [ -n "${FAKE_USED_FILE:-}" ] && [ -e "$FAKE_USED_FILE" ]; then
+  free=$((free - $(stat -c %s "$FAKE_USED_FILE")))
+fi
+printf 'Avail\n%s\n' "$free"
+EOF
+chmod +x "${work}/bin/df"
 
 age-keygen -o "${work}/key.txt" 2>/dev/null
 age-keygen -y "${work}/key.txt" >"${work}/recipients.txt"
@@ -262,8 +273,8 @@ no_set "a workspace listing that disagrees with the row count leaves no set" FAK
 no_set "a run with less free space than the minimum is refused" PORTIKUS_BACKUP_MIN_FREE_MB=999999999
 expect "the refusal says there is not enough free space" "grep -q 'FAIL: refused by the host: not enough free space' '${work}/refusal'"
 big=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
-# A sparse 15 TB file (ext4's largest) makes the last set bigger than any test disk.
-truncate -s 15T "${big}/huge"
+# A sparse 200 GiB file makes the last set bigger than the fake 100 GiB free.
+truncate -s 200G "${big}/huge"
 no_set "a run with less free space than the last complete set is refused" PORTIKUS_BACKUP_MIN_FREE_MB=0
 rm -f "${big}/huge"
 
@@ -477,7 +488,6 @@ refused_run() {
     ok "$label"
   fi
 }
-avail_mib() { echo $(( $(df -B1 --output=avail "$sets" | tail -1 | tr -d ' ') / 1048576 )); }
 sleep 1
 : >"$log"
 fake="ws-aaaaaaaaaaaaaaaaaaaaaaaa"
@@ -494,25 +504,27 @@ expect "nothing is asked for or written for the made-up volumes" \
 expect "the skip is counted in the set and warned about" \
   "[ \"\$(cat '${skipset}/SKIPPED')\" = 2 ] && grep -q 'WARNING: skipped 2 volumes' '${work}/backup.out'"
 sleep 1
-# Leave the run a budget of about 16 MiB (slack for other writers on the host), and stream a 64 MiB volume that
-# does not compress.
+# Leave the run a budget of 16 MiB, and stream a 64 MiB volume that does
+# not compress.
 mkdir -p "${work}/big/backup/volume"
 head -c 64M /dev/urandom >"${work}/big/backup/volume/noise"
 tar -czf "${work}/big.tar.gz" -C "${work}/big" backup
 rm -rf "${work}/big"
 sleep 1
-floor_mib=$(( $(avail_mib) - 16 ))
+budget_env=(PORTIKUS_BACKUP_MIN_FREE_MB=100 FAKE_FREE_BYTES=$((116 * 1048576)))
+before_bytes=$(du -sb "$mine" | cut -f1)
 refused_run "a VM streaming past the run's budget stops the whole run and keeps nothing" "passed its byte budget" \
-  PORTIKUS_BACKUP_MIN_FREE_MB="$floor_mib" FAKE_VOLUME_FILE="${work}/big.tar.gz"
+  "${budget_env[@]}" FAKE_VOLUME_FILE="${work}/big.tar.gz"
 expect "the partial set is removed" "! find '$mine' -maxdepth 1 -name '.partial-*' | grep -q ."
-expect "the run left the free-space floor free" "[ \$(avail_mib) -ge $floor_mib ]"
+expect "the run left the disk as it found it" "[ \$(du -sb '$mine' | cut -f1) -le $before_bytes ]"
 # A killed run's 64 MiB leftover is cleared before free space is measured.
 partial_dir="${mine}/.partial-20260101T000000Z"
 mkdir -p "$partial_dir"
-head -c 64M /dev/zero >"${partial_dir}/leftover"
+truncate -s 64M "${partial_dir}/leftover"
 sleep 1
+# 110 MiB free once the leftover is gone, 46 MiB while it is there.
 if env PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
-  PORTIKUS_BACKUP_MIN_FREE_MB=$(( $(avail_mib) + 32 )) \
+  PORTIKUS_BACKUP_MIN_FREE_MB=100 FAKE_FREE_BYTES=$((110 * 1048576)) FAKE_USED_FILE="${partial_dir}/leftover" \
   bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/backup.out" 2>&1; then
   ok "a leftover partial set does not cause a false free-space refusal"
 else
@@ -533,9 +545,8 @@ PY
 tmp_probe="${work}/tmp-probe"
 mkdir -p "$tmp_probe"
 sleep 1
-floor_mib=$(( $(avail_mib) - 16 ))
 refused_run "an index bigger than the budget stops the run and keeps nothing" "passed its byte budget" \
-  PORTIKUS_BACKUP_MIN_FREE_MB="$floor_mib" FAKE_VOLUME_FILE="${work}/paths.tar.gz" TMPDIR="$tmp_probe"
+  "${budget_env[@]}" FAKE_VOLUME_FILE="${work}/paths.tar.gz" TMPDIR="$tmp_probe"
 expect "the budgeted run leaves no partial set or scratch" "! find '$mine' -maxdepth 1 -name '.partial-*' | grep -q ."
 sleep 1
 refused_run "a path longer than 4096 bytes stops the run and keeps nothing" "a path is longer than 4096 bytes" \
