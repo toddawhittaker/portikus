@@ -3,6 +3,8 @@
 set -eu
 
 API_ENV=/etc/portikus/api.env
+WORKER_ENV=/etc/portikus/worker.env
+BACKUP_CHANNEL_MAIN=/usr/lib/portikus/worker/dist/backup-channel-main.js
 PASSWORD_FILE=/etc/portikus/admin-password
 RESET_ADMIN_MAIN=/usr/lib/portikus/api/node_modules/@portikus/auth/dist/reset-admin-main.js
 READ_LINE="Read the local administrator's one-time password with: sudo cat ${PASSWORD_FILE}"
@@ -10,6 +12,7 @@ READ_LINE="Read the local administrator's one-time password with: sudo cat ${PAS
 usage() {
   cat <<EOF
 Usage: portikus reset-admin [--email ADDRESS] [--if-missing]
+       portikus backup-channel pull|report
 
 reset-admin  Give the local administrator a new one-time password, the
              administrator role, and a working account, and end its
@@ -19,7 +22,33 @@ reset-admin  Give the local administrator a new one-time password, the
              --if-missing     do nothing if the account exists; exit 10
                               while its one-time password is unchanged,
                               11 once it has chosen its own
+
+backup-channel pull    Claim the oldest waiting backup request for the
+                       host and print it as one JSON line; print nothing
+                       when none waits.
+backup-channel report  Read the host's report, one JSON document, on
+                       standard input and store it.  Exits 2 when the
+                       document is refused.
 EOF
+}
+
+# The host's backup timer calls this over SSH (SPEC.md section 24.9, ADR 0040).
+backup_channel() {
+  if [ "$(id -u)" != 0 ]; then
+    echo "portikus: backup-channel must run as root: sudo portikus backup-channel ${1:-}" >&2
+    exit 1
+  fi
+  case "${1:-}" in
+    pull | report) ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+  # The worker's own settings, parsed as systemd parses them for the worker.
+  exec systemd-run --wait --pipe --quiet --collect --uid=portikus \
+    -p EnvironmentFile="${WORKER_ENV}" \
+    /usr/bin/node "${BACKUP_CHANNEL_MAIN}" "$1"
 }
 
 reset_admin() {
@@ -71,6 +100,10 @@ case "${1:-}" in
   reset-admin)
     shift
     reset_admin "$@"
+    ;;
+  backup-channel)
+    shift
+    backup_channel "$@"
     ;;
   -h | --help | help)
     usage

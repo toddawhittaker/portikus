@@ -27,6 +27,8 @@ const GUARD_SETTINGS = {
 	cpuThrottleSharePercent: 25,
 	cpuIdleLiftMinutes: 5,
 	cpuIdleLiftPercent: 10,
+	cpuThrottleHoldAfter: 3,
+	cpuThrottleHoldHours: 24,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
 	acceptableUseVersion: 1,
@@ -151,7 +153,7 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 		within(nav)
 			.getAllByRole("link")
 			.map((link) => link.textContent),
-	).toEqual(["Users", "Audit", "Logs", "Health", "Settings"]);
+	).toEqual(["Users", "Audit", "Logs", "Health", "Network", "Settings"]);
 	expect(
 		await screen.findByRole("table", { name: /Accounts and their workspaces/ }),
 	).toBeDefined();
@@ -648,6 +650,8 @@ test("the resource guard saves its values and names each bad one", async () => {
 			cpuThrottleSharePercent: 25,
 			cpuIdleLiftMinutes: 5,
 			cpuIdleLiftPercent: 10,
+			cpuThrottleHoldAfter: 3,
+			cpuThrottleHoldHours: 24,
 		},
 	});
 	expect(await screen.findByText("Resource guard saved")).toBeDefined();
@@ -684,6 +688,34 @@ test("the automatic lift fields save, allow 0 to turn it off, and name a bad val
 	expect(writes[0]?.body).toMatchObject({
 		cpuIdleLiftMinutes: 15,
 		cpuIdleLiftPercent: 0,
+	});
+});
+
+test("the throttle-hold fields save, allow 0 to turn it off, and name a bad value (SPEC.md §19.4)", async () => {
+	const writes: { url: string; body: unknown }[] = [];
+	stubAdmin(600, (url, body) => writes.push({ url, body }));
+	renderApp("/admin?tab=settings");
+
+	const after = (await screen.findByLabelText(
+		"Hold after throttles",
+	)) as HTMLInputElement;
+	const hours = screen.getByLabelText("Hold window (hours)") as HTMLInputElement;
+	await waitFor(() => expect(after.value).toBe("3"));
+	expect(hours.value).toBe("24");
+
+	fireEvent.change(hours, { target: { value: "169" } });
+	fireEvent.click(screen.getByTestId("guard-settings-save"));
+	const alert = await screen.findByRole("alert");
+	expect(alert.textContent).toBe("Enter a whole number from 1 to 168.");
+	expect(writes).toEqual([]);
+
+	fireEvent.change(hours, { target: { value: "48" } });
+	fireEvent.change(after, { target: { value: "0" } });
+	fireEvent.click(screen.getByTestId("guard-settings-save"));
+	await waitFor(() => expect(writes.length).toBe(1));
+	expect(writes[0]?.body).toMatchObject({
+		cpuThrottleHoldAfter: 0,
+		cpuThrottleHoldHours: 48,
 	});
 });
 

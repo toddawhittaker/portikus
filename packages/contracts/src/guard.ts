@@ -42,3 +42,27 @@ export function idleLift(
 		percent: platform.cpu_idle_lift_percent,
 	};
 }
+
+/** The throttle-hold values as the `settings` row holds them (SPEC.md §19.4). */
+export interface ThrottleHoldPlatform {
+	cpu_throttle_hold_after: number;
+	cpu_throttle_hold_hours: number;
+}
+
+/**
+ * Record a throttle at `at`: the recent throttle times trimmed to the hold
+ * window with `at` added, and why it is held when it is the Nth within the
+ * window, or null when it is not or holding is off (after 0).
+ */
+export function throttleHold(
+	platform: ThrottleHoldPlatform,
+	recent: Date[],
+	at: Date,
+): { recent: Date[]; held: { count: number; hours: number } | null } {
+	const hours = platform.cpu_throttle_hold_hours;
+	const since = at.getTime() - hours * 3_600_000;
+	const kept = [...recent.filter((t) => t.getTime() > since), at];
+	const after = platform.cpu_throttle_hold_after;
+	const held = after > 0 && kept.length >= after ? { count: kept.length, hours } : null;
+	return { recent: kept, held };
+}

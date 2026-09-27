@@ -1,0 +1,22 @@
+# Installed by `make backup-install-channel` (and `make backup-install-timer`),
+# which fills in the @...@ values (docs/adr/0039-backup-channel-and-host-held-key.md).
+[Unit]
+Description=Run backup requests from the Portikus admin page
+Wants=network-online.target
+After=network-online.target libvirtd.service
+
+[Service]
+Type=oneshot
+# Root, so only the restore steps can read /etc/portikus-backup/age-key.txt;
+# every SSH command and backup runs as @USER@, whose key the VM trusts.
+User=root
+Environment=PORTIKUS_BACKUP_DIR=@BACKUP_DIR@
+Environment=PORTIKUS_BACKUP_RECIPIENTS=@RECIPIENTS@
+Environment=PORTIKUS_BACKUP_NIGHTLY=@NIGHTLY@
+StateDirectory=portikus-backup-channel
+StateDirectoryMode=0700
+ExecStart=/usr/local/sbin/portikus-backup-channel --operator @USER@ --vm-name @VM_NAME@ @VM_IP@
+PrivateTmp=yes
+ProtectSystem=full
+# A restore of a large home can take hours; a hung SSH is cut by its keepalive.
+TimeoutStartSec=12h

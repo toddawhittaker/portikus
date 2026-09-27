@@ -315,3 +315,254 @@ Build the package from the epic head, `make rehearsal-up`, `make configure-vm TO
 - Putting a kept home back from the page; restoring the database or several workspaces from the page (the runbook's `restore.sh` stays the disaster path).
 - Backups on a site installed with `apt install portikus` on its own Debian host (Epic 15), which has no separate host to pull to; the tab says "Backups are not connected on this site".
 - Editing the API's own egress list from the admin page (BACKLOG, "Admin pages for the egress allow list and LMS platforms").
+
+## Spike results (T1)
+
+Run by hand on the rehearsal VM (`portikus-rehearsal`, 10.101.0.57) on 2026-09-27. The VM was created with `make rehearsal-up`, configured with `make configure-vm TOFU_ENV=rehearsal-libvirt`, and given the workspace image with `make build-workspace-image TOFU_ENV=rehearsal-libvirt` (image 2026.09.11). It runs Incus 7.5.1, dnsmasq 2.91, kernel 6.12 and Squid 6.13. The workspace bridge is `portikus-ws`, 10.200.0.0/24, with the gateway at 10.200.0.1. Tests ran from a plain Debian 13 container with the `workspace` profile (`spike1`, 10.200.0.2) and from a real workspace made by `make workspace-create NAME=spikews`. Every hand change was undone afterwards, and the play was run again, so nothing below is state the VM depends on.
+
+The worker's blocked-name counter was played by a 20-line Python responder on `127.0.0.1:5399` that answers NXDOMAIN and prints each name.
+
+### Short answers
+
+1. **Yes, with two corrections, but not under AppArmor.** Incus's dnsmasq fills a set in `inet portikus_egress` through `nftset=`. However, Incus drops dnsmasq's AppArmor profile whenever `raw.dnsmasq` is set. And no answer, cached or fresh, ever refreshes an element's timeout. The ruling 7 fallback also works, and is recommended below.
+2. **Not as written in ruling 10.** `server=/github.com/#` sends listed names to the counter too. Naming the upstream fixes it. `.incus` names keep resolving. Setting `raw.dnsmasq` restarts dnsmasq, and DNS is refused for about 0.1 to 0.2 seconds.
+3. **No.** Incus's ACL drops the redirected connection. The ACL must carve the gateway address out of its drops and add narrower drops for the gateway. The smallest change is below.
+4. **Yes, with four Squid settings the plan did not name.** A listed SNI is spliced to the address the client dialled. An unlisted SNI and a private destination are refused. `https_port … ssl-bump` needs any certificate and key. A self-signed, non-CA certificate is enough, and it is never shown to a client.
+5. **Yes.** Containers on Docker's default bridge and on a user-defined network inside a workspace get exactly the same results as the workspace itself.
+
+### 1. dnsmasq, the set, AppArmor and the timeout
+
+A test table with the plan's three sets was loaded with `nft -f`, then `raw.dnsmasq` was set with a corrected rendering (see question 2):
+
+```
+sudo incus network set portikus-ws raw.dnsmasq="$(printf 'no-resolv\nserver=/#/127.0.0.1#5399\nserver=/github.com/127.0.0.53\nnftset=/github.com/4#inet#portikus_egress#names_v4\n')"
+sudo incus exec spike1 --project portikus -- dig @10.200.0.1 api.github.com A   # NOERROR 140.82.113.6
+sudo nft list set inet portikus_egress names_v4
+#   elements = { 140.82.112.4 expires 5h59m59s172ms, 140.82.113.6 expires 5h59m58s968ms }
+```
+
+A CNAME (alias) is followed. For example, `deb.debian.org` answered through `debian.map.fastlydns.net` put 151.101.146.132 into the set.
+
+**AppArmor.** The plan assumed dnsmasq stays under Incus's profile. It does not:
+
+```
+ps -o pid=,label= -C dnsmasq
+#   raw.dnsmasq empty: 237704 incus_dnsmasq-portikus-ws_</var/lib/incus> (enforce)
+#   raw.dnsmasq set:   238151 unconfined        (also after systemctl restart incus)
+grep CapEff /proc/$(pgrep -x dnsmasq)/status   # 0000000000001000, CAP_NET_ADMIN, user incus
+```
+
+So in allow-list mode, the resolver that parses every workspace's DNS traffic runs outside AppArmor. It still holds CAP_NET_ADMIN, which is enough to rewrite any nftables table on the VM. The kernel log showed no AppArmor denials either way.
+
+**Timeout refresh.** A cached answer does not refresh the element (the TTL, or time to live, fell from 28 to 9 while the expiry kept counting down). Nor does a fresh upstream answer. With a 5-second `max-cache-ttl`, the third query came from upstream, and the expiry still went 5h59m47s, then 5h59m44s, then 5h59m39s. The cause is in nftables, not dnsmasq. Re-adding an existing element leaves its timer alone, and only an explicit `expires` resets it:
+
+```
+sudo nft add element inet portikus_egress names_v4 '{ 151.101.0.223 }'                          # expiry unchanged
+sudo nft add element inet portikus_egress names_v4 '{ 151.101.0.223 timeout 6h }'               # unchanged
+sudo nft add element inet portikus_egress names_v4 '{ 151.101.0.223 timeout 6h expires 6h }'    # reset
+```
+
+dnsmasq's `nftset` does a plain add. So every address drops out 6 hours after it was first seen, however busy it is. Clients that still hold the answer then fail until they look the name up again. `max-cache-ttl` does not help. The set should have no timeout (see "Changes the results force").
+
+`max-ttl=300` caps the TTL that clients see. That matters because `pypi.org` answers with a TTL of about 21 hours, and a client would otherwise cache it that long.
+
+### 2. Name routing, `.incus` names, and the restart
+
+With ruling 10's text as written (`server=/#/127.0.0.1#5399` then `server=/github.com/#`), `api.github.com`, `github.com`, `example.com` and `evilgithub.com` all got NXDOMAIN, all four reached the counter, and the set stayed empty. dnsmasq's log explains it: `using nameserver 127.0.0.1#5399` and `using standard nameservers for github.com`. The `#` means "the standard servers", and `/#/` puts the counter among them. dnsmasq also runs with `--strict-order`, so the counter is asked first.
+
+With an explicit upstream and `no-resolv`:
+
+```
+no-resolv
+server=/#/127.0.0.1#5399
+server=/github.com/127.0.0.53
+nftset=/github.com/4#inet#portikus_egress#names_v4
+```
+
+- `api.github.com` and `github.com` are answered and go into the set.
+- `example.com`, `evilgithub.com` and `github.com.evil.net` get NXDOMAIN from the counter, which saw exactly those three names.
+- `spike1.incus` gives 10.200.0.2 and `_gateway.incus` gives 10.200.0.1, because Incus's own `-S /incus/` still wins.
+- With the counter stopped, an unlisted name times out and a listed name still resolves. `no-resolv` is what makes this fail closed. Without it, the VM's `/etc/resolv.conf` is a second default server.
+- 127.0.0.53 is the VM's systemd-resolved, the same upstream Incus's dnsmasq uses today.
+
+**The restart.** A loop in `spike1` asked `dig @10.200.0.1` every 50 ms. Six `raw.dnsmasq` changes each restarted dnsmasq (PID 13345 became 49509, and so on). Each lost one or two probes with `communications error to 10.200.0.1#53: connection refused`. That is about 0.1 to 0.2 seconds, with a fast failure rather than a hang. `incus network set` itself took 1.3 seconds.
+
+### 3. The redirect and the Incus ACL
+
+With ruling 9's table loaded, the input rule `iifname "portikus-ws" tcp dport { 3129, 3130 } ct status dnat accept` added, and Squid listening, `curl https://api.github.com/` from `spike1` timed out. `nft monitor trace` shows where:
+
+```
+inet portikus_egress prerouting rule ... ip daddr @names_v4 tcp dport 443 redirect to :3130 (verdict accept)
+inet incus aclin.portikus-ws rule iifname "portikus-ws" jump acl.portikus-ws
+inet incus acl.portikus-ws rule iifname "portikus-ws" ip daddr 10.200.0.0/24 drop (verdict drop)
+```
+
+Incus's input-hook ACL chain sees the rewritten destination, which is the gateway, and drops it. Our own input rule never saw a packet (its counter stayed at 0). An allow rule in the ACL cannot help, because Incus puts every drop before every allow. The gateway is also inside `10.0.0.0/8` in the denied ranges.
+
+**The smallest change** (in `infra/ansible/roles/incus_network/templates/workspace-acl.yaml.j2`, shown rendered for this VM) takes the gateway out of the two drops that cover it, using Incus's range syntax. It then adds three drops for the gateway alone:
+
+```
+  - action: drop
+    destination: 10.200.0.0,10.200.0.2-10.200.0.255          # was 10.200.0.0/24
+  - action: drop
+    destination: 10.200.0.1/32
+    protocol: tcp
+    destination_port: 1-3128,3131-65535
+  - action: drop
+    destination: 10.200.0.1/32
+    protocol: udp                                            # Incus accepts DNS and DHCP before the ACL
+  - action: drop
+    destination: 10.200.0.1/32
+    protocol: icmp4
+  ...
+  - action: drop
+    destination: 0.0.0.0/8,10.0.0.0-10.200.0.0,10.200.0.2-10.255.255.255,100.64.0.0/10,...   # was 10.0.0.0/8
+```
+
+The template has to split whichever denied range holds the gateway, not a fixed `10.0.0.0/8`. With the fallback in question 1, the TCP and UDP drops also leave out port 5300 (`1-3128,3131-5299,5301-65535` and `1-5299,5301-65535`). Incus accepted it and rendered `ip daddr { 10.200.0.0, 10.200.0.2-10.200.0.255 } drop`, then `ip daddr 10.200.0.1 tcp dport { 1-3128, 3131-65535 } drop`, and so on.
+
+After the change, the redirected connection worked (`http 200`), and our input rule counted it. The gateway stayed closed to everything else, because the host's `inet filter` input chain still drops by default. These all timed out: `curl http://10.200.0.1:3129/`, `https://10.200.0.1:3130/`, `--proxy http://10.200.0.1:3129`, `:8443`, `:3199`, `nc -z 10.200.0.1 22`, and `ping 10.200.0.1`. The `ct status dnat` rule is what keeps the proxy ports from being used directly. The priorities in ruling 9 are fine, and `redirect to :3130` lands on 10.200.0.1.
+
+Ruling 9's table does not parse as printed: `nft` needs a newline or `;` before a chain's closing `}`.
+
+### 4. squid-openssl
+
+`apt-get -s install squid-openssl` removes nothing. But installing it **switches the `squid` alternatives link**, which Debian manages with `update-alternatives`:
+
+```
+update-alternatives --display squid
+#   link currently points to /usr/sbin/squid-openssl   (priority 70; squid-gnutls is 50)
+```
+
+The API's Squid kept running `squid-gnutls` (per `readlink /proc/<pid>/exe`) only because it had not restarted. At its next restart it would run the OpenSSL build. T5 must pin the link to `/usr/sbin/squid-gnutls`. Purging `squid-openssl` put the link back.
+
+The configuration that passed every check (the certificate lines follow):
+
+```
+pid_filename /run/portikus-workspace-proxy.pid
+cache deny all
+cache_mem 0 MB
+dns_nameservers 10.200.0.1
+negative_dns_ttl 1 second
+via off
+forwarded_for transparent
+http_port 127.0.0.1:3199
+acl forward_port myportname 127.0.0.1:3199
+http_port 10.200.0.1:3129 intercept
+https_port 10.200.0.1:3130 intercept ssl-bump tls-cert=/etc/portikus-workspace-proxy/bump.crt tls-key=/etc/portikus-workspace-proxy/bump.key generate-host-certificates=off
+acl denied_dst dst <workspace_egress_denied_ranges, IPv4>
+acl listed_host dstdomain -n .github.com .pypi.org ...
+acl listed_sni ssl::server_name .github.com .pypi.org ...
+acl step1 at_step SslBump1
+acl intercepted_tls myportname 10.200.0.1:3130
+http_access deny forward_port
+http_access allow intercepted_tls
+http_access deny denied_dst
+http_access allow listed_host
+http_access deny all
+ssl_bump terminate denied_dst
+ssl_bump peek step1
+ssl_bump splice listed_sni
+ssl_bump terminate all
+```
+
+Four things the plan did not say, each found by a failure:
+
+- **Squid will not start without an ordinary forward-proxy port** (`FATAL: mimeLoadIcon: cannot parse internal URL`). A loopback port that refuses everything (3199 above) satisfies it.
+- **Private destinations must be refused in `ssl_bump`, not in `http_access`.** When `http_access` refused an HTTPS connection to a private address, Squid bumped (decrypted) the connection to show its error page, presenting our certificate (`NONE_NONE/403 GET https://10-101-0-1.nip.io/`). With `ssl_bump terminate denied_dst`, the connection is just closed.
+- **Squid's host check refuses real traffic unless it shares the workspaces' DNS.** For an intercepted connection, Squid looks up the SNI itself and refuses with 409 when the dialled address is not among its answers (cache.log: `SECURITY ALERT: Host header forgery detected … local IP does not match any domain IP`). `host_verify_strict off` does not relax this for CONNECT. GitHub answers with one rotating address, and 28 of 34 requests to `api.github.com` failed. With `dns_nameservers 10.200.0.1`, 24 of 120 GitHub requests still failed. The cause was Squid's own cache: it raises every TTL to at least `negative_dns_ttl`, whose default is one minute. With `negative_dns_ttl 1 second` as well, a loop of 240 requests passed with no failures. That loop fetched `api.github.com`, `github.com`, `pypi.org/simple/pip/` and `deb.debian.org/debian/` every 3 seconds for 3 minutes. `pypi.org` and Debian never failed, even before the fix.
+- **cache.log records workspace addresses.** Those same alerts write `remote=10.200.0.2:53578`, against ruling 11's "logs no client address". T5 must keep cache.log from recording them. `debug_options ALL,0` should do it (the alert is at level 1), but this was not tested.
+
+`ssl::server_name` takes no `-n` option. It matches `.github.com` as the domain and its subdomains.
+
+**The certificate.** `https_port … ssl-bump` with no certificate fails with `FATAL: https_port requires a cert= parameter`. Any certificate and key are enough, and with `generate-host-certificates=off` it need not be a CA:
+
+```
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+  -subj "/CN=portikus-workspace-proxy" -addext basicConstraints=critical,CA:FALSE \
+  -keyout bump.key -out bump.crt        # key root:proxy 0640
+```
+
+With the configuration above, no client was ever shown this certificate.
+
+**The checks** (from `spike1`, the curl result is `code/remote address`):
+
+| Check | Result |
+|---|---|
+| `curl https://api.github.com/` | 200, `TCP_TUNNEL/200 … sni=api.github.com dst=140.82.114.6`, the address the client dialled |
+| `--resolve example.com:443:140.82.113.3` (unlisted SNI on a listed address) | refused, TLS "unexpected eof" |
+| `curl -k https://140.82.113.3/` (no SNI) | refused, TLS "unexpected eof" |
+| `curl http://github.com/` | 301 from GitHub |
+| `-H "Host: example.com" http://140.82.113.3/` | 403 from Squid |
+| `https://10-101-0-1.nip.io/`, `http://…` (listed name resolving to the host) | closed, 403 |
+| `http://10-200-0-1.nip.io/` (listed name resolving to the gateway) | 403 |
+| `--resolve api.github.com:443:140.82.113.3` (listed SNI, another GitHub address) | 409, the host check above; correct for a forged pairing |
+
+dnsmasq's `stop-dns-rebind` keeps private answers out of the set in the first place. With it, `10-101-0-1.nip.io` and `10-200-0-1.nip.io` return no address and add nothing. The journal logs only the name (`possible DNS-rebind attack detected: 10-200-0-1.nip.io`).
+
+A refused SNI makes no DNS lookup. A refused plain-HTTP `Host` does: Squid's host check resolves it through dnsmasq, so the counter also sees it as a `dns` lookup.
+
+### 5. Docker inside a workspace
+
+In `spikews` (the real image and profile), with Docker Hub listed (`docker.io`, `docker.com`), the workspace's Docker pulled `curlimages/curl:8.11.1` and `busybox:1.37` through the allow-list. The layers came from `production.cloudfront.docker.com`, spliced. Then, from `docker run --rm --network bridge …` and again from a user-defined network (`docker network create spikenet`, which uses Docker's embedded DNS):
+
+| Check | Default bridge | User-defined network |
+|---|---|---|
+| `curl https://api.github.com/` | 200 (after the Squid DNS fix) | 200 |
+| `curl http://github.com/` | 301 | 301 |
+| `curl https://example.com/` | Could not resolve host | same |
+| unlisted SNI on a listed address | refused | refused |
+| unlisted `Host` on a listed address | 403 | 403 |
+| `curl -k https://1.1.1.1/` (hard-coded unlisted address) | timed out | timed out |
+| listed name at a private address | 403 | 403 |
+| `nslookup example.com 1.1.1.1` (outside resolver) | timed out | timed out |
+| `nslookup example.com` (normal path) | NXDOMAIN | NXDOMAIN |
+
+Docker masquerades container traffic behind the workspace's address, so the VM sees it exactly as the workspace's own.
+
+### The ruling 7 fallback, tried
+
+Because of the AppArmor finding, the fallback was tried as far as a working allow-list. It does not turn off Incus's DNS, which would lose the `.incus` names. Instead, `raw.dnsmasq` stays empty, so Incus's dnsmasq keeps its profile and does DHCP and `.incus` as today. Workspace DNS to the gateway is redirected to our own dnsmasq on port 5300:
+
+```
+# our dnsmasq, run for the spike with:
+#   systemd-run -p NoNewPrivileges=yes -p ProtectSystem=strict -p ProtectHome=yes -p PrivateTmp=yes \
+#     -p CapabilityBoundingSet="CAP_NET_ADMIN CAP_SETUID CAP_SETGID" /usr/sbin/dnsmasq --keep-in-foreground --conf-file=…
+port=5300
+listen-address=10.200.0.1
+bind-interfaces
+no-dhcp-interface=portikus-ws
+no-resolv
+no-hosts
+strict-order
+stop-dns-rebind
+max-cache-ttl=300
+max-ttl=300
+user=nobody
+group=nogroup
+server=/#/127.0.0.1#5399
+server=/incus/10.200.0.1
+rebind-domain-ok=/incus/
+server=/github.com/127.0.0.53
+nftset=/github.com/4#inet#portikus_egress#names_v4
+…
+
+# in table inet portikus_egress, chain prerouting, first:
+iifname "portikus-ws" ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 redirect to :5300
+# in inet filter input:
+iifname "portikus-ws" meta l4proto { tcp, udp } th dport 5300 ct status dnat accept
+```
+
+It ran as `nobody` with only CAP_NET_ADMIN (`CapEff 0000000000001000`). Incus's dnsmasq went back to `incus_dnsmasq-portikus-ws_ (enforce)`. From `spike1`, `dig @10.200.0.1 api.github.com` answered and filled the set. `example.com` got NXDOMAIN, `spike1.incus` gave 10.200.0.2, and `dig -p 5300` straight to the port timed out. The 240-request loop passed at the proxy: all 64 `api.github.com` connections in the window were tunnelled, with no refusals and no host-check alerts. The only failures were GitHub's own `403` for its 60-an-hour unauthenticated limit (`x-ratelimit-remaining: 0`). The Docker checks above passed the same way. Squid's `dns_nameservers` takes no port, so here Squid resolves through Incus's dnsmasq on 53. Both resolvers forward to the same systemd-resolved, and the loop shows that is close enough.
+
+### Changes the results force
+
+For the orchestrator to rule on before T4 and T5 start:
+
+1. **Recommended: take the ruling 7 fallback, our own dnsmasq on port 5300 behind a redirect.** Any `raw.dnsmasq` removes AppArmor from the resolver every workspace talks to. The fallback keeps Incus's dnsmasq confined and leaves DHCP alone during a change. It also needs no Incus call at runtime: the root helper writes our dnsmasq's configuration and restarts it, next to the table and Squid's list. So T4 drops the `raw.dnsmasq` route and `setNetworkDnsmasq`, and T5 adds one small hardened unit. Rejected: keeping `raw.dnsmasq` (one less service, but an unconfined resolver with CAP_NET_ADMIN).
+2. **The dnsmasq rendering (ruling 10)** names the upstream (`server=/name/127.0.0.53`, not `#`) and adds `no-resolv`, `stop-dns-rebind`, `max-ttl=300` and `max-cache-ttl=300`. The fallback also adds `server=/incus/10.200.0.1` and `rebind-domain-ok=/incus/`. A host without systemd-resolved (Epic 15) needs its real upstream here.
+3. **The set (ruling 9) has no timeout.** Elements live until the helper flushes the set on a policy change (ruling 8 already flushes when a name is removed). A size bound such as `size 65535` fails closed when full. After a flush, clients heal when they next look the name up. The TTL cap bounds that at 5 minutes, not "within seconds" as ruling 8 says. A lower cap (60) would shorten it at the cost of more lookups.
+4. **The Incus ACL changes (T5, `incus_network`)** as in question 3: the gateway is carved out of every drop that covers it, with gateway-only drops for TCP except 3129 and 3130 (and 5300 with the fallback), UDP (except 5300 with the fallback), and ICMP. The host's input chain, with its `ct status dnat` rule, stays the guard for those ports.
+5. **The workspace Squid (ruling 11)** needs a loopback forward port that refuses everything, `ssl_bump terminate` for denied ranges, `dns_nameservers` pointing at the bridge resolver, `negative_dns_ttl 1 second`, a quiet cache.log, and a self-signed, non-CA certificate with `generate-host-certificates=off`. T5 pins the `squid` alternative to `squid-gnutls`, so the API's proxy really does stay as it is.
+6. **Ruling 9's table** needs a newline before each chain's `}`. With the fallback it also gets the DNS redirect as the first prerouting rule. The final `iifname "portikus-ws" drop` also stops SSH and other non-web connections once their address is flushed, as ruling 8 intends.
+7. **The blocked-name counter (ruling 13)** also receives a refused plain-HTTP `Host` as a `dns` lookup, from Squid's own check, so such a name is counted under both sources. This is harmless; T4 may note it.

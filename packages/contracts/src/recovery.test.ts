@@ -41,6 +41,7 @@ test("RecoveryPoint round-trips every reason", () => {
 		"before-restore",
 		"before-rebuild",
 		"agent-session",
+		"before-replace-home",
 	] as const) {
 		const point = { ...POINT, reason };
 		expect(RecoveryPoint.parse(point)).toEqual(point);

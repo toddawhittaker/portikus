@@ -10,6 +10,7 @@ import { formatBytes } from "../../monitor/format.js";
 import { AdminSection } from "../AdminSection.js";
 import { shortTime } from "../shortTime.js";
 import { KNOWN_STATES, WorkspaceStateBadge } from "../WorkspacesTab.js";
+import { PackagesSection } from "./PackagesSection.js";
 import { useHealth } from "./queries.js";
 import { TrendsCard } from "./TrendsCard.js";
 
@@ -69,6 +70,7 @@ export function HealthTab() {
 			) : (
 				<div aria-busy="true" data-testid="health-loading" />
 			)}
+			<PackagesSection />
 		</AdminSection>
 	);
 }
@@ -254,6 +256,7 @@ export function guardRows(guard: HealthReport["guard"]) {
 						key: `${entry.workspaceId}-cpu`,
 						owner: entry.owner,
 						which: "Throttled",
+						held: entry.cpuThrottle.held !== undefined,
 						at: entry.cpuThrottle.at,
 						average: `CPU ${Math.round(entry.cpuThrottle.averagePercent)}% over ${entry.cpuThrottle.windowMinutes} minutes`,
 					},
@@ -265,6 +268,7 @@ export function guardRows(guard: HealthReport["guard"]) {
 						key: `${entry.workspaceId}-memory`,
 						owner: entry.owner,
 						which: "High memory",
+						held: false,
 						at: entry.memoryFlag.at,
 						average: `Memory ${Math.round(entry.memoryFlag.averagePercent)}% over ${entry.memoryFlag.windowMinutes} minutes`,
 					},
@@ -311,6 +315,9 @@ function GuardList({ guard }: { guard: HealthReport["guard"] }) {
 									</td>
 									<td>
 										<span className="pk-tag pk-tag--warning">{row.which}</span>
+										{row.held ? (
+											<span className="pk-tag pk-tag--warning ml-1">Held</span>
+										) : null}
 									</td>
 									<td>
 										<time dateTime={row.at}>{shortTime(row.at)}</time>

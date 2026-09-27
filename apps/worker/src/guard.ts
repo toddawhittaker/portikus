@@ -3,11 +3,14 @@ import {
 	effectiveGuard,
 	type InstanceUsage,
 	idleLift,
+	type ThrottleHoldPlatform,
+	throttleHold,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { notifyAdministrators } from "./notifications.js";
 
 /** How often the guard samples every running workspace (ADR 0032). */
 export const GUARD_SAMPLE_SECONDS = 60;
@@ -99,6 +102,8 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 					"idle_stop_minutes",
 					"cpu_idle_lift_minutes",
 					"cpu_idle_lift_percent",
+					"cpu_throttle_hold_after",
+					"cpu_throttle_hold_hours",
 				])
 				.where("id", "=", 1)
 				.executeTakeFirst();
@@ -129,7 +134,8 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 						const lift = idleLift(settings);
 						if (throttle && lift && (await judgeLift(row.id, inst, throttle, lift, at)))
 							throttle = null;
-						else if (!throttle) throttle = await judgeCpu(row.id, inst, effective, at);
+						else if (!throttle)
+							throttle = await judgeCpu(row.id, inst, effective, settings, at);
 						if (!row.memory_flag) await judgeMemory(row.id, effective, at);
 					}
 					await syncAllowance(row.id, inst, throttle?.allowance ?? null);
@@ -295,6 +301,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 		id: string,
 		inst: InstanceUsage,
 		effective: EffectiveGuard,
+		hold: ThrottleHoldPlatform,
 		at: Date,
 	): Promise<Throttle | null> {
 		const windowStart = new Date(at.getTime() - effective.windowMinutes * 60_000);
@@ -302,7 +309,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 		if (average === null) return null;
 		if (!(average > effective.cpuThresholdPercent)) return null;
 
-		const throttle: Throttle = {
+		let throttle: Throttle = {
 			at: at.toISOString(),
 			averagePercent: round1(average),
 			thresholdPercent: effective.cpuThresholdPercent,
@@ -311,9 +318,24 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			allowance: allowanceFor(effective.throttleSharePercent, inst.cpuLimit),
 		};
 		const written = await db.transaction().execute(async (trx) => {
+			const current = await trx
+				.selectFrom("workspaces")
+				.select("cpu_throttle_recent")
+				.where("id", "=", id)
+				.forUpdate()
+				.executeTakeFirst();
+			const { recent, held } = throttleHold(
+				hold,
+				current?.cpu_throttle_recent ?? [],
+				at,
+			);
+			if (held) throttle = { ...throttle, held };
 			const updated = await trx
 				.updateTable("workspaces")
-				.set({ cpu_throttle: JSON.stringify(throttle) })
+				.set({
+					cpu_throttle: JSON.stringify(throttle),
+					cpu_throttle_recent: recent.map((t) => t.toISOString()),
+				})
 				.where("id", "=", id)
 				.where("state", "=", "running")
 				.where("cpu_throttle", "is", null)
@@ -335,6 +357,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 					}),
 				})
 				.execute();
+			if (held) await recordHold(trx, id, held);
 			return true;
 		});
 		if (!written) return null;
@@ -343,6 +366,38 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			"cpu throttled",
 		);
 		return throttle;
+	}
+
+	/**
+	 * Audit a held throttle and tell every administrator once (SPEC.md
+	 * §19.4). The notice names the owner, never usage beyond the counts.
+	 */
+	async function recordHold(
+		trx: Kysely<Database>,
+		id: string,
+		held: { count: number; hours: number },
+	): Promise<void> {
+		await trx
+			.insertInto("audit_events")
+			.values({
+				actor: "worker",
+				target: id,
+				action: "workspace.cpu_throttle_held",
+				result: "ok",
+				metadata: JSON.stringify(held),
+			})
+			.execute();
+		const owner = await trx
+			.selectFrom("workspaces")
+			.innerJoin("users", "users.id", "workspaces.owner_user_id")
+			.select("users.display_name")
+			.where("workspaces.id", "=", id)
+			.executeTakeFirst();
+		await notifyAdministrators(trx, {
+			tone: "warning",
+			title: `${owner?.display_name ?? "A student"}'s workspace stays slowed after a restart`,
+			body: `It was slowed ${held.count} times in the last ${held.hours} hours. The Health tab shows it, and its detail panel can lift the throttle.`,
+		});
 	}
 
 	/**

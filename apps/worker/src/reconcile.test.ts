@@ -1863,6 +1863,58 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"a held throttle survives a stop and start, and the start carries its allowance (SPEC.md §19.4)",
+	async () => {
+		const held = { ...THROTTLE, held: { count: 3, hours: 24 } };
+		const id = await insertWorkspace({
+			state: "running",
+			desired_state: "stopped",
+			cpu_throttle: JSON.stringify(held),
+			memory_flag: JSON.stringify(FLAG),
+		});
+		await addSample(id);
+		await addSample(id, "2026-09-25T12:01:00.000Z");
+		const now = new Date();
+		await sweep(tdb.db, fake, cfg, now, now);
+
+		let ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(ws.cpu_throttle).toEqual(held);
+		expect(ws.memory_flag).toBeNull();
+		// The samples stay so the idle lift can still judge the throttle.
+		expect(await sampleRows(id)).toBe(2);
+		expect((await getAudits(id)).map((a) => a.action)).not.toContain(
+			"workspace.cpu_throttle_lifted",
+		);
+
+		await tdb.db
+			.updateTable("workspaces")
+			.set({ desired_state: "running" })
+			.where("id", "=", id)
+			.execute();
+		await insertConnection(id);
+		const later = new Date(now.getTime() + 1000);
+		await sweep(tdb.db, fake, cfg, later, later);
+		ws = await getWorkspace(id);
+		expect(ws.state).toBe("running");
+		expect(ws.cpu_throttle).toEqual(held);
+		const startCall = fake.calls.find((c) => c.method === "start");
+		expect(startCall?.args[1]).toMatchObject({ cpuAllowance: "100ms/100ms" });
+	},
+);
+
+test.skipIf(skip)("a start without a held throttle sends no allowance", async () => {
+	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
+	await insertConnection(id);
+	const now = new Date();
+	await sweep(tdb.db, fake, cfg, now, now);
+	const startCall = fake.calls.find((c) => c.method === "start");
+	expect(
+		((startCall?.args[1] ?? {}) as { cpuAllowance?: string }).cpuAllowance,
+	).toBeUndefined();
+});
+
+test.skipIf(skip)(
 	"a stop with nothing to clear writes no guard audit and keeps the samples",
 	async () => {
 		const id = await insertWorkspace({ state: "running", desired_state: "stopped" });

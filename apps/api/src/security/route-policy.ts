@@ -238,6 +238,12 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/backups/restores/:id/replace-home": { access: "admin" },
 	"DELETE /admin/backups/snapshots/:volume/:snapshot": { access: "admin" },
 	"DELETE /admin/backups/kept-homes/:volume": { access: "admin" },
+	// The package survey and the student's reinstall note (ADR 0042).
+	"GET /admin/packages": { access: "admin" },
+	"HEAD /admin/packages": { access: "admin" },
+	"GET /workspaces/:id/reinstall-note": owner,
+	"HEAD /workspaces/:id/reinstall-note": owner,
+	"POST /workspaces/:id/reinstall-note/dismiss": owner,
 
 	"GET /__portikus/bootstrap": { access: "preview-edge" },
 	"HEAD /__portikus/bootstrap": { access: "preview-edge" },
