@@ -324,7 +324,11 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 				.where("id", "=", id)
 				.forUpdate()
 				.executeTakeFirst();
-			const { recent, held } = throttleHold(hold, current?.cpu_throttle_recent ?? [], at);
+			const { recent, held } = throttleHold(
+				hold,
+				current?.cpu_throttle_recent ?? [],
+				at,
+			);
 			if (held) throttle = { ...throttle, held };
 			const updated = await trx
 				.updateTable("workspaces")

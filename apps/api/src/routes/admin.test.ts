@@ -1241,7 +1241,10 @@ test.skipIf(skip)(
 			url: "/admin/settings",
 			headers: { cookie: jar.cookieHeader() },
 		});
-		expect(before.json()).toMatchObject({ cpuThrottleHoldAfter: 3, cpuThrottleHoldHours: 24 });
+		expect(before.json()).toMatchObject({
+			cpuThrottleHoldAfter: 3,
+			cpuThrottleHoldHours: 24,
+		});
 
 		const put = await app.inject({
 			method: "PUT",
@@ -1250,7 +1253,10 @@ test.skipIf(skip)(
 			payload: { cpuThrottleHoldAfter: 0, cpuThrottleHoldHours: 168 },
 		});
 		expect(put.statusCode).toBe(200);
-		expect(put.json()).toMatchObject({ cpuThrottleHoldAfter: 0, cpuThrottleHoldHours: 168 });
+		expect(put.json()).toMatchObject({
+			cpuThrottleHoldAfter: 0,
+			cpuThrottleHoldHours: 168,
+		});
 
 		for (const payload of [
 			{ cpuThrottleHoldAfter: 11 },

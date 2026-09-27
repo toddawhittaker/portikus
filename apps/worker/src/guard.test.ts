@@ -789,7 +789,10 @@ async function holdAudits(id: string) {
 }
 
 async function adminNotifications() {
-	return tdb.db.selectFrom("notifications").select(["user_id", "tone", "title", "body"]).execute();
+	return tdb.db
+		.selectFrom("notifications")
+		.select(["user_id", "tone", "title", "body"])
+		.execute();
 }
 
 test.skipIf(skip)(
@@ -847,7 +850,10 @@ test.skipIf(skip)("throttles older than the hold window do not count", async () 
 	const ws = await insertWorkspace({
 		guard_config: JSON.stringify({ windowMinutes: 5 }),
 		// 12:00 on the 24th is more than 24 hours before 12:05 on the 25th.
-		cpu_throttle_recent: [new Date("2026-09-24T12:00:00.000Z").toISOString(), HOLD_T("06:00")],
+		cpu_throttle_recent: [
+			new Date("2026-09-24T12:00:00.000Z").toISOString(),
+			HOLD_T("06:00"),
+		],
 	});
 	const h = liftHarness(ws.instance, 0.3);
 	await throttledAtMinute5(ws.id, h);
@@ -862,38 +868,44 @@ test.skipIf(skip)("throttles older than the hold window do not count", async () 
 	expect(recent.cpu_throttle_recent).toHaveLength(2);
 });
 
-test.skipIf(skip)("the hold settings decide the count and the window; 0 turns it off", async () => {
-	await tdb.db
-		.updateTable("settings")
-		.set({ cpu_throttle_hold_after: 2, cpu_throttle_hold_hours: 2 })
-		.execute();
-	const held = await insertWorkspace({
-		guard_config: JSON.stringify({ windowMinutes: 5 }),
-		cpu_throttle_recent: [HOLD_T("10:30")],
-	});
-	const h = liftHarness(held.instance, 0.3);
-	await throttledAtMinute5(held.id, h);
-	expect((await row(held.id)).cpu_throttle?.held).toEqual({ count: 2, hours: 2 });
+test.skipIf(skip)(
+	"the hold settings decide the count and the window; 0 turns it off",
+	async () => {
+		await tdb.db
+			.updateTable("settings")
+			.set({ cpu_throttle_hold_after: 2, cpu_throttle_hold_hours: 2 })
+			.execute();
+		const held = await insertWorkspace({
+			guard_config: JSON.stringify({ windowMinutes: 5 }),
+			cpu_throttle_recent: [HOLD_T("10:30")],
+		});
+		const h = liftHarness(held.instance, 0.3);
+		await throttledAtMinute5(held.id, h);
+		expect((await row(held.id)).cpu_throttle?.held).toEqual({ count: 2, hours: 2 });
 
-	await tdb.db.updateTable("settings").set({ cpu_throttle_hold_after: 0 }).execute();
-	const off = await insertWorkspace({
-		guard_config: JSON.stringify({ windowMinutes: 5 }),
-		cpu_throttle_recent: [HOLD_T("11:00"), HOLD_T("11:30")],
-	});
-	const h2 = liftHarness(off.instance, 0.3);
-	await throttledAtMinute5(off.id, h2);
-	expect((await row(off.id)).cpu_throttle?.held).toBeUndefined();
-});
+		await tdb.db.updateTable("settings").set({ cpu_throttle_hold_after: 0 }).execute();
+		const off = await insertWorkspace({
+			guard_config: JSON.stringify({ windowMinutes: 5 }),
+			cpu_throttle_recent: [HOLD_T("11:00"), HOLD_T("11:30")],
+		});
+		const h2 = liftHarness(off.instance, 0.3);
+		await throttledAtMinute5(off.id, h2);
+		expect((await row(off.id)).cpu_throttle?.held).toBeUndefined();
+	},
+);
 
-test.skipIf(skip)("a held throttle still lifts once the workspace is quiet", async () => {
-	const ws = await insertWorkspace({
-		guard_config: JSON.stringify({ windowMinutes: 5 }),
-		cpu_throttle_recent: [HOLD_T("02:00"), HOLD_T("06:00")],
-	});
-	const h = liftHarness(ws.instance, 0.05);
-	await throttledAtMinute5(ws.id, h);
-	expect((await row(ws.id)).cpu_throttle?.held).toBeDefined();
-	await h.steps(6);
-	expect((await row(ws.id)).cpu_throttle).toBeNull();
-	expect(h.allowance).toBeNull();
-});
+test.skipIf(skip)(
+	"a held throttle still lifts once the workspace is quiet",
+	async () => {
+		const ws = await insertWorkspace({
+			guard_config: JSON.stringify({ windowMinutes: 5 }),
+			cpu_throttle_recent: [HOLD_T("02:00"), HOLD_T("06:00")],
+		});
+		const h = liftHarness(ws.instance, 0.05);
+		await throttledAtMinute5(ws.id, h);
+		expect((await row(ws.id)).cpu_throttle?.held).toBeDefined();
+		await h.steps(6);
+		expect((await row(ws.id)).cpu_throttle).toBeNull();
+		expect(h.allowance).toBeNull();
+	},
+);

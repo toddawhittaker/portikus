@@ -696,7 +696,9 @@ test("the throttle-hold fields save, allow 0 to turn it off, and name a bad valu
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
 	renderApp("/admin?tab=settings");
 
-	const after = (await screen.findByLabelText("Hold after throttles")) as HTMLInputElement;
+	const after = (await screen.findByLabelText(
+		"Hold after throttles",
+	)) as HTMLInputElement;
 	const hours = screen.getByLabelText("Hold window (hours)") as HTMLInputElement;
 	await waitFor(() => expect(after.value).toBe("3"));
 	expect(hours.value).toBe("24");

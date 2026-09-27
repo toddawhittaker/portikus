@@ -256,9 +256,9 @@ function ResourceGuardSection() {
 				started, or when an administrator lifts it. One above the memory threshold is
 				flagged; nothing is slowed. A threshold of 100 turns that check off, and a quiet
 				percent of 0 turns the automatic lift off. A workspace throttled as many times
-				as the hold setting within the hold window stays slowed through a stop and
-				start until it goes quiet or an administrator lifts it; 0 turns the hold off.
-				Each workspace can override all but the quiet and hold settings.
+				as the hold setting within the hold window stays slowed through a stop and start
+				until it goes quiet or an administrator lifts it; 0 turns the hold off. Each
+				workspace can override all but the quiet and hold settings.
 			</p>
 			<div className="mt-4 grid grid-cols-[repeat(2,max-content)] gap-x-4 gap-y-3">
 				{fields.map((field) => {

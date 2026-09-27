@@ -108,14 +108,17 @@ test.skipIf(skip)("a small share lowers the quiet percent to half of it", async 
 	});
 });
 
-test.skipIf(skip)("a held throttle tells the owner why a restart keeps it (SPEC.md §19.4)", async () => {
-	const row = await workspaceRow({
-		cpu_throttle: JSON.stringify({ ...throttle, held: { count: 3, hours: 24 } }),
-	});
-	const view = await toWorkspace(tdb.db, row, 0, config);
-	expect(view.cpuThrottle?.held).toEqual({ count: 3, hours: 24 });
-	expect(view.cpuThrottle).not.toHaveProperty("allowance");
-});
+test.skipIf(skip)(
+	"a held throttle tells the owner why a restart keeps it (SPEC.md §19.4)",
+	async () => {
+		const row = await workspaceRow({
+			cpu_throttle: JSON.stringify({ ...throttle, held: { count: 3, hours: 24 } }),
+		});
+		const view = await toWorkspace(tdb.db, row, 0, config);
+		expect(view.cpuThrottle?.held).toEqual({ count: 3, hours: 24 });
+		expect(view.cpuThrottle).not.toHaveProperty("allowance");
+	},
+);
 
 test.skipIf(skip)("the memory flag reaches the owner's view", async () => {
 	const row = await workspaceRow({ memory_flag: JSON.stringify(flag) });

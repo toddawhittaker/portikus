@@ -1909,7 +1909,9 @@ test.skipIf(skip)("a start without a held throttle sends no allowance", async ()
 	const now = new Date();
 	await sweep(tdb.db, fake, cfg, now, now);
 	const startCall = fake.calls.find((c) => c.method === "start");
-	expect((startCall?.args[1] as { cpuAllowance?: string }).cpuAllowance).toBeUndefined();
+	expect(
+		((startCall?.args[1] ?? {}) as { cpuAllowance?: string }).cpuAllowance,
+	).toBeUndefined();
 });
 
 test.skipIf(skip)(
