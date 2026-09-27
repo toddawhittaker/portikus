@@ -265,9 +265,22 @@ button.pk-statusbar-item:focus-visible {
 	display: inline-flex;
 }
 .pk-account-badge {
+	/* A transparent 24px hit area around the small pill (WCAG 2.5.8). */
 	position: absolute;
-	top: 2px;
-	left: 20px;
+	top: -1px;
+	left: 17px;
+	min-width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: 12px;
+	background: transparent;
+	display: grid;
+	place-items: center;
+	font: inherit;
+	cursor: pointer;
+}
+.pk-account-badge-pill {
 	min-width: 18px;
 	height: 18px;
 	padding: 0 4px;
@@ -275,11 +288,9 @@ button.pk-statusbar-item:focus-visible {
 	border-radius: 9px;
 	background: var(--status-danger);
 	color: var(--on-danger);
-	font: inherit;
 	font-size: 12px;
 	font-weight: 700;
 	line-height: 14px;
-	cursor: pointer;
 }
 .pk-account-badge:focus-visible {
 	outline: var(--ring-width) solid var(--focus);

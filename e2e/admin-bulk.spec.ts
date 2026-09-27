@@ -1,6 +1,13 @@
 import * as crypto from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { FAKE_AGENT_TOKEN, loginAs, MOCK_ISSUER, query, settledAxe } from "./helpers";
+import {
+	FAKE_AGENT_TOKEN,
+	loginAs,
+	MOCK_ISSUER,
+	query,
+	settledAxe,
+	WCAG_TAGS,
+} from "./helpers";
 
 /**
  * Bulk actions on the Users view (Epic 13.1 T4): tick rows, confirm a
@@ -50,9 +57,9 @@ test("an administrator disables two accounts at once", async ({ page }) => {
 		`${first} and ${second}.`,
 	);
 	expect(
-		(
-			await (await settledAxe(page)).withTags(["wcag2a", "wcag2aa"]).analyze()
-		).violations.map((v) => v.id),
+		(await (await settledAxe(page)).withTags(WCAG_TAGS).analyze()).violations.map(
+			(v) => v.id,
+		),
 	).toEqual([]);
 	await dialog.getByRole("button", { name: "Disable" }).click();
 
@@ -129,9 +136,9 @@ test("an administrator rebuilds several workspaces at once (SPEC.md section 20.1
 		dialog.getByRole("checkbox", { name: "Also reset Docker" }),
 	).not.toBeChecked();
 	expect(
-		(
-			await (await settledAxe(page)).withTags(["wcag2a", "wcag2aa"]).analyze()
-		).violations.map((v) => v.id),
+		(await (await settledAxe(page)).withTags(WCAG_TAGS).analyze()).violations.map(
+			(v) => v.id,
+		),
 	).toEqual([]);
 	await dialog.getByRole("button", { name: "Rebuild" }).click();
 

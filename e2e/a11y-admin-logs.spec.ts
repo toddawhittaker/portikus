@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createStudent, loginAs, settledAxe, WEB_ORIGIN } from "./helpers";
+import { createStudent, loginAs, settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Logs tab with
@@ -29,9 +29,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.getByTestId("log-row-toggle").first().click();
 		await expect(page.getByTestId("log-row-detail")).toBeVisible();
 
-		const results = await (await settledAxe(page))
-			.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
-			.analyze();
+		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});
 }

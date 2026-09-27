@@ -7,6 +7,7 @@ import {
 	settledAxe,
 	startPreviewApp,
 	toast,
+	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
 import { API_ORIGIN } from "./ports";
@@ -555,7 +556,7 @@ test.describe("application preview", () => {
 		const dialog = page.getByTestId("dialog-preview-reset");
 		await expect(dialog).toBeVisible();
 		const results = await (await settledAxe(page))
-			.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+			.withTags(WCAG_TAGS)
 			.include('[data-testid="dialog-preview-reset"]')
 			.analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

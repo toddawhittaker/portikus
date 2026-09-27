@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import { dexLocalSubject } from "../packages/auth/dist/dex-subject.js";
-import { MOCK_ISSUER, query, settledAxe, WEB_ORIGIN } from "./helpers";
+import { MOCK_ISSUER, query, settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
 
 /**
  * axe on the change-password page and Settings, Password, in light and dark
@@ -13,7 +13,7 @@ import { MOCK_ISSUER, query, settledAxe, WEB_ORIGIN } from "./helpers";
 
 async function expectNoViolations(page: Page, selector: string) {
 	const results = await (await settledAxe(page))
-		.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+		.withTags(WCAG_TAGS)
 		.include(selector)
 		.analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
