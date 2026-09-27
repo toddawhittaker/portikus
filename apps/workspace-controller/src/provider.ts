@@ -86,8 +86,6 @@ export interface WorkspaceProvider {
 	deleteKeptHome(volume: string): Promise<void>;
 	/** Swap `<name>-home-import` in as the home and keep the old one; stopped only. */
 	replaceHome(name: string): Promise<ReplaceHomeResponse>;
-	/** Set `raw.dnsmasq` on the workspace network; an empty string removes it. */
-	setNetworkDnsmasq(raw: string): Promise<void>;
 }
 
 /**
@@ -237,7 +235,6 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly procRoot: string;
 	private readonly hostCpuCount: number;
 	private readonly thinPoolStatusPath: string | undefined;
-	private readonly network: string;
 
 	constructor(opts: {
 		client: IncusClient;
@@ -254,8 +251,6 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		hostCpuCount?: number;
 		/** The lvm role's status file; tests point it elsewhere. */
 		thinPoolStatusPath?: string;
-		/** The Incus network the workspaces are on. */
-		network?: string;
 	}) {
 		this.client = opts.client;
 		this.pool = opts.pool;
@@ -267,7 +262,6 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		this.procRoot = opts.procRoot ?? "/proc";
 		this.hostCpuCount = opts.hostCpuCount ?? availableParallelism();
 		this.thinPoolStatusPath = opts.thinPoolStatusPath;
-		this.network = opts.network ?? "portikus-ws";
 	}
 
 	async create(
@@ -1370,13 +1364,5 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		}
 		return newest?.name ?? null;
-	}
-
-	async setNetworkDnsmasq(raw: string): Promise<void> {
-		// PATCH merges config, so it changes this key and nothing else on the network.
-		await this.client.request("PATCH", `/1.0/networks/${enc(this.network)}`, {
-			config: { "raw.dnsmasq": raw },
-		});
-		this.log.info({ network: this.network }, "network dnsmasq settings set");
 	}
 }

@@ -200,6 +200,9 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/workspaces/:id/lift-throttle": { access: "admin" },
 	"POST /admin/workspaces/:id/clear-memory-flag": { access: "admin" },
 	"POST /admin/workspaces/:id/rebuild": { access: "admin" },
+	// Per-workspace limits and re-provision (SPEC.md section 20.1).
+	"PUT /admin/workspaces/:id/limits": { access: "admin" },
+	"POST /admin/workspaces/:id/reprovision": { access: "admin" },
 	// The administrator's process list and stop (ADR 0037).
 	"GET /admin/workspaces/:id/processes": { access: "admin" },
 	"HEAD /admin/workspaces/:id/processes": { access: "admin" },
@@ -235,6 +238,12 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/backups/restores/:id/replace-home": { access: "admin" },
 	"DELETE /admin/backups/snapshots/:volume/:snapshot": { access: "admin" },
 	"DELETE /admin/backups/kept-homes/:volume": { access: "admin" },
+	// The package survey and the student's reinstall note (ADR 0042).
+	"GET /admin/packages": { access: "admin" },
+	"HEAD /admin/packages": { access: "admin" },
+	"GET /workspaces/:id/reinstall-note": owner,
+	"HEAD /workspaces/:id/reinstall-note": owner,
+	"POST /workspaces/:id/reinstall-note/dismiss": owner,
 
 	"GET /__portikus/bootstrap": { access: "preview-edge" },
 	"HEAD /__portikus/bootstrap": { access: "preview-edge" },

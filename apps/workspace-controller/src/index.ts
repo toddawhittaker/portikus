@@ -18,7 +18,6 @@ const provider = new IncusWorkspaceProvider({
 	client,
 	pool: config.INCUS_POOL,
 	profile: config.INCUS_PROFILE,
-	network: config.INCUS_NETWORK,
 	imageAlias: config.INCUS_IMAGE_ALIAS,
 	agentPort: config.AGENT_PORT,
 	logger,

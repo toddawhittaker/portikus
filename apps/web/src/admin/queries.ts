@@ -9,6 +9,7 @@ import {
 	type QuotaConfig,
 	type UpdateAdminUserSettingsRequest,
 	type UpdateGuardRequest,
+	type UpdateLimitsRequest,
 	type UpdatePlatformSettingsRequest,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -244,6 +245,24 @@ export function useGuardClear() {
 			init: { method: "POST" },
 		}),
 	);
+}
+
+/** One workspace's CPU, memory and process limits; null uses the profile (SPEC.md section 20.1). */
+export function useUpdateLimits() {
+	return useAdminWrite(
+		({ workspaceId, body }: { workspaceId: string; body: UpdateLimitsRequest }) => ({
+			url: `/admin/workspaces/${workspaceId}/limits`,
+			init: json("PUT", body),
+		}),
+	);
+}
+
+/** Send a workspace in error back to provisioning (SPEC.md section 20.1). */
+export function useReprovision() {
+	return useAdminWrite(({ workspaceId }: { workspaceId: string }) => ({
+		url: `/admin/workspaces/${workspaceId}/reprovision`,
+		init: { method: "POST" },
+	}));
 }
 
 export function useResetDocker() {

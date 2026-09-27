@@ -13,7 +13,7 @@ export const REASON_LABEL: Record<RecoveryReason, string> = {
 	"before-restore": "Before restore",
 	"before-rebuild": "Before rebuild",
 	"agent-session": "Before Claude Code or Codex session",
-	"before-replace-home": "Before home replaced",
+	"before-replace-home": "Before home folder replaced",
 };
 
 /**

@@ -1849,7 +1849,7 @@ describe("processes", () => {
 });
 
 // Admin operations (SPEC.md §19.3, §20.1): limits, the package list, kept
-// volumes, Replace home and the network's dnsmasq settings.
+// volumes and Replace home.
 describe("admin operations", () => {
 	const WS = "ws-0123456789abcdef01234567";
 	const POOL = "/1.0/storage-pools/mypool/volumes/custom";
@@ -1863,7 +1863,6 @@ describe("admin operations", () => {
 		volumes: Map<string, string[]>;
 		usedBy: Map<string, string[]>;
 		file: { status: number; type: string; body: string } | null;
-		networkPatches: Array<{ path: string; body: unknown }>;
 		requests: string[];
 		/** Fail the first request whose "METHOD path" starts with this, once. */
 		failOnce: string | null;
@@ -1884,7 +1883,6 @@ describe("admin operations", () => {
 			]),
 			usedBy: new Map(),
 			file: null,
-			networkPatches: [],
 			requests: [],
 			failOnce: null,
 		};
@@ -1993,9 +1991,6 @@ describe("admin operations", () => {
 				} else {
 					incusError(res, 404, `unexpected ${key}`);
 				}
-			} else if (p === "/1.0/networks/portikus-ws" && method === "PATCH") {
-				state.networkPatches.push({ path: req.url ?? "", body: JSON.parse(body) });
-				respond(res, 200, sync({}));
 			} else {
 				incusError(res, 404, `unexpected ${key}`);
 			}
@@ -2214,18 +2209,6 @@ describe("admin operations", () => {
 			]);
 		});
 	}
-
-	test("setNetworkDnsmasq patches only raw.dnsmasq on the workspace network", async () => {
-		const state = opsState();
-		serveOps(state);
-		await ops.setNetworkDnsmasq("server=/example.edu/#\n");
-		await ops.setNetworkDnsmasq("");
-		expect(state.networkPatches.map((p) => p.body)).toEqual([
-			{ config: { "raw.dnsmasq": "server=/example.edu/#\n" } },
-			{ config: { "raw.dnsmasq": "" } },
-		]);
-		expect(state.networkPatches[0]?.path).toContain("project=portikus");
-	});
 });
 
 describe("parseAddedPackages reads the apt hook's list as the image writes it", () => {
