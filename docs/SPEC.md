@@ -243,6 +243,12 @@ Requirements:
 5. A simple Incus `dir` backend is acceptable for an early developer proof of concept, but not the preferred pilot configuration.
 6. A future bare-metal deployment may use ZFS without requiring application-level changes.
 
+Storage pool rules (Epic 17, ADR 0034):
+
+1. The thin pool fails writes at once when full (`lv_when_full` is `error`), so a full pool gives the writing program "No space left on device" instead of freezing every workspace.
+2. A root timer writes the pool's data and metadata use to `/run/portikus-thinpool.json` every minute; the controller reads metadata use from it (section 20.1).
+3. The pool's fill is the larger of data and metadata use. At 70% the Health tab warns and administrators are notified; at 90% new workspaces are refused with `POOL_FULL` and wait in `provisioning` until there is room (section 20.1).
+
 ### 4.4 Workspace filesystem model
 
 The implementation should separate replaceable system state from persistent user data.
@@ -374,12 +380,25 @@ Browser sessions must:
 - defend state-changing requests against CSRF;
 - authenticate WebSocket upgrades;
 - expire according to configurable policy;
-- reject access immediately when server-side authorization is removed.
+- reject access immediately when server-side authorization is removed
+  (the preview gateway may lag by up to 2 seconds; see section 24.7).
 
 Sign-in is rate limited per client address in the API, since Dex has no
 lockout (Epic 12b, ADR 0023): sign-in starts and Dex password attempts have
 separate limits, the password attempts also have a site-wide total, and a
 refusal answers 429 `RATE_LIMITED` and is audited as `auth.throttled`.
+
+Added by Epic 17: each user may make 20 workspace start, stop and restart
+requests a minute in total, and 600 file and project writes a minute
+(every non-GET route in the files and projects APIs; recovery points,
+check runs and administrator routes are not limited). Over either limit the answer is 429
+`RATE_LIMITED`, "Too many requests just now. Try again in a minute.",
+with a `Retry-After` header; one warning is logged per user per window
+and nothing is audited. All of these limits, and the preview cap in
+section 24.7, count in fixed windows held in the API process. When no
+database connection frees up within 5 seconds the API answers 503
+`SERVICE_BUSY`; statements end after 30 seconds and idle transactions
+after 60.
 
 Added by Epic 14.2: an account that must change its password can use only
 the change-password page. Every other API route answers 403
@@ -483,6 +502,8 @@ Added by Epic 14.3 (ADR 0032): a second timer, **idle stop**, stops a running wo
 A stop should allow the workspace operating system and inner services a bounded period to shut down cleanly.
 
 If graceful stop does not complete within the configured timeout, the platform may force-stop the workspace and must record the event.
+
+A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 15 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
 
 ### 6.6 Persistence contract
 
@@ -866,6 +887,28 @@ attachments to one terminal are a shared tmux attach and must not create a
 second process. A full workspace stop ends the container and therefore the
 tmux sessions with it.
 
+The tmux server listens on a private socket named `portikus`
+(`/tmp/tmux-<uid>/portikus`, in tmux's own mode-0700 directory) and is
+started with `-f /dev/null`, so a student's `~/.tmux.conf` is never read;
+the agent sets every option it needs on each `new-session`. On images that
+run tmux in its own unit (`TMUX_EXTERNAL_SERVER=true`), the agent passes
+`-N` and never starts a server: a missing server is `TMUX_FAILED` saying the
+terminal service restarts within seconds. Every tmux call is killed after 5
+seconds and reported as `TMUX_FAILED`; only tmux's own "no such session"
+or "no server" answers count as a missing session, and a `new-session`
+whose later setup fails is killed rather than left behind. An ordinary terminal starts in the
+agent's `portikus-shell` wrapper, which unsets `TMUX` and `TMUX_PANE` (so a
+`tmux` typed in a pane is the student's own server) and, when the login
+shell exits within a second, prints "Your shell settings (~/.bashrc or
+~/.profile) made the shell exit, so this terminal started a plain shell.
+Fix the file, then open a new terminal." and starts
+`bash --noprofile --norc` once. Closing a terminal stops the pane's whole
+process tree, its descendants and every process in its session, with
+`SIGTERM`, then `SIGKILL` after 3 seconds to whatever is left, including
+anything that joined the session meanwhile; a zombie counts as gone, and a
+root whose start time no longer matches is left alone. A program that
+double-forks out of both escapes.
+
 Terminal metadata (§9.6, §26) is a durable control-plane row holding at
 least the terminal ID, its workspace, display name, working directory,
 layout position, creation time, and the time it ended. The control plane
@@ -913,6 +956,38 @@ to that project's directory (§9.4); the listing takes a `projectId` query that
 returns only that project's terminals. The control plane re-checks the session on an
 open terminal WebSocket at most once a second and closes the socket when
 the session is gone.
+
+When the terminals unit stops, systemd's `$SERVICE_RESULT` is written to
+`/run/portikus-terminals/last-exit`, or `oom-kill` when tmux died of
+`SIGKILL` and the unit's cgroup `memory.events` counts an `oom_kill`
+(with `OOMPolicy=continue` systemd itself says only `signal`), and the agent reports it on
+`GET /terminals/last-exit` as `{"exit":{"result":"…","at":"…"}}`, with `at`
+the file's modification time, or `{"exit":null}` when there is no record
+(images before 2026.09.11) or the record is not a plain result word. When
+the agent says a terminal's session is gone (`TERMINAL_NOT_FOUND` on
+attach), or ends an open terminal with `{"type":"exit","serverGone":true}`
+(the agent reads the attach client's final line, where tmux prints
+`[exited]` for an ended session and `[server exited]` or
+`[server exited unexpectedly]` when the server died, and asks tmux only
+when no such line ends the output; `serverGone` is true only when the
+terminals unit's tmux server is gone, and a line a student forges costs
+at most the one bounded record lookup), the control plane asks for that record (after an `exit` it asks
+again for up to 2 seconds, because the unit writes the record only once
+its processes are gone), and if the
+stop came after the terminal's creation time, sends the browser
+`{"type":"error","code":"TERMINAL_NOT_FOUND","reason":"…","at":"…"}`, where
+`reason` is `out_of_memory` for `oom-kill` and `restarted` for anything
+else; otherwise the agent's own frame passes through. An `exit` without
+`serverGone: true`, including one from an older agent, is an ordinary
+exit and reaches the browser at once with no lookup. The agent is
+untrusted, so the control plane makes at most one record lookup per
+terminal connection and drops whatever the agent sends after the ending
+frame. The browser then closes the pane and shows a warning toast, once per
+restart (`at`), titled "Your workspace ran out of memory, so its terminals
+were closed." or "Your workspace's terminals were closed.", with the body
+"Open a new terminal to carry on." When a pane that ends held the keyboard
+focus, focus moves to the work area's New control. Only the terminals
+unit's stop is explained; an agent restart no longer loses terminals.
 
 ## 10. Coding-agent integration
 
@@ -1070,6 +1145,19 @@ Changes made by:
 should appear in the tree promptly.
 
 Target event latency is defined in the non-functional section.
+
+The watcher does not follow generated folders (the names the tree hides,
+section 11.3) or other common caches and environments: `venv`, `env`,
+`.next`, `.cache`, `vendor`, `coverage`, `.gradle`, `.pytest_cache`,
+`.mypy_cache` and `.tox`. The tree still shows those extra names. A project
+with more than 20,000 folders, or whose first scan takes more than 10
+seconds, is not watched at all: the agent closes that
+watcher and sends one `{type: "watch_limited"}` frame instead of an error,
+because a retry would scan the whole tree again. The browser then stops
+reconnecting for that project, refreshes Files and Changes when the window
+regains focus and after the student's own file actions, and the Files pane
+says once: "This project is too large to update live. It refreshes when you
+return to the window."
 
 ### 11.5 Project-wide search
 
@@ -1328,6 +1416,12 @@ The editor must:
 - coordinate with filesystem events so changes made by an agent or second browser are not silently overwritten;
 - preserve unsaved local text long enough to resolve a detected conflict;
 - surface save failures clearly.
+
+A write that fails because the disk or quota is full (`ENOSPC` or `EDQUOT`)
+is `STORAGE_FULL` (HTTP 507) on every agent route, and the control plane
+relays it as such. A failed save then says "Your home folder is full. Delete
+files, then save again."; upload, new folder, move and project create say
+"Your home folder is full. Delete files, then try again."
 
 An explicit keyboard save command such as `Ctrl/Cmd+S` may force an immediate save, but students should not need to remember to save manually for normal operation.
 
@@ -1787,6 +1881,8 @@ Requirements:
 - projects without configured checks must remain usable;
 - an agent may run the same commands directly, and resulting state should be reflected when practical;
 - test execution must obey ordinary workspace resource limits.
+- stopping a check stops its whole process tree as closing a terminal does
+  (§9.7), and a check's output pauses for a slow watcher as a terminal's does.
 
 P0 does not require a universal test-framework parser, per-test graphical explorer, code-coverage UI, or IDE-style test debugging.
 
@@ -1813,6 +1909,8 @@ P0 should include:
 The Running surface is not intended to replace `ps`, `top`, `docker ps`, or a general process manager.
 
 Each row shows the port, then the process or container name with its tags (Docker, reserved port, system service) on a second line, so the name keeps the row's width. A previewable row's first action is a visible **Preview** button named "Preview port <n>" for assistive technology; opening in a new tab and Stop stay icon buttons. The details panel under a selected row is a key-and-value list on the page surface, not terminal-styled. In the tabbed right pane (Files, Checks, Running, Monitor) the tab names the pane, so each pane's heading is kept for screen readers only and no title row repeats it.
+
+The workspace agent finds listening ports by scanning `/proc` on a timer. A scan never starts while the previous one runs, and the timer scans only while a browser or the control plane watches the port events or a forward exists; `GET /listening` still scans on demand. A socket's owner is remembered from the last scan, and the `/proc/<pid>/fd` links are walked only for a new socket or an owner that has exited. Stopping a listener always walks afresh, and fails with `STOP_FAILED` rather than act on stale data when that scan fails.
 
 ### 18.3 Workspace status
 
@@ -1883,7 +1981,11 @@ Resource exhaustion must fail safely.
 
 One student's CPU, memory, storage, process count, or Docker workload must not materially degrade other users beyond the capacity limits of the shared host.
 
-When a workspace reaches its memory limit, the kernel kills the biggest process in it, and only that process: the workspace agent's unit sets `OOMPolicy=continue`, because terminals and student programs run in the agent's cgroup, so the agent and every open terminal keep running.
+When a workspace reaches its memory limit, the kernel kills the biggest process in it, and only that process: both the workspace agent's unit and the terminals unit set `OOMPolicy=continue`, so the rest keep running.
+
+On images from 2026.09.11 the tmux server, every shell and every program started in a terminal run in their own unit, `portikus-terminals.service` (`tmux -L portikus -f /dev/null -D` as the student, `Restart=always` after one second, `TasksMax=1700`), so an agent restart or an out-of-memory kill of the agent leaves terminals open, and a terminal's runaway program cannot starve the agent of processes. The agent's unit has `TasksMax=infinity`; the container's `pids.max` of 2000 is its only ceiling, which Docker containers share. The agent unit wants and orders after the terminals unit but never requires it, so a terminals restart never restarts the agent. No unit sets `OOMScoreAdjust` (ADR 0035).
+
+`/tmp` is a tmpfs capped at 512 MB and `/dev/shm` at 256 MB, so a big temporary file fails with "No space left on device" instead of using up the workspace's memory.
 
 ### 19.4 Resource guard
 
@@ -1996,6 +2098,25 @@ browser calls the single-workspace rebuild route once per workspace, so
 each request keeps its own audit row, CSRF check and pending-operation
 refusal; a refusal with 409 counts as skipped. There is no bulk API route,
 because it would only duplicate that logic.
+
+Added by Epic 17 (issue #613): the storage pool's fill is the larger of
+its data use (from Incus) and its metadata use (from
+`/run/portikus-thinpool.json`, written each minute by a root timer; the
+controller ignores a file older than 5 minutes). The host snapshot and
+`GET /admin/health` carry it as `pool.metadataPercent`, null when not
+reported. The Health tab shows metadata use beside data use and, at 70%
+fill, the text "Storage pool is over 70% full"; memory keeps its 80%
+warning. When the worker's health sample sees the fill cross 70% it
+records a warning notification for every enabled administrator, and at
+90% a danger one ("new workspaces are refused"); each level re-arms once
+the fill falls 5 points below it. At 90% the controller refuses
+`POST /instances` with 507 `POOL_FULL`, separate from `STORAGE_FULL`
+(one workspace's own volume). The worker leaves the workspace in
+`provisioning` with the message "There is no room for a new workspace
+right now. Your administrator has been told.", audits the first refusal
+as `workspace.provision_refused`, and tries again every sweep, so the
+workspace is created once space is freed. The student's starting screen
+shows that message. Start, stop and rebuild are never refused.
 
 ### 20.2 User impersonation
 
@@ -2131,7 +2252,8 @@ It should include at least:
 - Claude Code;
 - Codex;
 - tmux or the selected PTY persistence layer;
-- workspace-agent and service definition.
+- workspace-agent and service definition;
+- the terminals unit and its exit record (§9.7, §19.3).
 
 Additional language runtimes may be added according to course requirements.
 
@@ -2347,6 +2469,20 @@ The preview gateway must:
 - support WebSockets safely;
 - apply reasonable request/body/time limits while preserving development usability.
 
+As built (Epic 17): `GET /preview/authorize` keeps the preview session,
+main-session user and workspace rows behind a preview cookie in memory for
+2 seconds, and only when all three were found. It never keeps a decision:
+the host, port, label, owner, running state, bridge path, registry,
+bridge forward and activity checks run on every request from those rows.
+Any removal of authorization (sign-out, account disable, session expiry,
+a workspace stop or delete, a session gate) therefore reaches the gateway
+up to 2 seconds late, and so can regaining it, such as accepting the
+acceptable-use statement; a preview reset made through the API takes effect at
+once. Each preview session may make 2,000 authorized requests per 10
+seconds; past that the gateway answers 429 with a small "Too many
+requests" page and a `Retry-After` header, and logs one warning per session
+per window.
+
 ### 24.8 Secrets
 
 Sensitive credentials must not appear in:
@@ -2525,6 +2661,14 @@ A platform service restart should not corrupt student files.
 A control-plane failure must not silently destroy workspaces.
 
 A host/VM failure may terminate running processes in P0, but persisted data must remain recoverable according to backup policy.
+
+One crashed service or one busy workspace must not take the platform down for everyone (Epic 17, ADR 0034):
+
+- Caddy, PostgreSQL, Dex and every Portikus service restart on failure after 5 seconds.
+- The platform's services outrank workspaces: `system.slice` has CPU weight 1000 (a workspace has 100) and `MemoryLow=512M`, and PostgreSQL and the API each have `MemoryLow=256M`.
+- Each workspace's network is capped at 200 Mbit/s each way (`workspace_network_limit` in `site.yml`).
+- Every worker call to the controller and every controller call to Incus has a time budget, and stops run in the background so a stuck stop never delays a start (section 6.5).
+- The database pool waits at most 5 s for a connection, a statement at most 30 s, and an idle transaction at most 60 s; a pool timeout or an unreachable database answers 503 `SERVICE_BUSY`.
 
 ### 25.4 Availability
 
@@ -3516,6 +3660,43 @@ Acceptance:
 
 - every button a student needs looks like a button, and each stuck screen offers a next step;
 - the error screen never offers a Docker reset unless Docker storage is what filled up.
+
+### Epic 16 — Workspace resilience
+
+See `docs/adr/0035-terminals-in-their-own-unit.md` for the decision and sections 9.7, 11.4, 13.5, 18.1, 18.2, 19.3 and 21.7 for the rules; built on `epic/16-workspace-resilience` (issues #610, #618 to #625). Workspace image 2026.09.11.
+
+Includes:
+
+- `/tmp` and `/dev/shm` capped as tmpfs;
+- the tmux server in its own unit on a private socket, with the agent in external mode, a 5-second timeout on every tmux call, and the `portikus-shell` wrapper for a shell whose settings make it exit;
+- terminal close and Check stop that stop the whole process tree, and backpressure for Check output;
+- a port scanner that does not overlap itself, idles when unwatched, and caches socket owners;
+- a file watcher that skips more generated folders, stops at 20,000 folders with a "too large to update live" notice, and `STORAGE_FULL` on every agent route for a full disk;
+- a toast that says why terminals closed when the terminals unit stopped, from the unit's exit record.
+
+Acceptance:
+
+- a `tmux kill-server` typed in a pane, a broken `~/.tmux.conf` or `~/.bashrc`, a 600 MB file in `/tmp`, and an agent restart each leave the student's terminals working;
+- a full home folder gives the home-folder-full sentences, never a tmux error;
+- an agent that reports a terminal gone causes at most one exit-record lookup per connection.
+
+### Epic 17 — Platform resilience
+
+Built on `epic/17-platform-resilience` from the platform resilience audit of 2026-09-26 (issues #611 to #617). See sections 4.3, 5.3, 6.5, 20.1, 24.7 and 25.3 and ADR 0034.
+
+Includes:
+
+- restart on failure for Caddy and PostgreSQL, and CPU and memory priority for the platform's services over workspaces;
+- time budgets on every worker and controller call, and stops in the background;
+- a 2-second preview lookup cache, a per-session preview cap, database pool timeouts, and per-user limits on workspace lifecycle requests and file writes;
+- storage pool metadata on the Health tab, administrator notifications at 70% and 90%, refusal of new workspaces at 90%, and a pool that errors when full;
+- a 200 Mbit/s network cap per workspace.
+
+Acceptance:
+
+- killing Caddy or PostgreSQL brings the site back within about 10 s without restarting the API or worker;
+- a workspace whose stop hangs does not delay another workspace's start;
+- a write to a full pool fails at once, and a new workspace waits in `provisioning` until there is room.
 
 ### Epic 19 — Admin observability
 

@@ -858,6 +858,9 @@ test.describe("the preview in a real browser", () => {
 		const origin = await previewOrigin(page);
 		// The same thing a logout does to the session row.
 		await deleteSessions(student.userId);
+		// The gateway may reuse the session's rows for up to 2 seconds
+		// (ADR 0034 ruling 11), so wait that out first.
+		await page.waitForTimeout(2_100);
 
 		await page.goto(`${origin}/`);
 		await expect(page.locator("h1")).toHaveText("Preview session ended");

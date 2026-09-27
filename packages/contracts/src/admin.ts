@@ -225,7 +225,12 @@ export const HealthReport = z.object({
 			loadAverage: z.tuple([z.number(), z.number(), z.number()]),
 			cpuCount: z.number().int().positive(),
 			memory: z.object({ usedBytes: bytes, totalBytes: bytes }),
-			pool: z.object({ usedBytes: bytes, totalBytes: bytes }),
+			pool: z.object({
+				usedBytes: bytes,
+				totalBytes: bytes,
+				/** Thin-pool metadata use; null when the host has not reported it. */
+				metadataPercent: z.number().nonnegative().nullable(),
+			}),
 			profileLimits: z.object({
 				cpu: z.string().nullable(),
 				memory: z.string().nullable(),

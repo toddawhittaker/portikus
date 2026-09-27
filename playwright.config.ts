@@ -173,6 +173,10 @@ export default defineConfig({
 				// from 127.0.0.1 (issue #540); unit tests keep the real limit.
 				SIGNIN_START_LIMIT_PER_MINUTE: "100000",
 				JOURNALCTL_PATH: fakeJournalctl,
+				// The suite starts, stops and writes files for a few users far
+				// faster than a person; unit tests keep the real limits.
+				WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: "100000",
+				FILE_WRITE_LIMIT_PER_MINUTE: "100000",
 			},
 			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,

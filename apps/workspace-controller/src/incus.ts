@@ -1,6 +1,9 @@
 import * as http from "node:http";
 import type { ControllerErrorCode } from "@portikus/contracts";
 
+/** Bound for an Incus request whose caller passed no signal (ADR 0034 ruling 8). */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 export class IncusError extends Error {
 	readonly code: ControllerErrorCode;
 	constructor(code: ControllerErrorCode, message: string) {
@@ -8,6 +11,13 @@ export class IncusError extends Error {
 		this.name = "IncusError";
 		this.code = code;
 	}
+}
+
+function failure(message: string): IncusError {
+	if (message.includes("no space") || message.includes("not enough")) {
+		return new IncusError("STORAGE_FULL", message);
+	}
+	return new IncusError("OPERATION_FAILED", message);
 }
 
 interface IncusEnvelope {
@@ -47,12 +57,15 @@ export class IncusClient {
 		body?: unknown,
 		signal?: AbortSignal,
 		waitTimeout?: number,
+		requestTimeoutMs?: number,
 	): Promise<unknown> {
 		const envelope = await this.rawRequest(
 			method,
 			this.withProject(path),
 			body,
 			signal,
+			undefined,
+			requestTimeoutMs,
 		);
 
 		if (envelope.type === "async" && envelope.operation) {
@@ -147,8 +160,17 @@ export class IncusClient {
 		body?: unknown,
 		signal?: AbortSignal,
 		raw?: { headers: Record<string, string>; body: string },
+		timeoutMs: number | undefined = signal ? undefined : DEFAULT_REQUEST_TIMEOUT_MS,
 	): Promise<IncusEnvelope> {
 		return new Promise<IncusEnvelope>((resolve, reject) => {
+			const timer =
+				timeoutMs === undefined
+					? undefined
+					: setTimeout(() => {
+							reject(new IncusError("TIMEOUT", "request timed out"));
+							req.destroy();
+						}, timeoutMs);
+			const settle = (): void => clearTimeout(timer);
 			const payload = raw
 				? raw.body
 				: body !== undefined
@@ -174,6 +196,7 @@ export class IncusClient {
 					const chunks: Buffer[] = [];
 					res.on("data", (chunk: Buffer) => chunks.push(chunk));
 					res.on("end", () => {
+						settle();
 						try {
 							const text = Buffer.concat(chunks).toString();
 							const envelope = JSON.parse(text) as IncusEnvelope;
@@ -197,6 +220,7 @@ export class IncusClient {
 			);
 
 			req.on("error", (err: NodeJS.ErrnoException) => {
+				settle();
 				if (
 					err.code === "ECONNREFUSED" ||
 					err.code === "ENOENT" ||
@@ -233,13 +257,7 @@ export class IncusClient {
 			return new IncusError("ALREADY_EXISTS", envelope.error ?? "already exists");
 		}
 		if (httpStatus >= 400 && envelope.error) {
-			if (
-				envelope.error.includes("no space") ||
-				envelope.error.includes("not enough")
-			) {
-				return new IncusError("STORAGE_FULL", envelope.error);
-			}
-			return new IncusError("OPERATION_FAILED", envelope.error);
+			return failure(envelope.error);
 		}
 		return null;
 	}
@@ -250,21 +268,26 @@ export class IncusClient {
 		signal?: AbortSignal,
 	): Promise<unknown> {
 		const waitPath = `${operationUrl}/wait?timeout=${timeout}`;
-		const envelope = await this.rawRequest("GET", waitPath, undefined, signal);
+		// The wait itself is bounded by Incus; the HTTP request gets 5 s more.
+		const envelope = await this.rawRequest(
+			"GET",
+			waitPath,
+			undefined,
+			signal,
+			undefined,
+			(timeout + 5) * 1000,
+		);
 
-		if (envelope.status_code === 200) {
+		// The reply itself always says success; the operation's outcome is inside it.
+		const op = envelope.metadata as { status_code?: number; err?: string } | undefined;
+		const code = op?.status_code ?? 0;
+		if (code === 200) {
 			return envelope.metadata;
 		}
-		if (envelope.status_code === 103) {
-			throw new IncusError("TIMEOUT", "operation timed out");
+		if (code >= 400) {
+			throw failure(op?.err || "operation failed");
 		}
-		if (envelope.status_code === 400) {
-			const meta = envelope.metadata as Record<string, unknown> | undefined;
-			const errMsg = (meta?.err as string) ?? envelope.error ?? "operation failed";
-			throw new IncusError("OPERATION_FAILED", errMsg);
-		}
-
-		return envelope.metadata;
+		throw new IncusError("TIMEOUT", "operation timed out");
 	}
 
 	async ping(signal?: AbortSignal): Promise<boolean> {

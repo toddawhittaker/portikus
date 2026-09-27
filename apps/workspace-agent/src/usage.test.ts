@@ -200,6 +200,7 @@ test("GET /usage reports the second sample and does not log the command", async 
 		],
 	});
 	app = buildServer({
+		tmuxSocketName: "portikus-test",
 		tokenPath,
 		homeDir: procRoot,
 		logger: logs.logger,

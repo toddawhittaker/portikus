@@ -65,6 +65,24 @@ ct_overlaps() {
 check_output "a's and b's ID map ranges do not overlap" "0" ct_overlaps
 check "a's root maps to an unprivileged host ID" test "${ct_base_a:-0}" -ge 65536
 
+# ── The terminals unit and its tmux socket ───────────────────────
+
+# The tmux server runs as the student with no capabilities, and its socket
+# is the student's alone (issues #610 and #620).
+ct_tmux_status() {
+  sec_exec a root "grep -E '^(Uid|CapEff):' /proc/\$(systemctl show -p MainPID --value portikus-terminals)/status | awk '{ print \$2 }' | paste -sd' '"
+}
+check_output "a's tmux server runs as the student with no capabilities" "1000 0000000000000000" ct_tmux_status
+check_output "a's tmux socket directory is the student's, mode 0700" "700 1000" \
+  sec_exec a root "stat -c '%a %u' /tmp/tmux-1000"
+check "the student can use a's tmux socket (control)" \
+  sec_exec a root "setpriv --reuid=1000 --regid=1000 --init-groups tmux -S /tmp/tmux-1000/portikus -N list-sessions"
+check "another user cannot use a's tmux socket" \
+  sec_exec a root "! setpriv --reuid=65534 --regid=65534 --clear-groups tmux -S /tmp/tmux-1000/portikus -N list-sessions"
+# The student may write the exit record; nobody else may.
+check_output "a's exit record directory is the student's, mode 0755" "755 student" \
+  sec_exec a root "stat -c '%a %U' /run/portikus-terminals"
+
 # ── Root in a privileged inner Docker container ──────────────────
 
 # A privileged container with the workspace's / bind-mounted writes a file

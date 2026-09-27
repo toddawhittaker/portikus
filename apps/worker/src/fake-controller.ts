@@ -36,6 +36,8 @@ export class FakeControllerClient implements ControllerClient {
 
 	startResult: StartInstanceResponse | Error = { ipv4: "10.0.0.2" };
 	stopResult: StopInstanceResponse | Error = { forced: false };
+	/** When set, every stop waits for this promise before answering. */
+	stopHold: Promise<void> | null = null;
 	listResult: ListInstancesResponse | Error = [];
 
 	async create(req: CreateInstanceRequest): Promise<CreateInstanceResponse> {
@@ -52,6 +54,7 @@ export class FakeControllerClient implements ControllerClient {
 
 	async stop(name: string, timeoutSeconds: number): Promise<StopInstanceResponse> {
 		this.calls.push({ method: "stop", args: [name, timeoutSeconds] });
+		if (this.stopHold) await this.stopHold;
 		if (this.stopResult instanceof Error) throw this.stopResult;
 		return this.stopResult;
 	}
@@ -92,7 +95,12 @@ export class FakeControllerClient implements ControllerClient {
 		loadAverage: [0.5, 0.25, 0.1],
 		cpuCount: 4,
 		memory: { usedBytes: 2 * 2 ** 30, totalBytes: 8 * 2 ** 30 },
-		pool: { name: "workspace-data", usedBytes: 10 * 2 ** 30, totalBytes: 90 * 2 ** 30 },
+		pool: {
+			name: "workspace-data",
+			usedBytes: 10 * 2 ** 30,
+			totalBytes: 90 * 2 ** 30,
+			metadataPercent: null,
+		},
 		profileLimits: { cpu: "2", memory: "4GB", processes: "2000" },
 		image: { fingerprint: "abc123", serial: "2026.09.9" },
 		instances: [],

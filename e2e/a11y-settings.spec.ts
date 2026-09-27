@@ -26,6 +26,9 @@ async function openTerminal(page: Page, workspaceId: string, projectId: string) 
 	await page.getByTestId("launcher").click();
 	await page.getByTestId("launcher-terminal").click();
 	await expect(page.getByRole("tab", { name: "Terminal 1" })).toBeVisible();
+	await expect
+		.poll(() => terminalIds(workspaceId, projectId), { timeout: 15_000 })
+		.toHaveLength(1);
 	const [id] = await terminalIds(workspaceId, projectId);
 	if (!id) throw new Error("the terminal row was not created");
 	await expectConnected(page, id);
