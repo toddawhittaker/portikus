@@ -225,7 +225,13 @@ test("restore into a side copy, then replace home with a typed confirmation", as
 	await page
 		.getByRole("option", { name: `E2E Student (${stopped.label}), stopped` })
 		.click();
-	await expect(dialog.getByText("Start this workspace first.")).toBeVisible();
+	await expect(dialog.locator("#backup-restore-stopped")).toContainText(
+		"Start this workspace first.",
+	);
+	// The always-mounted status region carries the same words for screen readers.
+	await expect(
+		dialog.getByRole("status").filter({ hasText: "Start this workspace first." }),
+	).toHaveCount(1);
 	await expect(dialog.getByTestId("backup-restore-confirm")).toHaveAttribute(
 		"aria-disabled",
 		"true",

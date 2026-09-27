@@ -16,6 +16,9 @@ import { useState } from "react";
 import { ConfirmByLabelDialog } from "../ConfirmByLabelDialog.js";
 import { setTime, workspaceName } from "./model.js";
 
+const STOPPED_WARNING =
+	"Start this workspace first. The copy is written by the student's own account inside the running workspace.";
+
 /** What a Delete button asked to delete. */
 export type DeleteTarget =
 	| { kind: "set"; stamp: string }
@@ -196,16 +199,18 @@ export function RestoreDialog({
 							does not have room for the copy, the host refuses and nothing changes. The
 							student is told when the copy is done.
 						</p>
-						{/* Always mounted so the text change is announced. */}
-						<p
-							id="backup-restore-stopped"
-							className="m-0 text-[13px] text-status-warning empty:hidden"
-							role="status"
-						>
-							{stopped
-								? "Start this workspace first. The copy is written by the student's own account inside the running workspace."
-								: ""}
-						</p>
+						{stopped ? (
+							<p
+								id="backup-restore-stopped"
+								className="m-0 text-[13px] text-status-warning"
+							>
+								{STOPPED_WARNING}
+							</p>
+						) : null}
+						{/* Always mounted so the warning is announced when it appears. */}
+						<span className="sr-only" role="status">
+							{stopped ? STOPPED_WARNING : ""}
+						</span>
 						{serverError ? (
 							<p className="m-0 text-[13px] text-status-error" role="alert">
 								{serverError}

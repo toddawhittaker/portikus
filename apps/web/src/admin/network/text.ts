@@ -139,8 +139,3 @@ export function applyAnnouncement(state: ApplyState): string {
 		return "Applied. Every running workspace follows this policy.";
 	return "";
 }
-
-/** Focuses a heading once the closing dialog has let go of focus. */
-export function focusAfterClose(id: string): void {
-	requestAnimationFrame(() => document.getElementById(id)?.focus());
-}
