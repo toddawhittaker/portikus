@@ -22,6 +22,8 @@
 #   PORTIKUS_BACKUP_MIN_AGE_DAYS   retention never removes a set younger than this (default 14)
 #   PORTIKUS_BACKUP_MIN_FREE_MB    a run needs this much free space at least (default 1024)
 #   PORTIKUS_BACKUP_KEEP_COMPLETE  retention always keeps this many newest complete sets (default 3)
+#   PORTIKUS_BACKUP_MAX_INDEX_ENTRIES  files indexed per volume before the run stops (default 1000000)
+#   PORTIKUS_BACKUP_LOCK_WAIT_SECONDS  how long to wait for another VM's run on this host (default 3600)
 set -euo pipefail
 umask 077
 
@@ -36,6 +38,17 @@ MIN_FREE_MB="${PORTIKUS_BACKUP_MIN_FREE_MB:-1024}"
 [[ "$MIN_AGE_DAYS" =~ ^[0-9]{1,4}$ ]] || MIN_AGE_DAYS=14
 [[ "$KEEP_COMPLETE" =~ ^[0-9]{1,3}$ ]] || KEEP_COMPLETE=3
 [[ "$MIN_FREE_MB" =~ ^[0-9]{1,9}$ ]] || MIN_FREE_MB=1024
+MAX_INDEX_ENTRIES="${PORTIKUS_BACKUP_MAX_INDEX_ENTRIES:-1000000}"
+[[ "$MAX_INDEX_ENTRIES" =~ ^[0-9]{1,9}$ ]] || MAX_INDEX_ENTRIES=1000000
+LOCK_WAIT="${PORTIKUS_BACKUP_LOCK_WAIT_SECONDS:-3600}"
+[[ "$LOCK_WAIT" =~ ^[0-9]{1,6}$ ]] || LOCK_WAIT=3600
+# Counted against the run's byte budget for every file it writes (ADR 0039).
+FILE_OVERHEAD=8192
+# The longest path the index records; a longer one stops the run.
+MAX_PATH_BYTES=4096
+# Caps on what the VM may list; the contract allows 2000 instances.
+MAX_INSTANCES=2000
+MAX_VOLUMES=8000
 # The VM half, sent with every command rather than installed on the VM.
 EXPORT_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-export"
 SET_PATTERN='^[0-9]{8}T[0-9]{6}Z$'
@@ -47,29 +60,47 @@ COUNTS_PATTERN='^users [0-9]+ workspaces [0-9]+ projects [0-9]+$'
 VERSION_PATTERN='^[0-9A-Za-z.+~:-]+$'
 HOSTNAME_PATTERN='^[a-z0-9][a-z0-9-]{0,62}$'
 INSTANCE_PATTERN='^ws-[0-9a-f]{24}$'
-IDMAP_PATTERN='^\[[][{}":,A-Za-z0-9]*\]$'
+IDMAP_PATTERN='^\[[][{}":,A-Za-z0-9]{0,4096}\]$'
 
 # Reads a stream on stdin and copies it to stdout unchanged, writing its size
-# and SHA-256 to argv[2].  Past argv[4] bytes it stops, exits 3 and writes
-# argv[5], so one run cannot fill the disk.  With argv[1] = tar it also writes a JSON line per
+# and SHA-256 to argv[2].  With argv[1] = tar it also writes a JSON line per
 # regular file (path, size, SHA-256) and per Git repository (HEAD commit)
-# to argv[3], so a restore can be checked file by file.
+# to argv[3], so a restore can be checked file by file.  The stream plus
+# twice the index (plain here, encrypted later) may not pass argv[4] bytes,
+# nor a path argv[6] bytes, nor the index argv[7] entries: past any of
+# them it writes the reason to argv[5] and exits 3.
 INDEXER='
 import hashlib, json, sys, tarfile
 mode, sum_path = sys.argv[1], sys.argv[2]
 budget, over_path = int(sys.argv[4]), sys.argv[5]
+max_path, max_entries = int(sys.argv[6]), int(sys.argv[7])
+def over(reason):
+    with open(over_path, "w") as f:
+        f.write(reason)
+    sys.exit(3)
 class Tee:
     def __init__(self):
-        self.h, self.n = hashlib.sha256(), 0
+        self.h, self.n, self.index = hashlib.sha256(), 0, 0
+    def check(self):
+        if self.n + 2 * self.index > budget:
+            over("the run passed its byte budget")
     def read(self, size=-1):
         b = sys.stdin.buffer.read(size if size and size > 0 else 1 << 20)
         self.h.update(b); self.n += len(b)
-        if self.n > budget:
-            open(over_path, "w").close()
-            sys.exit(3)
+        self.check()
         sys.stdout.buffer.write(b)
         return b
 tee = Tee()
+entries = 0
+def record(index, entry):
+    global entries
+    entries += 1
+    if entries > max_entries:
+        over(f"the volume has more than {max_entries} files")
+    line = json.dumps(entry) + "\n"
+    tee.index += len(line.encode(errors="surrogateescape"))
+    tee.check()
+    index.write(line)
 if mode == "tar":
     prefix = "backup/volume/"
     heads, refs = {}, {}
@@ -78,6 +109,8 @@ if mode == "tar":
             if not m.isfile() or not m.name.startswith(prefix):
                 continue
             path = m.name[len(prefix):]
+            if len(path.encode(errors="surrogateescape")) > max_path:
+                over(f"a path is longer than {max_path} bytes")
             data = tar.extractfile(m)
             h = hashlib.sha256()
             small = b""
@@ -85,7 +118,7 @@ if mode == "tar":
                 h.update(chunk)
                 if len(small) < 65536:
                     small += chunk
-            index.write(json.dumps({"f": path, "size": m.size, "sha256": h.hexdigest()}) + "\n")
+            record(index, {"f": path, "size": m.size, "sha256": h.hexdigest()})
             repo, sep, rest = path.rpartition(".git/")
             if not sep or (repo and not repo.endswith("/")):
                 continue
@@ -102,7 +135,7 @@ if mode == "tar":
         for repo, head in sorted(heads.items()):
             ref = head[5:].strip() if head.startswith("ref:") else None
             commit = refs.get((repo, ref)) if ref else head
-            index.write(json.dumps({"git": repo, "ref": ref, "head": commit}) + "\n")
+            record(index, {"git": repo, "ref": ref, "head": commit})
 while tee.read():
     pass
 sys.stdout.buffer.flush()
@@ -133,6 +166,18 @@ enough_free_space() {
 must() { [[ "$3" =~ $2 ]] || die "the VM sent a ${1} that is not in the expected form; nothing was kept"; }
 # lines TEXT -- TEXT one line at a time, and nothing at all when it is empty.
 lines() { [ -z "$1" ] || printf '%s\n' "$1"; }
+# bounded NAME MAX_BYTES MAX_LINES COMMAND... -- COMMAND's output, or stop
+# the run when it fails or passes either cap, so no VM answer is read whole.
+bounded() {
+  local name=$1 max_bytes=$2 max_lines=$3 out rc LC_ALL=C
+  shift 3
+  out=$(set +o pipefail; "$@" | head -c $((max_bytes + 1)); exit "${PIPESTATUS[0]}") && rc=0 || rc=$?
+  if [ "${#out}" -gt "$max_bytes" ] || [ "$(lines "$out" | wc -l)" -gt "$max_lines" ]; then
+    die "the VM sent a ${name} longer than the host accepts; nothing was kept"
+  fi
+  [ "$rc" = 0 ] || die "the VM's ${name} failed; nothing was kept"
+  printf '%s' "$out"
+}
 
 check_state=no
 expected_name=
@@ -160,7 +205,7 @@ vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 "deploy@${VM}" "$@"; }
 export_b64=$(base64 -w0 "$EXPORT_SCRIPT")
 remote_export() { vm "sudo bash -c \"\$(echo ${export_b64} | base64 -d)\" portikus-backup-export $*"; }
 
-vm_name=$(vm hostname)
+vm_name=$(bounded hostname 64 1 vm hostname)
 must "hostname" "$HOSTNAME_PATTERN" "$vm_name"
 [ "$vm_name" = "$expected_name" ] || die "${VM} calls itself '${vm_name}', not '${expected_name}'; nothing was kept"
 HOST_DIR="${BACKUP_DIR}/${expected_name}"
@@ -169,11 +214,15 @@ install -d -m 0700 "$HOST_DIR"
 # One run per VM at a time; the lock goes with the process.
 exec {lock}>"${HOST_DIR}/.lock"
 flock -n "$lock" || die "another backup of ${vm_name} is running"
+# And one run per host, so two VMs never spend the same free space.
+exec {host_lock}>"${BACKUP_DIR}/.lock"
+flock -w "$LOCK_WAIT" "$host_lock" || die "another backup on this host ran for over ${LOCK_WAIT} seconds; nothing was kept"
 
 started=$(date +%s)
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 work="${HOST_DIR}/.partial-${stamp}"
-scratch=$(mktemp -d)
+# Scratch lives beside the set, inside the budget, never in /tmp.
+scratch="${HOST_DIR}/.partial-scratch-${stamp}"
 # A set is renamed into place only when complete; anything else is removed.
 trap 'rm -rf "$scratch" "$work"' EXIT
 # Leftovers of a run that was killed; the lock proves none is live.
@@ -181,8 +230,9 @@ find "$HOST_DIR" -maxdepth 1 -name '.partial-*' -exec rm -rf {} +
 enough_free_space || die "refused by the host: not enough free space"
 # The run's byte budget: what is free now, less the floor it must leave.
 budget=$(( $(df -B1 --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ') - MIN_FREE_MB * 1048576 ))
-used=0
-install -d -m 0700 "$work"
+# The MANIFEST, its encrypted copy, FAILED and SKIPPED.
+used=$((4 * FILE_OVERHEAD))
+install -d -m 0700 "$work" "$scratch"
 manifest="${scratch}/MANIFEST"
 
 if [ "$check_state" = yes ]; then
@@ -199,18 +249,25 @@ fi
 
 # Each listing is read with $(...), not through a pipe, so a failed listing
 # stops the run instead of reading as an empty one.
-version=$(vm "dpkg-query -W -f='\${Version}' portikus")
+version=$(bounded "package version" 256 1 vm "dpkg-query -W -f='\${Version}' portikus")
 must "package version" "$VERSION_PATTERN" "$version"
-counts=$(remote_export counts)
+counts=$(bounded "row count" 256 1 remote_export counts)
 must "row count" "$COUNTS_PATTERN" "$counts"
-workspace_list=$(remote_export workspaces)
-volume_list=$(remote_export volumes)
-instance_list=$(remote_export instances)
+workspace_list=$(bounded "workspace listing" $((MAX_INSTANCES * 64)) "$MAX_INSTANCES" remote_export workspaces)
+volume_list=$(bounded "volume listing" $((MAX_VOLUMES * 40)) "$MAX_VOLUMES" remote_export volumes)
+instance_list=$(bounded "instance listing" $((MAX_INSTANCES * 28)) "$MAX_INSTANCES" remote_export instances)
 mapfile -t workspaces < <(lines "$workspace_list")
 mapfile -t volumes < <(lines "$volume_list")
 mapfile -t instances < <(lines "$instance_list")
 for ws in "${workspaces[@]}"; do
   must "workspace line" "$WORKSPACE_PATTERN" "$ws"
+done
+declare -A listed_instance=() listed_volume=() workspace_instance=()
+for inst in "${instances[@]}"; do
+  [[ "$inst" =~ $INSTANCE_PATTERN ]] && listed_instance[$inst]=1
+done
+for ws in "${workspaces[@]}"; do
+  workspace_instance[${ws#* }]=1
 done
 # Only the volumes of a listed instance are exported, so made-up names
 # cannot pad the run; an orphaned volume is skipped, not fatal.
@@ -218,7 +275,8 @@ kept_volumes=()
 skipped=()
 for vol in "${volumes[@]}"; do
   must "volume name" "$VOLUME_PATTERN" "$vol"
-  if printf '%s\n' "${instances[@]}" | grep -qx "${vol%-*}"; then
+  listed_volume[$vol]=1
+  if [ -n "${listed_instance[${vol%-*}]:-}" ]; then
     kept_volumes+=("$vol")
   else
     skipped+=("$vol")
@@ -234,9 +292,8 @@ if [ "${#workspaces[@]}" != "$(awk '{ print $4 }' <<<"$counts")" ]; then
 fi
 # A workspace row gets its instance name before the instance exists, so only
 # a workspace whose instance is there must have a home volume in the listing.
-for inst in "${instances[@]}"; do
-  [[ "$inst" =~ $INSTANCE_PATTERN ]] || continue
-  if grep -q " ${inst}\$" <<<"$workspace_list" && ! grep -qx "${inst}-home" <<<"$volume_list"; then
+for inst in "${!listed_instance[@]}"; do
+  if [ -n "${workspace_instance[$inst]:-}" ] && [ -z "${listed_volume[${inst}-home]:-}" ]; then
     die "workspace instance ${inst} exists but the volume listing has no ${inst}-home; nothing was kept"
   fi
 done
@@ -258,23 +315,27 @@ done
 pull() {
   local name=$1 mode=$2
   shift 2
+  # .sum, .index, .age and .index.age.
+  used=$((used + 4 * FILE_OVERHEAD))
   if ! remote_export "$@" \
     | python3 -c "$INDEXER" "$mode" "${scratch}/${name}.sum" "${scratch}/${name}.index" \
-      "$((budget - used))" "${scratch}/over-budget" \
+      "$((budget - used))" "${scratch}/over" "$MAX_PATH_BYTES" "$MAX_INDEX_ENTRIES" \
     | age -R "$RECIPIENTS" -o "${work}/${name}.age"; then
     rm -f "${work}/${name}.age"
-    # Over budget stops the whole run; the trap removes the partial set.
-    [ ! -e "${scratch}/over-budget" ] || die "${name}: the run passed its byte budget of ${budget} bytes; nothing was kept"
+    # A breached limit stops the whole run; the trap removes the partial set.
+    [ ! -e "${scratch}/over" ] || die "${name}: $(head -c 200 "${scratch}/over"); nothing was kept"
     return 1
   fi
-  used=$((used + $(cut -d' ' -f1 "${scratch}/${name}.sum")))
+  local index_bytes=0
+  [ ! -e "${scratch}/${name}.index" ] || index_bytes=$(stat -c %s "${scratch}/${name}.index")
+  used=$((used + $(cut -d' ' -f1 "${scratch}/${name}.sum") + 2 * index_bytes))
 }
 
 info "database"
 pull db.dump plain db || die "db.dump: the pipeline failed (ssh, index or age)"
 echo "file db.dump $(cat "${scratch}/db.dump.sum")" >>"$manifest"
 # Dex's accounts replace the users file's encrypted copy (docs/archive/epics/EPIC-14.md ruling 23).
-has_dex=$(remote_export has-dex)
+has_dex=$(bounded "Dex database check" 8 1 remote_export has-dex)
 must "Dex database check" '^[01]$' "$has_dex"
 if [ "$has_dex" = 1 ]; then
   info "Dex database"
@@ -291,9 +352,10 @@ for vol in "${volumes[@]}"; do
     echo "failed ${vol}" >>"$manifest"
     continue
   fi
-  idmap=$(remote_export idmap "$vol")
+  idmap=$(bounded "volume ID map" 4200 1 remote_export idmap "$vol")
   [ -z "$idmap" ] || must "volume ID map" "$IDMAP_PATTERN" "$idmap"
   age -R "$RECIPIENTS" -o "${work}/${vol}.index.age" "${scratch}/${vol}.index"
+  rm -f "${scratch}/${vol}.index"
   echo "volume ${vol} $(cat "${scratch}/${vol}.sum") ${idmap:--}" >>"$manifest"
 done
 

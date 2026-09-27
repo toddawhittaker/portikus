@@ -14,8 +14,12 @@ Environment=PORTIKUS_BACKUP_RECIPIENTS=@RECIPIENTS@
 # The retention floor, the same as the channel unit (ADR 0039).
 Environment=PORTIKUS_BACKUP_MIN_AGE_DAYS=14
 Environment=PORTIKUS_BACKUP_MIN_FREE_MB=1024
+Environment=PORTIKUS_BACKUP_MAX_INDEX_ENTRIES=1000000
 Environment=PORTIKUS_BACKUP_KEEP_COMPLETE=3
 # The name comes from the OpenTofu state; the VM's own hostname must match it.
 ExecStart=/usr/local/sbin/portikus-backup --vm-name @VM_NAME@ @VM_IP@
 Nice=10
 IOSchedulingClass=idle
+PrivateTmp=yes
+# A large pull takes hours; a hung SSH is cut by its keepalive.
+TimeoutStartSec=12h

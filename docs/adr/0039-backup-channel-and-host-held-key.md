@@ -98,6 +98,21 @@ nightly backup. The run logs a warning with the count and at most three
 names, and the set records the count in a plain `SKIPPED` file (and a
 `skipped` MANIFEST line), which the Backups tab shows.
 
+Every host-side write in a run is bounded, not only the streams. The
+per-file index counts against the same budget, twice, because it exists
+in plain and encrypted form at once. A path longer than 4096 bytes, or
+more than `PORTIKUS_BACKUP_MAX_INDEX_ENTRIES` (default 1,000,000) files in
+one volume, stops the whole run and keeps nothing. Each file the run
+writes also counts a fixed 8 KiB. Scratch files live in a
+`.partial-scratch-*` directory beside the set, inside the budget, and
+never in `/tmp`; the units also set `PrivateTmp=yes` and a 12-hour
+`TimeoutStartSec`. Every answer from the VM is read with a byte cap and a
+line cap: at most 2000 workspaces and 2000 instances (the contract's
+limit), 8000 volumes, and an ID map of at most 4096 characters. A longer
+answer stops the run. One host-wide lock covers the budget measurement
+and the whole run, so backups of two VMs never spend the same free
+space; a run waits up to an hour for it, then gives up.
+
 **The private key is installed on the host, root-only,** as
 `/etc/portikus-backup/age-key.txt` (file 0600, directory 0700, owner
 root), by `make backup-install-key KEY=<path>`, which first checks that the

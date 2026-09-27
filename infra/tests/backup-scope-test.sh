@@ -164,12 +164,18 @@ case "\$cmd" in
   *"\$X has-dex") echo "\${FAKE_HAS_DEX:-1}" ;;
   *"\$X dex-db") printf 'PGDMP fake dex dump' ;;
   *"\$X counts") echo "users 3 workspaces 1 projects 6" ;;
-  *"\$X workspaces") [ -n "\${FAKE_WORKSPACES_EMPTY:-}" ] && exit 0; echo "\${FAKE_WORKSPACE:-11111111-2222-3333-4444-555555555555 ${INST}}" ;;
-  *"\$X instances") echo "${INST}" ;;
-  *"\$X idmap "*) echo '[{"Isuid":true,"Hostid":1327680}]' ;;
+  *"\$X workspaces") [ -n "\${FAKE_WORKSPACES_EMPTY:-}" ] && exit 0
+    [ -z "\${FAKE_WORKSPACE_BYTES:-}" ] || { head -c "\$FAKE_WORKSPACE_BYTES" /dev/zero | tr '\\0' a; exit 0; }
+    echo "\${FAKE_WORKSPACE:-11111111-2222-3333-4444-555555555555 ${INST}}" ;;
+  *"\$X instances")
+    echo "${INST}"
+    [ -z "\${FAKE_MORE_INSTANCES:-}" ] || for i in \$(seq 1 "\$FAKE_MORE_INSTANCES"); do printf 'ws-%024x\\n' "\$i"; done ;;
+  *"\$X idmap "*)
+    [ -z "\${FAKE_IDMAP_BYTES:-}" ] || { printf '[%*s]\\n' "\$FAKE_IDMAP_BYTES" '' | tr ' ' 1; exit 0; }
+    echo '[{"Isuid":true,"Hostid":1327680}]' ;;
   *"\$X volume "*)
     [ "\${cmd##* }" = "\${FAKE_VOLUME_FAILS:-}" ] && exit 1
-    [ -z "\${FAKE_BIG_VOLUME:-}" ] || exec cat "${work}/big.tar.gz"
+    [ -z "\${FAKE_VOLUME_FILE:-}" ] || exec cat "\$FAKE_VOLUME_FILE"
     cat "${work}/volume.tar.gz" ;;
   "incus image show"*) ;;
   "incus storage volume list"*) printf '%s\n' \${FAKE_EXISTING:-} ;;
@@ -497,7 +503,7 @@ rm -rf "${work}/big"
 sleep 1
 floor_mib=$(( $(avail_mib) - 1 ))
 refused_run "a VM streaming past the run's budget stops the whole run and keeps nothing" "passed its byte budget" \
-  PORTIKUS_BACKUP_MIN_FREE_MB="$floor_mib" FAKE_BIG_VOLUME=1
+  PORTIKUS_BACKUP_MIN_FREE_MB="$floor_mib" FAKE_VOLUME_FILE="${work}/big.tar.gz"
 expect "the partial set is removed" "! find '$mine' -maxdepth 1 -name '.partial-*' | grep -q ."
 expect "the run left the free-space floor free" "[ \$(avail_mib) -ge $floor_mib ]"
 # A killed run's 64 MiB leftover is cleared before free space is measured.
@@ -512,6 +518,50 @@ if env PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RE
 else
   bad "a leftover partial set does not cause a false free-space refusal ($(tail -1 "${work}/backup.out"))"
 fi
+
+# The index counts too (ADR 0039).  A tarball of many empty files with long
+# paths compresses to little, but its index would be megabytes.
+python3 - "${work}/paths.tar.gz" "${work}/longpath.tar.gz" <<'PY'
+import io, sys, tarfile
+def build(out, names):
+    with tarfile.open(out, "w:gz", format=tarfile.PAX_FORMAT) as t:
+        for n in names:
+            t.addfile(tarfile.TarInfo("backup/volume/" + n), io.BytesIO(b""))
+build(sys.argv[1], [f"{i:06d}/" + "d" * 3900 for i in range(3000)])
+build(sys.argv[2], ["x" * 5000])
+PY
+tmp_probe="${work}/tmp-probe"
+mkdir -p "$tmp_probe"
+sleep 1
+floor_mib=$(( $(avail_mib) - 1 ))
+refused_run "an index bigger than the budget stops the run and keeps nothing" "passed its byte budget" \
+  PORTIKUS_BACKUP_MIN_FREE_MB="$floor_mib" FAKE_VOLUME_FILE="${work}/paths.tar.gz" TMPDIR="$tmp_probe"
+expect "the budgeted run leaves no partial set or scratch" "! find '$mine' -maxdepth 1 -name '.partial-*' | grep -q ."
+sleep 1
+refused_run "a path longer than 4096 bytes stops the run and keeps nothing" "a path is longer than 4096 bytes" \
+  FAKE_VOLUME_FILE="${work}/longpath.tar.gz" TMPDIR="$tmp_probe"
+expect "a run writes nothing to the temporary directory" "[ -z \"\$(ls -A '$tmp_probe')\" ]"
+sleep 1
+refused_run "a volume with more files than the cap stops the run" "the volume has more than 0 files" \
+  PORTIKUS_BACKUP_MAX_INDEX_ENTRIES=0
+
+echo "--- what the VM may list ---"
+sleep 1
+refused_run "more than 2000 instances are refused" "instance listing longer than the host accepts" FAKE_MORE_INSTANCES=2000
+sleep 1
+refused_run "an oversized workspace listing is refused" "workspace listing longer than the host accepts" \
+  FAKE_WORKSPACE_BYTES=200000
+sleep 1
+refused_run "an oversized ID map is refused" "ID map longer than the host accepts" FAKE_IDMAP_BYTES=5000
+
+echo "--- one run per host ---"
+flock "${sets}/.lock" sleep 20 &
+holder=$!
+sleep 1
+refused_run "a run waits for another VM's run on this host, then gives up" "another backup on this host" \
+  PORTIKUS_BACKUP_LOCK_WAIT_SECONDS=1
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
 
 # doctored NAME -- a copy of the good set, for one test to spoil.
 doctored() { rm -rf "${work:?}/$1"; cp -r "$newest" "${work}/$1"; printf '%s' "${work}/$1"; }
