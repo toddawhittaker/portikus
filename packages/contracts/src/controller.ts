@@ -42,6 +42,18 @@ export const CreateInstanceResponse = z.object({
 export type CreateInstanceResponse = z.infer<typeof CreateInstanceResponse>;
 
 /**
+ * A hard CPU cap as a time slice, such as `100ms/100ms` for one CPU's worth.
+ * Never a percentage, which Incus treats as a soft share (ADR 0032).
+ */
+export const CpuAllowance = z
+	.string()
+	.regex(/^\d{1,6}ms\/100ms$/, "Must be a time slice such as 100ms/100ms")
+	.refine((value) => Number.parseInt(value, 10) > 0, {
+		message: "Must be more than 0ms",
+	});
+export type CpuAllowance = z.infer<typeof CpuAllowance>;
+
+/**
  * Request body for `POST /instances/:name/start` (SPEC.md §26, §27).
  */
 export const StartInstanceRequest = z.object({
@@ -77,6 +89,9 @@ export const StartInstanceRequest = z.object({
 	// Size of the recovery volume to add when it is missing (ADR 0020).
 	// When absent the controller skips that step.
 	recoveryGiB: z.number().int().positive().optional(),
+	// A held throttle's allowance, set before the instance runs so a restart
+	// never gives it a moment at full speed. When absent any allowance is removed.
+	cpuAllowance: CpuAllowance.optional(),
 });
 export type StartInstanceRequest = z.infer<typeof StartInstanceRequest>;
 
@@ -184,23 +199,70 @@ export const InstanceProcessesResponse = z.object({
 });
 export type InstanceProcessesResponse = z.infer<typeof InstanceProcessesResponse>;
 
-/**
- * A hard CPU cap as a time slice, such as `100ms/100ms` for one CPU's worth.
- * Never a percentage, which Incus treats as a soft share (ADR 0032).
- */
-export const CpuAllowance = z
-	.string()
-	.regex(/^\d{1,6}ms\/100ms$/, "Must be a time slice such as 100ms/100ms")
-	.refine((value) => Number.parseInt(value, 10) > 0, {
-		message: "Must be more than 0ms",
-	});
-export type CpuAllowance = z.infer<typeof CpuAllowance>;
-
 /** Request body for `PUT /instances/:name/cpu-allowance`; null removes it. */
 export const SetCpuAllowanceRequest = z
 	.object({ allowance: CpuAllowance.nullable() })
 	.strict();
 export type SetCpuAllowanceRequest = z.infer<typeof SetCpuAllowanceRequest>;
+
+/**
+ * Request body for `PUT /instances/:name/limits`: per-workspace limits set on
+ * the instance, never the profile. Null removes the instance's own key so the
+ * profile's value applies again (SPEC.md §19.3).
+ */
+export const SetInstanceLimitsRequest = z
+	.object({
+		cpu: z.number().int().min(1).max(64).nullable(),
+		memoryMiB: z.number().int().min(512).max(262144).nullable(),
+		processes: z.number().int().min(500).max(32768).nullable(),
+	})
+	.strict();
+export type SetInstanceLimitsRequest = z.infer<typeof SetInstanceLimitsRequest>;
+
+/** A Debian package name, as policy section 5.6.1 allows it. */
+export const DebianPackageName = z.string().regex(/^[a-z0-9][a-z0-9+.-]{1,99}$/);
+export type DebianPackageName = z.infer<typeof DebianPackageName>;
+
+/**
+ * Response body for `GET /instances/:name/added-packages`: the packages the
+ * student added with apt, from the list the image's apt hook writes. `image`
+ * is the image version named in its header, or null when there is none.
+ */
+export const AddedPackagesResponse = z.object({
+	image: z.string().nullable(),
+	packages: z.array(DebianPackageName),
+});
+export type AddedPackagesResponse = z.infer<typeof AddedPackagesResponse>;
+
+/** A workspace's own custom volume, the only kind a snapshot is deleted from. */
+export const WorkspaceVolumeName = z
+	.string()
+	.regex(/^ws-[0-9a-f]{24}-(home|docker|recovery)$/, "Must be a workspace volume");
+
+/** A pre-change snapshot; the backup's own `portikus-backup` never matches. */
+export const PreChangeSnapshotName = z
+	.string()
+	.regex(/^pre-[a-z0-9][a-z0-9-]{0,62}$/, "Must be a pre-change snapshot");
+
+/** A home kept by Replace home, the only volume the controller deletes by name. */
+export const KeptHomeVolumeName = z
+	.string()
+	.regex(/^ws-[0-9a-f]{24}-home-replaced-[0-9]{1,20}$/, "Must be a kept home");
+
+/** Response body for `GET /volumes/kept`. */
+export const KeptVolumesResponse = z.object({
+	snapshots: z.array(
+		z.object({ volume: z.string(), name: z.string(), createdAt: z.string() }),
+	),
+	keptHomes: z.array(
+		z.object({ volume: z.string(), instance: z.string(), createdAt: z.string() }),
+	),
+});
+export type KeptVolumesResponse = z.infer<typeof KeptVolumesResponse>;
+
+/** Response body for `POST /instances/:name/replace-home`: the kept home's volume. */
+export const ReplaceHomeResponse = z.object({ kept: z.string().min(1) });
+export type ReplaceHomeResponse = z.infer<typeof ReplaceHomeResponse>;
 
 /**
  * Error codes returned by the workspace controller (SPEC.md §27;

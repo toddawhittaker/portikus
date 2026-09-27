@@ -191,6 +191,7 @@ test("ControllerConfig applies Incus defaults", () => {
 	expect(config.INCUS_PROJECT).toBe("portikus");
 	expect(config.INCUS_POOL).toBe("workspace-data");
 	expect(config.INCUS_PROFILE).toBe("workspace");
+	expect(config.INCUS_NETWORK).toBe("portikus-ws");
 	expect(config.INCUS_IMAGE_ALIAS).toBe("portikus");
 });
 

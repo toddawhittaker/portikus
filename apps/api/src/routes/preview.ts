@@ -19,6 +19,7 @@ import {
 import { createBridgeForwards, parseBridgeUri } from "../preview/bridge.js";
 import { type EmbeddableVerdict, probeEmbeddable } from "../preview/embeddable.js";
 import {
+	httpsServicePage,
 	inactiveServicePage,
 	refusedPage,
 	resetPage,
@@ -664,6 +665,10 @@ export function registerPreviewRoutes(
 		const service = registry.service(session.workspace_id, port);
 		if (!service || service.previewReachability === "denied") {
 			return page(reply, 503, inactiveServicePage(port));
+		}
+		// The gateway reaches the workspace over plain HTTP only (issue #283).
+		if (service.protocolHint === "https") {
+			return page(reply, 503, httpsServicePage(port));
 		}
 		if (target.kind !== "port") {
 			// The session's own port got its forward when the grant was issued.

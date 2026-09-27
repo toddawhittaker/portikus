@@ -225,6 +225,16 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /admin/health": { access: "admin" },
 	"GET /admin/health/series": { access: "admin" },
 	"HEAD /admin/health/series": { access: "admin" },
+	// Backups from the admin page (SPEC.md section 24.9, ADR 0024).
+	"GET /admin/backups": { access: "admin" },
+	"HEAD /admin/backups": { access: "admin" },
+	"POST /admin/backups/run": { access: "admin" },
+	"DELETE /admin/backups/sets/:stamp": { access: "admin" },
+	"DELETE /admin/backups/dumps/:file": { access: "admin" },
+	"POST /admin/backups/restores": { access: "admin" },
+	"POST /admin/backups/restores/:id/replace-home": { access: "admin" },
+	"DELETE /admin/backups/snapshots/:volume/:snapshot": { access: "admin" },
+	"DELETE /admin/backups/kept-homes/:volume": { access: "admin" },
 
 	"GET /__portikus/bootstrap": { access: "preview-edge" },
 	"HEAD /__portikus/bootstrap": { access: "preview-edge" },
