@@ -1,5 +1,5 @@
 import { Button, Skeleton } from "@portikus/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AdminSection } from "../AdminSection.js";
 import { BlockedCard } from "./BlockedCard.js";
 import { EntriesCard } from "./EntriesCard.js";
@@ -9,7 +9,6 @@ import { PortsCard } from "./PortsCard.js";
 import { PresetsCard } from "./PresetsCard.js";
 import { egressErrorText, useEgress } from "./queries.js";
 import { TestHostCard } from "./TestHostCard.js";
-import { focusAfterClose } from "./text.js";
 
 /** The admin Network tab: the workspace egress allow-list (issue #284, SPEC.md section 20.1). */
 export function NetworkTab() {
@@ -17,6 +16,7 @@ export function NetworkTab() {
 	const [draft, setDraft] = useState<EntryDraft | null>(null);
 	// Where focus goes after an Allow saves: the row or button it came from is gone.
 	const [returnTo, setReturnTo] = useState<string | null>(null);
+	const saved = useRef(false);
 
 	if (egress.isError && !egress.data) {
 		return (
@@ -45,10 +45,12 @@ export function NetworkTab() {
 
 	const allowFrom = (headingId: string) => (host: string) => {
 		setReturnTo(headingId);
+		saved.current = false;
 		setDraft({ kind: "host", value: host, label: "" });
 	};
 	const edit = (next: EntryDraft) => {
 		setReturnTo(null);
+		saved.current = false;
 		setDraft(next);
 	};
 
@@ -80,8 +82,13 @@ export function NetworkTab() {
 					version={view.version}
 					onClose={() => setDraft(null)}
 					onSaved={() => {
+						saved.current = true;
 						setDraft(null);
-						if (returnTo) focusAfterClose(returnTo);
+					}}
+					returnFocusTo={() => {
+						if (!saved.current || !returnTo) return null;
+						saved.current = false;
+						return document.getElementById(returnTo);
 					}}
 				/>
 			) : null}

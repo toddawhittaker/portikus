@@ -118,6 +118,7 @@ EOF
 cat >"${work}/bin/fake-backup" <<'EOF'
 #!/usr/bin/env bash
 printf 'backup %s dir=%s\n' "$*" "$PORTIKUS_BACKUP_DIR" >>"$FAKE_DIR/calls.log"
+echo "${PORTIKUS_BACKUP_MIN_AGE_DAYS:-unset} ${PORTIKUS_BACKUP_KEEP_COMPLETE:-unset}" >"$FAKE_DIR/floor"
 [ -z "${FAKE_BACKUP_FAILS:-}" ] || { echo "[backup] FAIL: vm said no" >&2; exit 1; }
 mkdir -p "$PORTIKUS_BACKUP_DIR/portikus/20260928T120000Z"
 EOF
@@ -373,6 +374,17 @@ expect "a backup runs backup.sh as the operator for this VM's name" \
   "grep -qx 'backup --vm-name ${VM_NAME} ${VM_IP} dir=${backups}' '$log' && grep -B1 '^backup ' '$log' | grep -qx \"runuser \$(id -un)\""
 expect "its result names the new set" "[ \"\$(field \"(r['request']['state'], r['request']['stamp'])\")\" = \"('done', '20260928T120000Z')\" ]"
 expect "it becomes the last run" "[ \"\$(field \"r['status']['lastRun']['result']\")\" = success ]"
+expect "the backup gets the host's retention floor, not the VM's" "[ \"\$(cat '${fakes}/floor')\" = '0 1' ]"
+# A compromised VM must not queue backups back to back (ADR 0039).
+: >"$log"
+pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
+run_channel
+expect "a second requested backup within the gap is refused" \
+  "[ \"\$(field \"r['request']['error']\")\" = 'refused by the host: a backup ran 0 minutes ago' ] && ! grep -q '^backup ' '$log'"
+echo "$(( $(date +%s) - 7200 )) $(( $(date +%s) - 3660 )) success" >"${state}/last-run"
+pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
+run_channel
+expect "a requested backup after the gap runs" "[ \"\$(field \"r['request']['state']\")\" = done ] && grep -q '^backup ' '$log'"
 
 reset
 pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"

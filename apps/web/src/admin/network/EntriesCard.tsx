@@ -10,10 +10,9 @@ import {
 	EmptyState,
 	useToast,
 } from "@portikus/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { EntryDraft } from "./EntryDialog.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
-import { focusAfterClose } from "./text.js";
 
 /** The administrator's own host names and address ranges, with labels. */
 export function EntriesCard({
@@ -26,6 +25,7 @@ export function EntriesCard({
 	const write = useEgressWrite();
 	const toast = useToast();
 	const [removing, setRemoving] = useState<EgressEntry | null>(null);
+	const removed = useRef(false);
 	const hosts = view.entries.filter((entry) => entry.kind === "host").length;
 	const ranges = view.entries.length - hosts;
 
@@ -36,9 +36,9 @@ export function EntriesCard({
 			{
 				onSuccess: () => {
 					toast.show({ tone: "success", title: `${removing.value} removed` });
-					setRemoving(null);
 					// The row and its Remove button are gone, so focus the card heading.
-					focusAfterClose("egress-entries-title");
+					removed.current = true;
+					setRemoving(null);
 				},
 			},
 		);
@@ -113,7 +113,10 @@ export function EntriesCard({
 											size="sm"
 											variant="quiet"
 											aria-label={`Remove ${entry.value}`}
-											onClick={() => setRemoving(entry)}
+											onClick={() => {
+												removed.current = false;
+												setRemoving(entry);
+											}}
 										>
 											Remove
 										</Button>
@@ -146,6 +149,11 @@ export function EntriesCard({
 						confirmLabel="Remove"
 						pending={write.isPending}
 						onConfirm={remove}
+						returnFocusTo={() => {
+							if (!removed.current) return null;
+							removed.current = false;
+							return document.getElementById("egress-entries-title");
+						}}
 					>
 						{write.isError ? (
 							<p className="m-0 text-[13px] text-status-error" role="alert">

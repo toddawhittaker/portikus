@@ -76,6 +76,8 @@ export interface AppliedFile {
 
 const NFT = "/usr/sbin/nft";
 const SYSTEMCTL = "/usr/bin/systemctl";
+/** The bridge the Incus network role creates; the fallback when applied.json cannot say. */
+const DEFAULT_BRIDGE = "portikus-ws";
 
 /** Largest request accepted: 600 names of 253 characters with JSON overhead. */
 export const MAX_REQUEST_BYTES = 256 * 1024;
@@ -334,14 +336,23 @@ async function restoreAtBoot(deps: HelperDeps, env: EgressEnv): Promise<void> {
 
 /**
  * With egress.env unusable, a missing table after an allow-list would leave
- * workspaces open. Drop forwarding on the bridge applied.json recorded.
+ * workspaces open. Drop forwarding on the bridge applied.json recorded, or
+ * on the default bridge when applied.json is unreadable or names no usable
+ * bridge. A site that never applied (no applied.json) loads nothing.
  * Returns a message when it dropped, null when it did nothing.
  */
 async function dropWithoutEnv(deps: HelperDeps): Promise<string | null> {
-	const applied = await readApplied(deps).catch(() => null);
-	if (applied?.policy.mode !== "allow-list") return null;
-	const bridge = applied.bridge;
-	if (bridge === undefined || !BRIDGE_RE.test(bridge)) return null;
+	let applied: AppliedFile | null = null;
+	let unreadable = false;
+	try {
+		applied = await readApplied(deps);
+	} catch {
+		unreadable = true;
+	}
+	if (!unreadable && applied?.policy.mode !== "allow-list") return null;
+	const recorded = applied?.bridge;
+	const bridge =
+		recorded !== undefined && BRIDGE_RE.test(recorded) ? recorded : DEFAULT_BRIDGE;
 	if (await tableLoaded(deps)) return null;
 	await loadTable(deps, renderDropAll({ bridge }));
 	return "workspace forwarding is dropped until egress.env is fixed";

@@ -24,6 +24,7 @@
 #   PORTIKUS_RESTORE_COPY_CMD      restore-copy.sh (default: portikus-restore-copy beside this script)
 #   PORTIKUS_BACKUP_MIN_AGE_DAYS   a delete never removes a set younger than this (default 7)
 #   PORTIKUS_BACKUP_KEEP_COMPLETE  a delete always keeps this many newest complete sets (default 3)
+#   PORTIKUS_BACKUP_MIN_GAP_MINUTES  a requested backup waits this long after the last one (default 60)
 set -euo pipefail
 umask 077
 
@@ -40,6 +41,8 @@ MIN_AGE_DAYS="${PORTIKUS_BACKUP_MIN_AGE_DAYS:-7}"
 KEEP_COMPLETE="${PORTIKUS_BACKUP_KEEP_COMPLETE:-3}"
 [[ "$MIN_AGE_DAYS" =~ ^[0-9]{1,4}$ ]] || MIN_AGE_DAYS=7
 [[ "$KEEP_COMPLETE" =~ ^[0-9]{1,3}$ ]] || KEEP_COMPLETE=3
+MIN_GAP_MINUTES="${PORTIKUS_BACKUP_MIN_GAP_MINUTES:-60}"
+[[ "$MIN_GAP_MINUTES" =~ ^[0-9]{1,4}$ ]] || MIN_GAP_MINUTES=60
 # A real request line is under 300 bytes.
 PULL_MAX_BYTES=4096
 HEARTBEAT_SECONDS=30
@@ -328,6 +331,8 @@ finish() {
 start_heartbeat() {
   (
     trap - EXIT
+    # Its orphaned sleep must not hold the run lock after the job ends.
+    exec {lock}>&-
     while sleep "$HEARTBEAT_SECONDS"; do report "$1" || true; done
   ) &
   heartbeat=$!
@@ -373,9 +378,19 @@ job_fail() { job_state=failed job_error=$1; }
 
 run_backup() {
   local id=$1 before after start end err="${scratch}/backup.err"
-  local env=(PORTIKUS_BACKUP_DIR="$BACKUP_DIR")
+  local env=(PORTIKUS_BACKUP_DIR="$BACKUP_DIR" PORTIKUS_BACKUP_MIN_AGE_DAYS="$MIN_AGE_DAYS" PORTIKUS_BACKUP_KEEP_COMPLETE="$KEEP_COMPLETE")
+  local last_end ago
   [ -z "$RECIPIENTS" ] || env+=(PORTIKUS_BACKUP_RECIPIENTS="$RECIPIENTS")
   if nightly_active; then job_fail "A backup is already running."; return; fi
+  # A compromised VM must not queue backups back to back (ADR 0039).
+  last_end=$(awk '{print $2}' "${STATE}/last-run" 2>/dev/null || true)
+  if [[ "$last_end" =~ ^[0-9]{1,12}$ ]]; then
+    ago=$(( ($(date +%s) - last_end) / 60 ))
+    if [ "$ago" -lt "$MIN_GAP_MINUTES" ]; then
+      job_fail "refused by the host: a backup ran ${ago} minutes ago"
+      return
+    fi
+  fi
   before=$(list_sets)
   start=$(date +%s)
   info "request ${id}: backup of ${VM_NAME}"
