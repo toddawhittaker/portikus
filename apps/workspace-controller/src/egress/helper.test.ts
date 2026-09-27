@@ -233,6 +233,7 @@ describe("a request (ADR 0038)", () => {
 			"/usr/bin/systemctl reload",
 			"/usr/sbin/nft -f",
 			"/usr/sbin/conntrack -D",
+			"/usr/sbin/conntrack -D",
 		]);
 
 		// Once Squid is in the path, a change loads the table first as usual.
@@ -258,7 +259,10 @@ describe("a request (ADR 0038)", () => {
 		const conntrack = () => calls.filter((c) => c.file === "/usr/sbin/conntrack");
 		writeRequest(policy({ mode: "open", names: [], blocked: ["games.com"] }));
 		await runHelper(deps);
-		expect(conntrack().map((c) => c.args)).toEqual([["-D", "-s", "10.200.0.0/24"]]);
+		expect(conntrack().map((c) => c.args)).toEqual([
+			["-D", "-s", "10.200.0.0/24", "-p", "tcp", "--dport", "80"],
+			["-D", "-s", "10.200.0.0/24", "-p", "tcp", "--dport", "443"],
+		]);
 
 		calls = [];
 		writeRequest(
@@ -271,7 +275,7 @@ describe("a request (ADR 0038)", () => {
 		calls = [];
 		writeRequest(policy({ version: 5, mode: "open", names: [], blocked: [] }), "r3");
 		await runHelper(deps);
-		expect(conntrack()).toHaveLength(1);
+		expect(conntrack()).toHaveLength(2);
 	});
 
 	test("conntrack finding nothing is fine; conntrack failing fails the request", async () => {

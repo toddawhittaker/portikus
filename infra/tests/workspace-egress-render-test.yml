@@ -153,7 +153,7 @@
           - "'negative_dns_ttl 1 second' in squid_rules"
           - "'cache deny all' in squid_rules"
           - "'debug_options ALL,0' in squid_rules"
-          - "'http_upgrade_request_protocols WebSocket allow all' in squid_rules"
+          - "'http_upgrade_request_protocols websocket allow all' in squid_rules"
           - squid_rules | select('match', '^acl denied_dst dst 0\.0\.0\.0/8 10\.0\.0\.0/8 ') | list | length == 1
           - "'acl listed_sni ssl::server_name \"/var/lib/portikus/egress-state/names.txt\"' in squid_rules"
           - "'acl listed_host dstdomain -n \"/var/lib/portikus/egress-state/names.txt\"' in squid_rules"

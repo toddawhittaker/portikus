@@ -615,6 +615,8 @@ elif [ "$we_start_mode" = "open" ]; then
     sec_pass "the administrator blocks sites through the API, and it is applied"
     [ -n "$we_held_ip" ] && check_output "the connection opened before the block is forgotten" "0" we_held_tracked
     we_check_open_blocked
+    # The blocked checks are long; renew presence so a and b outlast the allow-list checks.
+    sec_hold_presence a && sec_hold_presence b
   fi
   we_release_connection
   if ! we_clear_blocked; then

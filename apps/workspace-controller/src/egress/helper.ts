@@ -278,12 +278,22 @@ function blockedChanged(
 	return (before?.blocked ?? []).join("\n") !== after.blocked.join("\n");
 }
 
-/** Delete the conntrack entries of every connection from the workspace subnet. */
+/** Delete the conntrack entries of web connections from the workspace subnet, the ones the table redirects. */
 async function forgetConnections(deps: HelperDeps, env: EgressEnv): Promise<void> {
-	const r = await deps.run(CONNTRACK, ["-D", "-s", env.subnet]);
-	// It exits 1 when nothing matched; its summary line says whether it ran.
-	if (r.code !== 0 && !/flow entries have been deleted/.test(r.stderr)) {
-		throw new Error(`conntrack failed: ${r.stderr.trim()}`);
+	for (const port of ["80", "443"]) {
+		const r = await deps.run(CONNTRACK, [
+			"-D",
+			"-s",
+			env.subnet,
+			"-p",
+			"tcp",
+			"--dport",
+			port,
+		]);
+		// It exits 1 when nothing matched; its summary line says whether it ran.
+		if (r.code !== 0 && !/flow entries have been deleted/.test(r.stderr)) {
+			throw new Error(`conntrack failed: ${r.stderr.trim()}`);
+		}
 	}
 }
 
