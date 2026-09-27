@@ -546,9 +546,27 @@ jobs:
       - name: Clipboard shim
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/clipboard-shim-test.sh
+      # The pilot's Caddy version, so the live preview checks run what the pilot runs.
+      - name: Cache Caddy
+        id: caddy
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/caddy-2.11.4
+          key: caddy-2.11.4-linux-amd64
       - name: Caddy preview routes
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
-        run: bash infra/tests/caddy-preview-test.sh
+        run: |
+          set -euo pipefail
+          export CADDY="$HOME/.cache/caddy-2.11.4/caddy"
+          if [ "${{ steps.caddy.outputs.cache-hit }}" != 'true' ]; then
+            mkdir -p "$(dirname "$CADDY")"
+            curl -fsSL -o /tmp/caddy.tar.gz https://github.com/caddyserver/caddy/releases/download/v2.11.4/caddy_2.11.4_linux_amd64.tar.gz
+            echo "8220d1f013b6f27510247b2360c9e0ca9f018feebd82515f07635318b34ff9777ccc8fd0b6e6f2486ce3a33fe389fbb7db12d05baa474f4587509fb4f5ebf1c9  /tmp/caddy.tar.gz" | sha512sum -c -
+            tar -xzf /tmp/caddy.tar.gz -C "$(dirname "$CADDY")" caddy
+          fi
+          "$CADDY" version
+          bash infra/tests/caddy-preview-test.sh
       - name: LTI platforms file
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/lti-platforms-test.sh
