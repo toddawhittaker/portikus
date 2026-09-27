@@ -122,6 +122,16 @@ echo "${PORTIKUS_BACKUP_MIN_AGE_DAYS:-unset} ${PORTIKUS_BACKUP_KEEP_COMPLETE:-un
 [ -z "${FAKE_BACKUP_FAILS:-}" ] || { echo "[backup] FAIL: vm said no" >&2; exit 1; }
 mkdir -p "$PORTIKUS_BACKUP_DIR/portikus/20260928T120000Z"
 EOF
+# df: fixed free space, so no test depends on this host's disk.  It reports
+# FAKE_FREE_BYTES (default 100 GiB) less the size of FAKE_USED_FILE, if any.
+cat >"${work}/bin/df" <<'EOF'
+#!/usr/bin/env bash
+free=${FAKE_FREE_BYTES:-107374182400}
+if [ -n "${FAKE_USED_FILE:-}" ] && [ -e "$FAKE_USED_FILE" ]; then
+  free=$((free - $(stat -c %s "$FAKE_USED_FILE")))
+fi
+printf 'Avail\n%s\n' "$free"
+EOF
 chmod +x "${work}/bin/"*
 export FAKE_DIR="$fakes"
 
@@ -145,6 +155,7 @@ make_set() {
     echo "file db.dump 10 $(printf '0%.0s' {1..64})"
     echo "volume ${INST}-home 100 $(printf 'a%.0s' {1..64}) [{\"Isuid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":65536}]"
     echo "volume ${INST}-recovery 100 $(printf 'b%.0s' {1..64}) -"
+    [ -z "${SET_SKIPPED:-}" ] || echo "skipped ${SET_SKIPPED}"
     echo "seconds 5"
   } | enc - "${d}/MANIFEST.age"
   enc - "${d}/${INST}-home.age" <"${work}/home.tar.gz"
@@ -468,6 +479,13 @@ expect "every command inside the workspace runs as uid and gid 1000" \
 expect "it extracts into the derived folder as the student" \
   "vm_commands | grep -q -- '--user 1000 --group 1000 --cwd /home/student --env HOME=/home/student -- tar -xz --strip-components=2 -C /home/student/restored-2026-09-24-0230 backup/volume'"
 expect "the workspace receives the decrypted home" "cmp -s '${fakes}/stream' '${work}/home.tar.gz'"
+reset
+rm -rf "${sets:?}/${GOOD}"
+SET_SKIPPED=2 make_set "$GOOD"
+pull "$copy_req"
+run_channel
+expect "a side copy from a set that skipped volumes is done" \
+  "[ \"\$(field \"r['request']['state']\")\" = done ] && cmp -s '${fakes}/stream' '${work}/home.tar.gz'"
 expect "the private key never reaches the VM" "! grep -rq '${secret}' '${fakes}'"
 
 reset

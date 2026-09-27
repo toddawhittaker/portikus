@@ -164,12 +164,20 @@ case "\$cmd" in
   *"\$X has-dex") echo "\${FAKE_HAS_DEX:-1}" ;;
   *"\$X dex-db") printf 'PGDMP fake dex dump' ;;
   *"\$X counts") echo "users 3 workspaces 1 projects 6" ;;
-  *"\$X workspaces") [ -n "\${FAKE_WORKSPACES_EMPTY:-}" ] && exit 0; echo "\${FAKE_WORKSPACE:-11111111-2222-3333-4444-555555555555 ${INST}}" ;;
-  *"\$X instances") echo "${INST}" ;;
-  *"\$X idmap "*) echo '[{"Isuid":true,"Hostid":1327680}]' ;;
+  *"\$X workspaces") [ -n "\${FAKE_WORKSPACES_EMPTY:-}" ] && exit 0
+    [ -z "\${FAKE_WORKSPACE_BYTES:-}" ] || { head -c "\$FAKE_WORKSPACE_BYTES" /dev/zero | tr '\\0' a; exit 0; }
+    echo "\${FAKE_WORKSPACE:-11111111-2222-3333-4444-555555555555 ${INST}}" ;;
+  *"\$X instances")
+    echo "${INST}"
+    [ -z "\${FAKE_MORE_INSTANCES:-}" ] || for i in \$(seq 1 "\$FAKE_MORE_INSTANCES"); do printf 'ws-%024x\\n' "\$i"; done ;;
+  *"\$X idmap "*)
+    [ -z "\${FAKE_IDMAP_BYTES:-}" ] || { printf '[%*s]\\n' "\$FAKE_IDMAP_BYTES" '' | tr ' ' 1; exit 0; }
+    echo '[{"Isuid":true,"Hostid":1327680}]' ;;
   *"\$X volume "*)
     [ "\${cmd##* }" = "\${FAKE_VOLUME_FAILS:-}" ] && exit 1
-    [ -z "\${FAKE_BIG_VOLUME:-}" ] || exec cat "${work}/big.tar.gz"
+    if [ -n "\${FAKE_VOLUME_FILE:-}" ] && { [ -z "\${FAKE_VOLUME_FILE_FOR:-}" ] || [ "\${cmd##* }" = "\$FAKE_VOLUME_FILE_FOR" ]; }; then
+      cat "\$FAKE_VOLUME_FILE"; exit "\${FAKE_VOLUME_EXIT:-0}"
+    fi
     cat "${work}/volume.tar.gz" ;;
   "incus image show"*) ;;
   "incus storage volume list"*) printf '%s\n' \${FAKE_EXISTING:-} ;;
@@ -193,6 +201,17 @@ case "\$cmd" in
 esac
 EOF
 chmod +x "${work}/bin/ssh"
+# df: fixed free space, so no test depends on this host's disk.  It reports
+# FAKE_FREE_BYTES (default 100 GiB) less the size of FAKE_USED_FILE, if any.
+cat >"${work}/bin/df" <<'EOF'
+#!/usr/bin/env bash
+free=${FAKE_FREE_BYTES:-107374182400}
+if [ -n "${FAKE_USED_FILE:-}" ] && [ -e "$FAKE_USED_FILE" ]; then
+  free=$((free - $(stat -c %s "$FAKE_USED_FILE")))
+fi
+printf 'Avail\n%s\n' "$free"
+EOF
+chmod +x "${work}/bin/df"
 
 age-keygen -o "${work}/key.txt" 2>/dev/null
 age-keygen -y "${work}/key.txt" >"${work}/recipients.txt"
@@ -256,8 +275,8 @@ no_set "a workspace listing that disagrees with the row count leaves no set" FAK
 no_set "a run with less free space than the minimum is refused" PORTIKUS_BACKUP_MIN_FREE_MB=999999999
 expect "the refusal says there is not enough free space" "grep -q 'FAIL: refused by the host: not enough free space' '${work}/refusal'"
 big=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
-# A sparse 15 TB file (ext4's largest) makes the last set bigger than any test disk.
-truncate -s 15T "${big}/huge"
+# A sparse 200 GiB file makes the last set bigger than the fake 100 GiB free.
+truncate -s 200G "${big}/huge"
 no_set "a run with less free space than the last complete set is refused" PORTIKUS_BACKUP_MIN_FREE_MB=0
 rm -f "${big}/huge"
 
@@ -296,7 +315,7 @@ expect "the set is kept, with the other volume and without the failed one" \
 expect "the set's FAILED file names the failed volume" "[ \"\$(cat '${partial}/FAILED' 2>/dev/null)\" = '${HOME_VOL}' ]"
 age -d -i "${work}/key.txt" "${partial}/MANIFEST.age" >"${work}/partial-manifest" 2>/dev/null
 expect "the MANIFEST records the failure" "grep -qx 'failed ${HOME_VOL}' '${work}/partial-manifest' && ! grep -q '^volume ${HOME_VOL}' '${work}/partial-manifest'"
-expect "the run says which volume failed" "grep -q 'failed to export (${HOME_VOL})' '${work}/backup.out'"
+expect "the run says which volume failed" "grep -q 'failed to export (${HOME_VOL}: the export failed)' '${work}/backup.out'"
 expect "an incomplete set does not count toward the fourteen" "[ \$(set_count) = 15 ] && [ -d '${mine}/20260103T000000Z' ]"
 
 # A VM whose export fails every night: incomplete sets are capped at the
@@ -471,7 +490,6 @@ refused_run() {
     ok "$label"
   fi
 }
-avail_mib() { echo $(( $(df -B1 --output=avail "$sets" | tail -1 | tr -d ' ') / 1048576 )); }
 sleep 1
 : >"$log"
 fake="ws-aaaaaaaaaaaaaaaaaaaaaaaa"
@@ -487,31 +505,158 @@ expect "nothing is asked for or written for the made-up volumes" \
   "! grep -q '${fake}' '$log' && ! ls '$skipset' | grep -q '${fake}'"
 expect "the skip is counted in the set and warned about" \
   "[ \"\$(cat '${skipset}/SKIPPED')\" = 2 ] && grep -q 'WARNING: skipped 2 volumes' '${work}/backup.out'"
+if run_restore --check "$skipset" >"${work}/check.out" 2>&1; then
+  ok "--check accepts a set that skipped volumes"
+else
+  bad "--check accepts a set that skipped volumes ($(tail -1 "${work}/check.out"))"
+fi
+if run_restore --target-name portikus-rehearsal 10.101.0.210 "$skipset" >"${work}/restore.out" 2>&1; then
+  ok "a set that skipped volumes restores onto an empty VM"
+else
+  bad "a set that skipped volumes restores onto an empty VM ($(tail -1 "${work}/restore.out"))"
+fi
 sleep 1
-# Leave the run a budget of 1 to 2 MiB, and stream a 64 MiB volume that
-# does not compress.
+# Leave the run a budget of 16 MiB, and stream a 64 MiB volume that does
+# not compress.
 mkdir -p "${work}/big/backup/volume"
 head -c 64M /dev/urandom >"${work}/big/backup/volume/noise"
 tar -czf "${work}/big.tar.gz" -C "${work}/big" backup
 rm -rf "${work}/big"
 sleep 1
-floor_mib=$(( $(avail_mib) - 1 ))
+budget_env=(PORTIKUS_BACKUP_MIN_FREE_MB=100 FAKE_FREE_BYTES=$((116 * 1048576)))
+before_bytes=$(du -sb "$mine" | cut -f1)
 refused_run "a VM streaming past the run's budget stops the whole run and keeps nothing" "passed its byte budget" \
-  PORTIKUS_BACKUP_MIN_FREE_MB="$floor_mib" FAKE_BIG_VOLUME=1
+  "${budget_env[@]}" FAKE_VOLUME_FILE="${work}/big.tar.gz"
 expect "the partial set is removed" "! find '$mine' -maxdepth 1 -name '.partial-*' | grep -q ."
-expect "the run left the free-space floor free" "[ \$(avail_mib) -ge $floor_mib ]"
+expect "the run left the disk as it found it" "[ \$(du -sb '$mine' | cut -f1) -le $before_bytes ]"
 # A killed run's 64 MiB leftover is cleared before free space is measured.
 partial_dir="${mine}/.partial-20260101T000000Z"
 mkdir -p "$partial_dir"
-head -c 64M /dev/zero >"${partial_dir}/leftover"
+truncate -s 64M "${partial_dir}/leftover"
 sleep 1
+# 110 MiB free once the leftover is gone, 46 MiB while it is there.
 if env PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
-  PORTIKUS_BACKUP_MIN_FREE_MB=$(( $(avail_mib) + 32 )) \
+  PORTIKUS_BACKUP_MIN_FREE_MB=100 FAKE_FREE_BYTES=$((110 * 1048576)) FAKE_USED_FILE="${partial_dir}/leftover" \
   bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/backup.out" 2>&1; then
   ok "a leftover partial set does not cause a false free-space refusal"
 else
   bad "a leftover partial set does not cause a false free-space refusal ($(tail -1 "${work}/backup.out"))"
 fi
+
+# The index counts too (ADR 0039).  A tarball of many empty files with long
+# paths compresses to little, but its index would be megabytes.
+python3 - "${work}/paths.tar.gz" "${work}/longpath.tar.gz" <<'PY'
+import io, sys, tarfile
+def build(out, names):
+    with tarfile.open(out, "w:gz", format=tarfile.PAX_FORMAT) as t:
+        for n in names:
+            t.addfile(tarfile.TarInfo("backup/volume/" + n), io.BytesIO(b""))
+build(sys.argv[1], [f"{i:06d}/" + "d" * 3900 for i in range(3000)])
+build(sys.argv[2], ["x" * 5000])
+PY
+tmp_probe="${work}/tmp-probe"
+mkdir -p "$tmp_probe"
+sleep 1
+refused_run "an index bigger than the budget stops the run and keeps nothing" "passed its byte budget" \
+  "${budget_env[@]}" FAKE_VOLUME_FILE="${work}/paths.tar.gz" TMPDIR="$tmp_probe"
+expect "the budgeted run leaves no partial set or scratch" "! find '$mine' -maxdepth 1 -name '.partial-*' | grep -q ."
+sleep 1
+# volume_failed LABEL REASON ENV... -- only the home volume fails, for
+# REASON, which the run's last line names; the other volume is kept.
+volume_failed() {
+  local label=$1 reason=$2 s
+  shift 2
+  if env "$@" FAKE_VOLUME_FILE_FOR="$HOME_VOL" PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" \
+    PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
+    bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/backup.out" 2>&1; then
+    bad "${label} (the run succeeded)"
+    return
+  fi
+  s=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
+  if [ "$(cat "${s}/FAILED" 2>/dev/null)" != "$HOME_VOL" ] || [ ! -f "${s}/${REC_VOL}.age" ] || [ -e "${s}/${HOME_VOL}.age" ]; then
+    bad "${label} (the set is not the other volume alone, marked failed)"
+  elif ! tail -1 "${work}/backup.out" | grep -q "${HOME_VOL}: ${reason}"; then
+    bad "${label} (the reason is missing: $(tail -1 "${work}/backup.out"))"
+  else
+    ok "$label"
+  fi
+}
+volume_failed "a path longer than 4096 bytes fails only that volume" "a path is longer than 4096 bytes" \
+  FAKE_VOLUME_FILE="${work}/longpath.tar.gz" TMPDIR="$tmp_probe"
+expect "a run writes nothing to the temporary directory" "[ -z \"\$(ls -A '$tmp_probe')\" ]"
+# A tar of directories with 20,000-byte names: every member is checked, not
+# only regular files under backup/volume, before tarfile keeps any of them.
+python3 - "${work}/longdirs.tar.gz" "${work}/manydirs.tar.gz" <<'PY'
+import sys, tarfile
+def build(out, names):
+    with tarfile.open(out, "w:gz", format=tarfile.PAX_FORMAT) as t:
+        for n in names:
+            i = tarfile.TarInfo(n)
+            i.type = tarfile.DIRTYPE
+            t.addfile(i)
+build(sys.argv[1], [f"elsewhere/{i}" + "d" * 20000 for i in range(200)])
+build(sys.argv[2], [f"elsewhere/{i}" for i in range(50)])
+PY
+sleep 1
+volume_failed "a directory name of 20,000 bytes outside the volume fails that volume" "a path is longer than 4096 bytes" \
+  FAKE_VOLUME_FILE="${work}/longdirs.tar.gz"
+sleep 1
+volume_failed "directories count toward the member cap, which fails only that volume" "the volume has more than 10 files" \
+  FAKE_VOLUME_FILE="${work}/manydirs.tar.gz" PORTIKUS_BACKUP_MAX_INDEX_ENTRIES=10
+# Exports that fail after streaming a large index still spend the budget,
+# so a VM cannot repeat them to use more than the budget.  Each index is
+# about 12 MB, counted twice; five volumes would need about 120 MB.
+sleep 1
+refused_run "failed exports still count their index against the budget" "passed its byte budget" \
+  PORTIKUS_BACKUP_MIN_FREE_MB=100 FAKE_FREE_BYTES=$((160 * 1048576)) FAKE_VOLUME_FILE="${work}/paths.tar.gz" FAKE_VOLUME_EXIT=1 \
+  FAKE_MORE_INSTANCES=2 FAKE_EXTRA_VOLUME="$(printf 'ws-%024x-home ws-%024x-home ws-%024x-recovery' 1 2 2)"
+sleep 1
+
+# The Git tables have a total cap (ADR 0039): 1500 repositories with 64 KiB
+# packed-refs each would keep over a million refs; the run completes under a 250 MB limit
+# on the indexer's address space.
+python3 - "${work}/repos.tar.gz" <<'PY'
+import io, sys, tarfile
+g = "." + "git"
+line = ("1" * 40 + " refs/heads/b{}\n")
+with tarfile.open(sys.argv[1], "w:gz") as t:
+    for r in range(1500):
+        data = "".join(line.format(f"{r}-{i}") for i in range(1200)).encode()[:65536]
+        info = tarfile.TarInfo(f"backup/volume/r{r}/{g}/packed-refs")
+        info.size = len(data)
+        t.addfile(info, io.BytesIO(data))
+PY
+cat >"${work}/bin/python3" <<EOF
+#!/usr/bin/env bash
+ulimit -v \${FAKE_PYTHON_KB:-unlimited}
+exec $(command -v python3) "\$@"
+EOF
+chmod +x "${work}/bin/python3"
+sleep 1
+if FAKE_PYTHON_KB=250000 FAKE_VOLUME_FILE="${work}/repos.tar.gz" run_backup >"${work}/backup.out" 2>&1; then
+  ok "many repositories with large packed-refs stay under the memory limit and the run completes"
+else
+  bad "many repositories with large packed-refs stay under the memory limit and the run completes ($(tail -1 "${work}/backup.out"))"
+fi
+rm -f "${work}/bin/python3"
+
+echo "--- what the VM may list ---"
+sleep 1
+refused_run "more than 2000 instances are refused" "instance listing longer than the host accepts" FAKE_MORE_INSTANCES=2000
+sleep 1
+refused_run "an oversized workspace listing is refused" "workspace listing longer than the host accepts" \
+  FAKE_WORKSPACE_BYTES=200000
+sleep 1
+refused_run "an oversized ID map is refused" "ID map longer than the host accepts" FAKE_IDMAP_BYTES=5000
+
+echo "--- one run per host ---"
+flock "${sets}/.lock" sleep 20 &
+holder=$!
+sleep 1
+refused_run "a run waits for another VM's run on this host, then gives up" "another backup on this host" \
+  PORTIKUS_BACKUP_LOCK_WAIT_SECONDS=1
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
 
 # doctored NAME -- a copy of the good set, for one test to spoil.
 doctored() { rm -rf "${work:?}/$1"; cp -r "$newest" "${work}/$1"; printf '%s' "${work}/$1"; }

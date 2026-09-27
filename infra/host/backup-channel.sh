@@ -419,6 +419,7 @@ job_fail() { job_state=failed job_error=$1; }
 run_backup() {
   local id=$1 before after start end err="${scratch}/backup.err"
   local env=(PORTIKUS_BACKUP_DIR="$BACKUP_DIR" PORTIKUS_BACKUP_MIN_AGE_DAYS="$MIN_AGE_DAYS" PORTIKUS_BACKUP_KEEP_COMPLETE="$KEEP_COMPLETE" PORTIKUS_BACKUP_MIN_FREE_MB="$MIN_FREE_MB")
+  [ -z "${PORTIKUS_BACKUP_MAX_INDEX_ENTRIES:-}" ] || env+=(PORTIKUS_BACKUP_MAX_INDEX_ENTRIES="$PORTIKUS_BACKUP_MAX_INDEX_ENTRIES")
   local last_end ago
   [ -z "$RECIPIENTS" ] || env+=(PORTIKUS_BACKUP_RECIPIENTS="$RECIPIENTS")
   if nightly_active; then job_fail "A backup is already running."; return; fi
