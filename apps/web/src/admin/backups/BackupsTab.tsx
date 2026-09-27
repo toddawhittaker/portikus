@@ -73,13 +73,13 @@ export function BackupsTab() {
 			</AdminSection>
 		);
 	}
-	return <BackupsView data={backups.data} />;
+	return <BackupsView data={backups.data} host={backups.data.host} />;
 }
 
 type Host = NonNullable<AdminBackups["host"]>;
 
-function BackupsView({ data }: { data: AdminBackups & { host: Host } }) {
-	const { host, requests, workspaces } = data;
+function BackupsView({ data, host }: { data: AdminBackups; host: Host }) {
+	const { requests, workspaces } = data;
 	const toast = useToast();
 	const run = useRunBackup();
 	const deleteSet = useDeleteSet();
@@ -170,7 +170,7 @@ function BackupsView({ data }: { data: AdminBackups & { host: Host } }) {
 				</div>
 			) : null}
 
-			<StatusCard data={data} />
+			<StatusCard data={data} host={host} />
 
 			<SetsSection
 				host={host}
@@ -261,8 +261,7 @@ function Card({
 	);
 }
 
-function StatusCard({ data }: { data: AdminBackups & { host: Host } }) {
-	const { host } = data;
+function StatusCard({ data, host }: { data: AdminBackups; host: Host }) {
 	return (
 		<Card id="backups-status-title" title="Status" testId="backups-status">
 			<dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-[13px]">
@@ -393,14 +392,16 @@ function SetsSection({
 									</span>
 								) : null}
 								{isNewest ? (
-									<span id={noteId} className="pk-muted">
-										{" "}
-										Newest complete set, always kept
-									</span>
+									<>
+										.{" "}
+										<span id={noteId} className="pk-muted">
+											The newest complete set is always kept.
+										</span>
+									</>
 								) : null}
 							</td>
-							<td className="pk-num">{formatBytes(set.sizeBytes)}</td>
-							<td className="pk-num">{set.instances.length}</td>
+							<td className="tabular-nums">{formatBytes(set.sizeBytes)}</td>
+							<td className="tabular-nums">{set.instances.length}</td>
 							<td className="pk-cell-actions">
 								<div className="flex justify-end gap-2">
 									<Button
@@ -641,7 +642,7 @@ function DumpsSection({
 							<th scope="row" className="font-mono">
 								{dump.file}
 							</th>
-							<td className="pk-num">{formatBytes(dump.sizeBytes)}</td>
+							<td className="tabular-nums">{formatBytes(dump.sizeBytes)}</td>
 							<td>{longTime(dump.modifiedAt)}</td>
 							<td className="pk-cell-actions">
 								{deleting ? (

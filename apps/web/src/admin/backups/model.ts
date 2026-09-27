@@ -21,8 +21,18 @@ export function longTime(iso: string): string {
 	});
 }
 
+/** A set's time in UTC, as its name, its restore folder and the student's notice give it. */
 export function setTime(stamp: string): string {
-	return longTime(stampIso(stamp));
+	const text = new Date(stampIso(stamp)).toLocaleString(undefined, {
+		year: "numeric",
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23",
+		timeZone: "UTC",
+	});
+	return `${text} UTC`;
 }
 
 /** The set the host refuses to delete: stamps sort by time. */

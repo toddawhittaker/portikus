@@ -150,7 +150,7 @@ export function RestoreDialog({
 								id="backup-restore-workspace"
 								label="Workspace"
 								placeholder="Choose a workspace"
-								value={chosen}
+								value={chosen ?? ""}
 								onValueChange={setChosen}
 								options={covered.map((w) => ({
 									value: w.id,
