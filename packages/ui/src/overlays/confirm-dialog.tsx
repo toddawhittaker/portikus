@@ -32,6 +32,8 @@ export interface ConfirmDialogProps {
 	typedValue?: string;
 	/** False for a reversible action: primary button, info icon, neutral colours. */
 	destructive?: boolean;
+	/** Where focus goes on close; null falls back to the usual return. */
+	returnFocusTo?: () => HTMLElement | null;
 }
 
 /** The destructive confirmation. Render it inside a ConfirmDialogRoot. */
@@ -54,10 +56,11 @@ export function ConfirmDialog({
 	testId,
 	typedValue,
 	destructive = true,
+	returnFocusTo,
 }: ConfirmDialogProps): React.ReactElement {
 	const [typed, setTyped] = React.useState(typedValue ?? "");
 	const ready = !confirmText || typed === confirmText;
-	const returnFocus = useReturnFocus();
+	const returnFocus = useReturnFocus(returnFocusTo);
 	return (
 		<RadixAlertDialog.Portal>
 			<RadixAlertDialog.Overlay

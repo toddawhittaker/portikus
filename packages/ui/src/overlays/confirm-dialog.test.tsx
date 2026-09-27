@@ -231,4 +231,25 @@ describe("ConfirmDialog", () => {
 			"Three workspaces will be rebuilt.",
 		);
 	});
+
+	it("focuses the element returnFocusTo gives on close", async () => {
+		render(
+			<>
+				<h2 id="after" tabIndex={-1}>
+					After
+				</h2>
+				<ConfirmDialogRoot>
+					<ConfirmDialogTrigger>Remove</ConfirmDialogTrigger>
+					<ConfirmDialog
+						title="Remove it?"
+						confirmLabel="Remove it"
+						returnFocusTo={() => document.getElementById("after")}
+					/>
+				</ConfirmDialogRoot>
+			</>,
+		);
+		fireEvent.click(screen.getByText("Remove"));
+		fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+		await waitFor(() => expect(document.activeElement?.id).toBe("after"));
+	});
 });
