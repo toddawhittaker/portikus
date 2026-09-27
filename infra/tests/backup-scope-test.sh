@@ -301,6 +301,30 @@ expect "only the newest fourteen incomplete sets are kept" "[ '$flaky_incomplete
 expect "the oldest incomplete sets are the ones removed" "[ ! -d '${flaky}/20260107T000000Z' ] && [ -d '${flaky}/20260108T000000Z' ]"
 expect "the only complete set is kept, however old" "[ -d '${flaky}/20250101T000000Z' ]"
 
+# The retention floor (ADR 0039): a compromised VM that requests backup
+# after backup cannot prune young sets, nor go below the kept count.
+floor_run() {
+  env "$@" FAKE_HOSTNAME=portikus-floor PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" \
+    PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" PORTIKUS_BACKUP_KEEP=1 \
+    bash "${repo}/infra/host/backup.sh" --vm-name portikus-floor 10.101.0.210 >/dev/null 2>&1
+}
+ago() { date -u -d "-$1 days" +%Y%m%dT%H%M%SZ; }
+floor="${sets}/portikus-floor"
+mkdir -m 0700 "$floor"
+young1=$(ago 1) young5=$(ago 5) old30=$(ago 30)
+mkdir "${floor}/${young1}" "${floor}/${young5}" "${floor}/${old30}"
+for _ in 1 2 3; do sleep 1; floor_run; done
+expect "repeated backups never remove a set younger than the minimum age" "[ -d '${floor}/${young1}' ] && [ -d '${floor}/${young5}' ]"
+expect "an old set beyond the floor is still pruned" "[ ! -d '${floor}/${old30}' ]"
+rm -rf "$floor"
+mkdir -m 0700 "$floor"
+old10=$(ago 10) old20=$(ago 20) old40=$(ago 40)
+mkdir "${floor}/${old10}" "${floor}/${old20}" "${floor}/${old40}"
+sleep 1
+floor_run PORTIKUS_BACKUP_MIN_AGE_DAYS=0
+expect "the newest three complete sets are kept even with KEEP at one" \
+  "[ -d '${floor}/${old10}' ] && [ -d '${floor}/${old20}' ] && [ ! -d '${floor}/${old40}' ] && [ \$(find '$floor' -mindepth 1 -maxdepth 1 -type d | wc -l) = 3 ]"
+
 echo "--- restore ---"
 run_restore() {
   PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_IDENTITY="${work}/key.txt" bash "${repo}/infra/host/restore.sh" "$@"

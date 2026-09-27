@@ -1,4 +1,7 @@
-import { AdminPackagesResponse } from "@portikus/contracts";
+import {
+	AdminPackagesResponse,
+	PACKAGE_SURVEY_MIN_SURVEYED,
+} from "@portikus/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, request } from "../../api/request.js";
 
@@ -41,17 +44,14 @@ export function PackagesSection() {
 	);
 }
 
-// The API keeps a day's rows back until this many workspaces were surveyed.
-const MIN_SURVEYED = 3;
-
 export function PackagesTable({ survey }: { survey: AdminPackagesResponse }) {
 	if (survey.day === null || survey.packages.length === 0) {
 		return (
 			<p className="pk-muted m-0 mt-4 text-[13px]" data-testid="packages-empty">
 				{survey.day === null
 					? "No workspace has been surveyed yet."
-					: survey.surveyed < MIN_SURVEYED
-						? `Not enough workspaces surveyed on ${surveyDay(survey.day)}. Packages show once at least ${MIN_SURVEYED} are surveyed in a day.`
+					: survey.surveyed < PACKAGE_SURVEY_MIN_SURVEYED
+						? `Not enough workspaces surveyed on ${surveyDay(survey.day)}. Packages show once at least ${PACKAGE_SURVEY_MIN_SURVEYED} are surveyed in a day.`
 						: `No surveyed workspace had added a package on ${surveyDay(survey.day)}.`}
 			</p>
 		);
