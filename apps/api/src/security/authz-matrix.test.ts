@@ -59,6 +59,8 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	// The matrix workspace is neither throttled nor flagged.
 	"POST /admin/workspaces/:id/lift-throttle": 409,
 	"POST /admin/workspaces/:id/clear-memory-flag": 409,
+	// The matrix workspace is not in error.
+	"POST /admin/workspaces/:id/reprovision": 409,
 	// The matrix world records no notifications; each is its owner's alone.
 	"PATCH /me/notifications/:id": 404,
 	"POST /me/password": 404,
@@ -235,6 +237,7 @@ const PAYLOADS: Record<string, object> = {
 	"POST /admin/workspaces/:id/processes/:pid/stop": { startTicks: 100 },
 	"PUT /admin/workspaces/:id/quota": { homeGiB: 100, dockerGiB: 100 },
 	"PUT /admin/workspaces/:id/guard": { idleStopMinutes: 0 },
+	"PUT /admin/workspaces/:id/limits": { cpu: null, memoryMiB: null, processes: null },
 	"POST /admin/workspaces/:id/rebuild": { resetDocker: false },
 };
 

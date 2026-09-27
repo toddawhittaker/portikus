@@ -8,6 +8,7 @@ import type {
 	GuardConfig,
 	MemoryFlag,
 	QuotaConfig,
+	WorkspaceLimits,
 } from "@portikus/contracts";
 import {
 	Button,
@@ -26,6 +27,7 @@ import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
 import { DexUserActions } from "./DexUserDialogs.js";
 import { GuardDialog } from "./GuardDialog.js";
 import { defaultLabel, graceText } from "./graceText.js";
+import { LimitsDialog } from "./LimitsDialog.js";
 import { imageText, isCourseAccount, roleText, sourceText } from "./markers.js";
 import { ProcessesSection } from "./ProcessesSection.js";
 import { QuotaDialog } from "./QuotaDialog.js";
@@ -35,12 +37,14 @@ import {
 	useLifecycleAction,
 	usePlatformSettings,
 	useRebuild,
+	useReprovision,
 	useResetDocker,
 	useSetArchived,
 	useSetDisabled,
 	useSetGrantedAdmin,
 	useSetGrantedInstructor,
 	useUpdateGuard,
+	useUpdateLimits,
 	useUpdateQuota,
 	useUpdateUserSettings,
 } from "./queries.js";
@@ -135,7 +139,13 @@ export function WorkspaceDetail({
 					)}
 				</div>
 			) : null}
-			{data ? <ErrorSection detail={data} /> : null}
+			{data ? (
+				<ErrorSection
+					detail={data}
+					ownerName={user.displayName}
+					onReprovisioned={() => headingRef.current?.focus()}
+				/>
+			) : null}
 			<AccountSection user={user} isSelf={isSelf} />
 			<WorkspaceSection detail={data} user={user} hasWorkspace={workspaceId !== null} />
 			{data ? <DataSections detail={data} ownerName={user.displayName} /> : null}
@@ -207,9 +217,40 @@ function HeadState({
 	);
 }
 
-function ErrorSection({ detail }: { detail: AdminWorkspaceDetail }) {
+function ErrorSection({
+	detail,
+	ownerName,
+	onReprovisioned,
+}: {
+	detail: AdminWorkspaceDetail;
+	ownerName: string;
+	onReprovisioned: () => void;
+}) {
 	const { workspace } = detail;
+	const toast = useToast();
+	const reprovision = useReprovision();
 	if (!workspace.errorCode && !workspace.errorMessage) return null;
+
+	function run() {
+		if (reprovision.isPending) return;
+		reprovision.mutate(
+			{ workspaceId: workspace.id },
+			{
+				onSuccess: () => {
+					toast.show({ tone: "success", title: "Re-provision requested" });
+					// The section goes once the error clears, so focus moves to the panel heading.
+					onReprovisioned();
+				},
+				onError: (error) =>
+					toast.show({
+						tone: "danger",
+						title: "Could not re-provision the workspace",
+						children: errorText(error),
+					}),
+			},
+		);
+	}
+
 	return (
 		<section aria-labelledby="detail-error" className="pk-detail-section">
 			<h4 id="detail-error" className="pk-text-label m-0">
@@ -228,6 +269,22 @@ function ErrorSection({ detail }: { detail: AdminWorkspaceDetail }) {
 					<dd className="inline">{workspace.errorMessage ?? "—"}</dd>
 				</div>
 			</dl>
+			{workspace.state === "error" ? (
+				<div className="flex flex-col items-start gap-2">
+					<p className="pk-muted m-0 text-[13px]">
+						Re-provision creates the workspace again and keeps its home folder.
+					</p>
+					<Button
+						size="sm"
+						data-testid="detail-reprovision"
+						aria-label={`Re-provision ${ownerName}'s workspace`}
+						loading={reprovision.isPending}
+						onClick={run}
+					>
+						Re-provision
+					</Button>
+				</div>
+			) : null}
 		</section>
 	);
 }
@@ -457,7 +514,24 @@ export function effectiveGuardText(
 	];
 }
 
-/** Throttle and memory flag, overrides and last activity (ADR 0032, SPEC.md §20.1). */
+/** "CPUs 2 · Memory platform · Processes 1000": each limit, or the profile's. */
+export function limitsText(config: WorkspaceLimits | null): string {
+	const value = (n: number | undefined, unit = "") =>
+		n === undefined ? "platform" : `${n}${unit}`;
+	return `CPUs ${value(config?.cpu)} · Memory ${value(config?.memoryMiB, " MiB")} · Processes ${value(config?.processes)}`;
+}
+
+/** True while the worker has not yet set the limits an administrator asked for. */
+export function limitsPending(
+	config: WorkspaceLimits | null,
+	applied: WorkspaceLimits | null,
+): boolean {
+	return (["cpu", "memoryMiB", "processes"] as const).some(
+		(key) => config?.[key] !== applied?.[key],
+	);
+}
+
+/** Throttle and memory flag, overrides, limits and last activity (ADR 0032, SPEC.md §20.1). */
 function GuardSection({
 	detail,
 	ownerName,
@@ -469,8 +543,10 @@ function GuardSection({
 	const toast = useToast();
 	const clear = useGuardClear();
 	const update = useUpdateGuard();
+	const limits = useUpdateLimits();
 	const settings = usePlatformSettings();
 	const [editing, setEditing] = useState(false);
+	const [editingLimits, setEditingLimits] = useState(false);
 	const headingRef = useRef<HTMLHeadingElement>(null);
 	const platform = settings.data
 		? {
@@ -540,7 +616,17 @@ function GuardSection({
 						? shortTime(workspace.lastActivityAt)
 						: "None recorded"}
 				</dd>
+				<dt>Limits</dt>
+				<dd data-testid="detail-limits">{limitsText(detail.limitsConfig)}</dd>
 			</dl>
+			{limitsPending(detail.limitsConfig, detail.limitsApplied) ? (
+				<p
+					className="m-0 text-[13px] text-status-warning"
+					data-testid="detail-limits-pending"
+				>
+					Limits change pending. The worker applies it shortly.
+				</p>
+			) : null}
 			<ul
 				className="m-0 flex list-none flex-col gap-0.5 p-0 text-[13px]"
 				data-testid="detail-guard-limits"
@@ -580,7 +666,41 @@ function GuardSection({
 				>
 					Change overrides…
 				</Button>
+				<Button
+					size="sm"
+					data-testid="detail-limits-edit"
+					aria-label={`Limits for ${ownerName}'s workspace`}
+					onClick={() => setEditingLimits(true)}
+				>
+					Limits…
+				</Button>
 			</div>
+			{editingLimits ? (
+				<LimitsDialog
+					open
+					onOpenChange={(open) => {
+						if (!open) {
+							limits.reset();
+							setEditingLimits(false);
+						}
+					}}
+					current={detail.limitsConfig}
+					ownerName={ownerName}
+					pending={limits.isPending}
+					serverError={limits.error ? errorText(limits.error) : null}
+					onSave={(body) =>
+						limits.mutate(
+							{ workspaceId: workspace.id, body },
+							{
+								onSuccess: () => {
+									toast.show({ tone: "success", title: "Limits saved" });
+									setEditingLimits(false);
+								},
+							},
+						)
+					}
+				/>
+			) : null}
 			{editing ? (
 				<GuardDialog
 					open

@@ -11,7 +11,9 @@ import {
 	MAX_QUOTA_GIB,
 	STALE_AFTER_DAYS,
 	UpdateGuardRequest,
+	UpdateLimitsRequest,
 	UpdateQuotaRequest,
+	WorkspaceLimits,
 } from "./admin.js";
 import { AdminUser } from "./settings.js";
 import { ApiErrorCode, Workspace } from "./workspace.js";
@@ -88,6 +90,8 @@ const detail = {
 	},
 	cpuThrottle: null,
 	memoryFlag: null,
+	limitsConfig: { cpu: 2 },
+	limitsApplied: null,
 };
 
 const throttle = {
@@ -344,6 +348,38 @@ describe("admin contracts", () => {
 	test("archived workspaces have their own error code", () => {
 		expect(ApiErrorCode.parse("WORKSPACE_ARCHIVED")).toBe("WORKSPACE_ARCHIVED");
 		expect(Workspace.parse({ ...workspace, archivedAt: now }).archivedAt).toBe(now);
+	});
+
+	test("a limits update names all three keys, null for the profile, within bounds", () => {
+		const ok = { cpu: 2, memoryMiB: 4096, processes: null };
+		expect(UpdateLimitsRequest.parse(ok)).toEqual(ok);
+		expect(UpdateLimitsRequest.safeParse({ cpu: 2 }).success).toBe(false);
+		for (const bad of [
+			{ ...ok, cpu: 0 },
+			{ ...ok, cpu: 65 },
+			{ ...ok, cpu: 1.5 },
+			{ ...ok, memoryMiB: 511 },
+			{ ...ok, memoryMiB: 262145 },
+			{ ...ok, processes: 499 },
+			{ ...ok, processes: 32769 },
+			{ ...ok, disk: 1 },
+		]) {
+			expect(UpdateLimitsRequest.safeParse(bad).success).toBe(false);
+		}
+		expect(
+			UpdateLimitsRequest.parse({ cpu: 64, memoryMiB: 262144, processes: 32768 }),
+		).toBeTruthy();
+	});
+
+	test("stored limits hold only the three keys, each optional", () => {
+		expect(WorkspaceLimits.parse({})).toEqual({});
+		expect(WorkspaceLimits.parse({ processes: 500 })).toEqual({ processes: 500 });
+		expect(WorkspaceLimits.safeParse({ cpu: null }).success).toBe(false);
+		expect(WorkspaceLimits.safeParse({ gpu: 1 }).success).toBe(false);
+	});
+
+	test("re-provisioning a workspace not in error has its own error code", () => {
+		expect(ApiErrorCode.parse("NOT_IN_ERROR")).toBe("NOT_IN_ERROR");
 	});
 });
 

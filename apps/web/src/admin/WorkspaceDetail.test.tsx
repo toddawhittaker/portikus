@@ -7,6 +7,8 @@ import {
 	capabilityNote,
 	effectiveGuardText,
 	instructorChangeNote,
+	limitsPending,
+	limitsText,
 	memoryFlagText,
 	NOT_AVAILABLE_TEXT,
 	quotaPending,
@@ -126,6 +128,8 @@ function detail(overrides: Partial<AdminWorkspaceDetail> = {}): AdminWorkspaceDe
 		},
 		cpuThrottle: null,
 		memoryFlag: null,
+		limitsConfig: null,
+		limitsApplied: null,
 		...overrides,
 	};
 }
@@ -1190,4 +1194,112 @@ test("the overrides dialog refuses a bad value, then sends numbers and nulls", a
 		},
 	});
 	expect(await screen.findByText("Overrides saved")).toBeDefined();
+});
+
+// --- Per-workspace limits and re-provision (SPEC.md section 20.1) ---
+
+test("the limits line names each limit or the platform value, and pending compares keys", () => {
+	expect(limitsText(null)).toBe("CPUs platform · Memory platform · Processes platform");
+	expect(limitsText({ cpu: 2, memoryMiB: 4096 })).toBe(
+		"CPUs 2 · Memory 4096 MiB · Processes platform",
+	);
+	expect(limitsPending(null, null)).toBe(false);
+	expect(limitsPending({}, null)).toBe(false);
+	expect(limitsPending({ cpu: 2 }, null)).toBe(true);
+	expect(limitsPending({ cpu: 2, processes: 900 }, { processes: 900, cpu: 2 })).toBe(
+		false,
+	);
+	expect(limitsPending(null, { cpu: 2 })).toBe(true);
+});
+
+test("the Limits dialog refuses a bad value, then sends numbers and nulls", async () => {
+	const writes = stubDetail(detail({ limitsConfig: { cpu: 2 }, limitsApplied: null }));
+	const panel = await openAlice();
+	const section = within(panel).getByRole("region", { name: "Resource guard" });
+	expect(within(section).getByTestId("detail-limits").textContent).toBe(
+		"CPUs 2 · Memory platform · Processes platform",
+	);
+	expect(within(section).getByTestId("detail-limits-pending")).toBeDefined();
+
+	fireEvent.click(
+		within(section).getByRole("button", {
+			name: "Limits for Alice Example's workspace",
+		}),
+	);
+	const dialog = await screen.findByRole("dialog", { name: "Workspace limits" });
+	const cpu = within(dialog).getByLabelText("CPUs") as HTMLInputElement;
+	expect(cpu.value).toBe("2");
+	const memory = within(dialog).getByLabelText("Memory (MiB)");
+	fireEvent.change(memory, { target: { value: "100" } });
+	fireEvent.click(within(dialog).getByTestId("limits-save"));
+	expect((await within(dialog).findByRole("alert")).textContent).toBe(
+		"Enter a whole number from 512 to 262144, or leave it blank.",
+	);
+	expect(writes).toEqual([]);
+
+	fireEvent.change(memory, { target: { value: "2048" } });
+	fireEvent.change(cpu, { target: { value: "" } });
+	fireEvent.click(within(dialog).getByTestId("limits-save"));
+	await waitFor(() => expect(writes.length).toBe(1));
+	expect(writes[0]).toEqual({
+		url: `/admin/workspaces/${WORKSPACE.id}/limits`,
+		body: { cpu: null, memoryMiB: 2048, processes: null },
+	});
+	expect(await screen.findByText("Limits saved")).toBeDefined();
+	await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
+test("applied limits show no pending note", async () => {
+	stubDetail(
+		detail({ limitsConfig: { processes: 900 }, limitsApplied: { processes: 900 } }),
+	);
+	const panel = await openAlice();
+	expect(within(panel).queryByTestId("detail-limits-pending")).toBeNull();
+});
+
+test("Re-provision shows only in error, calls its route and moves focus to the heading", async () => {
+	const writes = stubDetail(
+		detail({
+			workspace: {
+				...WORKSPACE,
+				state: "error",
+				errorCode: "OPERATION_FAILED",
+				errorMessage: "The workspace could not be created.",
+			},
+		}),
+	);
+	const panel = await openAlice();
+	const error = within(panel).getByRole("region", { name: "Error" });
+	fireEvent.click(
+		within(error).getByRole("button", {
+			name: "Re-provision Alice Example's workspace",
+		}),
+	);
+	await waitFor(() => expect(writes.length).toBe(1));
+	expect(writes[0]).toEqual({
+		url: `/admin/workspaces/${WORKSPACE.id}/reprovision`,
+		body: null,
+	});
+	expect(await screen.findByText("Re-provision requested")).toBeDefined();
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			within(panel).getByRole("heading", { name: "Alice Example" }),
+		),
+	);
+});
+
+test("an error message on a workspace not in error has no Re-provision", async () => {
+	stubDetail(
+		detail({
+			workspace: {
+				...WORKSPACE,
+				state: "provisioning",
+				errorCode: "POOL_FULL",
+				errorMessage: "The storage pool is full.",
+			},
+		}),
+	);
+	const panel = await openAlice();
+	expect(within(panel).getByRole("region", { name: "Error" })).toBeDefined();
+	expect(within(panel).queryByTestId("detail-reprovision")).toBeNull();
 });

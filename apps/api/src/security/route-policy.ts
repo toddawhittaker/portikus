@@ -200,6 +200,9 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/workspaces/:id/lift-throttle": { access: "admin" },
 	"POST /admin/workspaces/:id/clear-memory-flag": { access: "admin" },
 	"POST /admin/workspaces/:id/rebuild": { access: "admin" },
+	// Per-workspace limits and re-provision (SPEC.md section 20.1).
+	"PUT /admin/workspaces/:id/limits": { access: "admin" },
+	"POST /admin/workspaces/:id/reprovision": { access: "admin" },
 	// The administrator's process list and stop (ADR 0037).
 	"GET /admin/workspaces/:id/processes": { access: "admin" },
 	"HEAD /admin/workspaces/:id/processes": { access: "admin" },
