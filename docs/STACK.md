@@ -785,7 +785,10 @@ If a framework/library requires ESLint-specific rules that materially improve sa
 
 Operational metrics live in PostgreSQL, not in OpenTelemetry (ADR 0022). The
 worker writes one host snapshot a minute to `health_samples`, kept 7 days, and
-failures are counted from `audit_events`. `GET /admin/health` reads both and
+failures are counted from `audit_events`. The API counts its own responses
+per minute in memory and writes the totals to `api_request_samples`, kept 7
+days: requests, 4xx and 5xx counts, WebSocket upgrades and a latency
+histogram, with no route, user or workspace. `GET /admin/health/series` reads these and
 the administrator page shows them. There is no OpenTelemetry SDK and no
 metrics endpoint until a second VM or an external monitor needs one.
 
@@ -824,8 +827,26 @@ a bootstrap ticket travels in a query string (`docs/BROWSER-HANDLING.md`
 section 16.5).
 
 Audit metadata follows the same rule as the logs: no tokens, command lines,
-prompts or file contents. Logs stay in journald, and the administrator page
-has no log viewer.
+prompts or file contents. Logs stay in journald.
+
+The administrator page reads them back through `GET /admin/logs` and
+`GET /admin/logs/counts` (ADR 0036). The API runs `journalctl` itself, found at
+`JOURNALCTL_PATH`, with a fixed argument list and no shell: JSON output, the
+three Portikus units only, dates it computed, a cursor checked against
+journald's syntax, and a level pattern from a fixed map. Text, user and
+workspace filters run in the API, so request text never reaches an argument.
+One request reads at most 20,000 entries or 5 seconds, and at most two
+`journalctl` processes run at once; a read that reaches 5 seconds frees its
+slot even if the killed process never exits. `journalctl` starts with only
+`PATH` and `LANG` in its environment, so a core dump of it holds no secret.
+Only Portikus JSON lines are shown, and each is redacted before it leaves
+the server: the logger's own key list, matched in any letter case, plus
+bearer tokens and URL credentials found inside any string. A request for
+an unknown route is logged at debug, not warn, and a logged path is cut to
+200 characters, so anyone on the Internet cannot fill the warn lines. The
+API closes cleanly on SIGTERM, so the partial minute of request metrics is
+written at shutdown.
+The unit gives the API process, and no other, the `systemd-journal` group.
 
 # Part II — Infrastructure stack
 

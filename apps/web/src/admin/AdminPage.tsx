@@ -1,19 +1,29 @@
 import { Link, Navigate, useSearch } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { gatePath, useMe } from "../useMe.js";
+import { focusAdminHeading } from "./AdminSection.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { HealthTab } from "./health/HealthTab.js";
+import { LogsTab } from "./logs/LogsTab.js";
 import { SettingsTab } from "./SettingsTab.js";
 import { WorkspacesTab } from "./WorkspacesTab.js";
 
-export const ADMIN_TABS = ["workspaces", "audit", "health", "settings"] as const;
+export const ADMIN_TABS = [
+	"workspaces",
+	"audit",
+	"logs",
+	"health",
+	"settings",
+] as const;
 export type AdminTab = (typeof ADMIN_TABS)[number];
 
 const TAB_LABEL: Record<AdminTab, string> = {
 	// The address stays ?tab=workspaces so old links keep working (docs/archive/epics/EPIC-13-1.md ruling 24).
 	workspaces: "Users",
 	audit: "Audit",
+	logs: "Logs",
 	health: "Health",
 	settings: "Settings",
 };
@@ -24,6 +34,15 @@ export function AdminPage() {
 	const search = useSearch({ from: "/admin" });
 	const tab = search.tab ?? "workspaces";
 	usePageTitle(`${TAB_LABEL[tab]}, Administration`);
+	const shownTab = useRef(tab);
+	// A link inside one tab that opens another (a chart bar, "View logs") is
+	// gone once the tab switches; put focus on the new tab's heading.
+	useEffect(() => {
+		if (shownTab.current === tab) return;
+		shownTab.current = tab;
+		const lost = !document.activeElement || document.activeElement === document.body;
+		if (lost) focusAdminHeading();
+	}, [tab]);
 
 	// A gated account is on its way to the gate's page; a second redirect would fight it.
 	if (me.status === "loading" || gatePath(me) !== null) {
@@ -72,6 +91,7 @@ export function AdminPage() {
 					</nav>
 					{tab === "workspaces" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
 					{tab === "audit" ? <AuditTab /> : null}
+					{tab === "logs" ? <LogsTab /> : null}
 					{tab === "health" ? <HealthTab /> : null}
 					{tab === "settings" ? <SettingsTab /> : null}
 				</div>

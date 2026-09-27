@@ -91,6 +91,11 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	await expect(
 		panel.getByRole("button", { name: `Close details for ${name}` }),
 	).toBeFocused();
+	// The Account section's link to this user's logs comes before its buttons.
+	await page.keyboard.press("Tab");
+	await expect(
+		panel.getByRole("link", { name: "View this user's logs" }),
+	).toBeFocused();
 	await page.keyboard.press("Tab");
 	await expect(
 		panel.getByRole("button", { name: `Disable account for ${name}` }),

@@ -213,6 +213,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 				imageFingerprint: inst.imageFingerprint,
 				imageSerial: "2026.09.9",
 			})),
+			rates: null,
 		};
 	}
 

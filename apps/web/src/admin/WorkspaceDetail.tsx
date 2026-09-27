@@ -26,7 +26,6 @@ import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
 import { DexUserActions } from "./DexUserDialogs.js";
 import { GuardDialog } from "./GuardDialog.js";
 import { defaultLabel, graceText } from "./graceText.js";
-import { logCommand } from "./logCommand.js";
 import { imageText, isCourseAccount, roleText, sourceText } from "./markers.js";
 import { ProcessesSection } from "./ProcessesSection.js";
 import { QuotaDialog } from "./QuotaDialog.js";
@@ -242,21 +241,6 @@ function DataSections({
 	ownerName: string;
 }) {
 	const workspace = detail.workspace;
-	const toast = useToast();
-	const command = logCommand(workspace.id, workspace.incusInstanceName);
-
-	async function copyCommand() {
-		try {
-			await navigator.clipboard.writeText(command);
-			toast.show({ tone: "success", title: "Log command copied" });
-		} catch {
-			toast.show({
-				tone: "danger",
-				title: "Could not copy. Select the command instead.",
-			});
-		}
-	}
-
 	return (
 		<>
 			<StorageSection detail={detail} ownerName={ownerName} />
@@ -320,14 +304,14 @@ function DataSections({
 				<h4 id="detail-logs" className="pk-text-label m-0">
 					Logs
 				</h4>
-				<code className="pk-techdetail break-all" data-testid="log-command">
-					{command}
-				</code>
-				<div>
-					<Button size="sm" onClick={() => void copyCommand()}>
-						Copy log command
-					</Button>
-				</div>
+				<Link
+					to="/admin"
+					search={{ tab: "logs", workspace: workspace.id, since: "1h" }}
+					className="pk-link text-[13px]"
+					data-testid="detail-view-logs"
+				>
+					View logs
+				</Link>
 			</section>
 
 			<section aria-labelledby="detail-audit" className="pk-detail-section">
@@ -350,7 +334,7 @@ function DataSections({
 				<Link
 					to="/admin"
 					search={{ tab: "audit", workspace: workspace.id }}
-					className="pk-link text-[13px] text-[var(--accent-text)] underline"
+					className="pk-link text-[13px]"
 					data-testid="detail-all-events"
 				>
 					All events for this workspace
@@ -1178,6 +1162,14 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 					{user.issuer ?? "—"}
 				</dd>
 			</dl>
+			<Link
+				to="/admin"
+				search={{ tab: "logs", user: user.id }}
+				className="pk-link text-[13px]"
+				data-testid="detail-user-logs"
+			>
+				View this user's logs
+			</Link>
 			<div className="flex flex-wrap gap-2">
 				<Button
 					size="sm"

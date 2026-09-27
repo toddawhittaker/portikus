@@ -1238,16 +1238,6 @@ design/. Half a day with the header tests.
 
 **Source.** Accessibility review of Epic 14.3 (issue #475).
 
-## Health tab layout
-
-**What.** The Health tab in three rows, with state badges, a warning
-coloured pool tag and chart tokens (issue #603).
-
-**What it would take.** Goes to the observability epic with the Health
-charts (#597, #598, #599, #476).
-
-**Source.** Admin UX review of 2026-09-26, left out of Epic 18.
-
 ## Sortable admin tables and a table component
 
 **What.** Sortable column headers and a React `<Table>` component.
@@ -1544,6 +1534,86 @@ with no explanation.
 new image, which fixes it.
 
 **Source.** Left out of Epic 16.
+
+## A per-route breakdown of API requests
+
+**What.** Slowest and busiest routes on the Health tab. The charts show totals only.
+
+**What it would take.** A `route` column in `api_request_samples` (a migration) and a table view. Storing per route multiplies the rows by the number of routes.
+
+**Source.** Left out of Epic 19.
+
+## A sliding or custom time window on the Health tab
+
+**What.** Any window, not only the four presets of 1 hour, 6 hours, 1 day and 7 days (issue #597 allows it later).
+
+**What it would take.** A from and to control and a bucket width chosen from the span; the series route already buckets on the server.
+
+**Source.** Left out of Epic 19.
+
+## Workspace agent logs in the Logs tab
+
+**What.** The agents' own lines. They live inside each container, not in the VM's journal.
+
+**What it would take.** A way to collect them from the containers without the platform reading student data (#476, "Left out on purpose").
+
+**Source.** Left out of Epic 19.
+
+## Alerts or emails on errors
+
+**What.** Tell an administrator when errors appear, instead of waiting for them to look.
+
+**What it would take.** A mail setting and a threshold rule in the worker (#476, "Left out on purpose").
+
+**Source.** Left out of Epic 19.
+
+## Dex, Caddy and PostgreSQL lines in the Logs tab
+
+**What.** Only the three Portikus units are read today.
+
+**What it would take.** Their lines are not Portikus JSON, so each needs its own parser and redaction rules before it can be shown.
+
+**Source.** Left out of Epic 19.
+
+## Non-JSON journal lines in the Logs tab
+
+**What.** systemd's start and stop lines and raw stack traces are skipped and counted.
+
+**What it would take.** A plain-text row type with redaction for free text, which is harder than redacting named keys.
+
+**Source.** Left out of Epic 19.
+
+## Per-workspace figures beyond about 4 hours
+
+**What.** The heat map covers at most the 245 minutes `workspace_usage_samples` keeps.
+
+**What it would take.** A decision on that table's size, since it holds one row per running workspace per minute.
+
+**Source.** Left out of Epic 19.
+
+## Sampling faster than once a minute
+
+**What.** Health charts cannot be finer than the worker's one-minute samples (#597).
+
+**What it would take.** A faster sampler and a larger `health_samples` table.
+
+**Source.** Left out of Epic 19.
+
+## OpenTelemetry or a metrics endpoint
+
+**What.** ADR 0022 still holds: metrics stay in PostgreSQL.
+
+**What it would take.** Only when a second VM or an external monitor needs one.
+
+**Source.** Left out of Epic 19.
+
+## Heat map values for sighted keyboard users
+
+**What.** The heat map's cells are not focusable, so a sighted keyboard user cannot read a cell's exact value; the Peak column is the summary. Screen readers get every value.
+
+**What it would take.** A keyboard cursor over the table like the charts' readout, one tab stop with arrow keys, without making thousands of tab stops.
+
+**Source.** Left out of Epic 19.
 
 ## Monitor buttons while Find in files is open
 

@@ -249,13 +249,13 @@ function makeLoggingApp(level: LogLevel = "info") {
 	return { app, lines };
 }
 
-test("a refused request is logged at warn with its status and error code", async () => {
+test("a signed-out 401 is logged at info with its status and error code (SPEC.md section 25.6)", async () => {
 	const { app, lines } = makeLoggingApp();
 	const response = await app.inject({ method: "GET", url: "/workspaces" });
 	expect(response.statusCode).toBe(401);
 
 	const [line] = requestLines(lines);
-	expect(line?.level).toBe("warn");
+	expect(line?.level).toBe("info");
 	expect(line?.status).toBe(401);
 	expect(line?.code).toBe("UNAUTHORIZED");
 	expect(line?.path).toBe("/workspaces");
