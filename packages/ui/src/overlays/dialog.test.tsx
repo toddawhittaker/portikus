@@ -221,4 +221,44 @@ describe("Dialog", () => {
 
 		await waitFor(() => expect(document.activeElement).toBe(row));
 	});
+
+	function ReturnFixture({ target }: { target: () => HTMLElement | null }) {
+		return (
+			<>
+				<h2 id="heading" tabIndex={-1}>
+					Heading
+				</h2>
+				<DialogRoot>
+					<DialogTrigger>Open</DialogTrigger>
+					<Dialog title="Pick" returnFocusTo={target} />
+				</DialogRoot>
+			</>
+		);
+	}
+
+	it("focuses the element returnFocusTo gives on close", async () => {
+		render(<ReturnFixture target={() => document.getElementById("heading")} />);
+		fireEvent.click(screen.getByText("Open"));
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+		await waitFor(() => expect(document.activeElement?.id).toBe("heading"));
+	});
+
+	it("falls back to the trigger when returnFocusTo gives null", async () => {
+		render(<ReturnFixture target={() => null} />);
+		const trigger = screen.getByText("Open");
+		trigger.focus();
+		fireEvent.click(trigger);
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+		await waitFor(() => expect(document.activeElement).toBe(trigger));
+	});
+
+	it("falls back to the trigger when returnFocusTo gives a detached element", async () => {
+		const detached = document.createElement("button");
+		render(<ReturnFixture target={() => detached} />);
+		const trigger = screen.getByText("Open");
+		trigger.focus();
+		fireEvent.click(trigger);
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+		await waitFor(() => expect(document.activeElement).toBe(trigger));
+	});
 });

@@ -526,6 +526,7 @@ function BulkActions({
 }) {
 	const client = useQueryClient();
 	const resultRef = useRef<HTMLDivElement>(null);
+	const finished = useRef(false);
 	const [running, setRunning] = useState(false);
 	const [result, setResult] = useState<BulkResult | null>(null);
 
@@ -562,14 +563,14 @@ function BulkActions({
 				});
 			}
 		}
+		// The bar and the dialog are gone, so focus lands on the summary.
+		finished.current = true;
 		setRunning(false);
 		setConfirming(null);
 		setResult(outcome);
 		onDone();
 		// Refetch once for the whole run, not once per row.
 		void client.invalidateQueries({ queryKey: ["admin"] });
-		// The bar and the dialog are gone, so focus lands on the summary.
-		requestAnimationFrame(() => resultRef.current?.focus());
 	}
 
 	return (
@@ -633,6 +634,11 @@ function BulkActions({
 						}
 						confirmLabel={BULK[confirming.action].confirm}
 						pending={running}
+						returnFocusTo={() => {
+							if (!finished.current) return null;
+							finished.current = false;
+							return resultRef.current;
+						}}
 						onConfirm={() =>
 							void run(confirming.action, confirming.users, confirming.resetDocker)
 						}

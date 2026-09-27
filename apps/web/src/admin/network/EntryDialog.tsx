@@ -39,11 +39,13 @@ export function EntryDialog({
 	version,
 	onClose,
 	onSaved,
+	returnFocusTo,
 }: {
 	draft: EntryDraft;
 	version: number;
 	onClose: () => void;
 	onSaved: () => void;
+	returnFocusTo: () => HTMLElement | null;
 }) {
 	const write = useEgressWrite();
 	const toast = useToast();
@@ -88,6 +90,7 @@ export function EntryDialog({
 		<DialogRoot open onOpenChange={(open) => (open ? null : onClose())}>
 			<Dialog
 				testId="egress-entry-dialog"
+				returnFocusTo={returnFocusTo}
 				title={title}
 				description="A host name also allows every name under it: github.com covers api.github.com."
 				footer={

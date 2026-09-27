@@ -97,7 +97,13 @@ function NotificationItem({
  * The user's notification history, newest first (SPEC.md section 8.5).
  * Opening it marks nothing read; the user does that here.
  */
-export function NotificationsDialog({ onClose }: { onClose: () => void }) {
+export function NotificationsDialog({
+	onClose,
+	returnFocusTo,
+}: {
+	onClose: () => void;
+	returnFocusTo?: () => HTMLElement | null;
+}) {
 	const query = useNotifications();
 	const markAll = useMarkAllNotificationsRead();
 	const clear = useClearNotifications();
@@ -131,6 +137,7 @@ export function NotificationsDialog({ onClose }: { onClose: () => void }) {
 	return (
 		<DialogRoot open onOpenChange={(open) => !open && onClose()}>
 			<Dialog
+				returnFocusTo={returnFocusTo}
 				testId="dialog-notifications"
 				size="lg"
 				title="Notifications"
