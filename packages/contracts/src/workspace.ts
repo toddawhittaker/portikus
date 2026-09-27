@@ -31,6 +31,7 @@ export const PendingOperation = z.enum([
 	"reset-docker",
 	"rebuild",
 	"rebuild-reset-docker",
+	"replace-home",
 ]);
 export type PendingOperation = z.infer<typeof PendingOperation>;
 

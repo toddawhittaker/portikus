@@ -71,6 +71,10 @@ const PENDING_COPY: Record<PendingOperation, [string, string]> = {
 		"Rebuilding…",
 		"An administrator is rebuilding the workspace system and resetting Docker. Your projects and home folder are kept.",
 	],
+	"replace-home": [
+		"Replacing your home folder…",
+		"An administrator is replacing your home folder with one from a backup. Your projects get recovery points first, and your current home folder is kept. This can take several minutes.",
+	],
 };
 
 /** Which part of the wait the person is in (design/mockups/WorkspaceStarting). */

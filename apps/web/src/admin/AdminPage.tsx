@@ -5,6 +5,7 @@ import { AppHeader } from "../shell/AppHeader.js";
 import { gatePath, useMe } from "../useMe.js";
 import { focusAdminHeading } from "./AdminSection.js";
 import { AuditTab } from "./audit/AuditTab.js";
+import { BackupsTab } from "./backups/BackupsTab.js";
 import { HealthTab } from "./health/HealthTab.js";
 import { LogsTab } from "./logs/LogsTab.js";
 import { NetworkTab } from "./network/NetworkTab.js";
@@ -17,6 +18,7 @@ export const ADMIN_TABS = [
 	"logs",
 	"health",
 	"network",
+	"backups",
 	"settings",
 ] as const;
 export type AdminTab = (typeof ADMIN_TABS)[number];
@@ -28,6 +30,7 @@ const TAB_LABEL: Record<AdminTab, string> = {
 	logs: "Logs",
 	health: "Health",
 	network: "Network",
+	backups: "Backups",
 	settings: "Settings",
 };
 
@@ -97,6 +100,7 @@ export function AdminPage() {
 					{tab === "logs" ? <LogsTab /> : null}
 					{tab === "health" ? <HealthTab /> : null}
 					{tab === "network" ? <NetworkTab /> : null}
+					{tab === "backups" ? <BackupsTab /> : null}
 					{tab === "settings" ? <SettingsTab /> : null}
 				</div>
 			</main>
