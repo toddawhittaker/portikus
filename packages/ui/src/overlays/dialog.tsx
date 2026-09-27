@@ -75,6 +75,17 @@ export function useReturnFocus(): {
 					: lastFocus;
 		},
 		onCloseAutoFocus(event) {
+			// The caller already moved focus somewhere deliberate while closing.
+			const active = document.activeElement;
+			if (
+				active instanceof HTMLElement &&
+				active.isConnected &&
+				active !== document.body
+			) {
+				origin.current = null;
+				event.preventDefault();
+				return;
+			}
 			const target = [
 				origin.current?.element,
 				origin.current?.menuTrigger,
