@@ -33,6 +33,9 @@ export function createPool(
 ): pg.Pool {
 	const pool = new pg.Pool(poolOptions(url, maxConnections));
 	pool.on("error", onPoolError);
+	// A checked-out client has no pool listener; its query already rejects
+	// with the error, so this only keeps the "error" event from ending the process.
+	pool.on("connect", (client) => client.on("error", () => {}));
 	return pool;
 }
 

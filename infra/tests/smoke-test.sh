@@ -1313,16 +1313,16 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
   # route is refused with 401 rather than reaching the 404 handler.
   check_output "an anonymous request to an unknown route is refused with 401" "401" \
     ssh_cmd "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${API_PORT}/no-such-route"
-  # One line must carry the warn level, the 401, and the code, and journald can
-  # lag a moment behind the response.
-  api_journal_has_warn_401() {
+  # A 401 without a session is routine (a signed-out browser polling), so it
+  # is logged at info, not warn (docs/adr/0036).  journald can lag a moment.
+  api_journal_has_info_401() {
     for _ in $(seq 1 3); do
-      if api_journal_has '"level":"warn".*"status":401.*"code":"UNAUTHORIZED"'; then return 0; fi
+      if api_journal_has '"level":"info".*"status":401.*"code":"UNAUTHORIZED"'; then return 0; fi
       sleep 1
     done
     return 1
   }
-  check "the refused request is logged at warn" api_journal_has_warn_401
+  check "the refused anonymous request is logged at info" api_journal_has_info_401
 
   # 5c. Shorten the grace period for the lifecycle checks below.  The original
   #     value is recorded here and put back by cleanup_epic34.  The platform
@@ -1330,6 +1330,20 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
   #     else's workspace is on this VM.
   check_output "a student is refused the admin settings" "403" \
     http_status bob "${API}/admin/settings"
+  # The Logs tab reads that refusal back from the journal (docs/adr/0036):
+  # a warn line from the API with the 403 and the path.
+  logs_show_bob_403() {
+    for _ in $(seq 1 5); do
+      if vm_get carol "${API}/admin/logs?level=warn&service=api" | python3 -c '
+import json, sys
+lines = json.load(sys.stdin)["lines"]
+sys.exit(0 if any(l["line"].get("status") == 403 and l["line"].get("path") == "/admin/settings" for l in lines) else 1)
+' 2>/dev/null; then return 0; fi
+      sleep 1
+    done
+    return 1
+  }
+  check "the Logs tab shows the student's refused request as a warn line" logs_show_bob_403
   if [ "$skip_lifecycle" = "no" ]; then
     orig_grace=$(admin_grace)
     check "read the platform grace period as carol" test -n "$orig_grace"
@@ -1674,6 +1688,15 @@ TERMPROBE
       mark="${mark_a}${mark_b}"
       check "terminal socket carries input and output" \
         term_probe "$term_id" "echo ${mark_a}\"${mark_b}\"" "$mark" - 30000
+      # Terminal bytes never reach a platform log, so the Logs tab cannot
+      # show them (ADR 0012, docs/adr/0036).
+      check_zero_lines "the terminal's output is in no platform journal" \
+        ssh_cmd "sudo journalctl -u portikus-api -u portikus-worker -u portikus-controller --since '10 min ago' --no-pager -o cat | grep -F '${mark}'"
+      logs_count_mark() {
+        vm_get carol "${API}/admin/logs?level=error,warn,info,debug&q=${mark_a}" \
+          | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["lines"]))'
+      }
+      check_output "the Logs tab finds no line with the terminal's input or output" "0" logs_count_mark
 
       # Every login shell reads /etc/profile.d/portikus.sh, which the
       # controller writes at start, so a terminal knows the preview suffix
@@ -2244,6 +2267,27 @@ for terminal in json.load(sys.stdin).get("terminals", []):
 
     rm -f "$probe_log"
   fi
+
+  # 17b. The Health series has the controller's host rates once the worker
+  #      has taken two samples a minute apart (SPEC.md 25.6).
+  series_has_rates() {
+    vm_get carol "${API}/admin/health/series?range=1h" | python3 -c '
+import json, sys
+rows = json.load(sys.stdin)["platform"]
+keys = ("cpuPercent", "netRxBytesPerSecond", "netTxBytesPerSecond", "diskReadBytesPerSecond", "diskWriteBytesPerSecond")
+sys.exit(0 if any(all(r.get(k) is not None for k in keys) for r in rows) else 1)
+' 2>/dev/null
+  }
+  wait_series_rates() {
+    for _ in $(seq 1 30); do
+      series_has_rates && return 0
+      sleep 5
+    done
+    return 1
+  }
+  check "the Health series has host rates after two samples" wait_series_rates
+  check_output "a student is refused the Health series" "403" \
+    http_status bob "${API}/admin/health/series?range=1h"
 
   # 18. Logging out ends the session.
   echo ""

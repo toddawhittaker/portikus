@@ -64,6 +64,9 @@ function pathOf(request: FastifyRequest): string {
 	return query === -1 ? url : url.slice(0, query);
 }
 
+/** Longest path written to a line; the rest is anyone's text. */
+const MAX_PATH_LENGTH = 200;
+
 /**
  * Turns off Fastify's own "incoming request" and "request completed" pair, so
  * `registerRequestLogging` is the only source of request lines. Pass it as the
@@ -105,7 +108,10 @@ export function registerRequestLogging<Log extends FastifyBaseLogger>(
 		const line: Record<string, unknown> = {
 			method: request.method,
 			route: request.routeOptions.url ?? null,
-			path,
+			path:
+				path.length <= MAX_PATH_LENGTH
+					? path
+					: `${path.slice(0, MAX_PATH_LENGTH)}\u2026`,
 			status,
 			durationMs: Math.round(reply.elapsedTime),
 			reqId: request.id,
@@ -119,7 +125,13 @@ export function registerRequestLogging<Log extends FastifyBaseLogger>(
 		if (details?.message) line.error = truncate(details.message);
 
 		const log = request.log;
+		// Anyone can request an unknown path, so it must not flood the warn lines.
+		const unmatched = status === 404 && request.routeOptions.url === undefined;
+		// A signed-out browser polling /me is routine, not a warning.
+		const signedOut = status === 401 && line.userId === undefined;
 		if (status >= 500) log.error(line, "request");
+		else if (unmatched) log.debug(line, "request");
+		else if (signedOut) log.info(line, "request");
 		else if (status >= 400) log.warn(line, "request");
 		else if (opts.debugPaths.includes(path)) log.debug(line, "request");
 		else log.info(line, "request");

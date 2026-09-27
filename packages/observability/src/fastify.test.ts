@@ -26,6 +26,13 @@ function buildApp(level: LogLevel = "info") {
 	app.get("/long", async (_request, reply) =>
 		reply.code(400).send({ code: "BAD_REQUEST", message: "x".repeat(500) }),
 	);
+	app.get("/me", async (_request, reply) =>
+		reply.code(401).send({ code: "UNAUTHENTICATED", message: "sign in" }),
+	);
+	app.get("/stale", async (request, reply) => {
+		(request as { user?: { id: string } }).user = { id: "user-1" };
+		return reply.code(401).send({ code: "UNAUTHENTICATED", message: "sign in" });
+	});
 	app.get("/whoami", async (request) => {
 		(request as { user?: { id: string } }).user = { id: "user-1" };
 		return { ok: true };
@@ -59,14 +66,23 @@ test("a debug path is silent at info and logged at debug", async () => {
 	expect(lineAt(loud.requests(), 0).level).toBe("debug");
 });
 
-test("an unmatched route logs a warn line with Fastify's own message", async () => {
-	const { app, requests } = buildApp();
+test("an unmatched route logs only at debug, with Fastify's own message", async () => {
+	const quiet = buildApp("info");
+	await quiet.app.inject({ method: "GET", url: "/nope" });
+	expect(quiet.requests()).toHaveLength(0);
+	const { app, requests } = buildApp("debug");
 	await app.inject({ method: "GET", url: "/nope" });
 	const line = lineAt(requests(), 0);
-	expect(line.level).toBe("warn");
+	expect(line.level).toBe("debug");
 	expect(line.status).toBe(404);
 	expect(line.route).toBeNull();
 	expect(line.error).toContain("Route GET:/nope not found");
+});
+
+test("a long path is cut to 200 characters", async () => {
+	const { app, requests } = buildApp("debug");
+	await app.inject({ method: "GET", url: `/${"a".repeat(5000)}` });
+	expect(String(lineAt(requests(), 0).path).length).toBe(201);
 });
 
 test("an error body's code and message reach the line", async () => {
@@ -77,6 +93,15 @@ test("an error body's code and message reach the line", async () => {
 	expect(line.status).toBe(403);
 	expect(line.code).toBe("FORBIDDEN");
 	expect(line.error).toBe("no");
+});
+
+test("a 401 without a session logs at info; with a user it stays a warning", async () => {
+	const { app, requests } = buildApp();
+	await app.inject({ method: "GET", url: "/me" });
+	await app.inject({ method: "GET", url: "/stale" });
+	expect(lineAt(requests(), 0).level).toBe("info");
+	expect(lineAt(requests(), 0).status).toBe(401);
+	expect(lineAt(requests(), 1).level).toBe("warn");
 });
 
 test("the agent's nested error shape is extracted too", async () => {

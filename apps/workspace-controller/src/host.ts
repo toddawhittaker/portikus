@@ -4,7 +4,11 @@ import type {
 	GrowVolumesResponse,
 	HostSnapshot,
 } from "@portikus/contracts";
+import { createHostRateReader } from "./host-rates.js";
 import { type IncusClient, IncusError } from "./incus.js";
+
+// One reader per controller process, so each snapshot is a delta against the last.
+const readHostRates = createHostRateReader();
 
 export type LoadAverage = [number, number, number];
 
@@ -41,6 +45,7 @@ export async function readHostSnapshot(
 		profile: string;
 		imageAlias: string;
 		loadAverage?: () => Promise<LoadAverage>;
+		rates?: () => Promise<HostSnapshot["rates"]>;
 		now?: () => Date;
 		/** Tests point this elsewhere. */
 		thinPoolStatusPath?: string;
@@ -87,6 +92,7 @@ export async function readHostSnapshot(
 			imageFingerprint: str(inst.config?.["volatile.base_image"]),
 			imageSerial: str(inst.config?.["image.serial"]),
 		})),
+		rates: await (opts.rates ?? readHostRates)(),
 	};
 }
 

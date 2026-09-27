@@ -132,6 +132,13 @@ function provider(): IncusWorkspaceProvider {
 	});
 }
 
+const rates = {
+	cpuPercent: 12,
+	netRxBytesPerSecond: 100,
+	netTxBytesPerSecond: 50,
+	diskReadBytesPerSecond: 0,
+	diskWriteBytesPerSecond: 512,
+};
 /** Write a thin-pool status file as the lvm role's timer does, and return its path. */
 function writeStatus(observedAt: string, metadataPercent: unknown): string {
 	const file = path.join(dir, "thinpool.json");
@@ -150,6 +157,7 @@ test("the snapshot reads the host, pool, profile, image and instances", async ()
 		profile: "workspace",
 		imageAlias: "portikus",
 		loadAverage: load,
+		rates: async () => rates,
 		now: () => new Date("2026-09-22T12:00:00Z"),
 		thinPoolStatusPath: writeStatus("2026-09-22T11:59:30Z", 12.5),
 	});
@@ -173,6 +181,7 @@ test("the snapshot reads the host, pool, profile, image and instances", async ()
 			// An instance from an older image without a serial keeps its fingerprint.
 			{ name: "ws-bbbbbbbbbbbb", imageFingerprint: OLD_FP, imageSerial: null },
 		],
+		rates,
 	});
 	expect(requests.every((r) => r.method === "GET")).toBe(true);
 });

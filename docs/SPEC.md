@@ -2037,7 +2037,8 @@ P0 administration must support:
 - inspect base-image version;
 - view recent lifecycle/audit events;
 - archive or disable a user workspace;
-- revoke platform access.
+- revoke platform access;
+- view the platform's own error, warning, info and debug log lines (Epic 19, section 24.11).
 
 As built (Epic 11, ADR 0022): revoking access and disabling are one action,
 Disable account, which ends the user's sessions and preview sessions and
@@ -2050,7 +2051,8 @@ process limits are shown but not edited. An account is marked stale after
 signed in more recently; nothing is merged automatically. An administrator
 sees a workspace's aggregates (CPU, memory, disk, port numbers, short
 process names) but never its files, terminals, or process command lines.
-Logs stay in journald; the admin page has no log viewer.
+Logs stay in journald; since Epic 19 (ADR 0036) the admin page's Logs
+tab shows the platform's own lines from it (section 24.11).
 
 Added by Epic 14.3 (section 19.4, ADR 0032): administrators see throttled
 and flagged workspaces as **Throttled** and **High memory** tags in the
@@ -2558,6 +2560,57 @@ with `{from, to}`), and `settings.acceptable_use_updated` with
 `user.acceptable_use_accepted` with `{version}`. No row holds a process
 name, a command line, a file name or the statement's text.
 
+As built (Epic 19, the Logs tab): the admin page has a Logs tab between
+Audit and Health. It reads `GET /admin/logs` and shows the platform's own
+JSON log lines, newest first, 100 a page, with "Load older lines" for
+more. Filters are level (Error, which includes fatal, Warn, Info and
+Debug; Error and Warn by default), service, time (last hour, last day,
+last 7 days, or custom from and to), text, user ID and workspace ID, and
+they live in the URL (`level`, `service`, `since`, `until`, `q`, `user`,
+`workspace`), so a view can be linked. Each row shows the time, the level
+as a word in a tag, service, code, message, route, status, user and
+workspace, and a disclosure button shows the whole redacted line as JSON.
+Every value is shown as text, never as HTML. The list refreshes every 30
+seconds until older lines are loaded; then a Refresh button starts over.
+An "Auto refresh" toggle pauses and resumes the refresh, and a visible
+note says which is in force (WCAG 2.2.2). Older pages keep the first
+page's start time, so a preset window does not slide while paging. A
+search that hit its time limit before finding any line asks the
+administrator to narrow the time range. A link that switches admin tabs
+puts focus on the new tab's heading.
+A busy journal (429) is retried twice a second apart before its message
+shows; an unreadable one (503) shows its message at once. The workspace
+detail panel's Logs section is a "View logs" link filtered to that
+workspace and the last hour, replacing the printed `journalctl` command,
+and the panel's Account section has a "View this user's logs" link
+filtered to that user; the Users table keeps its seven columns. The
+Health tab's Trends card has a stacked errors and warnings bar chart from
+`GET /admin/logs/counts`, with warnings hatched; a click anywhere in a
+bucket's column opens the Logs tab for its time span and the level under
+the pointer, and from the keyboard Up and Down pick the level, announced,
+and Enter opens it. Reading logs is not audited, because it is a read by
+an administrator like the Audit tab and a row per refresh would be noise.
+
+How the journal is read (Epic 19, ADR 0036): only the units
+`portikus-api.service`, `portikus-worker.service` and
+`portikus-controller.service`, always named by the API. `journalctl` is
+spawned from `JOURNALCTL_PATH` with an argument array and no shell;
+request text never reaches an argument, and the text, user and workspace
+filters run in the API after parsing. Only the API process has the
+`systemd-journal` group, through its systemd unit. One request reads at
+most 20,000 entries or 5 seconds and says when it stopped short; at most
+two reads run at once, and a third gets 429 `RATE_LIMITED`; a missing or
+refused `journalctl` gives 503 `LOGS_UNAVAILABLE`. Lines that are not
+Portikus JSON (systemd's own lines, raw stack traces) are skipped and
+counted. Every line is redacted with the logger's own list of sensitive
+keys before it leaves the server. A workspace filter also matches the
+controller's `instance` field for that workspace. The errors chart's
+counts are kept in the API's memory at one-minute resolution for 7 days
+and fill in over several requests; until the window is counted the chart
+says "Still counting older lines". Workspace agents' logs, Dex, Caddy
+and PostgreSQL lines are not shown; `journalctl` on the VM remains the
+tool for those and for when the API is down (OPERATIONS.md).
+
 ### 24.12 Dependency/security maintenance
 
 The project must define a process for:
@@ -2661,6 +2714,65 @@ workspace's CPU time, memory working set and limits from Incus once a
 minute in `workspace_usage_samples`, keeping them for 245 minutes (the
 longest allowed guard window plus five). They hold no process, command
 or file names.
+
+As built (Epic 19): the admin Health tab has three rows: Platform and
+Resource guard; a full-width Trends card; then Failures (fixed at the
+last 24 hours) and Workspaces by state (every known state, zeros
+included). The Trends card offers four ranges, 1 hour, 6 hours, 1 day
+and 7 days, in 1-minute, 5-minute, 15-minute and 1-hour buckets. The
+choice is remembered per browser and defaults to 1 day. One admin-only
+route, `GET /admin/health/series?range=`, returns every chart's data
+already bucketed, at most 168 points per series; `GET /admin/health`
+keeps only the current state. Charts are hand-drawn SVG with a Y axis,
+time labels, threshold lines, a legend that uses dash patterns so no
+series relies on colour alone, a visible text summary, and one tab stop
+whose arrow keys read each bucket aloud. The host charts show pool and
+memory use and the 1, 5 and 15 minute load, each the maximum in its
+bucket, with the CPU count as a reference line.
+
+As built (Epic 19, activity): the Trends card has a per-workspace heat
+map, one row per workspace with a guard sample in the window and one
+cell per bucket, capped at the 50 highest peaks and sorted by owner
+name. A cell holds the highest CPU % (the guard's arithmetic: CPU time
+over the limit's allowance) or memory % (working set over the limit) in
+the bucket, with a CPU and Memory toggle. Cells shade in four steps of
+the accent colour, and a cell at or over the workspace's effective guard
+threshold is hatched in the warning colour. The map is an HTML table, so
+each cell's value and threshold are read aloud, and each row shows its
+peak as text and links to the owner's detail panel. Usage samples are
+kept about 4 hours, so the map covers at most that and says so on longer
+ranges; stopped workspaces have none. Two count charts show guard events
+(throttles, memory flags, idle stops, and lifts) and activity (start
+requests, stop requests including idle stops, and successful sign-ins)
+per bucket from the audit log, with totals for the range as the summary.
+
+As built (Epic 19, platform): the controller measures host CPU %,
+network and disk throughput from `/proc` as deltas against its previous
+reading (`HostSnapshot.rates`, null on the first reading after a restart
+or when a counter goes backwards). Network counts only the default-route
+interface, and disk only whole block devices, not `loop`, `ram`, `zram`
+or `dm-` devices, so nothing is counted twice. The worker stores the
+running workspace count from the database in each health sample.
+Percentages, load, CPU % and the running count use the bucket's maximum;
+throughput uses the average bytes per second; counts are sums. An
+availability strip shows, per bucket, the share of minutes with a sample
+and where the controller was unreachable, with a pattern as well as
+colour. Buckets with no data are left out of the series, and charts draw
+a gap.
+
+As built (Epic 19, API requests): the API counts every response per
+minute in memory (requests, 4xx, 5xx, WebSocket upgrades apart from
+requests and latency, and a latency histogram with bounds 5 ms to 10 s
+plus an overflow bucket), except `/health` polls, and adds the totals to
+`api_request_samples` once a minute and at shutdown. It stores no route,
+path, user or workspace. A failed write is logged and dropped, and the
+API prunes rows older than 7 days at most once an hour. The Trends card
+charts the request rate, the 4xx and 5xx share, and the median and 95th
+percentile response time, interpolated inside the histogram bucket.
+
+Request lines are logged at warn for 4xx answers, except an unmatched
+path (404) at debug and a 401 without a session at info, so a signed-out
+browser polling `/me` does not fill the Warn view or the errors chart.
 
 ### 25.7 Maintainability
 
@@ -3585,6 +3697,21 @@ Acceptance:
 - killing Caddy or PostgreSQL brings the site back within about 10 s without restarting the API or worker;
 - a workspace whose stop hangs does not delay another workspace's start;
 - a write to a full pool fails at once, and a new workspace waits in `provisioning` until there is room.
+
+### Epic 19 — Admin observability
+
+Built on `epic/19-admin-observability` (issues #476, #597, #598, #599 and #603). See sections 20.1, 24.11 and 25.6, ADR 0036 and STACK.md section 15 for the rules.
+
+Includes:
+
+- a Health tab in three rows with a Trends card of hand-drawn SVG charts over 1 hour, 6 hours, 1 day or 7 days, from one `GET /admin/health/series` route;
+- host charts (pool, memory, load, CPU %, network, disk, running workspaces and availability), a per-workspace heat map, guard event and activity counts, and API request rate, error rate and response time from a new `api_request_samples` table;
+- a Logs tab reading the three Portikus units' journal lines through `journalctl`, filtered, redacted and linkable, with "View logs" links from the detail panel and an errors and warnings chart on Health.
+
+Acceptance:
+
+- an administrator can find a platform warning from the browser without a shell on the VM, and a student gets 403 on every logs and series route;
+- only the API process can read the journal, and no request text reaches a `journalctl` argument.
 
 ### Estimated total
 

@@ -642,6 +642,8 @@ describe("database migrations and schema", () => {
 				expect(down20.error).toBeUndefined();
 				const down21 = await migrator.migrateDown();
 				expect(down21.error).toBeUndefined();
+				const down22 = await migrator.migrateDown();
+				expect(down22.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -666,6 +668,7 @@ describe("database migrations and schema", () => {
 					"0019_local_admin",
 					"0020_resource_guard",
 					"0021_notifications",
+					"0022_api_request_samples",
 				]);
 				throw rollback;
 			}),
@@ -687,6 +690,9 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0022_api_request_samples",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0021_notifications",
 					);
@@ -774,7 +780,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0021 and 0020 (Epic 14.3) first.
+					// Past 0022 (Epic 19), 0021 and 0020 (Epic 14.3) first.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const down = await migrator.migrateDown();
@@ -835,6 +842,9 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0022_api_request_samples",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0021_notifications",
 					);
@@ -1186,6 +1196,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0022_api_request_samples",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0021_notifications",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1245,6 +1258,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
@@ -1676,7 +1690,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Down past 0021 and 0020 (Epic 14.3), 0019 (Epic 14.2), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					// Down past 0022 (Epic 19), 0021 and 0020 (Epic 14.3), 0019 (Epic 14.2), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -1781,6 +1796,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0022_api_request_samples",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0021_notifications",
 					);
@@ -2010,17 +2028,20 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 						allowUnorderedMigrations: true,
 					});
-					// Build a database that took 0020 and 0021 before 0019 existed.
+					// Build a database that took 0020 to 0022 before 0019 existed.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect(await migrateToLatest(trx, without0019)).toEqual([
 						"0020_resource_guard",
 						"0021_notifications",
+						"0022_api_request_samples",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0021, 0020 and 0018 (they were applied 0018, 0020, 0021, 0019).
+					// Undo 0019, 0022, 0021, 0020 and 0018 (applied 0018, 0020, 0021, 0022, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2033,7 +2054,59 @@ describe("resource guard migration", () => {
 						"0019_local_admin",
 						"0020_resource_guard",
 						"0021_notifications",
+						"0022_api_request_samples",
 					]);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+});
+
+describe("api request samples migration", () => {
+	let t: TestDb;
+
+	beforeAll(async () => {
+		t = await createTestDb();
+	});
+
+	afterAll(async () => {
+		await t?.close();
+	});
+
+	test.skipIf(!hasTestDb())(
+		"0022 creates api_request_samples and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const exists = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.tables
+				where table_name = 'api_request_samples'`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const minute = new Date("2026-09-26T10:00:00Z");
+					const row = {
+						minute,
+						requests: 1,
+						client_errors: 0,
+						server_errors: 0,
+						websocket_upgrades: 0,
+						latency_buckets: [1, 0],
+					};
+					await trx.insertInto("api_request_samples").values(row).execute();
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const down = await migrator.migrateDown();
+					expect(down.error).toBeUndefined();
+					expect(down.results?.[0]?.migrationName).toBe("0022_api_request_samples");
+					expect((await exists.execute(trx)).rows[0]?.n).toBe(0);
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+					expect((await exists.execute(trx)).rows[0]?.n).toBe(1);
 					throw rollback;
 				}),
 			).rejects.toBe(rollback);
@@ -2070,6 +2143,22 @@ describe("pool options", () => {
 		expect(heard.map((e) => e.message)).toEqual(["terminated"]);
 		await pool.end();
 	});
+
+	test.skipIf(!hasTestDb())(
+		"a checked-out connection dying does not throw",
+		async () => {
+			// Kysely holds a client outside pg-pool's idle listener for every
+			// query; PostgreSQL dying mid-query emits "error" on that client.
+			const pool = createPool(process.env.TEST_DATABASE_URL as string, 1, () => {});
+			const client = await pool.connect();
+			try {
+				expect(() => client.emit("error", new Error("terminated"))).not.toThrow();
+			} finally {
+				client.release(true);
+				await pool.end();
+			}
+		},
+	);
 
 	test("an unreachable database counts as unavailable; query errors do not", () => {
 		const coded = (message: string, code: string) =>

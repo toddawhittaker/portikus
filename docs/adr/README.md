@@ -63,3 +63,4 @@ has four sections:
 | [0033](0033-notifications-on-the-server-by-polling.md) | Notifications live on the server, and browsers poll for them (accepted, Epic 14.3) |
 | [0034](0034-platform-resilience.md) | Platform resilience: restarts, priority, background stops, cached preview checks and a fail-fast storage pool (accepted, Epic 17) |
 | [0035](0035-terminals-in-their-own-unit.md) | Terminals run in their own systemd unit, and the agent's negative OOM score was dropped (accepted, Epic 16) |
+| [0036](0036-admin-log-viewer-reads-the-journal.md) | The admin Logs tab reads the journal through `journalctl` with fixed arguments, limits and redaction (accepted, Epic 19) |

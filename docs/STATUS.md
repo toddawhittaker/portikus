@@ -2993,3 +2993,57 @@ Gaps:
   (BACKLOG).
 - At the rehearsal's load the CPU weight made no measurable difference to
   `/health` or terminal latency, because the platform's work is short.
+
+## Epic 19 — Admin observability
+
+The rules are in SPEC.md sections 20.1, 24.11 and 25.6, ADR 0036 and
+STACK.md section 15. Task PRs #666, #667, #671, #672, #673, #677 and #683
+on `epic/19-admin-observability`, plus the final sync and fold; issues
+#476, #597, #598, #599 and #603.
+
+Delivered:
+
+- The Health tab is in three rows: Platform and Resource guard, a
+  full-width Trends card, then Failures and Workspaces by state.
+- The Trends card has a range control (1 hour, 6 hours, 1 day, 7 days,
+  remembered per browser) and hand-drawn SVG charts with axes, legends,
+  text summaries and a keyboard readout, all from one
+  `GET /admin/health/series` route.
+- Charts cover pool and memory use, load, host CPU %, network and disk
+  (measured by the controller), running workspaces, availability, a
+  per-workspace heat map, guard events, activity, and the API's request
+  rate, error rate and response time. The API writes per-minute totals
+  to the new `api_request_samples` table (migration 0022).
+- A Logs tab shows the three Portikus services' JSON lines from the
+  journal, filtered by level, service, time, text, user and workspace,
+  with the filters in the URL and every line redacted. The detail panel
+  links to it, and the Health tab has an errors and warnings chart whose
+  bars open it.
+- Only the API process has the `systemd-journal` group. A 401 without a
+  session is logged at info, so signed-out polling does not fill the
+  Warn view.
+- Rehearsed on a throwaway VM (8 vCPUs, 16 GiB, Debian 13, systemd 257)
+  together with Epics 16 and 17: smoke test 299 of 299 and the heavy
+  security suite 295 of 295. `journalctl --grep` and `--reverse
+  --after-cursor` work as the reader expects. With the Debug level on
+  and 2.6 million lines (1.5 GB) in the journal, the 7-day error count
+  was complete after two requests and 10.6 s, and matched a `grep`
+  count exactly. Stored host rates matched counters read by hand
+  within 1%. A planted line with a bearer token, cookie, token and URL
+  password showed only `[redacted]` values.
+- The smoke test checks the Logs tab, the Health series rates, and that
+  terminal output reaches no journal; the security suite's new
+  `observability.sh` module checks who may read logs and series, the
+  journal group, `journalctl` support and redaction.
+- The rehearsal's PostgreSQL kill ended the API: a database connection
+  that dies mid-query raised an unhandled error. Every pool connection
+  now has an error listener.
+
+Gaps:
+
+- The heat map's cell values are not readable by sighted keyboard users;
+  the Peak column is the summary.
+- Everything under "Left out of Epic 19" in BACKLOG.md: per-route
+  request figures, custom windows, agent, Dex, Caddy and PostgreSQL lines,
+  non-JSON lines, alerts, longer per-workspace history, faster sampling
+  and OpenTelemetry.
