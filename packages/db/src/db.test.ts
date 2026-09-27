@@ -2144,6 +2144,22 @@ describe("pool options", () => {
 		await pool.end();
 	});
 
+	test.skipIf(!hasTestDb())(
+		"a checked-out connection dying does not throw",
+		async () => {
+			// Kysely holds a client outside pg-pool's idle listener for every
+			// query; PostgreSQL dying mid-query emits "error" on that client.
+			const pool = createPool(process.env.TEST_DATABASE_URL as string, 1, () => {});
+			const client = await pool.connect();
+			try {
+				expect(() => client.emit("error", new Error("terminated"))).not.toThrow();
+			} finally {
+				client.release(true);
+				await pool.end();
+			}
+		},
+	);
+
 	test("an unreachable database counts as unavailable; query errors do not", () => {
 		const coded = (message: string, code: string) =>
 			Object.assign(new Error(message), { code });
