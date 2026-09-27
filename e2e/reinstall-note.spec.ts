@@ -43,6 +43,10 @@ test("after a rebuild the student sees what to reinstall and can copy the line",
 	await expect(notice.getByTestId("reinstall-packages")).toHaveText(
 		"python3-venv, htop",
 	);
+	// The always-mounted status region announces the list (SPEC.md §25.8).
+	await expect(page.getByTestId("reinstall-announce")).toContainText(
+		"python3-venv, htop",
+	);
 	await expect(notice).toContainText("Reinstall them with:");
 	await expect(notice.getByTestId("reinstall-command")).toHaveText(
 		"sudo apt install python3-venv htop",

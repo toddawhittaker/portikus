@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import { egressView } from "./testView.js";
 import {
 	ago,
+	applyAnnouncement,
 	applyState,
 	hostFromInput,
 	joinPorts,
@@ -124,4 +125,16 @@ test("the apply status names an error, a pending change, the last apply, or noth
 			now,
 		).tone,
 	).toBe("none");
+});
+
+test("the announcement names the state and never the age", () => {
+	const applied = applyState(egressView(), Date.parse("2026-09-27T12:00:00.000Z"));
+	expect(applyAnnouncement(applied)).toBe(
+		"Applied. Every running workspace follows this policy.",
+	);
+	expect(applyAnnouncement({ tone: "pending", text: "x" })).toBe(
+		"Applying the latest change to every workspace.",
+	);
+	expect(applyAnnouncement({ tone: "error", text: "Failed." })).toBe("Failed.");
+	expect(applyAnnouncement({ tone: "none", text: "x" })).toBe("");
 });

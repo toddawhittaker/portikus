@@ -18,7 +18,7 @@ export function BlockedCard({
 }) {
 	return (
 		<section className="pk-card p-6" aria-labelledby="egress-blocked-title">
-			<h3 className="pk-text-heading m-0" id="egress-blocked-title">
+			<h3 className="pk-text-heading m-0" id="egress-blocked-title" tabIndex={-1}>
 				Refused names
 			</h3>
 			<p className="pk-text-body pk-muted mt-1 mb-0">

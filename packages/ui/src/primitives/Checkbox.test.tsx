@@ -49,4 +49,13 @@ describe("Checkbox", () => {
 		expect(input.indeterminate).toBe(false);
 		expect(container.querySelector(".pk-check-box svg")).toBeNull();
 	});
+
+	it("stays focusable while busy and says it is unavailable", () => {
+		render(
+			<Checkbox label="GitHub" checked={false} ariaDisabled onChange={() => {}} />,
+		);
+		const input = screen.getByRole("checkbox", { name: "GitHub" }) as HTMLInputElement;
+		expect(input.disabled).toBe(false);
+		expect(input.getAttribute("aria-disabled")).toBe("true");
+	});
 });
