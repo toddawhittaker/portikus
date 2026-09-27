@@ -42,7 +42,13 @@ Report defects that would stop or mislead someone. In this order:
    focused terminal or editor with no way out. The way out of the terminal
    is Alt+Shift+Q, and no markup may add an `accesskey`, because that
    would take the shortcut. Tab moves between regions. Arrow keys move
-   inside a menu, a tab list, a listbox, or a set of radio buttons.
+   inside a menu, a tab list, a listbox, or a set of radio buttons. The
+   WAI-ARIA Authoring Practices Guide (APG, https://www.w3.org/WAI/ARIA/apg/)
+   is the reference for how a composite widget answers the keyboard: menu,
+   menubar, tabs, tree view such as the file tree, listbox, grid, splitter
+   such as a pane split, disclosure, and dialog. Radix already follows it;
+   judge custom controls against the matching APG pattern and cite the
+   expected keys in the finding.
 2. Name, role, and state. An icon-only button with no accessible name. A
    clickable `div` where a button or a link belongs. An `aria-*` attribute
    that contradicts the element, or a role that removes the semantics the
@@ -68,6 +74,26 @@ Report defects that would stop or mislead someone. In this order:
    `prefers-reduced-motion`. A primary control smaller than 24 by 24 CSS
    pixels. The design's comfortable controls are 36 pixels and its compact
    ones are 28. Either is enough. A custom control under 24 is not.
+6. The WCAG 2.2 criteria that are new since WCAG 2.1. Check each one
+   against the change:
+   - Focus Not Obscured (Minimum), 2.4.11. A sticky header, a toast, a
+     drawer, or a dialog must not fully hide the element that has focus.
+   - Dragging Movements, 2.5.7. Every drag, such as a pane resize, a
+     split, or a reorder, also works with single clicks or taps, for
+     example a button or a keyboard-operable separator.
+   - Target Size (Minimum), 2.5.8. Every target is at least 24 by 24 CSS
+     pixels, or has enough space around it that a 24-pixel circle on it
+     touches no other target. A small badge laid over another button fails.
+   - Consistent Help, 3.2.6. Help links and contact details stay in the
+     same place from page to page.
+   - Redundant Entry, 3.3.7. Do not make someone type again information
+     they already gave earlier in the same process.
+   - Accessible Authentication (Minimum), 3.3.8. Signing in needs no
+     memory or puzzle test. Paste and password managers must work.
+7. Automated checks. The Playwright axe scans that cover the changed UI
+   must pass the shared `WCAG_TAGS` list from `e2e/helpers.ts`, which
+   includes the WCAG 2.2 AA rules (`wcag22aa`). A scan with its own
+   narrower tag list, or none at all for new UI, is a finding.
 
 For every finding give: file and line, a one-sentence defect, and a
 concrete scenario (who is using the page, what they do, what they cannot

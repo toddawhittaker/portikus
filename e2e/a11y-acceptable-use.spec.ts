@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createStudent, query, settledAxe } from "./helpers";
+import { createStudent, query, settledAxe, WCAG_TAGS } from "./helpers";
 
 /**
  * axe on the acceptable-use page in light and dark (SPEC.md
@@ -23,7 +23,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByRole("button", { name: "I accept" })).toBeEnabled();
 
 		const results = await (await settledAxe(page))
-			.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+			.withTags(WCAG_TAGS)
 			.include("[data-testid=page-acceptable-use]")
 			.analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

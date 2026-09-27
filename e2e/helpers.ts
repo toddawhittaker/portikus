@@ -586,6 +586,9 @@ export async function setRestoreIncomplete(workspaceId: string): Promise<void> {
 	}
 }
 
+/** The WCAG levels every axe scan checks: 2.0, 2.1 and 2.2 AA (SPEC.md 25.8). */
+export const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
+
 /**
  * An axe builder for the page once every finite CSS transition and animation
  * has finished. Axe reads computed colours, so a dialog opening or a theme

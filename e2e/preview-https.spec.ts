@@ -1,7 +1,13 @@
 import { request as httpsRequest } from "node:https";
 import { createRequire } from "node:module";
 import { expect, type Page, test } from "@playwright/test";
-import { createProject, createStudent, settledAxe, workspacePath } from "./helpers";
+import {
+	createProject,
+	createStudent,
+	settledAxe,
+	WCAG_TAGS,
+	workspacePath,
+} from "./helpers";
 import { API_ORIGIN, FAKE_AGENT_URL } from "./ports";
 
 /**
@@ -246,7 +252,7 @@ test.describe("a preview of a port speaking HTTPS", () => {
 		const results = await (await settledAxe(page))
 			// WCAG rules only: the framed page is the student's, and axe's
 			// best-practice rules would judge its missing landmarks.
-			.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+			.withTags(WCAG_TAGS)
 			.include(".pk-preview-body")
 			.analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

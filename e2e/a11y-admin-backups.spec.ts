@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, settledAxe } from "./helpers";
+import { loginAs, settledAxe, WCAG_TAGS } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Backups tab
@@ -119,9 +119,7 @@ async function openTab(page: Page, colorScheme: "light" | "dark") {
 }
 
 async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page))
-		.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
-		.analyze();
+	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 

@@ -6,6 +6,7 @@ import {
 	settledAxe,
 	type TestStudent,
 	toast,
+	WCAG_TAGS,
 } from "./helpers";
 
 /**
@@ -43,9 +44,7 @@ async function openDetail(page: Page, name: string) {
 }
 
 async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page))
-		.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
-		.analyze();
+	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
