@@ -8,8 +8,9 @@
     name: portikus-workspace-proxy
     state: restarted
 
-# Only while it runs: the egress helper decides whether it should.
-- name: Restart the egress DNS if it runs
+# Only while it runs: the egress helper decides whether it should.  The
+# systemd module has no try-restart.
+- name: Restart the egress DNS if it runs  # noqa: command-instead-of-module
   ansible.builtin.command:
     cmd: systemctl try-restart portikus-egress-dns.service
   changed_when: true
