@@ -703,6 +703,48 @@ test.skipIf(skip)("a successful start records the agent address", async () => {
 	expect((await getWorkspace(id)).agent_address).toBe("10.200.0.44");
 });
 
+async function errorRowWith(
+	instance: { status: "Running" | "Stopped"; ipv4: string | null } | null,
+) {
+	const id = await insertWorkspace({
+		state: "error",
+		desired_state: "stopped",
+		error_code: "START_FAILED",
+		agent_address: "10.200.0.44",
+	});
+	const ws = await getWorkspace(id);
+	fake.listResult = instance
+		? [{ name: ws.incus_instance_name as string, ...instance }]
+		: [];
+	const now = new Date();
+	await sweep(tdb.db, fake, cfg, now, null);
+	return getWorkspace(id);
+}
+
+test.skipIf(skip)(
+	"an error row whose instance is stopped loses its agent address",
+	async () => {
+		const ws = await errorRowWith({ status: "Stopped", ipv4: null });
+		expect(ws.agent_address).toBeNull();
+		expect(ws.state).toBe("error");
+	},
+);
+
+test.skipIf(skip)(
+	"an error row whose instance runs gets the current address",
+	async () => {
+		const ws = await errorRowWith({ status: "Running", ipv4: "10.200.0.99" });
+		expect(ws.agent_address).toBe("10.200.0.99");
+		expect(ws.state).toBe("error");
+	},
+);
+
+test.skipIf(skip)("an error row whose instance is missing is left alone", async () => {
+	const ws = await errorRowWith(null);
+	expect(ws.agent_address).toBe("10.200.0.44");
+	expect(ws.error_code).toBe("START_FAILED");
+});
+
 test.skipIf(skip)("the drift refresh updates a changed agent address", async () => {
 	const id = await insertWorkspace({
 		state: "running",

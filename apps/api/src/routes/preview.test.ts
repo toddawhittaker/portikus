@@ -306,6 +306,26 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"usage answers 409 for an error workspace whose instance has no address (SPEC.md §24)",
+	async () => {
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ state: "error", error_code: "START_FAILED", agent_address: null })
+			.where("id", "=", workspaceId)
+			.execute();
+		const before = agent.requests.length;
+		const response = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/usage`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(response.statusCode).toBe(409);
+		expect(response.json().code).toBe("AGENT_UNAVAILABLE");
+		expect(agent.requests.length).toBe(before);
+	},
+);
+
+test.skipIf(skip)(
 	"usage fails in the error state when the agent does not answer",
 	async () => {
 		await testDb.db
