@@ -206,7 +206,12 @@ if st and stat.S_ISDIR(st.st_mode):
         failed = []
         if fst and stat.S_ISREG(fst.st_mode) and fst.st_size <= 1 << 20:
             failed = [l for l in read(fpath).splitlines() if FAILED.fullmatch(l)][:4000]
-        sets.append({"stamp": name, "complete": fst is None, "sizeBytes": size_of(top), "instances": instances, "failedVolumes": failed})
+        skipped = 0
+        sst = lstat(os.path.join(top, "SKIPPED"))
+        if sst and stat.S_ISREG(sst.st_mode) and sst.st_size <= 16:
+            text = read(os.path.join(top, "SKIPPED")).strip()
+            skipped = int(text) if text.isdigit() and len(text) <= 7 else 0
+        sets.append({"stamp": name, "complete": fst is None, "sizeBytes": size_of(top), "instances": instances, "failedVolumes": failed, "skippedVolumes": skipped})
 dumps = []
 ddir = os.path.join(host_dir, "dumps")
 st = lstat(ddir)

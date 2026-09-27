@@ -210,7 +210,8 @@ assert s["nextRunAt"] is None or ts.fullmatch(s["nextRunAt"])
 assert isinstance(s["keyInstalled"], bool)
 assert len(s["sets"]) <= 60 and len(s["dumps"]) <= 200
 for x in s["sets"]:
-    assert set(x) == {"stamp", "complete", "sizeBytes", "instances", "failedVolumes"}
+    assert set(x) == {"stamp", "complete", "sizeBytes", "instances", "failedVolumes", "skippedVolumes"}
+    assert isinstance(x["skippedVolumes"], int) and x["skippedVolumes"] >= 0
     assert re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", x["stamp"]) and isinstance(x["complete"], bool)
     assert isinstance(x["sizeBytes"], int) and x["sizeBytes"] >= 0
     assert all(re.fullmatch(r"ws-[0-9a-f]{24}", i) for i in x["instances"])
@@ -240,6 +241,10 @@ expect "it reports once, with no request" "[ \"\$(field \"r['request']\")\" = No
 expect "the report has the contract's shape" shape_ok
 expect "it lists the four sets, newest first" "[ \"\$(field \"[s['stamp'] for s in r['status']['sets']]\")\" = \"['${BROKEN}', '${NEWEST}', '${GOOD}', '${OLD}']\" ]"
 expect "a set with a FAILED file is incomplete and names the volume" "[ \"\$(field \"(r['status']['sets'][0]['complete'], r['status']['sets'][0]['failedVolumes'])\")\" = \"(False, ['${OTHER}-home'])\" ]"
+echo 2 >"${sets}/${NEWEST}/SKIPPED"
+run_channel
+expect "a set's SKIPPED count is reported, and 0 without one" "[ \"\$(field \"[s['skippedVolumes'] for s in r['status']['sets']]\")\" = '[0, 2, 0, 0]' ]"
+rm -f "${sets}/${NEWEST}/SKIPPED"
 expect "instances come from the volume file names" "[ \"\$(field \"r['status']['sets'][1]['instances']\")\" = \"['${INST}']\" ]"
 expect "dumps are listed newest first" "[ \"\$(field \"[d['file'] for d in r['status']['dumps']]\")\" = \"['portikus-pre-epic24.dump', 'portikus-pre-older.dump']\" ]"
 expect "the next nightly run is reported" "[ \"\$(field \"r['status']['nextRunAt']\")\" = 2026-09-28T02:30:00+00:00 ]"

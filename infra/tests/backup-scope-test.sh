@@ -167,7 +167,10 @@ case "\$cmd" in
   *"\$X workspaces") [ -n "\${FAKE_WORKSPACES_EMPTY:-}" ] && exit 0; echo "\${FAKE_WORKSPACE:-11111111-2222-3333-4444-555555555555 ${INST}}" ;;
   *"\$X instances") echo "${INST}" ;;
   *"\$X idmap "*) echo '[{"Isuid":true,"Hostid":1327680}]' ;;
-  *"\$X volume "*) [ "\${cmd##* }" = "\${FAKE_VOLUME_FAILS:-}" ] && exit 1; cat "${work}/volume.tar.gz" ;;
+  *"\$X volume "*)
+    [ "\${cmd##* }" = "\${FAKE_VOLUME_FAILS:-}" ] && exit 1
+    [ -z "\${FAKE_BIG_VOLUME:-}" ] || exec cat "${work}/big.tar.gz"
+    cat "${work}/volume.tar.gz" ;;
   "incus image show"*) ;;
   "incus storage volume list"*) printf '%s\n' \${FAKE_EXISTING:-} ;;
   "incus storage volume file pull"*)
@@ -450,6 +453,65 @@ lying_vm "backup refuses a workspace line that is not an id and a name" FAKE_WOR
 lying_vm "backup refuses a hostname that climbs out of the backup directory" FAKE_HOSTNAME='../evil'
 # shellcheck disable=SC2016  # the command substitution is the attack
 lying_vm "backup refuses a forged package version" FAKE_VERSION='1.0 $(touch evil)'
+
+echo "--- the run's byte budget ---"
+# refused_run LABEL PATTERN ENV... -- the run fails with PATTERN and keeps nothing.
+refused_run() {
+  local label=$1 pattern=$2 before_sets
+  shift 2
+  before_sets=$(all_sets)
+  if env "$@" PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
+    bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/refusal" 2>&1; then
+    bad "$label"
+  elif [ "$(all_sets)" != "$before_sets" ]; then
+    bad "${label} (it kept something)"
+  elif ! grep -q "$pattern" "${work}/refusal"; then
+    bad "${label} (refused for another reason: $(tail -1 "${work}/refusal"))"
+  else
+    ok "$label"
+  fi
+}
+avail_mib() { echo $(( $(df -B1 --output=avail "$sets" | tail -1 | tr -d ' ') / 1048576 )); }
+sleep 1
+: >"$log"
+fake="ws-aaaaaaaaaaaaaaaaaaaaaaaa"
+if FAKE_EXTRA_VOLUME="${fake}-home ${fake}-recovery" run_backup >"${work}/backup.out" 2>&1; then
+  ok "volumes of no listed instance do not stop the run"
+else
+  bad "volumes of no listed instance do not stop the run ($(tail -1 "${work}/backup.out"))"
+fi
+skipset=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
+expect "the set completes with the real volumes" \
+  "[ ! -e '${skipset}/FAILED' ] && [ -f '${skipset}/${HOME_VOL}.age' ] && [ -f '${skipset}/${REC_VOL}.age' ]"
+expect "nothing is asked for or written for the made-up volumes" \
+  "! grep -q '${fake}' '$log' && ! ls '$skipset' | grep -q '${fake}'"
+expect "the skip is counted in the set and warned about" \
+  "[ \"\$(cat '${skipset}/SKIPPED')\" = 2 ] && grep -q 'WARNING: skipped 2 volumes' '${work}/backup.out'"
+sleep 1
+# Leave the run a budget of 1 to 2 MiB, and stream a 64 MiB volume that
+# does not compress.
+mkdir -p "${work}/big/backup/volume"
+head -c 64M /dev/urandom >"${work}/big/backup/volume/noise"
+tar -czf "${work}/big.tar.gz" -C "${work}/big" backup
+rm -rf "${work}/big"
+sleep 1
+floor_mib=$(( $(avail_mib) - 1 ))
+refused_run "a VM streaming past the run's budget stops the whole run and keeps nothing" "passed its byte budget" \
+  PORTIKUS_BACKUP_MIN_FREE_MB="$floor_mib" FAKE_BIG_VOLUME=1
+expect "the partial set is removed" "! find '$mine' -maxdepth 1 -name '.partial-*' | grep -q ."
+expect "the run left the free-space floor free" "[ \$(avail_mib) -ge $floor_mib ]"
+# A killed run's 64 MiB leftover is cleared before free space is measured.
+partial_dir="${mine}/.partial-20260101T000000Z"
+mkdir -p "$partial_dir"
+head -c 64M /dev/zero >"${partial_dir}/leftover"
+sleep 1
+if env PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
+  PORTIKUS_BACKUP_MIN_FREE_MB=$(( $(avail_mib) + 32 )) \
+  bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/backup.out" 2>&1; then
+  ok "a leftover partial set does not cause a false free-space refusal"
+else
+  bad "a leftover partial set does not cause a false free-space refusal ($(tail -1 "${work}/backup.out"))"
+fi
 
 # doctored NAME -- a copy of the good set, for one test to spoil.
 doctored() { rm -rf "${work:?}/$1"; cp -r "$newest" "${work}/$1"; printf '%s' "${work}/$1"; }
