@@ -20,6 +20,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useState } from "react";
+import { FullCommandButton, FullCommandText } from "../monitor/FullCommand.js";
 import { formatBytes, formatCpu } from "../monitor/format.js";
 import { useWorkspaceUsage } from "../monitor/usage.js";
 import { openPreviewInNewTab } from "../preview/grants.js";
@@ -53,6 +54,16 @@ export function RunningPane({
 	const [showSystem, setShowSystem] = useState(readShowSystem);
 	const [stopping, setStopping] = useState<ListeningService | null>(null);
 	const [selectedPort, setSelectedPort] = useState<number | null>(null);
+	const [expandedPorts, setExpandedPorts] = useState<Set<number>>(() => new Set());
+
+	function toggleCommand(port: number) {
+		setExpandedPorts((previous) => {
+			const next = new Set(previous);
+			if (next.has(port)) next.delete(port);
+			else next.add(port);
+			return next;
+		});
+	}
 
 	const all = [...listening.services].sort((a, b) => a.port - b.port);
 	const services = showSystem ? all : all.filter((service) => !service.system);
@@ -102,6 +113,14 @@ export function RunningPane({
 				const reason = serviceReason(service);
 				const command = serviceCommand(service);
 				const isSelected = service.port === selected?.port;
+				// The agent sends one only for the student's own listener (SPEC.md
+				// §24.11); a system or Docker row never offers it, whatever arrives.
+				const commandLine =
+					service.system || isDocker(service)
+						? undefined
+						: service.process?.commandLine;
+				const expanded = commandLine !== undefined && expandedPorts.has(service.port);
+				const detailId = `running-command-${service.port}`;
 				return (
 					<div
 						key={service.port}
@@ -146,6 +165,15 @@ export function RunningPane({
 							</span>
 						</button>
 						<span className="pk-portrow-actions">
+							{commandLine !== undefined ? (
+								<FullCommandButton
+									subject={`port ${service.port}`}
+									expanded={expanded}
+									detailId={detailId}
+									testId={`running-show-command-${service.port}`}
+									onToggle={() => toggleCommand(service.port)}
+								/>
+							) : null}
 							{isPreviewable(service) && !service.system ? (
 								<>
 									<Button
@@ -185,6 +213,11 @@ export function RunningPane({
 								/>
 							)}
 						</span>
+						{expanded ? (
+							<div className="pk-portrow-command">
+								<FullCommandText id={detailId} commandLine={commandLine} />
+							</div>
+						) : null}
 					</div>
 				);
 			})}
