@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift and 0024_process_snapshots
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots and 0028_throttle_hold
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -142,10 +142,14 @@ export interface WorkspacesTable {
 			windowMinutes: number;
 			sharePercent: number;
 			allowance: string;
+			/** Set when this throttle was the Nth in the hold window (SPEC.md §19.4). */
+			held?: { count: number; hours: number };
 		} | null,
 		string | null | undefined,
 		string | null
 	>;
+	/** When each recent throttle began, trimmed to the hold window. */
+	cpu_throttle_recent: ColumnType<Date[], string[] | undefined, string[]>;
 	/** Set while the workspace is flagged for high memory. */
 	memory_flag: ColumnType<
 		{
@@ -221,6 +225,9 @@ export interface SettingsTable {
 	cpu_idle_lift_minutes: Generated<number>;
 	/** CPU percent below which a throttled workspace counts as quiet; 0 turns lifting off. */
 	cpu_idle_lift_percent: Generated<number>;
+	/** Throttles within the hold hours that make one survive a restart; 0 turns it off. */
+	cpu_throttle_hold_after: Generated<number>;
+	cpu_throttle_hold_hours: Generated<number>;
 	/** Null means the built-in default statement. */
 	acceptable_use_text: string | null;
 	acceptable_use_version: Generated<number>;
