@@ -9,6 +9,7 @@ export function RemoveMemberConfirm({
 	member,
 	onClose,
 	onRemoved,
+	returnFocusTo,
 }: {
 	courseId: string;
 	courseTitle: string;
@@ -16,6 +17,7 @@ export function RemoveMemberConfirm({
 	onClose: () => void;
 	/** Called after a removal succeeds, instead of onClose. */
 	onRemoved: () => void;
+	returnFocusTo: () => HTMLElement | null;
 }) {
 	const remove = useRemoveMember(courseId);
 
@@ -23,6 +25,7 @@ export function RemoveMemberConfirm({
 		<ConfirmDialogRoot open onOpenChange={(open) => !open && onClose()}>
 			<ConfirmDialog
 				testId="dialog-remove-member"
+				returnFocusTo={returnFocusTo}
 				title={`Remove ${member.displayName} from ${courseTitle}?`}
 				description={
 					<>

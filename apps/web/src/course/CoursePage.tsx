@@ -146,6 +146,8 @@ function CourseMembers() {
 	const [removing, setRemoving] = React.useState<CourseMember | null>(null);
 	const [removedText, setRemovedText] = React.useState("");
 	const headingRef = React.useRef<HTMLHeadingElement>(null);
+	// Set by a successful removal so the closing dialog focuses what is left.
+	const removedNext = React.useRef<{ next: string | null } | null>(null);
 	const data = members.data;
 	const notFound = members.error instanceof ApiError && members.error.status === 404;
 	usePageTitle(data?.course.title ?? "Course");
@@ -242,17 +244,23 @@ function CourseMembers() {
 					member={removing}
 					onClose={() => setRemoving(null)}
 					onRemoved={() => {
-						const next = nextRemovable(data.members, removing.userId, myId);
+						removedNext.current = {
+							next: nextRemovable(data.members, removing.userId, myId),
+						};
 						setRemoving(null);
 						setRemovedText(`Removed ${removing.displayName} from ${data.course.title}`);
-						// Wait for the row and the dialog to unmount, then land on what is left.
-						requestAnimationFrame(() => {
-							const button = next
-								? document.querySelector<HTMLElement>(`[data-remove-id="${next}"]`)
-								: null;
-							// With only yourself left, the heading, not the hidden caption (review A3).
-							(button ?? headingRef.current)?.focus();
-						});
+					}}
+					returnFocusTo={() => {
+						const removed = removedNext.current;
+						removedNext.current = null;
+						if (!removed) return null;
+						const button = removed.next
+							? document.querySelector<HTMLElement>(
+									`[data-remove-id="${removed.next}"]`,
+								)
+							: null;
+						// With only yourself left, the heading, not the hidden caption (review A3).
+						return button ?? headingRef.current;
 					}}
 				/>
 			) : null}
