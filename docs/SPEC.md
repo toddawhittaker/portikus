@@ -505,6 +505,8 @@ If graceful stop does not complete within the configured timeout, the platform m
 
 A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 15 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
 
+A stop or restart confirmation opened while the workspace is changing state keeps its Confirm button disabled and says why, until the workspace settles. The Confirm button stays focusable (`aria-disabled`) and the reason is announced to screen readers.
+
 ### 6.6 Persistence contract
 
 The following must persist across a complete student workspace stop/start:
@@ -1575,6 +1577,8 @@ The user may:
 - open it in a separate browser tab/window.
 
 In the "Open a preview" dialog each listening port is a bordered row with a trailing chevron, so it reads as a button. The Preview tab's toolbar holds the host, Back, Forward, Reload and Open in new tab; a "More preview actions" menu holds Copy URL, the frame width (one checkable item per width), Reset preview data and Show in Running.
+
+"Reset preview data…" first asks for confirmation in the neutral (not red) confirmation dialog.
 
 ### 14.7 Port discovery
 
@@ -2914,6 +2918,8 @@ Terminal and code-editor accessibility constraints should be documented where th
 
 Keyboard navigation is required for primary application controls.
 
+A control that cannot act yet, such as a Confirm button while the workspace is changing state (section 6.5), stays focusable with `aria-disabled` and has its reason announced, rather than being removed from the tab order.
+
 ### 25.9 Browser support
 
 P0 should support current versions of:
@@ -3076,6 +3082,10 @@ ENOSPC
 Technical details should remain available for administrators and debugging.
 
 When a workspace fails to start and the workspace agent still reports storage figures, the error screen shows the storage meters. It offers "Clean up Docker…" (the Reset Docker confirmation) only when the error is `STORAGE_FULL` and Docker storage is at the critical level, because resetting Docker when project storage is what filled up would destroy data for nothing.
+
+While a workspace is in error, the API still serves its usage figures if the workspace agent answers. The error screen then shows the storage meters and, for `STORAGE_FULL` with Docker at the critical level, "Clean up Docker…". With no answer it offers only "Try again" and "Workspace details". After a failed first request the error screen asks for usage again every 30 seconds.
+
+To make that safe, the worker keeps an error workspace's recorded agent address current: the address Incus reports now, or none when the instance is stopped or gone. The API never calls the agent of an `INSTANCE_MISSING` workspace.
 
 ## 29. Epics and rough implementation effort
 
