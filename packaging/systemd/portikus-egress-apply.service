@@ -1,0 +1,45 @@
+# Portikus workspace egress helper (ADR 0038, the pattern of ADR 0030).
+# Started by portikus-egress-apply.path for each request the controller
+# writes, and once at boot to load the last applied policy before Incus
+# starts any workspace.  It loads the nftables table inet portikus_egress,
+# writes the workspace DNS and proxy files, and restarts, reloads or stops
+# portikus-egress-dns and portikus-workspace-proxy.
+[Unit]
+Description=Portikus workspace egress helper
+After=nftables.service
+Before=incus.service
+# No condition on its settings file: without it the helper must still run,
+# so a last allow-list fails closed rather than being skipped.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/node /usr/lib/portikus/controller/dist/egress-apply-main.js
+
+# Root with only what it needs: nftables, reading the controller's request
+# file, and systemctl, which PID 1 allows to root without a capability.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_DAC_READ_SEARCH
+NoNewPrivileges=yes
+ProtectSystem=strict
+# One mount for both of its directories: it renames the request from one
+# into the other, which fails across two separate ReadWritePaths mounts.
+ReadWritePaths=/var/lib/portikus
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+IPAddressDeny=any
+MemoryMax=256M
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

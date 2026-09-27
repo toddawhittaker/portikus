@@ -1,0 +1,23 @@
+---
+# Workspace egress in allow-list mode (issue #284, ADR 0038).  The bridge,
+# its gateway and the denied ranges come from site.yml.
+workspace_egress_bridge: "{{ incus_network_name }}"
+workspace_egress_gateway: "{{ incus_network_cidr | ansible.utils.ipaddr('address') }}"
+workspace_egress_subnet: "{{ incus_network_cidr | ansible.utils.ipaddr('network/prefix') }}"
+
+# Where our dnsmasq sends listed names: the VM's systemd-resolved.  A host
+# without it names its real resolver here.
+workspace_egress_upstream: 127.0.0.53
+
+# The worker's blocked-name counter on loopback (ruling 13): DNS lookups on
+# the first port, Squid's refused names as UDP lines on the second.
+workspace_egress_dns_counter_port: 5399
+workspace_egress_tls_counter_port: 5398
+
+# Squid's loopback forward port, which refuses everything; Squid will not
+# start without one.
+workspace_egress_proxy_forward_port: 3199
+
+workspace_egress_request_dir: /var/lib/portikus/egress-request
+workspace_egress_state_dir: /var/lib/portikus/egress-state
+workspace_egress_proxy_dir: /etc/portikus-workspace-proxy

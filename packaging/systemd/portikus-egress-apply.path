@@ -1,0 +1,12 @@
+# Portikus workspace egress helper trigger (ADR 0038, the pattern of ADR
+# 0030).  The controller writes a request file; this starts the root helper,
+# which removes the request before it exits.
+[Unit]
+Description=Portikus workspace egress requests
+
+[Path]
+PathExists=/var/lib/portikus/egress-request/request.json
+Unit=portikus-egress-apply.service
+
+[Install]
+WantedBy=paths.target

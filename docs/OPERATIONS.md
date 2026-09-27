@@ -631,6 +631,78 @@ egress rules.
   test's egress module checks that the API's own user, under the API
   unit's address rules, cannot reach the internet directly.
 
+## Workspace egress
+
+Workspaces reach the internet in one of two modes, chosen on the admin
+page's Network tab (issue #284, ADR 0038). **Open mode**, the default,
+lets a workspace reach any public address, as before. **Allow-list mode**
+lets it reach only the host names and address ranges an administrator
+listed, on the allowed ports. The private ranges in
+`workspace_egress_denied_ranges` (site.yml) stay blocked in both modes.
+The policy lives in the database; nothing in this section needs a play to
+change it.
+
+- **How allow-list mode works.** A workspace's DNS lookups go to a
+  resolver of our own (`portikus-egress-dns`, a dnsmasq on the bridge
+  gateway, port 5300). It answers only listed names and puts each answer's
+  address in a firewall set; every other name gets "no such name". The
+  firewall lets workspace traffic out only to those addresses and to the
+  listed ranges. HTTPS and plain HTTP to a listed name's address pass
+  through the workspace proxy (`portikus-workspace-proxy`, a Squid built
+  with OpenSSL, on the gateway's ports 3129 and 3130). It reads the name
+  the client asked for and passes the connection through untouched only
+  when that name is listed; it never decrypts anything. Incus's own
+  dnsmasq still hands out addresses and answers `.incus` names.
+- **Who changes what.** The worker sees a new policy, and the controller
+  writes a request file. `portikus-egress-apply.path` then starts the root
+  helper `portikus-egress-apply.service`, which loads the firewall table
+  `inet portikus_egress`, writes the resolver's configuration and the
+  proxy's name list under `/var/lib/portikus/egress-state/`, and restarts,
+  reloads or stops the two services. Its settings (bridge, gateway,
+  upstream resolver, denied ranges) are in `/etc/portikus/egress.env`,
+  which Ansible writes; the helper refuses the file if anyone but root
+  could change it. The Network tab shows whether the last change applied,
+  and `status.json` in the state directory says why one did not.
+- **At boot** the helper runs before Incus starts any workspace and loads
+  the last applied policy from `applied.json`. If that was an allow-list
+  and it cannot be loaded, it drops all workspace traffic to the outside
+  instead of opening it. A site that has never saved a policy stays open.
+  The resolver and the workspace proxy start once Incus has given the
+  bridge its gateway address.
+- **When something fails, it fails closed.** If the resolver stops, lookups
+  from workspaces fail; if the workspace proxy stops, HTTPS and HTTP fail.
+  Both restart themselves after a failure. The API's own proxy, `squid`,
+  is a separate process and is not affected; the play keeps it on the
+  GnuTLS build (`update-alternatives --query squid` shows
+  `/usr/sbin/squid-gnutls`).
+- **To get everything flowing again quickly,** switch the Network tab back
+  to Open. Nothing else is needed.
+- **What students see.** A refused name fails as "Could not resolve host";
+  a refused HTTPS connection is closed; a refused plain-HTTP request gets a
+  403. A name looked up just before a switch may still resolve inside the
+  workspace for up to five minutes, but its connections are dropped.
+- **Logs hold names, never addresses.** The proxy writes no access log;
+  each refused name goes to the worker's site-wide counts, which the
+  Network tab lists. Its `cache.log` in `/var/log/portikus-workspace-proxy/`
+  holds only fatal errors. The resolver's query log is off.
+- **Checking it:**
+
+  ```
+  ssh deploy@10.100.0.120 'systemctl status portikus-workspace-proxy portikus-egress-dns portikus-egress-apply.service --no-pager; sudo nft list table inet portikus_egress; cat /var/lib/portikus/egress-state/status.json'
+  ```
+
+  The smoke test checks that the workspace proxy runs as `proxy` on the
+  gateway and loopback only, that the API's proxy stays on GnuTLS, and that
+  the helper is armed. The security test's `workspace-egress` module
+  checks both modes from a workspace and from Docker inside it; it switches
+  to allow-list only when its own workspaces are the only ones, and with
+  `PORTIKUS_SECURITY_HEAVY=1` it also reboots the VM in allow-list mode.
+  Run the security test again after an Incus or Squid upgrade, since both
+  sit on this path.
+- **Restarting the firewall is safe.** Stopping or restarting `nftables`
+  removes only the firewall's own tables (a drop-in replaces Debian's
+  "flush everything"), so the egress table and Incus's table stay.
+
 ## The sign-in throttle
 
 Dex has no lockout, so the API slows repeated sign-ins from one address

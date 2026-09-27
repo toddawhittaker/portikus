@@ -5,19 +5,69 @@
 #}
 {% set denied_v4 = workspace_egress_denied_ranges | ansible.utils.ipv4 | ansible.utils.cidr_merge %}
 {% set denied_v6 = workspace_egress_denied_ranges | ansible.utils.ipv6 | ansible.utils.cidr_merge %}
+{% set gateway = incus_network_cidr | ansible.utils.ipaddr('address') %}
+{#
+  The egress helper's redirect in allow-list mode rewrites a workspace
+  connection's destination to the gateway, and this ACL sees the rewritten
+  one (ADR 0038).  So every drop leaves the gateway out, as address ranges,
+  and the gateway gets drops of its own that spare only the redirect targets.
+#}
+{% macro without_gateway(ranges) -%}
+{%- set ns = namespace(out=[]) -%}
+{%- for range in ranges -%}
+{%- if gateway | ansible.utils.ipaddr(range) -%}
+{%- set first = range | ansible.utils.ipaddr('network') -%}
+{%- set last = range | ansible.utils.ipaddr('broadcast') -%}
+{%- set below = gateway | ansible.utils.ipmath(-1) -%}
+{%- set above = gateway | ansible.utils.ipmath(1) -%}
+{%- if gateway != first -%}{%- set ns.out = ns.out + [first if first == below else first ~ '-' ~ below] -%}{%- endif -%}
+{%- if gateway != last -%}{%- set ns.out = ns.out + [above if above == last else above ~ '-' ~ last] -%}{%- endif -%}
+{%- else -%}
+{%- set ns.out = ns.out + [range] -%}
+{%- endif -%}
+{%- endfor -%}
+{{ ns.out | join(',') }}
+{%- endmacro %}
+{% macro ports_except(open) -%}
+{%- set ns = namespace(out=[], start=1) -%}
+{%- for port in open | map('int') | sort -%}
+{%- if port > ns.start -%}{%- set ns.out = ns.out + [ns.start ~ ('-' ~ (port - 1) if port - 1 > ns.start else '')] -%}{%- endif -%}
+{%- set ns.start = port + 1 -%}
+{%- endfor -%}
+{%- if ns.start <= 65535 -%}{%- set ns.out = ns.out + [ns.start ~ '-65535'] -%}{%- endif -%}
+{{ ns.out | join(',') }}
+{%- endmacro %}
 egress:
   # One rule with no protocol covers every protocol, ICMP included.
   - action: drop
-    destination: "{{ incus_network_cidr | ansible.utils.ipsubnet }}"
+    destination: "{{ without_gateway([incus_network_cidr | ansible.utils.ipsubnet]) }}"
     description: Deny peer-workspace traffic (all protocols)
     state: enabled
+  # Incus accepts DHCP, and DNS on port 53, to the gateway before these rules.
   - action: drop
-    destination: "{{ management_cidr }}"
+    destination: "{{ gateway }}/32"
+    protocol: tcp
+    destination_port: "{{ ports_except([workspace_egress_http_port, workspace_egress_https_port, workspace_egress_dns_port]) }}"
+    description: Deny the gateway except the egress redirect targets (TCP)
+    state: enabled
+  - action: drop
+    destination: "{{ gateway }}/32"
+    protocol: udp
+    destination_port: "{{ ports_except([workspace_egress_dns_port]) }}"
+    description: Deny the gateway except the egress redirect target (UDP)
+    state: enabled
+  - action: drop
+    destination: "{{ gateway }}/32"
+    protocol: icmp4
+    description: Deny the gateway (ICMP)
+    state: enabled
+  - action: drop
+    destination: "{{ without_gateway([management_cidr]) }}"
     description: Deny management network access
     state: enabled
 {% if denied_v4 %}
   - action: drop
-    destination: "{{ denied_v4 | join(',') }}"
+    destination: "{{ without_gateway(denied_v4) }}"
     description: Deny private and special IPv4 ranges
     state: enabled
 {% endif %}

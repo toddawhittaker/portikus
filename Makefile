@@ -142,6 +142,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/lti-platforms-test.sh
 	ansible-playbook infra/tests/dex-render-test.yml
 	ansible-playbook infra/tests/egress-proxy-render-test.yml
+	ansible-playbook infra/tests/workspace-egress-render-test.yml
 	bash infra/tests/backup-scope-test.sh
 	bash infra/tests/backup-channel-test.sh
 
