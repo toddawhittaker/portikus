@@ -36,7 +36,7 @@ HOSTNAME_PATTERN='^[a-z0-9][a-z0-9-]{0,62}$'
 USER_PATTERN='^[a-z_][a-z0-9_-]{0,31}$'
 IP_PATTERN='^[0-9]{1,3}(\.[0-9]{1,3}){3}$'
 # Every line backup.sh writes, as restore.sh checks them.
-MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|failed ws-[0-9a-f]{24}-(home|recovery)|seconds [0-9]+)$'
+MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|failed ws-[0-9a-f]{24}-(home|recovery)|skipped [0-9]{1,7}|seconds [0-9]+)$'
 
 die() { printf '[restore-copy] FAIL: %s\n' "$*" >&2; exit 1; }
 info() { printf '[restore-copy] %s\n' "$*"; }

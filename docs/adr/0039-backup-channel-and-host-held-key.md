@@ -98,6 +98,32 @@ nightly backup. The run logs a warning with the count and at most three
 names, and the set records the count in a plain `SKIPPED` file (and a
 `skipped` MANIFEST line), which the Backups tab shows.
 
+Every host-side write in a run is bounded, not only the streams. The
+per-file index counts against the same budget, twice, because it exists
+in plain and encrypted form at once; an export that fails still spends
+the index it wrote, and its files are deleted at once. Any tar member name
+or link target longer than 4096 bytes (plus the tar's own prefix), or more
+than `PORTIKUS_BACKUP_MAX_INDEX_ENTRIES` (default 1,000,000) members of any
+kind in one volume, fails only that volume: it is recorded in FAILED like
+any failed export, the other volumes are kept, and the run's last FAIL
+line, which the status report shows, names the volume and the reason.
+Only the run-wide byte budget stops the whole run, so one student's
+volume cannot stop everyone's backups. The indexer clears tarfile's member
+list as it reads, keeps only the first 100 bytes of Git HEAD and ref
+files, and keeps at most 100,000 Git entries or 64 MB in total, past
+which it silently stops recording them, since they only verify a restore; and both units set `MemoryMax=1G`. SSH
+to the VM uses a 30-second keepalive, so a hung connection ends the run.
+Restore and the side copy accept the `skipped` MANIFEST line. Each file the run
+writes also counts a fixed 8 KiB. Scratch files live in a
+`.partial-scratch-*` directory beside the set, inside the budget, and
+never in `/tmp`; the units also set `PrivateTmp=yes` and a 12-hour
+`TimeoutStartSec`. Every answer from the VM is read with a byte cap and a
+line cap: at most 2000 workspaces and 2000 instances (the contract's
+limit), 8000 volumes, and an ID map of at most 4096 characters. A longer
+answer stops the run. One host-wide lock covers the budget measurement
+and the whole run, so backups of two VMs never spend the same free
+space; a run waits up to an hour for it, then gives up.
+
 **The private key is installed on the host, root-only,** as
 `/etc/portikus-backup/age-key.txt` (file 0600, directory 0700, owner
 root), by `make backup-install-key KEY=<path>`, which first checks that the
