@@ -1287,20 +1287,6 @@ with a unit test. Under half a day.
 
 **Source.** Epic 18 confirmation review.
 
-## Workspace usage in the error state
-
-**What.** The error screen already shows the storage meters and offers
-"Clean up Docker…" when Docker filled up (SPEC.md section 28), but the
-usage figures are not served while the workspace is in error, so neither
-appears today.
-
-**What it would take.** Serve the usage query in the error state when the
-workspace agent can still answer. When the button then shows, Reset
-Docker's inline error box lands inside the error screen's actions row and
-needs moving below it. About a day with tests.
-
-**Source.** Confirmation reviews of Epic 20 (issue #609).
-
 ## Restart confirmation before the workspace moves
 
 **What.** A restart confirmation opened before the workspace starts moving

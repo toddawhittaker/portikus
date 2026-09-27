@@ -308,6 +308,7 @@ export function ResetDocker({
 	setConfirming,
 	label = "Reset Docker…",
 	testId = "workspace-reset-docker",
+	reset: sharedReset,
 }: {
 	workspaceId: string;
 	workspace: Workspace | null;
@@ -316,8 +317,11 @@ export function ResetDocker({
 	testId?: string;
 	confirming: boolean;
 	setConfirming: (open: boolean) => void;
+	/** Given when the caller shows the error itself, below its own actions row. */
+	reset?: ReturnType<typeof useResetDocker>;
 }) {
-	const reset = useResetDocker(workspaceId);
+	const ownReset = useResetDocker(workspaceId);
+	const reset = sharedReset ?? ownReset;
 	const busy = !workspace || workspace.pendingOperation !== null || reset.isPending;
 
 	return (
@@ -330,7 +334,7 @@ export function ResetDocker({
 			>
 				{label}
 			</Button>
-			<DialogError error={reset.error} />
+			{!sharedReset && <DialogError error={reset.error} />}
 			<ConfirmDialogRoot
 				open={confirming}
 				onOpenChange={(open) => !open && setConfirming(false)}
